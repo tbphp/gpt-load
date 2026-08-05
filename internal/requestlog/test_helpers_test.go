@@ -202,7 +202,6 @@ func aggregationRow(
 		UsageState:           string(usage.StateComplete),
 		CostState:            string(pricing.CostStatePriced),
 		PricingCompleteness:  string(pricing.CompletenessComplete),
-		Attempts:             models.JSON(`[]`),
 	}
 }
 

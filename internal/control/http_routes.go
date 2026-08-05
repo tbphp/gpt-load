@@ -114,6 +114,7 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.health", http.MethodGet, "/health", s.handleRuntimeHealth),
 			controlRoute("control.logs.list", http.MethodGet, "/logs", s.handleListRequestLogs),
+			controlRoute("control.logs.get", http.MethodGet, "/logs/:request_id", s.handleGetRequestLog),
 			controlRoute("control.usage", http.MethodGet, "/usage", s.handleUsage),
 			controlRoute("control.route.inspect", http.MethodPost, "/route/inspect", s.handleRouteInspect),
 			controlRoute("control.settings.get", http.MethodGet, "/settings", s.handleGetSettings),

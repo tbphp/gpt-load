@@ -178,6 +178,15 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 	if err := tx.CreateInBatches(newRows, batchSize).Error; err != nil {
 		return fmt.Errorf("insert request logs: %w", err)
 	}
+	attemptRows := make([]models.RequestLogAttempt, 0)
+	for _, row := range newRows {
+		attemptRows = append(attemptRows, row.AttemptRows...)
+	}
+	if len(attemptRows) > 0 {
+		if err := tx.CreateInBatches(attemptRows, batchSize).Error; err != nil {
+			return fmt.Errorf("insert request log attempts: %w", err)
+		}
+	}
 
 	deltas, err := buildUsageStatDeltas(newRows)
 	if err != nil {

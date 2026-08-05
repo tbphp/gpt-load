@@ -15,8 +15,8 @@ type NanoUSD int64
 
 // Multiplier applies an exact positive ratio to a price component.
 type Multiplier struct {
-	Numerator   int64
-	Denominator int64
+	Numerator   int64 `json:"numerator"`
+	Denominator int64 `json:"denominator"`
 }
 
 // ParseUSD parses a non-negative decimal USD amount with at most nine decimal places.

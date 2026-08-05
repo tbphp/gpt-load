@@ -27,6 +27,8 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"StatusCode",
 			"ErrorCode",
 			"ErrorSummary",
+			"Stream",
+			"FirstResponseMs",
 			"DurationMs",
 			"AffinityHit",
 			"Attempts",
@@ -53,6 +55,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"CostState",
 			"PricingCompleteness",
 			"EstimatedCostNanoUSD",
+			"ReceiptJSON",
 		},
 		reflect.TypeOf(UsageObservation{}): {
 			"Result",

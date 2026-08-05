@@ -11,46 +11,69 @@ var (
 
 // Quote prices a finalized usage result without modifying it.
 func (table *Table) Quote(identity Identity, result usage.Result) Quote {
+	quote, _ := table.QuoteWithReceipt(identity, result)
+	return quote
+}
+
+// QuoteWithReceipt prices a finalized usage result and freezes the exact rule,
+// tier, rates, multipliers, and component amounts used for the calculation.
+func (table *Table) QuoteWithReceipt(
+	identity Identity,
+	result usage.Result,
+) (Quote, *Receipt) {
 	switch result.State {
 	case usage.StateNotApplicable:
-		return Quote{State: CostStateNotApplicable, Completeness: CompletenessNotApplicable}
+		return Quote{State: CostStateNotApplicable, Completeness: CompletenessNotApplicable}, nil
 	case usage.StateMissing:
-		return unavailableQuote()
+		return unavailableQuote(), nil
 	case usage.StateComplete, usage.StatePartial:
 	default:
-		return unavailableQuote()
+		return unavailableQuote(), nil
 	}
 
 	rule, ok := table.Lookup(identity)
 	if !ok {
-		return unavailableQuote()
+		return unavailableQuote(), nil
 	}
 	if _, ok := usage.CheckedTotal(result.Tokens); !ok {
-		return unavailableQuote()
+		return unavailableQuote(), nil
 	}
 	inputTokens, ok := checkedInputTokens(result.Tokens)
 	if !ok {
-		return unavailableQuote()
+		return unavailableQuote(), nil
 	}
 
 	prices := rule.Prices
+	var selectedThreshold *int64
 	for _, tier := range rule.ContextTiers {
 		if inputTokens < tier.InputThresholdTokens {
 			break
 		}
 		prices = tier.Prices
+		threshold := tier.InputThresholdTokens
+		selectedThreshold = &threshold
 	}
 
 	components := [...]struct {
+		code       string
 		tokens     int64
 		price      Price
 		multiplier Multiplier
 	}{
-		{tokens: result.Tokens.UncachedInput, price: prices.Input, multiplier: directPriceMultiplier},
-		{tokens: result.Tokens.CacheRead, price: prices.CacheRead, multiplier: directPriceMultiplier},
-		{tokens: result.Tokens.CacheWrite5M, price: prices.CacheWrite, multiplier: directPriceMultiplier},
-		{tokens: result.Tokens.CacheWrite1H, price: prices.CacheWrite, multiplier: cacheWriteOneHourMultiplier},
-		{tokens: result.Tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
+		{code: "input", tokens: result.Tokens.UncachedInput, price: prices.Input, multiplier: directPriceMultiplier},
+		{code: "cache_read", tokens: result.Tokens.CacheRead, price: prices.CacheRead, multiplier: directPriceMultiplier},
+		{code: "cache_write_5m", tokens: result.Tokens.CacheWrite5M, price: prices.CacheWrite, multiplier: directPriceMultiplier},
+		{code: "cache_write_1h", tokens: result.Tokens.CacheWrite1H, price: prices.CacheWrite, multiplier: cacheWriteOneHourMultiplier},
+		{code: "output", tokens: result.Tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
+	}
+	receipt := &Receipt{
+		SchemaVersion:          1,
+		Method:                 ReceiptMethodUnitRateSum,
+		MethodVersion:          1,
+		Currency:               "USD",
+		Rule:                   identity,
+		ContextThresholdTokens: selectedThreshold,
+		LineItems:              make([]ReceiptLine, 0, len(components)+1),
 	}
 
 	positiveBillable := result.Tokens.CacheWriteUnknown > 0
@@ -64,8 +87,15 @@ func (table *Table) Quote(identity Identity, result usage.Result) Quote {
 			continue
 		}
 		positiveBillable = true
+		line := ReceiptLine{
+			Code:       component.code,
+			Quantity:   component.tokens,
+			Multiplier: component.multiplier,
+			State:      ReceiptLineUnpriced,
+		}
 		if !component.price.Set {
 			partial = true
+			receipt.LineItems = append(receipt.LineItems, line)
 			continue
 		}
 		componentCost, ok := QuoteComponent(
@@ -74,17 +104,32 @@ func (table *Table) Quote(identity Identity, result usage.Result) Quote {
 			component.multiplier,
 		)
 		if !ok {
-			return unavailableQuote()
+			return unavailableQuote(), nil
 		}
 		cost, ok = CheckedAddNanoUSD(cost, componentCost)
 		if !ok {
-			return unavailableQuote()
+			return unavailableQuote(), nil
 		}
+		rate := int64(component.price.NanoUSDPerMillion)
+		amount := int64(componentCost)
+		line.RateNanoUSDPerMillion = &rate
+		line.AmountNanoUSD = &amount
+		line.State = ReceiptLinePriced
+		receipt.LineItems = append(receipt.LineItems, line)
 		pricedPositive = true
 	}
+	if result.Tokens.CacheWriteUnknown > 0 {
+		receipt.LineItems = append(receipt.LineItems, ReceiptLine{
+			Code:       "cache_write",
+			Quantity:   result.Tokens.CacheWriteUnknown,
+			Multiplier: directPriceMultiplier,
+			State:      ReceiptLineUnpriced,
+		})
+	}
+	receipt.TotalNanoUSD = int64(cost)
 
 	if positiveBillable && !pricedPositive {
-		return unavailableQuote()
+		return unavailableQuote(), receipt
 	}
 	completeness := CompletenessComplete
 	if partial {
@@ -94,7 +139,7 @@ func (table *Table) Quote(identity Identity, result usage.Result) Quote {
 		State:                CostStatePriced,
 		Completeness:         completeness,
 		EstimatedCostNanoUSD: cost,
-	}
+	}, receipt
 }
 
 func checkedInputTokens(tokens usage.Tokens) (int64, bool) {

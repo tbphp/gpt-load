@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+
+	"gorm.io/gorm"
 
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -31,21 +34,8 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if input.ToMS != nil {
 		query = query.Where("completed_at_ms < ?", *input.ToMS)
 	}
-	if input.GroupID != nil {
-		query = query.Where(`
-			EXISTS (
-				SELECT 1
-				FROM json_each(COALESCE(request_logs.attempts, '[]')) AS attempt
-				WHERE json_type(attempt.value, '$.group_id') = 'integer'
-					AND json_extract(attempt.value, '$.group_id') = ?
-			)
-		`, *input.GroupID)
-	}
 	if input.ClientModel != "" {
 		query = query.Where("client_model = ?", input.ClientModel)
-	}
-	if input.UpstreamModel != "" {
-		query = query.Where("upstream_model = ?", input.UpstreamModel)
 	}
 	if input.AccessKeyID != nil {
 		query = query.Where("access_key_id = ?", *input.AccessKeyID)
@@ -56,6 +46,54 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if input.RequestID != "" {
 		query = query.Where("id = ?", input.RequestID)
 	}
+	if input.Protocol != "" {
+		query = query.Where("protocol = ?", input.Protocol)
+	}
+	if input.Stream != nil {
+		query = query.Where("stream = ?", *input.Stream)
+	}
+	if input.FinalStatusCode != nil {
+		query = query.Where("status_code = ?", *input.FinalStatusCode)
+	}
+	if input.UsageState != "" {
+		query = query.Where("usage_state = ?", input.UsageState)
+	}
+	if input.CostState != "" {
+		query = query.Where("cost_state = ?", input.CostState)
+	}
+	if input.PricingCompleteness != "" {
+		query = query.Where("pricing_completeness = ?", input.PricingCompleteness)
+	}
+	if input.CachePresent != nil {
+		expression := `(cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens + cache_write_unknown_tokens) > 0`
+		if !*input.CachePresent {
+			expression = `(cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens + cache_write_unknown_tokens) = 0`
+		}
+		query = query.Where(expression)
+	}
+	if input.RetryState == RetryStateRetried {
+		query = query.Where("attempt_count > 1")
+	} else if input.RetryState == RetryStateNotRetried {
+		query = query.Where("attempt_count <= 1")
+	}
+	retryCountExpression := "CASE WHEN attempt_count > 1 THEN attempt_count - 1 ELSE 0 END"
+	if input.RetryCountMin != nil {
+		query = query.Where(retryCountExpression+" >= ?", *input.RetryCountMin)
+	}
+	if input.RetryCountMax != nil {
+		query = query.Where(retryCountExpression+" <= ?", *input.RetryCountMax)
+	}
+	query = applyNullableRange(query, "first_response_ms", input.FirstResponseMinMS, input.FirstResponseMaxMS)
+	query = applyNullableRange(query, "duration_ms", input.DurationMinMS, input.DurationMaxMS)
+	query = applyNullableRange(
+		query,
+		"(uncached_input_tokens + cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens + cache_write_unknown_tokens)",
+		input.InputTokensMin,
+		input.InputTokensMax,
+	)
+	query = applyNullableRange(query, "output_tokens", input.OutputTokensMin, input.OutputTokensMax)
+	query = applyNullableRange(query, "estimated_cost_nano_usd", input.CostMinNanoUSD, input.CostMaxNanoUSD)
+	query = applyAttemptFilters(query, input)
 	if input.Cursor != nil {
 		query = query.Where(
 			"completed_at_ms < ? OR (completed_at_ms = ? AND id < ?)",
@@ -93,18 +131,131 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	return page, nil
 }
 
+func applyNullableRange[T int | int64](
+	query *gorm.DB,
+	expression string,
+	minimum *T,
+	maximum *T,
+) *gorm.DB {
+	if minimum != nil {
+		query = query.Where(expression+" >= ?", *minimum)
+	}
+	if maximum != nil {
+		query = query.Where(expression+" <= ?", *maximum)
+	}
+	return query
+}
+
+func applyAttemptFilters(query *gorm.DB, input ListQuery) *gorm.DB {
+	conditions := make([]string, 0, 6)
+	arguments := make([]any, 0, 6)
+	if input.GroupID != nil {
+		conditions = append(conditions, "attempt.group_id = ?")
+		arguments = append(arguments, *input.GroupID)
+	}
+	if input.UpstreamKeyID != nil {
+		conditions = append(conditions, "attempt.key_id = ?")
+		arguments = append(arguments, *input.UpstreamKeyID)
+	}
+	if input.UpstreamModel != "" {
+		conditions = append(conditions, "attempt.upstream_model = ?")
+		arguments = append(arguments, input.UpstreamModel)
+	}
+	if input.AttemptStatusCode != nil {
+		conditions = append(conditions, "attempt.status_code = ?")
+		arguments = append(arguments, *input.AttemptStatusCode)
+	}
+	if input.FailureCategory != "" {
+		conditions = append(conditions, "attempt.failure_category = ?")
+		arguments = append(arguments, input.FailureCategory)
+	}
+	if input.AttemptErrorCode != "" {
+		conditions = append(conditions, "attempt.error_code = ?")
+		arguments = append(arguments, input.AttemptErrorCode)
+	}
+	if len(conditions) == 0 {
+		return query
+	}
+	statement := `EXISTS (
+		SELECT 1 FROM request_log_attempts AS attempt
+		WHERE attempt.request_id = request_logs.id AND ` +
+		strings.Join(conditions, " AND ") + `
+	)`
+	return query.Where(statement, arguments...)
+}
+
+// Get returns one request with all retry attempts and its frozen pricing receipt.
+func (service *Service) Get(ctx context.Context, requestID string) (Record, error) {
+	var record Record
+	err := service.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.RequestLog
+		if err := tx.Where("id = ?", requestID).First(&row).Error; err != nil {
+			return fmt.Errorf("query request log detail: %w", err)
+		}
+		records, err := decodeRequestLogRows([]models.RequestLog{row})
+		if err != nil {
+			return err
+		}
+		if err := loadAccessKeyRefs(ctx, tx, records); err != nil {
+			return err
+		}
+
+		var attemptRows []models.RequestLogAttempt
+		if err := tx.Where("request_id = ?", requestID).
+			Order("sequence ASC").
+			Find(&attemptRows).Error; err != nil {
+			return fmt.Errorf("query request log attempts: %w", err)
+		}
+		attempts, err := decodeAttemptRows(attemptRows)
+		if err != nil {
+			return err
+		}
+		records[0].Attempts = attempts
+		record = records[0]
+		return nil
+	})
+	if err != nil {
+		return Record{}, err
+	}
+	return record, nil
+}
+
+func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
+	attempts := make([]Attempt, 0, len(rows))
+	for _, row := range rows {
+		var receipt *pricing.Receipt
+		if len(row.PricingReceipt) > 0 && string(row.PricingReceipt) != "null" {
+			var decoded pricing.Receipt
+			if err := json.Unmarshal(row.PricingReceipt, &decoded); err != nil {
+				return nil, fmt.Errorf("decode request log pricing receipt: %w", err)
+			}
+			if err := pricing.ValidateReceipt(decoded); err != nil {
+				return nil, fmt.Errorf("decode request log pricing receipt: %w", err)
+			}
+			receipt = &decoded
+		}
+		attempts = append(attempts, Attempt{
+			Sequence:        row.Sequence,
+			GroupID:         row.GroupID,
+			GroupName:       row.GroupName,
+			KeyID:           row.KeyID,
+			UpstreamModel:   row.UpstreamModel,
+			StatusCode:      row.StatusCode,
+			DurationMs:      row.DurationMs,
+			FailureCategory: telemetry.FailureCategory(row.FailureCategory),
+			Action:          telemetry.Action(row.Action),
+			WillRetry:       row.WillRetry,
+			ErrorCode:       row.ErrorCode,
+			ErrorSummary:    row.ErrorSummary,
+			PricingReceipt:  receipt,
+		})
+	}
+	return attempts, nil
+}
+
 func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 	records := make([]Record, 0, len(rows))
 	for _, row := range rows {
-		attempts := make([]Attempt, 0)
-		if len(row.Attempts) > 0 && string(row.Attempts) != "null" {
-			if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
-				return nil, fmt.Errorf("decode request log attempts: %w", err)
-			}
-			if attempts == nil {
-				attempts = make([]Attempt, 0)
-			}
-		}
 		if err := validateRequestLogUsageCost(row); err != nil {
 			return nil, err
 		}
@@ -117,11 +268,14 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			UpstreamModel:           row.UpstreamModel,
 			Status:                  telemetry.RequestStatus(row.Status),
 			StatusCode:              row.StatusCode,
+			Stream:                  row.Stream,
+			FirstResponseMs:         row.FirstResponseMs,
 			DurationMs:              row.DurationMs,
+			AttemptCount:            row.AttemptCount,
 			ErrorCode:               row.ErrorCode,
 			ErrorSummary:            row.ErrorSummary,
 			AffinityHit:             row.AffinityHit,
-			Attempts:                attempts,
+			Attempts:                nil,
 			GroupID:                 row.GroupID,
 			UsageState:              usage.State(row.UsageState),
 			CostState:               pricing.CostState(row.CostState),
@@ -173,6 +327,10 @@ func validateRequestLogUsageCost(row models.RequestLog) error {
 }
 
 func (service *Service) loadAccessKeyRefs(ctx context.Context, records []Record) error {
+	return loadAccessKeyRefs(ctx, service.db, records)
+}
+
+func loadAccessKeyRefs(ctx context.Context, db *gorm.DB, records []Record) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -191,7 +349,7 @@ func (service *Service) loadAccessKeyRefs(ctx context.Context, records []Record)
 		ID   uint
 		Name string
 	}
-	if err := service.db.WithContext(ctx).
+	if err := db.WithContext(ctx).
 		Model(&models.AccessKey{}).
 		Select("id", "name").
 		Where("id IN ?", ids).

@@ -33,27 +33,33 @@ func mapEvent(
 		return models.RequestLog{}, fmt.Errorf("map request event usage/pricing: %w", err)
 	}
 
-	attempts := make([]Attempt, 0, len(event.Attempts))
+	receipt, err := canonicalPricingReceipt(event.Usage.Pricing)
+	if err != nil {
+		return models.RequestLog{}, fmt.Errorf("map request event pricing receipt: %w", err)
+	}
+	attempts := make([]models.RequestLogAttempt, 0, len(event.Attempts))
 	for _, attempt := range event.Attempts {
-		attempts = append(attempts, Attempt{
+		attemptReceipt := models.JSON(nil)
+		if attempt.Sequence == event.Usage.AttemptSequence {
+			attemptReceipt = receipt
+		}
+		attempts = append(attempts, models.RequestLogAttempt{
+			RequestID:       event.RequestID,
 			Sequence:        attempt.Sequence,
+			CompletedAtMS:   completedAtMS,
 			GroupID:         attempt.GroupID,
 			GroupName:       redactIdentityValue(redactor, attempt.GroupName),
 			KeyID:           attempt.KeyID,
 			UpstreamModel:   redactIdentityValue(redactor, projectModel(attempt.UpstreamModel)),
 			StatusCode:      attempt.StatusCode,
 			DurationMs:      attempt.DurationMs,
-			FailureCategory: attempt.FailureCategory,
-			Action:          attempt.Action,
+			FailureCategory: string(attempt.FailureCategory),
+			Action:          string(attempt.Action),
 			WillRetry:       attempt.WillRetry,
 			ErrorCode:       attempt.ErrorCode,
 			ErrorSummary:    sanitizeSummary(redactor, attempt.ErrorSummary),
-			Committed:       attempt.Committed,
+			PricingReceipt:  attemptReceipt,
 		})
-	}
-	encodedAttempts, err := json.Marshal(attempts)
-	if err != nil {
-		encodedAttempts = []byte("[]")
 	}
 
 	result := event.Usage.Result
@@ -69,10 +75,13 @@ func mapEvent(
 		UpstreamModel:           redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
 		Status:                  string(event.Status),
 		StatusCode:              event.StatusCode,
+		Stream:                  event.Stream,
+		FirstResponseMs:         event.FirstResponseMs,
 		DurationMs:              event.DurationMs,
+		AttemptCount:            len(attempts),
 		ErrorCode:               event.ErrorCode,
 		ErrorSummary:            sanitizeSummary(redactor, event.ErrorSummary),
-		AffinityHit:             false,
+		AffinityHit:             event.AffinityHit,
 		UncachedInputTokens:     result.Tokens.UncachedInput,
 		OutputTokens:            result.Tokens.Output,
 		CacheReadTokens:         result.Tokens.CacheRead,
@@ -83,11 +92,43 @@ func mapEvent(
 		UsageState:              string(result.State),
 		CostState:               pricingObservation.CostState,
 		PricingCompleteness:     pricingObservation.PricingCompleteness,
-		Attempts:                models.JSON(encodedAttempts),
+		AttemptRows:             attempts,
 	}, nil
 }
 
+func canonicalPricingReceipt(observation telemetry.PricingObservation) (models.JSON, error) {
+	if observation.ReceiptJSON == "" {
+		return nil, nil
+	}
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(observation.ReceiptJSON), &receipt); err != nil {
+		return nil, fmt.Errorf("decode receipt: %w", err)
+	}
+	if err := pricing.ValidateReceipt(receipt); err != nil {
+		return nil, err
+	}
+	if receipt.Rule != (pricing.Identity{
+		ScopeKey: observation.PriceScopeKey,
+		ModelID:  observation.UpstreamModel,
+	}) || receipt.TotalNanoUSD != observation.EstimatedCostNanoUSD {
+		return nil, fmt.Errorf("receipt does not match frozen pricing observation")
+	}
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return nil, fmt.Errorf("encode receipt: %w", err)
+	}
+	return models.JSON(encoded), nil
+}
+
 func validateFrozenObservation(event telemetry.RequestEvent) error {
+	if event.DurationMs < 0 {
+		return fmt.Errorf("negative request duration")
+	}
+	if event.FirstResponseMs != nil {
+		if !event.Stream || *event.FirstResponseMs < 0 || *event.FirstResponseMs > event.DurationMs {
+			return fmt.Errorf("invalid first response duration")
+		}
+	}
 	result := event.Usage.Result
 	for _, value := range [...]int64{
 		result.Tokens.UncachedInput,

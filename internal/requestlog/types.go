@@ -37,8 +37,15 @@ type Attempt struct {
 	WillRetry       bool                      `json:"will_retry"`
 	ErrorCode       string                    `json:"error_code"`
 	ErrorSummary    string                    `json:"error_summary"`
-	Committed       bool                      `json:"committed"`
+	PricingReceipt  *pricing.Receipt          `json:"pricing_receipt,omitempty"`
 }
+
+type RetryState string
+
+const (
+	RetryStateRetried    RetryState = "retried"
+	RetryStateNotRetried RetryState = "not_retried"
+)
 
 type Cursor struct {
 	CompletedAtMS int64
@@ -46,16 +53,40 @@ type Cursor struct {
 }
 
 type ListQuery struct {
-	FromMS        *int64
-	ToMS          *int64
-	GroupID       *uint
-	ClientModel   string
-	UpstreamModel string
-	AccessKeyID   *uint
-	Status        telemetry.RequestStatus
-	RequestID     string
-	Limit         int
-	Cursor        *Cursor
+	FromMS              *int64
+	ToMS                *int64
+	GroupID             *uint
+	ClientModel         string
+	UpstreamModel       string
+	AccessKeyID         *uint
+	Status              telemetry.RequestStatus
+	RequestID           string
+	Protocol            protocol.Protocol
+	Stream              *bool
+	FinalStatusCode     *int
+	UsageState          usage.State
+	CostState           pricing.CostState
+	PricingCompleteness pricing.Completeness
+	CachePresent        *bool
+	UpstreamKeyID       *uint
+	AttemptStatusCode   *int
+	FailureCategory     telemetry.FailureCategory
+	AttemptErrorCode    string
+	RetryState          RetryState
+	RetryCountMin       *int
+	RetryCountMax       *int
+	FirstResponseMinMS  *int64
+	FirstResponseMaxMS  *int64
+	DurationMinMS       *int64
+	DurationMaxMS       *int64
+	InputTokensMin      *int64
+	InputTokensMax      *int64
+	OutputTokensMin     *int64
+	OutputTokensMax     *int64
+	CostMinNanoUSD      *int64
+	CostMaxNanoUSD      *int64
+	Limit               int
+	Cursor              *Cursor
 }
 
 type AccessKeyRef struct {
@@ -73,7 +104,10 @@ type Record struct {
 	UpstreamModel           string
 	Status                  telemetry.RequestStatus
 	StatusCode              int
+	Stream                  bool
+	FirstResponseMs         *int64
 	DurationMs              int64
+	AttemptCount            int
 	ErrorCode               string
 	ErrorSummary            string
 	AffinityHit             bool

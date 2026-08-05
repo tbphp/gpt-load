@@ -1,3 +1,4 @@
+import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
@@ -19,23 +20,71 @@ import {
 } from './projector'
 
 export type RequestLogStatus = 'success' | 'error' | 'incomplete' | 'canceled'
-
-export type { FailureCategory } from '@/api/control/types'
-
 export type RequestLogAction = 'terminate' | 'retry' | 'cooldown_key' | 'fail_key' | 'skip_group'
 export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_applicable'
 export type RequestLogCostState = 'priced' | 'unpriced' | 'not_applicable'
 export type RequestLogPricingCompleteness =
   'complete' | 'partial' | 'unavailable' | 'not_applicable'
+export type RequestLogRetryState = 'retried' | 'not_retried'
+export type RequestLogReceiptLineState = 'priced' | 'unpriced'
+export type RequestLogPageSize = 20 | 50 | 100
+
+export type { FailureCategory } from '@/api/control/types'
 
 export interface RequestLogFilters {
   from_ms?: number
   to_ms?: number
+  limit?: RequestLogPageSize
   group_id?: number
-  model?: string
+  client_model?: string
+  upstream_model?: string
   access_key_id?: number
   status?: RequestLogStatus
   request_id?: string
+  protocol?: AccessProtocol
+  stream?: boolean
+  final_status_code?: number
+  usage_state?: RequestLogUsageState
+  cost_state?: RequestLogCostState
+  pricing_completeness?: RequestLogPricingCompleteness
+  cache_present?: boolean
+  upstream_key_id?: number
+  attempt_status_code?: number
+  failure_category?: FailureCategory
+  error_code?: string
+  retry_state?: RequestLogRetryState
+  retry_count_min?: number
+  retry_count_max?: number
+  first_response_min_ms?: number
+  first_response_max_ms?: number
+  duration_min_ms?: number
+  duration_max_ms?: number
+  input_tokens_min?: number
+  input_tokens_max?: number
+  output_tokens_min?: number
+  output_tokens_max?: number
+  cost_min_nano_usd?: string
+  cost_max_nano_usd?: string
+}
+
+export interface RequestLogPricingLineDto {
+  code: 'input' | 'cache_read' | 'cache_write_5m' | 'cache_write_1h' | 'cache_write' | 'output'
+  quantity: string
+  rate_nano_usd_per_million: string | null
+  multiplier: { numerator: string; denominator: string }
+  state: RequestLogReceiptLineState
+  amount_nano_usd: string | null
+}
+
+export interface RequestLogPricingReceiptDto {
+  schema_version: 1
+  method: 'unit_rate_sum'
+  method_version: 1
+  currency: 'USD'
+  rule: { scope_key: string; model_id: string }
+  context_threshold_tokens: string | null
+  line_items: RequestLogPricingLineDto[]
+  total_nano_usd: string
 }
 
 export interface RequestLogAttemptDto {
@@ -51,38 +100,40 @@ export interface RequestLogAttemptDto {
   will_retry: boolean
   error_code: string
   error_summary: string
-  committed: boolean
+  pricing_receipt: RequestLogPricingReceiptDto | null
 }
 
 export interface RequestLogItemDto {
   request_id: string
   completed_at_ms: number
-  access_key: {
-    id: number
-    name: string | null
-    deleted: boolean
-  }
+  access_key: { id: number; name: string | null; deleted: boolean }
   protocol: AccessProtocol
   client_model: string | null
   upstream_model: string | null
   status: RequestLogStatus
   status_code: number
+  stream: boolean
+  first_response_ms: number | null
   duration_ms: number
+  attempt_count: number
   error_code: string
   error_summary: string
   affinity_hit: boolean
-  attempts: RequestLogAttemptDto[]
   group_id: number | null
   usage_state: RequestLogUsageState
   cost_state: RequestLogCostState
   pricing_completeness: RequestLogPricingCompleteness
-  uncached_input_tokens: number
-  cache_read_tokens: number
-  cache_write_5m_tokens: number
-  cache_write_1h_tokens: number
-  cache_write_unknown_tokens: number
-  output_tokens: number
+  input_tokens: string
+  cache_read_tokens: string
+  cache_write_5m_tokens: string
+  cache_write_1h_tokens: string
+  cache_write_unknown_tokens: string
+  output_tokens: string
   estimated_cost_nano_usd: string
+}
+
+export interface RequestLogDetailDto extends RequestLogItemDto {
+  attempts: RequestLogAttemptDto[]
 }
 
 export interface RequestLogPageDto {
@@ -106,21 +157,15 @@ const actions = ['terminate', 'retry', 'cooldown_key', 'fail_key', 'skip_group']
 const usageStates = ['complete', 'partial', 'missing', 'not_applicable'] as const
 const costStates = ['priced', 'unpriced', 'not_applicable'] as const
 const pricingCompletenessValues = ['complete', 'partial', 'unavailable', 'not_applicable'] as const
-const attemptFields = [
-  'sequence',
-  'group_id',
-  'group_name',
-  'key_id',
-  'upstream_model',
-  'status_code',
-  'duration_ms',
-  'failure_category',
-  'action',
-  'will_retry',
-  'error_code',
-  'error_summary',
-  'committed',
+const receiptCodes = [
+  'input',
+  'cache_read',
+  'cache_write_5m',
+  'cache_write_1h',
+  'cache_write',
+  'output',
 ] as const
+const receiptLineStates = ['priced', 'unpriced'] as const
 const itemFields = [
   'request_id',
   'completed_at_ms',
@@ -130,16 +175,18 @@ const itemFields = [
   'upstream_model',
   'status',
   'status_code',
+  'stream',
+  'first_response_ms',
   'duration_ms',
+  'attempt_count',
   'error_code',
   'error_summary',
   'affinity_hit',
-  'attempts',
   'group_id',
   'usage_state',
   'cost_state',
   'pricing_completeness',
-  'uncached_input_tokens',
+  'input_tokens',
   'cache_read_tokens',
   'cache_write_5m_tokens',
   'cache_write_1h_tokens',
@@ -182,9 +229,87 @@ function projectAccessKey(value: unknown): RequestLogItemDto['access_key'] {
   }
 }
 
+function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | null {
+  if (value === null) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, [
+    'schema_version',
+    'method',
+    'method_version',
+    'currency',
+    'rule',
+    'context_threshold_tokens',
+    'line_items',
+    'total_nano_usd',
+  ])
+  const rule = projectRecord(record.rule)
+  assertNoSecretLikeFields(rule, ['scope_key', 'model_id'])
+  const lines = projectArray(record.line_items, (lineValue): RequestLogPricingLineDto => {
+    const line = projectRecord(lineValue)
+    assertNoSecretLikeFields(line, [
+      'code',
+      'quantity',
+      'rate_nano_usd_per_million',
+      'multiplier',
+      'state',
+      'amount_nano_usd',
+    ])
+    const multiplier = projectRecord(line.multiplier)
+    assertNoSecretLikeFields(multiplier, ['numerator', 'denominator'])
+    const numerator = projectNonNegativeInt64String(multiplier.numerator)
+    const denominator = projectNonNegativeInt64String(multiplier.denominator)
+    if (numerator === '0' || denominator === '0') invalidResponse()
+    return {
+      code: projectEnum(line.code, receiptCodes),
+      quantity: projectNonNegativeInt64String(line.quantity),
+      rate_nano_usd_per_million:
+        line.rate_nano_usd_per_million === null
+          ? null
+          : projectNonNegativeInt64String(line.rate_nano_usd_per_million),
+      multiplier: {
+        numerator,
+        denominator,
+      },
+      state: projectEnum(line.state, receiptLineStates),
+      amount_nano_usd:
+        line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
+    }
+  })
+  return {
+    schema_version: projectSafeInteger(record.schema_version, { minimum: 1, maximum: 1 }) as 1,
+    method: projectEnum(record.method, ['unit_rate_sum'] as const),
+    method_version: projectSafeInteger(record.method_version, { minimum: 1, maximum: 1 }) as 1,
+    currency: projectEnum(record.currency, ['USD'] as const),
+    rule: {
+      scope_key: projectNonBlankString(rule.scope_key),
+      model_id: projectNonBlankString(rule.model_id),
+    },
+    context_threshold_tokens:
+      record.context_threshold_tokens === null
+        ? null
+        : projectNonNegativeInt64String(record.context_threshold_tokens),
+    line_items: lines,
+    total_nano_usd: projectNonNegativeInt64String(record.total_nano_usd),
+  }
+}
+
 function projectAttempt(value: unknown): RequestLogAttemptDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, attemptFields)
+  assertNoSecretLikeFields(record, [
+    'sequence',
+    'group_id',
+    'group_name',
+    'key_id',
+    'upstream_model',
+    'status_code',
+    'duration_ms',
+    'failure_category',
+    'action',
+    'will_retry',
+    'error_code',
+    'error_summary',
+    'pricing_receipt',
+  ])
   return {
     sequence: projectSafeInteger(record.sequence, { minimum: 1 }),
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
@@ -198,7 +323,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     will_retry: projectBoolean(record.will_retry),
     error_code: projectString(record.error_code, { allowEmpty: true }),
     error_summary: projectString(record.error_summary, { allowEmpty: true }),
-    committed: projectBoolean(record.committed),
+    pricing_receipt: projectPricingReceipt(record.pricing_receipt),
   }
 }
 
@@ -219,30 +344,23 @@ function projectUsageCost(record: Record<string, unknown>) {
       pricingCompleteness === 'not_applicable')
   if (!validCombination) invalidResponse()
 
-  const tokens = {
-    uncached_input_tokens: projectSafeInteger(record.uncached_input_tokens, { minimum: 0 }),
-    cache_read_tokens: projectSafeInteger(record.cache_read_tokens, { minimum: 0 }),
-    cache_write_5m_tokens: projectSafeInteger(record.cache_write_5m_tokens, { minimum: 0 }),
-    cache_write_1h_tokens: projectSafeInteger(record.cache_write_1h_tokens, { minimum: 0 }),
-    cache_write_unknown_tokens: projectSafeInteger(record.cache_write_unknown_tokens, {
-      minimum: 0,
-    }),
-    output_tokens: projectSafeInteger(record.output_tokens, { minimum: 0 }),
-  }
   const estimatedCostNanoUSD = projectNonNegativeInt64String(record.estimated_cost_nano_usd)
   if (costState !== 'priced' && estimatedCostNanoUSD !== '0') invalidResponse()
   return {
     usage_state: usageState,
     cost_state: costState,
     pricing_completeness: pricingCompleteness,
-    ...tokens,
+    input_tokens: projectNonNegativeInt64String(record.input_tokens),
+    cache_read_tokens: projectNonNegativeInt64String(record.cache_read_tokens),
+    cache_write_5m_tokens: projectNonNegativeInt64String(record.cache_write_5m_tokens),
+    cache_write_1h_tokens: projectNonNegativeInt64String(record.cache_write_1h_tokens),
+    cache_write_unknown_tokens: projectNonNegativeInt64String(record.cache_write_unknown_tokens),
+    output_tokens: projectNonNegativeInt64String(record.output_tokens),
     estimated_cost_nano_usd: estimatedCostNanoUSD,
   }
 }
 
-export function projectRequestLogItem(value: unknown): RequestLogItemDto {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, itemFields)
+function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
   return {
     request_id: projectRequestID(record.request_id),
     completed_at_ms: projectEpochMilliseconds(record.completed_at_ms),
@@ -252,41 +370,83 @@ export function projectRequestLogItem(value: unknown): RequestLogItemDto {
     upstream_model: projectNullableModel(record.upstream_model),
     status: projectEnum(record.status, statuses),
     status_code: projectStatusCode(record.status_code),
+    stream: projectBoolean(record.stream),
+    first_response_ms:
+      record.first_response_ms === null
+        ? null
+        : projectSafeInteger(record.first_response_ms, { minimum: 0 }),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),
+    attempt_count: projectSafeInteger(record.attempt_count, { minimum: 0 }),
     error_code: projectString(record.error_code, { allowEmpty: true }),
     error_summary: projectString(record.error_summary, { allowEmpty: true }),
     affinity_hit: projectBoolean(record.affinity_hit),
-    attempts: projectArray(record.attempts, projectAttempt),
     group_id: record.group_id === null ? null : projectSafeInteger(record.group_id, { minimum: 1 }),
     ...projectUsageCost(record),
   }
 }
 
+export function projectRequestLogItem(value: unknown): RequestLogItemDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, itemFields)
+  return projectItemRecord(record)
+}
+
+export function projectRequestLogDetail(value: unknown): RequestLogDetailDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, [...itemFields, 'attempts'])
+  return { ...projectItemRecord(record), attempts: projectArray(record.attempts, projectAttempt) }
+}
+
 export function projectRequestLogPage(value: unknown): RequestLogPageDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, ['items', 'next_cursor'])
-  const nextCursor = record.next_cursor === null ? null : projectNonBlankString(record.next_cursor)
   return {
     items: projectArray(record.items, projectRequestLogItem),
-    next_cursor: nextCursor,
+    next_cursor: record.next_cursor === null ? null : projectNonBlankString(record.next_cursor),
   }
 }
 
+const filterFields = [
+  'from_ms',
+  'to_ms',
+  'limit',
+  'group_id',
+  'client_model',
+  'upstream_model',
+  'access_key_id',
+  'status',
+  'request_id',
+  'protocol',
+  'stream',
+  'final_status_code',
+  'usage_state',
+  'cost_state',
+  'pricing_completeness',
+  'cache_present',
+  'upstream_key_id',
+  'attempt_status_code',
+  'failure_category',
+  'error_code',
+  'retry_state',
+  'retry_count_min',
+  'retry_count_max',
+  'first_response_min_ms',
+  'first_response_max_ms',
+  'duration_min_ms',
+  'duration_max_ms',
+  'input_tokens_min',
+  'input_tokens_max',
+  'output_tokens_min',
+  'output_tokens_max',
+  'cost_min_nano_usd',
+  'cost_max_nano_usd',
+] as const satisfies readonly (keyof RequestLogFilters)[]
+
 export function normalizeRequestLogFilters(filters: RequestLogFilters): RequestLogFilters {
   const result: RequestLogFilters = {}
-  for (const field of [
-    'from_ms',
-    'to_ms',
-    'group_id',
-    'model',
-    'access_key_id',
-    'status',
-    'request_id',
-  ] as const) {
+  for (const field of filterFields) {
     const value = filters[field]
-    if (value !== undefined) {
-      Object.assign(result, { [field]: value })
-    }
+    if (value !== undefined) Object.assign(result, { [field]: value })
   }
   return result
 }
@@ -301,36 +461,60 @@ export async function listRequestLogs(
   cursor?: string,
   signal?: AbortSignal,
 ): Promise<RequestLogPageDto> {
-  const normalized = normalizeRequestLogFilters(filters)
   const params = new URLSearchParams()
-  const values: Array<[string, string | number | undefined]> = [
-    ['from_ms', normalized.from_ms],
-    ['to_ms', normalized.to_ms],
-    ['group_id', normalized.group_id],
-    ['client_model', normalized.model],
-    ['access_key_id', normalized.access_key_id],
-    ['status', normalized.status],
-    ['request_id', normalized.request_id],
-    ['cursor', cursor],
-  ]
-  for (const [key, value] of values) {
-    if (value !== undefined) params.append(key, String(value))
+  for (const field of filterFields) {
+    const value = filters[field]
+    if (value !== undefined) params.append(field, String(value))
   }
+  if (cursor !== undefined) params.append('cursor', cursor)
   const query = params.toString()
   const path: `/api/${string}` = query === '' ? '/api/logs' : `/api/logs?${query}`
   return projectRequestLogPage(await client.request(path, { method: 'GET', signal }))
 }
 
-export function requestLogInfiniteQueryOptions(
+export async function getRequestLog(
+  client: ApiClient,
+  requestID: string,
+  signal?: AbortSignal,
+): Promise<RequestLogDetailDto> {
+  if (!requestIDPattern.test(requestID)) throw new InvalidResponseError()
+  return projectRequestLogDetail(
+    await client.request(`/api/logs/${encodeURIComponent(requestID)}`, { method: 'GET', signal }),
+  )
+}
+
+export function requestLogQueryOptions(
   client: ApiClient,
   filters: MaybeRefOrGetter<RequestLogFilters>,
+  cursor: MaybeRefOrGetter<string | undefined>,
 ) {
-  return {
-    queryKey: computed(() => requestLogQueryIdentity(toValue(filters))),
-    initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }: { pageParam: string | null; signal: AbortSignal }) =>
-      listRequestLogs(client, toValue(filters), pageParam ?? undefined, signal),
-    getNextPageParam: (lastPage: RequestLogPageDto) => lastPage.next_cursor ?? undefined,
+  return queryOptions({
+    queryKey: computed(() => [
+      ...requestLogQueryIdentity(toValue(filters)),
+      'cursor',
+      toValue(cursor) ?? null,
+    ]),
+    queryFn: ({ signal }) => listRequestLogs(client, toValue(filters), toValue(cursor), signal),
+    placeholderData: keepPreviousData,
     gcTime: 0,
-  }
+  })
+}
+
+export function requestLogDetailQueryOptions(
+  client: ApiClient,
+  requestID: MaybeRefOrGetter<string | undefined>,
+) {
+  return queryOptions({
+    queryKey: computed(() => {
+      const id = toValue(requestID)
+      return id === undefined ? controlQueryKeys.logs.details() : controlQueryKeys.logs.detail(id)
+    }),
+    queryFn: ({ signal }) => {
+      const id = toValue(requestID)
+      if (id === undefined) throw new InvalidResponseError()
+      return getRequestLog(client, id, signal)
+    },
+    enabled: computed(() => toValue(requestID) !== undefined),
+    gcTime: 0,
+  })
 }

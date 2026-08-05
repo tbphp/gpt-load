@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { formatISOInstant, formatLocalInstant } from '@/lib/format'
+import { formatISOInstant, formatLocalInstant, formatLocalInstantWithSeconds } from '@/lib/format'
 import { currentTimeZone } from '@/lib/time'
 
 const props = withDefaults(
@@ -9,9 +9,11 @@ const props = withDefaults(
     instant: number
     locale: string
     timeZone?: string
+    precision?: 'minute' | 'second'
   }>(),
   {
     timeZone: currentTimeZone(),
+    precision: 'minute',
   },
 )
 
@@ -20,7 +22,9 @@ const instantMs = computed(() => (dateTime.value === undefined ? null : props.in
 
 const absolute = computed(() => {
   if (instantMs.value === null) return String(props.instant)
-  return formatLocalInstant(instantMs.value, props.locale, { timeZone: props.timeZone })
+  return props.precision === 'second'
+    ? formatLocalInstantWithSeconds(instantMs.value, props.timeZone)
+    : formatLocalInstant(instantMs.value, props.locale, { timeZone: props.timeZone })
 })
 </script>
 

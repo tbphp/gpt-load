@@ -13,11 +13,13 @@ withDefaults(
     placeholder: string
     clearLabel: string
     id?: string
+    list?: string
     disabled?: boolean
     describedBy?: string
   }>(),
   {
     id: undefined,
+    list: undefined,
     disabled: false,
     describedBy: undefined,
   },
@@ -51,6 +53,7 @@ defineExpose({ focus })
       ref="input"
       class="app-search-input__control"
       type="search"
+      :list="list"
       :value="modelValue"
       :aria-label="label"
       :aria-describedby="describedBy"
@@ -58,6 +61,8 @@ defineExpose({ focus })
       :disabled="disabled"
       autocomplete="off"
       :spellcheck="false"
+      data-1p-ignore="true"
+      data-lpignore="true"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
     <IconButton

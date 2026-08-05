@@ -141,6 +141,107 @@ func TestRequestLogEndpointAcceptsCanonicalNumericBoundaries(t *testing.T) {
 	}
 }
 
+func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
+	reader := &recordingRequestLogReader{}
+	engine := newRequestLogTestEngine(t, reader)
+	query := strings.Join([]string{
+		"protocol=anthropic",
+		"stream=true",
+		"final_status_code=529",
+		"usage_state=partial",
+		"cost_state=priced",
+		"pricing_completeness=partial",
+		"cache_present=true",
+		"upstream_key_id=9",
+		"attempt_status_code=429",
+		"failure_category=rate_limited",
+		"error_code=provider_rate_limit",
+		"retry_state=retried",
+		"retry_count_min=1",
+		"retry_count_max=3",
+		"first_response_min_ms=10",
+		"first_response_max_ms=900",
+		"duration_min_ms=20",
+		"duration_max_ms=2000",
+		"input_tokens_min=100",
+		"input_tokens_max=2000",
+		"output_tokens_min=10",
+		"output_tokens_max=500",
+		"cost_min_nano_usd=1000",
+		"cost_max_nano_usd=9000000",
+	}, "&")
+	recorder := performRequestLogRequest(engine, "test-auth-key", query)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 {
+		t.Fatalf("Reader calls = %d, want one", len(reader.queries))
+	}
+	got := reader.queries[0]
+	if got.Protocol != protocol.Anthropic || got.Stream == nil || !*got.Stream ||
+		got.FinalStatusCode == nil || *got.FinalStatusCode != 529 ||
+		got.UsageState != usage.StatePartial || got.CostState != pricing.CostStatePriced ||
+		got.PricingCompleteness != pricing.CompletenessPartial ||
+		got.CachePresent == nil || !*got.CachePresent ||
+		got.UpstreamKeyID == nil || *got.UpstreamKeyID != 9 ||
+		got.AttemptStatusCode == nil || *got.AttemptStatusCode != 429 ||
+		got.FailureCategory != telemetry.FailureCategoryRateLimited ||
+		got.AttemptErrorCode != "provider_rate_limit" || got.RetryState != requestlog.RetryStateRetried ||
+		got.RetryCountMin == nil || *got.RetryCountMin != 1 ||
+		got.RetryCountMax == nil || *got.RetryCountMax != 3 ||
+		got.FirstResponseMinMS == nil || *got.FirstResponseMinMS != 10 ||
+		got.FirstResponseMaxMS == nil || *got.FirstResponseMaxMS != 900 ||
+		got.DurationMinMS == nil || *got.DurationMinMS != 20 ||
+		got.DurationMaxMS == nil || *got.DurationMaxMS != 2000 ||
+		got.InputTokensMin == nil || *got.InputTokensMin != 100 ||
+		got.InputTokensMax == nil || *got.InputTokensMax != 2000 ||
+		got.OutputTokensMin == nil || *got.OutputTokensMin != 10 ||
+		got.OutputTokensMax == nil || *got.OutputTokensMax != 500 ||
+		got.CostMinNanoUSD == nil || *got.CostMinNanoUSD != 1000 ||
+		got.CostMaxNanoUSD == nil || *got.CostMaxNanoUSD != 9000000 {
+		t.Fatalf("parsed advanced query = %#v", got)
+	}
+}
+
+func TestRequestLogEndpointRejectsInvalidAdvancedFilters(t *testing.T) {
+	tests := []string{
+		"protocol=openai",
+		"stream=1",
+		"final_status_code=1000",
+		"usage_state=unknown",
+		"cost_state=unknown",
+		"pricing_completeness=unknown",
+		"cache_present=yes",
+		"upstream_key_id=0",
+		"attempt_status_code=-1",
+		"failure_category=unknown",
+		"error_code=",
+		"retry_state=unknown",
+		"retry_count_min=4&retry_count_max=3",
+		"first_response_min_ms=20&first_response_max_ms=10",
+		"duration_min_ms=20&duration_max_ms=10",
+		"input_tokens_min=20&input_tokens_max=10",
+		"output_tokens_min=20&output_tokens_max=10",
+		"cost_min_nano_usd=20&cost_max_nano_usd=10",
+	}
+	for _, query := range tests {
+		t.Run(query, func(t *testing.T) {
+			reader := &recordingRequestLogReader{}
+			recorder := performRequestLogRequest(
+				newRequestLogTestEngine(t, reader),
+				"test-auth-key",
+				query,
+			)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("response = %d %s, want 400", recorder.Code, recorder.Body.String())
+			}
+			if len(reader.queries) != 0 {
+				t.Fatalf("Reader calls = %d, want zero", len(reader.queries))
+			}
+		})
+	}
+}
+
 func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	completedAt := time.Date(2026, time.July, 24, 12, 0, 0, 123456789, time.UTC)
 	completedAtMS := completedAt.UnixMilli()
@@ -168,18 +269,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					UsageState:          usage.StateNotApplicable,
 					CostState:           pricing.CostStateNotApplicable,
 					PricingCompleteness: pricing.CompletenessNotApplicable,
-					Attempts: []requestlog.Attempt{{
-						Sequence:        1,
-						GroupID:         12,
-						GroupName:       "Primary",
-						KeyID:           11,
-						UpstreamModel:   "upstream-model",
-						StatusCode:      200,
-						DurationMs:      1234,
-						FailureCategory: telemetry.FailureCategoryOK,
-						Action:          telemetry.ActionTerminate,
-						Committed:       true,
-					}},
+					AttemptCount:        1,
 				}},
 				NextCursor: nextCursor,
 			},
@@ -232,16 +322,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		envelope.Data.NextCursor == nil || *envelope.Data.NextCursor == "" {
 		t.Fatalf("first response envelope = %#v", envelope)
 	}
-	attempts, ok := envelope.Data.Items[0]["attempts"].([]any)
-	if !ok || len(attempts) != 1 {
-		t.Fatalf("attempts = %#v, want one", envelope.Data.Items[0]["attempts"])
-	}
-	attempt, ok := attempts[0].(map[string]any)
-	if !ok || attempt["key_id"] != float64(11) {
-		t.Fatalf("attempt = %#v, want key_id 11", attempts[0])
-	}
-	if _, exists := attempt["key_mask"]; exists {
-		t.Fatalf("attempt exposes key_mask: %#v", attempt)
+	if _, exists := envelope.Data.Items[0]["attempts"]; exists {
+		t.Fatalf("list item unexpectedly exposes attempts: %#v", envelope.Data.Items[0])
 	}
 	for _, forbidden := range []string{"headers", "body", "url"} {
 		if strings.Contains(strings.ToLower(recorder.Body.String()), forbidden) {
@@ -291,6 +373,94 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	}
 }
 
+func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testing.T) {
+	requestID := "00000000-0000-4000-8000-000000000611"
+	rate := int64(1_000_000_000)
+	amount := int64(1_000_000)
+	receipt := &pricing.Receipt{
+		SchemaVersion: 1,
+		Method:        pricing.ReceiptMethodUnitRateSum,
+		MethodVersion: 1,
+		Currency:      "USD",
+		Rule:          pricing.Identity{ScopeKey: "group:12", ModelID: "gpt-4.1"},
+		LineItems: []pricing.ReceiptLine{{
+			Code:                  "input",
+			Quantity:              1000,
+			RateNanoUSDPerMillion: &rate,
+			Multiplier:            pricing.Multiplier{Numerator: 1, Denominator: 1},
+			State:                 pricing.ReceiptLinePriced,
+			AmountNanoUSD:         &amount,
+		}},
+		TotalNanoUSD: amount,
+	}
+	reader := &recordingRequestLogReader{details: map[string]requestlog.Record{
+		requestID: {
+			RequestID:            requestID,
+			CompletedAtMS:        1_784_894_400_000,
+			Protocol:             protocol.OpenAICompletions,
+			Status:               telemetry.RequestStatusSuccess,
+			StatusCode:           http.StatusOK,
+			AttemptCount:         1,
+			UsageState:           usage.StateComplete,
+			CostState:            pricing.CostStatePriced,
+			PricingCompleteness:  pricing.CompletenessComplete,
+			UncachedInputTokens:  1000,
+			EstimatedCostNanoUSD: amount,
+			Attempts: []requestlog.Attempt{{
+				Sequence:        1,
+				GroupID:         12,
+				GroupName:       "Primary",
+				KeyID:           99,
+				UpstreamModel:   "gpt-4.1",
+				StatusCode:      http.StatusOK,
+				DurationMs:      1200,
+				FailureCategory: telemetry.FailureCategoryOK,
+				Action:          telemetry.ActionTerminate,
+				PricingReceipt:  receipt,
+			}},
+		},
+	}}
+	engine := newRequestLogTestEngine(t, reader)
+	request := httptest.NewRequest(http.MethodGet, "/api/logs/"+requestID, nil)
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			RequestID string `json:"request_id"`
+			Attempts  []struct {
+				KeyID          uint `json:"key_id"`
+				PricingReceipt struct {
+					Method       string `json:"method"`
+					TotalNanoUSD string `json:"total_nano_usd"`
+					LineItems    []struct {
+						Quantity      string `json:"quantity"`
+						AmountNanoUSD string `json:"amount_nano_usd"`
+					} `json:"line_items"`
+				} `json:"pricing_receipt"`
+			} `json:"attempts"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if envelope.Data.RequestID != requestID || len(envelope.Data.Attempts) != 1 ||
+		envelope.Data.Attempts[0].KeyID != 99 ||
+		envelope.Data.Attempts[0].PricingReceipt.Method != pricing.ReceiptMethodUnitRateSum ||
+		envelope.Data.Attempts[0].PricingReceipt.TotalNanoUSD != "1000000" ||
+		len(envelope.Data.Attempts[0].PricingReceipt.LineItems) != 1 ||
+		envelope.Data.Attempts[0].PricingReceipt.LineItems[0].Quantity != "1000" ||
+		envelope.Data.Attempts[0].PricingReceipt.LineItems[0].AmountNanoUSD != "1000000" {
+		t.Fatalf("detail projection = %#v", envelope.Data)
+	}
+	if strings.Contains(strings.ToLower(recorder.Body.String()), "committed") {
+		t.Fatalf("detail exposes internal committed flag: %s", recorder.Body.String())
+	}
+}
+
 func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	reader := &recordingRequestLogReader{pages: []requestlog.Page{{Items: []requestlog.Record{
 		{
@@ -307,9 +477,8 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 			CacheWrite5MTokens:      3,
 			CacheWrite1HTokens:      4,
 			CacheWriteUnknownTokens: 6,
-			OutputTokens:            5,
+			OutputTokens:            maxSafeInteger + 1,
 			EstimatedCostNanoUSD:    123_456_789_012,
-			Attempts:                []requestlog.Attempt{},
 		},
 	}}}}
 	recorder := performRequestLogRequest(newRequestLogTestEngine(t, reader), "test-auth-key", "")
@@ -323,12 +492,12 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 				UsageState              string `json:"usage_state"`
 				CostState               string `json:"cost_state"`
 				PricingCompleteness     string `json:"pricing_completeness"`
-				UncachedInputTokens     int64  `json:"uncached_input_tokens"`
-				CacheReadTokens         int64  `json:"cache_read_tokens"`
-				CacheWrite5MTokens      int64  `json:"cache_write_5m_tokens"`
-				CacheWrite1HTokens      int64  `json:"cache_write_1h_tokens"`
-				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
-				OutputTokens            int64  `json:"output_tokens"`
+				InputTokens             string `json:"input_tokens"`
+				CacheReadTokens         string `json:"cache_read_tokens"`
+				CacheWrite5MTokens      string `json:"cache_write_5m_tokens"`
+				CacheWrite1HTokens      string `json:"cache_write_1h_tokens"`
+				CacheWriteUnknownTokens string `json:"cache_write_unknown_tokens"`
+				OutputTokens            string `json:"output_tokens"`
 				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
 			} `json:"items"`
 		} `json:"data"`
@@ -342,10 +511,10 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	item := envelope.Data.Items[0]
 	if item.GroupID != nil || item.UsageState != "complete" || item.CostState != "priced" ||
 		item.PricingCompleteness != "complete" ||
-		item.UncachedInputTokens != 1 || item.CacheReadTokens != 2 ||
-		item.CacheWrite5MTokens != 3 || item.CacheWrite1HTokens != 4 ||
-		item.CacheWriteUnknownTokens != 6 ||
-		item.OutputTokens != 5 || item.EstimatedCostNanoUSD != "123456789012" {
+		item.InputTokens != "16" || item.CacheReadTokens != "2" ||
+		item.CacheWrite5MTokens != "3" || item.CacheWrite1HTokens != "4" ||
+		item.CacheWriteUnknownTokens != "6" ||
+		item.OutputTokens != "9007199254740992" || item.EstimatedCostNanoUSD != "123456789012" {
 		t.Fatalf("usage/cost projection = %#v", item)
 	}
 }
@@ -360,17 +529,6 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 			UsageState:          usage.StateNotApplicable,
 			CostState:           pricing.CostStateNotApplicable,
 			PricingCompleteness: pricing.CompletenessNotApplicable,
-			Attempts: []requestlog.Attempt{{
-				Sequence:        1,
-				GroupID:         12,
-				GroupName:       "Primary",
-				KeyID:           11,
-				UpstreamModel:   "",
-				StatusCode:      http.StatusOK,
-				FailureCategory: telemetry.FailureCategoryOK,
-				Action:          telemetry.ActionTerminate,
-				Committed:       true,
-			}},
 		}},
 	})
 	if err != nil {
@@ -399,7 +557,6 @@ func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 		{name: "usage state", mutate: func(record *requestlog.Record) { record.UsageState = "invalid" }},
 		{name: "cost state", mutate: func(record *requestlog.Record) { record.CostState = "invalid" }},
 		{name: "negative token", mutate: func(record *requestlog.Record) { record.OutputTokens = -1 }},
-		{name: "unsafe token", mutate: func(record *requestlog.Record) { record.OutputTokens = maxSafeInteger + 1 }},
 		{name: "negative cost", mutate: func(record *requestlog.Record) { record.EstimatedCostNanoUSD = -1 }},
 		{
 			name: "missing usage cannot be priced",
@@ -503,7 +660,6 @@ func TestRequestLogEndpointFailsClosedOnCorruptReaderUsageCost(t *testing.T) {
 				CompletedAtMS: time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
 				UsageState:    usage.StateComplete,
 				CostState:     pricing.CostStatePriced,
-				Attempts:      []requestlog.Attempt{},
 			}
 			test.mutate(&record)
 			reader := &recordingRequestLogReader{
@@ -540,6 +696,8 @@ type recordingRequestLogReader struct {
 	pages   []requestlog.Page
 	queries []requestlog.ListQuery
 	err     error
+	details map[string]requestlog.Record
+	getErr  error
 }
 
 func (reader *recordingRequestLogReader) List(
@@ -555,6 +713,19 @@ func (reader *recordingRequestLogReader) List(
 		return requestlog.Page{Items: []requestlog.Record{}}, nil
 	}
 	return reader.pages[index], nil
+}
+
+func (reader *recordingRequestLogReader) Get(
+	_ context.Context,
+	requestID string,
+) (requestlog.Record, error) {
+	if reader.getErr != nil {
+		return requestlog.Record{}, reader.getErr
+	}
+	if record, ok := reader.details[requestID]; ok {
+		return record, nil
+	}
+	return requestlog.Record{}, fmt.Errorf("request log %s not found", requestID)
 }
 
 func newRequestLogTestEngine(t *testing.T, reader RequestLogReader) *gin.Engine {

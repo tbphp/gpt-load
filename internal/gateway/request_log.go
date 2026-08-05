@@ -50,6 +50,8 @@ type requestRecorder struct {
 	accessKeyID      uint
 	protocol         protocol.Protocol
 	clientModel      string
+	stream           bool
+	firstResponseMs  *int64
 	usageApplicable  bool
 	usageDiagnostics usage.Diagnostics
 	attempts         []telemetry.Attempt
@@ -109,20 +111,22 @@ func (recorder *requestRecorder) emit() {
 		duration = 0
 	}
 	recorder.sink.Emit(telemetry.RequestEvent{
-		RequestID:     recorder.requestID,
-		CompletedAt:   completedAt.UTC(),
-		AccessKeyID:   recorder.accessKeyID,
-		Protocol:      recorder.protocol,
-		ClientModel:   recorder.clientModel,
-		UpstreamModel: recorder.outcome.upstreamModel,
-		Status:        recorder.outcome.status,
-		StatusCode:    recorder.outcome.statusCode,
-		ErrorCode:     recorder.outcome.errorCode,
-		ErrorSummary:  recorder.outcome.errorSummary,
-		DurationMs:    duration.Milliseconds(),
-		AffinityHit:   false,
-		Attempts:      append([]telemetry.Attempt(nil), recorder.attempts...),
-		Usage:         recorder.usage,
+		RequestID:       recorder.requestID,
+		CompletedAt:     completedAt.UTC(),
+		AccessKeyID:     recorder.accessKeyID,
+		Protocol:        recorder.protocol,
+		ClientModel:     recorder.clientModel,
+		UpstreamModel:   recorder.outcome.upstreamModel,
+		Status:          recorder.outcome.status,
+		StatusCode:      recorder.outcome.statusCode,
+		ErrorCode:       recorder.outcome.errorCode,
+		ErrorSummary:    recorder.outcome.errorSummary,
+		Stream:          recorder.stream,
+		FirstResponseMs: recorder.firstResponseMs,
+		DurationMs:      duration.Milliseconds(),
+		AffinityHit:     false,
+		Attempts:        append([]telemetry.Attempt(nil), recorder.attempts...),
+		Usage:           recorder.usage,
 	})
 }
 
@@ -130,6 +134,24 @@ func (recorder *requestRecorder) setClientModel(model string) {
 	if recorder != nil {
 		recorder.clientModel = model
 	}
+}
+
+func (recorder *requestRecorder) setStream(stream bool) {
+	if recorder != nil {
+		recorder.stream = stream
+	}
+}
+
+func (recorder *requestRecorder) recordFirstResponse() {
+	if recorder == nil || !recorder.stream || recorder.firstResponseMs != nil || recorder.now == nil {
+		return
+	}
+	duration := recorder.now().Sub(recorder.startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	value := duration.Milliseconds()
+	recorder.firstResponseMs = &value
 }
 
 func (recorder *requestRecorder) setUsageApplicable(applicable bool) {
@@ -426,13 +448,18 @@ func quoteFrozenAttempt(
 	if frozen.table == nil || frozen.scopeKey == "" || frozen.upstreamModel == "" {
 		return observation
 	}
-	quote := frozen.table.Quote(pricing.Identity{
+	quote, receipt := frozen.table.QuoteWithReceipt(pricing.Identity{
 		ScopeKey: frozen.scopeKey,
 		ModelID:  frozen.upstreamModel,
 	}, result)
 	observation.CostState = string(quote.State)
 	observation.PricingCompleteness = string(quote.Completeness)
 	observation.EstimatedCostNanoUSD = int64(quote.EstimatedCostNanoUSD)
+	if receipt != nil {
+		if encoded, err := json.Marshal(receipt); err == nil {
+			observation.ReceiptJSON = string(encoded)
+		}
+	}
 	return observation
 }
 

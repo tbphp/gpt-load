@@ -669,8 +669,8 @@ func TestAutoMigrateCreatesRequestLogFieldsAndCompositeIndexes(t *testing.T) {
 		}
 	}
 
-	if storage.CurrentSchemaVersion != 4 {
-		t.Fatalf("CurrentSchemaVersion = %d, want 4", storage.CurrentSchemaVersion)
+	if storage.CurrentSchemaVersion != 5 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 5", storage.CurrentSchemaVersion)
 	}
 }
 

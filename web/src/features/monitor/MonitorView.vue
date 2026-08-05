@@ -29,8 +29,8 @@ const canonicalQuery = computed(() => normalizeMonitorQuery(route.query))
 const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQuery.value))
 const items = computed<AppTabItem[]>(() => [
   { value: 'health', label: t('monitor.tabs.health') },
-  { value: 'logs', label: t('monitor.tabs.logs') },
   { value: 'usage', label: t('monitor.tabs.usage') },
+  { value: 'logs', label: t('monitor.tabs.logs') },
   { value: 'inspector', label: t('monitor.tabs.inspector') },
 ])
 

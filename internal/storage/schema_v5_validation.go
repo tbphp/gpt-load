@@ -7,23 +7,23 @@ import (
 	"gorm.io/gorm"
 )
 
-const schemaV4InfoTableSQL = `CREATE TABLE schema_info (
+const schemaV5InfoTableSQL = `CREATE TABLE schema_info (
 	version integer PRIMARY KEY NOT NULL,
-	CONSTRAINT chk_schema_info_version CHECK (version = 4)
+	CONSTRAINT chk_schema_info_version CHECK (version = 5)
 )`
 
-func createSchemaV4InfoTable(db *gorm.DB) error {
-	if err := db.Exec(schemaV4InfoTableSQL).Error; err != nil {
-		return fmt.Errorf("create schema v4 info table: %w", err)
+func createSchemaV5InfoTable(db *gorm.DB) error {
+	if err := db.Exec(schemaV5InfoTableSQL).Error; err != nil {
+		return fmt.Errorf("create schema v5 info table: %w", err)
 	}
 	return nil
 }
 
-func validateSchemaV4(db *gorm.DB) error {
-	for _, expected := range append(schemaV4TableStatements(), schemaV4InfoTableSQL) {
+func validateSchemaV5(db *gorm.DB) error {
+	for _, expected := range append(schemaV5TableStatements(), schemaV5InfoTableSQL) {
 		fields := strings.Fields(expected)
 		if len(fields) < 3 {
-			return fmt.Errorf("validate SQLite schema version 4: invalid canonical table DDL")
+			return fmt.Errorf("validate SQLite schema version 5: invalid canonical table DDL")
 		}
 		name := fields[2]
 		actual, err := sqliteSchemaSQL(db, "table", name)
@@ -31,14 +31,14 @@ func validateSchemaV4(db *gorm.DB) error {
 			return err
 		}
 		if normalizeSQLiteDDL(actual) != normalizeSQLiteDDL(expected) {
-			return fmt.Errorf("validate SQLite schema version 4: table %s differs", name)
+			return fmt.Errorf("validate SQLite schema version 5: table %s differs", name)
 		}
 	}
 
-	for _, expected := range schemaV4IndexStatements() {
+	for _, expected := range schemaV5IndexStatements() {
 		fields := strings.Fields(expected)
 		if len(fields) < 4 {
-			return fmt.Errorf("validate SQLite schema version 4: invalid canonical index DDL")
+			return fmt.Errorf("validate SQLite schema version 5: invalid canonical index DDL")
 		}
 		nameIndex := 2
 		if strings.EqualFold(fields[1], "unique") {
@@ -50,10 +50,10 @@ func validateSchemaV4(db *gorm.DB) error {
 			return err
 		}
 		if normalizeSQLiteDDL(actual) != normalizeSQLiteDDL(expected) {
-			return fmt.Errorf("validate SQLite schema version 4: critical index %s differs", name)
+			return fmt.Errorf("validate SQLite schema version 5: critical index %s differs", name)
 		}
 	}
-	return validateSchemaV4ForeignKeys(db)
+	return validateSchemaV5ForeignKeys(db)
 }
 
 func sqliteSchemaSQL(db *gorm.DB, objectType, name string) (string, error) {
@@ -65,7 +65,7 @@ func sqliteSchemaSQL(db *gorm.DB, objectType, name string) (string, error) {
 	).Scan(&statement)
 	if result.Error != nil {
 		return "", fmt.Errorf(
-			"validate SQLite schema version 4: read %s %s: %w",
+			"validate SQLite schema version 5: read %s %s: %w",
 			objectType,
 			name,
 			result.Error,
@@ -73,7 +73,7 @@ func sqliteSchemaSQL(db *gorm.DB, objectType, name string) (string, error) {
 	}
 	if result.RowsAffected != 1 || strings.TrimSpace(statement) == "" {
 		return "", fmt.Errorf(
-			"validate SQLite schema version 4: %s %s is missing",
+			"validate SQLite schema version 5: %s %s is missing",
 			objectType,
 			name,
 		)

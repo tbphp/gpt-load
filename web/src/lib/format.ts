@@ -47,6 +47,11 @@ export function formatLocalTime(ms: number, locale: string): string {
   return formatZonedDateTime(date, currentTimeZone(), true).slice(11)
 }
 
+export function formatLocalInstantWithSeconds(ms: number, timeZone = currentTimeZone()): string {
+  const date = validDate(ms)
+  return date ? formatZonedDateTime(date, timeZone, true) : '—'
+}
+
 export function formatLocalTimeRange(startMs: number, endMs: number, locale: string): string {
   void locale
   const start = validDate(startMs)

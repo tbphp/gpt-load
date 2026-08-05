@@ -228,3 +228,71 @@ func TestQuotePartialUsageKeepsKnownCostAndPartialCompleteness(t *testing.T) {
 		t.Fatalf("Quote() = %#v, want partial known cost %#v", quote, want)
 	}
 }
+
+func TestQuoteWithReceiptFreezesExactTieredCalculation(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:anthropic", ModelID: "claude-sonnet"}
+	threshold := int64(1_000)
+	table := mustTable(t, Rule{
+		Identity: identity,
+		Prices: Prices{
+			Input: fixedPrice(2), Output: fixedPrice(8),
+			CacheRead: fixedPrice(1), CacheWrite: fixedPrice(5),
+		},
+		ContextTiers: []ContextTier{{
+			InputThresholdTokens: threshold,
+			Prices: Prices{
+				Input: fixedPrice(3), Output: fixedPrice(9),
+				CacheRead: fixedPrice(1), CacheWrite: fixedPrice(5),
+			},
+		}},
+	})
+
+	quote, receipt := table.QuoteWithReceipt(identity, usage.Result{
+		Tokens: usage.Tokens{
+			UncachedInput: 1_000_000,
+			CacheRead:     2_000_000,
+			CacheWrite5M:  1_000_000,
+			CacheWrite1H:  1_000_000,
+			Output:        1_000_000,
+		},
+		State: usage.StateComplete,
+	})
+	if quote != (Quote{
+		State: CostStatePriced, Completeness: CompletenessComplete,
+		EstimatedCostNanoUSD: 27,
+	}) {
+		t.Fatalf("QuoteWithReceipt() quote = %#v", quote)
+	}
+	if receipt == nil || receipt.SchemaVersion != 1 || receipt.Method != "unit_rate_sum" ||
+		receipt.MethodVersion != 1 || receipt.Currency != "USD" ||
+		receipt.Rule != identity || receipt.ContextThresholdTokens == nil ||
+		*receipt.ContextThresholdTokens != threshold || receipt.TotalNanoUSD != 27 {
+		t.Fatalf("QuoteWithReceipt() receipt = %#v", receipt)
+	}
+	if got, want := len(receipt.LineItems), 5; got != want {
+		t.Fatalf("receipt line items = %d, want %d: %#v", got, want, receipt.LineItems)
+	}
+	if receipt.LineItems[3].Code != "cache_write_1h" ||
+		receipt.LineItems[3].Multiplier != (Multiplier{Numerator: 8, Denominator: 5}) ||
+		receipt.LineItems[3].AmountNanoUSD == nil || *receipt.LineItems[3].AmountNanoUSD != 8 {
+		t.Fatalf("one-hour cache receipt line = %#v", receipt.LineItems[3])
+	}
+}
+
+func TestQuoteWithReceiptPreservesUnpricedPositiveComponents(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(7)}})
+
+	quote, receipt := table.QuoteWithReceipt(identity, usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 10},
+		State:  usage.StateComplete,
+	})
+	if quote.Completeness != CompletenessPartial || receipt == nil || len(receipt.LineItems) != 2 {
+		t.Fatalf("QuoteWithReceipt() = %#v, %#v", quote, receipt)
+	}
+	output := receipt.LineItems[1]
+	if output.Code != "output" || output.State != ReceiptLineUnpriced ||
+		output.RateNanoUSDPerMillion != nil || output.AmountNanoUSD != nil {
+		t.Fatalf("unpriced output receipt line = %#v", output)
+	}
+}

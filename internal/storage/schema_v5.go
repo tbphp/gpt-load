@@ -6,16 +6,16 @@ import (
 	"gorm.io/gorm"
 )
 
-func createSchemaV4Tables(db *gorm.DB) error {
-	for _, statement := range schemaV4TableStatements() {
+func createSchemaV5Tables(db *gorm.DB) error {
+	for _, statement := range schemaV5TableStatements() {
 		if err := db.Exec(statement).Error; err != nil {
-			return fmt.Errorf("create schema v4 table: %w", err)
+			return fmt.Errorf("create schema v5 table: %w", err)
 		}
 	}
 	return nil
 }
 
-func schemaV4TableStatements() []string {
+func schemaV5TableStatements() []string {
 	return []string{
 		`CREATE TABLE groups (
 			id integer PRIMARY KEY AUTOINCREMENT,
@@ -78,7 +78,11 @@ func schemaV4TableStatements() []string {
 			upstream_model varchar(255) NOT NULL,
 			status varchar(32) NOT NULL,
 			status_code integer NOT NULL,
+			stream numeric NOT NULL DEFAULT false,
+			first_response_ms integer
+				CHECK (first_response_ms IS NULL OR first_response_ms >= 0),
 			duration_ms integer NOT NULL CHECK (duration_ms >= 0),
+			attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
 			error_code varchar(64) NOT NULL DEFAULT '',
 			error_summary text NOT NULL DEFAULT '',
 			affinity_hit numeric NOT NULL DEFAULT false,
@@ -96,7 +100,6 @@ func schemaV4TableStatements() []string {
 			usage_state varchar(32) NOT NULL DEFAULT 'not_applicable',
 			cost_state varchar(32) NOT NULL DEFAULT 'not_applicable',
 			pricing_completeness varchar(32) NOT NULL DEFAULT 'not_applicable',
-			attempts json,
 			CONSTRAINT chk_request_log_cost_nano
 				CHECK (estimated_cost_nano_usd >= 0),
 			CONSTRAINT chk_request_log_status
@@ -125,6 +128,35 @@ func schemaV4TableStatements() []string {
 						AND pricing_completeness IN ('complete','partial'))
 				))
 			)
+		)`,
+		`CREATE TABLE request_log_attempts (
+			request_id varchar(36) NOT NULL,
+			sequence integer NOT NULL CHECK (sequence > 0),
+			completed_at_ms integer NOT NULL CHECK (completed_at_ms >= 0),
+			group_id integer NOT NULL CHECK (group_id > 0),
+			group_name varchar(255) NOT NULL,
+			key_id integer NOT NULL CHECK (key_id > 0),
+			upstream_model varchar(255) NOT NULL DEFAULT '',
+			status_code integer NOT NULL,
+			duration_ms integer NOT NULL CHECK (duration_ms >= 0),
+			failure_category varchar(32) NOT NULL,
+			action varchar(32) NOT NULL,
+			will_retry numeric NOT NULL DEFAULT false,
+			error_code varchar(64) NOT NULL DEFAULT '',
+			error_summary text NOT NULL DEFAULT '',
+			pricing_receipt json,
+			PRIMARY KEY (request_id, sequence),
+			CONSTRAINT chk_request_log_attempt_failure_category CHECK (
+				failure_category IN (
+					'ok','rate_limited','model_unavailable','invalid_key',
+					'upstream_host_error','client_error','downstream_cancel','ambiguous'
+				)
+			),
+			CONSTRAINT chk_request_log_attempt_action CHECK (
+				action IN ('terminate','retry','cooldown_key','fail_key','skip_group')
+			),
+			FOREIGN KEY (request_id) REFERENCES request_logs(id)
+				ON UPDATE CASCADE ON DELETE CASCADE
 		)`,
 		`CREATE TABLE usage_stats (
 			id integer PRIMARY KEY AUTOINCREMENT,
@@ -229,16 +261,16 @@ func schemaV4TableStatements() []string {
 	}
 }
 
-func createSchemaV4Indexes(db *gorm.DB) error {
-	for _, statement := range schemaV4IndexStatements() {
+func createSchemaV5Indexes(db *gorm.DB) error {
+	for _, statement := range schemaV5IndexStatements() {
 		if err := db.Exec(statement).Error; err != nil {
-			return fmt.Errorf("create schema v4 index: %w", err)
+			return fmt.Errorf("create schema v5 index: %w", err)
 		}
 	}
 	return nil
 }
 
-func schemaV4IndexStatements() []string {
+func schemaV5IndexStatements() []string {
 	return []string{
 		`CREATE UNIQUE INDEX idx_groups_name ON groups(name)`,
 		`CREATE UNIQUE INDEX idx_upstream_keys_group_hash
@@ -254,6 +286,18 @@ func schemaV4IndexStatements() []string {
 			ON request_logs(client_model, completed_at_ms DESC, id DESC)`,
 		`CREATE INDEX idx_request_logs_upstream_model_completed_id
 			ON request_logs(upstream_model, completed_at_ms DESC, id DESC)`,
+		`CREATE INDEX idx_request_log_attempts_group_completed_request
+			ON request_log_attempts(group_id, completed_at_ms DESC, request_id)`,
+		`CREATE INDEX idx_request_log_attempts_key_completed_request
+			ON request_log_attempts(key_id, completed_at_ms DESC, request_id)`,
+		`CREATE INDEX idx_request_log_attempts_model_completed_request
+			ON request_log_attempts(upstream_model, completed_at_ms DESC, request_id)`,
+		`CREATE INDEX idx_request_log_attempts_status_completed_request
+			ON request_log_attempts(status_code, completed_at_ms DESC, request_id)`,
+		`CREATE INDEX idx_request_log_attempts_failure_completed_request
+			ON request_log_attempts(failure_category, completed_at_ms DESC, request_id)`,
+		`CREATE INDEX idx_request_log_attempts_error_completed_request
+			ON request_log_attempts(error_code, completed_at_ms DESC, request_id)`,
 		`CREATE UNIQUE INDEX idx_usage_stats_bucket_access_group_model
 			ON usage_stats(bucket_start_ms, access_key_id, group_id, model)`,
 		`CREATE UNIQUE INDEX idx_model_prices_scope_model
@@ -270,16 +314,16 @@ func schemaV4IndexStatements() []string {
 	}
 }
 
-func validateSchemaV4ForeignKeys(db *gorm.DB) error {
+func validateSchemaV5ForeignKeys(db *gorm.DB) error {
 	var violations []struct {
 		Table string
 		RowID int64 `gorm:"column:rowid"`
 	}
 	if err := db.Raw("PRAGMA foreign_key_check").Scan(&violations).Error; err != nil {
-		return fmt.Errorf("validate schema v4 foreign keys: %w", err)
+		return fmt.Errorf("validate schema v5 foreign keys: %w", err)
 	}
 	if len(violations) != 0 {
-		return fmt.Errorf("validate schema v4 foreign keys: %d violation(s)", len(violations))
+		return fmt.Errorf("validate schema v5 foreign keys: %d violation(s)", len(violations))
 	}
 	return nil
 }

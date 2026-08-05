@@ -13,7 +13,7 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-type schemaV4Column struct {
+type schemaV5Column struct {
 	Name         string
 	Type         string
 	NotNull      int     `gorm:"column:notnull"`
@@ -21,12 +21,12 @@ type schemaV4Column struct {
 }
 
 func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
-	db := openSchemaV4TestDatabase(t)
+	db := openSchemaV5TestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
-	if storage.CurrentSchemaVersion != 4 {
-		t.Fatalf("CurrentSchemaVersion = %d, want 4", storage.CurrentSchemaVersion)
+	if storage.CurrentSchemaVersion != 5 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 5", storage.CurrentSchemaVersion)
 	}
 	assertColumns(t, db, "model_prices", []string{
 		"price_scope_key", "model_id",
@@ -39,7 +39,7 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 	assertUniqueIndex(t, db, "model_prices", "idx_model_prices_scope_model",
 		[]string{"price_scope_key", "model_id"})
 
-	columns := schemaV4Columns(t, db, "model_prices")
+	columns := schemaV5Columns(t, db, "model_prices")
 	for _, name := range []string{
 		"input_price_nano_usd_per_million_tokens",
 		"output_price_nano_usd_per_million_tokens",
@@ -62,10 +62,50 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateCreatesNormalizedRequestLogSchemaV5(t *testing.T) {
+	db := openSchemaV5TestDatabase(t)
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if storage.CurrentSchemaVersion != 5 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 5", storage.CurrentSchemaVersion)
+	}
+	requestColumns := schemaV5Columns(t, db, "request_logs")
+	for _, name := range []string{"stream", "first_response_ms", "attempt_count"} {
+		if _, ok := requestColumns[name]; !ok {
+			t.Errorf("request_logs.%s is missing", name)
+		}
+	}
+	if _, ok := requestColumns["attempts"]; ok {
+		t.Error("request_logs.attempts JSON column still exists")
+	}
+	assertColumns(t, db, "request_log_attempts", []string{
+		"request_id", "sequence", "completed_at_ms", "group_id", "group_name",
+		"key_id", "upstream_model", "status_code", "duration_ms",
+		"failure_category", "action", "will_retry", "error_code", "error_summary",
+		"pricing_receipt",
+	})
+
+	var foreignKeys []struct {
+		Table    string
+		From     string
+		To       string
+		OnDelete string `gorm:"column:on_delete"`
+	}
+	if err := db.Raw("PRAGMA foreign_key_list('request_log_attempts')").Scan(&foreignKeys).Error; err != nil {
+		t.Fatalf("inspect request_log_attempts foreign keys: %v", err)
+	}
+	if len(foreignKeys) != 1 || foreignKeys[0].Table != "request_logs" ||
+		foreignKeys[0].From != "request_id" || foreignKeys[0].To != "id" ||
+		foreignKeys[0].OnDelete != "CASCADE" {
+		t.Fatalf("request_log_attempts foreign keys = %#v", foreignKeys)
+	}
+}
+
 func TestAutoMigrateRejectsUnreleasedLegacySchema(t *testing.T) {
-	for _, version := range []uint{1, 2, 3} {
+	for _, version := range []uint{1, 2, 3, 4} {
 		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
-			db := openSchemaV4TestDatabase(t)
+			db := openSchemaV5TestDatabase(t)
 			if err := db.Exec("CREATE TABLE schema_info (version integer PRIMARY KEY)").Error; err != nil {
 				t.Fatal(err)
 			}
@@ -81,12 +121,12 @@ func TestAutoMigrateRejectsUnreleasedLegacySchema(t *testing.T) {
 }
 
 func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
-	db := openSchemaV4TestDatabase(t)
+	db := openSchemaV5TestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
 
-	groups := schemaV4Columns(t, db, "groups")
+	groups := schemaV5Columns(t, db, "groups")
 	providerID, ok := groups["provider_id"]
 	if !ok {
 		t.Fatal("groups.provider_id is missing")
@@ -100,7 +140,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 		"request_logs": {"cache_write_unknown_tokens", "pricing_completeness"},
 		"usage_stats":  {"cache_write_unknown_tokens", "pricing_partial_count"},
 	} {
-		got := schemaV4Columns(t, db, table)
+		got := schemaV5Columns(t, db, table)
 		for _, name := range columns {
 			column, found := got[name]
 			if !found {
@@ -113,7 +153,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 			}
 		}
 	}
-	pricingCompleteness := schemaV4Columns(t, db, "request_logs")["pricing_completeness"]
+	pricingCompleteness := schemaV5Columns(t, db, "request_logs")["pricing_completeness"]
 	if pricingCompleteness.DefaultValue == nil ||
 		strings.Trim(*pricingCompleteness.DefaultValue, "'\"") != "not_applicable" {
 		t.Errorf("request_logs.pricing_completeness default = %v, want not_applicable",
@@ -122,7 +162,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 }
 
 func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
-	db := openMigratedSchemaV4TestDatabase(t)
+	db := openMigratedSchemaV5TestDatabase(t)
 	priceColumns := []string{
 		"input_price_nano_usd_per_million_tokens",
 		"output_price_nano_usd_per_million_tokens",
@@ -142,7 +182,7 @@ func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
 }
 
 func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testing.T) {
-	db := openMigratedSchemaV4TestDatabase(t)
+	db := openMigratedSchemaV5TestDatabase(t)
 
 	empty := models.ModelPrice{
 		PriceScopeKey:     "provider:openai",
@@ -270,7 +310,7 @@ func TestModelPriceValidatesContextTiersAcrossGORMWritePaths(t *testing.T) {
 }
 
 func TestFinalRequestLogEnforcesStateContract(t *testing.T) {
-	db := openMigratedSchemaV4TestDatabase(t)
+	db := openMigratedSchemaV5TestDatabase(t)
 	valid := []requestStateFixture{
 		{id: "valid-priced-complete", status: "success", usage: "complete", cost: "priced", pricing: "complete", estimatedCost: 1},
 		{id: "valid-priced-partial", status: "incomplete", usage: "partial", cost: "priced", pricing: "partial", estimatedCost: 0},
@@ -302,7 +342,7 @@ func TestFinalRequestLogEnforcesStateContract(t *testing.T) {
 }
 
 func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
-	db := openMigratedSchemaV4TestDatabase(t)
+	db := openMigratedSchemaV5TestDatabase(t)
 
 	for table, names := range map[string][]string{
 		"groups":             {"created_at_ms", "updated_at_ms"},
@@ -315,7 +355,7 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 		"jobs":               {"created_at_ms", "started_at_ms", "finished_at_ms"},
 		"control_operations": {"completed_at_ms", "compacted_at_ms", "created_at_ms", "updated_at_ms"},
 	} {
-		columns := schemaV4Columns(t, db, table)
+		columns := schemaV5Columns(t, db, table)
 		for _, name := range names {
 			column, ok := columns[name]
 			if !ok {
@@ -356,10 +396,10 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 				id, completed_at_ms, access_key_id, group_id, protocol, client_model,
 				upstream_model, status, status_code, duration_ms, error_code, error_summary,
 				affinity_hit, estimated_cost_nano_usd, usage_state, cost_state,
-				pricing_completeness, attempts
+				pricing_completeness
 			) VALUES ('negative-request-duration', 1, 0, 0, 'openai-completions', '', '',
 				'success', 200, -1, '', '', false, 0,
-				'complete', 'priced', 'complete', '[]')`,
+				'complete', 'priced', 'complete')`,
 		},
 		{
 			name: "negative request token",
@@ -368,10 +408,10 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 				upstream_model, status, status_code, duration_ms, error_code, error_summary,
 				affinity_hit, uncached_input_tokens, output_tokens, cache_read_tokens,
 				cache_write_5m_tokens, cache_write_1h_tokens, cache_write_unknown_tokens,
-				estimated_cost_nano_usd, usage_state, cost_state, pricing_completeness, attempts
+				estimated_cost_nano_usd, usage_state, cost_state, pricing_completeness
 			) VALUES ('negative-request-token', 1, 0, 0, 'openai-completions', '', '',
 				'success', 200, 0, '', '', false, 0, 0, 0, 0, 0, -1, 0,
-				'complete', 'priced', 'complete', '[]')`,
+				'complete', 'priced', 'complete')`,
 		},
 		{
 			name: "negative request cost",
@@ -379,10 +419,10 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 				id, completed_at_ms, access_key_id, group_id, protocol, client_model,
 				upstream_model, status, status_code, duration_ms, error_code, error_summary,
 				affinity_hit, estimated_cost_nano_usd, usage_state, cost_state,
-				pricing_completeness, attempts
+				pricing_completeness
 			) VALUES ('negative-request-cost', 1, 0, 0, 'openai-completions', '', '',
 				'success', 200, 0, '', '', false, -1,
-				'complete', 'priced', 'complete', '[]')`,
+				'complete', 'priced', 'complete')`,
 		},
 		{
 			name: "negative usage unknown cache write",
@@ -423,7 +463,7 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 }
 
 func TestAutoMigrateRejectsCorruptCanonicalTable(t *testing.T) {
-	db := openMigratedSchemaV4TestDatabase(t)
+	db := openMigratedSchemaV5TestDatabase(t)
 	if err := db.Exec(`ALTER TABLE usage_stats RENAME TO usage_stats_checked`).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -435,17 +475,17 @@ func TestAutoMigrateRejectsCorruptCanonicalTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := storage.AutoMigrate(db); err == nil || !strings.Contains(err.Error(), "table usage_stats differs") {
-		t.Fatalf("AutoMigrate(corrupt v4 table) error = %v", err)
+		t.Fatalf("AutoMigrate(corrupt v5 table) error = %v", err)
 	}
 }
 
-func TestAutoMigrateValidatesExistingVersionFourSchema(t *testing.T) {
-	db := openMigratedSchemaV4TestDatabase(t)
+func TestAutoMigrateValidatesExistingVersionFiveSchema(t *testing.T) {
+	db := openMigratedSchemaV5TestDatabase(t)
 	if err := db.Exec("DROP INDEX idx_model_prices_scope_model").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.AutoMigrate(db); err == nil || !strings.Contains(err.Error(), "idx_model_prices_scope_model") {
-		t.Fatalf("AutoMigrate(corrupt v4) error = %v, want missing-index validation", err)
+		t.Fatalf("AutoMigrate(corrupt v5) error = %v, want missing-index validation", err)
 	}
 }
 
@@ -464,9 +504,9 @@ func insertRequestStateFixture(db *gorm.DB, fixture requestStateFixture) error {
 		upstream_model, status, status_code, duration_ms, error_code, error_summary,
 		affinity_hit, uncached_input_tokens, output_tokens, cache_read_tokens,
 		cache_write_5m_tokens, cache_write_1h_tokens, cache_write_unknown_tokens,
-		estimated_cost_nano_usd, usage_state, cost_state, pricing_completeness, attempts
+		estimated_cost_nano_usd, usage_state, cost_state, pricing_completeness
 	) VALUES (?, 1, 0, 0, 'openai-completions', '', '', ?, 200, 0, '', '',
-		false, 0, 0, 0, 0, 0, 0, ?, ?, ?, ?, '[]')`,
+		false, 0, 0, 0, 0, 0, 0, ?, ?, ?, ?)`,
 		fixture.id, fixture.status, fixture.estimatedCost,
 		fixture.usage, fixture.cost, fixture.pricing,
 	).Error
@@ -474,7 +514,7 @@ func insertRequestStateFixture(db *gorm.DB, fixture requestStateFixture) error {
 
 func createModelPriceForWritePath(t *testing.T, modelID string) (*gorm.DB, models.ModelPrice) {
 	t.Helper()
-	db := openMigratedSchemaV4TestDatabase(t)
+	db := openMigratedSchemaV5TestDatabase(t)
 	row := models.ModelPrice{
 		PriceScopeKey: "provider:openai",
 		ModelID:       modelID,
@@ -506,7 +546,7 @@ func assertModelPriceTiersNull(
 	}
 }
 
-func openSchemaV4TestDatabase(t *testing.T) *gorm.DB {
+func openSchemaV5TestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open(":memory:")
 	if err != nil {
@@ -524,22 +564,22 @@ func openSchemaV4TestDatabase(t *testing.T) *gorm.DB {
 	return db
 }
 
-func openMigratedSchemaV4TestDatabase(t *testing.T) *gorm.DB {
+func openMigratedSchemaV5TestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
-	db := openSchemaV4TestDatabase(t)
+	db := openSchemaV5TestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatalf("AutoMigrate() error = %v", err)
 	}
 	return db
 }
 
-func schemaV4Columns(t *testing.T, db *gorm.DB, table string) map[string]schemaV4Column {
+func schemaV5Columns(t *testing.T, db *gorm.DB, table string) map[string]schemaV5Column {
 	t.Helper()
-	var columns []schemaV4Column
+	var columns []schemaV5Column
 	if err := db.Raw("PRAGMA table_info('" + table + "')").Scan(&columns).Error; err != nil {
 		t.Fatalf("inspect %s columns: %v", table, err)
 	}
-	result := make(map[string]schemaV4Column, len(columns))
+	result := make(map[string]schemaV5Column, len(columns))
 	for _, column := range columns {
 		result[column.Name] = column
 	}
@@ -548,7 +588,7 @@ func schemaV4Columns(t *testing.T, db *gorm.DB, table string) map[string]schemaV
 
 func assertColumns(t *testing.T, db *gorm.DB, table string, want []string) {
 	t.Helper()
-	got := schemaV4Columns(t, db, table)
+	got := schemaV5Columns(t, db, table)
 	for _, name := range want {
 		if _, ok := got[name]; !ok {
 			t.Errorf("%s.%s is missing", table, name)

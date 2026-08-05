@@ -1,7 +1,6 @@
 package requestlog
 
 import (
-	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -57,12 +56,9 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 		t.Fatalf("persisted frozen pricing = %+v", row)
 	}
 
-	var attempts []Attempt
-	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
-		t.Fatalf("unmarshal attempts: %v", err)
-	}
-	if len(attempts) != 1 || attempts[0].GroupID != 7 || attempts[0].KeyID != 8 {
-		t.Fatalf("attempts = %+v", attempts)
+	if len(row.AttemptRows) != 1 || row.AttemptRows[0].GroupID != 7 ||
+		row.AttemptRows[0].KeyID != 8 {
+		t.Fatalf("attempts = %+v", row.AttemptRows)
 	}
 }
 
@@ -201,13 +197,9 @@ func TestMapEventDefensivelyRedactsAndBoundsSummaries(t *testing.T) {
 		strings.Contains(row.ErrorSummary, secret) || !strings.HasSuffix(row.ErrorSummary, truncatedMarker) {
 		t.Fatalf("request summary was not sanitized: %q", row.ErrorSummary)
 	}
-	var attempts []Attempt
-	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
-		t.Fatal(err)
-	}
-	if len(attempts) != 1 || strings.Contains(attempts[0].ErrorSummary, secret) ||
-		!strings.HasSuffix(attempts[0].ErrorSummary, truncatedMarker) {
-		t.Fatalf("attempt summary was not sanitized: %+v", attempts)
+	if len(row.AttemptRows) != 1 || strings.Contains(row.AttemptRows[0].ErrorSummary, secret) ||
+		!strings.HasSuffix(row.AttemptRows[0].ErrorSummary, truncatedMarker) {
+		t.Fatalf("attempt summary was not sanitized: %+v", row.AttemptRows)
 	}
 }
 
@@ -215,13 +207,10 @@ func TestMapEventBoundsUnattributedAttemptModelsButRejectsOversizedBoundModel(t 
 	event := testEvent("model-bounds")
 	event.Attempts = append(event.Attempts, telemetry.Attempt{Sequence: 2, UpstreamModel: strings.Repeat("界", 100)})
 	row := mustMapEvent(t, redact.New(), event)
-	var attempts []Attempt
-	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
-		t.Fatal(err)
-	}
-	if len(attempts[1].UpstreamModel) > maxModelBytes || !utf8.ValidString(attempts[1].UpstreamModel) ||
-		!strings.HasSuffix(attempts[1].UpstreamModel, truncatedMarker) {
-		t.Fatalf("unattributed attempt model = %q", attempts[1].UpstreamModel)
+	if len(row.AttemptRows[1].UpstreamModel) > maxModelBytes ||
+		!utf8.ValidString(row.AttemptRows[1].UpstreamModel) ||
+		!strings.HasSuffix(row.AttemptRows[1].UpstreamModel, truncatedMarker) {
+		t.Fatalf("unattributed attempt model = %q", row.AttemptRows[1].UpstreamModel)
 	}
 
 	overlong := strings.Repeat("x", maxModelBytes+1)

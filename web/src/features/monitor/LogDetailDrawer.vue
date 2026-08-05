@@ -1,328 +1,266 @@
 <script setup lang="ts">
+import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type {
-  FailureCategory,
-  RequestLogAction,
-  RequestLogItemDto,
-  RequestLogStatus,
+import { useApiClient } from '@/api/client-context'
+import {
+  requestLogDetailQueryOptions,
+  type RequestLogAttemptDto,
+  type RequestLogPricingLineDto,
 } from '@/app/resources/request-logs'
-import { modelPricesLocation, monitorLocation } from '@/app/route-locations'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost } from '@/lib/format'
 
-const props = defineProps<{
-  open: boolean
-  log: RequestLogItemDto | null
-}>()
+import { formatLogDuration, formatLogOutputRate, formatLogTokenCount } from './log-format'
+
+const props = defineProps<{ open: boolean; requestId: string | undefined }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
+const client = useApiClient()
 const { locale, t } = useI18n()
-
-const failureCategories: readonly FailureCategory[] = [
-  'ok',
-  'rate_limited',
-  'model_unavailable',
-  'invalid_key',
-  'upstream_host_error',
-  'client_error',
-  'downstream_cancel',
-  'ambiguous',
-]
-const actions: readonly RequestLogAction[] = [
-  'terminate',
-  'retry',
-  'cooldown_key',
-  'fail_key',
-  'skip_group',
-]
-const orderedAttempts = computed(() =>
-  [...(props.log?.attempts ?? [])].sort((left, right) => left.sequence - right.sequence),
+const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
+const log = computed(() => query.data.value)
+const receipt = computed(
+  () => log.value?.attempts.find((attempt) => attempt.pricing_receipt)?.pricing_receipt,
 )
-const inspectorTarget = computed(() => {
-  if (
-    !props.log?.protocol ||
-    !Number.isSafeInteger(props.log.access_key.id) ||
-    props.log.access_key.id <= 0
-  ) {
-    return null
-  }
-  const query: Record<string, string | number> = {
-    tab: 'inspector',
-    protocol: props.log.protocol,
-  }
-  if (props.log.client_model !== null) query.external_model = props.log.client_model
-  query.access_key_id = props.log.access_key.id
-  return monitorLocation(query)
+const cacheRows = computed(() => {
+  if (!log.value) return []
+  return [
+    { label: t('monitor.logs.tokens.cacheRead'), value: log.value.cache_read_tokens },
+    { label: t('monitor.logs.tokens.cacheWrite5m'), value: log.value.cache_write_5m_tokens },
+    { label: t('monitor.logs.tokens.cacheWrite1h'), value: log.value.cache_write_1h_tokens },
+    { label: t('monitor.logs.tokens.cacheWrite'), value: log.value.cache_write_unknown_tokens },
+  ].filter(({ value }) => value !== '0')
 })
-const usageTone = computed(() => {
-  if (props.log?.usage_state === 'complete') return 'success'
-  if (props.log?.usage_state === 'partial') return 'warning'
-  if (props.log?.usage_state === 'missing') return 'danger'
-  return 'neutral'
-})
-const costTone = computed(() => {
-  if (props.log?.cost_state === 'priced') return 'success'
-  if (props.log?.cost_state === 'unpriced') return 'warning'
-  return 'neutral'
+const formula = computed(() => {
+  const value = receipt.value
+  if (!value) return '—'
+  const parts = value.line_items.map(formatFormulaLine)
+  const prefix = value.context_threshold_tokens
+    ? `${t('monitor.logs.receipt.contextTier', {
+        value: formatLogTokenCount(value.context_threshold_tokens, locale.value),
+      })}: `
+    : ''
+  const expression = parts.length > 0 ? parts.join(' + ') : '0'
+  return `${prefix}${expression} = ${formatEstimatedCost(value.total_nano_usd, locale.value)}`
 })
 
-function statusTone(status: RequestLogStatus): 'success' | 'danger' | 'warning' | 'neutral' {
+function statusTone(status: string): 'success' | 'danger' | 'warning' | 'neutral' {
   if (status === 'success') return 'success'
   if (status === 'error') return 'danger'
   if (status === 'incomplete') return 'warning'
   return 'neutral'
 }
 
-function failureLabel(value: string): string {
-  return failureCategories.includes(value as FailureCategory)
-    ? t(`monitor.logs.failureCategory.${value}`)
-    : t('monitor.logs.failureCategory.unknown')
+function attemptTone(attempt: RequestLogAttemptDto): 'success' | 'danger' | 'warning' {
+  if (attempt.failure_category === 'ok') return 'success'
+  return attempt.will_retry ? 'warning' : 'danger'
 }
 
-function actionLabel(value: string): string {
-  return actions.includes(value as RequestLogAction)
-    ? t(`monitor.logs.action.${value}`)
-    : t('monitor.logs.action.unknown')
-}
-
-function accessKeyLabel(log: RequestLogItemDto): string {
-  if (log.access_key.deleted) {
-    return t('monitor.logs.accessKey.deleted', { id: log.access_key.id })
+function formatFormulaLine(line: RequestLogPricingLineDto): string {
+  const label = t(`monitor.logs.receipt.lines.${line.code}`)
+  const quantity = formatLogTokenCount(line.quantity, locale.value)
+  if (line.state === 'unpriced' || line.rate_nano_usd_per_million === null) {
+    return `(${label} ${quantity} × — = —)`
   }
-  if (log.access_key.name) {
-    return t('monitor.logs.accessKey.named', {
-      id: log.access_key.id,
-      name: log.access_key.name,
-    })
-  }
-  return `#${log.access_key.id}`
+  const multiplier =
+    line.multiplier.numerator === line.multiplier.denominator
+      ? ''
+      : ` × ${line.multiplier.numerator}/${line.multiplier.denominator}`
+  const amount =
+    line.amount_nano_usd === null ? '—' : formatEstimatedCost(line.amount_nano_usd, locale.value)
+  return `(${label} ${quantity} × ${formatEstimatedCost(
+    line.rate_nano_usd_per_million,
+    locale.value,
+  )}/1M${multiplier} = ${amount})`
 }
 
-function protocolLabel(log: RequestLogItemDto): string {
-  return log.protocol
-    ? t(`common.protocols.${log.protocol}`)
-    : t('monitor.logs.drawer.usage.unknown')
+function accessKeyLabel(): string {
+  const key = log.value?.access_key
+  if (!key) return '—'
+  if (key.deleted) return t('monitor.logs.accessKey.deleted', { id: key.id })
+  return key.name ? `${key.name} · #${key.id}` : `#${key.id}`
 }
 
-function modelLabel(model: string | null): string {
-  return model ?? t('monitor.logs.drawer.modelNotSpecified')
-}
-
-function usageStateLabel(log: RequestLogItemDto): string {
-  return t(`monitor.logs.drawer.usage.state.${log.usage_state}`)
-}
-
-function costStateLabel(log: RequestLogItemDto): string {
-  if (log.cost_state === 'priced' && log.usage_state === 'partial') {
-    return t('monitor.logs.drawer.usage.costState.partialPriced')
-  }
-  return t(`monitor.logs.drawer.usage.costState.${log.cost_state}`)
-}
-
-function aggregationLabel(log: RequestLogItemDto): string {
-  if (log.usage_state === 'not_applicable') {
-    return t('monitor.logs.drawer.usage.aggregation.notApplicable')
-  }
-  if (log.usage_state === 'missing') {
-    return t('monitor.logs.drawer.usage.aggregation.missing')
-  }
-  if (log.usage_state === 'partial' && log.cost_state === 'priced') {
-    return t('monitor.logs.drawer.usage.aggregation.partialPriced')
-  }
-  if (log.usage_state === 'partial') {
-    return t('monitor.logs.drawer.usage.aggregation.partialUnpriced')
-  }
-  if (log.cost_state === 'unpriced') {
-    return t('monitor.logs.drawer.usage.aggregation.completeUnpriced')
-  }
-  return t('monitor.logs.drawer.usage.aggregation.completePriced')
-}
-
-function tokenValue(log: RequestLogItemDto, value: number): string {
-  if (log.usage_state === 'not_applicable') return t('monitor.logs.drawer.usage.notApplicable')
-  if (log.usage_state === 'missing') return t('monitor.logs.drawer.usage.unknown')
-  return new Intl.NumberFormat(locale.value).format(value)
-}
-
-function estimatedCost(log: RequestLogItemDto): string {
-  if (log.cost_state === 'not_applicable') return t('monitor.logs.drawer.usage.notApplicable')
-  if (log.cost_state === 'unpriced') return t('monitor.logs.drawer.usage.unknown')
-  return formatEstimatedCost(log.estimated_cost_nano_usd, locale.value)
+function groupLabel(): string {
+  const groupID = log.value?.group_id
+  if (groupID === null || groupID === undefined) return '—'
+  const attempt = [...(log.value?.attempts ?? [])]
+    .reverse()
+    .find(({ group_id }) => group_id === groupID)
+  return attempt ? `${attempt.group_name} · #${groupID}` : `#${groupID}`
 }
 </script>
 
 <template>
   <AppDrawer
     :open="open"
+    appearance="ledger"
     :title="t('monitor.logs.drawer.title')"
     :description="t('monitor.logs.drawer.description')"
     :close-label="t('monitor.logs.drawer.close')"
     @update:open="$emit('update:open', $event)"
   >
-    <template #trigger><slot name="trigger" /></template>
+    <div v-if="query.isPending.value" class="log-detail__skeleton" role="status">
+      <span class="sr-only">{{ t('monitor.logs.drawer.loading') }}</span>
+      <SkeletonBlock height="72px" />
+      <SkeletonBlock v-for="index in 4" :key="index" height="132px" />
+    </div>
+    <QueryFeedback
+      v-else-if="query.isError.value || !log"
+      state="error"
+      :message="t('monitor.logs.drawer.loadFailed')"
+      :retry-label="t('common.retry')"
+      @retry="query.refetch()"
+    />
+    <div v-else class="log-detail">
+      <header class="log-detail__summary">
+        <StatusBadge :tone="statusTone(log.status)" size="compact">
+          {{ t(`monitor.logs.status.${log.status}`)
+          }}<template v-if="log.status !== 'success' && log.status_code">
+            · {{ log.status_code }}</template
+          >
+        </StatusBadge>
+        <span class="log-detail__time">
+          <AppDateTime :instant="log.completed_at_ms" :locale="locale" precision="second" />
+        </span>
+        <span class="log-detail__request-id">
+          <code>{{ log.request_id }}</code>
+          <CopyButton
+            :value="log.request_id"
+            :label="t('monitor.logs.drawer.copyRequestId')"
+            :success-label="t('common.copied')"
+            :failure-label="t('common.copyFailed')"
+          />
+        </span>
+      </header>
 
-    <div v-if="log" class="log-detail">
-      <section class="log-detail__section" aria-labelledby="log-detail-summary-heading">
-        <h2 id="log-detail-summary-heading">{{ t('monitor.logs.drawer.summary') }}</h2>
-        <dl class="log-detail__facts">
-          <div class="log-detail__wide">
-            <dt>{{ t('monitor.logs.drawer.requestId') }}</dt>
-            <dd class="log-detail__copy">
-              <code>{{ log.request_id }}</code>
-              <CopyButton
-                :value="log.request_id"
-                :label="t('monitor.logs.drawer.copyRequestId')"
-                :success-label="t('common.copied')"
-                :failure-label="t('common.copyFailed')"
-              />
-            </dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.completedAt') }}</dt>
-            <dd>
-              <AppDateTime :instant="log.completed_at_ms" :locale="locale" />
-            </dd>
-          </div>
+      <section class="log-detail__section">
+        <h3>{{ t('monitor.logs.drawer.summary') }}</h3>
+        <dl class="log-detail__grid">
           <div>
             <dt>{{ t('monitor.logs.drawer.status') }}</dt>
             <dd>
-              <StatusBadge :tone="statusTone(log.status)">
-                {{ t(`monitor.logs.status.${log.status}`) }}
-              </StatusBadge>
+              {{ t(`monitor.logs.status.${log.status}`)
+              }}<template v-if="log.status_code"> · {{ log.status_code }}</template>
             </dd>
           </div>
           <div>
-            <dt>{{ t('monitor.logs.drawer.protocol') }}</dt>
-            <dd>{{ protocolLabel(log) }}</dd>
+            <dt>{{ t('monitor.logs.drawer.attemptCount') }}</dt>
+            <dd>{{ log.attempt_count }}</dd>
+          </div>
+          <div v-if="log.stream">
+            <dt>{{ t('monitor.logs.drawer.firstResponse') }}</dt>
+            <dd>
+              {{ log.first_response_ms === null ? '—' : formatLogDuration(log.first_response_ms) }}
+            </dd>
           </div>
           <div>
+            <dt>{{ t('monitor.logs.drawer.duration') }}</dt>
+            <dd>{{ formatLogDuration(log.duration_ms) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.outputRate') }}</dt>
+            <dd>{{ formatLogOutputRate(log, locale) }}</dd>
+          </div>
+          <div v-if="log.error_code">
+            <dt>{{ t('monitor.logs.drawer.errorCode') }}</dt>
+            <dd>
+              <code>{{ log.error_code }}</code>
+            </dd>
+          </div>
+          <div v-if="log.error_summary" class="log-detail__wide">
+            <dt>{{ t('monitor.logs.drawer.errorSummary') }}</dt>
+            <dd>{{ log.error_summary }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="log-detail__section">
+        <h3>{{ t('monitor.logs.drawer.route') }}</h3>
+        <dl class="log-detail__grid">
+          <div>
             <dt>{{ t('monitor.logs.drawer.accessKey') }}</dt>
-            <dd>{{ accessKeyLabel(log) }}</dd>
+            <dd>{{ accessKeyLabel() }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.protocol') }}</dt>
+            <dd>{{ log.protocol }}</dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.clientModel') }}</dt>
             <dd>
-              <code>{{ modelLabel(log.client_model) }}</code>
+              <code>{{ log.client_model ?? '—' }}</code>
             </dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
             <dd>
-              <code>{{ modelLabel(log.upstream_model) }}</code>
+              <code>{{ log.upstream_model ?? '—' }}</code>
             </dd>
           </div>
           <div>
-            <dt>{{ t('monitor.logs.drawer.statusCode') }}</dt>
-            <dd>{{ log.status_code }}</dd>
+            <dt>{{ t('monitor.logs.drawer.group') }}</dt>
+            <dd>{{ groupLabel() }}</dd>
           </div>
           <div>
-            <dt>{{ t('monitor.logs.drawer.duration') }}</dt>
-            <dd>{{ log.duration_ms }} ms</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.errorCode') }}</dt>
-            <dd>
-              <code>{{ log.error_code || t('monitor.logs.none') }}</code>
-            </dd>
+            <dt>{{ t('monitor.logs.drawer.affinity') }}</dt>
+            <dd>{{ log.affinity_hit ? t('monitor.logs.yes') : t('monitor.logs.no') }}</dd>
           </div>
         </dl>
-        <div class="log-detail__summary">
-          <h3>{{ t('monitor.logs.drawer.errorSummary') }}</h3>
-          <p>{{ log.error_summary || t('monitor.logs.none') }}</p>
-        </div>
-        <RouterLink v-if="inspectorTarget" class="log-detail__inspector" :to="inspectorTarget">
-          {{ t('monitor.logs.drawer.openInspector') }}
-        </RouterLink>
       </section>
 
-      <section class="log-detail__section" aria-labelledby="log-detail-usage-heading">
-        <h2 id="log-detail-usage-heading">{{ t('monitor.logs.drawer.usage.title') }}</h2>
-        <p class="log-detail__section-description">
-          {{ t('monitor.logs.drawer.usage.description') }}
-        </p>
-        <div class="log-detail__usage-status">
-          <StatusBadge :tone="usageTone">{{ usageStateLabel(log) }}</StatusBadge>
-          <StatusBadge :tone="costTone">{{ costStateLabel(log) }}</StatusBadge>
-        </div>
-        <dl class="log-detail__facts">
+      <section class="log-detail__section">
+        <h3>{{ t('monitor.logs.drawer.usage.title') }}</h3>
+        <dl class="log-detail__grid">
           <div>
-            <dt>{{ t('monitor.logs.drawer.usage.finalGroup') }}</dt>
-            <dd>
-              {{
-                log.group_id === null
-                  ? t('monitor.logs.drawer.usage.unknown')
-                  : t('monitor.logs.drawer.usage.groupId', { id: log.group_id })
-              }}
-            </dd>
+            <dt>{{ t('monitor.logs.tokens.input') }}</dt>
+            <dd>{{ formatLogTokenCount(log.input_tokens, locale) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.tokens.output') }}</dt>
+            <dd>{{ formatLogTokenCount(log.output_tokens, locale) }}</dd>
+          </div>
+          <div v-for="row in cacheRows" :key="row.label">
+            <dt>{{ row.label }}</dt>
+            <dd>{{ formatLogTokenCount(row.value, locale) }}</dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
-            <dd>{{ estimatedCost(log) }}</dd>
+            <dd>
+              {{
+                log.cost_state === 'priced'
+                  ? formatEstimatedCost(log.estimated_cost_nano_usd, locale)
+                  : '—'
+              }}
+            </dd>
           </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.usage.tokens.uncachedInput') }}</dt>
-            <dd>{{ tokenValue(log, log.uncached_input_tokens) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.usage.tokens.cacheRead') }}</dt>
-            <dd>{{ tokenValue(log, log.cache_read_tokens) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.usage.tokens.cacheWrite5m') }}</dt>
-            <dd>{{ tokenValue(log, log.cache_write_5m_tokens) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.usage.tokens.cacheWrite1h') }}</dt>
-            <dd>{{ tokenValue(log, log.cache_write_1h_tokens) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.usage.tokens.output') }}</dt>
-            <dd>{{ tokenValue(log, log.output_tokens) }}</dd>
+          <div class="log-detail__wide">
+            <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
+            <dd class="log-detail__formula">{{ formula }}</dd>
           </div>
         </dl>
-        <InlineFeedback
-          :tone="
-            log.usage_state === 'missing' || log.cost_state === 'unpriced' ? 'warning' : 'info'
-          "
-        >
-          {{ aggregationLabel(log) }}
-        </InlineFeedback>
-        <RouterLink
-          v-if="log.cost_state === 'unpriced'"
-          class="log-detail__prices"
-          :to="modelPricesLocation()"
-        >
-          {{ t('monitor.logs.drawer.usage.openPrices') }}
-        </RouterLink>
       </section>
 
-      <section class="log-detail__section" aria-labelledby="log-detail-attempts-heading">
-        <h2 id="log-detail-attempts-heading">{{ t('monitor.logs.drawer.attempts') }}</h2>
-        <p v-if="orderedAttempts.length === 0" class="log-detail__empty">
+      <section class="log-detail__section">
+        <h3>{{ t('monitor.logs.drawer.attempts') }}</h3>
+        <p v-if="log.attempts.length === 0" class="log-detail__empty">
           {{ t('monitor.logs.drawer.noAttempts') }}
         </p>
-        <article
-          v-for="attempt in orderedAttempts"
-          v-else
-          :key="attempt.sequence"
-          class="log-attempt"
-        >
+        <article v-for="attempt in log.attempts" :key="attempt.sequence" class="log-attempt">
           <header>
-            <h3>{{ t('monitor.logs.drawer.attempt', { sequence: attempt.sequence }) }}</h3>
-            <StatusBadge :tone="attempt.committed ? 'success' : 'neutral'">
-              {{
-                attempt.committed
-                  ? t('monitor.logs.drawer.committed')
-                  : t('monitor.logs.drawer.notCommitted')
-              }}
+            <span>{{ t('monitor.logs.drawer.attempt', { sequence: attempt.sequence }) }}</span>
+            <StatusBadge :tone="attemptTone(attempt)" size="compact">
+              {{ t(`monitor.logs.failureCategory.${attempt.failure_category}`)
+              }}<template v-if="attempt.status_code"> · {{ attempt.status_code }}</template>
             </StatusBadge>
           </header>
-          <dl class="log-detail__facts">
+          <dl class="log-detail__grid">
             <div>
               <dt>{{ t('monitor.logs.drawer.group') }}</dt>
               <dd>{{ attempt.group_name }} · #{{ attempt.group_id }}</dd>
@@ -334,40 +272,32 @@ function estimatedCost(log: RequestLogItemDto): string {
             <div>
               <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
               <dd>
-                <code>{{ modelLabel(attempt.upstream_model) }}</code>
+                <code>{{ attempt.upstream_model ?? '—' }}</code>
               </dd>
             </div>
             <div>
-              <dt>{{ t('monitor.logs.drawer.statusCode') }}</dt>
-              <dd>{{ attempt.status_code }}</dd>
-            </div>
-            <div>
               <dt>{{ t('monitor.logs.drawer.duration') }}</dt>
-              <dd>{{ attempt.duration_ms }} ms</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.failureCategory') }}</dt>
-              <dd>{{ failureLabel(attempt.failure_category) }}</dd>
+              <dd>{{ formatLogDuration(attempt.duration_ms) }}</dd>
             </div>
             <div>
               <dt>{{ t('monitor.logs.drawer.action') }}</dt>
-              <dd>{{ actionLabel(attempt.action) }}</dd>
+              <dd>{{ t(`monitor.logs.action.${attempt.action}`) }}</dd>
             </div>
             <div>
               <dt>{{ t('monitor.logs.drawer.willRetry') }}</dt>
               <dd>{{ attempt.will_retry ? t('monitor.logs.yes') : t('monitor.logs.no') }}</dd>
             </div>
-            <div>
+            <div v-if="attempt.error_code">
               <dt>{{ t('monitor.logs.drawer.errorCode') }}</dt>
               <dd>
-                <code>{{ attempt.error_code || t('monitor.logs.none') }}</code>
+                <code>{{ attempt.error_code }}</code>
               </dd>
             </div>
+            <div v-if="attempt.error_summary" class="log-detail__wide">
+              <dt>{{ t('monitor.logs.drawer.errorSummary') }}</dt>
+              <dd>{{ attempt.error_summary }}</dd>
+            </div>
           </dl>
-          <div class="log-detail__summary">
-            <h4>{{ t('monitor.logs.drawer.errorSummary') }}</h4>
-            <p>{{ attempt.error_summary || t('monitor.logs.none') }}</p>
-          </div>
         </article>
       </section>
     </div>
@@ -375,51 +305,86 @@ function estimatedCost(log: RequestLogItemDto): string {
 </template>
 
 <style scoped>
-.log-detail {
+.log-detail,
+.log-detail__skeleton {
   display: grid;
   min-width: 0;
-  gap: var(--space-6);
+}
+
+.log-detail__skeleton {
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.log-detail__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 16px 0;
+}
+
+.log-detail__time {
+  margin-left: auto;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+}
+
+.log-detail__request-id {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.log-detail__request-id code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-detail__request-id :deep(.copy-control button) {
+  width: 28px;
+  height: 28px;
+  border-color: transparent;
 }
 
 .log-detail__section {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 16px 0;
 }
 
-.log-detail__section h2,
-.log-detail__section h3,
-.log-detail__section h4,
-.log-detail__section p {
-  margin: 0;
+.log-detail__section h3 {
+  margin: 0 0 12px;
+  font-size: var(--text-sm);
+  font-weight: 650;
 }
 
-.log-detail__section-description {
-  color: var(--color-text-muted);
-}
-
-.log-detail__section h2 {
-  font-size: 1rem;
-}
-
-.log-detail__facts {
+.log-detail__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: 12px 18px;
   margin: 0;
 }
 
-.log-detail__facts > div {
+.log-detail__grid > div {
   min-width: 0;
 }
 
-.log-detail__facts dt {
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
+.log-detail__grid dt {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 
-.log-detail__facts dd {
-  margin: var(--space-1) 0 0;
+.log-detail__grid dd {
+  margin: 3px 0 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 
@@ -427,82 +392,46 @@ function estimatedCost(log: RequestLogItemDto): string {
   grid-column: 1 / -1;
 }
 
-.log-detail__copy {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.log-detail code,
-.log-detail time {
+.log-detail__formula {
   font-family: var(--font-mono);
+  line-height: 1.6;
 }
 
-.log-detail__summary,
-.log-attempt {
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: var(--space-3);
-}
-
-.log-detail__summary {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.log-detail__summary p {
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.log-detail__inspector {
-  display: inline-flex;
-  width: fit-content;
-  min-width: 0;
-  min-height: 44px;
-  align-items: center;
-  color: var(--color-action);
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
-.log-detail__usage-status {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.log-detail__prices {
-  display: inline-flex;
-  width: fit-content;
-  min-height: 44px;
-  align-items: center;
-  color: var(--color-action);
-  font-weight: 650;
+.log-attempt + .log-attempt {
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .log-attempt {
-  display: grid;
-  gap: var(--space-3);
+  padding: 13px 0;
 }
 
 .log-attempt > header {
   display: flex;
-  min-width: 0;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--color-text);
+  font-size: var(--text-sm);
 }
 
 .log-detail__empty {
-  color: var(--color-text-muted);
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.log-detail :deep(.status-badge) {
+  font-weight: 400;
+}
+
+@media (max-width: 520px) {
+  .log-detail__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log-detail__wide {
+    grid-column: auto;
+  }
 }
 </style>

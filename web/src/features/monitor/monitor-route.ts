@@ -1,9 +1,9 @@
 import type { LocationQueryRaw } from 'vue-router'
 
 import { enabledDataProtocols } from '@/api/control/protocols'
-import type { RequestLogStatus } from '@/app/resources/request-logs'
 import type { UsageFilters } from '@/app/resources/usage'
 
+import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
 import {
   normalizeUsageGroupID,
   normalizeUsageModel,
@@ -11,13 +11,6 @@ import {
 } from './usage-filters'
 
 export type MonitorTab = 'health' | 'logs' | 'inspector' | 'usage'
-
-export const requestLogStatuses = [
-  'success',
-  'error',
-  'incomplete',
-  'canceled',
-] as const satisfies readonly RequestLogStatus[]
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 export function normalizeMonitorTab(raw: unknown): MonitorTab {
@@ -75,27 +68,9 @@ function normalizeInspectorQuery(
 }
 
 function normalizeLogsQuery(query: Record<string, unknown>, tab: MonitorTab): LocationQueryRaw {
-  const normalized: LocationQueryRaw = { tab }
-  const fromMS = scalarEpochMilliseconds(query.from_ms)
-  const toMS = scalarEpochMilliseconds(query.to_ms)
-
-  if (fromMS === undefined || toMS === undefined || fromMS < toMS) {
-    if (fromMS !== undefined) normalized.from_ms = fromMS
-    if (toMS !== undefined) normalized.to_ms = toMS
-  }
-
-  const groupID = scalarPositiveID(query.group_id)
-  const model = scalarText(query.model)
-  const accessKeyID = scalarPositiveID(query.access_key_id)
-  const status = scalarEnum(query.status, requestLogStatuses)
-  const requestID = scalarUUIDv4(query.request_id)
+  const normalized = serializeAppliedLogFilters(parseAppliedLogFilters(query))
+  normalized.tab = tab
   const selectedRequestID = parseSelectedRequestID(query)
-
-  if (groupID !== undefined) normalized.group_id = groupID
-  if (model !== undefined) normalized.model = model
-  if (accessKeyID !== undefined) normalized.access_key_id = accessKeyID
-  if (status !== undefined) normalized.status = status
-  if (requestID !== undefined) normalized.request_id = requestID
   if (selectedRequestID !== undefined) normalized.selected_request_id = selectedRequestID
   return normalized
 }
@@ -121,10 +96,4 @@ function scalarEnum<T extends string>(raw: unknown, values: readonly T[]): T | u
 
 function scalarUUIDv4(raw: unknown): string | undefined {
   return typeof raw === 'string' && requestIDPattern.test(raw) ? raw : undefined
-}
-
-function scalarEpochMilliseconds(raw: unknown): string | undefined {
-  if (typeof raw !== 'string' || !/^(?:0|[1-9]\d*)$/.test(raw)) return undefined
-  const value = Number(raw)
-  return Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined
 }

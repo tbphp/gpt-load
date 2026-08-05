@@ -40,7 +40,6 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 		UsageState:           string(usage.StateComplete),
 		CostState:            string(pricing.CostStatePriced),
 		PricingCompleteness:  string(pricing.CompletenessComplete),
-		Attempts:             models.JSON(`[]`),
 	}}
 
 	records, err := decodeRequestLogRows(rows)
@@ -61,28 +60,26 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 	}
 }
 
-func TestDecodeRequestLogRowsIgnoresHistoricalKeyMask(t *testing.T) {
-	rows := []models.RequestLog{{
-		ID:                  "00000000-0000-4000-8000-000000000605",
-		CompletedAtMS:       1_785_110_400_000,
-		Protocol:            string(protocol.OpenAICompletions),
-		Status:              string(telemetry.RequestStatusSuccess),
-		UsageState:          string(usage.StateNotApplicable),
-		CostState:           string(pricing.CostStateNotApplicable),
-		PricingCompleteness: string(pricing.CompletenessNotApplicable),
-		Attempts: models.JSON(
-			`[{"sequence":1,"group_id":7,"group_name":"Primary","key_id":11,"key_mask":"prov****safe","upstream_model":"model","status_code":200,"duration_ms":10,"failure_category":"ok","action":"terminate","will_retry":false,"error_code":"","error_summary":"","committed":true}]`,
-		),
-	}}
-
-	records, err := decodeRequestLogRows(rows)
+func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
+	attempts, err := decodeAttemptRows([]models.RequestLogAttempt{{
+		RequestID:       "00000000-0000-4000-8000-000000000605",
+		Sequence:        1,
+		GroupID:         7,
+		GroupName:       "Primary",
+		KeyID:           11,
+		UpstreamModel:   "model",
+		StatusCode:      200,
+		DurationMs:      10,
+		FailureCategory: string(telemetry.FailureCategoryOK),
+		Action:          string(telemetry.ActionTerminate),
+	}})
 	if err != nil {
-		t.Fatalf("decodeRequestLogRows() error = %v", err)
+		t.Fatalf("decodeAttemptRows() error = %v", err)
 	}
-	if len(records) != 1 || len(records[0].Attempts) != 1 {
-		t.Fatalf("records = %#v, want one historical attempt", records)
+	if len(attempts) != 1 {
+		t.Fatalf("attempts = %#v, want one attempt", attempts)
 	}
-	encoded, err := json.Marshal(records[0].Attempts[0])
+	encoded, err := json.Marshal(attempts[0])
 	if err != nil {
 		t.Fatalf("marshal decoded attempt: %v", err)
 	}
@@ -102,7 +99,6 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 		UsageState:          string(usage.StateComplete),
 		CostState:           string(pricing.CostStatePriced),
 		PricingCompleteness: string(pricing.CompletenessComplete),
-		Attempts:            models.JSON(`[]`),
 	}
 	tests := []struct {
 		name   string
@@ -190,7 +186,6 @@ func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
 				CostState:            string(test.costState),
 				PricingCompleteness:  string(test.completeness),
 				EstimatedCostNanoUSD: test.cost,
-				Attempts:             models.JSON(`[]`),
 			}
 			records, err := decodeRequestLogRows([]models.RequestLog{row})
 			if err != nil {
@@ -263,8 +258,8 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 	to := from.Add(time.Hour)
 	targetID := "00000000-0000-4000-8000-000000000201"
 	integerAttempts := []Attempt{
-		{Sequence: 1, GroupID: 12, GroupName: "retry-first", WillRetry: true},
-		{Sequence: 2, GroupID: 13, GroupName: "retry-second"},
+		{Sequence: 1, GroupID: 12, GroupName: "retry-first", UpstreamModel: "different-upstream-model", WillRetry: true},
+		{Sequence: 2, GroupID: 13, GroupName: "retry-second", UpstreamModel: "different-upstream-model"},
 	}
 	target := requestLogQueryRow(targetID, from, 71, "client-model", integerAttempts)
 	target.UpstreamModel = "different-upstream-model"
@@ -299,7 +294,6 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		nil,
 	)
 	stringGroup.Status = string(telemetry.RequestStatusError)
-	stringGroup.Attempts = models.JSON(`[{"group_id":"12"}]`)
 	createRequestLogQueryRow(t, db, stringGroup)
 
 	realGroup := requestLogQueryRow(
@@ -310,7 +304,6 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		nil,
 	)
 	realGroup.Status = string(telemetry.RequestStatusError)
-	realGroup.Attempts = models.JSON(`[{"group_id":12.0}]`)
 	createRequestLogQueryRow(t, db, realGroup)
 
 	upstreamOnly := requestLogQueryRow(
@@ -351,7 +344,6 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		nil,
 	)
 	zeroAttempts.Status = string(telemetry.RequestStatusError)
-	zeroAttempts.Attempts = nil
 	createRequestLogQueryRow(t, db, zeroAttempts)
 
 	groupID := uint(12)
@@ -404,8 +396,8 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 	db := openRequestLogQueryDB(t)
 	event := testEvent("00000000-0000-4000-8000-000000000210")
 	event.Attempts = []telemetry.Attempt{
-		{Sequence: 1, GroupID: 12, KeyID: 1, UpstreamModel: "retry-model", WillRetry: true},
-		{Sequence: 2, GroupID: 13, KeyID: 2, UpstreamModel: "final-model"},
+		{Sequence: 1, GroupID: 12, GroupName: "retry", KeyID: 1, UpstreamModel: "retry-model", FailureCategory: telemetry.FailureCategoryRateLimited, Action: telemetry.ActionRetry, WillRetry: true},
+		{Sequence: 2, GroupID: 13, GroupName: "final", KeyID: 2, UpstreamModel: "final-model", FailureCategory: telemetry.FailureCategoryOK, Action: telemetry.ActionTerminate},
 	}
 	event.UpstreamModel = "final-model"
 	event.Usage = telemetry.UsageObservation{
@@ -422,9 +414,7 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 	if row.GroupID != 13 {
 		t.Fatalf("top-level GroupID = %d, want final attribution 13", row.GroupID)
 	}
-	if err := db.Create(&row).Error; err != nil {
-		t.Fatalf("create attributed RequestLog: %v", err)
-	}
+	createRequestLogQueryRow(t, db, row)
 
 	service := newRequestLogTestService(db)
 	for _, groupID := range []uint{12, 13} {
@@ -438,6 +428,86 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 		if got, want := requestIDs(page.Items), []string{event.RequestID}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("List(GroupID=%d) IDs = %v, want %v", groupID, got, want)
 		}
+	}
+}
+
+func TestServiceListAttemptFiltersMustMatchTheSameAttempt(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	row := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000211",
+		time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC),
+		71,
+		"client-model",
+		[]Attempt{
+			{
+				Sequence: 1, GroupID: 12, GroupName: "retry", KeyID: 1,
+				StatusCode: 429, FailureCategory: telemetry.FailureCategoryRateLimited,
+				Action: telemetry.ActionRetry, WillRetry: true,
+			},
+			{
+				Sequence: 2, GroupID: 13, GroupName: "final", KeyID: 2,
+				StatusCode: 200, FailureCategory: telemetry.FailureCategoryOK,
+				Action: telemetry.ActionTerminate,
+			},
+		},
+	)
+	createRequestLogQueryRow(t, db, row)
+	service := newRequestLogTestService(db)
+	groupID := uint(12)
+	statusOK := 200
+
+	page, err := service.List(context.Background(), ListQuery{
+		GroupID: &groupID, AttemptStatusCode: &statusOK, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("List() mismatched attempt filters error = %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("mismatched attempt filters returned %#v, want empty", page.Items)
+	}
+
+	statusRateLimited := 429
+	page, err = service.List(context.Background(), ListQuery{
+		GroupID: &groupID, AttemptStatusCode: &statusRateLimited,
+		FailureCategory: telemetry.FailureCategoryRateLimited, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("List() matching attempt filters error = %v", err)
+	}
+	if got, want := requestIDs(page.Items), []string{row.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("matching attempt filters IDs = %v, want %v", got, want)
+	}
+}
+
+func TestServiceListZeroRetryRangeIncludesRequestsWithoutUpstreamAttempts(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	base := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	zero := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000212", base, 71, "zero", nil,
+	)
+	single := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000213", base.Add(time.Second), 71, "single",
+		[]Attempt{{Sequence: 1, GroupID: 12, GroupName: "single", KeyID: 1}},
+	)
+	retried := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000214", base.Add(2*time.Second), 71, "retried",
+		[]Attempt{
+			{Sequence: 1, GroupID: 12, GroupName: "retry", KeyID: 1, WillRetry: true},
+			{Sequence: 2, GroupID: 12, GroupName: "final", KeyID: 2},
+		},
+	)
+	for _, row := range []models.RequestLog{zero, single, retried} {
+		createRequestLogQueryRow(t, db, row)
+	}
+	minimum, maximum := 0, 0
+	page, err := newRequestLogTestService(db).List(context.Background(), ListQuery{
+		RetryCountMin: &minimum, RetryCountMax: &maximum, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("List() zero retry range error = %v", err)
+	}
+	if got, want := requestIDs(page.Items), []string{single.ID, zero.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("zero retry range IDs = %v, want %v", got, want)
 	}
 }
 
@@ -515,7 +585,7 @@ func TestServiceListBatchLoadsCurrentAccessKeyNames(t *testing.T) {
 	}
 }
 
-func TestServiceListNormalizesNullAttemptsToEmptyArray(t *testing.T) {
+func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	row := requestLogQueryRow(
 		"00000000-0000-4000-8000-000000000401",
@@ -524,23 +594,34 @@ func TestServiceListNormalizesNullAttemptsToEmptyArray(t *testing.T) {
 		"zero-attempt",
 		nil,
 	)
-	row.Attempts = nil
+	row.AttemptRows = []models.RequestLogAttempt{{
+		RequestID:       row.ID,
+		Sequence:        1,
+		CompletedAtMS:   row.CompletedAtMS,
+		GroupID:         7,
+		GroupName:       "Primary",
+		KeyID:           9,
+		StatusCode:      200,
+		DurationMs:      10,
+		FailureCategory: string(telemetry.FailureCategoryOK),
+		Action:          string(telemetry.ActionTerminate),
+	}}
+	row.AttemptCount = 1
 	createRequestLogQueryRow(t, db, row)
 
 	page, err := newRequestLogTestService(db).List(context.Background(), ListQuery{Limit: 50})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(page.Items) != 1 || page.Items[0].Attempts == nil ||
-		len(page.Items[0].Attempts) != 0 {
-		t.Fatalf("Attempts = %#v, want non-nil empty slice", page.Items)
+	if len(page.Items) != 1 || page.Items[0].Attempts != nil || page.Items[0].AttemptCount != 1 {
+		t.Fatalf("list item = %#v, want lightweight item without attempts", page.Items)
 	}
-	encoded, err := json.Marshal(page.Items[0])
+	detail, err := newRequestLogTestService(db).Get(context.Background(), row.ID)
 	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
+		t.Fatalf("Get() error = %v", err)
 	}
-	if string(encoded) == "" || !containsJSONFragment(encoded, `"Attempts":[]`) {
-		t.Fatalf("encoded Record = %s, want empty attempts array", encoded)
+	if len(detail.Attempts) != 1 || detail.Attempts[0].GroupName != "Primary" {
+		t.Fatalf("detail attempts = %#v", detail.Attempts)
 	}
 }
 
@@ -572,9 +653,44 @@ func requestLogQueryRow(
 	clientModel string,
 	attempts []Attempt,
 ) models.RequestLog {
-	encodedAttempts, err := json.Marshal(attempts)
-	if err != nil {
-		panic(err)
+	attemptRows := make([]models.RequestLogAttempt, 0, len(attempts))
+	for index, attempt := range attempts {
+		groupID := attempt.GroupID
+		if groupID == 0 {
+			groupID = 1
+		}
+		keyID := attempt.KeyID
+		if keyID == 0 {
+			keyID = 1
+		}
+		sequence := attempt.Sequence
+		if sequence == 0 {
+			sequence = index + 1
+		}
+		failureCategory := attempt.FailureCategory
+		if failureCategory == "" {
+			failureCategory = telemetry.FailureCategoryOK
+		}
+		action := attempt.Action
+		if action == "" {
+			action = telemetry.ActionTerminate
+		}
+		attemptRows = append(attemptRows, models.RequestLogAttempt{
+			RequestID:       id,
+			Sequence:        sequence,
+			CompletedAtMS:   completedAt.UTC().UnixMilli(),
+			GroupID:         groupID,
+			GroupName:       attempt.GroupName,
+			KeyID:           keyID,
+			UpstreamModel:   attempt.UpstreamModel,
+			StatusCode:      attempt.StatusCode,
+			DurationMs:      attempt.DurationMs,
+			FailureCategory: string(failureCategory),
+			Action:          string(action),
+			WillRetry:       attempt.WillRetry,
+			ErrorCode:       attempt.ErrorCode,
+			ErrorSummary:    attempt.ErrorSummary,
+		})
 	}
 	return models.RequestLog{
 		ID:            id,
@@ -586,9 +702,10 @@ func requestLogQueryRow(
 		Status:        string(telemetry.RequestStatusSuccess),
 		StatusCode:    200,
 		DurationMs:    25,
+		AttemptCount:  len(attemptRows),
 		UsageState:    string(usage.StateNotApplicable),
 		CostState:     string(pricing.CostStateNotApplicable),
-		Attempts:      models.JSON(encodedAttempts),
+		AttemptRows:   attemptRows,
 	}
 }
 
@@ -596,6 +713,11 @@ func createRequestLogQueryRow(t *testing.T, db *gorm.DB, row models.RequestLog) 
 	t.Helper()
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatalf("create RequestLog %s: %v", row.ID, err)
+	}
+	if len(row.AttemptRows) > 0 {
+		if err := db.Create(&row.AttemptRows).Error; err != nil {
+			t.Fatalf("create RequestLog attempts %s: %v", row.ID, err)
+		}
 	}
 }
 

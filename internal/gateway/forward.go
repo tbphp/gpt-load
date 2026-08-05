@@ -37,6 +37,7 @@ type ForwardInput struct {
 	ExternalModel   string
 	UpstreamModelID string
 	OnStreamReady   func()
+	OnFirstResponse func()
 }
 
 type UpstreamResult struct {
@@ -424,6 +425,9 @@ func (forwarder *Forwarder) ForwardStream(
 		result.Err = err
 		result.Stream = observeStreamTermination(ctx, err, streamEvents)
 		return result
+	}
+	if input.OnFirstResponse != nil {
+		input.OnFirstResponse()
 	}
 	if rewrittenStream.consumeReadTerminalBoundary() {
 		streamEvents.markTerminalForwarded()

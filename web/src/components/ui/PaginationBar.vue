@@ -4,15 +4,30 @@ import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
 
-const props = defineProps<{
-  page: number
-  pageSize: number
-  totalItems: number
-  totalPages: number
-  pageSizes?: readonly (20 | 50 | 100)[]
-  showPageSize?: boolean
-  appearance?: 'default' | 'detail'
-}>()
+const props = withDefaults(
+  defineProps<{
+    page: number
+    pageSize?: number
+    totalItems?: number
+    totalPages?: number
+    pageSizes?: readonly (20 | 50 | 100)[]
+    showPageSize?: boolean
+    appearance?: 'default' | 'detail'
+    cursor?: boolean
+    hasPrevious?: boolean
+    hasNext?: boolean
+  }>(),
+  {
+    pageSize: 20,
+    totalItems: 0,
+    totalPages: 0,
+    pageSizes: () => [20, 50, 100] as const,
+    appearance: 'default',
+    cursor: false,
+    hasPrevious: false,
+    hasNext: false,
+  },
+)
 
 const emit = defineEmits<{
   previous: []
@@ -29,7 +44,7 @@ const from = computed(() => (hasCurrentPage.value ? (props.page - 1) * props.pag
 const to = computed(() =>
   hasCurrentPage.value ? Math.min(props.page * props.pageSize, props.totalItems) : 0,
 )
-const pageSizes = computed(() => props.pageSizes ?? ([20, 50, 100] as const))
+const pageSizes = computed(() => props.pageSizes)
 
 function updatePageSize(event: Event): void {
   const value = Number((event.target as HTMLSelectElement).value)
@@ -40,13 +55,13 @@ function updatePageSize(event: Event): void {
 <template>
   <nav
     class="pagination-bar"
-    :class="`pagination-bar--${appearance ?? 'default'}`"
+    :class="[`pagination-bar--${appearance}`, { 'pagination-bar--cursor': cursor }]"
     :aria-label="t('common.pagination.label')"
   >
-    <span class="pagination-bar__range" aria-hidden="true">
+    <span v-if="!cursor" class="pagination-bar__range" aria-hidden="true">
       {{ t('common.pagination.total', { total: totalItems }) }}
     </span>
-    <span class="sr-only" aria-live="polite">
+    <span v-if="!cursor" class="sr-only" aria-live="polite">
       {{ t('common.pagination.range', { from, to, total: totalItems }) }}
     </span>
     <span
@@ -65,17 +80,19 @@ function updatePageSize(event: Event): void {
         variant="secondary"
         size="compact"
         :aria-label="t('common.pagination.previous')"
-        :disabled="page <= 1"
+        :disabled="cursor ? !hasPrevious : page <= 1"
         @click="$emit('previous')"
       >
         ←
       </AppButton>
-      <span class="pagination-bar__page">{{ page }} / {{ totalPages }}</span>
+      <span class="pagination-bar__page">
+        {{ cursor ? page : `${page} / ${totalPages}` }}
+      </span>
       <AppButton
         variant="secondary"
         size="compact"
         :aria-label="t('common.pagination.next')"
-        :disabled="totalPages === 0 || page >= totalPages"
+        :disabled="cursor ? !hasNext : totalPages === 0 || page >= totalPages"
         @click="$emit('next')"
       >
         →
@@ -106,6 +123,10 @@ function updatePageSize(event: Event): void {
 .pagination-bar--detail {
   border-top: 0;
   padding-top: 13px;
+}
+
+.pagination-bar--cursor {
+  justify-content: flex-end;
 }
 
 .pagination-bar__page {

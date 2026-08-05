@@ -17,6 +17,11 @@ interface SelectOption {
   label: string
 }
 
+// Reka Select reserves an empty string for clearing the selection. Keep the
+// existing AppSelect contract for "any" options while using a safe internal
+// value for the primitive component.
+const emptyOptionValue = '__app_select_empty__'
+
 defineOptions({ inheritAttrs: false })
 
 const props = withDefaults(
@@ -37,6 +42,14 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const attrs = useAttrs()
+const normalizedOptions = computed(() =>
+  props.options.map((option) =>
+    option.value === '' ? { ...option, value: emptyOptionValue } : option,
+  ),
+)
+const normalizedModelValue = computed(() =>
+  props.modelValue === '' ? emptyOptionValue : props.modelValue,
+)
 const selectedLabel = computed(
   () => props.options.find((option) => option.value === props.modelValue)?.label ?? '',
 )
@@ -44,9 +57,13 @@ const selectedLabel = computed(
 
 <template>
   <SelectRoot
-    :model-value="modelValue"
+    :model-value="normalizedModelValue"
     :disabled="props.disabled"
-    @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
+    @update:model-value="
+      (value) =>
+        typeof value === 'string' &&
+        emit('update:modelValue', value === emptyOptionValue ? '' : value)
+    "
   >
     <SelectTrigger
       v-bind="attrs"
@@ -61,11 +78,11 @@ const selectedLabel = computed(
     <SelectPortal>
       <SelectContent class="app-select__content" position="popper" :side-offset="6">
         <SelectItem
-          v-for="option in options"
-          :key="option.value"
+          v-for="(option, index) in normalizedOptions"
+          :key="`${props.options[index]?.value ?? option.value}:${index}`"
           class="app-select__item"
           :value="option.value"
-          :data-value="option.value"
+          :data-value="props.options[index]?.value ?? option.value"
         >
           <SelectItemIndicator class="app-select__indicator">
             <Check :size="15" aria-hidden="true" />

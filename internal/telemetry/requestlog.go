@@ -63,6 +63,7 @@ type PricingObservation struct {
 	CostState            string
 	PricingCompleteness  string
 	EstimatedCostNanoUSD int64
+	ReceiptJSON          string
 }
 
 type UsageObservation struct {
@@ -74,20 +75,22 @@ type UsageObservation struct {
 }
 
 type RequestEvent struct {
-	RequestID     string
-	CompletedAt   time.Time
-	AccessKeyID   uint
-	Protocol      protocol.Protocol
-	ClientModel   string
-	UpstreamModel string
-	Status        RequestStatus
-	StatusCode    int
-	ErrorCode     string
-	ErrorSummary  string
-	DurationMs    int64
-	AffinityHit   bool
-	Attempts      []Attempt
-	Usage         UsageObservation
+	RequestID       string
+	CompletedAt     time.Time
+	AccessKeyID     uint
+	Protocol        protocol.Protocol
+	ClientModel     string
+	UpstreamModel   string
+	Status          RequestStatus
+	StatusCode      int
+	ErrorCode       string
+	ErrorSummary    string
+	Stream          bool
+	FirstResponseMs *int64
+	DurationMs      int64
+	AffinityHit     bool
+	Attempts        []Attempt
+	Usage           UsageObservation
 }
 
 type RequestLogSink interface {

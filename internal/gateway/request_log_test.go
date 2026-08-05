@@ -33,6 +33,40 @@ import (
 	"gpt-load/internal/usage"
 )
 
+func TestRequestRecorderCapturesFirstResponseAfterDownstreamCommit(t *testing.T) {
+	startedAt := time.Date(2026, time.August, 5, 8, 0, 0, 0, time.UTC)
+	sink := &recordingRequestLogSink{}
+	times := []time.Time{startedAt.Add(340 * time.Millisecond), startedAt.Add(2 * time.Second)}
+	now := func() time.Time {
+		value := times[0]
+		times = times[1:]
+		return value
+	}
+	recorder := newRequestRecorder(
+		sink,
+		"00000000-0000-4000-8000-000000000001",
+		startedAt,
+		1,
+		protocol.OpenAICompletions,
+		now,
+	)
+	recorder.setStream(true)
+	recorder.recordFirstResponse()
+	recorder.recordFirstResponse()
+	recorder.emit()
+
+	events := sink.snapshot()
+	if len(events) != 1 || !events[0].Stream || events[0].FirstResponseMs == nil ||
+		*events[0].FirstResponseMs != 340 || events[0].DurationMs != 2_000 {
+		t.Fatalf("captured timing = %#v", events)
+	}
+}
+
+func withoutPricingReceipt(value telemetry.PricingObservation) telemetry.PricingObservation {
+	value.ReceiptJSON = ""
+	return value
+}
+
 const fixedRequestID = "11111111-2222-4333-8444-555555555555"
 
 type rpmLimiterCall struct {
@@ -223,7 +257,7 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 		len(event.Attempts) != 1 ||
 		event.Attempts[0].UpstreamModel != "" ||
 		event.Usage.Result.State != usage.StateNotApplicable ||
-		event.Usage.Pricing != (telemetry.PricingObservation{
+		withoutPricingReceipt(event.Usage.Pricing) != (telemetry.PricingObservation{
 			CostState: "not_applicable", PricingCompleteness: "not_applicable",
 		}) {
 		t.Fatalf("event = %#v", event)
@@ -265,7 +299,7 @@ func TestHandlerBillableResponsesUsageWithoutModelIsUnpriced(t *testing.T) {
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	events := sink.snapshot()
-	if len(events) != 1 || events[0].Usage.Pricing != (telemetry.PricingObservation{
+	if len(events) != 1 || withoutPricingReceipt(events[0].Usage.Pricing) != (telemetry.PricingObservation{
 		CostState: "unpriced", PricingCompleteness: "unavailable",
 	}) {
 		t.Fatalf("events = %#v", events)
@@ -410,7 +444,7 @@ func TestHandlerFreezesAttemptPriceBeforeForward(t *testing.T) {
 		PricingCompleteness:  string(pricing.CompletenessComplete),
 		EstimatedCostNanoUSD: 2_000_000_000,
 	}
-	if events[0].Usage.Pricing != want {
+	if withoutPricingReceipt(events[0].Usage.Pricing) != want {
 		t.Fatalf("frozen pricing = %#v, want %#v", events[0].Usage.Pricing, want)
 	}
 	if provider.LoadCount() != 1 {
@@ -445,7 +479,7 @@ func TestRequestRecorderPreservesKnownCostWhenUsedOutputPriceIsUnavailable(t *te
 		},
 	}, health.Result{}, model, index)
 
-	if got := recorder.usage.Pricing; got != (telemetry.PricingObservation{
+	if got := withoutPricingReceipt(recorder.usage.Pricing); got != (telemetry.PricingObservation{
 		PriceScopeKey: "group:1", UpstreamModel: model,
 		CostState: "priced", PricingCompleteness: "partial",
 		EstimatedCostNanoUSD: 2_000_000_000,
@@ -487,7 +521,7 @@ func TestRequestRecorderMergesRequestPricingDiagnosticsIntoKnownCost(t *testing.
 	if !recorder.usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
 		t.Fatalf("usage diagnostics = %#v, want unsupported billable detail", recorder.usage.Result.Diagnostics)
 	}
-	if got := recorder.usage.Pricing; got != (telemetry.PricingObservation{
+	if got := withoutPricingReceipt(recorder.usage.Pricing); got != (telemetry.PricingObservation{
 		PriceScopeKey: "group:1", UpstreamModel: model,
 		CostState: "priced", PricingCompleteness: "partial",
 		EstimatedCostNanoUSD: 4_000_000_000,
@@ -541,7 +575,7 @@ func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *
 
 	events := sink.snapshot()
 	if len(events) != 1 || events[0].ClientModel != "client-alias" ||
-		events[0].UpstreamModel != model || events[0].Usage.Pricing != (telemetry.PricingObservation{
+		events[0].UpstreamModel != model || withoutPricingReceipt(events[0].Usage.Pricing) != (telemetry.PricingObservation{
 		PriceScopeKey: "provider:openai", UpstreamModel: model,
 		CostState: "priced", PricingCompleteness: "complete",
 		EstimatedCostNanoUSD: 3_000_000_000,
@@ -580,7 +614,7 @@ func TestHandlerMarksExplicitUnsupportedPricingModePartial(t *testing.T) {
 		t.Fatalf("events = %#v, want one", events)
 	}
 	if !events[0].Usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) ||
-		events[0].Usage.Pricing != (telemetry.PricingObservation{
+		withoutPricingReceipt(events[0].Usage.Pricing) != (telemetry.PricingObservation{
 			PriceScopeKey: "group:1", UpstreamModel: "gpt-4o",
 			CostState: "priced", PricingCompleteness: "partial",
 			EstimatedCostNanoUSD: 4_000_000_000,
@@ -785,7 +819,7 @@ func TestHandlerRetryExhaustionUsesProviderErrorAttemptAndItsFrozenPrice(t *test
 	}
 	event := events[0]
 	if event.Usage.GroupID != 1 || event.Usage.KeyID != 1 ||
-		event.Usage.AttemptSequence != 1 || event.Usage.Pricing != (telemetry.PricingObservation{
+		event.Usage.AttemptSequence != 1 || withoutPricingReceipt(event.Usage.Pricing) != (telemetry.PricingObservation{
 		PriceScopeKey:        "group:1",
 		UpstreamModel:        "gpt-4o",
 		CostState:            string(pricing.CostStatePriced),

@@ -170,12 +170,12 @@ func TestAccessKeyCollectionHTTPReturnsLatestRequestTimeAndOmitsCollectionScope(
 		{
 			ID: "00000000-0000-4000-8000-000000000001", CompletedAtMS: 1_700_000_000_100,
 			AccessKeyID: used.ID, Protocol: "openai-completions", ClientModel: "gpt-4.1",
-			UpstreamModel: "gpt-4.1", Status: "success", Attempts: models.JSON(`[]`),
+			UpstreamModel: "gpt-4.1", Status: "success",
 		},
 		{
 			ID: "00000000-0000-4000-8000-000000000002", CompletedAtMS: 1_700_000_000_900,
 			AccessKeyID: used.ID, Protocol: "anthropic", ClientModel: "claude-sonnet",
-			UpstreamModel: "claude-sonnet", Status: "error", Attempts: models.JSON(`[]`),
+			UpstreamModel: "claude-sonnet", Status: "error",
 		},
 	}).Error; err != nil {
 		t.Fatalf("create request logs: %v", err)

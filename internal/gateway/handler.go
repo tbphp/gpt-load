@@ -378,6 +378,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		allowedKeyRefs[ref.ID] = ref
 	}
 	recorder.setClientModel(model)
+	recorder.setStream(metadata.Stream)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
 	recorder.setUsageDiagnostics(metadata.UsageDiagnostics)
 
@@ -550,6 +551,9 @@ func (handler *Handler) executeAttempts(
 			UpstreamModelID: optionalModelValue(selection.UpstreamModelID),
 			OnStreamReady: func() {
 				handler.recordSuccess(selectedKeyID, handler.now())
+			},
+			OnFirstResponse: func() {
+				recorder.recordFirstResponse()
 			},
 		}
 		if recorder != nil {

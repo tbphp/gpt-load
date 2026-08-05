@@ -20,7 +20,7 @@ import (
 )
 
 // CurrentSchemaVersion identifies the SQLite schema supported by this binary.
-const CurrentSchemaVersion uint = 4
+const CurrentSchemaVersion uint = 5
 
 const sqliteBusyTimeoutMS = 5000
 
@@ -121,19 +121,19 @@ func AutoMigrate(db *gorm.DB) error {
 			}
 		}
 		return db.Transaction(func(tx *gorm.DB) error {
-			if err := createSchemaV4Tables(tx); err != nil {
+			if err := createSchemaV5Tables(tx); err != nil {
 				return err
 			}
-			if err := createSchemaV4InfoTable(tx); err != nil {
+			if err := createSchemaV5InfoTable(tx); err != nil {
 				return err
 			}
-			if err := createSchemaV4Indexes(tx); err != nil {
+			if err := createSchemaV5Indexes(tx); err != nil {
 				return err
 			}
 			if err := tx.Create(&schemaInfo{Version: CurrentSchemaVersion}).Error; err != nil {
 				return fmt.Errorf("initialize schema_info: %w", err)
 			}
-			return validateSchemaV4(tx)
+			return validateSchemaV5(tx)
 		})
 	}
 
@@ -148,7 +148,7 @@ func AutoMigrate(db *gorm.DB) error {
 			CurrentSchemaVersion,
 		)
 	}
-	return validateSchemaV4(db)
+	return validateSchemaV5(db)
 }
 
 func readSchemaVersion(db *gorm.DB) (uint, error) {

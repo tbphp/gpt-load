@@ -197,12 +197,8 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 	if len(rows) != 1 || rows[0].ID != "deep-copy" {
 		t.Fatalf("written rows = %+v, want original request", rows)
 	}
-	var attempts []Attempt
-	if err := json.Unmarshal(rows[0].Attempts, &attempts); err != nil {
-		t.Fatalf("unmarshal attempts: %v", err)
-	}
-	if len(attempts) != 1 || attempts[0].GroupName != "primary" {
-		t.Fatalf("written attempts = %+v, want original deep copy", attempts)
+	if len(rows[0].AttemptRows) != 1 || rows[0].AttemptRows[0].GroupName != "primary" {
+		t.Fatalf("written attempts = %+v, want original deep copy", rows[0].AttemptRows)
 	}
 
 	if err := service.Stop(context.Background()); err != nil {
