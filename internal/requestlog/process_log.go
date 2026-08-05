@@ -56,7 +56,7 @@ func projectProcessLog(
 		fields["group"] = groupID
 	}
 	if keyID > 0 {
-		fields["key"] = keyID
+		fields["kid"] = keyID
 	}
 	if attemptCount := len(event.Attempts); attemptCount != 1 {
 		fields["attempts"] = attemptCount

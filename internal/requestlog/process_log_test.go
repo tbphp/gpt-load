@@ -77,7 +77,7 @@ func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 		"status": "error", "http": http.StatusBadGateway,
 		"proto": string(protocol.OpenAICompletions), "ak_id": uint(42),
 		"model": "client-model", "up_model": "upstream-model",
-		"group": uint(7), "key": uint(8), "duration": "58.8s",
+		"group": uint(7), "kid": uint(8), "duration": "58.8s",
 		"in_tokens": int64(15), "out_tokens": int64(6),
 		"usage": "partial", "cost_usd": "0.000055",
 		"err": "upstream_error", "err_msg": "provider failed",
@@ -126,7 +126,7 @@ func TestProjectProcessLogOmitsDefaultAndZeroValueFields(t *testing.T) {
 	want := logrus.Fields{
 		"event": "data_plane_request_completed", "req_id": event.RequestID,
 		"status": "success", "proto": "anthropic", "ak_id": uint(42),
-		"model": "client-model", "group": uint(7), "key": uint(8),
+		"model": "client-model", "group": uint(7), "kid": uint(8),
 		"duration": "25ms",
 	}
 	assertProcessFields(t, fields, want)
@@ -175,10 +175,27 @@ func TestProjectProcessLogOmitsMissingAttribution(t *testing.T) {
 	if !ok {
 		t.Fatal("projection skipped")
 	}
-	for _, name := range []string{"group", "key", "group_name", "up_model"} {
+	for _, name := range []string{"group", "kid", "group_name", "up_model"} {
 		if value, exists := fields[name]; exists {
 			t.Fatalf("%s = %#v, want omitted", name, value)
 		}
+	}
+}
+
+func TestProjectProcessLogKeepsKeyIDVisibleAfterRedaction(t *testing.T) {
+	event := testEvent("key-id-visible")
+	_, fields, ok := projectProcessLog(redact.New(), event)
+	if !ok {
+		t.Fatal("projection skipped")
+	}
+
+	entry := logrus.NewEntry(logrus.New())
+	entry.Data = fields
+	if err := redact.NewHook(redact.New()).Fire(entry); err != nil {
+		t.Fatalf("redaction hook error = %v", err)
+	}
+	if got := entry.Data["kid"]; got != uint(8) {
+		t.Fatalf("kid = %#v, want 8", got)
 	}
 }
 
