@@ -32,17 +32,14 @@ func modelPriceHasConfiguredValue(row models.ModelPrice) bool {
 
 func resolveCandidatePricingStatus(
 	row *models.ModelPrice,
-	model *catalog.Model,
+	snapshot *catalog.Snapshot,
+	scopeProviderID string,
+	modelID string,
 ) PricingStatus {
 	if row != nil {
 		return resolvePricingStatus(row)
 	}
-	if model == nil || model.Cost == nil {
-		return PricingStatusPending
-	}
-	prices := model.Cost.Prices
-	if prices.Input.Set || prices.Output.Set || prices.CacheRead.Set || prices.CacheWrite.Set ||
-		len(model.Cost.ContextTiers) > 0 {
+	if _, _, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID); ok {
 		return PricingStatusConfigured
 	}
 	return PricingStatusPending

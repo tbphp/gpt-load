@@ -140,7 +140,11 @@ func (s *Service) ListProviderModels(
 
 	s.writeMu.RLock()
 	defer s.writeMu.RUnlock()
-	provider, exists := s.catalogRuntime.LoadProvider(providerID)
+	snapshot := s.catalogRuntime.Load()
+	if snapshot == nil {
+		return ProviderModelListResponse{}, app_errors.ErrResourceNotFound
+	}
+	provider, exists := snapshot.Providers[providerID]
 	if !exists {
 		return ProviderModelListResponse{}, app_errors.ErrResourceNotFound
 	}
@@ -159,7 +163,7 @@ func (s *Service) ListProviderModels(
 			continue
 		}
 		row := rows[model.ID]
-		status := resolveCandidatePricingStatus(row, &model)
+		status := resolveCandidatePricingStatus(row, snapshot, providerID, model.ID)
 		if query.Status != "" && query.Status != status {
 			continue
 		}

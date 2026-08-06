@@ -76,6 +76,77 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 	}
 }
 
+func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"anthropic": {
+			ID: "anthropic", Models: map[string]catalog.Model{
+				"shared-model": {ID: "shared-model", Name: "Anthropic model"},
+			},
+		},
+		"openai": {
+			ID: "openai", Models: map[string]catalog.Model{
+				"shared-model": {
+					ID: "shared-model", Name: "OpenAI model",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				},
+			},
+		},
+	}})
+	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+		value: protocol.OpenAICompletions,
+		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+			return []string{"shared-model"}, nil
+		},
+	})
+
+	request := ModelDiscoveryRequest{
+		UpstreamURL: "https://proxy.example/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Keys:        "secret",
+	}
+	custom, err := fixture.service.DiscoverModels(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(custom.Models, []ModelCandidate{
+		{ID: "shared-model", Name: "shared-model", Sources: []string{"live"}, PricingStatus: PricingStatusConfigured},
+	}) {
+		t.Fatalf("custom draft candidates = %#v", custom.Models)
+	}
+
+	savedCustom, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://saved-custom.example/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Keys:        "saved-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	customGroup, err := fixture.service.DiscoverGroupModels(t.Context(), savedCustom.GroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(customGroup.Models, []ModelCandidate{
+		{ID: "shared-model", Name: "shared-model", Sources: []string{"live"}, PricingStatus: PricingStatusConfigured},
+	}) {
+		t.Fatalf("custom Group candidates = %#v", customGroup.Models)
+	}
+
+	providerID := "anthropic"
+	request.ProviderID = &providerID
+	provider, err := fixture.service.DiscoverModels(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(provider.Models, []ModelCandidate{
+		{ID: "shared-model", Name: "Anthropic model", Sources: []string{"live", "catalog"}, PricingStatus: PricingStatusConfigured},
+	}) {
+		t.Fatalf("provider draft candidates = %#v", provider.Models)
+	}
+}
+
 func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{

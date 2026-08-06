@@ -89,11 +89,19 @@ func (s *Service) mergeDiscoveredModels(
 	live []string,
 	target discoveryTarget,
 ) (ModelDiscoveryResult, error) {
+	var catalogSnapshot *catalog.Snapshot
+	if s.catalogRuntime != nil {
+		catalogSnapshot = s.catalogRuntime.Load()
+	}
 	var providerModels map[string]catalog.Model
-	if target.providerID != nil && s.catalogRuntime != nil {
-		if provider, exists := s.catalogRuntime.LoadProvider(*target.providerID); exists {
+	if target.providerID != nil && catalogSnapshot != nil {
+		if provider, exists := catalogSnapshot.Providers[*target.providerID]; exists {
 			providerModels = provider.Models
 		}
+	}
+	scopeProviderID := ""
+	if target.providerID != nil {
+		scopeProviderID = *target.providerID
 	}
 	rows := map[string]*models.ModelPrice{}
 	if target.priceScopeKey != "" && s.db != nil {
@@ -107,14 +115,12 @@ func (s *Service) mergeDiscoveredModels(
 	result := make([]ModelCandidate, 0, len(live)+len(providerModels))
 	seen := make(map[string]int, len(live)+len(providerModels))
 	for _, id := range live {
-		var catalogModel *catalog.Model
 		model, catalogMatch := providerModels[id]
-		if catalogMatch {
-			catalogModel = &model
-		}
 		candidate := ModelCandidate{
 			ID: id, Name: id, Sources: []string{"live"},
-			PricingStatus: resolveCandidatePricingStatus(rows[id], catalogModel),
+			PricingStatus: resolveCandidatePricingStatus(
+				rows[id], catalogSnapshot, scopeProviderID, id,
+			),
 		}
 		if catalogMatch {
 			if name := strings.TrimSpace(model.Name); name != "" {
@@ -136,7 +142,9 @@ func (s *Service) mergeDiscoveredModels(
 		}
 		catalogOnly = append(catalogOnly, ModelCandidate{
 			ID: id, Name: name, Sources: []string{"catalog"},
-			PricingStatus: resolveCandidatePricingStatus(rows[id], &model),
+			PricingStatus: resolveCandidatePricingStatus(
+				rows[id], catalogSnapshot, scopeProviderID, id,
+			),
 		})
 	}
 	sort.Slice(catalogOnly, func(left, right int) bool {
