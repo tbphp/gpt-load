@@ -156,7 +156,7 @@ function toggleProtocol(
 
 .import-connection__protocols {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: 18px 0 0;
   border: 0;
   padding: 0;
@@ -187,7 +187,7 @@ function toggleProtocol(
 .import-connection__protocol-grid label {
   display: flex;
   min-height: 58px;
-  align-items: flex-start;
+  align-items: center;
   gap: 9px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
