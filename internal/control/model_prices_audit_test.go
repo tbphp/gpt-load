@@ -186,7 +186,7 @@ func TestModelPriceMutationAuditExcludesAuthFailureAndWrongMethod(t *testing.T) 
 	wrongMethod := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/model-prices/%d", row.ID), nil)
 	engine.ServeHTTP(httptest.NewRecorder(), wrongMethod)
 
-	events := controlEventsNamed(decodeControlJSONLogs(t, logs.Bytes()), "control_plane_mutation")
+	events := controlEventsNamed(decodeControlJSONLogs(t, logs.Bytes()), "mutation")
 	if len(events) != 0 {
 		t.Fatalf("mutation events = %#v, want none", events)
 	}

@@ -54,16 +54,16 @@ func TestGatewaySecurityEventsUseIndependentCounters(t *testing.T) {
 	)
 
 	events := decodeGatewayJSONLogs(t, logs.Bytes())
-	assertGatewayEventCount(t, events, "data_plane_auth_failed", 1)
-	assertGatewayEventCount(t, events, "data_plane_route_not_found", 1)
-	authEvent := gatewayEventsNamed(events, "data_plane_auth_failed")[0]
+	assertGatewayEventCount(t, events, "auth_failed", 1)
+	assertGatewayEventCount(t, events, "route_not_found", 1)
+	authEvent := gatewayEventsNamed(events, "auth_failed")[0]
 	if authEvent["peer_ip"] != "192.0.2.10" ||
 		authEvent["total"] != float64(1) ||
 		authEvent["level"] != "warning" ||
 		authEvent["msg"] != "[DATA] Authentication failed" {
 		t.Fatalf("auth event = %#v", authEvent)
 	}
-	routeEvent := gatewayEventsNamed(events, "data_plane_route_not_found")[0]
+	routeEvent := gatewayEventsNamed(events, "route_not_found")[0]
 	if routeEvent["peer_ip"] != "192.0.2.10" ||
 		routeEvent["access_key_id"] != float64(1) ||
 		routeEvent["total"] != float64(1) ||
@@ -88,7 +88,7 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 	}{
 		{
 			name:      "authentication",
-			eventName: "data_plane_auth_failed",
+			eventName: "auth_failed",
 			serve: func(engine http.Handler) {
 				serveGatewaySecurityRequest(
 					engine,
@@ -101,7 +101,7 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 		},
 		{
 			name:      "route",
-			eventName: "data_plane_route_not_found",
+			eventName: "route_not_found",
 			prepare: func(handler *Handler) {
 				handler.dialects = dialect.NewSet()
 			},
@@ -183,7 +183,7 @@ func TestGatewayRouteNotFoundCoversRecognizedRouteWithoutDialect(t *testing.T) {
 	}
 	events := gatewayEventsNamed(
 		decodeGatewayJSONLogs(t, logs.Bytes()),
-		"data_plane_route_not_found",
+		"route_not_found",
 	)
 	if len(events) != 1 ||
 		events[0]["access_key_id"] != float64(1) {
@@ -214,8 +214,8 @@ func TestGatewayInvalidAccessKeyDoesNotEmitRouteEvent(t *testing.T) {
 		t.Fatalf("response = %d %s, want 401", recorder.Code, recorder.Body.String())
 	}
 	events := decodeGatewayJSONLogs(t, logs.Bytes())
-	assertGatewayEventCount(t, events, "data_plane_auth_failed", 1)
-	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
+	assertGatewayEventCount(t, events, "auth_failed", 1)
+	assertGatewayEventCount(t, events, "route_not_found", 0)
 }
 
 func TestGatewayUnknownRoutesBypassDataPlaneAuthentication(t *testing.T) {
@@ -248,8 +248,8 @@ func TestGatewayUnknownRoutesBypassDataPlaneAuthentication(t *testing.T) {
 	}
 
 	events := decodeGatewayJSONLogs(t, logs.Bytes())
-	assertGatewayEventCount(t, events, "data_plane_auth_failed", 0)
-	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
+	assertGatewayEventCount(t, events, "auth_failed", 0)
+	assertGatewayEventCount(t, events, "route_not_found", 0)
 }
 
 func TestGatewayRejectsInvalidGeminiRoutesBeforeAuthentication(t *testing.T) {
@@ -283,8 +283,8 @@ func TestGatewayRejectsInvalidGeminiRoutesBeforeAuthentication(t *testing.T) {
 	}
 
 	events := decodeGatewayJSONLogs(t, logs.Bytes())
-	assertGatewayEventCount(t, events, "data_plane_auth_failed", 0)
-	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
+	assertGatewayEventCount(t, events, "auth_failed", 0)
+	assertGatewayEventCount(t, events, "route_not_found", 0)
 }
 
 func TestGatewayPreservesResponsesAuthenticationBeforeLocalRejection(t *testing.T) {
@@ -367,10 +367,10 @@ func TestGatewayPreservesResponsesAuthenticationBeforeLocalRejection(t *testing.
 	}
 
 	events := decodeGatewayJSONLogs(t, logs.Bytes())
-	if got := gatewayEventsNamed(events, "data_plane_auth_failed"); len(got) == 0 {
-		t.Fatalf("data_plane_auth_failed events = %#v, want unauthenticated Responses requests logged", events)
+	if got := gatewayEventsNamed(events, "auth_failed"); len(got) == 0 {
+		t.Fatalf("auth_failed events = %#v, want unauthenticated Responses requests logged", events)
 	}
-	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
+	assertGatewayEventCount(t, events, "route_not_found", 0)
 }
 
 func TestGatewayMalformedPeerDoesNotChangeResponseOrLeakRawValue(t *testing.T) {
@@ -398,7 +398,7 @@ func TestGatewayMalformedPeerDoesNotChangeResponseOrLeakRawValue(t *testing.T) {
 	}
 	events := gatewayEventsNamed(
 		decodeGatewayJSONLogs(t, logs.Bytes()),
-		"data_plane_auth_failed",
+		"auth_failed",
 	)
 	if len(events) != 1 || events[0]["peer_ip"] != "" {
 		t.Fatalf("auth events = %#v, want empty peer_ip", events)
@@ -431,7 +431,7 @@ func TestGatewaySecurityEventsIgnoreForwardedPeerHeaders(t *testing.T) {
 	}
 	events := gatewayEventsNamed(
 		decodeGatewayJSONLogs(t, logs.Bytes()),
-		"data_plane_auth_failed",
+		"auth_failed",
 	)
 	if len(events) != 1 || events[0]["peer_ip"] != "192.0.2.15" {
 		t.Fatalf("auth events = %#v, want direct peer", events)

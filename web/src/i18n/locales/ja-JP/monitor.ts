@@ -336,6 +336,8 @@ export default {
         estimatedCost: '推定コスト',
         quality: '品質',
         actions: '操作',
+        qualitySuccess: '成功率 {rate}',
+        qualityCache: 'キャッシュ率 {rate}',
         qualityUsage: 'なし {missing} · 部分 {partial}',
         qualityPricing: '未設定 {unpriced} · 一部 {partial}',
         qualityCompact:
@@ -685,8 +687,8 @@ export default {
         reasoningEffort: '思考レベル',
         reasoningBudget: '思考予算',
         reasoningBudgetValue: '{value} Tokens',
-        reasoningBudgetDynamic: '自動',
-        reasoningBudgetDisabled: 'オフ',
+        reasoningBudgetDynamic: 'auto',
+        reasoningBudgetDisabled: 'off',
         reasoningNotSpecified: '未指定',
         statusCode: 'ステータスコード',
         duration: '所要時間',
@@ -778,9 +780,9 @@ export default {
       modelMapping: 'クライアントモデル {client} → アップストリームモデル {upstream}',
       modelMappingLabel: 'モデルマッピングを表示',
       reasoning: {
-        compact: '思考 {value}',
-        disabled: '思考オフ',
-        dynamic: '自動',
+        compact: '[{value}]',
+        disabled: '[off]',
+        dynamic: 'auto',
       },
       tokens: {
         input: '入力',

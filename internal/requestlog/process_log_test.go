@@ -38,7 +38,7 @@ func processLogEntries(t *testing.T, output []byte) []map[string]any {
 		if err := json.Unmarshal(line, &entry); err != nil {
 			t.Fatalf("decode log line %q: %v", line, err)
 		}
-		if entry["event"] == "data_plane_request_completed" {
+		if entry["event"] == "request_completed" {
 			entries = append(entries, entry)
 		}
 	}
@@ -73,7 +73,7 @@ func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 		t.Fatalf("projection = %t/%s", ok, level)
 	}
 	want := logrus.Fields{
-		"event":  "data_plane_request_completed",
+		"event":  "request_completed",
 		"status": "error", "http": http.StatusBadGateway,
 		"proto": string(protocol.OpenAICompletions), "ak_id": uint(42),
 		"model": "client-model", "up_model": "upstream-model",
@@ -124,7 +124,7 @@ func TestProjectProcessLogOmitsDefaultAndZeroValueFields(t *testing.T) {
 		t.Fatalf("projection = %t/%s", ok, level)
 	}
 	want := logrus.Fields{
-		"event":  "data_plane_request_completed",
+		"event":  "request_completed",
 		"status": "success", "proto": "anthropic", "ak_id": uint(42),
 		"model": "client-model", "group": uint(7), "kid": uint(8),
 		"duration": "25ms",

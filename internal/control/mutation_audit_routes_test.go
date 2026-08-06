@@ -281,7 +281,7 @@ func TestGroupMutationAuditExcludesInternalCalls(t *testing.T) {
 
 	events := controlEventsNamed(
 		decodeControlJSONLogs(t, logs.Bytes()),
-		"control_plane_mutation",
+		"mutation",
 	)
 	if len(events) != 0 {
 		t.Fatalf("mutation events = %#v, want none", events)
@@ -485,7 +485,7 @@ func TestAccessKeyMutationAudit(t *testing.T) {
 
 		events := controlEventsNamed(
 			decodeControlJSONLogs(t, logs.Bytes()),
-			"control_plane_mutation",
+			"mutation",
 		)
 		if len(events) != 2 {
 			t.Fatalf("mutation events = %#v, want two", events)
@@ -1000,9 +1000,9 @@ func TestControlSecurityEventFormatterSecretMatrix(t *testing.T) {
 
 				logText := output.String()
 				for _, required := range []string{
-					"control_plane_auth_failed",
-					"control_plane_auth_locked",
-					"control_plane_mutation",
+					"auth_failed",
+					"auth_locked",
+					"mutation",
 					"settings_update",
 					"settings:global",
 					"access_key_reveal",
@@ -1457,7 +1457,7 @@ func oneMutationAuditEvent(
 	t.Helper()
 	events := controlEventsNamed(
 		decodeControlJSONLogs(t, logs),
-		"control_plane_mutation",
+		"mutation",
 	)
 	if len(events) != 1 {
 		t.Fatalf("mutation events = %#v, want one", events)

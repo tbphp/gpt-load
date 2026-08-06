@@ -335,6 +335,8 @@ export default {
         estimatedCost: 'Estimated cost',
         quality: 'Quality',
         actions: 'Actions',
+        qualitySuccess: 'Success rate {rate}',
+        qualityCache: 'Cache hit rate {rate}',
         qualityUsage: 'Missing {missing} · Partial {partial}',
         qualityPricing: 'Unpriced {unpriced} · Partial {partial}',
         qualityCompact:
@@ -685,8 +687,8 @@ export default {
         reasoningEffort: 'Reasoning effort',
         reasoningBudget: 'Reasoning budget',
         reasoningBudgetValue: '{value} Tokens',
-        reasoningBudgetDynamic: 'Automatic',
-        reasoningBudgetDisabled: 'Off',
+        reasoningBudgetDynamic: 'auto',
+        reasoningBudgetDisabled: 'off',
         reasoningNotSpecified: 'Not specified',
         statusCode: 'Status code',
         duration: 'Duration',
@@ -779,9 +781,9 @@ export default {
       modelMapping: 'Client model {client} → upstream model {upstream}',
       modelMappingLabel: 'View model mapping',
       reasoning: {
-        compact: 'Reasoning {value}',
-        disabled: 'Reasoning off',
-        dynamic: 'automatic',
+        compact: '[{value}]',
+        disabled: '[off]',
+        dynamic: 'auto',
       },
       tokens: {
         input: 'Input',

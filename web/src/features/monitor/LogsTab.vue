@@ -717,7 +717,7 @@ function costLabel(log: RequestLogItemDto): string {
 .logs-list__inline {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 0;
 }
 
 .logs-list__tokens {
@@ -727,12 +727,15 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list__model {
-  flex: 1 1 0;
+  flex: 0 1 auto;
 }
 
 .logs-list__reasoning {
-  flex: 0 1 auto;
-  max-width: 45%;
+  flex: 0 0 auto;
+}
+
+.logs-list__inline > .logs-list__hint {
+  margin-left: 5px;
 }
 
 .logs-list__token-line {

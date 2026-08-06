@@ -123,7 +123,7 @@ func TestCompactTextFormatterOrdersRequestFieldsByPriority(t *testing.T) {
 		"kid":        1,
 		"out_tokens": 486,
 		"model":      "gpt-5.6-luna",
-		"event":      "data_plane_request_completed",
+		"event":      "request_completed",
 		"cost_usd":   "0.00496768",
 		"in_tokens":  123068,
 		"duration":   "30.2s",

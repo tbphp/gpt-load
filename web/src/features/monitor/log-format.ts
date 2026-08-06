@@ -65,7 +65,7 @@ export function formatLogReasoning(
       details.push(formatReasoningBudgetCompact(value.budget_tokens, locale))
     }
   }
-  return details.join(' / ')
+  return details.join('/')
 }
 
 export function formatLogReasoningBudget(value: string, locale: string): string {
@@ -83,9 +83,9 @@ function formatReasoningBudgetCompact(value: string, locale: string): string {
   try {
     const amount = BigInt(value)
     if (amount < 1_000n) return formatSignedInteger(value, locale)
-    if (amount < 1_000_000n) return `${amount / 1_000n}K`
-    if (amount < 1_000_000_000n) return `${amount / 1_000_000n}M`
-    return `${amount / 1_000_000_000n}B`
+    if (amount < 1_000_000n) return `${amount / 1_000n}k`
+    if (amount < 1_000_000_000n) return `${amount / 1_000_000n}m`
+    return `${amount / 1_000_000_000n}b`
   } catch {
     return value
   }
