@@ -12,6 +12,7 @@ import { groupDetailLocation } from '@/app/route-locations'
 import {
   createGroup,
   discoverModels,
+  groupCollectionQueryOptions,
   importGroupKeys,
   isUpstreamUrlConflictData,
   type GroupCreateRequest,
@@ -54,7 +55,9 @@ import { analyzeKeys } from './key-analysis'
 import KeyTextarea from './KeyTextarea.vue'
 import type { ImportDraft, ModelDraftItem } from './model-draft'
 import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
+import ProviderCatalogDrawer from './ProviderCatalogDrawer.vue'
 import ProviderPresetPicker from './ProviderPresetPicker.vue'
+import { deriveRecentProviders, type RecentProviderEntry } from './recent-providers'
 
 const props = defineProps<{ initialDraft?: ImportDraft | null }>()
 const api = useApiClient()
@@ -111,6 +114,21 @@ const providerSearchDebounce = useDebouncedAction(250)
 const selectedProvider = ref<ProviderSuggestion | null>(null)
 const shouldApplyDefaultProvider = ref(!operationDraft && !props.initialDraft)
 const providerSuggestionsQuery = useQuery(providerSuggestionsQueryOptions(api, providerSearchQuery))
+const officialProviders = computed(
+  () =>
+    providerSuggestionsQuery.data.value?.items.filter(({ source }) => source === 'official') ?? [],
+)
+const catalogSuggestions = computed(
+  () =>
+    providerSuggestionsQuery.data.value?.items.filter(({ source }) => source !== 'official') ?? [],
+)
+const recentGroupsQuery = useQuery(
+  groupCollectionQueryOptions(api, { sort: 'created', page: 1, page_size: 20 }),
+)
+const recentProviders = computed<RecentProviderEntry[]>(() =>
+  deriveRecentProviders(recentGroupsQuery.data.value?.items ?? []),
+)
+const catalogDrawerOpen = ref(false)
 const discoveryErrorKey = ref('')
 const discoveryLoading = ref(false)
 const discoveryDrawerOpen = ref(false)
@@ -344,7 +362,7 @@ watch(
       cancelDefaultProvider()
       return
     }
-    const provider = providers.find(({ official }) => official)
+    const provider = providers.find(({ source }) => source === 'official')
     if (!provider) return
     cancelDefaultProvider()
     selectedProvider.value = provider
@@ -370,8 +388,38 @@ function selectProvider(provider: ProviderSuggestion | null): void {
   cancelDefaultProvider()
   selectedProvider.value = provider
   draft.provider_id = provider?.provider_id ?? null
-  draft.upstream_url = provider?.api_url ?? ''
-  draft.protocols = provider ? [...provider.protocols] : []
+  if (provider === null) {
+    // Explicit "custom connection": start from a blank slate.
+    draft.upstream_url = ''
+    draft.protocols = []
+    return
+  }
+  // Some catalog-only suggestions have no known address or protocols (see
+  // catalog.SearchProviderMetadataBounded). Only overwrite fields the
+  // suggestion actually provides, so picking one never wipes out an address
+  // the user already filled in (or just picked from "recent").
+  if (provider.api_url) draft.upstream_url = provider.api_url
+  if (provider.protocols.length) draft.protocols = [...provider.protocols]
+}
+
+function selectRecentProvider(entry: RecentProviderEntry): void {
+  if (payloadLocked.value) return
+  cancelDefaultProvider()
+  catalogDrawerOpen.value = false
+  selectedProvider.value = null
+  draft.provider_id = entry.providerId
+  draft.upstream_url = entry.upstreamUrl
+  draft.protocols = [...entry.protocols]
+}
+
+function selectSuggestionFromCatalog(provider: ProviderSuggestion): void {
+  selectProvider(provider)
+  catalogDrawerOpen.value = false
+}
+
+function chooseCustomFromCatalog(): void {
+  selectProvider(null)
+  catalogDrawerOpen.value = false
 }
 
 function setProtocols(protocols: GroupProtocol[]): void {
@@ -658,14 +706,25 @@ onBeforeUnmount(() => {
     <ProviderPresetPicker
       :model-value="draft.provider_id"
       :selected-provider="selectedProvider"
-      :providers="providerSuggestionsQuery.data.value?.items ?? []"
+      :official-providers="officialProviders"
+      :disabled="payloadLocked"
+      @select="selectProvider"
+      @browse="catalogDrawerOpen = true"
+    />
+
+    <ProviderCatalogDrawer
+      :open="catalogDrawerOpen"
+      :recent="recentProviders"
+      :suggestions="catalogSuggestions"
       :search="providerSearchInput"
       :loading="providerSuggestionsQuery.isFetching.value"
       :error="providerSuggestionsQuery.isError.value"
-      :disabled="payloadLocked"
-      @select="selectProvider"
+      @update:open="catalogDrawerOpen = $event"
       @update:search="setProviderSearch"
       @retry="retryProviderSuggestions"
+      @select-suggestion="selectSuggestionFromCatalog"
+      @select-recent="selectRecentProvider"
+      @custom="chooseCustomFromCatalog"
     />
 
     <ImportConnectionSection

@@ -16,14 +16,18 @@ func resolvePricingStatus(row *models.ModelPrice) PricingStatus {
 	if row == nil {
 		return PricingStatusPending
 	}
-	if row.IsManual ||
-		row.InputPriceNanoUSDPerMillionTokens != nil ||
-		row.OutputPriceNanoUSDPerMillionTokens != nil ||
-		row.CacheReadPriceNanoUSDPerMillionTokens != nil ||
-		row.CacheWritePriceNanoUSDPerMillionTokens != nil {
+	if row.IsManual || modelPriceHasConfiguredValue(*row) {
 		return PricingStatusConfigured
 	}
 	return PricingStatusPending
+}
+
+func modelPriceHasConfiguredValue(row models.ModelPrice) bool {
+	return row.InputPriceNanoUSDPerMillionTokens != nil ||
+		row.OutputPriceNanoUSDPerMillionTokens != nil ||
+		row.CacheReadPriceNanoUSDPerMillionTokens != nil ||
+		row.CacheWritePriceNanoUSDPerMillionTokens != nil ||
+		len(row.ContextPriceTiers) > 0
 }
 
 func resolveCandidatePricingStatus(

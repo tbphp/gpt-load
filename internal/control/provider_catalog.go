@@ -20,13 +20,25 @@ const (
 	providerModelResultLimit       = 100
 )
 
+// ProviderSuggestionSource identifies which directory a provider suggestion
+// came from. Suggestions are merged official-first, then curated, then
+// catalog, and deduplicated by provider ID so a higher-priority source's
+// metadata always wins for a shared ID.
+type ProviderSuggestionSource string
+
+const (
+	ProviderSuggestionSourceOfficial ProviderSuggestionSource = "official"
+	ProviderSuggestionSourceCurated  ProviderSuggestionSource = "curated"
+	ProviderSuggestionSourceCatalog  ProviderSuggestionSource = "catalog"
+)
+
 type ProviderSuggestion struct {
-	ProviderID string              `json:"provider_id"`
-	Name       string              `json:"name"`
-	APIURL     string              `json:"api_url,omitempty"`
-	Protocols  []protocol.Protocol `json:"protocols"`
-	Mark       string              `json:"mark"`
-	Official   bool                `json:"official"`
+	ProviderID string                   `json:"provider_id"`
+	Name       string                   `json:"name"`
+	APIURL     string                   `json:"api_url,omitempty"`
+	Protocols  []protocol.Protocol      `json:"protocols"`
+	Mark       string                   `json:"mark"`
+	Source     ProviderSuggestionSource `json:"source"`
 }
 
 type ProviderSuggestionListResponse struct {
@@ -62,19 +74,32 @@ func (s *Service) ListProviderSuggestions(
 	if len([]rune(query)) > 200 {
 		return ProviderSuggestionListResponse{}, app_errors.ErrValidation
 	}
-	official := s.catalogRuntime.OfficialSuggestions()
-	items := make([]ProviderSuggestion, 0, 3+providerSuggestionCatalogLimit)
-	for _, provider := range official {
-		items = append(items, mapProviderSuggestion(provider, true))
-	}
+	curated := catalog.SearchCurated(query)
 	catalogOnly := s.catalogRuntime.SearchProviderMetadata(query, providerSuggestionCatalogLimit)
-	for _, provider := range catalogOnly {
-		items = append(items, mapProviderSuggestion(provider, false))
+	items := make([]ProviderSuggestion, 0, 3+len(curated)+len(catalogOnly))
+	seen := make(map[string]struct{}, 3+len(curated)+len(catalogOnly))
+
+	appendSuggestions := func(providers []catalog.Provider, source ProviderSuggestionSource) {
+		for _, provider := range providers {
+			if _, duplicate := seen[provider.ID]; duplicate {
+				continue
+			}
+			seen[provider.ID] = struct{}{}
+			items = append(items, mapProviderSuggestion(provider, source))
+		}
 	}
+
+	// Official first, then curated, then catalog: a shared provider ID keeps
+	// the higher-priority source's display metadata (mapProviderSuggestion),
+	// while pricing continues to key off the same provider ID either way.
+	appendSuggestions(s.catalogRuntime.OfficialSuggestions(), ProviderSuggestionSourceOfficial)
+	appendSuggestions(curated, ProviderSuggestionSourceCurated)
+	appendSuggestions(catalogOnly, ProviderSuggestionSourceCatalog)
+
 	return ProviderSuggestionListResponse{Items: items, Total: len(items)}, nil
 }
 
-func mapProviderSuggestion(provider catalog.Provider, official bool) ProviderSuggestion {
+func mapProviderSuggestion(provider catalog.Provider, source ProviderSuggestionSource) ProviderSuggestion {
 	protocols := make([]protocol.Protocol, len(provider.Protocols))
 	copy(protocols, provider.Protocols)
 	return ProviderSuggestion{
@@ -83,12 +108,12 @@ func mapProviderSuggestion(provider catalog.Provider, official bool) ProviderSug
 		APIURL:     provider.APIURL,
 		Protocols:  protocols,
 		Mark:       provider.Mark,
-		Official:   official,
+		Source:     source,
 	}
 }
 
 func (s *Service) validateSelectableProviderID(providerID *string) error {
-	if providerID == nil || catalog.IsOfficialProviderID(*providerID) {
+	if providerID == nil || catalog.IsOfficialProviderID(*providerID) || catalog.IsCuratedProviderID(*providerID) {
 		return nil
 	}
 	if s.catalogRuntime != nil {

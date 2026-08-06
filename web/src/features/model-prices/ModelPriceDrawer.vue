@@ -213,6 +213,10 @@ onBeforeUnmount(clearRequest)
               </StatusBadge>
             </dd>
           </div>
+          <div v-if="row.matched_provider_id !== null">
+            <dt>{{ t('modelPrices.drawer.reference') }}</dt>
+            <dd>{{ t('modelPrices.reference', { provider: row.matched_provider_id }) }}</dd>
+          </div>
         </dl>
       </section>
 

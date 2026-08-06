@@ -20,7 +20,8 @@ import {
 export type ModelPriceStatus = 'pending' | 'configured'
 export type ModelPriceStatusFilter = ModelPriceStatus | 'all'
 export type ModelPriceUsageFilter = 'in_use' | 'unreferenced' | 'all'
-export type ModelPriceMethod = 'auto_sync' | 'user_override' | 'user_set' | 'user_marked_unpriced'
+export type ModelPriceMethod =
+  'auto_sync' | 'auto_matched' | 'user_override' | 'user_set' | 'user_marked_unpriced'
 
 export interface ModelPriceFilters {
   usage: ModelPriceUsageFilter
@@ -50,6 +51,7 @@ export interface ModelPriceDto {
   prices: ModelPriceSlotsDto
   pricing_status: ModelPriceStatus
   method: ModelPriceMethod | null
+  matched_provider_id: string | null
   referenced: boolean
   reference_count: number
   reference_group_count: number
@@ -99,6 +101,7 @@ const itemFields = [
   'prices',
   'pricing_status',
   'method',
+  'matched_provider_id',
   'referenced',
   'reference_count',
   'reference_group_count',
@@ -148,6 +151,7 @@ function projectMethod(value: unknown): ModelPriceMethod | null {
     ? null
     : projectEnum(value, [
         'auto_sync',
+        'auto_matched',
         'user_override',
         'user_set',
         'user_marked_unpriced',
@@ -164,6 +168,10 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     prices: projectPrices(record.prices),
     pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),
     method: projectMethod(record.method),
+    matched_provider_id:
+      record.matched_provider_id === null
+        ? null
+        : projectIdentityString(record.matched_provider_id),
     referenced: projectBoolean(record.referenced),
     reference_count: projectSafeInteger(record.reference_count, { minimum: 0 }),
     reference_group_count: projectSafeInteger(record.reference_group_count, { minimum: 0 }),
@@ -173,10 +181,20 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     can_reset: projectBoolean(record.can_reset),
     can_delete: projectBoolean(record.can_delete),
   }
+  const hasAutomaticReference = result.method === 'auto_sync' || result.method === 'auto_matched'
+  const hasManualMethod =
+    result.method === 'user_override' ||
+    result.method === 'user_set' ||
+    result.method === 'user_marked_unpriced'
   if (
     result.reference_group_count > result.reference_count ||
     result.referenced !== result.reference_count > 0 ||
-    (result.pricing_status === 'pending' && result.method !== null) ||
+    (result.pricing_status === 'pending' &&
+      (result.method !== null || result.matched_provider_id !== null)) ||
+    (hasAutomaticReference && result.matched_provider_id === null) ||
+    (hasManualMethod && result.matched_provider_id !== null) ||
+    (result.method === null && result.matched_provider_id !== null) ||
+    (result.matched_provider_id !== null && !hasAutomaticReference) ||
     (result.can_delete && (!result.can_reset || result.referenced))
   ) {
     invalidResponse()

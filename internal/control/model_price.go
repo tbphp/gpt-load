@@ -35,6 +35,7 @@ type ModelPriceDTO struct {
 	Prices              PriceSlotsDTO `json:"prices"`
 	PricingStatus       PricingStatus `json:"pricing_status"`
 	Method              *string       `json:"method"`
+	MatchedProviderID   *string       `json:"matched_provider_id"`
 	Referenced          bool          `json:"referenced"`
 	ReferenceCount      int           `json:"reference_count"`
 	ReferenceGroupCount int           `json:"reference_group_count"`
@@ -255,18 +256,15 @@ func resetModelPriceValues(
 	modelID string,
 	snapshot *catalog.Snapshot,
 ) (models.ModelPrice, error) {
-	if scope.kind != priceScopeKindProvider || snapshot == nil {
+	scopeProviderID := ""
+	if scope.kind == priceScopeKindProvider {
+		scopeProviderID = scope.id
+	}
+	cost, _, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID)
+	if !ok {
 		return models.ModelPrice{}, nil
 	}
-	provider, exists := snapshot.Providers[scope.id]
-	if !exists {
-		return models.ModelPrice{}, nil
-	}
-	model, exists := provider.Models[modelID]
-	if !exists || model.Cost == nil {
-		return models.ModelPrice{}, nil
-	}
-	return automaticCatalogValues(model)
+	return automaticCatalogValues(cost)
 }
 
 func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
@@ -462,12 +460,33 @@ func projectModelPriceRow(
 		CacheWrite: modelPriceWireDecimal(row.CacheWritePriceNanoUSDPerMillionTokens),
 	}
 	configuredSlots := modelPriceConfiguredSlotCount(row)
+	configured := modelPriceHasConfiguredValue(row)
+	var matchedProviderID *string
+	matchedAutomaticPrice := false
+	matchedProvider := ""
+	if !row.IsManual {
+		scopeProviderID := ""
+		if scope.kind == priceScopeKindProvider {
+			scopeProviderID = scope.id
+		}
+		_, matchedProvider, matchedAutomaticPrice = resolveAutomaticPrice(
+			catalogSnapshot,
+			scopeProviderID,
+			row.ModelID,
+		)
+		if configured && matchedAutomaticPrice {
+			matchedProviderID = &matchedProvider
+		} else {
+			matchedAutomaticPrice = false
+		}
+	}
 	dto := ModelPriceDTO{
 		ID: row.ID, ModelID: row.ModelID,
 		Scope:               projectPriceScope(scope, references.groupLabels, catalogSnapshot),
 		Prices:              prices,
 		PricingStatus:       status,
-		Method:              modelPriceMethod(row, scope, configuredSlots),
+		Method:              modelPriceMethod(row, scope, configured, matchedAutomaticPrice, matchedProvider),
+		MatchedProviderID:   matchedProviderID,
 		Referenced:          reference.referenceCount > 0,
 		ReferenceCount:      reference.referenceCount,
 		ReferenceGroupCount: reference.referenceGroupCount(),
@@ -503,18 +522,26 @@ func projectPriceScope(
 func modelPriceMethod(
 	row models.ModelPrice,
 	scope parsedPriceScope,
-	configuredSlots int,
+	configured bool,
+	matchedAutomaticPrice bool,
+	matchedProviderID string,
 ) *string {
-	if !row.IsManual && configuredSlots == 0 {
-		return nil
+	if !row.IsManual {
+		if !configured || !matchedAutomaticPrice {
+			return nil
+		}
+		method := "auto_sync"
+		if scope.kind != priceScopeKindProvider || scope.id != matchedProviderID {
+			method = "auto_matched"
+		}
+		return &method
 	}
-	method := "auto_sync"
-	if row.IsManual && configuredSlots == 0 {
+
+	method := "user_set"
+	if !configured {
 		method = "user_marked_unpriced"
-	} else if row.IsManual && scope.kind == priceScopeKindProvider {
+	} else if scope.kind == priceScopeKindProvider {
 		method = "user_override"
-	} else if row.IsManual {
-		method = "user_set"
 	}
 	return &method
 }

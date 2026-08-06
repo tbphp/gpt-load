@@ -5,7 +5,8 @@ export default {
     optional: 'optional',
     presets: {
       title: 'Provider presets',
-      description: 'Choose a common provider or search the catalog for compatible services',
+      description: 'Choose a common provider, or browse the catalog for more options',
+      browse: 'Browse all providers',
       search: 'Search providers',
       clearSearch: 'Clear provider search',
       collapse: 'Collapse',
@@ -14,13 +15,13 @@ export default {
       loading: 'Loading provider catalog…',
       loadFailed: 'Unable to load the provider catalog',
       protocolsUnavailable: 'Protocol capabilities unavailable',
-      more: {
-        name: 'More presets',
-        description: 'Search third-party providers or use a custom connection',
-      },
+      recent: 'Recently used',
+      recommended: 'Recommended providers',
+      catalogMore: 'More providers',
+      recentFromGroup: 'From group #{id} · {name}',
+      urlRequired: 'Requires a manually entered URL',
       custom: {
         name: 'Custom connection',
-        description: 'Enter an endpoint and choose protocol capabilities',
       },
     },
     mode: {

@@ -105,6 +105,184 @@ func TestCatalogSyncEmitsLifecycleLogsWithoutLeakingFailureDetails(t *testing.T)
 	}
 }
 
+func TestApplyCatalogSnapshotLogsMissingAutomaticPricePriorityProviders(t *testing.T) {
+	fixture := newServiceFixture(t)
+	var logs bytes.Buffer
+	standardLogger := logrus.StandardLogger()
+	previousOutput := standardLogger.Out
+	previousFormatter := standardLogger.Formatter
+	previousLevel := standardLogger.Level
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.WarnLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
+	priority := catalog.AutomaticPriceProviderPriority()
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		priority[0]: {ID: priority[0]},
+	}}
+	before := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		priority[0]: {ID: priority[0]},
+	}}
+	if err := fixture.service.applyCatalogSnapshot(t.Context(), snapshot); err != nil {
+		t.Fatalf("applyCatalogSnapshot() error = %v", err)
+	}
+	if !reflect.DeepEqual(snapshot, before) {
+		t.Fatalf("applyCatalogSnapshot() mutated snapshot:\n got %#v\nwant %#v", snapshot, before)
+	}
+
+	events := controlEventsNamed(
+		decodeControlJSONLogs(t, logs.Bytes()),
+		"models_dev_catalog_price_priority_missing",
+	)
+	if len(events) != 1 {
+		t.Fatalf("priority-missing events = %d, want one: %#v", len(events), events)
+	}
+	event := events[0]
+	if event["level"] != "warning" ||
+		event["msg"] != "[CONTROL] Catalog missing automatic price priority providers" {
+		t.Fatalf("priority-missing event metadata = %#v", event)
+	}
+	missing, ok := event["missing_provider_ids"].([]any)
+	if !ok {
+		t.Fatalf("missing_provider_ids = %#v, want []any", event["missing_provider_ids"])
+	}
+	if len(missing) != len(priority)-1 {
+		t.Fatalf("missing_provider_ids length = %d, want %d: %#v", len(missing), len(priority)-1, missing)
+	}
+	for index, want := range priority[1:] {
+		if missing[index] != want {
+			t.Fatalf("missing_provider_ids[%d] = %#v, want %q", index, missing[index], want)
+		}
+	}
+}
+
+func TestApplyCatalogSnapshotDoesNotLogCompletePriorityAndLogsEachSuccess(t *testing.T) {
+	t.Run("complete priority", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		var logs bytes.Buffer
+		standardLogger := logrus.StandardLogger()
+		previousOutput := standardLogger.Out
+		previousFormatter := standardLogger.Formatter
+		previousLevel := standardLogger.Level
+		logrus.SetOutput(&logs)
+		logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+		logrus.SetLevel(logrus.WarnLevel)
+		t.Cleanup(func() {
+			logrus.SetOutput(previousOutput)
+			logrus.SetFormatter(previousFormatter)
+			logrus.SetLevel(previousLevel)
+		})
+
+		providers := make(map[string]catalog.Provider)
+		for _, providerID := range catalog.AutomaticPriceProviderPriority() {
+			providers[providerID] = catalog.Provider{ID: providerID}
+		}
+		if err := fixture.service.applyCatalogSnapshot(t.Context(), &catalog.Snapshot{Providers: providers}); err != nil {
+			t.Fatalf("applyCatalogSnapshot() error = %v", err)
+		}
+		if events := controlEventsNamed(
+			decodeControlJSONLogs(t, logs.Bytes()),
+			"models_dev_catalog_price_priority_missing",
+		); len(events) != 0 {
+			t.Fatalf("priority-missing events = %#v, want none", events)
+		}
+	})
+
+	t.Run("each successful application", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		var logs bytes.Buffer
+		standardLogger := logrus.StandardLogger()
+		previousOutput := standardLogger.Out
+		previousFormatter := standardLogger.Formatter
+		previousLevel := standardLogger.Level
+		logrus.SetOutput(&logs)
+		logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+		logrus.SetLevel(logrus.WarnLevel)
+		t.Cleanup(func() {
+			logrus.SetOutput(previousOutput)
+			logrus.SetFormatter(previousFormatter)
+			logrus.SetLevel(previousLevel)
+		})
+
+		if err := fixture.service.applyCatalogSnapshot(t.Context(), &catalog.Snapshot{}); err != nil {
+			t.Fatalf("first applyCatalogSnapshot() error = %v", err)
+		}
+		if err := fixture.service.applyCatalogSnapshot(t.Context(), &catalog.Snapshot{}); err != nil {
+			t.Fatalf("second applyCatalogSnapshot() error = %v", err)
+		}
+		if events := controlEventsNamed(
+			decodeControlJSONLogs(t, logs.Bytes()),
+			"models_dev_catalog_price_priority_missing",
+		); len(events) != 2 {
+			t.Fatalf("priority-missing events = %d, want two: %#v", len(events), events)
+		}
+	})
+}
+
+func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t *testing.T) {
+	fixture := newServiceFixture(t)
+	oldPrice := int64(1)
+	if err := fixture.db.Create(&models.ModelPrice{
+		PriceScopeKey:                     "provider:openai",
+		ModelID:                           "gpt",
+		InputPriceNanoUSDPerMillionTokens: &oldPrice,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	oldTable, err := loadPriceTable(t.Context(), fixture.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.priceRuntime.Publish(oldTable)
+	oldSnapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": catalogProviderFixture("openai", "Old", "gpt", 1),
+	}}
+	fixture.catalogRuntime.Publish(oldSnapshot)
+	if err := fixture.db.Exec(`
+		CREATE TRIGGER reject_priority_warning_reconcile
+		BEFORE UPDATE ON model_prices
+		BEGIN
+			SELECT RAISE(ABORT, 'forced catalog reconciliation failure');
+		END
+	`).Error; err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	standardLogger := logrus.StandardLogger()
+	previousOutput := standardLogger.Out
+	previousFormatter := standardLogger.Formatter
+	previousLevel := standardLogger.Level
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.WarnLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
+	newSnapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": catalogProviderFixture("openai", "New", "gpt", 9),
+	}}
+	if err := fixture.service.applyCatalogSnapshot(t.Context(), newSnapshot); err == nil {
+		t.Fatal("applyCatalogSnapshot() error = nil, want reconciliation failure")
+	}
+	if events := controlEventsNamed(
+		decodeControlJSONLogs(t, logs.Bytes()),
+		"models_dev_catalog_price_priority_missing",
+	); len(events) != 0 {
+		t.Fatalf("priority-missing events after failure = %#v, want none", events)
+	}
+	if fixture.priceRuntime.Load() != oldTable || !reflect.DeepEqual(fixture.catalogRuntime.Load(), oldSnapshot) {
+		t.Fatal("failed application published a new runtime")
+	}
+}
+
 func TestCatalogBootstrapLoadsLKGAndTreatsMissingOrCorruptAsEmpty(t *testing.T) {
 	missing := loadCatalogBootstrap(filepath.Join(t.TempDir(), "missing.json"))
 	if missing.HasLKG || missing.Runtime == nil || missing.Runtime.Load() != nil {
@@ -830,10 +1008,11 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 	seedCatalogPriceGroup(t, fixture, "missing-provider", &missingProvider, []string{"missing-provider-model"})
 
 	oldInput, oldOutput, oldRead, oldWrite := int64(1), int64(2), int64(3), int64(4)
+	oldTiers := models.JSON(`[{"threshold_tokens":128000,"input_price_nano_usd_per_million_tokens":5}]`)
 	rows := []models.ModelPrice{
 		{PriceScopeKey: "provider:openai", ModelID: "changed", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, UpdatedAtMS: 111},
-		{PriceScopeKey: "provider:openai", ModelID: "missing-model", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 112},
-		{PriceScopeKey: "provider:missing-provider", ModelID: "missing-provider-model", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 113},
+		{PriceScopeKey: "provider:openai", ModelID: "missing-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 112},
+		{PriceScopeKey: "provider:missing-provider", ModelID: "missing-provider-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 113},
 		{PriceScopeKey: "provider:openai", ModelID: "manual", IsManual: true, UpdatedAtMS: 114},
 		{PriceScopeKey: "provider:openai", ModelID: "stale", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 115},
 		{PriceScopeKey: "provider:openai", ModelID: "manual-stale", IsManual: true, UpdatedAtMS: 116},
@@ -869,13 +1048,13 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 		}
 	})
 	assertCatalogPriceRow(t, fixture, "provider:openai", "missing-model", func(row models.ModelPrice) {
-		if row.InputPriceNanoUSDPerMillionTokens == nil || *row.InputPriceNanoUSDPerMillionTokens != 1 || row.UpdatedAtMS != 112 {
-			t.Fatalf("whole missing model lost LKG: %#v", row)
+		if priceTestRowHasValue(row) {
+			t.Fatalf("missing model retained automatic catalog values: %#v", row)
 		}
 	})
 	assertCatalogPriceRow(t, fixture, "provider:missing-provider", "missing-provider-model", func(row models.ModelPrice) {
-		if row.InputPriceNanoUSDPerMillionTokens == nil || *row.InputPriceNanoUSDPerMillionTokens != 1 || row.UpdatedAtMS != 113 {
-			t.Fatalf("whole missing provider lost LKG: %#v", row)
+		if priceTestRowHasValue(row) {
+			t.Fatalf("missing provider retained automatic catalog values: %#v", row)
 		}
 	})
 	assertCatalogPriceRow(t, fixture, "provider:openai", "manual", func(row models.ModelPrice) {
@@ -892,6 +1071,95 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 	assertCatalogPriceRow(t, fixture, "provider:openai", "manual-stale", func(row models.ModelPrice) {
 		if !row.IsManual {
 			t.Fatal("unreferenced manual row lost ownership")
+		}
+	})
+}
+
+func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "custom", UpstreamURL: "https://custom.example/v1",
+		Protocols: models.JSON(`["openai-completions"]`),
+		Models:    models.JSON(`[{"id":"group-model","alias":""},{"id":"manual-group-model","alias":""}]`),
+		Config:    models.JSON(`{}`), Enabled: true,
+	})
+	scopeKey, _ := pricing.GroupScopeKey(group.ID)
+	oldInput, oldOutput, oldRead, oldWrite := int64(1), int64(2), int64(3), int64(4)
+	oldTiers := models.JSON(`[{"threshold_tokens":128000,"input_price_nano_usd_per_million_tokens":5}]`)
+	manualInput := int64(99)
+	for _, row := range []models.ModelPrice{
+		{
+			PriceScopeKey: scopeKey, ModelID: "group-model",
+			InputPriceNanoUSDPerMillionTokens:      &oldInput,
+			OutputPriceNanoUSDPerMillionTokens:     &oldOutput,
+			CacheReadPriceNanoUSDPerMillionTokens:  &oldRead,
+			CacheWritePriceNanoUSDPerMillionTokens: &oldWrite,
+			ContextPriceTiers:                      oldTiers, UpdatedAtMS: 111,
+		},
+		{
+			PriceScopeKey: scopeKey, ModelID: "manual-group-model",
+			InputPriceNanoUSDPerMillionTokens: &manualInput,
+			IsManual:                          true, UpdatedAtMS: 112,
+		},
+	} {
+		if err := fixture.db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	zero := pricing.NanoUSD(0)
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {
+			ID: "openai",
+			Models: map[string]catalog.Model{
+				"group-model": {
+					ID: "group-model",
+					Cost: &catalog.ModelCost{
+						Prices: pricing.Prices{
+							Input:     priceTestValue(8),
+							CacheRead: pricing.Price{NanoUSDPerMillion: zero, Set: true},
+						},
+						ContextTiers: []pricing.ContextTier{{
+							InputThresholdTokens: 256_000,
+							Prices: pricing.Prices{
+								Output: priceTestValue(16),
+							},
+						}},
+					},
+				},
+				"manual-group-model": {
+					ID:   "manual-group-model",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(100)}},
+				},
+			},
+		},
+	}}
+
+	if err := fixture.service.applyCatalogSnapshot(t.Context(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	assertCatalogPriceRow(t, fixture, scopeKey, "group-model", func(row models.ModelPrice) {
+		if row.IsManual || row.InputPriceNanoUSDPerMillionTokens == nil ||
+			*row.InputPriceNanoUSDPerMillionTokens != 8 ||
+			row.OutputPriceNanoUSDPerMillionTokens != nil ||
+			row.CacheReadPriceNanoUSDPerMillionTokens == nil ||
+			*row.CacheReadPriceNanoUSDPerMillionTokens != 0 ||
+			row.CacheWritePriceNanoUSDPerMillionTokens != nil {
+			t.Fatalf("automatic Group row = %#v", row)
+		}
+		var tiers []models.ContextPriceTier
+		if err := json.Unmarshal(row.ContextPriceTiers, &tiers); err != nil {
+			t.Fatal(err)
+		}
+		if len(tiers) != 1 || tiers[0].ThresholdTokens != 256_000 ||
+			tiers[0].OutputPriceNanoUSDPerMillionTokens == nil ||
+			*tiers[0].OutputPriceNanoUSDPerMillionTokens != 16 {
+			t.Fatalf("automatic Group tiers = %#v", tiers)
+		}
+	})
+	assertCatalogPriceRow(t, fixture, scopeKey, "manual-group-model", func(row models.ModelPrice) {
+		if !row.IsManual || row.InputPriceNanoUSDPerMillionTokens == nil ||
+			*row.InputPriceNanoUSDPerMillionTokens != 99 || row.UpdatedAtMS != 112 {
+			t.Fatalf("manual Group row changed: %#v", row)
 		}
 	})
 }

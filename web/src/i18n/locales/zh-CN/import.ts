@@ -5,7 +5,8 @@ export default {
     optional: '可选',
     presets: {
       title: '渠道预设',
-      description: '选择常用渠道，或从更多预设中搜索第三方兼容服务',
+      description: '选择常用渠道，或浏览渠道目录查找更多选项',
+      browse: '浏览全部渠道',
       search: '搜索渠道名称',
       clearSearch: '清空渠道搜索',
       collapse: '收起',
@@ -14,13 +15,13 @@ export default {
       loading: '正在加载渠道目录…',
       loadFailed: '无法加载渠道目录',
       protocolsUnavailable: '协议能力未提供',
-      more: {
-        name: '更多预设',
-        description: '搜索第三方渠道或使用自定义连接',
-      },
+      recent: '最近使用',
+      recommended: '推荐渠道',
+      catalogMore: '更多渠道',
+      recentFromGroup: '来自分组 #{id} · {name}',
+      urlRequired: '需手动填写地址',
       custom: {
         name: '自定义连接',
-        description: '手动填写地址并选择协议能力',
       },
     },
     mode: {

@@ -64,6 +64,30 @@ func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 	}
 }
 
+func TestMapGroupModelsResponseTreatsContextTierOnlyPriceAsConfigured(t *testing.T) {
+	result, err := mapGroupModelsResponse(
+		[]GroupModel{{ID: "tiered-model"}},
+		map[string]*models.ModelPrice{
+			"tiered-model": {
+				ModelID:           "tiered-model",
+				ContextPriceTiers: models.JSON(`[{"threshold_tokens":1000,"input_price_nano_usd_per_million_tokens":1,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null}]`),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("mapGroupModelsResponse() error = %v", err)
+	}
+	want := GroupModelsResponse{
+		Items: []GroupModelResponse{{
+			ID: "tiered-model", ClientModel: "tiered-model", PricingStatus: PricingStatusConfigured,
+		}},
+		Total: 1,
+	}
+	if !reflect.DeepEqual(result, want) {
+		t.Fatalf("mapGroupModelsResponse() = %#v, want %#v", result, want)
+	}
+}
+
 func TestNormalizeGroupModelsAppliesAliasSwitchAndReportsStableConflicts(t *testing.T) {
 	tests := []struct {
 		name          string

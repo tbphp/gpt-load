@@ -119,7 +119,7 @@ func TestListModelPricesProjectsFinalFactsWithoutLeakingScopeKey(t *testing.T) {
 	}
 	zeroItem := result.Items[2]
 	if zeroItem.Prices.Input == nil || *zeroItem.Prices.Input != "0" ||
-		zeroItem.Prices.Output != nil || zeroItem.Method == nil || *zeroItem.Method != "auto_sync" ||
+		zeroItem.Prices.Output != nil || zeroItem.Method != nil ||
 		!zeroItem.Partial || !zeroItem.HasContextTiers || zeroItem.ReferenceCount != 1 ||
 		zeroItem.ReferenceGroupCount != 1 {
 		t.Fatalf("explicit zero item = %#v", zeroItem)
@@ -144,6 +144,127 @@ func TestListModelPricesProjectsFinalFactsWithoutLeakingScopeKey(t *testing.T) {
 	}
 	if containsJSONField(encoded, "price_scope_key") {
 		t.Fatalf("response leaked price_scope_key: %s", encoded)
+	}
+}
+
+func TestProjectModelPriceRowDerivesAutomaticMatchedProviderFromCurrentCatalog(t *testing.T) {
+	providerScope, err := pricing.ProviderScopeKey("z-provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selfScope, err := pricing.ProviderScopeKey("self-provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupScope, err := pricing.GroupScopeKey(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedValue := int64(999)
+	cases := []struct {
+		name          string
+		row           models.ModelPrice
+		snapshot      *catalog.Snapshot
+		wantMethod    any
+		wantMatchedID any
+	}{
+		{
+			name: "provider scoped self match remains auto sync",
+			row: models.ModelPrice{
+				ID: 1, PriceScopeKey: selfScope, ModelID: "shared-model",
+				InputPriceNanoUSDPerMillionTokens: &persistedValue,
+			},
+			snapshot: automaticPriceTestSnapshot(map[string]*catalog.ModelCost{
+				"self-provider": automaticPriceTestCost(1),
+			}),
+			wantMethod: "auto_sync", wantMatchedID: "self-provider",
+		},
+		{
+			name: "group scope follows priority provider",
+			row: models.ModelPrice{
+				ID: 2, PriceScopeKey: groupScope, ModelID: "shared-model",
+				InputPriceNanoUSDPerMillionTokens: &persistedValue,
+			},
+			snapshot: automaticPriceTestSnapshot(map[string]*catalog.ModelCost{
+				"openai": automaticPriceTestCost(1),
+			}),
+			wantMethod: "auto_matched", wantMatchedID: "openai",
+		},
+		{
+			name: "group scope tier only price follows priority provider",
+			row: models.ModelPrice{
+				ID: 7, PriceScopeKey: groupScope, ModelID: "shared-model",
+				ContextPriceTiers: models.JSON(`[{"threshold_tokens":1000,"input_price_nano_usd_per_million_tokens":1,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null}]`),
+			},
+			snapshot: automaticPriceTestSnapshot(map[string]*catalog.ModelCost{
+				"openai": automaticPriceTestCost(1),
+			}),
+			wantMethod: "auto_matched", wantMatchedID: "openai",
+		},
+		{
+			name: "provider scope falls back to another provider",
+			row: models.ModelPrice{
+				ID: 3, PriceScopeKey: providerScope, ModelID: "shared-model",
+				InputPriceNanoUSDPerMillionTokens: &persistedValue,
+			},
+			snapshot: automaticPriceTestSnapshot(map[string]*catalog.ModelCost{
+				"z-provider": nil,
+				"openai":     automaticPriceTestCost(1),
+			}),
+			wantMethod: "auto_matched", wantMatchedID: "openai",
+		},
+		{
+			name: "automatic row with no current source is pending",
+			row: models.ModelPrice{
+				ID: 4, PriceScopeKey: providerScope, ModelID: "shared-model",
+				InputPriceNanoUSDPerMillionTokens: &persistedValue,
+			},
+			snapshot: automaticPriceTestSnapshot(map[string]*catalog.ModelCost{
+				"z-provider": nil,
+			}),
+			wantMethod: nil, wantMatchedID: nil,
+		},
+		{
+			name: "manual override never exposes catalog source",
+			row: models.ModelPrice{
+				ID: 5, PriceScopeKey: selfScope, ModelID: "shared-model", IsManual: true,
+				InputPriceNanoUSDPerMillionTokens: &persistedValue,
+			},
+			snapshot: automaticPriceTestSnapshot(map[string]*catalog.ModelCost{
+				"self-provider": automaticPriceTestCost(1),
+			}),
+			wantMethod: "user_override", wantMatchedID: nil,
+		},
+		{
+			name:          "manual unpriced row never exposes catalog source",
+			row:           models.ModelPrice{ID: 6, PriceScopeKey: groupScope, ModelID: "shared-model", IsManual: true},
+			snapshot:      automaticPriceTestSnapshot(map[string]*catalog.ModelCost{"openai": automaticPriceTestCost(1)}),
+			wantMethod:    "user_marked_unpriced",
+			wantMatchedID: nil,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			record, err := projectModelPriceRow(test.row, priceReferenceSnapshot{}, test.snapshot)
+			if err != nil {
+				t.Fatalf("projectModelPriceRow() error = %v", err)
+			}
+			encoded, err := json.Marshal(record.dto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(encoded, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["method"] != test.wantMethod {
+				t.Fatalf("method = %#v, want %#v", payload["method"], test.wantMethod)
+			}
+			matchedID, exists := payload["matched_provider_id"]
+			if !exists || matchedID != test.wantMatchedID {
+				t.Fatalf("matched_provider_id = %#v (exists %t), want %#v", matchedID, exists, test.wantMatchedID)
+			}
+		})
 	}
 }
 
@@ -635,14 +756,15 @@ func TestResetModelPriceMissingCatalogCandidateBecomesAutomaticPending(t *testin
 	}
 }
 
-func TestResetModelPriceGroupScopeAlwaysBecomesAutomaticPending(t *testing.T) {
+func TestResetModelPriceGroupScopeRestoresPriorityCatalogCost(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := createPriceTestGroup(t, fixture.db, models.Group{
 		Name:        "custom",
 		UpstreamURL: "https://custom.example/v1",
 		Protocols:   models.JSON(`["openai-completions"]`),
 		Models:      models.JSON(`[{"id":"custom-model","alias":"client"}]`),
-		Config:      models.JSON(`{}`), Enabled: false,
+		Config:      models.JSON(`{}`),
+		Enabled:     false,
 	})
 	scope, _ := pricing.GroupScopeKey(group.ID)
 	value := int64(6_000_000_000)
@@ -668,16 +790,29 @@ func TestResetModelPriceGroupScopeAlwaysBecomesAutomaticPending(t *testing.T) {
 		t.Fatalf("ResetModelPrice() error = %v", err)
 	}
 	if result.Scope.Kind != priceScopeKindGroup || result.Scope.ID != modelPriceGroupID(group.ID) ||
-		result.PricingStatus != PricingStatusPending || result.Method != nil ||
+		result.PricingStatus != PricingStatusConfigured || result.Method == nil || *result.Method != "auto_matched" ||
+		result.Prices.Input == nil || *result.Prices.Input != "99" ||
 		!result.Referenced || result.ReferenceCount != 1 || result.ReferenceGroupCount != 1 {
 		t.Fatalf("Group reset DTO = %#v", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["matched_provider_id"] != "openai" {
+		t.Fatalf("Group reset matched_provider_id = %#v, want openai", payload["matched_provider_id"])
 	}
 	var stored models.ModelPrice
 	if err := fixture.db.First(&stored, row.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if stored.IsManual || modelPriceConfiguredSlotCount(stored) != 0 || len(stored.ContextPriceTiers) != 0 {
-		t.Fatalf("Group reset retained catalog/manual values: %#v", stored)
+	if stored.IsManual || stored.InputPriceNanoUSDPerMillionTokens == nil ||
+		*stored.InputPriceNanoUSDPerMillionTokens != 99_000_000_000 || len(stored.ContextPriceTiers) != 0 {
+		t.Fatalf("Group reset did not restore priority catalog values: %#v", stored)
 	}
 }
 

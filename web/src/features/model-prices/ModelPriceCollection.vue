@@ -104,9 +104,16 @@ function edit(row: ModelPriceDto, trigger: HTMLElement): void {
             {{
               record.method === null
                 ? t('modelPrices.method.pending')
-                : t(`modelPrices.method.${record.method}`)
+                : record.method === 'auto_matched'
+                  ? t('modelPrices.method.auto_matched', {
+                      provider: record.row.matched_provider_id,
+                    })
+                  : t(`modelPrices.method.${record.method}`)
             }}
           </strong>
+          <small v-if="record.method === 'auto_sync'">
+            {{ t('modelPrices.reference', { provider: record.row.matched_provider_id }) }}
+          </small>
           <small>
             {{
               t('modelPrices.references', {

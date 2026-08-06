@@ -80,10 +80,12 @@ export default {
     method: {
       pending: '尚无定价方式',
       auto_sync: 'Models.dev 自动同步',
+      auto_matched: '参照 {provider} 价格',
       user_override: '手动覆盖自动价格',
       user_set: '手动设置',
       user_marked_unpriced: '手动标记未定价',
     },
+    reference: '参照 {provider} 价格',
     references: '{entries} 处引用 · {groups} 个分组',
     facts: {
       partial: '上游价格不完整',
@@ -101,8 +103,10 @@ export default {
       model: '模型 ID',
       scope: '价格范围',
       currentStatus: '当前状态',
+      reference: '价格参照',
       prices: '价格槽位',
-      priceDescription: '保留原始十进制精度，单位统一为 USD / 1M tokens',
+      priceDescription:
+        '展示和编辑的价格以 USD / 1M tokens 计，仅用于成本估算，不代表上游渠道实际收费',
       unit: 'USD / 1M',
       tierNote: '此价格含上下文分层规则；手动保存将用当前四槽位替换分层价格',
       partialNote: '上游价格信息不完整，请核对未配置的槽位',

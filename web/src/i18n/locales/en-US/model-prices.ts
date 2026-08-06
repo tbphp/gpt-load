@@ -81,10 +81,12 @@ export default {
     method: {
       pending: 'No pricing method',
       auto_sync: 'Synced from Models.dev',
+      auto_matched: 'Reference price: {provider}',
       user_override: 'Manual override',
       user_set: 'Manually set',
       user_marked_unpriced: 'Manually marked unpriced',
     },
+    reference: 'Reference price: {provider}',
     references: '{entries} references · {groups} Groups',
     facts: {
       partial: 'Incomplete upstream pricing',
@@ -102,8 +104,10 @@ export default {
       model: 'Model ID',
       scope: 'Price scope',
       currentStatus: 'Current status',
+      reference: 'Price reference',
       prices: 'Price slots',
-      priceDescription: 'Raw decimal precision is preserved; all prices use USD per 1M tokens',
+      priceDescription:
+        'Displayed and editable prices are cost estimates in USD per 1M tokens, not actual upstream billing',
       unit: 'USD / 1M',
       tierNote:
         'This price has context tiers; saving manually replaces the tiered price with these four slots',

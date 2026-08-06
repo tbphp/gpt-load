@@ -1,7 +1,6 @@
 package control
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -132,42 +131,23 @@ func newReconciledModelPrice(
 		ModelID:       reference.identity.ModelID,
 		IsManual:      false,
 	}
-	if reference.providerID == nil || snapshot == nil {
+	scopeProviderID := ""
+	if reference.providerID != nil {
+		scopeProviderID = *reference.providerID
+	}
+	cost, _, ok := resolveAutomaticPrice(snapshot, scopeProviderID, reference.identity.ModelID)
+	if !ok {
 		return row, nil
 	}
-	provider, exists := snapshot.Providers[*reference.providerID]
-	if !exists {
-		return row, nil
-	}
-	model, exists := provider.Models[reference.identity.ModelID]
-	if !exists || model.Cost == nil {
-		return row, nil
-	}
-	row.InputPriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.Input)
-	row.OutputPriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.Output)
-	row.CacheReadPriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.CacheRead)
-	row.CacheWritePriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.CacheWrite)
-	if len(model.Cost.ContextTiers) == 0 {
-		return row, nil
-	}
-	tiers := make([]models.ContextPriceTier, 0, len(model.Cost.ContextTiers))
-	for _, tier := range model.Cost.ContextTiers {
-		tiers = append(tiers, models.ContextPriceTier{
-			ThresholdTokens:                        tier.InputThresholdTokens,
-			InputPriceNanoUSDPerMillionTokens:      priceStoragePointer(tier.Prices.Input),
-			OutputPriceNanoUSDPerMillionTokens:     priceStoragePointer(tier.Prices.Output),
-			CacheReadPriceNanoUSDPerMillionTokens:  priceStoragePointer(tier.Prices.CacheRead),
-			CacheWritePriceNanoUSDPerMillionTokens: priceStoragePointer(tier.Prices.CacheWrite),
-		})
-	}
-	encoded, err := json.Marshal(tiers)
+	desired, err := automaticCatalogValues(cost)
 	if err != nil {
 		return models.ModelPrice{}, err
 	}
-	row.ContextPriceTiers, err = models.NormalizeContextPriceTiers(models.JSON(encoded))
-	if err != nil {
-		return models.ModelPrice{}, err
-	}
+	row.InputPriceNanoUSDPerMillionTokens = desired.InputPriceNanoUSDPerMillionTokens
+	row.OutputPriceNanoUSDPerMillionTokens = desired.OutputPriceNanoUSDPerMillionTokens
+	row.CacheReadPriceNanoUSDPerMillionTokens = desired.CacheReadPriceNanoUSDPerMillionTokens
+	row.CacheWritePriceNanoUSDPerMillionTokens = desired.CacheWritePriceNanoUSDPerMillionTokens
+	row.ContextPriceTiers = desired.ContextPriceTiers
 	return row, nil
 }
 
