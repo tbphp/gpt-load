@@ -234,11 +234,8 @@ export default {
         requests: '请求数',
         outcomes: '成功与失败',
         outcomeCounts: '成功 {success} · 失败 {failure}',
-        outcomeSummary: '成功 {success} / 失败 {failure}（{rate}）',
         successRate: '成功率 {rate}',
         cacheHitRate: '缓存率',
-        cacheHitRateHelp:
-          '缓存率 = 缓存读取 ÷ 输入 Token（非缓存输入 + 缓存读取 + 各类缓存写入），不含输出 Token；仅基于已报告用量。',
         cacheTokenSummary: '缓存读取 {read} / 输入 {input}',
         totalTokens: '已报告 Token 总数',
         persistedWindow: '当前统计窗口',
@@ -252,8 +249,6 @@ export default {
         cacheWrite5m: '缓存写入（5 分钟）',
         cacheWrite1h: '缓存写入（1 小时）',
         cacheWriteUnknown: '缓存写入',
-        nonHitInput: '其他输入',
-        cacheCompositionLabel: '缓存读取占 {hit}，其他输入占 {other}',
         output: '输出',
       },
       cost: {
@@ -328,8 +323,6 @@ export default {
         estimatedCost: '预估成本',
         quality: '质量',
         actions: '操作',
-        qualitySuccess: '成功率 {rate}',
-        qualityCache: '缓存率 {rate}',
         qualityUsage: '缺失 {missing} · 部分 {partial}',
         qualityPricing: '未定价 {unpriced} · 部分定价 {partial}',
         qualityCompact:

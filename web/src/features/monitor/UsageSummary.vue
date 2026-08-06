@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { CircleHelp } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { UsageAggregateDto } from '@/app/resources/usage'
-import AppTooltip from '@/components/ui/AppTooltip.vue'
 import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
 
 import { formatCacheHitRate } from '@/lib/cache-rate'
@@ -42,29 +40,23 @@ function inputTokens(): number {
     <article class="usage-kpi usage-kpi--accent">
       <span>{{ t('monitor.usage.kpi.requests') }}</span>
       <strong>{{ formatInteger(summary.request_count, locale) }}</strong>
-      <small>
-        {{
-          t('monitor.usage.kpi.outcomeSummary', {
-            success: formatInteger(summary.success_count, locale),
-            failure: formatInteger(summary.failure_count, locale),
-            rate: formatPercent(summary.failure_count, summary.request_count, locale),
-          })
-        }}
+      <small class="usage-kpi__outcomes">
+        <span class="usage-kpi__success">
+          {{ t('monitor.usage.columns.success') }}
+          {{ formatInteger(summary.success_count, locale) }}
+        </span>
+        <span class="usage-kpi__separator">/</span>
+        <span class="usage-kpi__failure">
+          {{ t('monitor.usage.columns.failure') }}
+          {{ formatInteger(summary.failure_count, locale) }}
+        </span>
+        <span class="usage-kpi__rate">
+          ({{ formatPercent(summary.failure_count, summary.request_count, locale) }})
+        </span>
       </small>
     </article>
     <article class="usage-kpi usage-kpi--cache">
-      <span>
-        {{ t('monitor.usage.kpi.cacheHitRate') }}
-        <AppTooltip :content="t('monitor.usage.kpi.cacheHitRateHelp')" side="bottom">
-          <button
-            type="button"
-            class="usage-kpi__help"
-            :aria-label="t('monitor.usage.kpi.cacheHitRateHelp')"
-          >
-            <CircleHelp :size="13" aria-hidden="true" />
-          </button>
-        </AppTooltip>
-      </span>
+      <span>{{ t('monitor.usage.kpi.cacheHitRate') }}</span>
       <strong>
         {{ formatCacheHitRate(summary.cache_read_tokens, inputTokens(), locale) }}
       </strong>
@@ -173,16 +165,24 @@ function inputTokens(): number {
   line-height: 1.4;
 }
 
-.usage-kpi__help {
-  display: inline-grid;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  place-items: center;
-  border: 0;
-  background: transparent;
+.usage-kpi__outcomes {
+  display: flex !important;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.usage-kpi__success {
+  color: var(--color-success);
+}
+
+.usage-kpi__failure {
+  color: var(--color-danger);
+}
+
+.usage-kpi__separator,
+.usage-kpi__rate {
   color: var(--color-text-faint);
-  cursor: help;
 }
 
 .usage-kpi__quality {

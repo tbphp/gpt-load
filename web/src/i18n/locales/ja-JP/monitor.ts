@@ -241,11 +241,8 @@ export default {
         requests: 'リクエスト数',
         outcomes: '成功と失敗',
         outcomeCounts: '成功 {success} · 失敗 {failure}',
-        outcomeSummary: '成功 {success} / 失敗 {failure}（{rate}）',
         successRate: '成功率 {rate}',
         cacheHitRate: 'キャッシュ率',
-        cacheHitRateHelp:
-          'キャッシュ率 = キャッシュ読み取り ÷ 入力 Token（キャッシュなし入力 + キャッシュ読み取り + すべてのキャッシュ書き込み）。出力 Token は含まず、報告済み使用量のみを対象とします。',
         cacheTokenSummary: 'キャッシュ読み取り {read} / 入力 {input}',
         totalTokens: '報告済みトークン合計',
         persistedWindow: '現在の集計期間',
@@ -259,8 +256,6 @@ export default {
         cacheWrite5m: 'キャッシュ書き込み（5 分）',
         cacheWrite1h: 'キャッシュ書き込み（1 時間）',
         cacheWriteUnknown: 'キャッシュ書き込み',
-        nonHitInput: 'その他の入力',
-        cacheCompositionLabel: 'キャッシュ読み取り {hit}、その他の入力 {other}',
         output: '出力',
       },
       cost: {
@@ -341,8 +336,6 @@ export default {
         estimatedCost: '推定コスト',
         quality: '品質',
         actions: '操作',
-        qualitySuccess: '成功率 {rate}',
-        qualityCache: 'キャッシュ率 {rate}',
         qualityUsage: 'なし {missing} · 部分 {partial}',
         qualityPricing: '未設定 {unpriced} · 一部 {partial}',
         qualityCompact:

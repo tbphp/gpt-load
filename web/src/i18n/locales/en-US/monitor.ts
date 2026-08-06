@@ -240,11 +240,8 @@ export default {
         requests: 'Requests',
         outcomes: 'Success and failure',
         outcomeCounts: 'Success {success} · Failure {failure}',
-        outcomeSummary: 'Success {success} / failure {failure} ({rate})',
         successRate: 'Success rate {rate}',
         cacheHitRate: 'Cache hit rate',
-        cacheHitRateHelp:
-          'Cache hit rate = cache-read tokens / input tokens (uncached input + cache reads + all cache writes). Output tokens are excluded; only reported usage is measured.',
         cacheTokenSummary: 'Cache read {read} / input {input}',
         totalTokens: 'Total reported tokens',
         persistedWindow: 'Current reporting window',
@@ -258,8 +255,6 @@ export default {
         cacheWrite5m: 'Cache write (5m)',
         cacheWrite1h: 'Cache write (1h)',
         cacheWriteUnknown: 'Cache write',
-        nonHitInput: 'Other input',
-        cacheCompositionLabel: 'Cache reads {hit}; other input {other}',
         output: 'Output',
       },
       cost: {
@@ -340,8 +335,6 @@ export default {
         estimatedCost: 'Estimated cost',
         quality: 'Quality',
         actions: 'Actions',
-        qualitySuccess: 'Success rate {rate}',
-        qualityCache: 'Cache hit rate {rate}',
         qualityUsage: 'Missing {missing} · Partial {partial}',
         qualityPricing: 'Unpriced {unpriced} · Partial {partial}',
         qualityCompact:
