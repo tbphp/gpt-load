@@ -124,6 +124,19 @@ function projectProviderSuggestion(value: unknown): ProviderSuggestion {
 }
 
 export function projectProviderSuggestionList(value: unknown): ProviderSuggestionList {
+  return projectProviderSuggestionListValue(value, true)
+}
+
+function projectProviderSuggestionListByIDs(value: unknown): ProviderSuggestionList {
+  const result = projectProviderSuggestionListValue(value, false)
+  if (result.items.some(({ source }) => source !== 'catalog')) invalidResponse()
+  return result
+}
+
+function projectProviderSuggestionListValue(
+  value: unknown,
+  requireOfficialSuggestions: boolean,
+): ProviderSuggestionList {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, providerSuggestionListFields)
   const items = projectArray(record.items, projectProviderSuggestion)
@@ -131,7 +144,7 @@ export function projectProviderSuggestionList(value: unknown): ProviderSuggestio
   if (
     total !== items.length ||
     new Set(items.map(({ provider_id }) => provider_id)).size !== items.length ||
-    items.filter(({ source }) => source === 'official').length !== 3
+    (requireOfficialSuggestions && items.filter(({ source }) => source === 'official').length !== 3)
   ) {
     invalidResponse()
   }
@@ -221,6 +234,35 @@ export async function listProviderSuggestions(
   )
 }
 
+export async function listProviderSuggestionsByIDs(
+  client: ApiClient,
+  providerIDs: readonly string[],
+  signal?: AbortSignal,
+): Promise<ProviderSuggestionList> {
+  const normalizedIDs = normalizeProviderIDs(providerIDs)
+  if (!normalizedIDs.length) return { items: [], total: 0 }
+  const params = new URLSearchParams()
+  params.set('provider_ids', normalizedIDs.join(','))
+  return projectProviderSuggestionListByIDs(
+    await client.request(`/api/provider-suggestions?${params.toString()}`, {
+      method: 'GET',
+      signal,
+    }),
+  )
+}
+
+function normalizeProviderIDs(providerIDs: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const providerID of providerIDs) {
+    const normalized = providerID.trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
+
 export async function listProviderModels(
   client: ApiClient,
   providerID: string,
@@ -259,6 +301,22 @@ export function providerSuggestionsQueryOptions(
       controlQueryKeys.providers.suggestions(normalizeProviderSearch(toValue(search))),
     ),
     queryFn: ({ queryKey, signal }) => listProviderSuggestions(client, queryKey[3], signal),
+    staleTime: 5 * 60 * 1_000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function providerSuggestionsByIDsQueryOptions(
+  client: ApiClient,
+  providerIDs: MaybeRefOrGetter<readonly string[]>,
+) {
+  return queryOptions({
+    queryKey: computed(() => {
+      const normalizedIDs = normalizeProviderIDs(toValue(providerIDs))
+      return controlQueryKeys.providers.suggestionsByIDs(normalizedIDs)
+    }),
+    queryFn: ({ queryKey, signal }) => listProviderSuggestionsByIDs(client, queryKey[3], signal),
+    enabled: computed(() => normalizeProviderIDs(toValue(providerIDs)).length > 0),
     staleTime: 5 * 60 * 1_000,
     placeholderData: keepPreviousData,
   })

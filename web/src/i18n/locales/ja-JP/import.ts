@@ -18,7 +18,6 @@ export default {
       recent: '最近使用したプロバイダー',
       recommended: 'おすすめのプロバイダー',
       catalogMore: 'その他のプロバイダー',
-      recentFromGroup: 'グループ #{id} · {name} から',
       urlRequired: 'URL を手動で入力してください',
       custom: {
         name: 'カスタム接続',

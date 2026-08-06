@@ -18,7 +18,6 @@ export default {
       recent: '最近使用',
       recommended: '推荐渠道',
       catalogMore: '更多渠道',
-      recentFromGroup: '来自分组 #{id} · {name}',
       urlRequired: '需手动填写地址',
       custom: {
         name: '自定义连接',

@@ -1,51 +1,29 @@
-import type { GroupCollectionItemDto, GroupProtocol } from '@/api/control/types'
+import type { GroupCollectionItemDto } from '@/api/control/types'
 
 /**
- * A one-click "use this again" entry derived from an existing Group, so
- * repeat relay/self-hosted connections that will never appear in any
- * provider directory still have a fast path back into the import form.
+ * Provider IDs used by the newest Groups. The caller resolves these IDs
+ * against the Models.dev catalog before rendering the provider directory.
  */
-export interface RecentProviderEntry {
-  groupId: number
-  groupName: string
-  providerId: string | null
-  upstreamUrl: string
-  protocols: GroupProtocol[]
-  host: string
-}
-
 const RECENT_PROVIDER_LIMIT = 5
+// Official providers are already rendered in the featured preset picker.
+const OFFICIAL_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google'])
 
 /**
- * Derives up to RECENT_PROVIDER_LIMIT recently created Groups with distinct
- * upstream URLs, preserving the newest-first order the caller is expected to
- * request (collection filters sorted by `created`).
+ * Derives up to RECENT_PROVIDER_LIMIT distinct provider IDs from recently
+ * created Groups, preserving the newest-first order returned by the Group
+ * collection query.
  */
-export function deriveRecentProviders(
-  items: readonly GroupCollectionItemDto[],
-): RecentProviderEntry[] {
-  const seenUpstreamUrls = new Set<string>()
-  const entries: RecentProviderEntry[] = []
+export function deriveRecentProviderIDs(items: readonly GroupCollectionItemDto[]): string[] {
+  const seenProviderIDs = new Set<string>()
+  const providerIDs: string[] = []
   for (const item of items) {
-    if (seenUpstreamUrls.has(item.upstream_url)) continue
-    seenUpstreamUrls.add(item.upstream_url)
-    entries.push({
-      groupId: item.id,
-      groupName: item.name,
-      providerId: item.provider_id,
-      upstreamUrl: item.upstream_url,
-      protocols: item.protocols,
-      host: extractHost(item.upstream_url),
-    })
-    if (entries.length >= RECENT_PROVIDER_LIMIT) break
+    const providerID = item.provider_id?.trim()
+    // Custom connections have no provider_id and are not Models.dev entries.
+    if (!providerID || OFFICIAL_PROVIDER_IDS.has(providerID) || seenProviderIDs.has(providerID))
+      continue
+    seenProviderIDs.add(providerID)
+    providerIDs.push(providerID)
+    if (providerIDs.length >= RECENT_PROVIDER_LIMIT) break
   }
-  return entries
-}
-
-function extractHost(url: string): string {
-  try {
-    return new URL(url).host
-  } catch {
-    return url
-  }
+  return providerIDs
 }

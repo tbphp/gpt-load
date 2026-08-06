@@ -121,6 +121,8 @@ export const controlQueryKeys = {
     all: ['control', 'providers'] as const,
     suggestionsAll: () => ['control', 'providers', 'suggestions'] as const,
     suggestions: (search: string) => ['control', 'providers', 'suggestions', search] as const,
+    suggestionsByIDs: (providerIDs: readonly string[]) =>
+      ['control', 'providers', 'suggestions-by-ids', [...providerIDs]] as const,
     modelsAll: () => ['control', 'providers', 'models'] as const,
     models: (providerID: string, filters: ProviderModelFilters) =>
       ['control', 'providers', 'models', providerID, filters] as const,

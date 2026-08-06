@@ -136,19 +136,44 @@ func SearchProviderMetadataBounded(snapshot *Snapshot, query string, limit int) 
 	}
 	providers := make([]Provider, 0, len(selected))
 	for _, entry := range selected {
-		provider := entry.provider
-		provider.Models = nil
-		provider.Protocols = nil
-		provider.Mark = providerMark(provider.Name, provider.ID)
-		provider.Protocols = inferProtocols(provider.NPM)
-		if apiURL, ok := normalizeSuggestionURL(provider.APIURL); ok {
-			provider.APIURL = apiURL
-		} else {
-			provider.APIURL = ""
-		}
-		providers = append(providers, provider)
+		providers = append(providers, providerMetadata(entry.provider))
 	}
 	return providers
+}
+
+// SearchProviderMetadataByIDs returns the requested Models.dev providers in
+// caller order. Missing IDs are omitted, and each result contains only the
+// metadata needed by the provider directory.
+func SearchProviderMetadataByIDs(snapshot *Snapshot, ids []string) []Provider {
+	if snapshot == nil || len(ids) == 0 {
+		return nil
+	}
+	providers := make([]Provider, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		provider, ok := snapshot.Providers[id]
+		if !ok {
+			continue
+		}
+		providers = append(providers, providerMetadata(provider))
+	}
+	return providers
+}
+
+func providerMetadata(provider Provider) Provider {
+	provider.Models = nil
+	provider.Protocols = inferProtocols(provider.NPM)
+	provider.Mark = providerMark(provider.Name, provider.ID)
+	if apiURL, ok := normalizeSuggestionURL(provider.APIURL); ok {
+		provider.APIURL = apiURL
+	} else {
+		provider.APIURL = ""
+	}
+	return provider
 }
 
 // SearchProvidersBounded is retained as the metadata-only bounded search

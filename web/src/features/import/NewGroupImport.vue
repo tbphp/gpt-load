@@ -22,6 +22,7 @@ import {
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import {
   normalizeProviderSearch,
+  providerSuggestionsByIDsQueryOptions,
   providerSuggestionsQueryOptions,
   type ModelCandidate,
   type ProviderSuggestion,
@@ -57,7 +58,7 @@ import type { ImportDraft, ModelDraftItem } from './model-draft'
 import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
 import ProviderCatalogDrawer from './ProviderCatalogDrawer.vue'
 import ProviderPresetPicker from './ProviderPresetPicker.vue'
-import { deriveRecentProviders, type RecentProviderEntry } from './recent-providers'
+import { deriveRecentProviderIDs } from './recent-providers'
 
 const props = defineProps<{ initialDraft?: ImportDraft | null }>()
 const api = useApiClient()
@@ -125,8 +126,18 @@ const catalogSuggestions = computed(
 const recentGroupsQuery = useQuery(
   groupCollectionQueryOptions(api, { sort: 'created', page: 1, page_size: 20 }),
 )
-const recentProviders = computed<RecentProviderEntry[]>(() =>
-  deriveRecentProviders(recentGroupsQuery.data.value?.items ?? []),
+const recentProviderIDs = computed(() =>
+  deriveRecentProviderIDs(recentGroupsQuery.data.value?.items ?? []),
+)
+const recentProvidersQuery = useQuery(providerSuggestionsByIDsQueryOptions(api, recentProviderIDs))
+const recentProviders = computed(() =>
+  recentProviderIDs.value.length ? (recentProvidersQuery.data.value?.items ?? []) : [],
+)
+const providerCatalogLoading = computed(
+  () =>
+    providerSuggestionsQuery.isFetching.value ||
+    recentGroupsQuery.isFetching.value ||
+    recentProvidersQuery.isFetching.value,
 )
 const catalogDrawerOpen = ref(false)
 const discoveryErrorKey = ref('')
@@ -403,14 +414,10 @@ function selectProvider(provider: ProviderSuggestion | null): void {
   if (provider.protocols.length) draft.protocols = [...provider.protocols]
 }
 
-function selectRecentProvider(entry: RecentProviderEntry): void {
+function selectRecentProvider(provider: ProviderSuggestion): void {
   if (payloadLocked.value) return
-  cancelDefaultProvider()
+  selectProvider(provider)
   catalogDrawerOpen.value = false
-  selectedProvider.value = null
-  draft.provider_id = entry.providerId
-  draft.upstream_url = entry.upstreamUrl
-  draft.protocols = [...entry.protocols]
 }
 
 function selectSuggestionFromCatalog(provider: ProviderSuggestion): void {
@@ -718,7 +725,7 @@ onBeforeUnmount(() => {
       :recent="recentProviders"
       :suggestions="catalogSuggestions"
       :search="providerSearchInput"
-      :loading="providerSuggestionsQuery.isFetching.value"
+      :loading="providerCatalogLoading"
       :error="providerSuggestionsQuery.isError.value"
       @update:open="catalogDrawerOpen = $event"
       @update:search="setProviderSearch"

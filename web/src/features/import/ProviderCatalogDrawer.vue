@@ -8,11 +8,9 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
-import type { RecentProviderEntry } from './recent-providers'
-
 const props = defineProps<{
   open: boolean
-  recent: readonly RecentProviderEntry[]
+  recent: readonly ProviderSuggestion[]
   suggestions: readonly ProviderSuggestion[]
   search: string
   loading: boolean
@@ -23,7 +21,7 @@ const emit = defineEmits<{
   'update:search': [value: string]
   retry: []
   selectSuggestion: [provider: ProviderSuggestion]
-  selectRecent: [entry: RecentProviderEntry]
+  selectRecent: [provider: ProviderSuggestion]
   custom: []
 }>()
 const { t } = useI18n()
@@ -33,16 +31,24 @@ const recentMatches = computed(() => {
   const query = normalizedSearch.value
   if (!query) return props.recent
   return props.recent.filter(
-    (entry) =>
-      entry.host.toLocaleLowerCase().includes(query) ||
-      entry.groupName.toLocaleLowerCase().includes(query),
+    (provider) =>
+      provider.provider_id.toLocaleLowerCase().includes(query) ||
+      provider.name.toLocaleLowerCase().includes(query) ||
+      (provider.api_url?.toLocaleLowerCase().includes(query) ?? false),
   )
 })
+const recentProviderIDs = computed(
+  () => new Set(recentMatches.value.map(({ provider_id }) => provider_id)),
+)
 const curatedMatches = computed(() =>
-  props.suggestions.filter(({ source }) => source === 'curated'),
+  props.suggestions.filter(
+    ({ provider_id, source }) => source === 'curated' && !recentProviderIDs.value.has(provider_id),
+  ),
 )
 const catalogMatches = computed(() =>
-  props.suggestions.filter(({ source }) => source === 'catalog'),
+  props.suggestions.filter(
+    ({ provider_id, source }) => source === 'catalog' && !recentProviderIDs.value.has(provider_id),
+  ),
 )
 const hasAnyResults = computed(
   () =>
@@ -65,11 +71,6 @@ function hostOf(url: string): string {
   } catch {
     return url
   }
-}
-
-function hostMark(host: string): string {
-  const letters = (host.replace(/^www\./, '').match(/[a-zA-Z0-9]/g) ?? []).slice(0, 2)
-  return letters.join('').toUpperCase() || '··'
 }
 </script>
 
@@ -98,18 +99,16 @@ function hostMark(host: string): string {
         <h3>{{ t('import.presets.recent') }}</h3>
         <div class="provider-catalog-drawer__options">
           <button
-            v-for="entry in recentMatches"
-            :key="`recent-${entry.groupId}`"
+            v-for="provider in recentMatches"
+            :key="`recent-${provider.provider_id}`"
             class="provider-catalog-drawer__option"
             type="button"
-            @click="emit('selectRecent', entry)"
+            @click="emit('selectRecent', provider)"
           >
-            <span class="provider-catalog-drawer__mark">{{ hostMark(entry.host) }}</span>
+            <span class="provider-catalog-drawer__mark">{{ provider.mark || '···' }}</span>
             <span>
-              <strong>{{ entry.host }}</strong>
-              <small>{{
-                t('import.presets.recentFromGroup', { id: entry.groupId, name: entry.groupName })
-              }}</small>
+              <strong>{{ provider.name }}</strong>
+              <small>{{ providerMeta(provider) }}</small>
             </span>
             <span aria-hidden="true">→</span>
           </button>
@@ -194,6 +193,10 @@ function hostMark(host: string): string {
 
 .provider-catalog-drawer__state {
   margin-top: var(--space-3);
+}
+
+.provider-catalog-drawer__group:first-of-type {
+  margin-top: var(--space-5);
 }
 
 .provider-catalog-drawer__group + .provider-catalog-drawer__group {

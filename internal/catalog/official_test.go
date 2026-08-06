@@ -139,6 +139,33 @@ func TestSearchProvidersAlwaysGeneratesLocalTextMark(t *testing.T) {
 	}
 }
 
+func TestSearchProviderMetadataByIDsPreservesRequestedOrderAndOnlyMatches(t *testing.T) {
+	snapshot := &Snapshot{Providers: map[string]Provider{
+		"alpha": {
+			ID: "alpha", Name: "Alpha", APIURL: "https://alpha.example/v1///",
+			NPM: "@ai-sdk/openai-compatible", Models: map[string]Model{"alpha-model": {ID: "alpha-model"}},
+		},
+		"beta": {
+			ID: "beta", Name: "Beta", APIURL: "https://beta.example/v1",
+			NPM: "@ai-sdk/anthropic", Models: map[string]Model{"beta-model": {ID: "beta-model"}},
+		},
+	}}
+
+	got := SearchProviderMetadataByIDs(snapshot, []string{"beta", "missing", "beta", "alpha"})
+	if len(got) != 2 || got[0].ID != "beta" || got[1].ID != "alpha" {
+		t.Fatalf("metadata by IDs = %#v, want beta then alpha", got)
+	}
+	if got[0].APIURL != "https://beta.example/v1" || got[0].Protocols[0] != protocol.Anthropic || got[0].Mark != "BE" {
+		t.Fatalf("beta metadata = %#v", got[0])
+	}
+	if got[1].APIURL != "https://alpha.example/v1" || got[1].Protocols[0] != protocol.OpenAICompletions || got[1].Mark != "AL" {
+		t.Fatalf("alpha metadata = %#v", got[1])
+	}
+	if got[0].Models != nil || got[1].Models != nil {
+		t.Fatalf("metadata by IDs exposes model maps: %#v", got)
+	}
+}
+
 func assertProtocols(t *testing.T, got []protocol.Protocol, want ...protocol.Protocol) {
 	t.Helper()
 	if !reflect.DeepEqual(got, want) {

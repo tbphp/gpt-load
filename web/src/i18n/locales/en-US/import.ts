@@ -18,7 +18,6 @@ export default {
       recent: 'Recently used',
       recommended: 'Recommended providers',
       catalogMore: 'More providers',
-      recentFromGroup: 'From group #{id} · {name}',
       urlRequired: 'Requires a manually entered URL',
       custom: {
         name: 'Custom connection',

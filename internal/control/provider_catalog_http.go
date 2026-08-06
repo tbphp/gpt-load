@@ -11,17 +11,30 @@ import (
 
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
+	"gpt-load/internal/pricing"
 )
 
-const providerCatalogMaxQueryRunes = 200
+const (
+	providerCatalogMaxQueryRunes = 200
+	providerSuggestionMaxIDs     = 20
+)
 
 func (s *Server) handleListProviderSuggestions(c *gin.Context) {
-	query, apiErr := parseProviderSuggestionQuery(c.Request.URL.RawQuery, c.Request.URL.ForceQuery)
+	query, providerIDs, apiErr := parseProviderSuggestionQuery(
+		c.Request.URL.RawQuery,
+		c.Request.URL.ForceQuery,
+	)
 	if apiErr != nil {
 		writeServiceError(c, "list_provider_suggestions", apiErr)
 		return
 	}
-	result, err := s.service.ListProviderSuggestions(c.Request.Context(), query)
+	var result ProviderSuggestionListResponse
+	var err error
+	if len(providerIDs) > 0 {
+		result, err = s.service.ListProviderSuggestionsByIDs(c.Request.Context(), providerIDs)
+	} else {
+		result, err = s.service.ListProviderSuggestions(c.Request.Context(), query)
+	}
 	if err != nil {
 		writeServiceError(c, "list_provider_suggestions", err)
 		return
@@ -56,16 +69,55 @@ func (s *Server) handleSyncModelPrices(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func parseProviderSuggestionQuery(rawQuery string, forceQuery bool) (string, *app_errors.APIError) {
-	values, apiErr := parseProviderCatalogValues(rawQuery, forceQuery, map[string]struct{}{"q": {}})
+func parseProviderSuggestionQuery(rawQuery string, forceQuery bool) (string, []string, *app_errors.APIError) {
+	values, apiErr := parseProviderCatalogValues(
+		rawQuery,
+		forceQuery,
+		map[string]struct{}{"q": {}, "provider_ids": {}},
+	)
 	if apiErr != nil {
-		return "", apiErr
+		return "", nil, apiErr
 	}
 	query := strings.TrimSpace(values.Get("q"))
 	if utf8.RuneCountInString(query) > providerCatalogMaxQueryRunes {
-		return "", app_errors.ErrBadRequest
+		return "", nil, app_errors.ErrBadRequest
 	}
-	return query, nil
+	providerIDs := []string(nil)
+	if values.Has("provider_ids") {
+		if query != "" {
+			return "", nil, app_errors.ErrBadRequest
+		}
+		var parseErr *app_errors.APIError
+		providerIDs, parseErr = parseProviderSuggestionIDs(values.Get("provider_ids"))
+		if parseErr != nil {
+			return "", nil, parseErr
+		}
+	}
+	return query, providerIDs, nil
+}
+
+func parseProviderSuggestionIDs(raw string) ([]string, *app_errors.APIError) {
+	parts := strings.Split(raw, ",")
+	if len(parts) == 0 || len(parts) > providerSuggestionMaxIDs {
+		return nil, app_errors.ErrBadRequest
+	}
+	ids := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if _, err := pricing.ProviderScopeKey(id); err != nil {
+			return nil, app_errors.ErrBadRequest
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, app_errors.ErrBadRequest
+	}
+	return ids, nil
 }
 
 func parseProviderModelQuery(rawQuery string, forceQuery bool) (ProviderModelQuery, *app_errors.APIError) {

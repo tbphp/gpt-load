@@ -100,6 +100,21 @@ func (s *Service) ListProviderSuggestions(
 	return ProviderSuggestionListResponse{Items: items, Total: len(items)}, nil
 }
 
+func (s *Service) ListProviderSuggestionsByIDs(
+	ctx context.Context,
+	providerIDs []string,
+) (ProviderSuggestionListResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return ProviderSuggestionListResponse{}, err
+	}
+	providers := catalog.SearchProviderMetadataByIDs(s.catalogRuntime.Load(), providerIDs)
+	items := make([]ProviderSuggestion, 0, len(providers))
+	for _, provider := range providers {
+		items = append(items, mapProviderSuggestion(provider, ProviderSuggestionSourceCatalog))
+	}
+	return ProviderSuggestionListResponse{Items: items, Total: len(items)}, nil
+}
+
 func mapProviderSuggestion(provider catalog.Provider, source ProviderSuggestionSource) ProviderSuggestion {
 	protocols := make([]protocol.Protocol, len(provider.Protocols))
 	copy(protocols, provider.Protocols)

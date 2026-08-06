@@ -122,6 +122,41 @@ func TestProviderSuggestionsCuratedOutranksCatalogForSharedID(t *testing.T) {
 	}
 }
 
+func TestProviderSuggestionsByIDsUseModelsDevMetadataInRequestedOrder(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"deepseek": {
+			ID: "deepseek", Name: "DeepSeek Models.dev", APIURL: "https://models.example/deepseek/v1",
+			NPM: "@ai-sdk/openai-compatible", Models: map[string]catalog.Model{},
+		},
+		"anthropic-cloud": {
+			ID: "anthropic-cloud", Name: "Anthropic Cloud", APIURL: "https://models.example/anthropic/v1",
+			NPM: "@ai-sdk/anthropic", Models: map[string]catalog.Model{},
+		},
+	}})
+
+	got, err := fixture.service.ListProviderSuggestionsByIDs(
+		t.Context(),
+		[]string{"anthropic-cloud", "deepseek", "missing", "deepseek"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 2 || got.Items[0].ProviderID != "anthropic-cloud" || got.Items[1].ProviderID != "deepseek" {
+		t.Fatalf("provider suggestions by IDs = %#v, want requested matched order", got.Items)
+	}
+	if got.Items[0].Source != ProviderSuggestionSourceCatalog || got.Items[0].Name != "Anthropic Cloud" ||
+		got.Items[0].APIURL != "https://models.example/anthropic/v1" ||
+		len(got.Items[0].Protocols) != 1 || got.Items[0].Protocols[0] != protocol.Anthropic {
+		t.Fatalf("anthropic catalog metadata = %#v", got.Items[0])
+	}
+	if got.Items[1].Source != ProviderSuggestionSourceCatalog || got.Items[1].Name != "DeepSeek Models.dev" ||
+		got.Items[1].APIURL != "https://models.example/deepseek/v1" ||
+		len(got.Items[1].Protocols) != 1 || got.Items[1].Protocols[0] != protocol.OpenAICompletions {
+		t.Fatalf("deepseek catalog metadata = %#v", got.Items[1])
+	}
+}
+
 func TestValidateSelectableProviderIDAllowsCuratedProviderIDs(t *testing.T) {
 	fixture := newServiceFixture(t)
 	for _, provider := range catalog.CuratedProviders() {
@@ -250,6 +285,8 @@ func TestProviderCatalogRoutesRequireAuthRejectInvalidQueriesAndSanitizeSyncFail
 	for _, path := range []string{
 		"/api/provider-suggestions?unknown=1",
 		"/api/provider-suggestions?q=a&q=b",
+		"/api/provider-suggestions?q=a&provider_ids=openai",
+		"/api/provider-suggestions?provider_ids=",
 		"/api/providers/OpenAI/models",
 		"/api/providers/openai/models?status=priced",
 	} {
@@ -257,6 +294,17 @@ func TestProviderCatalogRoutesRequireAuthRejectInvalidQueriesAndSanitizeSyncFail
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("GET %s = %d %s, want 400", path, response.Code, response.Body.String())
 		}
+	}
+	catalogByID := serveProviderCatalogRequest(
+		engine,
+		http.MethodGet,
+		"/api/provider-suggestions?provider_ids=openai",
+		authTestKey,
+	)
+	if catalogByID.Code != http.StatusOK ||
+		!strings.Contains(catalogByID.Body.String(), `"provider_id":"openai"`) ||
+		!strings.Contains(catalogByID.Body.String(), `"source":"catalog"`) {
+		t.Fatalf("provider suggestions by ID = %d %s", catalogByID.Code, catalogByID.Body.String())
 	}
 
 	syncResponse := serveProviderCatalogRequest(engine, http.MethodPost, "/api/model-prices/sync", authTestKey)
