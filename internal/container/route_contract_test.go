@@ -276,10 +276,10 @@ func TestHTTPRoutesReturnMethodNotAllowedBeforePlaneAuthentication(t *testing.T)
 	}
 
 	for _, event := range []string{
-		"control_plane_auth_failed",
-		"data_plane_auth_failed",
-		"control_plane_mutation",
-		"data_plane_route_not_found",
+		"auth_failed",
+		"auth_failed",
+		"mutation",
+		"route_not_found",
 	} {
 		if strings.Contains(logs.String(), event) {
 			t.Fatalf("wrong-method requests emitted %q: %s", event, logs.String())
@@ -324,7 +324,7 @@ func TestHTTPRoutesValidateDynamicPathsBeforeDataAuthentication(t *testing.T) {
 		})
 	}
 
-	if strings.Contains(logs.String(), "data_plane_auth_failed") {
+	if strings.Contains(logs.String(), "auth_failed") {
 		t.Fatalf("invalid dynamic paths emitted data auth failure: %s", logs.String())
 	}
 }
@@ -366,7 +366,7 @@ func TestHTTPRoutesPreserveResponsesAuthenticationBeforeLocalRejection(t *testin
 			)
 		}
 	}
-	if !strings.Contains(logs.String(), "data_plane_auth_failed") {
+	if !strings.Contains(logs.String(), "auth_failed") {
 		t.Fatalf("Responses local rejections skipped authentication log: %s", logs.String())
 	}
 }

@@ -346,8 +346,8 @@ func assertGatewaySecretMatrixOutput(
 ) {
 	t.Helper()
 	for _, required := range []string{
-		"data_plane_auth_failed",
-		"data_plane_route_not_found",
+		"auth_failed",
+		"route_not_found",
 		"access_key_id",
 	} {
 		if !strings.Contains(logText, required) {

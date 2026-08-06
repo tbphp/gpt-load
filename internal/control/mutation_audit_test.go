@@ -254,7 +254,7 @@ func TestAuditMutationRecordsExactlyOneOutcome(t *testing.T) {
 			}
 			events := controlEventsNamed(
 				decodeControlJSONLogs(t, logs.Bytes()),
-				"control_plane_mutation",
+				"mutation",
 			)
 			if len(events) != 1 {
 				t.Fatalf("mutation events = %#v, want one", events)
@@ -309,7 +309,7 @@ func TestAuditMutationUsesSuccessfulLocatorOverride(t *testing.T) {
 
 	events := controlEventsNamed(
 		decodeControlJSONLogs(t, logs.Bytes()),
-		"control_plane_mutation",
+		"mutation",
 	)
 	if len(events) != 1 || events[0]["resource_locator"] != "probe:42" {
 		t.Fatalf("mutation events = %#v, want probe:42", events)
@@ -357,7 +357,7 @@ func TestAuditMutationLogsPanicThenRethrowsToRecovery(t *testing.T) {
 	}
 	events := controlEventsNamed(
 		decodeControlJSONLogs(t, logs.Bytes()),
-		"control_plane_mutation",
+		"mutation",
 	)
 	if len(events) != 1 {
 		t.Fatalf("mutation events = %#v, want one", events)
@@ -475,7 +475,7 @@ func TestMutationAuditExcludesReadAndDiscoveryRoutes(t *testing.T) {
 
 	events := controlEventsNamed(
 		decodeControlJSONLogs(t, logs.Bytes()),
-		"control_plane_mutation",
+		"mutation",
 	)
 	if len(events) != 0 {
 		t.Fatalf("mutation events = %#v, want none", events)
@@ -496,7 +496,7 @@ func assertMutationEvent(
 ) {
 	t.Helper()
 	want := map[string]any{
-		"event":            "control_plane_mutation",
+		"event":            "mutation",
 		"peer_ip":          peerIP,
 		"operation":        operation,
 		"resource_type":    resourceType,

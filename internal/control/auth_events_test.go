@@ -56,7 +56,7 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	assertControlAuthEventTotals(
 		t,
 		decodeControlJSONLogs(t, logs.Bytes()),
-		"control_plane_auth_failed",
+		"auth_failed",
 		[]float64{1},
 	)
 
@@ -74,10 +74,10 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	assertControlAuthEventTotals(
 		t,
 		events,
-		"control_plane_auth_failed",
+		"auth_failed",
 		[]float64{1},
 	)
-	assertControlAuthEventCount(t, events, "control_plane_auth_locked", 1)
+	assertControlAuthEventCount(t, events, "auth_locked", 1)
 
 	now = now.Add(time.Minute)
 	stillLocked := serveAuthRequest(
@@ -98,18 +98,18 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	assertControlAuthEventTotals(
 		t,
 		events,
-		"control_plane_auth_failed",
+		"auth_failed",
 		[]float64{1, 6},
 	)
-	assertControlAuthEventCount(t, events, "control_plane_auth_locked", 1)
+	assertControlAuthEventCount(t, events, "auth_locked", 1)
 
-	authEvent := controlEventsNamed(events, "control_plane_auth_failed")[0]
+	authEvent := controlEventsNamed(events, "auth_failed")[0]
 	if authEvent["peer_ip"] != "192.0.2.60" ||
 		authEvent["level"] != "warning" ||
 		authEvent["msg"] != "[CONTROL] Authentication failed" {
 		t.Fatalf("auth event = %#v", authEvent)
 	}
-	lockEvent := controlEventsNamed(events, "control_plane_auth_locked")[0]
+	lockEvent := controlEventsNamed(events, "auth_locked")[0]
 	if lockEvent["peer_ip"] != "192.0.2.60" ||
 		lockEvent["retry_after_seconds"] != float64(authLockDuration/time.Second) ||
 		lockEvent["level"] != "warning" ||
@@ -180,10 +180,10 @@ func TestAuthenticateLockRequestCanEmitBothEventsWhenGateOpens(t *testing.T) {
 	assertControlAuthEventTotals(
 		t,
 		events,
-		"control_plane_auth_failed",
+		"auth_failed",
 		[]float64{1, 5},
 	)
-	assertControlAuthEventCount(t, events, "control_plane_auth_locked", 1)
+	assertControlAuthEventCount(t, events, "auth_locked", 1)
 
 	assertAuthStatus(
 		t,
@@ -202,7 +202,7 @@ func TestAuthenticateLockRequestCanEmitBothEventsWhenGateOpens(t *testing.T) {
 	assertControlAuthEventCount(
 		t,
 		decodeControlJSONLogs(t, logs.Bytes()),
-		"control_plane_auth_locked",
+		"auth_locked",
 		1,
 	)
 }
