@@ -379,10 +379,6 @@ function costLabel(log: RequestLogItemDto): string {
   }
   return '—'
 }
-
-function usageLabel(log: RequestLogItemDto): string {
-  return t(`monitor.logs.usage.${requestLogUsageDisplayState(log)}`)
-}
 </script>
 
 <template>
@@ -555,7 +551,7 @@ function usageLabel(log: RequestLogItemDto): string {
                 </button>
               </AppTooltip>
             </span>
-            <span v-else class="logs-list__state--warning">{{ usageLabel(log) }}</span>
+            <span v-else class="logs-list__state--warning">—</span>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
