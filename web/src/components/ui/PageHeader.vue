@@ -11,7 +11,7 @@ withDefaults(
 
 <template>
   <header class="page-header" :class="`page-header--${appearance}`">
-    <h1 :id="id" tabindex="-1">{{ title }}</h1>
+    <h1 :id="id">{{ title }}</h1>
     <div v-if="$slots.actions" class="page-header__actions"><slot name="actions" /></div>
   </header>
 </template>

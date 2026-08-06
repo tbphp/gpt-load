@@ -499,19 +499,17 @@ defineExpose({ openFilters })
 }
 
 .usage-trend-panel {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.usage-trend-panel__chart {
+  min-width: 0;
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
-}
-
-.usage-trend-panel :deep(.monitor-section-heading) {
-  border-radius: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: 9px 14px;
-}
-
-.usage-trend-panel__chart {
   padding: 18px 20px 14px;
 }
 

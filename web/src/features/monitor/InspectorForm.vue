@@ -8,6 +8,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import MonitorSectionHeading from './MonitorSectionHeading.vue'
 
 type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
@@ -46,9 +47,7 @@ function error(field: InspectorField): string | undefined {
 
 <template>
   <aside class="inspector-form-panel" aria-labelledby="inspector-form-title">
-    <header class="inspector-form-panel__header">
-      <h2 id="inspector-form-title">{{ t('monitor.inspector.form.title') }}</h2>
-    </header>
+    <MonitorSectionHeading id="inspector-form-title" :title="t('monitor.inspector.form.title')" />
 
     <div class="inspector-form-panel__body">
       <QueryFeedback
@@ -160,25 +159,9 @@ function error(field: InspectorField): string | undefined {
 
 <style scoped>
 .inspector-form-panel {
+  display: grid;
   min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-}
-
-.inspector-form-panel__header {
-  min-height: 54px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: color-mix(in srgb, var(--color-surface-sunken) 64%, var(--color-surface));
-  padding: 16px 18px;
-}
-
-.inspector-form-panel__header h2 {
-  margin: 0;
-  font-size: var(--title-section);
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  gap: var(--space-3);
 }
 
 .inspector-form-panel__body,
@@ -188,6 +171,10 @@ function error(field: InspectorField): string | undefined {
 }
 
 .inspector-form-panel__body {
+  min-width: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
   gap: var(--space-4);
   padding: 18px;
 }
