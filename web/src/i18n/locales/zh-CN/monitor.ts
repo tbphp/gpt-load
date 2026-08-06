@@ -668,8 +668,8 @@ export default {
         reasoningEffort: '思考级别',
         reasoningBudget: '思考预算',
         reasoningBudgetValue: '{value} Tokens',
-        reasoningBudgetDynamic: '自动',
-        reasoningBudgetDisabled: '关闭',
+        reasoningBudgetDynamic: 'auto',
+        reasoningBudgetDisabled: 'off',
         reasoningNotSpecified: '未指定',
         statusCode: '状态码',
         duration: '耗时',
@@ -759,9 +759,9 @@ export default {
       modelMapping: '客户端模型 {client} → 上游模型 {upstream}',
       modelMappingLabel: '查看模型映射',
       reasoning: {
-        compact: '思考 {value}',
-        disabled: '思考关闭',
-        dynamic: '自动',
+        compact: '[{value}]',
+        disabled: '[off]',
+        dynamic: 'auto',
       },
       tokens: {
         input: '输入',
