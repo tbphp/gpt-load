@@ -5,7 +5,8 @@ export default {
     optional: '任意',
     presets: {
       title: 'プロバイダープリセット',
-      description: '一般的なプロバイダーを選ぶか、互換サービスをカタログから検索します',
+      description: '一般的なプロバイダーを選ぶか、カタログを開いてほかの候補を探します',
+      browse: 'すべてのプロバイダーを見る',
       search: 'プロバイダーを検索',
       clearSearch: 'プロバイダー検索をクリア',
       collapse: '閉じる',
@@ -14,13 +15,13 @@ export default {
       loading: 'プロバイダーカタログを読み込み中…',
       loadFailed: 'プロバイダーカタログを読み込めません',
       protocolsUnavailable: 'プロトコル機能は未提供です',
-      more: {
-        name: 'その他のプリセット',
-        description: 'サードパーティを検索するか、カスタム接続を使用します',
-      },
+      recent: '最近使用したプロバイダー',
+      recommended: 'おすすめのプロバイダー',
+      catalogMore: 'その他のプロバイダー',
+      recentFromGroup: 'グループ #{id} · {name} から',
+      urlRequired: 'URL を手動で入力してください',
       custom: {
         name: 'カスタム接続',
-        description: 'エンドポイントを入力し、プロトコル機能を選択します',
       },
     },
     mode: {

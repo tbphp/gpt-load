@@ -19,13 +19,15 @@ import {
   projectString,
 } from './projector'
 
+export type ProviderSuggestionSource = 'official' | 'curated' | 'catalog'
+
 export interface ProviderSuggestion {
   provider_id: string
   name: string
   api_url: string | null
   protocols: GroupProtocol[]
   mark: string
-  official: boolean
+  source: ProviderSuggestionSource
 }
 
 export interface ProviderSuggestionList {
@@ -67,8 +69,9 @@ const providerSuggestionFields = [
   'api_url',
   'protocols',
   'mark',
-  'official',
+  'source',
 ] as const
+const providerSuggestionSources = ['official', 'curated', 'catalog'] as const
 const providerSuggestionListFields = ['items', 'total'] as const
 const modelCandidateFields = ['id', 'name', 'sources', 'pricing_status'] as const
 const providerModelListFields = ['items', 'total'] as const
@@ -115,7 +118,7 @@ function projectProviderSuggestion(value: unknown): ProviderSuggestion {
     api_url: record.api_url === undefined ? null : projectHTTPURL(record.api_url),
     protocols: projectProtocols(record.protocols),
     mark: projectString(record.mark, { allowEmpty: true }),
-    official: projectBoolean(record.official),
+    source: projectEnum(record.source, providerSuggestionSources),
   }
 }
 
@@ -127,7 +130,7 @@ export function projectProviderSuggestionList(value: unknown): ProviderSuggestio
   if (
     total !== items.length ||
     new Set(items.map(({ provider_id }) => provider_id)).size !== items.length ||
-    items.filter(({ official }) => official).length !== 3
+    items.filter(({ source }) => source === 'official').length !== 3
   ) {
     invalidResponse()
   }

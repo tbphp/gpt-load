@@ -103,6 +103,206 @@ func TestReconcileReferencedPricesMaterializesProviderAndCustomIdentities(t *tes
 	}
 }
 
+func TestReconcileReferencedPricesAutomaticallyPricesGroupScope(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "custom", UpstreamURL: "https://custom.example/v1",
+		Protocols: models.JSON(`["openai-completions"]`),
+		Models:    models.JSON(`[{"id":"shared-model","alias":""}]`),
+		Config:    models.JSON(`{}`), Enabled: true,
+	})
+	zero := pricing.NanoUSD(0)
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {
+			ID: "openai",
+			Models: map[string]catalog.Model{
+				"shared-model": {
+					ID: "shared-model",
+					Cost: &catalog.ModelCost{
+						Prices: pricing.Prices{
+							Input:     priceTestValue(1_000_000_000),
+							CacheRead: pricing.Price{NanoUSDPerMillion: zero, Set: true},
+						},
+						ContextTiers: []pricing.ContextTier{{
+							InputThresholdTokens: 128_000,
+							Prices: pricing.Prices{
+								Output: priceTestValue(2_000_000_000),
+							},
+						}},
+					},
+				},
+			},
+		},
+	}}
+
+	if err := fixture.service.withControlTransaction(t.Context(), func(tx *gorm.DB) error {
+		return reconcileReferencedPrices(tx, snapshot)
+	}); err != nil {
+		t.Fatalf("reconcileReferencedPrices() error = %v", err)
+	}
+
+	scopeKey, _ := pricing.GroupScopeKey(group.ID)
+	var row models.ModelPrice
+	if err := fixture.db.Where("price_scope_key = ? AND model_id = ?", scopeKey, "shared-model").Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.IsManual || row.InputPriceNanoUSDPerMillionTokens == nil ||
+		*row.InputPriceNanoUSDPerMillionTokens != 1_000_000_000 ||
+		row.OutputPriceNanoUSDPerMillionTokens != nil ||
+		row.CacheReadPriceNanoUSDPerMillionTokens == nil ||
+		*row.CacheReadPriceNanoUSDPerMillionTokens != 0 ||
+		row.CacheWritePriceNanoUSDPerMillionTokens != nil {
+		t.Fatalf("automatic Group row = %#v", row)
+	}
+	var tiers []models.ContextPriceTier
+	if err := json.Unmarshal(row.ContextPriceTiers, &tiers); err != nil {
+		t.Fatalf("decode persisted tiers: %v", err)
+	}
+	if len(tiers) != 1 || tiers[0].ThresholdTokens != 128_000 ||
+		tiers[0].OutputPriceNanoUSDPerMillionTokens == nil ||
+		*tiers[0].OutputPriceNanoUSDPerMillionTokens != 2_000_000_000 {
+		t.Fatalf("persisted Group tiers = %#v", tiers)
+	}
+	rule, exists := mustLoadPriceTable(t, fixture.db).Lookup(pricing.Identity{
+		ScopeKey: scopeKey, ModelID: "shared-model",
+	})
+	if !exists || rule.IsManual || !rule.Prices.Input.Set ||
+		rule.Prices.Input.NanoUSDPerMillion != 1_000_000_000 ||
+		!rule.Prices.CacheRead.Set || rule.Prices.CacheRead.NanoUSDPerMillion != 0 ||
+		len(rule.ContextTiers) != 1 || !rule.ContextTiers[0].Prices.Output.Set ||
+		rule.ContextTiers[0].Prices.Output.NanoUSDPerMillion != 2_000_000_000 {
+		t.Fatalf("compiled Group rule = %#v, %t", rule, exists)
+	}
+}
+
+func TestListModelPricesProjectsTierOnlyAutomaticGroupPriceAsConfigured(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "custom", UpstreamURL: "https://custom.example/v1",
+		Protocols: models.JSON(`["openai-completions"]`),
+		Models:    models.JSON(`[{"id":"tiered-model","alias":""}]`),
+		Config:    models.JSON(`{}`), Enabled: true,
+	})
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {
+			ID: "openai",
+			Models: map[string]catalog.Model{
+				"tiered-model": {
+					ID: "tiered-model",
+					Cost: &catalog.ModelCost{ContextTiers: []pricing.ContextTier{{
+						InputThresholdTokens: 1_000,
+						Prices:               pricing.Prices{Input: priceTestValue(1_000_000_000)},
+					}}},
+				},
+			},
+		},
+	}}
+	fixture.catalogRuntime.Publish(snapshot)
+	if err := fixture.service.withControlTransaction(t.Context(), func(tx *gorm.DB) error {
+		return reconcileReferencedPrices(tx, snapshot)
+	}); err != nil {
+		t.Fatalf("reconcileReferencedPrices() error = %v", err)
+	}
+
+	result, err := fixture.service.ListModelPrices(t.Context(), ModelPriceListQuery{
+		Usage: ModelPriceUsageAll, Status: ModelPriceStatusAll, Page: 1, PageSize: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListModelPrices() error = %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("items = %#v", result.Items)
+	}
+	item := result.Items[0]
+	if item.Scope.Kind != "group" || item.Scope.ID != modelPriceGroupID(group.ID) ||
+		item.PricingStatus != PricingStatusConfigured || item.Method == nil || *item.Method != "auto_matched" ||
+		item.MatchedProviderID == nil || *item.MatchedProviderID != "openai" || !item.HasContextTiers ||
+		item.Prices != (PriceSlotsDTO{}) {
+		t.Fatalf("tier-only automatic Group price = %#v", item)
+	}
+}
+
+func TestReconcileReferencedPricesUsesScopeProviderThenFallback(t *testing.T) {
+	fixture := newServiceFixture(t)
+	providerID := "z-provider"
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "provider", ProviderID: &providerID, UpstreamURL: "https://provider.example/v1",
+		Protocols: models.JSON(`["openai-completions"]`),
+		Models:    models.JSON(`[{"id":"preferred-model","alias":""},{"id":"fallback-model","alias":""}]`),
+		Config:    models.JSON(`{}`), Enabled: true,
+	})
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {
+			ID: "openai",
+			Models: map[string]catalog.Model{
+				"preferred-model": {ID: "preferred-model", Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}},
+				"fallback-model":  {ID: "fallback-model", Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(3)}}},
+			},
+		},
+		"z-provider": {
+			ID: "z-provider",
+			Models: map[string]catalog.Model{
+				"preferred-model": {ID: "preferred-model", Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}},
+				"fallback-model":  {ID: "fallback-model"},
+			},
+		},
+	}}
+
+	if err := fixture.service.withControlTransaction(t.Context(), func(tx *gorm.DB) error {
+		return reconcileReferencedPrices(tx, snapshot)
+	}); err != nil {
+		t.Fatalf("reconcileReferencedPrices() error = %v", err)
+	}
+	for _, test := range []struct {
+		modelID string
+		want    int64
+	}{
+		{modelID: "preferred-model", want: 2},
+		{modelID: "fallback-model", want: 3},
+	} {
+		var row models.ModelPrice
+		if err := fixture.db.Where("price_scope_key = ? AND model_id = ?", "provider:z-provider", test.modelID).Take(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		if row.InputPriceNanoUSDPerMillionTokens == nil || *row.InputPriceNanoUSDPerMillionTokens != test.want {
+			t.Fatalf("automatic %s input = %#v, want %d", test.modelID, row.InputPriceNanoUSDPerMillionTokens, test.want)
+		}
+	}
+}
+
+func TestLoadPriceTableAcceptsAutomaticGroupPriceWithContextTiers(t *testing.T) {
+	fixture := newServiceFixture(t)
+	zero, tierOutput := int64(0), int64(2_000_000_000)
+	tiers, err := json.Marshal([]models.ContextPriceTier{{
+		ThresholdTokens:                    128_000,
+		OutputPriceNanoUSDPerMillionTokens: &tierOutput,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := models.ModelPrice{
+		PriceScopeKey:                     "group:1",
+		ModelID:                           "shared-model",
+		InputPriceNanoUSDPerMillionTokens: &zero,
+		ContextPriceTiers:                 models.JSON(tiers),
+		IsManual:                          false,
+	}
+	if err := fixture.db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	table, err := loadPriceTable(t.Context(), fixture.db)
+	if err != nil {
+		t.Fatalf("loadPriceTable() error = %v", err)
+	}
+	rule, exists := table.Lookup(pricing.Identity{ScopeKey: "group:1", ModelID: "shared-model"})
+	if !exists || rule.IsManual || !rule.Prices.Input.Set || rule.Prices.Input.NanoUSDPerMillion != 0 ||
+		len(rule.ContextTiers) != 1 || !rule.ContextTiers[0].Prices.Output.Set ||
+		rule.ContextTiers[0].Prices.Output.NanoUSDPerMillion != 2_000_000_000 {
+		t.Fatalf("compiled automatic Group rule = %#v, %t", rule, exists)
+	}
+}
+
 func TestReconcileReferencedPricesPreservesManualRowsAndAliasOnlyIdentity(t *testing.T) {
 	fixture := newServiceFixture(t)
 	providerID := "openai"
@@ -167,13 +367,6 @@ func TestLoadPriceTableFailsClosedOnMalformedPersistedRows(t *testing.T) {
 				(price_scope_key, model_id, context_price_tiers, is_manual, created_at_ms, updated_at_ms)
 				VALUES (?, ?, ?, false, 1, 1)`,
 			args: []any{"provider:openai", "gpt-4o", `[{"threshold_tokens":1}]`},
-		},
-		{
-			name: "automatic custom price",
-			row: models.ModelPrice{
-				PriceScopeKey: "group:1", ModelID: "private-model",
-				InputPriceNanoUSDPerMillionTokens: priceTestInt64Pointer(1),
-			},
 		},
 	}
 	for _, test := range tests {
@@ -820,10 +1013,6 @@ func priceTestValue(value pricing.NanoUSD) pricing.Price {
 	return pricing.Price{NanoUSDPerMillion: value, Set: true}
 }
 
-func priceTestInt64Pointer(value int64) *int64 {
-	return &value
-}
-
 func priceTestRowHasValue(row models.ModelPrice) bool {
 	return row.InputPriceNanoUSDPerMillionTokens != nil ||
 		row.OutputPriceNanoUSDPerMillionTokens != nil ||
@@ -843,4 +1032,12 @@ func mustLoadPriceTable(t *testing.T, db *gorm.DB) *pricing.Table {
 		t.Fatalf("loadPriceTable() error = %v", err)
 	}
 	return table
+}
+
+func priceRuleHasConfiguredValue(rule pricing.Rule) bool {
+	return rule.Prices.Input.Set ||
+		rule.Prices.Output.Set ||
+		rule.Prices.CacheRead.Set ||
+		rule.Prices.CacheWrite.Set ||
+		len(rule.ContextTiers) > 0
 }

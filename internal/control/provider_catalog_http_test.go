@@ -27,9 +27,11 @@ func TestProviderSuggestionsUseOfficialFallbacksMergeCatalogAndStayBounded(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(withoutCatalog.Items) != 3 || withoutCatalog.Items[0].ProviderID != "openai" ||
+	wantWithoutCatalogCount := 3 + len(catalog.CuratedProviders())
+	if len(withoutCatalog.Items) != wantWithoutCatalogCount || withoutCatalog.Items[0].ProviderID != "openai" ||
 		withoutCatalog.Items[1].ProviderID != "anthropic" || withoutCatalog.Items[2].ProviderID != "google" {
-		t.Fatalf("fallback suggestions = %#v", withoutCatalog.Items)
+		t.Fatalf("fallback suggestions = %#v, want %d items (3 official + full curated table)",
+			withoutCatalog.Items, wantWithoutCatalogCount)
 	}
 
 	providers := map[string]catalog.Provider{
@@ -50,8 +52,15 @@ func TestProviderSuggestionsUseOfficialFallbacksMergeCatalogAndStayBounded(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(empty.Items) != 3 {
-		t.Fatalf("empty search suggestions = %d, want only three official", len(empty.Items))
+	wantEmptyCount := 3 + len(catalog.CuratedProviders())
+	if len(empty.Items) != wantEmptyCount {
+		t.Fatalf("empty search suggestions = %d, want three official plus full curated table (%d)",
+			len(empty.Items), wantEmptyCount)
+	}
+	for _, item := range empty.Items[3:] {
+		if item.Source != ProviderSuggestionSourceCurated {
+			t.Fatalf("empty search suggestion %#v, want source=curated (models.dev catalog stays hidden until searched)", item)
+		}
 	}
 	got, err := fixture.service.ListProviderSuggestions(t.Context(), "provider")
 	if err != nil {
@@ -59,7 +68,7 @@ func TestProviderSuggestionsUseOfficialFallbacksMergeCatalogAndStayBounded(t *te
 	}
 	if len(got.Items) != 3+providerSuggestionCatalogLimit || got.Items[0].Name != "OpenAI Catalog" ||
 		got.Items[0].APIURL != "https://catalog.openai.example/v1" ||
-		!got.Items[0].Official ||
+		got.Items[0].Source != ProviderSuggestionSourceOfficial ||
 		len(got.Items[0].Protocols) != 2 || got.Items[0].Protocols[0] != protocol.OpenAICompletions {
 		t.Fatalf("merged suggestions = %#v", got.Items)
 	}
@@ -71,6 +80,59 @@ func TestProviderSuggestionsUseOfficialFallbacksMergeCatalogAndStayBounded(t *te
 		if strings.Contains(strings.ToLower(string(encoded)), forbidden) {
 			t.Fatalf("suggestions expose %q: %s", forbidden, encoded)
 		}
+	}
+}
+
+func TestProviderSuggestionsCuratedOutranksCatalogForSharedID(t *testing.T) {
+	fixture := newServiceFixture(t)
+	curated := catalog.CuratedProviders()
+	if len(curated) == 0 {
+		t.Fatal("catalog.CuratedProviders() is empty, cannot exercise dedup priority")
+	}
+	sharedID := curated[0].ID
+
+	// A models.dev snapshot entry sharing a curated provider's ID must lose
+	// the display metadata race: the curated entry's Name/APIURL/Mark/Source
+	// wins, and the catalog duplicate never appears as a second item.
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		sharedID: {
+			ID:     sharedID,
+			Name:   "Should Not Win",
+			APIURL: "https://should-not-win.example/v1",
+			Models: map[string]catalog.Model{},
+		},
+	}})
+
+	got, err := fixture.service.ListProviderSuggestions(t.Context(), sharedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches := 0
+	for _, item := range got.Items {
+		if item.ProviderID != sharedID {
+			continue
+		}
+		matches++
+		if item.Source != ProviderSuggestionSourceCurated || item.Name == "Should Not Win" {
+			t.Fatalf("shared-ID suggestion = %#v, want curated metadata to win", item)
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("shared-ID provider %q appeared %d times, want exactly 1 (deduplicated)", sharedID, matches)
+	}
+}
+
+func TestValidateSelectableProviderIDAllowsCuratedProviderIDs(t *testing.T) {
+	fixture := newServiceFixture(t)
+	for _, provider := range catalog.CuratedProviders() {
+		id := provider.ID
+		if err := fixture.service.validateSelectableProviderID(&id); err != nil {
+			t.Fatalf("validateSelectableProviderID(%q) = %v, want nil for curated provider", id, err)
+		}
+	}
+	unknown := "no-such-provider-anywhere"
+	if err := fixture.service.validateSelectableProviderID(&unknown); err == nil {
+		t.Fatal("validateSelectableProviderID(unknown) = nil, want an error")
 	}
 }
 

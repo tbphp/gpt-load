@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync/atomic"
 
 	"gorm.io/gorm"
@@ -69,10 +68,6 @@ func persistedPriceRule(row models.ModelPrice) (pricing.Rule, error) {
 		IsManual: row.IsManual,
 	}
 	if len(row.ContextPriceTiers) == 0 {
-		if !rule.IsManual && strings.HasPrefix(rule.Identity.ScopeKey, "group:") &&
-			priceRuleHasConfiguredValue(rule) {
-			return pricing.Rule{}, fmt.Errorf("automatic custom Group price must be pending")
-		}
 		return rule, nil
 	}
 	normalized, err := models.NormalizeContextPriceTiers(row.ContextPriceTiers)
@@ -95,19 +90,7 @@ func persistedPriceRule(row models.ModelPrice) (pricing.Rule, error) {
 			},
 		})
 	}
-	if !rule.IsManual && strings.HasPrefix(rule.Identity.ScopeKey, "group:") &&
-		priceRuleHasConfiguredValue(rule) {
-		return pricing.Rule{}, fmt.Errorf("automatic custom Group price must be pending")
-	}
 	return rule, nil
-}
-
-func priceRuleHasConfiguredValue(rule pricing.Rule) bool {
-	return rule.Prices.Input.Set ||
-		rule.Prices.Output.Set ||
-		rule.Prices.CacheRead.Set ||
-		rule.Prices.CacheWrite.Set ||
-		len(rule.ContextTiers) > 0
 }
 
 func priceFromStoragePointer(value *int64) pricing.Price {

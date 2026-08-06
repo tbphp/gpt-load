@@ -81,10 +81,12 @@ export default {
     method: {
       pending: '価格管理方法なし',
       auto_sync: 'Models.dev から自動同期',
+      auto_matched: '{provider} の参照価格',
       user_override: '手動上書き',
       user_set: '手動設定',
       user_marked_unpriced: '手動で価格なしに設定',
     },
+    reference: '{provider} の参照価格',
     references: '{entries} 件の参照 · {groups} Group',
     facts: {
       partial: 'アップストリーム価格が不完全',
@@ -102,8 +104,10 @@ export default {
       model: 'モデル ID',
       scope: '価格範囲',
       currentStatus: '現在の状態',
+      reference: '価格の参照元',
       prices: '価格枠',
-      priceDescription: '元の小数精度を保持し、単位はすべて USD / 100 万 tokens です',
+      priceDescription:
+        '表示・編集する価格は USD / 100 万 tokens のコスト概算用であり、アップストリームの実際の請求額を示すものではありません',
       unit: 'USD / 1M',
       tierNote: 'この価格にはコンテキスト段階があります。手動保存すると現在の 4 枠で置き換えます',
       partialNote: 'アップストリーム価格が不完全です。未設定の枠を確認してください',

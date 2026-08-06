@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -612,7 +611,34 @@ func (s *Service) applyCatalogSnapshot(ctx context.Context, snapshot *catalog.Sn
 	}
 	s.priceRuntime.Publish(table)
 	s.catalogRuntime.Publish(snapshot)
+	logMissingAutomaticPricePriorityProviders(snapshot)
 	return nil
+}
+
+func logMissingAutomaticPricePriorityProviders(snapshot *catalog.Snapshot) {
+	if snapshot == nil {
+		return
+	}
+	priority := catalog.AutomaticPriceProviderPriority()
+	missing := make([]string, 0, len(priority))
+	for _, providerID := range priority {
+		if _, exists := snapshot.Providers[providerID]; !exists {
+			missing = append(missing, providerID)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	utils.LogPlaneBestEffort(
+		logrus.StandardLogger(),
+		logrus.WarnLevel,
+		utils.LogPlaneControl,
+		logrus.Fields{
+			"event":                "models_dev_catalog_price_priority_missing",
+			"missing_provider_ids": missing,
+		},
+		"Catalog missing automatic price priority providers",
+	)
 }
 
 func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) error {
@@ -621,21 +647,22 @@ func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) er
 		return fmt.Errorf("load automatic model prices: %w", app_errors.ParseDBError(err))
 	}
 	for _, row := range rows {
-		providerID, providerScoped := strings.CutPrefix(row.PriceScopeKey, "provider:")
-		if !providerScoped {
-			continue
-		}
-		provider, providerExists := snapshot.Providers[providerID]
-		if !providerExists {
-			continue
-		}
-		model, modelExists := provider.Models[row.ModelID]
-		if !modelExists {
-			continue
-		}
-		desired, err := automaticCatalogValues(model)
+		scope, err := parsePriceScopeKey(row.PriceScopeKey)
 		if err != nil {
-			return fmt.Errorf("normalize catalog price: %w", app_errors.ErrInternalServer)
+			return fmt.Errorf("validate automatic model price scope: %w", app_errors.ErrInternalServer)
+		}
+		scopeProviderID := ""
+		if scope.kind == priceScopeKindProvider {
+			scopeProviderID = scope.id
+		}
+		cost, _, ok := resolveAutomaticPrice(snapshot, scopeProviderID, row.ModelID)
+		desired := models.ModelPrice{}
+		if ok {
+			var err error
+			desired, err = automaticCatalogValues(cost)
+			if err != nil {
+				return fmt.Errorf("normalize catalog price: %w", app_errors.ErrInternalServer)
+			}
 		}
 		if catalogPriceValuesEqual(row, desired) {
 			continue
@@ -655,20 +682,20 @@ func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) er
 	return nil
 }
 
-func automaticCatalogValues(model catalog.Model) (models.ModelPrice, error) {
+func automaticCatalogValues(cost *catalog.ModelCost) (models.ModelPrice, error) {
 	row := models.ModelPrice{}
-	if model.Cost == nil {
+	if cost == nil {
 		return row, nil
 	}
-	row.InputPriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.Input)
-	row.OutputPriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.Output)
-	row.CacheReadPriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.CacheRead)
-	row.CacheWritePriceNanoUSDPerMillionTokens = priceStoragePointer(model.Cost.Prices.CacheWrite)
-	if len(model.Cost.ContextTiers) == 0 {
+	row.InputPriceNanoUSDPerMillionTokens = priceStoragePointer(cost.Prices.Input)
+	row.OutputPriceNanoUSDPerMillionTokens = priceStoragePointer(cost.Prices.Output)
+	row.CacheReadPriceNanoUSDPerMillionTokens = priceStoragePointer(cost.Prices.CacheRead)
+	row.CacheWritePriceNanoUSDPerMillionTokens = priceStoragePointer(cost.Prices.CacheWrite)
+	if len(cost.ContextTiers) == 0 {
 		return row, nil
 	}
-	tiers := make([]models.ContextPriceTier, 0, len(model.Cost.ContextTiers))
-	for _, tier := range model.Cost.ContextTiers {
+	tiers := make([]models.ContextPriceTier, 0, len(cost.ContextTiers))
+	for _, tier := range cost.ContextTiers {
 		tiers = append(tiers, models.ContextPriceTier{
 			ThresholdTokens:                        tier.InputThresholdTokens,
 			InputPriceNanoUSDPerMillionTokens:      priceStoragePointer(tier.Prices.Input),

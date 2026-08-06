@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -40,7 +41,14 @@ func TestModelPriceFinalRoutesRequireManagementAuthentication(t *testing.T) {
 }
 
 func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
-	_, engine, row := newModelPriceHTTPFixture(t, true)
+	fixture, engine, row := newModelPriceHTTPFixture(t, true)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			"gpt-wire": {ID: "gpt-wire", Cost: &catalog.ModelCost{
+				Prices: pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 3_000_000_000, Set: true}},
+			}},
+		}},
+	}})
 
 	listResponse := serveModelPriceHTTPRequest(
 		engine,
@@ -65,6 +73,9 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	if !ok || prices["input"] != "2.5" || prices["output"] != nil {
 		t.Fatalf("list price wire = %#v", item["prices"])
 	}
+	if matchedProviderID, exists := item["matched_provider_id"]; !exists || matchedProviderID != "openai" {
+		t.Fatalf("list matched provider wire = %#v", item)
+	}
 	if _, leaked := item["price_scope_key"]; leaked {
 		t.Fatalf("list leaked internal scope: %#v", item)
 	}
@@ -86,6 +97,9 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	}
 	if updated["method"] != "user_override" || updated["id"] != float64(row.ID) {
 		t.Fatalf("updated ownership wire = %#v", updated)
+	}
+	if matchedProviderID, exists := updated["matched_provider_id"]; !exists || matchedProviderID != nil {
+		t.Fatalf("updated matched provider wire = %#v", updated)
 	}
 
 	conflictResponse := serveModelPriceHTTPRequest(
@@ -130,6 +144,10 @@ func TestModelPriceHTTPResetDeleteAndStableErrorData(t *testing.T) {
 		if !ok || prices["input"] != nil || data["method"] != nil || data["pricing_status"] != "pending" {
 			t.Fatalf("reset wire = %#v", data)
 		}
+		if matchedProviderID, exists := data["matched_provider_id"]; !exists || matchedProviderID != nil {
+			t.Fatalf("reset matched provider wire = %#v", data)
+		}
+
 	})
 
 	t.Run("automatic delete conflict is structured", func(t *testing.T) {
