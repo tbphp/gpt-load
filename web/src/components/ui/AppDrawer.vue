@@ -79,11 +79,8 @@ function guardDismiss(event: Event): void {
 }
 .app-drawer__overlay[data-state='closed'] {
   opacity: 0;
-  animation: app-drawer-overlay-out var(--duration-normal) var(--easing-standard);
 }
 .app-drawer__content {
-  --app-drawer-closed-transform: translateX(100%);
-
   position: fixed;
   z-index: var(--z-drawer);
   top: 0;
@@ -96,15 +93,14 @@ function guardDismiss(event: Event): void {
   color: var(--color-text);
   display: flex;
   flex-direction: column;
-  transform: var(--app-drawer-closed-transform);
+  transform: translateX(100%);
 }
 .app-drawer__content[data-state='open'] {
   transform: translateX(0);
   animation: app-drawer-content-in var(--duration-normal) var(--easing-standard);
 }
 .app-drawer__content[data-state='closed'] {
-  transform: var(--app-drawer-closed-transform);
-  animation: app-drawer-content-out var(--duration-normal) var(--easing-standard);
+  transform: translateX(100%);
 }
 .app-drawer__header {
   display: flex;
@@ -162,8 +158,6 @@ function guardDismiss(event: Event): void {
   padding: 10px 18px;
 }
 .app-drawer__content--ledger {
-  --app-drawer-closed-transform: translateX(24px);
-
   display: grid;
   width: min(92vw, 480px);
   grid-template-areas:
@@ -226,12 +220,6 @@ function guardDismiss(event: Event): void {
   border-top-color: var(--color-border-control);
   padding: 12px 20px;
 }
-.app-drawer__overlay--ledger[data-state='open'] {
-  animation-duration: 160ms;
-}
-.app-drawer__overlay--ledger[data-state='closed'] {
-  animation-duration: 160ms;
-}
 @keyframes app-drawer-overlay-in {
   from {
     opacity: 0;
@@ -240,28 +228,12 @@ function guardDismiss(event: Event): void {
     opacity: 1;
   }
 }
-@keyframes app-drawer-overlay-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
 @keyframes app-drawer-content-in {
   from {
-    transform: var(--app-drawer-closed-transform);
+    transform: translateX(100%);
   }
   to {
     transform: translateX(0);
-  }
-}
-@keyframes app-drawer-content-out {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: var(--app-drawer-closed-transform);
   }
 }
 @media (max-width: 520px) {
