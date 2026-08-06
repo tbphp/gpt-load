@@ -16,7 +16,6 @@ import {
 } from '@/app/resources/request-logs'
 import { monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
-import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -24,7 +23,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost } from '@/lib/format'
+import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
 
 import {
   applyLogFilterDraft,
@@ -189,6 +188,11 @@ function formatDateFilter(value: number): string {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
     date.getMinutes(),
   )}:${pad(date.getSeconds())}`
+}
+
+function formatLogCompletedAt(value: number): string {
+  const formatted = formatLocalInstantWithSeconds(value)
+  return formatted === '—' ? formatted : formatted.slice(5)
 }
 
 function advancedChipLabel(key: keyof RequestLogFilters, value: unknown): string {
@@ -479,7 +483,9 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.time')"
           >
-            <AppDateTime :instant="log.completed_at_ms" :locale="locale" precision="second" />
+            <time :datetime="formatISOInstant(log.completed_at_ms)">
+              {{ formatLogCompletedAt(log.completed_at_ms) }}
+            </time>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -495,7 +501,13 @@ function costLabel(log: RequestLogItemDto): string {
             :data-label="t('monitor.logs.columns.modelProtocol')"
           >
             <span class="logs-list__inline">
-              <code>{{ log.client_model ?? '—' }}</code>
+              <AppTooltip v-if="log.client_model" :content="log.client_model">
+                <code class="logs-list__model">{{ log.client_model }}</code>
+              </AppTooltip>
+              <code v-else class="logs-list__model">—</code>
+              <small v-if="reasoningLabel(log)" class="logs-list__reasoning">{{
+                reasoningLabel(log)
+              }}</small>
               <AppTooltip
                 v-if="log.upstream_model && log.upstream_model !== log.client_model"
                 :content="modelMappingTooltip(log)"
@@ -548,37 +560,41 @@ function costLabel(log: RequestLogItemDto): string {
             :data-label="t('monitor.logs.columns.tokens')"
           >
             <span v-if="requestLogUsageDisplayState(log) === 'reported'" class="logs-list__tokens">
-              <ArrowDown :size="12" aria-hidden="true" />{{
-                formatLogTokenCount(log.input_tokens, locale)
-              }}
-              <span>/</span>
-              <ArrowUp :size="12" aria-hidden="true" />{{
-                formatLogTokenCount(log.output_tokens, locale)
-              }}
-              <AppTooltip v-if="hasRequestLogCache(log)" :content="cacheTooltip(log)">
-                <button
-                  type="button"
-                  class="logs-list__hint"
-                  :aria-label="t('monitor.logs.tokens.cacheDetails')"
-                >
-                  <Layers :size="13" aria-hidden="true" />
-                </button>
-              </AppTooltip>
-              <AppTooltip
-                v-if="log.usage_state === 'partial'"
-                :content="t('monitor.logs.tokens.partial')"
-              >
-                <button
-                  type="button"
-                  class="logs-list__hint"
-                  :aria-label="t('monitor.logs.tokens.partial')"
-                >
-                  <CircleHelp :size="13" aria-hidden="true" />
-                </button>
-              </AppTooltip>
+              <span class="logs-list__token-values">
+                <span class="logs-list__token-line">
+                  <ArrowDown :size="12" aria-hidden="true" />
+                  {{ formatLogTokenCount(log.input_tokens, locale) }}
+                  <span class="logs-list__token-hints">
+                    <AppTooltip v-if="hasRequestLogCache(log)" :content="cacheTooltip(log)">
+                      <button
+                        type="button"
+                        class="logs-list__hint"
+                        :aria-label="t('monitor.logs.tokens.cacheDetails')"
+                      >
+                        <Layers :size="13" aria-hidden="true" />
+                      </button>
+                    </AppTooltip>
+                    <AppTooltip
+                      v-if="log.usage_state === 'partial'"
+                      :content="t('monitor.logs.tokens.partial')"
+                    >
+                      <button
+                        type="button"
+                        class="logs-list__hint"
+                        :aria-label="t('monitor.logs.tokens.partial')"
+                      >
+                        <CircleHelp :size="13" aria-hidden="true" />
+                      </button>
+                    </AppTooltip>
+                  </span>
+                </span>
+                <span class="logs-list__token-line">
+                  <ArrowUp :size="12" aria-hidden="true" />
+                  {{ formatLogTokenCount(log.output_tokens, locale) }}
+                </span>
+              </span>
             </span>
             <span v-else class="logs-list__state--warning">—</span>
-            <small v-if="reasoningLabel(log)">{{ reasoningLabel(log) }}</small>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -655,7 +671,7 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list {
-  --ledger-record-list-grid: 148px minmax(132px, 0.95fr) minmax(148px, 1.05fr) 112px
+  --ledger-record-list-grid: 116px minmax(132px, 0.95fr) minmax(180px, 1.2fr) 112px
     minmax(88px, 0.58fr) minmax(142px, 0.9fr) 126px 34px;
   --ledger-record-list-column-gap: 16px;
   --ledger-record-list-record-min-height: 72px;
@@ -695,18 +711,51 @@ function costLabel(log: RequestLogItemDto): string {
 
 .logs-list__inline,
 .logs-list__tokens {
-  display: flex;
   min-width: 0;
+}
+
+.logs-list__inline {
+  display: flex;
   align-items: center;
   gap: 5px;
 }
 
 .logs-list__tokens {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   font-family: var(--font-mono);
+}
+
+.logs-list__model {
+  flex: 1 1 0;
+}
+
+.logs-list__reasoning {
+  flex: 0 1 auto;
+  max-width: 45%;
+}
+
+.logs-list__token-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
   white-space: nowrap;
 }
 
-.logs-list__tokens > svg {
+.logs-list__token-values {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.logs-list__token-hints {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.logs-list__token-line > svg {
   width: 12px;
   height: 12px;
   flex: 0 0 12px;
@@ -748,7 +797,7 @@ function costLabel(log: RequestLogItemDto): string {
 @media (max-width: 1080px) {
   .logs-list {
     --ledger-record-list-column-gap: 10px;
-    --ledger-record-list-grid: 136px minmax(118px, 0.9fr) minmax(130px, 1fr) 104px
+    --ledger-record-list-grid: 108px minmax(118px, 0.9fr) minmax(160px, 1.15fr) 104px
       minmax(84px, 0.58fr) minmax(124px, 0.85fr) 116px 32px;
   }
 }
