@@ -27,7 +27,7 @@ interface RecoveryDisplay {
 
 const client = useApiClient()
 const { locale, t } = useI18n()
-const healthQuery = useQuery(healthQueryOptions(client, 30_000))
+const healthQuery = useQuery(healthQueryOptions(client))
 
 const isVisible = ref(document.visibilityState !== 'hidden')
 const elapsedMs = ref(0)
