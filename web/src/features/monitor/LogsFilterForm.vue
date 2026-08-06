@@ -146,7 +146,7 @@ async function applyAdvanced(): Promise<void> {
         <span v-if="advancedCount" class="logs-filter__count">{{ advancedCount }}</span>
       </AppButton>
       <AppButton type="submit" size="compact">{{ t('monitor.logs.filters.apply') }}</AppButton>
-      <AppButton variant="ghost" size="compact" @click="reset">
+      <AppButton variant="secondary" size="compact" @click="reset">
         {{ t('monitor.logs.filters.reset') }}
       </AppButton>
     </div>

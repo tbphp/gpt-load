@@ -78,7 +78,7 @@ function defaultRange(): Pick<RequestLogFilters, 'from_ms' | 'to_ms'> {
   const now = Math.floor(Date.now() / 1000) * 1000
   return {
     from_ms: Math.max(0, now - 60 * 60 * 1000),
-    to_ms: now,
+    to_ms: now + 24 * 60 * 60 * 1000,
   }
 }
 

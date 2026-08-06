@@ -664,12 +664,18 @@ onBeforeUnmount(clearLocalState)
       <div v-if="editing && base" class="access-key-drawer__delete">
         <AccessKeyDeleteDialog :access-key="base" :total="total" @deleted="handleDeleted" />
       </div>
-      <AppButton variant="secondary" :disabled="closeBlocked" @click="setOpen(false)">
+      <AppButton
+        variant="secondary"
+        size="compact"
+        :disabled="closeBlocked"
+        @click="setOpen(false)"
+      >
         {{ t('common.cancel') }}
       </AppButton>
       <AppButton
         type="submit"
         form="access-key-drawer-form"
+        size="compact"
         :busy="pending"
         :disabled="!editReconciliation && !createOperationActive && (!valid || !dirty)"
       >

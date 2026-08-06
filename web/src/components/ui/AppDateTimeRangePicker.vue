@@ -67,7 +67,7 @@ function localInputValue(milliseconds: number): string {
 function selectShortcut(milliseconds: number): void {
   const now = Math.floor(Date.now() / 1000) * 1000
   emit('update:from', localInputValue(Math.max(0, now - milliseconds)))
-  emit('update:to', localInputValue(now))
+  emit('update:to', localInputValue(now + 24 * 60 * 60 * 1000))
 }
 </script>
 

@@ -114,14 +114,16 @@ function error(field: keyof UsageFilterErrors): string | undefined {
     </form>
 
     <template #footer>
-      <AppButton variant="ghost" @click="emit('reset')">
+      <AppButton variant="secondary" size="compact" @click="emit('reset')">
         {{ t('monitor.usage.filters.reset') }}
       </AppButton>
       <span class="usage-filter-drawer__actions">
-        <AppButton variant="secondary" @click="emit('update:open', false)">
+        <AppButton variant="secondary" size="compact" @click="emit('update:open', false)">
           {{ t('common.cancel') }}
         </AppButton>
-        <AppButton @click="emit('apply')">{{ t('monitor.usage.filters.apply') }}</AppButton>
+        <AppButton size="compact" @click="emit('apply')">{{
+          t('monitor.usage.filters.apply')
+        }}</AppButton>
       </span>
     </template>
   </AppDrawer>

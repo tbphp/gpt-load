@@ -411,14 +411,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
     </form>
 
     <template #footer>
-      <AppButton variant="ghost" @click="emit('reset')">{{
+      <AppButton variant="secondary" size="compact" @click="emit('reset')">{{
         t('monitor.logs.filters.reset')
       }}</AppButton>
       <span class="logs-advanced__footer-actions">
-        <AppButton variant="secondary" @click="emit('update:open', false)">{{
+        <AppButton variant="secondary" size="compact" @click="emit('update:open', false)">{{
           t('common.cancel')
         }}</AppButton>
-        <AppButton @click="emit('apply')">{{ t('monitor.logs.filters.apply') }}</AppButton>
+        <AppButton size="compact" @click="emit('apply')">{{
+          t('monitor.logs.filters.apply')
+        }}</AppButton>
       </span>
     </template>
   </AppDrawer>
