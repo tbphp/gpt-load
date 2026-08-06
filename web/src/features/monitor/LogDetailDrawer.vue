@@ -270,11 +270,14 @@ function groupLabel(): string {
             <dt>{{ row.label }}</dt>
             <dd>{{ formatLogTokenCount(row.value, locale) }}</dd>
           </div>
-          <div>
+          <div v-if="costDisplayState !== 'unpriced'">
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
             <dd>{{ costAmountLabel }}</dd>
           </div>
-          <div v-if="receipt && usageDisplayState === 'reported'" class="log-detail__wide">
+          <div
+            v-if="costDisplayState !== 'unpriced' && receipt && usageDisplayState === 'reported'"
+            class="log-detail__wide"
+          >
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
             <dd class="log-detail__formula">
               <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>

@@ -79,8 +79,7 @@ func (table *Table) QuoteWithReceipt(
 	positiveBillable := result.Tokens.CacheWriteUnknown > 0
 	pricedPositive := false
 	partial := result.State == usage.StatePartial ||
-		result.Tokens.CacheWriteUnknown > 0 ||
-		hasIncompleteDiagnostic(result.Diagnostics)
+		result.Tokens.CacheWriteUnknown > 0
 	cost := NanoUSD(0)
 	for _, component := range components {
 		if component.tokens == 0 {
@@ -162,21 +161,4 @@ func checkedInputTokens(tokens usage.Tokens) (int64, bool) {
 
 func unavailableQuote() Quote {
 	return Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}
-}
-
-func hasIncompleteDiagnostic(diagnostics usage.Diagnostics) bool {
-	for _, code := range [...]usage.DiagnosticCode{
-		usage.DiagnosticUnsupportedBillableDetail,
-		usage.DiagnosticNegativeValue,
-		usage.DiagnosticInvalidNumber,
-		usage.DiagnosticMissingRequiredField,
-		usage.DiagnosticInconsistentTotal,
-		usage.DiagnosticInvalidPayload,
-		usage.DiagnosticInvalidEventSequence,
-	} {
-		if diagnostics.Has(code) {
-			return true
-		}
-	}
-	return false
 }

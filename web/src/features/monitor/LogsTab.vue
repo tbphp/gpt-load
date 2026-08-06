@@ -374,13 +374,10 @@ function timingPrimary(log: RequestLogItemDto): string {
 
 function costLabel(log: RequestLogItemDto): string {
   const state = requestLogCostDisplayState(log)
-  if (state === 'complete') return formatEstimatedCost(log.estimated_cost_nano_usd, locale.value)
-  if (state === 'partial') {
-    return t('monitor.logs.cost.knownSubtotal', {
-      cost: formatEstimatedCost(log.estimated_cost_nano_usd, locale.value),
-    })
+  if (state === 'complete' || state === 'partial') {
+    return formatEstimatedCost(log.estimated_cost_nano_usd, locale.value)
   }
-  return t(`monitor.logs.cost.${state}`)
+  return '—'
 }
 
 function usageLabel(log: RequestLogItemDto): string {

@@ -115,7 +115,7 @@ func TestQuotePreservesKnownCostWhenAnotherPositiveComponentIsUnavailable(t *tes
 	}
 }
 
-func TestQuoteCompleteUsageDiagnosticsDetermineCompletenessWithoutDiscardingKnownCost(t *testing.T) {
+func TestQuoteCompleteUsageDiagnosticsDoNotMakeKnownCostPartial(t *testing.T) {
 	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
 	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(9)}})
 	tests := []struct {
@@ -123,13 +123,13 @@ func TestQuoteCompleteUsageDiagnosticsDetermineCompletenessWithoutDiscardingKnow
 		diagnostic       usage.DiagnosticCode
 		wantCompleteness Completeness
 	}{
-		{name: "unsupported billable detail", diagnostic: usage.DiagnosticUnsupportedBillableDetail, wantCompleteness: CompletenessPartial},
-		{name: "negative value", diagnostic: usage.DiagnosticNegativeValue, wantCompleteness: CompletenessPartial},
-		{name: "invalid number", diagnostic: usage.DiagnosticInvalidNumber, wantCompleteness: CompletenessPartial},
-		{name: "missing required field", diagnostic: usage.DiagnosticMissingRequiredField, wantCompleteness: CompletenessPartial},
-		{name: "inconsistent total", diagnostic: usage.DiagnosticInconsistentTotal, wantCompleteness: CompletenessPartial},
-		{name: "invalid payload", diagnostic: usage.DiagnosticInvalidPayload, wantCompleteness: CompletenessPartial},
-		{name: "invalid event sequence", diagnostic: usage.DiagnosticInvalidEventSequence, wantCompleteness: CompletenessPartial},
+		{name: "unsupported billable detail", diagnostic: usage.DiagnosticUnsupportedBillableDetail, wantCompleteness: CompletenessComplete},
+		{name: "negative value", diagnostic: usage.DiagnosticNegativeValue, wantCompleteness: CompletenessComplete},
+		{name: "invalid number", diagnostic: usage.DiagnosticInvalidNumber, wantCompleteness: CompletenessComplete},
+		{name: "missing required field", diagnostic: usage.DiagnosticMissingRequiredField, wantCompleteness: CompletenessComplete},
+		{name: "inconsistent total", diagnostic: usage.DiagnosticInconsistentTotal, wantCompleteness: CompletenessComplete},
+		{name: "invalid payload", diagnostic: usage.DiagnosticInvalidPayload, wantCompleteness: CompletenessComplete},
+		{name: "invalid event sequence", diagnostic: usage.DiagnosticInvalidEventSequence, wantCompleteness: CompletenessComplete},
 		{name: "cache write defaulted 5m", diagnostic: usage.DiagnosticCacheWriteDefaulted5M, wantCompleteness: CompletenessComplete},
 	}
 
