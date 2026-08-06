@@ -323,6 +323,8 @@ export default {
         estimatedCost: '预估成本',
         quality: '质量',
         actions: '操作',
+        qualitySuccess: '成功率 {rate}',
+        qualityCache: '缓存率 {rate}',
         qualityUsage: '缺失 {missing} · 部分 {partial}',
         qualityPricing: '未定价 {unpriced} · 部分定价 {partial}',
         qualityCompact:

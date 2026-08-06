@@ -24,7 +24,8 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
+import { formatCacheHitRate } from '@/lib/cache-rate'
+import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 import {
@@ -82,6 +83,20 @@ function granularityLabel(): string {
 
 function formatCost(aggregate: UsageAggregateDto): string {
   return formatEstimatedCost(aggregate.estimated_cost_nano_usd, locale.value)
+}
+
+function inputTokens(aggregate: UsageAggregateDto): number {
+  return (
+    aggregate.uncached_input_tokens +
+    aggregate.cache_read_tokens +
+    aggregate.cache_write_5m_tokens +
+    aggregate.cache_write_1h_tokens +
+    aggregate.cache_write_unknown_tokens
+  )
+}
+
+function cacheRateLabel(aggregate: UsageAggregateDto): string {
+  return formatCacheHitRate(aggregate.cache_read_tokens, inputTokens(aggregate), locale.value)
 }
 
 function groupName(groupID: number): string {
@@ -369,17 +384,15 @@ defineExpose({ openFilters })
                   <span class="usage-cell-label">{{ t('monitor.usage.columns.quality') }}</span>
                   <span>
                     {{
-                      t('monitor.usage.columns.qualityUsage', {
-                        missing: formatInteger(row.usage_missing_count, locale),
-                        partial: formatInteger(row.partial_count, locale),
+                      t('monitor.usage.columns.qualitySuccess', {
+                        rate: formatPercent(row.success_count, row.request_count, locale),
                       })
                     }}
                   </span>
                   <small>
                     {{
-                      t('monitor.usage.columns.qualityPricing', {
-                        unpriced: formatInteger(row.unpriced_request_count, locale),
-                        partial: formatInteger(row.pricing_partial_count, locale),
+                      t('monitor.usage.columns.qualityCache', {
+                        rate: cacheRateLabel(row),
                       })
                     }}
                   </small>

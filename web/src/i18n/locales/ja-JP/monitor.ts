@@ -336,6 +336,8 @@ export default {
         estimatedCost: '推定コスト',
         quality: '品質',
         actions: '操作',
+        qualitySuccess: '成功率 {rate}',
+        qualityCache: 'キャッシュ率 {rate}',
         qualityUsage: 'なし {missing} · 部分 {partial}',
         qualityPricing: '未設定 {unpriced} · 一部 {partial}',
         qualityCompact:

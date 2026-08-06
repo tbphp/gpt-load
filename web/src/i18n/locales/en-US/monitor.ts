@@ -335,6 +335,8 @@ export default {
         estimatedCost: 'Estimated cost',
         quality: 'Quality',
         actions: 'Actions',
+        qualitySuccess: 'Success rate {rate}',
+        qualityCache: 'Cache hit rate {rate}',
         qualityUsage: 'Missing {missing} · Partial {partial}',
         qualityPricing: 'Unpriced {unpriced} · Partial {partial}',
         qualityCompact:
