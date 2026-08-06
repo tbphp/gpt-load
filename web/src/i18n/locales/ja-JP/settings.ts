@@ -140,7 +140,11 @@ export default {
       version: 'バージョン',
       deployment: 'デプロイ',
       single: '単一インスタンス',
-      sqlite: 'SQLite',
+      databases: {
+        sqlite: 'SQLite',
+        mysql: 'MySQL',
+        postgres: 'PostgreSQL',
+      },
       singleBinary: '単一バイナリ',
       dataDir: 'データディレクトリ',
       authKey: 'AUTH_KEY の取得元',

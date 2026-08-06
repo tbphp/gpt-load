@@ -40,6 +40,9 @@ func TestLoadUsesDefaultConfiguration(t *testing.T) {
 	if cfg.DatabaseDSN != filepath.Join("./data", "gpt-load.db") {
 		t.Fatalf("DatabaseDSN = %q", cfg.DatabaseDSN)
 	}
+	if cfg.DatabaseMetadata.Driver != DatabaseDriverSQLite {
+		t.Fatalf("DatabaseMetadata.Driver = %q, want %q", cfg.DatabaseMetadata.Driver, DatabaseDriverSQLite)
+	}
 	if cfg.Log.Level != "info" || cfg.Log.Format != "text" {
 		t.Fatalf("Log = %#v, want info/text", cfg.Log)
 	}
@@ -90,6 +93,9 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.DatabaseDSN != ":memory:" || cfg.EncryptionKey != "explicit-encryption-key" {
 		t.Fatalf("database/encryption overrides not loaded: %#v", cfg)
+	}
+	if cfg.DatabaseMetadata.Driver != DatabaseDriverSQLite {
+		t.Fatalf("DatabaseMetadata.Driver = %q, want %q", cfg.DatabaseMetadata.Driver, DatabaseDriverSQLite)
 	}
 	if cfg.Log.Level != "debug" || cfg.Log.Format != "json" {
 		t.Fatalf("Log = %#v", cfg.Log)
@@ -229,6 +235,80 @@ func TestLoadExplicitDefaultDatabaseDSNRemainsExternal(t *testing.T) {
 	}
 	if cfg.DatabaseMetadata.Source != DatabaseSourceExternal {
 		t.Fatalf("DatabaseMetadata.Source = %q, want %q", cfg.DatabaseMetadata.Source, DatabaseSourceExternal)
+	}
+}
+
+func TestLoadClassifiesNetworkDatabaseURLs(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		dsn    string
+		driver DatabaseDriver
+	}{
+		{name: "mysql", dsn: "mysql://user:password@db.example:3306/gpt_load", driver: DatabaseDriverMySQL},
+		{name: "postgres", dsn: "postgres://user:password@db.example:5432/gpt_load", driver: DatabaseDriverPostgreSQL},
+		{name: "postgresql alias", dsn: "postgresql://user:password@db.example:5432/gpt_load", driver: DatabaseDriverPostgreSQL},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clearEnvironment(t)
+			t.Setenv("AUTH_KEY", "test-auth-key")
+			t.Setenv("ENCRYPTION_KEY", "test-encryption-key")
+			t.Setenv("DATABASE_DSN", test.dsn)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.DatabaseMetadata.Source != DatabaseSourceExternal {
+				t.Fatalf("DatabaseMetadata.Source = %q, want %q", cfg.DatabaseMetadata.Source, DatabaseSourceExternal)
+			}
+			if cfg.DatabaseMetadata.Driver != test.driver {
+				t.Fatalf("DatabaseMetadata.Driver = %q, want %q", cfg.DatabaseMetadata.Driver, test.driver)
+			}
+			if cfg.DatabaseDSN != test.dsn {
+				t.Fatalf("DatabaseDSN = %q, want %q", cfg.DatabaseDSN, test.dsn)
+			}
+		})
+	}
+}
+
+func TestParseDatabaseDSNSupportsURLAndSQLiteCompatibilityForms(t *testing.T) {
+	tests := []struct {
+		name       string
+		dsn        string
+		wantDriver DatabaseDriver
+		wantDSN    string
+	}{
+		{name: "bare path", dsn: "data/gpt-load.db", wantDriver: DatabaseDriverSQLite, wantDSN: "data/gpt-load.db"},
+		{name: "memory", dsn: ":memory:?cache=shared", wantDriver: DatabaseDriverSQLite, wantDSN: ":memory:?cache=shared"},
+		{name: "sqlite URL", dsn: "sqlite:///var/lib/gpt-load/gpt-load.db", wantDriver: DatabaseDriverSQLite, wantDSN: "/var/lib/gpt-load/gpt-load.db"},
+		{name: "mysql URL", dsn: "mysql://user:password@db.example:3306/gpt_load?tls=true", wantDriver: DatabaseDriverMySQL, wantDSN: "mysql://user:password@db.example:3306/gpt_load?tls=true"},
+		{name: "postgres URL", dsn: "postgres://user:password@db.example:5432/gpt_load?sslmode=require", wantDriver: DatabaseDriverPostgreSQL, wantDSN: "postgres://user:password@db.example:5432/gpt_load?sslmode=require"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ParseDatabaseDSN(test.dsn)
+			if err != nil {
+				t.Fatalf("ParseDatabaseDSN(%q) error = %v", test.dsn, err)
+			}
+			if got.Driver != test.wantDriver || got.DSN != test.wantDSN {
+				t.Fatalf("ParseDatabaseDSN(%q) = %#v, want driver %q DSN %q", test.dsn, got, test.wantDriver, test.wantDSN)
+			}
+		})
+	}
+}
+
+func TestParseDatabaseDSNRejectsUnsupportedOrIncompleteURLs(t *testing.T) {
+	for _, dsn := range []string{
+		"",
+		"redis://localhost/0",
+		"mysql://localhost",
+		"postgres://localhost",
+		"mysql://localhost/gpt_load/%2Fextra",
+	} {
+		if _, err := ParseDatabaseDSN(dsn); err == nil {
+			t.Fatalf("ParseDatabaseDSN(%q) error = nil, want validation error", dsn)
+		}
 	}
 }
 

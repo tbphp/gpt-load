@@ -53,6 +53,58 @@ jobs:
       - name: Check repository invariants
         run: git diff --check
 
+  database-contract:
+    name: Database contract (${{ matrix.driver }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - driver: mysql
+            dsn: mysql://root:root@mysql:3306/gpt_load?charset=utf8mb4
+          - driver: postgres
+            dsn: postgres://postgres:postgres@postgres:5432/gpt_load?sslmode=disable
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: gpt_load
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gpt_load
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d gpt_load"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run external database contract
+        env:
+          GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
+        run: go test -v -count=1 ./internal/storage -run '^TestExternalDatabase(ConcurrentMigrations|Lifecycle)$'
+
   windows-encryption-acl:
     runs-on: windows-2025
     timeout-minutes: 10

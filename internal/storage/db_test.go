@@ -172,7 +172,7 @@ func TestOpenRejectsInvalidDSN(t *testing.T) {
 		dsn  string
 	}{
 		{name: "empty", dsn: ""},
-		{name: "non sqlite scheme", dsn: "postgres://localhost/gpt-load"},
+		{name: "unsupported scheme", dsn: "redis://localhost/gpt-load"},
 	}
 
 	for _, tt := range tests {

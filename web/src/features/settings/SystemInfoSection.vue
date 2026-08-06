@@ -3,7 +3,11 @@ import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { systemInfoQueryOptions, type SecretSource } from '@/app/resources/system-info'
+import {
+  systemInfoQueryOptions,
+  type DatabaseDriver,
+  type SecretSource,
+} from '@/app/resources/system-info'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -15,6 +19,10 @@ const infoQuery = useQuery(systemInfoQueryOptions(client))
 
 function sourceLabel(source: SecretSource): string {
   return t(`settings.system.sources.${source}`)
+}
+
+function databaseLabel(database: DatabaseDriver): string {
+  return t(`settings.system.databases.${database}`)
 }
 </script>
 
@@ -56,7 +64,9 @@ function sourceLabel(source: SecretSource): string {
             <dt>{{ t('settings.system.deployment') }}</dt>
             <dd class="settings-system__inline">
               <StatusBadge size="compact">{{ t('settings.system.single') }}</StatusBadge>
-              <StatusBadge size="compact">{{ t('settings.system.sqlite') }}</StatusBadge>
+              <StatusBadge size="compact">{{
+                databaseLabel(infoQuery.data.value.deployment.database)
+              }}</StatusBadge>
               <StatusBadge size="compact">{{ t('settings.system.singleBinary') }}</StatusBadge>
             </dd>
           </div>

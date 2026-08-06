@@ -56,7 +56,7 @@ The M3 control-plane UI and M4 usage/pricing scope are present in the local cand
 ## 2.0.0 support boundaries
 
 - Correctness is guaranteed for a **single application instance** only; multi-instance coordination is not supported.
-- **SQLite only**; PostgreSQL, MySQL, and other databases are not supported.
+- Supports SQLite, MySQL, and PostgreSQL through one unified `DATABASE_DSN` configuration. The current release targets the latest stable versions of these three engines; other database products are not supported.
 - The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
 - Protocol configuration is a clean break: use `openai-completions`, `openai-responses`, `anthropic`, or `gemini`. The old `openai`, `openai-response`, and `openai-chat-completions` values are invalid and have no compatibility path.
 - A stored old protocol value causes the complete `ConfigSnapshot` compilation, and therefore startup/publication, to fail. The error identifies the Group or AccessKey and invalid value. Rebuild the pre-release 2.0 data before starting; there is no in-place protocol-value migration.
@@ -88,7 +88,7 @@ curl --fail http://localhost:3001/health
 docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 ```
 
-The named volume preserves SQLite, `auth.key`, and `encryption.key`. Production deployments should inject explicit `AUTH_KEY` and `ENCRYPTION_KEY` values through protected secret handling. Never commit real secrets to `.env`, logs, or issues. A custom container `DATABASE_DSN` requires a Compose override with both a **container** path and a matching volume mount.
+The named volume preserves the default SQLite database, `auth.key`, and `encryption.key`. Production deployments should inject explicit `AUTH_KEY` and `ENCRYPTION_KEY` values through protected secret handling. Never commit real secrets to `.env`, logs, or issues. A MySQL or PostgreSQL `DATABASE_DSN` is operator-managed and should be supplied through the deployment secret/configuration system.
 
 Compose listens on all interfaces only inside the container while publishing to host loopback by default. Setting `BIND_ADDRESS=0.0.0.0`, or running a native binary with `HOST=0.0.0.0`, is an explicit opt-in. In production, expose either only behind a controlled network boundary with a TLS reverse proxy and ACL/firewall controls.
 
@@ -209,7 +209,7 @@ Usage/Cost quality boundaries:
 | `BIND_ADDRESS` | `127.0.0.1` | Compose host-side publish address; not a process setting |
 | `PORT` | `3001` | HTTP listen port |
 | `DATA_DIR` | `./data` | Native persistent directory; the container overrides it to `/app/data` |
-| `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects a managed SQLite database; every non-empty operator value is external, even if it names the same path |
+| `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects managed SQLite. Non-empty values use one of `sqlite`, `mysql`, or `postgres` URL forms and are operator-managed |
 | `AUTH_KEY` | generated keyfile | Management bearer credential; an explicit value cannot contain whitespace; otherwise reads or creates `${DATA_DIR}/auth.key` |
 | `ENCRYPTION_KEY` | generated keyfile | Master key for encrypted upstream keys; otherwise reads or creates `${DATA_DIR}/encryption.key` |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | unset | Optional strict boolean override for Models.dev automatic synchronization; unset uses the runtime setting, which defaults to enabled |
@@ -222,24 +222,34 @@ Usage/Cost quality boundaries:
 
 See [`.env.example`](.env.example) for the complete process configuration. Connect, first-byte, request, and stream-idle timeouts plus RequestLog retention are runtime settings managed through the admin UI/API, not additional environment variables.
 
+`DATABASE_DSN` uses one common URL contract; do not add a separate database type variable or engine-specific application settings. Examples:
+
+```text
+sqlite:///var/lib/gpt-load.db
+mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
+postgres://user:password@db.example:5432/gpt_load?sslmode=require
+```
+
+The empty value is the only application-managed database mode. A non-empty SQLite path/URL and all MySQL/PostgreSQL URLs are external, operator-managed values.
+
 ## Persistence and security
 
-- Database ownership follows only the raw `DATABASE_DSN`: empty means managed DB/WAL/SHM under `${DATA_DIR}`; every non-empty value means an external, operator-owned database that GPT-Load does not mkdir or chmod and that must be backed up separately.
+- Database ownership follows only the raw `DATABASE_DSN`: empty means the managed SQLite DB/WAL/SHM under `${DATA_DIR}`; every non-empty value means an external, operator-owned database that GPT-Load does not mkdir, chmod, or create database users for and that must be backed up separately.
 - Secret ownership is independent of database ownership. For each secret, `/api/system/info` reports `key_file` or `environment`: archive a reported `key_file` (`auth.key` or `encryption.key`) from `DATA_DIR` regardless of the database source, or restore an `environment` secret separately from the protected external secret system.
 - On POSIX, managed `${DATA_DIR}` is restricted to `0700` and managed DB/WAL/SHM plus application-created key files to `0600`. Windows uses current-user-only ACLs, but the Windows runtime stop/ACL gate has not been executed for this candidate.
 - Losing the matching `encryption.key`, from either source, makes encrypted upstream keys unrecoverable. 2.0.0 has no automatic repair or master-key rotation.
-- SQLite uses WAL. Before backup, stop incoming traffic and wait for a clean exit: use `SIGTERM` on POSIX, or Ctrl+C, Ctrl+Break, or the service manager's stop action on Windows. Never hot-copy only `gpt-load.db`.
+- Managed SQLite uses WAL. Before backing it up, stop incoming traffic and wait for a clean exit: use `SIGTERM` on POSIX, or Ctrl+C, Ctrl+Break, or the service manager's stop action on Windows. External MySQL/PostgreSQL backups must follow the operator's engine-native backup procedure.
 - Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or upstream keys into logs, public issues, screenshots, or ordinary backup manifests.
 
 ### Public operations baseline
 
 This checklist is self-contained and does not require access to the project's private Notion workspace:
 
-1. Determine the database source and location from the actual environment, service, or container configuration, then call authenticated `GET /api/system/info` to record each secret's safe source/path metadata without recording its value. The endpoint deliberately omits database source, DSN, and location.
+1. Determine the database source and location from the actual environment, service, or container configuration, then call authenticated `GET /api/system/info` to record the selected database driver and each secret's safe source/path metadata without recording secret values. The endpoint deliberately omits the database DSN, credentials, and location.
 2. Stop incoming traffic and wait for a clean process exit using the POSIX or Windows mechanism above. With Compose, run `docker compose stop` and confirm the service container is stopped.
 3. Build the complete recovery set across both independent axes: archive managed DB/WAL/SHM when `DATABASE_DSN` is empty, or back up the external DB with its operator procedure when non-empty; for both database cases, archive every `key_file` reported for auth/encryption and recover every `environment` secret from its protected external secret system. Use unique archive names, refuse overwrite, restrict access, and record SHA-256.
 4. Restore both the database and secret sides with the exact same binary or image into an empty target. Verify checksums first and restore the exact matching encryption key; never combine restore with an upgrade.
-5. Start the restored instance and verify `/health`, `/api/system/info`, Groups, AccessKeys, model prices, Usage, RequestLog, and a real data-plane canary. When `sqlite3` is available, stop the instance and require `PRAGMA quick_check` to return `ok`.
+5. Start the restored instance and verify `/health`, `/api/system/info`, Groups, AccessKeys, model prices, Usage, RequestLog, and a real data-plane canary. For managed SQLite, stop the instance and require `PRAGMA quick_check` to return `ok`; for MySQL/PostgreSQL, use the operator's native consistency check.
 
 2.0.0 has no backup CLI or encryption-key rotation. Never replace the encryption key for an existing database.
 

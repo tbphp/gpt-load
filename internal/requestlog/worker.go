@@ -2,9 +2,6 @@ package requestlog
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -12,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/platform/dbtx"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -20,44 +18,6 @@ import (
 )
 
 const requestLogTransactionCleanupTimeout = time.Second
-
-const absoluteUsageStatUpsert = `
-INSERT INTO usage_stats (
-	bucket_start_ms,
-	access_key_id,
-	group_id,
-	model,
-	request_count,
-	success_count,
-	failure_count,
-	uncached_input_tokens,
-	output_tokens,
-	cache_read_tokens,
-	cache_write_5m_tokens,
-	cache_write_1h_tokens,
-	cache_write_unknown_tokens,
-	estimated_cost_nano_usd,
-	usage_missing_count,
-	partial_count,
-	unpriced_request_count,
-	pricing_partial_count
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(bucket_start_ms, access_key_id, group_id, model) DO UPDATE SET
-	request_count = excluded.request_count,
-	success_count = excluded.success_count,
-	failure_count = excluded.failure_count,
-	uncached_input_tokens = excluded.uncached_input_tokens,
-	output_tokens = excluded.output_tokens,
-	cache_read_tokens = excluded.cache_read_tokens,
-	cache_write_5m_tokens = excluded.cache_write_5m_tokens,
-	cache_write_1h_tokens = excluded.cache_write_1h_tokens,
-	cache_write_unknown_tokens = excluded.cache_write_unknown_tokens,
-	estimated_cost_nano_usd = excluded.estimated_cost_nano_usd,
-	usage_missing_count = excluded.usage_missing_count,
-	partial_count = excluded.partial_count,
-	unpriced_request_count = excluded.unpriced_request_count,
-	pricing_partial_count = excluded.pricing_partial_count
-`
 
 type realWorkerTimer struct {
 	timer *time.Timer
@@ -93,42 +53,15 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 	if err != nil {
 		return err
 	}
-	return writer.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
-		sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
-		if !ok {
-			return fmt.Errorf("pin request log transaction connection")
-		}
-		transaction := connection.Session(&gorm.Session{
-			NewDB: true, SkipDefaultTransaction: true, Context: ctx,
-		})
-		if err := transaction.Exec("BEGIN IMMEDIATE").Error; err != nil {
-			return fmt.Errorf("begin request log transaction: %w", err)
-		}
-
-		active := true
-		defer func() {
-			if active {
-				_ = rollbackRequestLogTransaction(connection, sqlConn, false)
-			}
-		}()
+	return dbtx.Run(ctx, writer.db, dbtx.Options{
+		Mode:           dbtx.Write,
+		CleanupTimeout: requestLogTransactionCleanupTimeout,
+		Operation:      "request log transaction",
+	}, func(transaction *gorm.DB) error {
 		if err := stageUsageAggregationJournals(transaction, journals); err != nil {
-			cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
-			active = false
-			return errors.Join(err, cleanupErr)
+			return err
 		}
-		if err := writeRequestLogBatch(transaction, newRows); err != nil {
-			cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
-			active = false
-			return errors.Join(err, cleanupErr)
-		}
-		if err := transaction.Exec("COMMIT").Error; err != nil {
-			commitErr := fmt.Errorf("commit request log transaction: %w", err)
-			cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, true)
-			active = false
-			return errors.Join(commitErr, cleanupErr)
-		}
-		active = false
-		return nil
+		return writeRequestLogBatch(transaction, newRows)
 	})
 }
 
@@ -268,27 +201,7 @@ func applyUsageJournalBatch(
 	}
 
 	for _, stat := range absolute {
-		if err := tx.Exec(
-			absoluteUsageStatUpsert,
-			stat.BucketStartMS,
-			stat.AccessKeyID,
-			stat.GroupID,
-			stat.Model,
-			stat.RequestCount,
-			stat.SuccessCount,
-			stat.FailureCount,
-			stat.UncachedInputTokens,
-			stat.OutputTokens,
-			stat.CacheReadTokens,
-			stat.CacheWrite5MTokens,
-			stat.CacheWrite1HTokens,
-			stat.CacheWriteUnknownTokens,
-			stat.EstimatedCostNanoUSD,
-			stat.UsageMissingCount,
-			stat.PartialCount,
-			stat.UnpricedRequestCount,
-			stat.PricingPartialCount,
-		).Error; err != nil {
+		if err := tx.Clauses(usageStatUpsertClause()).Create(&stat).Error; err != nil {
 			return fmt.Errorf("upsert usage stat: %w", err)
 		}
 	}
@@ -310,6 +223,33 @@ func applyUsageJournalBatch(
 		)
 	}
 	return nil
+}
+
+func usageStatUpsertClause() clause.OnConflict {
+	return clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "bucket_start_ms"},
+			{Name: "access_key_id"},
+			{Name: "group_id"},
+			{Name: "model"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"request_count",
+			"success_count",
+			"failure_count",
+			"uncached_input_tokens",
+			"output_tokens",
+			"cache_read_tokens",
+			"cache_write_5m_tokens",
+			"cache_write_1h_tokens",
+			"cache_write_unknown_tokens",
+			"estimated_cost_nano_usd",
+			"usage_missing_count",
+			"partial_count",
+			"unpriced_request_count",
+			"pricing_partial_count",
+		}),
+	}
 }
 
 func buildUsageAggregationJournals(
@@ -655,38 +595,6 @@ func checkedUsageStatTotal(
 	}
 	total.EstimatedCostNanoUSD = int64(cost)
 	return total, nil
-}
-
-func rollbackRequestLogTransaction(
-	connection *gorm.DB,
-	sqlConn *sql.Conn,
-	discardAlways bool,
-) error {
-	cleanupCtx, cancel := context.WithTimeout(
-		context.Background(),
-		requestLogTransactionCleanupTimeout,
-	)
-	defer cancel()
-	cleanupDB := connection.Session(&gorm.Session{
-		NewDB: true, SkipDefaultTransaction: true, Context: cleanupCtx,
-	})
-	rollbackErr := cleanupDB.Exec("ROLLBACK").Error
-	var discardErr error
-	if rollbackErr != nil || discardAlways {
-		discardErr = discardRequestLogConnection(sqlConn)
-	}
-	if rollbackErr != nil {
-		rollbackErr = fmt.Errorf("rollback request log transaction: %w", rollbackErr)
-	}
-	return errors.Join(rollbackErr, discardErr)
-}
-
-func discardRequestLogConnection(sqlConn *sql.Conn) error {
-	err := sqlConn.Raw(func(any) error { return driver.ErrBadConn })
-	if err == nil || errors.Is(err, driver.ErrBadConn) {
-		return nil
-	}
-	return fmt.Errorf("discard request log database connection: %w", err)
 }
 
 func (service *Service) runWorker(ctx context.Context, done chan<- struct{}) {

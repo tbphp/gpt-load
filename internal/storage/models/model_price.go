@@ -39,8 +39,8 @@ type ModelPrice struct {
 	CacheWritePriceNanoUSDPerMillionTokens *int64 `gorm:"column:cache_write_price_nano_usd_per_million_tokens;check:chk_model_price_cache_write_nano,cache_write_price_nano_usd_per_million_tokens IS NULL OR cache_write_price_nano_usd_per_million_tokens >= 0"`
 	ContextPriceTiers                      JSON   `gorm:"type:json"`
 	IsManual                               bool   `gorm:"not null;default:false"`
-	CreatedAtMS                            int64  `gorm:"column:created_at_ms;not null;autoCreateTime:milli"`
-	UpdatedAtMS                            int64  `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli"`
+	CreatedAtMS                            int64  `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_model_price_created_at,created_at_ms >= 0"`
+	UpdatedAtMS                            int64  `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_model_price_updated_at,updated_at_ms >= 0"`
 }
 
 // BeforeSave rejects malformed tier contracts and normalizes an empty tier list

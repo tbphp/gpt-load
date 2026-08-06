@@ -12,7 +12,11 @@ import (
 	"testing"
 	"time"
 
+	gormsqlite "github.com/glebarez/sqlite"
+	gormmysql "gorm.io/driver/mysql"
+	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
@@ -20,6 +24,70 @@ import (
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
+
+func TestUsageStatUpsertUsesDialectSpecificGORMConflictSQL(t *testing.T) {
+	stat := models.UsageStat{
+		BucketStartMS: 1_784_894_400_000,
+		AccessKeyID:   1,
+		GroupID:       2,
+		Model:         "model",
+	}
+	tests := []struct {
+		name           string
+		dialector      gorm.Dialector
+		mustContain    string
+		mustNotContain string
+	}{
+		{
+			name:           "sqlite",
+			dialector:      gormsqlite.Open(":memory:"),
+			mustContain:    "ON CONFLICT",
+			mustNotContain: "ON DUPLICATE KEY UPDATE",
+		},
+		{
+			name: "mysql",
+			dialector: gormmysql.New(gormmysql.Config{
+				DSN:                       "user:password@tcp(127.0.0.1:3306)/gpt_load",
+				SkipInitializeWithVersion: true,
+			}),
+			mustContain:    "ON DUPLICATE KEY UPDATE",
+			mustNotContain: "ON CONFLICT",
+		},
+		{
+			name: "postgres",
+			dialector: gormpostgres.New(gormpostgres.Config{
+				DSN:                  "host=127.0.0.1 user=user password=password dbname=gpt_load sslmode=disable",
+				PreferSimpleProtocol: true,
+			}),
+			mustContain:    "ON CONFLICT",
+			mustNotContain: "ON DUPLICATE KEY UPDATE",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := gorm.Open(test.dialector, &gorm.Config{
+				DryRun:                 true,
+				DisableAutomaticPing:   true,
+				SkipDefaultTransaction: true,
+				Logger:                 logger.Default.LogMode(logger.Silent),
+			})
+			if err != nil {
+				t.Fatalf("gorm.Open() error = %v", err)
+			}
+			result := db.Clauses(usageStatUpsertClause()).Create(&stat)
+			if result.Error != nil {
+				t.Fatalf("Create() error = %v", result.Error)
+			}
+			sql := result.Statement.SQL.String()
+			if !strings.Contains(sql, test.mustContain) {
+				t.Fatalf("generated SQL = %q, want %q", sql, test.mustContain)
+			}
+			if strings.Contains(sql, test.mustNotContain) {
+				t.Fatalf("generated SQL = %q, must not contain %q", sql, test.mustNotContain)
+			}
+		})
+	}
+}
 
 func TestServiceFlushesAtBatchSizeAndDelayInFIFOOrder(t *testing.T) {
 	timers := newManualTimerFactory()

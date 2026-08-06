@@ -2,12 +2,12 @@ package requestlog
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/dbtx"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/storage/models"
 )
@@ -97,19 +97,11 @@ func (service *Service) QueryHomeStatistics(
 		ToMS:         toMS,
 		Granularity:  granularity,
 	}
-	err = service.db.WithContext(ctx).Connection(func(connection *gorm.DB) (operationErr error) {
-		if err := connection.Exec("BEGIN DEFERRED").Error; err != nil {
-			return fmt.Errorf("begin home statistics read transaction: %w", err)
-		}
-		committed := false
-		defer func() {
-			if !committed {
-				if rollbackErr := rollbackUsageReadTransaction(connection); rollbackErr != nil {
-					operationErr = errors.Join(operationErr, rollbackErr)
-				}
-			}
-		}()
-
+	err = dbtx.Run(ctx, service.db, dbtx.Options{
+		Mode:           dbtx.ReadSnapshot,
+		CleanupTimeout: usageRollbackTimeout,
+		Operation:      "home statistics read transaction",
+	}, func(connection *gorm.DB) error {
 		scope := usageStatScope(connection, usageInput)
 		if err := validateUsageStatIntegrity(scope); err != nil {
 			return err
@@ -171,10 +163,6 @@ func (service *Service) QueryHomeStatistics(
 		report.TopGroups = mapHomeGroupRankings(groupRows, groupRefs)
 		report.TopAccessKeys = mapHomeAccessKeyRankings(accessRows, accessRefs)
 
-		if err := connection.Exec("COMMIT").Error; err != nil {
-			return fmt.Errorf("commit home statistics read transaction: %w", err)
-		}
-		committed = true
 		return nil
 	})
 	if err != nil {

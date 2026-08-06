@@ -430,22 +430,6 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
 	}
 }
 
-func TestDiscardUsageReadConnectionTreatsBadConnectionAsSuccessfulCleanup(t *testing.T) {
-	db := openRequestLogQueryDB(t)
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("get requestlog database: %v", err)
-	}
-	connection, err := sqlDB.Conn(context.Background())
-	if err != nil {
-		t.Fatalf("get requestlog connection: %v", err)
-	}
-	if err := discardUsageReadConnection(connection); err != nil {
-		t.Fatalf("discardUsageReadConnection() error = %v, want nil", err)
-	}
-
-}
-
 func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 	start := time.Date(2026, time.July, 4, 0, 0, 0, 0, time.UTC)
 	tests := []struct {

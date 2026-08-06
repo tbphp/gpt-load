@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
@@ -87,7 +88,9 @@ func (s *Service) readGroupDiscoverySnapshot(
 		rows.keys = cloneUpstreamKeyRows(keys)
 
 		var settings []models.SystemSetting
-		if err := tx.Order("key ASC").Find(&settings).Error; err != nil {
+		if err := tx.
+			Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "key"}}}}).
+			Find(&settings).Error; err != nil {
 			return err
 		}
 		rows.settings = append([]models.SystemSetting(nil), settings...)

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
@@ -36,16 +35,44 @@ var databaseLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logge
 
 var hardenManagedFileIfExists = securefile.HardenManagedFileIfExists
 
-// Open opens a SQLite database using a fully resolved DSN.
+// Open opens a database using a fully resolved DSN.
 // Resolving an empty DSN to DATA_DIR belongs to platform/config.
 func Open(dsn string) (*gorm.DB, error) {
 	return OpenWithSource(dsn, config.DatabaseSourceExternal)
 }
 
-// OpenWithSource opens a SQLite database and applies file controls only when
-// the application owns the managed database location.
+// OpenWithSource opens a database and applies file controls only when the
+// application owns the managed SQLite location.
 func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
-	dsn = strings.TrimSpace(dsn)
+	database, err := config.ParseDatabaseDSN(dsn)
+	if err != nil {
+		return nil, err
+	}
+	switch source {
+	case config.DatabaseSourceManaged:
+	case config.DatabaseSourceExternal:
+	default:
+		return nil, fmt.Errorf("open database: unsupported database source")
+	}
+
+	if database.Driver == config.DatabaseDriverSQLite {
+		if source == config.DatabaseSourceExternal {
+			logExternalDatabaseSource(database.Driver)
+		}
+		return openSQLite(database.DSN, source)
+	}
+	if source == config.DatabaseSourceManaged {
+		return nil, fmt.Errorf("open %s database: managed source is only supported by SQLite", databaseDisplayName(database.Driver))
+	}
+	logExternalDatabaseSource(database.Driver)
+	dialector, err := newDatabaseDialector(database)
+	if err != nil {
+		return nil, err
+	}
+	return openDatabase(database.Driver, dialector)
+}
+
+func openSQLite(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
 	target, err := parseSQLiteTarget(dsn)
 	if err != nil {
 		return nil, err
@@ -61,8 +88,6 @@ func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) 
 			}
 		}
 	case config.DatabaseSourceExternal:
-		logrus.WithField("database_source", config.DatabaseSourceExternal).
-			Info("SQLite database storage is managed by the operator")
 	default:
 		return nil, fmt.Errorf("open SQLite database: unsupported database source")
 	}
@@ -71,17 +96,22 @@ func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) 
 	if err != nil {
 		return nil, err
 	}
-	db, err := gorm.Open(sqlite.Open(runtimeDSN), &gorm.Config{Logger: databaseLogger})
+	dialector, err := newDatabaseDialector(config.DatabaseConfig{
+		Driver: config.DatabaseDriverSQLite,
+		DSN:    runtimeDSN,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("open SQLite database: %w", err)
+		return nil, err
+	}
+	db, err := openDatabase(config.DatabaseDriverSQLite, dialector)
+	if err != nil {
+		return nil, err
 	}
 
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("get SQLite connection pool: %w", err)
 	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
 	if err := verifySQLiteRuntime(db, target.fileBacked); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
@@ -137,11 +167,6 @@ func rejectExistingDatabaseWithoutMigrationLedger(target sqliteTarget) error {
 		}
 	}
 	return nil
-}
-
-// AutoMigrate applies every pending SQLite migration before the application starts.
-func AutoMigrate(db *gorm.DB) error {
-	return applyMigrations(db)
 }
 
 func withSQLiteRuntimeOptions(dsn string, fileBacked bool) (string, error) {

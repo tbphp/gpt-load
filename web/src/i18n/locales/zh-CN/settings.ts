@@ -129,7 +129,11 @@ export default {
       version: '版本',
       deployment: '部署形态',
       single: '单实例',
-      sqlite: 'SQLite',
+      databases: {
+        sqlite: 'SQLite',
+        mysql: 'MySQL',
+        postgres: 'PostgreSQL',
+      },
       singleBinary: '单二进制',
       dataDir: '数据目录',
       authKey: 'AUTH_KEY 来源',

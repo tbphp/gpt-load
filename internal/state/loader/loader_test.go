@@ -66,9 +66,9 @@ func TestLoadSystemSettingsDecodesPersistedValues(t *testing.T) {
 	if seenTables["system_settings"] != 1 || len(seenTables) != 1 {
 		t.Fatalf("queried tables = %#v, want only system_settings once", seenTables)
 	}
-	if len(orderColumns) != 1 || orderColumns[0].Column.Name != "key ASC" ||
-		!orderColumns[0].Column.Raw || orderColumns[0].Desc {
-		t.Fatalf("ORDER BY = %#v, want key ASC", orderColumns)
+	if len(orderColumns) != 1 || orderColumns[0].Column.Name != "key" ||
+		orderColumns[0].Column.Raw || orderColumns[0].Desc {
+		t.Fatalf("ORDER BY = %#v, want quoted key ASC", orderColumns)
 	}
 
 	settings["plain"] = "mutated"

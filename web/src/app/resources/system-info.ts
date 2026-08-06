@@ -13,6 +13,7 @@ import {
 } from './projector'
 
 export type SecretSource = 'environment' | 'key_file'
+export type DatabaseDriver = 'sqlite' | 'mysql' | 'postgres'
 
 export interface SecretSourceInfo {
   source: SecretSource
@@ -23,7 +24,7 @@ export interface SystemInfoDto {
   version: string
   deployment: {
     instance_mode: 'single'
-    database: 'sqlite'
+    database: DatabaseDriver
     distribution: 'single_binary'
   }
   data_dir: string
@@ -71,17 +72,17 @@ export function projectSystemInfo(value: unknown): SystemInfoDto {
   assertExactFields(deployment, ['instance_mode', 'database', 'distribution'])
   if (
     projectEnum(deployment.instance_mode, ['single'] as const) !== 'single' ||
-    projectEnum(deployment.database, ['sqlite'] as const) !== 'sqlite' ||
     projectEnum(deployment.distribution, ['single_binary'] as const) !== 'single_binary'
   ) {
     invalidResponse()
   }
+  const database = projectEnum(deployment.database, ['sqlite', 'mysql', 'postgres'] as const)
   const encryption = projectSecretSource(record.encryption, true)
   return {
     version: projectNonBlankTrimmedString(record.version),
     deployment: {
       instance_mode: 'single',
-      database: 'sqlite',
+      database,
       distribution: 'single_binary',
     },
     data_dir: projectNonBlankTrimmedString(record.data_dir),

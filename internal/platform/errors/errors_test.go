@@ -51,6 +51,17 @@ func TestParseDBErrorRecognizesSQLiteUniqueConstraint(t *testing.T) {
 	}
 }
 
+func TestParseDBErrorRecognizesNativeMySQLAndPostgreSQLUniqueConstraints(t *testing.T) {
+	for _, err := range []error{
+		errors.New("Error 1062: Duplicate entry 'group' for key 'groups.name'"),
+		errors.New("duplicate key value violates unique constraint groups_name_key"),
+	} {
+		if got := ParseDBError(err); got != ErrDuplicateResource {
+			t.Fatalf("ParseDBError(%v) = %#v, want duplicate resource", err, got)
+		}
+	}
+}
+
 func TestNewAPIErrorWithDataDoesNotMutateBase(t *testing.T) {
 	data := map[string]any{"id": 12}
 	got := NewAPIErrorWithData(ErrUpstreamURLConflict, data)

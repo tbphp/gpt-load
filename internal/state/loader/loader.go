@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
@@ -88,7 +89,9 @@ func (l *Loader) Load(ctx context.Context) error {
 func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 	db = db.WithContext(ctx)
 	var rows compileRows
-	if err := db.Order("key ASC").Find(&rows.settings).Error; err != nil {
+	if err := db.
+		Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "key"}}}}).
+		Find(&rows.settings).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query system settings: %w", err)
 	}
 	if err := db.Order("id ASC").Find(&rows.groups).Error; err != nil {
@@ -222,7 +225,9 @@ func isInternalSystemSetting(key string) bool {
 // LoadSystemSettings reads only the persisted system settings used to compile a draft Group.
 func LoadSystemSettings(ctx context.Context, db *gorm.DB) (config.Settings, error) {
 	var rows []models.SystemSetting
-	if err := db.WithContext(ctx).Order("key ASC").Find(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).
+		Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "key"}}}}).
+		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("query system settings: %w", err)
 	}
 	return MapSystemSettings(rows)

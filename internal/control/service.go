@@ -3,9 +3,6 @@ package control
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
-	"database/sql/driver"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -17,6 +14,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/dbtx"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
@@ -241,147 +239,28 @@ func (s *Service) withControlTransaction(
 	ctx context.Context,
 	mutate func(*gorm.DB) error,
 ) error {
-	return s.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
-		sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
-		if !ok {
-			return fmt.Errorf("pin control transaction connection: %w", app_errors.ErrInternalServer)
-		}
-		transaction := connection.Session(&gorm.Session{
-			NewDB: true, SkipDefaultTransaction: true, Context: ctx,
-		})
-		if err := transaction.Exec("BEGIN IMMEDIATE").Error; err != nil {
-			return fmt.Errorf("begin control transaction: %v: %w", err, app_errors.ErrDatabase)
-		}
-
-		active := true
-		defer func() {
-			if active {
-				_ = rollbackControlTransaction(connection, sqlConn, false)
-			}
-		}()
-		if err := mutate(transaction); err != nil {
-			cleanupErr := rollbackControlTransaction(connection, sqlConn, false)
-			active = false
-			return errors.Join(err, cleanupErr)
-		}
-		if err := transaction.Exec("COMMIT").Error; err != nil {
-			commitErr := fmt.Errorf("commit control transaction: %v: %w", err, app_errors.ErrDatabase)
-			cleanupErr := rollbackControlTransaction(connection, sqlConn, true)
-			active = false
-			return errors.Join(commitErr, cleanupErr)
-		}
-		active = false
-		return nil
-	})
+	err := dbtx.Run(ctx, s.db, dbtx.Options{
+		Mode:           dbtx.Write,
+		CleanupTimeout: controlTransactionCleanupTimeout,
+		Operation:      "control transaction",
+	}, mutate)
+	if dbtx.IsInfrastructure(err) {
+		return fmt.Errorf("%v: %w", err, app_errors.ErrDatabase)
+	}
+	return err
 }
 
 func (s *Service) withReadSnapshot(
 	ctx context.Context,
 	read func(*gorm.DB) error,
 ) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	err := s.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
-		sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
-		if !ok {
-			return fmt.Errorf("pin read snapshot connection: %w", app_errors.ErrInternalServer)
-		}
-		snapshot := connection.Session(&gorm.Session{
-			NewDB: true, SkipDefaultTransaction: true, Context: ctx,
-		})
-		if err := snapshot.Exec("BEGIN").Error; err != nil {
-			if parentErr := ctx.Err(); parentErr != nil {
-				return parentErr
-			}
-			return fmt.Errorf("begin read snapshot: %w", app_errors.ErrDatabase)
-		}
-
-		active := true
-		defer func() {
-			if active {
-				_ = rollbackReadSnapshot(connection, sqlConn, false)
-			}
-		}()
-		if err := read(snapshot); err != nil {
-			cleanupErr := rollbackReadSnapshot(connection, sqlConn, false)
-			active = false
-			if parentErr := ctx.Err(); parentErr != nil {
-				return errors.Join(parentErr, cleanupErr)
-			}
-			return errors.Join(err, cleanupErr)
-		}
-		if parentErr := ctx.Err(); parentErr != nil {
-			cleanupErr := rollbackReadSnapshot(connection, sqlConn, false)
-			active = false
-			return errors.Join(parentErr, cleanupErr)
-		}
-		if err := snapshot.Exec("COMMIT").Error; err != nil {
-			cleanupErr := rollbackReadSnapshot(connection, sqlConn, true)
-			active = false
-			if parentErr := ctx.Err(); parentErr != nil {
-				return errors.Join(parentErr, cleanupErr)
-			}
-			return errors.Join(
-				fmt.Errorf("commit read snapshot: %w", app_errors.ErrDatabase),
-				cleanupErr,
-			)
-		}
-		active = false
-		return nil
-	})
-	if parentErr := ctx.Err(); parentErr != nil {
-		return parentErr
+	err := dbtx.Run(ctx, s.db, dbtx.Options{
+		Mode:           dbtx.ReadSnapshot,
+		CleanupTimeout: controlTransactionCleanupTimeout,
+		Operation:      "read snapshot",
+	}, read)
+	if dbtx.IsInfrastructure(err) {
+		return fmt.Errorf("%v: %w", err, app_errors.ErrDatabase)
 	}
 	return err
-}
-
-func rollbackReadSnapshot(
-	connection *gorm.DB,
-	sqlConn *sql.Conn,
-	discardAlways bool,
-) error {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), controlTransactionCleanupTimeout)
-	defer cancel()
-	cleanupDB := connection.Session(&gorm.Session{
-		NewDB: true, SkipDefaultTransaction: true, Context: cleanupCtx,
-	})
-	rollbackErr := cleanupDB.Exec("ROLLBACK").Error
-	var discardErr error
-	if rollbackErr != nil || discardAlways {
-		discardErr = discardControlConnection(sqlConn)
-	}
-	if rollbackErr == nil && discardErr == nil {
-		return nil
-	}
-	return fmt.Errorf("cleanup read snapshot: %w", app_errors.ErrDatabase)
-}
-
-func rollbackControlTransaction(
-	connection *gorm.DB,
-	sqlConn *sql.Conn,
-	discardAlways bool,
-) error {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), controlTransactionCleanupTimeout)
-	defer cancel()
-	cleanupDB := connection.Session(&gorm.Session{
-		NewDB: true, SkipDefaultTransaction: true, Context: cleanupCtx,
-	})
-	rollbackErr := cleanupDB.Exec("ROLLBACK").Error
-	var discardErr error
-	if rollbackErr != nil || discardAlways {
-		discardErr = discardControlConnection(sqlConn)
-	}
-	if rollbackErr != nil {
-		rollbackErr = fmt.Errorf("rollback control transaction: %w", rollbackErr)
-	}
-	return errors.Join(rollbackErr, discardErr)
-}
-
-func discardControlConnection(sqlConn *sql.Conn) error {
-	err := sqlConn.Raw(func(any) error { return driver.ErrBadConn })
-	if err == nil || errors.Is(err, driver.ErrBadConn) {
-		return nil
-	}
-	return fmt.Errorf("discard control database connection: %w", err)
 }

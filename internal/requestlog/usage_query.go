@@ -2,14 +2,12 @@ package requestlog
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
-	"errors"
 	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/dbtx"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -40,19 +38,11 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	}
 
 	var report UsageReport
-	err := service.db.WithContext(ctx).Connection(func(connection *gorm.DB) (operationErr error) {
-		if err := connection.Exec("BEGIN DEFERRED").Error; err != nil {
-			return fmt.Errorf("begin usage read transaction: %w", err)
-		}
-		committed := false
-		defer func() {
-			if !committed {
-				if rollbackErr := rollbackUsageReadTransaction(connection); rollbackErr != nil {
-					operationErr = errors.Join(operationErr, rollbackErr)
-				}
-			}
-		}()
-
+	err := dbtx.Run(ctx, service.db, dbtx.Options{
+		Mode:           dbtx.ReadSnapshot,
+		CleanupTimeout: usageRollbackTimeout,
+		Operation:      "usage read transaction",
+	}, func(connection *gorm.DB) error {
 		if err := validateUsageStatIntegrity(usageStatScope(connection, input)); err != nil {
 			return err
 		}
@@ -84,45 +74,12 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 			BreakdownOrder:     input.BreakdownOrder,
 			BreakdownCount:     breakdownCount,
 		}
-		if err := connection.Exec("COMMIT").Error; err != nil {
-			return fmt.Errorf("commit usage read transaction: %w", err)
-		}
-		committed = true
 		return nil
 	})
 	if err != nil {
 		return UsageReport{}, fmt.Errorf("query usage: %w", err)
 	}
 	return report, nil
-}
-
-func rollbackUsageReadTransaction(connection *gorm.DB) error {
-	sqlConnection, ok := connection.Statement.ConnPool.(*sql.Conn)
-	if !ok {
-		return fmt.Errorf("rollback usage read transaction: expected SQL connection, got %T", connection.Statement.ConnPool)
-	}
-	cleanupContext, cancel := context.WithTimeout(context.Background(), usageRollbackTimeout)
-	defer cancel()
-	if _, err := sqlConnection.ExecContext(cleanupContext, "ROLLBACK"); err == nil {
-		return nil
-	} else {
-		discardErr := discardUsageReadConnection(sqlConnection)
-		if discardErr != nil {
-			return errors.Join(
-				fmt.Errorf("rollback usage read transaction: %w", err),
-				fmt.Errorf("discard usage read connection: %w", discardErr),
-			)
-		}
-		return fmt.Errorf("rollback usage read transaction: %w", err)
-	}
-}
-
-func discardUsageReadConnection(connection *sql.Conn) error {
-	err := connection.Raw(func(any) error { return driver.ErrBadConn })
-	if err == nil || errors.Is(err, driver.ErrBadConn) {
-		return nil
-	}
-	return fmt.Errorf("discard usage read database connection: %w", err)
 }
 
 func validateUsageQuery(input UsageQuery) error {

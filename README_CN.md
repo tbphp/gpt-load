@@ -56,7 +56,7 @@ M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式�
 ## 2.0.0 支持边界
 
 - 只保证**单应用实例**正确性，不支持多实例协调。
-- 只支持 **SQLite**；不支持 PostgreSQL、MySQL 或其他数据库。
+- 通过统一的 `DATABASE_DSN` 同时支持 SQLite、MySQL 和 PostgreSQL；当前版本面向这三种数据库的最新稳定版，不支持其他数据库产品。
 - Group 由 AccessKey 和运行时配置选择，不出现在数据面 URL 中。
 - 协议配置采用 clean break：只允许 `openai-completions`、`openai-responses`、`anthropic`、`gemini`。旧值 `openai`、`openai-response` 与 `openai-chat-completions` 均无效，不提供兼容。
 - 数据库中只要保留一个旧协议值，整个 `ConfigSnapshot` 就会编译失败，进而阻止启动或配置发布；错误会包含 Group 或 AccessKey ID 及非法值。启动前需要重建发布前 2.0 数据，不提供协议值原地迁移。
@@ -87,7 +87,7 @@ curl --fail http://localhost:3001/health
 docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 ```
 
-默认 named volume 会保存 SQLite、`auth.key` 和 `encryption.key`。生产环境建议通过受保护的 secret 注入显式 `AUTH_KEY` 与 `ENCRYPTION_KEY`；不要把真实 secret 提交到 `.env`、日志或 issue。自定义容器 `DATABASE_DSN` 时，必须通过 Compose override 同时提供**容器内**路径和匹配的 volume mount。
+默认 named volume 会保存 SQLite、`auth.key` 和 `encryption.key`。生产环境建议通过受保护的 secret 注入显式 `AUTH_KEY` 与 `ENCRYPTION_KEY`；不要把真实 secret 提交到 `.env`、日志或 issue。MySQL 或 PostgreSQL 的 `DATABASE_DSN` 属于 operator 管理配置，应通过部署 secret/configuration system 提供。
 
 Compose 仅在容器内部监听所有接口，默认仍只发布到宿主 loopback。设置 `BIND_ADDRESS=0.0.0.0`，或为原生进程设置 `HOST=0.0.0.0`，都属于显式 opt-in；生产环境只能在受控网络边界、TLS reverse proxy 及 ACL/firewall 保护下暴露。
 
@@ -208,7 +208,7 @@ Usage/Cost 质量边界：
 | `BIND_ADDRESS` | `127.0.0.1` | Compose 宿主机侧发布地址，不是进程配置 |
 | `PORT` | `3001` | HTTP 监听端口 |
 | `DATA_DIR` | `./data` | 原生持久目录；容器内覆盖为 `/app/data` |
-| `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空值选择 managed SQLite；任何非空 operator 值都属于 external，即使文本与默认路径相同 |
+| `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空值选择 managed SQLite；非空值必须使用统一的 `sqlite`、`mysql` 或 `postgres` URL，并由 operator 管理 |
 | `AUTH_KEY` | 自动生成 keyfile | 管理 bearer 凭据；显式值不能包含空白，留空时读取或创建 `${DATA_DIR}/auth.key` |
 | `ENCRYPTION_KEY` | 自动生成 keyfile | 加密上游 Key 的主密钥；留空时读取或创建 `${DATA_DIR}/encryption.key` |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | 未设置 | Models.dev 自动同步的可选严格布尔覆盖；未设置时使用运行设置，其默认启用 |
@@ -221,24 +221,34 @@ Usage/Cost 质量边界：
 
 完整的进程配置说明见 [`.env.example`](.env.example)。连接、首字节、请求、流式空闲超时和 RequestLog 保留期属于运行设置，由管理 UI/API 管理，不是额外环境变量。
 
+`DATABASE_DSN` 使用统一 URL 约定，不增加数据库类型变量或按数据库拆分的应用配置。示例：
+
+```text
+sqlite:///var/lib/gpt-load.db
+mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
+postgres://user:password@db.example:5432/gpt_load?sslmode=require
+```
+
+空值是唯一由应用管理数据库文件的模式；非空 SQLite 路径/URL 以及所有 MySQL/PostgreSQL URL 都由 operator 管理。
+
 ## 持久化与安全
 
-- 数据库归属只由 raw `DATABASE_DSN` 决定：空值表示 `${DATA_DIR}` 下的 managed DB/WAL/SHM；任何非空值都表示 operator 管理的 external 数据库，GPT-Load 不为其 mkdir/chmod，必须单独备份。
+- 数据库归属只由 raw `DATABASE_DSN` 决定：空值表示 `${DATA_DIR}` 下 managed SQLite DB/WAL/SHM；任何非空值都表示 operator 管理的 external 数据库，GPT-Load 不为其 mkdir、chmod、创建数据库或用户，必须单独备份。
 - secret 归属与数据库归属相互独立。`/api/system/info` 会分别报告 secret source：无论数据库是哪种 source，`key_file` 都必须归档 `DATA_DIR` 中对应的 `auth.key` / `encryption.key`；`environment` 则必须从受保护的外部 secret system 单独恢复。
 - POSIX 下 managed `${DATA_DIR}` 权限收紧为 `0700`，managed DB/WAL/SHM 及应用创建的 key 文件为 `0600`。Windows 使用当前用户专属 ACL，但当前候选尚未执行 Windows runtime 停机/ACL 门禁。
 - 无论来自哪种 source，丢失匹配的 `encryption.key` 都会使已加密上游 Key 无法恢复。2.0.0 没有自动修复或主密钥轮换。
-- SQLite 使用 WAL。备份前先停止入口流量并等待 clean exit：POSIX 使用 `SIGTERM`，Windows 使用 Ctrl+C、Ctrl+Break 或 service manager stop。禁止运行中只热复制 `gpt-load.db`。
+- Managed SQLite 使用 WAL。备份前先停止入口流量并等待 clean exit：POSIX 使用 `SIGTERM`，Windows 使用 Ctrl+C、Ctrl+Break 或 service manager stop。MySQL/PostgreSQL 必须按 operator 的数据库原生备份流程执行。
 - 不要把 AUTH_KEY、ENCRYPTION_KEY、AccessKey 或上游 Key 粘贴到日志、公开 issue、截图或普通备份清单中。
 
 ### 公开运维基线
 
 以下清单可独立使用，不需要访问项目的私有 Notion 工作区：
 
-1. 从实际 environment、service 或 container 配置判断数据库 source 与位置，再通过管理认证调用 `GET /api/system/info`，记录每个 secret 的安全 source/path 元数据但不记录值。该端点刻意不返回 database source、DSN 或位置。
+1. 从实际 environment、service 或 container 配置判断数据库 source 与位置，再通过管理认证调用 `GET /api/system/info`，记录已选择的数据库驱动以及每个 secret 的安全 source/path 元数据但不记录 secret 值。该端点刻意不返回数据库 DSN、凭据或位置。
 2. 停止入口流量，按上面的 POSIX 或 Windows 方式等待进程正常退出。使用 Compose 时执行 `docker compose stop`，并确认服务容器已经停止。
 3. 沿两个正交维度组成完整恢复资产：`DATABASE_DSN` 为空时归档 managed DB/WAL/SHM，非空时按 operator 流程单独备份 external DB；两种数据库场景都必须归档 auth/encryption 的每个 `key_file`，并从受保护的外部 secret system 恢复每个 `environment` secret。归档名必须唯一、禁止覆盖、限制访问并记录 SHA-256。
 4. 使用完全相同的二进制或镜像，在空目标中同时恢复数据库与 secret 两部分。先校验 checksum，并恢复完全匹配的 encryption key；不要把恢复与升级合并为一步。
-5. 启动恢复实例并验证 `/health`、`/api/system/info`、Group、AccessKey、模型价格、Usage、RequestLog 和真实数据面 canary。若有 `sqlite3`，停机后执行 `PRAGMA quick_check`，结果必须为 `ok`。
+5. 启动恢复实例并验证 `/health`、`/api/system/info`、Group、AccessKey、模型价格、Usage、RequestLog 和真实数据面 canary。Managed SQLite 停机后执行 `PRAGMA quick_check`，结果必须为 `ok`；MySQL/PostgreSQL 使用 operator 的原生一致性检查。
 
 2.0.0 没有 backup CLI，也不支持 encryption key rotation。不得为已有数据库替换 encryption key。
 

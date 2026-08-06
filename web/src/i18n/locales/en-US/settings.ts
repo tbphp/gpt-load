@@ -141,7 +141,11 @@ export default {
       version: 'Version',
       deployment: 'Deployment',
       single: 'Single instance',
-      sqlite: 'SQLite',
+      databases: {
+        sqlite: 'SQLite',
+        mysql: 'MySQL',
+        postgres: 'PostgreSQL',
+      },
       singleBinary: 'Single binary',
       dataDir: 'Data directory',
       authKey: 'AUTH_KEY source',

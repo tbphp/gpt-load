@@ -734,16 +734,18 @@ jobs:
 
             This release provides native OpenAI, Anthropic, and Gemini protocol gateways,
             an embedded management UI, scheduling and health controls, request logs,
-            usage estimates, and model price management. It is single-instance and SQLite-only.
+            usage estimates, and model price management. It is single-instance and supports
+            SQLite, MySQL, and PostgreSQL through one unified DATABASE_DSN contract.
 
             GPT-Load uses a unified data/control dual-plane architecture: Groups define upstream
             routing and key pools, AccessKeys authorize data-plane access, and model discovery
             imports available models from compatible upstreams.
 
             Docker runs as a fixed non-root user with a named volume. The 2.x image channels
-            do not move `latest`. Stop cleanly, then keep the SQLite database, its `-wal`/`-shm`
-            sidecars, and auth/encryption key files together as one recovery set. Usage and cost
-            are best-effort estimates, not a billing ledger or provider invoice.
+            do not move `latest`. Stop cleanly, then back up the selected database using its
+            engine-native procedure and keep auth/encryption key files with the recovery set.
+            Managed SQLite also requires its `-wal`/`-shm` sidecars. Usage and cost are best-effort
+            estimates, not a billing ledger or provider invoice.
 
             Follow the [public operations baseline](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline)
             for deployment, backup/restore, and 1.x cutover and rollback.

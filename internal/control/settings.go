@@ -108,7 +108,9 @@ func (s *Service) getSettingsWithSnapshot(
 	snapshot *state.ConfigSnapshot,
 ) (SettingsResponse, error) {
 	var rows []models.SystemSetting
-	if err := db.WithContext(ctx).Order("key ASC").Find(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).
+		Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "key"}}}}).
+		Find(&rows).Error; err != nil {
 		return SettingsResponse{}, app_errors.ParseDBError(err)
 	}
 	return mapSettingsResponse(snapshot, rows, s.modelsDevAutoSyncOverride), nil
@@ -246,7 +248,7 @@ func (s *Service) applySettingUpdates(
 ) error {
 	for _, update := range updates {
 		if update.value == nil {
-			if err := tx.Where("key = ?", update.key).
+			if err := tx.Where(&models.SystemSetting{Key: update.key}).
 				Delete(&models.SystemSetting{}).Error; err != nil {
 				return app_errors.ParseDBError(err)
 			}

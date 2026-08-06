@@ -56,7 +56,7 @@ M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル�
 ## 2.0.0のサポート境界
 
 - 正しさを保証するのは**単一アプリケーションインスタンス**のみで、複数インスタンスの協調には対応しません。
-- **SQLiteのみ**をサポートし、PostgreSQL、MySQL、その他のデータベースには対応しません。
+- 統一された `DATABASE_DSN` で SQLite、MySQL、PostgreSQL をサポートします。現在のリリースはこの3種類の最新安定版を対象とし、その他のデータベース製品には対応しません。
 - GroupはAccessKeyとランタイム設定で選択され、データプレーンURLには含まれません。
 - プロトコル設定はclean breakです。使用できる値は`openai-completions`、`openai-responses`、`anthropic`、`gemini`だけです。旧値`openai`、`openai-response`、`openai-chat-completions`に互換処理はありません。
 - データベースに旧プロトコル値が1件でも残ると、`ConfigSnapshot`全体のコンパイルが失敗し、起動または設定公開を停止します。エラーにはGroupまたはAccessKeyのIDと不正な値が含まれます。起動前にプレリリース2.0のデータを再構築してください。プロトコル値のインプレース移行はありません。
@@ -88,7 +88,7 @@ curl --fail http://localhost:3001/health
 docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 ```
 
-デフォルトのnamed volumeにはSQLite、`auth.key`、`encryption.key`が保持されます。本番環境では、保護されたsecret処理を通じて明示的な`AUTH_KEY`と`ENCRYPTION_KEY`を注入してください。実際のsecretを`.env`、ログ、issueへコミットしないでください。コンテナで`DATABASE_DSN`を変更する場合、**コンテナ内**パスと対応するvolume mountをCompose overrideで同時に設定する必要があります。
+デフォルトのnamed volumeにはSQLite、`auth.key`、`encryption.key`が保持されます。本番環境では、保護されたsecret処理を通じて明示的な`AUTH_KEY`と`ENCRYPTION_KEY`を注入してください。実際のsecretを`.env`、ログ、issueへコミットしないでください。MySQLまたはPostgreSQLの`DATABASE_DSN`はoperator管理の設定として、デプロイのsecret/configuration systemから渡してください。
 
 Composeはコンテナ内でのみ全インターフェースをlistenし、ホスト側はデフォルトでloopbackにだけ公開します。`BIND_ADDRESS=0.0.0.0`、またはネイティブプロセスの`HOST=0.0.0.0`は明示的なopt-inです。本番では、TLS reverse proxyとACL/firewallを備えた管理下のネットワーク境界の内側でのみ公開してください。
 
@@ -209,7 +209,7 @@ Usage/Costの品質境界：
 | `BIND_ADDRESS` | `127.0.0.1` | Composeのホスト側公開アドレス。プロセス設定ではない |
 | `PORT` | `3001` | HTTPリッスンポート |
 | `DATA_DIR` | `./data` | ネイティブの永続ディレクトリ。コンテナ内では`/app/data`に上書き |
-| `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空ならmanaged SQLiteを選択。デフォルトと同じ文字列でも、operatorが設定した非空値はすべてexternal |
+| `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空ならmanaged SQLiteを選択。非空値は統一された`sqlite`、`mysql`、`postgres` URLで指定し、operatorが管理 |
 | `AUTH_KEY` | keyfileを自動生成 | 管理bearer認証情報。明示値に空白は使用不可。空の場合`${DATA_DIR}/auth.key`を読み取りまたは作成 |
 | `ENCRYPTION_KEY` | keyfileを自動生成 | 上流キー暗号化用マスターキー。空の場合`${DATA_DIR}/encryption.key`を読み取りまたは作成 |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | 未設定 | Models.dev自動同期の任意の厳密なboolean override。未設定ではデフォルト有効のランタイム設定を使用 |
@@ -222,24 +222,34 @@ Usage/Costの品質境界：
 
 プロセス設定の全項目は[`.env.example`](.env.example)を参照してください。接続、最初のバイト、リクエスト、ストリームアイドルの各タイムアウトとRequestLog保持期間は管理UI/APIで扱うランタイム設定であり、追加の環境変数ではありません。
 
+`DATABASE_DSN`は統一されたURL契約を使い、データベース種別変数やデータベース別のアプリ設定は追加しません。例：
+
+```text
+sqlite:///var/lib/gpt-load.db
+mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
+postgres://user:password@db.example:5432/gpt_load?sslmode=require
+```
+
+空値だけがアプリケーション管理のデータベースファイルモードです。非空のSQLiteパス/URLとすべてのMySQL/PostgreSQL URLはoperator管理です。
+
 ## 永続化とセキュリティ
 
-- データベースの所有区分はraw `DATABASE_DSN`だけで決まります。空なら`${DATA_DIR}`配下のmanaged DB/WAL/SHM、非空ならoperator所有のexternalデータベースです。externalではGPT-Loadはmkdir/chmodを行わず、operatorが別途バックアップします。
+- データベースの所有区分はraw `DATABASE_DSN`だけで決まります。空なら`${DATA_DIR}`配下のmanaged SQLite DB/WAL/SHM、非空ならoperator所有のexternalデータベースです。GPT-Loadはexternalに対してmkdir、chmod、データベースやユーザー作成を行わず、operatorが別途バックアップします。
 - secretの所有区分はデータベースとは独立しています。`/api/system/info`がsecretごとにsourceを返します。データベースのsourceにかかわらず、`key_file`なら`DATA_DIR`内の対応する`auth.key` / `encryption.key`をアーカイブし、`environment`なら保護された外部secret systemから別途復元します。
 - POSIXではmanaged `${DATA_DIR}`を`0700`、managed DB/WAL/SHMとアプリケーションが作成したkeyファイルを`0600`に制限します。Windowsでは実行ユーザー専用ACLを使用しますが、この候補についてWindows runtimeの停止/ACLゲートは未実行です。
 - sourceにかかわらず、対応する`encryption.key`を失うと、暗号化済みの上流キーは復旧できません。2.0.0には自動修復やマスターキーのローテーションがありません。
-- SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、clean exitを待ちます。POSIXでは`SIGTERM`、WindowsではCtrl+C、Ctrl+Break、またはservice managerの停止操作を使用します。実行中に`gpt-load.db`だけをhot copyしないでください。
+- Managed SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、clean exitを待ちます。POSIXでは`SIGTERM`、WindowsではCtrl+C、Ctrl+Break、またはservice managerの停止操作を使用します。MySQL/PostgreSQLはoperatorのデータベースネイティブなバックアップ手順に従います。
 - AUTH_KEY、ENCRYPTION_KEY、AccessKey、上流キーをログ、公開issue、スクリーンショット、通常のバックアップ一覧に貼り付けないでください。
 
 ### 公開運用ベースライン
 
 以下のチェックリストは、プロジェクトの非公開Notionワークスペースへアクセスせずに利用できます。
 
-1. 実際のenvironment、service、container設定からデータベースのsourceと場所を判断し、管理認証付きの`GET /api/system/info`で各secretの安全なsource/pathメタデータを値なしで記録します。このendpointはdatabase source、DSN、場所を意図的に返しません。
+1. 実際のenvironment、service、container設定からデータベースのsourceと場所を判断し、管理認証付きの`GET /api/system/info`で選択されたデータベースドライバと各secretの安全なsource/pathメタデータを値なしで記録します。このendpointはデータベースのDSN、認証情報、場所を意図的に返しません。
 2. 新規トラフィックを止め、上記のPOSIXまたはWindowsの方法でclean exitを待ちます。Composeでは`docker compose stop`を実行し、サービスコンテナが停止したことを確認します。
 3. 独立した2軸から完全な復旧セットを作ります。`DATABASE_DSN`が空ならmanaged DB/WAL/SHMをアーカイブし、非空ならoperatorの手順でexternal DBを別途バックアップします。どちらの場合も、auth/encryptionの各`key_file`をアーカイブし、各`environment` secretを保護された外部secret systemから復元します。一意なアーカイブ名を使い、上書きを拒否し、アクセスを制限してSHA-256を記録します。
 4. まったく同じバイナリまたはイメージを使い、空のターゲットへデータベースとsecretの両方を復元します。先にchecksumを検証し、完全に対応するencryption keyを復元します。復元とアップグレードを同時に行わないでください。
-5. 復元したインスタンスを起動し、`/health`、`/api/system/info`、Group、AccessKey、モデル価格、Usage、RequestLog、実データプレーンcanaryを確認します。`sqlite3`が利用できる場合は停止後に`PRAGMA quick_check`を実行し、`ok`を必須とします。
+5. 復元したインスタンスを起動し、`/health`、`/api/system/info`、Group、AccessKey、モデル価格、Usage、RequestLog、実データプレーンcanaryを確認します。Managed SQLiteでは停止後に`PRAGMA quick_check`を実行し、`ok`を必須とします。MySQL/PostgreSQLではoperatorのネイティブな整合性検査を使います。
 
 2.0.0にはbackup CLIがなく、encryption key rotationにも対応しません。既存データベースのencryption keyを置換しないでください。
 

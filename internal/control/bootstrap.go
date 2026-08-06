@@ -25,7 +25,7 @@ func (s *Service) EnsureInitialState(ctx context.Context) error {
 	var priceTable *pricing.Table
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		var marker models.SystemSetting
-		query := tx.Select("key").Where("key = ?", defaultAccessKeyMarker).
+		query := tx.Where(&models.SystemSetting{Key: defaultAccessKeyMarker}).
 			Limit(1).Find(&marker)
 		if query.Error != nil {
 			return app_errors.ParseDBError(query.Error)

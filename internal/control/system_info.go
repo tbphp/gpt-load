@@ -11,6 +11,8 @@ import (
 const (
 	systemInstanceModeSingle       = "single"
 	systemDatabaseSQLite           = "sqlite"
+	systemDatabaseMySQL            = "mysql"
+	systemDatabasePostgreSQL       = "postgres"
 	systemDistributionSingleBinary = "single_binary"
 )
 
@@ -40,11 +42,20 @@ type systemInfoResponse struct {
 }
 
 func newSystemInfoResponse(cfg *config.Config) systemInfoResponse {
+	database := systemDatabaseSQLite
+	switch cfg.DatabaseMetadata.Driver {
+	case config.DatabaseDriverMySQL:
+		database = systemDatabaseMySQL
+	case config.DatabaseDriverPostgreSQL:
+		database = systemDatabasePostgreSQL
+	case config.DatabaseDriverSQLite:
+		database = systemDatabaseSQLite
+	}
 	return systemInfoResponse{
 		Version: version.Version,
 		Deployment: systemDeploymentResponse{
 			InstanceMode: systemInstanceModeSingle,
-			Database:     systemDatabaseSQLite,
+			Database:     database,
 			Distribution: systemDistributionSingleBinary,
 		},
 		DataDir: cfg.DataDir,

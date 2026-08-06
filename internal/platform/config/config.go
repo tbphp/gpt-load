@@ -3,9 +3,11 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 
@@ -61,10 +63,30 @@ const (
 	DatabaseSourceExternal DatabaseSource = "external"
 )
 
+// DatabaseDriver identifies the database driver selected by DATABASE_DSN.
+// The values are stable because they are also consumed by the management API.
+type DatabaseDriver string
+
+const (
+	DatabaseDriverSQLite     DatabaseDriver = "sqlite"
+	DatabaseDriverMySQL      DatabaseDriver = "mysql"
+	DatabaseDriverPostgreSQL DatabaseDriver = "postgres"
+	DatabaseDriverPostgres                  = DatabaseDriverPostgreSQL
+)
+
+// DatabaseConfig is the normalized database connection target. DSN contains
+// a driver-ready DSN; SQLite URLs are normalized to the native SQLite DSN
+// while network database URLs remain URLs until storage opens them.
+type DatabaseConfig struct {
+	Driver DatabaseDriver
+	DSN    string
+}
+
 // DatabaseMetadata describes database ownership without retaining its DSN or
 // path.
 type DatabaseMetadata struct {
 	Source DatabaseSource
+	Driver DatabaseDriver
 }
 
 // Config contains static environment configuration for the application process.
@@ -113,12 +135,40 @@ func Load() (*Config, error) {
 	}
 
 	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
-	rawDatabaseDSN := os.Getenv("DATABASE_DSN")
-	databaseMetadata := DatabaseMetadata{Source: DatabaseSourceManaged}
-	if rawDatabaseDSN != "" {
-		databaseMetadata.Source = DatabaseSourceExternal
-	} else if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+	rawDatabaseDSN := strings.TrimSpace(os.Getenv("DATABASE_DSN"))
+	databaseSource := DatabaseSourceExternal
+	databaseDSN := rawDatabaseDSN
+	if rawDatabaseDSN == "" {
+		databaseSource = DatabaseSourceManaged
+		if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+			return nil, err
+		}
+		databaseDSN = filepath.Join(dataDir, "gpt-load.db")
+	}
+	database, err := ParseDatabaseDSN(databaseDSN)
+	if err != nil {
 		return nil, err
+	}
+	databaseDSN = database.DSN
+	databaseMetadata := DatabaseMetadata{
+		Source: databaseSource,
+		Driver: database.Driver,
+	}
+
+	if databaseSource == DatabaseSourceManaged {
+		// The empty-DATABASE_DSN path is the only application-managed database.
+		// Keep this branch explicit so future driver additions cannot silently
+		// inherit managed-file semantics.
+		if database.Driver != DatabaseDriverSQLite {
+			return nil, fmt.Errorf("managed database must use SQLite")
+		}
+	}
+	if databaseSource == DatabaseSourceExternal && database.Driver == "" {
+		return nil, fmt.Errorf("DATABASE_DSN did not select a database driver")
+	}
+
+	if databaseDSN == "" {
+		return nil, fmt.Errorf("DATABASE_DSN resolved to an empty DSN")
 	}
 
 	explicitAuthKey := os.Getenv("AUTH_KEY")
@@ -143,11 +193,6 @@ func Load() (*Config, error) {
 			Source: SecretSourceKeyFile,
 			Path:   filepath.Join(dataDir, "encryption.key"),
 		}
-	}
-
-	databaseDSN := rawDatabaseDSN
-	if databaseDSN == "" {
-		databaseDSN = filepath.Join(dataDir, "gpt-load.db")
 	}
 
 	logFormat := valueOrDefault("LOG_FORMAT", "text")
@@ -180,6 +225,107 @@ func Load() (*Config, error) {
 		},
 		ModelsDevAutoSyncOverride: modelsDevAutoSyncOverride,
 	}, nil
+}
+
+// ParseDatabaseDSN parses the single DATABASE_DSN configuration format. Bare
+// paths and :memory: remain SQLite compatibility forms; network databases must
+// use a URL with a supported scheme.
+func ParseDatabaseDSN(rawDSN string) (DatabaseConfig, error) {
+	dsn := strings.TrimSpace(rawDSN)
+	if dsn == "" {
+		return DatabaseConfig{}, fmt.Errorf("DATABASE_DSN must not be empty")
+	}
+	baseDSN, _, _ := strings.Cut(dsn, "?")
+	if baseDSN == ":memory:" {
+		return DatabaseConfig{Driver: DatabaseDriverSQLite, DSN: dsn}, nil
+	}
+	if filepath.VolumeName(dsn) != "" {
+		return DatabaseConfig{Driver: DatabaseDriverSQLite, DSN: dsn}, nil
+	}
+
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return DatabaseConfig{}, fmt.Errorf("DATABASE_DSN is invalid")
+	}
+	if parsed.Scheme == "" {
+		return DatabaseConfig{Driver: DatabaseDriverSQLite, DSN: dsn}, nil
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	switch scheme {
+	case "file":
+		if !strings.HasPrefix(dsn, "file:") {
+			return DatabaseConfig{}, fmt.Errorf("DATABASE_DSN uses an unsupported SQLite URI")
+		}
+		return DatabaseConfig{Driver: DatabaseDriverSQLite, DSN: dsn}, nil
+	case "sqlite":
+		normalizedDSN, err := normalizeSQLiteURL(parsed)
+		if err != nil {
+			return DatabaseConfig{}, err
+		}
+		return DatabaseConfig{Driver: DatabaseDriverSQLite, DSN: normalizedDSN}, nil
+	case "mysql":
+		if err := validateNetworkDatabaseURL(parsed, DatabaseDriverMySQL); err != nil {
+			return DatabaseConfig{}, err
+		}
+		return DatabaseConfig{Driver: DatabaseDriverMySQL, DSN: dsn}, nil
+	case "postgres", "postgresql":
+		if err := validateNetworkDatabaseURL(parsed, DatabaseDriverPostgreSQL); err != nil {
+			return DatabaseConfig{}, err
+		}
+		return DatabaseConfig{Driver: DatabaseDriverPostgreSQL, DSN: dsn}, nil
+	default:
+		return DatabaseConfig{}, fmt.Errorf("DATABASE_DSN uses unsupported database scheme")
+	}
+}
+
+func normalizeSQLiteURL(parsed *url.URL) (string, error) {
+	if parsed.User != nil || parsed.Fragment != "" {
+		return "", fmt.Errorf("DATABASE_DSN uses an invalid SQLite URL")
+	}
+
+	databasePath := parsed.Opaque
+	if databasePath == "" {
+		databasePath = parsed.Path
+		switch parsed.Host {
+		case "":
+		case ".":
+			databasePath = "." + databasePath
+		case "localhost":
+		default:
+			databasePath = parsed.Host + databasePath
+		}
+	}
+	if databasePath == "/:memory:" {
+		databasePath = ":memory:"
+	}
+	if databasePath == "" {
+		return "", fmt.Errorf("DATABASE_DSN SQLite URL must include a database path")
+	}
+	if parsed.RawQuery != "" {
+		if _, err := url.ParseQuery(parsed.RawQuery); err != nil {
+			return "", fmt.Errorf("DATABASE_DSN has an invalid SQLite query")
+		}
+		databasePath += "?" + parsed.RawQuery
+	}
+	return databasePath, nil
+}
+
+func validateNetworkDatabaseURL(parsed *url.URL, driver DatabaseDriver) error {
+	if parsed.Hostname() == "" {
+		return fmt.Errorf("DATABASE_DSN %s URL must include a host", driver)
+	}
+	databaseName := strings.TrimPrefix(parsed.Path, "/")
+	if databaseName == "" || strings.Contains(databaseName, "/") {
+		return fmt.Errorf("DATABASE_DSN %s URL must include one database name", driver)
+	}
+	if parsed.Fragment != "" {
+		return fmt.Errorf("DATABASE_DSN %s URL must not include a fragment", driver)
+	}
+	if _, err := url.ParseQuery(parsed.RawQuery); err != nil {
+		return fmt.Errorf("DATABASE_DSN has an invalid %s query", driver)
+	}
+	return nil
 }
 
 func parseOptionalBool(key string) (*bool, error) {

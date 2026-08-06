@@ -98,3 +98,24 @@ func TestSystemInfoResponseUsesNullPathsForEnvironmentSources(t *testing.T) {
 		t.Fatalf("environment paths = %#v/%#v, want nil/nil", got.AuthKey.Path, got.Encryption.Path)
 	}
 }
+
+func TestSystemInfoResponseReportsSelectedDatabaseDriver(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		driver config.DatabaseDriver
+		want   string
+	}{
+		{name: "sqlite", driver: config.DatabaseDriverSQLite, want: "sqlite"},
+		{name: "mysql", driver: config.DatabaseDriverMySQL, want: "mysql"},
+		{name: "postgres", driver: config.DatabaseDriverPostgreSQL, want: "postgres"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := newSystemInfoResponse(&config.Config{
+				DatabaseMetadata: config.DatabaseMetadata{Driver: test.driver},
+			})
+			if response.Deployment.Database != test.want {
+				t.Fatalf("database = %q, want %q", response.Deployment.Database, test.want)
+			}
+		})
+	}
+}

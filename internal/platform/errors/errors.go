@@ -76,9 +76,13 @@ func ParseDBError(err error) *APIError {
 		return ErrDuplicateResource
 	}
 
-	// The SQLite driver does not translate every constraint error into
-	// gorm.ErrDuplicatedKey, so retain a driver-independent message fallback.
-	if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
+	// Keep a message fallback for driver paths that return the native error
+	// instead of GORM's translated sentinel. The response remains generic and
+	// never exposes the database error text.
+	normalized := strings.ToLower(err.Error())
+	if strings.Contains(normalized, "unique constraint failed") ||
+		strings.Contains(normalized, "duplicate key value violates unique constraint") ||
+		strings.Contains(normalized, "duplicate entry") {
 		return ErrDuplicateResource
 	}
 
