@@ -16,6 +16,7 @@ const props = withDefaults(
     cursor?: boolean
     hasPrevious?: boolean
     hasNext?: boolean
+    pending?: boolean
   }>(),
   {
     pageSize: 20,
@@ -26,6 +27,7 @@ const props = withDefaults(
     cursor: false,
     hasPrevious: false,
     hasNext: false,
+    pending: false,
   },
 )
 
@@ -57,6 +59,7 @@ function updatePageSize(event: Event): void {
     class="pagination-bar"
     :class="[`pagination-bar--${appearance}`, { 'pagination-bar--cursor': cursor }]"
     :aria-label="t('common.pagination.label')"
+    :aria-busy="pending ? 'true' : undefined"
   >
     <span v-if="!cursor" class="pagination-bar__range" aria-hidden="true">
       {{ t('common.pagination.total', { total: totalItems }) }}
@@ -70,7 +73,7 @@ function updatePageSize(event: Event): void {
     >
       <label v-if="showPageSize" class="pagination-bar__page-size">
         <span class="sr-only">{{ t('common.pagination.pageSizeLabel') }}</span>
-        <select :value="pageSize" @change="updatePageSize">
+        <select :value="pageSize" :disabled="pending" @change="updatePageSize">
           <option v-for="size in pageSizes" :key="size" :value="size">
             {{ t('common.pagination.pageSize', { size }) }}
           </option>
@@ -80,7 +83,7 @@ function updatePageSize(event: Event): void {
         variant="secondary"
         size="compact"
         :aria-label="t('common.pagination.previous')"
-        :disabled="cursor ? !hasPrevious : page <= 1"
+        :disabled="pending || (cursor ? !hasPrevious : page <= 1)"
         @click="$emit('previous')"
       >
         ←
@@ -92,7 +95,7 @@ function updatePageSize(event: Event): void {
         variant="secondary"
         size="compact"
         :aria-label="t('common.pagination.next')"
-        :disabled="cursor ? !hasNext : totalPages === 0 || page >= totalPages"
+        :disabled="pending || (cursor ? !hasNext : totalPages === 0 || page >= totalPages)"
         @click="$emit('next')"
       >
         →

@@ -33,7 +33,8 @@ defineProps<LedgerRecordListProps>()
   display: grid;
   grid-template-columns: var(--ledger-record-list-grid, minmax(0, 1fr));
   column-gap: var(--ledger-record-list-column-gap, 16px);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid var(--color-border-control);
 }
 

@@ -158,6 +158,37 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	}
 }
 
+func TestRuntimeHealthRequiresValidationConfigurationForBlacklistedKeyWithoutTarget(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := healthNow()
+	fixture.service.now = func() time.Time { return now }
+	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
+		ID: 1, Name: "resources-only", Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+		Enabled: true,
+	}}}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if err := fixture.registry.Replace([]state.KeyEntry{{
+		ID: 11, GroupID: 1, Status: state.KeyStatusActive, Blacklisted: true,
+		EncryptedValue: encryptHealthKey(t, fixture, "blacklisted-without-target"),
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	fixture.stats.RecordFailure(11, health.FailureCategoryInvalidKey, 401, now)
+
+	got, err := fixture.service.RuntimeHealth()
+	if err != nil {
+		t.Fatalf("RuntimeHealth() error = %v", err)
+	}
+	if len(got.BlacklistedKeys) != 1 {
+		t.Fatalf("blacklisted keys = %#v", got.BlacklistedKeys)
+	}
+	recovery := got.BlacklistedKeys[0].Recovery
+	if recovery.Automatic || recovery.Mode != "configuration_required" || recovery.AtMS != nil {
+		t.Fatalf("recovery = %#v, want manual configuration requirement", recovery)
+	}
+}
+
 func TestRuntimeHealthExposesProblemCountsInsteadOfFailureAliases(t *testing.T) {
 	fixture := newServiceFixture(t)
 	now := healthNow()

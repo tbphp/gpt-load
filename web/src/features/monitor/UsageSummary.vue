@@ -13,6 +13,15 @@ const { locale, t } = useI18n()
 function formattedEstimatedCost(): string {
   return formatEstimatedCost(props.summary.estimated_cost_nano_usd, locale.value)
 }
+
+function hasUnknownCost(): boolean {
+  return (
+    props.summary.usage_missing_count > 0 ||
+    props.summary.partial_count > 0 ||
+    props.summary.unpriced_request_count > 0 ||
+    props.summary.pricing_partial_count > 0
+  )
+}
 </script>
 
 <template>
@@ -45,9 +54,9 @@ function formattedEstimatedCost(): string {
     <article class="usage-kpi usage-kpi--cost">
       <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
       <strong>{{ formattedEstimatedCost() }}</strong>
-      <small :class="{ 'usage-kpi__quality': summary.unpriced_request_count > 0 }">
+      <small :class="{ 'usage-kpi__quality': hasUnknownCost() }">
         {{
-          summary.unpriced_request_count > 0
+          hasUnknownCost()
             ? t('monitor.usage.cost.knownPlusUnknownShort')
             : t('monitor.usage.cost.known')
         }}

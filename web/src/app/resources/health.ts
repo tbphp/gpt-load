@@ -79,7 +79,7 @@ const requestLogFields = [
   'last_retention_failure_at_ms',
 ] as const
 const requestLogCounterFields = requestLogFields.slice(0, 12)
-const recoveryModes = ['cooldown_expiry', 'validation_probe'] as const
+const recoveryModes = ['cooldown_expiry', 'validation_probe', 'configuration_required'] as const
 const problemFailureCategories = [
   'rate_limited',
   'model_unavailable',
@@ -150,14 +150,13 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
   const recovery = projectRecovery(record.recovery)
   const cooldownUntilMS = projectNullableEpochMilliseconds(record.cooldown_until_ms)
 
-  if (!recovery.automatic) invalidResponse()
-  if (recovery.mode === 'cooldown_expiry' && recovery.at_ms !== cooldownUntilMS) {
-    invalidResponse()
-  }
-  if (
-    recovery.mode === 'validation_probe' &&
-    (cooldownUntilMS !== null || recovery.at_ms !== null)
-  ) {
+  if (recovery.mode === 'cooldown_expiry') {
+    if (!recovery.automatic || recovery.at_ms !== cooldownUntilMS) invalidResponse()
+  } else if (recovery.mode === 'validation_probe') {
+    if (!recovery.automatic || cooldownUntilMS !== null || recovery.at_ms !== null) {
+      invalidResponse()
+    }
+  } else if (recovery.automatic || cooldownUntilMS !== null || recovery.at_ms !== null) {
     invalidResponse()
   }
 

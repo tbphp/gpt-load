@@ -25,9 +25,9 @@ export default {
         cooldownClear: '当前无需等待恢复',
         cooldownRecovery: '最早 {time} 后恢复',
         blacklisted: '已拉黑',
-        blacklistedRecovery: '验证探测成功后恢复',
+        blacklistedRecovery: '请按密钥恢复说明处理',
         blacklistedClear: '当前无拉黑密钥',
-        disabled: '手动停用',
+        disabled: '配置排除',
         disabledDescription: '配置排除，不参与调度',
       },
       status: {
@@ -54,6 +54,7 @@ export default {
         description: '仅反映分组当前可用密钥，不对具体 AccessKey、协议或模型作“可路由”承诺。',
         empty: '当前没有分组。',
         disabled: '已停用',
+        configurationExcluded: '配置排除',
         emptyKeys: '无密钥',
         unavailable: '不可用',
         attention: '需要关注',
@@ -108,6 +109,8 @@ export default {
         cooldownHint: '冷却结束后自动参与调度',
         validationRecovery: '等待验证探测',
         validationHint: '探测成功后自动恢复',
+        configurationRecovery: '需要补充探测配置',
+        configurationHint: '配置验证模型后才能自动恢复',
         viewLogs: '查看密钥 {key} 的请求日志',
         viewGroup: '查看分组 {group}',
       },
@@ -262,12 +265,10 @@ export default {
         dropped: '请求丢弃',
         writeFailures: '写入失败',
         overlap: '用量缺失、部分缺失与未定价计数可能重叠，请勿将其相加作为请求总数。',
-        partialExplanation:
-          '只有用量专用的最终数据块提供不完整 Token 明细时会记录部分用量；这些 Token 不计入默认总计。',
-        unpricedExplanation:
-          '未定价请求可能来自不支持的计费明细或诊断路径；其 Token 不计入默认 Token 与预估成本总计。',
+        partialExplanation: '用量部分上报时，已报告 Token 会计入 Token 总量；未报告部分保持未知。',
+        unpricedExplanation: '未定价请求的已报告 Token 仍计入 Token 总量；成本只累计可定价部分。',
         aggregation:
-          '默认 Token 与预估成本总计仅纳入用量完整且已定价的请求。部分缺失、缺失、未定价和不适用请求均不纳入两项总计。',
+          'Token 总量包含用量完整或部分上报的已知 Token；用量缺失与不适用不计入。成本仅累计可定价部分，可能存在未知成本。',
         openPrices: '查看模型价格',
       },
       process: {
@@ -321,7 +322,8 @@ export default {
         actions: '操作',
         qualityUsage: '缺失 {missing} · 部分 {partial}',
         qualityPricing: '未定价 {unpriced} · 部分定价 {partial}',
-        qualityCompact: '缺失 {missing} · 部分 {partial} · 未定价 {unpriced}',
+        qualityCompact:
+          '缺失 {missing} · 部分 {partial} · 未定价 {unpriced} · 部分定价 {pricingPartial}',
         qualityCounts: '缺失 {missing} · 部分 {partial} · 未定价 {unpriced}',
       },
     },
@@ -633,6 +635,15 @@ export default {
         skip_group: '跳过 Group',
         unknown: '未知动作',
       },
+      usage: {
+        missing: '用量缺失',
+        not_applicable: '不适用',
+      },
+      cost: {
+        knownSubtotal: '已知 {cost} + 未知',
+        unpriced: '成本未知',
+        not_applicable: '不适用',
+      },
       drawer: {
         title: '请求日志详情',
         description: '查看最终结果和脱敏的上游尝试链。',
@@ -674,6 +685,8 @@ export default {
           description: '最终持久化的用量字段。成本始终为预估值，未知不代表免费。',
           finalGroup: '最终 Group',
           groupId: 'Group #{id}',
+          usageStateLabel: '用量状态',
+          costStateLabel: '成本状态',
           estimatedCost: '预估成本',
           unknown: '未知',
           notApplicable: '不适用',
@@ -692,10 +705,10 @@ export default {
           },
           aggregation: {
             completePriced: '计入默认 Token 与预估成本聚合。',
-            completeUnpriced: '因成本未定价，不计入默认 Token 与预估成本聚合。',
-            partialPriced: '因用量部分缺失，不计入默认 Token 与预估成本聚合。',
-            partialUnpriced: '因用量部分缺失且成本未定价，不计入默认 Token 与预估成本聚合。',
-            missing: '因用量缺失且成本未定价，不计入默认 Token 与预估成本聚合。',
+            completeUnpriced: '已报告 Token 计入 Token 聚合；成本未知。',
+            partialPriced: '已报告 Token 与已知成本分别计入对应聚合；其余部分未知。',
+            partialUnpriced: '已报告 Token 计入 Token 聚合；成本未知。',
+            missing: '用量缺失，Token 与成本均不计入聚合。',
             notApplicable: '因用量与成本均不适用，不计入默认 Token 与预估成本聚合。',
           },
           tokens: {

@@ -272,9 +272,14 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			}
 			result.CooldownKeys = append(result.CooldownKeys, detail)
 		} else {
-			detail.Recovery = healthRecoveryResponse{
-				Automatic: true,
-				Mode:      "validation_probe",
+			detail.Recovery = healthRecoveryResponse{Mode: "configuration_required"}
+			if validationGroup, exists := observation.snapshot.Groups[key.GroupID]; exists {
+				if _, valid := buildGroupValidationTarget(validationGroup); valid {
+					detail.Recovery = healthRecoveryResponse{
+						Automatic: true,
+						Mode:      "validation_probe",
+					}
+				}
 			}
 			result.BlacklistedKeys = append(result.BlacklistedKeys, detail)
 		}

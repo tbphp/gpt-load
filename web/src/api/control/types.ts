@@ -210,7 +210,7 @@ export interface HealthGroupDto {
 
 export interface HealthRecoveryDto {
   automatic: boolean
-  mode: string
+  mode: 'cooldown_expiry' | 'validation_probe' | 'configuration_required'
   at_ms: number | null
 }
 

@@ -79,8 +79,9 @@ const { t } = useI18n()
 .monitor-section-heading__help {
   display: inline-flex;
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
+  margin: -5px;
   align-items: center;
   justify-content: center;
   border: 0;
@@ -125,6 +126,12 @@ const { t } = useI18n()
   .monitor-section-heading__meta,
   .monitor-section-heading__actions {
     margin-left: auto;
+  }
+
+  .monitor-section-heading__help {
+    width: 44px;
+    height: 44px;
+    margin: -11px;
   }
 }
 </style>

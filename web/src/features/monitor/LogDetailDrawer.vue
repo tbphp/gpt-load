@@ -17,7 +17,13 @@ import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost } from '@/lib/format'
 
-import { formatLogDuration, formatLogOutputRate, formatLogTokenCount } from './log-format'
+import {
+  formatLogDuration,
+  formatLogOutputRate,
+  formatLogTokenCount,
+  requestLogCostDisplayState,
+  requestLogUsageDisplayState,
+} from './log-format'
 
 const props = defineProps<{ open: boolean; requestId: string | undefined }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
@@ -25,11 +31,17 @@ const client = useApiClient()
 const { locale, t } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
 const log = computed(() => query.data.value)
+const usageDisplayState = computed(() =>
+  log.value ? requestLogUsageDisplayState(log.value) : 'not_applicable',
+)
+const costDisplayState = computed(() =>
+  log.value ? requestLogCostDisplayState(log.value) : 'not_applicable',
+)
 const receipt = computed(
   () => log.value?.attempts.find((attempt) => attempt.pricing_receipt)?.pricing_receipt,
 )
 const cacheRows = computed(() => {
-  if (!log.value) return []
+  if (!log.value || usageDisplayState.value !== 'reported') return []
   return [
     { label: t('monitor.logs.tokens.cacheRead'), value: log.value.cache_read_tokens },
     { label: t('monitor.logs.tokens.cacheWrite5m'), value: log.value.cache_write_5m_tokens },
@@ -51,6 +63,33 @@ const formula = computed(() => {
     input: input || '—',
     output: output || '—',
   }
+})
+
+const usageStateLabel = computed(() => {
+  if (!log.value) return '—'
+  return t(`monitor.logs.drawer.usage.state.${log.value.usage_state}`)
+})
+
+const costStateLabel = computed(() => {
+  const state = costDisplayState.value
+  if (state === 'complete') return t('monitor.logs.drawer.usage.costState.priced')
+  if (state === 'partial') return t('monitor.logs.drawer.usage.costState.partialPriced')
+  return t(`monitor.logs.drawer.usage.costState.${state}`)
+})
+
+const costAmountLabel = computed(() => {
+  if (!log.value) return '—'
+  const state = costDisplayState.value
+  if (state === 'complete') {
+    return formatEstimatedCost(log.value.estimated_cost_nano_usd, locale.value)
+  }
+  if (state === 'partial') {
+    return t('monitor.logs.cost.knownSubtotal', {
+      cost: formatEstimatedCost(log.value.estimated_cost_nano_usd, locale.value),
+    })
+  }
+  if (state === 'unpriced') return t('monitor.logs.cost.unpriced')
+  return t('monitor.logs.cost.not_applicable')
 })
 
 function statusTone(status: string): 'success' | 'danger' | 'warning' | 'neutral' {
@@ -205,10 +244,6 @@ function groupLabel(): string {
             <dt>{{ t('monitor.logs.drawer.group') }}</dt>
             <dd>{{ groupLabel() }}</dd>
           </div>
-          <div>
-            <dt>{{ t('monitor.logs.drawer.affinity') }}</dt>
-            <dd>{{ log.affinity_hit ? t('monitor.logs.yes') : t('monitor.logs.no') }}</dd>
-          </div>
         </dl>
       </section>
 
@@ -216,10 +251,18 @@ function groupLabel(): string {
         <h3>{{ t('monitor.logs.drawer.usage.title') }}</h3>
         <dl class="log-detail__grid">
           <div>
+            <dt>{{ t('monitor.logs.drawer.usage.usageStateLabel') }}</dt>
+            <dd>{{ usageStateLabel }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.costStateLabel') }}</dt>
+            <dd>{{ costStateLabel }}</dd>
+          </div>
+          <div v-if="usageDisplayState === 'reported'">
             <dt>{{ t('monitor.logs.tokens.input') }}</dt>
             <dd>{{ formatLogTokenCount(log.input_tokens, locale) }}</dd>
           </div>
-          <div>
+          <div v-if="usageDisplayState === 'reported'">
             <dt>{{ t('monitor.logs.tokens.output') }}</dt>
             <dd>{{ formatLogTokenCount(log.output_tokens, locale) }}</dd>
           </div>
@@ -229,15 +272,9 @@ function groupLabel(): string {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
-            <dd>
-              {{
-                log.cost_state === 'priced'
-                  ? formatEstimatedCost(log.estimated_cost_nano_usd, locale)
-                  : '—'
-              }}
-            </dd>
+            <dd>{{ costAmountLabel }}</dd>
           </div>
-          <div class="log-detail__wide">
+          <div v-if="receipt && usageDisplayState === 'reported'" class="log-detail__wide">
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
             <dd class="log-detail__formula">
               <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>

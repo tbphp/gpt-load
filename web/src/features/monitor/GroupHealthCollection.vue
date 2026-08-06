@@ -28,6 +28,13 @@ function status(group: HealthGroupDto) {
   if (group.counts.total === 0) {
     return { key: 'empty', label: t('monitor.health.groups.emptyKeys'), tone: 'danger' as const }
   }
+  if (group.counts.disabled === group.counts.total) {
+    return {
+      key: 'configurationExcluded',
+      label: t('monitor.health.groups.configurationExcluded'),
+      tone: 'neutral' as const,
+    }
+  }
   if (group.counts.available === 0) {
     return {
       key: 'unavailable',

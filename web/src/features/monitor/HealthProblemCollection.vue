@@ -193,15 +193,27 @@ function keyMeta(key: HealthProblemKeyDto): string {
               <small>{{ t('monitor.health.problems.cooldownHint') }}</small>
             </template>
             <template v-else>
-              <span>{{ t('monitor.health.problems.validationRecovery') }}</span>
-              <small>{{ t('monitor.health.problems.validationHint') }}</small>
+              <template v-if="item.key.recovery.mode === 'validation_probe'">
+                <span>{{ t('monitor.health.problems.validationRecovery') }}</span>
+                <small>{{ t('monitor.health.problems.validationHint') }}</small>
+              </template>
+              <template v-else>
+                <span>{{ t('monitor.health.problems.configurationRecovery') }}</span>
+                <small>{{ t('monitor.health.problems.configurationHint') }}</small>
+              </template>
             </template>
           </div>
 
           <div class="ledger-record-list__cell problem-health-record__actions" role="cell">
             <RouterLink
               v-slot="{ navigate }"
-              :to="monitorLocation({ tab: 'logs', access_key_id: String(item.key.key_id) })"
+              :to="
+                monitorLocation({
+                  tab: 'logs',
+                  group_id: String(item.key.group_id),
+                  upstream_key_id: String(item.key.key_id),
+                })
+              "
               custom
             >
               <IconButton

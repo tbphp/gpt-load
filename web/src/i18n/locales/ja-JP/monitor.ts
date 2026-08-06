@@ -25,9 +25,9 @@ export default {
         cooldownClear: '回復待ちはありません',
         cooldownRecovery: '最短 {time} 後に回復',
         blacklisted: 'ブラックリスト',
-        blacklistedRecovery: '検証プローブ成功後に回復',
+        blacklistedRecovery: '各キーの回復案内を確認してください',
         blacklistedClear: 'ブラックリストのキーはありません',
-        disabled: '手動無効',
+        disabled: '設定により除外',
         disabledDescription: '設定によりスケジュール対象外',
       },
       status: {
@@ -56,6 +56,7 @@ export default {
           '現在利用可能なキーだけを示し、特定の AccessKey、プロトコル、モデルのルート可否は保証しません。',
         empty: 'Group がありません。',
         disabled: '無効',
+        configurationExcluded: '設定により除外',
         emptyKeys: 'キーなし',
         unavailable: '利用不可',
         attention: '要確認',
@@ -113,6 +114,8 @@ export default {
         cooldownHint: 'クールダウン後に自動でスケジュールへ復帰',
         validationRecovery: '検証プローブ待ち',
         validationHint: 'プローブ成功後に自動回復',
+        configurationRecovery: '検証設定が必要',
+        configurationHint: '自動回復には検証モデルの設定が必要です',
         viewLogs: 'キー {key} のリクエストログを表示',
         viewGroup: 'Group {group} を表示',
       },
@@ -272,11 +275,11 @@ export default {
         overlap:
           '使用量なし、部分的、未設定の件数は重複する場合があります。リクエスト総数として加算しないでください。',
         partialExplanation:
-          '使用量専用の最終チャンクに不完全なトークン詳細だけがある場合、部分使用量として記録され、そのトークンは既定の合計から除外されます。',
+          '使用量が部分的に報告された場合、既知の Token は合計に含まれ、未報告部分は不明のままです。',
         unpricedExplanation:
-          '価格未設定は、未対応の課金詳細や診断経路で発生する場合があります。そのトークンは既定のトークン合計と推定コスト合計から除外されます。',
+          '未設定リクエストの報告済み Token も合計に含まれ、コストは価格設定可能な部分のみ集計されます。',
         aggregation:
-          '既定のトークンと推定コスト合計には、使用量が完全で価格設定済みのリクエストのみ含まれます。部分的、使用量なし、価格未設定、該当なしのリクエストはいずれの合計からも除外されます。',
+          'Token 合計には、完全または部分的に報告された既知の Token が含まれます。使用量なしと該当なしは除外されます。コストは価格設定可能な部分のみ集計され、不明部分が残る場合があります。',
         openPrices: 'モデル価格を確認',
       },
       process: {
@@ -332,7 +335,8 @@ export default {
         actions: '操作',
         qualityUsage: 'なし {missing} · 部分 {partial}',
         qualityPricing: '未設定 {unpriced} · 一部 {partial}',
-        qualityCompact: 'なし {missing} · 部分 {partial} · 未設定 {unpriced}',
+        qualityCompact:
+          'なし {missing} · 部分 {partial} · 未設定 {unpriced} · 部分価格 {pricingPartial}',
         qualityCounts: 'なし {missing} · 部分 {partial} · 未設定 {unpriced}',
       },
     },
@@ -648,6 +652,15 @@ export default {
         skip_group: 'Group をスキップ',
         unknown: '不明なアクション',
       },
+      usage: {
+        missing: '使用量なし',
+        not_applicable: '該当なし',
+      },
+      cost: {
+        knownSubtotal: '既知 {cost} + 不明',
+        unpriced: 'コスト不明',
+        not_applicable: '該当なし',
+      },
       drawer: {
         title: 'リクエストログ詳細',
         description: '最終結果と秘匿化されたアップストリーム試行チェーンを確認します。',
@@ -690,6 +703,8 @@ export default {
             '最終的に永続化された使用量フィールドです。コストは常に推定値で、不明は無料を意味しません。',
           finalGroup: '最終 Group',
           groupId: 'Group #{id}',
+          usageStateLabel: '使用量状態',
+          costStateLabel: 'コスト状態',
           estimatedCost: '推定コスト',
           unknown: '不明',
           notApplicable: '該当なし',
@@ -708,12 +723,10 @@ export default {
           },
           aggregation: {
             completePriced: '既定のトークンと推定コスト集計に含まれます。',
-            completeUnpriced: '価格未設定のため、既定のトークンと推定コスト集計から除外されます。',
-            partialPriced: '使用量が部分的なため、既定のトークンと推定コスト集計から除外されます。',
-            partialUnpriced:
-              '使用量が部分的かつ価格未設定のため、既定のトークンと推定コスト集計から除外されます。',
-            missing:
-              '使用量なしで価格未設定のため、既定のトークンと推定コスト集計から除外されます。',
+            completeUnpriced: '報告済み Token は集計され、コストは不明のままです。',
+            partialPriced: '報告済み Token と既知コストはそれぞれ集計され、残りは不明です。',
+            partialUnpriced: '報告済み Token は集計され、コストは不明のままです。',
+            missing: '使用量がないため、Token とコストは集計に含まれません。',
             notApplicable:
               '使用量とコストが該当しないため、既定のトークンと推定コスト集計から除外されます。',
           },

@@ -353,7 +353,14 @@ defineExpose({ openFilters })
                     t('monitor.usage.columns.estimatedCost')
                   }}</span>
                   <span>{{ formatCost(row) }}</span>
-                  <small v-if="row.unpriced_request_count > 0">
+                  <small
+                    v-if="
+                      row.usage_missing_count > 0 ||
+                      row.partial_count > 0 ||
+                      row.unpriced_request_count > 0 ||
+                      row.pricing_partial_count > 0
+                    "
+                  >
                     {{ t('monitor.usage.cost.knownPlusUnknownShort') }}
                   </small>
                 </div>
@@ -448,6 +455,7 @@ defineExpose({ openFilters })
                         missing: formatInteger(bucket.usage_missing_count, locale),
                         partial: formatInteger(bucket.partial_count, locale),
                         unpriced: formatInteger(bucket.unpriced_request_count, locale),
+                        pricingPartial: formatInteger(bucket.pricing_partial_count, locale),
                       })
                     }}
                   </td>

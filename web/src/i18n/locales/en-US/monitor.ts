@@ -25,9 +25,9 @@ export default {
         cooldownClear: 'No recovery wait',
         cooldownRecovery: 'Earliest recovery in {time}',
         blacklisted: 'Blacklisted',
-        blacklistedRecovery: 'Recovers after a successful validation probe',
+        blacklistedRecovery: 'See the recovery guidance for each key',
         blacklistedClear: 'No blacklisted keys',
-        disabled: 'Manually disabled',
+        disabled: 'Configuration excluded',
         disabledDescription: 'Excluded by configuration',
       },
       status: {
@@ -56,6 +56,7 @@ export default {
           'Shows current available keys only; it does not guarantee routability for a particular AccessKey, protocol, or model.',
         empty: 'No Groups are configured.',
         disabled: 'Disabled',
+        configurationExcluded: 'Configuration excluded',
         emptyKeys: 'No keys',
         unavailable: 'Unavailable',
         attention: 'Needs attention',
@@ -113,6 +114,8 @@ export default {
         cooldownHint: 'Automatically rejoins scheduling after cooldown',
         validationRecovery: 'Waiting for validation probe',
         validationHint: 'Recovers after a successful probe',
+        configurationRecovery: 'Validation configuration required',
+        configurationHint: 'Configure a validation model to enable automatic recovery',
         viewLogs: 'View request logs for key {key}',
         viewGroup: 'View Group {group}',
       },
@@ -271,11 +274,11 @@ export default {
         overlap:
           'Missing, partial, and unpriced counts may overlap. Do not add them into a request total.',
         partialExplanation:
-          'Partial usage is recorded when only a usage-only final chunk supplies incomplete token detail; those tokens are excluded from default totals.',
+          'When usage is partially reported, known tokens are included in token totals and the unreported portion remains unknown.',
         unpricedExplanation:
-          'Unpriced requests can reflect an unsupported billing detail or diagnostics. Their tokens are excluded from default token and estimated-cost totals.',
+          'Reported tokens from unpriced requests remain in token totals; cost only accumulates priceable portions.',
         aggregation:
-          'Only complete usage with priced cost is included in default token and estimated-cost totals. Partial, missing, unpriced, and not-applicable requests are excluded from both.',
+          'Token totals include known tokens from complete or partial usage. Missing and not-applicable usage are excluded. Cost accumulates only priceable portions and may have an unknown remainder.',
         openPrices: 'Review model prices',
       },
       process: {
@@ -331,7 +334,8 @@ export default {
         actions: 'Actions',
         qualityUsage: 'Missing {missing} · Partial {partial}',
         qualityPricing: 'Unpriced {unpriced} · Partial {partial}',
-        qualityCompact: 'Missing {missing} · Partial {partial} · Unpriced {unpriced}',
+        qualityCompact:
+          'Missing {missing} · Partial {partial} · Unpriced {unpriced} · Partial pricing {pricingPartial}',
         qualityCounts: 'Missing {missing} · Partial {partial} · Unpriced {unpriced}',
       },
     },
@@ -648,6 +652,15 @@ export default {
         skip_group: 'Skip Group',
         unknown: 'Unknown action',
       },
+      usage: {
+        missing: 'Usage missing',
+        not_applicable: 'Not applicable',
+      },
+      cost: {
+        knownSubtotal: 'Known {cost} + unknown',
+        unpriced: 'Cost unknown',
+        not_applicable: 'Not applicable',
+      },
       drawer: {
         title: 'Request log details',
         description: 'Review the final result and redacted upstream attempt chain.',
@@ -690,6 +703,8 @@ export default {
             'Final persisted usage fields. Cost is always an estimate and unknown values are not free.',
           finalGroup: 'Final Group',
           groupId: 'Group #{id}',
+          usageStateLabel: 'Usage state',
+          costStateLabel: 'Cost state',
           estimatedCost: 'Estimated cost',
           unknown: 'Unknown',
           notApplicable: 'Not applicable',
@@ -708,14 +723,11 @@ export default {
           },
           aggregation: {
             completePriced: 'Included in default token and estimated-cost aggregates.',
-            completeUnpriced:
-              'Excluded from default token and estimated-cost aggregates because cost is unpriced.',
+            completeUnpriced: 'Reported tokens are aggregated; cost remains unknown.',
             partialPriced:
-              'Excluded from default token and estimated-cost aggregates because usage is partial.',
-            partialUnpriced:
-              'Excluded from default token and estimated-cost aggregates because usage is partial and cost is unpriced.',
-            missing:
-              'Excluded from default token and estimated-cost aggregates because usage is missing and cost is unpriced.',
+              'Reported tokens and known cost are aggregated separately; the remainder is unknown.',
+            partialUnpriced: 'Reported tokens are aggregated; cost remains unknown.',
+            missing: 'Usage is missing, so tokens and cost are excluded from aggregation.',
             notApplicable:
               'Excluded from default token and estimated-cost aggregates because usage and cost are not applicable.',
           },

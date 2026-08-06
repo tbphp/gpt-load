@@ -38,8 +38,8 @@ a {
 }
 
 :focus-visible {
-  outline: 0;
-  box-shadow: none;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 :is(input, select, textarea):not([type='checkbox']):not([type='radio']):not([type='button']):not(

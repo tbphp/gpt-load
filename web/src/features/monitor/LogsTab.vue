@@ -41,6 +41,8 @@ import {
   formatLogOutputRate,
   formatLogTokenCount,
   hasRequestLogCache,
+  requestLogCostDisplayState,
+  requestLogUsageDisplayState,
 } from './log-format'
 import LogDetailDrawer from './LogDetailDrawer.vue'
 import LogsFilterForm from './LogsFilterForm.vue'
@@ -57,6 +59,8 @@ const draft = ref(createLogFilterDraft(appliedFilters.value))
 const filterErrors = ref<LogFilterErrors>({})
 const cursorHistory = ref<Array<string | undefined>>([undefined])
 const pageIndex = ref(0)
+const paginationPending = ref(false)
+const pageTransitionOrigin = ref<number | null>(null)
 const currentCursor = computed(() => cursorHistory.value[pageIndex.value])
 let detailFocusTimer: number | undefined
 
@@ -65,6 +69,7 @@ const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
 const logs = computed(() => logsQuery.data.value?.items ?? [])
 const currentPage = computed(() => pageIndex.value + 1)
+const paginationBusy = computed(() => paginationPending.value || logsQuery.isFetching.value)
 const filterSignature = computed(() =>
   JSON.stringify(serializeAppliedLogFilters(appliedFilters.value)),
 )
@@ -150,7 +155,30 @@ watch(filterSignature, () => {
   filterErrors.value = {}
   cursorHistory.value = [undefined]
   pageIndex.value = 0
+  paginationPending.value = false
+  pageTransitionOrigin.value = null
 })
+
+watch(
+  () => logsQuery.dataUpdatedAt.value,
+  (updatedAt, previousUpdatedAt) => {
+    if (updatedAt <= 0 || updatedAt === previousUpdatedAt) return
+    paginationPending.value = false
+    pageTransitionOrigin.value = null
+  },
+)
+
+watch(
+  () => logsQuery.isError.value,
+  (failed) => {
+    if (!failed || pageTransitionOrigin.value === null) return
+    const origin = pageTransitionOrigin.value
+    if (pageIndex.value > origin) cursorHistory.value = cursorHistory.value.slice(0, origin + 1)
+    pageIndex.value = origin
+    paginationPending.value = false
+    pageTransitionOrigin.value = null
+  },
+)
 
 function formatDateFilter(value: number): string {
   const date = new Date(value)
@@ -245,6 +273,7 @@ async function resetFilters(): Promise<void> {
 }
 
 function setPageSize(pageSize: RequestLogPageSize): void {
+  if (paginationBusy.value) return
   void commitFilters({ ...appliedFilters.value, limit: pageSize })
 }
 
@@ -256,14 +285,21 @@ async function removeFilter(key: string): Promise<void> {
 }
 
 function nextPage(): void {
+  if (paginationBusy.value) return
   const cursor = logsQuery.data.value?.next_cursor
-  if (!cursor) return
+  if (!cursor || cursor === currentCursor.value) return
+  if (cursorHistory.value.slice(0, pageIndex.value + 1).includes(cursor)) return
+  pageTransitionOrigin.value = pageIndex.value
+  paginationPending.value = true
   cursorHistory.value = [...cursorHistory.value.slice(0, pageIndex.value + 1), cursor]
   pageIndex.value += 1
 }
 
 function previousPage(): void {
-  if (pageIndex.value > 0) pageIndex.value -= 1
+  if (paginationBusy.value || pageIndex.value <= 0) return
+  pageTransitionOrigin.value = pageIndex.value
+  paginationPending.value = true
+  pageIndex.value -= 1
 }
 
 async function setDetailOpen(requestID: string | undefined, open: boolean): Promise<void> {
@@ -337,9 +373,18 @@ function timingPrimary(log: RequestLogItemDto): string {
 }
 
 function costLabel(log: RequestLogItemDto): string {
-  return log.cost_state === 'priced'
-    ? formatEstimatedCost(log.estimated_cost_nano_usd, locale.value)
-    : '—'
+  const state = requestLogCostDisplayState(log)
+  if (state === 'complete') return formatEstimatedCost(log.estimated_cost_nano_usd, locale.value)
+  if (state === 'partial') {
+    return t('monitor.logs.cost.knownSubtotal', {
+      cost: formatEstimatedCost(log.estimated_cost_nano_usd, locale.value),
+    })
+  }
+  return t(`monitor.logs.cost.${state}`)
+}
+
+function usageLabel(log: RequestLogItemDto): string {
+  return t(`monitor.logs.usage.${requestLogUsageDisplayState(log)}`)
 }
 </script>
 
@@ -390,7 +435,7 @@ function costLabel(log: RequestLogItemDto): string {
         v-if="logs.length"
         grid-class="logs-list"
         :label="t('monitor.logs.caption')"
-        :row-count="logs.length"
+        :row-count="logs.length + 1"
       >
         <template #header>
           <span role="columnheader">{{ t('monitor.logs.columns.time') }}</span>
@@ -462,20 +507,28 @@ function costLabel(log: RequestLogItemDto): string {
             <StatusBadge v-else :tone="statusTone(log.status)" size="compact">{{
               responseLabel(log)
             }}</StatusBadge>
+            <small v-if="log.attempt_count > 1">
+              {{ t('monitor.logs.attemptCount', { count: log.attempt_count }) }}
+            </small>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
             role="cell"
             :data-label="t('monitor.logs.columns.cost')"
           >
-            <span>{{ costLabel(log) }}</span>
+            <span
+              :class="{
+                'logs-list__state--warning': requestLogCostDisplayState(log) !== 'complete',
+              }"
+              >{{ costLabel(log) }}</span
+            >
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
             role="cell"
             :data-label="t('monitor.logs.columns.tokens')"
           >
-            <span class="logs-list__tokens">
+            <span v-if="requestLogUsageDisplayState(log) === 'reported'" class="logs-list__tokens">
               <ArrowDown :size="12" aria-hidden="true" />{{
                 formatLogTokenCount(log.input_tokens, locale)
               }}
@@ -505,6 +558,7 @@ function costLabel(log: RequestLogItemDto): string {
                 </button>
               </AppTooltip>
             </span>
+            <span v-else class="logs-list__state--warning">{{ usageLabel(log) }}</span>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -558,6 +612,7 @@ function costLabel(log: RequestLogItemDto): string {
         appearance="detail"
         :has-previous="pageIndex > 0"
         :has-next="Boolean(logsQuery.data.value?.next_cursor)"
+        :pending="paginationBusy"
         @previous="previousPage"
         @next="nextPage"
         @update:page-size="setPageSize"
@@ -649,6 +704,10 @@ function costLabel(log: RequestLogItemDto): string {
 .logs-list__hint:hover {
   background: var(--color-surface-sunken);
   color: var(--color-text);
+}
+
+.logs-list__state--warning {
+  color: var(--color-warning);
 }
 
 .logs-list__action {

@@ -1,5 +1,22 @@
 import type { RequestLogItemDto } from '@/app/resources/request-logs'
 
+export type RequestLogUsageDisplayState = 'reported' | 'missing' | 'not_applicable'
+export type RequestLogCostDisplayState = 'complete' | 'partial' | 'unpriced' | 'not_applicable'
+
+export function requestLogUsageDisplayState(log: RequestLogItemDto): RequestLogUsageDisplayState {
+  if (log.usage_state === 'missing') return 'missing'
+  if (log.usage_state === 'not_applicable') return 'not_applicable'
+  return 'reported'
+}
+
+export function requestLogCostDisplayState(log: RequestLogItemDto): RequestLogCostDisplayState {
+  if (log.cost_state === 'not_applicable') return 'not_applicable'
+  if (log.cost_state === 'unpriced') return 'unpriced'
+  return log.usage_state === 'partial' || log.pricing_completeness === 'partial'
+    ? 'partial'
+    : 'complete'
+}
+
 export function formatLogDuration(milliseconds: number): string {
   if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) return '—'
   if (milliseconds < 1_000) return `${milliseconds}ms`

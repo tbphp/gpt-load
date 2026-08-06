@@ -123,6 +123,7 @@ async function applyAdvanced(): Promise<void> {
           :label="t('monitor.logs.filters.clientModel')"
           :placeholder="t('monitor.logs.filters.clientModel')"
           :invalid="Boolean(errors.client_model)"
+          :described-by="errors.client_model ? 'logs-filter-error' : undefined"
           size="compact"
           data-1p-ignore="true"
           data-lpignore="true"
@@ -148,7 +149,9 @@ async function applyAdvanced(): Promise<void> {
       </AppButton>
     </div>
 
-    <p v-if="firstError" class="logs-filter__error" role="alert">{{ firstError }}</p>
+    <p v-if="firstError" id="logs-filter-error" class="logs-filter__error" role="alert">
+      {{ firstError }}
+    </p>
   </form>
 
   <LogsAdvancedFilterDrawer

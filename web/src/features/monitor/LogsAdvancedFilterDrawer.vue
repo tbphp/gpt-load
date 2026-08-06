@@ -107,15 +107,19 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('access_key_id')"
           >
-            <AppSelect
-              id="logs-access-key"
-              :model-value="draft.access_key_id"
-              :label="t('monitor.logs.filters.accessKey')"
-              :options="accessKeyOptions()"
-              size="compact"
-              :disabled="accessKeysFailed"
-              @update:model-value="update('access_key_id', $event)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <AppSelect
+                id="logs-access-key"
+                :model-value="draft.access_key_id"
+                :label="t('monitor.logs.filters.accessKey')"
+                :options="accessKeyOptions()"
+                size="compact"
+                :disabled="accessKeysFailed"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @update:model-value="update('access_key_id', $event)"
+              />
+            </template>
           </FormField>
           <FormField id="logs-protocol" :label="t('monitor.logs.filters.protocol')" size="compact">
             <AppSelect
@@ -133,13 +137,17 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('request_id')"
           >
-            <input
-              id="logs-request-id"
-              :value="draft.request_id"
-              class="logs-advanced__mono"
-              autocomplete="off"
-              @input="update('request_id', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-request-id"
+                :value="draft.request_id"
+                class="logs-advanced__mono"
+                autocomplete="off"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('request_id', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField id="logs-stream" :label="t('monitor.logs.filters.stream')" size="compact">
             <AppSelect
@@ -163,12 +171,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('upstream_key_id')"
           >
-            <input
-              id="logs-upstream-key"
-              :value="draft.upstream_key_id"
-              inputmode="numeric"
-              @input="update('upstream_key_id', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-upstream-key"
+                :value="draft.upstream_key_id"
+                inputmode="numeric"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('upstream_key_id', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField
             id="logs-upstream-model"
@@ -176,12 +188,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('upstream_model')"
           >
-            <input
-              id="logs-upstream-model"
-              :value="draft.upstream_model"
-              autocomplete="off"
-              @input="update('upstream_model', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-upstream-model"
+                :value="draft.upstream_model"
+                autocomplete="off"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('upstream_model', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField
             id="logs-retry-state"
@@ -203,12 +219,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('retry_count_min')"
           >
-            <input
-              id="logs-retry-min"
-              :value="draft.retry_count_min"
-              inputmode="numeric"
-              @input="update('retry_count_min', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-retry-min"
+                :value="draft.retry_count_min"
+                inputmode="numeric"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('retry_count_min', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField
             id="logs-retry-max"
@@ -216,12 +236,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('retry_count_max')"
           >
-            <input
-              id="logs-retry-max"
-              :value="draft.retry_count_max"
-              inputmode="numeric"
-              @input="update('retry_count_max', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-retry-max"
+                :value="draft.retry_count_max"
+                inputmode="numeric"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('retry_count_max', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField
             id="logs-attempt-code"
@@ -229,12 +253,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('attempt_status_code')"
           >
-            <input
-              id="logs-attempt-code"
-              :value="draft.attempt_status_code"
-              inputmode="numeric"
-              @input="update('attempt_status_code', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-attempt-code"
+                :value="draft.attempt_status_code"
+                inputmode="numeric"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('attempt_status_code', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField
             id="logs-failure"
@@ -256,12 +284,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('error_code')"
           >
-            <input
-              id="logs-error-code"
-              :value="draft.error_code"
-              autocomplete="off"
-              @input="update('error_code', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-error-code"
+                :value="draft.error_code"
+                autocomplete="off"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('error_code', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
         </div>
       </section>
@@ -275,12 +307,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error('final_status_code')"
           >
-            <input
-              id="logs-final-code"
-              :value="draft.final_status_code"
-              inputmode="numeric"
-              @input="update('final_status_code', ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-final-code"
+                :value="draft.final_status_code"
+                inputmode="numeric"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('final_status_code', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField
             id="logs-usage-state"
@@ -359,12 +395,16 @@ function update(field: keyof LogFilterDraft, value: string): void {
             size="compact"
             :error="error(field)"
           >
-            <input
-              :id="`logs-${field}`"
-              :value="draft[field]"
-              inputmode="decimal"
-              @input="update(field, ($event.target as HTMLInputElement).value)"
-            />
+            <template #default="{ describedBy, invalid }">
+              <input
+                :id="`logs-${field}`"
+                :value="draft[field]"
+                inputmode="decimal"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update(field, ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
         </div>
       </section>
