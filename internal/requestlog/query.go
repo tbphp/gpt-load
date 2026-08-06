@@ -10,6 +10,7 @@ import (
 
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
@@ -260,21 +261,26 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			return nil, err
 		}
 		records = append(records, Record{
-			RequestID:               row.ID,
-			CompletedAtMS:           row.CompletedAtMS,
-			AccessKey:               AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
-			Protocol:                protocol.Protocol(row.Protocol),
-			ClientModel:             row.ClientModel,
-			UpstreamModel:           row.UpstreamModel,
-			Status:                  telemetry.RequestStatus(row.Status),
-			StatusCode:              row.StatusCode,
-			Stream:                  row.Stream,
-			FirstResponseMs:         row.FirstResponseMs,
-			DurationMs:              row.DurationMs,
-			AttemptCount:            row.AttemptCount,
-			ErrorCode:               row.ErrorCode,
-			ErrorSummary:            row.ErrorSummary,
-			AffinityHit:             row.AffinityHit,
+			RequestID:       row.ID,
+			CompletedAtMS:   row.CompletedAtMS,
+			AccessKey:       AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
+			Protocol:        protocol.Protocol(row.Protocol),
+			ClientModel:     row.ClientModel,
+			UpstreamModel:   row.UpstreamModel,
+			Status:          telemetry.RequestStatus(row.Status),
+			StatusCode:      row.StatusCode,
+			Stream:          row.Stream,
+			FirstResponseMs: row.FirstResponseMs,
+			DurationMs:      row.DurationMs,
+			AttemptCount:    row.AttemptCount,
+			ErrorCode:       row.ErrorCode,
+			ErrorSummary:    row.ErrorSummary,
+			AffinityHit:     row.AffinityHit,
+			Reasoning: reasoning.Config{
+				Mode:         row.ReasoningMode,
+				Effort:       row.ReasoningEffort,
+				BudgetTokens: row.ReasoningBudgetTokens,
+			},
 			Attempts:                nil,
 			GroupID:                 row.GroupID,
 			UsageState:              usage.State(row.UsageState),

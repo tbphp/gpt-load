@@ -379,6 +379,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 	recorder.setClientModel(model)
 	recorder.setStream(metadata.Stream)
+	recorder.setReasoning(metadata.Reasoning)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
 	recorder.setUsageDiagnostics(metadata.UsageDiagnostics)
 

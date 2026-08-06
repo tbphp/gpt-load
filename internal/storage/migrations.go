@@ -24,6 +24,10 @@ var migrations = []migration{
 			return createInitialV2Indexes(db)
 		},
 	},
+	{
+		ID: "0002_request_log_reasoning",
+		Up: addRequestLogReasoningColumns,
+	},
 }
 
 func applyMigrations(db *gorm.DB) error {

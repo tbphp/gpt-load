@@ -621,8 +621,12 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if len(migrationIDs) != 1 || migrationIDs[0] != "0001_initial_v2" {
-		t.Fatalf("schema_migrations IDs = %v, want [0001_initial_v2]", migrationIDs)
+	if len(migrationIDs) != 2 || migrationIDs[0] != "0001_initial_v2" ||
+		migrationIDs[1] != "0002_request_log_reasoning" {
+		t.Fatalf(
+			"schema_migrations IDs = %v, want [0001_initial_v2 0002_request_log_reasoning]",
+			migrationIDs,
+		)
 	}
 
 	if err := storage.AutoMigrate(db); err != nil {
@@ -632,8 +636,8 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("schema_migrations row count after a second migration = %d, want 1", count)
+	if count != 2 {
+		t.Fatalf("schema_migrations row count after a second migration = %d, want 2", count)
 	}
 }
 
@@ -669,7 +673,13 @@ func TestAutoMigrateCreatesRequestLogFieldsAndCompositeIndexes(t *testing.T) {
 	for _, column := range columns {
 		columnNames[column.Name] = struct{}{}
 	}
-	for _, name := range []string{"error_code", "error_summary"} {
+	for _, name := range []string{
+		"error_code",
+		"error_summary",
+		"reasoning_mode",
+		"reasoning_effort",
+		"reasoning_budget_tokens",
+	} {
 		if _, ok := columnNames[name]; !ok {
 			t.Errorf("request_logs column %q is missing", name)
 		}

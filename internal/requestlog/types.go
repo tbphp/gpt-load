@@ -6,6 +6,7 @@ import (
 
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -111,6 +112,7 @@ type Record struct {
 	ErrorCode               string
 	ErrorSummary            string
 	AffinityHit             bool
+	Reasoning               reasoning.Config
 	Attempts                []Attempt
 	GroupID                 uint
 	UsageState              usage.State

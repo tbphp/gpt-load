@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -19,6 +20,12 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	event.CompletedAt = time.Date(2026, time.July, 24, 20, 30, 0, 123, time.FixedZone("test", 8*60*60))
 	event.Protocol = protocol.OpenAICompletions
 	event.ClientModel = "client-alias"
+	reasoningBudget := int64(8192)
+	event.Reasoning = reasoning.Config{
+		Mode:         "adaptive",
+		Effort:       "high",
+		BudgetTokens: &reasoningBudget,
+	}
 	event.Usage.Result = usage.Result{
 		State: usage.StatePartial,
 		Tokens: usage.Tokens{
@@ -46,6 +53,10 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	}
 	if row.GroupID != 7 || row.ClientModel != "client-alias" || row.UpstreamModel != "upstream-model" {
 		t.Fatalf("persisted attribution/models = %+v", row)
+	}
+	if row.ReasoningMode != "adaptive" || row.ReasoningEffort != "high" ||
+		row.ReasoningBudgetTokens == nil || *row.ReasoningBudgetTokens != reasoningBudget {
+		t.Fatalf("persisted reasoning = %+v", row)
 	}
 	if row.UncachedInputTokens != 1 || row.CacheReadTokens != 2 || row.CacheWrite5MTokens != 3 ||
 		row.CacheWrite1HTokens != 4 || row.CacheWriteUnknownTokens != 5 || row.OutputTokens != 6 {

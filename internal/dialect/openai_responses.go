@@ -64,6 +64,7 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 		(req.Path == openAIResponsesPath || req.Path == openAIResponsesCompactPath)
 	if len(req.Body) > 0 {
 		metadata.UsageDiagnostics = openAIRequestPricingDiagnostics(req.Body)
+		metadata.Reasoning = inspectOpenAIResponsesReasoning(req.Body)
 	}
 	return metadata, nil
 }

@@ -71,6 +71,7 @@ func (d *Gemini) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 		Model:        &model,
 		Stream:       stream,
 		ObserveUsage: true,
+		Reasoning:    inspectGeminiReasoning(req.Body),
 	}, nil
 }
 

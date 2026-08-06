@@ -21,7 +21,9 @@ import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
   formatLogDuration,
   formatLogOutputRate,
+  formatLogReasoningBudget,
   formatLogTokenCount,
+  reasoningBudgetSemantic,
   requestLogCostDisplayState,
   requestLogUsageDisplayState,
 } from './log-format'
@@ -248,6 +250,40 @@ function groupLabel(): string {
           <div>
             <dt>{{ t('monitor.logs.drawer.group') }}</dt>
             <dd>{{ groupLabel() }}</dd>
+          </div>
+          <template v-if="log.reasoning">
+            <div v-if="log.reasoning.mode">
+              <dt>{{ t('monitor.logs.drawer.reasoningMode') }}</dt>
+              <dd>
+                <code>{{ log.reasoning.mode }}</code>
+              </dd>
+            </div>
+            <div v-if="log.reasoning.effort">
+              <dt>{{ t('monitor.logs.drawer.reasoningEffort') }}</dt>
+              <dd>
+                <code>{{ log.reasoning.effort }}</code>
+              </dd>
+            </div>
+            <div v-if="log.reasoning.budget_tokens !== null">
+              <dt>{{ t('monitor.logs.drawer.reasoningBudget') }}</dt>
+              <dd v-if="reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'dynamic'">
+                {{ t('monitor.logs.drawer.reasoningBudgetDynamic') }}
+              </dd>
+              <dd v-else-if="reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'disabled'">
+                {{ t('monitor.logs.drawer.reasoningBudgetDisabled') }}
+              </dd>
+              <dd v-else>
+                {{
+                  t('monitor.logs.drawer.reasoningBudgetValue', {
+                    value: formatLogReasoningBudget(log.reasoning.budget_tokens, locale),
+                  })
+                }}
+              </dd>
+            </div>
+          </template>
+          <div v-else>
+            <dt>{{ t('monitor.logs.drawer.reasoningConfig') }}</dt>
+            <dd>{{ t('monitor.logs.drawer.reasoningNotSpecified') }}</dd>
           </div>
         </dl>
       </section>

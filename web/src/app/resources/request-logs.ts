@@ -15,6 +15,7 @@ import {
   projectBoolean,
   projectEpochMilliseconds,
   projectEnum,
+  projectInt64String,
   projectNonNegativeInt64String,
   projectRecord,
   projectSafeInteger,
@@ -105,6 +106,12 @@ export interface RequestLogAttemptDto {
   pricing_receipt: RequestLogPricingReceiptDto | null
 }
 
+export interface RequestLogReasoningDto {
+  mode: string | null
+  effort: string | null
+  budget_tokens: string | null
+}
+
 export interface RequestLogItemDto {
   request_id: string
   completed_at_ms: number
@@ -112,6 +119,7 @@ export interface RequestLogItemDto {
   protocol: AccessProtocol
   client_model: string | null
   upstream_model: string | null
+  reasoning: RequestLogReasoningDto | null
   status: RequestLogStatus
   status_code: number
   stream: boolean
@@ -175,6 +183,7 @@ const itemFields = [
   'protocol',
   'client_model',
   'upstream_model',
+  'reasoning',
   'status',
   'status_code',
   'stream',
@@ -329,6 +338,18 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
   }
 }
 
+function projectReasoning(value: unknown): RequestLogReasoningDto | null {
+  if (value === null) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['mode', 'effort', 'budget_tokens'])
+  const mode = record.mode === null ? null : projectNonBlankString(record.mode)
+  const effort = record.effort === null ? null : projectNonBlankString(record.effort)
+  const budgetTokens =
+    record.budget_tokens === null ? null : projectInt64String(record.budget_tokens)
+  if (mode === null && effort === null && budgetTokens === null) invalidResponse()
+  return { mode, effort, budget_tokens: budgetTokens }
+}
+
 function projectUsageCost(record: Record<string, unknown>) {
   const usageState = projectEnum(record.usage_state, usageStates)
   const costState = projectEnum(record.cost_state, costStates)
@@ -370,6 +391,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     protocol: projectEnum(record.protocol, enabledDataProtocols),
     client_model: projectNullableModel(record.client_model),
     upstream_model: projectNullableModel(record.upstream_model),
+    reasoning: projectReasoning(record.reasoning),
     status: projectEnum(record.status, statuses),
     status_code: projectStatusCode(record.status_code),
     stream: projectBoolean(record.stream),

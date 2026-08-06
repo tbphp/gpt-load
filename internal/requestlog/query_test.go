@@ -20,26 +20,30 @@ import (
 )
 
 func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
+	reasoningBudget := int64(8192)
 	rows := []models.RequestLog{{
-		ID:                   "00000000-0000-4000-8000-000000000601",
-		CompletedAtMS:        1_785_085_323_000,
-		AccessKeyID:          61,
-		GroupID:              17,
-		Protocol:             string(protocol.OpenAICompletions),
-		ClientModel:          "client-model",
-		UpstreamModel:        "upstream-model",
-		Status:               string(telemetry.RequestStatusSuccess),
-		StatusCode:           200,
-		DurationMs:           25,
-		UncachedInputTokens:  11,
-		CacheReadTokens:      12,
-		CacheWrite5MTokens:   13,
-		CacheWrite1HTokens:   14,
-		OutputTokens:         15,
-		EstimatedCostNanoUSD: 123_456_789,
-		UsageState:           string(usage.StateComplete),
-		CostState:            string(pricing.CostStatePriced),
-		PricingCompleteness:  string(pricing.CompletenessComplete),
+		ID:                    "00000000-0000-4000-8000-000000000601",
+		CompletedAtMS:         1_785_085_323_000,
+		AccessKeyID:           61,
+		GroupID:               17,
+		Protocol:              string(protocol.OpenAICompletions),
+		ClientModel:           "client-model",
+		UpstreamModel:         "upstream-model",
+		Status:                string(telemetry.RequestStatusSuccess),
+		StatusCode:            200,
+		DurationMs:            25,
+		ReasoningMode:         "adaptive",
+		ReasoningEffort:       "high",
+		ReasoningBudgetTokens: &reasoningBudget,
+		UncachedInputTokens:   11,
+		CacheReadTokens:       12,
+		CacheWrite5MTokens:    13,
+		CacheWrite1HTokens:    14,
+		OutputTokens:          15,
+		EstimatedCostNanoUSD:  123_456_789,
+		UsageState:            string(usage.StateComplete),
+		CostState:             string(pricing.CostStatePriced),
+		PricingCompleteness:   string(pricing.CompletenessComplete),
 	}}
 
 	records, err := decodeRequestLogRows(rows)
@@ -55,6 +59,8 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 		got.CacheReadTokens != 12 || got.CacheWrite5MTokens != 13 ||
 		got.CacheWrite1HTokens != 14 || got.OutputTokens != 15 ||
 		got.EstimatedCostNanoUSD != 123_456_789 ||
+		got.Reasoning.Mode != "adaptive" || got.Reasoning.Effort != "high" ||
+		got.Reasoning.BudgetTokens == nil || *got.Reasoning.BudgetTokens != reasoningBudget ||
 		got.CompletedAtMS != 1_785_085_323_000 {
 		t.Fatalf("decoded usage/cost record = %#v", got)
 	}

@@ -18,6 +18,9 @@ type RequestLog struct {
 	ErrorCode               string              `gorm:"type:varchar(64);not null;default:''"`
 	ErrorSummary            string              `gorm:"type:text;not null;default:''"`
 	AffinityHit             bool                `gorm:"not null;default:false"`
+	ReasoningMode           string              `gorm:"type:varchar(64);not null;default:''"`
+	ReasoningEffort         string              `gorm:"type:varchar(64);not null;default:''"`
+	ReasoningBudgetTokens   *int64              `gorm:"column:reasoning_budget_tokens"`
 	UncachedInputTokens     int64               `gorm:"column:uncached_input_tokens;not null;default:0"`
 	OutputTokens            int64               `gorm:"not null;default:0"`
 	CacheReadTokens         int64               `gorm:"not null;default:0"`

@@ -50,6 +50,12 @@ type requestLogAccessKeyResponse struct {
 	Deleted bool    `json:"deleted"`
 }
 
+type requestLogReasoningResponse struct {
+	Mode         *string `json:"mode"`
+	Effort       *string `json:"effort"`
+	BudgetTokens *string `json:"budget_tokens"`
+}
+
 type requestLogAttemptResponse struct {
 	Sequence        int                               `json:"sequence"`
 	GroupID         uint                              `json:"group_id"`
@@ -97,32 +103,33 @@ type requestLogPricingReceiptResponse struct {
 }
 
 type requestLogItemResponse struct {
-	RequestID               string                      `json:"request_id"`
-	CompletedAtMS           int64                       `json:"completed_at_ms"`
-	AccessKey               requestLogAccessKeyResponse `json:"access_key"`
-	Protocol                string                      `json:"protocol"`
-	ClientModel             *string                     `json:"client_model"`
-	UpstreamModel           *string                     `json:"upstream_model"`
-	Status                  telemetry.RequestStatus     `json:"status"`
-	StatusCode              int                         `json:"status_code"`
-	Stream                  bool                        `json:"stream"`
-	FirstResponseMs         *int64                      `json:"first_response_ms"`
-	DurationMs              int64                       `json:"duration_ms"`
-	AttemptCount            int                         `json:"attempt_count"`
-	ErrorCode               string                      `json:"error_code"`
-	ErrorSummary            string                      `json:"error_summary"`
-	AffinityHit             bool                        `json:"affinity_hit"`
-	GroupID                 *uint                       `json:"group_id"`
-	UsageState              usage.State                 `json:"usage_state"`
-	CostState               pricing.CostState           `json:"cost_state"`
-	PricingCompleteness     pricing.Completeness        `json:"pricing_completeness"`
-	InputTokens             string                      `json:"input_tokens"`
-	CacheReadTokens         string                      `json:"cache_read_tokens"`
-	CacheWrite5MTokens      string                      `json:"cache_write_5m_tokens"`
-	CacheWrite1HTokens      string                      `json:"cache_write_1h_tokens"`
-	CacheWriteUnknownTokens string                      `json:"cache_write_unknown_tokens"`
-	OutputTokens            string                      `json:"output_tokens"`
-	EstimatedCostNanoUSD    string                      `json:"estimated_cost_nano_usd"`
+	RequestID               string                       `json:"request_id"`
+	CompletedAtMS           int64                        `json:"completed_at_ms"`
+	AccessKey               requestLogAccessKeyResponse  `json:"access_key"`
+	Protocol                string                       `json:"protocol"`
+	ClientModel             *string                      `json:"client_model"`
+	UpstreamModel           *string                      `json:"upstream_model"`
+	Reasoning               *requestLogReasoningResponse `json:"reasoning"`
+	Status                  telemetry.RequestStatus      `json:"status"`
+	StatusCode              int                          `json:"status_code"`
+	Stream                  bool                         `json:"stream"`
+	FirstResponseMs         *int64                       `json:"first_response_ms"`
+	DurationMs              int64                        `json:"duration_ms"`
+	AttemptCount            int                          `json:"attempt_count"`
+	ErrorCode               string                       `json:"error_code"`
+	ErrorSummary            string                       `json:"error_summary"`
+	AffinityHit             bool                         `json:"affinity_hit"`
+	GroupID                 *uint                        `json:"group_id"`
+	UsageState              usage.State                  `json:"usage_state"`
+	CostState               pricing.CostState            `json:"cost_state"`
+	PricingCompleteness     pricing.Completeness         `json:"pricing_completeness"`
+	InputTokens             string                       `json:"input_tokens"`
+	CacheReadTokens         string                       `json:"cache_read_tokens"`
+	CacheWrite5MTokens      string                       `json:"cache_write_5m_tokens"`
+	CacheWrite1HTokens      string                       `json:"cache_write_1h_tokens"`
+	CacheWriteUnknownTokens string                       `json:"cache_write_unknown_tokens"`
+	OutputTokens            string                       `json:"output_tokens"`
+	EstimatedCostNanoUSD    string                       `json:"estimated_cost_nano_usd"`
 }
 
 type requestLogDetailResponse struct {
@@ -709,6 +716,7 @@ func mapRequestLogItemResponse(
 		Protocol:                string(record.Protocol),
 		ClientModel:             nullableRequestLogModel(record.ClientModel),
 		UpstreamModel:           nullableRequestLogModel(record.UpstreamModel),
+		Reasoning:               mapRequestLogReasoning(record),
 		Status:                  record.Status,
 		StatusCode:              record.StatusCode,
 		Stream:                  record.Stream,
@@ -730,6 +738,28 @@ func mapRequestLogItemResponse(
 		OutputTokens:            strconv.FormatInt(record.OutputTokens, 10),
 		EstimatedCostNanoUSD:    usageCost.estimatedCostNanoUSD,
 	}, nil
+}
+
+func mapRequestLogReasoning(record requestlog.Record) *requestLogReasoningResponse {
+	if !record.Reasoning.Present() {
+		return nil
+	}
+	result := &requestLogReasoningResponse{
+		Mode:   nullableRequestLogReasoningValue(record.Reasoning.Mode),
+		Effort: nullableRequestLogReasoningValue(record.Reasoning.Effort),
+	}
+	if record.Reasoning.BudgetTokens != nil {
+		value := strconv.FormatInt(*record.Reasoning.BudgetTokens, 10)
+		result.BudgetTokens = &value
+	}
+	return result
+}
+
+func nullableRequestLogReasoningValue(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func checkedRequestLogInputTokens(record requestlog.Record) (int64, bool) {

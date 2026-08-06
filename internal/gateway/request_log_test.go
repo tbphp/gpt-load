@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
@@ -1110,6 +1112,33 @@ func TestRequestRecorderBoundsModelsAtUTF8Boundary(t *testing.T) {
 			"attempt upstream model was changed before SQLite projection: %#v",
 			event.Attempts,
 		)
+	}
+}
+
+func TestRequestRecorderEmitsClientReasoningConfiguration(t *testing.T) {
+	budget := int64(8192)
+	want := reasoning.Config{Mode: "adaptive", Effort: "high", BudgetTokens: &budget}
+	startedAt := time.Date(2026, time.August, 6, 10, 0, 0, 0, time.UTC)
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"00000000-0000-4000-8000-000000000207",
+		startedAt,
+		1,
+		protocol.Anthropic,
+		func() time.Time { return startedAt.Add(time.Second) },
+	)
+	recorder.reasoning = want
+	recorder.outcome = requestOutcome{
+		status:     telemetry.RequestStatusSuccess,
+		statusCode: http.StatusOK,
+	}
+
+	recorder.emit()
+
+	events := sink.snapshot()
+	if len(events) != 1 || !reflect.DeepEqual(events[0].Reasoning, want) {
+		t.Fatalf("events = %#v, want reasoning %#v", events, want)
 	}
 }
 

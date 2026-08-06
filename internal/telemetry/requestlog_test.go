@@ -31,6 +31,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"FirstResponseMs",
 			"DurationMs",
 			"AffinityHit",
+			"Reasoning",
 			"Attempts",
 			"Usage",
 		},

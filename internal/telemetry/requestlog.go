@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
 )
 
@@ -89,6 +90,7 @@ type RequestEvent struct {
 	FirstResponseMs *int64
 	DurationMs      int64
 	AffinityHit     bool
+	Reasoning       reasoning.Config
 	Attempts        []Attempt
 	Usage           UsageObservation
 }

@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
@@ -52,6 +53,7 @@ type requestRecorder struct {
 	clientModel      string
 	stream           bool
 	firstResponseMs  *int64
+	reasoning        reasoning.Config
 	usageApplicable  bool
 	usageDiagnostics usage.Diagnostics
 	attempts         []telemetry.Attempt
@@ -125,6 +127,7 @@ func (recorder *requestRecorder) emit() {
 		FirstResponseMs: recorder.firstResponseMs,
 		DurationMs:      duration.Milliseconds(),
 		AffinityHit:     false,
+		Reasoning:       recorder.reasoning,
 		Attempts:        append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:           recorder.usage,
 	})
@@ -140,6 +143,17 @@ func (recorder *requestRecorder) setStream(stream bool) {
 	if recorder != nil {
 		recorder.stream = stream
 	}
+}
+
+func (recorder *requestRecorder) setReasoning(config reasoning.Config) {
+	if recorder == nil {
+		return
+	}
+	if config.BudgetTokens != nil {
+		budget := *config.BudgetTokens
+		config.BudgetTokens = &budget
+	}
+	recorder.reasoning = config
 }
 
 func (recorder *requestRecorder) recordFirstResponse() {

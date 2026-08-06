@@ -197,6 +197,7 @@ func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) 
 		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
 	metadata.ObserveUsage = true
+	metadata.Reasoning = inspectAnthropicReasoning(req.Body)
 	return metadata, nil
 }
 

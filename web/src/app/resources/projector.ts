@@ -10,7 +10,9 @@ interface StringOptions {
 }
 
 const maximumInt64 = 9_223_372_036_854_775_807n
+const minimumInt64 = -9_223_372_036_854_775_808n
 const nanoUSDPerUSD = 1_000_000_000n
+const canonicalInteger = /^(?:0|-?[1-9]\d*)$/u
 const canonicalNonNegativeInteger = /^(?:0|[1-9]\d*)$/u
 const canonicalNonNegativeDecimal = /^(?:0|[1-9]\d*)(?:\.\d{0,8}[1-9])?$/u
 const secretLikeField =
@@ -68,6 +70,13 @@ export function projectNonNegativeInt64String(value: unknown): string {
   ) {
     invalidResponse()
   }
+  return value
+}
+
+export function projectInt64String(value: unknown): string {
+  if (typeof value !== 'string' || !canonicalInteger.test(value)) invalidResponse()
+  const parsed = BigInt(value)
+  if (parsed < minimumInt64 || parsed > maximumInt64) invalidResponse()
   return value
 }
 

@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
@@ -462,12 +463,18 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 }
 
 func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
+	reasoningBudget := int64(-1)
 	reader := &recordingRequestLogReader{pages: []requestlog.Page{{Items: []requestlog.Record{
 		{
-			RequestID:               "00000000-0000-4000-8000-000000000603",
-			CompletedAtMS:           time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
-			Protocol:                protocol.OpenAICompletions,
-			Status:                  telemetry.RequestStatusSuccess,
+			RequestID:     "00000000-0000-4000-8000-000000000603",
+			CompletedAtMS: time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
+			Protocol:      protocol.OpenAICompletions,
+			Status:        telemetry.RequestStatusSuccess,
+			Reasoning: reasoning.Config{
+				Mode:         "adaptive",
+				Effort:       "high",
+				BudgetTokens: &reasoningBudget,
+			},
 			GroupID:                 0,
 			UsageState:              usage.StateComplete,
 			CostState:               pricing.CostStatePriced,
@@ -499,6 +506,11 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 				CacheWriteUnknownTokens string `json:"cache_write_unknown_tokens"`
 				OutputTokens            string `json:"output_tokens"`
 				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
+				Reasoning               *struct {
+					Mode         *string `json:"mode"`
+					Effort       *string `json:"effort"`
+					BudgetTokens *string `json:"budget_tokens"`
+				} `json:"reasoning"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -514,7 +526,10 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 		item.InputTokens != "16" || item.CacheReadTokens != "2" ||
 		item.CacheWrite5MTokens != "3" || item.CacheWrite1HTokens != "4" ||
 		item.CacheWriteUnknownTokens != "6" ||
-		item.OutputTokens != "9007199254740992" || item.EstimatedCostNanoUSD != "123456789012" {
+		item.OutputTokens != "9007199254740992" || item.EstimatedCostNanoUSD != "123456789012" ||
+		item.Reasoning == nil || item.Reasoning.Mode == nil || *item.Reasoning.Mode != "adaptive" ||
+		item.Reasoning.Effort == nil || *item.Reasoning.Effort != "high" ||
+		item.Reasoning.BudgetTokens == nil || *item.Reasoning.BudgetTokens != "-1" {
 		t.Fatalf("usage/cost projection = %#v", item)
 	}
 }
@@ -539,7 +554,11 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 		t.Fatalf("marshal response: %v", err)
 	}
 	body := string(raw)
-	for _, field := range []string{`"client_model":null`, `"upstream_model":null`} {
+	for _, field := range []string{
+		`"client_model":null`,
+		`"upstream_model":null`,
+		`"reasoning":null`,
+	} {
 		if !strings.Contains(body, field) {
 			t.Fatalf("response = %s, want %s", body, field)
 		}

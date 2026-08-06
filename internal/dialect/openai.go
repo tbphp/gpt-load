@@ -152,6 +152,7 @@ func (d *OpenAI) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 	}
 	metadata.ObserveUsage = true
 	metadata.UsageDiagnostics = openAIRequestPricingDiagnostics(req.Body)
+	metadata.Reasoning = inspectOpenAICompletionsReasoning(req.Body)
 	return metadata, nil
 }
 

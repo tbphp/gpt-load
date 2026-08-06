@@ -40,8 +40,10 @@ import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
   formatLogDuration,
   formatLogOutputRate,
+  formatLogReasoning,
   formatLogTokenCount,
   hasRequestLogCache,
+  reasoningBudgetSemantic,
   requestLogCostDisplayState,
   requestLogUsageDisplayState,
 } from './log-format'
@@ -356,6 +358,21 @@ function modelMappingTooltip(log: RequestLogItemDto): string {
   })
 }
 
+function reasoningLabel(log: RequestLogItemDto): string {
+  if (log.reasoning === null) return ''
+  if (
+    log.reasoning.mode === 'disabled' ||
+    log.reasoning.effort === 'none' ||
+    (log.reasoning.budget_tokens !== null &&
+      reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'disabled')
+  ) {
+    return t('monitor.logs.reasoning.disabled')
+  }
+  return t('monitor.logs.reasoning.compact', {
+    value: formatLogReasoning(log, locale.value, t('monitor.logs.reasoning.dynamic')),
+  })
+}
+
 function cacheTooltip(log: RequestLogItemDto): string {
   const details = [
     [t('monitor.logs.tokens.cacheRead'), log.cache_read_tokens],
@@ -561,6 +578,7 @@ function costLabel(log: RequestLogItemDto): string {
               </AppTooltip>
             </span>
             <span v-else class="logs-list__state--warning">—</span>
+            <small v-if="reasoningLabel(log)">{{ reasoningLabel(log) }}</small>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -686,6 +704,12 @@ function costLabel(log: RequestLogItemDto): string {
 .logs-list__tokens {
   font-family: var(--font-mono);
   white-space: nowrap;
+}
+
+.logs-list__tokens > svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
 }
 
 .logs-list__hint {

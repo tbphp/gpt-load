@@ -43,6 +43,63 @@ export function formatLogTokenCount(value: string, locale: string): string {
   }
 }
 
+export function formatLogReasoning(
+  log: RequestLogItemDto,
+  locale: string,
+  dynamicLabel = 'auto',
+): string {
+  const value = log.reasoning
+  if (value === null) return ''
+  const details: string[] = []
+  if (
+    value.mode !== null &&
+    (value.mode !== 'enabled' || (value.effort === null && value.budget_tokens === null))
+  ) {
+    details.push(value.mode)
+  }
+  if (value.effort !== null) details.push(value.effort)
+  if (value.budget_tokens !== null && value.budget_tokens !== '0') {
+    if (value.budget_tokens === '-1') {
+      if (value.effort === null) details.push(dynamicLabel)
+    } else {
+      details.push(formatReasoningBudgetCompact(value.budget_tokens, locale))
+    }
+  }
+  return details.join(' / ')
+}
+
+export function formatLogReasoningBudget(value: string, locale: string): string {
+  return formatSignedInteger(value, locale)
+}
+
+export function reasoningBudgetSemantic(value: string): 'disabled' | 'dynamic' | null {
+  if (value === '0') return 'disabled'
+  if (value === '-1') return 'dynamic'
+  return null
+}
+
+function formatReasoningBudgetCompact(value: string, locale: string): string {
+  if (!/^(?:0|[1-9]\d*)$/u.test(value)) return '—'
+  try {
+    const amount = BigInt(value)
+    if (amount < 1_000n) return formatSignedInteger(value, locale)
+    if (amount < 1_000_000n) return `${amount / 1_000n}K`
+    if (amount < 1_000_000_000n) return `${amount / 1_000_000n}M`
+    return `${amount / 1_000_000_000n}B`
+  } catch {
+    return value
+  }
+}
+
+function formatSignedInteger(value: string, locale: string): string {
+  if (!/^(?:0|-?[1-9]\d*)$/u.test(value)) return '—'
+  try {
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(BigInt(value))
+  } catch {
+    return value
+  }
+}
+
 export function formatLogOutputRate(log: RequestLogItemDto, locale: string): string {
   if (!log.stream || log.first_response_ms === null || log.duration_ms <= log.first_response_ms) {
     return '—'

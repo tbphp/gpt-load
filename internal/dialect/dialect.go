@@ -6,6 +6,7 @@ import (
 
 	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -23,6 +24,7 @@ type RequestMetadata struct {
 	Stream           bool
 	ObserveUsage     bool
 	UsageDiagnostics usage.Diagnostics
+	Reasoning        reasoning.Config
 }
 
 type Dialect interface {
