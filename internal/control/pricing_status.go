@@ -1,6 +1,8 @@
 package control
 
 import (
+	"strings"
+
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/storage/models"
 )
@@ -30,17 +32,37 @@ func modelPriceHasConfiguredValue(row models.ModelPrice) bool {
 		len(row.ContextPriceTiers) > 0
 }
 
-func resolveCandidatePricingStatus(
+func resolveCandidatePricing(
 	row *models.ModelPrice,
 	snapshot *catalog.Snapshot,
 	scopeProviderID string,
 	modelID string,
-) PricingStatus {
+) (PricingStatus, *string) {
 	if row != nil {
-		return resolvePricingStatus(row)
+		status := resolvePricingStatus(row)
+		if status != PricingStatusConfigured || !modelPriceHasConfiguredValue(*row) || row.IsManual {
+			return status, nil
+		}
+		if _, providerID, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID); ok {
+			source := pricingSourceName(snapshot, providerID, providerID)
+			return status, &source
+		}
+		return status, nil
 	}
-	if _, _, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID); ok {
-		return PricingStatusConfigured
+	if _, providerID, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID); ok {
+		source := pricingSourceName(snapshot, providerID, providerID)
+		return PricingStatusConfigured, &source
 	}
-	return PricingStatusPending
+	return PricingStatusPending, nil
+}
+
+func pricingSourceName(snapshot *catalog.Snapshot, providerID string, fallback string) string {
+	if snapshot != nil && providerID != "" {
+		if provider, exists := snapshot.Providers[providerID]; exists {
+			if name := strings.TrimSpace(provider.Name); name != "" {
+				return name
+			}
+		}
+	}
+	return fallback
 }

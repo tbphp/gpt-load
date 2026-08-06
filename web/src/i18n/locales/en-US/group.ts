@@ -114,7 +114,11 @@ export default {
       conflictSummary: 'Duplicate client model names must be resolved before saving',
       emptyAliasSummary: 'Enabled aliases without a client name must be completed before saving',
       locateFirstInvalid: 'Clear search and locate the first issue',
-      pricingStatus: { pending: 'Pending', configured: 'Configured' },
+      pricingStatus: {
+        pending: 'Pending',
+        configured: 'Configured',
+        discovered: 'Price found\nMatched provider: {source}',
+      },
       sources: { catalog: 'Catalog', live: 'Live discovery' },
       drawer: {
         title: 'Get upstream models',

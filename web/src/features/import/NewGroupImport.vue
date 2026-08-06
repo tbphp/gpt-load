@@ -285,6 +285,7 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
     pending: t('import.models.pricing.pending'),
     configured: t('import.models.pricing.configured'),
   },
+  pricingDiscovered: (source) => t('import.models.pricing.discovered', { source }),
   sources: {
     catalog: t('import.models.sources.catalog'),
     live: t('import.models.sources.live'),

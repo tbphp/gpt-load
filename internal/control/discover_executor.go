@@ -116,11 +116,12 @@ func (s *Service) mergeDiscoveredModels(
 	seen := make(map[string]int, len(live)+len(providerModels))
 	for _, id := range live {
 		model, catalogMatch := providerModels[id]
+		pricingStatus, pricingSource := resolveCandidatePricing(
+			rows[id], catalogSnapshot, scopeProviderID, id,
+		)
 		candidate := ModelCandidate{
 			ID: id, Name: id, Sources: []string{"live"},
-			PricingStatus: resolveCandidatePricingStatus(
-				rows[id], catalogSnapshot, scopeProviderID, id,
-			),
+			PricingStatus: pricingStatus, PricingSource: pricingSource,
 		}
 		if catalogMatch {
 			if name := strings.TrimSpace(model.Name); name != "" {
@@ -140,11 +141,12 @@ func (s *Service) mergeDiscoveredModels(
 		if name == "" {
 			name = id
 		}
+		pricingStatus, pricingSource := resolveCandidatePricing(
+			rows[id], catalogSnapshot, scopeProviderID, id,
+		)
 		catalogOnly = append(catalogOnly, ModelCandidate{
 			ID: id, Name: name, Sources: []string{"catalog"},
-			PricingStatus: resolveCandidatePricingStatus(
-				rows[id], catalogSnapshot, scopeProviderID, id,
-			),
+			PricingStatus: pricingStatus, PricingSource: pricingSource,
 		})
 	}
 	sort.Slice(catalogOnly, func(left, right int) bool {

@@ -42,6 +42,7 @@ export interface ModelCandidate {
   name: string
   sources: ModelCandidateSource[]
   pricing_status: ModelPricingStatus
+  pricing_source: string | null
 }
 
 export interface ProviderModelFilters {
@@ -73,7 +74,7 @@ const providerSuggestionFields = [
 ] as const
 const providerSuggestionSources = ['official', 'curated', 'catalog'] as const
 const providerSuggestionListFields = ['items', 'total'] as const
-const modelCandidateFields = ['id', 'name', 'sources', 'pricing_status'] as const
+const modelCandidateFields = ['id', 'name', 'sources', 'pricing_status', 'pricing_source'] as const
 const providerModelListFields = ['items', 'total'] as const
 const catalogSyncStatusFields = [
   'trigger',
@@ -145,12 +146,16 @@ export function projectModelCandidate(value: unknown): ModelCandidate {
   const sources = projectArray(record.sources, (source) =>
     projectEnum(source, modelCandidateSources),
   )
+  const pricingStatus = projectEnum(record.pricing_status, pricingStatuses)
+  const pricingSource = record.pricing_source === null ? null : projectString(record.pricing_source)
   if (
     id !== id.trim() ||
     name.trim().length === 0 ||
     sources.length === 0 ||
     sources.length > modelCandidateSources.length ||
-    new Set(sources).size !== sources.length
+    new Set(sources).size !== sources.length ||
+    (pricingSource !== null && pricingSource !== pricingSource.trim()) ||
+    (pricingStatus === 'pending' && pricingSource !== null)
   ) {
     invalidResponse()
   }
@@ -158,7 +163,8 @@ export function projectModelCandidate(value: unknown): ModelCandidate {
     id,
     name,
     sources,
-    pricing_status: projectEnum(record.pricing_status, pricingStatuses),
+    pricing_status: pricingStatus,
+    pricing_source: pricingSource,
   }
 }
 

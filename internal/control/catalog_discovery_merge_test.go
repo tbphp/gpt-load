@@ -50,11 +50,15 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	openAI := "OpenAI"
 	want := []ModelCandidate{
 		{ID: "shared", Name: "Shared display", Sources: []string{"live", "catalog"}, PricingStatus: PricingStatusConfigured},
 		{ID: "live-only", Name: "live-only", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
 		{ID: "SHARED", Name: "Case distinct", Sources: []string{"catalog"}, PricingStatus: PricingStatusPending},
-		{ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"}, PricingStatus: PricingStatusConfigured},
+		{
+			ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"},
+			PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
+		},
 	}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("merged candidates = %#v, want %#v", got.Models, want)
@@ -78,6 +82,7 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 
 func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *testing.T) {
 	fixture := newServiceFixture(t)
+	openAI := "openai"
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"anthropic": {
 			ID: "anthropic", Models: map[string]catalog.Model{
@@ -110,7 +115,10 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(custom.Models, []ModelCandidate{
-		{ID: "shared-model", Name: "shared-model", Sources: []string{"live"}, PricingStatus: PricingStatusConfigured},
+		{
+			ID: "shared-model", Name: "shared-model", Sources: []string{"live"},
+			PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
+		},
 	}) {
 		t.Fatalf("custom draft candidates = %#v", custom.Models)
 	}
@@ -129,7 +137,10 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(customGroup.Models, []ModelCandidate{
-		{ID: "shared-model", Name: "shared-model", Sources: []string{"live"}, PricingStatus: PricingStatusConfigured},
+		{
+			ID: "shared-model", Name: "shared-model", Sources: []string{"live"},
+			PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
+		},
 	}) {
 		t.Fatalf("custom Group candidates = %#v", customGroup.Models)
 	}
@@ -141,7 +152,10 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(provider.Models, []ModelCandidate{
-		{ID: "shared-model", Name: "Anthropic model", Sources: []string{"live", "catalog"}, PricingStatus: PricingStatusConfigured},
+		{
+			ID: "shared-model", Name: "Anthropic model", Sources: []string{"live", "catalog"},
+			PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
+		},
 	}) {
 		t.Fatalf("provider draft candidates = %#v", provider.Models)
 	}
@@ -191,7 +205,10 @@ func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testi
 	want := []ModelCandidate{
 		{ID: "shared", Name: "Shared display", Sources: []string{"live", "catalog"}, PricingStatus: PricingStatusConfigured},
 		{ID: "live-only", Name: "live-only", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
-		{ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"}, PricingStatus: PricingStatusConfigured},
+		{
+			ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"},
+			PricingStatus: PricingStatusConfigured, PricingSource: &providerID,
+		},
 	}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("saved group candidates = %#v, want %#v", got.Models, want)

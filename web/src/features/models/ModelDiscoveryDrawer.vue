@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { LoaderCircle, RefreshCw } from '@lucide/vue'
+import { CircleDollarSign, LoaderCircle, Radar, RefreshCw } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import type { ModelCandidate } from '@/app/resources/providers'
 
-import ModelPricingStatus from './ModelPricingStatus.vue'
 import type { ModelDiscoveryDrawerLabels } from './model-draft'
 
 type DiscoveryFilter = 'unadded' | 'all'
@@ -181,8 +181,9 @@ function confirm(): void {
           >
             <input
               type="checkbox"
-              :checked="selected.has(candidate.id)"
+              :checked="currentIds.has(candidate.id) || selected.has(candidate.id)"
               :disabled="currentIds.has(candidate.id)"
+              :title="currentIds.has(candidate.id) ? labels.alreadyAdded : undefined"
               @change="setCandidate(candidate, ($event.target as HTMLInputElement).checked)"
             />
             <span class="model-discovery-drawer__identity">
@@ -190,16 +191,27 @@ function confirm(): void {
               <code>{{ candidate.id }}</code>
             </span>
             <span class="model-discovery-drawer__evidence">
-              <span>{{
-                candidate.sources.map((source) => labels.sources[source]).join(' · ')
-              }}</span>
-              <ModelPricingStatus
-                :status="candidate.pricing_status"
-                :labels="labels.pricingStatus"
-              />
-              <small>{{
-                currentIds.has(candidate.id) ? labels.alreadyAdded : labels.unadded
-              }}</small>
+              <AppTooltip v-if="candidate.sources.includes('live')" :content="labels.sources.live">
+                <span
+                  class="model-discovery-drawer__status-icon model-discovery-drawer__status-icon--live"
+                  role="img"
+                  :aria-label="labels.sources.live"
+                >
+                  <Radar :size="17" stroke-width="1.9" aria-hidden="true" />
+                </span>
+              </AppTooltip>
+              <AppTooltip
+                v-if="candidate.pricing_source"
+                :content="labels.pricingDiscovered(candidate.pricing_source)"
+              >
+                <span
+                  class="model-discovery-drawer__status-icon model-discovery-drawer__status-icon--pricing"
+                  role="img"
+                  :aria-label="labels.pricingDiscovered(candidate.pricing_source)"
+                >
+                  <CircleDollarSign :size="17" stroke-width="1.9" aria-hidden="true" />
+                </span>
+              </AppTooltip>
             </span>
           </label>
           <InlineFeedback
@@ -288,7 +300,7 @@ function confirm(): void {
 .model-discovery-drawer__candidate {
   display: grid;
   min-height: 0;
-  grid-template-columns: auto minmax(0, 1fr) minmax(150px, auto);
+  grid-template-columns: auto minmax(0, 1fr) minmax(52px, auto);
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid var(--color-border-subtle);
@@ -318,9 +330,7 @@ function confirm(): void {
   font-size: var(--text-sm);
 }
 
-.model-discovery-drawer__identity code,
-.model-discovery-drawer__evidence > span,
-.model-discovery-drawer__evidence small {
+.model-discovery-drawer__identity code {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
@@ -330,6 +340,24 @@ function confirm(): void {
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.model-discovery-drawer__status-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: var(--radius-control);
+}
+
+.model-discovery-drawer__status-icon--live {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.model-discovery-drawer__status-icon--pricing {
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .model-discovery-drawer__candidate--added {

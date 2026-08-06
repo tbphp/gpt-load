@@ -132,6 +132,7 @@ export default {
       pricing: {
         pending: 'Pending',
         configured: 'Configured',
+        discovered: 'Price found\nMatched provider: {source}',
       },
       aliasFor: 'Alias for {id}',
       manualId: 'Manual model ID',

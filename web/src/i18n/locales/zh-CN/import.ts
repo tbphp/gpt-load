@@ -124,6 +124,7 @@ export default {
       pricing: {
         pending: '待配置',
         configured: '已配置',
+        discovered: '发现价格\n匹配渠道：{source}',
       },
       aliasFor: '{id} 的别名',
       manualId: '手动模型 ID',

@@ -115,7 +115,11 @@ export default {
       conflictSummary: '保存前に重複するクライアントモデル名を解消してください',
       emptyAliasSummary: '有効な別名にクライアント名がないモデルを保存前に修正してください',
       locateFirstInvalid: '検索をクリアして最初の問題に移動',
-      pricingStatus: { pending: '未設定', configured: '設定済み' },
+      pricingStatus: {
+        pending: '未設定',
+        configured: '設定済み',
+        discovered: '価格を検出\n一致したプロバイダー：{source}',
+      },
       sources: { catalog: 'カタログ', live: '上流から取得' },
       drawer: {
         title: 'アップストリームモデルを取得',

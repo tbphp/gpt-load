@@ -51,6 +51,7 @@ type ModelCandidate struct {
 	Name          string        `json:"name"`
 	Sources       []string      `json:"sources"`
 	PricingStatus PricingStatus `json:"pricing_status"`
+	PricingSource *string       `json:"pricing_source"`
 }
 
 type ProviderModelQuery struct {
@@ -163,7 +164,7 @@ func (s *Service) ListProviderModels(
 			continue
 		}
 		row := rows[model.ID]
-		status := resolveCandidatePricingStatus(row, snapshot, providerID, model.ID)
+		status, pricingSource := resolveCandidatePricing(row, snapshot, providerID, model.ID)
 		if query.Status != "" && query.Status != status {
 			continue
 		}
@@ -172,7 +173,8 @@ func (s *Service) ListProviderModels(
 			name = model.ID
 		}
 		items = append(items, ModelCandidate{
-			ID: model.ID, Name: name, Sources: []string{"catalog"}, PricingStatus: status,
+			ID: model.ID, Name: name, Sources: []string{"catalog"},
+			PricingStatus: status, PricingSource: pricingSource,
 		})
 	}
 	sort.Slice(items, func(left, right int) bool {

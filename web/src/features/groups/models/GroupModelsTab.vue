@@ -172,6 +172,7 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
     pending: t('group.modelEditor.pricingStatus.pending'),
     configured: t('group.modelEditor.pricingStatus.configured'),
   },
+  pricingDiscovered: (source) => t('group.modelEditor.pricingStatus.discovered', { source }),
   sources: {
     catalog: t('group.modelEditor.sources.catalog'),
     live: t('group.modelEditor.sources.live'),

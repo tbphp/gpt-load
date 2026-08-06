@@ -113,7 +113,11 @@ export default {
       conflictSummary: '存在重复的对外模型名称，修正后才能保存',
       emptyAliasSummary: '存在已启用但未填写对外别名的模型，修正后才能保存',
       locateFirstInvalid: '清除搜索并定位首个问题',
-      pricingStatus: { pending: '待配置', configured: '已配置' },
+      pricingStatus: {
+        pending: '待配置',
+        configured: '已配置',
+        discovered: '发现价格\n匹配渠道：{source}',
+      },
       sources: { catalog: '渠道目录', live: '上游发现' },
       drawer: {
         title: '获取上游模型列表',

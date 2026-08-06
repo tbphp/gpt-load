@@ -130,6 +130,7 @@ export default {
       pricing: {
         pending: '未設定',
         configured: '設定済み',
+        discovered: '価格を検出\n一致したプロバイダー：{source}',
       },
       aliasFor: '{id} のエイリアス',
       manualId: '手動モデル ID',

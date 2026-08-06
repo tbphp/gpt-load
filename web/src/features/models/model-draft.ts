@@ -62,6 +62,7 @@ export interface ModelDiscoveryDrawerLabels {
   cancel: string
   confirm: string
   pricingStatus: Record<ModelPricingStatus, string>
+  pricingDiscovered: (source: string) => string
   sources: Record<ModelCandidateSource, string>
 }
 
