@@ -27,7 +27,7 @@ export function normalizeMonitorQuery(query: Record<string, unknown>): LocationQ
   return normalizeLogsQuery(query, tab)
 }
 
-export function usageMonitorQuery(filters: UsageFilters = { range: '30d' }): LocationQueryRaw {
+export function usageMonitorQuery(filters: UsageFilters = { range: '24h' }): LocationQueryRaw {
   const normalized: LocationQueryRaw = {
     tab: 'usage',
     range: filters.range,

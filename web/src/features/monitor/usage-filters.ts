@@ -12,7 +12,7 @@ export type UsageFilterErrors = Partial<
 >
 
 const emptyDraft = (): UsageFilterDraft => ({
-  range: '30d',
+  range: '24h',
   breakdown_order: 'requests',
   group_id: '',
   model: '',
@@ -21,7 +21,7 @@ const emptyDraft = (): UsageFilterDraft => ({
 export function normalizeUsageRange(raw: unknown): UsageFilters['range'] {
   return raw === '24h' || raw === '3d' || raw === '7d' || raw === '15d' || raw === '30d'
     ? raw
-    : '30d'
+    : '24h'
 }
 
 export function normalizeUsageGroupID(raw: unknown): number | undefined {
