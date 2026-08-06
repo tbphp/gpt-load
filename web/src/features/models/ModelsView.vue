@@ -21,7 +21,6 @@ import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -29,13 +28,13 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 import ModelPriceDrawer from '@/features/model-prices/ModelPriceDrawer.vue'
 
-import ModelTreeCollection from './ModelTreeCollection.vue'
+import ModelCollection from './ModelCollection.vue'
+import ModelSummaryStrip from './ModelSummaryStrip.vue'
 
 const client = useApiClient()
-const { locale, n, t } = useI18n()
+const { n, t } = useI18n()
 const searchDraft = ref('')
 const appliedSearch = ref<string | undefined>()
 const groupStatus = ref<ModelCollectionGroupStatus>('enabled')
@@ -81,14 +80,6 @@ const pricingStatusOptions = computed(() =>
     label: t(`models.filters.pricingStatus.${value}`),
   })),
 )
-const catalogTone = computed(() => {
-  if (!data.value?.catalog.available) return 'neutral' as const
-  return data.value.catalog.error_code ? ('warning' as const) : ('success' as const)
-})
-const catalogLabel = computed(() => {
-  if (!data.value?.catalog.available) return t('models.catalog.unavailable')
-  return data.value.catalog.error_code ? t('models.catalog.stale') : t('models.catalog.available')
-})
 
 watch(
   [() => data.value?.pagination.total_pages, page, () => modelsQuery.isPlaceholderData.value],
@@ -140,8 +131,8 @@ function resetConditions(): void {
   page.value = 1
 }
 
-function editScope(scope: ModelPriceBranchDto, trigger: HTMLElement): void {
-  selected.value = scope
+function editBranch(branch: ModelPriceBranchDto, trigger: HTMLElement): void {
+  selected.value = branch
   restoreFocus = trigger
   drawerOpen.value = true
 }
@@ -211,46 +202,7 @@ onBeforeUnmount(() => searchDebounce.cancel())
           @retry="modelsQuery.refetch()"
         />
 
-        <InlineFeedback appearance="ledger" tone="neutral">
-          {{ t('models.context') }}
-        </InlineFeedback>
-
-        <section class="models-page__overview" :aria-label="t('models.summary.label')">
-          <dl class="models-page__summary">
-            <div>
-              <dt>{{ t('models.summary.clientModels') }}</dt>
-              <dd>{{ n(data.summary.client_model_count) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('models.summary.upstreamModels') }}</dt>
-              <dd>{{ n(data.summary.upstream_model_count) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('models.summary.prices') }}</dt>
-              <dd>{{ n(data.summary.price_count) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('models.summary.pendingPrices') }}</dt>
-              <dd>{{ n(data.summary.pending_price_count) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('models.summary.unreferencedPrices') }}</dt>
-              <dd>{{ n(data.summary.unreferenced_price_count) }}</dd>
-            </div>
-          </dl>
-          <div class="models-page__catalog-status">
-            <StatusBadge size="compact" :tone="catalogTone">{{ catalogLabel }}</StatusBadge>
-            <span v-if="data.catalog.successful_fetch_at_ms > 0">
-              {{ t('models.catalog.lastSuccess') }}
-              <AppDateTime :instant="data.catalog.successful_fetch_at_ms" :locale="locale" />
-            </span>
-            <span v-if="data.catalog.checked_at_ms > 0">
-              {{ t('models.catalog.lastCheck') }}
-              <AppDateTime :instant="data.catalog.checked_at_ms" :locale="locale" />
-            </span>
-            <code v-if="data.catalog.error_code">{{ data.catalog.error_code }}</code>
-          </div>
-        </section>
+        <ModelSummaryStrip :summary="data.summary" :catalog="data.catalog" />
 
         <CollectionFilterBar
           class="models-page__filters"
@@ -279,9 +231,9 @@ onBeforeUnmount(() => searchDebounce.cancel())
             />
           </label>
           <label class="collection-filter-field">
-            <span class="collection-filter-label">{{
-              t('models.filters.pricingStatusLabel')
-            }}</span>
+            <span class="collection-filter-label">
+              {{ t('models.filters.pricingStatusLabel') }}
+            </span>
             <AppSelect
               size="compact"
               :label="t('models.filters.pricingStatusLabel')"
@@ -333,7 +285,7 @@ onBeforeUnmount(() => searchDebounce.cancel())
         </EmptyState>
 
         <template v-else>
-          <ModelTreeCollection :items="data.items" @edit="editScope" />
+          <ModelCollection :items="data.items" @edit="editBranch" />
           <PaginationBar
             :page="data.pagination.page"
             :page-size="data.pagination.page_size"
@@ -345,6 +297,8 @@ onBeforeUnmount(() => searchDebounce.cancel())
             @update:page-size="setPageSize"
           />
         </template>
+
+        <p class="models-page__footnote">{{ t('models.context') }}</p>
       </template>
 
       <ModelPriceDrawer
@@ -372,49 +326,9 @@ onBeforeUnmount(() => searchDebounce.cancel())
   font-size: var(--text-meta);
 }
 
-.models-page__overview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-  border-block: 1px solid var(--color-border-subtle);
-  padding-block: var(--space-3);
-}
-
-.models-page__summary {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: repeat(5, minmax(96px, 1fr));
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.models-page__summary div {
-  display: grid;
-  gap: 2px;
-}
-
-.models-page__summary dt,
-.models-page__catalog-status span {
+.models-page__footnote {
+  margin: calc(var(--space-4-5) * -0.45) 0 0;
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.models-page__summary dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  font-weight: 650;
-}
-
-.models-page__catalog-status {
-  display: grid;
-  justify-items: end;
-  gap: 3px;
-}
-
-.models-page__catalog-status code {
-  color: var(--color-warning);
   font-size: var(--text-label-xs);
 }
 
@@ -424,14 +338,6 @@ onBeforeUnmount(() => searchDebounce.cancel())
 }
 
 @media (max-width: 980px) {
-  .models-page__overview {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .models-page__catalog-status {
-    justify-items: start;
-  }
-
   .models-page :deep(.models-page__filters.collection-filter-bar) {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -442,10 +348,6 @@ onBeforeUnmount(() => searchDebounce.cancel())
 }
 
 @media (max-width: 680px) {
-  .models-page__summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .models-page :deep(.page-header__actions) {
     width: 100%;
   }

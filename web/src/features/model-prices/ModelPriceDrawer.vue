@@ -235,7 +235,9 @@ onBeforeUnmount(clearRequest)
           <li v-for="group in affectedGroups" :key="group.id">
             <strong>{{ group.name }}</strong>
             <span :data-enabled="group.enabled">
-              {{ group.enabled ? t('models.tree.groupEnabled') : t('models.tree.groupDisabled') }}
+              {{
+                group.enabled ? t('models.detail.groupEnabled') : t('models.detail.groupDisabled')
+              }}
             </span>
           </li>
         </ul>
