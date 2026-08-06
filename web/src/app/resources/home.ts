@@ -46,6 +46,8 @@ export interface HomeStatisticsSummary {
   success_count: number
   failure_count: number
   total_tokens: number
+  input_tokens: number
+  cache_read_tokens: number
   cache_write_unknown_tokens: number
   estimated_cost_nano_usd: string
   usage_missing_count: number
@@ -134,6 +136,8 @@ const summaryFields = [
   'success_count',
   'failure_count',
   'total_tokens',
+  'input_tokens',
+  'cache_read_tokens',
   'cache_write_unknown_tokens',
   'estimated_cost_nano_usd',
   'usage_missing_count',
@@ -229,6 +233,8 @@ function projectHomeStatisticsSummary(value: unknown): HomeStatisticsSummary {
     success_count: projectSafeInteger(record.success_count, { minimum: 0 }),
     failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
     total_tokens: projectSafeInteger(record.total_tokens, { minimum: 0 }),
+    input_tokens: projectSafeInteger(record.input_tokens, { minimum: 0 }),
+    cache_read_tokens: projectSafeInteger(record.cache_read_tokens, { minimum: 0 }),
     cache_write_unknown_tokens: projectSafeInteger(record.cache_write_unknown_tokens, {
       minimum: 0,
     }),
@@ -244,6 +250,8 @@ function projectHomeStatisticsSummary(value: unknown): HomeStatisticsSummary {
     result.success_count > result.request_count ||
     result.failure_count > result.request_count ||
     result.success_count + result.failure_count !== result.request_count ||
+    result.cache_read_tokens > result.input_tokens ||
+    result.input_tokens > result.total_tokens ||
     result.usage_missing_count > result.request_count ||
     result.partial_count > result.request_count ||
     result.unpriced_request_count > result.request_count ||
@@ -494,6 +502,8 @@ export function createEmptyHomeStatistics(
       success_count: 0,
       failure_count: 0,
       total_tokens: 0,
+      input_tokens: 0,
+      cache_read_tokens: 0,
       cache_write_unknown_tokens: 0,
       estimated_cost_nano_usd: '0',
       usage_missing_count: 0,

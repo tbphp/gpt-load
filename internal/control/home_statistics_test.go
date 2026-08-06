@@ -239,6 +239,8 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 				RequestCount            int64  `json:"request_count"`
 				SuccessCount            int64  `json:"success_count"`
 				FailureCount            int64  `json:"failure_count"`
+				InputTokens             int64  `json:"input_tokens"`
+				CacheReadTokens         int64  `json:"cache_read_tokens"`
 				TotalTokens             int64  `json:"total_tokens"`
 				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
 				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
@@ -291,6 +293,8 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 		envelope.Data.Summary.RequestCount != 8 ||
 		envelope.Data.Summary.SuccessCount != 6 ||
 		envelope.Data.Summary.FailureCount != 2 ||
+		envelope.Data.Summary.InputTokens != 66 ||
+		envelope.Data.Summary.CacheReadTokens != 12 ||
 		envelope.Data.Summary.TotalTokens != 81 ||
 		envelope.Data.Summary.CacheWriteUnknownTokens != 16 ||
 		envelope.Data.Summary.EstimatedCostNanoUSD != "58200000000" ||

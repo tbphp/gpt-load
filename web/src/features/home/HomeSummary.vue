@@ -15,6 +15,7 @@ import {
   formatPercent,
   formatTokens,
 } from '@/lib/format'
+import { formatCacheHitRate } from '@/lib/cache-rate'
 
 import type { HomeStatisticsState } from './home-presenter'
 import { homeRangeLabelKey } from './home-range'
@@ -75,6 +76,14 @@ const costDetail = computed(() => {
         tokens,
         unpriced: formatInteger(summary.unpriced_request_count, locale.value),
       })
+})
+const cacheDetail = computed(() => {
+  const summary = snapshot.value?.summary
+  if (!summary) return ''
+  return t('home.ledger.cacheTokens', {
+    read: formatTokens(summary.cache_read_tokens, locale.value),
+    input: formatTokens(summary.input_tokens, locale.value),
+  })
 })
 const costDetailExact = computed(() => {
   const summary = snapshot.value?.summary
@@ -151,6 +160,13 @@ function selectRange(value: string): void {
         <SkeletonBlock width="68%" height="2.25rem" />
         <SkeletonBlock width="58%" height="0.75rem" />
       </div>
+      <div
+        class="home-summary__figure home-summary__figure--secondary home-summary__figure--loading"
+      >
+        <SkeletonBlock width="52%" height="0.72rem" />
+        <SkeletonBlock width="68%" height="2.25rem" />
+        <SkeletonBlock width="58%" height="0.75rem" />
+      </div>
     </template>
     <template v-else>
       <StatFigure
@@ -160,6 +176,18 @@ function selectRange(value: string): void {
           formatPercent(snapshot.summary.success_count, snapshot.summary.request_count, locale)
         "
         :detail="successDetail"
+      />
+      <StatFigure
+        class="home-summary__figure home-summary__figure--secondary"
+        :label="t('home.ledger.cacheHitRate', { range: rangeLabel(snapshot.range) })"
+        :value="
+          formatCacheHitRate(
+            snapshot.summary.cache_read_tokens,
+            snapshot.summary.input_tokens,
+            locale,
+          )
+        "
+        :detail="cacheDetail"
       />
       <StatFigure
         class="home-summary__figure home-summary__figure--secondary"
@@ -252,14 +280,14 @@ function selectRange(value: string): void {
 
 .home-summary__figures {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   align-items: start;
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 22px 0 24px;
 }
 .home-summary__range {
   flex: none;
-  grid-column: 3;
+  grid-column: 4;
 }
 .home-summary__figure {
   border-left: 1px solid var(--color-border-subtle);
@@ -287,7 +315,7 @@ function selectRange(value: string): void {
     justify-content: start;
   }
   .home-summary__figures {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .home-summary__range {
     grid-column: 1 / -1;
@@ -303,6 +331,18 @@ function selectRange(value: string): void {
   }
   .home-summary__figure:first-child {
     padding-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-summary__figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .home-summary__figure:nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    border-left: 0;
+    padding: 16px 0 0;
   }
 }
 </style>

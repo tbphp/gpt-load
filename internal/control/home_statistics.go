@@ -27,6 +27,8 @@ type homeStatisticsAggregateResponse struct {
 	SuccessCount            int64  `json:"success_count"`
 	FailureCount            int64  `json:"failure_count"`
 	TotalTokens             int64  `json:"total_tokens"`
+	InputTokens             int64  `json:"input_tokens"`
+	CacheReadTokens         int64  `json:"cache_read_tokens"`
 	CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
 	EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
 	UsageMissingCount       int64  `json:"usage_missing_count"`
@@ -349,11 +351,26 @@ func mapHomeStatisticsAggregate(
 			"map home statistics aggregate: invalid request count",
 		)
 	}
+	inputTokens, err := checkedUsageTokenTotal(
+		source.UncachedInputTokens,
+		source.CacheReadTokens,
+		source.CacheWrite5MTokens,
+		source.CacheWrite1HTokens,
+		source.CacheWriteUnknownTokens,
+	)
+	if err != nil {
+		return homeStatisticsAggregateResponse{}, fmt.Errorf(
+			"map home statistics aggregate input tokens: %w",
+			err,
+		)
+	}
 	return homeStatisticsAggregateResponse{
 		RequestCount:            mapped.RequestCount,
 		SuccessCount:            mapped.SuccessCount,
 		FailureCount:            mapped.FailureCount,
 		TotalTokens:             mapped.TotalTokens,
+		InputTokens:             inputTokens,
+		CacheReadTokens:         mapped.CacheReadTokens,
 		CacheWriteUnknownTokens: mapped.CacheWriteUnknownTokens,
 		EstimatedCostNanoUSD:    mapped.EstimatedCostNanoUSD,
 		UsageMissingCount:       mapped.UsageMissingCount,

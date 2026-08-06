@@ -17,6 +17,7 @@ import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost } from '@/lib/format'
 
+import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
   formatLogDuration,
   formatLogOutputRate,
@@ -48,6 +49,10 @@ const cacheRows = computed(() => {
     { label: t('monitor.logs.tokens.cacheWrite1h'), value: log.value.cache_write_1h_tokens },
     { label: t('monitor.logs.tokens.cacheWrite'), value: log.value.cache_write_unknown_tokens },
   ].filter(({ value }) => value !== '0')
+})
+const cacheRateLabel = computed(() => {
+  if (!log.value || cacheRows.value.length === 0) return '—'
+  return formatCacheHitRate(log.value.cache_read_tokens, log.value.input_tokens, locale.value)
 })
 const formula = computed(() => {
   const lines = receipt.value?.line_items ?? []
@@ -269,6 +274,10 @@ function groupLabel(): string {
           <div v-for="row in cacheRows" :key="row.label">
             <dt>{{ row.label }}</dt>
             <dd>{{ formatLogTokenCount(row.value, locale) }}</dd>
+          </div>
+          <div v-if="cacheRows.length > 0">
+            <dt>{{ t('monitor.logs.tokens.cacheHitRate') }}</dt>
+            <dd>{{ cacheRateLabel }}</dd>
           </div>
           <div v-if="costDisplayState !== 'unpriced'">
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>

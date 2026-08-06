@@ -53,6 +53,7 @@ withDefaults(
   font-size: var(--text-label-xs);
   line-height: 1.45;
   transform-origin: var(--reka-tooltip-content-transform-origin);
+  white-space: pre-line;
 }
 
 .app-tooltip__content[data-state='delayed-open'],

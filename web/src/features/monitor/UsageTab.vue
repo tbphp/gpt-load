@@ -24,8 +24,9 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
+import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
 
+import { cacheHitRate, formatCacheHitRate } from '@/lib/cache-rate'
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 import {
   applyUsageFilterDraft,
@@ -82,6 +83,41 @@ function granularityLabel(): string {
 
 function formatCost(aggregate: UsageAggregateDto): string {
   return formatEstimatedCost(aggregate.estimated_cost_nano_usd, locale.value)
+}
+
+function inputTokens(aggregate: UsageAggregateDto): number {
+  return (
+    aggregate.uncached_input_tokens +
+    aggregate.cache_read_tokens +
+    aggregate.cache_write_5m_tokens +
+    aggregate.cache_write_1h_tokens +
+    aggregate.cache_write_unknown_tokens
+  )
+}
+
+function nonHitInputTokens(aggregate: UsageAggregateDto): number {
+  return inputTokens(aggregate) - aggregate.cache_read_tokens
+}
+
+function cacheRate(aggregate: UsageAggregateDto): number | null {
+  return cacheHitRate(aggregate.cache_read_tokens, inputTokens(aggregate))
+}
+
+function cacheRateLabel(aggregate: UsageAggregateDto): string {
+  return formatCacheHitRate(aggregate.cache_read_tokens, inputTokens(aggregate), locale.value)
+}
+
+function nonHitRateLabel(aggregate: UsageAggregateDto): string {
+  const rate = cacheRate(aggregate)
+  if (rate === null) return '—'
+  return new Intl.NumberFormat(locale.value, {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  }).format(1 - rate)
+}
+
+function cacheShareWidth(aggregate: UsageAggregateDto): string {
+  return `${(cacheRate(aggregate) ?? 0) * 100}%`
 }
 
 function groupName(groupID: number): string {
@@ -170,7 +206,7 @@ defineExpose({ openFilters })
         @retry="usageQuery.refetch()"
       />
 
-      <UsageSummary :range-label="rangeLabel(report.range)" :summary="report.summary" />
+      <UsageSummary :summary="report.summary" />
 
       <InlineFeedback
         v-if="
@@ -226,6 +262,34 @@ defineExpose({ openFilters })
               :title="t('monitor.usage.tokens.title')"
               :description="t('monitor.usage.tokens.description')"
             />
+            <div class="usage-token-composition">
+              <div class="usage-token-composition__legend">
+                <span>
+                  <i class="usage-token-composition__dot usage-token-composition__dot--hit" />
+                  {{ t('monitor.usage.tokens.cacheRead') }}
+                  <strong>{{ formatTokens(report.summary.cache_read_tokens, locale) }}</strong>
+                  <small>{{ cacheRateLabel(report.summary) }}</small>
+                </span>
+                <span>
+                  <i class="usage-token-composition__dot" />
+                  {{ t('monitor.usage.tokens.nonHitInput') }}
+                  <strong>{{ formatTokens(nonHitInputTokens(report.summary), locale) }}</strong>
+                  <small>{{ nonHitRateLabel(report.summary) }}</small>
+                </span>
+              </div>
+              <div
+                class="usage-token-composition__track"
+                role="img"
+                :aria-label="
+                  t('monitor.usage.tokens.cacheCompositionLabel', {
+                    hit: cacheRateLabel(report.summary),
+                    other: nonHitRateLabel(report.summary),
+                  })
+                "
+              >
+                <span :style="{ width: cacheShareWidth(report.summary) }" />
+              </div>
+            </div>
             <dl class="usage-token-grid">
               <div>
                 <dt>{{ t('monitor.usage.tokens.uncachedInput') }}</dt>
@@ -369,17 +433,15 @@ defineExpose({ openFilters })
                   <span class="usage-cell-label">{{ t('monitor.usage.columns.quality') }}</span>
                   <span>
                     {{
-                      t('monitor.usage.columns.qualityUsage', {
-                        missing: formatInteger(row.usage_missing_count, locale),
-                        partial: formatInteger(row.partial_count, locale),
+                      t('monitor.usage.columns.qualitySuccess', {
+                        rate: formatPercent(row.success_count, row.request_count, locale),
                       })
                     }}
                   </span>
                   <small>
                     {{
-                      t('monitor.usage.columns.qualityPricing', {
-                        unpriced: formatInteger(row.unpriced_request_count, locale),
-                        partial: formatInteger(row.pricing_partial_count, locale),
+                      t('monitor.usage.columns.qualityCache', {
+                        rate: cacheRateLabel(row),
                       })
                     }}
                   </small>
@@ -421,6 +483,22 @@ defineExpose({ openFilters })
                 <div>
                   <dt>{{ t('monitor.usage.tokens.output') }}</dt>
                   <dd>{{ formatTokens(row.output_tokens, locale) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t('monitor.usage.quality.missing') }}</dt>
+                  <dd>{{ formatInteger(row.usage_missing_count, locale) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t('monitor.usage.quality.partial') }}</dt>
+                  <dd>{{ formatInteger(row.partial_count, locale) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t('monitor.usage.quality.unpriced') }}</dt>
+                  <dd>{{ formatInteger(row.unpriced_request_count, locale) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t('monitor.usage.quality.pricingPartial') }}</dt>
+                  <dd>{{ formatInteger(row.pricing_partial_count, locale) }}</dd>
                 </div>
               </dl>
             </details>
@@ -534,6 +612,70 @@ defineExpose({ openFilters })
 
 .usage-token-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.usage-token-composition {
+  display: grid;
+  gap: 7px;
+  padding-inline: 2px;
+}
+
+.usage-token-composition__legend {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+}
+
+.usage-token-composition__legend > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-token-composition__legend strong,
+.usage-token-composition__legend small {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-token-composition__legend strong {
+  color: var(--color-text);
+  font-weight: 560;
+}
+
+.usage-token-composition__legend small {
+  color: var(--color-text-faint);
+}
+
+.usage-token-composition__dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--color-text-faint);
+}
+
+.usage-token-composition__dot--hit {
+  background: var(--color-success);
+}
+
+.usage-token-composition__track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-surface-sunken);
+}
+
+.usage-token-composition__track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-success);
 }
 
 .usage-quality-grid {
@@ -822,6 +964,12 @@ defineExpose({ openFilters })
 
   .usage-trend-panel__chart {
     padding: 14px 12px 10px;
+  }
+
+  .usage-token-composition__legend {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
   }
 }
 

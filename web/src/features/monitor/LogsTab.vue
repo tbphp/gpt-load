@@ -36,6 +36,7 @@ import {
   type LogFilterDraft,
   type LogFilterErrors,
 } from './log-filters'
+import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
   formatLogDuration,
   formatLogOutputRate,
@@ -356,7 +357,7 @@ function modelMappingTooltip(log: RequestLogItemDto): string {
 }
 
 function cacheTooltip(log: RequestLogItemDto): string {
-  return [
+  const details = [
     [t('monitor.logs.tokens.cacheRead'), log.cache_read_tokens],
     [t('monitor.logs.tokens.cacheWrite5m'), log.cache_write_5m_tokens],
     [t('monitor.logs.tokens.cacheWrite1h'), log.cache_write_1h_tokens],
@@ -364,7 +365,14 @@ function cacheTooltip(log: RequestLogItemDto): string {
   ]
     .filter(([, value]) => value !== '0')
     .map(([label, value]) => `${label} ${formatLogTokenCount(value, locale.value)}`)
-    .join(' · ')
+  details.push(
+    `${t('monitor.logs.tokens.cacheHitRate')} ${formatCacheHitRate(
+      log.cache_read_tokens,
+      log.input_tokens,
+      locale.value,
+    )}`,
+  )
+  return details.join('\n')
 }
 
 function timingPrimary(log: RequestLogItemDto): string {

@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import { CircleHelp } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { UsageAggregateDto } from '@/app/resources/usage'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
 
+import { formatCacheHitRate } from '@/lib/cache-rate'
+
 const props = defineProps<{
-  rangeLabel: string
   summary: UsageAggregateDto
 }>()
 const { locale, t } = useI18n()
@@ -22,6 +25,16 @@ function hasUnknownCost(): boolean {
     props.summary.pricing_partial_count > 0
   )
 }
+
+function inputTokens(): number {
+  return (
+    props.summary.uncached_input_tokens +
+    props.summary.cache_read_tokens +
+    props.summary.cache_write_5m_tokens +
+    props.summary.cache_write_1h_tokens +
+    props.summary.cache_write_unknown_tokens
+  )
+}
 </script>
 
 <template>
@@ -29,19 +42,37 @@ function hasUnknownCost(): boolean {
     <article class="usage-kpi usage-kpi--accent">
       <span>{{ t('monitor.usage.kpi.requests') }}</span>
       <strong>{{ formatInteger(summary.request_count, locale) }}</strong>
-      <small>{{ rangeLabel }}</small>
+      <small>
+        {{
+          t('monitor.usage.kpi.outcomeSummary', {
+            success: formatInteger(summary.success_count, locale),
+            failure: formatInteger(summary.failure_count, locale),
+            rate: formatPercent(summary.failure_count, summary.request_count, locale),
+          })
+        }}
+      </small>
     </article>
-    <article class="usage-kpi usage-kpi--outcome">
-      <span>{{ t('monitor.usage.kpi.outcomes') }}</span>
-      <strong class="usage-kpi__outcomes">
-        <i class="usage-kpi__success">{{ formatInteger(summary.success_count, locale) }}</i>
-        <i class="usage-kpi__separator">/</i>
-        <i class="usage-kpi__failure">{{ formatInteger(summary.failure_count, locale) }}</i>
+    <article class="usage-kpi usage-kpi--cache">
+      <span>
+        {{ t('monitor.usage.kpi.cacheHitRate') }}
+        <AppTooltip :content="t('monitor.usage.kpi.cacheHitRateHelp')" side="bottom">
+          <button
+            type="button"
+            class="usage-kpi__help"
+            :aria-label="t('monitor.usage.kpi.cacheHitRateHelp')"
+          >
+            <CircleHelp :size="13" aria-hidden="true" />
+          </button>
+        </AppTooltip>
+      </span>
+      <strong>
+        {{ formatCacheHitRate(summary.cache_read_tokens, inputTokens(), locale) }}
       </strong>
       <small>
         {{
-          t('monitor.usage.kpi.successRate', {
-            rate: formatPercent(summary.success_count, summary.request_count, locale),
+          t('monitor.usage.kpi.cacheTokenSummary', {
+            read: formatTokens(summary.cache_read_tokens, locale),
+            input: formatTokens(inputTokens(), locale),
           })
         }}
       </small>
@@ -96,6 +127,11 @@ function hasUnknownCost(): boolean {
   --usage-kpi-dot: var(--color-warning);
 }
 
+.usage-kpi--cache {
+  --usage-kpi-color: var(--color-success);
+  --usage-kpi-dot: var(--color-success);
+}
+
 .usage-kpi > span,
 .usage-kpi small {
   display: block;
@@ -137,28 +173,16 @@ function hasUnknownCost(): boolean {
   line-height: 1.4;
 }
 
-.usage-kpi__outcomes {
-  display: flex !important;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.usage-kpi__outcomes i {
-  font-style: normal;
-}
-
-.usage-kpi__success {
-  color: var(--color-success);
-}
-
-.usage-kpi__failure {
-  color: var(--color-danger);
-}
-
-.usage-kpi__separator {
+.usage-kpi__help {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
   color: var(--color-text-faint);
-  font-weight: 400;
+  cursor: help;
 }
 
 .usage-kpi__quality {
