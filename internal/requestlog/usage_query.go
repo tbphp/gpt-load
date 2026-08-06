@@ -64,7 +64,7 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		if err != nil {
 			return err
 		}
-		groupCount, err := queryUsageBreakdownGroupCount(usageStatScope(connection, input))
+		breakdownCount, err := queryUsageBreakdownCount(usageStatScope(connection, input))
 		if err != nil {
 			return err
 		}
@@ -77,12 +77,12 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 			return err
 		}
 		report = UsageReport{
-			Summary:             summary,
-			Series:              series,
-			Breakdown:           breakdown,
-			BreakdownTruncated:  truncated,
-			BreakdownOrder:      input.BreakdownOrder,
-			BreakdownGroupCount: groupCount,
+			Summary:            summary,
+			Series:             series,
+			Breakdown:          breakdown,
+			BreakdownTruncated: truncated,
+			BreakdownOrder:     input.BreakdownOrder,
+			BreakdownCount:     breakdownCount,
 		}
 		if err := connection.Exec("COMMIT").Error; err != nil {
 			return fmt.Errorf("commit usage read transaction: %w", err)
@@ -235,9 +235,12 @@ func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeri
 	return mergeUsageHoursToDays(source)
 }
 
-func queryUsageBreakdownGroupCount(scope *gorm.DB) (int64, error) {
+func queryUsageBreakdownCount(scope *gorm.DB) (int64, error) {
+	grouped := scope.Select("group_id, model").Group("group_id, model")
 	var count int64
-	if err := scope.Distinct("group_id").Count(&count).Error; err != nil {
+	if err := scope.Session(&gorm.Session{NewDB: true}).
+		Table("(?) AS usage_breakdown_items", grouped).
+		Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("query usage breakdown group count: %w", err)
 	}
 	if count < 0 {

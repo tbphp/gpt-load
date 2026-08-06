@@ -19,9 +19,11 @@ import {
 } from './projector'
 
 export type UsageBreakdownOrder = 'requests' | 'cost'
+export const usageRanges = ['24h', '3d', '7d', '15d', '30d'] as const
+export type UsageRange = (typeof usageRanges)[number]
 
 export interface UsageFilters {
-  range: '24h' | '30d'
+  range: UsageRange
   breakdown_order?: UsageBreakdownOrder
   group_id?: number
   model?: string
@@ -50,7 +52,7 @@ export interface UsageAggregateDto {
 }
 
 export interface UsageReportDto {
-  range: '24h' | '30d'
+  range: UsageRange
   granularity: 'hour' | 'day'
   from_ms: number
   to_ms: number
@@ -60,7 +62,7 @@ export interface UsageReportDto {
   breakdown: Array<UsageAggregateDto & { group_id: number; model: string }>
   breakdown_truncated: boolean
   breakdown_order: UsageBreakdownOrder
-  breakdown_group_count: number
+  breakdown_count: number
   collection_health: {
     scope: 'current_process'
     dropped_total: number
@@ -97,11 +99,18 @@ const reportFields = [
   'breakdown',
   'breakdown_truncated',
   'breakdown_order',
-  'breakdown_group_count',
+  'breakdown_count',
   'collection_health',
 ] as const
 const hourMs = 60 * 60 * 1000
 const dayMs = 24 * hourMs
+const usageRangeContract: Record<UsageRange, { granularity: 'hour' | 'day'; buckets: number }> = {
+  '24h': { granularity: 'hour', buckets: 24 },
+  '3d': { granularity: 'day', buckets: 3 },
+  '7d': { granularity: 'day', buckets: 7 },
+  '15d': { granularity: 'day', buckets: 15 },
+  '30d': { granularity: 'day', buckets: 30 },
+}
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -171,16 +180,15 @@ function projectCollectionHealth(value: unknown): UsageReportDto['collection_hea
 export function projectUsageReport(value: unknown): UsageReportDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, reportFields)
-  const range = projectEnum(record.range, ['24h', '30d'] as const)
+  const range = projectEnum(record.range, usageRanges)
   const granularity = projectEnum(record.granularity, ['hour', 'day'] as const)
-  if ((range === '24h' && granularity !== 'hour') || (range === '30d' && granularity !== 'day')) {
-    invalidResponse()
-  }
+  const rangeContract = usageRangeContract[range]
+  if (granularity !== rangeContract.granularity) invalidResponse()
   const observedAtMS = projectEpochMilliseconds(record.observed_at_ms)
   const rangeFromMS = projectEpochMilliseconds(record.from_ms)
   const rangeToMS = projectEpochMilliseconds(record.to_ms)
   const bucketDurationMs = granularity === 'hour' ? hourMs : dayMs
-  const bucketCount = range === '24h' ? 24 : 30
+  const bucketCount = rangeContract.buckets
   if (
     !isUTCAligned(rangeFromMS, granularity) ||
     !isUTCAligned(rangeToMS, granularity) ||
@@ -250,7 +258,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     breakdown,
     breakdown_truncated: projectBoolean(record.breakdown_truncated),
     breakdown_order: projectEnum(record.breakdown_order, ['requests', 'cost'] as const),
-    breakdown_group_count: projectSafeInteger(record.breakdown_group_count, { minimum: 0 }),
+    breakdown_count: projectSafeInteger(record.breakdown_count, { minimum: 0 }),
     collection_health: projectCollectionHealth(record.collection_health),
   }
 }

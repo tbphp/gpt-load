@@ -1004,6 +1004,104 @@ func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *
 	}
 }
 
+func TestUsageAggregationJournalReplaysFailedLogTransactionExactlyOnce(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	row := aggregationRow(
+		aggregationRequestID(70),
+		time.Date(2026, time.July, 24, 16, 30, 0, 0, time.UTC),
+		17,
+		"journal-model",
+	)
+	row.UncachedInputTokens = 12
+	row.OutputTokens = 3
+
+	if err := db.Exec(`CREATE TRIGGER reject_journal_request_log
+		BEFORE INSERT ON request_logs
+		BEGIN
+			SELECT RAISE(FAIL, 'forced request log failure');
+		END`).Error; err != nil {
+		t.Fatalf("create rejection trigger: %v", err)
+	}
+	writer := &gormBatchWriter{db: db}
+	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err == nil {
+		t.Fatal("WriteBatch() error = nil, want request log transaction failure")
+	}
+
+	var pending models.UsageAggregationJournal
+	if err := db.Where("request_id = ?", row.ID).Take(&pending).Error; err != nil {
+		t.Fatalf("pending journal: %v", err)
+	}
+	if pending.Applied || pending.RequestCount != 1 || pending.UncachedInputTokens != 12 ||
+		pending.OutputTokens != 3 {
+		t.Fatalf("pending journal = %+v", pending)
+	}
+	assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+
+	if err := db.Exec("DROP TRIGGER reject_journal_request_log").Error; err != nil {
+		t.Fatalf("drop rejection trigger: %v", err)
+	}
+	if err := writer.ReplayPendingUsage(context.Background()); err != nil {
+		t.Fatalf("ReplayPendingUsage() error = %v", err)
+	}
+	if err := writer.ReplayPendingUsage(context.Background()); err != nil {
+		t.Fatalf("second ReplayPendingUsage() error = %v", err)
+	}
+
+	var stat models.UsageStat
+	if err := db.Where("group_id = ? AND model = ?", 17, "journal-model").Take(&stat).Error; err != nil {
+		t.Fatalf("replayed UsageStat: %v", err)
+	}
+	if stat.RequestCount != 1 || stat.UncachedInputTokens != 12 || stat.OutputTokens != 3 {
+		t.Fatalf("replayed UsageStat = %+v", stat)
+	}
+	if err := db.Where("request_id = ?", row.ID).Take(&pending).Error; err != nil {
+		t.Fatalf("applied journal: %v", err)
+	}
+	if !pending.Applied {
+		t.Fatalf("journal remains pending: %+v", pending)
+	}
+}
+
+func TestServiceStartReplaysPendingUsageAggregationJournal(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	journal := models.UsageAggregationJournal{
+		RequestID:           aggregationRequestID(71),
+		BucketStartMS:       1_784_901_600_000,
+		AccessKeyID:         2,
+		GroupID:             18,
+		Model:               "startup-replay-model",
+		RequestCount:        1,
+		SuccessCount:        1,
+		UncachedInputTokens: 21,
+		OutputTokens:        8,
+	}
+	if err := db.Create(&journal).Error; err != nil {
+		t.Fatalf("create pending journal: %v", err)
+	}
+	service := NewService(db, redact.New(), staticRetentionPolicy{days: 7})
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	var stat models.UsageStat
+	if err := db.Where("group_id = ? AND model = ?", 18, journal.Model).
+		Take(&stat).Error; err != nil {
+		t.Fatalf("startup replay UsageStat: %v", err)
+	}
+	if stat.RequestCount != 1 || stat.UncachedInputTokens != 21 || stat.OutputTokens != 8 {
+		t.Fatalf("startup replay UsageStat = %+v", stat)
+	}
+	if err := db.Where("request_id = ?", journal.RequestID).Take(&journal).Error; err != nil {
+		t.Fatalf("startup replay journal: %v", err)
+	}
+	if !journal.Applied {
+		t.Fatalf("startup replay journal remains pending: %+v", journal)
+	}
+}
+
 func assertRequestLogAndUsageStatCounts(
 	t *testing.T,
 	db *gorm.DB,

@@ -63,6 +63,30 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
 			granularity: requestlog.UsageGranularityDay,
 		},
+		{
+			name:        "3 days uses complete UTC days",
+			rawQuery:    "range=3d",
+			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
+			wantFrom:    time.Date(2026, time.July, 25, 0, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityDay,
+		},
+		{
+			name:        "7 days uses complete UTC days",
+			rawQuery:    "range=7d",
+			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
+			wantFrom:    time.Date(2026, time.July, 21, 0, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityDay,
+		},
+		{
+			name:        "15 days uses complete UTC days",
+			rawQuery:    "range=15d",
+			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
+			wantFrom:    time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityDay,
+		},
 	}
 
 	for _, test := range tests {
@@ -88,10 +112,34 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 	}
 }
 
+func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC)
+	for _, value := range []string{"24h", "3d", "7d", "15d", "30d"} {
+		t.Run(value, func(t *testing.T) {
+			engine, _ := newUsageTestEngine(t, now, &recordingUsageStatReader{})
+			recorder := performUsageRequest(engine, "test-auth-key", "range="+value)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+			}
+			var envelope struct {
+				Data struct {
+					Range string `json:"range"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if envelope.Data.Range != value {
+				t.Fatalf("range = %q, want %q", envelope.Data.Range, value)
+			}
+		})
+	}
+}
+
 func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60))
 	reader := &recordingUsageStatReader{}
-	reader.report.BreakdownGroupCount = 14
+	reader.report.BreakdownCount = 14
 	engine, fixture := newUsageTestEngine(t, now, reader)
 	fixture.requestLogStats.value.DroppedTotal = 2
 	fixture.requestLogStats.value.WriteFailureTotal = 1
@@ -117,16 +165,16 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	var envelope struct {
 		Code int `json:"code"`
 		Data struct {
-			Range        string                         `json:"range"`
-			Granularity  requestlog.UsageGranularity    `json:"granularity"`
-			FromMS       int64                          `json:"from_ms"`
-			ToMS         int64                          `json:"to_ms"`
-			ObservedAtMS int64                          `json:"observed_at_ms"`
-			Series       []json.RawMessage              `json:"series"`
-			Breakdown    []json.RawMessage              `json:"breakdown"`
-			Order        requestlog.UsageBreakdownOrder `json:"breakdown_order"`
-			GroupCount   int64                          `json:"breakdown_group_count"`
-			Health       struct {
+			Range          string                         `json:"range"`
+			Granularity    requestlog.UsageGranularity    `json:"granularity"`
+			FromMS         int64                          `json:"from_ms"`
+			ToMS           int64                          `json:"to_ms"`
+			ObservedAtMS   int64                          `json:"observed_at_ms"`
+			Series         []json.RawMessage              `json:"series"`
+			Breakdown      []json.RawMessage              `json:"breakdown"`
+			Order          requestlog.UsageBreakdownOrder `json:"breakdown_order"`
+			BreakdownCount int64                          `json:"breakdown_count"`
+			Health         struct {
 				Scope                string `json:"scope"`
 				DroppedTotal         uint64 `json:"dropped_total"`
 				WriteFailureTotal    uint64 `json:"write_failure_total"`
@@ -145,7 +193,7 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 		envelope.Data.Series == nil || len(envelope.Data.Series) != 0 ||
 		envelope.Data.Breakdown == nil || len(envelope.Data.Breakdown) != 0 ||
 		envelope.Data.Order != requestlog.UsageBreakdownOrderRequests ||
-		envelope.Data.GroupCount != 14 ||
+		envelope.Data.BreakdownCount != 14 ||
 		envelope.Data.Health.Scope != "current_process" ||
 		envelope.Data.Health.DroppedTotal != 2 ||
 		envelope.Data.Health.WriteFailureTotal != 1 ||
@@ -193,8 +241,8 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 				EstimatedCostNanoUSD: 250_000_000,
 			},
 		}},
-		BreakdownOrder:      requestlog.UsageBreakdownOrderCost,
-		BreakdownGroupCount: 1,
+		BreakdownOrder: requestlog.UsageBreakdownOrderCost,
+		BreakdownCount: 1,
 	}}
 	engine, _ := newUsageTestEngine(t, now, reader)
 	recorder := performUsageRequest(
@@ -219,13 +267,13 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
-			Range       string                         `json:"range"`
-			Granularity requestlog.UsageGranularity    `json:"granularity"`
-			FromMS      int64                          `json:"from_ms"`
-			ToMS        int64                          `json:"to_ms"`
-			Order       requestlog.UsageBreakdownOrder `json:"breakdown_order"`
-			GroupCount  int64                          `json:"breakdown_group_count"`
-			Summary     struct {
+			Range          string                         `json:"range"`
+			Granularity    requestlog.UsageGranularity    `json:"granularity"`
+			FromMS         int64                          `json:"from_ms"`
+			ToMS           int64                          `json:"to_ms"`
+			Order          requestlog.UsageBreakdownOrder `json:"breakdown_order"`
+			BreakdownCount int64                          `json:"breakdown_count"`
+			Summary        struct {
 				TotalTokens             int64  `json:"total_tokens"`
 				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
 				PricingPartialCount     int64  `json:"pricing_partial_count"`
@@ -255,7 +303,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		envelope.Data.FromMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.Order != requestlog.UsageBreakdownOrderCost ||
-		envelope.Data.GroupCount != 1 ||
+		envelope.Data.BreakdownCount != 1 ||
 		envelope.Data.Summary.TotalTokens != 9 ||
 		envelope.Data.Summary.CacheWriteUnknownTokens != 4 ||
 		envelope.Data.Summary.PricingPartialCount != 1 ||
@@ -377,17 +425,17 @@ func TestMapUsageRejectsUnsafeOrMismatchedBreakdownMetadata(t *testing.T) {
 		report requestlog.UsageReport
 	}{
 		{
-			name: "negative group count",
+			name: "negative breakdown count",
 			report: requestlog.UsageReport{
-				BreakdownOrder:      requestlog.UsageBreakdownOrderRequests,
-				BreakdownGroupCount: -1,
+				BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
+				BreakdownCount: -1,
 			},
 		},
 		{
-			name: "unsafe group count",
+			name: "unsafe breakdown count",
 			report: requestlog.UsageReport{
-				BreakdownOrder:      requestlog.UsageBreakdownOrderRequests,
-				BreakdownGroupCount: maxSafeInteger + 1,
+				BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
+				BreakdownCount: maxSafeInteger + 1,
 			},
 		},
 		{

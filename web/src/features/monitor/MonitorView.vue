@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { RefreshCw } from '@lucide/vue'
+import { ListFilter, RefreshCw } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { lazySurface } from '@/app/async-surface'
 import { monitorLocation } from '@/app/route-locations'
+import { type UsageRange } from '@/app/resources/usage'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
 import HealthTab from './HealthTab.vue'
 import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
+import { usageMonitorQuery } from './monitor-route'
+import { parseAppliedUsageFilters } from './usage-filters'
 
 const InspectorTab = lazySurface(() => import('./InspectorTab.vue'))
 const LogsTab = lazySurface(() => import('./LogsTab.vue'))
@@ -23,6 +27,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const healthTab = ref<InstanceType<typeof HealthTab> | null>(null)
+const usageTab = ref<{ openFilters: () => void } | null>(null)
 const healthRefreshPending = ref(false)
 const activeTab = computed(() => normalizeMonitorTab(route.query.tab))
 const canonicalQuery = computed(() => normalizeMonitorQuery(route.query))
@@ -33,6 +38,18 @@ const items = computed<AppTabItem[]>(() => [
   { value: 'logs', label: t('monitor.tabs.logs') },
   { value: 'inspector', label: t('monitor.tabs.inspector') },
 ])
+const usageFilters = computed(() => parseAppliedUsageFilters(route.query))
+const usageRangeOptions = computed(() =>
+  (['24h', '3d', '7d', '15d', '30d'] as const).map((value) => ({
+    value,
+    label: t(`monitor.usage.filters.ranges.${value}`),
+  })),
+)
+const usageFilterCount = computed(
+  () =>
+    Number(usageFilters.value.group_id !== undefined) +
+    Number(usageFilters.value.model !== undefined),
+)
 
 watch(
   () => route.query,
@@ -59,6 +76,13 @@ async function refreshHealth(): Promise<void> {
   } finally {
     healthRefreshPending.value = false
   }
+}
+
+function selectUsageRange(value: string): void {
+  if (!['24h', '3d', '7d', '15d', '30d'].includes(value)) return
+  void router.push(
+    monitorLocation(usageMonitorQuery({ ...usageFilters.value, range: value as UsageRange })),
+  )
 }
 </script>
 
@@ -90,6 +114,22 @@ async function refreshHealth(): Promise<void> {
             />
             {{ t('monitor.health.refresh') }}
           </AppButton>
+          <div v-else-if="activeTab === 'usage'" class="monitor-usage-actions">
+            <AppSelect
+              :model-value="usageFilters.range"
+              :label="t('monitor.usage.filters.range')"
+              :options="usageRangeOptions"
+              size="compact"
+              @update:model-value="selectUsageRange"
+            />
+            <AppButton variant="secondary" size="compact" @click="usageTab?.openFilters()">
+              <ListFilter :size="14" aria-hidden="true" />
+              {{ t('monitor.usage.filters.button') }}
+              <span v-if="usageFilterCount > 0" class="monitor-filter-count">
+                {{ usageFilterCount }}
+              </span>
+            </AppButton>
+          </div>
         </template>
 
         <template v-if="isCanonicalQuery">
@@ -100,7 +140,7 @@ async function refreshHealth(): Promise<void> {
             <LogsTab />
           </div>
           <div v-else-if="activeTab === 'usage'" class="monitor-panel">
-            <UsageTab />
+            <UsageTab ref="usageTab" />
           </div>
           <div v-else class="monitor-panel">
             <InspectorTab />
@@ -137,6 +177,25 @@ async function refreshHealth(): Promise<void> {
   opacity: 1;
 }
 
+.monitor-usage-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.monitor-filter-count {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  padding-inline: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
 @keyframes monitor-refresh-spin {
   to {
     transform: rotate(360deg);
@@ -150,6 +209,12 @@ async function refreshHealth(): Promise<void> {
 
   .monitor-panel {
     padding-top: var(--detail-panel-padding-top-compact);
+  }
+}
+
+@media (max-width: 560px) {
+  .monitor-usage-actions {
+    gap: var(--space-1);
   }
 }
 

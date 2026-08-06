@@ -2,16 +2,26 @@ import type { UsageFilters } from '@/app/resources/usage'
 
 export interface UsageFilterDraft {
   range: UsageFilters['range']
+  breakdown_order: NonNullable<UsageFilters['breakdown_order']>
   group_id: string
   model: string
 }
 
-export type UsageFilterErrors = Partial<Record<Exclude<keyof UsageFilterDraft, 'range'>, string>>
+export type UsageFilterErrors = Partial<
+  Record<Exclude<keyof UsageFilterDraft, 'range' | 'breakdown_order'>, string>
+>
 
-const emptyDraft = (): UsageFilterDraft => ({ range: '24h', group_id: '', model: '' })
+const emptyDraft = (): UsageFilterDraft => ({
+  range: '30d',
+  breakdown_order: 'requests',
+  group_id: '',
+  model: '',
+})
 
 export function normalizeUsageRange(raw: unknown): UsageFilters['range'] {
-  return raw === '30d' ? '30d' : '24h'
+  return raw === '24h' || raw === '3d' || raw === '7d' || raw === '15d' || raw === '30d'
+    ? raw
+    : '30d'
 }
 
 export function normalizeUsageGroupID(raw: unknown): number | undefined {
@@ -38,6 +48,7 @@ export function parseAppliedUsageFilters(query: Record<string, unknown>): UsageF
   const model = normalizeUsageModel(query.model)
   if (groupID !== undefined) filters.group_id = groupID
   if (model !== undefined) filters.model = model
+  if (query.breakdown_order === 'cost') filters.breakdown_order = 'cost'
   return filters
 }
 
@@ -45,6 +56,7 @@ export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft 
   return {
     ...emptyDraft(),
     range: filters.range,
+    breakdown_order: filters.breakdown_order ?? 'requests',
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     model: filters.model ?? '',
   }
@@ -55,7 +67,10 @@ export function resetUsageFilterDraft(): UsageFilterDraft {
 }
 
 export function applyUsageFilterDraft(draft: UsageFilterDraft): UsageFilters {
-  const filters: UsageFilters = { range: normalizeUsageRange(draft.range) }
+  const filters: UsageFilters = {
+    range: normalizeUsageRange(draft.range),
+    breakdown_order: draft.breakdown_order,
+  }
   const groupID = normalizeUsageGroupID(draft.group_id)
   const model = normalizeUsageModel(draft.model)
   if (groupID !== undefined) filters.group_id = groupID

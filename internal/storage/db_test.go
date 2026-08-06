@@ -513,7 +513,7 @@ func TestOpenConfiguresParameterizedSQLLogging(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateCreatesTenTablesAndSchemaVersion(t *testing.T) {
+func TestAutoMigrateCreatesUsageJournalAndSchemaVersion(t *testing.T) {
 	t.Parallel()
 
 	db := openMigratedDatabase(t)
@@ -523,6 +523,7 @@ func TestAutoMigrateCreatesTenTablesAndSchemaVersion(t *testing.T) {
 		"upstream_keys",
 		"access_keys",
 		"request_logs",
+		"usage_aggregation_journal",
 		"usage_stats",
 		"model_prices",
 		"system_settings",

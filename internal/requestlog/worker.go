@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/pricing"
@@ -81,6 +82,25 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// A previous request-log transaction may have failed after its aggregate
+	// inputs were staged. Replay it before staging the current batch, but do not
+	// let one malformed historical row prevent new request logs from persisting.
+	_ = writer.ReplayPendingUsage(ctx)
+
+	newRows, err := writer.prepareNewRequestLogRows(ctx, rows)
+	if err != nil {
+		return err
+	}
+	if len(newRows) == 0 {
+		return nil
+	}
+	journals, err := buildUsageAggregationJournals(newRows)
+	if err != nil {
+		return err
+	}
+	if err := writer.stageUsageAggregationJournals(ctx, journals); err != nil {
+		return err
+	}
 
 	return writer.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
@@ -100,7 +120,7 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 				_ = rollbackRequestLogTransaction(connection, sqlConn, false)
 			}
 		}()
-		if err := writeRequestLogBatch(transaction, rows); err != nil {
+		if err := writeRequestLogBatch(transaction, newRows); err != nil {
 			cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
 			active = false
 			return errors.Join(err, cleanupErr)
@@ -114,6 +134,124 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 		active = false
 		return nil
 	})
+}
+
+func (writer *gormBatchWriter) prepareNewRequestLogRows(
+	ctx context.Context,
+	rows []models.RequestLog,
+) ([]models.RequestLog, error) {
+	uniqueRows := make([]models.RequestLog, 0, len(rows))
+	ids := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		if _, exists := seen[row.ID]; exists {
+			continue
+		}
+		seen[row.ID] = struct{}{}
+		uniqueRows = append(uniqueRows, row)
+		ids = append(ids, row.ID)
+	}
+	if len(uniqueRows) == 0 {
+		return nil, nil
+	}
+
+	var existingIDs []string
+	if err := writer.db.WithContext(ctx).
+		Model(&models.RequestLog{}).
+		Where("id IN ?", ids).
+		Pluck("id", &existingIDs).Error; err != nil {
+		return nil, fmt.Errorf("query existing request log IDs: %w", err)
+	}
+	existingSet := make(map[string]struct{}, len(existingIDs))
+	for _, id := range existingIDs {
+		existingSet[id] = struct{}{}
+	}
+	newRows := make([]models.RequestLog, 0, len(uniqueRows)-len(existingIDs))
+	for _, row := range uniqueRows {
+		if _, exists := existingSet[row.ID]; !exists {
+			newRows = append(newRows, row)
+		}
+	}
+	return newRows, nil
+}
+
+func (writer *gormBatchWriter) stageUsageAggregationJournals(
+	ctx context.Context,
+	journals []models.UsageAggregationJournal,
+) error {
+	if len(journals) == 0 {
+		return nil
+	}
+	if err := writer.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).
+			CreateInBatches(journals, batchSize).Error
+	}); err != nil {
+		return fmt.Errorf("stage usage aggregation journals: %w", err)
+	}
+	return nil
+}
+
+func (writer *gormBatchWriter) ReplayPendingUsage(ctx context.Context) error {
+	if writer == nil || writer.db == nil {
+		return fmt.Errorf("replay usage aggregation journals: database is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	for {
+		processed := 0
+		err := writer.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
+			sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
+			if !ok {
+				return fmt.Errorf("pin usage replay transaction connection")
+			}
+			transaction := connection.Session(&gorm.Session{
+				NewDB: true, SkipDefaultTransaction: true, Context: ctx,
+			})
+			if err := transaction.Exec("BEGIN IMMEDIATE").Error; err != nil {
+				return fmt.Errorf("begin usage replay transaction: %w", err)
+			}
+
+			active := true
+			defer func() {
+				if active {
+					_ = rollbackRequestLogTransaction(connection, sqlConn, false)
+				}
+			}()
+			var journals []models.UsageAggregationJournal
+			if err := transaction.
+				Where("applied = ?", false).
+				Order("bucket_start_ms ASC").
+				Order("request_id ASC").
+				Limit(batchSize).
+				Find(&journals).Error; err != nil {
+				cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
+				active = false
+				return errors.Join(fmt.Errorf("query pending usage journals: %w", err), cleanupErr)
+			}
+			processed = len(journals)
+			if err := applyUsageJournalBatch(transaction, journals); err != nil {
+				cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
+				active = false
+				return errors.Join(err, cleanupErr)
+			}
+			if err := transaction.Exec("COMMIT").Error; err != nil {
+				commitErr := fmt.Errorf("commit usage replay transaction: %w", err)
+				cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, true)
+				active = false
+				return errors.Join(commitErr, cleanupErr)
+			}
+			active = false
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if processed < batchSize {
+			return nil
+		}
+	}
 }
 
 type usageStatKey struct {
@@ -141,45 +279,16 @@ type usageStatDelta struct {
 }
 
 func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
-	uniqueRows := make([]models.RequestLog, 0, len(rows))
-	ids := make([]string, 0, len(rows))
-	seen := make(map[string]struct{}, len(rows))
-	for _, row := range rows {
-		if _, exists := seen[row.ID]; exists {
-			continue
-		}
-		seen[row.ID] = struct{}{}
-		uniqueRows = append(uniqueRows, row)
-		ids = append(ids, row.ID)
-	}
-	if len(uniqueRows) == 0 {
+	if len(rows) == 0 {
 		return nil
 	}
-
-	var existingIDs []string
-	if err := tx.Model(&models.RequestLog{}).
-		Where("id IN ?", ids).
-		Pluck("id", &existingIDs).Error; err != nil {
-		return fmt.Errorf("query existing request log IDs: %w", err)
-	}
-	existingSet := make(map[string]struct{}, len(existingIDs))
-	for _, id := range existingIDs {
-		existingSet[id] = struct{}{}
-	}
-	newRows := make([]models.RequestLog, 0, len(uniqueRows)-len(existingIDs))
-	for _, row := range uniqueRows {
-		if _, exists := existingSet[row.ID]; !exists {
-			newRows = append(newRows, row)
-		}
-	}
-	if len(newRows) == 0 {
-		return nil
-	}
-	if err := tx.CreateInBatches(newRows, batchSize).Error; err != nil {
+	if err := tx.CreateInBatches(rows, batchSize).Error; err != nil {
 		return fmt.Errorf("insert request logs: %w", err)
 	}
 	attemptRows := make([]models.RequestLogAttempt, 0)
-	for _, row := range newRows {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
 		attemptRows = append(attemptRows, row.AttemptRows...)
 	}
 	if len(attemptRows) > 0 {
@@ -188,12 +297,24 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 		}
 	}
 
-	deltas, err := buildUsageStatDeltas(newRows)
+	var journals []models.UsageAggregationJournal
+	if err := tx.Where("request_id IN ? AND applied = ?", ids, false).
+		Order("request_id ASC").Find(&journals).Error; err != nil {
+		return fmt.Errorf("query current usage journals: %w", err)
+	}
+	return applyUsageJournalBatch(tx, journals)
+}
+
+func applyUsageJournalBatch(
+	tx *gorm.DB,
+	journals []models.UsageAggregationJournal,
+) error {
+	if len(journals) == 0 {
+		return nil
+	}
+	deltas, err := buildUsageJournalDeltas(journals)
 	if err != nil {
 		return err
-	}
-	if len(deltas) == 0 {
-		return nil
 	}
 	keys := sortedUsageStatKeys(deltas)
 	existingStats, err := queryExistingUsageStats(tx, keys)
@@ -240,7 +361,113 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 			return fmt.Errorf("upsert usage stat: %w", err)
 		}
 	}
+	ids := make([]string, 0, len(journals))
+	for _, journal := range journals {
+		ids = append(ids, journal.RequestID)
+	}
+	result := tx.Model(&models.UsageAggregationJournal{}).
+		Where("request_id IN ? AND applied = ?", ids, false).
+		Update("applied", true)
+	if result.Error != nil {
+		return fmt.Errorf("mark usage journals applied: %w", result.Error)
+	}
+	if result.RowsAffected != int64(len(ids)) {
+		return fmt.Errorf(
+			"mark usage journals applied: updated %d of %d rows",
+			result.RowsAffected,
+			len(ids),
+		)
+	}
 	return nil
+}
+
+func buildUsageAggregationJournals(
+	rows []models.RequestLog,
+) ([]models.UsageAggregationJournal, error) {
+	journals := make([]models.UsageAggregationJournal, 0, len(rows))
+	for _, row := range rows {
+		deltas, err := buildUsageStatDeltas([]models.RequestLog{row})
+		if err != nil {
+			return nil, err
+		}
+		if len(deltas) != 1 {
+			return nil, fmt.Errorf("build usage journal %q: unexpected delta count", row.ID)
+		}
+		for key, delta := range deltas {
+			journals = append(journals, models.UsageAggregationJournal{
+				RequestID:               row.ID,
+				BucketStartMS:           key.BucketStartMS,
+				AccessKeyID:             key.AccessKeyID,
+				GroupID:                 key.GroupID,
+				Model:                   key.Model,
+				RequestCount:            delta.RequestCount,
+				SuccessCount:            delta.SuccessCount,
+				FailureCount:            delta.FailureCount,
+				UncachedInputTokens:     delta.UncachedInputTokens,
+				OutputTokens:            delta.OutputTokens,
+				CacheReadTokens:         delta.CacheReadTokens,
+				CacheWrite5MTokens:      delta.CacheWrite5MTokens,
+				CacheWrite1HTokens:      delta.CacheWrite1HTokens,
+				CacheWriteUnknownTokens: delta.CacheWriteUnknownTokens,
+				EstimatedCostNanoUSD:    delta.EstimatedCostNanoUSD,
+				UsageMissingCount:       delta.UsageMissingCount,
+				PartialCount:            delta.PartialCount,
+				UnpricedRequestCount:    delta.UnpricedRequestCount,
+				PricingPartialCount:     delta.PricingPartialCount,
+			})
+		}
+	}
+	return journals, nil
+}
+
+func buildUsageJournalDeltas(
+	journals []models.UsageAggregationJournal,
+) (map[usageStatKey]usageStatDelta, error) {
+	deltas := make(map[usageStatKey]usageStatDelta)
+	for _, journal := range journals {
+		key := usageStatKey{
+			BucketStartMS: journal.BucketStartMS,
+			AccessKeyID:   journal.AccessKeyID,
+			GroupID:       journal.GroupID,
+			Model:         journal.Model,
+		}
+		delta := deltas[key]
+		for _, field := range []struct {
+			name   string
+			target *int64
+			value  int64
+		}{
+			{name: "request_count", target: &delta.RequestCount, value: journal.RequestCount},
+			{name: "success_count", target: &delta.SuccessCount, value: journal.SuccessCount},
+			{name: "failure_count", target: &delta.FailureCount, value: journal.FailureCount},
+			{name: "uncached_input_tokens", target: &delta.UncachedInputTokens, value: journal.UncachedInputTokens},
+			{name: "output_tokens", target: &delta.OutputTokens, value: journal.OutputTokens},
+			{name: "cache_read_tokens", target: &delta.CacheReadTokens, value: journal.CacheReadTokens},
+			{name: "cache_write_5m_tokens", target: &delta.CacheWrite5MTokens, value: journal.CacheWrite5MTokens},
+			{name: "cache_write_1h_tokens", target: &delta.CacheWrite1HTokens, value: journal.CacheWrite1HTokens},
+			{name: "cache_write_unknown_tokens", target: &delta.CacheWriteUnknownTokens, value: journal.CacheWriteUnknownTokens},
+			{name: "usage_missing_count", target: &delta.UsageMissingCount, value: journal.UsageMissingCount},
+			{name: "partial_count", target: &delta.PartialCount, value: journal.PartialCount},
+			{name: "unpriced_request_count", target: &delta.UnpricedRequestCount, value: journal.UnpricedRequestCount},
+			{name: "pricing_partial_count", target: &delta.PricingPartialCount, value: journal.PricingPartialCount},
+		} {
+			if err := checkedInt64Add(field.target, field.value, field.name); err != nil {
+				return nil, err
+			}
+		}
+		cost, ok := pricing.CheckedAddNanoUSD(
+			pricing.NanoUSD(delta.EstimatedCostNanoUSD),
+			pricing.NanoUSD(journal.EstimatedCostNanoUSD),
+		)
+		if !ok {
+			return nil, fmt.Errorf(
+				"aggregate usage journal estimated_cost_nano_usd: checked addition failed",
+			)
+		}
+		delta.EstimatedCostNanoUSD = int64(cost)
+		deltas[key] = delta
+	}
+	return deltas, nil
 }
 
 func buildUsageStatDeltas(rows []models.RequestLog) (map[usageStatKey]usageStatDelta, error) {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import { Info } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
@@ -25,6 +26,7 @@ const props = defineProps<{
   optionsPending: boolean
   optionsFailed: boolean
   missingAccessKey: boolean
+  submitPending: boolean
 }>()
 const emit = defineEmits<{
   'update:protocol': [value: string]
@@ -43,172 +45,229 @@ function error(field: InspectorField): string | undefined {
 </script>
 
 <template>
-  <SurfaceCard class="inspector-form-card">
-    <header class="inspector-heading">
-      <div>
-        <h2>{{ t('monitor.inspector.title') }}</h2>
-        <p>{{ t('monitor.inspector.description') }}</p>
-      </div>
+  <aside class="inspector-form-panel" aria-labelledby="inspector-form-title">
+    <header class="inspector-form-panel__header">
+      <h2 id="inspector-form-title">{{ t('monitor.inspector.form.title') }}</h2>
     </header>
 
-    <p class="inspector-boundary">{{ t('monitor.inspector.boundary') }}</p>
+    <div class="inspector-form-panel__body">
+      <QueryFeedback
+        v-if="optionsPending"
+        state="loading"
+        :message="t('monitor.inspector.options.loading')"
+      />
+      <QueryFeedback
+        v-else-if="optionsFailed"
+        state="error"
+        :message="t('monitor.inspector.options.failed')"
+        :retry-label="t('common.retry')"
+        @retry="emit('retryOptions')"
+      />
 
-    <QueryFeedback
-      v-if="optionsPending"
-      state="loading"
-      :message="t('monitor.inspector.options.loading')"
-    />
-    <QueryFeedback
-      v-else-if="optionsFailed"
-      state="error"
-      :message="t('monitor.inspector.options.failed')"
-      :retry-label="t('common.retry')"
-      @retry="emit('retryOptions')"
-    />
-
-    <form
-      class="inspector-form"
-      :aria-label="t('monitor.inspector.form.label')"
-      @submit.prevent="emit('submit')"
-    >
-      <FormField
-        id="inspector-protocol"
-        :label="t('monitor.inspector.form.protocol')"
-        :error="error('protocol')"
+      <form
+        class="inspector-form"
+        :aria-label="t('monitor.inspector.form.label')"
+        @submit.prevent="emit('submit')"
       >
-        <template #default="{ describedBy }">
-          <AppSelect
-            id="inspector-protocol"
-            :model-value="protocol"
-            :label="t('monitor.inspector.form.protocol')"
-            :options="protocolOptions"
-            :aria-describedby="describedBy"
-            :aria-invalid="error('protocol') ? 'true' : undefined"
-            @update:model-value="emit('update:protocol', $event)"
-          />
-        </template>
-      </FormField>
+        <FormField
+          id="inspector-access-key"
+          size="compact"
+          :label="t('monitor.inspector.form.accessKey')"
+          :error="error('accessKey')"
+          required
+        >
+          <template #default="{ describedBy }">
+            <AppSelect
+              id="inspector-access-key"
+              :model-value="accessKeyId"
+              :label="t('monitor.inspector.form.accessKey')"
+              :options="accessKeyOptions"
+              :aria-describedby="describedBy"
+              :aria-invalid="error('accessKey') ? 'true' : undefined"
+              size="compact"
+              @update:model-value="emit('update:accessKeyId', $event)"
+            />
+          </template>
+        </FormField>
 
-      <FormField
-        id="inspector-model"
-        :label="t('monitor.inspector.form.model')"
-        :description="t('monitor.inspector.form.modelOptional')"
-        :error="error('externalModel')"
-      >
-        <template #default="{ describedBy }">
-          <input
-            id="inspector-model"
-            :value="model"
-            type="text"
-            autocomplete="off"
-            :aria-describedby="describedBy"
-            :aria-invalid="error('externalModel') ? 'true' : undefined"
-            @input="emit('update:model', ($event.target as HTMLInputElement).value)"
-          />
-        </template>
-      </FormField>
+        <FormField
+          id="inspector-protocol"
+          size="compact"
+          :label="t('monitor.inspector.form.protocol')"
+          :error="error('protocol')"
+          required
+        >
+          <template #default="{ describedBy }">
+            <AppSelect
+              id="inspector-protocol"
+              :model-value="protocol"
+              :label="t('monitor.inspector.form.protocol')"
+              :options="protocolOptions"
+              :aria-describedby="describedBy"
+              :aria-invalid="error('protocol') ? 'true' : undefined"
+              size="compact"
+              @update:model-value="emit('update:protocol', $event)"
+            />
+          </template>
+        </FormField>
 
-      <FormField
-        id="inspector-access-key"
-        :label="t('monitor.inspector.form.accessKey')"
-        :error="error('accessKey')"
-      >
-        <template #default="{ describedBy }">
-          <AppSelect
-            id="inspector-access-key"
-            :model-value="accessKeyId"
-            :label="t('monitor.inspector.form.accessKey')"
-            :options="accessKeyOptions"
-            :aria-describedby="describedBy"
-            :aria-invalid="error('accessKey') ? 'true' : undefined"
-            @update:model-value="emit('update:accessKeyId', $event)"
-          />
-        </template>
-      </FormField>
+        <FormField
+          id="inspector-model"
+          size="compact"
+          :label="t('monitor.inspector.form.model')"
+          :label-suffix="t('monitor.inspector.form.optional')"
+          :error="error('externalModel')"
+        >
+          <template #default="{ describedBy }">
+            <input
+              id="inspector-model"
+              :value="model"
+              type="text"
+              autocomplete="off"
+              :placeholder="t('monitor.inspector.form.modelPlaceholder')"
+              :aria-describedby="describedBy"
+              :aria-invalid="error('externalModel') ? 'true' : undefined"
+              @input="emit('update:model', ($event.target as HTMLInputElement).value)"
+            />
+          </template>
+        </FormField>
 
-      <AppButton type="submit" :disabled="optionsPending">
-        {{ t('monitor.inspector.form.submit') }}
-      </AppButton>
-    </form>
+        <AppButton
+          class="inspector-form__submit"
+          type="submit"
+          size="compact"
+          :busy="submitPending"
+          :disabled="optionsPending || optionsFailed"
+        >
+          {{ t('monitor.inspector.form.submit') }}
+        </AppButton>
+      </form>
 
-    <p v-if="missingAccessKey" class="inspector-inline-error" role="alert">
-      {{ t('monitor.inspector.errors.missingDeepLinkAccessKey', { id: accessKeyId }) }}
-    </p>
-    <p v-if="hasValidationError" class="sr-only" role="alert">
-      {{ t('monitor.inspector.errors.summary') }}
-    </p>
-  </SurfaceCard>
+      <p v-if="missingAccessKey" class="inspector-inline-error" role="alert">
+        {{ t('monitor.inspector.errors.missingDeepLinkAccessKey', { id: accessKeyId }) }}
+      </p>
+      <p v-if="hasValidationError" class="sr-only" role="alert">
+        {{ t('monitor.inspector.errors.summary') }}
+      </p>
+
+      <InlineFeedback tone="neutral" appearance="ledger" glyph="">
+        <template #glyph><Info :size="14" aria-hidden="true" /></template>
+        {{ t('monitor.inspector.boundary') }}
+      </InlineFeedback>
+    </div>
+  </aside>
 </template>
 
 <style scoped>
-.inspector-form-card {
-  display: grid;
+.inspector-form-panel {
   min-width: 0;
-  gap: var(--space-5);
-}
-.inspector-heading {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-.inspector-heading h2 {
-  margin: 0;
-}
-.inspector-heading p {
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
-}
-.inspector-boundary,
-.inspector-inline-error {
-  margin: 0;
+  overflow: hidden;
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding: var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
-.inspector-inline-error {
-  border-color: var(--color-danger);
-  background: var(--color-danger-bg);
-  color: var(--color-text);
+
+.inspector-form-panel__header {
+  min-height: 54px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-surface-sunken) 64%, var(--color-surface));
+  padding: 16px 18px;
 }
+
+.inspector-form-panel__header h2 {
+  margin: 0;
+  font-size: var(--title-section);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.inspector-form-panel__body,
 .inspector-form {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.4fr) minmax(220px, 1.2fr) auto;
-  align-items: end;
-  gap: var(--space-3);
-}
-.inspector-form > * {
   min-width: 0;
 }
+
+.inspector-form-panel__body {
+  gap: var(--space-4);
+  padding: 18px;
+}
+
+.inspector-form {
+  gap: var(--space-3);
+}
+
 .inspector-form :deep(.app-select__trigger) {
   width: 100%;
-}
-.inspector-form input {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
+  min-height: var(--control-xs);
+  height: var(--control-xs);
+  background: var(--color-surface);
   color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--text-meta);
 }
-@media (max-width: 960px) {
+
+.inspector-form :deep(input) {
+  font-family: var(--font-mono);
+}
+
+.inspector-form__submit {
+  width: 100%;
+  margin-top: var(--space-1);
+}
+
+.inspector-inline-error {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 34%, var(--color-border-subtle));
+  border-radius: var(--radius-control);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  padding: 9px 10px;
+  font-size: var(--text-sm);
+}
+
+.inspector-form-panel :deep(.query-feedback) {
+  min-height: 0;
+  padding: 9px 10px;
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 1120px) {
+  .inspector-form-panel__body {
+    gap: var(--space-3);
+  }
+
+  .inspector-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    align-items: end;
+  }
+
+  .inspector-form__submit {
+    width: auto;
+    margin-top: 0;
+  }
+
+  .inspector-form-panel__body > :deep(.inline-feedback) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
   .inspector-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .inspector-form__submit {
+    width: 100%;
+  }
 }
-@media (max-width: 640px) {
+
+@media (max-width: 520px) {
+  .inspector-form-panel__header,
+  .inspector-form-panel__body {
+    padding-inline: 14px;
+  }
+
   .inspector-form {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .inspector-heading {
-    flex-direction: column;
   }
 }
 </style>

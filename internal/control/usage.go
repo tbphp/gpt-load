@@ -20,7 +20,11 @@ import (
 
 const (
 	usageRange24Hours = "24h"
+	usageRange3Days   = "3d"
+	usageRange7Days   = "7d"
+	usageRange15Days  = "15d"
 	usageRange30Days  = "30d"
+	usageRangeCustom  = "custom"
 	usageBreakdownMax = 100
 )
 
@@ -66,18 +70,18 @@ type usageCollectionHealthResponse struct {
 }
 
 type usageResponse struct {
-	Range               string                         `json:"range"`
-	Granularity         requestlog.UsageGranularity    `json:"granularity"`
-	FromMS              int64                          `json:"from_ms"`
-	ToMS                int64                          `json:"to_ms"`
-	ObservedAtMS        int64                          `json:"observed_at_ms"`
-	Summary             usageAggregateResponse         `json:"summary"`
-	Series              []usageSeriesResponse          `json:"series"`
-	Breakdown           []usageBreakdownResponse       `json:"breakdown"`
-	BreakdownTruncated  bool                           `json:"breakdown_truncated"`
-	BreakdownOrder      requestlog.UsageBreakdownOrder `json:"breakdown_order"`
-	BreakdownGroupCount int64                          `json:"breakdown_group_count"`
-	CollectionHealth    usageCollectionHealthResponse  `json:"collection_health"`
+	Range              string                         `json:"range"`
+	Granularity        requestlog.UsageGranularity    `json:"granularity"`
+	FromMS             int64                          `json:"from_ms"`
+	ToMS               int64                          `json:"to_ms"`
+	ObservedAtMS       int64                          `json:"observed_at_ms"`
+	Summary            usageAggregateResponse         `json:"summary"`
+	Series             []usageSeriesResponse          `json:"series"`
+	Breakdown          []usageBreakdownResponse       `json:"breakdown"`
+	BreakdownTruncated bool                           `json:"breakdown_truncated"`
+	BreakdownOrder     requestlog.UsageBreakdownOrder `json:"breakdown_order"`
+	BreakdownCount     int64                          `json:"breakdown_count"`
+	CollectionHealth   usageCollectionHealthResponse  `json:"collection_health"`
 }
 
 func (service *Service) QueryUsage(
@@ -191,11 +195,17 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 			query.FromMS = fromMS
 			query.ToMS = toMS
 			query.Granularity = requestlog.UsageGranularityHour
-		case usageRange30Days:
+		case usageRange3Days, usageRange7Days, usageRange15Days, usageRange30Days:
+			days := map[string]int{
+				usageRange3Days:  3,
+				usageRange7Days:  7,
+				usageRange15Days: 15,
+				usageRange30Days: 30,
+			}[rangeValue]
 			fromMS, toMS, err := epochms.WindowEndingAt(
 				observedAtMS,
 				epochms.MillisecondsPerDay,
-				30,
+				days,
 			)
 			if err != nil {
 				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
@@ -276,7 +286,7 @@ func (service *Service) mapUsageResponse(
 	if report.BreakdownOrder != query.BreakdownOrder {
 		return usageResponse{}, fmt.Errorf("map usage response: breakdown order mismatch")
 	}
-	if report.BreakdownGroupCount < 0 || report.BreakdownGroupCount > maxSafeInteger {
+	if report.BreakdownCount < 0 || report.BreakdownCount > maxSafeInteger {
 		return usageResponse{}, fmt.Errorf("map usage response: unsafe breakdown group count")
 	}
 	summary, err := mapUsageAggregate(report.Summary)
@@ -288,13 +298,9 @@ func (service *Service) mapUsageResponse(
 		stats.WriteFailureTotal > uint64(maxSafeInteger) {
 		return usageResponse{}, fmt.Errorf("map usage collection health: unsafe counter")
 	}
-	rangeValue := usageRange24Hours
-	switch query.Granularity {
-	case requestlog.UsageGranularityHour:
-	case requestlog.UsageGranularityDay:
-		rangeValue = usageRange30Days
-	default:
-		return usageResponse{}, fmt.Errorf("map usage response: invalid granularity")
+	rangeValue, err := usageResponseRange(query)
+	if err != nil {
+		return usageResponse{}, err
 	}
 	lastWriteFailureAtMS, err := optionalSafeEpochMilliseconds(stats.LastWriteFailureAt)
 	if err != nil {
@@ -321,12 +327,12 @@ func (service *Service) mapUsageResponse(
 			WriteFailureTotal:    stats.WriteFailureTotal,
 			LastWriteFailureAtMS: lastWriteFailureAtMS,
 		},
-		Summary:             summary,
-		Series:              make([]usageSeriesResponse, 0, len(report.Series)),
-		Breakdown:           make([]usageBreakdownResponse, 0, len(report.Breakdown)),
-		BreakdownTruncated:  report.BreakdownTruncated,
-		BreakdownOrder:      report.BreakdownOrder,
-		BreakdownGroupCount: report.BreakdownGroupCount,
+		Summary:            summary,
+		Series:             make([]usageSeriesResponse, 0, len(report.Series)),
+		Breakdown:          make([]usageBreakdownResponse, 0, len(report.Breakdown)),
+		BreakdownTruncated: report.BreakdownTruncated,
+		BreakdownOrder:     report.BreakdownOrder,
+		BreakdownCount:     report.BreakdownCount,
 	}
 	for _, point := range report.Series {
 		if err := validateSafeMilliseconds(point.BucketStartMS); err != nil {
@@ -358,6 +364,30 @@ func (service *Service) mapUsageResponse(
 		})
 	}
 	return result, nil
+}
+
+func usageResponseRange(query requestlog.UsageQuery) (string, error) {
+	duration := query.ToMS - query.FromMS
+	switch query.Granularity {
+	case requestlog.UsageGranularityHour:
+		if duration == 24*epochms.MillisecondsPerHour {
+			return usageRange24Hours, nil
+		}
+	case requestlog.UsageGranularityDay:
+		for rangeValue, days := range map[string]int64{
+			usageRange3Days:  3,
+			usageRange7Days:  7,
+			usageRange15Days: 15,
+			usageRange30Days: 30,
+		} {
+			if duration == days*epochms.MillisecondsPerDay {
+				return rangeValue, nil
+			}
+		}
+	default:
+		return "", fmt.Errorf("map usage response: invalid granularity")
+	}
+	return usageRangeCustom, nil
 }
 
 func mapUsageAggregate(source requestlog.UsageAggregate) (usageAggregateResponse, error) {

@@ -123,6 +123,27 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 			t.Fatalf("create UsageStat at %d: %v", bucketStartMS, err)
 		}
 	}
+	for index, item := range []struct {
+		bucketStartMS int64
+		applied       bool
+	}{
+		{bucketStartMS: usageCutoffMS - 3_600_000, applied: true},
+		{bucketStartMS: usageCutoffMS, applied: true},
+		{bucketStartMS: usageCutoffMS - 3_600_000, applied: false},
+	} {
+		if err := db.Create(&models.UsageAggregationJournal{
+			RequestID:     fmt.Sprintf("00000000-0000-4000-9000-%012d", index),
+			BucketStartMS: item.bucketStartMS,
+			AccessKeyID:   uint(index),
+			GroupID:       17,
+			Model:         "retention-model",
+			RequestCount:  1,
+			SuccessCount:  1,
+			Applied:       item.applied,
+		}).Error; err != nil {
+			t.Fatalf("create UsageAggregationJournal at %d: %v", item.bucketStartMS, err)
+		}
+	}
 
 	service.Sweep(context.Background(), now)
 
@@ -134,6 +155,14 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 		remaining[0].BucketStartMS != usageCutoffMS ||
 		remaining[1].BucketStartMS != usageCutoffMS+3_600_000 {
 		t.Fatalf("remaining UsageStats = %+v, want cutoff and newer integer buckets", remaining)
+	}
+	var journals []models.UsageAggregationJournal
+	if err := db.Order("request_id ASC").Find(&journals).Error; err != nil {
+		t.Fatalf("query remaining UsageAggregationJournals: %v", err)
+	}
+	if len(journals) != 2 || journals[0].BucketStartMS != usageCutoffMS ||
+		!journals[0].Applied || journals[1].Applied {
+		t.Fatalf("remaining UsageAggregationJournals = %+v", journals)
 	}
 }
 
@@ -366,7 +395,7 @@ func TestRetentionSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 	})
 }
 
-func TestRetentionReplayBoundaryPreservesThenReaggregatesUsageStat(t *testing.T) {
+func TestRetentionReplayBoundaryKeepsAggregationIdempotentWithoutRequestLog(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	writer := &gormBatchWriter{db: db}
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
@@ -390,7 +419,7 @@ func TestRetentionReplayBoundaryPreservesThenReaggregatesUsageStat(t *testing.T)
 	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
 		t.Fatalf("post-retention replay WriteBatch() error = %v", err)
 	}
-	assertRetentionReplayState(t, db, 1, 2)
+	assertRetentionReplayState(t, db, 1, 1)
 }
 
 func assertRetentionReplayState(

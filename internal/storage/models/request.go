@@ -52,6 +52,35 @@ type RequestLogAttempt struct {
 	PricingReceipt  JSON   `gorm:"type:json"`
 }
 
+// UsageAggregationJournal is the durable, request-idempotent input for hourly
+// usage aggregation. It intentionally excludes request and error payloads.
+type UsageAggregationJournal struct {
+	RequestID               string `gorm:"column:request_id;type:varchar(36);primaryKey;not null"`
+	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null"`
+	AccessKeyID             uint   `gorm:"not null"`
+	GroupID                 uint   `gorm:"not null"`
+	Model                   string `gorm:"type:varchar(255);not null"`
+	RequestCount            int64  `gorm:"not null"`
+	SuccessCount            int64  `gorm:"not null"`
+	FailureCount            int64  `gorm:"not null"`
+	UncachedInputTokens     int64  `gorm:"column:uncached_input_tokens;not null"`
+	OutputTokens            int64  `gorm:"not null"`
+	CacheReadTokens         int64  `gorm:"not null"`
+	CacheWrite5MTokens      int64  `gorm:"column:cache_write_5m_tokens;not null"`
+	CacheWrite1HTokens      int64  `gorm:"column:cache_write_1h_tokens;not null"`
+	CacheWriteUnknownTokens int64  `gorm:"column:cache_write_unknown_tokens;not null"`
+	EstimatedCostNanoUSD    int64  `gorm:"column:estimated_cost_nano_usd;not null"`
+	UsageMissingCount       int64  `gorm:"not null"`
+	PartialCount            int64  `gorm:"not null"`
+	UnpricedRequestCount    int64  `gorm:"not null"`
+	PricingPartialCount     int64  `gorm:"not null"`
+	Applied                 bool   `gorm:"not null;default:false"`
+}
+
+func (UsageAggregationJournal) TableName() string {
+	return "usage_aggregation_journal"
+}
+
 // UsageStat is an hourly aggregate by access key, upstream group, and upstream model.
 type UsageStat struct {
 	ID                      uint   `gorm:"primaryKey;autoIncrement"`

@@ -1,27 +1,49 @@
 <script setup lang="ts">
-import { RefreshCw } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { GroupOptionDto } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppDrawer from '@/components/ui/AppDrawer.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
 
 import type { UsageFilterDraft, UsageFilterErrors } from './usage-filters'
 
 const props = defineProps<{
+  open: boolean
   draft: UsageFilterDraft
   errors: UsageFilterErrors
   groups: GroupOptionDto[]
   groupsFailed: boolean
-  fetching: boolean
 }>()
 const emit = defineEmits<{
+  'update:open': [open: boolean]
   updateField: [field: keyof UsageFilterDraft, value: string]
   apply: []
   reset: []
-  refresh: []
 }>()
 const { t } = useI18n()
+
+const option = (value: string, label: string) => ({ value, label })
+
+function groupOptions() {
+  const options = [option('', t('monitor.usage.filters.anyGroup'))]
+  if (
+    props.draft.group_id &&
+    !props.groups.some((group) => String(group.id) === props.draft.group_id)
+  ) {
+    options.push(
+      option(
+        props.draft.group_id,
+        t('monitor.usage.filters.deletedOrUnknown', { id: props.draft.group_id }),
+      ),
+    )
+  }
+  return [
+    ...options,
+    ...props.groups.map((group) => option(String(group.id), `${group.name} · #${group.id}`)),
+  ]
+}
 
 function error(field: keyof UsageFilterErrors): string | undefined {
   const key = props.errors[field]
@@ -30,132 +52,101 @@ function error(field: keyof UsageFilterErrors): string | undefined {
 </script>
 
 <template>
-  <form
-    class="usage-filter-form"
-    :aria-label="t('monitor.usage.filters.label')"
-    @submit.prevent="emit('apply')"
+  <AppDrawer
+    :open="open"
+    appearance="ledger"
+    :title="t('monitor.usage.filters.title')"
+    :description="t('monitor.usage.filters.description')"
+    :close-label="t('monitor.usage.filters.close')"
+    @update:open="emit('update:open', $event)"
   >
-    <div class="usage-filter-grid">
-      <FormField id="usage-range" :label="t('monitor.usage.filters.range')">
-        <select
-          id="usage-range"
-          :value="draft.range"
-          @change="emit('updateField', 'range', ($event.target as HTMLSelectElement).value)"
+    <form class="usage-filter-drawer" @submit.prevent="emit('apply')">
+      <div class="usage-filter-drawer__grid">
+        <FormField
+          id="usage-group"
+          :label="t('monitor.usage.filters.group')"
+          size="compact"
+          :error="error('group_id')"
         >
-          <option value="24h">{{ t('monitor.usage.filters.range24h') }}</option>
-          <option value="30d">{{ t('monitor.usage.filters.range30d') }}</option>
-        </select>
-      </FormField>
-      <FormField
-        id="usage-group"
-        :label="t('monitor.usage.filters.group')"
-        :description="
-          groupsFailed
-            ? t('monitor.usage.filters.groupIdHelp')
-            : t('monitor.usage.filters.groupHelp')
-        "
-        :error="error('group_id')"
-      >
-        <template #default="{ describedBy }">
           <input
             v-if="groupsFailed"
             id="usage-group"
             :value="draft.group_id"
-            type="text"
             inputmode="numeric"
             autocomplete="off"
-            :aria-describedby="describedBy"
-            :aria-invalid="error('group_id') ? 'true' : undefined"
             @input="emit('updateField', 'group_id', ($event.target as HTMLInputElement).value)"
           />
-          <select
+          <AppSelect
             v-else
             id="usage-group"
-            :value="draft.group_id"
-            :aria-describedby="describedBy"
-            :aria-invalid="error('group_id') ? 'true' : undefined"
-            @change="emit('updateField', 'group_id', ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">{{ t('monitor.usage.filters.anyGroup') }}</option>
-            <option
-              v-if="draft.group_id && !groups.some((group) => String(group.id) === draft.group_id)"
-              :value="draft.group_id"
-            >
-              {{ t('monitor.usage.filters.deletedOrUnknown', { id: draft.group_id }) }}
-            </option>
-            <option v-for="group in groups" :key="group.id" :value="String(group.id)">
-              {{ group.name }} · #{{ group.id }}
-            </option>
-          </select>
-        </template>
-      </FormField>
-      <FormField
-        id="usage-model"
-        :label="t('monitor.usage.filters.model')"
-        :description="t('monitor.usage.filters.modelHelp')"
-        :error="error('model')"
-      >
-        <template #default="{ describedBy }">
+            :model-value="draft.group_id"
+            :label="t('monitor.usage.filters.group')"
+            :options="groupOptions()"
+            size="compact"
+            @update:model-value="emit('updateField', 'group_id', $event)"
+          />
+        </FormField>
+        <FormField
+          id="usage-model"
+          :label="t('monitor.usage.filters.model')"
+          size="compact"
+          :error="error('model')"
+        >
           <input
             id="usage-model"
             :value="draft.model"
-            type="text"
             autocomplete="off"
-            :aria-describedby="describedBy"
-            :aria-invalid="error('model') ? 'true' : undefined"
+            :placeholder="t('monitor.usage.filters.modelPlaceholder')"
             @input="emit('updateField', 'model', ($event.target as HTMLInputElement).value)"
           />
-        </template>
-      </FormField>
-    </div>
-    <div class="usage-filter-actions">
-      <AppButton type="button" variant="secondary" :busy="fetching" @click="emit('refresh')">
-        <RefreshCw :size="16" aria-hidden="true" />{{ t('monitor.usage.filters.refresh') }}
-      </AppButton>
-      <AppButton type="submit">{{ t('monitor.usage.filters.apply') }}</AppButton>
+        </FormField>
+      </div>
+    </form>
+
+    <template #footer>
       <AppButton variant="ghost" @click="emit('reset')">
         {{ t('monitor.usage.filters.reset') }}
       </AppButton>
-    </div>
-  </form>
+      <span class="usage-filter-drawer__actions">
+        <AppButton variant="secondary" @click="emit('update:open', false)">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton @click="emit('apply')">{{ t('monitor.usage.filters.apply') }}</AppButton>
+      </span>
+    </template>
+  </AppDrawer>
 </template>
 
 <style scoped>
-.usage-filter-form {
-  display: grid;
-  gap: var(--space-4);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  padding: var(--space-4);
-  box-shadow: var(--shadow-card);
-}
-.usage-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
-  gap: var(--space-3);
-}
-.usage-filter-form input,
-.usage-filter-form select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-}
-.usage-filter-actions {
-  display: flex;
+.usage-filter-drawer {
   min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
+  padding: 16px 0;
 }
-@media (max-width: 720px) {
-  .usage-filter-grid {
+
+.usage-filter-drawer__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+}
+
+.usage-filter-drawer__grid :deep(.app-select__trigger) {
+  width: 100%;
+}
+
+.usage-filter-drawer__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@media (max-width: 520px) {
+  .usage-filter-drawer__grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .usage-filter-drawer__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

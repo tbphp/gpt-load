@@ -189,11 +189,11 @@ func TestQueryUsageOrdersBreakdownByRequestsAndCost(t *testing.T) {
 			if err != nil {
 				t.Fatalf("QueryUsage() error = %v", err)
 			}
-			if report.BreakdownOrder != test.order || report.BreakdownGroupCount != 3 {
+			if report.BreakdownOrder != test.order || report.BreakdownCount != 3 {
 				t.Fatalf(
 					"breakdown metadata = %q/%d, want %q/3",
 					report.BreakdownOrder,
-					report.BreakdownGroupCount,
+					report.BreakdownCount,
 					test.order,
 				)
 			}
@@ -215,7 +215,7 @@ func TestQueryUsageOrdersBreakdownByRequestsAndCost(t *testing.T) {
 	}
 }
 
-func TestQueryUsageCountsDistinctBreakdownGroupsWithinFilters(t *testing.T) {
+func TestQueryUsageCountsDistinctGroupModelBreakdownItemsWithinFilters(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	start := time.Date(2026, time.July, 2, 2, 0, 0, 0, time.UTC)
@@ -234,8 +234,8 @@ func TestQueryUsageCountsDistinctBreakdownGroupsWithinFilters(t *testing.T) {
 		model   string
 		want    int64
 	}{
-		{name: "all groups", want: 3},
-		{name: "one group across models", groupID: &groupID, want: 1},
+		{name: "all group model items", want: 4},
+		{name: "one group across models", groupID: &groupID, want: 2},
 		{name: "model a", model: "model-a", want: 2},
 		{name: "model b", model: "model-b", want: 2},
 	}
@@ -253,10 +253,10 @@ func TestQueryUsageCountsDistinctBreakdownGroupsWithinFilters(t *testing.T) {
 			if err != nil {
 				t.Fatalf("QueryUsage() error = %v", err)
 			}
-			if report.BreakdownGroupCount != test.want {
+			if report.BreakdownCount != test.want {
 				t.Fatalf(
-					"BreakdownGroupCount = %d, want %d; report=%#v",
-					report.BreakdownGroupCount,
+					"BreakdownCount = %d, want %d; report=%#v",
+					report.BreakdownCount,
 					test.want,
 					report,
 				)
@@ -325,7 +325,7 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
 	if !inserted || report.Summary.RequestCount != 1 || len(report.Series) != 1 ||
-		report.BreakdownGroupCount != 1 ||
+		report.BreakdownCount != 1 ||
 		len(report.Breakdown) != 1 || report.Breakdown[0].Model != "before" {
 		t.Fatalf("report did not retain one snapshot: inserted=%t report=%#v", inserted, report)
 	}

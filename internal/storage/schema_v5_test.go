@@ -153,6 +153,29 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 			}
 		}
 	}
+	journal := schemaV5Columns(t, db, "usage_aggregation_journal")
+	for _, name := range []string{
+		"request_id", "bucket_start_ms", "access_key_id", "group_id", "model",
+		"request_count", "success_count", "failure_count",
+		"uncached_input_tokens", "output_tokens", "cache_read_tokens",
+		"cache_write_5m_tokens", "cache_write_1h_tokens",
+		"cache_write_unknown_tokens", "estimated_cost_nano_usd",
+		"usage_missing_count", "partial_count", "unpriced_request_count",
+		"pricing_partial_count", "applied",
+	} {
+		column, found := journal[name]
+		if !found {
+			t.Errorf("usage_aggregation_journal.%s is missing", name)
+			continue
+		}
+		if column.NotNull != 1 {
+			t.Errorf("usage_aggregation_journal.%s is nullable", name)
+		}
+	}
+	applied := journal["applied"]
+	if applied.DefaultValue == nil || strings.Trim(*applied.DefaultValue, "'\"") != "false" {
+		t.Errorf("usage_aggregation_journal.applied default = %v, want false", applied.DefaultValue)
+	}
 	pricingCompleteness := schemaV5Columns(t, db, "request_logs")["pricing_completeness"]
 	if pricingCompleteness.DefaultValue == nil ||
 		strings.Trim(*pricingCompleteness.DefaultValue, "'\"") != "not_applicable" {

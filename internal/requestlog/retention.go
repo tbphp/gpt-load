@@ -18,8 +18,9 @@ const (
 	usageStatRetentionDays = 35
 )
 
-// Sweep removes request logs and hourly usage aggregates strictly older than
-// their respective retention boundaries. Failures are isolated from the data
+// Sweep removes request logs, hourly usage aggregates, and applied aggregation
+// journals strictly older than their respective retention boundaries. Pending
+// journals are retained for compensation. Failures are isolated from the data
 // plane.
 func (service *Service) Sweep(ctx context.Context, now time.Time) {
 	if ctx == nil {
@@ -59,6 +60,10 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 		return
 	}
 	service.deleteExpiredUsageStats(ctx, usageStatCutoffMS, now)
+	if ctx.Err() != nil {
+		return
+	}
+	service.deleteExpiredUsageJournals(ctx, usageStatCutoffMS, now)
 }
 
 func retentionCutoffMS(nowMS int64, days int) (int64, error) {
@@ -153,6 +158,49 @@ func (service *Service) deleteExpiredUsageStats(
 			return false
 		}
 		if len(ids) < retentionBatchSize {
+			return true
+		}
+	}
+}
+
+func (service *Service) deleteExpiredUsageJournals(
+	ctx context.Context,
+	cutoffMS int64,
+	now time.Time,
+) bool {
+	for {
+		if ctx.Err() != nil {
+			return false
+		}
+
+		var requestIDs []string
+		result := service.db.WithContext(ctx).
+			Model(&models.UsageAggregationJournal{}).
+			Where("applied = ? AND bucket_start_ms < ?", true, cutoffMS).
+			Order("bucket_start_ms ASC").
+			Order("request_id ASC").
+			Limit(retentionBatchSize).
+			Pluck("request_id", &requestIDs)
+		if result.Error != nil {
+			if ctx.Err() == nil {
+				service.recordRetentionDeleteFailure(now)
+			}
+			return false
+		}
+		if len(requestIDs) == 0 {
+			return true
+		}
+
+		result = service.db.WithContext(ctx).
+			Where("request_id IN ? AND applied = ?", requestIDs, true).
+			Delete(&models.UsageAggregationJournal{})
+		if result.Error != nil {
+			if ctx.Err() == nil {
+				service.recordRetentionDeleteFailure(now)
+			}
+			return false
+		}
+		if len(requestIDs) < retentionBatchSize {
 			return true
 		}
 	}

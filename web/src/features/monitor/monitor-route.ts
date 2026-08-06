@@ -27,15 +27,16 @@ export function normalizeMonitorQuery(query: Record<string, unknown>): LocationQ
   return normalizeLogsQuery(query, tab)
 }
 
-export function usageMonitorQuery(filters: UsageFilters = { range: '24h' }): LocationQueryRaw {
+export function usageMonitorQuery(filters: UsageFilters = { range: '30d' }): LocationQueryRaw {
   const normalized: LocationQueryRaw = {
     tab: 'usage',
-    range: filters.range === '30d' ? '30d' : '24h',
+    range: filters.range,
   }
   const groupID = normalizeUsageGroupID(filters.group_id)
   const model = normalizeUsageModel(filters.model)
   if (groupID !== undefined) normalized.group_id = String(groupID)
   if (model !== undefined) normalized.model = model
+  if (filters.breakdown_order === 'cost') normalized.breakdown_order = 'cost'
   return normalized
 }
 

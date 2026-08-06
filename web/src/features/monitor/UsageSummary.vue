@@ -1,168 +1,174 @@
 <script setup lang="ts">
-import { Activity, CircleDollarSign, Database, Gauge } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { UsageAggregateDto } from '@/app/resources/usage'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
-import { formatEstimatedCost, formatLocalInstant } from '@/lib/format'
+import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
 
 const props = defineProps<{
-  observedAtMs: number
+  rangeLabel: string
   summary: UsageAggregateDto
 }>()
 const { locale, t } = useI18n()
 
-function formatCount(value: number): string {
-  return new Intl.NumberFormat(locale.value).format(value)
-}
-
 function formattedEstimatedCost(): string {
-  const cost = formatEstimatedCost(props.summary.estimated_cost_nano_usd, locale.value)
-  return props.summary.unpriced_request_count > 0
-    ? t('monitor.usage.cost.knownPlusUnknown', { cost })
-    : cost
+  return formatEstimatedCost(props.summary.estimated_cost_nano_usd, locale.value)
 }
 </script>
 
 <template>
-  <section class="usage-section" aria-labelledby="usage-kpi-title">
-    <div class="usage-heading">
-      <div>
-        <h2 id="usage-kpi-title">{{ t('monitor.usage.kpi.title') }}</h2>
-        <p>
-          {{
-            t('monitor.usage.kpi.description', {
-              time: formatLocalInstant(observedAtMs, locale),
-            })
-          }}
-        </p>
-      </div>
-    </div>
-    <div class="usage-kpi-grid">
-      <SurfaceCard class="usage-kpi">
-        <Activity :size="20" aria-hidden="true" />
-        <span>{{ t('monitor.usage.kpi.requests') }}</span>
-        <strong>{{ formatCount(summary.request_count) }}</strong>
-      </SurfaceCard>
-      <SurfaceCard class="usage-kpi">
-        <Gauge :size="20" aria-hidden="true" />
-        <span>{{ t('monitor.usage.kpi.outcomes') }}</span>
-        <strong>
-          {{
-            t('monitor.usage.kpi.outcomeCounts', {
-              success: formatCount(summary.success_count),
-              failure: formatCount(summary.failure_count),
-            })
-          }}
-        </strong>
-      </SurfaceCard>
-      <SurfaceCard class="usage-kpi">
-        <Database :size="20" aria-hidden="true" />
-        <span>{{ t('monitor.usage.kpi.totalTokens') }}</span>
-        <strong>{{ formatCount(summary.total_tokens) }}</strong>
-      </SurfaceCard>
-      <SurfaceCard class="usage-kpi">
-        <CircleDollarSign :size="20" aria-hidden="true" />
-        <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
-        <strong>{{ formattedEstimatedCost() }}</strong>
-      </SurfaceCard>
-    </div>
-    <dl class="usage-token-definition" :aria-label="t('monitor.usage.tokens.title')">
-      <div>
-        <dt>{{ t('monitor.usage.tokens.uncachedInput') }}</dt>
-        <dd>{{ formatCount(summary.uncached_input_tokens) }}</dd>
-      </div>
-      <div>
-        <dt>{{ t('monitor.usage.tokens.cacheRead') }}</dt>
-        <dd>{{ formatCount(summary.cache_read_tokens) }}</dd>
-      </div>
-      <div>
-        <dt>{{ t('monitor.usage.tokens.cacheWrite5m') }}</dt>
-        <dd>{{ formatCount(summary.cache_write_5m_tokens) }}</dd>
-      </div>
-      <div>
-        <dt>{{ t('monitor.usage.tokens.cacheWrite1h') }}</dt>
-        <dd>{{ formatCount(summary.cache_write_1h_tokens) }}</dd>
-      </div>
-      <div>
-        <dt>{{ t('monitor.usage.tokens.output') }}</dt>
-        <dd>{{ formatCount(summary.output_tokens) }}</dd>
-      </div>
-    </dl>
+  <section class="usage-kpis" :aria-label="t('monitor.usage.kpi.title')">
+    <article class="usage-kpi usage-kpi--accent">
+      <span>{{ t('monitor.usage.kpi.requests') }}</span>
+      <strong>{{ formatInteger(summary.request_count, locale) }}</strong>
+      <small>{{ rangeLabel }}</small>
+    </article>
+    <article class="usage-kpi usage-kpi--outcome">
+      <span>{{ t('monitor.usage.kpi.outcomes') }}</span>
+      <strong class="usage-kpi__outcomes">
+        <i class="usage-kpi__success">{{ formatInteger(summary.success_count, locale) }}</i>
+        <i class="usage-kpi__separator">/</i>
+        <i class="usage-kpi__failure">{{ formatInteger(summary.failure_count, locale) }}</i>
+      </strong>
+      <small>
+        {{
+          t('monitor.usage.kpi.successRate', {
+            rate: formatPercent(summary.success_count, summary.request_count, locale),
+          })
+        }}
+      </small>
+    </article>
+    <article class="usage-kpi usage-kpi--accent">
+      <span>{{ t('monitor.usage.kpi.totalTokens') }}</span>
+      <strong>{{ formatTokens(summary.total_tokens, locale) }}</strong>
+      <small>{{ t('monitor.usage.kpi.persistedWindow') }}</small>
+    </article>
+    <article class="usage-kpi usage-kpi--cost">
+      <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
+      <strong>{{ formattedEstimatedCost() }}</strong>
+      <small :class="{ 'usage-kpi__quality': summary.unpriced_request_count > 0 }">
+        {{
+          summary.unpriced_request_count > 0
+            ? t('monitor.usage.cost.knownPlusUnknownShort')
+            : t('monitor.usage.cost.known')
+        }}
+      </small>
+    </article>
   </section>
 </template>
 
 <style scoped>
-.usage-section {
+.usage-kpis {
   display: grid;
-  min-width: 0;
-  gap: var(--space-4);
-}
-.usage-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-.usage-heading h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-.usage-heading p {
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
-}
-.usage-kpi-grid,
-.usage-token-definition {
-  display: grid;
-  gap: var(--space-3);
-}
-.usage-kpi-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--color-border-subtle);
+  gap: 1px;
 }
-.usage-token-definition {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin: 0;
-}
-.usage-token-definition > div {
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-2);
-}
-.usage-token-definition dt {
-  color: var(--color-text-muted);
-  font-size: 0.8125rem;
-}
-.usage-token-definition dd {
-  margin: var(--space-1) 0 0;
-  font-weight: 700;
-}
+
 .usage-kpi {
-  display: grid;
+  --usage-kpi-color: var(--color-text);
+  --usage-kpi-dot: var(--color-text-faint);
+
   min-width: 0;
-  gap: var(--space-2);
+  min-height: 108px;
+  background: var(--color-surface);
+  padding: 16px 18px;
 }
-.usage-kpi > svg {
-  color: var(--color-action);
+
+.usage-kpi--accent {
+  --usage-kpi-color: var(--color-action);
+  --usage-kpi-dot: var(--color-action);
 }
+
+.usage-kpi--cost {
+  --usage-kpi-color: var(--color-warning);
+  --usage-kpi-dot: var(--color-warning);
+}
+
+.usage-kpi > span,
+.usage-kpi small {
+  display: block;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
 .usage-kpi > span {
-  color: var(--color-text-muted);
-  font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 560;
 }
+
+.usage-kpi > span::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--usage-kpi-dot);
+  content: '';
+}
+
 .usage-kpi strong {
-  font-size: 1.25rem;
+  display: block;
+  margin-top: 8px;
+  color: var(--usage-kpi-color);
+  font-family: var(--font-mono);
+  font-size: clamp(1.45rem, 2.1vw, 1.9rem);
+  font-weight: 580;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
+  line-height: 1;
   overflow-wrap: anywhere;
 }
-@media (max-width: 1000px) {
-  .usage-kpi-grid,
-  .usage-token-definition {
+
+.usage-kpi small {
+  margin-top: 9px;
+  line-height: 1.4;
+}
+
+.usage-kpi__outcomes {
+  display: flex !important;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.usage-kpi__outcomes i {
+  font-style: normal;
+}
+
+.usage-kpi__success {
+  color: var(--color-success);
+}
+
+.usage-kpi__failure {
+  color: var(--color-danger);
+}
+
+.usage-kpi__separator {
+  color: var(--color-text-faint);
+  font-weight: 400;
+}
+
+.usage-kpi__quality {
+  color: var(--color-warning) !important;
+}
+
+@media (max-width: 900px) {
+  .usage-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-@media (max-width: 720px) {
-  .usage-kpi-grid,
-  .usage-token-definition {
+
+@media (max-width: 560px) {
+  .usage-kpis {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .usage-kpi {
+    min-height: 94px;
   }
 }
 </style>

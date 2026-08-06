@@ -184,12 +184,12 @@ type UsageBreakdown struct {
 }
 
 type UsageReport struct {
-	Summary             UsageAggregate
-	Series              []UsageSeriesPoint
-	Breakdown           []UsageBreakdown
-	BreakdownTruncated  bool
-	BreakdownOrder      UsageBreakdownOrder
-	BreakdownGroupCount int64
+	Summary            UsageAggregate
+	Series             []UsageSeriesPoint
+	Breakdown          []UsageBreakdown
+	BreakdownTruncated bool
+	BreakdownOrder     UsageBreakdownOrder
+	BreakdownCount     int64
 }
 
 type Stats struct {

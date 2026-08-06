@@ -158,6 +158,32 @@ func schemaV5TableStatements() []string {
 			FOREIGN KEY (request_id) REFERENCES request_logs(id)
 				ON UPDATE CASCADE ON DELETE CASCADE
 		)`,
+		`CREATE TABLE usage_aggregation_journal (
+			request_id varchar(36) PRIMARY KEY NOT NULL,
+			bucket_start_ms integer NOT NULL CHECK (bucket_start_ms >= 0),
+			access_key_id integer NOT NULL,
+			group_id integer NOT NULL,
+			model varchar(255) NOT NULL,
+			request_count integer NOT NULL CHECK (request_count = 1),
+			success_count integer NOT NULL CHECK (success_count >= 0),
+			failure_count integer NOT NULL CHECK (failure_count >= 0),
+			uncached_input_tokens integer NOT NULL CHECK (uncached_input_tokens >= 0),
+			output_tokens integer NOT NULL CHECK (output_tokens >= 0),
+			cache_read_tokens integer NOT NULL CHECK (cache_read_tokens >= 0),
+			cache_write_5m_tokens integer NOT NULL CHECK (cache_write_5m_tokens >= 0),
+			cache_write_1h_tokens integer NOT NULL CHECK (cache_write_1h_tokens >= 0),
+			cache_write_unknown_tokens integer NOT NULL
+				CHECK (cache_write_unknown_tokens >= 0),
+			estimated_cost_nano_usd integer NOT NULL CHECK (estimated_cost_nano_usd >= 0),
+			usage_missing_count integer NOT NULL CHECK (usage_missing_count >= 0),
+			partial_count integer NOT NULL CHECK (partial_count >= 0),
+			unpriced_request_count integer NOT NULL CHECK (unpriced_request_count >= 0),
+			pricing_partial_count integer NOT NULL CHECK (pricing_partial_count >= 0),
+			applied numeric NOT NULL DEFAULT false,
+			CONSTRAINT chk_usage_journal_request_outcome
+				CHECK (request_count = success_count + failure_count),
+			CONSTRAINT chk_usage_journal_applied CHECK (applied IN (0, 1))
+		)`,
 		`CREATE TABLE usage_stats (
 			id integer PRIMARY KEY AUTOINCREMENT,
 			bucket_start_ms integer NOT NULL CHECK (bucket_start_ms >= 0),
@@ -300,6 +326,8 @@ func schemaV5IndexStatements() []string {
 			ON request_log_attempts(error_code, completed_at_ms DESC, request_id)`,
 		`CREATE UNIQUE INDEX idx_usage_stats_bucket_access_group_model
 			ON usage_stats(bucket_start_ms, access_key_id, group_id, model)`,
+		`CREATE INDEX idx_usage_aggregation_journal_pending_bucket
+			ON usage_aggregation_journal(applied, bucket_start_ms, request_id)`,
 		`CREATE UNIQUE INDEX idx_model_prices_scope_model
 			ON model_prices(price_scope_key, model_id)`,
 		`CREATE INDEX idx_jobs_type ON jobs(type)`,
