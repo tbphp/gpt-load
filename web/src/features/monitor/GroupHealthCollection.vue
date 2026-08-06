@@ -100,6 +100,7 @@ function keyHealthLabel(counts: KeyCounts): string {
       <LedgerRecordList
         :label="t('monitor.health.groups.tableLabel')"
         :row-count="visibleGroups.length + 1"
+        :scroll-hint="t('monitor.scrollHint')"
         grid-class="group-health-grid"
       >
         <template #header>

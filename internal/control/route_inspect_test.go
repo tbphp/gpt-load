@@ -143,6 +143,17 @@ func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
+			name:     "control character in model",
+			body:     `{"protocol":"openai-completions","external_model":"model\u0085id","access_key_id":1}`,
+			wantCode: app_errors.ErrValidation.Code,
+		},
+		{
+			name: "model exceeds UTF-8 byte limit",
+			body: `{"protocol":"openai-completions","external_model":"` +
+				strings.Repeat("a", 253) + `猫","access_key_id":1}`,
+			wantCode: app_errors.ErrValidation.Code,
+		},
+		{
 			name:     "zero access key id",
 			body:     `{"protocol":"openai-completions","external_model":"model","access_key_id":0}`,
 			wantCode: app_errors.ErrValidation.Code,

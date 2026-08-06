@@ -10,6 +10,9 @@ import type {
   RequestLogStatus,
   RequestLogUsageState,
 } from '@/app/resources/request-logs'
+import { requestLogFilterFields } from '@/app/resources/request-log-filters'
+
+import { isValidMonitorText, maxSignedInt64 } from './filter-validation'
 
 export interface LogFilterDraft {
   from: string
@@ -71,14 +74,11 @@ export const requestLogRetryStates = ['retried', 'not_retried'] as const
 
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const canonicalNonNegativeInteger = /^(?:0|[1-9]\d*)$/
-const safeText = (value: string): boolean =>
-  value === value.trim() && value.length <= 255 && !/[\u0000-\u001f\u007f]/u.test(value)
-
 function defaultRange(): Pick<RequestLogFilters, 'from_ms' | 'to_ms'> {
   const now = Math.floor(Date.now() / 1000) * 1000
   return {
     from_ms: Math.max(0, now - 60 * 60 * 1000),
-    to_ms: now + 24 * 60 * 60 * 1000,
+    to_ms: now,
   }
 }
 
@@ -147,7 +147,8 @@ function usdToNanoUSD(value: string): string | undefined {
   const whole = match[1]
   const fraction = (match[2] ?? '').padEnd(9, '0')
   if (whole === undefined) return undefined
-  return (BigInt(whole) * 1_000_000_000n + BigInt(fraction || '0')).toString()
+  const nanoUSD = BigInt(whole) * 1_000_000_000n + BigInt(fraction || '0')
+  return nanoUSD <= maxSignedInt64 ? nanoUSD.toString() : undefined
 }
 
 export function createLogFilterDraft(filters: RequestLogFilters = defaultRange()): LogFilterDraft {
@@ -260,7 +261,7 @@ function parseBoolean(raw: unknown): boolean | undefined {
 
 function parseText(raw: unknown): string | undefined {
   const value = scalar(raw)
-  return value && safeText(value) ? value : undefined
+  return value && isValidMonitorText(value) ? value : undefined
 }
 
 function parseEnum<T extends string>(raw: unknown, values: readonly T[]): T | undefined {
@@ -271,7 +272,7 @@ function parseNanoUSD(raw: unknown): string | undefined {
   const value = scalar(raw)
   if (value === undefined || !canonicalNonNegativeInteger.test(value)) return undefined
   try {
-    return BigInt(value) <= 9_223_372_036_854_775_807n ? value : undefined
+    return BigInt(value) <= maxSignedInt64 ? value : undefined
   } catch {
     return undefined
   }
@@ -347,7 +348,8 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): RequestL
 
 export function serializeAppliedLogFilters(filters: RequestLogFilters): LocationQueryRaw {
   const query: LocationQueryRaw = { tab: 'logs' }
-  for (const [field, value] of Object.entries(filters)) {
+  for (const field of requestLogFilterFields) {
+    const value = filters[field]
     if (value !== undefined) query[field] = String(value)
   }
   return query
@@ -417,7 +419,9 @@ export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
     validateIntegerField(errors, draft, field, 999)
   }
   for (const field of ['client_model', 'upstream_model', 'error_code'] as const) {
-    if (draft[field] && !safeText(draft[field])) errors[field] = 'monitor.logs.errors.text'
+    if (draft[field] && !isValidMonitorText(draft[field])) {
+      errors[field] = 'monitor.logs.errors.text'
+    }
   }
   if (draft.request_id && !requestIDPattern.test(draft.request_id)) {
     errors.request_id = 'monitor.logs.errors.requestId'

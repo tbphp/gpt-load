@@ -308,6 +308,7 @@ defineExpose({ openFilters })
           <LedgerRecordList
             :label="t('monitor.usage.breakdown.caption')"
             :row-count="report.breakdown.length + 1"
+            :scroll-hint="t('monitor.scrollHint')"
             grid-class="usage-breakdown-grid"
           >
             <template #header>

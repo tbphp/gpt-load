@@ -20,14 +20,16 @@ const props = withDefaults(
   { locale: 'en-US' },
 )
 
-const width = 1000
 const chartHeight = 158
+const compactChart = ref(false)
+const width = computed(() => (compactChart.value ? chartHeight * 2 : 1000))
 const maximumFailureHeight = 46
 const descriptionID = `trend-chart-description-${useId()}`
 const chartElement = ref<HTMLElement>()
 const activePointIndex = ref<number | null>(null)
 const selectionAnnouncement = ref('')
 let announcementGeneration = 0
+let compactMedia: MediaQueryList | undefined
 const chartSeries = computed(() =>
   isTrendSeriesUsable(props.series, props.rangeStart, props.rangeEnd) ? props.series : [],
 )
@@ -43,7 +45,7 @@ const seriesKey = computed(
 const geometry = computed(() =>
   buildTrendGeometry(
     chartSeries.value,
-    width,
+    width.value,
     chartHeight,
     maximumFailureHeight,
     props.rangeStart,
@@ -61,21 +63,21 @@ const tooltipStyle = computed(() => {
   const point = activePoint.value?.point
   if (!point) return undefined
   const left =
-    point.x < width * 0.16
+    point.x < width.value * 0.16
       ? '2px'
-      : point.x > width * 0.84
+      : point.x > width.value * 0.84
         ? 'calc(100% - 2px)'
-        : `${(point.x / width) * 100}%`
+        : `${(point.x / width.value) * 100}%`
   return {
     left,
-    top: `max(72px, calc(${(point.y / chartHeight) * 100}% - 12px))`,
+    top: `max(82px, calc(${(point.y / chartHeight) * 100}% - 12px))`,
   }
 })
 const tooltipAlignment = computed(() => {
   const point = activePoint.value?.point
   if (!point) return 'center'
-  if (point.x < width * 0.16) return 'start'
-  if (point.x > width * 0.84) return 'end'
+  if (point.x < width.value * 0.16) return 'start'
+  if (point.x > width.value * 0.84) return 'end'
   return 'center'
 })
 
@@ -124,7 +126,10 @@ function nearestPointIndex(event: PointerEvent | MouseEvent): number | null {
   if (!element || points.length === 0) return null
   const bounds = element.getBoundingClientRect()
   if (bounds.width <= 0) return null
-  const x = Math.max(0, Math.min(width, ((event.clientX - bounds.left) / bounds.width) * width))
+  const x = Math.max(
+    0,
+    Math.min(width.value, ((event.clientX - bounds.left) / bounds.width) * width.value),
+  )
   return points.reduce(
     (nearest, point, index) =>
       Math.abs(point.x - x) < Math.abs(points[nearest]!.x - x) ? index : nearest,
@@ -178,8 +183,20 @@ function closeOnFocusLeave(event: FocusEvent): void {
   selectPoint(null)
 }
 
-onMounted(() => document.addEventListener('pointerdown', closeOnExternalPointer, true))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExternalPointer, true))
+function syncCompactChart(event: MediaQueryListEvent | MediaQueryList): void {
+  compactChart.value = event.matches
+}
+
+onMounted(() => {
+  compactMedia = window.matchMedia('(max-width: 620px)')
+  syncCompactChart(compactMedia)
+  compactMedia.addEventListener('change', syncCompactChart)
+  document.addEventListener('pointerdown', closeOnExternalPointer, true)
+})
+onBeforeUnmount(() => {
+  compactMedia?.removeEventListener('change', syncCompactChart)
+  document.removeEventListener('pointerdown', closeOnExternalPointer, true)
+})
 </script>
 
 <template>
@@ -333,7 +350,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
 .trend-chart__graphic {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
 }
 
 .trend-chart__grid line {
@@ -440,6 +457,13 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
 
 .trend-chart__tooltip--end {
   transform: translate(-100%, -100%);
+}
+
+@media (max-width: 620px) {
+  .trend-chart__plot-stack {
+    min-height: 120px;
+    aspect-ratio: 2 / 1;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -9,6 +9,7 @@ import {
   normalizeUsageModel,
   parseAppliedUsageFilters,
 } from './usage-filters'
+import { normalizeMonitorText } from './filter-validation'
 
 export type MonitorTab = 'health' | 'logs' | 'inspector' | 'usage'
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -81,8 +82,7 @@ export function parseSelectedRequestID(query: Record<string, unknown>): string |
 }
 
 function scalarText(raw: unknown): string | undefined {
-  if (typeof raw !== 'string' || raw.trim() !== raw || raw === '') return undefined
-  return /[\u0000-\u001f\u007f]/.test(raw) ? undefined : raw
+  return normalizeMonitorText(raw)
 }
 
 function scalarPositiveID(raw: unknown): string | undefined {

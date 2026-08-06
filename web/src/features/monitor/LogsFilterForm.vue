@@ -104,6 +104,8 @@ async function applyAdvanced(): Promise<void> {
         :from-label="t('monitor.logs.filters.from')"
         :to-label="t('monitor.logs.filters.to')"
         :timezone-label="t('monitor.logs.filters.timezone')"
+        :from-error="errors.from ? t(errors.from) : undefined"
+        :to-error="errors.to ? t(errors.to) : undefined"
         @update:from="update('from', $event)"
         @update:to="update('to', $event)"
       />

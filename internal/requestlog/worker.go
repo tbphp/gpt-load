@@ -82,11 +82,6 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// A previous request-log transaction may have failed after its aggregate
-	// inputs were staged. Replay it before staging the current batch, but do not
-	// let one malformed historical row prevent new request logs from persisting.
-	_ = writer.ReplayPendingUsage(ctx)
-
 	newRows, err := writer.prepareNewRequestLogRows(ctx, rows)
 	if err != nil {
 		return err
@@ -98,10 +93,6 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 	if err != nil {
 		return err
 	}
-	if err := writer.stageUsageAggregationJournals(ctx, journals); err != nil {
-		return err
-	}
-
 	return writer.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
 		sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
 		if !ok {
@@ -120,6 +111,11 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 				_ = rollbackRequestLogTransaction(connection, sqlConn, false)
 			}
 		}()
+		if err := stageUsageAggregationJournals(transaction, journals); err != nil {
+			cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
+			active = false
+			return errors.Join(err, cleanupErr)
+		}
 		if err := writeRequestLogBatch(transaction, newRows); err != nil {
 			cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
 			active = false
@@ -175,83 +171,18 @@ func (writer *gormBatchWriter) prepareNewRequestLogRows(
 	return newRows, nil
 }
 
-func (writer *gormBatchWriter) stageUsageAggregationJournals(
-	ctx context.Context,
+func stageUsageAggregationJournals(
+	tx *gorm.DB,
 	journals []models.UsageAggregationJournal,
 ) error {
 	if len(journals) == 0 {
 		return nil
 	}
-	if err := writer.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return tx.Clauses(clause.OnConflict{DoNothing: true}).
-			CreateInBatches(journals, batchSize).Error
-	}); err != nil {
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).
+		CreateInBatches(journals, batchSize).Error; err != nil {
 		return fmt.Errorf("stage usage aggregation journals: %w", err)
 	}
 	return nil
-}
-
-func (writer *gormBatchWriter) ReplayPendingUsage(ctx context.Context) error {
-	if writer == nil || writer.db == nil {
-		return fmt.Errorf("replay usage aggregation journals: database is nil")
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	for {
-		processed := 0
-		err := writer.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
-			sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
-			if !ok {
-				return fmt.Errorf("pin usage replay transaction connection")
-			}
-			transaction := connection.Session(&gorm.Session{
-				NewDB: true, SkipDefaultTransaction: true, Context: ctx,
-			})
-			if err := transaction.Exec("BEGIN IMMEDIATE").Error; err != nil {
-				return fmt.Errorf("begin usage replay transaction: %w", err)
-			}
-
-			active := true
-			defer func() {
-				if active {
-					_ = rollbackRequestLogTransaction(connection, sqlConn, false)
-				}
-			}()
-			var journals []models.UsageAggregationJournal
-			if err := transaction.
-				Where("applied = ?", false).
-				Order("bucket_start_ms ASC").
-				Order("request_id ASC").
-				Limit(batchSize).
-				Find(&journals).Error; err != nil {
-				cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
-				active = false
-				return errors.Join(fmt.Errorf("query pending usage journals: %w", err), cleanupErr)
-			}
-			processed = len(journals)
-			if err := applyUsageJournalBatch(transaction, journals); err != nil {
-				cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, false)
-				active = false
-				return errors.Join(err, cleanupErr)
-			}
-			if err := transaction.Exec("COMMIT").Error; err != nil {
-				commitErr := fmt.Errorf("commit usage replay transaction: %w", err)
-				cleanupErr := rollbackRequestLogTransaction(connection, sqlConn, true)
-				active = false
-				return errors.Join(commitErr, cleanupErr)
-			}
-			active = false
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		if processed < batchSize {
-			return nil
-		}
-	}
 }
 
 type usageStatKey struct {

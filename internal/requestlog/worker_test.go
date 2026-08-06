@@ -673,6 +673,7 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 			t.Fatal("WriteBatch() error = nil, want existing ID query failure")
 		}
 		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+		assertUsageJournalCount(t, db, 0)
 	})
 
 	t.Run("RequestLog insert", func(t *testing.T) {
@@ -690,6 +691,7 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 			t.Fatal("WriteBatch() error = nil, want RequestLog insert failure")
 		}
 		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+		assertUsageJournalCount(t, db, 0)
 	})
 
 	t.Run("existing UsageStat query", func(t *testing.T) {
@@ -706,6 +708,7 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 			t.Fatal("WriteBatch() error = nil, want UsageStat query failure")
 		}
 		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+		assertUsageJournalCount(t, db, 0)
 	})
 
 	t.Run("existing UsageStat scan conversion", func(t *testing.T) {
@@ -744,6 +747,7 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 			t.Fatalf("WriteBatch() error = %v, want UsageStat scan failure", err)
 		}
 		assertRequestLogAndUsageStatCounts(t, db, 0, 1)
+		assertUsageJournalCount(t, db, 0)
 
 		var persisted struct {
 			RequestCount         string `gorm:"column:request_count"`
@@ -784,6 +788,7 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 			t.Fatal("WriteBatch() error = nil, want UsageStat UPSERT failure")
 		}
 		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+		assertUsageJournalCount(t, db, 0)
 	})
 
 	t.Run("commit", func(t *testing.T) {
@@ -795,6 +800,7 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 		}
 		release()
 		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+		assertUsageJournalCount(t, db, 0)
 	})
 }
 
@@ -1004,7 +1010,7 @@ func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *
 	}
 }
 
-func TestUsageAggregationJournalReplaysFailedLogTransactionExactlyOnce(t *testing.T) {
+func TestWriteBatchRollsBackUsageJournalWithFailedRequestLogTransaction(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	row := aggregationRow(
 		aggregationRequestID(70),
@@ -1027,42 +1033,11 @@ func TestUsageAggregationJournalReplaysFailedLogTransactionExactlyOnce(t *testin
 		t.Fatal("WriteBatch() error = nil, want request log transaction failure")
 	}
 
-	var pending models.UsageAggregationJournal
-	if err := db.Where("request_id = ?", row.ID).Take(&pending).Error; err != nil {
-		t.Fatalf("pending journal: %v", err)
-	}
-	if pending.Applied || pending.RequestCount != 1 || pending.UncachedInputTokens != 12 ||
-		pending.OutputTokens != 3 {
-		t.Fatalf("pending journal = %+v", pending)
-	}
 	assertRequestLogAndUsageStatCounts(t, db, 0, 0)
-
-	if err := db.Exec("DROP TRIGGER reject_journal_request_log").Error; err != nil {
-		t.Fatalf("drop rejection trigger: %v", err)
-	}
-	if err := writer.ReplayPendingUsage(context.Background()); err != nil {
-		t.Fatalf("ReplayPendingUsage() error = %v", err)
-	}
-	if err := writer.ReplayPendingUsage(context.Background()); err != nil {
-		t.Fatalf("second ReplayPendingUsage() error = %v", err)
-	}
-
-	var stat models.UsageStat
-	if err := db.Where("group_id = ? AND model = ?", 17, "journal-model").Take(&stat).Error; err != nil {
-		t.Fatalf("replayed UsageStat: %v", err)
-	}
-	if stat.RequestCount != 1 || stat.UncachedInputTokens != 12 || stat.OutputTokens != 3 {
-		t.Fatalf("replayed UsageStat = %+v", stat)
-	}
-	if err := db.Where("request_id = ?", row.ID).Take(&pending).Error; err != nil {
-		t.Fatalf("applied journal: %v", err)
-	}
-	if !pending.Applied {
-		t.Fatalf("journal remains pending: %+v", pending)
-	}
+	assertUsageJournalCount(t, db, 0)
 }
 
-func TestServiceStartReplaysPendingUsageAggregationJournal(t *testing.T) {
+func TestServiceStartDoesNotAggregateOrphanUsageJournal(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	journal := models.UsageAggregationJournal{
 		RequestID:           aggregationRequestID(71),
@@ -1086,19 +1061,12 @@ func TestServiceStartReplaysPendingUsageAggregationJournal(t *testing.T) {
 		t.Fatalf("Stop() error = %v", err)
 	}
 
-	var stat models.UsageStat
-	if err := db.Where("group_id = ? AND model = ?", 18, journal.Model).
-		Take(&stat).Error; err != nil {
-		t.Fatalf("startup replay UsageStat: %v", err)
-	}
-	if stat.RequestCount != 1 || stat.UncachedInputTokens != 21 || stat.OutputTokens != 8 {
-		t.Fatalf("startup replay UsageStat = %+v", stat)
-	}
+	assertRequestLogAndUsageStatCounts(t, db, 0, 0)
 	if err := db.Where("request_id = ?", journal.RequestID).Take(&journal).Error; err != nil {
-		t.Fatalf("startup replay journal: %v", err)
+		t.Fatalf("query orphan journal: %v", err)
 	}
-	if !journal.Applied {
-		t.Fatalf("startup replay journal remains pending: %+v", journal)
+	if journal.Applied {
+		t.Fatalf("orphan journal was applied: %+v", journal)
 	}
 }
 
@@ -1119,6 +1087,17 @@ func assertRequestLogAndUsageStatCounts(
 	if requestLogs != wantRequestLogs || usageStats != wantUsageStats {
 		t.Fatalf("row counts = RequestLog:%d UsageStat:%d, want %d/%d",
 			requestLogs, usageStats, wantRequestLogs, wantUsageStats)
+	}
+}
+
+func assertUsageJournalCount(t *testing.T, db *gorm.DB, want int64) {
+	t.Helper()
+	var count int64
+	if err := db.Model(&models.UsageAggregationJournal{}).Count(&count).Error; err != nil {
+		t.Fatalf("count UsageAggregationJournals: %v", err)
+	}
+	if count != want {
+		t.Fatalf("UsageAggregationJournal count = %d, want %d", count, want)
 	}
 }
 

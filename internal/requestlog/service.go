@@ -28,10 +28,6 @@ type batchWriter interface {
 	WriteBatch(context.Context, []models.RequestLog) error
 }
 
-type usageJournalReplayer interface {
-	ReplayPendingUsage(context.Context) error
-}
-
 type workerTimer interface {
 	C() <-chan time.Time
 	Stop() bool
@@ -138,12 +134,6 @@ func (service *Service) Start() error {
 		service.state = lifecycleStopped
 		return fmt.Errorf("start request log service: incomplete worker configuration")
 	}
-	if replayer, ok := service.writer.(usageJournalReplayer); ok {
-		if err := replayer.ReplayPendingUsage(context.Background()); err != nil {
-			service.recordPersistFailure("usage_replay_failure", 0)
-		}
-	}
-
 	workerContext, cancel := context.WithCancel(context.Background())
 	service.workerCancel = cancel
 	service.workerDone = make(chan struct{})

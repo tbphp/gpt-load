@@ -1,5 +1,7 @@
 import type { UsageFilters } from '@/app/resources/usage'
 
+import { normalizeMonitorText } from './filter-validation'
+
 export interface UsageFilterDraft {
   range: UsageFilters['range']
   breakdown_order: NonNullable<UsageFilters['breakdown_order']>
@@ -35,11 +37,7 @@ export function normalizeUsageGroupID(raw: unknown): number | undefined {
 }
 
 export function normalizeUsageModel(raw: unknown): string | undefined {
-  if (typeof raw !== 'string' || raw === '' || raw.trim() !== raw) return undefined
-  if (/\p{Cc}/u.test(raw) || new TextEncoder().encode(raw).byteLength > 255) {
-    return undefined
-  }
-  return raw
+  return normalizeMonitorText(raw)
 }
 
 export function parseAppliedUsageFilters(query: Record<string, unknown>): UsageFilters {

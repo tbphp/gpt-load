@@ -52,8 +52,9 @@ type RequestLogAttempt struct {
 	PricingReceipt  JSON   `gorm:"type:json"`
 }
 
-// UsageAggregationJournal is the durable, request-idempotent input for hourly
-// usage aggregation. It intentionally excludes request and error payloads.
+// UsageAggregationJournal is the request-idempotent input for hourly usage
+// aggregation. It is staged, applied, and committed in the same transaction as
+// its RequestLog, and intentionally excludes request and error payloads.
 type UsageAggregationJournal struct {
 	RequestID               string `gorm:"column:request_id;type:varchar(36);primaryKey;not null"`
 	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null"`

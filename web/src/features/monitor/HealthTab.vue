@@ -27,7 +27,7 @@ interface RecoveryDisplay {
 
 const client = useApiClient()
 const { locale, t } = useI18n()
-const healthQuery = useQuery(healthQueryOptions(client))
+const healthQuery = useQuery(healthQueryOptions(client, 30_000))
 
 const isVisible = ref(document.visibilityState !== 'hidden')
 const elapsedMs = ref(0)
@@ -176,7 +176,7 @@ defineExpose({ refresh })
 
 <template>
   <div class="health-tab" :aria-busy="healthQuery.isFetching.value ? 'true' : undefined">
-    <div v-if="healthQuery.isFetching.value" class="health-loading" aria-busy="true">
+    <div v-if="healthQuery.isPending.value" class="health-loading" aria-busy="true">
       <span class="sr-only">{{ t('monitor.health.loading') }}</span>
       <SkeletonBlock height="130px" />
       <div class="health-loading__focus">

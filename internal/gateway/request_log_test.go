@@ -869,29 +869,82 @@ func TestHandlerFinalNon2xxPublishesNotApplicableWithResponseAttribution(t *test
 	}
 }
 
-func TestHandlerTransportAndNoCandidateUsageRemainUnattributed(t *testing.T) {
+func TestHandlerTerminalAttemptUsageKeepsRouteAttribution(t *testing.T) {
 	for _, test := range []struct {
-		name         string
-		forwarder    *scriptedForwarder
-		upstreamKeys []string
+		name                string
+		forwarder           *scriptedForwarder
+		upstreamKeys        []string
+		wantStatus          telemetry.RequestStatus
+		wantGroupID         uint
+		wantKeyID           uint
+		wantAttemptSequence int
+		wantUpstreamModel   string
 	}{
-		{name: "transport", forwarder: &scriptedForwarder{results: []UpstreamResult{{Err: errors.New("transport"), RequestWritten: true}}}, upstreamKeys: []string{"sk-first"}},
-		{name: "no candidate", forwarder: &scriptedForwarder{}},
+		{
+			name:                "transport",
+			forwarder:           &scriptedForwarder{results: []UpstreamResult{{Err: errors.New("transport"), RequestWritten: true}}},
+			upstreamKeys:        []string{"sk-first"},
+			wantStatus:          telemetry.RequestStatusError,
+			wantGroupID:         1,
+			wantKeyID:           1,
+			wantAttemptSequence: 1,
+			wantUpstreamModel:   "gpt-4o",
+		},
+		{
+			name:                "canceled transport",
+			forwarder:           &scriptedForwarder{results: []UpstreamResult{{Err: context.Canceled, RequestWritten: true}}},
+			upstreamKeys:        []string{"sk-first"},
+			wantStatus:          telemetry.RequestStatusCanceled,
+			wantGroupID:         1,
+			wantKeyID:           1,
+			wantAttemptSequence: 1,
+			wantUpstreamModel:   "gpt-4o",
+		},
+		{
+			name: "retried transports use the final attempt",
+			forwarder: &scriptedForwarder{results: []UpstreamResult{
+				{Err: errors.New("transport one"), RetryableBeforeCommit: true},
+				{Err: errors.New("transport two"), RetryableBeforeCommit: true},
+				{Err: errors.New("transport three"), RequestWritten: true},
+			}},
+			upstreamKeys:        []string{"sk-first", "sk-second", "sk-third"},
+			wantStatus:          telemetry.RequestStatusError,
+			wantGroupID:         1,
+			wantKeyID:           3,
+			wantAttemptSequence: 3,
+			wantUpstreamModel:   "gpt-4o",
+		},
+		{
+			name:       "no candidate",
+			forwarder:  &scriptedForwarder{},
+			wantStatus: telemetry.RequestStatusError,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
-			engine, _, _, _ := newRequestLogHandlerTestRuntime(t, test.forwarder, &recordingAccessKeyRPMLimiter{}, sink, test.upstreamKeys...)
+			engine, handler, _, _ := newRequestLogHandlerTestRuntime(t, test.forwarder, &recordingAccessKeyRPMLimiter{}, sink, test.upstreamKeys...)
+			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
 			request.Header.Set("Authorization", "Bearer gl-client")
 			engine.ServeHTTP(httptest.NewRecorder(), request)
 			events := sink.snapshot()
-			if len(events) != 1 || events[0].Usage != (telemetry.UsageObservation{
-				Result: usage.Result{State: usage.StateNotApplicable},
-				Pricing: telemetry.PricingObservation{
-					CostState:           "not_applicable",
-					PricingCompleteness: "not_applicable",
-				},
-			}) {
+			wantPricing := telemetry.PricingObservation{
+				CostState:           "not_applicable",
+				PricingCompleteness: "not_applicable",
+			}
+			if test.wantGroupID != 0 {
+				wantPricing.PriceScopeKey = "group:1"
+				wantPricing.UpstreamModel = "gpt-4o"
+			}
+			if len(events) != 1 || events[0].Status != test.wantStatus ||
+				events[0].UpstreamModel != test.wantUpstreamModel ||
+				events[0].Usage != (telemetry.UsageObservation{
+					Result:          usage.Result{State: usage.StateNotApplicable},
+					GroupID:         test.wantGroupID,
+					KeyID:           test.wantKeyID,
+					AttemptSequence: test.wantAttemptSequence,
+					Pricing:         wantPricing,
+				}) {
 				t.Fatalf("events = %#v", events)
 			}
 		})
@@ -2135,6 +2188,11 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 		len(event.Attempts) != 1 {
 		t.Fatalf("event = %#v, want uncommitted client cancellation", event)
 	}
+	if event.Usage.Result != (usage.Result{State: usage.StateNotApplicable}) ||
+		event.Usage.GroupID != 1 || event.Usage.KeyID != 1 ||
+		event.Usage.AttemptSequence != 1 {
+		t.Fatalf("event Usage = %#v, want canceled attempt route attribution", event.Usage)
+	}
 	attempt := event.Attempts[0]
 	if attempt.FailureCategory != telemetry.FailureCategoryDownstreamCancel ||
 		attempt.Action != telemetry.ActionTerminate ||
@@ -2266,9 +2324,13 @@ func TestHandlerPrioritizesClientCancellationOverDownstreamWriteFailure(t *testi
 			event := events[0]
 			if event.Status != test.wantStatus ||
 				event.ErrorCode != test.wantCode ||
-				event.StatusCode != test.wantHTTP {
+				event.StatusCode != test.wantHTTP ||
+				event.UpstreamModel != "gpt-4o" ||
+				event.Usage.GroupID != 1 ||
+				event.Usage.KeyID != 1 ||
+				event.Usage.AttemptSequence != 1 {
 				t.Fatalf(
-					"event status/code/http = %q/%q/%d, want %q/%q/%d: %#v",
+					"event status/code/http = %q/%q/%d, want %q/%q/%d with route attribution: %#v",
 					event.Status,
 					event.ErrorCode,
 					event.StatusCode,

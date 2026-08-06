@@ -28,6 +28,7 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatISOInstant, formatInteger, formatLocalInstant, formatPercent } from '@/lib/format'
 
+import { isValidMonitorText, normalizeMonitorText } from './filter-validation'
 import InspectorForm from './InspectorForm.vue'
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 
@@ -137,7 +138,7 @@ function readProtocol(raw: unknown): AccessProtocol | '' {
 }
 
 function readText(raw: unknown): string {
-  return typeof raw === 'string' && raw.trim() === raw && raw !== '' ? raw : ''
+  return normalizeMonitorText(raw) ?? ''
 }
 
 function readPositiveID(raw: unknown): string {
@@ -180,10 +181,7 @@ function validatedRequest(): RouteInspectRequest | undefined {
   if (!enabledDataProtocols.some((protocol) => protocol === draftProtocol.value)) {
     errors.protocol = 'monitor.inspector.errors.protocol'
   }
-  if (
-    draftModel.value !== '' &&
-    (draftModel.value.trim() !== draftModel.value || /[\u0000-\u001f\u007f]/.test(draftModel.value))
-  ) {
+  if (draftModel.value !== '' && !isValidMonitorText(draftModel.value)) {
     errors.externalModel = 'monitor.inspector.errors.model'
   }
 
@@ -602,6 +600,7 @@ onBeforeUnmount(() => {
                   v-else
                   :label="t('monitor.inspector.keys.tableLabel', { name: group.group_name })"
                   :row-count="group.keys.length + 1"
+                  :scroll-hint="t('monitor.scrollHint')"
                   grid-class="route-key-grid"
                 >
                   <template #header>
@@ -712,6 +711,7 @@ onBeforeUnmount(() => {
             v-else
             :label="t('monitor.inspector.excluded.tableLabel')"
             :row-count="excludedGroups.length + 1"
+            :scroll-hint="t('monitor.scrollHint')"
             grid-class="route-exclusion-grid"
           >
             <template #header>
@@ -772,7 +772,7 @@ onBeforeUnmount(() => {
 
 .inspector-tab > :deep(.inspector-form-panel) {
   position: sticky;
-  top: var(--space-4);
+  top: calc(var(--topbar-height) + var(--space-4));
 }
 
 .inspector-stack,
@@ -839,10 +839,6 @@ onBeforeUnmount(() => {
   font-weight: 650;
   letter-spacing: -0.015em;
   line-height: var(--line-compact);
-}
-
-.route-summary h2:focus {
-  outline: 0;
 }
 
 .route-summary__reason {

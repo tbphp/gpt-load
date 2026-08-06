@@ -26,6 +26,7 @@ const (
 	usageRange30Days  = "30d"
 	usageRangeCustom  = "custom"
 	usageBreakdownMax = 100
+	usageCustomMaxMS  = 30 * epochms.MillisecondsPerDay
 )
 
 type UsageStatReader interface {
@@ -172,12 +173,21 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		if fromMS >= toMS {
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
+		spanMS := toMS - fromMS
+		if spanMS > usageCustomMaxMS {
+			return requestlog.UsageQuery{}, app_errors.ErrValidation
+		}
 		query.FromMS = fromMS
 		query.ToMS = toMS
-		if toMS-fromMS <= epochms.MillisecondsPerDay {
+		bucketWidth := epochms.MillisecondsPerDay
+		if spanMS <= epochms.MillisecondsPerDay {
 			query.Granularity = requestlog.UsageGranularityHour
+			bucketWidth = epochms.MillisecondsPerHour
 		} else {
 			query.Granularity = requestlog.UsageGranularityDay
+		}
+		if fromMS%bucketWidth != 0 || toMS%bucketWidth != 0 {
+			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
 		rangeValue = ""
 	}

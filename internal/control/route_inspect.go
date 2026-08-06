@@ -3,7 +3,6 @@ package control
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -71,9 +70,7 @@ func validateRouteInspectRequest(request routeInspectRequest) error {
 		request.AccessKeyID == 0 {
 		return app_errors.ErrValidation
 	}
-	if request.ExternalModel != nil &&
-		(*request.ExternalModel == "" ||
-			strings.TrimSpace(*request.ExternalModel) != *request.ExternalModel) {
+	if request.ExternalModel != nil && !validUsageModel(*request.ExternalModel) {
 		return app_errors.ErrValidation
 	}
 	return nil

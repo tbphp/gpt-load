@@ -323,7 +323,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
-			recorder.completeCanceled(0)
+			recorder.completeCanceled(0, -1)
 			return
 		}
 		if errors.Is(err, errRequestTooLarge) {
@@ -349,7 +349,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	metadata, err := selectedDialect.InspectRequest(parsed)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
-			recorder.completeCanceled(0)
+			recorder.completeCanceled(0, -1)
 			return
 		}
 		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
@@ -364,7 +364,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	if ginContext.Request.Context().Err() != nil {
-		recorder.completeCanceled(0)
+		recorder.completeCanceled(0, -1)
 		return
 	}
 	candidateGroupIDs := scheduler.CandidateGroupIDs(
@@ -443,7 +443,7 @@ func (handler *Handler) completeWriteTerminal(
 		if ginContext.Writer != nil && ginContext.Writer.Written() {
 			status = ginContext.Writer.Status()
 		}
-		recorder.completeCanceled(status)
+		recorder.completeCanceled(status, -1)
 		return
 	}
 	recorder.completeDownstreamWrite(selectedStatus)
@@ -515,10 +515,11 @@ func (handler *Handler) executeAttempts(
 	var lastResponse *deferredAttempt
 	var lastTransport *deferredAttempt
 	var lastProviderError *deferredAttempt
+	lastAttemptIndex := -1
 	attempts := 0
 	for attempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
-			recorder.completeCanceled(0)
+			recorder.completeCanceled(0, lastAttemptIndex)
 			return
 		}
 		selection, err := iterator.Next()
@@ -591,7 +592,7 @@ func (handler *Handler) executeAttempts(
 		}
 		if requestCanceled {
 			if recorder != nil {
-				recorder.recordAttempt(
+				recordedAttempt := recorder.recordAttempt(
 					selection,
 					apiKey,
 					result,
@@ -602,7 +603,7 @@ func (handler *Handler) executeAttempts(
 					attemptStarted,
 					attemptCompleted,
 				)
-				recorder.completeCanceled(0)
+				recorder.completeCanceled(0, recordedAttempt)
 			}
 			return
 		}
@@ -622,6 +623,7 @@ func (handler *Handler) executeAttempts(
 		recordedAttempt := recorder.recordAttempt(
 			selection, apiKey, result, decision, attemptStarted, attemptCompleted,
 		)
+		lastAttemptIndex = recordedAttempt
 		handler.applyKeyAction(selection.KeyID, decision, result.StatusCode, attemptNow)
 		if decision.Action == health.ActionSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
@@ -663,18 +665,18 @@ func (handler *Handler) executeAttempts(
 			return
 		}
 		if errors.Is(result.Err, context.Canceled) {
-			recorder.completeCanceled(0)
+			recorder.completeCanceled(0, recordedAttempt)
 			return
 		}
 		if decision.ShouldRetry() {
 			lastTransport = &deferredAttempt{
-				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID),
+				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID), attemptIndex: recordedAttempt,
 			}
 			recorder.retryIfAnotherForward(recordedAttempt)
 			continue
 		}
 		value := transportReason(result)
-		recorder.completeTransport(value, optionalModelValue(selection.UpstreamModelID))
+		recorder.completeTransport(value, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 		if err := handler.writeReason(ginContext, value); err != nil {
 			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}
@@ -711,7 +713,7 @@ func (handler *Handler) executeAttempts(
 	}
 	if lastTransport != nil {
 		value := transportReason(lastTransport.result)
-		recorder.completeTransport(value, lastTransport.upstreamModel)
+		recorder.completeTransport(value, lastTransport.upstreamModel, lastTransport.attemptIndex)
 		if err := handler.writeReason(ginContext, value); err != nil {
 			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}

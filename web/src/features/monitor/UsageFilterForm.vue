@@ -68,23 +68,29 @@ function error(field: keyof UsageFilterErrors): string | undefined {
           size="compact"
           :error="error('group_id')"
         >
-          <input
-            v-if="groupsFailed"
-            id="usage-group"
-            :value="draft.group_id"
-            inputmode="numeric"
-            autocomplete="off"
-            @input="emit('updateField', 'group_id', ($event.target as HTMLInputElement).value)"
-          />
-          <AppSelect
-            v-else
-            id="usage-group"
-            :model-value="draft.group_id"
-            :label="t('monitor.usage.filters.group')"
-            :options="groupOptions()"
-            size="compact"
-            @update:model-value="emit('updateField', 'group_id', $event)"
-          />
+          <template #default="{ describedBy, invalid }">
+            <input
+              v-if="groupsFailed"
+              id="usage-group"
+              :value="draft.group_id"
+              inputmode="numeric"
+              autocomplete="off"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @input="emit('updateField', 'group_id', ($event.target as HTMLInputElement).value)"
+            />
+            <AppSelect
+              v-else
+              id="usage-group"
+              :model-value="draft.group_id"
+              :label="t('monitor.usage.filters.group')"
+              :options="groupOptions()"
+              size="compact"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @update:model-value="emit('updateField', 'group_id', $event)"
+            />
+          </template>
         </FormField>
         <FormField
           id="usage-model"
@@ -92,13 +98,17 @@ function error(field: keyof UsageFilterErrors): string | undefined {
           size="compact"
           :error="error('model')"
         >
-          <input
-            id="usage-model"
-            :value="draft.model"
-            autocomplete="off"
-            :placeholder="t('monitor.usage.filters.modelPlaceholder')"
-            @input="emit('updateField', 'model', ($event.target as HTMLInputElement).value)"
-          />
+          <template #default="{ describedBy, invalid }">
+            <input
+              id="usage-model"
+              :value="draft.model"
+              autocomplete="off"
+              :placeholder="t('monitor.usage.filters.modelPlaceholder')"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @input="emit('updateField', 'model', ($event.target as HTMLInputElement).value)"
+            />
+          </template>
         </FormField>
       </div>
     </form>

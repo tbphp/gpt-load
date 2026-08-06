@@ -98,6 +98,7 @@ function keyMeta(key: HealthProblemKeyDto): string {
       v-else
       :label="t('monitor.health.problems.tableLabel')"
       :row-count="items.length + 1"
+      :scroll-hint="t('monitor.scrollHint')"
       grid-class="problem-health-grid"
     >
       <template #header>

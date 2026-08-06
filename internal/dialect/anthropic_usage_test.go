@@ -525,7 +525,7 @@ func TestUsageAnthropicStreamEOFRemainsPartial(t *testing.T) {
 	requireUsageDiagnostics(t, result.Diagnostics)
 }
 
-func TestUsageAnthropicServerToolDetailProducesPartialKnownPrice(t *testing.T) {
+func TestUsageAnthropicServerToolDetailKeepsKnownTokenPriceComplete(t *testing.T) {
 	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
 	observeUsageJSONL(t, stream, readUsageFixture(t, "anthropic", "server-tool.jsonl"))
 	result, finalized := stream.Finalize()
@@ -547,9 +547,9 @@ func TestUsageAnthropicServerToolDetailProducesPartialKnownPrice(t *testing.T) {
 		t.Fatal(err)
 	}
 	if quote := table.Quote(identity, result); quote.State != pricing.CostStatePriced ||
-		quote.Completeness != pricing.CompletenessPartial ||
+		quote.Completeness != pricing.CompletenessComplete ||
 		quote.EstimatedCostNanoUSD != 110_000 {
-		t.Fatalf("Quote() = %+v, want partial known cost", quote)
+		t.Fatalf("Quote() = %+v, want complete known token cost", quote)
 	}
 }
 
@@ -573,10 +573,10 @@ func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
 		completeness pricing.Completeness
 	}{
 		{
-			name:         "nonzero detail is unpriced",
+			name:         "nonzero detail keeps token price complete",
 			count:        2,
 			diagnostics:  []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
-			completeness: pricing.CompletenessPartial,
+			completeness: pricing.CompletenessComplete,
 		},
 		{
 			name:         "zero detail is not diagnosed",

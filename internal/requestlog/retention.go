@@ -18,10 +18,9 @@ const (
 	usageStatRetentionDays = 35
 )
 
-// Sweep removes request logs, hourly usage aggregates, and applied aggregation
-// journals strictly older than their respective retention boundaries. Pending
-// journals are retained for compensation. Failures are isolated from the data
-// plane.
+// Sweep removes request logs, hourly usage aggregates, and aggregation journals
+// strictly older than their respective retention boundaries. Failures are
+// isolated from the data plane.
 func (service *Service) Sweep(ctx context.Context, now time.Time) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -176,7 +175,7 @@ func (service *Service) deleteExpiredUsageJournals(
 		var requestIDs []string
 		result := service.db.WithContext(ctx).
 			Model(&models.UsageAggregationJournal{}).
-			Where("applied = ? AND bucket_start_ms < ?", true, cutoffMS).
+			Where("bucket_start_ms < ?", cutoffMS).
 			Order("bucket_start_ms ASC").
 			Order("request_id ASC").
 			Limit(retentionBatchSize).
@@ -192,7 +191,7 @@ func (service *Service) deleteExpiredUsageJournals(
 		}
 
 		result = service.db.WithContext(ctx).
-			Where("request_id IN ? AND applied = ?", requestIDs, true).
+			Where("request_id IN ?", requestIDs).
 			Delete(&models.UsageAggregationJournal{})
 		if result.Error != nil {
 			if ctx.Err() == nil {

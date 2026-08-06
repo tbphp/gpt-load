@@ -87,6 +87,22 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
 			granularity: requestlog.UsageGranularityDay,
 		},
+		{
+			name:        "custom 24 hours accepts exact UTC hour boundaries",
+			rawQuery:    "from_ms=1785042000000&to_ms=1785128400000",
+			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
+			wantFrom:    time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityHour,
+		},
+		{
+			name:        "custom 30 days accepts exact UTC day boundaries",
+			rawQuery:    "from_ms=1782604800000&to_ms=1785196800000",
+			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
+			wantFrom:    time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityDay,
+		},
 	}
 
 	for _, test := range tests {
@@ -382,6 +398,9 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 		{query: "from_ms=01&to_ms=2", code: "BAD_REQUEST"},
 		{query: "from_ms=-1&to_ms=2", code: "BAD_REQUEST"},
 		{query: "from_ms=1&to_ms=1", code: "VALIDATION_FAILED"},
+		{query: "from_ms=1&to_ms=3600001", code: "VALIDATION_FAILED"},
+		{query: "from_ms=1&to_ms=90000001", code: "VALIDATION_FAILED"},
+		{query: "from_ms=0&to_ms=2678400000", code: "VALIDATION_FAILED"},
 		{query: "range=24h&from_ms=1&to_ms=2", code: "VALIDATION_FAILED"},
 		{query: "range=1h", code: "VALIDATION_FAILED"},
 		{query: "group_id=0", code: "VALIDATION_FAILED"},

@@ -160,8 +160,8 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 	if err := db.Order("request_id ASC").Find(&journals).Error; err != nil {
 		t.Fatalf("query remaining UsageAggregationJournals: %v", err)
 	}
-	if len(journals) != 2 || journals[0].BucketStartMS != usageCutoffMS ||
-		!journals[0].Applied || journals[1].Applied {
+	if len(journals) != 1 || journals[0].BucketStartMS != usageCutoffMS ||
+		!journals[0].Applied {
 		t.Fatalf("remaining UsageAggregationJournals = %+v", journals)
 	}
 }

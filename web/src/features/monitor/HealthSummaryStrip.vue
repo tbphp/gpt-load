@@ -33,7 +33,12 @@ const items = computed<HealthOverviewItem[]>(() => [
     value: n(props.counts.available),
     detail: t('monitor.health.overview.total', { total: n(props.counts.total) }),
     tooltip: undefined,
-    tone: props.counts.available > 0 ? 'success' : 'danger',
+    tone:
+      props.counts.available > 0
+        ? 'success'
+        : props.counts.total === 0 || props.counts.disabled === props.counts.total
+          ? 'neutral'
+          : 'danger',
   },
   {
     key: 'cooldown',

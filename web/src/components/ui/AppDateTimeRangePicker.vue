@@ -16,6 +16,8 @@ const props = defineProps<{
   fromLabel: string
   toLabel: string
   timezoneLabel: string
+  fromError?: string
+  toError?: string
 }>()
 const emit = defineEmits<{
   'update:from': [value: string]
@@ -64,9 +66,8 @@ function localInputValue(milliseconds: number): string {
 
 function selectShortcut(milliseconds: number): void {
   const now = Math.floor(Date.now() / 1000) * 1000
-  const to = now + 24 * 60 * 60 * 1000
   emit('update:from', localInputValue(Math.max(0, now - milliseconds)))
-  emit('update:to', localInputValue(to))
+  emit('update:to', localInputValue(now))
 }
 </script>
 
@@ -96,31 +97,39 @@ function selectShortcut(milliseconds: number): void {
       </AppButton>
     </div>
     <div class="app-date-range__fields">
-      <FormField id="logs-range-from" :label="fromLabel" size="compact">
-        <span class="app-date-range__input-shell">
-          <input
-            id="logs-range-from"
-            class="app-date-range__native-input"
-            :value="from"
-            type="datetime-local"
-            step="1"
-            :aria-label="fromLabel"
-            @input="updateLocalInput('from', ($event.target as HTMLInputElement).value)"
-          />
-        </span>
+      <FormField id="logs-range-from" :label="fromLabel" size="compact" :error="fromError">
+        <template #default="{ describedBy, invalid }">
+          <span class="app-date-range__input-shell">
+            <input
+              id="logs-range-from"
+              class="app-date-range__native-input"
+              :value="from"
+              type="datetime-local"
+              step="1"
+              :aria-label="fromLabel"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @input="updateLocalInput('from', ($event.target as HTMLInputElement).value)"
+            />
+          </span>
+        </template>
       </FormField>
-      <FormField id="logs-range-to" :label="toLabel" size="compact">
-        <span class="app-date-range__input-shell">
-          <input
-            id="logs-range-to"
-            class="app-date-range__native-input"
-            :value="to"
-            type="datetime-local"
-            step="1"
-            :aria-label="toLabel"
-            @input="updateLocalInput('to', ($event.target as HTMLInputElement).value)"
-          />
-        </span>
+      <FormField id="logs-range-to" :label="toLabel" size="compact" :error="toError">
+        <template #default="{ describedBy, invalid }">
+          <span class="app-date-range__input-shell">
+            <input
+              id="logs-range-to"
+              class="app-date-range__native-input"
+              :value="to"
+              type="datetime-local"
+              step="1"
+              :aria-label="toLabel"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @input="updateLocalInput('to', ($event.target as HTMLInputElement).value)"
+            />
+          </span>
+        </template>
       </FormField>
     </div>
     <p class="app-date-range__timezone">{{ timezoneLabel }} · {{ timezone }}</p>

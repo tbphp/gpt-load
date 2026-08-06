@@ -463,7 +463,11 @@ func quoteFrozenAttempt(
 	return observation
 }
 
-func (recorder *requestRecorder) completeTransport(value reason, upstreamModel string) {
+func (recorder *requestRecorder) completeTransport(
+	value reason,
+	upstreamModel string,
+	attemptIndex int,
+) {
 	if recorder == nil {
 		return
 	}
@@ -471,16 +475,23 @@ func (recorder *requestRecorder) completeTransport(value reason, upstreamModel s
 		status: telemetry.RequestStatusError, statusCode: value.Status,
 		errorCode: value.Code, errorSummary: value.Message, upstreamModel: upstreamModel,
 	}
+	recorder.bindUsage(attemptIndex, usage.Result{}, false)
 }
 
-func (recorder *requestRecorder) completeCanceled(status int) {
+func (recorder *requestRecorder) completeCanceled(status int, attemptIndex int) {
 	if recorder == nil {
 		return
+	}
+	upstreamModel := recorder.outcome.upstreamModel
+	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) {
+		upstreamModel = recorder.attempts[attemptIndex].UpstreamModel
 	}
 	recorder.outcome = requestOutcome{
 		status: telemetry.RequestStatusCanceled, statusCode: status,
 		errorCode: "client_canceled", errorSummary: fixedErrorSummary("client_canceled"),
+		upstreamModel: upstreamModel,
 	}
+	recorder.bindUsage(attemptIndex, usage.Result{}, false)
 }
 
 func (recorder *requestRecorder) completeDownstreamWrite(status int) {

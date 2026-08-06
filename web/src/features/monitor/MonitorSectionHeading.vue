@@ -26,7 +26,11 @@ const { t } = useI18n()
     <div class="monitor-section-heading__title">
       <h2 :id="id">{{ title }}</h2>
       <AppTooltip v-if="description" :content="description" side="bottom" align="start">
-        <button type="button" class="monitor-section-heading__help" :aria-label="t('monitor.help')">
+        <button
+          type="button"
+          class="monitor-section-heading__help"
+          :aria-label="`${title}: ${t('monitor.help')}`"
+        >
           <CircleHelp :size="15" stroke-width="1.8" aria-hidden="true" />
         </button>
       </AppTooltip>

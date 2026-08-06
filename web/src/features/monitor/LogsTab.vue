@@ -429,6 +429,7 @@ function costLabel(log: RequestLogItemDto): string {
         grid-class="logs-list"
         :label="t('monitor.logs.caption')"
         :row-count="logs.length + 1"
+        :scroll-hint="t('monitor.scrollHint')"
       >
         <template #header>
           <span role="columnheader">{{ t('monitor.logs.columns.time') }}</span>

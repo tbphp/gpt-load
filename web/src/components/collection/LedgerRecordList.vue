@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue'
+
 interface LedgerRecordListProps {
   label: string
   rowCount?: number
+  scrollHint?: string
   /**
    * Page-owned class applied to the list root. Define `--ledger-record-list-grid`
    * on it for the desktop columns and, when needed,
@@ -10,16 +13,46 @@ interface LedgerRecordListProps {
   gridClass?: string
 }
 
-defineProps<LedgerRecordListProps>()
+const props = defineProps<LedgerRecordListProps>()
+
+const container = ref<HTMLElement | null>(null)
+const overflowing = ref(false)
+const accessibleLabel = computed(() =>
+  overflowing.value && props.scrollHint ? `${props.label} · ${props.scrollHint}` : props.label,
+)
+let resizeObserver: ResizeObserver | undefined
+
+function updateOverflow(): void {
+  const element = container.value
+  overflowing.value = Boolean(element && element.scrollWidth > element.clientWidth + 1)
+}
+
+onMounted(() => {
+  updateOverflow()
+  if (typeof ResizeObserver === 'function' && container.value) {
+    resizeObserver = new ResizeObserver(updateOverflow)
+    resizeObserver.observe(container.value)
+  }
+  window.addEventListener('resize', updateOverflow)
+})
+
+onUpdated(updateOverflow)
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  window.removeEventListener('resize', updateOverflow)
+})
 </script>
 
 <template>
   <div
+    ref="container"
     class="ledger-record-list"
     :class="gridClass"
     role="table"
-    :aria-label="label"
+    :aria-label="accessibleLabel"
     :aria-rowcount="rowCount"
+    :tabindex="overflowing ? 0 : undefined"
   >
     <div class="ledger-record-list__header" role="row" aria-rowindex="1">
       <slot name="header" />

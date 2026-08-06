@@ -7,6 +7,8 @@ import type { AccessProtocol, FailureCategory } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 
+import { normalizeRequestLogFilters, requestLogFilterFields } from './request-log-filters'
+
 import {
   assertNoSecretLikeFields,
   projectArray,
@@ -406,50 +408,7 @@ export function projectRequestLogPage(value: unknown): RequestLogPageDto {
   }
 }
 
-const filterFields = [
-  'from_ms',
-  'to_ms',
-  'limit',
-  'group_id',
-  'client_model',
-  'upstream_model',
-  'access_key_id',
-  'status',
-  'request_id',
-  'protocol',
-  'stream',
-  'final_status_code',
-  'usage_state',
-  'cost_state',
-  'pricing_completeness',
-  'cache_present',
-  'upstream_key_id',
-  'attempt_status_code',
-  'failure_category',
-  'error_code',
-  'retry_state',
-  'retry_count_min',
-  'retry_count_max',
-  'first_response_min_ms',
-  'first_response_max_ms',
-  'duration_min_ms',
-  'duration_max_ms',
-  'input_tokens_min',
-  'input_tokens_max',
-  'output_tokens_min',
-  'output_tokens_max',
-  'cost_min_nano_usd',
-  'cost_max_nano_usd',
-] as const satisfies readonly (keyof RequestLogFilters)[]
-
-export function normalizeRequestLogFilters(filters: RequestLogFilters): RequestLogFilters {
-  const result: RequestLogFilters = {}
-  for (const field of filterFields) {
-    const value = filters[field]
-    if (value !== undefined) Object.assign(result, { [field]: value })
-  }
-  return result
-}
+export { normalizeRequestLogFilters } from './request-log-filters'
 
 export function requestLogQueryIdentity(filters: RequestLogFilters) {
   return controlQueryKeys.logs.list(normalizeRequestLogFilters(filters))
@@ -462,7 +421,7 @@ export async function listRequestLogs(
   signal?: AbortSignal,
 ): Promise<RequestLogPageDto> {
   const params = new URLSearchParams()
-  for (const field of filterFields) {
+  for (const field of requestLogFilterFields) {
     const value = filters[field]
     if (value !== undefined) params.append(field, String(value))
   }
