@@ -29,7 +29,7 @@ func (handler *Handler) logDataPlaneAuthFailed(request *http.Request) {
 		logrus.WarnLevel,
 		utils.LogPlaneData,
 		logrus.Fields{
-			"event":   "data_plane_auth_failed",
+			"event":   "auth_failed",
 			"peer_ip": requestPeerIP(request),
 			"total":   total,
 		},
@@ -50,7 +50,7 @@ func (handler *Handler) logDataPlaneRouteNotFound(
 		logrus.WarnLevel,
 		utils.LogPlaneData,
 		logrus.Fields{
-			"event":         "data_plane_route_not_found",
+			"event":         "route_not_found",
 			"peer_ip":       requestPeerIP(request),
 			"access_key_id": accessKeyID,
 			"total":         total,

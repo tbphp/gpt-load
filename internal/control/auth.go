@@ -99,7 +99,7 @@ func (s *Server) logControlAuthFailed(peer string) {
 		logrus.WarnLevel,
 		utils.LogPlaneControl,
 		logrus.Fields{
-			"event":   "control_plane_auth_failed",
+			"event":   "auth_failed",
 			"peer_ip": peer,
 			"total":   total,
 		},
@@ -116,7 +116,7 @@ func (s *Server) logControlPeerLocked(
 		logrus.WarnLevel,
 		utils.LogPlaneControl,
 		logrus.Fields{
-			"event":               "control_plane_auth_locked",
+			"event":               "auth_locked",
 			"peer_ip":             peer,
 			"retry_after_seconds": retryAfterSeconds(retryAfter),
 		},

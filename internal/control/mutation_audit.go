@@ -171,7 +171,7 @@ func (s *Server) logControlMutation(
 		level,
 		utils.LogPlaneControl,
 		logrus.Fields{
-			"event":            "control_plane_mutation",
+			"event":            "mutation",
 			"peer_ip":          peer,
 			"operation":        descriptor.operation,
 			"resource_type":    descriptor.resourceType,

@@ -36,7 +36,7 @@ func projectProcessLog(
 	}
 
 	fields := logrus.Fields{
-		"event":    "data_plane_request_completed",
+		"event":    "request_completed",
 		"status":   row.Status,
 		"proto":    row.Protocol,
 		"ak_id":    row.AccessKeyID,
