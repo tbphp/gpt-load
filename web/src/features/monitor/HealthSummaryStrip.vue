@@ -77,11 +77,14 @@ const items = computed<HealthOverviewItem[]>(() => [
 
 <template>
   <section class="health-overview" :aria-label="t('monitor.health.overview.label')">
-    <article v-for="item in items" :key="item.key" class="health-overview__item">
+    <article
+      v-for="item in items"
+      :key="item.key"
+      class="health-overview__item"
+      :class="`health-overview__item--${item.tone}`"
+    >
       <span class="health-overview__label">{{ item.label }}</span>
-      <strong class="health-overview__value" :class="`health-overview__value--${item.tone}`">
-        {{ item.value }}
-      </strong>
+      <strong class="health-overview__value">{{ item.value }}</strong>
       <AppTooltip v-if="item.tooltip" :content="item.tooltip" side="bottom">
         <span class="health-overview__detail health-overview__detail--tooltip" tabindex="0">
           {{ item.detail }}
@@ -99,58 +102,74 @@ const items = computed<HealthOverviewItem[]>(() => [
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
-  background: var(--color-surface);
+  background: var(--color-border-subtle);
+  gap: 1px;
 }
 
 .health-overview__item {
+  --health-overview-color: var(--color-text);
+  --health-overview-dot: var(--color-text-faint);
+
   display: grid;
   min-width: 0;
-  min-height: 130px;
-  align-content: center;
-  gap: var(--space-2);
-  border-left: 1px solid var(--color-border-subtle);
-  padding: 18px 20px;
+  min-height: 108px;
+  align-content: start;
+  gap: 0;
+  background: var(--color-surface);
+  padding: 16px 18px;
 }
 
-.health-overview__item:first-child {
-  border-left: 0;
+.health-overview__item--success {
+  --health-overview-color: var(--color-success);
+  --health-overview-dot: var(--color-success);
+}
+
+.health-overview__item--warning {
+  --health-overview-color: var(--color-warning);
+  --health-overview-dot: var(--color-warning);
+}
+
+.health-overview__item--danger {
+  --health-overview-color: var(--color-danger);
+  --health-overview-dot: var(--color-danger);
 }
 
 .health-overview__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: var(--color-text-faint);
-  font-size: var(--text-meta);
+  font-size: var(--text-label-xs);
+  font-weight: 560;
+}
+
+.health-overview__label::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--health-overview-dot);
+  content: '';
 }
 
 .health-overview__value {
+  display: block;
+  margin-top: 8px;
+  color: var(--health-overview-color);
   font-family: var(--font-mono);
-  font-size: 31px;
+  font-size: clamp(1.45rem, 2.1vw, 1.9rem);
   font-variant-numeric: tabular-nums;
-  font-weight: 560;
-  letter-spacing: -0.03em;
+  font-weight: 580;
+  letter-spacing: -0.045em;
   line-height: 1;
-}
-
-.health-overview__value--success {
-  color: var(--color-success);
-}
-
-.health-overview__value--warning {
-  color: var(--color-warning);
-}
-
-.health-overview__value--danger {
-  color: var(--color-danger);
-}
-
-.health-overview__value--neutral {
-  color: var(--color-text);
 }
 
 .health-overview__detail {
   min-width: 0;
+  margin-top: 9px;
   color: var(--color-text-faint);
-  font-size: var(--text-sm);
-  line-height: var(--line-normal);
+  font-size: var(--text-label-xs);
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -159,23 +178,23 @@ const items = computed<HealthOverviewItem[]>(() => [
   border-radius: 3px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .health-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .health-overview__item {
-    min-height: 126px;
-    border-top: 1px solid var(--color-border-subtle);
-    padding: var(--space-4) var(--space-5);
+    min-height: 104px;
+  }
+}
+
+@media (max-width: 560px) {
+  .health-overview {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .health-overview__item:nth-child(odd) {
-    border-left: 0;
-  }
-
-  .health-overview__item:nth-child(-n + 2) {
-    border-top: 0;
+  .health-overview__item {
+    min-height: 94px;
   }
 }
 </style>

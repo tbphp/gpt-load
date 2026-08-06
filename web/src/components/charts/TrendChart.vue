@@ -3,7 +3,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 
 import { formatISOInstant, formatInteger, formatLocalInstant } from '@/lib/format'
 
-import { buildTrendGeometry, isTrendSeriesUsable, type TrendDatum } from './trend-chart'
+import {
+  buildTrendGeometry,
+  completeTrendSeries,
+  isTrendSeriesUsable,
+  type TrendDatum,
+} from './trend-chart'
 
 const props = withDefaults(
   defineProps<{
@@ -30,9 +35,10 @@ const activePointIndex = ref<number | null>(null)
 const selectionAnnouncement = ref('')
 let announcementGeneration = 0
 let compactMedia: MediaQueryList | undefined
-const chartSeries = computed(() =>
-  isTrendSeriesUsable(props.series, props.rangeStart, props.rangeEnd) ? props.series : [],
-)
+const chartSeries = computed(() => {
+  if (!isTrendSeriesUsable(props.series, props.rangeStart, props.rangeEnd)) return []
+  return completeTrendSeries(props.series, props.rangeStart, props.rangeEnd)
+})
 const seriesKey = computed(
   () =>
     `${props.rangeStart}:${props.rangeEnd}:${chartSeries.value

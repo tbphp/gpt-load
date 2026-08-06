@@ -95,6 +95,43 @@ export function isTrendSeriesUsable(
   return true
 }
 
+export function completeTrendSeries(
+  series: readonly TrendDatum[],
+  rangeStart: number,
+  rangeEnd: number,
+): TrendDatum[] {
+  if (series.length === 0 || !isTrendSeriesUsable(series, rangeStart, rangeEnd)) {
+    return [...series]
+  }
+
+  const bucketDuration = series[0]!.bucket_end_ms - series[0]!.bucket_start_ms
+  const rangeDuration = rangeEnd - rangeStart
+  if (
+    rangeDuration % bucketDuration !== 0 ||
+    series.some(
+      (datum) =>
+        datum.bucket_end_ms - datum.bucket_start_ms !== bucketDuration ||
+        (datum.bucket_start_ms - rangeStart) % bucketDuration !== 0,
+    )
+  ) {
+    return [...series]
+  }
+
+  const byStart = new Map(series.map((datum) => [datum.bucket_start_ms, datum]))
+  const result: TrendDatum[] = []
+  for (let bucketStart = rangeStart; bucketStart < rangeEnd; bucketStart += bucketDuration) {
+    result.push(
+      byStart.get(bucketStart) ?? {
+        bucket_start_ms: bucketStart,
+        bucket_end_ms: bucketStart + bucketDuration,
+        request_count: 0,
+        failure_count: 0,
+      },
+    )
+  }
+  return result
+}
+
 function appendSegmentPath(points: readonly TrendPoint[]): string {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')
 }
@@ -140,15 +177,15 @@ export function buildTrendGeometry(
   const maximumRequests = Math.max(...parsed.map((datum) => datum.requestCount)) * 1.08
   const maximumFailures = Math.max(...parsed.map((datum) => datum.failureCount))
   const failureHeight = Math.min(maximumFailureHeight, baseline - plotTop)
-  const first = parsed[0]!
-  const last = parsed.at(-1)!
-  const firstMidpoint = first.start + (first.end - first.start) / 2
-  const lastMidpoint = last.start + (last.end - last.start) / 2
-  const pointDuration = lastMidpoint - firstMidpoint
+  const bucketDuration = parsed[0]!.end - parsed[0]!.start
+  const pointRangeDuration = rangeDuration - bucketDuration
   const points = parsed.map<TrendPoint>((datum) => {
-    const midpoint = datum.start + (datum.end - datum.start) / 2
     return {
-      x: round(pointDuration === 0 ? 0 : ((midpoint - firstMidpoint) / pointDuration) * width),
+      x: round(
+        pointRangeDuration === 0
+          ? width / 2
+          : ((datum.start - rangeStart) / pointRangeDuration) * width,
+      ),
       y: round(
         maximumRequests === 0
           ? baseline

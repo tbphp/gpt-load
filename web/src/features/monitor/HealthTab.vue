@@ -178,7 +178,7 @@ defineExpose({ refresh })
   <div class="health-tab" :aria-busy="healthQuery.isFetching.value ? 'true' : undefined">
     <div v-if="healthQuery.isPending.value" class="health-loading" aria-busy="true">
       <span class="sr-only">{{ t('monitor.health.loading') }}</span>
-      <SkeletonBlock height="130px" />
+      <SkeletonBlock height="108px" />
       <div class="health-loading__focus">
         <SkeletonBlock height="266px" />
         <SkeletonBlock height="266px" />
