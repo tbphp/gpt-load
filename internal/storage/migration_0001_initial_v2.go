@@ -6,16 +6,16 @@ import (
 	"gorm.io/gorm"
 )
 
-func createSchemaV5Tables(db *gorm.DB) error {
-	for _, statement := range schemaV5TableStatements() {
+func createInitialV2Tables(db *gorm.DB) error {
+	for _, statement := range initialV2TableStatements() {
 		if err := db.Exec(statement).Error; err != nil {
-			return fmt.Errorf("create schema v5 table: %w", err)
+			return fmt.Errorf("create initial v2 table: %w", err)
 		}
 	}
 	return nil
 }
 
-func schemaV5TableStatements() []string {
+func initialV2TableStatements() []string {
 	return []string{
 		`CREATE TABLE groups (
 			id integer PRIMARY KEY AUTOINCREMENT,
@@ -287,16 +287,16 @@ func schemaV5TableStatements() []string {
 	}
 }
 
-func createSchemaV5Indexes(db *gorm.DB) error {
-	for _, statement := range schemaV5IndexStatements() {
+func createInitialV2Indexes(db *gorm.DB) error {
+	for _, statement := range initialV2IndexStatements() {
 		if err := db.Exec(statement).Error; err != nil {
-			return fmt.Errorf("create schema v5 index: %w", err)
+			return fmt.Errorf("create initial v2 index: %w", err)
 		}
 	}
 	return nil
 }
 
-func schemaV5IndexStatements() []string {
+func initialV2IndexStatements() []string {
 	return []string{
 		`CREATE UNIQUE INDEX idx_groups_name ON groups(name)`,
 		`CREATE UNIQUE INDEX idx_upstream_keys_group_hash
@@ -342,16 +342,16 @@ func schemaV5IndexStatements() []string {
 	}
 }
 
-func validateSchemaV5ForeignKeys(db *gorm.DB) error {
+func validateMigrationForeignKeys(db *gorm.DB) error {
 	var violations []struct {
 		Table string
 		RowID int64 `gorm:"column:rowid"`
 	}
 	if err := db.Raw("PRAGMA foreign_key_check").Scan(&violations).Error; err != nil {
-		return fmt.Errorf("validate schema v5 foreign keys: %w", err)
+		return fmt.Errorf("validate SQLite migration foreign keys: %w", err)
 	}
 	if len(violations) != 0 {
-		return fmt.Errorf("validate schema v5 foreign keys: %d violation(s)", len(violations))
+		return fmt.Errorf("validate SQLite migration foreign keys: %d violation(s)", len(violations))
 	}
 	return nil
 }

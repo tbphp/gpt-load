@@ -310,7 +310,7 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	}
 	for _, table := range []string{
 		"groups", "upstream_keys", "access_keys", "request_logs", "usage_stats",
-		"model_prices", "system_settings", "jobs", "control_operations", "schema_info",
+		"model_prices", "system_settings", "jobs", "control_operations", "schema_migrations",
 	} {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("Start() did not migrate table %q", table)
@@ -327,14 +327,13 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	}
 }
 
-func TestAppStartRejectsUnreleasedLegacySchemaBeforeRuntimeLoad(t *testing.T) {
+func TestAppStartRejectsDatabaseWithoutMigrationLedgerBeforeRuntimeLoad(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
 	for _, statement := range []string{
-		`CREATE TABLE schema_info (version integer PRIMARY KEY)`,
-		`INSERT INTO schema_info(version) VALUES (1)`,
+		`CREATE TABLE legacy_data (id integer PRIMARY KEY)`,
 	} {
 		if err := db.Exec(statement).Error; err != nil {
 			t.Fatalf("create schema v1 fixture: %v", err)
@@ -356,8 +355,8 @@ func TestAppStartRejectsUnreleasedLegacySchemaBeforeRuntimeLoad(t *testing.T) {
 	cleanupApp(t, application)
 
 	err = application.Start()
-	if err == nil || !strings.Contains(err.Error(), "unsupported schema version 1") {
-		t.Fatalf("Start() error = %v, want unsupported schema version 1", err)
+	if err == nil || !strings.Contains(err.Error(), "without schema_migrations") {
+		t.Fatalf("Start() error = %v, want legacy database rejection", err)
 	}
 	if runtimeLoadCalled {
 		t.Fatal("runtime state loaded after legacy schema rejection")

@@ -19,14 +19,7 @@ import (
 	"gpt-load/internal/platform/securefile"
 )
 
-// CurrentSchemaVersion identifies the SQLite schema supported by this binary.
-const CurrentSchemaVersion uint = 5
-
 const sqliteBusyTimeoutMS = 5000
-
-type schemaInfo struct {
-	Version uint `gorm:"primaryKey;autoIncrement:false"`
-}
 
 type sqliteTarget struct {
 	fileBacked   bool
@@ -43,10 +36,6 @@ var databaseLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logge
 
 var hardenManagedFileIfExists = securefile.HardenManagedFileIfExists
 
-func (schemaInfo) TableName() string {
-	return "schema_info"
-}
-
 // Open opens a SQLite database using a fully resolved DSN.
 // Resolving an empty DSN to DATA_DIR belongs to platform/config.
 func Open(dsn string) (*gorm.DB, error) {
@@ -59,6 +48,9 @@ func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) 
 	dsn = strings.TrimSpace(dsn)
 	target, err := parseSQLiteTarget(dsn)
 	if err != nil {
+		return nil, err
+	}
+	if err := rejectExistingDatabaseWithoutMigrationLedger(target); err != nil {
 		return nil, err
 	}
 	switch source {
@@ -104,67 +96,52 @@ func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) 
 	return db, nil
 }
 
-// AutoMigrate creates the current persistence schema and initializes schema_info.
-func AutoMigrate(db *gorm.DB) error {
-	if db == nil {
-		return fmt.Errorf("auto-migrate SQLite database: db is nil")
+// rejectExistingDatabaseWithoutMigrationLedger inspects an existing file with
+// SQLite read-only mode before runtime pragmas can change journal state.
+func rejectExistingDatabaseWithoutMigrationLedger(target sqliteTarget) error {
+	if !target.fileBacked {
+		return nil
 	}
-
-	if !db.Migrator().HasTable(&schemaInfo{}) {
-		tables, err := db.Migrator().GetTables()
-		if err != nil {
-			return fmt.Errorf("list SQLite tables: %w", err)
-		}
-		for _, table := range tables {
-			if !strings.HasPrefix(table, "sqlite_") {
-				return fmt.Errorf("initialize SQLite schema: non-empty database without schema_info")
-			}
-		}
-		return db.Transaction(func(tx *gorm.DB) error {
-			if err := createSchemaV5Tables(tx); err != nil {
-				return err
-			}
-			if err := createSchemaV5InfoTable(tx); err != nil {
-				return err
-			}
-			if err := createSchemaV5Indexes(tx); err != nil {
-				return err
-			}
-			if err := tx.Create(&schemaInfo{Version: CurrentSchemaVersion}).Error; err != nil {
-				return fmt.Errorf("initialize schema_info: %w", err)
-			}
-			return validateSchemaV5(tx)
-		})
+	if _, err := os.Lstat(target.databasePath); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect SQLite database before migration: %w", err)
 	}
-
-	version, err := readSchemaVersion(db)
+	absolutePath, err := filepath.Abs(target.databasePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve SQLite database path before migration: %w", err)
 	}
-	if version != CurrentSchemaVersion {
-		return fmt.Errorf(
-			"unsupported schema version %d, want %d",
-			version,
-			CurrentSchemaVersion,
-		)
+	readOnlyDSN := (&url.URL{Scheme: "file", Path: absolutePath}).String() + "?mode=ro&immutable=1"
+	db, err := gorm.Open(sqlite.Open(readOnlyDSN), &gorm.Config{Logger: databaseLogger})
+	if err != nil {
+		return fmt.Errorf("inspect existing SQLite database before migration: %w", err)
 	}
-	return validateSchemaV5(db)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("inspect existing SQLite database connection: %w", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	tables, err := db.Migrator().GetTables()
+	if err != nil {
+		return fmt.Errorf("inspect existing SQLite tables before migration: %w", err)
+	}
+	for _, table := range tables {
+		if table == migrationLedgerTable {
+			return nil
+		}
+	}
+	for _, table := range tables {
+		if !strings.HasPrefix(table, "sqlite_") {
+			return fmt.Errorf("open SQLite database: non-empty database without schema_migrations")
+		}
+	}
+	return nil
 }
 
-func readSchemaVersion(db *gorm.DB) (uint, error) {
-	var count int64
-	if err := db.Model(&schemaInfo{}).Count(&count).Error; err != nil {
-		return 0, fmt.Errorf("count schema_info rows: %w", err)
-	}
-	if count != 1 {
-		return 0, fmt.Errorf("schema_info contains %d rows, want exactly one", count)
-	}
-
-	var info schemaInfo
-	if err := db.First(&info).Error; err != nil {
-		return 0, fmt.Errorf("read schema_info: %w", err)
-	}
-	return info.Version, nil
+// AutoMigrate applies every pending SQLite migration before the application starts.
+func AutoMigrate(db *gorm.DB) error {
+	return applyMigrations(db)
 }
 
 func withSQLiteRuntimeOptions(dsn string, fileBacked bool) (string, error) {

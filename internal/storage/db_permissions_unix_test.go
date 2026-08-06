@@ -171,6 +171,9 @@ func TestOpenWithSourceExternalPreservesDirectoryAndDatabaseModes(t *testing.T) 
 	}
 	databasePath := filepath.Join(dataDir, "operator.db")
 	first := openSourceDatabase(t, databasePath, config.DatabaseSourceExternal)
+	if err := AutoMigrate(first); err != nil {
+		t.Fatalf("initialize external migration ledger: %v", err)
+	}
 	writeSQLiteRecoverySet(t, first)
 
 	wantModes := map[string]os.FileMode{

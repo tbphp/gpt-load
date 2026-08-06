@@ -230,6 +230,86 @@ func TestOpenWithSourceExternalRejectsMissingParentWithoutCreation(t *testing.T)
 	}
 }
 
+func TestOpenRejectsLegacyFileBeforeRuntimePragmas(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	db, err := storage.Open(path)
+	if err != nil {
+		t.Fatalf("create database: %v", err)
+	}
+	if err := db.Exec("CREATE TABLE legacy_data (id integer PRIMARY KEY)").Error; err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path + "-wal"); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path + "-shm"); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+
+	if _, err := storage.Open(path); err == nil || !strings.Contains(err.Error(), "without schema_migrations") {
+		t.Fatalf("Open(legacy database) error = %v, want legacy database rejection", err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); !os.IsNotExist(err) {
+			t.Fatalf("legacy preflight created %s", path+suffix)
+		}
+	}
+}
+
+func TestOpenReopensMigratedRelativeDatabase(t *testing.T) {
+	workingDir := t.TempDir()
+	previousWorkingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previousWorkingDir); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	if err := os.Mkdir("data", 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	const dsn = "data/gpt-load.db"
+	first, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatalf("first Open(relative DSN) error = %v", err)
+	}
+	if err := storage.AutoMigrate(first); err != nil {
+		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+	firstSQL, err := first.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := firstSQL.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatalf("second Open(relative DSN) error = %v", err)
+	}
+	secondSQL, err := second.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secondSQL.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOpenWithSourceExternalHintDoesNotExposeDSN(t *testing.T) {
 	const sensitiveFilename = "distinctive-operator-secret.db"
 	dsn := filepath.Join(t.TempDir(), sensitiveFilename)
@@ -456,7 +536,7 @@ func TestOpenUsesImmediateTransactions(t *testing.T) {
 			t.Errorf("rollback blocker transaction during cleanup: %v", err)
 		}
 	})
-	if err := blockerTx.Exec("UPDATE schema_info SET version = version").Error; err != nil {
+	if err := blockerTx.Exec("UPDATE schema_migrations SET id = id").Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -513,7 +593,7 @@ func TestOpenConfiguresParameterizedSQLLogging(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateCreatesUsageJournalAndSchemaVersion(t *testing.T) {
+func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	t.Parallel()
 
 	db := openMigratedDatabase(t)
@@ -529,7 +609,7 @@ func TestAutoMigrateCreatesUsageJournalAndSchemaVersion(t *testing.T) {
 		"system_settings",
 		"jobs",
 		"control_operations",
-		"schema_info",
+		"schema_migrations",
 	}
 	for _, table := range wantTables {
 		if !db.Migrator().HasTable(table) {
@@ -537,23 +617,23 @@ func TestAutoMigrateCreatesUsageJournalAndSchemaVersion(t *testing.T) {
 		}
 	}
 
-	var versions []uint
-	if err := db.Table("schema_info").Pluck("version", &versions).Error; err != nil {
-		t.Fatalf("read schema_info: %v", err)
+	var migrationIDs []string
+	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if len(versions) != 1 || versions[0] != storage.CurrentSchemaVersion {
-		t.Fatalf("schema_info versions = %v, want [%d]", versions, storage.CurrentSchemaVersion)
+	if len(migrationIDs) != 1 || migrationIDs[0] != "0001_initial_v2" {
+		t.Fatalf("schema_migrations IDs = %v, want [0001_initial_v2]", migrationIDs)
 	}
 
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatalf("second AutoMigrate() error = %v", err)
 	}
 	var count int64
-	if err := db.Table("schema_info").Count(&count).Error; err != nil {
-		t.Fatalf("count schema_info: %v", err)
+	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
+		t.Fatalf("count schema_migrations: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("schema_info row count after a second migration = %d, want 1", count)
+		t.Fatalf("schema_migrations row count after a second migration = %d, want 1", count)
 	}
 }
 
@@ -670,9 +750,6 @@ func TestAutoMigrateCreatesRequestLogFieldsAndCompositeIndexes(t *testing.T) {
 		}
 	}
 
-	if storage.CurrentSchemaVersion != 5 {
-		t.Fatalf("CurrentSchemaVersion = %d, want 5", storage.CurrentSchemaVersion)
-	}
 }
 
 func TestAutoMigrateOmitsGroupSignature(t *testing.T) {
@@ -715,7 +792,7 @@ func TestAutoMigrateAllowsDuplicateUpstreamURLs(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateRejectsNonEmptyDatabaseWithoutSchemaInfo(t *testing.T) {
+func TestAutoMigrateRejectsNonEmptyDatabaseWithoutMigrationLedger(t *testing.T) {
 	t.Parallel()
 
 	db, err := storage.Open(":memory:")
@@ -740,7 +817,7 @@ func TestAutoMigrateRejectsNonEmptyDatabaseWithoutSchemaInfo(t *testing.T) {
 	if err == nil {
 		t.Fatal("AutoMigrate() error = nil, want rejection for an unversioned non-empty database")
 	}
-	if !strings.Contains(err.Error(), "non-empty database without schema_info") {
+	if !strings.Contains(err.Error(), "non-empty database without schema_migrations") {
 		t.Fatalf("AutoMigrate() error = %q, want unversioned non-empty database error", err)
 	}
 	if db.Migrator().HasTable("groups") {
