@@ -117,6 +117,7 @@ export default {
     groups: 'グループ',
     accessKeys: 'アクセスキー',
     monitor: 'モニター',
+    models: 'モデル',
     settings: '設定',
     import: 'アップストリームキーをインポート',
     groupDetail: 'Group 詳細',

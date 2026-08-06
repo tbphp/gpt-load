@@ -75,6 +75,15 @@ const routes: RouteRecordRaw[] = [
       messageNamespaces: ['monitor'],
     },
   }),
+  pageRoute(pageRouteNames.models, {
+    component: lazyView(() => import('@/features/models/ModelsView.vue')),
+    meta: {
+      titleKey: 'models.title',
+      requiresAuth: true,
+      primaryNav: 'models',
+      messageNamespaces: ['models', 'model-prices'],
+    },
+  }),
   pageRoute(pageRouteNames.settings, {
     component: lazyView(() => import('@/features/settings/SettingsView.vue')),
     meta: {

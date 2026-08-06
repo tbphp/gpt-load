@@ -43,6 +43,7 @@ func (s *Server) HTTPModule() httproute.Module {
 		MethodNotAllowed:  controlMethodNotAllowed,
 		Routes: []httproute.Route{
 			controlRoute("control.auth.session", http.MethodGet, "/auth/session", s.handleAuthSession),
+			controlRoute("control.models.list", http.MethodGet, "/models", s.handleListProjectModels),
 			controlRoute(
 				"control.model-prices.list",
 				http.MethodGet,

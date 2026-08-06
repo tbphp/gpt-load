@@ -10,6 +10,7 @@ const sharedPageRouteNames = {
   groupDetail: 'group-detail',
   accessKeys: 'access-keys',
   monitor: 'monitor',
+  models: 'models',
   settings: 'settings',
   modelPrices: 'model-prices',
 } as const
@@ -67,6 +68,10 @@ export function accessKeysLocation(query?: LocationQueryRaw): RouteLocationRaw {
 
 export function monitorLocation(query?: LocationQueryRaw): RouteLocationRaw {
   return namedLocation(pageRouteNames.monitor, query)
+}
+
+export function modelsLocation(): RouteLocationRaw {
+  return namedLocation(pageRouteNames.models)
 }
 
 export function settingsLocation(): RouteLocationRaw {

@@ -130,6 +130,7 @@ export default {
       proxyNote:
         'Catalog sync uses the shared server HTTP client and honors explicit or environment proxy configuration',
       manage: 'Manage model prices',
+      openModels: 'Open models',
     },
     system: {
       title: 'System information',

@@ -11,6 +11,7 @@ import {
   importLocation,
   loginLocation,
   monitorLocation,
+  modelsLocation,
   pageRouteNames,
   settingsLocation,
 } from '@/app/route-locations'
@@ -35,6 +36,7 @@ const { locale, t } = useI18n()
 const navigation = computed(() => [
   { key: 'home', to: homeLocation(), label: t('shell.home') },
   { key: 'groups', to: groupsLocation(), label: t('shell.groups') },
+  { key: 'models', to: modelsLocation(), label: t('shell.models') },
   {
     key: 'access-keys',
     to: accessKeysLocation(),

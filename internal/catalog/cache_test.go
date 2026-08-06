@@ -41,6 +41,29 @@ func TestCacheRoundTripStoresRawJSONValueAndReparsesSnapshot(t *testing.T) {
 	if loaded.Metadata != result.Metadata || string(loaded.RawJSON) != string(result.RawJSON) || !reflect.DeepEqual(loaded.Snapshot, result.Snapshot) {
 		t.Fatalf("loaded cache = %#v, want result %#v", loaded, result)
 	}
+	loadedProvider := loaded.Snapshot.Providers["openai"]
+	loadedModel := loadedProvider.Models["gpt-x"]
+	*loadedModel.Metadata.Capabilities.Attachment = false
+	loadedModel.Metadata.Modalities.Input[0] = "audio"
+	*loadedModel.Metadata.Limits.Context = 99
+	loadedProvider.Models["gpt-x"] = loadedModel
+	loaded.Snapshot.Providers["openai"] = loadedProvider
+	sourceMetadata := result.Snapshot.Providers["openai"].Models["gpt-x"].Metadata
+	if sourceMetadata.Capabilities.Attachment == nil || !*sourceMetadata.Capabilities.Attachment ||
+		sourceMetadata.Modalities.Input[0] != "text" ||
+		sourceMetadata.Limits.Context == nil || *sourceMetadata.Limits.Context != 1_000_000 {
+		t.Fatalf("loaded cache shares snapshot metadata with source: %#v", sourceMetadata)
+	}
+	reloaded, err := LoadCache(path)
+	if err != nil {
+		t.Fatalf("LoadCache() after caller mutation error = %v", err)
+	}
+	reloadedMetadata := reloaded.Snapshot.Providers["openai"].Models["gpt-x"].Metadata
+	if reloadedMetadata.Capabilities.Attachment == nil || !*reloadedMetadata.Capabilities.Attachment ||
+		reloadedMetadata.Modalities.Input[0] != "text" ||
+		reloadedMetadata.Limits.Context == nil || *reloadedMetadata.Limits.Context != 1_000_000 {
+		t.Fatalf("caller mutation changed cached metadata: %#v", reloadedMetadata)
+	}
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -419,7 +442,7 @@ func assertNoCatalogTemporaryFiles(t *testing.T, directory string) {
 
 func validSyncResult(t *testing.T) SyncResult {
 	t.Helper()
-	raw := json.RawMessage(`{"openai":{"id":"openai","name":"OpenAI","models":{"gpt-x":{"id":"gpt-x","name":"GPT X","cost":{"input":0.000000001}}}}}`)
+	raw := json.RawMessage(`{"openai":{"id":"openai","name":"OpenAI","models":{"gpt-x":{"id":"gpt-x","name":"GPT X","description":"General model","attachment":true,"modalities":{"input":["text","image"],"output":["text"]},"limit":{"context":1000000,"output":100000},"cost":{"input":0.000000001}}}}}`)
 	return SyncResult{
 		Metadata: Metadata{
 			ETag:                    `"catalog-v1"`,

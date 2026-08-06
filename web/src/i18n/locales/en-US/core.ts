@@ -119,6 +119,7 @@ export default {
     groups: 'Groups',
     accessKeys: 'Access keys',
     monitor: 'Monitor',
+    models: 'Models',
     settings: 'Settings',
     import: 'Import upstream keys',
     groupDetail: 'Group details',

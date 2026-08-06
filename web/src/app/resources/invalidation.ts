@@ -34,6 +34,7 @@ export const mutationInvalidationPlans = {
       [
         controlQueryKeys.groups.collectionAll,
         controlQueryKeys.home.all,
+        controlQueryKeys.models.all,
         controlQueryKeys.modelPrices(),
         controlQueryKeys.providers.modelsAll(),
       ],
@@ -43,6 +44,7 @@ export const mutationInvalidationPlans = {
       [
         controlQueryKeys.groups.collectionAll,
         controlQueryKeys.home.all,
+        controlQueryKeys.models.all,
         controlQueryKeys.modelPrices(),
         controlQueryKeys.providers.modelsAll(),
       ],
@@ -77,6 +79,7 @@ export const mutationInvalidationPlans = {
       [],
       [
         controlQueryKeys.modelPrices(),
+        controlQueryKeys.models.all,
         controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],
@@ -85,6 +88,7 @@ export const mutationInvalidationPlans = {
       [],
       [
         controlQueryKeys.modelPrices(),
+        controlQueryKeys.models.all,
         controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],
@@ -93,6 +97,7 @@ export const mutationInvalidationPlans = {
       [],
       [
         controlQueryKeys.modelPrices(),
+        controlQueryKeys.models.all,
         controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],
@@ -101,6 +106,7 @@ export const mutationInvalidationPlans = {
       [],
       [
         controlQueryKeys.modelPrices(),
+        controlQueryKeys.models.all,
         controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],

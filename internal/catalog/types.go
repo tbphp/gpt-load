@@ -14,11 +14,52 @@ type ModelCost struct {
 	ContextTiers []pricing.ContextTier
 }
 
-// Model is the retained Models.dev model identity and optional price data.
+// ModelCapabilities contains optional Models.dev capability declarations.
+// Nil distinguishes an omitted declaration from an explicit false value.
+type ModelCapabilities struct {
+	Attachment       *bool
+	Reasoning        *bool
+	ToolCall         *bool
+	StructuredOutput *bool
+	Temperature      *bool
+}
+
+// ModelModalities contains the ordered input and output modalities retained
+// from Models.dev.
+type ModelModalities struct {
+	Input  []string
+	Output []string
+}
+
+// ModelLimits contains optional token limits retained from Models.dev.
+type ModelLimits struct {
+	Context *int64
+	Input   *int64
+	Output  *int64
+}
+
+// ModelMetadata is the display-only Models.dev metadata retained for one
+// model. It never changes routing, protocol support, or pricing behavior.
+type ModelMetadata struct {
+	Description  string
+	Family       string
+	Capabilities ModelCapabilities
+	Modalities   ModelModalities
+	Limits       ModelLimits
+	Knowledge    string
+	ReleaseDate  string
+	LastUpdated  string
+	OpenWeights  *bool
+	Status       string
+}
+
+// Model is the retained Models.dev model identity, display metadata, and
+// optional price data.
 type Model struct {
-	ID   string
-	Name string
-	Cost *ModelCost
+	ID       string
+	Name     string
+	Metadata ModelMetadata
+	Cost     *ModelCost
 }
 
 // Provider is the retained Models.dev provider identity and model map. Mark and
@@ -85,11 +126,37 @@ func cloneProvider(provider Provider) Provider {
 }
 
 func cloneModel(model Model) Model {
-	if model.Cost == nil {
-		return model
+	model.Metadata.Capabilities.Attachment = cloneBool(model.Metadata.Capabilities.Attachment)
+	model.Metadata.Capabilities.Reasoning = cloneBool(model.Metadata.Capabilities.Reasoning)
+	model.Metadata.Capabilities.ToolCall = cloneBool(model.Metadata.Capabilities.ToolCall)
+	model.Metadata.Capabilities.StructuredOutput = cloneBool(model.Metadata.Capabilities.StructuredOutput)
+	model.Metadata.Capabilities.Temperature = cloneBool(model.Metadata.Capabilities.Temperature)
+	model.Metadata.Modalities.Input = append([]string(nil), model.Metadata.Modalities.Input...)
+	model.Metadata.Modalities.Output = append([]string(nil), model.Metadata.Modalities.Output...)
+	model.Metadata.Limits.Context = cloneInt64(model.Metadata.Limits.Context)
+	model.Metadata.Limits.Input = cloneInt64(model.Metadata.Limits.Input)
+	model.Metadata.Limits.Output = cloneInt64(model.Metadata.Limits.Output)
+	model.Metadata.OpenWeights = cloneBool(model.Metadata.OpenWeights)
+	if model.Cost != nil {
+		cost := *model.Cost
+		cost.ContextTiers = append([]pricing.ContextTier(nil), cost.ContextTiers...)
+		model.Cost = &cost
 	}
-	cost := *model.Cost
-	cost.ContextTiers = append([]pricing.ContextTier(nil), cost.ContextTiers...)
-	model.Cost = &cost
 	return model
+}
+
+func cloneBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

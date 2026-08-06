@@ -3,7 +3,7 @@ import { createI18n } from 'vue-i18n'
 export const supportedLocales = ['zh-CN', 'en-US', 'ja-JP'] as const
 export type AppLocale = (typeof supportedLocales)[number]
 export type MessageNamespace =
-  'import' | 'group' | 'access-keys' | 'monitor' | 'model-prices' | 'settings'
+  'import' | 'group' | 'access-keys' | 'monitor' | 'models' | 'model-prices' | 'settings'
 
 type MessageTree = { [key: string]: string | MessageTree }
 type MessageLoader = () => Promise<{ default: MessageTree }>
@@ -14,6 +14,7 @@ const namespaces: MessageNamespace[] = [
   'group',
   'access-keys',
   'monitor',
+  'models',
   'model-prices',
   'settings',
 ]
@@ -42,6 +43,11 @@ const namespaceLoaders: Record<MessageNamespace, Record<AppLocale, MessageLoader
     'zh-CN': () => import('./locales/zh-CN/monitor'),
     'en-US': () => import('./locales/en-US/monitor'),
     'ja-JP': () => import('./locales/ja-JP/monitor'),
+  },
+  models: {
+    'zh-CN': () => import('./locales/zh-CN/models'),
+    'en-US': () => import('./locales/en-US/models'),
+    'ja-JP': () => import('./locales/ja-JP/models'),
   },
   'model-prices': {
     'zh-CN': () => import('./locales/zh-CN/model-prices'),

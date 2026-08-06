@@ -27,7 +27,7 @@ func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 
 	var firstBody string
 	for _, target := range []string{
-		"/", "/login", "/import", "/groups/42", "/access-keys", "/monitor?tab=logs", "/settings",
+		"/", "/login", "/import", "/groups/42", "/access-keys", "/monitor?tab=logs", "/models", "/settings",
 		"/settings/model-prices",
 	} {
 		recorder := httptest.NewRecorder()
@@ -84,6 +84,27 @@ func TestServerServesModelPricesDeepLinkWithoutCatchingUnknownSettingsPaths(t *t
 	)
 	if unknown.Code != http.StatusNotFound {
 		t.Fatalf("GET unknown nested settings path = %d, want 404", unknown.Code)
+	}
+}
+
+func TestServerServesModelsDeepLinkWithoutCatchingUnknownNestedPaths(t *testing.T) {
+	engine := testEngine(newServer(fstest.MapFS{
+		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>models</title>")},
+	}, "dist"))
+
+	models := httptest.NewRecorder()
+	engine.ServeHTTP(models, httptest.NewRequest(http.MethodGet, "/models", nil))
+	if models.Code != http.StatusOK || !strings.Contains(models.Body.String(), "<title>models</title>") {
+		t.Fatalf("GET /models = %d %q, want embedded index", models.Code, models.Body.String())
+	}
+
+	unknown := httptest.NewRecorder()
+	engine.ServeHTTP(
+		unknown,
+		httptest.NewRequest(http.MethodGet, "/models/unknown", nil),
+	)
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("GET unknown nested models path = %d, want 404", unknown.Code)
 	}
 }
 

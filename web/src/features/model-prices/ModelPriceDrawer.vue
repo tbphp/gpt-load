@@ -11,6 +11,7 @@ import {
   updateModelPrice,
   type ModelPriceDto,
 } from '@/app/resources/model-prices'
+import type { ModelRouteGroupDto } from '@/app/resources/models'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -34,6 +35,7 @@ import {
 const props = defineProps<{
   open: boolean
   row: ModelPriceDto
+  affectedGroups?: ModelRouteGroupDto[]
 }>()
 const emit = defineEmits<{
   'update:open': [open: boolean]
@@ -220,6 +222,25 @@ onBeforeUnmount(clearRequest)
         </dl>
       </section>
 
+      <section
+        v-if="affectedGroups?.length"
+        class="model-price-drawer__impact"
+        aria-labelledby="model-price-impact-title"
+      >
+        <div>
+          <h2 id="model-price-impact-title">{{ t('models.drawerImpact.title') }}</h2>
+          <p>{{ t('models.drawerImpact.description', { count: affectedGroups.length }) }}</p>
+        </div>
+        <ul>
+          <li v-for="group in affectedGroups" :key="group.id">
+            <strong>{{ group.name }}</strong>
+            <span :data-enabled="group.enabled">
+              {{ group.enabled ? t('models.tree.groupEnabled') : t('models.tree.groupDisabled') }}
+            </span>
+          </li>
+        </ul>
+      </section>
+
       <fieldset class="model-price-drawer__prices">
         <legend>{{ t('modelPrices.drawer.prices') }}</legend>
         <p>{{ t('modelPrices.drawer.priceDescription') }}</p>
@@ -296,6 +317,7 @@ onBeforeUnmount(clearRequest)
 <style scoped>
 .model-price-drawer,
 .model-price-drawer__identity,
+.model-price-drawer__impact,
 .model-price-drawer__prices {
   display: grid;
 }
@@ -306,12 +328,16 @@ onBeforeUnmount(clearRequest)
 }
 
 .model-price-drawer__identity,
+.model-price-drawer__impact,
 .model-price-drawer__prices {
   gap: var(--space-3-25);
 }
 
 .model-price-drawer__identity h2,
 .model-price-drawer__identity p,
+.model-price-drawer__impact h2,
+.model-price-drawer__impact p,
+.model-price-drawer__impact ul,
 .model-price-drawer__prices p,
 .model-price-drawer__prices legend,
 .model-price-drawer__identity dl,
@@ -320,12 +346,14 @@ onBeforeUnmount(clearRequest)
 }
 
 .model-price-drawer__identity h2,
+.model-price-drawer__impact h2,
 .model-price-drawer__prices legend {
   font-size: var(--text-sm);
   font-weight: 650;
 }
 
 .model-price-drawer__identity p,
+.model-price-drawer__impact p,
 .model-price-drawer__prices > p,
 .model-price-drawer__footer-note {
   color: var(--color-text-faint);
@@ -334,6 +362,41 @@ onBeforeUnmount(clearRequest)
 
 .model-price-drawer__identity p {
   margin-top: var(--space-0-75);
+}
+
+.model-price-drawer__impact {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-4-5);
+}
+
+.model-price-drawer__impact p {
+  margin-top: var(--space-0-75);
+}
+
+.model-price-drawer__impact ul {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  list-style: none;
+}
+
+.model-price-drawer__impact li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-2) var(--space-0-5);
+  font-size: var(--text-sm);
+}
+
+.model-price-drawer__impact li span {
+  color: var(--color-success);
+  font-size: var(--text-label-xs);
+}
+
+.model-price-drawer__impact li span[data-enabled='false'] {
+  color: var(--color-text-faint);
 }
 
 .model-price-drawer__identity dl {

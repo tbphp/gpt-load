@@ -118,6 +118,7 @@ export default {
       syncFailed: '无法同步模型目录与价格',
       proxyNote: '目录同步使用服务端共享 HTTP 客户端，并遵循当前显式或环境代理配置',
       manage: '管理模型价格',
+      openModels: '打开模型页面',
     },
     system: {
       title: '系统信息',

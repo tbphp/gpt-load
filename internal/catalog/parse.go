@@ -18,7 +18,14 @@ const maxModelIDBytes = 255
 
 var (
 	providerCanonicalFields = []string{"id", "name", "api", "npm", "models"}
-	modelCanonicalFields    = []string{"id", "name", "cost"}
+	modelCanonicalFields    = []string{
+		"id", "name", "description", "family", "attachment", "reasoning",
+		"tool_call", "structured_output", "temperature", "knowledge",
+		"release_date", "last_updated", "modalities", "open_weights", "limit",
+		"status", "cost",
+	}
+	modalityCanonicalFields = []string{"input", "output"}
+	limitCanonicalFields    = []string{"context", "input", "output"}
 	costCanonicalFields     = []string{"input", "output", "cache_read", "cache_write", "tiers"}
 	tierCanonicalFields     = []string{"tier", "input", "output", "cache_read", "cache_write"}
 	tierRuleCanonicalFields = []string{"type", "size"}
@@ -138,7 +145,11 @@ func parseModel(key string, raw json.RawMessage) (Model, error) {
 	if name == "" {
 		return Model{}, fmt.Errorf("model name is required")
 	}
-	model := Model{ID: id, Name: name}
+	metadata, err := parseModelMetadata(fields)
+	if err != nil {
+		return Model{}, err
+	}
+	model := Model{ID: id, Name: name, Metadata: metadata}
 	costRaw, hasCost := fields["cost"]
 	if !hasCost || bytes.Equal(bytes.TrimSpace(costRaw), []byte("null")) {
 		return model, nil
@@ -149,6 +160,101 @@ func parseModel(key string, raw json.RawMessage) (Model, error) {
 	}
 	model.Cost = cost
 	return model, nil
+}
+
+func parseModelMetadata(fields map[string]json.RawMessage) (ModelMetadata, error) {
+	stringFields := [...]struct {
+		name string
+		set  func(*ModelMetadata, string)
+	}{
+		{name: "description", set: func(metadata *ModelMetadata, value string) { metadata.Description = value }},
+		{name: "family", set: func(metadata *ModelMetadata, value string) { metadata.Family = value }},
+		{name: "knowledge", set: func(metadata *ModelMetadata, value string) { metadata.Knowledge = value }},
+		{name: "release_date", set: func(metadata *ModelMetadata, value string) { metadata.ReleaseDate = value }},
+		{name: "last_updated", set: func(metadata *ModelMetadata, value string) { metadata.LastUpdated = value }},
+		{name: "status", set: func(metadata *ModelMetadata, value string) { metadata.Status = value }},
+	}
+	var metadata ModelMetadata
+	for _, field := range stringFields {
+		value, err := decodeStringField(fields, field.name)
+		if err != nil {
+			return ModelMetadata{}, err
+		}
+		field.set(&metadata, strings.TrimSpace(value))
+	}
+
+	boolFields := [...]struct {
+		name string
+		set  func(*ModelMetadata, *bool)
+	}{
+		{name: "attachment", set: func(metadata *ModelMetadata, value *bool) { metadata.Capabilities.Attachment = value }},
+		{name: "reasoning", set: func(metadata *ModelMetadata, value *bool) { metadata.Capabilities.Reasoning = value }},
+		{name: "tool_call", set: func(metadata *ModelMetadata, value *bool) { metadata.Capabilities.ToolCall = value }},
+		{name: "structured_output", set: func(metadata *ModelMetadata, value *bool) { metadata.Capabilities.StructuredOutput = value }},
+		{name: "temperature", set: func(metadata *ModelMetadata, value *bool) { metadata.Capabilities.Temperature = value }},
+		{name: "open_weights", set: func(metadata *ModelMetadata, value *bool) { metadata.OpenWeights = value }},
+	}
+	for _, field := range boolFields {
+		value, err := decodeBoolField(fields, field.name)
+		if err != nil {
+			return ModelMetadata{}, err
+		}
+		field.set(&metadata, value)
+	}
+
+	modalities, err := parseModelModalities(fields["modalities"])
+	if err != nil {
+		return ModelMetadata{}, err
+	}
+	limits, err := parseModelLimits(fields["limit"])
+	if err != nil {
+		return ModelMetadata{}, err
+	}
+	metadata.Modalities = modalities
+	metadata.Limits = limits
+	return metadata, nil
+}
+
+func parseModelModalities(raw json.RawMessage) (ModelModalities, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return ModelModalities{}, nil
+	}
+	fields, err := decodeCanonicalObject(raw, "model modalities", modalityCanonicalFields)
+	if err != nil {
+		return ModelModalities{}, err
+	}
+	input, err := decodeStringSliceField(fields, "input")
+	if err != nil {
+		return ModelModalities{}, err
+	}
+	output, err := decodeStringSliceField(fields, "output")
+	if err != nil {
+		return ModelModalities{}, err
+	}
+	return ModelModalities{Input: input, Output: output}, nil
+}
+
+func parseModelLimits(raw json.RawMessage) (ModelLimits, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return ModelLimits{}, nil
+	}
+	fields, err := decodeCanonicalObject(raw, "model limits", limitCanonicalFields)
+	if err != nil {
+		return ModelLimits{}, err
+	}
+	contextLimit, err := decodeNonNegativeInt64Field(fields, "context")
+	if err != nil {
+		return ModelLimits{}, err
+	}
+	inputLimit, err := decodeNonNegativeInt64Field(fields, "input")
+	if err != nil {
+		return ModelLimits{}, err
+	}
+	outputLimit, err := decodeNonNegativeInt64Field(fields, "output")
+	if err != nil {
+		return ModelLimits{}, err
+	}
+	return ModelLimits{Context: contextLimit, Input: inputLimit, Output: outputLimit}, nil
 }
 
 func parseCost(raw json.RawMessage) (*ModelCost, error) {
@@ -434,6 +540,55 @@ func decodeStringField(fields map[string]json.RawMessage, name string) (string, 
 		return "", fmt.Errorf("decode %s field: %w", name, err)
 	}
 	return value, nil
+}
+
+func decodeBoolField(fields map[string]json.RawMessage, name string) (*bool, error) {
+	raw, exists := fields[name]
+	if !exists || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	var value bool
+	if err := decodeOneJSON(raw, &value); err != nil {
+		return nil, fmt.Errorf("decode %s field: %w", name, err)
+	}
+	return &value, nil
+}
+
+func decodeStringSliceField(fields map[string]json.RawMessage, name string) ([]string, error) {
+	raw, exists := fields[name]
+	if !exists || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	var values []string
+	if err := decodeOneJSON(raw, &values); err != nil {
+		return nil, fmt.Errorf("decode %s field: %w", name, err)
+	}
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		normalized := strings.TrimSpace(value)
+		if normalized == "" {
+			return nil, fmt.Errorf("%s modality must not be empty", name)
+		}
+		if _, duplicate := seen[normalized]; duplicate {
+			return nil, fmt.Errorf("duplicate %s modality %q", name, normalized)
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result, nil
+}
+
+func decodeNonNegativeInt64Field(fields map[string]json.RawMessage, name string) (*int64, error) {
+	value, err := decodeNumberField(fields, name)
+	if err != nil || value == nil {
+		return nil, err
+	}
+	parsed, err := strconv.ParseInt(value.String(), 10, 64)
+	if err != nil || parsed < 0 {
+		return nil, fmt.Errorf("%s limit must be a non-negative integer", name)
+	}
+	return &parsed, nil
 }
 
 func decodeNumberField(fields map[string]json.RawMessage, name string) (*json.Number, error) {

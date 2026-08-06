@@ -84,6 +84,22 @@ type CatalogSyncStatus struct {
 	ErrorCode           string             `json:"error_code,omitempty"`
 }
 
+func (coordinator *CatalogSyncCoordinator) readStatus() CatalogSyncStatus {
+	if coordinator == nil {
+		return CatalogSyncStatus{}
+	}
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	status := coordinator.last
+	if status.CheckedAtMS == 0 {
+		status.CheckedAtMS = coordinator.metadata.CheckedAtMillis
+	}
+	if status.SuccessfulFetchAtMS == 0 {
+		status.SuccessfulFetchAtMS = coordinator.metadata.SuccessfulFetchAtMillis
+	}
+	return status
+}
+
 type catalogSyncCall struct {
 	done    chan struct{}
 	cancel  context.CancelFunc

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -94,6 +95,86 @@ func TestParseModelsDevUsesExactDecimalsAndCanonicalTiers(t *testing.T) {
 	assertPrice(t, "positive exponent", exponent.Prices.Output, 1_000_000_000_000, true)
 	if got := provider.Models["unknown-cost"].Cost; got != nil {
 		t.Fatalf("unsupported-only cost = %#v, want nil", got)
+	}
+}
+
+func TestParseModelsDevRetainsModelMetadata(t *testing.T) {
+	raw := `{
+		"openai": {
+			"id": "openai",
+			"name": "OpenAI",
+			"models": {
+				"gpt-x": {
+					"id": "gpt-x",
+					"name": "GPT X",
+					"description": "  General model  ",
+					"family": " gpt ",
+					"attachment": true,
+					"reasoning": false,
+					"tool_call": true,
+					"structured_output": true,
+					"temperature": false,
+					"knowledge": "2026-01",
+					"release_date": "2026-02-03",
+					"last_updated": "2026-04-05",
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"open_weights": false,
+					"limit": {
+						"context": 1000000,
+						"input": 900000,
+						"output": 100000
+					},
+					"status": " beta ",
+					"cost": {"input": 2.5}
+				}
+			}
+		}
+	}`
+
+	model := mustParse(t, raw).Providers["openai"].Models["gpt-x"]
+	metadata := model.Metadata
+	if metadata.Description != "General model" || metadata.Family != "gpt" ||
+		metadata.Knowledge != "2026-01" || metadata.ReleaseDate != "2026-02-03" ||
+		metadata.LastUpdated != "2026-04-05" || metadata.Status != "beta" {
+		t.Fatalf("metadata strings = %#v", metadata)
+	}
+	assertOptionalBool(t, "attachment", metadata.Capabilities.Attachment, true)
+	assertOptionalBool(t, "reasoning", metadata.Capabilities.Reasoning, false)
+	assertOptionalBool(t, "tool call", metadata.Capabilities.ToolCall, true)
+	assertOptionalBool(t, "structured output", metadata.Capabilities.StructuredOutput, true)
+	assertOptionalBool(t, "temperature", metadata.Capabilities.Temperature, false)
+	assertOptionalBool(t, "open weights", metadata.OpenWeights, false)
+	if !reflect.DeepEqual(metadata.Modalities.Input, []string{"text", "image"}) ||
+		!reflect.DeepEqual(metadata.Modalities.Output, []string{"text"}) {
+		t.Fatalf("metadata modalities = %#v", metadata.Modalities)
+	}
+	assertOptionalInt64(t, "context limit", metadata.Limits.Context, 1_000_000)
+	assertOptionalInt64(t, "input limit", metadata.Limits.Input, 900_000)
+	assertOptionalInt64(t, "output limit", metadata.Limits.Output, 100_000)
+	if model.Cost == nil || !model.Cost.Prices.Input.Set ||
+		model.Cost.Prices.Input.NanoUSDPerMillion != 2_500_000_000 {
+		t.Fatalf("metadata parsing changed price = %#v", model.Cost)
+	}
+}
+
+func TestParseModelsDevAcceptsMissingAndNullModelMetadata(t *testing.T) {
+	raw := `{"openai":{"id":"openai","name":"OpenAI","models":{
+		"missing":{"id":"missing","name":"Missing"},
+		"null":{"id":"null","name":"Null","description":null,"family":null,
+			"attachment":null,"reasoning":null,"tool_call":null,
+			"structured_output":null,"temperature":null,"knowledge":null,
+			"release_date":null,"last_updated":null,"modalities":null,
+			"open_weights":null,"limit":null,"status":null}
+	}}}`
+
+	models := mustParse(t, raw).Providers["openai"].Models
+	for _, id := range []string{"missing", "null"} {
+		if !reflect.DeepEqual(models[id].Metadata, ModelMetadata{}) {
+			t.Fatalf("%s metadata = %#v, want zero value", id, models[id].Metadata)
+		}
 	}
 }
 
@@ -202,5 +283,19 @@ func assertPrice(t *testing.T, name string, got pricing.Price, value pricing.Nan
 	t.Helper()
 	if got.NanoUSDPerMillion != value || got.Set != set {
 		t.Fatalf("%s = %#v, want value=%d set=%t", name, got, value, set)
+	}
+}
+
+func assertOptionalBool(t *testing.T, name string, got *bool, want bool) {
+	t.Helper()
+	if got == nil || *got != want {
+		t.Fatalf("%s = %v, want %t", name, got, want)
+	}
+}
+
+func assertOptionalInt64(t *testing.T, name string, got *int64, want int64) {
+	t.Helper()
+	if got == nil || *got != want {
+		t.Fatalf("%s = %v, want %d", name, got, want)
 	}
 }

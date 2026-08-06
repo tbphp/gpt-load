@@ -115,6 +115,7 @@ export default {
     groups: '分组',
     accessKeys: '访问密钥',
     monitor: '监控',
+    models: '模型',
     settings: '设置',
     import: '导入上游密钥',
     groupDetail: 'Group 详情',

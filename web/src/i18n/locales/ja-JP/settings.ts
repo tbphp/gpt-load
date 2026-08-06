@@ -129,6 +129,7 @@ export default {
       proxyNote:
         'カタログ同期はサーバー共通 HTTP クライアントを使用し、明示設定または環境のプロキシに従います',
       manage: 'モデル価格を管理',
+      openModels: 'モデルページを開く',
     },
     system: {
       title: 'システム情報',

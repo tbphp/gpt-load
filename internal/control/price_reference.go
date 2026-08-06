@@ -17,53 +17,52 @@ func resolveAutomaticPrice(
 	if snapshot == nil || len(snapshot.Providers) == 0 || modelID == "" {
 		return nil, "", false
 	}
-
-	lookup := func(providerID string) (*catalog.ModelCost, bool) {
+	for _, providerID := range catalogProviderLookupOrder(snapshot, scopeProviderID) {
 		provider, exists := snapshot.Providers[providerID]
 		if !exists {
-			return nil, false
+			continue
 		}
 		model, exists := provider.Models[modelID]
 		if !exists || model.Cost == nil {
-			return nil, false
-		}
-		return model.Cost, true
-	}
-
-	if scopeProviderID != "" {
-		if cost, ok := lookup(scopeProviderID); ok {
-			return cost, scopeProviderID, true
-		}
-	}
-
-	priority := catalog.AutomaticPriceProviderPriority()
-	fixedProviderIDs := make(map[string]struct{}, len(priority))
-	for _, providerID := range priority {
-		fixedProviderIDs[providerID] = struct{}{}
-		if providerID == scopeProviderID {
 			continue
 		}
-		if cost, ok := lookup(providerID); ok {
-			return cost, providerID, true
+		return model.Cost, providerID, true
+	}
+	return nil, "", false
+}
+
+func catalogProviderLookupOrder(snapshot *catalog.Snapshot, preferredProviderID string) []string {
+	if snapshot == nil || len(snapshot.Providers) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(snapshot.Providers)+1)
+	seen := make(map[string]struct{}, len(snapshot.Providers)+1)
+	appendProvider := func(providerID string) {
+		if providerID == "" {
+			return
 		}
+		if _, duplicate := seen[providerID]; duplicate {
+			return
+		}
+		seen[providerID] = struct{}{}
+		result = append(result, providerID)
+	}
+	appendProvider(preferredProviderID)
+	priority := catalog.AutomaticPriceProviderPriority()
+	for _, providerID := range priority {
+		appendProvider(providerID)
 	}
 
 	providerIDs := make([]string, 0, len(snapshot.Providers))
 	for providerID := range snapshot.Providers {
-		if providerID == scopeProviderID {
-			continue
-		}
-		if _, fixed := fixedProviderIDs[providerID]; fixed {
+		if _, duplicate := seen[providerID]; duplicate {
 			continue
 		}
 		providerIDs = append(providerIDs, providerID)
 	}
 	sort.Strings(providerIDs)
 	for _, providerID := range providerIDs {
-		if cost, ok := lookup(providerID); ok {
-			return cost, providerID, true
-		}
+		appendProvider(providerID)
 	}
-
-	return nil, "", false
+	return result
 }

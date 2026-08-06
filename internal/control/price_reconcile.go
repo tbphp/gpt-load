@@ -88,7 +88,10 @@ func loadPriceReferenceSnapshot(tx *gorm.DB) (priceReferenceSnapshot, error) {
 	if err := tx.Order("id ASC").Find(&groups).Error; err != nil {
 		return priceReferenceSnapshot{}, fmt.Errorf("load groups for price reconciliation: %w", app_errors.ParseDBError(err))
 	}
+	return buildPriceReferenceSnapshot(groups)
+}
 
+func buildPriceReferenceSnapshot(groups []models.Group) (priceReferenceSnapshot, error) {
 	references := make(map[pricing.Identity]referencedPrice)
 	groupLabels := make(map[uint]string, len(groups))
 	for _, group := range groups {

@@ -3,7 +3,7 @@ import { ArrowRight, RefreshCw } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { modelPricesLocation } from '@/app/route-locations'
+import { modelPricesLocation, modelsLocation } from '@/app/route-locations'
 import { useModelPriceSync } from '@/app/use-model-price-sync'
 import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
@@ -168,8 +168,13 @@ function conflictValue(side: 'mine' | 'latest'): string {
           <RefreshCw :size="15" aria-hidden="true" />{{ t('settings.modelPrices.syncNow') }}
         </AppButton>
         <RouterLink v-slot="{ navigate }" :to="modelPricesLocation()" custom>
+          <AppButton role="link" variant="secondary" size="compact" @click="navigate">
+            {{ t('settings.modelPrices.manage') }}
+          </AppButton>
+        </RouterLink>
+        <RouterLink v-slot="{ navigate }" :to="modelsLocation()" custom>
           <AppButton role="link" size="compact" @click="navigate">
-            {{ t('settings.modelPrices.manage') }}<ArrowRight :size="15" aria-hidden="true" />
+            {{ t('settings.modelPrices.openModels') }}<ArrowRight :size="15" aria-hidden="true" />
           </AppButton>
         </RouterLink>
       </div>

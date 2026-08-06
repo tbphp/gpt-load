@@ -758,6 +758,10 @@ export async function invalidateGroupSummary(
       refetchType: 'none',
     }),
     queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.models.all,
+      refetchType: 'none',
+    }),
+    queryClient.invalidateQueries({
       queryKey: controlQueryKeys.providers.modelsAll(),
       refetchType: 'none',
     }),
@@ -795,6 +799,10 @@ export async function invalidateGroupSettingsDependents(
     }),
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.modelPrices(),
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.models.all,
       refetchType: 'active',
     }),
     queryClient.invalidateQueries({

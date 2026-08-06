@@ -3,6 +3,7 @@ import type { HomeRange } from '@/app/resources/home'
 import type { UsageFilters } from '@/app/resources/usage'
 import type { ProviderModelFilters } from '@/app/resources/providers'
 import type { ModelPriceFilters } from '@/app/resources/model-prices'
+import type { ModelCollectionFilters } from '@/app/resources/models'
 import { normalizeRequestLogFilters } from '@/app/resources/request-log-filters'
 import type {
   AccessKeyCollectionFilters,
@@ -130,6 +131,11 @@ export const controlQueryKeys = {
   settingsAll: ['control', 'settings'] as const,
   settings: (locale: string) => ['control', 'settings', locale] as const,
   systemInfo: () => ['control', 'system-info'] as const,
+  models: {
+    all: ['control', 'models'] as const,
+    collection: (filters: ModelCollectionFilters) =>
+      ['control', 'models', 'collection', filters] as const,
+  },
   modelPrices: () => ['control', 'model-prices'] as const,
   modelPriceCollection: (filters: ModelPriceFilters) =>
     ['control', 'model-prices', 'collection', filters] as const,
