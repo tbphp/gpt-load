@@ -83,6 +83,11 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		GroupID:      groupID,
 		CreatedAt:    time.Unix(createdAt, 0),
 	}
+	// A stale rotation entry must never allow a non-active key to serve traffic.
+	if apiKey.Status != models.KeyStatusActive {
+		_ = p.store.LRem(activeKeysListKey, 0, apiKey.ID)
+		return p.SelectKey(groupID)
+	}
 
 	return apiKey, nil
 }
@@ -487,11 +492,13 @@ func (p *KeyProvider) SetKeyEnabled(keyID uint, enabled bool) (*models.APIKey, e
 		updates := map[string]any{"status": targetStatus}
 		if enabled {
 			if key.Status != models.KeyStatusDisabled {
-				return fmt.Errorf("key %d is not manually disabled", keyID)
+				return fmt.Errorf("%w: key %d is not manually disabled", app_errors.ErrInvalidKeyStatus, keyID)
 			}
 			targetStatus = models.KeyStatusActive
 			updates["status"] = targetStatus
 			updates["failure_count"] = 0
+		} else if key.Status != models.KeyStatusActive {
+			return fmt.Errorf("%w: key %d must be active before it can be disabled", app_errors.ErrInvalidKeyStatus, keyID)
 		}
 		if err := tx.Model(&key).Updates(updates).Error; err != nil {
 			return err
@@ -500,25 +507,40 @@ func (p *KeyProvider) SetKeyEnabled(keyID uint, enabled bool) (*models.APIKey, e
 		if enabled {
 			key.FailureCount = 0
 		}
-		keyHashKey := fmt.Sprintf("key:%d", key.ID)
-		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", key.GroupID)
-		if err := p.store.HSet(keyHashKey, map[string]any{"status": key.Status, "failure_count": key.FailureCount}); err != nil {
-			return fmt.Errorf("failed to update key details in store: %w", err)
-		}
-		if err := p.store.LRem(activeKeysListKey, 0, key.ID); err != nil {
-			return fmt.Errorf("failed to remove key from active list: %w", err)
-		}
-		if enabled {
-			if err := p.store.LPush(activeKeysListKey, key.ID); err != nil {
-				return fmt.Errorf("failed to add key to active list: %w", err)
-			}
-		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	if err := p.projectKeyState(&key); err != nil {
+		return &key, err
+	}
 	return &key, nil
+}
+
+// projectKeyState projects committed database state to the cache and rotation list.
+func (p *KeyProvider) projectKeyState(key *models.APIKey) error {
+	keyHashKey := fmt.Sprintf("key:%d", key.ID)
+	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", key.GroupID)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := p.store.HSet(keyHashKey, map[string]any{"status": key.Status, "failure_count": key.FailureCount}); err != nil {
+			lastErr = fmt.Errorf("failed to update key details in store: %w", err)
+			continue
+		}
+		if err := p.store.LRem(activeKeysListKey, 0, key.ID); err != nil {
+			lastErr = fmt.Errorf("failed to remove key from active list: %w", err)
+			continue
+		}
+		if key.Status == models.KeyStatusActive {
+			if err := p.store.LPush(activeKeysListKey, key.ID); err != nil {
+				lastErr = fmt.Errorf("failed to add key to active list: %w", err)
+				continue
+			}
+		}
+		return nil
+	}
+	return lastErr
 }
 
 // RemoveAllKeys 移除组内所有的 Key。

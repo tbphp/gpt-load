@@ -200,6 +200,7 @@ export default {
     exportAllKeys: "すべてのキーをエクスポート",
     exportValidKeys: "有効なキーをエクスポート",
     exportInvalidKeys: "無効なキーをエクスポート",
+    exportDisabledKeys: "無効化済みキーをエクスポート",
     restoreAllInvalidKeys: "すべての無効キーを復元",
     clearAllInvalidKeys: "すべての無効キーをクリア",
     clearAllKeys: "すべてのキーをクリア",

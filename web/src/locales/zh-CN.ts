@@ -199,6 +199,7 @@ export default {
     exportAllKeys: "导出所有密钥",
     exportValidKeys: "导出有效密钥",
     exportInvalidKeys: "导出无效密钥",
+    exportDisabledKeys: "导出已禁用密钥",
     restoreAllInvalidKeys: "恢复所有无效密钥",
     clearAllInvalidKeys: "清空所有无效密钥",
     clearAllKeys: "清空所有密钥",

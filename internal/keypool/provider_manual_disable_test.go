@@ -1,8 +1,10 @@
 package keypool
 
 import (
+	"errors"
 	"fmt"
 	"gpt-load/internal/encryption"
+	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
 	"testing"
@@ -101,5 +103,20 @@ func TestSetKeyEnabledRejectsAutomaticInvalidKey(t *testing.T) {
 	}
 	if _, err := provider.SetKeyEnabled(key.ID, true); err == nil {
 		t.Fatal("expected enabling an automatic invalid key to fail")
+	} else if !errors.Is(err, app_errors.ErrInvalidKeyStatus) {
+		t.Fatalf("error = %v, want ErrInvalidKeyStatus", err)
+	}
+
+	if _, err := provider.SetKeyEnabled(key.ID, false); err == nil {
+		t.Fatal("expected disabling an automatic invalid key to fail")
+	} else if !errors.Is(err, app_errors.ErrInvalidKeyStatus) {
+		t.Fatalf("error = %v, want ErrInvalidKeyStatus", err)
+	}
+	var persisted models.APIKey
+	if err := db.First(&persisted, key.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != models.KeyStatusInvalid {
+		t.Fatalf("status = %q, want invalid", persisted.Status)
 	}
 }

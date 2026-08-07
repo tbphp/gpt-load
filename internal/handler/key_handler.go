@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
@@ -503,6 +504,7 @@ type UpdateKeyNotesRequest struct {
 	Notes string `json:"notes"`
 }
 
+// UpdateKeyEnabledRequest defines the payload for manually enabling or disabling a key.
 type UpdateKeyEnabledRequest struct {
 	Enabled *bool `json:"enabled" binding:"required"`
 }
@@ -523,7 +525,7 @@ func (s *Server) UpdateKeyEnabled(c *gin.Context) {
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			response.Error(c, app_errors.ErrResourceNotFound)
-		} else if strings.Contains(err.Error(), "is not manually disabled") {
+		} else if errors.Is(err, app_errors.ErrInvalidKeyStatus) {
 			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
 		} else {
 			response.Error(c, app_errors.ParseDBError(err))

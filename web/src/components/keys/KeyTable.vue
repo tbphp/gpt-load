@@ -69,6 +69,7 @@ const moreOptions = [
   { label: t("keys.exportAllKeys"), key: "copyAll" },
   { label: t("keys.exportValidKeys"), key: "copyValid" },
   { label: t("keys.exportInvalidKeys"), key: "copyInvalid" },
+  { label: t("keys.exportDisabledKeys"), key: "copyDisabled" },
   { type: "divider" },
   { label: t("keys.restoreAllInvalidKeys"), key: "restoreAll" },
   {
@@ -169,6 +170,9 @@ function handleMoreAction(key: string) {
       break;
     case "copyInvalid":
       copyInvalidKeys();
+      break;
+    case "copyDisabled":
+      copyDisabledKeys();
       break;
     case "restoreAll":
       restoreAllInvalid();
@@ -477,6 +481,14 @@ async function copyInvalidKeys() {
   }
 
   keysApi.exportKeys(props.selectedGroup.id, "invalid");
+}
+
+async function copyDisabledKeys() {
+  if (!props.selectedGroup?.id) {
+    return;
+  }
+
+  keysApi.exportKeys(props.selectedGroup.id, "disabled");
 }
 
 async function restoreAllInvalid() {

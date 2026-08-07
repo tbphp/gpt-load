@@ -201,6 +201,7 @@ export default {
     exportAllKeys: "Export All Keys",
     exportValidKeys: "Export Valid Keys",
     exportInvalidKeys: "Export Invalid Keys",
+    exportDisabledKeys: "Export Disabled Keys",
     restoreAllInvalidKeys: "Restore All Invalid Keys",
     clearAllInvalidKeys: "Clear All Invalid Keys",
     clearAllKeys: "Clear All Keys",
