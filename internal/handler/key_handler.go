@@ -202,7 +202,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 	}
 
 	statusFilter := c.Query("status")
-	if statusFilter != "" && statusFilter != models.KeyStatusActive && statusFilter != models.KeyStatusInvalid {
+	if statusFilter != "" && statusFilter != models.KeyStatusActive && statusFilter != models.KeyStatusInvalid && statusFilter != models.KeyStatusDisabled {
 		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_filter")
 		return
 	}
@@ -478,7 +478,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 	}
 
 	switch statusFilter {
-	case "all", models.KeyStatusActive, models.KeyStatusInvalid:
+	case "all", models.KeyStatusActive, models.KeyStatusInvalid, models.KeyStatusDisabled:
 	default:
 		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_filter")
 		return
@@ -501,6 +501,36 @@ func (s *Server) ExportKeys(c *gin.Context) {
 // UpdateKeyNotesRequest defines the payload for updating a key's notes.
 type UpdateKeyNotesRequest struct {
 	Notes string `json:"notes"`
+}
+
+type UpdateKeyEnabledRequest struct {
+	Enabled *bool `json:"enabled" binding:"required"`
+}
+
+// UpdateKeyEnabled manually enables or disables a specific API key.
+func (s *Server) UpdateKeyEnabled(c *gin.Context) {
+	keyID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || keyID <= 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, "invalid key ID format"))
+		return
+	}
+	var req UpdateKeyEnabledRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, "enabled is required"))
+		return
+	}
+	key, err := s.KeyService.SetKeyEnabled(uint(keyID), *req.Enabled)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, app_errors.ErrResourceNotFound)
+		} else if strings.Contains(err.Error(), "is not manually disabled") {
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+		} else {
+			response.Error(c, app_errors.ParseDBError(err))
+		}
+		return
+	}
+	response.Success(c, gin.H{"id": key.ID, "status": key.Status})
 }
 
 // UpdateKeyNotes handles updating the notes of a specific API key.

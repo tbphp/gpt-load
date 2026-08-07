@@ -140,6 +140,10 @@ export const keysApi = {
     await http.put(`/keys/${keyId}/notes`, { notes }, { hideMessage: true });
   },
 
+  async updateKeyEnabled(keyId: number, enabled: boolean): Promise<void> {
+    await http.put(`/keys/${keyId}/enabled`, { enabled }, { hideMessage: true });
+  },
+
   // 测试密钥
   async testKeys(
     group_id: number,
@@ -228,7 +232,7 @@ export const keysApi = {
   },
 
   // 导出密钥
-  exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all"): void {
+  exportKeys(groupId: number, status: "all" | "active" | "invalid" | "disabled" = "all"): void {
     const authKey = localStorage.getItem("authKey");
     if (!authKey) {
       window.$message.error(i18n.global.t("auth.noAuthKeyFound"));

@@ -48,7 +48,7 @@ const props = defineProps<Props>();
 const keys = ref<KeyRow[]>([]);
 const loading = ref(false);
 const searchText = ref("");
-const statusFilter = ref<"all" | "active" | "invalid">("all");
+const statusFilter = ref<"all" | "active" | "invalid" | "disabled">("all");
 const currentPage = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
@@ -61,6 +61,7 @@ const statusOptions = [
   { label: t("common.all"), value: "all" },
   { label: t("keys.valid"), value: "active" },
   { label: t("keys.invalid"), value: "invalid" },
+  { label: t("keys.disabledKeyStatus"), value: "disabled" },
 ];
 
 // 更多操作下拉菜单选项
@@ -389,6 +390,32 @@ async function deleteKey(key: KeyRow) {
   });
 }
 
+async function setKeyEnabled(key: KeyRow, enabled: boolean) {
+  const groupName = props.selectedGroup?.name;
+  if (!groupName) {
+    return;
+  }
+  const d = dialog.warning({
+    title: t(enabled ? "keys.enableKey" : "keys.disableKey"),
+    content: t(enabled ? "keys.confirmEnableKey" : "keys.confirmDisableKey", {
+      key: maskKey(key.key_value),
+    }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      d.loading = true;
+      try {
+        await keysApi.updateKeyEnabled(key.id, enabled);
+        window.$message.success(t(enabled ? "keys.enableSuccess" : "keys.disableSuccess"));
+        await loadKeys();
+        triggerSyncOperationRefresh(groupName, enabled ? "ENABLE_SINGLE" : "DISABLE_SINGLE");
+      } finally {
+        d.loading = false;
+      }
+    },
+  });
+}
+
 function formatRelativeTime(date: string) {
   if (!date) {
     return t("keys.never");
@@ -421,6 +448,8 @@ function getStatusClass(status: KeyStatus): string {
       return "status-valid";
     case "invalid":
       return "status-invalid";
+    case "disabled":
+      return "status-disabled";
     default:
       return "status-unknown";
   }
@@ -703,11 +732,17 @@ function resetPage() {
                   </template>
                   {{ t("keys.validShort") }}
                 </n-tag>
-                <n-tag v-else :bordered="false" round>
+                <n-tag v-else-if="key.status === 'invalid'" :bordered="false" round>
                   <template #icon>
                     <n-icon :component="AlertCircleOutline" />
                   </template>
                   {{ t("keys.invalidShort") }}
+                </n-tag>
+                <n-tag v-else type="warning" :bordered="false" round>
+                  <template #icon>
+                    <n-icon :component="RemoveCircleOutline" />
+                  </template>
+                  {{ t("keys.disabledShort") }}
                 </n-tag>
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
@@ -767,7 +802,7 @@ function resetPage() {
                   {{ t("keys.testShort") }}
                 </n-button>
                 <n-button
-                  v-if="key.status !== 'active'"
+                  v-if="key.status === 'invalid'"
                   tertiary
                   size="tiny"
                   @click="restoreKey(key)"
@@ -775,6 +810,26 @@ function resetPage() {
                   type="warning"
                 >
                   {{ t("keys.restoreShort") }}
+                </n-button>
+                <n-button
+                  v-if="key.status === 'disabled'"
+                  tertiary
+                  size="tiny"
+                  type="success"
+                  @click="setKeyEnabled(key, true)"
+                  :title="t('keys.enableKey')"
+                >
+                  {{ t("keys.enableShort") }}
+                </n-button>
+                <n-button
+                  v-if="key.status === 'active'"
+                  tertiary
+                  size="tiny"
+                  type="warning"
+                  @click="setKeyEnabled(key, false)"
+                  :title="t('keys.disableKey')"
+                >
+                  {{ t("keys.disableShort") }}
                 </n-button>
                 <n-button
                   round
@@ -1063,6 +1118,12 @@ function resetPage() {
   border-color: var(--invalid-border);
   background: var(--card-bg-solid);
   opacity: 0.85;
+}
+
+.key-card.status-disabled {
+  border-color: var(--warning-color);
+  background: var(--card-bg-solid);
+  opacity: 0.72;
 }
 
 .key-card.status-error {

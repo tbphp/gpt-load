@@ -147,6 +147,9 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	isActive := keyDetails["status"] == models.KeyStatusActive
+	if keyDetails["status"] == models.KeyStatusDisabled {
+		return nil
+	}
 
 	if failureCount == 0 && isActive {
 		return nil
@@ -156,6 +159,9 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 		var key models.APIKey
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
 			return fmt.Errorf("failed to lock key %d for update: %w", keyID, err)
+		}
+		if key.Status == models.KeyStatusDisabled {
+			return nil
 		}
 
 		updates := map[string]any{"failure_count": 0}
@@ -191,7 +197,7 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 		return fmt.Errorf("failed to get key details from store: %w", err)
 	}
 
-	if keyDetails["status"] == models.KeyStatusInvalid {
+	if keyDetails["status"] == models.KeyStatusInvalid || keyDetails["status"] == models.KeyStatusDisabled {
 		return nil
 	}
 
@@ -204,6 +210,9 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 		var key models.APIKey
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
 			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID, err)
+		}
+		if key.Status == models.KeyStatusDisabled {
+			return nil
 		}
 
 		newFailureCount := failureCount + 1
@@ -464,6 +473,52 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 // RemoveInvalidKeys 移除组内所有无效的 Key。
 func (p *KeyProvider) RemoveInvalidKeys(groupID uint) (int64, error) {
 	return p.removeKeysByStatus(groupID, models.KeyStatusInvalid)
+}
+
+// SetKeyEnabled manually enables or disables a key and synchronizes the DB,
+// cached key details, and active rotation list.
+func (p *KeyProvider) SetKeyEnabled(keyID uint, enabled bool) (*models.APIKey, error) {
+	var key models.APIKey
+	err := p.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
+			return err
+		}
+		targetStatus := models.KeyStatusDisabled
+		updates := map[string]any{"status": targetStatus}
+		if enabled {
+			if key.Status != models.KeyStatusDisabled {
+				return fmt.Errorf("key %d is not manually disabled", keyID)
+			}
+			targetStatus = models.KeyStatusActive
+			updates["status"] = targetStatus
+			updates["failure_count"] = 0
+		}
+		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+			return err
+		}
+		key.Status = targetStatus
+		if enabled {
+			key.FailureCount = 0
+		}
+		keyHashKey := fmt.Sprintf("key:%d", key.ID)
+		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", key.GroupID)
+		if err := p.store.HSet(keyHashKey, map[string]any{"status": key.Status, "failure_count": key.FailureCount}); err != nil {
+			return fmt.Errorf("failed to update key details in store: %w", err)
+		}
+		if err := p.store.LRem(activeKeysListKey, 0, key.ID); err != nil {
+			return fmt.Errorf("failed to remove key from active list: %w", err)
+		}
+		if enabled {
+			if err := p.store.LPush(activeKeysListKey, key.ID); err != nil {
+				return fmt.Errorf("failed to add key to active list: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &key, nil
 }
 
 // RemoveAllKeys 移除组内所有的 Key。

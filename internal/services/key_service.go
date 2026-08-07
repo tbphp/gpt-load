@@ -58,6 +58,11 @@ func NewKeyService(db *gorm.DB, keyProvider *keypool.KeyProvider, keyValidator *
 	}
 }
 
+// SetKeyEnabled manually enables or disables one API key.
+func (s *KeyService) SetKeyEnabled(keyID uint, enabled bool) (*models.APIKey, error) {
+	return s.KeyProvider.SetKeyEnabled(keyID, enabled)
+}
+
 // AddMultipleKeys handles the business logic of creating new keys from a text block.
 // deprecated: use KeyImportService for large imports
 func (s *KeyService) AddMultipleKeys(groupID uint, keysText string) (*AddKeysResult, error) {
@@ -343,7 +348,7 @@ func (s *KeyService) StreamKeysToWriter(groupID uint, statusFilter string, write
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID).Select("id, key_value")
 
 	switch statusFilter {
-	case models.KeyStatusActive, models.KeyStatusInvalid:
+	case models.KeyStatusActive, models.KeyStatusInvalid, models.KeyStatusDisabled:
 		query = query.Where("status = ?", statusFilter)
 	case "all":
 	default:

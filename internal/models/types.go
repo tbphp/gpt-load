@@ -10,8 +10,9 @@ import (
 
 // Key状态
 const (
-	KeyStatusActive  = "active"
-	KeyStatusInvalid = "invalid"
+	KeyStatusActive   = "active"
+	KeyStatusInvalid  = "invalid"
+	KeyStatusDisabled = "disabled"
 )
 
 // SystemSetting 对应 system_settings 表
