@@ -48,6 +48,14 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 		granularity requestlog.UsageGranularity
 	}{
 		{
+			name:        "1 hour uses one complete UTC hour",
+			rawQuery:    "range=1h",
+			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
+			wantFrom:    time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 27, 13, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityHour,
+		},
+		{
 			name:        "24 hours crosses the local and UTC day at an exact hour boundary",
 			rawQuery:    "range=24h",
 			observedAt:  time.Date(2026, time.July, 27, 0, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60)),
@@ -130,7 +138,7 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 
 func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC)
-	for _, value := range []string{"24h", "3d", "7d", "15d", "30d"} {
+	for _, value := range []string{"1h", "24h", "3d", "7d", "15d", "30d"} {
 		t.Run(value, func(t *testing.T) {
 			engine, _ := newUsageTestEngine(t, now, &recordingUsageStatReader{})
 			recorder := performUsageRequest(engine, "test-auth-key", "range="+value)
@@ -402,7 +410,6 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 		{query: "from_ms=1&to_ms=90000001", code: "VALIDATION_FAILED"},
 		{query: "from_ms=0&to_ms=2678400000", code: "VALIDATION_FAILED"},
 		{query: "range=24h&from_ms=1&to_ms=2", code: "VALIDATION_FAILED"},
-		{query: "range=1h", code: "VALIDATION_FAILED"},
 		{query: "group_id=0", code: "VALIDATION_FAILED"},
 		{query: "group_id=01", code: "BAD_REQUEST"},
 		{query: "group_id=%2B1", code: "BAD_REQUEST"},

@@ -192,6 +192,7 @@ export default {
         range24h: '最近 24 小时',
         range30d: '最近 30 天',
         ranges: {
+          '1h': '1 小时',
           '24h': '24 小时',
           '3d': '3 天',
           '7d': '7 天',
@@ -500,12 +501,12 @@ export default {
         to: '结束时间',
         quickRanges: '快捷时间范围',
         quick: {
-          '15m': '15m',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',
           '7d': '7d',
           '15d': '15d',
+          '30d': '30d',
         },
         any: '全部',
         group: '任一尝试 Group',

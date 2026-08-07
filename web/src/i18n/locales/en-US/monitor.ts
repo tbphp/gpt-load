@@ -198,6 +198,7 @@ export default {
         range24h: 'Last 24 hours',
         range30d: 'Last 30 days',
         ranges: {
+          '1h': '1 hour',
           '24h': '24 hours',
           '3d': '3 days',
           '7d': '7 days',
@@ -520,12 +521,12 @@ export default {
         to: 'To',
         quickRanges: 'Quick time ranges',
         quick: {
-          '15m': '15m',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',
           '7d': '7d',
           '15d': '15d',
+          '30d': '30d',
         },
         any: 'Any',
         group: 'Any-attempt Group',

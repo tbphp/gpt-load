@@ -6,13 +6,14 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { lazySurface } from '@/app/async-surface'
 import { monitorLocation } from '@/app/route-locations'
-import { type UsageRange } from '@/app/resources/usage'
+import { usageRanges } from '@/app/resources/usage'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import { isTimeRange } from '@/lib/time'
 
 import HealthTab from './HealthTab.vue'
 import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
@@ -41,7 +42,7 @@ const items = computed<AppTabItem[]>(() => [
 ])
 const usageFilters = computed(() => parseAppliedUsageFilters(route.query))
 const usageRangeOptions = computed(() =>
-  (['24h', '3d', '7d', '15d', '30d'] as const).map((value) => ({
+  usageRanges.map((value) => ({
     value,
     label: t(`monitor.usage.filters.ranges.${value}`),
   })),
@@ -90,10 +91,8 @@ async function refreshUsage(): Promise<void> {
 }
 
 function selectUsageRange(value: string): void {
-  if (!['24h', '3d', '7d', '15d', '30d'].includes(value)) return
-  void router.push(
-    monitorLocation(usageMonitorQuery({ ...usageFilters.value, range: value as UsageRange })),
-  )
+  if (!isTimeRange(value)) return
+  void router.push(monitorLocation(usageMonitorQuery({ ...usageFilters.value, range: value })))
 }
 </script>
 

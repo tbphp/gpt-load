@@ -3,7 +3,7 @@ import { CalendarClock } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { currentTimeZone } from '@/lib/time'
+import { currentTimeZone, timeRangeMilliseconds, timeRanges } from '@/lib/time'
 
 import AppButton from './AppButton.vue'
 import AppPopover from './AppPopover.vue'
@@ -26,14 +26,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const open = ref(false)
 const timezone = currentTimeZone()
-const shortcuts = [
-  { key: '15m', milliseconds: 15 * 60 * 1000 },
-  { key: '1h', milliseconds: 60 * 60 * 1000 },
-  { key: '24h', milliseconds: 24 * 60 * 60 * 1000 },
-  { key: '3d', milliseconds: 3 * 24 * 60 * 60 * 1000 },
-  { key: '7d', milliseconds: 7 * 24 * 60 * 60 * 1000 },
-  { key: '15d', milliseconds: 15 * 24 * 60 * 60 * 1000 },
-] as const
+const shortcuts = timeRanges.map((key) => ({ key, milliseconds: timeRangeMilliseconds[key] }))
 
 const display = computed(() => `${displayValue(props.from)} → ${displayValue(props.to)}`)
 

@@ -2,6 +2,7 @@ import type { LocationQueryRaw } from 'vue-router'
 
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { UsageFilters } from '@/app/resources/usage'
+import { defaultTimeRange } from '@/lib/time'
 
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
 import {
@@ -28,7 +29,9 @@ export function normalizeMonitorQuery(query: Record<string, unknown>): LocationQ
   return normalizeLogsQuery(query, tab)
 }
 
-export function usageMonitorQuery(filters: UsageFilters = { range: '24h' }): LocationQueryRaw {
+export function usageMonitorQuery(
+  filters: UsageFilters = { range: defaultTimeRange },
+): LocationQueryRaw {
   const normalized: LocationQueryRaw = {
     tab: 'usage',
     range: filters.range,

@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	usageRange1Hour   = "1h"
 	usageRange24Hours = "24h"
 	usageRange3Days   = "3d"
 	usageRange7Days   = "7d"
@@ -193,11 +194,15 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 	}
 	if !hasFrom {
 		switch rangeValue {
-		case usageRange24Hours:
+		case usageRange1Hour, usageRange24Hours:
+			hours := map[string]int{
+				usageRange1Hour:   1,
+				usageRange24Hours: 24,
+			}[rangeValue]
 			fromMS, toMS, err := epochms.WindowEndingAt(
 				observedAtMS,
 				epochms.MillisecondsPerHour,
-				24,
+				hours,
 			)
 			if err != nil {
 				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
@@ -380,6 +385,9 @@ func usageResponseRange(query requestlog.UsageQuery) (string, error) {
 	duration := query.ToMS - query.FromMS
 	switch query.Granularity {
 	case requestlog.UsageGranularityHour:
+		if duration == epochms.MillisecondsPerHour {
+			return usageRange1Hour, nil
+		}
 		if duration == 24*epochms.MillisecondsPerHour {
 			return usageRange24Hours, nil
 		}

@@ -4,6 +4,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { timeRanges, type TimeRange } from '@/lib/time'
 
 import {
   assertNoSecretLikeFields,
@@ -19,8 +20,8 @@ import {
 } from './projector'
 
 export type UsageBreakdownOrder = 'requests' | 'cost'
-export const usageRanges = ['24h', '3d', '7d', '15d', '30d'] as const
-export type UsageRange = (typeof usageRanges)[number]
+export const usageRanges = timeRanges
+export type UsageRange = TimeRange
 
 export interface UsageFilters {
   range: UsageRange
@@ -105,6 +106,7 @@ const reportFields = [
 const hourMs = 60 * 60 * 1000
 const dayMs = 24 * hourMs
 const usageRangeContract: Record<UsageRange, { granularity: 'hour' | 'day'; buckets: number }> = {
+  '1h': { granularity: 'hour', buckets: 1 },
   '24h': { granularity: 'hour', buckets: 24 },
   '3d': { granularity: 'day', buckets: 3 },
   '7d': { granularity: 'day', buckets: 7 },

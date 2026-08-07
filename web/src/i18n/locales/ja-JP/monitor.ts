@@ -198,6 +198,7 @@ export default {
         range24h: '過去 24 時間',
         range30d: '過去 30 日',
         ranges: {
+          '1h': '1 時間',
           '24h': '24 時間',
           '3d': '3 日',
           '7d': '7 日',
@@ -520,12 +521,12 @@ export default {
         to: '終了時刻',
         quickRanges: 'クイック時間範囲',
         quick: {
-          '15m': '15m',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',
           '7d': '7d',
           '15d': '15d',
+          '30d': '30d',
         },
         any: 'すべて',
         group: 'いずれかの試行の Group',

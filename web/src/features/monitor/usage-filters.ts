@@ -1,4 +1,5 @@
 import type { UsageFilters } from '@/app/resources/usage'
+import { defaultTimeRange, isTimeRange } from '@/lib/time'
 
 import { normalizeMonitorText } from './filter-validation'
 
@@ -14,16 +15,14 @@ export type UsageFilterErrors = Partial<
 >
 
 const emptyDraft = (): UsageFilterDraft => ({
-  range: '24h',
+  range: defaultTimeRange,
   breakdown_order: 'requests',
   group_id: '',
   model: '',
 })
 
 export function normalizeUsageRange(raw: unknown): UsageFilters['range'] {
-  return raw === '24h' || raw === '3d' || raw === '7d' || raw === '15d' || raw === '30d'
-    ? raw
-    : '24h'
+  return isTimeRange(raw) ? raw : defaultTimeRange
 }
 
 export function normalizeUsageGroupID(raw: unknown): number | undefined {

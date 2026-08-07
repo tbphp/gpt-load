@@ -11,6 +11,7 @@ import type {
   RequestLogUsageState,
 } from '@/app/resources/request-logs'
 import { requestLogFilterFields } from '@/app/resources/request-log-filters'
+import { defaultTimeRange, timeRangeMilliseconds } from '@/lib/time'
 
 import { isValidMonitorText, maxSignedInt64 } from './filter-validation'
 
@@ -77,7 +78,7 @@ const canonicalNonNegativeInteger = /^(?:0|[1-9]\d*)$/
 function defaultRange(): Pick<RequestLogFilters, 'from_ms' | 'to_ms'> {
   const now = Math.floor(Date.now() / 1000) * 1000
   return {
-    from_ms: Math.max(0, now - 60 * 60 * 1000),
+    from_ms: Math.max(0, now - timeRangeMilliseconds[defaultTimeRange]),
     to_ms: now + 24 * 60 * 60 * 1000,
   }
 }
