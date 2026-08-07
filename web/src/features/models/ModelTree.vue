@@ -67,7 +67,7 @@ const statusTone = {
                 :failure-label="t('models.tree.copyFailed')"
               />
               <span v-for="protocol in row.model.protocols" :key="protocol" class="model-tree__tag">
-                {{ t(`common.protocols.${protocol}`) }}
+                {{ protocol }}
               </span>
               <span class="model-tree__muted">
                 {{ t('models.tree.upstreamCount', { count: row.upstreams.length }) }}
