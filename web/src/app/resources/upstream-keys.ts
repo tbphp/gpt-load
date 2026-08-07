@@ -288,7 +288,6 @@ export async function getGroupKeyCollection(
 }
 
 const manualGroupQueryOptions = {
-  staleTime: Number.POSITIVE_INFINITY,
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
 } as const
