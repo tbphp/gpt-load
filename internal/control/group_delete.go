@@ -7,7 +7,6 @@ import (
 	"gorm.io/gorm"
 
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -94,14 +93,6 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 			return app_errors.ParseDBError(err)
 		}
 		if err := tx.Delete(&group).Error; err != nil {
-			return app_errors.ParseDBError(err)
-		}
-		scopeKey, scopeErr := pricing.GroupScopeKey(group.ID)
-		if scopeErr != nil {
-			return fmt.Errorf("validate deleted Group price scope: %w", app_errors.ErrInternalServer)
-		}
-		if err := tx.Where("price_scope_key = ?", scopeKey).
-			Delete(&models.ModelPrice{}).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
 		return nil

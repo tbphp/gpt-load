@@ -1,56 +1,48 @@
-import type { ClientModelDto, ModelPriceBranchDto, ModelUpstreamDto } from '@/app/resources/models'
+import type { ClientModelDto, ModelUpstreamDto } from '@/app/resources/models'
 
-export type ModelUpstreamShape = 'direct' | 'alias' | 'multi'
+import { modelPriceFields, type ModelPriceField } from '../model-prices/model-price-form'
 
-export interface ModelUpstreamSummary {
-  shape: ModelUpstreamShape
-  /** shape 为 alias 时的上游模型 ID。 */
-  modelID: string | null
-  count: number
-}
+export type ModelPriceRowStatus = 'configured' | 'pending' | 'unpriced'
 
-export interface ModelScopePresentation {
+export interface ModelUpstreamRow {
   upstream: ModelUpstreamDto
-  branch: ModelPriceBranchDto
+  status: ModelPriceRowStatus
+  /** 基础价格槽位；null 表示未设置，由视图渲染占位符。 */
+  prices: Record<ModelPriceField, string | null>
+  tierCount: number
 }
 
-export interface ClientModelPresentation {
+export interface ClientModelRow {
   model: ClientModelDto
-  scopes: ModelScopePresentation[]
+  upstreams: ModelUpstreamRow[]
   pendingCount: number
-  status: 'configured' | 'pending'
-  upstream: ModelUpstreamSummary
+  status: ModelPriceRowStatus
 }
 
-function summarizeUpstream(model: ClientModelDto): ModelUpstreamSummary {
-  const count = model.upstream_models.length
-  if (count !== 1) return { shape: 'multi', modelID: null, count }
-  const upstream = model.upstream_models[0]
-  if (upstream === undefined) return { shape: 'multi', modelID: null, count }
-  return upstream.alias_applied
-    ? { shape: 'alias', modelID: upstream.model_id, count }
-    : { shape: 'direct', modelID: upstream.model_id, count }
+function upstreamStatus(upstream: ModelUpstreamDto): ModelPriceRowStatus {
+  if (upstream.price.method === 'user_marked_unpriced') return 'unpriced'
+  return upstream.price.pricing_status === 'pending' ? 'pending' : 'configured'
 }
 
-export function presentClientModel(model: ClientModelDto): ClientModelPresentation {
-  const scopes = model.upstream_models.flatMap((upstream) =>
-    upstream.prices.map((branch) => ({ upstream, branch })),
-  )
-  const pendingCount = scopes.filter(
-    ({ branch }) => branch.price.pricing_status === 'pending',
-  ).length
+function presentUpstream(upstream: ModelUpstreamDto): ModelUpstreamRow {
+  const prices = {} as Record<ModelPriceField, string | null>
+  for (const field of modelPriceFields) prices[field] = upstream.price.prices[field]
   return {
-    model,
-    scopes,
-    pendingCount,
-    status: pendingCount > 0 ? 'pending' : 'configured',
-    upstream: summarizeUpstream(model),
+    upstream,
+    status: upstreamStatus(upstream),
+    prices,
+    tierCount: upstream.price.context_tiers.length,
   }
 }
 
-/** 价格范围是否影响了当前路由分组之外的分组。 */
-export function hasWiderPriceImpact(branch: ModelPriceBranchDto): boolean {
-  if (branch.route_groups.length !== branch.affected_groups.length) return true
-  const routed = new Set(branch.route_groups.map(({ id }) => id))
-  return branch.affected_groups.some(({ id }) => !routed.has(id))
+export function presentClientModel(model: ClientModelDto): ClientModelRow {
+  const upstreams = model.upstream_models.map(presentUpstream)
+  const pendingCount = upstreams.filter((row) => row.status === 'pending').length
+  const hasUnpriced = upstreams.some((row) => row.status === 'unpriced')
+  return {
+    model,
+    upstreams,
+    pendingCount,
+    status: pendingCount > 0 ? 'pending' : hasUnpriced ? 'unpriced' : 'configured',
+  }
 }

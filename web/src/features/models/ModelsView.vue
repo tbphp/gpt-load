@@ -3,19 +3,21 @@ import { RefreshCw, Search } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import {
   modelCollectionQueryOptions,
-  type ClientModelDto,
   type ModelCollectionFilters,
   type ModelCollectionGroupStatus,
   type ModelCollectionPageSize,
   type ModelCollectionPricingStatus,
+  type ModelUpstreamDto,
 } from '@/app/resources/models'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useModelPriceSync } from '@/app/use-model-price-sync'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
+import { groupsLocation } from '@/app/route-locations'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -30,10 +32,11 @@ import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
-import ModelIndex from './ModelIndex.vue'
-import ModelInspector from './ModelInspector.vue'
+import ModelTree from './ModelTree.vue'
+import ModelUpstreamDrawer from './ModelUpstreamDrawer.vue'
 
 const client = useApiClient()
+const router = useRouter()
 const { locale, n, t } = useI18n()
 const searchDraft = ref('')
 const appliedSearch = ref<string | undefined>()
@@ -41,7 +44,6 @@ const groupStatus = ref<ModelCollectionGroupStatus>('enabled')
 const pricingStatus = ref<ModelCollectionPricingStatus>('all')
 const page = ref(1)
 const pageSize = ref<ModelCollectionPageSize>(20)
-const selectedClientModel = ref<string | null>(null)
 const searchDebounce = useDebouncedAction(250)
 const {
   pending: syncPending,
@@ -49,6 +51,12 @@ const {
   succeeded: syncSucceeded,
   run: runSync,
 } = useModelPriceSync()
+
+const drawerOpen = ref(false)
+const activePriceID = ref<number | null>(null)
+const activeUpstream = ref<string | null>(null)
+const activeClientModel = ref('')
+const drawer = ref<InstanceType<typeof ModelUpstreamDrawer>>()
 
 const filters = computed<ModelCollectionFilters>(() => ({
   group_status: groupStatus.value,
@@ -88,11 +96,6 @@ const catalogLabel = computed(() => {
   if (!data.value.catalog.available) return t('models.catalog.unavailable')
   return data.value.catalog.error_code ? t('models.catalog.stale') : t('models.catalog.available')
 })
-const selectedModel = computed<ClientModelDto | null>(() => {
-  if (!data.value || selectedClientModel.value === null) return null
-  return data.value.items.find((item) => item.client_model === selectedClientModel.value) ?? null
-})
-const inspectorRef = ref<InstanceType<typeof ModelInspector>>()
 
 watch(
   [() => data.value?.pagination.total_pages, page, () => modelsQuery.isPlaceholderData.value],
@@ -103,51 +106,60 @@ watch(
   },
 )
 
-watch(
-  () => data.value?.items,
-  (items) => {
-    if (!items) return
-    if (items.some((item) => item.client_model === selectedClientModel.value)) return
-    selectedClientModel.value = items[0]?.client_model ?? null
-  },
-  // 若组件挂载时数据已就绪（如缓存命中），非 immediate 的 watch 不会在“无变化”时触发，
-  // 导致右栏永远选不中第一项。immediate 保证首次挂载也会执行一次选中逻辑。
-  { immediate: true },
-)
-
 useVisibleRefetch([modelsQuery.refetch])
 
 function scheduleSearch(): void {
   searchDebounce.schedule(() => {
-    const normalized = [...searchDraft.value.trim()].slice(0, 200).join('')
-    appliedSearch.value = normalized || undefined
-    page.value = 1
+    void applySearch()
   })
 }
 
-function clearSearch(): void {
+async function applySearch(): Promise<void> {
+  const normalized = [...searchDraft.value.trim()].slice(0, 200).join('') || undefined
+  if (normalized === appliedSearch.value) return
+  if (!(await confirmDiscard())) {
+    searchDraft.value = appliedSearch.value ?? ''
+    return
+  }
+  appliedSearch.value = normalized
+  page.value = 1
+}
+
+async function clearSearch(): Promise<void> {
   searchDebounce.cancel()
+  if (appliedSearch.value === undefined) {
+    searchDraft.value = ''
+    return
+  }
+  if (!(await confirmDiscard())) {
+    searchDraft.value = appliedSearch.value
+    return
+  }
   searchDraft.value = ''
   appliedSearch.value = undefined
   page.value = 1
 }
 
-function setGroupStatus(value: string): void {
+async function setGroupStatus(value: string): Promise<void> {
+  if (value === groupStatus.value || !(await confirmDiscard())) return
   groupStatus.value = value as ModelCollectionGroupStatus
   page.value = 1
 }
 
-function setPricingStatus(value: string): void {
+async function setPricingStatus(value: string): Promise<void> {
+  if (value === pricingStatus.value || !(await confirmDiscard())) return
   pricingStatus.value = value as ModelCollectionPricingStatus
   page.value = 1
 }
 
-function setPageSize(value: 20 | 50 | 100): void {
+async function setPageSize(value: 20 | 50 | 100): Promise<void> {
+  if (value === pageSize.value || !(await confirmDiscard())) return
   pageSize.value = value
   page.value = 1
 }
 
-function resetConditions(): void {
+async function resetConditions(): Promise<void> {
+  if (!hasConditions.value || !(await confirmDiscard())) return
   searchDebounce.cancel()
   searchDraft.value = ''
   appliedSearch.value = undefined
@@ -156,14 +168,41 @@ function resetConditions(): void {
   page.value = 1
 }
 
-function showPendingModels(): void {
-  setPricingStatus('pending')
+async function showPendingModels(): Promise<void> {
+  await setPricingStatus('pending')
 }
 
-async function selectModel(clientModel: string): Promise<void> {
-  if (clientModel === selectedClientModel.value) return
-  if (inspectorRef.value && !(await inspectorRef.value.confirmDiscardSwitch())) return
-  selectedClientModel.value = clientModel
+async function changePage(nextPage: number): Promise<void> {
+  if (nextPage === page.value || !(await confirmDiscard())) return
+  page.value = nextPage
+}
+
+/** 列表条件变化会让抽屉里的草稿失去上下文，先确认再放弃并关闭。 */
+async function confirmDiscard(): Promise<boolean> {
+  if (!drawerOpen.value || !drawer.value) return true
+  if (!(await drawer.value.confirmDiscardSwitch())) return false
+  drawer.value.discardChanges()
+  closeDrawer()
+  return true
+}
+
+async function openUpstream(clientModel: string, upstream: ModelUpstreamDto): Promise<void> {
+  if (upstream.price.id === activePriceID.value && drawerOpen.value) return
+  if (drawerOpen.value && drawer.value && !(await drawer.value.confirmDiscardSwitch())) return
+  drawer.value?.discardChanges()
+  activeClientModel.value = clientModel
+  activePriceID.value = upstream.price.id
+  activeUpstream.value = upstream.model_id
+  drawerOpen.value = true
+}
+
+function closeDrawer(): void {
+  drawerOpen.value = false
+  activeUpstream.value = null
+}
+
+function goToGroups(): void {
+  void router.push(groupsLocation())
 }
 </script>
 
@@ -214,6 +253,10 @@ async function selectModel(clientModel: string): Promise<void> {
         <p class="models-page__status" aria-live="polite">
           <span>{{
             t('models.status.models', { count: n(data.summary.client_model_count) })
+          }}</span>
+          <span aria-hidden="true">·</span>
+          <span>{{
+            t('models.status.upstreams', { count: n(data.summary.upstream_model_count) })
           }}</span>
           <span aria-hidden="true">·</span>
           <AppButton
@@ -310,35 +353,38 @@ async function selectModel(clientModel: string): Promise<void> {
             >
               {{ t('models.filters.reset') }}
             </AppButton>
-            <AppButton v-else size="compact" :busy="syncPending" @click="runSync">
-              <RefreshCw :size="15" aria-hidden="true" />{{ t('models.actions.sync') }}
+            <AppButton v-else size="compact" @click="goToGroups">
+              {{ t('models.actions.configureGroups') }}
             </AppButton>
           </template>
         </EmptyState>
 
-        <div v-else class="models-page__split">
-          <div class="models-page__index">
-            <ModelIndex
-              :items="data.items"
-              :selected="selectedClientModel"
-              @update:selected="selectModel"
-            />
-            <PaginationBar
-              :page="data.pagination.page"
-              :page-size="data.pagination.page_size"
-              :total-items="data.pagination.total_items"
-              :total-pages="data.pagination.total_pages"
-              show-page-size
-              @previous="page -= 1"
-              @next="page += 1"
-              @update:page-size="setPageSize"
-            />
-          </div>
-          <div class="models-page__inspector">
-            <ModelInspector v-if="selectedModel" ref="inspectorRef" :model="selectedModel" />
-          </div>
-        </div>
+        <template v-else>
+          <ModelTree
+            :items="data.items"
+            :active-upstream="drawerOpen ? activeUpstream : null"
+            @open="openUpstream"
+          />
+          <PaginationBar
+            :page="data.pagination.page"
+            :page-size="data.pagination.page_size"
+            :total-items="data.pagination.total_items"
+            :total-pages="data.pagination.total_pages"
+            show-page-size
+            @previous="changePage(page - 1)"
+            @next="changePage(page + 1)"
+            @update:page-size="setPageSize"
+          />
+        </template>
       </template>
+
+      <ModelUpstreamDrawer
+        ref="drawer"
+        :open="drawerOpen"
+        :price-id="activePriceID"
+        :client-model="activeClientModel"
+        @close="closeDrawer"
+      />
     </LedgerSheet>
   </PageFrame>
 </template>
@@ -374,41 +420,6 @@ async function selectModel(clientModel: string): Promise<void> {
   padding-top: var(--space-1);
 }
 
-.models-page__split {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: clamp(288px, 33%, 372px) minmax(0, 1fr);
-  gap: 0;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-}
-
-.models-page__index {
-  display: grid;
-  min-width: 0;
-  grid-template-rows: minmax(0, 1fr) auto;
-  border-right: 1px solid var(--color-border-subtle);
-  padding-block: var(--space-2);
-}
-
-.models-page__inspector {
-  min-width: 0;
-  padding: var(--space-4-5);
-}
-
-@media (max-width: 999px) {
-  .models-page__split {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .models-page__index {
-    max-height: 46vh;
-    overflow-y: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border-subtle);
-  }
-}
-
 @media (max-width: 980px) {
   .models-page :deep(.models-page__filters.collection-filter-bar) {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -420,10 +431,6 @@ async function selectModel(clientModel: string): Promise<void> {
 }
 
 @media (max-width: 680px) {
-  .models-page :deep(.page-header__actions) {
-    width: 100%;
-  }
-
   .models-page :deep(.models-page__filters.collection-filter-bar) {
     grid-template-columns: minmax(0, 1fr);
   }

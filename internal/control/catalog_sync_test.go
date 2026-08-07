@@ -228,7 +228,6 @@ func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t 
 	fixture := newServiceFixture(t)
 	oldPrice := int64(1)
 	if err := fixture.db.Create(&models.ModelPrice{
-		PriceScopeKey:                     "provider:openai",
 		ModelID:                           "gpt",
 		InputPriceNanoUSDPerMillionTokens: &oldPrice,
 	}).Error; err != nil {
@@ -320,7 +319,7 @@ func TestCatalogStartupReconcilesDurableLKGBeforeAnyNetworkSync(t *testing.T) {
 	seedCatalogPriceGroup(t, fixture, "startup-lkg", &providerID, []string{"gpt"})
 	old := int64(1)
 	if err := fixture.db.Create(&models.ModelPrice{
-		PriceScopeKey: "provider:openai", ModelID: "gpt",
+		ModelID:                           "gpt",
 		InputPriceNanoUSDPerMillionTokens: &old,
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -467,7 +466,7 @@ func TestCatalogSync304PreservesPublishedGenerationsAndDoesNotStoreCache(t *test
 	}}
 	fixture.catalogRuntime.Publish(oldSnapshot)
 	oldTable, err := pricing.NewTable([]pricing.Rule{{
-		Identity: pricing.Identity{ScopeKey: "provider:openai", ModelID: "old"},
+		Identity: pricing.Identity{ModelID: "old"},
 		Prices:   pricing.Prices{Input: pricing.Price{Set: true, NanoUSDPerMillion: 1}},
 	}})
 	if err != nil {
@@ -1010,13 +1009,13 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 	oldInput, oldOutput, oldRead, oldWrite := int64(1), int64(2), int64(3), int64(4)
 	oldTiers := models.JSON(`[{"threshold_tokens":128000,"input_price_nano_usd_per_million_tokens":5}]`)
 	rows := []models.ModelPrice{
-		{PriceScopeKey: "provider:openai", ModelID: "changed", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, UpdatedAtMS: 111},
-		{PriceScopeKey: "provider:openai", ModelID: "missing-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 112},
-		{PriceScopeKey: "provider:missing-provider", ModelID: "missing-provider-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 113},
-		{PriceScopeKey: "provider:openai", ModelID: "manual", IsManual: true, UpdatedAtMS: 114},
-		{PriceScopeKey: "provider:openai", ModelID: "stale", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 115},
-		{PriceScopeKey: "provider:openai", ModelID: "manual-stale", IsManual: true, UpdatedAtMS: 116},
-		{PriceScopeKey: "provider:openai", ModelID: "unchanged", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 117},
+		{ModelID: "changed", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, UpdatedAtMS: 111},
+		{ModelID: "missing-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 112},
+		{ModelID: "missing-provider-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 113},
+		{ModelID: "manual", IsManual: true, UpdatedAtMS: 114},
+		{ModelID: "stale", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 115},
+		{ModelID: "manual-stale", IsManual: true, UpdatedAtMS: 116},
+		{ModelID: "unchanged", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 117},
 	}
 	for index := range rows {
 		if err := fixture.db.Create(&rows[index]).Error; err != nil {
@@ -1089,7 +1088,7 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 	manualInput := int64(99)
 	for _, row := range []models.ModelPrice{
 		{
-			PriceScopeKey: scopeKey, ModelID: "group-model",
+			ModelID:                                "group-model",
 			InputPriceNanoUSDPerMillionTokens:      &oldInput,
 			OutputPriceNanoUSDPerMillionTokens:     &oldOutput,
 			CacheReadPriceNanoUSDPerMillionTokens:  &oldRead,
@@ -1097,7 +1096,7 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 			ContextPriceTiers:                      oldTiers, UpdatedAtMS: 111,
 		},
 		{
-			PriceScopeKey: scopeKey, ModelID: "manual-group-model",
+			ModelID:                           "manual-group-model",
 			InputPriceNanoUSDPerMillionTokens: &manualInput,
 			IsManual:                          true, UpdatedAtMS: 112,
 		},
@@ -1170,7 +1169,7 @@ func TestCatalogSyncReconcileFailurePublishesNeitherRuntimeAndKeepsPendingLKG(t 
 	seedCatalogPriceGroup(t, fixture, "openai", &providerID, []string{"gpt"})
 	oldValue := int64(1)
 	if err := fixture.db.Create(&models.ModelPrice{
-		PriceScopeKey: "provider:openai", ModelID: "gpt",
+		ModelID:                           "gpt",
 		InputPriceNanoUSDPerMillionTokens: &oldValue,
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -1317,7 +1316,7 @@ func assertCatalogPriceRow(
 ) {
 	t.Helper()
 	var row models.ModelPrice
-	if err := fixture.db.Where("price_scope_key = ? AND model_id = ?", scopeKey, modelID).Take(&row).Error; err != nil {
+	if err := fixture.db.Where("model_id = ?", modelID).Take(&row).Error; err != nil {
 		t.Fatal(err)
 	}
 	assert(row)
@@ -1327,12 +1326,12 @@ func assertCatalogPriceMissing(t *testing.T, fixture serviceFixture, scopeKey, m
 	t.Helper()
 	var count int64
 	if err := fixture.db.Model(&models.ModelPrice{}).
-		Where("price_scope_key = ? AND model_id = ?", scopeKey, modelID).
+		Where("model_id = ?", modelID).
 		Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
-		t.Fatalf("price %s/%s count = %d, want 0", scopeKey, modelID, count)
+		t.Fatalf("price %s count = %d, want 0", modelID, count)
 	}
 }
 

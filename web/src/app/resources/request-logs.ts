@@ -80,11 +80,11 @@ export interface RequestLogPricingLineDto {
 }
 
 export interface RequestLogPricingReceiptDto {
-  schema_version: 1
+  schema_version: 1 | 2
   method: 'unit_rate_sum'
   method_version: 1
   currency: 'USD'
-  rule: { scope_key: string; model_id: string }
+  rule: { scope_key?: string; model_id: string }
   context_threshold_tokens: string | null
   line_items: RequestLogPricingLineDto[]
   total_nano_usd: string
@@ -286,13 +286,22 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 2 }) as
+    1 | 2
+  const scopeKey = rule.scope_key === undefined ? undefined : projectNonBlankString(rule.scope_key)
+  if (
+    (schemaVersion === 1 && scopeKey === undefined) ||
+    (schemaVersion === 2 && scopeKey !== undefined)
+  ) {
+    invalidResponse()
+  }
   return {
-    schema_version: projectSafeInteger(record.schema_version, { minimum: 1, maximum: 1 }) as 1,
+    schema_version: schemaVersion,
     method: projectEnum(record.method, ['unit_rate_sum'] as const),
     method_version: projectSafeInteger(record.method_version, { minimum: 1, maximum: 1 }) as 1,
     currency: projectEnum(record.currency, ['USD'] as const),
     rule: {
-      scope_key: projectNonBlankString(rule.scope_key),
+      ...(scopeKey === undefined ? {} : { scope_key: scopeKey }),
       model_id: projectNonBlankString(rule.model_id),
     },
     context_threshold_tokens:

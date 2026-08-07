@@ -412,8 +412,8 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 			State: usage.StateNotApplicable,
 		},
 		Pricing: telemetry.PricingObservation{
-			PriceScopeKey: "group:13", UpstreamModel: "final-model",
-			CostState: string(pricing.CostStateNotApplicable), PricingCompleteness: string(pricing.CompletenessNotApplicable),
+			UpstreamModel: "final-model",
+			CostState:     string(pricing.CostStateNotApplicable), PricingCompleteness: string(pricing.CompletenessNotApplicable),
 		},
 	}
 	row := mustMapEvent(t, redact.New(), event, (*pricing.Table)(nil))

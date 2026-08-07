@@ -111,15 +111,6 @@ func (handler *Handler) freezeAttemptPricing(
 	if handler != nil && handler.priceTables != nil {
 		frozen.table = handler.priceTables.Load()
 	}
-	var err error
-	if selection.Group.ProviderID != nil {
-		frozen.scopeKey, err = pricing.ProviderScopeKey(*selection.Group.ProviderID)
-	} else {
-		frozen.scopeKey, err = pricing.GroupScopeKey(selection.GroupID)
-	}
-	if err != nil {
-		frozen.scopeKey = ""
-	}
 	return frozen
 }
 

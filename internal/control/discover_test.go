@@ -242,8 +242,8 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 	}) {
 		t.Fatalf("DiscoverModels() = %#v, %v", result, err)
 	}
-	if !reflect.DeepEqual(queryTables, map[string]int{"system_settings": 1}) {
-		t.Fatalf("discovery queries = %#v, want only system_settings once", queryTables)
+	if !reflect.DeepEqual(queryTables, map[string]int{"system_settings": 1, "model_prices": 1}) {
+		t.Fatalf("discovery queries = %#v, want system settings and global model prices once", queryTables)
 	}
 	if writeCount.Load() != 0 {
 		t.Fatalf("discovery DB writes = %d, want 0", writeCount.Load())

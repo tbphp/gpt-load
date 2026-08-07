@@ -28,20 +28,24 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
   const queryClient = useQueryClient()
   const { t } = useI18n()
 
+  const baseline = ref<ModelPriceDto>(row.value)
   const draft = ref<ModelPriceDraft>(createModelPriceDraft(row.value))
   const pending = ref(false)
   const failure = ref('')
+  const stale = ref(false)
   const unpricedConfirmOpen = ref(false)
   let controller: AbortController | undefined
 
   const errors = computed(() => validateModelPriceDraft(draft.value))
   const hasErrors = computed(() => modelPriceFormHasErrors(errors.value))
-  const changed = computed(() => modelPriceDraftChanged(row.value, draft.value))
+  const changed = computed(() => modelPriceDraftChanged(baseline.value, draft.value))
   const allNull = computed(() => modelPriceDraftIsAllNull(draft.value))
   const ownershipIntent = computed(
-    () => allNull.value && row.value.method !== 'user_marked_unpriced',
+    () => allNull.value && baseline.value.method !== 'user_marked_unpriced',
   )
-  const canSave = computed(() => !hasErrors.value && (changed.value || ownershipIntent.value))
+  const canSave = computed(
+    () => !stale.value && !hasErrors.value && (changed.value || ownershipIntent.value),
+  )
   const unsavedChanges = useUnsavedChanges(changed, { blocked: pending })
 
   function clearRequest(): void {
@@ -52,12 +56,30 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
 
   function resetDraft(): void {
     clearRequest()
-    draft.value = createModelPriceDraft(row.value)
+    baseline.value = row.value
+    draft.value = createModelPriceDraft(baseline.value)
     failure.value = ''
+    stale.value = false
     unpricedConfirmOpen.value = false
   }
 
-  watch(() => row.value.id, resetDraft, { immediate: true })
+  watch(
+    () => [row.value.id, row.value.updated_at_ms] as const,
+    ([id, updatedAtMS]) => {
+      if (id !== baseline.value.id) {
+        resetDraft()
+        return
+      }
+      if (updatedAtMS === baseline.value.updated_at_ms) return
+      if (changed.value) {
+        stale.value = true
+        failure.value = t('modelPrices.matrix.versionConflict')
+        return
+      }
+      resetDraft()
+    },
+    { immediate: true },
+  )
 
   function addTier(): void {
     draft.value.tiers.push(createEmptyTierDraft())
@@ -81,7 +103,7 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
   }
 
   function canSubmit(confirmUnpriced: boolean): boolean {
-    if (hasErrors.value) return false
+    if (stale.value || hasErrors.value) return false
     if (allNull.value) return confirmUnpriced && (changed.value || ownershipIntent.value)
     return !confirmUnpriced && changed.value
   }
@@ -95,8 +117,17 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
     controller = new AbortController()
     const activeController = controller
     try {
-      await updateModelPrice(client, row.value.id, request, activeController.signal)
+      const updated = await updateModelPrice(
+        client,
+        baseline.value.id,
+        request,
+        baseline.value.updated_at_ms,
+        activeController.signal,
+      )
       if (controller !== activeController) return
+      baseline.value = updated
+      draft.value = createModelPriceDraft(updated)
+      stale.value = false
       await applyInvalidationPlan(queryClient, mutationInvalidationPlans.modelPrice.update)
       if (controller !== activeController) return
       unpricedConfirmOpen.value = false
@@ -106,7 +137,14 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
         !activeController.signal.aborted &&
         !(error instanceof RequestCancelledError)
       ) {
-        failure.value = failureMessage(error)
+        const issue = projectModelPriceMutationIssue(error)
+        if (issue?.code === 'MODEL_PRICE_VERSION_CONFLICT') {
+          stale.value = true
+          failure.value = t('modelPrices.matrix.versionConflict')
+          await applyInvalidationPlan(queryClient, mutationInvalidationPlans.modelPrice.update)
+        } else {
+          failure.value = failureMessage(error)
+        }
       }
     } finally {
       if (controller === activeController) {
@@ -144,6 +182,7 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
     errors,
     pending,
     failure,
+    stale,
     changed,
     canSave,
     allNull,

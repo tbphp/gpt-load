@@ -135,6 +135,7 @@ export const controlQueryKeys = {
     all: ['control', 'models'] as const,
     collection: (filters: ModelCollectionFilters) =>
       ['control', 'models', 'collection', filters] as const,
+    detail: (priceID: number) => ['control', 'models', 'detail', priceID] as const,
   },
   modelPrices: () => ['control', 'model-prices'] as const,
   modelPriceCollection: (filters: ModelPriceFilters) =>

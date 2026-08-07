@@ -19,6 +19,7 @@ var MessagesJaJP = map[string]string{
 	"settings.version_conflict":                       "読み込み後に設定が変更されました",
 	"model_price.not_found":                           "モデル価格が存在しません",
 	"model_price.unpriced_confirmation_required":      "モデル価格を未設定としてマークするには明示的な確認が必要です",
+	"model_price.version_conflict":                    "読み込み後にモデル価格が変更されました",
 	"model_price.referenced":                          "モデル価格はグループから参照されています",
 	"model_price.automatic_delete_forbidden":          "自動モデル価格は手動で削除できません",
 	"auth.invalid_key":                                "無効な認証キー",

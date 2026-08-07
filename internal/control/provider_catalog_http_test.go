@@ -216,8 +216,8 @@ func TestProviderModelsAreStrictBoundedAndUsePersistedOrCatalogCandidatePricingS
 	}})
 	configuredValue := int64(0)
 	for _, row := range []models.ModelPrice{
-		{PriceScopeKey: "provider:openai", ModelID: "configured", InputPriceNanoUSDPerMillionTokens: &configuredValue},
-		{PriceScopeKey: "provider:openai", ModelID: "pending"},
+		{ModelID: "configured", InputPriceNanoUSDPerMillionTokens: &configuredValue},
+		{ModelID: "pending"},
 	} {
 		if err := fixture.db.Create(&row).Error; err != nil {
 			t.Fatal(err)

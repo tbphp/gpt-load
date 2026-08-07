@@ -654,6 +654,8 @@ func serviceErrorMessageID(
 		return "settings.version_conflict"
 	case app_errors.ErrModelPriceUnpricedConfirmationRequired.Code:
 		return "model_price.unpriced_confirmation_required"
+	case app_errors.ErrModelPriceVersionConflict.Code:
+		return "model_price.version_conflict"
 	case app_errors.ErrModelPriceReferenced.Code:
 		return "model_price.referenced"
 	case app_errors.ErrModelPriceAutomaticDeleteForbidden.Code:

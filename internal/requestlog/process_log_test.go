@@ -63,8 +63,8 @@ func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 		},
 	}
 	event.Usage.Pricing = telemetry.PricingObservation{
-		PriceScopeKey: "group:7", UpstreamModel: event.UpstreamModel,
-		CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessPartial),
+		UpstreamModel: event.UpstreamModel,
+		CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessPartial),
 		EstimatedCostNanoUSD: 55_000,
 	}
 

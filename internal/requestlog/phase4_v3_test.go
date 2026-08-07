@@ -29,8 +29,8 @@ func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T)
 				Tokens: usage.Tokens{Output: 1_000_000},
 			},
 			Pricing: telemetry.PricingObservation{
-				PriceScopeKey: "group:73", UpstreamModel: "provider-model",
-				CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+				UpstreamModel: "provider-model",
+				CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
 				EstimatedCostNanoUSD: 2_000_000_000,
 			},
 		},

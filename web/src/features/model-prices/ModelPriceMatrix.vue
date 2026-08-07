@@ -3,49 +3,48 @@ import { Plus, X } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ModelPriceBranchDto } from '@/app/resources/models'
-import { groupDetailLocation } from '@/app/route-locations'
-import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatInteger } from '@/lib/format'
 
-import { hasWiderPriceImpact } from '../models/model-presenter'
 import {
   deriveOneHourCacheWrite,
   modelPriceFields,
+  tierDisplayOrder,
   type ModelPriceField,
   type ModelPriceFormErrors,
   type ModelPriceDraft,
 } from './model-price-form'
-import ModelPriceResetDialog from './ModelPriceResetDialog.vue'
 
 const props = defineProps<{
-  branch: ModelPriceBranchDto
+  modelId: string
   errors: ModelPriceFormErrors
   pending: boolean
-  changed: boolean
-  canSave: boolean
-  allNull: boolean
   failure: string
 }>()
 const emit = defineEmits<{
   'add-tier': []
   'remove-tier': [key: string]
-  save: []
-  cancel: []
   'confirm-unpriced': []
-  'reset-completed': []
 }>()
 const draft = defineModel<ModelPriceDraft>('draft', { required: true })
 const unpricedConfirmOpen = defineModel<boolean>('unpricedConfirmOpen', { required: true })
 const { locale, t } = useI18n()
 
-const showActions = computed(() => props.changed || props.canSave)
 const tiered = computed(() => draft.value.tiers.length > 0)
+
+/**
+ * 新增档位固定追加到末尾，用户填入的阈值可能比上面已有档位更小，
+ * 导致编辑区行序与下方按阈值排序的派生说明相互矛盾。失焦时才重排，
+ * 避免每次按键都重排导致正在编辑的行跳动。
+ */
+function reorderTiers(): void {
+  draft.value.tiers = [...draft.value.tiers].sort(
+    (left, right) => tierDisplayOrder(left.threshold) - tierDisplayOrder(right.threshold),
+  )
+}
 
 function baseFieldError(field: ModelPriceField): string | undefined {
   const code = props.errors.base[field]
@@ -80,51 +79,41 @@ function tierErrors(key: string): string[] {
   return dedupe(messages)
 }
 
-const baseOneHour = computed(() => {
-  if (draft.value.tiers.length > 0) return null
-  return deriveOneHourCacheWrite(draft.value.base.cache_write)
-})
+interface DerivedRow {
+  key: string
+  label: string
+  value: string
+}
 
-const oneHourFootnoteParts = computed(() => {
-  if (draft.value.tiers.length === 0) return []
-  const parts: string[] = []
+/**
+ * 1h 缓存写入的派生值：每个档位一行，基础在前、其余按阈值升序。
+ * 只列出真正填了 5m 单价的行，所以增删档位会同步增删说明行。
+ */
+const oneHourRows = computed<DerivedRow[]>(() => {
+  const rows: DerivedRow[] = []
   const base = deriveOneHourCacheWrite(draft.value.base.cache_write)
-  if (base) parts.push(t('modelPrices.matrix.oneHourBasePart', { value: base }))
+  if (base) rows.push({ key: 'base', label: t('modelPrices.matrix.baseRow'), value: base })
+
+  const tierRows: (DerivedRow & { order: number })[] = []
   for (const tier of draft.value.tiers) {
     const value = deriveOneHourCacheWrite(tier.slots.cache_write)
-    const threshold = tier.threshold.trim()
-    if (value && threshold !== '' && !Number.isNaN(Number(threshold))) {
-      parts.push(
-        t('modelPrices.matrix.oneHourTierPart', {
-          threshold: formatInteger(Number(threshold), locale.value),
-          value,
-        }),
-      )
-    }
+    const order = tierDisplayOrder(tier.threshold)
+    if (!value || !Number.isFinite(order)) continue
+    tierRows.push({
+      key: tier.key,
+      order,
+      label: t('modelPrices.matrix.tierRow', { threshold: formatInteger(order, locale.value) }),
+      value,
+    })
   }
-  return parts
+  tierRows.sort((left, right) => left.order - right.order)
+  return [...rows, ...tierRows]
 })
-
-function methodLabel(): string {
-  const { method, matched_provider_id: provider } = props.branch.price
-  if (method === null) return t('modelPrices.method.pending')
-  if (method === 'auto_matched') return t('modelPrices.method.auto_matched', { provider })
-  return t(`modelPrices.method.${method}`)
-}
-
-function addTier(): void {
-  emit('add-tier')
-}
 </script>
 
 <template>
   <div class="model-price-matrix">
     <InlineFeedback v-if="failure" appearance="ledger" tone="danger">{{ failure }}</InlineFeedback>
-
-    <div class="model-price-matrix__head">
-      <h3>{{ t('modelPrices.matrix.heading') }}</h3>
-      <span class="model-price-matrix__unit">{{ t('modelPrices.matrix.unit') }}</span>
-    </div>
 
     <div class="model-price-matrix__grid" :class="{ 'model-price-matrix__grid--tiered': tiered }">
       <!-- 纯视觉列标签；每个输入的可访问名称由 AppTextInput 自带的 sr-only label 承担。 -->
@@ -158,13 +147,26 @@ function addTier(): void {
             :invalid="Boolean(baseFieldError(field))"
           />
         </div>
-        <span v-if="tiered" aria-hidden="true"></span>
+        <!-- 增删都落在同一列：无档位时基础行就是最后一行，由它承载加号。 -->
+        <div class="model-price-matrix__actions">
+          <IconButton
+            v-if="!tiered"
+            class="model-price-matrix__add"
+            variant="ghost"
+            size="xs"
+            :disabled="pending"
+            :label="t('modelPrices.matrix.addTier')"
+            @click="emit('add-tier')"
+          >
+            <Plus :size="14" aria-hidden="true" />
+          </IconButton>
+        </div>
       </div>
       <p v-if="baseErrors.length > 0" class="model-price-matrix__error" role="alert">
         {{ baseErrors.join(' · ') }}
       </p>
 
-      <template v-for="tier in draft.tiers" :key="tier.key">
+      <template v-for="(tier, index) in draft.tiers" :key="tier.key">
         <div class="model-price-matrix__row">
           <div class="model-price-group model-price-group--threshold">
             <AppTextInput
@@ -177,6 +179,7 @@ function addTier(): void {
               inputmode="numeric"
               :disabled="pending"
               :invalid="Boolean(tierThresholdError(tier.key))"
+              @blur="reorderTiers"
             />
           </div>
           <div
@@ -198,16 +201,29 @@ function addTier(): void {
               :invalid="Boolean(tierSlotError(tier.key, field))"
             />
           </div>
-          <IconButton
-            class="model-price-matrix__remove"
-            variant="ghost"
-            size="xs"
-            :disabled="pending"
-            :label="t('modelPrices.matrix.removeTier')"
-            @click="emit('remove-tier', tier.key)"
-          >
-            <X :size="14" aria-hidden="true" />
-          </IconButton>
+          <div class="model-price-matrix__actions">
+            <IconButton
+              class="model-price-matrix__remove"
+              variant="ghost"
+              size="xs"
+              :disabled="pending"
+              :label="t('modelPrices.matrix.removeTier')"
+              @click="emit('remove-tier', tier.key)"
+            >
+              <X :size="14" aria-hidden="true" />
+            </IconButton>
+            <IconButton
+              v-if="index === draft.tiers.length - 1"
+              class="model-price-matrix__add"
+              variant="ghost"
+              size="xs"
+              :disabled="pending"
+              :label="t('modelPrices.matrix.addTier')"
+              @click="emit('add-tier')"
+            >
+              <Plus :size="14" aria-hidden="true" />
+            </IconButton>
+          </div>
         </div>
         <p v-if="tierErrors(tier.key).length > 0" class="model-price-matrix__error" role="alert">
           {{ tierErrors(tier.key).join(' · ') }}
@@ -215,67 +231,17 @@ function addTier(): void {
       </template>
     </div>
 
-    <div class="model-price-matrix__notes">
-      <AppButton
-        class="model-price-matrix__add"
-        variant="link"
-        size="inline"
-        :disabled="pending"
-        @click="addTier"
-      >
-        <Plus :size="14" aria-hidden="true" />{{ t('modelPrices.matrix.addTier') }}
-      </AppButton>
-      <p v-if="baseOneHour" class="model-price-matrix__note">
-        {{ t('modelPrices.matrix.oneHourInline', { value: baseOneHour }) }}
-      </p>
-      <p v-if="oneHourFootnoteParts.length > 0" class="model-price-matrix__note">
-        {{ t('modelPrices.matrix.oneHourNote', { parts: oneHourFootnoteParts.join(' · ') }) }}
-      </p>
-      <p v-if="tiered" class="model-price-matrix__note">
-        {{ t('modelPrices.matrix.replaceNote') }}
-      </p>
-    </div>
-
-    <div class="model-price-matrix__status">
-      <StatusBadge
-        size="compact"
-        :tone="branch.price.pricing_status === 'configured' ? 'success' : 'warning'"
-      >
-        {{ t(`modelPrices.status.${branch.price.pricing_status}`) }}
-      </StatusBadge>
-      <span>{{ methodLabel() }}</span>
-      <span class="model-price-matrix__groups">
-        <span class="model-price-matrix__eyebrow">{{ t('models.detail.routeGroups') }}</span>
-        <RouterLink
-          v-for="group in branch.route_groups"
-          :key="group.id"
-          :to="groupDetailLocation(group.id)"
-        >
-          {{ group.name }}<span v-if="!group.enabled">{{ t('models.detail.groupDisabled') }}</span>
-        </RouterLink>
-      </span>
-      <span v-if="branch.price.partial" class="model-price-matrix__status-warning">
-        {{ t('modelPrices.facts.partial') }}
-      </span>
-      <span v-if="hasWiderPriceImpact(branch)" class="model-price-matrix__status-warning">
-        {{ t('models.detail.globalImpact', { count: branch.affected_groups.length }) }}
-      </span>
-      <ModelPriceResetDialog
-        v-if="branch.price.can_reset"
-        :row="branch.price"
-        action="reset"
-        @completed="emit('reset-completed')"
-      />
-    </div>
-
-    <div v-if="showActions" class="model-price-matrix__actions">
-      <AppButton variant="secondary" size="compact" :disabled="pending" @click="emit('cancel')">
-        {{ t('common.cancel') }}
-      </AppButton>
-      <AppButton size="compact" :busy="pending" :disabled="!canSave" @click="emit('save')">
-        {{ t('modelPrices.matrix.save') }}
-      </AppButton>
-    </div>
+    <!-- 一条规则一行；派生行随档位增删与阈值排序同步变化。 -->
+    <dl v-if="oneHourRows.length > 0" class="model-price-matrix__derived">
+      <dt class="model-price-matrix__derived-rule">{{ t('modelPrices.matrix.oneHourRule') }}</dt>
+      <dd v-for="row in oneHourRows" :key="row.key">
+        <span>{{ row.label }}</span>
+        <strong>{{ row.value }}</strong>
+      </dd>
+    </dl>
+    <p v-if="tiered" class="model-price-matrix__note">
+      {{ t('modelPrices.matrix.replaceNote') }}
+    </p>
   </div>
 
   <AppConfirmDialog
@@ -283,9 +249,7 @@ function addTier(): void {
     tone="danger"
     :open="unpricedConfirmOpen"
     :title="t('modelPrices.matrix.unpricedConfirm.title')"
-    :description="
-      t('modelPrices.matrix.unpricedConfirm.description', { model: branch.price.model_id })
-    "
+    :description="t('modelPrices.matrix.unpricedConfirm.description', { model: modelId })"
     :close-label="t('modelPrices.matrix.unpricedConfirm.close')"
     :cancel-label="t('common.cancel')"
     :confirm-label="t('modelPrices.matrix.unpricedConfirm.confirm')"
@@ -303,54 +267,46 @@ function addTier(): void {
 .model-price-matrix {
   display: grid;
   min-width: 0;
-  gap: var(--space-3-25);
-}
-
-.model-price-matrix__head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-
-.model-price-matrix__head h3 {
-  margin: 0;
-  font-size: var(--text-sm);
-  font-weight: 650;
-}
-
-.model-price-matrix__unit {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+  gap: var(--space-2-5);
 }
 
 .model-price-matrix__grid {
   display: grid;
   min-width: 0;
-  justify-content: start;
   gap: var(--space-1-75) var(--space-2);
 }
 
 /*
- * 每行外层列结构统一为 [阈值/行标签] [价格组] [删除位]，
+ * 每行外层列结构统一为 [阈值/行标签] [价格组] [增删位]，
  * 表头复用同一套列定义，内部再等分 4 格，确保标签与组内单元格对齐。
+ * 增删列常驻，让加号和叉号落在同一竖线上。
  */
 .model-price-matrix__row {
   display: grid;
   min-width: 0;
-  grid-template-columns: 352px;
+  grid-template-columns: minmax(0, 1fr) var(--control-xs);
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1-75);
 }
 
 .model-price-matrix__grid--tiered .model-price-matrix__row {
-  grid-template-columns: 104px 352px 28px;
+  grid-template-columns: 76px minmax(0, 1fr) calc(var(--control-xs) * 2);
 }
 
 .model-price-matrix__header-cells {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  /* 对齐 AppTextInput 的 padding-left(--space-3) 与组边框 1px。 */
-  padding-left: calc(var(--space-3) + 1px);
+  /* 对齐 AppTextInput 的 padding-left 与组边框 1px。 */
+  padding-left: calc(var(--space-2) + 1px);
+}
+
+/* 固定两个槽位：删除永远占第一格，新增永远占第二格，各行按钮才能纵向对齐。 */
+.model-price-matrix__actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--control-xs);
+  align-items: center;
+  justify-content: start;
 }
 
 .model-price-matrix__row--header {
@@ -378,6 +334,8 @@ function addTier(): void {
   border-left: 1px solid var(--color-border-subtle);
   border-radius: 0;
   background: none;
+  /* 抽屉只有 480px，四格并排时收紧内边距换取数字可见宽度。 */
+  padding-left: var(--space-2);
 }
 
 .model-price-group :deep(.app-text-input:first-child) {
@@ -406,7 +364,8 @@ function addTier(): void {
   font-weight: 560;
 }
 
-.model-price-matrix__remove {
+.model-price-matrix__remove,
+.model-price-matrix__add {
   color: var(--color-text-faint);
 }
 
@@ -414,10 +373,8 @@ function addTier(): void {
   color: var(--color-danger);
 }
 
-.model-price-matrix__notes {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-1);
+.model-price-matrix__add:hover:not(:disabled) {
+  color: var(--color-action);
 }
 
 .model-price-matrix__note {
@@ -426,68 +383,66 @@ function addTier(): void {
   font-size: var(--text-label-xs);
 }
 
-.model-price-matrix__status {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2-5);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-3-25);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-.model-price-matrix__status-warning {
-  color: var(--color-warning);
-}
-
-.model-price-matrix__groups {
-  display: inline-flex;
-  min-width: 0;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-1-75);
-}
-
-.model-price-matrix__eyebrow {
-  color: var(--color-text-faint);
+/* 派生说明：规则一行，之后每个档位各占一行，标签与值分列对齐。 */
+.model-price-matrix__derived {
+  display: grid;
+  gap: var(--space-0-75);
+  margin: 0;
   font-size: var(--text-label-xs);
-  letter-spacing: 0.04em;
 }
 
-.model-price-matrix__groups a {
-  color: var(--color-action);
+.model-price-matrix__derived-rule {
+  color: var(--color-text-muted);
+}
+
+.model-price-matrix__derived dd {
+  display: grid;
+  grid-template-columns: 76px auto;
+  gap: var(--space-1-75);
+  margin: 0;
+  color: var(--color-text-faint);
+}
+
+.model-price-matrix__derived dd strong {
+  font-family: var(--font-mono);
   font-weight: 560;
 }
 
-.model-price-matrix__groups a span {
-  margin-left: var(--space-1);
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-  font-weight: 400;
-}
-
-.model-price-matrix__actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
-@media (max-width: 720px) {
+/* 抽屉在小屏铺满视口，四格并排放不下：阈值与增删占第一行，价格组换到第二行。 */
+@media (max-width: 560px) {
   .model-price-matrix__row,
   .model-price-matrix__grid--tiered .model-price-matrix__row {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .model-price-matrix__grid--tiered .model-price-matrix__row {
-    grid-template-columns: minmax(0, 1fr) 28px;
+  .model-price-matrix__row--header {
+    display: none;
+  }
+
+  .model-price-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .model-price-group--threshold {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .model-price-matrix__grid--tiered
     .model-price-matrix__row
-    > .model-price-group:not(:first-child) {
+    > .model-price-group:not(.model-price-group--threshold) {
     grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .model-price-matrix__grid--tiered .model-price-matrix__row > .model-price-group--threshold,
+  .model-price-matrix__tier-label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .model-price-matrix__grid--tiered .model-price-matrix__row > .model-price-matrix__actions {
+    grid-column: 2;
+    grid-row: 1;
   }
 }
 </style>

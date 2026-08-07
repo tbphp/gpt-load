@@ -120,6 +120,22 @@ func TestParseModelPriceRowIDRequiresCanonicalPositiveSafeUint(t *testing.T) {
 	}
 }
 
+func TestModelPriceExpectedUpdatedAtMSAcceptsOnlyQuotedSafeInteger(t *testing.T) {
+	missing, err := modelPriceExpectedUpdatedAtMS("")
+	if err != nil || missing != nil {
+		t.Fatalf("missing If-Match = %#v, %v", missing, err)
+	}
+	version, err := modelPriceExpectedUpdatedAtMS(`"123"`)
+	if err != nil || version == nil || *version != 123 {
+		t.Fatalf("quoted If-Match = %#v, %v", version, err)
+	}
+	for _, value := range []string{"123", `W/"123"`, `"01"`, `"-1"`, `"9007199254740992"`} {
+		if _, err := modelPriceExpectedUpdatedAtMS(value); err == nil {
+			t.Fatalf("modelPriceExpectedUpdatedAtMS(%q) accepted invalid version", value)
+		}
+	}
+}
+
 func TestNullableDecimalAcceptsOnlyExactUSDStringOrNull(t *testing.T) {
 	tests := []struct {
 		body string

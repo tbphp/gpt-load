@@ -383,7 +383,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		Method:        pricing.ReceiptMethodUnitRateSum,
 		MethodVersion: 1,
 		Currency:      "USD",
-		Rule:          pricing.Identity{ScopeKey: "group:12", ModelID: "gpt-4.1"},
+		Rule:          pricing.ReceiptRule{ScopeKey: "group:12", ModelID: "gpt-4.1"},
 		LineItems: []pricing.ReceiptLine{{
 			Code:                  "input",
 			Quantity:              1000,

@@ -38,7 +38,6 @@ type requestOutcome struct {
 
 type frozenAttemptPricing struct {
 	groupID       uint
-	scopeKey      string
 	upstreamModel string
 	table         *pricing.Table
 	applicable    bool
@@ -446,26 +445,19 @@ func quoteFrozenAttempt(
 	result usage.Result,
 ) telemetry.PricingObservation {
 	observation := telemetry.PricingObservation{
-		PriceScopeKey:       frozen.scopeKey,
 		UpstreamModel:       frozen.upstreamModel,
 		CostState:           string(pricing.CostStateUnpriced),
 		PricingCompleteness: string(pricing.CompletenessUnavailable),
-	}
-	if frozen.upstreamModel == "" {
-		observation.PriceScopeKey = ""
 	}
 	if result.State == usage.StateNotApplicable || !frozen.applicable {
 		observation.CostState = string(pricing.CostStateNotApplicable)
 		observation.PricingCompleteness = string(pricing.CompletenessNotApplicable)
 		return observation
 	}
-	if frozen.table == nil || frozen.scopeKey == "" || frozen.upstreamModel == "" {
+	if frozen.table == nil || frozen.upstreamModel == "" {
 		return observation
 	}
-	quote, receipt := frozen.table.QuoteWithReceipt(pricing.Identity{
-		ScopeKey: frozen.scopeKey,
-		ModelID:  frozen.upstreamModel,
-	}, result)
+	quote, receipt := frozen.table.QuoteWithReceipt(pricing.Identity{ModelID: frozen.upstreamModel}, result)
 	observation.CostState = string(quote.State)
 	observation.PricingCompleteness = string(quote.Completeness)
 	observation.EstimatedCostNanoUSD = int64(quote.EstimatedCostNanoUSD)

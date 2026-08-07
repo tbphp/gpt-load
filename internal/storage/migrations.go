@@ -42,6 +42,10 @@ var migrations = []migration{
 		ID: "0002_request_log_reasoning",
 		Up: addRequestLogReasoningColumns,
 	},
+	{
+		ID: "0003_global_model_prices",
+		Up: migrateGlobalModelPrices,
+	},
 }
 
 func applyMigrations(db *gorm.DB) error {

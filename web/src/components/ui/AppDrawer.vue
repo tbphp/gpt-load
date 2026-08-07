@@ -48,7 +48,10 @@ function guardDismiss(event: Event): void {
       >
         <header class="app-drawer__header">
           <div class="app-drawer__heading">
-            <DialogTitle class="app-drawer__title">{{ title }}</DialogTitle>
+            <div class="app-drawer__title-row">
+              <DialogTitle class="app-drawer__title">{{ title }}</DialogTitle>
+              <slot name="title-adornment" />
+            </div>
             <DialogDescription :class="showDescription ? 'app-drawer__description' : 'sr-only'">
               {{ description }}
             </DialogDescription>
@@ -116,9 +119,18 @@ function guardDismiss(event: Event): void {
 .app-drawer__heading {
   min-width: 0;
 }
+.app-drawer__title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
+}
 .app-drawer__title {
+  min-width: 0;
+  overflow: hidden;
   font-size: 1rem;
   font-weight: 700;
+  text-overflow: ellipsis;
 }
 .app-drawer__description {
   margin: 2px 0 0;

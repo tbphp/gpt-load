@@ -73,8 +73,8 @@ type requestLogAttemptResponse struct {
 }
 
 type requestLogPricingIdentityResponse struct {
-	ScopeKey string `json:"scope_key"`
-	ModelID  string `json:"model_id"`
+	ScopeKey *string `json:"scope_key,omitempty"`
+	ModelID  string  `json:"model_id"`
 }
 
 type requestLogPricingMultiplierResponse struct {
@@ -828,12 +828,13 @@ func mapRequestLogPricingReceipt(
 		Method:        receipt.Method,
 		MethodVersion: receipt.MethodVersion,
 		Currency:      receipt.Currency,
-		Rule: requestLogPricingIdentityResponse{
-			ScopeKey: receipt.Rule.ScopeKey,
-			ModelID:  receipt.Rule.ModelID,
-		},
-		LineItems:    make([]requestLogPricingLineResponse, 0, len(receipt.LineItems)),
-		TotalNanoUSD: strconv.FormatInt(receipt.TotalNanoUSD, 10),
+		Rule:          requestLogPricingIdentityResponse{ModelID: receipt.Rule.ModelID},
+		LineItems:     make([]requestLogPricingLineResponse, 0, len(receipt.LineItems)),
+		TotalNanoUSD:  strconv.FormatInt(receipt.TotalNanoUSD, 10),
+	}
+	if receipt.SchemaVersion == 1 {
+		scopeKey := receipt.Rule.ScopeKey
+		result.Rule.ScopeKey = &scopeKey
 	}
 	if receipt.ContextThresholdTokens != nil {
 		value := strconv.FormatInt(*receipt.ContextThresholdTokens, 10)

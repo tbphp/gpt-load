@@ -110,10 +110,8 @@ func canonicalPricingReceipt(observation telemetry.PricingObservation) (models.J
 	if err := pricing.ValidateReceipt(receipt); err != nil {
 		return nil, err
 	}
-	if receipt.Rule != (pricing.Identity{
-		ScopeKey: observation.PriceScopeKey,
-		ModelID:  observation.UpstreamModel,
-	}) || receipt.TotalNanoUSD != observation.EstimatedCostNanoUSD {
+	if receipt.SchemaVersion != 2 || receipt.Rule != (pricing.ReceiptRule{ModelID: observation.UpstreamModel}) ||
+		receipt.TotalNanoUSD != observation.EstimatedCostNanoUSD {
 		return nil, fmt.Errorf("receipt does not match frozen pricing observation")
 	}
 	encoded, err := json.Marshal(receipt)
@@ -160,16 +158,12 @@ func validateFrozenObservation(event telemetry.RequestEvent) error {
 	); err != nil {
 		return err
 	}
-	if pricingObservation.PriceScopeKey != "" &&
-		!validFrozenScopeKey(pricingObservation.PriceScopeKey) {
-		return fmt.Errorf("invalid price scope key")
-	}
 	if pricingObservation.UpstreamModel != "" &&
 		!validRawModel(pricingObservation.UpstreamModel) {
 		return fmt.Errorf("invalid pricing upstream model")
 	}
 	if costState == pricing.CostStatePriced &&
-		(pricingObservation.PriceScopeKey == "" || pricingObservation.UpstreamModel == "") {
+		pricingObservation.UpstreamModel == "" {
 		return fmt.Errorf("priced observation requires exact identity")
 	}
 
@@ -179,20 +173,13 @@ func validateFrozenObservation(event telemetry.RequestEvent) error {
 		if result.State != usage.StateNotApplicable {
 			return fmt.Errorf("billable usage requires attempt attribution")
 		}
-		if pricingObservation.PriceScopeKey != "" || pricingObservation.UpstreamModel != "" {
+		if pricingObservation.UpstreamModel != "" {
 			return fmt.Errorf("unbound no-model usage must not carry pricing identity")
 		}
 		return nil
 	}
 	if event.Usage.GroupID == 0 || event.Usage.KeyID == 0 || event.Usage.AttemptSequence < 1 {
 		return fmt.Errorf("partial usage attribution")
-	}
-	if groupText, ok := strings.CutPrefix(pricingObservation.PriceScopeKey, "group:"); ok {
-		var pricedGroupID uint64
-		if _, err := fmt.Sscan(groupText, &pricedGroupID); err != nil ||
-			pricedGroupID != uint64(event.Usage.GroupID) {
-			return fmt.Errorf("group price scope does not match usage attribution")
-		}
 	}
 
 	matchingAttempts := 0
@@ -258,22 +245,6 @@ func validateFrozenPricingState(
 		return fmt.Errorf("invalid usage state")
 	}
 	return nil
-}
-
-func validFrozenScopeKey(scopeKey string) bool {
-	if providerID, ok := strings.CutPrefix(scopeKey, "provider:"); ok {
-		canonical, err := pricing.ProviderScopeKey(providerID)
-		return err == nil && canonical == scopeKey
-	}
-	if groupText, ok := strings.CutPrefix(scopeKey, "group:"); ok {
-		var groupID uint64
-		if _, err := fmt.Sscan(groupText, &groupID); err != nil || groupID == 0 {
-			return false
-		}
-		canonical, err := pricing.GroupScopeKey(uint(groupID))
-		return err == nil && canonical == scopeKey
-	}
-	return false
 }
 
 func validRawModelOrEmpty(model string) bool {

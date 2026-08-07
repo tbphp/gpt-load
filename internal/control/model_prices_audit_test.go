@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -238,13 +237,8 @@ func TestModelPriceSyncStaticPathOwnsDynamicMutationMethodsBeforeAuthAndAudit(t 
 func newModelPriceAuditFixture(t *testing.T) (serviceFixture, models.ModelPrice) {
 	t.Helper()
 	fixture := newServiceFixture(t)
-	scope, err := pricing.ProviderScopeKey("provider-audit-secret")
-	if err != nil {
-		t.Fatal(err)
-	}
 	input := int64(1_000_000_000)
 	row := models.ModelPrice{
-		PriceScopeKey:                     scope,
 		ModelID:                           "model-audit-secret",
 		InputPriceNanoUSDPerMillionTokens: &input,
 	}

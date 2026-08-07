@@ -35,7 +35,6 @@ func modelPriceHasConfiguredValue(row models.ModelPrice) bool {
 func resolveCandidatePricing(
 	row *models.ModelPrice,
 	snapshot *catalog.Snapshot,
-	scopeProviderID string,
 	modelID string,
 ) (PricingStatus, *string) {
 	if row != nil {
@@ -43,13 +42,13 @@ func resolveCandidatePricing(
 		if status != PricingStatusConfigured || !modelPriceHasConfiguredValue(*row) || row.IsManual {
 			return status, nil
 		}
-		if _, providerID, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID); ok {
+		if _, providerID, ok := resolveAutomaticPrice(snapshot, modelID); ok {
 			source := pricingSourceName(snapshot, providerID, providerID)
 			return status, &source
 		}
 		return status, nil
 	}
-	if _, providerID, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID); ok {
+	if _, providerID, ok := resolveAutomaticPrice(snapshot, modelID); ok {
 		source := pricingSourceName(snapshot, providerID, providerID)
 		return PricingStatusConfigured, &source
 	}

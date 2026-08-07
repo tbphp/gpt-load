@@ -19,6 +19,7 @@ var MessagesEnUS = map[string]string{
 	"settings.version_conflict":                       "Settings changed since they were loaded",
 	"model_price.not_found":                           "Model price not found",
 	"model_price.unpriced_confirmation_required":      "Marking a model price as unpriced requires explicit confirmation",
+	"model_price.version_conflict":                    "Model price changed since it was loaded",
 	"model_price.referenced":                          "The model price is still referenced by Groups",
 	"model_price.automatic_delete_forbidden":          "Automatic model prices cannot be deleted manually",
 	"auth.invalid_key":                                "Invalid authorization key",

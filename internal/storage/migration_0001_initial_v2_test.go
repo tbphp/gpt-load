@@ -29,15 +29,14 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 		t.Fatal("schema_migrations is missing")
 	}
 	assertColumns(t, db, "model_prices", []string{
-		"price_scope_key", "model_id",
+		"model_id",
 		"input_price_nano_usd_per_million_tokens",
 		"output_price_nano_usd_per_million_tokens",
 		"cache_read_price_nano_usd_per_million_tokens",
 		"cache_write_price_nano_usd_per_million_tokens",
 		"context_price_tiers", "is_manual", "created_at_ms", "updated_at_ms",
 	})
-	assertUniqueIndex(t, db, "model_prices", "idx_model_prices_scope_model",
-		[]string{"price_scope_key", "model_id"})
+	assertUniqueIndex(t, db, "model_prices", "idx_model_prices_model", []string{"model_id"})
 
 	columns := initialV2Columns(t, db, "model_prices")
 	for _, name := range []string{
@@ -195,9 +194,9 @@ func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
 	for index, column := range priceColumns {
 		t.Run(column, func(t *testing.T) {
 			query := fmt.Sprintf(`INSERT INTO model_prices (
-				price_scope_key, model_id, %s, is_manual, created_at_ms, updated_at_ms
-			) VALUES (?, ?, -1, false, 1, 1)`, column)
-			if err := db.Exec(query, "provider:openai", fmt.Sprintf("model-%d", index)).Error; err == nil {
+				model_id, %s, is_manual, created_at_ms, updated_at_ms
+			) VALUES (?, -1, false, 1, 1)`, column)
+			if err := db.Exec(query, fmt.Sprintf("model-%d", index)).Error; err == nil {
 				t.Fatalf("negative %s was accepted", column)
 			}
 		})
@@ -208,7 +207,6 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 	db := openMigratedInitialV2TestDatabase(t)
 
 	empty := models.ModelPrice{
-		PriceScopeKey:     "provider:openai",
 		ModelID:           "empty-tiers",
 		ContextPriceTiers: models.JSON(`[]`),
 	}
@@ -217,7 +215,7 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 	}
 	var isNull bool
 	if err := db.Raw(`SELECT context_price_tiers IS NULL FROM model_prices
-		WHERE price_scope_key = ? AND model_id = ?`, empty.PriceScopeKey, empty.ModelID).
+		WHERE model_id = ?`, empty.ModelID).
 		Scan(&isNull).Error; err != nil {
 		t.Fatalf("inspect normalized tiers: %v", err)
 	}
@@ -226,8 +224,7 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 	}
 
 	valid := models.ModelPrice{
-		PriceScopeKey: "provider:openai",
-		ModelID:       "valid-tiers",
+		ModelID: "valid-tiers",
 		ContextPriceTiers: models.JSON(`[
 			{"threshold_tokens":0,"input_price_nano_usd_per_million_tokens":1},
 			{"threshold_tokens":100,"cache_write_price_nano_usd_per_million_tokens":0}
@@ -257,7 +254,6 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 	for index, test := range invalid {
 		t.Run(test.name, func(t *testing.T) {
 			row := models.ModelPrice{
-				PriceScopeKey:     "provider:openai",
 				ModelID:           fmt.Sprintf("invalid-tier-%d", index),
 				ContextPriceTiers: models.JSON(test.raw),
 			}
@@ -305,7 +301,7 @@ func TestModelPriceValidatesContextTiersAcrossGORMWritePaths(t *testing.T) {
 				incoming := row
 				incoming.ID = 0
 				return db.Clauses(clause.OnConflict{
-					Columns: []clause.Column{{Name: "price_scope_key"}, {Name: "model_id"}},
+					Columns: []clause.Column{{Name: "model_id"}},
 					DoUpdates: clause.Assignments(map[string]any{
 						"context_price_tiers": tiers,
 					}),
@@ -327,7 +323,7 @@ func TestModelPriceValidatesContextTiersAcrossGORMWritePaths(t *testing.T) {
 			if err := path.write(db, row, models.JSON(`[]`)); err != nil {
 				t.Fatalf("write empty tiers: %v", err)
 			}
-			assertModelPriceTiersNull(t, db, row.PriceScopeKey, row.ModelID)
+			assertModelPriceTiersNull(t, db, row.ModelID)
 		})
 	}
 }
@@ -504,7 +500,7 @@ func TestAutoMigrateDoesNotReapplyCompletedMigrationForChangedTable(t *testing.T
 
 func TestAutoMigrateDoesNotReapplyCompletedMigrationForMissingIndex(t *testing.T) {
 	db := openMigratedInitialV2TestDatabase(t)
-	if err := db.Exec("DROP INDEX idx_model_prices_scope_model").Error; err != nil {
+	if err := db.Exec("DROP INDEX idx_model_prices_model").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.AutoMigrate(db); err != nil {
@@ -539,8 +535,7 @@ func createModelPriceForWritePath(t *testing.T, modelID string) (*gorm.DB, model
 	t.Helper()
 	db := openMigratedInitialV2TestDatabase(t)
 	row := models.ModelPrice{
-		PriceScopeKey: "provider:openai",
-		ModelID:       modelID,
+		ModelID: modelID,
 		ContextPriceTiers: models.JSON(
 			`[{"threshold_tokens":0,"input_price_nano_usd_per_million_tokens":1}]`,
 		),
@@ -554,13 +549,12 @@ func createModelPriceForWritePath(t *testing.T, modelID string) (*gorm.DB, model
 func assertModelPriceTiersNull(
 	t *testing.T,
 	db *gorm.DB,
-	priceScopeKey string,
 	modelID string,
 ) {
 	t.Helper()
 	var isNull bool
 	if err := db.Raw(`SELECT context_price_tiers IS NULL FROM model_prices
-		WHERE price_scope_key = ? AND model_id = ?`, priceScopeKey, modelID).
+		WHERE model_id = ?`, modelID).
 		Scan(&isNull).Error; err != nil {
 		t.Fatalf("inspect normalized tiers: %v", err)
 	}

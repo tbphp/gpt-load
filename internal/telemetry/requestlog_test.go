@@ -51,7 +51,6 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"Committed",
 		},
 		reflect.TypeOf(PricingObservation{}): {
-			"PriceScopeKey",
 			"UpstreamModel",
 			"CostState",
 			"PricingCompleteness",

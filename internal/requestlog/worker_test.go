@@ -1049,8 +1049,8 @@ func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *
 			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
 		},
 		Pricing: telemetry.PricingObservation{
-			PriceScopeKey: "group:14", UpstreamModel: "gpt-4o",
-			CostState: string(pricing.CostStateUnpriced), PricingCompleteness: string(pricing.CompletenessUnavailable),
+			UpstreamModel: "gpt-4o",
+			CostState:     string(pricing.CostStateUnpriced), PricingCompleteness: string(pricing.CompletenessUnavailable),
 		},
 	}
 	event.Attempts[0].GroupID = 14

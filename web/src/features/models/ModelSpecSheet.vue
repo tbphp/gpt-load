@@ -35,6 +35,10 @@ const specs = computed<CatalogSpec[]>(() => {
     model.limits.context === null ? '' : formatInteger(model.limits.context, locale.value),
   )
   push(
+    'maxInput',
+    model.limits.input === null ? '' : formatInteger(model.limits.input, locale.value),
+  )
+  push(
     'maxOutput',
     model.limits.output === null ? '' : formatInteger(model.limits.output, locale.value),
   )
@@ -51,6 +55,9 @@ const capabilities = computed(() =>
     .map((capability) => t(`models.detail.capabilities.${capability}`))
     .concat(metadata.value.open_weights === true ? [t('models.detail.openWeights')] : []),
 )
+
+/** 目录标注的生命周期状态（如 deprecated），此前没有出口，放到规格行尾。 */
+const catalogStatus = computed(() => metadata.value.status)
 
 function formatModalities(): string {
   const { input, output } = metadata.value.modalities
@@ -69,8 +76,9 @@ function formatModalities(): string {
         <dd>{{ spec.value }}</dd>
       </div>
     </dl>
-    <ul v-if="capabilities.length > 0" class="model-spec__capabilities">
+    <ul v-if="capabilities.length > 0 || catalogStatus" class="model-spec__capabilities">
       <li v-for="capability in capabilities" :key="capability">{{ capability }}</li>
+      <li v-if="catalogStatus" class="model-spec__status">{{ catalogStatus }}</li>
     </ul>
   </div>
 </template>
@@ -130,5 +138,10 @@ function formatModalities(): string {
   color: var(--color-text-muted);
   padding: 2px 7px;
   font-size: var(--text-label-xs);
+}
+
+.model-spec__status {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 </style>

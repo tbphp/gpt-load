@@ -238,7 +238,6 @@ func testEvent(id string) telemetry.RequestEvent {
 				State: usage.StateNotApplicable,
 			},
 			Pricing: telemetry.PricingObservation{
-				PriceScopeKey:       "group:7",
 				UpstreamModel:       "upstream-model",
 				CostState:           string(pricing.CostStateNotApplicable),
 				PricingCompleteness: string(pricing.CompletenessNotApplicable),

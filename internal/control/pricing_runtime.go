@@ -58,7 +58,7 @@ func loadPriceTable(ctx context.Context, tx *gorm.DB) (*pricing.Table, error) {
 
 func persistedPriceRule(row models.ModelPrice) (pricing.Rule, error) {
 	rule := pricing.Rule{
-		Identity: pricing.Identity{ScopeKey: row.PriceScopeKey, ModelID: row.ModelID},
+		Identity: pricing.Identity{ModelID: row.ModelID},
 		Prices: pricing.Prices{
 			Input:      priceFromStoragePointer(row.InputPriceNanoUSDPerMillionTokens),
 			Output:     priceFromStoragePointer(row.OutputPriceNanoUSDPerMillionTokens),

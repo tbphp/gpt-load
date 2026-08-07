@@ -64,18 +64,13 @@ type ProjectModelCatalogReferenceDTO struct {
 	Model        ProjectModelCatalogDTO `json:"model"`
 }
 
-type ProjectModelPriceDTO struct {
+type ProjectUpstreamModelDTO struct {
+	ModelID          string                           `json:"model_id"`
+	AliasApplied     bool                             `json:"alias_applied"`
 	Price            ModelPriceDTO                    `json:"price"`
 	RouteGroups      []ProjectModelGroupDTO           `json:"route_groups"`
 	AffectedGroups   []ProjectModelGroupDTO           `json:"affected_groups"`
 	CatalogReference *ProjectModelCatalogReferenceDTO `json:"catalog_reference"`
-}
-
-type ProjectUpstreamModelDTO struct {
-	ModelID        string                           `json:"model_id"`
-	AliasApplied   bool                             `json:"alias_applied"`
-	CatalogSummary *ProjectModelCatalogReferenceDTO `json:"catalog_summary"`
-	Prices         []ProjectModelPriceDTO           `json:"prices"`
 }
 
 type ProjectModelDTO struct {
@@ -113,22 +108,38 @@ type ProjectModelListResponse struct {
 	Pagination ProjectModelPaginationDTO    `json:"pagination"`
 }
 
+type UpstreamModelAssociationDTO struct {
+	ClientModel  string               `json:"client_model"`
+	AliasApplied bool                 `json:"alias_applied"`
+	Group        ProjectModelGroupDTO `json:"group"`
+}
+
+// UpstreamModelDetailDTO is the complete, unfiltered relationship view for a
+// price editor. It deliberately does not inherit the Models list's page,
+// search, enabled-group, or pricing-status filters.
+type UpstreamModelDetailDTO struct {
+	ModelID          string                           `json:"model_id"`
+	Price            ModelPriceDTO                    `json:"price"`
+	CatalogReference *ProjectModelCatalogReferenceDTO `json:"catalog_reference"`
+	Associations     []UpstreamModelAssociationDTO    `json:"associations"`
+	ClientModelCount int                              `json:"client_model_count"`
+	GroupCount       int                              `json:"group_count"`
+}
+
 type projectModelGroupRecord struct {
 	row    models.Group
 	dto    ProjectModelGroupDTO
 	models []GroupModel
 }
 
-type projectModelPriceRecord struct {
-	dto       ProjectModelPriceDTO
-	identity  pricing.Identity
-	groupSeen map[uint]struct{}
-}
-
 type projectModelUpstreamRecord struct {
-	modelID      string
-	aliasApplied bool
-	prices       map[pricing.Identity]*projectModelPriceRecord
+	modelID          string
+	aliasApplied     bool
+	price            ModelPriceDTO
+	routeGroups      []ProjectModelGroupDTO
+	affectedGroups   []ProjectModelGroupDTO
+	catalogReference *ProjectModelCatalogReferenceDTO
+	groupSeen        map[uint]struct{}
 }
 
 type projectModelRecord struct {
@@ -183,7 +194,7 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 	}
 	priceRecords := make(map[pricing.Identity]modelPriceListRecord, len(prices))
 	for _, row := range prices {
-		identity := pricing.Identity{ScopeKey: row.PriceScopeKey, ModelID: row.ModelID}
+		identity := pricing.Identity{ModelID: row.ModelID}
 		if _, duplicate := priceRecords[identity]; duplicate {
 			return ProjectModelListResponse{}, fmt.Errorf("duplicate persisted price identity: %w", app_errors.ErrInternalServer)
 		}
@@ -203,13 +214,13 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			if err := ctx.Err(); err != nil {
 				return ProjectModelListResponse{}, err
 			}
-			identity, err := PriceIdentityForGroup(group.row, model.ID)
+			identity, err := PriceIdentityForModel(model.ID)
 			if err != nil {
 				return ProjectModelListResponse{}, fmt.Errorf("validate group %d model %q: %w", group.row.ID, model.ID, app_errors.ErrInternalServer)
 			}
 			priceRecord, exists := priceRecords[identity]
 			if !exists {
-				return ProjectModelListResponse{}, fmt.Errorf("missing model price row for %s/%s: %w", identity.ScopeKey, identity.ModelID, app_errors.ErrInternalServer)
+				return ProjectModelListResponse{}, fmt.Errorf("missing model price row for %s: %w", identity.ModelID, app_errors.ErrInternalServer)
 			}
 			clientModel := model.ID
 			if strings.TrimSpace(model.Alias) != "" {
@@ -227,34 +238,21 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			root.protocols = mergeProjectModelProtocols(root.protocols, group.dto.Protocols)
 			upstream := root.upstreams[model.ID]
 			if upstream == nil {
-				upstream = &projectModelUpstreamRecord{
-					modelID:      model.ID,
-					aliasApplied: strings.TrimSpace(model.Alias) != "",
-					prices:       make(map[pricing.Identity]*projectModelPriceRecord),
-				}
-				root.upstreams[model.ID] = upstream
-			}
-			branch := upstream.prices[identity]
-			if branch == nil {
 				affectedGroups, err := projectModelAffectedGroups(identity, references, groupDTOs)
 				if err != nil {
 					return ProjectModelListResponse{}, err
 				}
-				branch = &projectModelPriceRecord{
-					dto: ProjectModelPriceDTO{
-						Price:            priceRecord.dto,
-						RouteGroups:      []ProjectModelGroupDTO{},
-						AffectedGroups:   affectedGroups,
-						CatalogReference: projectModelCatalogReference(identity, priceRecord.dto, model.ID, catalogSnapshot),
-					},
-					identity:  identity,
-					groupSeen: make(map[uint]struct{}),
+				upstream = &projectModelUpstreamRecord{
+					modelID: model.ID, aliasApplied: strings.TrimSpace(model.Alias) != "",
+					price: priceRecord.dto, affectedGroups: affectedGroups,
+					catalogReference: projectModelCatalogReference(priceRecord.dto, model.ID, catalogSnapshot),
+					groupSeen:        make(map[uint]struct{}),
 				}
-				upstream.prices[identity] = branch
+				root.upstreams[model.ID] = upstream
 			}
-			if _, duplicate := branch.groupSeen[group.row.ID]; !duplicate {
-				branch.groupSeen[group.row.ID] = struct{}{}
-				branch.dto.RouteGroups = append(branch.dto.RouteGroups, group.dto)
+			if _, duplicate := upstream.groupSeen[group.row.ID]; !duplicate {
+				upstream.groupSeen[group.row.ID] = struct{}{}
+				upstream.routeGroups = append(upstream.routeGroups, group.dto)
 			}
 		}
 	}
@@ -268,24 +266,16 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			UpstreamModels: []ProjectUpstreamModelDTO{},
 		}
 		for _, upstream := range record.upstreams {
-			upstreamDTO := ProjectUpstreamModelDTO{
-				ModelID: upstream.modelID, AliasApplied: upstream.aliasApplied,
-				Prices: []ProjectModelPriceDTO{},
-			}
-			for _, branch := range upstream.prices {
-				if !projectModelPricingVisible(branch.dto.Price.PricingStatus, query.PricingStatus) {
-					continue
-				}
-				sortProjectModelGroups(branch.dto.RouteGroups)
-				upstreamDTO.Prices = append(upstreamDTO.Prices, branch.dto)
-			}
-			sort.SliceStable(upstreamDTO.Prices, func(left, right int) bool {
-				return projectModelPriceSortKey(upstreamDTO.Prices[left]) < projectModelPriceSortKey(upstreamDTO.Prices[right])
-			})
-			if len(upstreamDTO.Prices) == 0 {
+			if !projectModelPricingVisible(upstream.price.PricingStatus, query.PricingStatus) {
 				continue
 			}
-			upstreamDTO.CatalogSummary = projectModelCatalogSummary(upstreamDTO.Prices)
+			sortProjectModelGroups(upstream.routeGroups)
+			upstreamDTO := ProjectUpstreamModelDTO{
+				ModelID: upstream.modelID, AliasApplied: upstream.aliasApplied,
+				Price: upstream.price, RouteGroups: append([]ProjectModelGroupDTO{}, upstream.routeGroups...),
+				AffectedGroups:   append([]ProjectModelGroupDTO{}, upstream.affectedGroups...),
+				CatalogReference: upstream.catalogReference,
+			}
 			dto.UpstreamModels = append(dto.UpstreamModels, upstreamDTO)
 		}
 		sort.SliceStable(dto.UpstreamModels, func(left, right int) bool {
@@ -325,6 +315,82 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 	}, nil
 }
 
+func (s *Service) GetUpstreamModelDetail(ctx context.Context, priceID uint) (UpstreamModelDetailDTO, error) {
+	if priceID == 0 || uint64(priceID) > uint64(maxSafeInteger) {
+		return UpstreamModelDetailDTO{}, app_errors.ErrBadRequest
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	s.writeMu.RLock()
+	defer s.writeMu.RUnlock()
+	var catalogSnapshot *catalog.Snapshot
+	if s.catalogRuntime != nil {
+		catalogSnapshot = s.catalogRuntime.Load()
+	}
+	var row models.ModelPrice
+	var groups []models.Group
+	if err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
+		if err := tx.First(&row, priceID).Error; err != nil {
+			return fmt.Errorf("load model price detail: %w", app_errors.ParseDBError(err))
+		}
+		if err := tx.Order("id ASC").Find(&groups).Error; err != nil {
+			return fmt.Errorf("load groups for model detail: %w", app_errors.ParseDBError(err))
+		}
+		groups = cloneGroupRows(groups)
+		return nil
+	}); err != nil {
+		return UpstreamModelDetailDTO{}, err
+	}
+	references, err := buildPriceReferenceSnapshot(groups)
+	if err != nil {
+		return UpstreamModelDetailDTO{}, err
+	}
+	price, err := projectModelPriceRow(row, references, catalogSnapshot)
+	if err != nil {
+		return UpstreamModelDetailDTO{}, err
+	}
+	groupRecords, _, err := projectModelGroups(groups)
+	if err != nil {
+		return UpstreamModelDetailDTO{}, err
+	}
+	associations := make([]UpstreamModelAssociationDTO, 0)
+	clientModels := make(map[string]struct{})
+	groupIDs := make(map[uint]struct{})
+	for _, group := range groupRecords {
+		for _, model := range group.models {
+			if model.ID != row.ModelID {
+				continue
+			}
+			clientModel := model.ID
+			aliasApplied := strings.TrimSpace(model.Alias) != ""
+			if aliasApplied {
+				clientModel = model.Alias
+			}
+			associations = append(associations, UpstreamModelAssociationDTO{
+				ClientModel: clientModel, AliasApplied: aliasApplied, Group: group.dto,
+			})
+			clientModels[clientModel] = struct{}{}
+			groupIDs[group.row.ID] = struct{}{}
+		}
+	}
+	sort.SliceStable(associations, func(left, right int) bool {
+		if associations[left].ClientModel != associations[right].ClientModel {
+			return associations[left].ClientModel < associations[right].ClientModel
+		}
+		if associations[left].Group.Name != associations[right].Group.Name {
+			return associations[left].Group.Name < associations[right].Group.Name
+		}
+		return associations[left].Group.ID < associations[right].Group.ID
+	})
+	return UpstreamModelDetailDTO{
+		ModelID: row.ModelID, Price: price.dto,
+		CatalogReference: projectModelCatalogReference(price.dto, row.ModelID, catalogSnapshot),
+		Associations:     associations, ClientModelCount: len(clientModels), GroupCount: len(groupIDs),
+	}, nil
+}
+
 func projectModelGroups(groups []models.Group) ([]projectModelGroupRecord, map[uint]ProjectModelGroupDTO, error) {
 	records := make([]projectModelGroupRecord, 0, len(groups))
 	dtos := make(map[uint]ProjectModelGroupDTO, len(groups))
@@ -336,13 +402,6 @@ func projectModelGroups(groups []models.Group) ([]projectModelGroupRecord, map[u
 		var groupModels []GroupModel
 		if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
 			return nil, nil, fmt.Errorf("decode group %d models: %w", group.ID, app_errors.ErrInternalServer)
-		}
-		seenModelIDs := make(map[string]struct{}, len(groupModels))
-		for _, model := range groupModels {
-			if _, duplicate := seenModelIDs[model.ID]; duplicate {
-				return nil, nil, fmt.Errorf("duplicate Group %d model %q: %w", group.ID, model.ID, app_errors.ErrInternalServer)
-			}
-			seenModelIDs[model.ID] = struct{}{}
 		}
 		dto := ProjectModelGroupDTO{
 			ID: group.ID, Name: group.Name, ProviderID: cloneString(group.ProviderID), Enabled: group.Enabled,
@@ -361,7 +420,7 @@ func projectModelAffectedGroups(
 ) ([]ProjectModelGroupDTO, error) {
 	reference, exists := references.references[identity]
 	if !exists || len(reference.groupIDs) == 0 {
-		return nil, fmt.Errorf("missing model price references for %s/%s: %w", identity.ScopeKey, identity.ModelID, app_errors.ErrInternalServer)
+		return nil, fmt.Errorf("missing model price references for %s: %w", identity.ModelID, app_errors.ErrInternalServer)
 	}
 	result := make([]ProjectModelGroupDTO, 0, len(reference.groupIDs))
 	for groupID := range reference.groupIDs {
@@ -384,9 +443,7 @@ func projectModelSummary(
 	for _, record := range records {
 		summary.UpstreamModelCount += len(record.upstreams)
 		for _, upstream := range record.upstreams {
-			for _, branch := range upstream.prices {
-				seenPrices[branch.dto.Price.ID] = branch.dto.Price
-			}
+			seenPrices[upstream.price.ID] = upstream.price
 		}
 	}
 	summary.PriceCount = len(seenPrices)
@@ -441,7 +498,6 @@ func mergeProjectModelProtocols(left, right []protocol.Protocol) []protocol.Prot
 }
 
 func projectModelCatalogReference(
-	identity pricing.Identity,
 	price ModelPriceDTO,
 	modelID string,
 	snapshot *catalog.Snapshot,
@@ -469,12 +525,6 @@ func projectModelCatalogReference(
 	}
 
 	tested := make(map[string]struct{})
-	if scope, err := parsePriceScopeKey(identity.ScopeKey); err == nil && scope.kind == priceScopeKindProvider {
-		tested[scope.id] = struct{}{}
-		if reference := lookup(scope.id, "actual_provider"); reference != nil {
-			return reference
-		}
-	}
 	if price.MatchedProviderID != nil {
 		providerID := *price.MatchedProviderID
 		tested[providerID] = struct{}{}
@@ -515,21 +565,6 @@ func projectModelCatalogModel(model catalog.Model) ProjectModelCatalogDTO {
 	}
 }
 
-func projectModelCatalogSummary(prices []ProjectModelPriceDTO) *ProjectModelCatalogReferenceDTO {
-	if len(prices) == 0 || prices[0].CatalogReference == nil {
-		return nil
-	}
-	first := prices[0].CatalogReference
-	for _, price := range prices[1:] {
-		candidate := price.CatalogReference
-		if candidate == nil || candidate.Source != first.Source || candidate.ProviderID != first.ProviderID || candidate.Model.ID != first.Model.ID {
-			return nil
-		}
-	}
-	result := *first
-	return &result
-}
-
 func cloneProjectBool(value *bool) *bool {
 	if value == nil {
 		return nil
@@ -544,10 +579,6 @@ func cloneProjectInt64(value *int64) *int64 {
 	}
 	cloned := *value
 	return &cloned
-}
-
-func projectModelPriceSortKey(branch ProjectModelPriceDTO) string {
-	return branch.Price.Scope.Kind + ":" + branch.Price.Scope.ID + ":" + branch.Price.ModelID
 }
 
 func sortProjectModelGroups(groups []ProjectModelGroupDTO) {
@@ -571,22 +602,16 @@ func projectModelSearchMatch(record ProjectModelDTO, search string) bool {
 		if strings.Contains(strings.ToLower(upstream.ModelID), search) {
 			return true
 		}
-		for _, branch := range upstream.Prices {
-			price := branch.Price
-			if strings.Contains(strings.ToLower(price.Scope.ID), search) || strings.Contains(strings.ToLower(price.Scope.Label), search) {
+		if reference := upstream.CatalogReference; reference != nil {
+			if strings.Contains(strings.ToLower(reference.Model.Name), search) ||
+				strings.Contains(strings.ToLower(reference.ProviderID), search) ||
+				strings.Contains(strings.ToLower(reference.ProviderName), search) {
 				return true
 			}
-			if reference := branch.CatalogReference; reference != nil {
-				if strings.Contains(strings.ToLower(reference.Model.Name), search) ||
-					strings.Contains(strings.ToLower(reference.ProviderID), search) ||
-					strings.Contains(strings.ToLower(reference.ProviderName), search) {
-					return true
-				}
-			}
-			for _, group := range branch.RouteGroups {
-				if strings.Contains(strings.ToLower(group.Name), search) {
-					return true
-				}
+		}
+		for _, group := range upstream.RouteGroups {
+			if strings.Contains(strings.ToLower(group.Name), search) {
+				return true
 			}
 		}
 	}

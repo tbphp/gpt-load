@@ -6,7 +6,6 @@ import (
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -73,16 +72,11 @@ func (s *Service) DiscoverModels(
 	for _, candidate := range keys.candidates {
 		plaintextKeys = append(plaintextKeys, candidate.plaintext)
 	}
-	priceScopeKey := ""
-	if providerID != nil {
-		priceScopeKey, _ = pricing.ProviderScopeKey(*providerID)
-	}
 	return s.executeModelDiscovery(ctx, discoveryTarget{
-		baseURL:       baseURL,
-		protocols:     protocols,
-		keys:          plaintextKeys,
-		headerRules:   group.HeaderRules,
-		providerID:    providerID,
-		priceScopeKey: priceScopeKey,
+		baseURL:     baseURL,
+		protocols:   protocols,
+		keys:        plaintextKeys,
+		headerRules: group.HeaderRules,
+		providerID:  providerID,
 	})
 }

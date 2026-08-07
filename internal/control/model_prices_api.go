@@ -265,9 +265,32 @@ func (s *Server) handleListModelPrices(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleGetUpstreamModelDetail(c *gin.Context) {
+	if c.Request.URL.RawQuery != "" || c.Request.URL.ForceQuery {
+		writeServiceError(c, "get_upstream_model_detail", app_errors.ErrBadRequest)
+		return
+	}
+	id, err := parseModelPriceRowID(c.Param("id"))
+	if err != nil {
+		writeServiceError(c, "get_upstream_model_detail", app_errors.ErrBadRequest)
+		return
+	}
+	result, err := s.service.GetUpstreamModelDetail(c.Request.Context(), id)
+	if err != nil {
+		writeServiceError(c, "get_upstream_model_detail", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleUpdateModelPrice(c *gin.Context) {
 	id, ok := modelPriceID(c, "update_model_price")
 	if !ok || !modelPriceMutationQueryIsEmpty(c, "update_model_price") {
+		return
+	}
+	expectedUpdatedAtMS, err := modelPriceExpectedUpdatedAtMS(c.GetHeader("If-Match"))
+	if err != nil {
+		writeServiceError(c, "update_model_price", app_errors.ErrBadRequest)
 		return
 	}
 	var request ModelPriceUpdateRequest
@@ -279,12 +302,30 @@ func (s *Server) handleUpdateModelPrice(c *gin.Context) {
 		writeServiceError(c, "update_model_price", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.UpdateModelPrice(c.Request.Context(), id, request)
+	result, err := s.service.UpdateModelPriceIfCurrent(c.Request.Context(), id, request, expectedUpdatedAtMS)
 	if err != nil {
 		writeServiceError(c, "update_model_price", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
+}
+
+// The Models page sends a strong, quoted millisecond version in If-Match.
+// Keeping the header optional preserves the established management API for
+// callers that have not yet adopted optimistic concurrency.
+func modelPriceExpectedUpdatedAtMS(value string) (*int64, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if len(value) < 3 || value[0] != '"' || value[len(value)-1] != '"' {
+		return nil, fmt.Errorf("model price If-Match must be a quoted version")
+	}
+	parsed, err := parseCanonicalSafeUint(value[1 : len(value)-1])
+	if err != nil || parsed > uint64(maxSafeInteger) {
+		return nil, fmt.Errorf("model price If-Match must be a safe integer")
+	}
+	version := int64(parsed)
+	return &version, nil
 }
 
 func (s *Server) handleResetModelPrice(c *gin.Context) {

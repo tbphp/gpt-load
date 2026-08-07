@@ -26,7 +26,6 @@ func TestResolveCandidatePricingUsesCurrentAutomaticPriceMatch(t *testing.T) {
 	status, source := resolveCandidatePricing(
 		&models.ModelPrice{InputPriceNanoUSDPerMillionTokens: &price},
 		snapshot,
-		"",
 		"gpt-4o",
 	)
 	if status != PricingStatusConfigured || source == nil || *source != "OpenAI" {
@@ -38,7 +37,6 @@ func TestResolveCandidatePricingHidesManuallyUnpricedSource(t *testing.T) {
 	status, source := resolveCandidatePricing(
 		&models.ModelPrice{IsManual: true},
 		nil,
-		"",
 		"gpt-4o",
 	)
 	if status != PricingStatusConfigured || source != nil {

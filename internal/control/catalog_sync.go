@@ -663,15 +663,7 @@ func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) er
 		return fmt.Errorf("load automatic model prices: %w", app_errors.ParseDBError(err))
 	}
 	for _, row := range rows {
-		scope, err := parsePriceScopeKey(row.PriceScopeKey)
-		if err != nil {
-			return fmt.Errorf("validate automatic model price scope: %w", app_errors.ErrInternalServer)
-		}
-		scopeProviderID := ""
-		if scope.kind == priceScopeKindProvider {
-			scopeProviderID = scope.id
-		}
-		cost, _, ok := resolveAutomaticPrice(snapshot, scopeProviderID, row.ModelID)
+		cost, _, ok := resolveAutomaticPrice(snapshot, row.ModelID)
 		desired := models.ModelPrice{}
 		if ok {
 			var err error
@@ -754,7 +746,7 @@ func cleanupUnreferencedAutomaticPrices(tx *gorm.DB) error {
 	}
 	ids := make([]uint, 0)
 	for _, row := range rows {
-		identity := pricing.Identity{ScopeKey: row.PriceScopeKey, ModelID: row.ModelID}
+		identity := pricing.Identity{ModelID: row.ModelID}
 		if _, referenced := references[identity]; !referenced {
 			ids = append(ids, row.ID)
 		}

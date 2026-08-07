@@ -54,11 +54,7 @@ func (s *Service) GetGroupModels(ctx context.Context, groupID uint) (GroupModels
 	if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
 		return GroupModelsResponse{}, fmt.Errorf("decode group %d models: %w", group.ID, err)
 	}
-	scopeKey, err := PriceScopeKeyForGroup(group)
-	if err != nil {
-		return GroupModelsResponse{}, fmt.Errorf("validate group %d price scope: %w", group.ID, app_errors.ErrInternalServer)
-	}
-	rows, err := loadPriceRowsByScope(ctx, s.db, scopeKey)
+	rows, err := loadModelPriceRows(ctx, s.db)
 	if err != nil {
 		return GroupModelsResponse{}, err
 	}

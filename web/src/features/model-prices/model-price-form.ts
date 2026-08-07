@@ -103,6 +103,18 @@ function parseThreshold(raw: string): number | undefined {
   return parsed > maximumSafeIntegerBig ? undefined : Number(raw)
 }
 
+/**
+ * 展示排序用途：空值或非法输入排到最后，避免尚未填写的新档位打断已有顺序。
+ * 与提交前的严格校验（parseThreshold）分开，这里只用于让编辑区的行序
+ * 和后端优先级（数组升序）、派生说明的排序保持一致。
+ */
+export function tierDisplayOrder(threshold: string): number {
+  const trimmed = threshold.trim()
+  if (trimmed === '') return Number.POSITIVE_INFINITY
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY
+}
+
 function validateSlots(slots: ModelPriceSlotDraft): ModelPriceSlotErrors {
   const errors: ModelPriceSlotErrors = {}
   for (const field of modelPriceFields) {
@@ -177,9 +189,9 @@ export function buildModelPriceRequest(
   }
 }
 
-/** 是否处于「用户主动清空」状态；仅看基础四槽位，与后端 all-null 判定保持一致。 */
+/** 是否处于「用户主动清空」状态；基础价格和全部 Tier 都没有任何价格。 */
 export function modelPriceDraftIsAllNull(draft: ModelPriceDraft): boolean {
-  return slotsAllEmpty(draft.base)
+  return slotsAllEmpty(draft.base) && draft.tiers.every((tier) => slotsAllEmpty(tier.slots))
 }
 
 export function modelPriceDraftChanged(row: ModelPriceDto, draft: ModelPriceDraft): boolean {

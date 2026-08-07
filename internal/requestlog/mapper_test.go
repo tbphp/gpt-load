@@ -40,7 +40,6 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	event.Usage.AttemptSequence = 1
 	event.Usage.KeyID = 8
 	event.Usage.Pricing = telemetry.PricingObservation{
-		PriceScopeKey:        "group:7",
 		UpstreamModel:        "upstream-model",
 		CostState:            string(pricing.CostStatePriced),
 		PricingCompleteness:  string(pricing.CompletenessPartial),
@@ -94,7 +93,6 @@ func TestMapEventPersistsEveryValidFrozenPricingState(t *testing.T) {
 			event.Usage.AttemptSequence = 1
 			event.Usage.KeyID = 8
 			event.Usage.Pricing = telemetry.PricingObservation{
-				PriceScopeKey:        "provider:openai",
 				UpstreamModel:        event.UpstreamModel,
 				CostState:            string(test.costState),
 				PricingCompleteness:  string(test.completeness),
@@ -116,8 +114,8 @@ func TestMapEventRejectsInvalidFrozenObservationAtomically(t *testing.T) {
 		event.Usage.AttemptSequence = 1
 		event.Usage.KeyID = 8
 		event.Usage.Pricing = telemetry.PricingObservation{
-			PriceScopeKey: "group:7", UpstreamModel: event.UpstreamModel,
-			CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+			UpstreamModel: event.UpstreamModel,
+			CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
 			EstimatedCostNanoUSD: 1,
 		}
 		return event
@@ -132,11 +130,7 @@ func TestMapEventRejectsInvalidFrozenObservationAtomically(t *testing.T) {
 			event.Usage.Result.Tokens.Output = 1
 		}},
 		{name: "negative cost", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.EstimatedCostNanoUSD = -1 }},
-		{name: "priced without identity", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.PriceScopeKey = "" }},
-		{name: "invalid canonical scope", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.PriceScopeKey = "group:07" }},
-		{name: "group scope does not match bound group", mutate: func(event *telemetry.RequestEvent) {
-			event.Usage.Pricing.PriceScopeKey = "group:8"
-		}},
+		{name: "priced without identity", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.UpstreamModel = "" }},
 		{name: "invalid matrix", mutate: func(event *telemetry.RequestEvent) {
 			event.Usage.Pricing.PricingCompleteness = string(pricing.CompletenessUnavailable)
 		}},
@@ -176,11 +170,11 @@ func TestMapEventAllowsUnboundNoModelResourceOnlyAsNotApplicable(t *testing.T) {
 	if _, err := mapEvent(redact.New(), event); err != nil {
 		t.Fatalf("mapEvent() error = %v", err)
 	}
-	event.Usage.Pricing.PriceScopeKey = "group:7"
+	event.Usage.Pricing.UpstreamModel = "model"
 	if _, err := mapEvent(redact.New(), event); err == nil {
 		t.Fatal("unbound no-model resource with pricing identity was accepted")
 	}
-	event.Usage.Pricing.PriceScopeKey = ""
+	event.Usage.Pricing.UpstreamModel = ""
 	event.Usage.Result.State = usage.StateComplete
 	event.Usage.Pricing.CostState = string(pricing.CostStateUnpriced)
 	event.Usage.Pricing.PricingCompleteness = string(pricing.CompletenessUnavailable)

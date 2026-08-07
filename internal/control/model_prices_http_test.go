@@ -102,7 +102,7 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	if !ok || updatedPrices["input"] != "0" || updatedPrices["output"] != nil {
 		t.Fatalf("updated price wire = %#v", updated["prices"])
 	}
-	if updated["method"] != "user_override" || updated["id"] != float64(row.ID) {
+	if updated["method"] != "user_set" || updated["id"] != float64(row.ID) {
 		t.Fatalf("updated ownership wire = %#v", updated)
 	}
 	if matchedProviderID, exists := updated["matched_provider_id"]; !exists || matchedProviderID != nil {
@@ -220,6 +220,27 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModelPriceHTTPUpdateRejectsStaleIfMatch(t *testing.T) {
+	_, engine, row := newModelPriceHTTPFixture(t, true)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		fmt.Sprintf("/api/model-prices/%d", row.ID),
+		bytes.NewBufferString(modelPriceHTTPUpdateBody(`"1"`, "false")),
+	)
+	request.Header.Set("Authorization", "Bearer "+authTestKey)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", `"1"`)
+	engine.ServeHTTP(recorder, request)
+	assertModelPriceHTTPError(
+		t,
+		recorder,
+		http.StatusPreconditionFailed,
+		"MODEL_PRICE_VERSION_CONFLICT",
+		map[string]any{"id": float64(row.ID), "updated_at_ms": float64(row.UpdatedAtMS)},
+	)
 }
 
 func TestModelPriceHTTPResetDeleteAndStableErrorData(t *testing.T) {
@@ -411,13 +432,8 @@ func newModelPriceHTTPFixture(
 	fixture := newServiceFixture(t)
 	var row models.ModelPrice
 	if seed {
-		scope, err := pricing.ProviderScopeKey("openai")
-		if err != nil {
-			t.Fatal(err)
-		}
 		input := int64(2_500_000_000)
 		row = models.ModelPrice{
-			PriceScopeKey:                     scope,
 			ModelID:                           "gpt-wire",
 			InputPriceNanoUSDPerMillionTokens: &input,
 		}

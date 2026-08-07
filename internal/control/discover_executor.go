@@ -16,12 +16,11 @@ import (
 )
 
 type discoveryTarget struct {
-	baseURL       string
-	protocols     []protocol.Protocol
-	keys          []string
-	headerRules   state.HeaderRules
-	providerID    *string
-	priceScopeKey string
+	baseURL     string
+	protocols   []protocol.Protocol
+	keys        []string
+	headerRules state.HeaderRules
+	providerID  *string
 }
 
 func (s *Service) executeModelDiscovery(
@@ -99,13 +98,9 @@ func (s *Service) mergeDiscoveredModels(
 			providerModels = provider.Models
 		}
 	}
-	scopeProviderID := ""
-	if target.providerID != nil {
-		scopeProviderID = *target.providerID
-	}
 	rows := map[string]*models.ModelPrice{}
-	if target.priceScopeKey != "" && s.db != nil {
-		loaded, err := loadPriceRowsByScope(ctx, s.db, target.priceScopeKey)
+	if s.db != nil {
+		loaded, err := loadModelPriceRows(ctx, s.db)
 		if err != nil {
 			return ModelDiscoveryResult{}, err
 		}
@@ -116,9 +111,7 @@ func (s *Service) mergeDiscoveredModels(
 	seen := make(map[string]int, len(live)+len(providerModels))
 	for _, id := range live {
 		model, catalogMatch := providerModels[id]
-		pricingStatus, pricingSource := resolveCandidatePricing(
-			rows[id], catalogSnapshot, scopeProviderID, id,
-		)
+		pricingStatus, pricingSource := resolveCandidatePricing(rows[id], catalogSnapshot, id)
 		candidate := ModelCandidate{
 			ID: id, Name: id, Sources: []string{"live"},
 			PricingStatus: pricingStatus, PricingSource: pricingSource,
@@ -141,9 +134,7 @@ func (s *Service) mergeDiscoveredModels(
 		if name == "" {
 			name = id
 		}
-		pricingStatus, pricingSource := resolveCandidatePricing(
-			rows[id], catalogSnapshot, scopeProviderID, id,
-		)
+		pricingStatus, pricingSource := resolveCandidatePricing(rows[id], catalogSnapshot, id)
 		catalogOnly = append(catalogOnly, ModelCandidate{
 			ID: id, Name: name, Sources: []string{"catalog"},
 			PricingStatus: pricingStatus, PricingSource: pricingSource,

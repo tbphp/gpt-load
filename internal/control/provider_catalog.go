@@ -164,8 +164,7 @@ func (s *Service) ListProviderModels(
 	if !exists {
 		return ProviderModelListResponse{}, app_errors.ErrResourceNotFound
 	}
-	scopeKey, _ := pricing.ProviderScopeKey(providerID)
-	rows, err := loadPriceRowsByScope(ctx, s.db, scopeKey)
+	rows, err := loadModelPriceRows(ctx, s.db)
 	if err != nil {
 		return ProviderModelListResponse{}, err
 	}
@@ -179,7 +178,7 @@ func (s *Service) ListProviderModels(
 			continue
 		}
 		row := rows[model.ID]
-		status, pricingSource := resolveCandidatePricing(row, snapshot, providerID, model.ID)
+		status, pricingSource := resolveCandidatePricing(row, snapshot, model.ID)
 		if query.Status != "" && query.Status != status {
 			continue
 		}
@@ -207,13 +206,12 @@ func (s *Service) ListProviderModels(
 	return ProviderModelListResponse{Items: items, Total: total}, nil
 }
 
-func loadPriceRowsByScope(
+func loadModelPriceRows(
 	ctx context.Context,
 	db *gorm.DB,
-	scopeKey string,
 ) (map[string]*models.ModelPrice, error) {
 	var rows []models.ModelPrice
-	if err := db.WithContext(ctx).Where("price_scope_key = ?", scopeKey).Order("id ASC").Find(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load model price status: %w", app_errors.ParseDBError(err))
 	}
 	result := make(map[string]*models.ModelPrice, len(rows))

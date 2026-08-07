@@ -46,8 +46,8 @@ func TestAutoMigrateUpgradesLegacyRequestLogReasoningMigration(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&migrationCount).Error; err != nil {
 		t.Fatalf("count migration ledger: %v", err)
 	}
-	if migrationCount != 2 {
-		t.Fatalf("migration ledger count = %d, want 2", migrationCount)
+	if migrationCount != 3 {
+		t.Fatalf("migration ledger count = %d, want 3", migrationCount)
 	}
 
 	if err := storage.AutoMigrate(db); err != nil {
@@ -56,7 +56,7 @@ func TestAutoMigrateUpgradesLegacyRequestLogReasoningMigration(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&migrationCount).Error; err != nil {
 		t.Fatalf("count migration ledger after second run: %v", err)
 	}
-	if migrationCount != 2 {
-		t.Fatalf("migration ledger count after second run = %d, want 2", migrationCount)
+	if migrationCount != 3 {
+		t.Fatalf("migration ledger count after second run = %d, want 3", migrationCount)
 	}
 }

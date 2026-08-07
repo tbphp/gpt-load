@@ -478,8 +478,8 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 	eventA.Usage.AttemptSequence = 1
 	eventA.Usage.KeyID = 8
 	eventA.Usage.Pricing = telemetry.PricingObservation{
-		PriceScopeKey: "group:7", UpstreamModel: "snapshot-model",
-		CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+		UpstreamModel: "snapshot-model",
+		CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
 		EstimatedCostNanoUSD: 1_000_000_000,
 	}
 	service.Emit(eventA)
@@ -500,8 +500,8 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 	eventB.Usage.AttemptSequence = 1
 	eventB.Usage.KeyID = 8
 	eventB.Usage.Pricing = telemetry.PricingObservation{
-		PriceScopeKey: "group:7", UpstreamModel: "snapshot-model",
-		CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+		UpstreamModel: "snapshot-model",
+		CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
 		EstimatedCostNanoUSD: 2_000_000_000,
 	}
 	service.Emit(eventB)

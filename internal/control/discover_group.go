@@ -171,15 +171,10 @@ func (s *Service) mapGroupDiscoveryTarget(
 		}
 		plaintextKeys = append(plaintextKeys, plaintext)
 	}
-	priceScopeKey, err := PriceScopeKeyForGroup(rows.group)
-	if err != nil {
-		return discoveryTarget{}, fmt.Errorf("resolve persisted discovery price scope: %w", app_errors.ErrInternalServer)
-	}
-
 	return discoveryTarget{
 		baseURL: rows.group.UpstreamURL, protocols: protocols,
 		keys: plaintextKeys, headerRules: compiledGroup.HeaderRules,
-		providerID: cloneString(rows.group.ProviderID), priceScopeKey: priceScopeKey,
+		providerID: cloneString(rows.group.ProviderID),
 	}, nil
 }
 

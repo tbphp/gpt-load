@@ -5,11 +5,11 @@ import "fmt"
 // ValidateReceipt verifies a persisted request-time receipt without consulting
 // the mutable current pricing table.
 func ValidateReceipt(receipt Receipt) error {
-	if receipt.SchemaVersion != 1 || receipt.Method != ReceiptMethodUnitRateSum ||
-		receipt.MethodVersion != 1 || receipt.Currency != "USD" {
+	if (receipt.SchemaVersion != 1 && receipt.SchemaVersion != 2) ||
+		receipt.Method != ReceiptMethodUnitRateSum || receipt.MethodVersion != 1 || receipt.Currency != "USD" {
 		return fmt.Errorf("unsupported pricing receipt contract")
 	}
-	if err := validateIdentity(receipt.Rule); err != nil {
+	if err := validateReceiptRule(receipt.Rule, receipt.SchemaVersion == 1); err != nil {
 		return fmt.Errorf("invalid pricing receipt rule: %w", err)
 	}
 	if receipt.ContextThresholdTokens != nil && *receipt.ContextThresholdTokens < 0 {

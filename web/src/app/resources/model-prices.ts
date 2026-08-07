@@ -20,8 +20,7 @@ import {
 export type ModelPriceStatus = 'pending' | 'configured'
 export type ModelPriceStatusFilter = ModelPriceStatus | 'all'
 export type ModelPriceUsageFilter = 'in_use' | 'unreferenced' | 'all'
-export type ModelPriceMethod =
-  'auto_sync' | 'auto_matched' | 'user_override' | 'user_set' | 'user_marked_unpriced'
+export type ModelPriceMethod = 'auto_sync' | 'user_set' | 'user_marked_unpriced'
 
 export interface ModelPriceFilters {
   usage: ModelPriceUsageFilter
@@ -29,12 +28,6 @@ export interface ModelPriceFilters {
   search?: string
   page: number
   page_size: 20 | 50 | 100
-}
-
-export interface ModelPriceScopeDto {
-  kind: 'provider' | 'group'
-  id: string
-  label: string
 }
 
 export interface ModelPriceSlotsDto {
@@ -52,7 +45,6 @@ export interface ModelPriceContextTierDto {
 export interface ModelPriceDto {
   id: number
   model_id: string
-  scope: ModelPriceScopeDto
   prices: ModelPriceSlotsDto
   pricing_status: ModelPriceStatus
   method: ModelPriceMethod | null
@@ -98,6 +90,7 @@ export interface ModelPriceUpdateRequest {
 
 export type ModelPriceMutationIssue =
   | { code: 'MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED'; id: number }
+  | { code: 'MODEL_PRICE_VERSION_CONFLICT'; id: number; updated_at_ms: number }
   | {
       code: 'MODEL_PRICE_REFERENCED'
       id: number
@@ -111,7 +104,6 @@ const paginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as 
 const itemFields = [
   'id',
   'model_id',
-  'scope',
   'prices',
   'pricing_status',
   'method',
@@ -125,7 +117,6 @@ const itemFields = [
   'can_reset',
   'can_delete',
 ] as const
-const scopeFields = ['kind', 'id', 'label'] as const
 const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 const contextTierFields = ['threshold_tokens', 'prices'] as const
 const updateFields = [...priceFields, 'context_tiers', 'confirm_unpriced'] as const
@@ -138,16 +129,6 @@ function projectIdentityString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0 || /\p{Cc}/u.test(result)) invalidResponse()
   return result
-}
-
-function projectScope(value: unknown): ModelPriceScopeDto {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, scopeFields)
-  return {
-    kind: projectEnum(record.kind, ['provider', 'group'] as const),
-    id: projectIdentityString(record.id),
-    label: projectIdentityString(record.label),
-  }
 }
 
 function projectPrices(value: unknown): ModelPriceSlotsDto {
@@ -187,13 +168,7 @@ function projectContextTiers(value: unknown): ModelPriceContextTierDto[] {
 function projectMethod(value: unknown): ModelPriceMethod | null {
   return value === null
     ? null
-    : projectEnum(value, [
-        'auto_sync',
-        'auto_matched',
-        'user_override',
-        'user_set',
-        'user_marked_unpriced',
-      ] as const)
+    : projectEnum(value, ['auto_sync', 'user_set', 'user_marked_unpriced'] as const)
 }
 
 export function projectModelPrice(value: unknown): ModelPriceDto {
@@ -202,7 +177,6 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
   const result: ModelPriceDto = {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     model_id: projectIdentityString(record.model_id),
-    scope: projectScope(record.scope),
     prices: projectPrices(record.prices),
     pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),
     method: projectMethod(record.method),
@@ -219,11 +193,8 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     can_reset: projectBoolean(record.can_reset),
     can_delete: projectBoolean(record.can_delete),
   }
-  const hasAutomaticReference = result.method === 'auto_sync' || result.method === 'auto_matched'
-  const hasManualMethod =
-    result.method === 'user_override' ||
-    result.method === 'user_set' ||
-    result.method === 'user_marked_unpriced'
+  const hasAutomaticReference = result.method === 'auto_sync'
+  const hasManualMethod = result.method === 'user_set' || result.method === 'user_marked_unpriced'
   if (
     result.reference_group_count > result.reference_count ||
     result.referenced !== result.reference_count > 0 ||
@@ -331,11 +302,13 @@ export async function updateModelPrice(
   client: ApiClient,
   id: number,
   request: ModelPriceUpdateRequest,
+  expectedUpdatedAtMS: number,
   signal?: AbortSignal,
 ): Promise<ModelPriceDto> {
   return projectModelPrice(
     await client.request(`/api/model-prices/${id}`, {
       method: 'PUT',
+      headers: { 'If-Match': `"${expectedUpdatedAtMS}"` },
       json: Object.fromEntries(updateFields.map((field) => [field, request[field]])),
       signal,
     }),
@@ -374,12 +347,21 @@ export function projectModelPriceMutationIssue(
   if (!(error instanceof ApiError)) return undefined
   if (
     error.code !== 'MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED' &&
+    error.code !== 'MODEL_PRICE_VERSION_CONFLICT' &&
     error.code !== 'MODEL_PRICE_REFERENCED' &&
     error.code !== 'MODEL_PRICE_AUTOMATIC_DELETE_FORBIDDEN'
   ) {
     return undefined
   }
   const data = projectRecord(error.data)
+  if (error.code === 'MODEL_PRICE_VERSION_CONFLICT') {
+    assertNoSecretLikeFields(data, ['id', 'updated_at_ms'])
+    return {
+      code: error.code,
+      id: projectIssueID(data),
+      updated_at_ms: projectEpochMilliseconds(data.updated_at_ms),
+    }
+  }
   if (error.code === 'MODEL_PRICE_REFERENCED') {
     assertNoSecretLikeFields(data, ['id', 'reference_count', 'reference_group_count'])
     const referenceCount = projectSafeInteger(data.reference_count, { minimum: 1 })

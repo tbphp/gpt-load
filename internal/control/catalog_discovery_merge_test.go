@@ -29,7 +29,7 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 	}})
 	zero := int64(0)
 	if err := fixture.db.Create(&models.ModelPrice{
-		PriceScopeKey: "provider:openai", ModelID: "shared",
+		ModelID:                           "shared",
 		InputPriceNanoUSDPerMillionTokens: &zero,
 	}).Error; err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(withoutProvider.Models, []ModelCandidate{
-		{ID: "shared", Name: "shared", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+		{ID: "shared", Name: "shared", Sources: []string{"live"}, PricingStatus: PricingStatusConfigured},
 		{ID: "live-only", Name: "live-only", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
 	}) {
 		t.Fatalf("URL-inferred candidates = %#v", withoutProvider.Models)
@@ -193,7 +193,7 @@ func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testi
 	}
 	zero := int64(0)
 	if err := fixture.db.Model(&models.ModelPrice{}).
-		Where("price_scope_key = ? AND model_id = ?", "provider:openai", "shared").
+		Where("model_id = ?", "shared").
 		Update("input_price_nano_usd_per_million_tokens", &zero).Error; err != nil {
 		t.Fatal(err)
 	}

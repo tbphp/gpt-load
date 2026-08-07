@@ -621,10 +621,10 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if len(migrationIDs) != 2 || migrationIDs[0] != "0001_initial_v2" ||
-		migrationIDs[1] != "0002_request_log_reasoning" {
+	if len(migrationIDs) != 3 || migrationIDs[0] != "0001_initial_v2" ||
+		migrationIDs[1] != "0002_request_log_reasoning" || migrationIDs[2] != "0003_global_model_prices" {
 		t.Fatalf(
-			"schema_migrations IDs = %v, want [0001_initial_v2 0002_request_log_reasoning]",
+			"schema_migrations IDs = %v, want [0001_initial_v2 0002_request_log_reasoning 0003_global_model_prices]",
 			migrationIDs,
 		)
 	}
@@ -636,8 +636,8 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("schema_migrations row count after a second migration = %d, want 2", count)
+	if count != 3 {
+		t.Fatalf("schema_migrations row count after a second migration = %d, want 3", count)
 	}
 }
 

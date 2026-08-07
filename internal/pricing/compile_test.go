@@ -43,21 +43,19 @@ func TestProviderScopeKeyRejectsNonCanonicalProviderIDs(t *testing.T) {
 	}
 }
 
-func TestNewTableRequiresExactCanonicalIdentity(t *testing.T) {
-	providerRule := Rule{Identity: Identity{ScopeKey: "provider:openai", ModelID: "openai/gpt-4.1"}}
-	groupRule := Rule{Identity: Identity{ScopeKey: "group:7", ModelID: "gpt-4.1"}}
-	table := mustTable(t, providerRule, groupRule)
+func TestNewTableRequiresExactGlobalModelIdentity(t *testing.T) {
+	firstRule := Rule{Identity: Identity{ModelID: "openai/gpt-4.1"}}
+	secondRule := Rule{Identity: Identity{ModelID: "gpt-4.1"}}
+	table := mustTable(t, firstRule, secondRule)
 
-	for _, identity := range []Identity{providerRule.Identity, groupRule.Identity} {
+	for _, identity := range []Identity{firstRule.Identity, secondRule.Identity} {
 		if got, ok := table.Lookup(identity); !ok || got.Identity != identity {
 			t.Fatalf("Lookup(%#v) = %#v, %t, want exact hit", identity, got, ok)
 		}
 	}
 	for _, identity := range []Identity{
-		{ScopeKey: "provider:openai", ModelID: "openai/gpt-4"},
-		{ScopeKey: "provider:openai", ModelID: "gpt-4.1"},
-		{ScopeKey: "provider:open", ModelID: "openai/gpt-4.1"},
-		{ScopeKey: "group:8", ModelID: "gpt-4.1"},
+		{ModelID: "openai/gpt-4"},
+		{ModelID: "gpt-4.1-preview"},
 	} {
 		if got, ok := table.Lookup(identity); ok {
 			t.Fatalf("Lookup(%#v) = %#v, true, want exact miss", identity, got)
@@ -66,22 +64,17 @@ func TestNewTableRequiresExactCanonicalIdentity(t *testing.T) {
 }
 
 func TestNewTableRejectsInvalidIdentityAndDuplicates(t *testing.T) {
-	valid := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	valid := Identity{ModelID: "gpt-4.1"}
 	invalid := []Identity{
 		{},
-		{ScopeKey: "provider:OpenAI", ModelID: "gpt-4.1"},
-		{ScopeKey: "provider:wafer.ai:extra", ModelID: "gpt-4.1"},
-		{ScopeKey: "group:0", ModelID: "gpt-4.1"},
-		{ScopeKey: "group:01", ModelID: "gpt-4.1"},
-		{ScopeKey: "tenant:1", ModelID: "gpt-4.1"},
-		{ScopeKey: "provider:openai", ModelID: ""},
-		{ScopeKey: "provider:openai", ModelID: " gpt-4.1"},
-		{ScopeKey: "provider:openai", ModelID: "gpt-4.1 "},
-		{ScopeKey: "provider:openai", ModelID: "gpt-4.1\n"},
-		{ScopeKey: "provider:openai", ModelID: strings.Repeat("m", 256)},
+		{ModelID: ""},
+		{ModelID: " gpt-4.1"},
+		{ModelID: "gpt-4.1 "},
+		{ModelID: "gpt-4.1\n"},
+		{ModelID: strings.Repeat("m", 256)},
 	}
 	for _, identity := range invalid {
-		t.Run(identity.ScopeKey+"/"+identity.ModelID, func(t *testing.T) {
+		t.Run(identity.ModelID, func(t *testing.T) {
 			if _, err := NewTable([]Rule{{Identity: identity}}); err == nil {
 				t.Fatalf("NewTable() accepted invalid identity %#v", identity)
 			}
@@ -93,8 +86,18 @@ func TestNewTableRejectsInvalidIdentityAndDuplicates(t *testing.T) {
 	}
 }
 
+func TestNewTableRejectsRepeatedModelID(t *testing.T) {
+	_, err := NewTable([]Rule{
+		{Identity: Identity{ModelID: "shared-model"}},
+		{Identity: Identity{ModelID: "shared-model"}},
+	})
+	if err == nil {
+		t.Fatal("NewTable() accepted two rules for the same upstream model")
+	}
+}
+
 func TestNewTableValidatesPricesAndContextTiers(t *testing.T) {
-	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	identity := Identity{ModelID: "gpt-4.1"}
 	tests := []struct {
 		name string
 		rule Rule
@@ -128,7 +131,7 @@ func TestNewTableValidatesPricesAndContextTiers(t *testing.T) {
 
 func TestTableDeepClonesConstructionAndLookup(t *testing.T) {
 	rules := []Rule{{
-		Identity: Identity{ScopeKey: "group:9", ModelID: "claude:3_5/model"},
+		Identity: Identity{ModelID: "claude:3_5/model"},
 		Prices:   Prices{Input: fixedPrice(1)},
 		ContextTiers: []ContextTier{{
 			InputThresholdTokens: 100,

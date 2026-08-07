@@ -81,18 +81,28 @@ export interface ModelCatalogReferenceDto {
   model: ModelCatalogMetadataDto
 }
 
-export interface ModelPriceBranchDto {
+export interface ModelUpstreamDto {
+  model_id: string
+  alias_applied: boolean
   price: ModelPriceDto
   route_groups: ModelRouteGroupDto[]
   affected_groups: ModelRouteGroupDto[]
   catalog_reference: ModelCatalogReferenceDto | null
 }
 
-export interface ModelUpstreamDto {
-  model_id: string
+export interface UpstreamModelAssociationDto {
+  client_model: string
   alias_applied: boolean
-  catalog_summary: ModelCatalogReferenceDto | null
-  prices: ModelPriceBranchDto[]
+  group: ModelRouteGroupDto
+}
+
+export interface UpstreamModelDetailDto {
+  model_id: string
+  price: ModelPriceDto
+  catalog_reference: ModelCatalogReferenceDto | null
+  associations: UpstreamModelAssociationDto[]
+  client_model_count: number
+  group_count: number
 }
 
 export interface ClientModelDto {
@@ -132,8 +142,23 @@ export interface ModelCollectionDto {
 
 const collectionFields = ['summary', 'catalog', 'items', 'pagination'] as const
 const clientModelFields = ['client_model', 'protocols', 'upstream_models'] as const
-const upstreamModelFields = ['model_id', 'alias_applied', 'catalog_summary', 'prices'] as const
-const priceBranchFields = ['price', 'route_groups', 'affected_groups', 'catalog_reference'] as const
+const upstreamModelFields = [
+  'model_id',
+  'alias_applied',
+  'price',
+  'route_groups',
+  'affected_groups',
+  'catalog_reference',
+] as const
+const upstreamDetailFields = [
+  'model_id',
+  'price',
+  'catalog_reference',
+  'associations',
+  'client_model_count',
+  'group_count',
+] as const
+const associationFields = ['client_model', 'alias_applied', 'group'] as const
 const catalogReferenceFields = ['source', 'provider_id', 'provider_name', 'model'] as const
 const groupFields = ['id', 'name', 'provider_id', 'enabled', 'protocols'] as const
 const catalogModelFields = [
@@ -281,9 +306,10 @@ function projectCatalogReference(
   }
 }
 
-function projectModelPriceBranch(value: unknown, upstreamModelID: string): ModelPriceBranchDto {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, priceBranchFields)
+function projectUpstreamPrice(
+  record: Record<string, unknown>,
+  upstreamModelID: string,
+): Pick<ModelUpstreamDto, 'price' | 'route_groups' | 'affected_groups' | 'catalog_reference'> {
   const price = projectModelPrice(record.price)
   const routeGroups = projectArray(record.route_groups, projectRouteGroup)
   const affectedGroups = projectArray(record.affected_groups, projectRouteGroup)
@@ -315,22 +341,50 @@ function projectUpstreamModel(value: unknown, clientModel: string): ModelUpstrea
   assertNoSecretLikeFields(record, upstreamModelFields)
   const modelID = projectIdentityString(record.model_id)
   const aliasApplied = projectBoolean(record.alias_applied)
-  const prices = projectArray(record.prices, (branch) => projectModelPriceBranch(branch, modelID))
-  if (
-    (!aliasApplied && modelID !== clientModel) ||
-    prices.length === 0 ||
-    new Set(prices.map(({ price }) => price.id)).size !== prices.length
-  ) {
-    invalidResponse()
-  }
+  if (!aliasApplied && modelID !== clientModel) invalidResponse()
   return {
     model_id: modelID,
     alias_applied: aliasApplied,
-    catalog_summary:
-      record.catalog_summary === null
+    ...projectUpstreamPrice(record, modelID),
+  }
+}
+
+function projectAssociation(value: unknown): UpstreamModelAssociationDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, associationFields)
+  return {
+    client_model: projectIdentityString(record.client_model),
+    alias_applied: projectBoolean(record.alias_applied),
+    group: projectRouteGroup(record.group),
+  }
+}
+
+export function projectUpstreamModelDetail(value: unknown): UpstreamModelDetailDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, upstreamDetailFields)
+  const modelID = projectIdentityString(record.model_id)
+  const price = projectModelPrice(record.price)
+  const associations = projectArray(record.associations, projectAssociation)
+  const clientModelCount = projectSafeInteger(record.client_model_count, { minimum: 0 })
+  const groupCount = projectSafeInteger(record.group_count, { minimum: 0 })
+  if (
+    price.model_id !== modelID ||
+    clientModelCount !== new Set(associations.map(({ client_model }) => client_model)).size ||
+    groupCount !== new Set(associations.map(({ group }) => group.id)).size ||
+    price.reference_count !== associations.length ||
+    price.reference_group_count !== groupCount
+  )
+    invalidResponse()
+  return {
+    model_id: modelID,
+    price,
+    catalog_reference:
+      record.catalog_reference === null
         ? null
-        : projectCatalogReference(record.catalog_summary, modelID),
-    prices,
+        : projectCatalogReference(record.catalog_reference, modelID),
+    associations,
+    client_model_count: clientModelCount,
+    group_count: groupCount,
   }
 }
 
@@ -462,6 +516,16 @@ export async function listModels(
     invalidResponse()
   }
   return result
+}
+
+export async function getUpstreamModelDetail(
+  client: ApiClient,
+  priceID: number,
+  signal?: AbortSignal,
+): Promise<UpstreamModelDetailDto> {
+  return projectUpstreamModelDetail(
+    await client.request(`/api/model-prices/${priceID}`, { method: 'GET', signal }),
+  )
 }
 
 export function modelCollectionQueryOptions(

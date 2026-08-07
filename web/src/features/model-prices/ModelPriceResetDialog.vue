@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { RotateCcw, Trash2 } from '@lucide/vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { RequestCancelledError } from '@/api/errors'
@@ -13,15 +13,19 @@ import {
   type ModelPriceDto,
 } from '@/app/resources/model-prices'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
-import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
-const props = defineProps<{
-  row: ModelPriceDto
-  action: 'reset' | 'delete'
-}>()
-const emit = defineEmits<{ completed: [] }>()
+const props = withDefaults(
+  defineProps<{
+    row: ModelPriceDto
+    action: 'reset' | 'delete'
+    disabled?: boolean
+  }>(),
+  { disabled: false },
+)
+const emit = defineEmits<{ completed: []; pending: [pending: boolean] }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
@@ -29,6 +33,8 @@ const open = ref(false)
 const pending = ref(false)
 const failure = ref('')
 let controller: AbortController | undefined
+
+watch(pending, (value) => emit('pending', value))
 
 function clearRequest(): void {
   controller?.abort()
@@ -120,16 +126,17 @@ onBeforeUnmount(clearRequest)
     @confirm="confirm"
   >
     <template #trigger>
-      <IconButton
+      <AppButton
         variant="ghost"
-        :tone="action === 'delete' ? 'danger' : 'neutral'"
         size="compact"
-        :label="t(`modelPrices.${action}.open`, { model: row.model_id })"
+        :disabled="disabled"
+        :aria-label="t(`modelPrices.${action}.open`, { model: row.model_id })"
         @click="setOpen(true)"
       >
-        <RotateCcw v-if="action === 'reset'" :size="15" aria-hidden="true" />
-        <Trash2 v-else :size="15" aria-hidden="true" />
-      </IconButton>
+        <RotateCcw v-if="action === 'reset'" :size="14" aria-hidden="true" />
+        <Trash2 v-else :size="14" aria-hidden="true" />
+        {{ t(`modelPrices.${action}.confirm`) }}
+      </AppButton>
     </template>
 
     <InlineFeedback tone="warning" appearance="ledger">

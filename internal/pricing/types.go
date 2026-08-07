@@ -15,10 +15,17 @@ type Prices struct {
 	CacheWrite Price
 }
 
-// Identity is the exact pricing identity of a real upstream model in one
-// canonical provider or group scope.
+// Identity is the exact global pricing identity of a real upstream model.
+// Routing groups and providers deliberately do not participate in matching.
 type Identity struct {
-	ScopeKey string `json:"scope_key"`
+	ModelID string `json:"model_id"`
+}
+
+// ReceiptRule is the frozen model identity written into a request-time cost
+// receipt. ScopeKey is retained only to read historical v1 receipts. New v2
+// receipts leave it empty because prices are global.
+type ReceiptRule struct {
+	ScopeKey string `json:"scope_key,omitempty"`
 	ModelID  string `json:"model_id"`
 }
 
@@ -92,7 +99,7 @@ type Receipt struct {
 	Method                 string        `json:"method"`
 	MethodVersion          int           `json:"method_version"`
 	Currency               string        `json:"currency"`
-	Rule                   Identity      `json:"rule"`
+	Rule                   ReceiptRule   `json:"rule"`
 	ContextThresholdTokens *int64        `json:"context_threshold_tokens,omitempty"`
 	LineItems              []ReceiptLine `json:"line_items"`
 	TotalNanoUSD           int64         `json:"total_nano_usd"`

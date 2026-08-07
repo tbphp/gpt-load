@@ -535,7 +535,7 @@ func TestUsageAnthropicServerToolDetailKeepsKnownTokenPriceComplete(t *testing.T
 	}
 	requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticUnsupportedBillableDetail)
 
-	identity := pricing.Identity{ScopeKey: "group:1", ModelID: "claude-test"}
+	identity := pricing.Identity{ModelID: "claude-test"}
 	table, err := pricing.NewTable([]pricing.Rule{{
 		Identity: identity,
 		Prices: pricing.Prices{
@@ -554,7 +554,7 @@ func TestUsageAnthropicServerToolDetailKeepsKnownTokenPriceComplete(t *testing.T
 }
 
 func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
-	identity := pricing.Identity{ScopeKey: "group:1", ModelID: "claude-test"}
+	identity := pricing.Identity{ModelID: "claude-test"}
 	table, err := pricing.NewTable([]pricing.Rule{{
 		Identity: identity,
 		Prices: pricing.Prices{

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ inheritAttrs: false })
+
 withDefaults(
   defineProps<{
     label: string
@@ -16,6 +18,7 @@ withDefaults(
 
 <template>
   <form
+    v-bind="$attrs"
     class="collection-filter-bar"
     :class="[
       `collection-filter-bar--${appearance}`,

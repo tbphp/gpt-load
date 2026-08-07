@@ -9,13 +9,21 @@ import {
 } from 'reka-ui'
 import { onBeforeUnmount, ref } from 'vue'
 
-const props = defineProps<{
-  value: string
-  label: string
-  successLabel: string
-  failureLabel: string
-  resolveValue?: () => string | Promise<string>
-}>()
+const props = withDefaults(
+  defineProps<{
+    value: string
+    label: string
+    successLabel: string
+    failureLabel: string
+    resolveValue?: () => string | Promise<string>
+    /**
+     * leading：图标在值前面（默认）。trailing：图标跟在值后面。
+     * icon：只渲染图标，用于值已由相邻标题承担的场景。
+     */
+    layout?: 'leading' | 'trailing' | 'icon'
+  }>(),
+  { resolveValue: undefined, layout: 'leading' },
+)
 
 type CopyState = 'idle' | 'success' | 'failure'
 
@@ -58,13 +66,15 @@ onBeforeUnmount(() => {
         <TooltipTrigger as-child>
           <button
             class="copy-chip"
+            :class="`copy-chip--${layout}`"
             :data-state="state"
             type="button"
             :aria-label="label"
             @click="copyValue"
           >
-            <Copy :size="14" aria-hidden="true" />
-            <span>{{ value }}</span>
+            <Copy v-if="layout === 'leading'" :size="14" aria-hidden="true" />
+            <span v-if="layout !== 'icon'">{{ value }}</span>
+            <Copy v-if="layout !== 'leading'" :size="14" aria-hidden="true" />
           </button>
         </TooltipTrigger>
         <TooltipPortal>
@@ -124,6 +134,18 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.copy-chip svg {
+  flex: none;
+}
+
+/* 图标模式没有文字撑开点击区，补足到与其他紧凑控件一致的尺寸。 */
+.copy-chip--icon {
+  width: var(--control-compact);
+  min-width: var(--control-compact);
+  justify-content: center;
+  padding: 0;
 }
 
 .copy-chip:hover,

@@ -53,7 +53,7 @@ func NewTable(rules []Rule) (*Table, error) {
 			return nil, err
 		}
 		if _, exists := table.rules[rule.Identity]; exists {
-			return nil, fmt.Errorf("duplicate pricing identity %q/%q", rule.Identity.ScopeKey, rule.Identity.ModelID)
+			return nil, fmt.Errorf("duplicate pricing model ID %q", rule.Identity.ModelID)
 		}
 		table.rules[rule.Identity] = cloneRule(rule)
 	}
@@ -99,9 +99,6 @@ func validateRule(rule Rule) error {
 }
 
 func validateIdentity(identity Identity) error {
-	if err := validateScopeKey(identity.ScopeKey); err != nil {
-		return err
-	}
 	if len(identity.ModelID) == 0 || len(identity.ModelID) > maxModelIDBytes {
 		return fmt.Errorf("model ID must be 1 through %d bytes", maxModelIDBytes)
 	}
@@ -114,6 +111,22 @@ func validateIdentity(identity Identity) error {
 		}
 	}
 	return nil
+}
+
+func validateReceiptRule(rule ReceiptRule, requireScope bool) error {
+	if err := validateIdentity(Identity{ModelID: rule.ModelID}); err != nil {
+		return err
+	}
+	if rule.ScopeKey == "" {
+		if requireScope {
+			return fmt.Errorf("legacy receipt scope key is required")
+		}
+		return nil
+	}
+	if !requireScope {
+		return fmt.Errorf("global receipt must not contain a scope key")
+	}
+	return validateScopeKey(rule.ScopeKey)
 }
 
 func validateScopeKey(scopeKey string) error {

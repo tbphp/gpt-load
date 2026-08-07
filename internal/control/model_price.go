@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -15,12 +15,6 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
-
-type PriceScopeDTO struct {
-	Kind  string `json:"kind"`
-	ID    string `json:"id"`
-	Label string `json:"label"`
-}
 
 type PriceSlotsDTO struct {
 	Input      *string `json:"input"`
@@ -32,7 +26,6 @@ type PriceSlotsDTO struct {
 type ModelPriceDTO struct {
 	ID                  uint                       `json:"id"`
 	ModelID             string                     `json:"model_id"`
-	Scope               PriceScopeDTO              `json:"scope"`
 	Prices              PriceSlotsDTO              `json:"prices"`
 	PricingStatus       PricingStatus              `json:"pricing_status"`
 	Method              *string                    `json:"method"`
@@ -67,8 +60,7 @@ type ModelPriceListResponse struct {
 }
 
 type modelPriceListRecord struct {
-	dto      ModelPriceDTO
-	scopeKey string
+	dto ModelPriceDTO
 }
 
 type ModelPriceIDData struct {
@@ -85,6 +77,27 @@ func (s *Service) UpdateModelPrice(
 	ctx context.Context,
 	id uint,
 	request ModelPriceUpdateRequest,
+) (ModelPriceDTO, error) {
+	return s.updateModelPrice(ctx, id, request, nil)
+}
+
+// UpdateModelPriceIfCurrent applies a browser-originated update only when the
+// price still has the version the editor loaded. A nil expected version keeps
+// the established service API behavior for existing callers.
+func (s *Service) UpdateModelPriceIfCurrent(
+	ctx context.Context,
+	id uint,
+	request ModelPriceUpdateRequest,
+	expectedUpdatedAtMS *int64,
+) (ModelPriceDTO, error) {
+	return s.updateModelPrice(ctx, id, request, expectedUpdatedAtMS)
+}
+
+func (s *Service) updateModelPrice(
+	ctx context.Context,
+	id uint,
+	request ModelPriceUpdateRequest,
+	expectedUpdatedAtMS *int64,
 ) (ModelPriceDTO, error) {
 	if id == 0 || uint64(id) > uint64(maxSafeInteger) {
 		return ModelPriceDTO{}, app_errors.ErrBadRequest
@@ -117,8 +130,11 @@ func (s *Service) UpdateModelPrice(
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
 		}
-		if _, err := parsePriceScopeKey(row.PriceScopeKey); err != nil {
-			return fmt.Errorf("validate model price scope: %w", app_errors.ErrInternalServer)
+		if expectedUpdatedAtMS != nil && row.UpdatedAtMS != *expectedUpdatedAtMS {
+			return app_errors.NewAPIErrorWithData(
+				app_errors.ErrModelPriceVersionConflict,
+				ModelPriceVersionConflictData{ID: id, UpdatedAtMS: row.UpdatedAtMS},
+			)
 		}
 		references, err := loadPriceReferenceSnapshot(tx)
 		if err != nil {
@@ -139,7 +155,7 @@ func (s *Service) UpdateModelPrice(
 		desired.ContextPriceTiers = contextTiers
 		desired.IsManual = true
 		if !modelPriceMutableValuesEqual(row, desired) {
-			updatedAtMS, err := safeEpochMilliseconds(s.now())
+			updatedAtMS, err := nextModelPriceUpdatedAtMS(row.UpdatedAtMS, s.now)
 			if err != nil {
 				return fmt.Errorf("timestamp model price update: %w", app_errors.ErrInternalServer)
 			}
@@ -178,6 +194,11 @@ func (s *Service) UpdateModelPrice(
 	return result, nil
 }
 
+type ModelPriceVersionConflictData struct {
+	ID          uint  `json:"id"`
+	UpdatedAtMS int64 `json:"updated_at_ms"`
+}
+
 func (s *Service) ResetModelPrice(
 	ctx context.Context,
 	id uint,
@@ -206,20 +227,16 @@ func (s *Service) ResetModelPrice(
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
 		}
-		scope, err := parsePriceScopeKey(row.PriceScopeKey)
-		if err != nil {
-			return fmt.Errorf("validate model price scope: %w", app_errors.ErrInternalServer)
-		}
 		references, err := loadPriceReferenceSnapshot(tx)
 		if err != nil {
 			return err
 		}
-		desired, err := resetModelPriceValues(scope, row.ModelID, catalogSnapshot)
+		desired, err := resetModelPriceValues(row.ModelID, catalogSnapshot)
 		if err != nil {
 			return fmt.Errorf("normalize catalog model price: %w", app_errors.ErrInternalServer)
 		}
 		if !modelPriceMutableValuesEqual(row, desired) {
-			updatedAtMS, err := safeEpochMilliseconds(s.now())
+			updatedAtMS, err := nextModelPriceUpdatedAtMS(row.UpdatedAtMS, s.now)
 			if err != nil {
 				return fmt.Errorf("timestamp model price reset: %w", app_errors.ErrInternalServer)
 			}
@@ -263,16 +280,8 @@ func (s *Service) ResetModelPrice(
 	return result, nil
 }
 
-func resetModelPriceValues(
-	scope parsedPriceScope,
-	modelID string,
-	snapshot *catalog.Snapshot,
-) (models.ModelPrice, error) {
-	scopeProviderID := ""
-	if scope.kind == priceScopeKindProvider {
-		scopeProviderID = scope.id
-	}
-	cost, _, ok := resolveAutomaticPrice(snapshot, scopeProviderID, modelID)
+func resetModelPriceValues(modelID string, snapshot *catalog.Snapshot) (models.ModelPrice, error) {
+	cost, _, ok := resolveAutomaticPrice(snapshot, modelID)
 	if !ok {
 		return models.ModelPrice{}, nil
 	}
@@ -299,10 +308,7 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
 		}
-		if _, err := parsePriceScopeKey(row.PriceScopeKey); err != nil {
-			return fmt.Errorf("validate model price scope: %w", app_errors.ErrInternalServer)
-		}
-		identity := pricing.Identity{ScopeKey: row.PriceScopeKey, ModelID: row.ModelID}
+		identity := pricing.Identity{ModelID: row.ModelID}
 		if _, err := pricing.NewTable([]pricing.Rule{{Identity: identity}}); err != nil {
 			return fmt.Errorf("validate model price identity: %w", app_errors.ErrInternalServer)
 		}
@@ -340,10 +346,21 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 }
 
 func modelPriceUpdateAllNull(request ModelPriceUpdateRequest) bool {
-	return request.Input.nanoUSD == nil &&
-		request.Output.nanoUSD == nil &&
-		request.CacheRead.nanoUSD == nil &&
-		request.CacheWrite.nanoUSD == nil
+	if request.Input.nanoUSD != nil ||
+		request.Output.nanoUSD != nil ||
+		request.CacheRead.nanoUSD != nil ||
+		request.CacheWrite.nanoUSD != nil {
+		return false
+	}
+	for _, tier := range request.ContextTiers.tiers {
+		if tier.Input.nanoUSD != nil ||
+			tier.Output.nanoUSD != nil ||
+			tier.CacheRead.nanoUSD != nil ||
+			tier.CacheWrite.nanoUSD != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func cloneModelPriceValue(value *int64) *int64 {
@@ -352,6 +369,22 @@ func cloneModelPriceValue(value *int64) *int64 {
 	}
 	cloned := *value
 	return &cloned
+}
+
+// nextModelPriceUpdatedAtMS keeps the public optimistic-lock version strictly
+// monotonic even when consecutive writes observe the same clock millisecond.
+func nextModelPriceUpdatedAtMS(previous int64, now func() time.Time) (int64, error) {
+	current, err := safeEpochMilliseconds(now())
+	if err != nil {
+		return 0, err
+	}
+	if current > previous {
+		return current, nil
+	}
+	if previous >= maxSafeInteger {
+		return 0, fmt.Errorf("model price version exceeds safe integer")
+	}
+	return previous + 1, nil
 }
 
 // buildContextPriceTiersJSON converts the submitted tier list to the
@@ -481,10 +514,6 @@ func projectModelPriceRow(
 	if row.ID == 0 || uint64(row.ID) > uint64(maxSafeInteger) || validateSafeMilliseconds(row.UpdatedAtMS) != nil {
 		return modelPriceListRecord{}, fmt.Errorf("invalid persisted model price wire identity: %w", app_errors.ErrInternalServer)
 	}
-	scope, err := parsePriceScopeKey(row.PriceScopeKey)
-	if err != nil {
-		return modelPriceListRecord{}, fmt.Errorf("decode persisted model price scope: %w", app_errors.ErrInternalServer)
-	}
 	rule, err := persistedPriceRule(row)
 	if err != nil {
 		return modelPriceListRecord{}, fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
@@ -492,7 +521,7 @@ func projectModelPriceRow(
 	if _, err := pricing.NewTable([]pricing.Rule{rule}); err != nil {
 		return modelPriceListRecord{}, fmt.Errorf("validate persisted model price: %w", app_errors.ErrInternalServer)
 	}
-	identity := pricing.Identity{ScopeKey: row.PriceScopeKey, ModelID: row.ModelID}
+	identity := pricing.Identity{ModelID: row.ModelID}
 	reference := references.references[identity]
 	status := resolvePricingStatus(&row)
 	prices := PriceSlotsDTO{
@@ -501,21 +530,12 @@ func projectModelPriceRow(
 		CacheRead:  modelPriceWireDecimal(row.CacheReadPriceNanoUSDPerMillionTokens),
 		CacheWrite: modelPriceWireDecimal(row.CacheWritePriceNanoUSDPerMillionTokens),
 	}
-	configuredSlots := modelPriceConfiguredSlotCount(row)
 	configured := modelPriceHasConfiguredValue(row)
 	var matchedProviderID *string
 	matchedAutomaticPrice := false
 	matchedProvider := ""
 	if !row.IsManual {
-		scopeProviderID := ""
-		if scope.kind == priceScopeKindProvider {
-			scopeProviderID = scope.id
-		}
-		_, matchedProvider, matchedAutomaticPrice = resolveAutomaticPrice(
-			catalogSnapshot,
-			scopeProviderID,
-			row.ModelID,
-		)
+		_, matchedProvider, matchedAutomaticPrice = resolveAutomaticPrice(catalogSnapshot, row.ModelID)
 		if configured && matchedAutomaticPrice {
 			matchedProviderID = &matchedProvider
 		} else {
@@ -524,66 +544,38 @@ func projectModelPriceRow(
 	}
 	dto := ModelPriceDTO{
 		ID: row.ID, ModelID: row.ModelID,
-		Scope:               projectPriceScope(scope, references.groupLabels, catalogSnapshot),
 		Prices:              prices,
 		PricingStatus:       status,
-		Method:              modelPriceMethod(row, scope, configured, matchedAutomaticPrice, matchedProvider),
+		Method:              modelPriceMethod(row, configured, matchedAutomaticPrice),
 		MatchedProviderID:   matchedProviderID,
 		Referenced:          reference.referenceCount > 0,
 		ReferenceCount:      reference.referenceCount,
 		ReferenceGroupCount: reference.referenceGroupCount(),
 		ContextTiers:        projectContextPriceTiers(rule.ContextTiers),
-		Partial:             configuredSlots > 0 && configuredSlots < 4,
+		Partial:             modelPriceRulePartial(row, rule),
 		UpdatedAtMS:         row.UpdatedAtMS,
 		CanReset:            row.IsManual,
 		CanDelete:           row.IsManual && reference.referenceCount == 0,
 	}
-	return modelPriceListRecord{dto: dto, scopeKey: row.PriceScopeKey}, nil
-}
-
-func projectPriceScope(
-	scope parsedPriceScope,
-	groupLabels map[uint]string,
-	catalogSnapshot *catalog.Snapshot,
-) PriceScopeDTO {
-	label := scope.id
-	if scope.kind == priceScopeKindProvider {
-		if catalogSnapshot != nil {
-			if provider, exists := catalogSnapshot.Providers[scope.id]; exists && strings.TrimSpace(provider.Name) != "" {
-				label = provider.Name
-			}
-		}
-	} else if groupLabel, exists := groupLabels[scope.groupID]; exists {
-		label = groupLabel
-	} else {
-		label = "#" + scope.id
-	}
-	return PriceScopeDTO{Kind: scope.kind, ID: scope.id, Label: label}
+	return modelPriceListRecord{dto: dto}, nil
 }
 
 func modelPriceMethod(
 	row models.ModelPrice,
-	scope parsedPriceScope,
 	configured bool,
 	matchedAutomaticPrice bool,
-	matchedProviderID string,
 ) *string {
 	if !row.IsManual {
 		if !configured || !matchedAutomaticPrice {
 			return nil
 		}
 		method := "auto_sync"
-		if scope.kind != priceScopeKindProvider || scope.id != matchedProviderID {
-			method = "auto_matched"
-		}
 		return &method
 	}
 
 	method := "user_set"
 	if !configured {
 		method = "user_marked_unpriced"
-	} else if scope.kind == priceScopeKindProvider {
-		method = "user_override"
 	}
 	return &method
 }
@@ -601,6 +593,37 @@ func modelPriceConfiguredSlotCount(row models.ModelPrice) int {
 		}
 	}
 	return count
+}
+
+// modelPriceRulePartial reports whether any reachable input range lacks a
+// complete four-slot price. Context tiers replace the base prices, so their
+// completeness must be evaluated independently rather than inferred from the
+// base row alone.
+func modelPriceRulePartial(row models.ModelPrice, rule pricing.Rule) bool {
+	baseSlots := modelPriceConfiguredSlotCount(row)
+	if baseSlots > 0 && baseSlots < 4 {
+		return true
+	}
+	if baseSlots == 0 && len(rule.ContextTiers) > 0 && rule.ContextTiers[0].InputThresholdTokens > 0 {
+		return true
+	}
+	for _, tier := range rule.ContextTiers {
+		configured := 0
+		for _, value := range []pricing.Price{
+			tier.Prices.Input,
+			tier.Prices.Output,
+			tier.Prices.CacheRead,
+			tier.Prices.CacheWrite,
+		} {
+			if value.Set {
+				configured++
+			}
+		}
+		if configured > 0 && configured < 4 {
+			return true
+		}
+	}
+	return false
 }
 
 func modelPriceWireDecimal(value *int64) *string {
@@ -650,9 +673,7 @@ func modelPriceRecordMatches(record modelPriceListRecord, query ModelPriceListQu
 		return false
 	}
 	return query.Search == "" ||
-		accessKeyCollectionContainsFold(record.dto.ModelID, query.Search) ||
-		accessKeyCollectionContainsFold(record.dto.Scope.ID, query.Search) ||
-		accessKeyCollectionContainsFold(record.dto.Scope.Label, query.Search)
+		accessKeyCollectionContainsFold(record.dto.ModelID, query.Search)
 }
 
 func sortModelPriceRecords(records []modelPriceListRecord) {
@@ -663,9 +684,6 @@ func sortModelPriceRecords(records []modelPriceListRecord) {
 		}
 		if left.dto.Referenced != right.dto.Referenced {
 			return left.dto.Referenced
-		}
-		if left.scopeKey != right.scopeKey {
-			return left.scopeKey < right.scopeKey
 		}
 		if left.dto.ModelID != right.dto.ModelID {
 			return left.dto.ModelID < right.dto.ModelID
