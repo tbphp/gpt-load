@@ -12,13 +12,8 @@ export default {
       cache_write: 'キャッシュ書き込み 5m',
     },
     method: {
-      pending: '価格管理方法なし',
-      auto_sync: 'Models.dev から自動同期',
-      user_set: '手動設定',
-      user_marked_unpriced: '手動で価格なしに設定',
-    },
-    facts: {
-      partial: 'アップストリーム価格が不完全',
+      auto_sync: '上流価格',
+      user_set: '手動価格',
     },
     matrix: {
       heading: '価格',

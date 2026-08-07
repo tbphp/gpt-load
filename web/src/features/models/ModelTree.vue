@@ -6,14 +6,10 @@ import { useI18n } from 'vue-i18n'
 import type { ClientModelDto, ModelUpstreamDto } from '@/app/resources/models'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { modelPriceFields } from '@/features/model-prices/model-price-form'
 
-import {
-  presentClientModel,
-  type ClientModelRow,
-  type ModelPriceRowStatus,
-} from './model-presenter'
+import ModelPriceStatusBadge from './ModelPriceStatusBadge.vue'
+import { presentClientModel, type ClientModelRow } from './model-presenter'
 
 const props = defineProps<{
   items: ClientModelDto[]
@@ -22,12 +18,6 @@ const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
 const { t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
-
-const statusTone = {
-  configured: 'success',
-  pending: 'warning',
-  unpriced: 'neutral',
-} as const satisfies Record<ModelPriceRowStatus, 'success' | 'warning' | 'neutral'>
 </script>
 
 <template>
@@ -116,9 +106,7 @@ const statusTone = {
             </div>
 
             <div class="model-tree__cell model-tree__cell--status" role="cell">
-              <StatusBadge size="compact" :tone="statusTone[entry.status]">
-                {{ t(`modelPrices.status.${entry.status}`) }}
-              </StatusBadge>
+              <ModelPriceStatusBadge :price="entry.upstream.price" />
             </div>
 
             <div class="model-tree__cell model-tree__cell--action" role="cell">

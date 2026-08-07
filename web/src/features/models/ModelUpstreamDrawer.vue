@@ -13,11 +13,11 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 import ModelPriceMatrix from '@/features/model-prices/ModelPriceMatrix.vue'
 import ModelPriceResetDialog from '@/features/model-prices/ModelPriceResetDialog.vue'
 import { useModelPriceEditor } from '@/features/model-prices/use-model-price-editor'
 
+import ModelPriceStatusBadge from './ModelPriceStatusBadge.vue'
 import ModelSpecSheet from './ModelSpecSheet.vue'
 
 const props = defineProps<{
@@ -58,22 +58,6 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
 const price = computed(() => detail.value?.price ?? placeholderPrice)
 const editor = useModelPriceEditor(toRef(price))
 const resetting = ref(false)
-
-const markedUnpriced = computed(() => price.value.method === 'user_marked_unpriced')
-const statusTone = computed(() => {
-  if (markedUnpriced.value) return 'neutral' as const
-  return price.value.pricing_status === 'configured' ? ('success' as const) : ('warning' as const)
-})
-const statusLabel = computed(() =>
-  markedUnpriced.value
-    ? t('modelPrices.status.unpriced')
-    : t(`modelPrices.status.${price.value.pricing_status}`),
-)
-const methodLabel = computed(() =>
-  price.value.method === null
-    ? t('modelPrices.method.pending')
-    : t(`modelPrices.method.${price.value.method}`),
-)
 
 /** 客户端模型与分组分开列出：前者只是影响面，后者可以跳转。 */
 const clientModels = computed(() => {
@@ -147,8 +131,7 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
     />
     <div v-else-if="detail" class="upstream-drawer">
       <div class="upstream-drawer__meta">
-        <StatusBadge size="compact" :tone="statusTone">{{ statusLabel }}</StatusBadge>
-        <span>{{ methodLabel }}</span>
+        <ModelPriceStatusBadge :price="price" />
         <span v-if="price.updated_at_ms > 0" class="upstream-drawer__faint">
           {{ t('models.drawer.updatedAt') }}
           <AppDateTime :instant="price.updated_at_ms" :locale="locale" />
@@ -181,9 +164,6 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
           @remove-tier="editor.removeTier"
           @confirm-unpriced="editor.confirmUnpricedSave"
         />
-        <p v-if="price.partial" class="upstream-drawer__warning">
-          {{ t('modelPrices.facts.partial') }}
-        </p>
       </section>
 
       <section class="upstream-drawer__section">
@@ -274,12 +254,6 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
 
 .upstream-drawer__faint {
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.upstream-drawer__warning {
-  margin: 0;
-  color: var(--color-warning);
   font-size: var(--text-label-xs);
 }
 

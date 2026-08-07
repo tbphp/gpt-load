@@ -12,13 +12,8 @@ export default {
       cache_write: '缓存写入 5m',
     },
     method: {
-      pending: '尚无定价方式',
-      auto_sync: 'Models.dev 自动同步',
-      user_set: '手动设置',
-      user_marked_unpriced: '手动标记未定价',
-    },
-    facts: {
-      partial: '上游价格不完整',
+      auto_sync: '上游定价',
+      user_set: '手动定价',
     },
     matrix: {
       heading: '价格',

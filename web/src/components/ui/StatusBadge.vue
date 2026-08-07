@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { CircleAlert, CircleCheck, CircleHelp, CircleOff, LoaderCircle } from '@lucide/vue'
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleHelp,
+  CircleOff,
+  LoaderCircle,
+  PencilLine,
+} from '@lucide/vue'
 import { computed } from 'vue'
 
 import {
@@ -15,11 +22,13 @@ const props = withDefaults(
   defineProps<{
     tone?: StatusTone
     status?: OperationalStatus | MutationStatus
+    icon?: StatusIcon
     size?: 'default' | 'compact'
   }>(),
   {
     tone: 'neutral',
     status: undefined,
+    icon: undefined,
     size: 'default',
   },
 )
@@ -37,6 +46,7 @@ const presentation = computed(() => {
 })
 const resolvedTone = computed(() => presentation.value.tone)
 const resolvedIcon = computed<StatusIcon>(() => {
+  if (props.icon) return props.icon
   const statusIcon = presentation.value.icon as StatusIcon | undefined
   if (statusIcon) return statusIcon
   if (resolvedTone.value === 'success') return 'check'
@@ -44,18 +54,19 @@ const resolvedIcon = computed<StatusIcon>(() => {
   if (resolvedTone.value === 'danger') return 'off'
   return 'help'
 })
-const icon = computed(() => {
+const iconComponent = computed(() => {
   if (resolvedIcon.value === 'progress') return LoaderCircle
   if (resolvedIcon.value === 'check') return CircleCheck
   if (resolvedIcon.value === 'alert') return CircleAlert
   if (resolvedIcon.value === 'off') return CircleOff
+  if (resolvedIcon.value === 'edit') return PencilLine
   return CircleHelp
 })
 </script>
 
 <template>
   <span class="status-badge" :class="[`status-badge--${resolvedTone}`, `status-badge--${size}`]">
-    <component :is="icon" :size="size === 'compact' ? 12 : 14" aria-hidden="true" />
+    <component :is="iconComponent" :size="size === 'compact' ? 12 : 14" aria-hidden="true" />
     <slot />
   </span>
 </template>

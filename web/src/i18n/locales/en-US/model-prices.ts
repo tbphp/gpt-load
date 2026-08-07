@@ -12,13 +12,8 @@ export default {
       cache_write: 'Cache write 5m',
     },
     method: {
-      pending: 'No pricing method',
-      auto_sync: 'Synced from Models.dev',
-      user_set: 'Manually set',
-      user_marked_unpriced: 'Manually marked unpriced',
-    },
-    facts: {
-      partial: 'Incomplete upstream pricing',
+      auto_sync: 'Upstream pricing',
+      user_set: 'Manual pricing',
     },
     matrix: {
       heading: 'Price',
