@@ -24,17 +24,15 @@ export default {
       heading: '価格',
       unit: 'USD / 1M',
       thresholdColumn: '段階',
-      baseRow: '基本',
-      tierRow: '≥ {threshold}',
+      baseRow: 'デフォルト',
       addTier: '段階を追加',
       removeTier: 'この段階を削除',
-      replaceNote:
-        '段階は 1 リクエストの入力トークン合計で判定し、しきい値到達で基本価格を置き換えます',
-      oneHourRule: '1h キャッシュ書き込み = 5m × 1.6',
+      oneHourRule:
+        '上流が 1h キャッシュ書き込み Token を返した場合、キャッシュ書き込み 5m × 1.6 で計算します。',
+      tierRule: 'リクエスト入力 Token が {threshold} 以上の場合、第 {tier} 段階に一致します。',
+      thresholdNotSet: '未入力',
       save: '保存',
       saveFailed: 'モデル価格を保存できません。入力内容は保持されています',
-      versionConflict:
-        '価格が更新されました。キャンセルして最新の価格を読み込んでから編集してください。',
       unpricedConfirm: {
         title: 'このモデルを価格なしにしますか？',
         description: '「{model}」の基本価格と段階価格の枠がすべて未設定になります',

@@ -19,7 +19,6 @@ var MessagesZhCN = map[string]string{
 	"settings.version_conflict":                       "设置已在加载后发生变化",
 	"model_price.not_found":                           "模型价格不存在",
 	"model_price.unpriced_confirmation_required":      "将模型价格标记为未定价需要明确确认",
-	"model_price.version_conflict":                    "模型价格已在加载后发生变化",
 	"model_price.referenced":                          "模型价格仍被分组引用",
 	"model_price.automatic_delete_forbidden":          "自动模型价格不能手动删除",
 	"auth.invalid_key":                                "无效的授权密钥",

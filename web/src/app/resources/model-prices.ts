@@ -90,7 +90,6 @@ export interface ModelPriceUpdateRequest {
 
 export type ModelPriceMutationIssue =
   | { code: 'MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED'; id: number }
-  | { code: 'MODEL_PRICE_VERSION_CONFLICT'; id: number; updated_at_ms: number }
   | {
       code: 'MODEL_PRICE_REFERENCED'
       id: number
@@ -302,13 +301,11 @@ export async function updateModelPrice(
   client: ApiClient,
   id: number,
   request: ModelPriceUpdateRequest,
-  expectedUpdatedAtMS: number,
   signal?: AbortSignal,
 ): Promise<ModelPriceDto> {
   return projectModelPrice(
     await client.request(`/api/model-prices/${id}`, {
       method: 'PUT',
-      headers: { 'If-Match': `"${expectedUpdatedAtMS}"` },
       json: Object.fromEntries(updateFields.map((field) => [field, request[field]])),
       signal,
     }),
@@ -347,21 +344,12 @@ export function projectModelPriceMutationIssue(
   if (!(error instanceof ApiError)) return undefined
   if (
     error.code !== 'MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED' &&
-    error.code !== 'MODEL_PRICE_VERSION_CONFLICT' &&
     error.code !== 'MODEL_PRICE_REFERENCED' &&
     error.code !== 'MODEL_PRICE_AUTOMATIC_DELETE_FORBIDDEN'
   ) {
     return undefined
   }
   const data = projectRecord(error.data)
-  if (error.code === 'MODEL_PRICE_VERSION_CONFLICT') {
-    assertNoSecretLikeFields(data, ['id', 'updated_at_ms'])
-    return {
-      code: error.code,
-      id: projectIssueID(data),
-      updated_at_ms: projectEpochMilliseconds(data.updated_at_ms),
-    }
-  }
   if (error.code === 'MODEL_PRICE_REFERENCED') {
     assertNoSecretLikeFields(data, ['id', 'reference_count', 'reference_group_count'])
     const referenceCount = projectSafeInteger(data.reference_count, { minimum: 1 })

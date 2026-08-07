@@ -10,7 +10,6 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import { formatInteger } from '@/lib/format'
 
 import {
-  deriveOneHourCacheWrite,
   modelPriceFields,
   tierDisplayOrder,
   type ModelPriceField,
@@ -79,35 +78,25 @@ function tierErrors(key: string): string[] {
   return dedupe(messages)
 }
 
-interface DerivedRow {
+interface TierRule {
   key: string
-  label: string
-  value: string
+  description: string
 }
 
-/**
- * 1h 缓存写入的派生值：每个档位一行，基础在前、其余按阈值升序。
- * 只列出真正填了 5m 单价的行，所以增删档位会同步增删说明行。
- */
-const oneHourRows = computed<DerivedRow[]>(() => {
-  const rows: DerivedRow[] = []
-  const base = deriveOneHourCacheWrite(draft.value.base.cache_write)
-  if (base) rows.push({ key: 'base', label: t('modelPrices.matrix.baseRow'), value: base })
+function thresholdDescription(value: string): string {
+  const threshold = tierDisplayOrder(value)
+  if (Number.isFinite(threshold)) return formatInteger(threshold, locale.value)
+  return value.trim() || t('modelPrices.matrix.thresholdNotSet')
+}
 
-  const tierRows: (DerivedRow & { order: number })[] = []
-  for (const tier of draft.value.tiers) {
-    const value = deriveOneHourCacheWrite(tier.slots.cache_write)
-    const order = tierDisplayOrder(tier.threshold)
-    if (!value || !Number.isFinite(order)) continue
-    tierRows.push({
-      key: tier.key,
-      order,
-      label: t('modelPrices.matrix.tierRow', { threshold: formatInteger(order, locale.value) }),
-      value,
-    })
-  }
-  tierRows.sort((left, right) => left.order - right.order)
-  return [...rows, ...tierRows]
+const tierRules = computed<TierRule[]>(() => {
+  return draft.value.tiers.map((tier, index) => ({
+    key: tier.key,
+    description: t('modelPrices.matrix.tierRule', {
+      threshold: thresholdDescription(tier.threshold),
+      tier: index + 1,
+    }),
+  }))
 })
 </script>
 
@@ -128,9 +117,16 @@ const oneHourRows = computed<DerivedRow[]>(() => {
       </div>
 
       <div class="model-price-matrix__row">
-        <span v-if="tiered" class="model-price-matrix__tier-label">
-          {{ t('modelPrices.matrix.baseRow') }}
-        </span>
+        <div v-if="tiered" class="model-price-group model-price-group--threshold">
+          <AppTextInput
+            id="model-price-default"
+            :model-value="t('modelPrices.matrix.baseRow')"
+            :label="t('modelPrices.matrix.baseRow')"
+            appearance="surface"
+            size="compact"
+            readonly
+          />
+        </div>
         <!-- 一横排为一个输入框组：共享外框，内部竖线分隔，无间隙。 -->
         <div class="model-price-group" role="group" :aria-label="t('modelPrices.matrix.baseRow')">
           <AppTextInput
@@ -231,17 +227,12 @@ const oneHourRows = computed<DerivedRow[]>(() => {
       </template>
     </div>
 
-    <!-- 一条规则一行；派生行随档位增删与阈值排序同步变化。 -->
-    <dl v-if="oneHourRows.length > 0" class="model-price-matrix__derived">
-      <dt class="model-price-matrix__derived-rule">{{ t('modelPrices.matrix.oneHourRule') }}</dt>
-      <dd v-for="row in oneHourRows" :key="row.key">
-        <span>{{ row.label }}</span>
-        <strong>{{ row.value }}</strong>
-      </dd>
-    </dl>
-    <p v-if="tiered" class="model-price-matrix__note">
-      {{ t('modelPrices.matrix.replaceNote') }}
-    </p>
+    <div class="model-price-matrix__rules">
+      <p class="model-price-matrix__cache-rule">{{ t('modelPrices.matrix.oneHourRule') }}</p>
+      <ul v-if="tierRules.length > 0" class="model-price-matrix__tier-rules">
+        <li v-for="rule in tierRules" :key="rule.key">{{ rule.description }}</li>
+      </ul>
+    </div>
   </div>
 
   <AppConfirmDialog
@@ -358,12 +349,6 @@ const oneHourRows = computed<DerivedRow[]>(() => {
   font-size: var(--text-label-xs);
 }
 
-.model-price-matrix__tier-label {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  font-weight: 560;
-}
-
 .model-price-matrix__remove,
 .model-price-matrix__add {
   color: var(--color-text-faint);
@@ -377,35 +362,28 @@ const oneHourRows = computed<DerivedRow[]>(() => {
   color: var(--color-action);
 }
 
-.model-price-matrix__note {
-  margin: 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-/* 派生说明：规则一行，之后每个档位各占一行，标签与值分列对齐。 */
-.model-price-matrix__derived {
+.model-price-matrix__rules {
   display: grid;
-  gap: var(--space-0-75);
-  margin: 0;
+  gap: var(--space-1);
   font-size: var(--text-label-xs);
 }
 
-.model-price-matrix__derived-rule {
+.model-price-matrix__cache-rule {
+  margin: 0;
   color: var(--color-text-muted);
 }
 
-.model-price-matrix__derived dd {
+.model-price-matrix__tier-rules {
   display: grid;
-  grid-template-columns: 76px auto;
-  gap: var(--space-1-75);
+  gap: var(--space-0-75);
   margin: 0;
+  padding: 0;
   color: var(--color-text-faint);
+  list-style: none;
 }
 
-.model-price-matrix__derived dd strong {
-  font-family: var(--font-mono);
-  font-weight: 560;
+.model-price-matrix__tier-rules li {
+  line-height: 1.55;
 }
 
 /* 抽屉在小屏铺满视口，四格并排放不下：阈值与增删占第一行，价格组换到第二行。 */
@@ -434,8 +412,7 @@ const oneHourRows = computed<DerivedRow[]>(() => {
     grid-row: 2;
   }
 
-  .model-price-matrix__grid--tiered .model-price-matrix__row > .model-price-group--threshold,
-  .model-price-matrix__tier-label {
+  .model-price-matrix__grid--tiered .model-price-matrix__row > .model-price-group--threshold {
     grid-column: 1;
     grid-row: 1;
   }

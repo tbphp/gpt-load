@@ -32,7 +32,6 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
   const draft = ref<ModelPriceDraft>(createModelPriceDraft(row.value))
   const pending = ref(false)
   const failure = ref('')
-  const stale = ref(false)
   const unpricedConfirmOpen = ref(false)
   let controller: AbortController | undefined
 
@@ -43,9 +42,7 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
   const ownershipIntent = computed(
     () => allNull.value && baseline.value.method !== 'user_marked_unpriced',
   )
-  const canSave = computed(
-    () => !stale.value && !hasErrors.value && (changed.value || ownershipIntent.value),
-  )
+  const canSave = computed(() => !hasErrors.value && (changed.value || ownershipIntent.value))
   const unsavedChanges = useUnsavedChanges(changed, { blocked: pending })
 
   function clearRequest(): void {
@@ -59,7 +56,6 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
     baseline.value = row.value
     draft.value = createModelPriceDraft(baseline.value)
     failure.value = ''
-    stale.value = false
     unpricedConfirmOpen.value = false
   }
 
@@ -71,12 +67,7 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
         return
       }
       if (updatedAtMS === baseline.value.updated_at_ms) return
-      if (changed.value) {
-        stale.value = true
-        failure.value = t('modelPrices.matrix.versionConflict')
-        return
-      }
-      resetDraft()
+      if (!changed.value) resetDraft()
     },
     { immediate: true },
   )
@@ -103,7 +94,7 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
   }
 
   function canSubmit(confirmUnpriced: boolean): boolean {
-    if (stale.value || hasErrors.value) return false
+    if (hasErrors.value) return false
     if (allNull.value) return confirmUnpriced && (changed.value || ownershipIntent.value)
     return !confirmUnpriced && changed.value
   }
@@ -121,13 +112,11 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
         client,
         baseline.value.id,
         request,
-        baseline.value.updated_at_ms,
         activeController.signal,
       )
       if (controller !== activeController) return
       baseline.value = updated
       draft.value = createModelPriceDraft(updated)
-      stale.value = false
       await applyInvalidationPlan(queryClient, mutationInvalidationPlans.modelPrice.update)
       if (controller !== activeController) return
       unpricedConfirmOpen.value = false
@@ -137,14 +126,7 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
         !activeController.signal.aborted &&
         !(error instanceof RequestCancelledError)
       ) {
-        const issue = projectModelPriceMutationIssue(error)
-        if (issue?.code === 'MODEL_PRICE_VERSION_CONFLICT') {
-          stale.value = true
-          failure.value = t('modelPrices.matrix.versionConflict')
-          await applyInvalidationPlan(queryClient, mutationInvalidationPlans.modelPrice.update)
-        } else {
-          failure.value = failureMessage(error)
-        }
+        failure.value = failureMessage(error)
       }
     } finally {
       if (controller === activeController) {
@@ -182,7 +164,6 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
     errors,
     pending,
     failure,
-    stale,
     changed,
     canSave,
     allNull,

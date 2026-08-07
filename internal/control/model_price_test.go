@@ -3,7 +3,6 @@ package control
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -54,27 +53,6 @@ func TestGlobalModelPriceIsSharedAcrossGroupsAndAliases(t *testing.T) {
 	item := wire["items"].([]any)[0].(map[string]any)
 	if _, exists := item["scope"]; exists {
 		t.Fatalf("global price response leaked scope: %s", encoded)
-	}
-}
-
-func TestModelPriceVersionIsMonotonicWithinOneMillisecond(t *testing.T) {
-	fixture := newServiceFixture(t)
-	value := int64(1_000_000_000)
-	row := models.ModelPrice{ModelID: "versioned", InputPriceNanoUSDPerMillionTokens: &value, UpdatedAtMS: 100}
-	if err := fixture.db.Create(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	fixture.service.now = func() time.Time { return time.UnixMilli(100) }
-	request := mustModelPriceUpdateRequest(t, `{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],"confirm_unpriced":false}`)
-	updated, err := fixture.service.UpdateModelPriceIfCurrent(t.Context(), row.ID, request, &row.UpdatedAtMS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.UpdatedAtMS != 101 {
-		t.Fatalf("updated version = %d, want 101", updated.UpdatedAtMS)
-	}
-	if _, err := fixture.service.UpdateModelPriceIfCurrent(t.Context(), row.ID, request, &row.UpdatedAtMS); err == nil {
-		t.Fatal("stale same-millisecond update succeeded")
 	}
 }
 

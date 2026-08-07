@@ -24,16 +24,15 @@ export default {
       heading: 'Price',
       unit: 'USD / 1M',
       thresholdColumn: 'Tier',
-      baseRow: 'Base',
-      tierRow: '≥ {threshold}',
+      baseRow: 'Default',
       addTier: 'Add tier',
       removeTier: 'Remove this tier',
-      replaceNote:
-        'Tiers match the total input tokens of one request; reaching the threshold replaces the base price',
-      oneHourRule: '1h cache write = 5m × 1.6',
+      oneHourRule:
+        'If the upstream reports 1h cache-write tokens, they are charged at cache write 5m × 1.6.',
+      tierRule: 'When request input tokens are ≥ {threshold}, tier {tier} is matched.',
+      thresholdNotSet: 'Not entered',
       save: 'Save',
       saveFailed: 'Unable to save model prices; your input is preserved',
-      versionConflict: 'This price changed. Cancel to load the latest value before editing again.',
       unpricedConfirm: {
         title: 'Mark this model unpriced?',
         description: 'All base and tier price slots for “{model}” will become unavailable',

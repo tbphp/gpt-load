@@ -222,7 +222,7 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 	}
 }
 
-func TestModelPriceHTTPUpdateRejectsStaleIfMatch(t *testing.T) {
+func TestModelPriceHTTPUpdateIgnoresIfMatch(t *testing.T) {
 	_, engine, row := newModelPriceHTTPFixture(t, true)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
@@ -234,13 +234,14 @@ func TestModelPriceHTTPUpdateRejectsStaleIfMatch(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("If-Match", `"1"`)
 	engine.ServeHTTP(recorder, request)
-	assertModelPriceHTTPError(
-		t,
-		recorder,
-		http.StatusPreconditionFailed,
-		"MODEL_PRICE_VERSION_CONFLICT",
-		map[string]any{"id": float64(row.ID), "updated_at_ms": float64(row.UpdatedAtMS)},
-	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("PUT with If-Match status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	}
+	data := decodeModelPriceHTTPData(t, recorder)
+	prices, ok := data["prices"].(map[string]any)
+	if !ok || prices["input"] != "1" {
+		t.Fatalf("updated price = %#v", data["prices"])
+	}
 }
 
 func TestModelPriceHTTPResetDeleteAndStableErrorData(t *testing.T) {

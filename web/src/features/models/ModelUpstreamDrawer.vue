@@ -23,7 +23,6 @@ import ModelSpecSheet from './ModelSpecSheet.vue'
 const props = defineProps<{
   open: boolean
   priceId: number | null
-  clientModel: string
 }>()
 const emit = defineEmits<{ close: [] }>()
 const client = useApiClient()
@@ -78,15 +77,7 @@ const methodLabel = computed(() =>
 
 /** 客户端模型与分组分开列出：前者只是影响面，后者可以跳转。 */
 const clientModels = computed(() => {
-  const seen = new Map<string, boolean>()
-  for (const { client_model, alias_applied } of detail.value?.associations ?? []) {
-    seen.set(client_model, (seen.get(client_model) ?? false) || alias_applied)
-  }
-  return [...seen].map(([name, aliasApplied]) => ({
-    name,
-    aliasApplied,
-    current: name === props.clientModel,
-  }))
+  return [...new Set((detail.value?.associations ?? []).map(({ client_model }) => client_model))]
 })
 const groups = computed(() => {
   const seen = new Map<number, UpstreamModelDetailDto['associations'][number]['group']>()
@@ -204,15 +195,8 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
           </span>
           <!-- 客户端模型不可跳转：用中性 code 样式，与下面的分组链接明确区分。 -->
           <ul class="upstream-drawer__clients">
-            <li
-              v-for="entry in clientModels"
-              :key="entry.name"
-              :class="{ 'upstream-drawer__current': entry.current }"
-            >
-              <code>{{ entry.name }}</code>
-              <span v-if="entry.aliasApplied" class="upstream-drawer__tag">
-                {{ t('models.tree.alias') }}
-              </span>
+            <li v-for="entry in clientModels" :key="entry">
+              <code>{{ entry }}</code>
             </li>
           </ul>
         </div>
@@ -357,12 +341,6 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
-}
-
-.upstream-drawer__current code {
-  background: var(--color-action-soft);
-  color: var(--color-action);
-  font-weight: 650;
 }
 
 /* 分组可跳转：链接色加下划线，与上面的只读标签区分开。 */

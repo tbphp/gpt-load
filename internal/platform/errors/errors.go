@@ -51,7 +51,6 @@ var (
 	ErrModelPriceUnpricedConfirmationRequired = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED", Message: "Marking a model price as unpriced requires explicit confirmation"}
 	ErrModelPriceReferenced                   = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_REFERENCED", Message: "Model price is referenced by Groups"}
 	ErrModelPriceAutomaticDeleteForbidden     = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_AUTOMATIC_DELETE_FORBIDDEN", Message: "Automatic model prices cannot be deleted manually"}
-	ErrModelPriceVersionConflict              = &APIError{HTTPStatus: http.StatusPreconditionFailed, Code: "MODEL_PRICE_VERSION_CONFLICT", Message: "Model price changed since it was loaded"}
 )
 
 // NewAPIErrorWithData creates a copy of an APIError with response data.

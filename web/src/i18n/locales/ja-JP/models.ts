@@ -62,7 +62,6 @@ export default {
       upstreamCount: '上流 {count} 件',
       pendingCount: '価格待ち {count} 件',
       tierCount: '{count} 段',
-      alias: 'マッピング',
       noPrice: '—',
       copy: 'クライアントモデル {model} をコピー',
       copySucceeded: 'コピーしました',
@@ -73,8 +72,8 @@ export default {
     },
     drawer: {
       title: '上流モデルの詳細',
-      description: '関連情報を確認し、統一価格を編集します',
-      impact: '統一価格 · クライアントモデル {clients} 件 · Group {groups} 件',
+      description: '関連情報を確認し、価格を編集します',
+      impact: 'クライアントモデル {clients} 件 · Group {groups} 件',
       specs: '仕様',
       loading: '読み込み中…',
       loadFailed: '上流モデルの詳細を読み込めません',

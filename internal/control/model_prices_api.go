@@ -288,11 +288,6 @@ func (s *Server) handleUpdateModelPrice(c *gin.Context) {
 	if !ok || !modelPriceMutationQueryIsEmpty(c, "update_model_price") {
 		return
 	}
-	expectedUpdatedAtMS, err := modelPriceExpectedUpdatedAtMS(c.GetHeader("If-Match"))
-	if err != nil {
-		writeServiceError(c, "update_model_price", app_errors.ErrBadRequest)
-		return
-	}
 	var request ModelPriceUpdateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
 		writeServiceError(c, "update_model_price", mapControlJSONError(err))
@@ -302,30 +297,12 @@ func (s *Server) handleUpdateModelPrice(c *gin.Context) {
 		writeServiceError(c, "update_model_price", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.UpdateModelPriceIfCurrent(c.Request.Context(), id, request, expectedUpdatedAtMS)
+	result, err := s.service.UpdateModelPrice(c.Request.Context(), id, request)
 	if err != nil {
 		writeServiceError(c, "update_model_price", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
-}
-
-// The Models page sends a strong, quoted millisecond version in If-Match.
-// Keeping the header optional preserves the established management API for
-// callers that have not yet adopted optimistic concurrency.
-func modelPriceExpectedUpdatedAtMS(value string) (*int64, error) {
-	if value == "" {
-		return nil, nil
-	}
-	if len(value) < 3 || value[0] != '"' || value[len(value)-1] != '"' {
-		return nil, fmt.Errorf("model price If-Match must be a quoted version")
-	}
-	parsed, err := parseCanonicalSafeUint(value[1 : len(value)-1])
-	if err != nil || parsed > uint64(maxSafeInteger) {
-		return nil, fmt.Errorf("model price If-Match must be a safe integer")
-	}
-	version := int64(parsed)
-	return &version, nil
 }
 
 func (s *Server) handleResetModelPrice(c *gin.Context) {

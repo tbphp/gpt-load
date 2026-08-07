@@ -69,8 +69,8 @@ export function monitorLocation(query?: LocationQueryRaw): RouteLocationRaw {
   return namedLocation(pageRouteNames.monitor, query)
 }
 
-export function modelsLocation(): RouteLocationRaw {
-  return namedLocation(pageRouteNames.models)
+export function modelsLocation(query?: LocationQueryRaw): RouteLocationRaw {
+  return namedLocation(pageRouteNames.models, query)
 }
 
 export function settingsLocation(): RouteLocationRaw {

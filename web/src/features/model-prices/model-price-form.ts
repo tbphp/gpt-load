@@ -38,28 +38,6 @@ const nanoUSDPerUSD = 1_000_000_000n
 const acceptedPrice = /^\d+(?:\.\d{1,9})?$/u
 const acceptedThreshold = /^(?:0|[1-9]\d*)$/u
 
-/** 1h 缓存写入相对 5m 基准价的固定倍率，与后端 quote.go 的 Multiplier{8,5} 保持一致。 */
-const oneHourMultiplierNumerator = 8n
-const oneHourMultiplierDenominator = 5n
-
-function formatNanoUSD(nanoUSD: bigint): string {
-  const whole = nanoUSD / nanoUSDPerUSD
-  const fraction = (nanoUSD % nanoUSDPerUSD).toString().padStart(9, '0').replace(/0+$/u, '')
-  return fraction ? `${whole}.${fraction}` : `${whole}`
-}
-
-/** 展示用途：按后端四舍五入规则派生 1h 缓存写入单价，不用于提交请求。 */
-export function deriveOneHourCacheWrite(cacheWrite: string): string | null {
-  if (cacheWrite === '' || !acceptedPrice.test(cacheWrite)) return null
-  const [whole = '', fraction = ''] = cacheWrite.split('.')
-  const nanoUSD = BigInt(whole) * nanoUSDPerUSD + BigInt(fraction.padEnd(9, '0') || '0')
-  const numerator = nanoUSD * oneHourMultiplierNumerator
-  let quotient = numerator / oneHourMultiplierDenominator
-  const remainder = numerator % oneHourMultiplierDenominator
-  if (remainder * 2n >= oneHourMultiplierDenominator) quotient += 1n
-  return formatNanoUSD(quotient)
-}
-
 function emptySlotDraft(): ModelPriceSlotDraft {
   return { input: '', output: '', cache_read: '', cache_write: '' }
 }

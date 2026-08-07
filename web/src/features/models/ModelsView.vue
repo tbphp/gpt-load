@@ -3,7 +3,7 @@ import { RefreshCw, Search } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import {
@@ -17,7 +17,7 @@ import {
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useModelPriceSync } from '@/app/use-model-price-sync'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
-import { groupsLocation } from '@/app/route-locations'
+import { groupsLocation, modelsLocation } from '@/app/route-locations'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -34,8 +34,14 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import ModelTree from './ModelTree.vue'
 import ModelUpstreamDrawer from './ModelUpstreamDrawer.vue'
+import {
+  modelsQuery as modelsRouteQuery,
+  parseSelectedPriceID,
+  sameModelsQuery,
+} from './models-route'
 
 const client = useApiClient()
+const route = useRoute()
 const router = useRouter()
 const { locale, n, t } = useI18n()
 const searchDraft = ref('')
@@ -52,10 +58,9 @@ const {
   run: runSync,
 } = useModelPriceSync()
 
-const drawerOpen = ref(false)
-const activePriceID = ref<number | null>(null)
-const activeUpstream = ref<string | null>(null)
-const activeClientModel = ref('')
+const selectedPriceID = computed(() => parseSelectedPriceID(route.query))
+const drawerOpen = computed(() => selectedPriceID.value !== undefined)
+const activePriceID = computed(() => selectedPriceID.value ?? null)
 const drawer = ref<InstanceType<typeof ModelUpstreamDrawer>>()
 
 const filters = computed<ModelCollectionFilters>(() => ({
@@ -107,6 +112,17 @@ watch(
 )
 
 useVisibleRefetch([modelsQuery.refetch])
+
+watch(
+  () => route.query,
+  (query) => {
+    const normalized = modelsRouteQuery(parseSelectedPriceID(query))
+    if (!sameModelsQuery(query, normalized)) {
+      void router.replace(modelsLocation(normalized))
+    }
+  },
+  { immediate: true },
+)
 
 function scheduleSearch(): void {
   searchDebounce.schedule(() => {
@@ -186,19 +202,15 @@ async function confirmDiscard(): Promise<boolean> {
   return true
 }
 
-async function openUpstream(clientModel: string, upstream: ModelUpstreamDto): Promise<void> {
+async function openUpstream(upstream: ModelUpstreamDto): Promise<void> {
   if (upstream.price.id === activePriceID.value && drawerOpen.value) return
   if (drawerOpen.value && drawer.value && !(await drawer.value.confirmDiscardSwitch())) return
   drawer.value?.discardChanges()
-  activeClientModel.value = clientModel
-  activePriceID.value = upstream.price.id
-  activeUpstream.value = upstream.model_id
-  drawerOpen.value = true
+  await router.push(modelsLocation(modelsRouteQuery(upstream.price.id)))
 }
 
 function closeDrawer(): void {
-  drawerOpen.value = false
-  activeUpstream.value = null
+  void router.push(modelsLocation())
 }
 
 function goToGroups(): void {
@@ -360,11 +372,7 @@ function goToGroups(): void {
         </EmptyState>
 
         <template v-else>
-          <ModelTree
-            :items="data.items"
-            :active-upstream="drawerOpen ? activeUpstream : null"
-            @open="openUpstream"
-          />
+          <ModelTree :items="data.items" @open="openUpstream" />
           <PaginationBar
             :page="data.pagination.page"
             :page-size="data.pagination.page_size"
@@ -382,7 +390,6 @@ function goToGroups(): void {
         ref="drawer"
         :open="drawerOpen"
         :price-id="activePriceID"
-        :client-model="activeClientModel"
         @close="closeDrawer"
       />
     </LedgerSheet>

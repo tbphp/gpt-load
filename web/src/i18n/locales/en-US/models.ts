@@ -61,7 +61,6 @@ export default {
       upstreamCount: '{count} upstreams',
       pendingCount: '{count} pending',
       tierCount: '{count} tiers',
-      alias: 'Mapped',
       noPrice: '—',
       copy: 'Copy client model {model}',
       copySucceeded: 'Copied',
@@ -72,8 +71,8 @@ export default {
     },
     drawer: {
       title: 'Upstream model details',
-      description: 'Review relationships and edit the single price',
-      impact: 'Single price · {clients} client models · {groups} Groups',
+      description: 'Review relationships and edit pricing',
+      impact: '{clients} client models · {groups} Groups',
       specs: 'Specifications',
       loading: 'Loading…',
       loadFailed: 'Unable to load upstream model details',

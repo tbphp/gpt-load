@@ -17,9 +17,8 @@ import {
 
 const props = defineProps<{
   items: ClientModelDto[]
-  activeUpstream: string | null
 }>()
-const emit = defineEmits<{ open: [clientModel: string, upstream: ModelUpstreamDto] }>()
+const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
 const { t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
@@ -83,7 +82,6 @@ const statusTone = {
             v-for="entry in row.upstreams"
             :key="entry.upstream.model_id"
             class="model-tree__row model-tree__row--upstream"
-            :class="{ 'model-tree__row--active': entry.upstream.model_id === activeUpstream }"
             role="row"
           >
             <div class="model-tree__cell model-tree__upstream" role="cell">
@@ -91,13 +89,10 @@ const statusTone = {
                 type="button"
                 class="model-tree__open"
                 :aria-label="t('models.tree.open', { model: entry.upstream.model_id })"
-                @click="emit('open', row.model.client_model, entry.upstream)"
+                @click="emit('open', entry.upstream)"
               >
                 {{ entry.upstream.model_id }}
               </button>
-              <span v-if="entry.upstream.alias_applied" class="model-tree__tag">
-                {{ t('models.tree.alias') }}
-              </span>
               <span v-if="entry.tierCount > 0" class="model-tree__tag">
                 {{ t('models.tree.tierCount', { count: entry.tierCount }) }}
               </span>
@@ -131,7 +126,7 @@ const statusTone = {
                 variant="ghost"
                 size="xs"
                 :label="t('models.tree.open', { model: entry.upstream.model_id })"
-                @click="emit('open', row.model.client_model, entry.upstream)"
+                @click="emit('open', entry.upstream)"
               >
                 <ChevronRight :size="17" aria-hidden="true" />
               </IconButton>
@@ -271,10 +266,6 @@ const statusTone = {
 
 .model-tree__row--upstream:hover {
   background: var(--color-interactive-hover);
-}
-
-.model-tree__row--active {
-  background: var(--color-action-soft);
 }
 
 /* 上游行缩进一级，用竖线把它归到上方的客户端模型下。 */

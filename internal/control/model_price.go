@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -78,27 +77,6 @@ func (s *Service) UpdateModelPrice(
 	id uint,
 	request ModelPriceUpdateRequest,
 ) (ModelPriceDTO, error) {
-	return s.updateModelPrice(ctx, id, request, nil)
-}
-
-// UpdateModelPriceIfCurrent applies a browser-originated update only when the
-// price still has the version the editor loaded. A nil expected version keeps
-// the established service API behavior for existing callers.
-func (s *Service) UpdateModelPriceIfCurrent(
-	ctx context.Context,
-	id uint,
-	request ModelPriceUpdateRequest,
-	expectedUpdatedAtMS *int64,
-) (ModelPriceDTO, error) {
-	return s.updateModelPrice(ctx, id, request, expectedUpdatedAtMS)
-}
-
-func (s *Service) updateModelPrice(
-	ctx context.Context,
-	id uint,
-	request ModelPriceUpdateRequest,
-	expectedUpdatedAtMS *int64,
-) (ModelPriceDTO, error) {
 	if id == 0 || uint64(id) > uint64(maxSafeInteger) {
 		return ModelPriceDTO{}, app_errors.ErrBadRequest
 	}
@@ -130,12 +108,6 @@ func (s *Service) updateModelPrice(
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
 		}
-		if expectedUpdatedAtMS != nil && row.UpdatedAtMS != *expectedUpdatedAtMS {
-			return app_errors.NewAPIErrorWithData(
-				app_errors.ErrModelPriceVersionConflict,
-				ModelPriceVersionConflictData{ID: id, UpdatedAtMS: row.UpdatedAtMS},
-			)
-		}
 		references, err := loadPriceReferenceSnapshot(tx)
 		if err != nil {
 			return err
@@ -155,7 +127,7 @@ func (s *Service) updateModelPrice(
 		desired.ContextPriceTiers = contextTiers
 		desired.IsManual = true
 		if !modelPriceMutableValuesEqual(row, desired) {
-			updatedAtMS, err := nextModelPriceUpdatedAtMS(row.UpdatedAtMS, s.now)
+			updatedAtMS, err := safeEpochMilliseconds(s.now())
 			if err != nil {
 				return fmt.Errorf("timestamp model price update: %w", app_errors.ErrInternalServer)
 			}
@@ -192,11 +164,6 @@ func (s *Service) updateModelPrice(
 	}
 	s.priceRuntime.Publish(table)
 	return result, nil
-}
-
-type ModelPriceVersionConflictData struct {
-	ID          uint  `json:"id"`
-	UpdatedAtMS int64 `json:"updated_at_ms"`
 }
 
 func (s *Service) ResetModelPrice(
@@ -236,7 +203,7 @@ func (s *Service) ResetModelPrice(
 			return fmt.Errorf("normalize catalog model price: %w", app_errors.ErrInternalServer)
 		}
 		if !modelPriceMutableValuesEqual(row, desired) {
-			updatedAtMS, err := nextModelPriceUpdatedAtMS(row.UpdatedAtMS, s.now)
+			updatedAtMS, err := safeEpochMilliseconds(s.now())
 			if err != nil {
 				return fmt.Errorf("timestamp model price reset: %w", app_errors.ErrInternalServer)
 			}
@@ -369,22 +336,6 @@ func cloneModelPriceValue(value *int64) *int64 {
 	}
 	cloned := *value
 	return &cloned
-}
-
-// nextModelPriceUpdatedAtMS keeps the public optimistic-lock version strictly
-// monotonic even when consecutive writes observe the same clock millisecond.
-func nextModelPriceUpdatedAtMS(previous int64, now func() time.Time) (int64, error) {
-	current, err := safeEpochMilliseconds(now())
-	if err != nil {
-		return 0, err
-	}
-	if current > previous {
-		return current, nil
-	}
-	if previous >= maxSafeInteger {
-		return 0, fmt.Errorf("model price version exceeds safe integer")
-	}
-	return previous + 1, nil
 }
 
 // buildContextPriceTiersJSON converts the submitted tier list to the

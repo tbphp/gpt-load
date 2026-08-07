@@ -60,7 +60,6 @@ export default {
       upstreamCount: '{count} 个上游',
       pendingCount: '{count} 个待定价',
       tierCount: '{count} 档',
-      alias: '映射',
       noPrice: '—',
       copy: '复制客户端模型 {model}',
       copySucceeded: '已复制',
@@ -71,8 +70,8 @@ export default {
     },
     drawer: {
       title: '上游模型详情',
-      description: '查看关联关系并编辑统一价格',
-      impact: '统一价格 · {clients} 个客户端模型 · {groups} 个分组',
+      description: '查看关联关系并编辑价格',
+      impact: '{clients} 个客户端模型 · {groups} 个分组',
       specs: '规格',
       loading: '正在加载…',
       loadFailed: '无法加载上游模型详情',
