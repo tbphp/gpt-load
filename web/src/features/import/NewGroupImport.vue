@@ -406,12 +406,11 @@ function selectProvider(provider: ProviderSuggestion | null): void {
     draft.protocols = []
     return
   }
-  // Some catalog-only suggestions have no known address or protocols (see
-  // catalog.SearchProviderMetadataBounded). Only overwrite fields the
-  // suggestion actually provides, so picking one never wipes out an address
-  // the user already filled in (or just picked from "recent").
-  if (provider.api_url) draft.upstream_url = provider.api_url
-  if (provider.protocols.length) draft.protocols = [...provider.protocols]
+  // A Provider choice is an atomic connection preset. Catalog-only entries
+  // deliberately have no connection fields, so clear the previous Provider's
+  // URL/protocols and require the user to provide a valid custom connection.
+  draft.upstream_url = provider.api_url ?? ''
+  draft.protocols = [...provider.protocols]
 }
 
 function selectRecentProvider(provider: ProviderSuggestion): void {

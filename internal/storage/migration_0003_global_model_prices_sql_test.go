@@ -33,7 +33,7 @@ func TestGlobalModelPriceSchemaStatementsSupportExternalDrivers(t *testing.T) {
 			name:   "MySQL",
 			driver: "mysql",
 			want: []string{
-				"ALTER TABLE model_prices DROP INDEX idx_model_prices_scope_model, DROP COLUMN price_scope_key, ADD UNIQUE INDEX idx_model_prices_model (model_id)",
+				"ALTER TABLE model_prices DROP INDEX idx_model_prices_scope_model, DROP COLUMN price_scope_key, MODIFY COLUMN model_id varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, ADD UNIQUE INDEX idx_model_prices_model (model_id)",
 			},
 		},
 	}

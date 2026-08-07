@@ -66,6 +66,12 @@ export default {
       inject_usage_options: 'Inject usage options for streaming responses',
       injectUsageHelp:
         'Applies only to capable OpenAI Completions streaming requests so the final usage can be returned.',
+      models_dev_auto_sync_enabled: 'Automatically sync the Models.dev catalog and prices',
+      modelsDevAutoSyncHelp:
+        'When enabled, the catalog and automatic prices sync on schedule. Manual sync remains available on Models.',
+      environmentSource: 'Locked by environment',
+      environmentManaged:
+        'This setting is managed by an environment variable and cannot be changed here.',
       seconds: 'seconds',
       timeoutError: 'Enter a positive safe integer no greater than 9,223,372,036.',
       valueFor: 'Value for {field}',

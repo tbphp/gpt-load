@@ -164,7 +164,7 @@ func Run(
 	if err != nil {
 		return withOperation(err, options.Operation)
 	}
-	beginSQL, err := capabilities.beginSQL(options.Mode)
+	beginStatements, err := capabilities.beginStatements(options.Mode)
 	if err != nil {
 		return withOperation(err, options.Operation)
 	}
@@ -183,11 +183,17 @@ func Run(
 			)
 		}
 
-		if _, err := sqlConn.ExecContext(ctx, beginSQL); err != nil {
-			return errors.Join(
-				newError(options.Operation, PhaseBegin, err),
-				discardBadConnection(options.Operation, sqlConn, err),
-			)
+		for index, statement := range beginStatements {
+			if _, err := sqlConn.ExecContext(ctx, statement); err != nil {
+				cleanupErr := discardBadConnection(options.Operation, sqlConn, err)
+				// MySQL's SET TRANSACTION applies to the next transaction on this
+				// connection. If START TRANSACTION then fails, discard the connection
+				// so the pending one-shot isolation level cannot leak to another caller.
+				if index > 0 && !errors.Is(err, driver.ErrBadConn) {
+					cleanupErr = errors.Join(cleanupErr, discardConnection(options.Operation, sqlConn))
+				}
+				return errors.Join(newError(options.Operation, PhaseBegin, err), cleanupErr)
+			}
 		}
 
 		transaction := connection.Session(&gorm.Session{
@@ -234,12 +240,12 @@ func Run(
 	})
 }
 
-func (capabilities Capabilities) beginSQL(mode Mode) (string, error) {
+func (capabilities Capabilities) beginStatements(mode Mode) ([]string, error) {
 	beginMode := capabilities.WriteBegin
 	if mode == ReadSnapshot {
 		beginMode = capabilities.ReadBegin
 	} else if mode != Write {
-		return "", &Error{
+		return nil, &Error{
 			Phase: PhaseInput,
 			Err:   fmt.Errorf("unsupported transaction mode %d", mode),
 		}
@@ -250,15 +256,22 @@ func (capabilities Capabilities) beginSQL(mode Mode) (string, error) {
 		// SQLite BEGIN is its deferred transaction form and retains the
 		// existing read-snapshot behavior without exposing DEFERRED SQL to
 		// every caller.
-		return "BEGIN", nil
+		return []string{"BEGIN"}, nil
 	case BeginSQLiteImmediate:
-		return "BEGIN IMMEDIATE", nil
+		return []string{"BEGIN IMMEDIATE"}, nil
 	case BeginMySQLConsistentSnapshot:
-		return "START TRANSACTION WITH CONSISTENT SNAPSHOT", nil
+		// WITH CONSISTENT SNAPSHOT only provides a stable snapshot while the
+		// transaction isolation is REPEATABLE READ. Operators can configure a
+		// MySQL connection for READ COMMITTED, so establish the one-shot level
+		// on the same pinned connection before opening the transaction.
+		return []string{
+			"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+			"START TRANSACTION WITH CONSISTENT SNAPSHOT",
+		}, nil
 	case BeginPostgresRepeatableRead:
-		return "BEGIN ISOLATION LEVEL REPEATABLE READ", nil
+		return []string{"BEGIN ISOLATION LEVEL REPEATABLE READ"}, nil
 	default:
-		return "", &Error{
+		return nil, &Error{
 			Phase: PhaseDriver,
 			Err:   fmt.Errorf("unsupported transaction begin mode %q", beginMode),
 		}

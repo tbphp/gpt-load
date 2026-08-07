@@ -93,8 +93,9 @@ func mysqlDSNFromURL(rawDSN string) (string, error) {
 	}
 	// Keep the application-visible behavior stable across MySQL installations:
 	// parseTime is required for time-valued driver fields, clientFoundRows is
-	// required by existing RowsAffected contracts, and utf8mb4/binary preserves
-	// the exact string semantics used by model and key identifiers.
+	// required by existing RowsAffected contracts, and utf8mb4/binary lets
+	// connection literals represent exact identifiers. Schema migration 0004
+	// enforces the corresponding binary identity on model_prices.model_id.
 	query.Set("parseTime", "true")
 	query.Set("clientFoundRows", "true")
 	if query.Get("charset") == "" {

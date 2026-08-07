@@ -46,6 +46,10 @@ var migrations = []migration{
 		ID: "0003_global_model_prices",
 		Up: migrateGlobalModelPrices,
 	},
+	{
+		ID: "0004_mysql_model_price_identity",
+		Up: migrateMySQLModelPriceIdentity,
+	},
 }
 
 func applyMigrations(db *gorm.DB) error {
