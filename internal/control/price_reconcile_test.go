@@ -216,7 +216,7 @@ func TestListModelPricesProjectsTierOnlyAutomaticGroupPriceAsConfigured(t *testi
 	item := result.Items[0]
 	if item.Scope.Kind != "group" || item.Scope.ID != modelPriceGroupID(group.ID) ||
 		item.PricingStatus != PricingStatusConfigured || item.Method == nil || *item.Method != "auto_matched" ||
-		item.MatchedProviderID == nil || *item.MatchedProviderID != "openai" || !item.HasContextTiers ||
+		item.MatchedProviderID == nil || *item.MatchedProviderID != "openai" || len(item.ContextTiers) == 0 ||
 		item.Prices != (PriceSlotsDTO{}) {
 		t.Fatalf("tier-only automatic Group price = %#v", item)
 	}

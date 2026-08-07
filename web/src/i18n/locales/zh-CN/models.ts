@@ -1,27 +1,22 @@
 export default {
   models: {
     title: '模型',
-    description: '按客户端调用模型查看上游映射、路由分组、模型信息与当前估算价格',
     loading: '正在加载模型…',
     loadFailed: '无法加载模型',
     stale: '后台刷新失败，当前模型信息可能已过期',
     context: '价格单位为 USD / 1M tokens，仅用于后续成本估算，不代表上游渠道实际收费',
     result: '显示 {shown} / {total} 个客户端模型',
     actions: {
-      priceRecords: '价格记录维护',
       sync: '同步模型',
     },
     sync: {
       succeeded: '模型目录与自动价格已同步',
       failed: '无法同步模型目录与价格',
     },
-    summary: {
-      label: '模型概览',
-      clientModels: '客户端模型',
-      upstreamModels: '上游模型',
-      prices: '价格记录',
-      pendingPrices: '待定价',
-      unreferencedPrices: '{count} 条未使用价格记录',
+    status: {
+      models: '{count} 个模型',
+      pending: '{count} 待定价',
+      unit: 'USD / 1M tokens（成本估算）',
     },
     catalog: {
       available: 'Models.dev 目录可用',
@@ -29,10 +24,6 @@ export default {
       unavailable: 'Models.dev 目录不可用',
       lastSuccess: '最近同步',
       lastCheck: '最近检查',
-    },
-    drawerImpact: {
-      title: '全局价格影响',
-      description: '保存后会影响使用这条价格的全部 {count} 个分组。',
     },
     filters: {
       region: '筛选模型',
@@ -58,37 +49,22 @@ export default {
       noResultsTitle: '没有符合条件的模型',
       noResultsDescription: '调整搜索、分组状态或价格状态后再试',
     },
-    collection: {
+    index: {
       label: '客户端模型列表',
-      scrollHint: '可横向滚动查看更多列',
-      columns: {
-        model: '客户端模型',
-        routing: '路由分组 / 协议',
-        prices: '价格 · USD / 1M',
-        status: '状态',
-        actions: '操作',
-      },
-      direct: '同名直传上游',
-      alias: '映射到 {model}',
-      multiUpstream: '{count} 个上游模型',
-      moreGroups: '+{count}',
-      scopeCount: '{count} 套价格',
-      pendingScopes: '{count} 套价格 · {pending} 套待定',
-      priceRange: '{min} – {max}',
-      expand: '展开 {model} 的模型详情',
-      collapse: '收起 {model} 的模型详情',
+      priceCount: '{count} 套价格',
+      upstreamCount: '{count} 个上游',
       copy: '复制客户端模型 {model}',
       copySucceeded: '客户端模型已复制',
       copyFailed: '无法复制客户端模型',
     },
+    inspector: {
+      direct: '同名直传上游',
+      alias: '映射到 {model}',
+      noCatalog: '无 Models.dev 目录信息',
+      scopeOption: '{label} {kind}',
+    },
     detail: {
       upstreamModel: '上游模型',
-      direct: '同名直传',
-      aliasApplied: '别名映射',
-      scope: {
-        provider: '渠道价格',
-        group: '分组独立价格',
-      },
       routeGroups: '路由分组',
       groupEnabled: '启用',
       groupDisabled: '已停用',
@@ -101,9 +77,6 @@ export default {
         context: '上下文',
         maxOutput: '最大输出',
         modalities: '模态',
-        knowledge: '知识截止',
-        released: '发布',
-        family: '系列',
       },
       capabilities: {
         attachment: '附件',

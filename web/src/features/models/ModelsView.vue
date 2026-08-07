@@ -1,19 +1,18 @@
 <script setup lang="ts">
-import { ListFilter, RefreshCw, Search } from '@lucide/vue'
+import { RefreshCw, Search } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import {
   modelCollectionQueryOptions,
+  type ClientModelDto,
   type ModelCollectionFilters,
   type ModelCollectionGroupStatus,
   type ModelCollectionPageSize,
   type ModelCollectionPricingStatus,
-  type ModelPriceBranchDto,
 } from '@/app/resources/models'
-import { modelPricesLocation } from '@/app/route-locations'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useModelPriceSync } from '@/app/use-model-price-sync'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
@@ -21,6 +20,7 @@ import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -28,22 +28,20 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import ModelPriceDrawer from '@/features/model-prices/ModelPriceDrawer.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
 
-import ModelCollection from './ModelCollection.vue'
-import ModelSummaryStrip from './ModelSummaryStrip.vue'
+import ModelIndex from './ModelIndex.vue'
+import ModelInspector from './ModelInspector.vue'
 
 const client = useApiClient()
-const { n, t } = useI18n()
+const { locale, n, t } = useI18n()
 const searchDraft = ref('')
 const appliedSearch = ref<string | undefined>()
 const groupStatus = ref<ModelCollectionGroupStatus>('enabled')
 const pricingStatus = ref<ModelCollectionPricingStatus>('all')
 const page = ref(1)
 const pageSize = ref<ModelCollectionPageSize>(20)
-const selected = ref<ModelPriceBranchDto | null>(null)
-const drawerOpen = ref(false)
-let restoreFocus: HTMLElement | null = null
+const selectedClientModel = ref<string | null>(null)
 const searchDebounce = useDebouncedAction(250)
 const {
   pending: syncPending,
@@ -80,6 +78,21 @@ const pricingStatusOptions = computed(() =>
     label: t(`models.filters.pricingStatus.${value}`),
   })),
 )
+const catalogTone = computed(() => {
+  if (!data.value) return 'neutral' as const
+  if (!data.value.catalog.available) return 'neutral' as const
+  return data.value.catalog.error_code ? ('warning' as const) : ('success' as const)
+})
+const catalogLabel = computed(() => {
+  if (!data.value) return ''
+  if (!data.value.catalog.available) return t('models.catalog.unavailable')
+  return data.value.catalog.error_code ? t('models.catalog.stale') : t('models.catalog.available')
+})
+const selectedModel = computed<ClientModelDto | null>(() => {
+  if (!data.value || selectedClientModel.value === null) return null
+  return data.value.items.find((item) => item.client_model === selectedClientModel.value) ?? null
+})
+const inspectorRef = ref<InstanceType<typeof ModelInspector>>()
 
 watch(
   [() => data.value?.pagination.total_pages, page, () => modelsQuery.isPlaceholderData.value],
@@ -88,6 +101,18 @@ watch(
     const lastPage = Math.max(1, totalPages)
     if (currentPage > lastPage) page.value = lastPage
   },
+)
+
+watch(
+  () => data.value?.items,
+  (items) => {
+    if (!items) return
+    if (items.some((item) => item.client_model === selectedClientModel.value)) return
+    selectedClientModel.value = items[0]?.client_model ?? null
+  },
+  // 若组件挂载时数据已就绪（如缓存命中），非 immediate 的 watch 不会在“无变化”时触发，
+  // 导致右栏永远选不中第一项。immediate 保证首次挂载也会执行一次选中逻辑。
+  { immediate: true },
 )
 
 useVisibleRefetch([modelsQuery.refetch])
@@ -131,24 +156,15 @@ function resetConditions(): void {
   page.value = 1
 }
 
-function editBranch(branch: ModelPriceBranchDto, trigger: HTMLElement): void {
-  selected.value = branch
-  restoreFocus = trigger
-  drawerOpen.value = true
+function showPendingModels(): void {
+  setPricingStatus('pending')
 }
 
-async function setDrawerOpen(open: boolean): Promise<void> {
-  drawerOpen.value = open
-  if (!open) {
-    selected.value = null
-    const target = restoreFocus
-    restoreFocus = null
-    await nextTick()
-    target?.focus()
-  }
+async function selectModel(clientModel: string): Promise<void> {
+  if (clientModel === selectedClientModel.value) return
+  if (inspectorRef.value && !(await inspectorRef.value.confirmDiscardSwitch())) return
+  selectedClientModel.value = clientModel
 }
-
-onBeforeUnmount(() => searchDebounce.cancel())
 </script>
 
 <template>
@@ -156,18 +172,11 @@ onBeforeUnmount(() => searchDebounce.cancel())
     <LedgerSheet class="models-page" :aria-busy="collectionBusy ? 'true' : undefined">
       <PageHeader id="models-title" :title="t('models.title')">
         <template #actions>
-          <RouterLink v-slot="{ navigate }" :to="modelPricesLocation()" custom>
-            <AppButton role="link" variant="secondary" size="compact" @click="navigate">
-              <ListFilter :size="15" aria-hidden="true" />{{ t('models.actions.priceRecords') }}
-            </AppButton>
-          </RouterLink>
           <AppButton size="compact" :busy="syncPending" @click="runSync">
             <RefreshCw :size="15" aria-hidden="true" />{{ t('models.actions.sync') }}
           </AppButton>
         </template>
       </PageHeader>
-
-      <p class="models-page__description">{{ t('models.description') }}</p>
 
       <InlineFeedback v-if="syncSucceeded" appearance="ledger" tone="success">
         {{ t('models.sync.succeeded') }}
@@ -202,7 +211,30 @@ onBeforeUnmount(() => searchDebounce.cancel())
           @retry="modelsQuery.refetch()"
         />
 
-        <ModelSummaryStrip :summary="data.summary" :catalog="data.catalog" />
+        <p class="models-page__status" aria-live="polite">
+          <span>{{
+            t('models.status.models', { count: n(data.summary.client_model_count) })
+          }}</span>
+          <span aria-hidden="true">·</span>
+          <AppButton
+            v-if="data.summary.pending_price_count > 0"
+            variant="link"
+            size="inline"
+            @click="showPendingModels"
+          >
+            {{ t('models.status.pending', { count: n(data.summary.pending_price_count) }) }}
+          </AppButton>
+          <span v-else>
+            {{ t('models.status.pending', { count: n(data.summary.pending_price_count) }) }}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span :title="t('models.context')">{{ t('models.status.unit') }}</span>
+          <span aria-hidden="true">·</span>
+          <StatusBadge size="compact" :tone="catalogTone">{{ catalogLabel }}</StatusBadge>
+          <span v-if="data.catalog.successful_fetch_at_ms > 0" class="models-page__status-time">
+            <AppDateTime :instant="data.catalog.successful_fetch_at_ms" :locale="locale" />
+          </span>
+        </p>
 
         <CollectionFilterBar
           class="models-page__filters"
@@ -284,30 +316,29 @@ onBeforeUnmount(() => searchDebounce.cancel())
           </template>
         </EmptyState>
 
-        <template v-else>
-          <ModelCollection :items="data.items" @edit="editBranch" />
-          <PaginationBar
-            :page="data.pagination.page"
-            :page-size="data.pagination.page_size"
-            :total-items="data.pagination.total_items"
-            :total-pages="data.pagination.total_pages"
-            show-page-size
-            @previous="page -= 1"
-            @next="page += 1"
-            @update:page-size="setPageSize"
-          />
-        </template>
-
-        <p class="models-page__footnote">{{ t('models.context') }}</p>
+        <div v-else class="models-page__split">
+          <div class="models-page__index">
+            <ModelIndex
+              :items="data.items"
+              :selected="selectedClientModel"
+              @update:selected="selectModel"
+            />
+            <PaginationBar
+              :page="data.pagination.page"
+              :page-size="data.pagination.page_size"
+              :total-items="data.pagination.total_items"
+              :total-pages="data.pagination.total_pages"
+              show-page-size
+              @previous="page -= 1"
+              @next="page += 1"
+              @update:page-size="setPageSize"
+            />
+          </div>
+          <div class="models-page__inspector">
+            <ModelInspector v-if="selectedModel" ref="inspectorRef" :model="selectedModel" />
+          </div>
+        </div>
       </template>
-
-      <ModelPriceDrawer
-        v-if="drawerOpen && selected"
-        :open="drawerOpen"
-        :row="selected.price"
-        :affected-groups="selected.affected_groups"
-        @update:open="setDrawerOpen"
-      />
     </LedgerSheet>
   </PageFrame>
 </template>
@@ -319,15 +350,21 @@ onBeforeUnmount(() => searchDebounce.cancel())
   gap: var(--space-4-5);
 }
 
-.models-page__description {
-  max-width: 78ch;
+.models-page__status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1-75);
   margin: calc(var(--space-4-5) * -0.35) 0 0;
   color: var(--color-text-muted);
   font-size: var(--text-meta);
 }
 
-.models-page__footnote {
-  margin: calc(var(--space-4-5) * -0.45) 0 0;
+.models-page__status > span[aria-hidden='true'] {
+  color: var(--color-text-faint);
+}
+
+.models-page__status-time {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
@@ -335,6 +372,41 @@ onBeforeUnmount(() => searchDebounce.cancel())
 .models-page :deep(.models-page__filters.collection-filter-bar) {
   grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(142px, 0.42fr));
   padding-top: var(--space-1);
+}
+
+.models-page__split {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: clamp(288px, 33%, 372px) minmax(0, 1fr);
+  gap: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.models-page__index {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  border-right: 1px solid var(--color-border-subtle);
+  padding-block: var(--space-2);
+}
+
+.models-page__inspector {
+  min-width: 0;
+  padding: var(--space-4-5);
+}
+
+@media (max-width: 999px) {
+  .models-page__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .models-page__index {
+    max-height: 46vh;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
 }
 
 @media (max-width: 980px) {

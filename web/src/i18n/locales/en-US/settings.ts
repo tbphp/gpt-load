@@ -32,7 +32,6 @@ export default {
       forwarding: 'Request and forwarding',
       headers: 'Global Header Rules',
       logs: 'Logs and maintenance',
-      modelPrices: 'Model prices',
       system: 'System information',
     },
     validation: {
@@ -108,29 +107,6 @@ export default {
       effectiveValue: '{value} days',
       days: 'days',
       retentionError: 'Enter a whole number between 1 and 365.',
-    },
-    modelPrices: {
-      title: 'Model prices',
-      description: 'Control automatic Models.dev sync, run a manual sync, or open the price center',
-      autoSync: 'Models.dev automatic sync',
-      autoSyncHelp: 'When enabled, background policy refreshes the catalog and automatic prices',
-      effectiveDetail: 'The current effective value comes from the built-in default',
-      environmentSource: 'Environment',
-      environmentDetail: 'The process environment controls this setting',
-      environmentControlled: 'Environment controlled',
-      readOnly: 'Read only',
-      readOnlyReason:
-        'The effective value comes from the environment and is never persisted by the UI',
-      manualSync: 'Manual sync',
-      manualSyncHelp:
-        'Independent of automatic sync; refreshes the catalog and automatic prices now',
-      syncNow: 'Sync now',
-      syncSucceeded: 'The model catalog and automatic prices are synced',
-      syncFailed: 'Unable to sync the model catalog and prices',
-      proxyNote:
-        'Catalog sync uses the shared server HTTP client and honors explicit or environment proxy configuration',
-      manage: 'Manage model prices',
-      openModels: 'Open models',
     },
     system: {
       title: 'System information',

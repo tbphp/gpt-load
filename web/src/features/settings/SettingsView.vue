@@ -26,7 +26,6 @@ import { formatLocalInstant } from '@/lib/format'
 
 import GlobalHeaderRulesSection from './GlobalHeaderRulesSection.vue'
 import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
-import ModelPricesSettingsSection from './ModelPricesSettingsSection.vue'
 import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
 import { isValidRetention, isValidTimeout } from './settings-patch'
@@ -71,7 +70,6 @@ const navItems = computed(() => [
   { id: 'settings-forwarding', label: t('settings.navigation.forwarding') },
   { id: 'settings-headers', label: t('settings.navigation.headers') },
   { id: 'settings-logs', label: t('settings.navigation.logs') },
-  { id: 'settings-model-prices', label: t('settings.navigation.modelPrices') },
   { id: 'settings-system', label: t('settings.navigation.system') },
 ])
 const { activeSection, selectSection } = useSectionNavigation({
@@ -166,13 +164,11 @@ function confirmDiscard(): void {
 function settingLabel(key: RuntimeSettingKey): string {
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
   if (key === 'header_rules') return t('settings.headers.title')
-  if (key === 'models_dev_auto_sync_enabled') return t('settings.modelPrices.autoSync')
   return t(`settings.runtime.${key}`)
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
   if (key === 'header_rules') return 'settings-headers'
-  if (key === 'models_dev_auto_sync_enabled') return 'settings-model-prices'
   return `settings-value-${key}`
 }
 
@@ -183,9 +179,7 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
       ? 'settings-headers'
       : key === 'request_log_retention_days'
         ? 'settings-logs'
-        : key === 'models_dev_auto_sync_enabled'
-          ? 'settings-model-prices'
-          : 'settings-forwarding'
+        : 'settings-forwarding'
   selectSection(section)
   await nextTick()
   const target =
@@ -287,15 +281,6 @@ onBeforeUnmount(() => {
               @update:invalid-edits="headerRulesInvalidEdits = $event"
             />
             <LogsMaintenanceSection
-              :base="base"
-              :draft="draft"
-              :disabled="operationLocked"
-              :conflicts="conflicts"
-              @change="updateDraft"
-              @choose-mine="chooseMine"
-              @choose-latest="chooseLatest"
-            />
-            <ModelPricesSettingsSection
               :base="base"
               :draft="draft"
               :disabled="operationLocked"

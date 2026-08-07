@@ -93,15 +93,6 @@ const routes: RouteRecordRaw[] = [
       messageNamespaces: ['settings', 'model-prices', 'import'],
     },
   }),
-  pageRoute(pageRouteNames.modelPrices, {
-    component: lazyView(() => import('@/features/model-prices/ModelPricesView.vue')),
-    meta: {
-      titleKey: 'modelPrices.title',
-      requiresAuth: true,
-      primaryNav: 'settings',
-      messageNamespaces: ['model-prices'],
-    },
-  }),
   {
     path: '/:pathMatch(.*)*',
     name: pageRouteNames.notFound,

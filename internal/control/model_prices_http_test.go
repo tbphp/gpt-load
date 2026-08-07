@@ -79,6 +79,13 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	if _, leaked := item["price_scope_key"]; leaked {
 		t.Fatalf("list leaked internal scope: %#v", item)
 	}
+	if _, leaked := item["has_context_tiers"]; leaked {
+		t.Fatalf("list leaked removed has_context_tiers field: %#v", item)
+	}
+	contextTiers, ok := item["context_tiers"].([]any)
+	if !ok || len(contextTiers) != 0 {
+		t.Fatalf("list context_tiers wire = %#v", item["context_tiers"])
+	}
 
 	updateResponse := serveModelPriceHTTPRequest(
 		engine,
@@ -123,6 +130,95 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	}
 	if conflict.Code != "MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED" || conflict.Data.ID != row.ID {
 		t.Fatalf("unpriced conflict = %#v", conflict)
+	}
+}
+
+func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
+	_, engine, row := newModelPriceHTTPFixture(t, true)
+
+	tieredBody := `{"input":"1","output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":false,` +
+		`"context_tiers":[` +
+		`{"threshold_tokens":1000,"input":"2","output":null,"cache_read":null,"cache_write":null},` +
+		`{"threshold_tokens":272000,"input":"3","output":null,"cache_read":null,"cache_write":null}` +
+		`]}`
+	updateResponse := serveModelPriceHTTPRequest(
+		engine, http.MethodPut, fmt.Sprintf("/api/model-prices/%d", row.ID), tieredBody, authTestKey,
+	)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("PUT with context_tiers status = %d: %s", updateResponse.Code, updateResponse.Body.String())
+	}
+	updated := decodeModelPriceHTTPData(t, updateResponse)
+	tiers, ok := updated["context_tiers"].([]any)
+	if !ok || len(tiers) != 2 {
+		t.Fatalf("updated context_tiers = %#v", updated["context_tiers"])
+	}
+	firstTier, ok := tiers[0].(map[string]any)
+	if !ok || firstTier["threshold_tokens"] != float64(1000) {
+		t.Fatalf("first tier = %#v", tiers[0])
+	}
+	firstTierPrices, ok := firstTier["prices"].(map[string]any)
+	if !ok || firstTierPrices["input"] != "2" || firstTierPrices["output"] != nil {
+		t.Fatalf("first tier prices = %#v", firstTier["prices"])
+	}
+
+	listResponse := serveModelPriceHTTPRequest(
+		engine, http.MethodGet, "/api/model-prices?usage=all&status=all&page=1&page_size=20", "", authTestKey,
+	)
+	listData := decodeModelPriceHTTPData(t, listResponse)
+	items, ok := listData["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("list items = %#v", listData["items"])
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("list item = %#v", items[0])
+	}
+	persistedTiers, ok := item["context_tiers"].([]any)
+	if !ok || len(persistedTiers) != 2 {
+		t.Fatalf("persisted context_tiers = %#v", item["context_tiers"])
+	}
+
+	for _, malformed := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "non increasing thresholds",
+			body: `{"input":"1","output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":false,` +
+				`"context_tiers":[` +
+				`{"threshold_tokens":272000,"input":"3","output":null,"cache_read":null,"cache_write":null},` +
+				`{"threshold_tokens":1000,"input":"2","output":null,"cache_read":null,"cache_write":null}` +
+				`]}`,
+		},
+		{
+			name: "tier without any price",
+			body: `{"input":"1","output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":false,` +
+				`"context_tiers":[{"threshold_tokens":1000,"input":null,"output":null,"cache_read":null,"cache_write":null}]}`,
+		},
+	} {
+		t.Run(malformed.name, func(t *testing.T) {
+			response := serveModelPriceHTTPRequest(
+				engine, http.MethodPut, fmt.Sprintf("/api/model-prices/%d", row.ID), malformed.body, authTestKey,
+			)
+			assertModelPriceHTTPError(t, response, http.StatusBadRequest, "VALIDATION_FAILED", nil)
+
+			unchanged := serveModelPriceHTTPRequest(
+				engine, http.MethodGet, "/api/model-prices?usage=all&status=all&page=1&page_size=20", "", authTestKey,
+			)
+			unchangedData := decodeModelPriceHTTPData(t, unchanged)
+			unchangedItems, ok := unchangedData["items"].([]any)
+			if !ok || len(unchangedItems) != 1 {
+				t.Fatalf("unchanged items = %#v", unchangedData["items"])
+			}
+			unchangedItem, ok := unchangedItems[0].(map[string]any)
+			if !ok {
+				t.Fatalf("unchanged item = %#v", unchangedItems[0])
+			}
+			unchangedTiers, ok := unchangedItem["context_tiers"].([]any)
+			if !ok || len(unchangedTiers) != 2 {
+				t.Fatalf("rejected update mutated tiers = %#v", unchangedItem["context_tiers"])
+			}
+		})
 	}
 }
 
@@ -412,5 +508,6 @@ func decodeModelPriceHTTPData(
 }
 
 func modelPriceHTTPUpdateBody(input string, confirm string) string {
-	return `{"input":` + input + `,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":` + confirm + `}`
+	return `{"input":` + input + `,"output":null,"cache_read":null,"cache_write":null,` +
+		`"context_tiers":[],"confirm_unpriced":` + confirm + `}`
 }

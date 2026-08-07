@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -29,21 +30,28 @@ type PriceSlotsDTO struct {
 }
 
 type ModelPriceDTO struct {
-	ID                  uint          `json:"id"`
-	ModelID             string        `json:"model_id"`
-	Scope               PriceScopeDTO `json:"scope"`
-	Prices              PriceSlotsDTO `json:"prices"`
-	PricingStatus       PricingStatus `json:"pricing_status"`
-	Method              *string       `json:"method"`
-	MatchedProviderID   *string       `json:"matched_provider_id"`
-	Referenced          bool          `json:"referenced"`
-	ReferenceCount      int           `json:"reference_count"`
-	ReferenceGroupCount int           `json:"reference_group_count"`
-	HasContextTiers     bool          `json:"has_context_tiers"`
-	Partial             bool          `json:"partial"`
-	UpdatedAtMS         int64         `json:"updated_at_ms"`
-	CanReset            bool          `json:"can_reset"`
-	CanDelete           bool          `json:"can_delete"`
+	ID                  uint                       `json:"id"`
+	ModelID             string                     `json:"model_id"`
+	Scope               PriceScopeDTO              `json:"scope"`
+	Prices              PriceSlotsDTO              `json:"prices"`
+	PricingStatus       PricingStatus              `json:"pricing_status"`
+	Method              *string                    `json:"method"`
+	MatchedProviderID   *string                    `json:"matched_provider_id"`
+	Referenced          bool                       `json:"referenced"`
+	ReferenceCount      int                        `json:"reference_count"`
+	ReferenceGroupCount int                        `json:"reference_group_count"`
+	ContextTiers        []ModelPriceContextTierDTO `json:"context_tiers"`
+	Partial             bool                       `json:"partial"`
+	UpdatedAtMS         int64                      `json:"updated_at_ms"`
+	CanReset            bool                       `json:"can_reset"`
+	CanDelete           bool                       `json:"can_delete"`
+}
+
+// ModelPriceContextTierDTO is one compiled input-quantity price tier. Unlike
+// the request shape, prices nest under "prices" to mirror the top-level DTO.
+type ModelPriceContextTierDTO struct {
+	ThresholdTokens int64         `json:"threshold_tokens"`
+	Prices          PriceSlotsDTO `json:"prices"`
 }
 
 type ModelPricePaginationDTO struct {
@@ -84,6 +92,10 @@ func (s *Service) UpdateModelPrice(
 	if err := request.validate(); err != nil {
 		return ModelPriceDTO{}, err
 	}
+	contextTiers, err := buildContextPriceTiersJSON(request.ContextTiers.tiers)
+	if err != nil {
+		return ModelPriceDTO{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -100,7 +112,7 @@ func (s *Service) UpdateModelPrice(
 
 	var table *pricing.Table
 	var result ModelPriceDTO
-	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		var row models.ModelPrice
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
@@ -124,7 +136,7 @@ func (s *Service) UpdateModelPrice(
 		desired.OutputPriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.Output.nanoUSD)
 		desired.CacheReadPriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.CacheRead.nanoUSD)
 		desired.CacheWritePriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.CacheWrite.nanoUSD)
-		desired.ContextPriceTiers = nil
+		desired.ContextPriceTiers = contextTiers
 		desired.IsManual = true
 		if !modelPriceMutableValuesEqual(row, desired) {
 			updatedAtMS, err := safeEpochMilliseconds(s.now())
@@ -138,7 +150,7 @@ func (s *Service) UpdateModelPrice(
 					"output_price_nano_usd_per_million_tokens":      desired.OutputPriceNanoUSDPerMillionTokens,
 					"cache_read_price_nano_usd_per_million_tokens":  desired.CacheReadPriceNanoUSDPerMillionTokens,
 					"cache_write_price_nano_usd_per_million_tokens": desired.CacheWritePriceNanoUSDPerMillionTokens,
-					"context_price_tiers":                           nil,
+					"context_price_tiers":                           desired.ContextPriceTiers,
 					"is_manual":                                     true,
 					"updated_at_ms":                                 updatedAtMS,
 				}).Error; err != nil {
@@ -342,6 +354,36 @@ func cloneModelPriceValue(value *int64) *int64 {
 	return &cloned
 }
 
+// buildContextPriceTiersJSON converts the submitted tier list to the
+// persisted JSON shape, validating it through the single authoritative rule
+// set (models.NormalizeContextPriceTiers) before any transaction opens. This
+// keeps a malformed submission a plain validation error instead of a GORM
+// hook failure surfacing through ParseDBError.
+func buildContextPriceTiersJSON(tiers []ModelPriceContextTierRequest) (models.JSON, error) {
+	if len(tiers) == 0 {
+		return nil, nil
+	}
+	encoded := make([]models.ContextPriceTier, 0, len(tiers))
+	for _, tier := range tiers {
+		encoded = append(encoded, models.ContextPriceTier{
+			ThresholdTokens:                        tier.ThresholdTokens.tokens,
+			InputPriceNanoUSDPerMillionTokens:      cloneModelPriceValue(tier.Input.nanoUSD),
+			OutputPriceNanoUSDPerMillionTokens:     cloneModelPriceValue(tier.Output.nanoUSD),
+			CacheReadPriceNanoUSDPerMillionTokens:  cloneModelPriceValue(tier.CacheRead.nanoUSD),
+			CacheWritePriceNanoUSDPerMillionTokens: cloneModelPriceValue(tier.CacheWrite.nanoUSD),
+		})
+	}
+	raw, err := json.Marshal(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("encode context price tiers: %w", app_errors.ErrInternalServer)
+	}
+	normalized, err := models.NormalizeContextPriceTiers(models.JSON(raw))
+	if err != nil {
+		return nil, fmt.Errorf("validate context price tiers: %w", app_errors.ErrValidation)
+	}
+	return normalized, nil
+}
+
 func modelPriceMutableValuesEqual(left, right models.ModelPrice) bool {
 	leftTiers, leftErr := models.NormalizeContextPriceTiers(left.ContextPriceTiers)
 	rightTiers, rightErr := models.NormalizeContextPriceTiers(right.ContextPriceTiers)
@@ -490,7 +532,7 @@ func projectModelPriceRow(
 		Referenced:          reference.referenceCount > 0,
 		ReferenceCount:      reference.referenceCount,
 		ReferenceGroupCount: reference.referenceGroupCount(),
-		HasContextTiers:     len(rule.ContextTiers) > 0,
+		ContextTiers:        projectContextPriceTiers(rule.ContextTiers),
 		Partial:             configuredSlots > 0 && configuredSlots < 4,
 		UpdatedAtMS:         row.UpdatedAtMS,
 		CanReset:            row.IsManual,
@@ -567,6 +609,30 @@ func modelPriceWireDecimal(value *int64) *string {
 	}
 	formatted := pricing.FormatUSD(pricing.NanoUSD(*value))
 	return &formatted
+}
+
+func modelPriceWireDecimalFromPrice(price pricing.Price) *string {
+	if !price.Set {
+		return nil
+	}
+	formatted := pricing.FormatUSD(price.NanoUSDPerMillion)
+	return &formatted
+}
+
+func projectContextPriceTiers(tiers []pricing.ContextTier) []ModelPriceContextTierDTO {
+	result := make([]ModelPriceContextTierDTO, 0, len(tiers))
+	for _, tier := range tiers {
+		result = append(result, ModelPriceContextTierDTO{
+			ThresholdTokens: tier.InputThresholdTokens,
+			Prices: PriceSlotsDTO{
+				Input:      modelPriceWireDecimalFromPrice(tier.Prices.Input),
+				Output:     modelPriceWireDecimalFromPrice(tier.Prices.Output),
+				CacheRead:  modelPriceWireDecimalFromPrice(tier.Prices.CacheRead),
+				CacheWrite: modelPriceWireDecimalFromPrice(tier.Prices.CacheWrite),
+			},
+		})
+	}
+	return result
 }
 
 func modelPriceRecordMatches(record modelPriceListRecord, query ModelPriceListQuery) bool {

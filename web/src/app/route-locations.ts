@@ -12,7 +12,6 @@ const sharedPageRouteNames = {
   monitor: 'monitor',
   models: 'models',
   settings: 'settings',
-  modelPrices: 'model-prices',
 } as const
 
 function validateSharedPageRouteNames(): void {
@@ -76,10 +75,6 @@ export function modelsLocation(): RouteLocationRaw {
 
 export function settingsLocation(): RouteLocationRaw {
   return namedLocation(pageRouteNames.settings)
-}
-
-export function modelPricesLocation(): RouteLocationRaw {
-  return namedLocation(pageRouteNames.modelPrices)
 }
 
 export function notFoundLocation(pathMatch: string[]): RouteLocationRaw {

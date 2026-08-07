@@ -39,11 +39,11 @@ const specs = computed<CatalogSpec[]>(() => {
     model.limits.output === null ? '' : formatInteger(model.limits.output, locale.value),
   )
   push('modalities', formatModalities())
-  push('knowledge', model.knowledge)
-  push('released', model.release_date)
-  push('family', model.family)
   return entries
 })
+
+/** 目录来源与模型名同属一条溯源信息，合并成一行避免占两行。 */
+const sourceLine = computed(() => `${sourceLabel.value} · ${metadata.value.name}`)
 
 const capabilities = computed(() =>
   (['reasoning', 'tool_call', 'structured_output', 'attachment', 'temperature'] as const)
@@ -61,87 +61,61 @@ function formatModalities(): string {
 </script>
 
 <template>
-  <div class="model-catalog">
-    <p class="model-catalog__source">
-      <span>{{ sourceLabel }}</span>
-      <strong>{{ metadata.name }}</strong>
-    </p>
-    <p v-if="metadata.description" class="model-catalog__description">
-      {{ metadata.description }}
-    </p>
-    <dl v-if="specs.length > 0" class="model-catalog__specs">
+  <div class="model-spec">
+    <p class="model-spec__source">{{ sourceLine }}</p>
+    <dl v-if="specs.length > 0" class="model-spec__specs">
       <div v-for="spec in specs" :key="spec.key">
         <dt>{{ spec.label }}</dt>
         <dd>{{ spec.value }}</dd>
       </div>
     </dl>
-    <ul v-if="capabilities.length > 0" class="model-catalog__capabilities">
+    <ul v-if="capabilities.length > 0" class="model-spec__capabilities">
       <li v-for="capability in capabilities" :key="capability">{{ capability }}</li>
     </ul>
   </div>
 </template>
 
 <style scoped>
-.model-catalog {
+.model-spec {
   display: grid;
   min-width: 0;
-  gap: var(--space-2-5);
+  gap: var(--space-1-75);
 }
 
-.model-catalog__source {
+.model-spec__source {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+/* label 与值同行内联，避免每项占两行。 */
+.model-spec__specs {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2);
+  gap: var(--space-1) var(--space-3-5);
   margin: 0;
-}
-
-.model-catalog__source span {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.model-catalog__source strong {
-  font-size: var(--text-meta);
-  font-weight: 600;
-}
-
-.model-catalog__description {
-  max-width: 92ch;
-  margin: 0;
-  color: var(--color-text-muted);
   font-size: var(--text-sm);
-  line-height: var(--line-normal);
 }
 
-.model-catalog__specs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(118px, max-content));
-  gap: var(--space-2) var(--space-6);
-  margin: 0;
-}
-
-.model-catalog__specs div {
-  display: grid;
+.model-spec__specs > div {
+  display: inline-flex;
   min-width: 0;
-  gap: 2px;
+  align-items: baseline;
+  gap: var(--space-1);
 }
 
-.model-catalog__specs dt {
+.model-spec__specs dt {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
 
-.model-catalog__specs dd {
+.model-spec__specs dd {
   margin: 0;
-  overflow: hidden;
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.model-catalog__capabilities {
+.model-spec__capabilities {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
@@ -150,7 +124,7 @@ function formatModalities(): string {
   list-style: none;
 }
 
-.model-catalog__capabilities li {
+.model-spec__capabilities li {
   border-radius: var(--radius-tag);
   background: var(--color-tag);
   color: var(--color-text-muted);

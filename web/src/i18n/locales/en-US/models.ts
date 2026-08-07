@@ -1,8 +1,6 @@
 export default {
   models: {
     title: 'Models',
-    description:
-      'Review upstream mappings, route Groups, model details, and estimate prices by client model',
     loading: 'Loading models…',
     loadFailed: 'Unable to load models',
     stale: 'The current model information may be stale because the background refresh failed',
@@ -10,20 +8,16 @@ export default {
       'Prices use USD per 1M tokens for future cost estimates only; they are not actual upstream billing',
     result: 'Showing {shown} of {total} client models',
     actions: {
-      priceRecords: 'Maintain price records',
       sync: 'Sync models',
     },
     sync: {
       succeeded: 'The model catalog and automatic prices are synced',
       failed: 'Unable to sync the model catalog and prices',
     },
-    summary: {
-      label: 'Model overview',
-      clientModels: 'Client models',
-      upstreamModels: 'Upstream models',
-      prices: 'Price records',
-      pendingPrices: 'Pending prices',
-      unreferencedPrices: '{count} unused price records',
+    status: {
+      models: '{count} models',
+      pending: '{count} pending',
+      unit: 'USD / 1M tokens (estimate)',
     },
     catalog: {
       available: 'Models.dev catalog available',
@@ -31,10 +25,6 @@ export default {
       unavailable: 'Models.dev catalog unavailable',
       lastSuccess: 'Last sync',
       lastCheck: 'Last check',
-    },
-    drawerImpact: {
-      title: 'Global price impact',
-      description: 'Saving affects all {count} Groups that use this price.',
     },
     filters: {
       region: 'Filter models',
@@ -60,37 +50,22 @@ export default {
       noResultsTitle: 'No matching models',
       noResultsDescription: 'Adjust the search, Group status, or pricing status and try again',
     },
-    collection: {
+    index: {
       label: 'Client model list',
-      scrollHint: 'Scroll horizontally for more columns',
-      columns: {
-        model: 'Client model',
-        routing: 'Route Groups / protocols',
-        prices: 'Prices · USD / 1M',
-        status: 'Status',
-        actions: 'Actions',
-      },
-      direct: 'Passed through by the same name',
-      alias: 'Mapped to {model}',
-      multiUpstream: '{count} upstream models',
-      moreGroups: '+{count}',
-      scopeCount: '{count} price scopes',
-      pendingScopes: '{count} price scopes · {pending} pending',
-      priceRange: '{min} – {max}',
-      expand: 'Expand details for {model}',
-      collapse: 'Collapse details for {model}',
+      priceCount: '{count} price sets',
+      upstreamCount: '{count} upstreams',
       copy: 'Copy client model {model}',
       copySucceeded: 'Client model copied',
       copyFailed: 'Unable to copy the client model',
     },
+    inspector: {
+      direct: 'Passed through by the same name',
+      alias: 'Mapped to {model}',
+      noCatalog: 'No Models.dev catalog information',
+      scopeOption: '{label} {kind}',
+    },
     detail: {
       upstreamModel: 'Upstream model',
-      direct: 'Same name',
-      aliasApplied: 'Alias',
-      scope: {
-        provider: 'Provider price',
-        group: 'Group-specific price',
-      },
       routeGroups: 'Route Groups',
       groupEnabled: 'Enabled',
       groupDisabled: 'Disabled',
@@ -103,9 +78,6 @@ export default {
         context: 'Context',
         maxOutput: 'Max output',
         modalities: 'Modalities',
-        knowledge: 'Knowledge cutoff',
-        released: 'Released',
-        family: 'Family',
       },
       capabilities: {
         attachment: 'Attachments',

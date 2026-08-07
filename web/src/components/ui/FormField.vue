@@ -12,6 +12,8 @@ const props = withDefaults(
     disabledReason?: string
     labelSuffix?: string
     size?: 'default' | 'compact'
+    /** 视觉隐藏 label，保留给辅助技术。用于列标签已由表头承担的密集表格。 */
+    labelHidden?: boolean
   }>(),
   {
     description: undefined,
@@ -20,6 +22,7 @@ const props = withDefaults(
     disabledReason: undefined,
     labelSuffix: undefined,
     size: 'default',
+    labelHidden: false,
   },
 )
 
@@ -37,7 +40,7 @@ const describedBy = computed(
 
 <template>
   <div class="form-field" :class="`form-field--${size}`">
-    <label class="form-field__label" :for="id">
+    <label class="form-field__label" :class="{ 'sr-only': labelHidden }" :for="id">
       {{ label }}
       <span v-if="labelSuffix" class="form-field__label-suffix">{{ labelSuffix }}</span>
       <template v-if="required">

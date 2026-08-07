@@ -1,64 +1,5 @@
 export default {
   modelPrices: {
-    title: 'モデル価格',
-    back: '設定に戻る',
-    loading: 'モデル価格を読み込み中…',
-    loadFailed: 'モデル価格を読み込めません',
-    stale: 'バックグラウンド更新に失敗したため、現在の一覧は古い可能性があります',
-    context:
-      '単位は USD / 100 万 tokens です。変更は今後のコスト推定だけに適用され、履歴は再計算されません',
-    result: '{total} 件中 {shown} 件を表示',
-    filters: {
-      region: 'モデル価格を絞り込む',
-      searchLabel: '検索',
-      searchPlaceholder: 'モデル ID、プロバイダー、Group',
-      clearSearch: '検索をクリア',
-      usageLabel: '使用状態',
-      statusLabel: '価格状態',
-      reset: '条件をリセット',
-      usage: {
-        in_use: '使用中',
-        unreferenced: '未参照',
-        all: 'すべて',
-      },
-      status: {
-        all: 'すべて',
-        pending: '価格待ち',
-        configured: '設定済み',
-      },
-    },
-    sync: {
-      action: '価格を同期',
-      succeeded: 'モデルカタログと自動価格を同期しました',
-      failed: 'モデルカタログと価格を同期できません',
-    },
-    empty: {
-      title: '使用中のモデル価格はまだありません',
-      description: 'モデルカタログを同期するか、Group でモデルを設定してください',
-      noResultsTitle: '条件に一致するモデル価格がありません',
-      noResultsDescription: '検索、使用状態、価格状態の条件を変更して再度お試しください',
-    },
-    sections: {
-      count: '{count} 件',
-      pending: {
-        title: '価格待ち',
-        description: '現在、コスト推定に使える価格がありません',
-        tableLabel: '価格待ちモデル一覧',
-      },
-      configured: {
-        title: '設定済み価格',
-        description: '現在有効な 4 つの価格枠と管理方法を表示します',
-        tableLabel: '設定済みモデル価格一覧',
-      },
-    },
-    columns: {
-      identity: 'モデル / 範囲',
-      status: '状態',
-      prices: '価格 · USD / 1M',
-      facts: '方法 / 参照',
-      updatedAt: '更新日時',
-      actions: '操作',
-    },
     status: {
       pending: '価格待ち',
       configured: '設定済み',
@@ -73,11 +14,6 @@ export default {
       cache_read: 'キャッシュ読み取り',
       cache_write: 'キャッシュ書き込み',
     },
-    values: {
-      unavailable: '未設定',
-      free: '無料',
-      configured: '${value}',
-    },
     method: {
       pending: '価格管理方法なし',
       auto_sync: 'Models.dev から自動同期',
@@ -86,44 +22,39 @@ export default {
       user_set: '手動設定',
       user_marked_unpriced: '手動で価格なしに設定',
     },
-    reference: '{provider} の参照価格',
     references: '{entries} 件の参照 · {groups} Group',
     facts: {
       partial: 'アップストリーム価格が不完全',
-      tiered: 'コンテキスト段階価格あり',
     },
-    edit: {
-      open: '{model} の価格を編集',
-    },
-    drawer: {
-      title: 'モデル価格を編集',
-      description: '4 つの価格枠を設定します。空欄は未設定、0 は明示的な無料です',
-      close: 'モデル価格エディターを閉じる',
-      identity: 'モデル情報',
-      identityDescription: 'モデルと価格範囲はサーバーが管理するため、ここでは変更できません',
-      model: 'モデル ID',
-      scope: '価格範囲',
-      currentStatus: '現在の状態',
-      reference: '価格の参照元',
-      prices: '価格枠',
-      priceDescription:
-        '表示・編集する価格は USD / 100 万 tokens のコスト概算用であり、アップストリームの実際の請求額を示すものではありません',
+    matrix: {
+      heading: '価格',
       unit: 'USD / 1M',
-      tierNote: 'この価格にはコンテキスト段階があります。手動保存すると現在の 4 枠で置き換えます',
-      partialNote: 'アップストリーム価格が不完全です。未設定の枠を確認してください',
-      availableState: '空欄は未設定、0 は無料です',
-      unpricedState: 'すべて空欄にすると、このモデルを価格なしに設定します',
-      save: '価格を保存',
+      scopeLabel: '作用域',
+      thresholdColumn: '入力量の段階',
+      baseRow: '基本',
+      addTier: '入力量の段階を追加',
+      removeTier: 'この段階を削除',
+      replaceNote:
+        '段階は 1 リクエストあたりの入力トークン合計で判定され、しきい値に達すると基本価格全体を置き換えます',
+      oneHourNote: '1h キャッシュ書き込みは 5m × 1.6 の派生値です：{parts}',
+      oneHourInline: '1h 派生 {value}',
+      oneHourBasePart: '基本 {value}',
+      oneHourTierPart: '≥{threshold} {value}',
+      save: '保存',
       saveFailed: 'モデル価格を保存できません。入力内容は保持されています',
-      errors: {
-        invalid_price: '小数 9 桁以内で、対応範囲内の 0 以上の価格を入力してください',
-      },
       unpricedConfirm: {
         title: 'このモデルを価格なしにしますか？',
-        description: '「{model}」の 4 つの価格枠がすべて未設定になります',
+        description: '「{model}」の基本価格枠がすべて未設定になります',
         close: '価格なしの確認を閉じる',
         warning: '今後も Token は記録されますが、コストは 0 と推定され価格なしと表示されます',
         confirm: '価格なしを確認',
+      },
+      errors: {
+        invalid_price: '小数 9 桁以内で、対応範囲内の 0 以上の価格を入力してください',
+        threshold_required: 'この段階の入力量しきい値を入力してください',
+        threshold_invalid: 'しきい値は 0 以上の整数にしてください',
+        threshold_duplicate: 'しきい値は他の段階と重複できません',
+        tier_empty: 'この段階には少なくとも 1 つの価格が必要です',
       },
     },
     reset: {

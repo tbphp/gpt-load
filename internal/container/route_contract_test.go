@@ -135,14 +135,6 @@ func TestBuildContainerExposesUnifiedRouteCatalog(t *testing.T) {
 		},
 		{
 			ModuleName: "web",
-			RouteName:  "web.page.model-prices",
-			Owner:      httproute.OwnerWeb,
-			Auth:       httproute.AuthNone,
-			Methods:    []string{http.MethodGet},
-			Path:       "/settings/model-prices",
-		},
-		{
-			ModuleName: "web",
 			RouteName:  "web.asset.favicon",
 			Owner:      httproute.OwnerWeb,
 			Auth:       httproute.AuthNone,

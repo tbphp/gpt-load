@@ -120,8 +120,10 @@ func TestListModelPricesProjectsFinalFactsWithoutLeakingScopeKey(t *testing.T) {
 	zeroItem := result.Items[2]
 	if zeroItem.Prices.Input == nil || *zeroItem.Prices.Input != "0" ||
 		zeroItem.Prices.Output != nil || zeroItem.Method != nil ||
-		!zeroItem.Partial || !zeroItem.HasContextTiers || zeroItem.ReferenceCount != 1 ||
-		zeroItem.ReferenceGroupCount != 1 {
+		!zeroItem.Partial || len(zeroItem.ContextTiers) != 1 ||
+		zeroItem.ContextTiers[0].ThresholdTokens != 1000 ||
+		zeroItem.ContextTiers[0].Prices.Input == nil || *zeroItem.ContextTiers[0].Prices.Input != "0" ||
+		zeroItem.ReferenceCount != 1 || zeroItem.ReferenceGroupCount != 1 {
 		t.Fatalf("explicit zero item = %#v", zeroItem)
 	}
 	orphanItem := result.Items[3]
@@ -361,7 +363,8 @@ func TestUpdateModelPriceUsesFullManualOwnershipAndIsIdempotent(t *testing.T) {
 	publishPersistedPriceTableForTest(t, fixture)
 	fixture.service.now = func() time.Time { return time.UnixMilli(50_000) }
 	request := mustModelPriceUpdateRequest(t,
-		`{"input":"2.0","output":null,"cache_read":"0","cache_write":null}`,
+		`{"input":"2.0","output":null,"cache_read":"0","cache_write":null,`+
+			`"context_tiers":[{"threshold_tokens":1000,"input":"2.5","output":null,"cache_read":null,"cache_write":null}]}`,
 	)
 
 	result, err := fixture.service.UpdateModelPrice(t.Context(), row.ID, request)
@@ -370,7 +373,9 @@ func TestUpdateModelPriceUsesFullManualOwnershipAndIsIdempotent(t *testing.T) {
 	}
 	if result.Scope.ID != providerID || result.ModelID != "shared" || result.Method == nil ||
 		*result.Method != "user_override" || result.ReferenceCount != 3 || result.ReferenceGroupCount != 2 ||
-		result.HasContextTiers || result.Prices.Input == nil || *result.Prices.Input != "2" ||
+		len(result.ContextTiers) != 1 || result.ContextTiers[0].ThresholdTokens != 1000 ||
+		result.ContextTiers[0].Prices.Input == nil || *result.ContextTiers[0].Prices.Input != "2.5" ||
+		result.Prices.Input == nil || *result.Prices.Input != "2" ||
 		result.Prices.CacheRead == nil || *result.Prices.CacheRead != "0" {
 		t.Fatalf("updated DTO = %#v", result)
 	}
@@ -378,14 +383,14 @@ func TestUpdateModelPriceUsesFullManualOwnershipAndIsIdempotent(t *testing.T) {
 	if err := fixture.db.First(&stored, row.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !stored.IsManual || len(stored.ContextPriceTiers) != 0 || stored.UpdatedAtMS != 50_000 ||
+	if !stored.IsManual || len(stored.ContextPriceTiers) == 0 || stored.UpdatedAtMS != 50_000 ||
 		stored.PriceScopeKey != scope || stored.ModelID != "shared" ||
 		stored.InputPriceNanoUSDPerMillionTokens == nil || *stored.InputPriceNanoUSDPerMillionTokens != 2_000_000_000 ||
 		stored.CacheReadPriceNanoUSDPerMillionTokens == nil || *stored.CacheReadPriceNanoUSDPerMillionTokens != 0 {
 		t.Fatalf("stored manual row = %#v", stored)
 	}
 	rule, exists := fixture.priceRuntime.Load().Lookup(pricing.Identity{ScopeKey: scope, ModelID: "shared"})
-	if !exists || !rule.IsManual || len(rule.ContextTiers) != 0 ||
+	if !exists || !rule.IsManual || len(rule.ContextTiers) != 1 ||
 		!rule.Prices.Input.Set || rule.Prices.Input.NanoUSDPerMillion != 2_000_000_000 ||
 		!rule.Prices.CacheRead.Set || rule.Prices.CacheRead.NanoUSDPerMillion != 0 {
 		t.Fatalf("published manual rule = %#v, %t", rule, exists)
@@ -393,7 +398,8 @@ func TestUpdateModelPriceUsesFullManualOwnershipAndIsIdempotent(t *testing.T) {
 
 	fixture.service.now = func() time.Time { return time.UnixMilli(60_000) }
 	equivalent := mustModelPriceUpdateRequest(t,
-		`{"input":"2.000000000","output":null,"cache_read":"0.0","cache_write":null}`,
+		`{"input":"2.000000000","output":null,"cache_read":"0.0","cache_write":null,`+
+			`"context_tiers":[{"threshold_tokens":1000,"input":"2.500000000","output":null,"cache_read":null,"cache_write":null}]}`,
 	)
 	if _, err := fixture.service.UpdateModelPrice(t.Context(), row.ID, equivalent); err != nil {
 		t.Fatalf("idempotent UpdateModelPrice() error = %v", err)
@@ -403,6 +409,29 @@ func TestUpdateModelPriceUsesFullManualOwnershipAndIsIdempotent(t *testing.T) {
 	}
 	if stored.UpdatedAtMS != 50_000 {
 		t.Fatalf("idempotent update timestamp = %d, want 50000", stored.UpdatedAtMS)
+	}
+
+	fixture.service.now = func() time.Time { return time.UnixMilli(70_000) }
+	cleared := mustModelPriceUpdateRequest(t,
+		`{"input":"2.0","output":null,"cache_read":"0","cache_write":null,"context_tiers":[]}`,
+	)
+	clearedResult, err := fixture.service.UpdateModelPrice(t.Context(), row.ID, cleared)
+	if err != nil {
+		t.Fatalf("UpdateModelPrice() clearing tiers error = %v", err)
+	}
+	if len(clearedResult.ContextTiers) != 0 {
+		t.Fatalf("cleared DTO still has tiers = %#v", clearedResult)
+	}
+	// A freshly declared destination is used here (rather than reusing `stored`)
+	// because GORM's scanner field-setter leaves a reused struct field
+	// untouched when a SQL NULL follows a prior non-NULL scan into the same
+	// variable — an unrelated stdlib/GORM interaction, not a persistence bug.
+	var clearedRow models.ModelPrice
+	if err := fixture.db.First(&clearedRow, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(clearedRow.ContextPriceTiers) != 0 || clearedRow.UpdatedAtMS != 70_000 {
+		t.Fatalf("cleared stored row = %#v", clearedRow)
 	}
 }
 
@@ -437,7 +466,7 @@ func TestUpdateModelPriceConfirmedAllNullBlocksCatalogSync(t *testing.T) {
 	}}
 	fixture.catalogRuntime.Publish(snapshot)
 	confirmed := mustModelPriceUpdateRequest(t,
-		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":true}`,
+		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":true,"context_tiers":[]}`,
 	)
 
 	result, err := fixture.service.UpdateModelPrice(t.Context(), row.ID, confirmed)
@@ -524,7 +553,7 @@ func TestUpdateModelPriceSerializesAfterInFlightCatalogSyncAndWins(t *testing.T)
 	userStarted := make(chan struct{})
 	userDone := make(chan error, 1)
 	request := mustModelPriceUpdateRequest(t,
-		`{"input":"7","output":null,"cache_read":null,"cache_write":null}`,
+		`{"input":"7","output":null,"cache_read":null,"cache_write":null,"context_tiers":[]}`,
 	)
 	go func() {
 		close(userStarted)
@@ -573,7 +602,7 @@ func TestUpdateModelPriceRequiresAllNullConfirmationAndRollsBackCompileFailure(t
 	beforeRuntime := fixture.priceRuntime.Load()
 
 	unconfirmed := mustModelPriceUpdateRequest(t,
-		`{"input":null,"output":null,"cache_read":null,"cache_write":null}`,
+		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"context_tiers":[]}`,
 	)
 	_, err := fixture.service.UpdateModelPrice(t.Context(), row.ID, unconfirmed)
 	var apiErr *app_errors.APIError
@@ -597,7 +626,7 @@ func TestUpdateModelPriceRequiresAllNullConfirmationAndRollsBackCompileFailure(t
 		t.Fatal(err)
 	}
 	confirmed := mustModelPriceUpdateRequest(t,
-		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":true}`,
+		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":true,"context_tiers":[]}`,
 	)
 	_, err = fixture.service.UpdateModelPrice(t.Context(), row.ID, confirmed)
 	if !errors.Is(err, app_errors.ErrInternalServer) {
@@ -678,7 +707,9 @@ func TestResetModelPriceRestoresExactProviderCatalogCostAndPublishes(t *testing.
 	if result.Scope.ID != providerID || result.Scope.Label != "OpenAI Catalog" ||
 		result.ModelID != "restore" || result.PricingStatus != PricingStatusConfigured ||
 		result.Method == nil || *result.Method != "auto_sync" || result.CanReset || result.CanDelete ||
-		result.ReferenceCount != 3 || result.ReferenceGroupCount != 2 || !result.HasContextTiers ||
+		result.ReferenceCount != 3 || result.ReferenceGroupCount != 2 || len(result.ContextTiers) != 1 ||
+		result.ContextTiers[0].ThresholdTokens != 200_000 ||
+		result.ContextTiers[0].Prices.Input == nil || *result.ContextTiers[0].Prices.Input != "3" ||
 		result.Prices.Input == nil || *result.Prices.Input != "2" ||
 		result.Prices.Output == nil || *result.Prices.Output != "4" ||
 		result.Prices.CacheRead == nil || *result.Prices.CacheRead != "0" ||
@@ -737,7 +768,7 @@ func TestResetModelPriceMissingCatalogCandidateBecomesAutomaticPending(t *testin
 				t.Fatalf("ResetModelPrice() error = %v", err)
 			}
 			if result.PricingStatus != PricingStatusPending || result.Method != nil ||
-				result.Prices != (PriceSlotsDTO{}) || result.CanReset || result.HasContextTiers {
+				result.Prices != (PriceSlotsDTO{}) || result.CanReset || len(result.ContextTiers) != 0 {
 				t.Fatalf("pending reset DTO = %#v", result)
 			}
 			var stored models.ModelPrice

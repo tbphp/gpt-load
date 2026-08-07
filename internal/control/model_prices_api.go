@@ -3,7 +3,9 @@ package control
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"unicode/utf8"
@@ -52,19 +54,37 @@ type nullableDecimal struct {
 }
 
 type ModelPriceUpdateRequest struct {
-	Input           nullableDecimal `json:"input"`
-	Output          nullableDecimal `json:"output"`
-	CacheRead       nullableDecimal `json:"cache_read"`
-	CacheWrite      nullableDecimal `json:"cache_write"`
-	ConfirmUnpriced bool            `json:"confirm_unpriced"`
+	Input           nullableDecimal         `json:"input"`
+	Output          nullableDecimal         `json:"output"`
+	CacheRead       nullableDecimal         `json:"cache_read"`
+	CacheWrite      nullableDecimal         `json:"cache_write"`
+	ContextTiers    modelPriceTierListField `json:"context_tiers"`
+	ConfirmUnpriced bool                    `json:"confirm_unpriced"`
+}
+
+// ModelPriceContextTierRequest is one submitted input-quantity price tier.
+// Unlike the top-level request, prices use flat fields rather than a nested
+// "prices" object, mirroring the existing request/response shape asymmetry.
+type ModelPriceContextTierRequest struct {
+	ThresholdTokens modelPriceTierThreshold `json:"threshold_tokens"`
+	Input           nullableDecimal         `json:"input"`
+	Output          nullableDecimal         `json:"output"`
+	CacheRead       nullableDecimal         `json:"cache_read"`
+	CacheWrite      nullableDecimal         `json:"cache_write"`
 }
 
 func (request ModelPriceUpdateRequest) validate() error {
 	if !request.Input.present ||
 		!request.Output.present ||
 		!request.CacheRead.present ||
-		!request.CacheWrite.present {
-		return fmt.Errorf("all four model price slots are required: %w", app_errors.ErrValidation)
+		!request.CacheWrite.present ||
+		!request.ContextTiers.present {
+		return fmt.Errorf("all model price slots are required: %w", app_errors.ErrValidation)
+	}
+	for _, tier := range request.ContextTiers.tiers {
+		if !tier.ThresholdTokens.present {
+			return fmt.Errorf("context tier threshold_tokens is required: %w", app_errors.ErrValidation)
+		}
 	}
 	return nil
 }
@@ -86,6 +106,72 @@ func (value *nullableDecimal) UnmarshalJSON(data []byte) error {
 	}
 	nanoUSD := int64(parsed)
 	value.nanoUSD = &nanoUSD
+	return nil
+}
+
+// modelPriceTierThreshold decodes a required canonical non-negative safe
+// integer, matching the JS-safe-integer bound used across the control API.
+type modelPriceTierThreshold struct {
+	present bool
+	tokens  int64
+}
+
+func (value *modelPriceTierThreshold) UnmarshalJSON(data []byte) error {
+	value.present = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return fmt.Errorf("context tier threshold_tokens must not be null: %w", app_errors.ErrValidation)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return fmt.Errorf("parse context tier threshold_tokens: %w", app_errors.ErrValidation)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parse context tier threshold_tokens: trailing data: %w", app_errors.ErrValidation)
+	}
+	// json.Number decoding otherwise accepts a quoted string equally, which
+	// would silently diverge from the bare-integer wire contract.
+	number, ok := decoded.(json.Number)
+	if !ok {
+		return fmt.Errorf("context tier threshold_tokens must be a JSON number: %w", app_errors.ErrValidation)
+	}
+	parsed, err := parseCanonicalSafeUint(number.String())
+	if err != nil {
+		return fmt.Errorf(
+			"context tier threshold_tokens must be a canonical non-negative safe integer: %w",
+			app_errors.ErrValidation,
+		)
+	}
+	value.tokens = int64(parsed)
+	return nil
+}
+
+// modelPriceTierListField tracks whether "context_tiers" was present in the
+// request so a PUT always states its full tier list, matching the existing
+// full-replacement semantics of the four base price slots.
+type modelPriceTierListField struct {
+	present bool
+	tiers   []ModelPriceContextTierRequest
+}
+
+func (field *modelPriceTierListField) UnmarshalJSON(data []byte) error {
+	field.present = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return fmt.Errorf("context_tiers must not be null: %w", app_errors.ErrValidation)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var tiers []ModelPriceContextTierRequest
+	if err := decoder.Decode(&tiers); err != nil {
+		return fmt.Errorf("parse context_tiers: %w", app_errors.ErrValidation)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parse context_tiers: trailing data: %w", app_errors.ErrValidation)
+	}
+	field.tiers = tiers
 	return nil
 }
 

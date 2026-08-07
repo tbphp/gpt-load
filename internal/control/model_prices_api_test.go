@@ -165,7 +165,7 @@ func TestNullableDecimalRejectsJSONNumbersAndContainers(t *testing.T) {
 
 func TestModelPriceUpdateRequestRequiresFullReplacementSlots(t *testing.T) {
 	request, apiErr := decodeModelPriceUpdateRequestForTest(
-		`{"input":"2.5","output":null,"cache_read":"0","cache_write":null}`,
+		`{"input":"2.5","output":null,"cache_read":"0","cache_write":null,"context_tiers":[]}`,
 	)
 	if apiErr != nil {
 		t.Fatalf("decode request error = %v", apiErr)
@@ -174,12 +174,13 @@ func TestModelPriceUpdateRequestRequiresFullReplacementSlots(t *testing.T) {
 		!pricePointerEqual(request.Input.nanoUSD, int64Pointer(2_500_000_000)) ||
 		request.Output.nanoUSD != nil ||
 		!pricePointerEqual(request.CacheRead.nanoUSD, int64Pointer(0)) ||
-		request.CacheWrite.nanoUSD != nil {
+		request.CacheWrite.nanoUSD != nil ||
+		len(request.ContextTiers.tiers) != 0 {
 		t.Fatalf("decoded request = %#v", request)
 	}
 
 	confirmed, apiErr := decodeModelPriceUpdateRequestForTest(
-		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":true}`,
+		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":true,"context_tiers":[]}`,
 	)
 	if apiErr != nil || !confirmed.ConfirmUnpriced {
 		t.Fatalf("confirmed all-null request = %#v, %v", confirmed, apiErr)
@@ -187,12 +188,49 @@ func TestModelPriceUpdateRequestRequiresFullReplacementSlots(t *testing.T) {
 
 	for _, body := range []string{
 		`{}`,
-		`{"input":"1","output":"2","cache_read":"3"}`,
-		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","input":"5"}`,
-		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","model_id":"secret"}`,
-		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","price_scope_key":"provider:secret"}`,
-		`{"input":"1","output":"2","cache_read":"3","cache_write":"4"} {}`,
+		`{"input":"1","output":"2","cache_read":"3","context_tiers":[]}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","context_tiers":[],"input":"5"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","context_tiers":[],"model_id":"secret"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","context_tiers":[],"price_scope_key":"provider:secret"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","context_tiers":[]} {}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","context_tiers":null}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","context_tiers":[{"input":"1"}]}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","context_tiers":[{"threshold_tokens":1000,"input":"1","extra":true}]}`,
 		`[]`,
+	} {
+		_, apiErr := decodeModelPriceUpdateRequestForTest(body)
+		if apiErr == nil {
+			t.Fatalf("decode request accepted %s", body)
+		}
+	}
+}
+
+func TestModelPriceUpdateRequestDecodesContextTiers(t *testing.T) {
+	request, apiErr := decodeModelPriceUpdateRequestForTest(
+		`{"input":"2.5","output":null,"cache_read":"0","cache_write":null,"context_tiers":[` +
+			`{"threshold_tokens":1000,"input":"3","output":null,"cache_read":null,"cache_write":null},` +
+			`{"threshold_tokens":272000,"input":null,"output":"5","cache_read":null,"cache_write":null}` +
+			`]}`,
+	)
+	if apiErr != nil {
+		t.Fatalf("decode request error = %v", apiErr)
+	}
+	tiers := request.ContextTiers.tiers
+	if len(tiers) != 2 ||
+		!tiers[0].ThresholdTokens.present || tiers[0].ThresholdTokens.tokens != 1000 ||
+		!pricePointerEqual(tiers[0].Input.nanoUSD, int64Pointer(3_000_000_000)) ||
+		!tiers[1].ThresholdTokens.present || tiers[1].ThresholdTokens.tokens != 272_000 ||
+		!pricePointerEqual(tiers[1].Output.nanoUSD, int64Pointer(5_000_000_000)) {
+		t.Fatalf("decoded context tiers = %#v", tiers)
+	}
+
+	for _, body := range []string{
+		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[{"threshold_tokens":null,"input":"1"}]}`,
+		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[{"threshold_tokens":-1,"input":"1"}]}`,
+		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[{"threshold_tokens":1.5,"input":"1"}]}`,
+		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[{"threshold_tokens":"1000","input":"1"}]}`,
+		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[{"threshold_tokens":01,"input":"1"}]}`,
 	} {
 		_, apiErr := decodeModelPriceUpdateRequestForTest(body)
 		if apiErr == nil {

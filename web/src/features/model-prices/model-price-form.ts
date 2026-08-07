@@ -1,24 +1,91 @@
 import type {
+  ModelPriceContextTierUpdateRequest,
   ModelPriceDto,
-  ModelPriceSlotsDto,
   ModelPriceUpdateRequest,
 } from '@/app/resources/model-prices'
 
 export const modelPriceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 export type ModelPriceField = (typeof modelPriceFields)[number]
-export type ModelPriceDraft = Record<ModelPriceField, string>
-export type ModelPriceFormErrors = Partial<Record<ModelPriceField, 'invalid_price'>>
+export type ModelPriceSlotDraft = Record<ModelPriceField, string>
+export type ModelPriceSlotErrors = Partial<Record<ModelPriceField, 'invalid_price'>>
+
+export interface ModelPriceTierDraft {
+  /** 本地稳定 key，仅用于 v-for 与错误定位，不随阈值编辑变化。 */
+  key: string
+  threshold: string
+  slots: ModelPriceSlotDraft
+}
+
+export interface ModelPriceTierErrors {
+  threshold?: 'required' | 'invalid' | 'duplicate'
+  slots?: ModelPriceSlotErrors
+  emptyTier?: true
+}
+
+export interface ModelPriceDraft {
+  base: ModelPriceSlotDraft
+  tiers: ModelPriceTierDraft[]
+}
+
+export interface ModelPriceFormErrors {
+  base: ModelPriceSlotErrors
+  tiers: Record<string, ModelPriceTierErrors>
+}
 
 const maximumInt64 = 9_223_372_036_854_775_807n
+const maximumSafeIntegerBig = 9_007_199_254_740_991n
 const nanoUSDPerUSD = 1_000_000_000n
 const acceptedPrice = /^\d+(?:\.\d{1,9})?$/u
+const acceptedThreshold = /^(?:0|[1-9]\d*)$/u
+
+/** 1h 缓存写入相对 5m 基准价的固定倍率，与后端 quote.go 的 Multiplier{8,5} 保持一致。 */
+const oneHourMultiplierNumerator = 8n
+const oneHourMultiplierDenominator = 5n
+
+function formatNanoUSD(nanoUSD: bigint): string {
+  const whole = nanoUSD / nanoUSDPerUSD
+  const fraction = (nanoUSD % nanoUSDPerUSD).toString().padStart(9, '0').replace(/0+$/u, '')
+  return fraction ? `${whole}.${fraction}` : `${whole}`
+}
+
+/** 展示用途：按后端四舍五入规则派生 1h 缓存写入单价，不用于提交请求。 */
+export function deriveOneHourCacheWrite(cacheWrite: string): string | null {
+  if (cacheWrite === '' || !acceptedPrice.test(cacheWrite)) return null
+  const [whole = '', fraction = ''] = cacheWrite.split('.')
+  const nanoUSD = BigInt(whole) * nanoUSDPerUSD + BigInt(fraction.padEnd(9, '0') || '0')
+  const numerator = nanoUSD * oneHourMultiplierNumerator
+  let quotient = numerator / oneHourMultiplierDenominator
+  const remainder = numerator % oneHourMultiplierDenominator
+  if (remainder * 2n >= oneHourMultiplierDenominator) quotient += 1n
+  return formatNanoUSD(quotient)
+}
+
+function emptySlotDraft(): ModelPriceSlotDraft {
+  return { input: '', output: '', cache_read: '', cache_write: '' }
+}
+
+export function createEmptyTierDraft(): ModelPriceTierDraft {
+  return { key: crypto.randomUUID(), threshold: '', slots: emptySlotDraft() }
+}
 
 export function createModelPriceDraft(row?: ModelPriceDto | null): ModelPriceDraft {
   return {
-    input: row?.prices.input ?? '',
-    output: row?.prices.output ?? '',
-    cache_read: row?.prices.cache_read ?? '',
-    cache_write: row?.prices.cache_write ?? '',
+    base: {
+      input: row?.prices.input ?? '',
+      output: row?.prices.output ?? '',
+      cache_read: row?.prices.cache_read ?? '',
+      cache_write: row?.prices.cache_write ?? '',
+    },
+    tiers: (row?.context_tiers ?? []).map((tier) => ({
+      key: crypto.randomUUID(),
+      threshold: String(tier.threshold_tokens),
+      slots: {
+        input: tier.prices.input ?? '',
+        output: tier.prices.output ?? '',
+        cache_read: tier.prices.cache_read ?? '',
+        cache_write: tier.prices.cache_write ?? '',
+      },
+    })),
   }
 }
 
@@ -30,12 +97,57 @@ function parsePrice(raw: string): string | null | undefined {
   return nanoUSD > maximumInt64 ? undefined : raw
 }
 
-export function validateModelPriceDraft(draft: ModelPriceDraft): ModelPriceFormErrors {
-  const errors: ModelPriceFormErrors = {}
+function parseThreshold(raw: string): number | undefined {
+  if (!acceptedThreshold.test(raw)) return undefined
+  const parsed = BigInt(raw)
+  return parsed > maximumSafeIntegerBig ? undefined : Number(raw)
+}
+
+function validateSlots(slots: ModelPriceSlotDraft): ModelPriceSlotErrors {
+  const errors: ModelPriceSlotErrors = {}
   for (const field of modelPriceFields) {
-    if (parsePrice(draft[field]) === undefined) errors[field] = 'invalid_price'
+    if (parsePrice(slots[field]) === undefined) errors[field] = 'invalid_price'
   }
   return errors
+}
+
+function slotsAllEmpty(slots: ModelPriceSlotDraft): boolean {
+  return modelPriceFields.every((field) => slots[field] === '')
+}
+
+export function validateModelPriceDraft(draft: ModelPriceDraft): ModelPriceFormErrors {
+  const base = validateSlots(draft.base)
+
+  const tiers: Record<string, ModelPriceTierErrors> = {}
+  const seenThresholds = new Set<number>()
+  for (const tier of draft.tiers) {
+    const errors: ModelPriceTierErrors = {}
+    const trimmed = tier.threshold.trim()
+    if (trimmed === '') {
+      errors.threshold = 'required'
+    } else {
+      const parsed = parseThreshold(trimmed)
+      if (parsed === undefined) {
+        errors.threshold = 'invalid'
+      } else if (seenThresholds.has(parsed)) {
+        errors.threshold = 'duplicate'
+      } else {
+        seenThresholds.add(parsed)
+      }
+    }
+
+    const slotErrors = validateSlots(tier.slots)
+    if (Object.keys(slotErrors).length > 0) errors.slots = slotErrors
+    if (slotsAllEmpty(tier.slots)) errors.emptyTier = true
+
+    if (Object.keys(errors).length > 0) tiers[tier.key] = errors
+  }
+
+  return { base, tiers }
+}
+
+export function modelPriceFormHasErrors(errors: ModelPriceFormErrors): boolean {
+  return Object.keys(errors.base).length > 0 || Object.keys(errors.tiers).length > 0
 }
 
 export function buildModelPriceRequest(
@@ -43,22 +155,46 @@ export function buildModelPriceRequest(
   confirmUnpriced: boolean,
 ): ModelPriceUpdateRequest | null {
   const errors = validateModelPriceDraft(draft)
-  if (Object.keys(errors).length > 0) return null
+  if (modelPriceFormHasErrors(errors)) return null
+
+  const tiers: ModelPriceContextTierUpdateRequest[] = draft.tiers
+    .map((tier) => ({
+      threshold_tokens: parseThreshold(tier.threshold.trim()) as number,
+      input: parsePrice(tier.slots.input) ?? null,
+      output: parsePrice(tier.slots.output) ?? null,
+      cache_read: parsePrice(tier.slots.cache_read) ?? null,
+      cache_write: parsePrice(tier.slots.cache_write) ?? null,
+    }))
+    .sort((left, right) => left.threshold_tokens - right.threshold_tokens)
+
   return {
-    input: parsePrice(draft.input) ?? null,
-    output: parsePrice(draft.output) ?? null,
-    cache_read: parsePrice(draft.cache_read) ?? null,
-    cache_write: parsePrice(draft.cache_write) ?? null,
+    input: parsePrice(draft.base.input) ?? null,
+    output: parsePrice(draft.base.output) ?? null,
+    cache_read: parsePrice(draft.base.cache_read) ?? null,
+    cache_write: parsePrice(draft.base.cache_write) ?? null,
+    context_tiers: tiers,
     confirm_unpriced: confirmUnpriced,
   }
 }
 
+/** 是否处于「用户主动清空」状态；仅看基础四槽位，与后端 all-null 判定保持一致。 */
 export function modelPriceDraftIsAllNull(draft: ModelPriceDraft): boolean {
-  return modelPriceFields.every((field) => draft[field] === '')
+  return slotsAllEmpty(draft.base)
 }
 
 export function modelPriceDraftChanged(row: ModelPriceDto, draft: ModelPriceDraft): boolean {
-  return modelPriceFields.some(
-    (field) => draft[field] !== (row.prices[field as keyof ModelPriceSlotsDto] ?? ''),
-  )
+  if (
+    modelPriceFields.some((field) => draft.base[field] !== (row.prices[field] ?? '')) ||
+    draft.tiers.length !== row.context_tiers.length
+  ) {
+    return true
+  }
+  return draft.tiers.some((tier, index) => {
+    const original = row.context_tiers[index]
+    if (!original) return true
+    return (
+      tier.threshold !== String(original.threshold_tokens) ||
+      modelPriceFields.some((field) => tier.slots[field] !== (original.prices[field] ?? ''))
+    )
+  })
 }

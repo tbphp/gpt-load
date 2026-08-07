@@ -44,6 +44,11 @@ export interface ModelPriceSlotsDto {
   cache_write: string | null
 }
 
+export interface ModelPriceContextTierDto {
+  threshold_tokens: number
+  prices: ModelPriceSlotsDto
+}
+
 export interface ModelPriceDto {
   id: number
   model_id: string
@@ -55,7 +60,7 @@ export interface ModelPriceDto {
   referenced: boolean
   reference_count: number
   reference_group_count: number
-  has_context_tiers: boolean
+  context_tiers: ModelPriceContextTierDto[]
   partial: boolean
   updated_at_ms: number
   can_reset: boolean
@@ -74,11 +79,20 @@ export interface ModelPriceCollectionDto {
   pagination: ModelPricePaginationDto
 }
 
+export interface ModelPriceContextTierUpdateRequest {
+  threshold_tokens: number
+  input: string | null
+  output: string | null
+  cache_read: string | null
+  cache_write: string | null
+}
+
 export interface ModelPriceUpdateRequest {
   input: string | null
   output: string | null
   cache_read: string | null
   cache_write: string | null
+  context_tiers: ModelPriceContextTierUpdateRequest[]
   confirm_unpriced: boolean
 }
 
@@ -105,7 +119,7 @@ const itemFields = [
   'referenced',
   'reference_count',
   'reference_group_count',
-  'has_context_tiers',
+  'context_tiers',
   'partial',
   'updated_at_ms',
   'can_reset',
@@ -113,7 +127,8 @@ const itemFields = [
 ] as const
 const scopeFields = ['kind', 'id', 'label'] as const
 const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
-const updateFields = [...priceFields, 'confirm_unpriced'] as const
+const contextTierFields = ['threshold_tokens', 'prices'] as const
+const updateFields = [...priceFields, 'context_tiers', 'confirm_unpriced'] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -146,6 +161,29 @@ function projectPrices(value: unknown): ModelPriceSlotsDto {
   }
 }
 
+function projectContextTier(value: unknown): ModelPriceContextTierDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, contextTierFields)
+  const prices = projectPrices(record.prices)
+  if (Object.values(prices).every((slot) => slot === null)) invalidResponse()
+  return {
+    threshold_tokens: projectSafeInteger(record.threshold_tokens, { minimum: 0 }),
+    prices,
+  }
+}
+
+function projectContextTiers(value: unknown): ModelPriceContextTierDto[] {
+  const tiers = projectArray(value, projectContextTier)
+  for (let index = 1; index < tiers.length; index += 1) {
+    const previous = tiers[index - 1]
+    const current = tiers[index]
+    if (previous && current && current.threshold_tokens <= previous.threshold_tokens) {
+      invalidResponse()
+    }
+  }
+  return tiers
+}
+
 function projectMethod(value: unknown): ModelPriceMethod | null {
   return value === null
     ? null
@@ -175,7 +213,7 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     referenced: projectBoolean(record.referenced),
     reference_count: projectSafeInteger(record.reference_count, { minimum: 0 }),
     reference_group_count: projectSafeInteger(record.reference_group_count, { minimum: 0 }),
-    has_context_tiers: projectBoolean(record.has_context_tiers),
+    context_tiers: projectContextTiers(record.context_tiers),
     partial: projectBoolean(record.partial),
     updated_at_ms: projectEpochMilliseconds(record.updated_at_ms),
     can_reset: projectBoolean(record.can_reset),

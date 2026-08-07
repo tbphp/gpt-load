@@ -1,8 +1,6 @@
 export default {
   models: {
     title: 'モデル',
-    description:
-      'クライアントモデルごとに、上流マッピング、ルート Group、モデル情報、概算価格を確認します',
     loading: 'モデルを読み込み中…',
     loadFailed: 'モデルを読み込めません',
     stale: 'バックグラウンド更新に失敗したため、現在のモデル情報は古い可能性があります',
@@ -10,20 +8,16 @@ export default {
       '価格は今後のコスト概算用の USD / 100 万 tokens であり、上流の実際の請求額ではありません',
     result: '{total} 件中 {shown} 件のクライアントモデルを表示',
     actions: {
-      priceRecords: '価格レコードを管理',
       sync: 'モデルを同期',
     },
     sync: {
       succeeded: 'モデルカタログと自動価格を同期しました',
       failed: 'モデルカタログと価格を同期できません',
     },
-    summary: {
-      label: 'モデル概要',
-      clientModels: 'クライアントモデル',
-      upstreamModels: '上流モデル',
-      prices: '価格レコード',
-      pendingPrices: '価格待ち',
-      unreferencedPrices: '未使用の価格レコード {count} 件',
+    status: {
+      models: 'モデル {count} 件',
+      pending: '価格待ち {count} 件',
+      unit: 'USD / 100 万 tokens（概算）',
     },
     catalog: {
       available: 'Models.dev カタログ利用可能',
@@ -31,10 +25,6 @@ export default {
       unavailable: 'Models.dev カタログ利用不可',
       lastSuccess: '最終同期',
       lastCheck: '最終確認',
-    },
-    drawerImpact: {
-      title: '価格の全体影響',
-      description: '保存すると、この価格を使用する全 {count} Group に影響します。',
     },
     filters: {
       region: 'モデルを絞り込む',
@@ -60,37 +50,22 @@ export default {
       noResultsTitle: '条件に一致するモデルがありません',
       noResultsDescription: '検索、Group の状態、価格状態を変更して再度お試しください',
     },
-    collection: {
+    index: {
       label: 'クライアントモデル一覧',
-      scrollHint: '横スクロールで他の列を表示できます',
-      columns: {
-        model: 'クライアントモデル',
-        routing: 'ルート Group / プロトコル',
-        prices: '価格 · USD / 1M',
-        status: '状態',
-        actions: '操作',
-      },
-      direct: '同名で直接転送',
-      alias: '{model} にマッピング',
-      multiUpstream: '上流モデル {count} 件',
-      moreGroups: '+{count}',
-      scopeCount: '価格範囲 {count} 件',
-      pendingScopes: '価格範囲 {count} 件 · {pending} 件が価格待ち',
-      priceRange: '{min} – {max}',
-      expand: '{model} の詳細を開く',
-      collapse: '{model} の詳細を閉じる',
+      priceCount: '価格 {count} 件',
+      upstreamCount: '上流 {count} 件',
       copy: 'クライアントモデル {model} をコピー',
       copySucceeded: 'クライアントモデルをコピーしました',
       copyFailed: 'クライアントモデルをコピーできません',
     },
+    inspector: {
+      direct: '同名で直接転送',
+      alias: '{model} にマッピング',
+      noCatalog: 'Models.dev カタログ情報なし',
+      scopeOption: '{label} {kind}',
+    },
     detail: {
       upstreamModel: '上流モデル',
-      direct: '同名',
-      aliasApplied: 'エイリアス',
-      scope: {
-        provider: 'プロバイダー価格',
-        group: 'Group 固有価格',
-      },
       routeGroups: 'ルート Group',
       groupEnabled: '有効',
       groupDisabled: '無効',
@@ -103,9 +78,6 @@ export default {
         context: 'コンテキスト',
         maxOutput: '最大出力',
         modalities: 'モダリティ',
-        knowledge: '知識の期限',
-        released: 'リリース',
-        family: 'ファミリー',
       },
       capabilities: {
         attachment: '添付',
