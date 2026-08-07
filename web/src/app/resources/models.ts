@@ -20,7 +20,7 @@ import {
 
 export type ModelCollectionGroupStatus = 'enabled' | 'all'
 export type ModelCollectionPricingStatus = 'pending' | 'configured' | 'all'
-export type ModelCollectionPageSize = 20 | 50 | 100
+export type ModelCollectionPageSize = 10
 
 export interface ModelCollectionFilters {
   group_status: ModelCollectionGroupStatus
