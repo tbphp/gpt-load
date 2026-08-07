@@ -10,6 +10,8 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
+
+	"github.com/sirupsen/logrus"
 )
 
 const defaultAccessKeyMarker = models.InternalSystemSettingPrefix + "bootstrap.default_access_key.v1"
@@ -80,5 +82,6 @@ func (s *Service) EnsureInitialState(ctx context.Context) error {
 		return fmt.Errorf("ensure initial control state: %w", err)
 	}
 	s.priceRuntime.Publish(priceTable)
+	logrus.WithField("event", "startup.model_prices_publish").Info("model prices published")
 	return nil
 }

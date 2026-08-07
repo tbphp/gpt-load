@@ -17,6 +17,8 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Loader struct {
@@ -77,12 +79,21 @@ func (l *Loader) Load(ctx context.Context) error {
 	if err := state.ValidateKeyEntries(entries); err != nil {
 		return fmt.Errorf("validate upstream keys: %w", err)
 	}
-	if _, err := l.manager.Publish(input); err != nil {
+	snapshot, err := l.manager.Publish(input)
+	if err != nil {
 		return fmt.Errorf("publish config snapshot: %w", err)
 	}
+	logrus.WithFields(logrus.Fields{
+		"event":    "startup.config_snapshot_publish",
+		"revision": snapshot.Revision,
+	}).Info("config snapshot published")
 	if err := l.registry.Replace(entries); err != nil {
 		return fmt.Errorf("replace key registry: %w", err)
 	}
+	logrus.WithFields(logrus.Fields{
+		"event": "startup.key_registry_load",
+		"keys":  len(entries),
+	}).Info("key registry loaded")
 	return nil
 }
 

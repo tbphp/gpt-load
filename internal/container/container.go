@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
+	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
@@ -29,6 +30,8 @@ import (
 	"gpt-load/internal/storage"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/webui"
+
+	"github.com/sirupsen/logrus"
 )
 
 // BuildContainer creates the 2.0 runtime foundation dependency graph.
@@ -41,9 +44,14 @@ func BuildContainer() (*dig.Container, error) {
 			return encryption.NewServiceWithKeyFile(cfg.EncryptionKey, cfg.DataDir)
 		},
 		func(cfg *config.Config) (*gorm.DB, error) {
-			return storage.OpenWithSource(cfg.DatabaseDSN, cfg.DatabaseMetadata.Source)
+			db, err := storage.OpenWithSource(cfg.DatabaseDSN, cfg.DatabaseMetadata.Source)
+			if err == nil {
+				logrus.WithField("event", "startup.database_open").Info("database opened")
+			}
+			return db, err
 		},
-		app.NewEngine,
+		httplifecycle.NewCoordinator,
+		app.NewEngineWithLifecycle,
 		webui.NewServer,
 		state.NewManager,
 		state.NewKeyRegistry,
@@ -84,6 +92,13 @@ func BuildContainer() (*dig.Container, error) {
 		func(service *requestlog.Service) app.RequestLogRuntime {
 			return service
 		},
+		func(
+			cfg *config.Config,
+			registry *state.KeyRegistry,
+			stats *health.StatsStore,
+		) app.RuntimeStateCheckpoint {
+			return app.NewFileRuntimeStateCheckpoint(cfg.DataDir, registry, stats)
+		},
 		control.NewRuntime,
 		func(runtime *control.Runtime) app.ControlRuntime { return runtime },
 		httpclient.NewHTTPClientManager,
@@ -120,7 +135,7 @@ func BuildContainer() (*dig.Container, error) {
 		},
 		gateway.NewForwarder,
 		func(forwarder *gateway.Forwarder) gateway.AttemptForwarder { return forwarder },
-		gateway.NewHandler,
+		gateway.NewHandlerWithLifecycle,
 		control.NewService,
 		control.NewCatalogSyncCoordinator,
 		func(service *control.Service) app.StartupBootstrap { return service },

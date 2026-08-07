@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,7 @@ func (handler *Handler) HTTPModule() httproute.Module {
 		})
 	}
 
-	return httproute.Module{
+	module := httproute.Module{
 		Name:              "data",
 		Owner:             httproute.OwnerData,
 		Auth:              httproute.AuthAccessKey,
@@ -48,6 +49,24 @@ func (handler *Handler) HTTPModule() httproute.Module {
 		NotFound:          handler.dataPlaneRouteNotFound,
 		MethodNotAllowed:  handler.dataPlaneMethodNotAllowed,
 	}
+	if handler != nil && handler.lifecycle != nil {
+		module.BeforeAuth = gin.HandlersChain{handler.bindDataPlaneRequest}
+	}
+	return module
+}
+
+func (handler *Handler) bindDataPlaneRequest(ginContext *gin.Context) {
+	if handler == nil || handler.lifecycle == nil || ginContext == nil || ginContext.Request == nil {
+		return
+	}
+	requestContext, release, accepted := handler.lifecycle.BindData(ginContext.Request)
+	if !accepted {
+		ginContext.AbortWithStatus(http.StatusServiceUnavailable)
+		return
+	}
+	ginContext.Request = ginContext.Request.WithContext(requestContext)
+	defer release()
+	ginContext.Next()
 }
 
 func (handler *Handler) prepareDataPlaneRequest(

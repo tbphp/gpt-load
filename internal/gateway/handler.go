@@ -17,6 +17,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	platformheader "gpt-load/internal/platform/httpheader"
@@ -97,6 +98,7 @@ type Handler struct {
 	logger              *logrus.Logger
 	authFailureEvents   *utils.RateLimitedEventCounter
 	routeNotFoundEvents *utils.RateLimitedEventCounter
+	lifecycle           *httplifecycle.Coordinator
 }
 
 func (handler *Handler) freezeAttemptPricing(
@@ -152,6 +154,38 @@ func NewHandler(
 			time.Now,
 		),
 	}
+}
+
+// NewHandlerWithLifecycle wires the process HTTP lifecycle coordinator into
+// the production gateway while preserving the compact constructor used by
+// focused gateway tests.
+func NewHandlerWithLifecycle(
+	manager *state.Manager,
+	registry *state.KeyRegistry,
+	encryptionService encryption.Service,
+	forwarder AttemptForwarder,
+	dialects dialect.Set,
+	stats *health.StatsStore,
+	mutations *health.MutationCoordinator,
+	limiter AccessKeyRPMLimiter,
+	requestLogSink telemetry.RequestLogSink,
+	priceTables PriceTableProvider,
+	lifecycle *httplifecycle.Coordinator,
+) *Handler {
+	handler := NewHandler(
+		manager,
+		registry,
+		encryptionService,
+		forwarder,
+		dialects,
+		stats,
+		mutations,
+		limiter,
+		requestLogSink,
+		priceTables,
+	)
+	handler.lifecycle = lifecycle
+	return handler
 }
 
 type unlimitedAccessKeyRPMLimiter struct{}

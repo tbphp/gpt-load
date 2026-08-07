@@ -265,6 +265,9 @@ func normalizeStreamResponseHeaders(headers http.Header) http.Header {
 	for _, name := range representationMetadataHeaderNames {
 		deleteHeaderField(normalized, name)
 	}
+	// Tell common reverse proxies not to coalesce SSE chunks before they reach
+	// the client. The gateway already flushes each upstream chunk itself.
+	normalized.Set("X-Accel-Buffering", "no")
 	return normalized
 }
 

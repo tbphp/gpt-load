@@ -85,6 +85,10 @@ func runServer() error {
 	}); err != nil {
 		return fmt.Errorf("resolve application: %w", err)
 	}
+	quit := make(chan os.Signal, 2)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(quit)
+
 	if err := application.Start(); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -92,13 +96,14 @@ func runServer() error {
 		return fmt.Errorf("start application: %w", err)
 	}
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(quit)
-
 	var serveErr error
+	var firstSignal os.Signal
 	select {
-	case <-quit:
+	case firstSignal = <-quit:
+		logrus.WithFields(logrus.Fields{
+			"event":  "shutdown.requested",
+			"signal": firstSignal.String(),
+		}).Info("shutdown requested by signal")
 	case serveErr = <-application.ServeErrors():
 	}
 
@@ -107,8 +112,28 @@ func runServer() error {
 		time.Duration(cfg.Server.GracefulShutdownTimeout)*time.Second,
 	)
 	defer cancel()
-	if err := application.Stop(shutdownCtx); err != nil {
-		return errors.Join(serveErr, fmt.Errorf("stop application: %w", err))
+	stopResult := make(chan error, 1)
+	go func() { stopResult <- application.Stop(shutdownCtx) }()
+	forceReason := "signal_during_shutdown"
+	if firstSignal != nil {
+		forceReason = "second_signal"
 	}
-	return serveErr
+	select {
+	case secondSignal := <-quit:
+		logrus.WithFields(logrus.Fields{
+			"event":  "shutdown.force",
+			"signal": secondSignal.String(),
+			"reason": forceReason,
+		}).Warn("additional shutdown signal received; forcing shutdown")
+		cancel()
+		if err := <-stopResult; err != nil {
+			return errors.Join(serveErr, fmt.Errorf("stop application: %w", err))
+		}
+		return serveErr
+	case err := <-stopResult:
+		if err != nil {
+			return errors.Join(serveErr, fmt.Errorf("stop application: %w", err))
+		}
+		return serveErr
+	}
 }

@@ -59,11 +59,19 @@ func loadCatalogBootstrap(cachePath string) *CatalogBootstrap {
 				"Models.dev catalog cache is unavailable; starting with an empty catalog",
 			)
 		}
+		logrus.WithFields(logrus.Fields{
+			"event":   "startup.catalog_load",
+			"outcome": "empty",
+		}).Info("catalog runtime loaded")
 		return bootstrap
 	}
 	bootstrap.Runtime.Publish(cached.Snapshot)
 	bootstrap.Metadata = cached.Metadata
 	bootstrap.HasLKG = true
+	logrus.WithFields(logrus.Fields{
+		"event":   "startup.catalog_load",
+		"outcome": "last_known_good",
+	}).Info("catalog runtime loaded")
 	return bootstrap
 }
 

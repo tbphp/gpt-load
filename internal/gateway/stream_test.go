@@ -341,6 +341,9 @@ func TestCommitStreamStripsRepresentationMetadata(t *testing.T) {
 	if writer.header.Get("Content-Type") != "text/event-stream" || writer.header.Get("X-Upstream") != "kept" {
 		t.Fatalf("safe headers = %#v", writer.header)
 	}
+	if writer.header.Get("X-Accel-Buffering") != "no" {
+		t.Fatalf("X-Accel-Buffering = %q, want no", writer.header.Get("X-Accel-Buffering"))
+	}
 }
 
 func TestStreamWriteControllerArmsEveryOperationAndClears(t *testing.T) {

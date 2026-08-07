@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/version"
@@ -24,15 +25,17 @@ import (
 
 // App owns the process lifecycle, infrastructure resources, and runtime state.
 type App struct {
-	engine           *gin.Engine
-	config           *config.Config
-	db               *gorm.DB
-	runtimeState     RuntimeStateLoader
-	controlRuntime   ControlRuntime
-	startupBootstrap StartupBootstrap
-	startupRecovery  StartupRecovery
-	requestLogs      RequestLogRuntime
-	listen           func(network, address string) (net.Listener, error)
+	engine            *gin.Engine
+	config            *config.Config
+	db                *gorm.DB
+	runtimeState      RuntimeStateLoader
+	runtimeCheckpoint RuntimeStateCheckpoint
+	lifecycle         *httplifecycle.Coordinator
+	controlRuntime    ControlRuntime
+	startupBootstrap  StartupBootstrap
+	startupRecovery   StartupRecovery
+	requestLogs       RequestLogRuntime
+	listen            func(network, address string) (net.Listener, error)
 
 	mu            sync.Mutex
 	httpServer    *http.Server
@@ -72,18 +75,30 @@ type RequestLogRuntime interface {
 type AppParams struct {
 	dig.In
 
-	Engine           *gin.Engine
-	Config           *config.Config
-	DB               *gorm.DB
-	StartupBootstrap StartupBootstrap
-	StartupRecovery  StartupRecovery `optional:"true"`
-	RuntimeState     RuntimeStateLoader
-	ControlRuntime   ControlRuntime
-	RequestLogs      RequestLogRuntime
+	Engine            *gin.Engine
+	Config            *config.Config
+	DB                *gorm.DB
+	StartupBootstrap  StartupBootstrap
+	StartupRecovery   StartupRecovery `optional:"true"`
+	RuntimeState      RuntimeStateLoader
+	RuntimeCheckpoint RuntimeStateCheckpoint     `optional:"true"`
+	Lifecycle         *httplifecycle.Coordinator `optional:"true"`
+	ControlRuntime    ControlRuntime
+	RequestLogs       RequestLogRuntime
 }
 
 // NewEngine creates the process HTTP engine and global middleware.
 func NewEngine() (*gin.Engine, error) {
+	return newEngine(nil)
+}
+
+// NewEngineWithLifecycle adds process-wide handler tracking used by the
+// production shutdown coordinator.
+func NewEngineWithLifecycle(lifecycle *httplifecycle.Coordinator) (*gin.Engine, error) {
+	return newEngine(lifecycle)
+}
+
+func newEngine(lifecycle *httplifecycle.Coordinator) (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.RedirectTrailingSlash = false
@@ -91,22 +106,27 @@ func NewEngine() (*gin.Engine, error) {
 		return nil, fmt.Errorf("disable trusted proxies: %w", err)
 	}
 	engine.Use(recoveryMiddleware())
+	if lifecycle != nil {
+		engine.Use(lifecycle.TrackAll())
+	}
 	return engine, nil
 }
 
 // NewApp creates the application lifecycle manager.
 func NewApp(params AppParams) *App {
 	return &App{
-		engine:           params.Engine,
-		config:           params.Config,
-		db:               params.DB,
-		runtimeState:     params.RuntimeState,
-		controlRuntime:   params.ControlRuntime,
-		startupBootstrap: params.StartupBootstrap,
-		startupRecovery:  params.StartupRecovery,
-		requestLogs:      params.RequestLogs,
-		listen:           net.Listen,
-		serveErrors:      make(chan error, 1),
+		engine:            params.Engine,
+		config:            params.Config,
+		db:                params.DB,
+		runtimeState:      params.RuntimeState,
+		runtimeCheckpoint: params.RuntimeCheckpoint,
+		lifecycle:         params.Lifecycle,
+		controlRuntime:    params.ControlRuntime,
+		startupBootstrap:  params.StartupBootstrap,
+		startupRecovery:   params.StartupRecovery,
+		requestLogs:       params.RequestLogs,
+		listen:            net.Listen,
+		serveErrors:       make(chan error, 1),
 	}
 }
 
@@ -118,43 +138,62 @@ func (a *App) Start() error {
 	if a.httpServer != nil {
 		return fmt.Errorf("application is already started")
 	}
+	logrus.WithField("event", "startup.begin").Info("application startup started")
 	if err := i18n.Init(); err != nil {
-		return fmt.Errorf("initialize i18n: %w", err)
+		return a.startupFailure("i18n", fmt.Errorf("initialize i18n: %w", err))
 	}
 	if err := storage.AutoMigrate(a.db); err != nil {
-		return err
+		return a.startupFailure("migration", err)
 	}
+	logrus.WithField("event", "startup.database_migrate").Info("database migration completed")
 	if err := a.startupBootstrap.EnsureInitialState(context.Background()); err != nil {
-		return fmt.Errorf("bootstrap initial state: %w", err)
+		return a.startupFailure("bootstrap", fmt.Errorf("bootstrap initial state: %w", err))
 	}
+	logrus.WithField("event", "startup.bootstrap_complete").Info("initial control state ensured")
 	if err := a.runtimeState.Load(context.Background()); err != nil {
-		return fmt.Errorf("load runtime state: %w", err)
+		return a.startupFailure("runtime_state", fmt.Errorf("load runtime state: %w", err))
 	}
+	logrus.WithField("event", "startup.runtime_state_loaded").Info("runtime state loaded")
 	if a.startupRecovery != nil {
 		if err := a.startupRecovery.DrainCommittedOperations(context.Background()); err != nil {
-			return fmt.Errorf("recover committed control operations: %w", err)
+			return a.startupFailure("recovery", fmt.Errorf("recover committed control operations: %w", err))
+		}
+		logrus.WithField("event", "startup.operation_recovery").Info("committed control operations recovered")
+	}
+	if a.runtimeCheckpoint != nil {
+		if err := a.runtimeCheckpoint.Restore(context.Background()); err != nil {
+			logrus.WithError(err).WithField("event", "startup.checkpoint_restore").Warn(
+				"runtime state checkpoint restore failed; continuing with database-backed state",
+			)
+		} else {
+			logrus.WithField("event", "startup.checkpoint_restore").Info("runtime state checkpoint checked")
 		}
 	}
 
 	address := net.JoinHostPort(a.config.Server.Host, strconv.Itoa(a.config.Server.Port))
 	listener, err := a.listen("tcp", address)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", address, err)
+		return a.startupFailure("listen", fmt.Errorf("listen on %s: %w", address, err))
 	}
+	logrus.WithFields(logrus.Fields{
+		"event":   "startup.server_listen",
+		"address": listener.Addr().String(),
+	}).Info("HTTP listener bound")
 	if a.requestLogs == nil {
 		closeErr := listener.Close()
-		return errors.Join(
+		return a.startupFailure("request_logs", errors.Join(
 			fmt.Errorf("start request logs: request log runtime is nil"),
 			wrapListenerCloseError(closeErr),
-		)
+		))
 	}
 	if err := a.requestLogs.Start(); err != nil {
 		closeErr := listener.Close()
-		return errors.Join(
+		return a.startupFailure("request_logs", errors.Join(
 			fmt.Errorf("start request logs: %w", err),
 			wrapListenerCloseError(closeErr),
-		)
+		))
 	}
+	logrus.WithField("event", "startup.request_log_start").Info("request log runtime started")
 
 	server := &http.Server{
 		Addr:              address,
@@ -178,10 +217,12 @@ func (a *App) Start() error {
 	}()
 	go func() {
 		defer close(runtimeDone)
+		logrus.WithField("event", "startup.control_runtime_start").Info("control runtime started")
 		a.controlRuntime.Run(runtimeContext)
 	}()
 
 	logrus.WithFields(logrus.Fields{
+		"event":   "startup.ready",
 		"address": listener.Addr().String(),
 		"version": version.Version,
 	}).Info("GPT-Load 2.0 server started")
@@ -215,18 +256,33 @@ func (a *App) Stop(ctx context.Context) error {
 	cancelRuntime := a.runtimeCancel
 	runtimeDone := a.runtimeDone
 	requestLogs := a.requestLogs
+	runtimeCheckpoint := a.runtimeCheckpoint
+	lifecycle := a.lifecycle
 	a.mu.Unlock()
 
 	var errs []error
+	if lifecycle != nil {
+		lifecycle.BeginDataShutdown()
+		logrus.WithField("event", "shutdown.data_plane_cancel").Info("data-plane requests canceled")
+	}
 	if cancelRuntime != nil {
 		cancelRuntime()
 	}
 	if server != nil {
 		if err := server.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("shut down HTTP server: %w", err))
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"event":   "shutdown.http_drain",
+				"outcome": "forced",
+			}).Warn("HTTP server graceful drain timed out")
 			if closeErr := server.Close(); closeErr != nil {
 				errs = append(errs, fmt.Errorf("force close HTTP server: %w", closeErr))
 			}
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"event":   "shutdown.http_drain",
+				"outcome": "graceful",
+			}).Info("HTTP server drain completed")
 		}
 	}
 	if listener != nil {
@@ -237,25 +293,76 @@ func (a *App) Stop(ctx context.Context) error {
 	if runtimeDone != nil {
 		select {
 		case <-runtimeDone:
+			logrus.WithField("event", "shutdown.control_runtime_stop").Info("control runtime drain completed")
 		case <-ctx.Done():
 			errs = append(errs, fmt.Errorf("wait for control runtime: %w", ctx.Err()))
+			logrus.WithError(ctx.Err()).WithFields(logrus.Fields{
+				"event":   "shutdown.control_runtime_stop",
+				"outcome": "forced",
+			}).Warn("control runtime did not drain before shutdown deadline")
+		}
+	}
+	if lifecycle != nil {
+		waitErr := lifecycle.Wait(ctx)
+		if waitErr != nil {
+			errs = append(errs, fmt.Errorf("wait for HTTP handlers: %w", waitErr))
+			logrus.WithError(waitErr).WithFields(logrus.Fields{
+				"event":   "shutdown.http_handlers_drained",
+				"outcome": "forced",
+			}).Warn("HTTP handlers did not drain before shutdown deadline")
+		}
+		if waitErr == nil {
+			logrus.WithField("event", "shutdown.http_handlers_drained").Info("HTTP handlers drained")
+		}
+	}
+	if runtimeCheckpoint != nil {
+		if err := runtimeCheckpoint.Save(context.Background()); err != nil {
+			logrus.WithError(err).WithField("event", "shutdown.checkpoint_save").Warn(
+				"runtime state checkpoint could not be saved; continuing shutdown",
+			)
+		} else {
+			logrus.WithField("event", "shutdown.checkpoint_save").Info("runtime state checkpoint saved")
 		}
 	}
 	if requestLogs != nil {
 		if err := requestLogs.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("stop request logs: %w", err))
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"event":   "shutdown.request_log_drain",
+				"outcome": "forced",
+			}).Warn("request log runtime did not drain cleanly")
+		} else {
+			logrus.WithField("event", "shutdown.request_log_drain").Info("request log runtime drained")
 		}
 	}
 	if a.db != nil {
 		sqlDB, err := a.db.DB()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("get database connection pool: %w", err))
+			logrus.WithError(err).WithField("event", "shutdown.database_close").Warn("database connection pool unavailable during shutdown")
 		} else if err := sqlDB.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close database: %w", err))
+			logrus.WithError(err).WithField("event", "shutdown.database_close").Warn("database close failed")
+		} else {
+			logrus.WithField("event", "shutdown.database_close").Info("database closed")
 		}
 	}
 
-	return errors.Join(errs...)
+	err := errors.Join(errs...)
+	if err != nil {
+		logrus.WithError(err).WithField("event", "shutdown.failed").Error("application shutdown finished with errors")
+	} else {
+		logrus.WithField("event", "shutdown.complete").Info("application shutdown completed")
+	}
+	return err
+}
+
+func (a *App) startupFailure(stage string, err error) error {
+	logrus.WithFields(logrus.Fields{
+		"event": "startup.failed",
+		"stage": stage,
+	}).WithError(err).Error("application startup failed")
+	return err
 }
 
 func wrapListenerCloseError(err error) error {
