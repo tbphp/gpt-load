@@ -127,7 +127,7 @@ func migrateGlobalModelPriceSchema(db *gorm.DB) error {
 }
 
 // globalModelPriceSchemaStatements contains only fixed, schema-owned
-// identifiers. MySQL combines the three operations into one ALTER TABLE so a
+// identifiers. MySQL combines the schema conversion into one ALTER TABLE so a
 // failed DDL statement cannot leave the old table shape half-applied.
 func globalModelPriceSchemaStatements(driver string) ([]string, error) {
 	switch strings.ToLower(driver) {
@@ -139,7 +139,7 @@ func globalModelPriceSchemaStatements(driver string) ([]string, error) {
 		}, nil
 	case "mysql":
 		return []string{
-			"ALTER TABLE model_prices DROP INDEX idx_model_prices_scope_model, DROP COLUMN price_scope_key, ADD UNIQUE INDEX idx_model_prices_model (model_id)",
+			"ALTER TABLE model_prices DROP INDEX idx_model_prices_scope_model, DROP COLUMN price_scope_key, MODIFY COLUMN model_id varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, ADD UNIQUE INDEX idx_model_prices_model (model_id)",
 		}, nil
 	default:
 		return nil, fmt.Errorf("migrate global model prices: unsupported database driver %q", driver)

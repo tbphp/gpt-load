@@ -76,6 +76,16 @@ function setInjectUsage(value: boolean): void {
   publish('inject_usage_options', draft)
 }
 
+function setModelsDevAutoSync(value: boolean): void {
+  const draft = cloneDraft()
+  draft.values.models_dev_auto_sync_enabled = value
+  publish('models_dev_auto_sync_enabled', draft)
+}
+
+function isReadOnly(key: RuntimeSettingKey): boolean {
+  return props.draft.readOnly.has(key)
+}
+
 function timeoutError(key: TimeoutSettingKey): string | undefined {
   return hasOverride(key) && !isValidTimeout(props.draft.values[key])
     ? t('settings.runtime.timeoutError')
@@ -89,7 +99,7 @@ function conflictFor(key: RuntimeSettingKey): SettingsMergeConflict | undefined 
 function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest'): string {
   const value = conflict[side]
   if (!value.is_override) return t('settings.runtime.defaultSource')
-  if (conflict.key === 'inject_usage_options')
+  if (conflict.key === 'inject_usage_options' || conflict.key === 'models_dev_auto_sync_enabled')
     return value.normalized_value ? t('settings.runtime.enabled') : t('settings.runtime.disabled')
   return `${value.normalized_value} ${t('settings.runtime.seconds')}`
 }
@@ -195,7 +205,6 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
               : t('settings.runtime.override')
           "
           :overridden="hasOverride('inject_usage_options')"
-          :divided="false"
           :disabled="disabled"
           @toggle="toggleOverride('inject_usage_options')"
         >
@@ -257,6 +266,100 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
               variant="ghost"
               size="compact"
               @click="emit('chooseLatest', 'inject_usage_options')"
+            >
+              {{ t('settings.conflict.useLatest') }}
+            </AppButton>
+          </div>
+        </article>
+      </div>
+
+      <div class="settings-runtime__entry">
+        <RuntimeOverrideRow
+          appearance="ledger"
+          :label="t('settings.runtime.models_dev_auto_sync_enabled')"
+          :detail="
+            isReadOnly('models_dev_auto_sync_enabled')
+              ? t('settings.runtime.environmentManaged')
+              : t('settings.runtime.modelsDevAutoSyncHelp')
+          "
+          :source-label="
+            isReadOnly('models_dev_auto_sync_enabled')
+              ? t('settings.runtime.environmentSource')
+              : hasOverride('models_dev_auto_sync_enabled')
+                ? t('settings.runtime.overrideSource')
+                : t('settings.runtime.defaultSource')
+          "
+          :action-label="
+            hasOverride('models_dev_auto_sync_enabled')
+              ? t('settings.runtime.restoreDefault')
+              : t('settings.runtime.override')
+          "
+          :overridden="hasOverride('models_dev_auto_sync_enabled')"
+          :divided="false"
+          :disabled="disabled || isReadOnly('models_dev_auto_sync_enabled')"
+          @toggle="toggleOverride('models_dev_auto_sync_enabled')"
+        >
+          <template #value>
+            <div class="settings-runtime__boolean">
+              <AppSwitch
+                v-if="hasOverride('models_dev_auto_sync_enabled')"
+                :model-value="draft.values.models_dev_auto_sync_enabled"
+                :disabled="disabled || isReadOnly('models_dev_auto_sync_enabled')"
+                :label="
+                  t('settings.runtime.valueFor', {
+                    field: t('settings.runtime.models_dev_auto_sync_enabled'),
+                  })
+                "
+                @update:model-value="setModelsDevAutoSync"
+              />
+              <strong v-else-if="isPendingRestore('models_dev_auto_sync_enabled')">{{
+                t('settings.runtime.resetPending')
+              }}</strong>
+              <strong v-else>{{
+                draft.values.models_dev_auto_sync_enabled
+                  ? t('settings.runtime.enabled')
+                  : t('settings.runtime.disabled')
+              }}</strong>
+              <small
+                v-if="
+                  !hasOverride('models_dev_auto_sync_enabled') &&
+                  !isPendingRestore('models_dev_auto_sync_enabled')
+                "
+              >
+                {{ t('settings.runtime.currentEffective') }}
+              </small>
+              <small v-if="!isReadOnly('models_dev_auto_sync_enabled')">
+                {{ t('settings.runtime.modelsDevAutoSyncHelp') }}
+              </small>
+            </div>
+          </template>
+        </RuntimeOverrideRow>
+        <article
+          v-if="conflictFor('models_dev_auto_sync_enabled')"
+          class="settings-runtime__conflict"
+          role="alert"
+        >
+          <strong>{{ t('settings.runtime.models_dev_auto_sync_enabled') }}</strong>
+          <span>
+            {{ t('settings.conflict.mine') }}:
+            {{ conflictValue(conflictFor('models_dev_auto_sync_enabled')!, 'mine') }}
+          </span>
+          <span>
+            {{ t('settings.conflict.latest') }}:
+            {{ conflictValue(conflictFor('models_dev_auto_sync_enabled')!, 'latest') }}
+          </span>
+          <div>
+            <AppButton
+              variant="secondary"
+              size="compact"
+              @click="emit('chooseMine', 'models_dev_auto_sync_enabled')"
+            >
+              {{ t('settings.conflict.useMine') }}
+            </AppButton>
+            <AppButton
+              variant="ghost"
+              size="compact"
+              @click="emit('chooseLatest', 'models_dev_auto_sync_enabled')"
             >
               {{ t('settings.conflict.useLatest') }}
             </AppButton>

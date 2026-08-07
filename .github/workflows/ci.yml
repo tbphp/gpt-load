@@ -62,7 +62,7 @@ jobs:
       matrix:
         include:
           - driver: mysql
-            dsn: mysql://root:root@mysql:3306/gpt_load?charset=utf8mb4
+            dsn: mysql://root:root@mysql:3306/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
           - driver: postgres
             dsn: postgres://postgres:postgres@postgres:5432/gpt_load?sslmode=disable
     services:
@@ -103,7 +103,7 @@ jobs:
       - name: Run external database contract
         env:
           GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
-        run: go test -v -count=1 ./internal/storage -run '^TestExternalDatabase(ConcurrentMigrations|Lifecycle)$'
+        run: go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternalDatabase(ConcurrentMigrations|Lifecycle|ModelPriceIdentityUsesExactComparison|ReadSnapshotUsesRepeatableRead|GroupPriceReconciliation|RequestLogLifecycle)$'
 
   windows-encryption-acl:
     runs-on: windows-2025

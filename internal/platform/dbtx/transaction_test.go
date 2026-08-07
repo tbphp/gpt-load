@@ -2,6 +2,7 @@ package dbtx
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	gormsqlite "github.com/glebarez/sqlite"
@@ -13,13 +14,16 @@ func TestCapabilitiesForDriverPreserveDatabaseTransactionSemantics(t *testing.T)
 	tests := []struct {
 		name     string
 		driver   string
-		writeSQL string
-		readSQL  string
+		writeSQL []string
+		readSQL  []string
 	}{
-		{name: "sqlite", driver: "sqlite", writeSQL: "BEGIN IMMEDIATE", readSQL: "BEGIN"},
-		{name: "mysql", driver: "mysql", writeSQL: "BEGIN", readSQL: "START TRANSACTION WITH CONSISTENT SNAPSHOT"},
-		{name: "postgres", driver: "postgres", writeSQL: "BEGIN", readSQL: "BEGIN ISOLATION LEVEL REPEATABLE READ"},
-		{name: "postgresql alias", driver: "postgresql", writeSQL: "BEGIN", readSQL: "BEGIN ISOLATION LEVEL REPEATABLE READ"},
+		{name: "sqlite", driver: "sqlite", writeSQL: []string{"BEGIN IMMEDIATE"}, readSQL: []string{"BEGIN"}},
+		{name: "mysql", driver: "mysql", writeSQL: []string{"BEGIN"}, readSQL: []string{
+			"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+			"START TRANSACTION WITH CONSISTENT SNAPSHOT",
+		}},
+		{name: "postgres", driver: "postgres", writeSQL: []string{"BEGIN"}, readSQL: []string{"BEGIN ISOLATION LEVEL REPEATABLE READ"}},
+		{name: "postgresql alias", driver: "postgresql", writeSQL: []string{"BEGIN"}, readSQL: []string{"BEGIN ISOLATION LEVEL REPEATABLE READ"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -27,13 +31,13 @@ func TestCapabilitiesForDriverPreserveDatabaseTransactionSemantics(t *testing.T)
 			if err != nil {
 				t.Fatalf("CapabilitiesForDriver(%q) error = %v", test.driver, err)
 			}
-			writeSQL, err := capabilities.beginSQL(Write)
-			if err != nil || writeSQL != test.writeSQL {
-				t.Fatalf("write begin SQL = %q/%v, want %q/nil", writeSQL, err, test.writeSQL)
+			writeSQL, err := capabilities.beginStatements(Write)
+			if err != nil || !reflect.DeepEqual(writeSQL, test.writeSQL) {
+				t.Fatalf("write begin SQL = %#v/%v, want %#v/nil", writeSQL, err, test.writeSQL)
 			}
-			readSQL, err := capabilities.beginSQL(ReadSnapshot)
-			if err != nil || readSQL != test.readSQL {
-				t.Fatalf("read begin SQL = %q/%v, want %q/nil", readSQL, err, test.readSQL)
+			readSQL, err := capabilities.beginStatements(ReadSnapshot)
+			if err != nil || !reflect.DeepEqual(readSQL, test.readSQL) {
+				t.Fatalf("read begin SQL = %#v/%v, want %#v/nil", readSQL, err, test.readSQL)
 			}
 		})
 	}

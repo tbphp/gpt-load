@@ -66,6 +66,11 @@ export default {
       inject_usage_options: 'ストリーミング応答へ usage オプションを注入',
       injectUsageHelp:
         '最終 usage を取得するため、この機能をサポートする OpenAI Completions のストリーミング要求でのみ有効です。',
+      models_dev_auto_sync_enabled: 'Models.dev カタログと価格を自動同期',
+      modelsDevAutoSyncHelp:
+        '有効にするとカタログと自動価格を定期同期します。Models 画面からの手動同期は引き続き利用できます。',
+      environmentSource: '環境変数で固定',
+      environmentManaged: 'この設定は環境変数で管理されているため、ここでは変更できません。',
       seconds: '秒',
       timeoutError: '9,223,372,036 以下の正の安全な整数を入力してください。',
       valueFor: '{field} の値',
