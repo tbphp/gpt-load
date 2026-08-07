@@ -49,7 +49,7 @@ const appliedSearch = ref<string | undefined>()
 const groupStatus = ref<ModelCollectionGroupStatus>('enabled')
 const pricingStatus = ref<ModelCollectionPricingStatus>('all')
 const page = ref(1)
-const pageSize = ref<ModelCollectionPageSize>(20)
+const pageSize: ModelCollectionPageSize = 10
 const searchDebounce = useDebouncedAction(250)
 const {
   pending: syncPending,
@@ -68,7 +68,7 @@ const filters = computed<ModelCollectionFilters>(() => ({
   pricing_status: pricingStatus.value,
   q: appliedSearch.value,
   page: page.value,
-  page_size: pageSize.value,
+  page_size: pageSize,
 }))
 const modelsQuery = useQuery(modelCollectionQueryOptions(client, filters))
 const data = computed(() => modelsQuery.data.value)
@@ -165,12 +165,6 @@ async function setGroupStatus(value: string): Promise<void> {
 async function setPricingStatus(value: string): Promise<void> {
   if (value === pricingStatus.value || !(await confirmDiscard())) return
   pricingStatus.value = value as ModelCollectionPricingStatus
-  page.value = 1
-}
-
-async function setPageSize(value: 20 | 50 | 100): Promise<void> {
-  if (value === pageSize.value || !(await confirmDiscard())) return
-  pageSize.value = value
   page.value = 1
 }
 
@@ -378,10 +372,8 @@ function goToGroups(): void {
             :page-size="data.pagination.page_size"
             :total-items="data.pagination.total_items"
             :total-pages="data.pagination.total_pages"
-            show-page-size
             @previous="changePage(page - 1)"
             @next="changePage(page + 1)"
-            @update:page-size="setPageSize"
           />
         </template>
       </template>
