@@ -158,7 +158,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
   await router.push(monitorLocation(usageMonitorQuery(filters)))
 }
 
-defineExpose({ openFilters })
+async function refresh(): Promise<void> {
+  await usageQuery.refetch()
+}
+
+defineExpose({ openFilters, refresh })
 </script>
 
 <template>

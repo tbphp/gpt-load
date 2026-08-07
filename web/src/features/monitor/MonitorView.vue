@@ -27,8 +27,9 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const healthTab = ref<InstanceType<typeof HealthTab> | null>(null)
-const usageTab = ref<{ openFilters: () => void } | null>(null)
+const usageTab = ref<{ openFilters: () => void; refresh: () => Promise<void> } | null>(null)
 const healthRefreshPending = ref(false)
+const usageRefreshPending = ref(false)
 const activeTab = computed(() => normalizeMonitorTab(route.query.tab))
 const canonicalQuery = computed(() => normalizeMonitorQuery(route.query))
 const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQuery.value))
@@ -75,6 +76,16 @@ async function refreshHealth(): Promise<void> {
     await healthTab.value.refresh()
   } finally {
     healthRefreshPending.value = false
+  }
+}
+
+async function refreshUsage(): Promise<void> {
+  if (!usageTab.value || usageRefreshPending.value) return
+  usageRefreshPending.value = true
+  try {
+    await usageTab.value.refresh()
+  } finally {
+    usageRefreshPending.value = false
   }
 }
 
@@ -128,6 +139,20 @@ function selectUsageRange(value: string): void {
               <span v-if="usageFilterCount > 0" class="monitor-filter-count">
                 {{ usageFilterCount }}
               </span>
+            </AppButton>
+            <AppButton
+              class="monitor-refresh"
+              variant="secondary"
+              size="compact"
+              :busy="usageRefreshPending"
+              @click="refreshUsage"
+            >
+              <RefreshCw
+                :class="{ 'monitor-refresh-icon--spinning': usageRefreshPending }"
+                :size="14"
+                aria-hidden="true"
+              />
+              {{ t('monitor.usage.filters.refresh') }}
             </AppButton>
           </div>
         </template>
