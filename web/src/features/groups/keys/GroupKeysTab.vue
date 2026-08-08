@@ -44,7 +44,9 @@ import {
   constrainGroupKeySearch,
   isCanonicalGroupKeyRouteQuery,
   parseGroupKeyRouteQuery,
+  parseGroupKeyRouteState,
   serializeGroupKeyRouteQuery,
+  type GroupKeyRouteState,
 } from '../group-route'
 
 const props = defineProps<{ groupId: number }>()
@@ -54,6 +56,7 @@ const route = useRoute()
 const router = useRouter()
 const { n, t } = useI18n()
 const filters = computed(() => parseGroupKeyRouteQuery(route.query))
+const routeState = computed(() => parseGroupKeyRouteState(route.query))
 const keysQuery = useQuery(groupKeyCollectionQueryOptions(client, () => props.groupId, filters))
 const searchDraft = ref(filters.value.q ?? '')
 const selectedIds = ref(new Set<number>())
@@ -126,9 +129,12 @@ watch(
   (query) => {
     searchDebounce.cancel()
     const next = parseGroupKeyRouteQuery(query)
+    const state = parseGroupKeyRouteState(query)
     searchDraft.value = next.q ?? ''
-    if (!isCanonicalGroupKeyRouteQuery(query, next)) {
-      void router.replace(groupDetailLocation(props.groupId, serializeGroupKeyRouteQuery(next)))
+    if (!isCanonicalGroupKeyRouteQuery(query, next, state)) {
+      void router.replace(
+        groupDetailLocation(props.groupId, serializeGroupKeyRouteQuery(next, state)),
+      )
     }
   },
   { deep: true, immediate: true },
@@ -156,8 +162,12 @@ watch(
   },
 )
 
-function updateRoute(next: GroupKeyCollectionFilters, replace = false): void {
-  const location = groupDetailLocation(props.groupId, serializeGroupKeyRouteQuery(next))
+function updateRoute(
+  next: GroupKeyCollectionFilters,
+  replace = false,
+  state: GroupKeyRouteState = routeState.value,
+): void {
+  const location = groupDetailLocation(props.groupId, serializeGroupKeyRouteQuery(next, state))
   void (replace ? router.replace(location) : router.push(location))
 }
 
@@ -194,6 +204,18 @@ function setPage(page: number): void {
 }
 function setPageSize(pageSize: 20 | 50 | 100): void {
   setFilter({ page_size: pageSize })
+}
+function setExpanded(id: number, expanded: boolean): void {
+  const next = new Set(routeState.value.expandedKeyIDs)
+  if (expanded) next.add(id)
+  else next.delete(id)
+  updateRoute(filters.value, false, { ...routeState.value, expandedKeyIDs: [...next] })
+}
+function setWeightEditor(id: number, open: boolean): void {
+  updateRoute(filters.value, false, {
+    ...routeState.value,
+    weightKeyID: open ? id : undefined,
+  })
 }
 function setSelected(id: number, checked: boolean): void {
   const next = new Set(selectedIds.value)
@@ -324,6 +346,18 @@ async function reconcileBatch(
   }
 }
 
+function clearDeletedRouteState(ids: readonly number[]): void {
+  const deleted = new Set(ids)
+  const next: GroupKeyRouteState = {
+    expandedKeyIDs: routeState.value.expandedKeyIDs.filter((id) => !deleted.has(id)),
+    weightKeyID:
+      routeState.value.weightKeyID !== undefined && deleted.has(routeState.value.weightKeyID)
+        ? undefined
+        : routeState.value.weightKeyID,
+  }
+  updateRoute(filters.value, true, next)
+}
+
 async function mutateItem(
   item: GroupKeyItemDto,
   action: 'weight' | 'toggle' | 'restore',
@@ -382,6 +416,7 @@ async function confirmDelete(): Promise<void> {
       deleteTarget.value = undefined
       selectedIds.value.delete(id)
       selectedIds.value = new Set(selectedIds.value)
+      clearDeletedRouteState([id])
     } finally {
       setPending(id, 'delete', false)
     }
@@ -408,6 +443,7 @@ async function runBatch(
   try {
     await reconcileBatch(action, result)
     selectedIds.value = new Set()
+    if (action === 'delete') clearDeletedRouteState(ids)
     return true
   } finally {
     setPending('batch', action, false)
@@ -571,8 +607,12 @@ async function runBatch(
             "
             :selected="selectedIds.has(item.id)"
             :busy="rowBusy(item.id)"
+            :expanded="routeState.expandedKeyIDs.includes(item.id)"
+            :weight-editor-open="routeState.weightKeyID === item.id"
             :resolve-copy-value="resolveCopyValue"
             @update:selected="setSelected(item.id, $event)"
+            @update:expanded="setExpanded(item.id, $event)"
+            @update:weight-editor-open="setWeightEditor(item.id, $event)"
             @weight="mutateItem($event.item, 'weight', $event.value)"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"

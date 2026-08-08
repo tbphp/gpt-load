@@ -8,12 +8,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import {
   modelCollectionQueryOptions,
-  type ModelCollectionFilters,
   type ModelCollectionGroupStatus,
-  type ModelCollectionPageSize,
   type ModelCollectionPricingStatus,
   type ModelUpstreamDto,
 } from '@/app/resources/models'
+import { constrainCollectionSearch } from '@/app/route-query'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useModelPriceSync } from '@/app/use-model-price-sync'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
@@ -35,21 +34,19 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import ModelTree from './ModelTree.vue'
 import ModelUpstreamDrawer from './ModelUpstreamDrawer.vue'
 import {
-  modelsQuery as modelsRouteQuery,
-  parseSelectedPriceID,
-  sameModelsQuery,
+  isCanonicalModelsRouteQuery,
+  parseModelsRouteQuery,
+  serializeModelsRouteQuery,
+  type ModelsRouteState,
 } from './models-route'
 
 const client = useApiClient()
 const route = useRoute()
 const router = useRouter()
 const { locale, n, t } = useI18n()
-const searchDraft = ref('')
-const appliedSearch = ref<string | undefined>()
-const groupStatus = ref<ModelCollectionGroupStatus>('enabled')
-const pricingStatus = ref<ModelCollectionPricingStatus>('all')
-const page = ref(1)
-const pageSize: ModelCollectionPageSize = 10
+const routeState = computed(() => parseModelsRouteQuery(route.query))
+const filters = computed(() => routeState.value.filters)
+const searchDraft = ref(filters.value.q ?? '')
 const searchDebounce = useDebouncedAction(250)
 const {
   pending: syncPending,
@@ -58,26 +55,18 @@ const {
   run: runSync,
 } = useModelPriceSync()
 
-const selectedPriceID = computed(() => parseSelectedPriceID(route.query))
-const drawerOpen = computed(() => selectedPriceID.value !== undefined)
-const activePriceID = computed(() => selectedPriceID.value ?? null)
+const drawerOpen = computed(() => routeState.value.selectedPriceID !== undefined)
+const activePriceID = computed(() => routeState.value.selectedPriceID ?? null)
 const drawer = ref<InstanceType<typeof ModelUpstreamDrawer>>()
 
-const filters = computed<ModelCollectionFilters>(() => ({
-  group_status: groupStatus.value,
-  pricing_status: pricingStatus.value,
-  q: appliedSearch.value,
-  page: page.value,
-  page_size: pageSize,
-}))
 const modelsQuery = useQuery(modelCollectionQueryOptions(client, filters))
 const data = computed(() => modelsQuery.data.value)
 const collectionBusy = computed(() => data.value !== undefined && modelsQuery.isFetching.value)
 const hasConditions = computed(
   () =>
-    appliedSearch.value !== undefined ||
-    groupStatus.value !== 'enabled' ||
-    pricingStatus.value !== 'all',
+    filters.value.q !== undefined ||
+    filters.value.group_status !== 'enabled' ||
+    filters.value.pricing_status !== 'all',
 )
 const groupStatusOptions = computed(() =>
   (['enabled', 'all'] as const).map((value) => ({
@@ -103,11 +92,17 @@ const catalogLabel = computed(() => {
 })
 
 watch(
-  [() => data.value?.pagination.total_pages, page, () => modelsQuery.isPlaceholderData.value],
+  [
+    () => data.value?.pagination.total_pages,
+    () => filters.value.page,
+    () => modelsQuery.isPlaceholderData.value,
+  ],
   ([totalPages, currentPage, placeholder]) => {
     if (placeholder || totalPages === undefined) return
     const lastPage = Math.max(1, totalPages)
-    if (currentPage > lastPage) page.value = lastPage
+    if (currentPage > lastPage) {
+      navigate({ filters: { ...filters.value, page: lastPage } }, true)
+    }
   },
 )
 
@@ -116,13 +111,21 @@ useVisibleRefetch([modelsQuery.refetch])
 watch(
   () => route.query,
   (query) => {
-    const normalized = modelsRouteQuery(parseSelectedPriceID(query))
-    if (!sameModelsQuery(query, normalized)) {
-      void router.replace(modelsLocation(normalized))
+    searchDebounce.cancel()
+    const state = parseModelsRouteQuery(query)
+    searchDraft.value = state.filters.q ?? ''
+    if (!isCanonicalModelsRouteQuery(query, state)) {
+      void router.replace(modelsLocation(serializeModelsRouteQuery(state)))
     }
   },
-  { immediate: true },
+  { deep: true, immediate: true },
 )
+
+function navigate(patch: Partial<ModelsRouteState>, replace = false): void {
+  const next = { ...routeState.value, ...patch }
+  const location = modelsLocation(serializeModelsRouteQuery(next))
+  void (replace ? router.replace(location) : router.push(location))
+}
 
 function scheduleSearch(): void {
   searchDebounce.schedule(() => {
@@ -131,51 +134,63 @@ function scheduleSearch(): void {
 }
 
 async function applySearch(): Promise<void> {
-  const normalized = [...searchDraft.value.trim()].slice(0, 200).join('') || undefined
-  if (normalized === appliedSearch.value) return
+  const normalized = constrainCollectionSearch(searchDraft.value)
+  if (normalized === filters.value.q) return
   if (!(await confirmDiscard())) {
-    searchDraft.value = appliedSearch.value ?? ''
+    searchDraft.value = filters.value.q ?? ''
     return
   }
-  appliedSearch.value = normalized
-  page.value = 1
+  navigate({
+    filters: { ...filters.value, q: normalized, page: 1 },
+    selectedPriceID: undefined,
+  })
 }
 
 async function clearSearch(): Promise<void> {
   searchDebounce.cancel()
-  if (appliedSearch.value === undefined) {
+  if (filters.value.q === undefined) {
     searchDraft.value = ''
     return
   }
   if (!(await confirmDiscard())) {
-    searchDraft.value = appliedSearch.value
+    searchDraft.value = filters.value.q ?? ''
     return
   }
   searchDraft.value = ''
-  appliedSearch.value = undefined
-  page.value = 1
+  navigate({
+    filters: { ...filters.value, q: undefined, page: 1 },
+    selectedPriceID: undefined,
+  })
 }
 
 async function setGroupStatus(value: string): Promise<void> {
-  if (value === groupStatus.value || !(await confirmDiscard())) return
-  groupStatus.value = value as ModelCollectionGroupStatus
-  page.value = 1
+  if (value === filters.value.group_status || !(await confirmDiscard())) return
+  navigate({
+    filters: { ...filters.value, group_status: value as ModelCollectionGroupStatus, page: 1 },
+    selectedPriceID: undefined,
+  })
 }
 
 async function setPricingStatus(value: string): Promise<void> {
-  if (value === pricingStatus.value || !(await confirmDiscard())) return
-  pricingStatus.value = value as ModelCollectionPricingStatus
-  page.value = 1
+  if (value === filters.value.pricing_status || !(await confirmDiscard())) return
+  navigate({
+    filters: {
+      ...filters.value,
+      pricing_status: value as ModelCollectionPricingStatus,
+      page: 1,
+    },
+    selectedPriceID: undefined,
+  })
 }
 
 async function resetConditions(): Promise<void> {
   if (!hasConditions.value || !(await confirmDiscard())) return
   searchDebounce.cancel()
   searchDraft.value = ''
-  appliedSearch.value = undefined
-  groupStatus.value = 'enabled'
-  pricingStatus.value = 'all'
-  page.value = 1
+  navigate({
+    filters: { group_status: 'enabled', pricing_status: 'all', page: 1, page_size: 10 },
+    selectedPriceID: undefined,
+  })
 }
 
 async function showPendingModels(): Promise<void> {
@@ -183,8 +198,8 @@ async function showPendingModels(): Promise<void> {
 }
 
 async function changePage(nextPage: number): Promise<void> {
-  if (nextPage === page.value || !(await confirmDiscard())) return
-  page.value = nextPage
+  if (nextPage === filters.value.page || !(await confirmDiscard())) return
+  navigate({ filters: { ...filters.value, page: nextPage }, selectedPriceID: undefined })
 }
 
 /** 列表条件变化会让抽屉里的草稿失去上下文，先确认再放弃并关闭。 */
@@ -192,7 +207,6 @@ async function confirmDiscard(): Promise<boolean> {
   if (!drawerOpen.value || !drawer.value) return true
   if (!(await drawer.value.confirmDiscardSwitch())) return false
   drawer.value.discardChanges()
-  closeDrawer()
   return true
 }
 
@@ -200,11 +214,11 @@ async function openUpstream(upstream: ModelUpstreamDto): Promise<void> {
   if (upstream.price.id === activePriceID.value && drawerOpen.value) return
   if (drawerOpen.value && drawer.value && !(await drawer.value.confirmDiscardSwitch())) return
   drawer.value?.discardChanges()
-  await router.push(modelsLocation(modelsRouteQuery(upstream.price.id)))
+  navigate({ selectedPriceID: upstream.price.id })
 }
 
 function closeDrawer(): void {
-  void router.push(modelsLocation())
+  navigate({ selectedPriceID: undefined })
 }
 
 function goToGroups(): void {
@@ -306,7 +320,7 @@ function goToGroups(): void {
             <AppSelect
               size="compact"
               :label="t('models.filters.groupStatusLabel')"
-              :model-value="groupStatus"
+              :model-value="filters.group_status"
               :options="groupStatusOptions"
               @update:model-value="setGroupStatus"
             />
@@ -318,7 +332,7 @@ function goToGroups(): void {
             <AppSelect
               size="compact"
               :label="t('models.filters.pricingStatusLabel')"
-              :model-value="pricingStatus"
+              :model-value="filters.pricing_status"
               :options="pricingStatusOptions"
               @update:model-value="setPricingStatus"
             />
@@ -372,8 +386,8 @@ function goToGroups(): void {
             :page-size="data.pagination.page_size"
             :total-items="data.pagination.total_items"
             :total-pages="data.pagination.total_pages"
-            @previous="changePage(page - 1)"
-            @next="changePage(page + 1)"
+            @previous="changePage(filters.page - 1)"
+            @next="changePage(filters.page + 1)"
           />
         </template>
       </template>

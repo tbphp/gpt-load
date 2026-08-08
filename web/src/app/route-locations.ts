@@ -36,8 +36,8 @@ function namedLocation(name: string, query?: LocationQueryRaw): RouteLocationRaw
   return query === undefined ? { name } : { name, query }
 }
 
-export function homeLocation(): RouteLocationRaw {
-  return namedLocation(pageRouteNames.home)
+export function homeLocation(query?: LocationQueryRaw): RouteLocationRaw {
+  return namedLocation(pageRouteNames.home, query)
 }
 
 export function loginLocation(redirect?: string): RouteLocationRaw {
@@ -73,8 +73,8 @@ export function modelsLocation(query?: LocationQueryRaw): RouteLocationRaw {
   return namedLocation(pageRouteNames.models, query)
 }
 
-export function settingsLocation(): RouteLocationRaw {
-  return namedLocation(pageRouteNames.settings)
+export function settingsLocation(query?: LocationQueryRaw): RouteLocationRaw {
+  return namedLocation(pageRouteNames.settings, query)
 }
 
 export function notFoundLocation(pathMatch: string[]): RouteLocationRaw {

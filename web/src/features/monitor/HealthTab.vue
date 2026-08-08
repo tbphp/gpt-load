@@ -2,9 +2,11 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { healthQueryOptions, type HealthProblemKeyDto } from '@/app/resources/health'
+import { monitorLocation } from '@/app/route-locations'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { formatLocalInstant } from '@/lib/format'
@@ -13,6 +15,7 @@ import GroupHealthCollection from './GroupHealthCollection.vue'
 import HealthProblemCollection from './HealthProblemCollection.vue'
 import HealthSummaryStrip from './HealthSummaryStrip.vue'
 import RequestLogHealthCard from './RequestLogHealthCard.vue'
+import { healthMonitorQuery, parseHealthMonitorState } from './monitor-route'
 
 interface ProblemItem {
   key: HealthProblemKeyDto
@@ -26,12 +29,14 @@ interface RecoveryDisplay {
 }
 
 const client = useApiClient()
+const route = useRoute()
+const router = useRouter()
 const { locale, t } = useI18n()
 const healthQuery = useQuery(healthQueryOptions(client))
 
 const isVisible = ref(document.visibilityState !== 'hidden')
 const elapsedMs = ref(0)
-const groupsExpanded = ref(false)
+const groupsExpanded = computed(() => parseHealthMonitorState(route.query).groupsExpanded)
 let elapsedTimer: ReturnType<typeof setInterval> | undefined
 let elapsedStartedAt = 0
 
@@ -171,6 +176,10 @@ async function refresh(): Promise<void> {
   await healthQuery.refetch()
 }
 
+function toggleGroups(): void {
+  void router.push(monitorLocation(healthMonitorQuery({ groupsExpanded: !groupsExpanded.value })))
+}
+
 defineExpose({ refresh })
 </script>
 
@@ -224,7 +233,7 @@ defineExpose({ refresh })
       <GroupHealthCollection
         :groups="healthQuery.data.value.groups"
         :expanded="groupsExpanded"
-        @toggle="groupsExpanded = !groupsExpanded"
+        @toggle="toggleGroups"
       />
     </template>
   </div>

@@ -19,6 +19,7 @@ import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import { analyzeKeys } from './key-analysis'
+import { parseImportRouteQuery } from './import-route'
 import KeyTextarea from './KeyTextarea.vue'
 import type { ExistingGroupImportDraft } from './model-draft'
 
@@ -112,7 +113,13 @@ const actionSummary = computed(() =>
     : t('import.existing.actionSelectTarget'),
 )
 
-const unsavedChanges = useUnsavedChanges(dirty, { blocked: pending })
+const unsavedChanges = useUnsavedChanges(dirty, {
+  blocked: pending,
+  allowRouteUpdate: (to, from) =>
+    to.name === from.name &&
+    parseImportRouteQuery(to.query).mode === 'existing' &&
+    parseImportRouteQuery(from.query).mode === 'existing',
+})
 const unregisterRecovery = recovery.register(() =>
   completed.value
     ? null

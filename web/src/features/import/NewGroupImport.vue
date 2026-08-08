@@ -3,12 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ArrowRight, Plus, RefreshCw } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, InvalidResponseError, RequestCancelledError } from '@/api/errors'
-import { groupDetailLocation } from '@/app/route-locations'
+import { groupDetailLocation, importLocation } from '@/app/route-locations'
+import { constrainCollectionSearch } from '@/app/route-query'
 import {
   createGroup,
   discoverModels,
@@ -59,16 +60,25 @@ import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
 import ProviderCatalogDrawer from './ProviderCatalogDrawer.vue'
 import ProviderPresetPicker from './ProviderPresetPicker.vue'
 import { deriveRecentProviderIDs } from './recent-providers'
+import {
+  parseImportRouteQuery,
+  serializeImportRouteQuery,
+  type ImportDiscoveryFilter,
+  type ImportPanel,
+  type ImportRouteState,
+} from './import-route'
 
 const props = defineProps<{ initialDraft?: ImportDraft | null }>()
 const api = useApiClient()
 const queryClient = useQueryClient()
 const recovery = useImportRecovery()
+const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const importOperationOwner = useImportOperationOwner()
 const createOperation = importOperationOwner.createGroup
 const appendOperation = importOperationOwner.importKeys
+const routeState = computed(() => parseImportRouteQuery(route.query))
 
 function freshDraft(): ImportDraft {
   return {
@@ -109,7 +119,7 @@ const draft = reactive<ImportDraft>(
 )
 let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
 const discoveryCandidates = ref<ModelCandidate[]>([])
-const providerSearchInput = ref(draft.provider_id ?? '')
+const providerSearchInput = ref(routeState.value.providerSearch ?? draft.provider_id ?? '')
 const providerSearchQuery = ref(normalizeProviderSearch(providerSearchInput.value))
 const providerSearchDebounce = useDebouncedAction(250)
 const selectedProvider = ref<ProviderSuggestion | null>(null)
@@ -139,10 +149,10 @@ const providerCatalogLoading = computed(
     recentGroupsQuery.isFetching.value ||
     recentProvidersQuery.isFetching.value,
 )
-const catalogDrawerOpen = ref(false)
+const catalogDrawerOpen = computed(() => routeState.value.panel === 'providers')
 const discoveryErrorKey = ref('')
 const discoveryLoading = ref(false)
-const discoveryDrawerOpen = ref(false)
+const discoveryDrawerOpen = computed(() => routeState.value.panel === 'discovery')
 const modelEditor = ref<{
   addManual: () => Promise<void>
   focusFirstInvalid: () => Promise<void>
@@ -190,6 +200,7 @@ const operationResourceIdentity = computed(() => {
 const canRetryOperation = computed(() => activeMutation.value?.canRetry.value ?? false)
 let discoveryController: AbortController | undefined
 let discoveryRequestIdentity = 0
+let discoveryPanelRun = false
 let componentActive = true
 
 const keyAnalysis = computed(() => analyzeKeys(draft.keys))
@@ -303,7 +314,13 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   },
 }))
 
-const unsavedChanges = useUnsavedChanges(dirty, { blocked: mutationPending })
+const unsavedChanges = useUnsavedChanges(dirty, {
+  blocked: mutationPending,
+  allowRouteUpdate: (to, from) =>
+    to.name === from.name &&
+    parseImportRouteQuery(to.query).mode === 'new' &&
+    parseImportRouteQuery(from.query).mode === 'new',
+})
 const unregisterRecovery = recovery.register(() => {
   if (completed.value) return null
   const stableDraft =
@@ -332,9 +349,56 @@ function cancelDefaultProvider(): void {
   shouldApplyDefaultProvider.value = false
 }
 
+function updateRoute(patch: Partial<ImportRouteState>, replace = false): void {
+  const state: ImportRouteState = {
+    ...routeState.value,
+    ...patch,
+    mode: 'new',
+    groupID: undefined,
+  }
+  const location = importLocation(serializeImportRouteQuery(state))
+  void (replace ? router.replace(location) : router.push(location))
+}
+
+function setPanel(panel: ImportPanel | undefined): void {
+  updateRoute(
+    panel === 'discovery'
+      ? { panel }
+      : {
+          panel,
+          discoverySearch: undefined,
+          discoveryFilter: 'unadded',
+        },
+  )
+}
+
+function setModelSearch(value: string): void {
+  updateRoute({ modelSearch: constrainCollectionSearch(value) }, true)
+}
+
+function setDiscoverySearch(value: string): void {
+  updateRoute({ discoverySearch: constrainCollectionSearch(value) }, true)
+}
+
+function setDiscoveryFilter(value: ImportDiscoveryFilter): void {
+  updateRoute({ discoveryFilter: value })
+}
+
+watch(
+  () => routeState.value.providerSearch,
+  (search) => {
+    const value = search ?? draft.provider_id ?? ''
+    if (value === providerSearchInput.value) return
+    providerSearchInput.value = value
+    providerSearchDebounce.cancel()
+    providerSearchQuery.value = normalizeProviderSearch(value)
+  },
+)
+
 function setProviderSearch(value: string): void {
   providerSearchInput.value = value
   cancelDefaultProvider()
+  updateRoute({ providerSearch: constrainCollectionSearch(value) }, true)
   providerSearchDebounce.schedule(() => {
     providerSearchQuery.value = normalizeProviderSearch(value)
   })
@@ -416,17 +480,17 @@ function selectProvider(provider: ProviderSuggestion | null): void {
 function selectRecentProvider(provider: ProviderSuggestion): void {
   if (payloadLocked.value) return
   selectProvider(provider)
-  catalogDrawerOpen.value = false
+  setPanel(undefined)
 }
 
 function selectSuggestionFromCatalog(provider: ProviderSuggestion): void {
   selectProvider(provider)
-  catalogDrawerOpen.value = false
+  setPanel(undefined)
 }
 
 function chooseCustomFromCatalog(): void {
   selectProvider(null)
-  catalogDrawerOpen.value = false
+  setPanel(undefined)
 }
 
 function setProtocols(protocols: GroupProtocol[]): void {
@@ -470,6 +534,16 @@ function updateModels(models: ModelDraftItem[]): void {
 
 function requestDiscovery(): void {
   if (!canDiscover.value) return
+  if (!discoveryDrawerOpen.value) {
+    setPanel('discovery')
+    return
+  }
+  discoveryPanelRun = true
+  startDiscovery()
+}
+
+function startDiscovery(): void {
+  if (!canDiscover.value || discoveryLoading.value) return
   const request = {
     provider_id: draft.provider_id,
     upstream_url: draft.upstream_url.trim(),
@@ -480,12 +554,26 @@ function requestDiscovery(): void {
   const controller = new AbortController()
   discoveryController = controller
   const identity = ++discoveryRequestIdentity
-  discoveryDrawerOpen.value = true
   discoveryCandidates.value = []
   discoveryErrorKey.value = ''
   discoveryLoading.value = true
   void runDiscovery(request, controller, identity)
 }
+
+watch(
+  [discoveryDrawerOpen, canDiscover],
+  ([open, discoverable]) => {
+    if (!open) {
+      discoveryPanelRun = false
+      if (discoveryLoading.value) cancelDiscovery()
+      return
+    }
+    if (!discoverable || discoveryPanelRun) return
+    discoveryPanelRun = true
+    startDiscovery()
+  },
+  { immediate: true },
+)
 
 async function runDiscovery(
   request: ModelDiscoveryRequest,
@@ -519,7 +607,7 @@ function confirmCandidates(selectedCandidates: ModelCandidate[]): void {
   draft.models = appendSelectedCandidates(draft.models, selectedCandidates, (candidate) =>
     createDiscoveredModelDraft([candidate], () => nextModelKey++).at(0)!,
   )
-  discoveryDrawerOpen.value = false
+  setPanel(undefined)
 }
 
 function addManualModel(): void {
@@ -716,7 +804,7 @@ onBeforeUnmount(() => {
       :official-providers="officialProviders"
       :disabled="payloadLocked"
       @select="selectProvider"
-      @browse="catalogDrawerOpen = true"
+      @browse="setPanel('providers')"
     />
 
     <ProviderCatalogDrawer
@@ -726,7 +814,7 @@ onBeforeUnmount(() => {
       :search="providerSearchInput"
       :loading="providerCatalogLoading"
       :error="providerSuggestionsQuery.isError.value"
-      @update:open="catalogDrawerOpen = $event"
+      @update:open="setPanel($event ? 'providers' : undefined)"
       @update:search="setProviderSearch"
       @retry="retryProviderSuggestions"
       @select-suggestion="selectSuggestionFromCatalog"
@@ -777,7 +865,9 @@ onBeforeUnmount(() => {
         :labels="aliasEditorLabels"
         :create-row="createManualRow"
         :disabled="payloadLocked"
+        :search="routeState.modelSearch ?? ''"
         @update:model-value="updateModels"
+        @update:search="setModelSearch"
       >
         <template #third-column="{ item }">
           <ModelPricingStatus
@@ -829,7 +919,11 @@ onBeforeUnmount(() => {
       :error="discoveryError"
       :labels="discoveryDrawerLabels"
       :dismissible="!discoveryLoading"
-      @update:open="discoveryDrawerOpen = $event"
+      :search="routeState.discoverySearch ?? ''"
+      :filter="routeState.discoveryFilter"
+      @update:open="setPanel($event ? 'discovery' : undefined)"
+      @update:search="setDiscoverySearch"
+      @update:filter="setDiscoveryFilter"
       @retry="requestDiscovery"
       @confirm="confirmCandidates"
     />

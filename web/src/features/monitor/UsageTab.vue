@@ -36,7 +36,13 @@ import {
   type UsageFilterDraft,
   type UsageFilterErrors,
 } from './usage-filters'
-import { usageMonitorQuery } from './monitor-route'
+import {
+  parseUsageMonitorState,
+  sameUsageBreakdownIdentity,
+  usageBreakdownIdentity,
+  usageMonitorQuery,
+  type UsageMonitorState,
+} from './monitor-route'
 import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSummary from './UsageSummary.vue'
 
@@ -44,8 +50,9 @@ const client = useApiClient()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
-const filterOpen = ref(false)
 const appliedFilters = computed(() => parseAppliedUsageFilters(route.query))
+const routeState = computed(() => parseUsageMonitorState(route.query))
+const filterOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
 
@@ -65,6 +72,14 @@ watch(
     () => appliedFilters.value.model,
     () => appliedFilters.value.breakdown_order,
   ],
+  () => {
+    draft.value = createUsageFilterDraft(appliedFilters.value)
+    filterErrors.value = {}
+  },
+)
+
+watch(
+  () => routeState.value.filtersOpen,
   () => {
     draft.value = createUsageFilterDraft(appliedFilters.value)
     filterErrors.value = {}
@@ -120,17 +135,17 @@ function updateDraftField(field: keyof UsageFilterDraft, value: string): void {
 }
 
 function setFilterOpen(open: boolean): void {
-  filterOpen.value = open
   if (!open) {
     draft.value = createUsageFilterDraft(appliedFilters.value)
     filterErrors.value = {}
   }
+  void navigate(appliedFilters.value, { ...routeState.value, filtersOpen: open })
 }
 
 function openFilters(): void {
   draft.value = createUsageFilterDraft(appliedFilters.value)
   filterErrors.value = {}
-  filterOpen.value = true
+  void navigate(appliedFilters.value, { ...routeState.value, filtersOpen: true })
 }
 
 async function applyFilters(): Promise<void> {
@@ -138,7 +153,6 @@ async function applyFilters(): Promise<void> {
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
   await navigate(applyUsageFilterDraft(draft.value))
-  filterOpen.value = false
 }
 
 async function resetFilters(): Promise<void> {
@@ -146,16 +160,52 @@ async function resetFilters(): Promise<void> {
     range: appliedFilters.value.range,
     breakdown_order: appliedFilters.value.breakdown_order,
   })
-  filterOpen.value = false
 }
 
 async function updateBreakdownOrder(value: string): Promise<void> {
   if (value !== 'requests' && value !== 'cost') return
-  await navigate({ ...appliedFilters.value, breakdown_order: value as UsageBreakdownOrder })
+  await navigate(
+    { ...appliedFilters.value, breakdown_order: value as UsageBreakdownOrder },
+    routeState.value,
+  )
 }
 
-async function navigate(filters: UsageFilters): Promise<void> {
-  await router.push(monitorLocation(usageMonitorQuery(filters)))
+async function navigate(
+  filters: UsageFilters,
+  state: UsageMonitorState = {
+    filtersOpen: false,
+    expandedBreakdowns: [],
+    seriesExpanded: false,
+  },
+): Promise<void> {
+  await router.push(monitorLocation(usageMonitorQuery(filters, state)))
+}
+
+function breakdownExpanded(groupID: number, model: string): boolean {
+  const identity = usageBreakdownIdentity(groupID, model)
+  return routeState.value.expandedBreakdowns.some((candidate) =>
+    sameUsageBreakdownIdentity(candidate, identity),
+  )
+}
+
+function setBreakdownExpanded(groupID: number, model: string, event: Event): void {
+  const expanded = (event.currentTarget as HTMLDetailsElement).open
+  const identity = usageBreakdownIdentity(groupID, model)
+  const current = routeState.value.expandedBreakdowns
+  const alreadyExpanded = current.some((candidate) =>
+    sameUsageBreakdownIdentity(candidate, identity),
+  )
+  if (expanded === alreadyExpanded) return
+  const next = expanded
+    ? [...current, identity]
+    : current.filter((candidate) => !sameUsageBreakdownIdentity(candidate, identity))
+  void navigate(appliedFilters.value, { ...routeState.value, expandedBreakdowns: next })
+}
+
+function setSeriesExpanded(event: Event): void {
+  const expanded = (event.currentTarget as HTMLDetailsElement).open
+  if (expanded === routeState.value.seriesExpanded) return
+  void navigate(appliedFilters.value, { ...routeState.value, seriesExpanded: expanded })
 }
 
 async function refresh(): Promise<void> {
@@ -344,6 +394,8 @@ defineExpose({ openFilters, refresh })
               v-for="(row, index) in report.breakdown"
               :key="`${row.group_id}:${row.model}`"
               class="usage-breakdown-record"
+              :open="breakdownExpanded(row.group_id, row.model)"
+              @toggle="setBreakdownExpanded(row.group_id, row.model, $event)"
             >
               <summary
                 class="ledger-record-list__record usage-breakdown-record__summary"
@@ -460,7 +512,11 @@ defineExpose({ openFilters, refresh })
           </LedgerRecordList>
         </section>
 
-        <details class="usage-buckets">
+        <details
+          class="usage-buckets"
+          :open="routeState.seriesExpanded"
+          @toggle="setSeriesExpanded"
+        >
           <summary>{{ t('monitor.usage.series.disclosure') }}</summary>
           <div class="usage-buckets__body">
             <DataTable :caption="t('monitor.usage.series.caption')" appearance="editorial" dense>

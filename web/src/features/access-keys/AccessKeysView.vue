@@ -41,8 +41,10 @@ import type { PendingAccessKeyCreateOperation } from './access-key-create-operat
 import {
   constrainAccessKeyCollectionSearchQuery,
   isCanonicalAccessKeyCollectionRouteQuery,
+  parseAccessKeyDrawerRoute,
   parseAccessKeyCollectionRouteQuery,
   serializeAccessKeyCollectionRouteQuery,
+  type AccessKeyDrawerRoute,
 } from './access-key-collection-route'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
 
@@ -53,8 +55,9 @@ const queryClient = useQueryClient()
 const toast = useToast()
 const { n, t } = useI18n()
 const filters = computed(() => parseAccessKeyCollectionRouteQuery(route.query))
+const drawerRoute = computed(() => parseAccessKeyDrawerRoute(route.query))
 const searchDraft = ref(filters.value.q ?? '')
-const drawerOpen = ref(false)
+const drawerOpen = computed(() => drawerRoute.value !== undefined)
 const selected = ref<AccessKeyDto | null>(null)
 const createOperation = ref<PendingAccessKeyCreateOperation | null>(null)
 const editOperation = ref<PendingAccessKeyEditOperation | null>(null)
@@ -121,15 +124,39 @@ watch(
   (query) => {
     searchDebounce.cancel()
     const parsed = parseAccessKeyCollectionRouteQuery(query)
+    const drawer = parseAccessKeyDrawerRoute(query)
     searchDraft.value = parsed.q ?? ''
-    if (!isCanonicalAccessKeyCollectionRouteQuery(query, parsed)) {
-      void router.replace(accessKeysLocation(serializeAccessKeyCollectionRouteQuery(parsed)))
+    if (!isCanonicalAccessKeyCollectionRouteQuery(query, parsed, drawer)) {
+      void router.replace(
+        accessKeysLocation(serializeAccessKeyCollectionRouteQuery(parsed, drawer)),
+      )
     }
   },
   { deep: true, immediate: true },
 )
 
 watch(filters, () => collection.value?.conceal())
+
+watch(
+  [drawerRoute, data, editOperation, () => accessKeysQuery.isPlaceholderData.value],
+  ([drawer, pageData, pendingEdit, placeholder]) => {
+    if (drawer === undefined || drawer.mode === 'create') {
+      selected.value = null
+      return
+    }
+    const item = pageData?.items.find((accessKey) => accessKey.id === drawer.accessKeyID)
+    if (item) {
+      selected.value = item
+      return
+    }
+    if (pendingEdit?.base.id === drawer.accessKeyID) {
+      selected.value = pendingEdit.base
+      return
+    }
+    if (pageData && !placeholder) void setDrawerRoute(undefined, true)
+  },
+  { immediate: true },
+)
 
 watch(
   [
@@ -143,7 +170,10 @@ watch(
     if (page > lastValidPage) {
       void router.replace(
         accessKeysLocation(
-          serializeAccessKeyCollectionRouteQuery({ ...filters.value, page: lastValidPage }),
+          serializeAccessKeyCollectionRouteQuery(
+            { ...filters.value, page: lastValidPage },
+            drawerRoute.value,
+          ),
         ),
       )
     }
@@ -161,8 +191,18 @@ onBeforeUnmount(() => {
 
 function routeWithFilters(next: AccessKeyCollectionFilters, replace = false): void {
   collection.value?.conceal()
-  const location = accessKeysLocation(serializeAccessKeyCollectionRouteQuery(next))
+  const location = accessKeysLocation(
+    serializeAccessKeyCollectionRouteQuery(next, drawerRoute.value),
+  )
   void (replace ? router.replace(location) : router.push(location))
+}
+
+async function setDrawerRoute(
+  drawer: AccessKeyDrawerRoute | undefined,
+  replace = false,
+): Promise<void> {
+  const location = accessKeysLocation(serializeAccessKeyCollectionRouteQuery(filters.value, drawer))
+  await (replace ? router.replace(location) : router.push(location))
 }
 
 function updateConditions(patch: Partial<Pick<AccessKeyCollectionFilters, 'q' | 'status'>>): void {
@@ -203,7 +243,7 @@ function setPage(page: number): void {
 function createKey(): void {
   selected.value = null
   restoreFocus = null
-  drawerOpen.value = true
+  void setDrawerRoute({ mode: 'create' })
 }
 
 function openKey(accessKey: AccessKeyDto, trigger: HTMLElement): void {
@@ -213,7 +253,7 @@ function openKey(accessKey: AccessKeyDto, trigger: HTMLElement): void {
   }
   selected.value = accessKey
   restoreFocus = trigger
-  drawerOpen.value = true
+  void setDrawerRoute({ mode: 'edit', accessKeyID: accessKey.id })
 }
 
 function setCreateOperation(operation: PendingAccessKeyCreateOperation | null): void {
@@ -228,7 +268,7 @@ function checkCreateOperation(): void {
   if (!createOperation.value) return
   selected.value = null
   restoreFocus = null
-  drawerOpen.value = true
+  void setDrawerRoute({ mode: 'create' })
 }
 
 function checkEditOperation(): void {
@@ -237,19 +277,18 @@ function checkEditOperation(): void {
   selected.value =
     data.value?.items.find((accessKey) => accessKey.id === operation.base.id) ?? operation.base
   restoreFocus = null
-  drawerOpen.value = true
+  void setDrawerRoute({ mode: 'edit', accessKeyID: operation.base.id })
 }
 
 async function setDrawerOpen(open: boolean): Promise<void> {
-  drawerOpen.value = open
-  if (!open) {
-    collection.value?.conceal()
-    selected.value = null
-    const target = restoreFocus
-    restoreFocus = null
-    await nextTick()
-    target?.focus()
-  }
+  if (open) return
+  collection.value?.conceal()
+  await setDrawerRoute(undefined)
+  selected.value = null
+  const target = restoreFocus
+  restoreFocus = null
+  await nextTick()
+  target?.focus()
 }
 
 async function handleSaved(kind: 'created' | 'updated', name: string): Promise<void> {
@@ -327,7 +366,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
         </PageHeader>
 
         <AccessKeyDrawer
-          v-if="drawerOpen"
+          v-if="drawerOpen && (drawerRoute?.mode === 'create' || selected)"
           :open="drawerOpen"
           :access-key="selected"
           :groups="groupsQuery.data.value ?? []"

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Plus, RefreshCw } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
@@ -16,6 +17,8 @@ import { invalidateGroupSummary } from '@/app/resources/groups'
 import type { ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useTransientFlag } from '@/app/use-transient-flag'
+import { constrainCollectionSearch } from '@/app/route-query'
+import { groupDetailLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
@@ -40,11 +43,20 @@ import {
   type ModelDraftItem,
   type ModelNameConflict,
 } from './model-diff'
+import {
+  parseGroupModelsRouteQuery,
+  serializeGroupModelsRouteQuery,
+  type GroupModelsRouteState,
+  normalizeGroupTab,
+} from '../group-route'
 
 const props = defineProps<{ groupId: number }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
+const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
+const routeState = computed(() => parseGroupModelsRouteQuery(route.query))
 const query = useQuery(groupModelsQueryOptions(client, () => props.groupId))
 const saved = ref<ModelDraftItem[]>([])
 const draft = ref<ModelDraftItem[]>([])
@@ -52,7 +64,7 @@ const pending = ref<'discover' | 'save' | null>(null)
 const discoveryError = ref('')
 const saveError = ref('')
 const serverConflicts = ref<ModelNameConflict[]>([])
-const drawerOpen = ref(false)
+const drawerOpen = computed(() => routeState.value.discoveryOpen)
 const modelEditor = ref<{
   addManual: () => Promise<void>
   focusFirstInvalid: () => Promise<void>
@@ -178,7 +190,14 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
     live: t('group.modelEditor.sources.live'),
   },
 }))
-useUnsavedChanges(dirty, { blocked: computed(() => pending.value !== null) })
+useUnsavedChanges(dirty, {
+  blocked: computed(() => pending.value !== null),
+  allowRouteUpdate: (to, from) =>
+    to.name === from.name &&
+    String(to.params.id) === String(from.params.id) &&
+    normalizeGroupTab(to.query.tab) === 'models' &&
+    normalizeGroupTab(from.query.tab) === 'models',
+})
 
 watch(dirty, (isDirty) => {
   if (isDirty) clearSavedFeedback()
@@ -196,6 +215,51 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  [() => routeState.value.discoveryOpen, () => query.data.value],
+  ([open, models]) => {
+    if (!open) {
+      if (pending.value === 'discover') controller?.abort()
+      return
+    }
+    if (models && pending.value === null && candidates.value.length === 0) void runDiscovery()
+  },
+  { immediate: true },
+)
+
+function navigateRoute(state: GroupModelsRouteState, replace = false): void {
+  const location = groupDetailLocation(props.groupId, serializeGroupModelsRouteQuery(state))
+  void (replace ? router.replace(location) : router.push(location))
+}
+
+function updateRoute(patch: Partial<GroupModelsRouteState>, replace = false): void {
+  navigateRoute({ ...routeState.value, ...patch }, replace)
+}
+
+function setModelSearch(value: string): void {
+  updateRoute({ search: constrainCollectionSearch(value) }, true)
+}
+
+function setDiscoverySearch(value: string): void {
+  updateRoute({ discoverySearch: constrainCollectionSearch(value) }, true)
+}
+
+function setDiscoveryFilter(value: 'unadded' | 'all'): void {
+  updateRoute({ discoveryFilter: value })
+}
+
+function setDiscoveryOpen(open: boolean): void {
+  updateRoute(
+    open
+      ? { discoveryOpen: true }
+      : {
+          discoveryOpen: false,
+          discoverySearch: undefined,
+          discoveryFilter: 'unadded',
+        },
+  )
+}
 
 function updateModels(models: ModelDraftItem[]): void {
   serverConflicts.value = []
@@ -236,13 +300,14 @@ function addManual(): void {
 
 function requestDiscovery(): void {
   if (pending.value) return
-  drawerOpen.value = true
   candidates.value = []
   discoveryError.value = ''
-  void runDiscovery()
+  if (drawerOpen.value) void runDiscovery()
+  else setDiscoveryOpen(true)
 }
 
 async function runDiscovery(): Promise<void> {
+  if (pending.value !== null) return
   controller?.abort()
   const active = new AbortController()
   controller = active
@@ -278,7 +343,7 @@ function confirmCandidates(selectedCandidates: ModelCandidate[]): void {
   }))
   serverConflicts.value = []
   saveError.value = ''
-  drawerOpen.value = false
+  setDiscoveryOpen(false)
 }
 
 function requestSave(): void {
@@ -389,7 +454,9 @@ onBeforeUnmount(() => {
         :labels="aliasEditorLabels"
         :create-row="createManualRow"
         :disabled="pending !== null"
+        :search="routeState.search ?? ''"
         @update:model-value="updateModels"
+        @update:search="setModelSearch"
       >
         <template #third-column="{ item }">
           <ModelPricingStatus
@@ -409,7 +476,11 @@ onBeforeUnmount(() => {
         :error="discoveryError"
         :labels="discoveryDrawerLabels"
         :dismissible="pending !== 'discover'"
-        @update:open="drawerOpen = $event"
+        :search="routeState.discoverySearch ?? ''"
+        :filter="routeState.discoveryFilter"
+        @update:open="setDiscoveryOpen"
+        @update:search="setDiscoverySearch"
+        @update:filter="setDiscoveryFilter"
         @retry="requestDiscovery"
         @confirm="confirmCandidates"
       />

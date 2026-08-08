@@ -31,6 +31,11 @@ import { formatISOInstant, formatInteger, formatLocalInstant, formatPercent } fr
 import { isValidMonitorText, normalizeMonitorText } from './filter-validation'
 import InspectorForm from './InspectorForm.vue'
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
+import {
+  inspectorMonitorQuery,
+  parseInspectorMonitorState,
+  type InspectorMonitorState,
+} from './monitor-route'
 
 type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
@@ -58,9 +63,10 @@ const client = useApiClient()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
-const draftProtocol = ref(readProtocol(route.query.protocol))
-const draftModel = ref(readText(route.query.external_model))
-const draftAccessKeyID = ref(readPositiveID(route.query.access_key_id))
+const routeState = computed(() => parseInspectorMonitorState(route.query))
+const draftProtocol = ref(readProtocol(routeState.value.protocol))
+const draftModel = ref(readText(routeState.value.externalModel))
+const draftAccessKeyID = ref(readPositiveID(routeState.value.accessKeyID))
 const fieldErrors = ref<InspectorErrors>({})
 const pending = ref(false)
 const failed = ref(false)
@@ -148,18 +154,22 @@ function readPositiveID(raw: unknown): string {
 }
 
 watch(
-  () => [route.query.protocol, route.query.external_model, route.query.access_key_id] as const,
-  ([rawProtocol, rawModel, rawAccessKeyID]) => {
+  () =>
+    [
+      routeState.value.protocol,
+      routeState.value.externalModel,
+      routeState.value.accessKeyID,
+      routeState.value.run,
+    ] as const,
+  ([rawProtocol, rawModel, rawAccessKeyID, run]) => {
     const protocol = readProtocol(rawProtocol)
     const model = readText(rawModel)
     const accessKeyID = readPositiveID(rawAccessKeyID)
-    if (
-      protocol === draftProtocol.value &&
-      model === draftModel.value &&
-      accessKeyID === draftAccessKeyID.value
-    ) {
-      return
-    }
+    const fieldsChanged =
+      protocol !== draftProtocol.value ||
+      model !== draftModel.value ||
+      accessKeyID !== draftAccessKeyID.value
+    if (!fieldsChanged && run) return
 
     owner += 1
     controller?.abort()
@@ -213,24 +223,38 @@ async function inspect(): Promise<void> {
   const request = validatedRequest()
   if (!request) return
 
+  const nextState: InspectorMonitorState = {
+    protocol: request.protocol,
+    externalModel: request.external_model ?? undefined,
+    accessKeyID: String(request.access_key_id),
+    run: true,
+    expandedGroupIDs: [],
+  }
+  const current = routeState.value
+  if (
+    current.run &&
+    current.protocol === nextState.protocol &&
+    current.externalModel === nextState.externalModel &&
+    current.accessKeyID === nextState.accessKeyID
+  ) {
+    await runInspection(request)
+    return
+  }
+  await router.push(monitorLocation(inspectorMonitorQuery(nextState)))
+}
+
+async function runInspection(request: RouteInspectRequest): Promise<void> {
   controller?.abort()
   const currentOwner = ++owner
   const currentController = new AbortController()
   controller = currentController
   pending.value = true
   failed.value = false
-  const query: Record<string, string> = {
-    tab: 'inspector',
-    protocol: request.protocol,
-    access_key_id: String(request.access_key_id),
-  }
-  if (request.external_model) query.external_model = request.external_model
-  void router.replace(monitorLocation(query))
+  submitted.value = request
 
   try {
     const result = await inspectRoute(client, request, currentController.signal)
     if (currentOwner === owner && !currentController.signal.aborted) {
-      submitted.value = request
       observation.value = result
       resultStale.value = false
       await nextTick()
@@ -254,6 +278,39 @@ async function inspect(): Promise<void> {
     }
   }
 }
+
+watch(
+  [
+    () => routeState.value.run,
+    () => routeState.value.protocol,
+    () => routeState.value.externalModel,
+    () => routeState.value.accessKeyID,
+    () => accessKeyOptionsQuery.data.value,
+  ],
+  ([run]) => {
+    if (!run) return
+    const request = validatedRequest()
+    if (!request) return
+    if (
+      pending.value &&
+      submitted.value?.protocol === request.protocol &&
+      submitted.value.access_key_id === request.access_key_id &&
+      submitted.value.external_model === request.external_model
+    ) {
+      return
+    }
+    if (
+      observation.value !== undefined &&
+      submitted.value?.protocol === request.protocol &&
+      submitted.value.access_key_id === request.access_key_id &&
+      submitted.value.external_model === request.external_model
+    ) {
+      return
+    }
+    void runInspection(request)
+  },
+  { immediate: true },
+)
 
 function reasonLabel(reason: string | null): string {
   if (reason === null) return t('monitor.inspector.reasons.none')
@@ -318,6 +375,21 @@ function candidateKeySummary(group: RouteInspectGroupDto): string {
     available: formattedInteger(available),
     unavailable: formattedInteger(group.keys.length - available),
   })
+}
+
+function groupExpanded(groupID: number): boolean {
+  return routeState.value.expandedGroupIDs.includes(groupID)
+}
+
+function setGroupExpanded(groupID: number, event: Event): void {
+  const expanded = (event.currentTarget as HTMLDetailsElement).open
+  const current = new Set(routeState.value.expandedGroupIDs)
+  if (expanded === current.has(groupID)) return
+  if (expanded) current.add(groupID)
+  else current.delete(groupID)
+  void router.push(
+    monitorLocation(inspectorMonitorQuery({ ...routeState.value, expandedGroupIDs: [...current] })),
+  )
 }
 
 onBeforeUnmount(() => {
@@ -516,6 +588,8 @@ onBeforeUnmount(() => {
               class="route-candidate"
               role="row"
               :aria-rowindex="index + 2"
+              :open="groupExpanded(group.group_id)"
+              @toggle="setGroupExpanded(group.group_id, $event)"
             >
               <summary class="route-candidate__summary">
                 <div class="route-candidate__identity" role="cell">

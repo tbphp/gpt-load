@@ -2,9 +2,11 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { homeBaseQueryOptions, type HomeRange } from '@/app/resources/home'
+import { homeLocation } from '@/app/route-locations'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -18,11 +20,22 @@ import HomeSummary from './HomeSummary.vue'
 import HomeWelcome from './HomeWelcome.vue'
 import { homeRangeLabelKey } from './home-range'
 import { useHomeStatisticsPresenter } from './home-presenter'
+import {
+  isCanonicalHomeRouteQuery,
+  parseHomeRouteQuery,
+  serializeHomeRouteQuery,
+  type HomeRankingDimension,
+  type HomeRouteState,
+} from './home-route'
+import type { GatewayClientID } from './gateway-clients'
 
 const client = useApiClient()
+const route = useRoute()
+const router = useRouter()
 const { locale, t } = useI18n()
 const baseQuery = useQuery(homeBaseQueryOptions(client))
-const statistics = useHomeStatisticsPresenter(client)
+const routeState = computed(() => parseHomeRouteQuery(route.query))
+const statistics = useHomeStatisticsPresenter(client, { initialRange: routeState.value.range })
 const serverClockOffsetMS = ref(0)
 const nowMS = ref(Date.now())
 
@@ -52,6 +65,59 @@ const isEmpty = computed(() => {
     inventory !== undefined && inventory.group_count === 0 && inventory.upstream_key_count === 0
   )
 })
+const selectedAccessKeyID = computed(() => {
+  const accessKeys = baseQuery.data.value?.access_keys ?? []
+  const requested = routeState.value.accessKeyID
+  return accessKeys.find(({ id }) => id === requested)?.id ?? accessKeys[0]?.id ?? null
+})
+
+watch(
+  () => route.query,
+  (query) => {
+    const state = parseHomeRouteQuery(query)
+    if (!isCanonicalHomeRouteQuery(query, state)) {
+      void router.replace(homeLocation(serializeHomeRouteQuery(state)))
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () => baseQuery.data.value?.access_keys,
+  (accessKeys) => {
+    if (!accessKeys || routeState.value.accessKeyID === undefined) return
+    if (accessKeys.some(({ id }) => id === routeState.value.accessKeyID)) return
+    void navigate({ accessKeyID: undefined }, true)
+  },
+  { immediate: true },
+)
+
+watch(
+  () => routeState.value.range,
+  (range) => statistics.selectRange(range),
+)
+
+function navigate(patch: Partial<HomeRouteState>, replace = false): void {
+  const next = { ...routeState.value, ...patch }
+  const location = homeLocation(serializeHomeRouteQuery(next))
+  void (replace ? router.replace(location) : router.push(location))
+}
+
+function selectRange(range: HomeRange): void {
+  navigate({ range })
+}
+
+function selectRanking(dimension: HomeRankingDimension): void {
+  navigate({ ranking: dimension })
+}
+
+function selectAccessKey(id: number): void {
+  navigate({ accessKeyID: id })
+}
+
+function selectClient(clientID: GatewayClientID): void {
+  navigate({ client: clientID })
+}
 function rangeLabel(range: HomeRange): string {
   return t(homeRangeLabelKey(range))
 }
@@ -100,7 +166,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           :observed-at-ms="statistics.lastSuccessfulObservedAtMS.value"
           :uptime-now-ms="uptimeNowMS"
           :loading="statisticsSwitching"
-          @select-range="statistics.selectRange"
+          @select-range="selectRange"
         />
 
         <section class="home-view__statistics-region home-view__statistics-region--trend">
@@ -141,7 +207,9 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
             v-if="snapshot"
             :rankings="snapshot.rankings"
             :range="rangeLabel(displayedRange)"
+            :dimension="routeState.ranking"
             :loading="statisticsSwitching"
+            @update:dimension="selectRanking"
           />
           <PageSection
             v-else-if="statisticsLoading"
@@ -152,7 +220,13 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           </PageSection>
         </section>
 
-        <GatewayConnection :access-keys="baseQuery.data.value.access_keys" />
+        <GatewayConnection
+          :access-keys="baseQuery.data.value.access_keys"
+          :selected-access-key-id="selectedAccessKeyID"
+          :client-id="routeState.client"
+          @update:selected-access-key-id="selectAccessKey"
+          @update:client-id="selectClient"
+        />
       </template>
     </LedgerSheet>
   </PageFrame>

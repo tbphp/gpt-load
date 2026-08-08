@@ -20,18 +20,20 @@ const props = defineProps<{
   rowIndex: number
   selected: boolean
   busy: boolean
+  expanded: boolean
+  weightEditorOpen: boolean
   resolveCopyValue: (id: number) => Promise<string>
 }>()
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
+  'update:expanded': [expanded: boolean]
+  'update:weightEditorOpen': [open: boolean]
   weight: [payload: { item: GroupKeyItemDto; value: string }]
   toggle: [item: GroupKeyItemDto]
   restore: [item: GroupKeyItemDto]
   remove: [item: GroupKeyItemDto]
 }>()
 const { locale, n, t } = useI18n()
-const expanded = ref(false)
-const weightEditorOpen = ref(false)
 const draftWeightMode = ref<'auto' | 'manual'>('auto')
 const draftWeight = ref('50')
 const detailId = computed(() => `group-key-details-${props.item.id}`)
@@ -77,11 +79,14 @@ const manualWeightValid = computed(() => {
   return Number.isInteger(value) && value >= 1 && value <= 100
 })
 
-watch(weightEditorOpen, (open) => {
-  if (!open) return
-  draftWeightMode.value = props.item.weight_mode
-  draftWeight.value = String(props.item.weight ?? 50)
-})
+watch(
+  () => props.weightEditorOpen,
+  (open) => {
+    if (!open) return
+    draftWeightMode.value = props.item.weight_mode
+    draftWeight.value = String(props.item.weight ?? 50)
+  },
+)
 
 function saveWeight(): void {
   if (props.busy || !manualWeightValid.value) return
@@ -89,7 +94,7 @@ function saveWeight(): void {
     item: props.item,
     value: draftWeightMode.value === 'auto' ? 'auto' : String(Number(draftWeight.value)),
   })
-  weightEditorOpen.value = false
+  emit('update:weightEditorOpen', false)
 }
 </script>
 
@@ -145,7 +150,11 @@ function saveWeight(): void {
       </div>
 
       <div class="ledger-record-list__cell group-key-record__actions" role="cell">
-        <AppPopover v-model:open="weightEditorOpen" align="start">
+        <AppPopover
+          :open="weightEditorOpen"
+          align="start"
+          @update:open="emit('update:weightEditorOpen', $event)"
+        >
           <template #trigger>
             <AppButton
               variant="secondary"
@@ -197,7 +206,11 @@ function saveWeight(): void {
               }}
             </p>
             <div class="group-key-weight-editor__actions">
-              <AppButton variant="secondary" size="compact" @click="weightEditorOpen = false">
+              <AppButton
+                variant="secondary"
+                size="compact"
+                @click="emit('update:weightEditorOpen', false)"
+              >
                 {{ t('group.keys.weightEditor.cancel') }}
               </AppButton>
               <AppButton type="submit" size="compact" :disabled="busy || !manualWeightValid">
@@ -245,7 +258,7 @@ function saveWeight(): void {
           :label="expanded ? t('group.keys.collapse') : t('group.keys.expand')"
           :aria-expanded="expanded"
           :aria-controls="detailId"
-          @click="expanded = !expanded"
+          @click="emit('update:expanded', !expanded)"
         >
           <ChevronDown :size="16" aria-hidden="true" />
         </IconButton>

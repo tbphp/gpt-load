@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T extends ModelDraftValue">
 import { Plus, X } from '@lucide/vue'
-import { computed, nextTick, ref, useId } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -25,22 +25,40 @@ const props = withDefaults(
     disabled?: boolean
     searchable?: boolean
     addable?: boolean
+    search?: string
   }>(),
   {
     createRow: undefined,
     disabled: false,
     searchable: true,
     addable: true,
+    search: undefined,
   },
 )
-const emit = defineEmits<{ 'update:modelValue': [value: T[]] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: T[]]
+  'update:search': [value: string]
+}>()
 
 const instanceId = useId()
 const root = ref<HTMLElement>()
-const search = ref('')
+const internalSearch = ref(props.search ?? '')
+const searchValue = computed({
+  get: () => internalSearch.value,
+  set: (value: string) => {
+    internalSearch.value = value
+    emit('update:search', value)
+  },
+})
+watch(
+  () => props.search,
+  (value) => {
+    internalSearch.value = value ?? ''
+  },
+)
 const validity = computed(() => modelDraftValidity(props.modelValue, props.conflicts))
 const visibleRows = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase()
+  const query = searchValue.value.trim().toLocaleLowerCase()
   return props.modelValue.flatMap((item, index) =>
     !query || `${item.id} ${item.name} ${item.alias}`.toLocaleLowerCase().includes(query)
       ? [{ item, index }]
@@ -77,7 +95,7 @@ function removeRow(index: number): void {
 
 async function addManual(): Promise<void> {
   if (props.disabled || !props.createRow) return
-  search.value = ''
+  searchValue.value = ''
   const index = props.modelValue.length
   emit('update:modelValue', [
     ...props.modelValue.map((item) => ({ ...item, sources: [...item.sources] })),
@@ -117,7 +135,7 @@ async function setAliasEnabled(index: number, enabled: boolean): Promise<void> {
 async function focusFirstInvalid(): Promise<void> {
   const index = Math.min(...validity.value.invalidIndexes)
   if (!Number.isFinite(index)) return
-  search.value = ''
+  searchValue.value = ''
   await nextTick()
   const item = props.modelValue[index]
   const selector =
@@ -139,7 +157,7 @@ defineExpose({ addManual, focusFirstInvalid })
       <label class="model-alias-editor__search">
         <span>{{ labels.searchLabel }}</span>
         <AppSearchInput
-          v-model="search"
+          v-model="searchValue"
           :label="labels.search"
           :placeholder="labels.search"
           :clear-label="labels.clearSearch"

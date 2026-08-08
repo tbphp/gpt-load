@@ -20,6 +20,12 @@ import { clientConfiguration, gatewayClients, type GatewayClientID } from './gat
 
 const props = defineProps<{
   accessKeys: HomeBaseDto['access_keys']
+  selectedAccessKeyId: number | null
+  clientId: GatewayClientID
+}>()
+const emit = defineEmits<{
+  'update:selectedAccessKeyId': [id: number]
+  'update:clientId': [id: GatewayClientID]
 }>()
 
 type ActionTarget = 'key' | 'configuration' | 'nextchat'
@@ -40,8 +46,8 @@ const gatewayClientPanelID = 'gateway-client-panel'
 const gatewayClientTabPrefix = 'gateway-client-tab'
 const client = useApiClient()
 const { t } = useI18n()
-const selectedKeyID = ref<number | null>(props.accessKeys[0]?.id ?? null)
-const activeClient = ref<GatewayClientID>('nextchat')
+const selectedKeyID = computed(() => props.selectedAccessKeyId)
+const activeClient = computed(() => props.clientId)
 const feedback = ref<ActionFeedback | null>(null)
 const actionBusy = ref(false)
 const nextChatConfirmationOpen = ref(false)
@@ -188,7 +194,6 @@ watch(
     if (selectedKeyID.value !== null && ids.includes(selectedKeyID.value)) return
     invalidateSensitiveAction()
     nextChatConfirmationOpen.value = false
-    selectedKeyID.value = ids[0] ?? null
   },
   { immediate: true },
 )
@@ -209,14 +214,14 @@ function selectKey(value: string): void {
   if (actionBusy.value) return
   const id = Number(value)
   if (Number.isSafeInteger(id) && props.accessKeys.some((accessKey) => accessKey.id === id)) {
-    selectedKeyID.value = id
+    emit('update:selectedAccessKeyId', id)
   }
 }
 
 function selectClient(value: string): void {
   if (actionBusy.value) return
   const gatewayClient = gatewayClients.find((candidate) => candidate.id === value)
-  if (gatewayClient) activeClient.value = gatewayClient.id
+  if (gatewayClient) emit('update:clientId', gatewayClient.id)
 }
 
 async function withRevealedKey(

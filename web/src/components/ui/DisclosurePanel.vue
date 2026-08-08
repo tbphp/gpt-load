@@ -1,11 +1,17 @@
 <script setup lang="ts">
 defineProps<{
   summary: string
+  open?: boolean
 }>()
+const emit = defineEmits<{ 'update:open': [open: boolean] }>()
+
+function handleToggle(event: Event): void {
+  emit('update:open', (event.currentTarget as HTMLDetailsElement).open)
+}
 </script>
 
 <template>
-  <details class="disclosure-panel">
+  <details class="disclosure-panel" :open="open" @toggle="handleToggle">
     <summary>{{ summary }}</summary>
     <div class="disclosure-panel__body">
       <slot />

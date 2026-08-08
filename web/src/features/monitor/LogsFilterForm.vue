@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ListFilter, X } from '@lucide/vue'
-import { computed, nextTick, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyOptionDto, GroupOptionDto } from '@/api/control/types'
@@ -26,15 +26,16 @@ const props = defineProps<{
   accessKeysFailed: boolean
   appliedChips: AppliedChip[]
   advancedCount: number
+  advancedOpen: boolean
 }>()
 const emit = defineEmits<{
+  'update:advancedOpen': [open: boolean]
   updateField: [field: keyof LogFilterDraft, value: string]
   removeFilter: [key: string]
   apply: []
   reset: []
 }>()
 const { t } = useI18n()
-const advancedOpen = ref(false)
 
 const groupOptions = computed(() => [
   { value: '', label: t('monitor.logs.filters.anyGroup') },
@@ -64,14 +65,11 @@ function submit(): void {
 }
 
 function reset(): void {
-  advancedOpen.value = false
   emit('reset')
 }
 
-async function applyAdvanced(): Promise<void> {
+function applyAdvanced(): void {
   emit('apply')
-  await nextTick()
-  if (Object.keys(props.errors).length === 0) advancedOpen.value = false
 }
 </script>
 
@@ -140,7 +138,7 @@ async function applyAdvanced(): Promise<void> {
         size="compact"
         @update:model-value="update('status', $event)"
       />
-      <AppButton variant="secondary" size="compact" @click="advancedOpen = true">
+      <AppButton variant="secondary" size="compact" @click="emit('update:advancedOpen', true)">
         <ListFilter :size="14" aria-hidden="true" />
         {{ t('monitor.logs.filters.more') }}
         <span v-if="advancedCount" class="logs-filter__count">{{ advancedCount }}</span>
@@ -157,12 +155,13 @@ async function applyAdvanced(): Promise<void> {
   </form>
 
   <LogsAdvancedFilterDrawer
-    v-model:open="advancedOpen"
+    :open="advancedOpen"
     :draft="draft"
     :errors="errors"
     :access-keys="accessKeys"
     :access-keys-failed="accessKeysFailed"
     @update-field="update"
+    @update:open="emit('update:advancedOpen', $event)"
     @apply="applyAdvanced"
     @reset="reset"
   />

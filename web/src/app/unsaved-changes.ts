@@ -1,5 +1,5 @@
 import { inject, onBeforeUnmount, onMounted, ref, type InjectionKey, type Ref } from 'vue'
-import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, type RouteLocationNormalized } from 'vue-router'
 
 export interface UnsavedChangesController {
   readonly dialogOpen: Readonly<Ref<boolean>>
@@ -11,6 +11,7 @@ export interface UnsavedChangesController {
 
 export interface UnsavedChangesOptions {
   blocked?: Readonly<Ref<boolean>>
+  allowRouteUpdate?: (to: RouteLocationNormalized, from: RouteLocationNormalized) => boolean
 }
 
 export interface UnsavedChangesGuard {
@@ -79,7 +80,10 @@ export function useUnsavedChanges(
   }
 
   onBeforeRouteLeave(confirmNavigation)
-  onBeforeRouteUpdate(confirmNavigation)
+  onBeforeRouteUpdate((to, from) => {
+    if (options.allowRouteUpdate?.(to, from)) return true
+    return confirmNavigation()
+  })
 
   async function runWithoutPrompt<T>(navigate: () => Promise<T>): Promise<T> {
     controller.bypassNext()

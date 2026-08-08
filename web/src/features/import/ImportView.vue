@@ -12,6 +12,11 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
+import {
+  isCanonicalImportRouteQuery,
+  parseImportRouteQuery,
+  serializeImportRouteQuery,
+} from './import-route'
 import type { ExistingGroupImportDraft, ImportDraft } from './model-draft'
 
 const ExistingGroupImport = lazySurface(() => import('./ExistingGroupImport.vue'))
@@ -24,6 +29,7 @@ const operationOwner = useImportOperationOwner()
 const { t } = useI18n()
 const recoveredDraft = ref(recovery.consume())
 const rawMode = computed(() => route.query.mode)
+const routeState = computed(() => parseImportRouteQuery(route.query))
 const hasGroupContext = computed(() =>
   Object.prototype.hasOwnProperty.call(route.query, 'group_id'),
 )
@@ -56,20 +62,51 @@ const recoveredExistingDraft = computed<ExistingGroupImportDraft | null>(() =>
 if (!operationMode.value) {
   if (hasGroupContext.value) {
     if (rawMode.value !== 'existing') {
-      void router.replace(importLocation({ mode: 'existing', group_id: route.query.group_id }))
+      void router.replace(
+        importLocation(
+          serializeImportRouteQuery({
+            mode: 'existing',
+            groupID: routeState.value.groupID,
+            discoveryFilter: 'unadded',
+          }),
+        ),
+      )
     }
   } else if (recoveredDraft.value?.mode === 'existing') {
-    const query: Record<string, string> = { mode: 'existing' }
-    if (recoveredDraft.value.group_id !== null) {
-      query.group_id = String(recoveredDraft.value.group_id)
-    }
-    void router.replace(importLocation(query))
+    void router.replace(
+      importLocation(
+        serializeImportRouteQuery({
+          mode: 'existing',
+          groupID: recoveredDraft.value.group_id ?? undefined,
+          discoveryFilter: 'unadded',
+        }),
+      ),
+    )
   } else if (recoveredDraft.value?.mode === 'new') {
-    void router.replace(importLocation({ mode: 'new' }))
+    void router.replace(
+      importLocation(
+        serializeImportRouteQuery(
+          routeState.value.mode === 'new'
+            ? routeState.value
+            : { mode: 'new', discoveryFilter: 'unadded' },
+        ),
+      ),
+    )
   } else if (rawMode.value !== 'new' && rawMode.value !== 'existing') {
     void router.replace(importLocation({ mode: 'new' }))
   }
 }
+
+watch(
+  () => route.query,
+  (query) => {
+    const state = parseImportRouteQuery(query)
+    if (!isCanonicalImportRouteQuery(query, state)) {
+      void router.replace(importLocation(serializeImportRouteQuery(state)))
+    }
+  },
+  { deep: true, immediate: true },
+)
 
 watch(
   operationMode,

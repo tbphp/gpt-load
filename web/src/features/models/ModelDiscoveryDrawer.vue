@@ -12,7 +12,7 @@ import type { ModelCandidate } from '@/app/resources/providers'
 
 import type { ModelDiscoveryDrawerLabels } from './model-draft'
 
-type DiscoveryFilter = 'unadded' | 'all'
+export type DiscoveryFilter = 'unadded' | 'all'
 
 const props = withDefaults(
   defineProps<{
@@ -23,17 +23,47 @@ const props = withDefaults(
     error: string
     labels: ModelDiscoveryDrawerLabels
     dismissible?: boolean
+    search?: string
+    filter?: DiscoveryFilter
   }>(),
-  { dismissible: true },
+  { dismissible: true, search: undefined, filter: undefined },
 )
 const emit = defineEmits<{
   'update:open': [open: boolean]
+  'update:search': [search: string]
+  'update:filter': [filter: DiscoveryFilter]
   retry: []
   confirm: [candidates: ModelCandidate[]]
 }>()
 
-const search = ref('')
-const filter = ref<DiscoveryFilter>('unadded')
+const internalSearch = ref(props.search ?? '')
+const internalFilter = ref<DiscoveryFilter>(props.filter ?? 'unadded')
+const searchValue = computed({
+  get: () => internalSearch.value,
+  set: (value: string) => {
+    internalSearch.value = value
+    emit('update:search', value)
+  },
+})
+const filterValue = computed({
+  get: () => internalFilter.value,
+  set: (value: DiscoveryFilter) => {
+    internalFilter.value = value
+    emit('update:filter', value)
+  },
+})
+watch(
+  () => props.search,
+  (value) => {
+    internalSearch.value = value ?? ''
+  },
+)
+watch(
+  () => props.filter,
+  (value) => {
+    internalFilter.value = value ?? 'unadded'
+  },
+)
 const selectedCandidates = ref<string[]>([])
 const normalizedCandidates = computed(() => props.candidates)
 const currentIds = computed(
@@ -41,10 +71,10 @@ const currentIds = computed(
 )
 const selected = computed(() => new Set(selectedCandidates.value))
 const visibleCandidates = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase()
+  const query = searchValue.value.trim().toLocaleLowerCase()
   return normalizedCandidates.value.filter(
     (candidate) =>
-      (filter.value === 'all' || !currentIds.value.has(candidate.id)) &&
+      (filterValue.value === 'all' || !currentIds.value.has(candidate.id)) &&
       (!query ||
         `${candidate.name} ${candidate.id} ${candidate.sources.join(' ')}`
           .toLocaleLowerCase()
@@ -68,8 +98,8 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return
-    search.value = ''
-    filter.value = 'unadded'
+    internalSearch.value = props.search ?? ''
+    internalFilter.value = props.filter ?? 'unadded'
     selectedCandidates.value = []
   },
 )
@@ -94,7 +124,7 @@ watch(
 )
 
 function setFilter(value: string): void {
-  if (value === 'unadded' || value === 'all') filter.value = value
+  if (value === 'unadded' || value === 'all') filterValue.value = value
 }
 
 function setCandidate(candidate: ModelCandidate, checked: boolean): void {
@@ -137,14 +167,14 @@ function confirm(): void {
   >
     <template #filters>
       <AppSearchInput
-        v-model="search"
+        v-model="searchValue"
         class="model-discovery-drawer__search"
         :label="labels.search"
         :placeholder="labels.search"
         :clear-label="labels.clearSearch"
       />
       <SegmentedControl
-        :model-value="filter"
+        :model-value="filterValue"
         :label="labels.filterLabel"
         :options="filterOptions"
         appearance="drawer"

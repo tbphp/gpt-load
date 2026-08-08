@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ChevronDown } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 import type { GroupSettingsDto, HeaderRulesDto } from '@/api/control/types'
 
@@ -18,6 +19,8 @@ import { providerSuggestionsQueryOptions } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useTransientFlag } from '@/app/use-transient-flag'
+import { groupDetailLocation } from '@/app/route-locations'
+import { constrainCollectionSearch } from '@/app/route-query'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -39,16 +42,26 @@ import {
   type GroupSettingsDraft,
   type GroupTimeoutKey,
 } from './group-settings-patch'
+import {
+  parseGroupSettingsRouteQuery,
+  serializeGroupSettingsRouteQuery,
+  type GroupSettingsRouteState,
+  type GroupSettingsSection,
+  normalizeGroupTab,
+} from '../group-route'
 
 const props = defineProps<{ groupId: number }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
+const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
+const routeState = computed(() => parseGroupSettingsRouteQuery(route.query))
 const query = useQuery(groupSettingsQueryOptions(client, () => props.groupId))
 const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
-const providerSearchInput = ref('')
-const providerSearch = ref('')
+const providerSearchInput = ref(routeState.value.providerSearch ?? '')
+const providerSearch = ref(routeState.value.providerSearch ?? '')
 const providerSearchDebounce = useDebouncedAction(250)
 const providerQuery = useQuery(providerSuggestionsQueryOptions(client, providerSearch))
 const pending = ref(false)
@@ -80,6 +93,7 @@ const providerOptions = computed(() => {
 
 function setProviderSearch(value: string): void {
   providerSearchInput.value = value
+  updateRoute({ providerSearch: constrainCollectionSearch(value) }, true)
   providerSearchDebounce.schedule(() => {
     providerSearch.value = value
   })
@@ -92,9 +106,9 @@ const navItems = computed(() => [
   { id: 'settings-headers', label: t('group.settings.sections.headers') },
   { id: 'settings-danger', label: t('group.settings.sections.danger') },
 ])
-const { activeSection: section, selectSection: setSection } = useSectionNavigation({
+const { activeSection: section, selectSection: scrollToSection } = useSectionNavigation({
   ids: computed(() => navItems.value.map(({ id }) => id)),
-  initialId: 'settings-general',
+  initialId: `settings-${routeState.value.section}`,
   topOffset: 88,
 })
 const patch = computed(() =>
@@ -159,7 +173,14 @@ function consumeCurrentQuery(): void {
   resetSavedDraft(latest)
 }
 
-useUnsavedChanges(dirty, { blocked: mutationPending })
+useUnsavedChanges(dirty, {
+  blocked: mutationPending,
+  allowRouteUpdate: (to, from) =>
+    to.name === from.name &&
+    String(to.params.id) === String(from.params.id) &&
+    normalizeGroupTab(to.query.tab) === 'settings' &&
+    normalizeGroupTab(from.query.tab) === 'settings',
+})
 
 watch(
   () => query.data.value,
@@ -177,6 +198,56 @@ watch(dirty, (isDirty) => {
 watch([mutationPending, deleted], () => {
   consumeCurrentQuery()
 })
+
+watch(
+  () => routeState.value.section,
+  (value) => {
+    void nextTick(() => scrollToSection(`settings-${value}`))
+  },
+  { immediate: true },
+)
+
+watch(
+  () => routeState.value.providerSearch,
+  (value) => {
+    const search = value ?? ''
+    if (search === providerSearchInput.value) return
+    providerSearchDebounce.cancel()
+    providerSearchInput.value = search
+    providerSearch.value = search
+  },
+)
+
+function updateRoute(patch: Partial<GroupSettingsRouteState>, replace = false): void {
+  const state = { ...routeState.value, ...patch }
+  const location = groupDetailLocation(props.groupId, serializeGroupSettingsRouteQuery(state))
+  void (replace ? router.replace(location) : router.push(location))
+}
+
+function sectionFromID(id: string): GroupSettingsSection | undefined {
+  const value = id.replace(/^settings-/u, '')
+  return value === 'general' ||
+    value === 'routing' ||
+    value === 'runtime' ||
+    value === 'headers' ||
+    value === 'danger'
+    ? value
+    : undefined
+}
+
+function setSection(id: string): void {
+  const value = sectionFromID(id)
+  if (value === undefined) return
+  scrollToSection(id)
+  if (value !== routeState.value.section) updateRoute({ section: value })
+}
+
+function setHeaderRulesExpanded(event: Event): void {
+  const expanded = (event.currentTarget as HTMLDetailsElement).open
+  if (expanded !== routeState.value.headerRulesExpanded) {
+    updateRoute({ headerRulesExpanded: expanded })
+  }
+}
 
 function toggleProtocol(protocol: GroupSettingsDraft['protocols'][number], checked: boolean): void {
   if (!draft.value) return
@@ -296,7 +367,7 @@ onBeforeUnmount(() => {
       <InlineFeedback v-if="error" tone="danger">{{ error }}</InlineFeedback>
       <div class="group-settings__layout">
         <SectionNav
-          v-model="section"
+          :model-value="section"
           :items="navItems"
           :label="t('group.settings.sectionNav')"
           :caption="t('group.settings.sectionLabel')"
@@ -451,7 +522,11 @@ onBeforeUnmount(() => {
               <h3>{{ t('group.settings.sections.headers') }}</h3>
               <p>{{ t('group.settings.headers.description') }}</p>
             </header>
-            <details class="group-settings__header-rules">
+            <details
+              class="group-settings__header-rules"
+              :open="routeState.headerRulesExpanded"
+              @toggle="setHeaderRulesExpanded"
+            >
               <summary>
                 <span>
                   <strong>{{ headerSummary() }}</strong>

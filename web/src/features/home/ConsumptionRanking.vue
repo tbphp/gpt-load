@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HomeRankings, HomeStatisticsRef } from '@/app/resources/home'
@@ -8,31 +8,38 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
 
-type RankingDimension = 'models' | 'groups' | 'accessKeys'
+import type { HomeRankingDimension } from './home-route'
 
 const props = withDefaults(
   defineProps<{
     rankings: HomeRankings
     range: string
+    dimension: HomeRankingDimension
     loading?: boolean
   }>(),
   {
     loading: false,
   },
 )
+const emit = defineEmits<{ 'update:dimension': [dimension: HomeRankingDimension] }>()
 
 const { locale, t } = useI18n()
-const dimension = ref<RankingDimension>('models')
 const options = computed(() => [
   { value: 'models', label: t('home.ledger.ranking.tabs.models') },
   { value: 'groups', label: t('home.ledger.ranking.tabs.groups') },
   { value: 'accessKeys', label: t('home.ledger.ranking.tabs.accessKeys') },
 ])
 const rows = computed(() => {
-  if (dimension.value === 'models') return props.rankings.models.slice(0, 5)
-  if (dimension.value === 'groups') return props.rankings.groups.slice(0, 5)
+  if (props.dimension === 'models') return props.rankings.models.slice(0, 5)
+  if (props.dimension === 'groups') return props.rankings.groups.slice(0, 5)
   return props.rankings.access_keys.slice(0, 5)
 })
+
+function setDimension(value: string): void {
+  if (value === 'models' || value === 'groups' || value === 'accessKeys') {
+    emit('update:dimension', value)
+  }
+}
 
 function referenceName(reference: HomeStatisticsRef, kind: 'group' | 'accessKey'): string {
   if (!reference.deleted && reference.name) return reference.name
@@ -64,10 +71,11 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
         {{ t('home.ledger.ranking.title', { range }) }}
       </h2>
       <SegmentedControl
-        v-model="dimension"
+        :model-value="dimension"
         :label="t('home.ledger.ranking.tabs.label')"
         :options="options"
         size="compact"
+        @update:model-value="setDimension"
       />
     </div>
 

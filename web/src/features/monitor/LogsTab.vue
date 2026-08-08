@@ -48,7 +48,7 @@ import {
 } from './log-format'
 import LogDetailDrawer from './LogDetailDrawer.vue'
 import LogsFilterForm from './LogsFilterForm.vue'
-import { parseSelectedRequestID } from './monitor-route'
+import { logsMonitorQuery, parseLogsMonitorState, type LogsMonitorState } from './monitor-route'
 
 const client = useApiClient()
 const route = useRoute()
@@ -56,21 +56,21 @@ const router = useRouter()
 const { locale, t } = useI18n()
 const logPageSizes = [20, 50, 100] as const
 const appliedFilters = computed(() => parseAppliedLogFilters(route.query))
-const selectedRequestID = computed(() => parseSelectedRequestID(route.query))
+const routeState = computed(() => parseLogsMonitorState(route.query))
+const selectedRequestID = computed(() => routeState.value.selectedRequestID)
+const advancedOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref(createLogFilterDraft(appliedFilters.value))
 const filterErrors = ref<LogFilterErrors>({})
-const cursorHistory = ref<Array<string | undefined>>([undefined])
-const pageIndex = ref(0)
 const paginationPending = ref(false)
-const pageTransitionOrigin = ref<number | null>(null)
-const currentCursor = computed(() => cursorHistory.value[pageIndex.value])
+const pageTransitionOrigin = ref<LogsMonitorState | null>(null)
+const currentCursor = computed(() => routeState.value.cursorHistory.at(-1))
 let detailFocusTimer: number | undefined
 
 const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
 const logs = computed(() => logsQuery.data.value?.items ?? [])
-const currentPage = computed(() => pageIndex.value + 1)
+const currentPage = computed(() => routeState.value.cursorHistory.length + 1)
 const paginationBusy = computed(() => paginationPending.value || logsQuery.isFetching.value)
 const filterSignature = computed(() =>
   JSON.stringify(serializeAppliedLogFilters(appliedFilters.value)),
@@ -155,8 +155,6 @@ const appliedChips = computed(() => {
 watch(filterSignature, () => {
   draft.value = createLogFilterDraft(appliedFilters.value)
   filterErrors.value = {}
-  cursorHistory.value = [undefined]
-  pageIndex.value = 0
   paginationPending.value = false
   pageTransitionOrigin.value = null
 })
@@ -175,10 +173,9 @@ watch(
   (failed) => {
     if (!failed || pageTransitionOrigin.value === null) return
     const origin = pageTransitionOrigin.value
-    if (pageIndex.value > origin) cursorHistory.value = cursorHistory.value.slice(0, origin + 1)
-    pageIndex.value = origin
     paginationPending.value = false
     pageTransitionOrigin.value = null
+    void router.replace(monitorLocation(logsMonitorQuery(appliedFilters.value, origin)))
   },
 )
 
@@ -253,12 +250,17 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
   draft.value = createLogFilterDraft(filters)
   filterErrors.value = {}
 
-  if (nextSignature === filterSignature.value) {
+  if (
+    nextSignature === filterSignature.value &&
+    routeState.value.cursorHistory.length === 0 &&
+    routeState.value.selectedRequestID === undefined &&
+    !routeState.value.filtersOpen
+  ) {
     await logsQuery.refetch()
     return
   }
 
-  await router.push(monitorLocation(serialized))
+  await router.push(monitorLocation(logsMonitorQuery(filters)))
 }
 
 async function applyFilters(): Promise<void> {
@@ -295,25 +297,62 @@ function nextPage(): void {
   if (paginationBusy.value) return
   const cursor = logsQuery.data.value?.next_cursor
   if (!cursor || cursor === currentCursor.value) return
-  if (cursorHistory.value.slice(0, pageIndex.value + 1).includes(cursor)) return
-  pageTransitionOrigin.value = pageIndex.value
+  if (routeState.value.cursorHistory.includes(cursor)) return
+  pageTransitionOrigin.value = {
+    ...routeState.value,
+    cursorHistory: [...routeState.value.cursorHistory],
+  }
   paginationPending.value = true
-  cursorHistory.value = [...cursorHistory.value.slice(0, pageIndex.value + 1), cursor]
-  pageIndex.value += 1
+  void router.push(
+    monitorLocation(
+      logsMonitorQuery(appliedFilters.value, {
+        filtersOpen: false,
+        cursorHistory: [...routeState.value.cursorHistory, cursor],
+      }),
+    ),
+  )
 }
 
 function previousPage(): void {
-  if (paginationBusy.value || pageIndex.value <= 0) return
-  pageTransitionOrigin.value = pageIndex.value
+  if (paginationBusy.value || routeState.value.cursorHistory.length === 0) return
+  pageTransitionOrigin.value = {
+    ...routeState.value,
+    cursorHistory: [...routeState.value.cursorHistory],
+  }
   paginationPending.value = true
-  pageIndex.value -= 1
+  void router.push(
+    monitorLocation(
+      logsMonitorQuery(appliedFilters.value, {
+        filtersOpen: false,
+        cursorHistory: routeState.value.cursorHistory.slice(0, -1),
+      }),
+    ),
+  )
+}
+
+function setAdvancedOpen(open: boolean): void {
+  void router.push(
+    monitorLocation(
+      logsMonitorQuery(appliedFilters.value, {
+        ...routeState.value,
+        filtersOpen: open,
+        selectedRequestID: undefined,
+      }),
+    ),
+  )
 }
 
 async function setDetailOpen(requestID: string | undefined, open: boolean): Promise<void> {
   const closingID = selectedRequestID.value
-  const query = serializeAppliedLogFilters(appliedFilters.value)
-  if (open && requestID) query.selected_request_id = requestID
-  await router.push(monitorLocation(query))
+  await router.push(
+    monitorLocation(
+      logsMonitorQuery(appliedFilters.value, {
+        ...routeState.value,
+        filtersOpen: false,
+        selectedRequestID: open ? requestID : undefined,
+      }),
+    ),
+  )
   if (open || !closingID) return
   window.clearTimeout(detailFocusTimer)
   detailFocusTimer = window.setTimeout(() => {
@@ -421,6 +460,8 @@ function costLabel(log: RequestLogItemDto): string {
       :access-keys-failed="accessKeyOptionsQuery.isError.value"
       :applied-chips="appliedChips"
       :advanced-count="advancedCount"
+      :advanced-open="advancedOpen"
+      @update:advanced-open="setAdvancedOpen"
       @update-field="updateDraftField"
       @remove-filter="removeFilter"
       @apply="applyFilters"
@@ -646,7 +687,7 @@ function costLabel(log: RequestLogItemDto): string {
         :page-sizes="logPageSizes"
         show-page-size
         appearance="detail"
-        :has-previous="pageIndex > 0"
+        :has-previous="routeState.cursorHistory.length > 0"
         :has-next="Boolean(logsQuery.data.value?.next_cursor)"
         :pending="paginationBusy"
         @previous="previousPage"

@@ -47,6 +47,24 @@ const feedbackMessage = computed(() => {
 })
 const feedbackTone = computed(() => (feedback.value === 'locked' ? 'warning' : 'danger'))
 const keyInvalid = computed(() => Boolean(fieldError.value) || feedback.value === 'invalid')
+const helpOpen = computed(() => route.query.help === 'auth')
+
+watch(
+  () => route.query,
+  (query) => {
+    const canonical: Record<string, string> = {}
+    if (typeof query.redirect === 'string') canonical.redirect = query.redirect
+    if (query.help === 'auth') canonical.help = 'auth'
+    const keys = Object.keys(canonical)
+    if (
+      Object.keys(query).length !== keys.length ||
+      keys.some((key) => query[key] !== canonical[key])
+    ) {
+      void router.replace({ name: pageRouteNames.login, query: canonical })
+    }
+  },
+  { deep: true, immediate: true },
+)
 
 watch(countdown.active, (active) => {
   if (!active && feedback.value === 'locked') {
@@ -81,6 +99,14 @@ async function retryFromHelp(): Promise<void> {
     return
   }
   await submit()
+}
+
+function setHelpOpen(open: boolean): void {
+  if (open === helpOpen.value) return
+  const query: Record<string, string> = {}
+  if (typeof route.query.redirect === 'string') query.redirect = route.query.redirect
+  if (open) query.help = 'auth'
+  void router.push({ name: pageRouteNames.login, query })
 }
 
 async function submit(): Promise<void> {
@@ -210,7 +236,12 @@ async function submit(): Promise<void> {
             </p>
           </form>
 
-          <DisclosurePanel class="ledger-login__auth-help" :summary="t('auth.help.title')">
+          <DisclosurePanel
+            class="ledger-login__auth-help"
+            :summary="t('auth.help.title')"
+            :open="helpOpen"
+            @update:open="setHelpOpen"
+          >
             <div class="ledger-login__auth-sources">
               <div class="ledger-login__auth-source">
                 <strong>{{ t('auth.help.environmentTitle') }}</strong>

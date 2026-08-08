@@ -2,6 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import {
@@ -10,6 +11,7 @@ import {
   type RuntimeSettingKey,
 } from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
+import { settingsLocation } from '@/app/route-locations'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -30,9 +32,17 @@ import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
 import { isValidRetention, isValidTimeout } from './settings-patch'
 import { useSettingsController } from './use-settings-controller'
+import {
+  isCanonicalSettingsRouteQuery,
+  parseSettingsSection,
+  serializeSettingsRouteQuery,
+  type SettingsSection,
+} from './settings-route'
 
 const client = useApiClient()
 const queryClient = useQueryClient()
+const route = useRoute()
+const router = useRouter()
 const { locale, t } = useI18n()
 const settingsQuery = useQuery(settingsQueryOptions(client, locale))
 const resource = computed(() => settingsQuery.data.value ?? null)
@@ -72,9 +82,10 @@ const navItems = computed(() => [
   { id: 'settings-logs', label: t('settings.navigation.logs') },
   { id: 'settings-system', label: t('settings.navigation.system') },
 ])
+const routeSection = computed(() => parseSettingsSection(route.query))
 const { activeSection, selectSection } = useSectionNavigation({
   ids: computed(() => navItems.value.map(({ id }) => id)),
-  initialId: 'settings-forwarding',
+  initialId: sectionID(routeSection.value),
   topOffset: 76,
 })
 const headerRulesValid = ref(true)
@@ -128,7 +139,10 @@ const deferredExternalUpdate = computed(
     resource.value.settings_etag !== base.value.settings_etag,
 )
 
-useUnsavedChanges(dirty, { blocked: operationLocked })
+useUnsavedChanges(dirty, {
+  blocked: operationLocked,
+  allowRouteUpdate: (to, from) => to.name === from.name,
+})
 
 watch(
   () => draft.value?.overrides.has('header_rules'),
@@ -144,6 +158,41 @@ watch(savedAt, (value, previous) => {
 watch(dirty, (isDirty) => {
   if (isDirty) clearSavedFeedback()
 })
+
+watch(
+  () => route.query,
+  (query) => {
+    const section = parseSettingsSection(query)
+    if (!isCanonicalSettingsRouteQuery(query, section)) {
+      void router.replace(settingsLocation(serializeSettingsRouteQuery(section)))
+      return
+    }
+    void nextTick(() => selectSection(sectionID(section)))
+  },
+  { deep: true, immediate: true },
+)
+
+function sectionID(section: SettingsSection): string {
+  return `settings-${section}`
+}
+
+function sectionFromID(id: string): SettingsSection | undefined {
+  const section = id.replace(/^settings-/u, '')
+  return section === 'forwarding' ||
+    section === 'headers' ||
+    section === 'logs' ||
+    section === 'system'
+    ? section
+    : undefined
+}
+
+async function navigateSection(id: string): Promise<void> {
+  const section = sectionFromID(id)
+  if (section === undefined) return
+  selectSection(id)
+  if (section === routeSection.value) return
+  await router.push(settingsLocation(serializeSettingsRouteQuery(section)))
+}
 
 function discard(): void {
   discardDraft()
@@ -180,7 +229,7 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
       : key === 'request_log_retention_days'
         ? 'settings-logs'
         : 'settings-forwarding'
-  selectSection(section)
+  await navigateSection(section)
   await nextTick()
   const target =
     key === 'header_rules'
@@ -204,12 +253,12 @@ onBeforeUnmount(() => {
 
       <div class="settings__layout">
         <SectionNav
-          v-model="activeSection"
+          :model-value="activeSection"
           :items="navItems"
           :label="t('settings.navigation.label')"
           :caption="t('settings.navigation.caption')"
           appearance="ledger"
-          @update:model-value="selectSection"
+          @update:model-value="navigateSection"
         />
 
         <div class="settings__content">
