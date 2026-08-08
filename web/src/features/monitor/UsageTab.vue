@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useCollectionLoading } from '@/app/loading-state'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
   usageQueryOptions,
@@ -19,10 +20,13 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatCacheHitRate } from '@/lib/cache-rate'
 import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
@@ -59,6 +63,25 @@ const filterErrors = ref<UsageFilterErrors>({})
 const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
+const {
+  initial: initialLoading,
+  transition: reportTransition,
+  refreshing: reportRefreshing,
+} = useCollectionLoading(
+  {
+    pending: () => usageQuery.isPending.value,
+    placeholder: () => usageQuery.isPlaceholderData.value,
+    fetching: () => usageQuery.isFetching.value,
+    hasData: () => report.value !== undefined,
+    itemCount: () => report.value?.breakdown.length ?? 0,
+  },
+  { fallbackRows: 5 },
+)
+const usageRefreshing = computed(
+  () =>
+    reportRefreshing.value ||
+    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value),
+)
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
 const orderOptions = computed(() => [
   { value: 'requests', label: t('monitor.usage.breakdown.orderRequests') },
@@ -217,10 +240,13 @@ defineExpose({ openFilters, refresh })
 
 <template>
   <div class="usage-tab">
-    <QueryFeedback
-      v-if="usageQuery.isPending.value"
-      state="loading"
-      :message="t('monitor.usage.loading')"
+    <AsyncRefreshIndicator :active="usageRefreshing" :label="t('monitor.usage.loading')" />
+
+    <SkeletonSurface
+      v-if="usageQuery.isPending.value || initialLoading || reportTransition"
+      variant="dashboard"
+      :concealed="usageQuery.isPending.value && !initialLoading"
+      :label="t('monitor.usage.loading')"
     />
     <QueryFeedback
       v-else-if="usageQuery.isError.value && !report"
@@ -403,14 +429,18 @@ defineExpose({ openFilters, refresh })
                 :aria-rowindex="index + 2"
               >
                 <div class="ledger-record-list__cell usage-breakdown-record__identity" role="cell">
-                  <strong>{{ groupName(row.group_id) }}</strong>
+                  <OverflowTooltip as="strong" :content="groupName(row.group_id)">
+                    {{ groupName(row.group_id) }}
+                  </OverflowTooltip>
                   <small>{{ groupMeta(row.group_id) }}</small>
                 </div>
                 <div class="ledger-record-list__cell usage-breakdown-record__model" role="cell">
                   <span class="usage-cell-label">{{
                     t('monitor.usage.columns.upstreamModel')
                   }}</span>
-                  <code>{{ modelLabel(row.model) }}</code>
+                  <OverflowTooltip as="code" :content="modelLabel(row.model)">
+                    {{ modelLabel(row.model) }}
+                  </OverflowTooltip>
                 </div>
                 <div class="ledger-record-list__cell usage-breakdown-record__number" role="cell">
                   <span class="usage-cell-label">{{ t('monitor.usage.columns.requests') }}</span>

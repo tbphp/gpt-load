@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
+
 type CollectionStatusSummaryTone = 'neutral' | 'success' | 'warning' | 'danger'
 
 interface CollectionStatusSummaryItem {
@@ -54,10 +56,13 @@ const barItems = computed(() =>
         class="collection-status-summary__filters"
         :style="{ '--collection-status-summary-columns': Math.max(items.length, 1) }"
       >
-        <button
+        <OverflowTooltip
           v-for="item in items"
           :key="item.value ?? 'all'"
+          as="button"
           class="collection-status-summary__filter"
+          :content="item.label"
+          measure-selector=".collection-status-summary__filter-label"
           type="button"
           :aria-pressed="modelValue === item.value"
           @click="emit('update:modelValue', item.value)"
@@ -69,7 +74,7 @@ const barItems = computed(() =>
           ></span>
           <span class="collection-status-summary__filter-label">{{ item.label }}</span>
           <span class="collection-status-summary__filter-value">{{ item.count }}</span>
-        </button>
+        </OverflowTooltip>
       </div>
     </div>
   </section>

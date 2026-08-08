@@ -14,6 +14,7 @@ import DisclosurePanel from '@/components/ui/DisclosurePanel.vue'
 import FormField from '@/components/ui/FormField.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useCountdown } from '@/features/auth/use-countdown'
 import { useImportRecovery } from '@/features/import/import-recovery'
@@ -246,20 +247,34 @@ async function submit(): Promise<void> {
               <div class="ledger-login__auth-source">
                 <strong>{{ t('auth.help.environmentTitle') }}</strong>
                 <i18n-t keypath="auth.help.environmentDescription" tag="p">
-                  <template #key><code>AUTH_KEY</code></template>
+                  <template #key>
+                    <OverflowTooltip as="code" content="AUTH_KEY">AUTH_KEY</OverflowTooltip>
+                  </template>
                 </i18n-t>
               </div>
               <div class="ledger-login__auth-source">
                 <strong>{{ t('auth.help.fileTitle') }}</strong>
                 <i18n-t keypath="auth.help.fileDescription" tag="p">
-                  <template #path><code>${DATA_DIR}/auth.key</code></template>
-                  <template #containerPath><code>/app/data/auth.key</code></template>
+                  <template #path>
+                    <OverflowTooltip as="code" content="${DATA_DIR}/auth.key">
+                      ${DATA_DIR}/auth.key
+                    </OverflowTooltip>
+                  </template>
+                  <template #containerPath>
+                    <OverflowTooltip as="code" content="/app/data/auth.key">
+                      /app/data/auth.key
+                    </OverflowTooltip>
+                  </template>
                 </i18n-t>
               </div>
               <div class="ledger-login__auth-source">
                 <strong>{{ t('auth.help.dockerTitle') }}</strong>
                 <i18n-t keypath="auth.help.dockerDescription" tag="p">
-                  <template #command><code>docker exec -it gpt-load sh</code></template>
+                  <template #command>
+                    <OverflowTooltip as="code" content="docker exec -it gpt-load sh">
+                      docker exec -it gpt-load sh
+                    </OverflowTooltip>
+                  </template>
                 </i18n-t>
               </div>
             </div>

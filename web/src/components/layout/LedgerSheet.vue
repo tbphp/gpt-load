@@ -19,6 +19,7 @@ withDefaults(
 
 <style scoped>
 .ledger-sheet {
+  position: relative;
   min-width: 0;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sheet);

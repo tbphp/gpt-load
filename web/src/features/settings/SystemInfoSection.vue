@@ -1,21 +1,31 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import {
   systemInfoQueryOptions,
   type DatabaseDriver,
   type SecretSource,
 } from '@/app/resources/system-info'
 import CopyButton from '@/components/ui/CopyButton.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import Surface from '@/components/ui/Surface.vue'
 
 const client = useApiClient()
 const { t } = useI18n()
 const infoQuery = useQuery(systemInfoQueryOptions(client))
+const initialLoading = useStableLoading(
+  () => infoQuery.isPending.value && infoQuery.data.value === undefined,
+)
+const infoRefreshing = computed(
+  () => infoQuery.data.value !== undefined && infoQuery.isFetching.value,
+)
 
 function sourceLabel(source: SecretSource): string {
   return t(`settings.system.sources.${source}`)
@@ -33,10 +43,14 @@ function databaseLabel(database: DatabaseDriver): string {
       <p>{{ t('settings.system.description') }}</p>
     </header>
 
-    <QueryFeedback
-      v-if="infoQuery.isPending.value"
-      state="loading"
-      :message="t('settings.system.loading')"
+    <AsyncRefreshIndicator :active="infoRefreshing" :label="t('settings.system.loading')" />
+
+    <SkeletonSurface
+      v-if="(infoQuery.isPending.value && !infoQuery.data.value) || initialLoading"
+      variant="panel"
+      min-height="320px"
+      :concealed="!initialLoading"
+      :label="t('settings.system.loading')"
     />
     <QueryFeedback
       v-else-if="infoQuery.isError.value && !infoQuery.data.value"

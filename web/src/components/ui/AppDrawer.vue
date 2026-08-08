@@ -11,6 +11,8 @@ import {
   DialogTrigger,
 } from 'reka-ui'
 
+import OverflowTooltip from './OverflowTooltip.vue'
+
 const props = withDefaults(
   defineProps<{
     open: boolean
@@ -49,7 +51,9 @@ function guardDismiss(event: Event): void {
         <header class="app-drawer__header">
           <div class="app-drawer__heading">
             <div class="app-drawer__title-row">
-              <DialogTitle class="app-drawer__title">{{ title }}</DialogTitle>
+              <OverflowTooltip :as="DialogTitle" class="app-drawer__title" :content="title">
+                {{ title }}
+              </OverflowTooltip>
               <slot name="title-adornment" />
             </div>
             <DialogDescription :class="showDescription ? 'app-drawer__description' : 'sr-only'">

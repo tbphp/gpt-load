@@ -9,6 +9,8 @@ import {
 } from 'reka-ui'
 import { onBeforeUnmount, ref } from 'vue'
 
+import OverflowTooltip from './OverflowTooltip.vue'
+
 const props = withDefaults(
   defineProps<{
     value: string
@@ -73,7 +75,15 @@ onBeforeUnmount(() => {
             @click="copyValue"
           >
             <Copy v-if="layout === 'leading'" :size="14" aria-hidden="true" />
-            <span v-if="layout !== 'icon'">{{ value }}</span>
+            <OverflowTooltip
+              v-if="layout !== 'icon'"
+              as="span"
+              :content="value"
+              :focusable="false"
+              :tooltip-disabled="state !== 'idle'"
+            >
+              {{ value }}
+            </OverflowTooltip>
             <Copy v-if="layout !== 'leading'" :size="14" aria-hidden="true" />
           </button>
         </TooltipTrigger>

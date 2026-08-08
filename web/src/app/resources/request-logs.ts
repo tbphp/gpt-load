@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/vue-query'
+import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
@@ -515,6 +515,7 @@ export function requestLogQueryOptions(
       toValue(cursor) ?? null,
     ]),
     queryFn: ({ signal }) => listRequestLogs(client, toValue(filters), toValue(cursor), signal),
+    placeholderData: keepPreviousData,
   })
 }
 

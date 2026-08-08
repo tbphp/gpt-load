@@ -12,17 +12,19 @@ withDefaults(
     content: string
     side?: 'top' | 'right' | 'bottom' | 'left'
     align?: 'start' | 'center' | 'end'
+    disabled?: boolean
   }>(),
   {
     side: 'top',
     align: 'center',
+    disabled: false,
   },
 )
 </script>
 
 <template>
   <TooltipProvider :delay-duration="180" :skip-delay-duration="120">
-    <TooltipRoot>
+    <TooltipRoot :disabled="disabled">
       <TooltipTrigger as-child>
         <slot />
       </TooltipTrigger>

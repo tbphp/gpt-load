@@ -122,6 +122,15 @@ export function createAppRouter(
     routes,
     sensitive: true,
     strict: true,
+    scrollBehavior(to, from, savedPosition) {
+      if (savedPosition) return savedPosition
+
+      const pageViewChanged =
+        to.path !== from.path ||
+        normalizedQueryValue(to.query.tab) !== normalizedQueryValue(from.query.tab) ||
+        normalizedQueryValue(to.query.mode) !== normalizedQueryValue(from.query.mode)
+      return pageViewChanged ? { left: 0, top: 0 } : false
+    },
   })
   router.beforeEach((to) => {
     if (
@@ -142,6 +151,11 @@ export function createAppRouter(
     return true
   })
   return router
+}
+
+function normalizedQueryValue(value: string | null | (string | null)[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? ''
+  return value ?? ''
 }
 
 function decodedPathSegments(path: string): string[] {

@@ -9,6 +9,7 @@ import type { GroupSettingsDto, HeaderRulesDto } from '@/api/control/types'
 
 import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import {
   cacheGroupSettings,
   groupSettingsQueryOptions,
@@ -24,9 +25,11 @@ import { constrainCollectionSearch } from '@/app/route-query'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
@@ -58,6 +61,10 @@ const router = useRouter()
 const { t } = useI18n()
 const routeState = computed(() => parseGroupSettingsRouteQuery(route.query))
 const query = useQuery(groupSettingsQueryOptions(client, () => props.groupId))
+const initialLoading = useStableLoading(
+  () => query.isPending.value && query.data.value === undefined,
+)
+const queryRefreshing = computed(() => query.data.value !== undefined && query.isFetching.value)
 const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
 const providerSearchInput = ref(routeState.value.providerSearch ?? '')
@@ -351,10 +358,14 @@ onBeforeUnmount(() => {
 <template>
   <section class="group-settings" aria-labelledby="group-settings-heading">
     <PanelHeader heading-id="group-settings-heading" :title="t('group.settings.title')" />
-    <QueryFeedback
-      v-if="query.isPending.value && !query.data.value"
-      state="loading"
-      :message="t('group.settings.loading')"
+
+    <AsyncRefreshIndicator :active="queryRefreshing" :label="t('group.settings.loading')" />
+
+    <SkeletonSurface
+      v-if="(query.isPending.value && !query.data.value) || initialLoading"
+      variant="form"
+      :concealed="!initialLoading"
+      :label="t('group.settings.loading')"
     />
     <QueryFeedback
       v-else-if="query.isError.value && !query.data.value"

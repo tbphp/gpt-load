@@ -9,7 +9,7 @@ export default {
       input: 'Input',
       output: 'Output',
       cache_read: 'Cache read',
-      cache_write: 'Cache write 5m',
+      cache_write: 'Cache write',
     },
     method: {
       auto_sync: 'Upstream pricing',
@@ -23,7 +23,7 @@ export default {
       addTier: 'Add tier',
       removeTier: 'Remove this tier',
       oneHourRule:
-        'If the upstream reports 1h cache-write tokens, they are charged at cache write 5m × 1.6.',
+        'If the upstream reports 1h cache-write tokens, they are charged at cache write × 1.6.',
       tierRule: 'When request input tokens are ≥ {threshold}, tier {tier} is matched.',
       thresholdNotSet: 'Not entered',
       save: 'Save',

@@ -3,7 +3,7 @@ import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert } from '@luc
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import type {
@@ -15,6 +15,7 @@ import type {
 } from '@/api/control/types'
 import { groupCollectionQueryOptions } from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
+import { useCollectionLoading } from '@/app/loading-state'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
@@ -23,6 +24,7 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
@@ -32,7 +34,8 @@ import KeyHealthBar from '@/components/ui/KeyHealthBar.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import {
@@ -70,6 +73,21 @@ const hasChangedConditions = computed(
   () => hasFilterCriteria.value || filters.value.sort !== 'status',
 )
 const collectionBusy = computed(() => data.value !== undefined && groupsQuery.isFetching.value)
+const {
+  initial: initialLoading,
+  transition: collectionTransition,
+  refreshing: collectionRefreshing,
+  rows: skeletonRows,
+} = useCollectionLoading(
+  {
+    pending: () => groupsQuery.isPending.value,
+    placeholder: () => groupsQuery.isPlaceholderData.value,
+    fetching: () => groupsQuery.isFetching.value,
+    hasData: () => data.value !== undefined,
+    itemCount: () => data.value?.items.length ?? 0,
+  },
+  { fallbackRows: 20 },
+)
 const protocolSelectOptions = computed(() => [
   { value: 'all', label: t('groups.collection.filters.allProtocols') },
   ...protocolOptions.map((protocol) => ({ value: protocol, label: protocol })),
@@ -213,17 +231,21 @@ function keyHealthLabel(counts: KeyCounts): string {
         </template>
       </PageHeader>
 
-      <section
-        v-if="groupsQuery.isPending.value"
-        class="loading-state"
-        :aria-label="t('groups.collection.loading')"
-        aria-busy="true"
-      >
-        <span class="sr-only">{{ t('groups.collection.loading') }}</span>
-        <div v-for="row in 4" :key="row" class="skeleton-row" aria-hidden="true">
-          <SkeletonBlock v-for="cell in 6" :key="cell" height="11px" />
-        </div>
-      </section>
+      <AsyncRefreshIndicator
+        :active="collectionRefreshing"
+        :label="t('groups.collection.loading')"
+      />
+
+      <SkeletonSurface
+        v-if="groupsQuery.isPending.value || initialLoading"
+        variant="collection"
+        :rows="filters.page_size"
+        :columns="6"
+        row-height="96px"
+        show-controls
+        :concealed="!initialLoading"
+        :label="t('groups.collection.loading')"
+      />
 
       <div v-else-if="groupsQuery.isError.value && !data" class="collection-error" role="alert">
         <EmptyState
@@ -320,8 +342,17 @@ function keyHealthLabel(counts: KeyCounts): string {
           </CollectionFilterBar>
         </template>
 
+        <SkeletonSurface
+          v-if="collectionTransition"
+          variant="collection"
+          :rows="skeletonRows"
+          :columns="6"
+          row-height="96px"
+          :label="t('groups.collection.loading')"
+        />
+
         <EmptyState
-          v-if="data.summary.total === 0"
+          v-else-if="data.summary.total === 0"
           :title="t('groups.collection.emptyTitle')"
           :description="t('groups.collection.emptyDescription')"
           variant="ledger"
@@ -372,14 +403,17 @@ function keyHealthLabel(counts: KeyCounts): string {
               :aria-rowindex="(data.pagination.page - 1) * data.pagination.page_size + index + 2"
             >
               <div class="ledger-record-list__cell identity" role="cell">
-                <RouterLink
+                <OverflowTooltip
+                  :as="RouterLink"
                   class="group-name"
+                  :content="group.name"
+                  measure-selector=".group-name__label"
                   :to="groupDetailLocation(group.id)"
                   :aria-label="t('groups.collection.openDetail', { name: group.name })"
                 >
                   <span class="group-id">#{{ group.id }}</span>
-                  <span>{{ group.name }}</span>
-                </RouterLink>
+                  <span class="group-name__label">{{ group.name }}</span>
+                </OverflowTooltip>
               </div>
 
               <div class="ledger-record-list__cell group-status" role="cell">
@@ -453,6 +487,7 @@ function keyHealthLabel(counts: KeyCounts): string {
             :page-size="data.pagination.page_size"
             :total-items="data.pagination.total_items"
             :total-pages="data.pagination.total_pages"
+            :pending="collectionBusy"
             @previous="setPage(filters.page - 1)"
             @next="setPage(filters.page + 1)"
           />
@@ -574,40 +609,6 @@ function keyHealthLabel(counts: KeyCounts): string {
   font-weight: 560;
 }
 
-.loading-state {
-  display: grid;
-  border-bottom: 1px solid var(--color-border-control);
-}
-
-.skeleton-row {
-  display: grid;
-  min-height: 96px;
-  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 164px;
-  align-items: center;
-  gap: 16px;
-  border-top: 1px solid var(--color-border-subtle);
-}
-
-.skeleton-row :deep(.skeleton-block:nth-child(2)) {
-  width: 82%;
-}
-
-.skeleton-row :deep(.skeleton-block:nth-child(3)) {
-  width: 58%;
-}
-
-.skeleton-row :deep(.skeleton-block:nth-child(4)) {
-  width: 76%;
-}
-
-.skeleton-row :deep(.skeleton-block:nth-child(5)) {
-  width: 64%;
-}
-
-.skeleton-row :deep(.skeleton-block:nth-child(6)) {
-  width: 52%;
-}
-
 .collection-error {
   margin-top: var(--space-5);
 }
@@ -616,11 +617,6 @@ function keyHealthLabel(counts: KeyCounts): string {
   .groups-record-grid {
     --ledger-record-list-grid: minmax(0, 1fr) 84px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
     --ledger-record-list-column-gap: 12px;
-  }
-
-  .skeleton-row {
-    grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
-    gap: 12px;
   }
 
   .append-key {
@@ -682,21 +678,6 @@ function keyHealthLabel(counts: KeyCounts): string {
   .groups-ledger :deep(.empty-state .app-button),
   .groups-ledger :deep(.empty-state .button-link) {
     min-height: var(--touch-target);
-  }
-
-  .loading-state {
-    gap: 10px;
-    border: 0;
-    padding-top: 10px;
-  }
-
-  .skeleton-row {
-    min-height: 164px;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 18px 16px;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-control);
-    padding: 16px;
   }
 }
 

@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -50,13 +51,12 @@ function error(field: InspectorField): string | undefined {
     <MonitorSectionHeading id="inspector-form-title" :title="t('monitor.inspector.form.title')" />
 
     <div class="inspector-form-panel__body">
-      <QueryFeedback
-        v-if="optionsPending"
-        state="loading"
-        :message="t('monitor.inspector.options.loading')"
+      <AsyncRefreshIndicator
+        :active="optionsPending"
+        :label="t('monitor.inspector.options.loading')"
       />
       <QueryFeedback
-        v-else-if="optionsFailed"
+        v-if="optionsFailed"
         state="error"
         :message="t('monitor.inspector.options.failed')"
         :retry-label="t('common.retry')"

@@ -2,12 +2,14 @@
 import { ArrowRight, ScrollText } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 
 import type { HealthProblemKeyDto } from '@/app/resources/health'
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
@@ -118,13 +120,17 @@ function keyMeta(key: HealthProblemKeyDto): string {
           :aria-rowindex="index + 2"
         >
           <div class="ledger-record-list__cell problem-health-record__identity" role="cell">
-            <RouterLink
+            <OverflowTooltip
+              :as="RouterLink"
               class="problem-health-record__mask"
+              :content="item.key.mask"
               :to="groupDetailLocation(item.key.group_id, { tab: 'keys' })"
             >
               {{ item.key.mask }}
-            </RouterLink>
-            <small>{{ keyMeta(item.key) }}</small>
+            </OverflowTooltip>
+            <OverflowTooltip as="small" :content="keyMeta(item.key)">
+              {{ keyMeta(item.key) }}
+            </OverflowTooltip>
           </div>
 
           <div class="ledger-record-list__cell" role="cell">
@@ -134,8 +140,16 @@ function keyMeta(key: HealthProblemKeyDto): string {
           </div>
 
           <div class="ledger-record-list__cell problem-health-record__window" role="cell">
-            <span
+            <OverflowTooltip
+              as="span"
               class="problem-health-record__window-summary"
+              :content="
+                t('monitor.health.problems.window', {
+                  minutes: n(statsWindowMinutes),
+                  problems: n(item.key.recent_problem_count),
+                  successes: n(item.key.recent_success_count),
+                })
+              "
               :aria-label="
                 t('monitor.health.problems.window', {
                   minutes: n(statsWindowMinutes),
@@ -170,14 +184,21 @@ function keyMeta(key: HealthProblemKeyDto): string {
               >
                 {{ n(item.key.recent_success_count) }}
               </span>
-            </span>
-            <small>
+            </OverflowTooltip>
+            <OverflowTooltip
+              as="small"
+              :content="
+                t('monitor.health.problems.consecutive', {
+                  count: n(item.key.consecutive_problem_count),
+                })
+              "
+            >
               {{
                 t('monitor.health.problems.consecutive', {
                   count: n(item.key.consecutive_problem_count),
                 })
               }}
-            </small>
+            </OverflowTooltip>
           </div>
 
           <div class="ledger-record-list__cell problem-health-record__recovery" role="cell">
@@ -191,16 +212,35 @@ function keyMeta(key: HealthProblemKeyDto): string {
                   }}
                 </span>
               </AppTooltip>
-              <small>{{ t('monitor.health.problems.cooldownHint') }}</small>
+              <OverflowTooltip as="small" :content="t('monitor.health.problems.cooldownHint')">
+                {{ t('monitor.health.problems.cooldownHint') }}
+              </OverflowTooltip>
             </template>
             <template v-else>
               <template v-if="item.key.recovery.mode === 'validation_probe'">
-                <span>{{ t('monitor.health.problems.validationRecovery') }}</span>
-                <small>{{ t('monitor.health.problems.validationHint') }}</small>
+                <OverflowTooltip
+                  as="span"
+                  :content="t('monitor.health.problems.validationRecovery')"
+                >
+                  {{ t('monitor.health.problems.validationRecovery') }}
+                </OverflowTooltip>
+                <OverflowTooltip as="small" :content="t('monitor.health.problems.validationHint')">
+                  {{ t('monitor.health.problems.validationHint') }}
+                </OverflowTooltip>
               </template>
               <template v-else>
-                <span>{{ t('monitor.health.problems.configurationRecovery') }}</span>
-                <small>{{ t('monitor.health.problems.configurationHint') }}</small>
+                <OverflowTooltip
+                  as="span"
+                  :content="t('monitor.health.problems.configurationRecovery')"
+                >
+                  {{ t('monitor.health.problems.configurationRecovery') }}
+                </OverflowTooltip>
+                <OverflowTooltip
+                  as="small"
+                  :content="t('monitor.health.problems.configurationHint')"
+                >
+                  {{ t('monitor.health.problems.configurationHint') }}
+                </OverflowTooltip>
               </template>
             </template>
           </div>

@@ -31,6 +31,7 @@ export interface HomeStatisticsPresenter {
   state: Readonly<ShallowRef<HomeStatisticsState>>
   selectedRange: ComputedRef<HomeRange>
   targetRange: ComputedRef<HomeRange | null>
+  refreshing: ComputedRef<boolean>
   lastSuccessfulObservedAtMS: Readonly<Ref<number | null>>
   selectRange(range: HomeRange): void
   retry(): Promise<void>
@@ -230,6 +231,12 @@ export function useHomeStatisticsPresenter(
     }),
     targetRange: computed(() =>
       state.value.kind === 'switching' ? state.value.targetRange : null,
+    ),
+    refreshing: computed(
+      () =>
+        statisticsQuery.isFetching.value &&
+        state.value.kind !== 'initial' &&
+        state.value.kind !== 'switching',
     ),
     lastSuccessfulObservedAtMS,
     selectRange,

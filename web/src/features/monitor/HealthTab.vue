@@ -5,10 +5,12 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import { healthQueryOptions, type HealthProblemKeyDto } from '@/app/resources/health'
 import { monitorLocation } from '@/app/route-locations'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import { formatLocalInstant } from '@/lib/format'
 
 import GroupHealthCollection from './GroupHealthCollection.vue'
@@ -33,6 +35,10 @@ const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
 const healthQuery = useQuery(healthQueryOptions(client))
+const initialLoading = useStableLoading(() => healthQuery.isPending.value)
+const healthRefreshing = computed(
+  () => healthQuery.data.value !== undefined && healthQuery.isFetching.value,
+)
 
 const isVisible = ref(document.visibilityState !== 'hidden')
 const elapsedMs = ref(0)
@@ -185,15 +191,14 @@ defineExpose({ refresh })
 
 <template>
   <div class="health-tab" :aria-busy="healthQuery.isFetching.value ? 'true' : undefined">
-    <div v-if="healthQuery.isPending.value" class="health-loading" aria-busy="true">
-      <span class="sr-only">{{ t('monitor.health.loading') }}</span>
-      <SkeletonBlock height="108px" />
-      <div class="health-loading__focus">
-        <SkeletonBlock height="266px" />
-        <SkeletonBlock height="266px" />
-      </div>
-      <SkeletonBlock height="300px" />
-    </div>
+    <AsyncRefreshIndicator :active="healthRefreshing" :label="t('monitor.health.loading')" />
+
+    <SkeletonSurface
+      v-if="healthQuery.isPending.value || initialLoading"
+      variant="dashboard"
+      :concealed="!initialLoading"
+      :label="t('monitor.health.loading')"
+    />
 
     <QueryFeedback
       v-else-if="healthQuery.isError.value && !healthQuery.data.value"
@@ -240,15 +245,13 @@ defineExpose({ refresh })
 </template>
 
 <style scoped>
-.health-tab,
-.health-loading {
+.health-tab {
   display: grid;
   min-width: 0;
   gap: var(--space-6);
 }
 
-.health-focus-grid,
-.health-loading__focus {
+.health-focus-grid {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 2fr) minmax(320px, 0.82fr);
@@ -261,8 +264,7 @@ defineExpose({ refresh })
 }
 
 @media (max-width: 1099px) {
-  .health-focus-grid,
-  .health-loading__focus {
+  .health-focus-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

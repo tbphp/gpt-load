@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import {
   requestLogDetailQueryOptions,
   type RequestLogAttemptDto,
@@ -12,8 +13,9 @@ import {
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost } from '@/lib/format'
 
@@ -33,6 +35,7 @@ defineEmits<{ 'update:open': [open: boolean] }>()
 const client = useApiClient()
 const { locale, t } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
+const initialLoading = useStableLoading(() => props.open && query.isPending.value)
 const log = computed(() => query.data.value)
 const usageDisplayState = computed(() =>
   log.value ? requestLogUsageDisplayState(log.value) : 'not_applicable',
@@ -149,11 +152,13 @@ function groupLabel(): string {
     :close-label="t('monitor.logs.drawer.close')"
     @update:open="$emit('update:open', $event)"
   >
-    <div v-if="query.isPending.value" class="log-detail__skeleton" role="status">
-      <span class="sr-only">{{ t('monitor.logs.drawer.loading') }}</span>
-      <SkeletonBlock height="72px" />
-      <SkeletonBlock v-for="index in 4" :key="index" height="132px" />
-    </div>
+    <SkeletonSurface
+      v-if="(open && query.isPending.value) || initialLoading"
+      variant="detail"
+      min-height="660px"
+      :concealed="!initialLoading"
+      :label="t('monitor.logs.drawer.loading')"
+    />
     <QueryFeedback
       v-else-if="query.isError.value || !log"
       state="error"
@@ -173,7 +178,9 @@ function groupLabel(): string {
           <AppDateTime :instant="log.completed_at_ms" :locale="locale" precision="second" />
         </span>
         <span class="log-detail__request-id">
-          <code>{{ log.request_id }}</code>
+          <OverflowTooltip as="code" :content="log.request_id">
+            {{ log.request_id }}
+          </OverflowTooltip>
           <CopyButton
             :value="log.request_id"
             :label="t('monitor.logs.drawer.copyRequestId')"
@@ -390,15 +397,9 @@ function groupLabel(): string {
 </template>
 
 <style scoped>
-.log-detail,
-.log-detail__skeleton {
+.log-detail {
   display: grid;
   min-width: 0;
-}
-
-.log-detail__skeleton {
-  gap: 12px;
-  padding: 16px 0;
 }
 
 .log-detail__summary {

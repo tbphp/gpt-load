@@ -15,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useCollectionLoading } from '@/app/loading-state'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
@@ -25,12 +26,15 @@ import {
 } from '@/app/resources/request-logs'
 import { monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
 
@@ -79,6 +83,27 @@ const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
 const logs = computed(() => logsQuery.data.value?.items ?? [])
+const {
+  initial: initialLoading,
+  transition: collectionTransition,
+  refreshing: collectionRefreshing,
+  rows: skeletonRows,
+} = useCollectionLoading(
+  {
+    pending: () => logsQuery.isPending.value,
+    placeholder: () => logsQuery.isPlaceholderData.value,
+    fetching: () => logsQuery.isFetching.value,
+    hasData: () => logsQuery.data.value !== undefined,
+    itemCount: () => logs.value.length,
+  },
+  { fallbackRows: 20 },
+)
+const logsRefreshing = computed(
+  () =>
+    collectionRefreshing.value ||
+    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
+    (accessKeyOptionsQuery.data.value !== undefined && accessKeyOptionsQuery.isFetching.value),
+)
 const currentPage = computed(() => routeState.value.cursorHistory.length + 1)
 const paginationBusy = computed(() => paginationPending.value || logsQuery.isFetching.value)
 const filterSignature = computed(() =>
@@ -502,10 +527,18 @@ function costLabel(log: RequestLogItemDto): string {
     >
       {{ t('monitor.logs.options.partialFailed') }}
     </InlineFeedback>
-    <QueryFeedback
-      v-if="logsQuery.isPending.value"
-      state="loading"
-      :message="t('monitor.logs.loading')"
+
+    <AsyncRefreshIndicator :active="logsRefreshing" :label="t('monitor.logs.loading')" />
+
+    <SkeletonSurface
+      v-if="logsQuery.isPending.value || initialLoading"
+      variant="collection"
+      :rows="appliedFilters.limit ?? 20"
+      :columns="8"
+      row-height="72px"
+      mobile-row-height="176px"
+      :concealed="!initialLoading"
+      :label="t('monitor.logs.loading')"
     />
     <QueryFeedback
       v-else-if="logsQuery.isError.value && !logsQuery.data.value"
@@ -514,7 +547,7 @@ function costLabel(log: RequestLogItemDto): string {
       :retry-label="t('common.retry')"
       @retry="logsQuery.refetch()"
     />
-    <template v-else>
+    <template v-else-if="logsQuery.data.value">
       <QueryFeedback
         v-if="logsQuery.isError.value"
         state="stale"
@@ -522,8 +555,17 @@ function costLabel(log: RequestLogItemDto): string {
         :retry-label="t('common.retry')"
         @retry="logsQuery.refetch()"
       />
+      <SkeletonSurface
+        v-if="collectionTransition"
+        variant="collection"
+        :rows="skeletonRows"
+        :columns="8"
+        row-height="72px"
+        mobile-row-height="176px"
+        :label="t('monitor.logs.loading')"
+      />
       <LedgerRecordList
-        v-if="logs.length"
+        v-else-if="logs.length"
         grid-class="logs-list"
         :label="t('monitor.logs.caption')"
         :row-count="logs.length + 1"
@@ -561,8 +603,12 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.route')"
           >
-            <span>{{ accessKeyLabel(log) }}</span>
-            <small>{{ groupLabel(log) }}</small>
+            <OverflowTooltip as="span" :content="accessKeyLabel(log)">
+              {{ accessKeyLabel(log) }}
+            </OverflowTooltip>
+            <OverflowTooltip as="small" :content="groupLabel(log)">
+              {{ groupLabel(log) }}
+            </OverflowTooltip>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -570,13 +616,23 @@ function costLabel(log: RequestLogItemDto): string {
             :data-label="t('monitor.logs.columns.modelProtocol')"
           >
             <span class="logs-list__inline">
-              <AppTooltip v-if="log.client_model" :content="log.client_model">
-                <code class="logs-list__model">{{ log.client_model }}</code>
-              </AppTooltip>
+              <OverflowTooltip
+                v-if="log.client_model"
+                as="code"
+                class="logs-list__model"
+                :content="log.client_model"
+              >
+                {{ log.client_model }}
+              </OverflowTooltip>
               <code v-else class="logs-list__model">—</code>
-              <small v-if="reasoningLabel(log)" class="logs-list__reasoning">{{
-                reasoningLabel(log)
-              }}</small>
+              <OverflowTooltip
+                v-if="reasoningLabel(log)"
+                as="small"
+                class="logs-list__reasoning"
+                :content="reasoningLabel(log)"
+              >
+                {{ reasoningLabel(log) }}
+              </OverflowTooltip>
               <AppTooltip
                 v-if="log.upstream_model && log.upstream_model !== log.client_model"
                 :content="modelMappingTooltip(log)"
@@ -608,7 +664,9 @@ function costLabel(log: RequestLogItemDto): string {
                 </button>
               </AppTooltip>
             </span>
-            <small>{{ log.protocol }}</small>
+            <OverflowTooltip as="small" :content="log.protocol">
+              {{ log.protocol }}
+            </OverflowTooltip>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -622,31 +680,45 @@ function costLabel(log: RequestLogItemDto): string {
                 }}</StatusBadge></span
               >
             </AppTooltip>
-            <StatusBadge v-else :tone="statusTone(log.status)" size="compact">{{
-              responseLabel(log)
-            }}</StatusBadge>
-            <small v-if="log.attempt_count > 1">
+            <OverflowTooltip v-else as="span" :content="responseLabel(log)">
+              <StatusBadge :tone="statusTone(log.status)" size="compact">
+                {{ responseLabel(log) }}
+              </StatusBadge>
+            </OverflowTooltip>
+            <OverflowTooltip
+              v-if="log.attempt_count > 1"
+              as="small"
+              :content="t('monitor.logs.attemptCount', { count: log.attempt_count })"
+            >
               {{ t('monitor.logs.attemptCount', { count: log.attempt_count }) }}
-            </small>
+            </OverflowTooltip>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
             role="cell"
             :data-label="t('monitor.logs.columns.cost')"
           >
-            <span
+            <OverflowTooltip
+              as="span"
+              :content="costLabel(log)"
               :class="{
                 'logs-list__state--warning': requestLogCostDisplayState(log) !== 'complete',
               }"
-              >{{ costLabel(log) }}</span
             >
+              {{ costLabel(log) }}
+            </OverflowTooltip>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
             role="cell"
             :data-label="t('monitor.logs.columns.tokens')"
           >
-            <span v-if="requestLogUsageDisplayState(log) === 'reported'" class="logs-list__tokens">
+            <OverflowTooltip
+              v-if="requestLogUsageDisplayState(log) === 'reported'"
+              as="span"
+              class="logs-list__tokens"
+              :content="`${t('monitor.logs.tokens.input')}: ${formatLogTokenCount(log.input_tokens, locale)}\n${t('monitor.logs.tokens.output')}: ${formatLogTokenCount(log.output_tokens, locale)}`"
+            >
               <span class="logs-list__token-values">
                 <span class="logs-list__token-line">
                   <ArrowDown :size="12" aria-hidden="true" />
@@ -680,7 +752,7 @@ function costLabel(log: RequestLogItemDto): string {
                   {{ formatLogTokenCount(log.output_tokens, locale) }}
                 </span>
               </span>
-            </span>
+            </OverflowTooltip>
             <span v-else class="logs-list__state--warning">—</span>
           </div>
           <div
@@ -688,10 +760,16 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.timing')"
           >
-            <span>{{ timingPrimary(log) }}</span>
-            <small v-if="formatLogOutputRate(log, locale) !== '—'">{{
-              formatLogOutputRate(log, locale)
-            }}</small>
+            <OverflowTooltip as="span" :content="timingPrimary(log)">
+              {{ timingPrimary(log) }}
+            </OverflowTooltip>
+            <OverflowTooltip
+              v-if="formatLogOutputRate(log, locale) !== '—'"
+              as="small"
+              :content="formatLogOutputRate(log, locale)"
+            >
+              {{ formatLogOutputRate(log, locale) }}
+            </OverflowTooltip>
           </div>
           <div
             class="ledger-record-list__cell logs-list__action"
@@ -727,6 +805,7 @@ function costLabel(log: RequestLogItemDto): string {
         <template #icon><Search :size="20" /></template>
       </EmptyState>
       <PaginationBar
+        v-if="!collectionTransition"
         cursor
         :page="currentPage"
         :page-size="appliedFilters.limit ?? 20"

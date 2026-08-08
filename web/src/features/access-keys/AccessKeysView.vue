@@ -12,6 +12,7 @@ import type {
   AccessKeyDto,
 } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
+import { useCollectionLoading } from '@/app/loading-state'
 import {
   accessKeyCollectionQueryOptions,
   accessKeyResources,
@@ -29,11 +30,13 @@ import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import AccessKeyCollection from './AccessKeyCollection.vue'
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
@@ -70,6 +73,26 @@ const accessKeysQuery = useQuery(accessKeyCollectionQueryOptions(client, filters
 const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const data = computed(() => accessKeysQuery.data.value)
 const collectionBusy = computed(() => data.value !== undefined && accessKeysQuery.isFetching.value)
+const {
+  initial: initialLoading,
+  transition: collectionTransition,
+  refreshing: collectionRefreshing,
+  rows: skeletonRows,
+} = useCollectionLoading(
+  {
+    pending: () => accessKeysQuery.isPending.value,
+    placeholder: () => accessKeysQuery.isPlaceholderData.value,
+    fetching: () => accessKeysQuery.isFetching.value,
+    hasData: () => data.value !== undefined,
+    itemCount: () => data.value?.items.length ?? 0,
+  },
+  { fallbackRows: 20 },
+)
+const pageRefreshing = computed(
+  () =>
+    collectionRefreshing.value ||
+    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value),
+)
 const hasFilterCriteria = computed(
   () => filters.value.q !== undefined || filters.value.status !== undefined,
 )
@@ -365,6 +388,11 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
           </template>
         </PageHeader>
 
+        <AsyncRefreshIndicator
+          :active="pageRefreshing"
+          :label="t('accessKeys.collection.loading')"
+        />
+
         <AccessKeyDrawer
           v-if="drawerOpen && (drawerRoute?.mode === 'create' || selected)"
           :open="drawerOpen"
@@ -399,10 +427,16 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
 
         <p class="sr-only" aria-live="polite" aria-atomic="true">{{ deletionAnnouncement }}</p>
 
-        <QueryFeedback
-          v-if="accessKeysQuery.isPending.value"
-          state="loading"
-          :message="t('accessKeys.collection.loading')"
+        <SkeletonSurface
+          v-if="accessKeysQuery.isPending.value || initialLoading"
+          variant="collection"
+          :rows="filters.page_size"
+          :columns="7"
+          row-height="96px"
+          mobile-row-height="236px"
+          show-controls
+          :concealed="!initialLoading"
+          :label="t('accessKeys.collection.loading')"
         />
 
         <div
@@ -488,8 +522,18 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
             </CollectionFilterBar>
           </template>
 
+          <SkeletonSurface
+            v-if="collectionTransition"
+            variant="collection"
+            :rows="skeletonRows"
+            :columns="7"
+            row-height="96px"
+            mobile-row-height="236px"
+            :label="t('accessKeys.collection.loading')"
+          />
+
           <EmptyState
-            v-if="data.summary.total === 0"
+            v-else-if="data.summary.total === 0"
             :title="t('accessKeys.emptyTitle')"
             :description="t('accessKeys.emptyDescription')"
             variant="ledger"
@@ -535,6 +579,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
               :page-size="data.pagination.page_size"
               :total-items="data.pagination.total_items"
               :total-pages="data.pagination.total_pages"
+              :pending="collectionBusy"
               @previous="setPage(data.pagination.page - 1)"
               @next="setPage(data.pagination.page + 1)"
             />

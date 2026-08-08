@@ -14,6 +14,7 @@ import type {
   GroupKeyStatus,
   GroupSummaryDto,
 } from '@/api/control/types'
+import { useCollectionLoading } from '@/app/loading-state'
 import {
   batchGroupKeys,
   cacheGroupKeyBatch,
@@ -33,10 +34,12 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import GroupKeyBatchBar from './GroupKeyBatchBar.vue'
 import GroupKeyRecord from './GroupKeyRecord.vue'
@@ -67,6 +70,21 @@ const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
 
 const collection = computed(() => keysQuery.data.value)
+const {
+  initial: initialLoading,
+  transition: collectionTransition,
+  refreshing: collectionRefreshing,
+  rows: skeletonRows,
+} = useCollectionLoading(
+  {
+    pending: () => keysQuery.isPending.value,
+    placeholder: () => keysQuery.isPlaceholderData.value,
+    fetching: () => keysQuery.isFetching.value,
+    hasData: () => collection.value !== undefined,
+    itemCount: () => collection.value?.items.length ?? 0,
+  },
+  { fallbackRows: 20 },
+)
 const selectedCount = computed(() => selectedIds.value.size)
 const allVisibleSelected = computed(() => {
   const items = collection.value?.items ?? []
@@ -470,10 +488,19 @@ async function runBatch(
         </RouterLink>
       </template>
     </PanelHeader>
-    <QueryFeedback
-      v-if="keysQuery.isPending.value"
-      state="loading"
-      :message="t('group.keys.loading')"
+
+    <AsyncRefreshIndicator :active="collectionRefreshing" :label="t('group.keys.loading')" />
+
+    <SkeletonSurface
+      v-if="keysQuery.isPending.value || initialLoading"
+      variant="collection"
+      :rows="filters.page_size"
+      :columns="6"
+      row-height="52px"
+      mobile-row-height="190px"
+      show-controls
+      :concealed="!initialLoading"
+      :label="t('group.keys.loading')"
     />
     <QueryFeedback
       v-else-if="keysQuery.isError.value && !collection"
@@ -533,8 +560,17 @@ async function runBatch(
           </AppButton>
         </template>
       </CollectionFilterBar>
+      <SkeletonSurface
+        v-if="collectionTransition"
+        variant="collection"
+        :rows="skeletonRows"
+        :columns="6"
+        row-height="52px"
+        mobile-row-height="190px"
+        :label="t('group.keys.loading')"
+      />
       <EmptyState
-        v-if="collection.summary.total === 0"
+        v-else-if="collection.summary.total === 0"
         :title="t('group.keys.emptyTitle')"
         :description="t('group.keys.emptyDescription')"
         variant="ledger"
@@ -626,6 +662,7 @@ async function runBatch(
           :total-pages="collection.pagination.total_pages"
           show-page-size
           appearance="detail"
+          :pending="keysQuery.isFetching.value"
           @previous="setPage(filters.page - 1)"
           @next="setPage(filters.page + 1)"
           @update:page-size="setPageSize"

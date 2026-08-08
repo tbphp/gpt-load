@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useCollectionLoading } from '@/app/loading-state'
 import {
   modelCollectionQueryOptions,
   type ModelCollectionGroupStatus,
@@ -24,11 +25,13 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import ModelTree from './ModelTree.vue'
@@ -62,6 +65,22 @@ const drawer = ref<InstanceType<typeof ModelUpstreamDrawer>>()
 const modelsQuery = useQuery(modelCollectionQueryOptions(client, filters))
 const data = computed(() => modelsQuery.data.value)
 const collectionBusy = computed(() => data.value !== undefined && modelsQuery.isFetching.value)
+const {
+  initial: initialLoading,
+  transition: collectionTransition,
+  refreshing: collectionRefreshing,
+  rows: skeletonRows,
+} = useCollectionLoading(
+  {
+    pending: () => modelsQuery.isPending.value,
+    placeholder: () => modelsQuery.isPlaceholderData.value,
+    fetching: () => modelsQuery.isFetching.value,
+    hasData: () => data.value !== undefined,
+    itemCount: () =>
+      data.value?.items.reduce((count, item) => count + item.upstream_models.length + 1, 0) ?? 0,
+  },
+  { fallbackRows: 10 },
+)
 const hasConditions = computed(
   () =>
     filters.value.q !== undefined ||
@@ -237,6 +256,8 @@ function goToGroups(): void {
         </template>
       </PageHeader>
 
+      <AsyncRefreshIndicator :active="collectionRefreshing" :label="t('models.loading')" />
+
       <InlineFeedback v-if="syncSucceeded" appearance="ledger" tone="success">
         {{ t('models.sync.succeeded') }}
       </InlineFeedback>
@@ -249,10 +270,16 @@ function goToGroups(): void {
         </template>
       </InlineFeedback>
 
-      <QueryFeedback
-        v-if="modelsQuery.isPending.value"
-        state="loading"
-        :message="t('models.loading')"
+      <SkeletonSurface
+        v-if="modelsQuery.isPending.value || initialLoading"
+        variant="collection"
+        :rows="filters.page_size"
+        :columns="7"
+        row-height="72px"
+        mobile-row-height="120px"
+        show-controls
+        :concealed="!initialLoading"
+        :label="t('models.loading')"
       />
       <QueryFeedback
         v-else-if="modelsQuery.isError.value && !data"
@@ -352,8 +379,18 @@ function goToGroups(): void {
           </template>
         </CollectionFilterBar>
 
+        <SkeletonSurface
+          v-if="collectionTransition"
+          variant="collection"
+          :rows="skeletonRows"
+          :columns="7"
+          row-height="44px"
+          mobile-row-height="120px"
+          :label="t('models.loading')"
+        />
+
         <EmptyState
-          v-if="data.pagination.total_items === 0"
+          v-else-if="data.pagination.total_items === 0"
           variant="ledger"
           :title="hasConditions ? t('models.empty.noResultsTitle') : t('models.empty.title')"
           :description="
@@ -386,6 +423,7 @@ function goToGroups(): void {
             :page-size="data.pagination.page_size"
             :total-items="data.pagination.total_items"
             :total-pages="data.pagination.total_pages"
+            :pending="collectionBusy"
             @previous="changePage(filters.page - 1)"
             @next="changePage(filters.page + 1)"
           />

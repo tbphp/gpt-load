@@ -6,6 +6,7 @@ import { homeLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,7 +39,7 @@ function goBack(): void {
 
         <div class="not-found__path">
           <span>{{ t('notFound.requestedPath') }}</span>
-          <code :title="route.path">{{ route.path }}</code>
+          <OverflowTooltip as="code" :content="route.path">{{ route.path }}</OverflowTooltip>
         </div>
 
         <div class="not-found__actions">

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import {
   runtimeSettingKeys,
   settingsQueryOptions,
@@ -16,11 +17,13 @@ import { useTransientFlag } from '@/app/use-transient-flag'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
@@ -46,6 +49,12 @@ const router = useRouter()
 const { locale, t } = useI18n()
 const settingsQuery = useQuery(settingsQueryOptions(client, locale))
 const resource = computed(() => settingsQuery.data.value ?? null)
+const initialLoading = useStableLoading(
+  () => settingsQuery.isPending.value && settingsQuery.data.value === undefined,
+)
+const settingsRefreshing = computed(
+  () => settingsQuery.data.value !== undefined && settingsQuery.isFetching.value,
+)
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
@@ -251,6 +260,8 @@ onBeforeUnmount(() => {
     <LedgerSheet as="article" class="settings" aria-labelledby="settings-title">
       <PageHeader id="settings-title" :title="t('settings.title')" />
 
+      <AsyncRefreshIndicator :active="settingsRefreshing" :label="t('settings.loading')" />
+
       <div class="settings__layout">
         <SectionNav
           :model-value="activeSection"
@@ -262,10 +273,11 @@ onBeforeUnmount(() => {
         />
 
         <div class="settings__content">
-          <QueryFeedback
-            v-if="settingsQuery.isPending.value"
-            state="loading"
-            :message="t('settings.loading')"
+          <SkeletonSurface
+            v-if="(settingsQuery.isPending.value && !settingsQuery.data.value) || initialLoading"
+            variant="form"
+            :concealed="!initialLoading"
+            :label="t('settings.loading')"
           />
           <QueryFeedback
             v-else-if="settingsQuery.isError.value && !settingsQuery.data.value"

@@ -15,7 +15,6 @@ export interface ModelUpstreamRow {
 export interface ClientModelRow {
   model: ClientModelDto
   upstreams: ModelUpstreamRow[]
-  pendingCount: number
   status: ModelPriceRowStatus
 }
 
@@ -42,7 +41,6 @@ export function presentClientModel(model: ClientModelDto): ClientModelRow {
   return {
     model,
     upstreams,
-    pendingCount,
     status: pendingCount > 0 ? 'pending' : hasUnpriced ? 'unpriced' : 'configured',
   }
 }

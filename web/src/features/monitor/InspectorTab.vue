@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
@@ -21,10 +22,13 @@ import {
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatISOInstant, formatInteger, formatLocalInstant, formatPercent } from '@/lib/format'
 
@@ -73,6 +77,9 @@ const failed = ref(false)
 const resultStale = ref(false)
 const submitted = ref<RouteInspectRequest>()
 const observation = ref<RouteInspectResponseDto>()
+const resultLoadingActive = computed(() => pending.value && observation.value === undefined)
+const resultLoading = useStableLoading(resultLoadingActive)
+const resultRefreshing = computed(() => pending.value && observation.value !== undefined)
 const resultSummary = ref<HTMLHeadingElement | null>(null)
 const observationDateTime = computed(() =>
   observation.value === undefined ? undefined : formatISOInstant(observation.value.observed_at_ms),
@@ -425,10 +432,16 @@ onBeforeUnmount(() => {
     />
 
     <div class="inspector-stack">
-      <QueryFeedback
-        v-if="pending && !observation"
-        state="loading"
-        :message="t('monitor.inspector.request.loading')"
+      <AsyncRefreshIndicator
+        :active="resultRefreshing"
+        :label="t('monitor.inspector.request.loading')"
+      />
+      <SkeletonSurface
+        v-if="resultLoadingActive || resultLoading"
+        variant="detail"
+        min-height="330px"
+        :concealed="!resultLoading"
+        :label="t('monitor.inspector.request.loading')"
       />
       <QueryFeedback
         v-else-if="failed && !observation"
@@ -518,34 +531,62 @@ onBeforeUnmount(() => {
           <dl class="route-facts">
             <div class="route-fact">
               <dt>{{ t('monitor.inspector.result.accessKey') }}</dt>
-              <dd>{{ observation.access_key.name }} · #{{ observation.access_key.id }}</dd>
+              <OverflowTooltip
+                as="dd"
+                :content="`${observation.access_key.name} · #${observation.access_key.id}`"
+              >
+                {{ observation.access_key.name }} · #{{ observation.access_key.id }}
+              </OverflowTooltip>
             </div>
             <div class="route-fact">
               <dt>{{ t('monitor.inspector.result.accessKeyStatus') }}</dt>
-              <dd>
+              <OverflowTooltip
+                as="dd"
+                :content="t(`monitor.inspector.accessKeyStatus.${observation.access_key.status}`)"
+              >
                 <StatusBadge
                   :tone="accessKeyStatusTone(observation.access_key.status)"
                   size="compact"
                 >
                   {{ t(`monitor.inspector.accessKeyStatus.${observation.access_key.status}`) }}
                 </StatusBadge>
-              </dd>
+              </OverflowTooltip>
             </div>
             <div class="route-fact">
               <dt>{{ t('monitor.inspector.result.protocol') }}</dt>
-              <dd class="route-fact__mono">{{ observation.protocol }}</dd>
+              <OverflowTooltip as="dd" class="route-fact__mono" :content="observation.protocol">
+                {{ observation.protocol }}
+              </OverflowTooltip>
             </div>
             <div class="route-fact">
               <dt>{{ t('monitor.inspector.result.externalModel') }}</dt>
-              <dd class="route-fact__mono">{{ modelLabel(observation.external_model) }}</dd>
+              <OverflowTooltip
+                as="dd"
+                class="route-fact__mono"
+                :content="modelLabel(observation.external_model)"
+              >
+                {{ modelLabel(observation.external_model) }}
+              </OverflowTooltip>
             </div>
             <div class="route-fact">
               <dt>{{ t('monitor.inspector.result.candidateGroups') }}</dt>
-              <dd class="route-fact__number">{{ formattedInteger(includedGroups.length) }}</dd>
+              <OverflowTooltip
+                as="dd"
+                class="route-fact__number"
+                :content="formattedInteger(includedGroups.length)"
+              >
+                {{ formattedInteger(includedGroups.length) }}
+              </OverflowTooltip>
             </div>
             <div class="route-fact">
               <dt>{{ t('monitor.inspector.result.availableKeys') }}</dt>
-              <dd class="route-fact__number">{{ formattedInteger(availableKeyCount) }}</dd>
+              <OverflowTooltip
+                as="dd"
+                class="route-fact__number"
+                :content="formattedInteger(availableKeyCount)"
+              >
+                {{ formattedInteger(availableKeyCount) }}
+              </OverflowTooltip>
             </div>
           </dl>
         </section>
@@ -593,8 +634,15 @@ onBeforeUnmount(() => {
             >
               <summary class="route-candidate__summary">
                 <div class="route-candidate__identity" role="cell">
-                  <strong>{{ group.group_name }}</strong>
-                  <small>#{{ group.group_id }} · {{ modelLabel(group.upstream_model) }}</small>
+                  <OverflowTooltip as="strong" :content="group.group_name">
+                    {{ group.group_name }}
+                  </OverflowTooltip>
+                  <OverflowTooltip
+                    as="small"
+                    :content="`#${group.group_id} · ${modelLabel(group.upstream_model)}`"
+                  >
+                    #{{ group.group_id }} · {{ modelLabel(group.upstream_model) }}
+                  </OverflowTooltip>
                 </div>
                 <div class="route-candidate__status" role="cell">
                   <span class="route-cell-label">{{
@@ -806,8 +854,15 @@ onBeforeUnmount(() => {
                 <span class="route-key-label">{{
                   t('monitor.inspector.groups.columns.group')
                 }}</span>
-                <strong>{{ group.group_name }}</strong>
-                <small>#{{ group.group_id }} · {{ modelLabel(group.upstream_model) }}</small>
+                <OverflowTooltip as="strong" :content="group.group_name">
+                  {{ group.group_name }}
+                </OverflowTooltip>
+                <OverflowTooltip
+                  as="small"
+                  :content="`#${group.group_id} · ${modelLabel(group.upstream_model)}`"
+                >
+                  #{{ group.group_id }} · {{ modelLabel(group.upstream_model) }}
+                </OverflowTooltip>
               </div>
               <div class="ledger-record-list__cell" role="cell">
                 <span class="route-key-label">{{

@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import {
   cacheGroupModels,
   discoverGroupModels,
@@ -21,8 +22,10 @@ import { constrainCollectionSearch } from '@/app/route-query'
 import { groupDetailLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
@@ -58,6 +61,10 @@ const router = useRouter()
 const { t } = useI18n()
 const routeState = computed(() => parseGroupModelsRouteQuery(route.query))
 const query = useQuery(groupModelsQueryOptions(client, () => props.groupId))
+const initialLoading = useStableLoading(
+  () => query.isPending.value && query.data.value === undefined,
+)
+const queryRefreshing = computed(() => query.data.value !== undefined && query.isFetching.value)
 const saved = ref<ModelDraftItem[]>([])
 const draft = ref<ModelDraftItem[]>([])
 const pending = ref<'discover' | 'save' | null>(null)
@@ -434,10 +441,20 @@ onBeforeUnmount(() => {
         </AppButton>
       </template>
     </PanelHeader>
-    <QueryFeedback
-      v-if="query.isPending.value && !query.data.value"
-      state="loading"
-      :message="t('group.modelEditor.loading')"
+
+    <AsyncRefreshIndicator :active="queryRefreshing" :label="t('group.modelEditor.loading')" />
+
+    <SkeletonSurface
+      v-if="(query.isPending.value && !query.data.value) || initialLoading"
+      variant="collection"
+      :rows="6"
+      :columns="3"
+      row-height="58px"
+      mobile-row-height="112px"
+      show-controls
+      :show-pagination="false"
+      :concealed="!initialLoading"
+      :label="t('group.modelEditor.loading')"
     />
     <QueryFeedback
       v-else-if="query.isError.value && !query.data.value"

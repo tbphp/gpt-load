@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/vue-query'
+import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
@@ -308,6 +308,7 @@ export function usageQueryOptions(
   return queryOptions({
     queryKey: computed(() => usageQueryIdentity(toValue(filters))),
     queryFn: ({ signal }) => getUsageReport(client, toValue(filters), signal),
+    placeholderData: keepPreviousData,
     ...(intervalMs !== undefined
       ? {
           refetchInterval: intervalMs,
