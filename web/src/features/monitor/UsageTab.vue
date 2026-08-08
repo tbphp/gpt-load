@@ -455,16 +455,6 @@ defineExpose({ openFilters, refresh })
                     t('monitor.usage.columns.estimatedCost')
                   }}</span>
                   <span>{{ formatCost(row) }}</span>
-                  <small
-                    v-if="
-                      row.usage_missing_count > 0 ||
-                      row.partial_count > 0 ||
-                      row.unpriced_request_count > 0 ||
-                      row.pricing_partial_count > 0
-                    "
-                  >
-                    {{ t('monitor.usage.cost.knownPlusUnknownShort') }}
-                  </small>
                 </div>
                 <div class="ledger-record-list__cell usage-breakdown-record__quality" role="cell">
                   <span class="usage-cell-label">{{ t('monitor.usage.columns.quality') }}</span>
