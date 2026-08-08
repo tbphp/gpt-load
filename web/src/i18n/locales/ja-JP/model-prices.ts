@@ -9,7 +9,7 @@ export default {
       input: '入力',
       output: '出力',
       cache_read: 'キャッシュ読み取り',
-      cache_write: 'キャッシュ書き込み 5m',
+      cache_write: 'キャッシュ書き込み',
     },
     method: {
       auto_sync: '上流価格',
@@ -23,7 +23,7 @@ export default {
       addTier: '段階を追加',
       removeTier: 'この段階を削除',
       oneHourRule:
-        '上流が 1h キャッシュ書き込み Token を返した場合、キャッシュ書き込み 5m × 1.6 で計算します。',
+        '上流が 1h キャッシュ書き込み Token を返した場合、キャッシュ書き込み × 1.6 で計算します。',
       tierRule: 'リクエスト入力 Token が {threshold} 以上の場合、第 {tier} 段階に一致します。',
       thresholdNotSet: '未入力',
       save: '保存',
