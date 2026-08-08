@@ -47,42 +47,55 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
         <template v-for="row in rows" :key="row.model.client_model">
           <div class="model-tree__row model-tree__row--client" role="row">
             <div class="model-tree__cell model-tree__client" role="cell">
-              <span class="model-tree__client-name">{{ row.model.client_model }}</span>
-              <CopyChip
-                class="model-tree__copy"
-                layout="icon"
-                :value="row.model.client_model"
-                :label="t('models.tree.copy', { model: row.model.client_model })"
-                :success-label="t('models.tree.copySucceeded')"
-                :failure-label="t('models.tree.copyFailed')"
-              />
-              <span v-for="protocol in row.model.protocols" :key="protocol" class="model-tree__tag">
-                {{ protocol }}
+              <span class="model-tree__ident">
+                <span class="model-tree__client-name">{{ row.model.client_model }}</span>
+                <CopyChip
+                  class="model-tree__copy"
+                  layout="icon"
+                  :value="row.model.client_model"
+                  :label="t('models.tree.copy', { model: row.model.client_model })"
+                  :success-label="t('models.tree.copySucceeded')"
+                  :failure-label="t('models.tree.copyFailed')"
+                />
               </span>
-              <span class="model-tree__muted">
-                {{ t('models.tree.upstreamCount', { count: row.upstreams.length }) }}
-              </span>
-              <span v-if="row.pendingCount > 0" class="model-tree__pending">
-                {{ t('models.tree.pendingCount', { count: row.pendingCount }) }}
+              <span class="model-tree__protocols">
+                <span
+                  v-for="protocol in row.model.protocols"
+                  :key="protocol"
+                  class="model-tree__protocol"
+                >
+                  {{ protocol }}
+                </span>
               </span>
             </div>
           </div>
 
           <div
-            v-for="entry in row.upstreams"
+            v-for="(entry, index) in row.upstreams"
             :key="entry.upstream.model_id"
             class="model-tree__row model-tree__row--upstream"
+            :class="{ 'model-tree__row--last': index === row.upstreams.length - 1 }"
             role="row"
           >
             <div class="model-tree__cell model-tree__upstream" role="cell">
-              <button
-                type="button"
-                class="model-tree__open"
-                :aria-label="t('models.tree.open', { model: entry.upstream.model_id })"
-                @click="emit('open', entry.upstream)"
-              >
-                {{ entry.upstream.model_id }}
-              </button>
+              <span class="model-tree__ident">
+                <button
+                  type="button"
+                  class="model-tree__open"
+                  :aria-label="t('models.tree.open', { model: entry.upstream.model_id })"
+                  @click="emit('open', entry.upstream)"
+                >
+                  {{ entry.upstream.model_id }}
+                </button>
+                <CopyChip
+                  class="model-tree__copy"
+                  layout="icon"
+                  :value="entry.upstream.model_id"
+                  :label="t('models.tree.copyUpstream', { model: entry.upstream.model_id })"
+                  :success-label="t('models.tree.copySucceeded')"
+                  :failure-label="t('models.tree.copyFailed')"
+                />
+              </span>
               <span v-if="entry.tierCount > 0" class="model-tree__tag">
                 {{ t('models.tree.tierCount', { count: entry.tierCount }) }}
               </span>
@@ -128,6 +141,8 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
 
 <style scoped>
 .model-tree {
+  /* 树线锚点：客户端模型行的主干与上游行的转角共用同一条竖线位置。 */
+  --model-tree-rail: 20px;
   min-width: 0;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
@@ -194,17 +209,18 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   padding-block: var(--space-2);
 }
 
-/* 客户端模型行是分组标题：底色区分层级，价格列留空。 */
+/* 客户端模型行是分组标题：底色比表头浅一级、比数据行深一级，价格列留空。 */
 .model-tree__row--client {
-  border-top: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
+  border-top: 1px solid var(--color-border-control);
+  background: color-mix(in srgb, var(--color-surface-sunken) 55%, var(--color-surface));
 }
 
-.model-tree__row--client:first-of-type {
+.model-tree__row--head + .model-tree__row--client {
   border-top: 0;
 }
 
 .model-tree__client {
+  position: relative;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -214,16 +230,45 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   padding-right: var(--space-3-5);
 }
 
+/* 树干从组标题行内长出，延伸到行底，交给下方第一个上游行接续转角。 */
+.model-tree__client::after {
+  position: absolute;
+  top: 62%;
+  bottom: 0;
+  left: var(--model-tree-rail);
+  width: 1px;
+  background: var(--color-border-control);
+  content: '';
+}
+
 .model-tree__client-name {
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  font-weight: 650;
+  font-size: var(--text-body);
+  font-weight: 600;
 }
 
-/* 复制紧跟模型名，不参与后面元信息的间距节奏。 */
-.model-tree__copy {
-  margin-left: calc(var(--space-2-5) * -1 + var(--space-0-5));
+/* 名字与复制键自成一组：CopyChip 自带命中区留白，这里只需极小的视觉间距。 */
+.model-tree__ident {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+.model-tree__protocols {
+  display: inline-flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.model-tree__protocol + .model-tree__protocol::before {
+  margin: 0 4px;
+  opacity: 0.55;
+  content: '·';
 }
 
 .model-tree__tag {
@@ -235,37 +280,65 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   white-space: nowrap;
 }
 
-.model-tree__muted {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-  white-space: nowrap;
-}
-
-.model-tree__pending {
-  color: var(--color-warning);
-  font-size: var(--text-label-xs);
-  white-space: nowrap;
-}
-
 .model-tree__row--upstream {
-  border-top: 1px solid var(--color-border-subtle);
   transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+/* 组内子行之间保留分隔线；组标题与首个子行贴合，靠底色过渡分组。 */
+.model-tree__row--upstream + .model-tree__row--upstream {
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .model-tree__row--upstream:hover {
   background: var(--color-interactive-hover);
 }
 
-/* 上游行缩进一级，用竖线把它归到上方的客户端模型下。 */
-.model-tree__upstream {
+/* 上游行缩进一级，用连续竖线把它归到上方的客户端模型下；
+   用 .model-tree__cell 叠加类名提高特异性，否则会被 :first-child 的 padding-left 盖掉。 */
+.model-tree__cell.model-tree__upstream {
+  position: relative;
   display: flex;
   min-width: 0;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
-  margin-left: var(--space-4);
-  border-left: 1px solid var(--color-border-subtle);
-  padding-left: var(--space-3);
+  padding-left: calc(var(--model-tree-rail) + var(--space-4));
+}
+
+/* 中间子行：├ ——竖线跨过行边框保持连续，再接一段横向短线。 */
+.model-tree__row--upstream:not(.model-tree__row--last)
+  .model-tree__cell.model-tree__upstream::before {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: var(--model-tree-rail);
+  width: 1px;
+  background: var(--color-border-control);
+  content: '';
+}
+
+.model-tree__row--upstream:not(.model-tree__row--last)
+  .model-tree__cell.model-tree__upstream::after {
+  position: absolute;
+  top: 50%;
+  left: var(--model-tree-rail);
+  width: 9px;
+  height: 1px;
+  background: var(--color-border-control);
+  content: '';
+}
+
+/* 末个子行：└ ——圆角收笔，一个伪元素画完竖线转横线。 */
+.model-tree__row--last .model-tree__cell.model-tree__upstream::before {
+  position: absolute;
+  top: -1px;
+  bottom: 50%;
+  left: var(--model-tree-rail);
+  width: 9px;
+  border-bottom-left-radius: 5px;
+  border-left: 1px solid var(--color-border-control);
+  border-bottom: 1px solid var(--color-border-control);
+  content: '';
 }
 
 .model-tree__open {
@@ -273,7 +346,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   background: none;
   cursor: pointer;
   padding: 0;
-  color: inherit;
+  color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-meta);
   overflow-wrap: anywhere;
@@ -286,7 +359,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
 }
 
 .model-tree__cell--action :deep(.icon-button) {
-  color: var(--color-text-faint);
+  color: var(--color-border-control);
 }
 
 .model-tree__row--upstream:hover .model-tree__cell--action :deep(.icon-button) {
@@ -340,6 +413,11 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
     padding: var(--space-1);
   }
 
+  /* 卡片布局没有树形结构，树干线不出现。 */
+  .model-tree__client::after {
+    display: none;
+  }
+
   .model-tree__cell:first-child,
   .model-tree__cell:last-child {
     padding-inline: var(--space-2-5);
@@ -358,12 +436,16 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
     padding: var(--space-3);
   }
 
-  .model-tree__upstream {
+  /* 用 .model-tree__cell 叠加类名匹配宽屏规则的特异性，否则宽屏的缩进会盖过这里的重置。 */
+  .model-tree__cell.model-tree__upstream {
     grid-column: 1 / -1;
-    margin-left: 0;
-    border-left: 0;
     padding-right: var(--control-xs);
     padding-left: 0;
+  }
+
+  .model-tree__cell.model-tree__upstream::before,
+  .model-tree__cell.model-tree__upstream::after {
+    display: none;
   }
 
   .model-tree__cell--action {

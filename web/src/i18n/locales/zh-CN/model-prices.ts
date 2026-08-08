@@ -9,7 +9,7 @@ export default {
       input: '输入',
       output: '输出',
       cache_read: '缓存读取',
-      cache_write: '缓存写入 5m',
+      cache_write: '缓存写入',
     },
     method: {
       auto_sync: '上游定价',
@@ -22,7 +22,7 @@ export default {
       baseRow: '默认',
       addTier: '添加档位',
       removeTier: '删除该档位',
-      oneHourRule: '如果上游返回缓存写入 1h Token，则按缓存写入 5m × 1.6 计费。',
+      oneHourRule: '如果上游返回缓存写入 1h Token，则按缓存写入 × 1.6 计费。',
       tierRule: '请求输入 Token ≥ {threshold} 时，匹配第 {tier} 档。',
       thresholdNotSet: '未填写',
       save: '保存',
