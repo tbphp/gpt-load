@@ -230,8 +230,8 @@ export function accessKeyCollectionQueryOptions(
     queryKey: computed(() => controlQueryKeys.accessKeys.collection(toValue(filters))),
     queryFn: ({ queryKey, signal }) => listAccessKeyCollection(client, queryKey[3], signal),
     placeholderData: keepPreviousData,
-    refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 }
 

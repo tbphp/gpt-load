@@ -23,7 +23,6 @@ import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resource
 import { accessKeysLocation } from '@/app/route-locations'
 import { useToast } from '@/app/toast'
 import { useDebouncedAction } from '@/app/use-debounced-action'
-import { useVisibleRefetch } from '@/app/use-visible-refetch'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
@@ -202,8 +201,6 @@ watch(
     }
   },
 )
-
-useVisibleRefetch([accessKeysQuery.refetch])
 
 onBeforeUnmount(() => {
   mounted = false
