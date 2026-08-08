@@ -621,11 +621,12 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if len(migrationIDs) != 4 || migrationIDs[0] != "0001_initial_v2" ||
+	if len(migrationIDs) != 5 || migrationIDs[0] != "0001_initial_v2" ||
 		migrationIDs[1] != "0002_request_log_reasoning" || migrationIDs[2] != "0003_global_model_prices" ||
-		migrationIDs[3] != "0004_mysql_model_price_identity" {
+		migrationIDs[3] != "0004_mysql_model_price_identity" ||
+		migrationIDs[4] != "0005_request_log_model_consistency" {
 		t.Fatalf(
-			"schema_migrations IDs = %v, want [0001_initial_v2 0002_request_log_reasoning 0003_global_model_prices 0004_mysql_model_price_identity]",
+			"schema_migrations IDs = %v, want [0001_initial_v2 0002_request_log_reasoning 0003_global_model_prices 0004_mysql_model_price_identity 0005_request_log_model_consistency]",
 			migrationIDs,
 		)
 	}
@@ -637,8 +638,8 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if count != 4 {
-		t.Fatalf("schema_migrations row count after a second migration = %d, want 4", count)
+	if count != 5 {
+		t.Fatalf("schema_migrations row count after a second migration = %d, want 5", count)
 	}
 }
 
@@ -680,6 +681,8 @@ func TestAutoMigrateCreatesRequestLogFieldsAndCompositeIndexes(t *testing.T) {
 		"reasoning_mode",
 		"reasoning_effort",
 		"reasoning_budget_tokens",
+		"upstream_reported_model",
+		"model_consistency",
 	} {
 		if _, ok := columnNames[name]; !ok {
 			t.Errorf("request_logs column %q is missing", name)

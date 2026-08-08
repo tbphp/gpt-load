@@ -1041,6 +1041,7 @@ func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *
 
 	event := testEvent(aggregationRequestID(60))
 	event.UpstreamModel = "gpt-4o"
+	event.UpstreamReportedModel = "gpt-4o"
 	event.Attempts[0].UpstreamModel = "gpt-4o"
 	event.Usage = telemetry.UsageObservation{
 		GroupID: 14, KeyID: 8, AttemptSequence: 1,

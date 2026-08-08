@@ -103,6 +103,8 @@ type Record struct {
 	Protocol                protocol.Protocol
 	ClientModel             string
 	UpstreamModel           string
+	UpstreamReportedModel   string
+	ModelConsistency        telemetry.ModelConsistency
 	Status                  telemetry.RequestStatus
 	StatusCode              int
 	Stream                  bool

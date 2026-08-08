@@ -50,7 +50,9 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	if row.ID != event.RequestID || row.CompletedAtMS != 1_784_896_200_000 {
 		t.Fatalf("identity/completed_at_ms = %q/%d", row.ID, row.CompletedAtMS)
 	}
-	if row.GroupID != 7 || row.ClientModel != "client-alias" || row.UpstreamModel != "upstream-model" {
+	if row.GroupID != 7 || row.ClientModel != "client-alias" || row.UpstreamModel != "upstream-model" ||
+		row.UpstreamReportedModel != "upstream-model" ||
+		row.ModelConsistency != string(telemetry.ModelConsistencyMatch) {
 		t.Fatalf("persisted attribution/models = %+v", row)
 	}
 	if row.ReasoningMode != "adaptive" || row.ReasoningEffort != "high" ||
@@ -224,5 +226,84 @@ func TestMapEventBoundsUnattributedAttemptModelsButRejectsOversizedBoundModel(t 
 	event.Usage.Pricing.UpstreamModel = overlong
 	if _, err := mapEvent(redact.New(), event); err == nil {
 		t.Fatal("oversized bound model was accepted")
+	}
+}
+
+func TestMapEventRedactsAndBoundsUpstreamReportedModelAfterFrozenComparison(t *testing.T) {
+	event := testEvent("response-model-projection")
+	event.UpstreamReportedModel = "sk-obviously-secret-" + strings.Repeat("界", 100)
+	event.ModelConsistency = telemetry.ModelConsistencyMismatch
+
+	row := mustMapEvent(t, redact.New(), event)
+	if len(row.UpstreamReportedModel) > maxModelBytes ||
+		!utf8.ValidString(row.UpstreamReportedModel) ||
+		strings.Contains(row.UpstreamReportedModel, "sk-obviously-secret") ||
+		!strings.Contains(row.UpstreamReportedModel, redact.Placeholder) {
+		t.Fatalf("projected upstream reported model = %q", row.UpstreamReportedModel)
+	}
+	if row.ModelConsistency != string(telemetry.ModelConsistencyMismatch) {
+		t.Fatalf("model consistency = %q, want mismatch", row.ModelConsistency)
+	}
+}
+
+func TestMapEventPreservesFrozenMismatchWhenRedactionCollapsesModelValues(t *testing.T) {
+	event := testEvent("redacted-model-mismatch")
+	event.UpstreamModel = "sk-upstream-model-secret-a"
+	event.Attempts[0].UpstreamModel = event.UpstreamModel
+	event.Usage.Pricing.UpstreamModel = event.UpstreamModel
+	event.UpstreamReportedModel = "sk-upstream-model-secret-b"
+	event.ModelConsistency = telemetry.ModelConsistencyMismatch
+
+	row := mustMapEvent(t, redact.New(), event)
+	if row.UpstreamModel != redact.Placeholder || row.UpstreamReportedModel != redact.Placeholder ||
+		row.ModelConsistency != string(telemetry.ModelConsistencyMismatch) {
+		t.Fatalf("redacted model mismatch = %q/%q/%q", row.UpstreamModel, row.UpstreamReportedModel, row.ModelConsistency)
+	}
+}
+
+func TestMapEventRejectsInconsistentModelObservation(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*telemetry.RequestEvent)
+	}{
+		{name: "empty state", mutate: func(event *telemetry.RequestEvent) {
+			event.ModelConsistency = ""
+		}},
+		{name: "unknown with reported model", mutate: func(event *telemetry.RequestEvent) {
+			event.ModelConsistency = telemetry.ModelConsistencyUnknown
+		}},
+		{name: "match with different model", mutate: func(event *telemetry.RequestEvent) {
+			event.ModelConsistency = telemetry.ModelConsistencyMatch
+			event.UpstreamReportedModel = "different"
+		}},
+		{name: "mismatch with same model", mutate: func(event *telemetry.RequestEvent) {
+			event.ModelConsistency = telemetry.ModelConsistencyMismatch
+		}},
+		{name: "not applicable with reported model", mutate: func(event *telemetry.RequestEvent) {
+			event.ModelConsistency = telemetry.ModelConsistencyNotApplicable
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := testEvent("invalid-model-observation")
+			test.mutate(&event)
+			if _, err := mapEvent(redact.New(), event); err == nil {
+				t.Fatal("mapEvent() error = nil")
+			}
+		})
+	}
+}
+
+func TestMapEventIgnoresModelObservationForUnsuccessfulRequest(t *testing.T) {
+	event := testEvent("unsuccessful-model-observation")
+	event.Status = telemetry.RequestStatusError
+	event.ModelConsistency = telemetry.ModelConsistencyMismatch
+	event.UpstreamReportedModel = "different"
+
+	row := mustMapEvent(t, redact.New(), event)
+	if row.UpstreamReportedModel != "" ||
+		row.ModelConsistency != string(telemetry.ModelConsistencyNotApplicable) {
+		t.Fatalf("unsuccessful model observation = %q/%q", row.UpstreamReportedModel, row.ModelConsistency)
 	}
 }

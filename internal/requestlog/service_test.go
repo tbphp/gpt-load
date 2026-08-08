@@ -470,6 +470,7 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 
 	eventA := testEvent("snapshot-a")
 	eventA.UpstreamModel = "snapshot-model"
+	eventA.UpstreamReportedModel = "snapshot-model"
 	eventA.Attempts[0].UpstreamModel = "snapshot-model"
 	eventA.Usage.Result = usage.Result{
 		State:  usage.StateComplete,
@@ -492,6 +493,7 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 
 	eventB := testEvent("snapshot-b")
 	eventB.UpstreamModel = "snapshot-model"
+	eventB.UpstreamReportedModel = "snapshot-model"
 	eventB.Attempts[0].UpstreamModel = "snapshot-model"
 	eventB.Usage.Result = usage.Result{
 		State:  usage.StateComplete,

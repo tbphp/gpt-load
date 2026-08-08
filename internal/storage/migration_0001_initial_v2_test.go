@@ -70,7 +70,10 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
 		t.Fatal("schema_migrations is missing")
 	}
 	requestColumns := initialV2Columns(t, db, "request_logs")
-	for _, name := range []string{"stream", "first_response_ms", "attempt_count"} {
+	for _, name := range []string{
+		"stream", "first_response_ms", "attempt_count",
+		"upstream_reported_model", "model_consistency",
+	} {
 		if _, ok := requestColumns[name]; !ok {
 			t.Errorf("request_logs.%s is missing", name)
 		}
@@ -419,6 +422,17 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 			) VALUES ('negative-request-duration', 1, 0, 0, 'openai-completions', '', '',
 				'success', 200, -1, '', '', false, 0,
 				'complete', 'priced', 'complete')`,
+		},
+		{
+			name: "invalid request model consistency",
+			statement: `INSERT INTO request_logs (
+				id, completed_at_ms, access_key_id, group_id, protocol, client_model,
+				upstream_model, model_consistency, status, status_code, duration_ms,
+				error_code, error_summary, affinity_hit, estimated_cost_nano_usd,
+				usage_state, cost_state, pricing_completeness
+			) VALUES ('invalid-model-consistency', 1, 0, 0, 'openai-completions', '', '',
+				'invalid', 'success', 200, 0, '', '', false, 0,
+				'not_applicable', 'not_applicable', 'not_applicable')`,
 		},
 		{
 			name: "negative request token",

@@ -17,6 +17,15 @@ const (
 	RequestStatusCanceled   RequestStatus = "canceled"
 )
 
+type ModelConsistency string
+
+const (
+	ModelConsistencyNotApplicable ModelConsistency = "not_applicable"
+	ModelConsistencyMatch         ModelConsistency = "match"
+	ModelConsistencyUnknown       ModelConsistency = "unknown"
+	ModelConsistencyMismatch      ModelConsistency = "mismatch"
+)
+
 type FailureCategory string
 
 const (
@@ -75,23 +84,25 @@ type UsageObservation struct {
 }
 
 type RequestEvent struct {
-	RequestID       string
-	CompletedAt     time.Time
-	AccessKeyID     uint
-	Protocol        protocol.Protocol
-	ClientModel     string
-	UpstreamModel   string
-	Status          RequestStatus
-	StatusCode      int
-	ErrorCode       string
-	ErrorSummary    string
-	Stream          bool
-	FirstResponseMs *int64
-	DurationMs      int64
-	AffinityHit     bool
-	Reasoning       reasoning.Config
-	Attempts        []Attempt
-	Usage           UsageObservation
+	RequestID             string
+	CompletedAt           time.Time
+	AccessKeyID           uint
+	Protocol              protocol.Protocol
+	ClientModel           string
+	UpstreamModel         string
+	UpstreamReportedModel string
+	ModelConsistency      ModelConsistency
+	Status                RequestStatus
+	StatusCode            int
+	ErrorCode             string
+	ErrorSummary          string
+	Stream                bool
+	FirstResponseMs       *int64
+	DurationMs            int64
+	AffinityHit           bool
+	Reasoning             reasoning.Config
+	Attempts              []Attempt
+	Usage                 UsageObservation
 }
 
 type RequestLogSink interface {

@@ -780,6 +780,15 @@ export default {
       },
       modelMapping: 'クライアントモデル {client} → アップストリームモデル {upstream}',
       modelMappingLabel: 'モデルマッピングを表示',
+      modelConsistency: {
+        notObserved: '未観測',
+        unknownLabel: 'アップストリームの応答モデルを観測できませんでした',
+        mismatchLabel: 'モデル不一致',
+        unknownTooltip:
+          'アップストリーム要求モデル：{upstream}\nアップストリーム応答モデル：未観測\n通知：アップストリームの応答モデルを観測できませんでした',
+        mismatchTooltip:
+          'アップストリーム要求モデル：{upstream}\nアップストリーム応答モデル：{reported}\n警告：モデル不一致',
+      },
       reasoning: {
         compact: '[{value}]',
         disabled: '[off]',

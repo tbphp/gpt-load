@@ -29,6 +29,10 @@ func mapEvent(
 	if err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event completion time: %w", err)
 	}
+	event = normalizeModelObservation(event)
+	if err := validateModelObservation(event); err != nil {
+		return models.RequestLog{}, fmt.Errorf("map request event model consistency: %w", err)
+	}
 	if err := validateFrozenObservation(event); err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event usage/pricing: %w", err)
 	}
@@ -73,6 +77,8 @@ func mapEvent(
 		Protocol:                string(event.Protocol),
 		ClientModel:             redactIdentityValue(redactor, projectModel(event.ClientModel)),
 		UpstreamModel:           redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
+		UpstreamReportedModel:   redactIdentityValue(redactor, projectModel(event.UpstreamReportedModel)),
+		ModelConsistency:        string(event.ModelConsistency),
 		Status:                  string(event.Status),
 		StatusCode:              event.StatusCode,
 		Stream:                  event.Stream,
@@ -97,6 +103,47 @@ func mapEvent(
 		PricingCompleteness:     pricingObservation.PricingCompleteness,
 		AttemptRows:             attempts,
 	}, nil
+}
+
+func normalizeModelObservation(event telemetry.RequestEvent) telemetry.RequestEvent {
+	if event.Status != telemetry.RequestStatusSuccess || event.UpstreamModel == "" {
+		event.UpstreamReportedModel = ""
+		event.ModelConsistency = telemetry.ModelConsistencyNotApplicable
+	}
+	return event
+}
+
+func validateModelObservation(event telemetry.RequestEvent) error {
+	successfulModeledRequest := event.Status == telemetry.RequestStatusSuccess &&
+		event.UpstreamModel != ""
+
+	switch event.ModelConsistency {
+	case telemetry.ModelConsistencyNotApplicable:
+		if event.UpstreamReportedModel != "" {
+			return fmt.Errorf("not-applicable observation must not carry a reported model")
+		}
+		if successfulModeledRequest {
+			return fmt.Errorf("successful modeled request requires a model consistency result")
+		}
+	case telemetry.ModelConsistencyUnknown:
+		if !successfulModeledRequest || event.UpstreamReportedModel != "" {
+			return fmt.Errorf("unknown observation requires a successful modeled request without a reported model")
+		}
+	case telemetry.ModelConsistencyMatch:
+		if !successfulModeledRequest || event.UpstreamReportedModel == "" ||
+			event.UpstreamReportedModel != event.UpstreamModel {
+			return fmt.Errorf("matching observation requires identical upstream and reported models")
+		}
+	case telemetry.ModelConsistencyMismatch:
+		if !successfulModeledRequest || event.UpstreamReportedModel == "" ||
+			event.UpstreamReportedModel == event.UpstreamModel {
+			return fmt.Errorf("mismatching observation requires distinct upstream and reported models")
+		}
+	default:
+		return fmt.Errorf("invalid model consistency state %q", event.ModelConsistency)
+	}
+
+	return nil
 }
 
 func canonicalPricingReceipt(observation telemetry.PricingObservation) (models.JSON, error) {

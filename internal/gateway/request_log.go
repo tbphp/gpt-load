@@ -29,11 +29,14 @@ const (
 )
 
 type requestOutcome struct {
-	status        telemetry.RequestStatus
-	statusCode    int
-	errorCode     string
-	errorSummary  string
-	upstreamModel string
+	status                telemetry.RequestStatus
+	statusCode            int
+	errorCode             string
+	errorSummary          string
+	upstreamModel         string
+	upstreamReportedModel string
+	responseModelObserved bool
+	responseModelMismatch bool
 }
 
 type frozenAttemptPricing struct {
@@ -111,25 +114,43 @@ func (recorder *requestRecorder) emit() {
 	if duration < 0 {
 		duration = 0
 	}
+	reportedModel, modelConsistency := requestOutcomeModelConsistency(recorder.outcome)
 	recorder.sink.Emit(telemetry.RequestEvent{
-		RequestID:       recorder.requestID,
-		CompletedAt:     completedAt.UTC(),
-		AccessKeyID:     recorder.accessKeyID,
-		Protocol:        recorder.protocol,
-		ClientModel:     recorder.clientModel,
-		UpstreamModel:   recorder.outcome.upstreamModel,
-		Status:          recorder.outcome.status,
-		StatusCode:      recorder.outcome.statusCode,
-		ErrorCode:       recorder.outcome.errorCode,
-		ErrorSummary:    recorder.outcome.errorSummary,
-		Stream:          recorder.stream,
-		FirstResponseMs: recorder.firstResponseMs,
-		DurationMs:      duration.Milliseconds(),
-		AffinityHit:     false,
-		Reasoning:       recorder.reasoning,
-		Attempts:        append([]telemetry.Attempt(nil), recorder.attempts...),
-		Usage:           recorder.usage,
+		RequestID:             recorder.requestID,
+		CompletedAt:           completedAt.UTC(),
+		AccessKeyID:           recorder.accessKeyID,
+		Protocol:              recorder.protocol,
+		ClientModel:           recorder.clientModel,
+		UpstreamModel:         recorder.outcome.upstreamModel,
+		UpstreamReportedModel: reportedModel,
+		ModelConsistency:      modelConsistency,
+		Status:                recorder.outcome.status,
+		StatusCode:            recorder.outcome.statusCode,
+		ErrorCode:             recorder.outcome.errorCode,
+		ErrorSummary:          recorder.outcome.errorSummary,
+		Stream:                recorder.stream,
+		FirstResponseMs:       recorder.firstResponseMs,
+		DurationMs:            duration.Milliseconds(),
+		AffinityHit:           false,
+		Reasoning:             recorder.reasoning,
+		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
+		Usage:                 recorder.usage,
 	})
+}
+
+func requestOutcomeModelConsistency(
+	outcome requestOutcome,
+) (string, telemetry.ModelConsistency) {
+	if outcome.status != telemetry.RequestStatusSuccess || outcome.upstreamModel == "" {
+		return "", telemetry.ModelConsistencyNotApplicable
+	}
+	if !outcome.responseModelObserved || outcome.upstreamReportedModel == "" {
+		return "", telemetry.ModelConsistencyUnknown
+	}
+	if outcome.responseModelMismatch || outcome.upstreamReportedModel != outcome.upstreamModel {
+		return outcome.upstreamReportedModel, telemetry.ModelConsistencyMismatch
+	}
+	return outcome.upstreamReportedModel, telemetry.ModelConsistencyMatch
 }
 
 func (recorder *requestRecorder) setClientModel(model string) {
@@ -334,10 +355,13 @@ func (recorder *requestRecorder) completeStream(
 		summary = fixedErrorSummary(code)
 	}
 	outcome := requestOutcome{
-		statusCode:    result.StatusCode,
-		errorCode:     code,
-		errorSummary:  summary,
-		upstreamModel: upstreamModel,
+		statusCode:            result.StatusCode,
+		errorCode:             code,
+		errorSummary:          summary,
+		upstreamModel:         upstreamModel,
+		upstreamReportedModel: result.UpstreamReportedModel,
+		responseModelObserved: result.ResponseModelObserved,
+		responseModelMismatch: result.ResponseModelMismatch,
 	}
 	switch result.Stream.EndReason {
 	case StreamEndCleanEOF:
@@ -364,8 +388,12 @@ func (recorder *requestRecorder) completeResponse(
 	}
 	if result.StatusCode >= 200 && result.StatusCode < 300 {
 		recorder.outcome = requestOutcome{
-			status: telemetry.RequestStatusSuccess, statusCode: result.StatusCode,
-			upstreamModel: upstreamModel,
+			status:                telemetry.RequestStatusSuccess,
+			statusCode:            result.StatusCode,
+			upstreamModel:         upstreamModel,
+			upstreamReportedModel: result.UpstreamReportedModel,
+			responseModelObserved: result.ResponseModelObserved,
+			responseModelMismatch: result.ResponseModelMismatch,
 		}
 		recorder.bindUsage(attemptIndex, result.Usage, true)
 		return

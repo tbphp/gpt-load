@@ -29,6 +29,8 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 		Protocol:              string(protocol.OpenAICompletions),
 		ClientModel:           "client-model",
 		UpstreamModel:         "upstream-model",
+		UpstreamReportedModel: "upstream-model",
+		ModelConsistency:      string(telemetry.ModelConsistencyMatch),
 		Status:                string(telemetry.RequestStatusSuccess),
 		StatusCode:            200,
 		DurationMs:            25,
@@ -61,6 +63,8 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 		got.EstimatedCostNanoUSD != 123_456_789 ||
 		got.Reasoning.Mode != "adaptive" || got.Reasoning.Effort != "high" ||
 		got.Reasoning.BudgetTokens == nil || *got.Reasoning.BudgetTokens != reasoningBudget ||
+		got.UpstreamReportedModel != "upstream-model" ||
+		got.ModelConsistency != telemetry.ModelConsistencyMatch ||
 		got.CompletedAtMS != 1_785_085_323_000 {
 		t.Fatalf("decoded usage/cost record = %#v", got)
 	}
@@ -101,6 +105,7 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 		ID:                  "00000000-0000-4000-8000-000000000602",
 		CompletedAtMS:       1_785_110_400_000,
 		Protocol:            string(protocol.OpenAICompletions),
+		ModelConsistency:    string(telemetry.ModelConsistencyNotApplicable),
 		Status:              string(telemetry.RequestStatusSuccess),
 		UsageState:          string(usage.StateComplete),
 		CostState:           string(pricing.CostStatePriced),
@@ -187,6 +192,7 @@ func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
 				ID:                   "00000000-0000-4000-8000-000000000604",
 				CompletedAtMS:        1_785_110_400_000,
 				Protocol:             string(protocol.OpenAICompletions),
+				ModelConsistency:     string(telemetry.ModelConsistencyNotApplicable),
 				Status:               string(telemetry.RequestStatusSuccess),
 				UsageState:           string(test.usageState),
 				CostState:            string(test.costState),
@@ -203,6 +209,24 @@ func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
 				t.Fatalf("records = %#v", records)
 			}
 		})
+	}
+}
+
+func TestDecodeRequestLogRowsRejectsInvalidModelConsistency(t *testing.T) {
+	row := models.RequestLog{
+		ID:                    "00000000-0000-4000-8000-000000000606",
+		CompletedAtMS:         1_785_110_400_000,
+		Protocol:              string(protocol.OpenAICompletions),
+		UpstreamModel:         "model-a",
+		UpstreamReportedModel: "",
+		ModelConsistency:      string(telemetry.ModelConsistencyMismatch),
+		Status:                string(telemetry.RequestStatusSuccess),
+		UsageState:            string(usage.StateNotApplicable),
+		CostState:             string(pricing.CostStateNotApplicable),
+		PricingCompleteness:   string(pricing.CompletenessNotApplicable),
+	}
+	if _, err := decodeRequestLogRows([]models.RequestLog{row}); err == nil {
+		t.Fatal("decodeRequestLogRows() accepted inconsistent model observation")
 	}
 }
 
@@ -267,9 +291,14 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		{Sequence: 1, GroupID: 12, GroupName: "retry-first", UpstreamModel: "different-upstream-model", WillRetry: true},
 		{Sequence: 2, GroupID: 13, GroupName: "retry-second", UpstreamModel: "different-upstream-model"},
 	}
+	markError := func(row *models.RequestLog) {
+		row.Status = string(telemetry.RequestStatusError)
+		row.UpstreamReportedModel = ""
+		row.ModelConsistency = string(telemetry.ModelConsistencyNotApplicable)
+	}
 	target := requestLogQueryRow(targetID, from, 71, "client-model", integerAttempts)
 	target.UpstreamModel = "different-upstream-model"
-	target.Status = string(telemetry.RequestStatusError)
+	markError(&target)
 	createRequestLogQueryRow(t, db, target)
 
 	atTo := requestLogQueryRow(
@@ -279,7 +308,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		"client-model",
 		integerAttempts,
 	)
-	atTo.Status = string(telemetry.RequestStatusError)
+	markError(&atTo)
 	createRequestLogQueryRow(t, db, atTo)
 
 	beforeFrom := requestLogQueryRow(
@@ -289,7 +318,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		"client-model",
 		integerAttempts,
 	)
-	beforeFrom.Status = string(telemetry.RequestStatusError)
+	markError(&beforeFrom)
 	createRequestLogQueryRow(t, db, beforeFrom)
 
 	stringGroup := requestLogQueryRow(
@@ -299,7 +328,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		"client-model",
 		nil,
 	)
-	stringGroup.Status = string(telemetry.RequestStatusError)
+	markError(&stringGroup)
 	createRequestLogQueryRow(t, db, stringGroup)
 
 	realGroup := requestLogQueryRow(
@@ -309,7 +338,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		"client-model",
 		nil,
 	)
-	realGroup.Status = string(telemetry.RequestStatusError)
+	markError(&realGroup)
 	createRequestLogQueryRow(t, db, realGroup)
 
 	upstreamOnly := requestLogQueryRow(
@@ -320,7 +349,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		integerAttempts,
 	)
 	upstreamOnly.UpstreamModel = "client-model"
-	upstreamOnly.Status = string(telemetry.RequestStatusError)
+	markError(&upstreamOnly)
 	createRequestLogQueryRow(t, db, upstreamOnly)
 
 	wrongAccessKey := requestLogQueryRow(
@@ -330,7 +359,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		"client-model",
 		integerAttempts,
 	)
-	wrongAccessKey.Status = string(telemetry.RequestStatusError)
+	markError(&wrongAccessKey)
 	createRequestLogQueryRow(t, db, wrongAccessKey)
 
 	wrongStatus := requestLogQueryRow(
@@ -349,7 +378,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 		"client-model",
 		nil,
 	)
-	zeroAttempts.Status = string(telemetry.RequestStatusError)
+	markError(&zeroAttempts)
 	createRequestLogQueryRow(t, db, zeroAttempts)
 
 	groupID := uint(12)
@@ -406,6 +435,7 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 		{Sequence: 2, GroupID: 13, GroupName: "final", KeyID: 2, UpstreamModel: "final-model", FailureCategory: telemetry.FailureCategoryOK, Action: telemetry.ActionTerminate},
 	}
 	event.UpstreamModel = "final-model"
+	event.UpstreamReportedModel = "final-model"
 	event.Usage = telemetry.UsageObservation{
 		GroupID: 13, KeyID: 2, AttemptSequence: 2,
 		Result: usage.Result{
@@ -699,19 +729,21 @@ func requestLogQueryRow(
 		})
 	}
 	return models.RequestLog{
-		ID:            id,
-		CompletedAtMS: completedAt.UTC().UnixMilli(),
-		AccessKeyID:   accessKeyID,
-		Protocol:      string(protocol.OpenAICompletions),
-		ClientModel:   clientModel,
-		UpstreamModel: "upstream-" + clientModel,
-		Status:        string(telemetry.RequestStatusSuccess),
-		StatusCode:    200,
-		DurationMs:    25,
-		AttemptCount:  len(attemptRows),
-		UsageState:    string(usage.StateNotApplicable),
-		CostState:     string(pricing.CostStateNotApplicable),
-		AttemptRows:   attemptRows,
+		ID:                    id,
+		CompletedAtMS:         completedAt.UTC().UnixMilli(),
+		AccessKeyID:           accessKeyID,
+		Protocol:              string(protocol.OpenAICompletions),
+		ClientModel:           clientModel,
+		UpstreamModel:         "upstream-" + clientModel,
+		UpstreamReportedModel: "upstream-" + clientModel,
+		ModelConsistency:      string(telemetry.ModelConsistencyMatch),
+		Status:                string(telemetry.RequestStatusSuccess),
+		StatusCode:            200,
+		DurationMs:            25,
+		AttemptCount:          len(attemptRows),
+		UsageState:            string(usage.StateNotApplicable),
+		CostState:             string(pricing.CostStateNotApplicable),
+		AttemptRows:           attemptRows,
 	}
 }
 

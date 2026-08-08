@@ -761,6 +761,14 @@ export default {
       },
       modelMapping: '客户端模型 {client} → 上游模型 {upstream}',
       modelMappingLabel: '查看模型映射',
+      modelConsistency: {
+        notObserved: '未观察到',
+        unknownLabel: '未观察到上游返回模型',
+        mismatchLabel: '模型不一致',
+        unknownTooltip:
+          '上游请求模型：{upstream}\n上游返回模型：未观察到\n提示：未观察到上游返回模型',
+        mismatchTooltip: '上游请求模型：{upstream}\n上游返回模型：{reported}\n告警：模型不一致',
+      },
       reasoning: {
         compact: '[{value}]',
         disabled: '[off]',

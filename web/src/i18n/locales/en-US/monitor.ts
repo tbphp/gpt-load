@@ -781,6 +781,15 @@ export default {
       },
       modelMapping: 'Client model {client} → upstream model {upstream}',
       modelMappingLabel: 'View model mapping',
+      modelConsistency: {
+        notObserved: 'Not observed',
+        unknownLabel: 'Upstream response model not observed',
+        mismatchLabel: 'Model mismatch',
+        unknownTooltip:
+          'Upstream request model: {upstream}\nUpstream response model: Not observed\nNotice: Upstream response model was not observed',
+        mismatchTooltip:
+          'Upstream request model: {upstream}\nUpstream response model: {reported}\nWarning: Model mismatch',
+      },
       reasoning: {
         compact: '[{value}]',
         disabled: '[off]',

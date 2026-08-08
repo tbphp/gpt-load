@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { ArrowDown, ArrowRight, ArrowUp, CircleHelp, Info, Layers, Search } from '@lucide/vue'
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CircleHelp,
+  Info,
+  Layers,
+  Search,
+  TriangleAlert,
+} from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -401,6 +410,25 @@ function modelMappingTooltip(log: RequestLogItemDto): string {
   })
 }
 
+function modelConsistencyTooltip(log: RequestLogItemDto): string {
+  const key =
+    log.model_consistency === 'mismatch'
+      ? 'monitor.logs.modelConsistency.mismatchTooltip'
+      : 'monitor.logs.modelConsistency.unknownTooltip'
+  return t(key, {
+    upstream: log.upstream_model ?? '—',
+    reported: log.upstream_reported_model ?? t('monitor.logs.modelConsistency.notObserved'),
+  })
+}
+
+function modelConsistencyLabel(log: RequestLogItemDto): string {
+  return t(
+    log.model_consistency === 'mismatch'
+      ? 'monitor.logs.modelConsistency.mismatchLabel'
+      : 'monitor.logs.modelConsistency.unknownLabel',
+  )
+}
+
 function reasoningLabel(log: RequestLogItemDto): string {
   if (log.reasoning === null) return ''
   if (
@@ -559,6 +587,24 @@ function costLabel(log: RequestLogItemDto): string {
                   :aria-label="t('monitor.logs.modelMappingLabel')"
                 >
                   <Info :size="13" aria-hidden="true" />
+                </button>
+              </AppTooltip>
+              <AppTooltip
+                v-if="log.model_consistency === 'unknown' || log.model_consistency === 'mismatch'"
+                :content="modelConsistencyTooltip(log)"
+              >
+                <button
+                  type="button"
+                  class="logs-list__hint logs-list__model-consistency"
+                  :class="`logs-list__model-consistency--${log.model_consistency}`"
+                  :aria-label="modelConsistencyLabel(log)"
+                >
+                  <TriangleAlert
+                    v-if="log.model_consistency === 'mismatch'"
+                    :size="14"
+                    aria-hidden="true"
+                  />
+                  <CircleHelp v-else :size="13" aria-hidden="true" />
                 </button>
               </AppTooltip>
             </span>
@@ -823,6 +869,11 @@ function costLabel(log: RequestLogItemDto): string {
 .logs-list__hint:hover {
   background: var(--color-surface-sunken);
   color: var(--color-text);
+}
+
+.logs-list__model-consistency--mismatch,
+.logs-list__model-consistency--mismatch:hover {
+  color: var(--color-warning);
 }
 
 .logs-list__state--warning {

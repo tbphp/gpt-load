@@ -81,6 +81,11 @@ func createScopedModelPriceSchema(t *testing.T, db *gorm.DB) {
 	for _, statement := range []string{
 		`CREATE TABLE schema_migrations (id varchar(255) PRIMARY KEY NOT NULL)`,
 		`INSERT INTO schema_migrations(id) VALUES ('0001_initial_v2'), ('0002_request_log_reasoning')`,
+		`CREATE TABLE request_logs (
+			id varchar(36) PRIMARY KEY NOT NULL,
+			status varchar(32) NOT NULL DEFAULT '',
+			upstream_model varchar(255) NOT NULL DEFAULT ''
+		)`,
 		`CREATE TABLE model_prices (
 			id integer PRIMARY KEY AUTOINCREMENT,
 			price_scope_key varchar(255) NOT NULL,

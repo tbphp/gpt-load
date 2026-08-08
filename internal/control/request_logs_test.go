@@ -260,17 +260,19 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					AccessKey: requestlog.AccessKeyRef{
 						ID: 41, Name: &currentName,
 					},
-					Protocol:            protocol.OpenAICompletions,
-					ClientModel:         "client-model",
-					UpstreamModel:       "upstream-model",
-					Status:              telemetry.RequestStatusSuccess,
-					StatusCode:          200,
-					DurationMs:          1234,
-					AffinityHit:         true,
-					UsageState:          usage.StateNotApplicable,
-					CostState:           pricing.CostStateNotApplicable,
-					PricingCompleteness: pricing.CompletenessNotApplicable,
-					AttemptCount:        1,
+					Protocol:              protocol.OpenAICompletions,
+					ClientModel:           "client-model",
+					UpstreamModel:         "upstream-model",
+					UpstreamReportedModel: "reported-model",
+					ModelConsistency:      telemetry.ModelConsistencyMismatch,
+					Status:                telemetry.RequestStatusSuccess,
+					StatusCode:            200,
+					DurationMs:            1234,
+					AffinityHit:           true,
+					UsageState:            usage.StateNotApplicable,
+					CostState:             pricing.CostStateNotApplicable,
+					PricingCompleteness:   pricing.CompletenessNotApplicable,
+					AttemptCount:          1,
 				}},
 				NextCursor: nextCursor,
 			},
@@ -325,6 +327,10 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	}
 	if _, exists := envelope.Data.Items[0]["attempts"]; exists {
 		t.Fatalf("list item unexpectedly exposes attempts: %#v", envelope.Data.Items[0])
+	}
+	if envelope.Data.Items[0]["upstream_reported_model"] != "reported-model" ||
+		envelope.Data.Items[0]["model_consistency"] != string(telemetry.ModelConsistencyMismatch) {
+		t.Fatalf("list item model observation = %#v", envelope.Data.Items[0])
 	}
 	for _, forbidden := range []string{"headers", "body", "url"} {
 		if strings.Contains(strings.ToLower(recorder.Body.String()), forbidden) {
@@ -540,6 +546,7 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 			RequestID:           "00000000-0000-4000-8000-000000000503",
 			Protocol:            protocol.OpenAIResponses,
 			ClientModel:         "",
+			ModelConsistency:    telemetry.ModelConsistencyNotApplicable,
 			Status:              telemetry.RequestStatusSuccess,
 			UsageState:          usage.StateNotApplicable,
 			CostState:           pricing.CostStateNotApplicable,
@@ -557,6 +564,8 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 	for _, field := range []string{
 		`"client_model":null`,
 		`"upstream_model":null`,
+		`"upstream_reported_model":null`,
+		`"model_consistency":"not_applicable"`,
 		`"reasoning":null`,
 	} {
 		if !strings.Contains(body, field) {

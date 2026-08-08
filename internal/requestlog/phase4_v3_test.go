@@ -12,13 +12,15 @@ import (
 
 func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T) {
 	event := telemetry.RequestEvent{
-		RequestID:     "00000000-0000-4000-8000-000000004001",
-		CompletedAt:   time.Date(2026, time.July, 24, 12, 34, 56, 789_000_000, time.UTC),
-		AccessKeyID:   41,
-		ClientModel:   "client-alias",
-		UpstreamModel: "provider-model",
-		Status:        telemetry.RequestStatusSuccess,
-		StatusCode:    200,
+		RequestID:             "00000000-0000-4000-8000-000000004001",
+		CompletedAt:           time.Date(2026, time.July, 24, 12, 34, 56, 789_000_000, time.UTC),
+		AccessKeyID:           41,
+		ClientModel:           "client-alias",
+		UpstreamModel:         "provider-model",
+		UpstreamReportedModel: "provider-model",
+		ModelConsistency:      telemetry.ModelConsistencyMatch,
+		Status:                telemetry.RequestStatusSuccess,
+		StatusCode:            200,
 		Attempts: []telemetry.Attempt{{
 			Sequence: 1, GroupID: 73, KeyID: 9, UpstreamModel: "provider-model",
 		}},

@@ -117,6 +117,7 @@ func TestProjectProcessLogOmitsDefaultAndZeroValueFields(t *testing.T) {
 	event := testEvent("sparse-defaults")
 	event.Protocol = protocol.Anthropic
 	event.UpstreamModel = event.ClientModel
+	event.UpstreamReportedModel = event.ClientModel
 	event.Attempts[0].UpstreamModel = event.ClientModel
 	event.Usage.Pricing.UpstreamModel = event.ClientModel
 	level, fields, ok := projectProcessLog(redact.New(), event)

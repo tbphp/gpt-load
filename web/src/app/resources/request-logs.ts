@@ -23,6 +23,7 @@ import {
 } from './projector'
 
 export type RequestLogStatus = 'success' | 'error' | 'incomplete' | 'canceled'
+export type RequestLogModelConsistency = 'not_applicable' | 'match' | 'unknown' | 'mismatch'
 export type RequestLogAction = 'terminate' | 'retry' | 'cooldown_key' | 'fail_key' | 'skip_group'
 export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_applicable'
 export type RequestLogCostState = 'priced' | 'unpriced' | 'not_applicable'
@@ -119,6 +120,8 @@ export interface RequestLogItemDto {
   protocol: AccessProtocol
   client_model: string | null
   upstream_model: string | null
+  upstream_reported_model: string | null
+  model_consistency: RequestLogModelConsistency
   reasoning: RequestLogReasoningDto | null
   status: RequestLogStatus
   status_code: number
@@ -153,6 +156,7 @@ export interface RequestLogPageDto {
 
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const statuses = ['success', 'error', 'incomplete', 'canceled'] as const
+const modelConsistencyValues = ['not_applicable', 'match', 'unknown', 'mismatch'] as const
 const failureCategories = [
   'ok',
   'rate_limited',
@@ -183,6 +187,8 @@ const itemFields = [
   'protocol',
   'client_model',
   'upstream_model',
+  'upstream_reported_model',
+  'model_consistency',
   'reasoning',
   'status',
   'status_code',
@@ -393,15 +399,39 @@ function projectUsageCost(record: Record<string, unknown>) {
 }
 
 function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
+  const status = projectEnum(record.status, statuses)
+  const upstreamModel = projectNullableModel(record.upstream_model)
+  const upstreamReportedModel = projectNullableModel(record.upstream_reported_model)
+  const modelConsistency = projectEnum(record.model_consistency, modelConsistencyValues)
+  const validModelObservation =
+    (modelConsistency === 'not_applicable' &&
+      upstreamReportedModel === null &&
+      (status !== 'success' || upstreamModel === null)) ||
+    (modelConsistency === 'unknown' &&
+      status === 'success' &&
+      upstreamModel !== null &&
+      upstreamReportedModel === null) ||
+    (modelConsistency === 'match' &&
+      status === 'success' &&
+      upstreamModel !== null &&
+      upstreamReportedModel !== null) ||
+    (modelConsistency === 'mismatch' &&
+      status === 'success' &&
+      upstreamModel !== null &&
+      upstreamReportedModel !== null)
+  if (!validModelObservation) invalidResponse()
+
   return {
     request_id: projectRequestID(record.request_id),
     completed_at_ms: projectEpochMilliseconds(record.completed_at_ms),
     access_key: projectAccessKey(record.access_key),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
     client_model: projectNullableModel(record.client_model),
-    upstream_model: projectNullableModel(record.upstream_model),
+    upstream_model: upstreamModel,
+    upstream_reported_model: upstreamReportedModel,
+    model_consistency: modelConsistency,
     reasoning: projectReasoning(record.reasoning),
-    status: projectEnum(record.status, statuses),
+    status,
     status_code: projectStatusCode(record.status_code),
     stream: projectBoolean(record.stream),
     first_response_ms:

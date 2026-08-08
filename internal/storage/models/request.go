@@ -9,6 +9,8 @@ type RequestLog struct {
 	Protocol                string              `gorm:"type:varchar(32);not null"`
 	ClientModel             string              `gorm:"type:varchar(255);not null;index:idx_request_logs_model_completed_id,priority:1"`
 	UpstreamModel           string              `gorm:"type:varchar(255);not null;index:idx_request_logs_upstream_model_completed_id,priority:1"`
+	UpstreamReportedModel   string              `gorm:"type:varchar(255);not null;default:''"`
+	ModelConsistency        string              `gorm:"type:varchar(32);not null;default:'not_applicable';check:chk_request_log_model_consistency,model_consistency IN ('not_applicable','match','unknown','mismatch')"`
 	Status                  string              `gorm:"type:varchar(32);not null;check:chk_request_log_status,status IN ('success','error','incomplete','canceled');index:idx_request_logs_status_completed_id,priority:1"`
 	StatusCode              int                 `gorm:"not null"`
 	Stream                  bool                `gorm:"not null;default:false"`

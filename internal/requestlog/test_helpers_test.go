@@ -211,14 +211,16 @@ func aggregationRequestID(index int) string {
 
 func testEvent(id string) telemetry.RequestEvent {
 	return telemetry.RequestEvent{
-		RequestID:     id,
-		CompletedAt:   time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC),
-		AccessKeyID:   42,
-		ClientModel:   "client-model",
-		UpstreamModel: "upstream-model",
-		Status:        telemetry.RequestStatusSuccess,
-		StatusCode:    200,
-		DurationMs:    25,
+		RequestID:             id,
+		CompletedAt:           time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC),
+		AccessKeyID:           42,
+		ClientModel:           "client-model",
+		UpstreamModel:         "upstream-model",
+		UpstreamReportedModel: "upstream-model",
+		ModelConsistency:      telemetry.ModelConsistencyMatch,
+		Status:                telemetry.RequestStatusSuccess,
+		StatusCode:            200,
+		DurationMs:            25,
 		Attempts: []telemetry.Attempt{{
 			Sequence:        1,
 			GroupID:         7,

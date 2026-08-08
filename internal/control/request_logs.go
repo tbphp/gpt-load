@@ -109,6 +109,8 @@ type requestLogItemResponse struct {
 	Protocol                string                       `json:"protocol"`
 	ClientModel             *string                      `json:"client_model"`
 	UpstreamModel           *string                      `json:"upstream_model"`
+	UpstreamReportedModel   *string                      `json:"upstream_reported_model"`
+	ModelConsistency        telemetry.ModelConsistency   `json:"model_consistency"`
 	Reasoning               *requestLogReasoningResponse `json:"reasoning"`
 	Status                  telemetry.RequestStatus      `json:"status"`
 	StatusCode              int                          `json:"status_code"`
@@ -716,6 +718,8 @@ func mapRequestLogItemResponse(
 		Protocol:                string(record.Protocol),
 		ClientModel:             nullableRequestLogModel(record.ClientModel),
 		UpstreamModel:           nullableRequestLogModel(record.UpstreamModel),
+		UpstreamReportedModel:   nullableRequestLogModel(record.UpstreamReportedModel),
+		ModelConsistency:        record.ModelConsistency,
 		Reasoning:               mapRequestLogReasoning(record),
 		Status:                  record.Status,
 		StatusCode:              record.StatusCode,

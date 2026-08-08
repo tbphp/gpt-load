@@ -257,25 +257,30 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 	records := make([]Record, 0, len(rows))
 	for _, row := range rows {
+		if err := validateStoredModelObservation(row); err != nil {
+			return nil, err
+		}
 		if err := validateRequestLogUsageCost(row); err != nil {
 			return nil, err
 		}
 		records = append(records, Record{
-			RequestID:       row.ID,
-			CompletedAtMS:   row.CompletedAtMS,
-			AccessKey:       AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
-			Protocol:        protocol.Protocol(row.Protocol),
-			ClientModel:     row.ClientModel,
-			UpstreamModel:   row.UpstreamModel,
-			Status:          telemetry.RequestStatus(row.Status),
-			StatusCode:      row.StatusCode,
-			Stream:          row.Stream,
-			FirstResponseMs: row.FirstResponseMs,
-			DurationMs:      row.DurationMs,
-			AttemptCount:    row.AttemptCount,
-			ErrorCode:       row.ErrorCode,
-			ErrorSummary:    row.ErrorSummary,
-			AffinityHit:     row.AffinityHit,
+			RequestID:             row.ID,
+			CompletedAtMS:         row.CompletedAtMS,
+			AccessKey:             AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
+			Protocol:              protocol.Protocol(row.Protocol),
+			ClientModel:           row.ClientModel,
+			UpstreamModel:         row.UpstreamModel,
+			UpstreamReportedModel: row.UpstreamReportedModel,
+			ModelConsistency:      telemetry.ModelConsistency(row.ModelConsistency),
+			Status:                telemetry.RequestStatus(row.Status),
+			StatusCode:            row.StatusCode,
+			Stream:                row.Stream,
+			FirstResponseMs:       row.FirstResponseMs,
+			DurationMs:            row.DurationMs,
+			AttemptCount:          row.AttemptCount,
+			ErrorCode:             row.ErrorCode,
+			ErrorSummary:          row.ErrorSummary,
+			AffinityHit:           row.AffinityHit,
 			Reasoning: reasoning.Config{
 				Mode:         row.ReasoningMode,
 				Effort:       row.ReasoningEffort,
@@ -296,6 +301,33 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 		})
 	}
 	return records, nil
+}
+
+func validateStoredModelObservation(row models.RequestLog) error {
+	successfulModeledRequest := row.Status == string(telemetry.RequestStatusSuccess) &&
+		row.UpstreamModel != ""
+	reported := row.UpstreamReportedModel != ""
+
+	switch telemetry.ModelConsistency(row.ModelConsistency) {
+	case telemetry.ModelConsistencyNotApplicable:
+		if reported || successfulModeledRequest {
+			return fmt.Errorf("decode request log model consistency: invalid not-applicable observation")
+		}
+	case telemetry.ModelConsistencyUnknown:
+		if !successfulModeledRequest || reported {
+			return fmt.Errorf("decode request log model consistency: invalid unknown observation")
+		}
+	case telemetry.ModelConsistencyMatch, telemetry.ModelConsistencyMismatch:
+		if !successfulModeledRequest || !reported {
+			return fmt.Errorf("decode request log model consistency: invalid observed model")
+		}
+	default:
+		return fmt.Errorf(
+			"decode request log model consistency: invalid state %q",
+			row.ModelConsistency,
+		)
+	}
+	return nil
 }
 
 func validateRequestLogUsageCost(row models.RequestLog) error {

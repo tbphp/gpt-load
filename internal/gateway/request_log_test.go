@@ -256,6 +256,8 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 	if event.Protocol != protocol.OpenAIResponses ||
 		event.ClientModel != "" ||
 		event.UpstreamModel != "" ||
+		event.UpstreamReportedModel != "" ||
+		event.ModelConsistency != telemetry.ModelConsistencyNotApplicable ||
 		len(event.Attempts) != 1 ||
 		event.Attempts[0].UpstreamModel != "" ||
 		event.Usage.Result.State != usage.StateNotApplicable ||
@@ -263,6 +265,89 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 			CostState: "not_applicable", PricingCompleteness: "not_applicable",
 		}) {
 		t.Fatalf("event = %#v", event)
+	}
+}
+
+func TestHandlerRecordsModelConsistencyOnlyForSuccessfulModeledRequests(t *testing.T) {
+	tests := []struct {
+		name                 string
+		result               UpstreamResult
+		wantConsistency      telemetry.ModelConsistency
+		wantReportedModel    string
+		wantDownstreamStatus int
+	}{
+		{
+			name: "match",
+			result: UpstreamResult{
+				StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
+				ResponseModelObserved: true, UpstreamReportedModel: "gpt-4o",
+			},
+			wantConsistency:      telemetry.ModelConsistencyMatch,
+			wantReportedModel:    "gpt-4o",
+			wantDownstreamStatus: http.StatusOK,
+		},
+		{
+			name: "unknown",
+			result: UpstreamResult{
+				StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
+			},
+			wantConsistency:      telemetry.ModelConsistencyUnknown,
+			wantDownstreamStatus: http.StatusOK,
+		},
+		{
+			name: "mismatch",
+			result: UpstreamResult{
+				StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
+				ResponseModelObserved: true, ResponseModelMismatch: true,
+				UpstreamReportedModel: "different-model",
+			},
+			wantConsistency:      telemetry.ModelConsistencyMismatch,
+			wantReportedModel:    "different-model",
+			wantDownstreamStatus: http.StatusOK,
+		},
+		{
+			name: "unsuccessful response is ignored",
+			result: UpstreamResult{
+				StatusCode: http.StatusBadRequest, Header: make(http.Header), RequestWritten: true,
+				ClassificationBody:    []byte(`{"error":{"message":"invalid request"}}`),
+				ResponseModelObserved: true, ResponseModelMismatch: true,
+				UpstreamReportedModel: "different-model",
+			},
+			wantConsistency:      telemetry.ModelConsistencyNotApplicable,
+			wantDownstreamStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &recordingRequestLogSink{}
+			engine, _, _, _ := newRequestLogHandlerTestRuntime(
+				t,
+				&scriptedForwarder{results: []UpstreamResult{test.result}},
+				&recordingAccessKeyRPMLimiter{},
+				sink,
+				"sk-first",
+			)
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				strings.NewReader(`{"model":"gpt-4o"}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+
+			events := sink.snapshot()
+			if response.Code != test.wantDownstreamStatus || len(events) != 1 {
+				t.Fatalf("response/events = %d/%#v", response.Code, events)
+			}
+			event := events[0]
+			if event.UpstreamModel != "gpt-4o" ||
+				event.UpstreamReportedModel != test.wantReportedModel ||
+				event.ModelConsistency != test.wantConsistency {
+				t.Fatalf("model consistency event = %#v", event)
+			}
+		})
 	}
 }
 

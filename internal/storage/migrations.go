@@ -50,6 +50,10 @@ var migrations = []migration{
 		ID: "0004_mysql_model_price_identity",
 		Up: migrateMySQLModelPriceIdentity,
 	},
+	{
+		ID: "0005_request_log_model_consistency",
+		Up: addRequestLogModelConsistencyColumns,
+	},
 }
 
 func applyMigrations(db *gorm.DB) error {

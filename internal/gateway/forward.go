@@ -45,6 +45,9 @@ type UpstreamResult struct {
 	Header                    http.Header
 	Body                      []byte
 	ClassificationBody        []byte
+	UpstreamReportedModel     string
+	ResponseModelObserved     bool
+	ResponseModelMismatch     bool
 	ErrorSummary              string
 	Err                       error
 	RequestWritten            bool
@@ -177,6 +180,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		}
 		result.Body = prepared.downstream
 		result.Header = prepared.headers
+		applyResponseModelObservation(&result, prepared.modelObservation)
 		if input.ObserveUsage && forwarder.usageCapture != nil {
 			result.Usage = forwarder.usageCapture.extractNonStreamingPlain(
 				input.Dialect,
@@ -274,7 +278,13 @@ func (forwarder *Forwarder) ForwardStream(
 			input.ObserveUsage,
 		),
 	)
-	defer func() { result.Usage = streamEvents.finalizeUsage() }()
+	modelTracker := newResponseModelTracker(input.Dialect, input.UpstreamModelID)
+	defer func() {
+		result.Usage = streamEvents.finalizeUsage()
+		if result.Stream.EndReason == StreamEndCleanEOF {
+			applyResponseModelObservation(&result, modelTracker.observation())
+		}
+	}()
 
 	if err := validateStreamContentEncoding(representationHeaders); err != nil {
 		result.Err = err
@@ -300,6 +310,7 @@ func (forwarder *Forwarder) ForwardStream(
 	) (sseEventRewriteResult, error) {
 		firstPayload := firstPayloadPending
 		firstPayloadPending = false
+		modelTracker.observe(event.Payload)
 		safePayload := event.Payload
 		for _, secret := range knownSecrets {
 			var ok bool

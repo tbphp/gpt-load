@@ -17,10 +17,11 @@ import (
 )
 
 type preparedSuccessRepresentation struct {
-	headers     http.Header
-	downstream  []byte
-	inspectable []byte
-	changed     bool
+	headers          http.Header
+	downstream       []byte
+	inspectable      []byte
+	modelObservation responseModelObservation
+	changed          bool
 }
 
 type preparedErrorRepresentation struct {
@@ -55,6 +56,8 @@ func (forwarder *Forwarder) prepareSuccessRepresentation(
 	if err != nil {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("decompress response body")
 	}
+	modelTracker := newResponseModelTracker(input.Dialect, input.UpstreamModelID)
+	modelTracker.observe(originalPlain)
 
 	patternSafePlain := forwarder.redactor.Bytes(originalPlain)
 	if int64(len(patternSafePlain)) > maxNonStreamingResponseBodyBytes {
@@ -130,10 +133,11 @@ func (forwarder *Forwarder) prepareSuccessRepresentation(
 	}
 
 	return preparedSuccessRepresentation{
-		headers:     preparedHeaders,
-		downstream:  bytes.Clone(downstreamPlain),
-		inspectable: inspectablePlain,
-		changed:     changed,
+		headers:          preparedHeaders,
+		downstream:       bytes.Clone(downstreamPlain),
+		inspectable:      inspectablePlain,
+		modelObservation: modelTracker.observation(),
+		changed:          changed,
 	}, nil
 }
 

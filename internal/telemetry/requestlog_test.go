@@ -23,6 +23,8 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"Protocol",
 			"ClientModel",
 			"UpstreamModel",
+			"UpstreamReportedModel",
+			"ModelConsistency",
 			"Status",
 			"StatusCode",
 			"ErrorCode",
@@ -83,5 +85,10 @@ func TestTelemetryEnumValuesAreStable(t *testing.T) {
 	}
 	if FailureCategoryRateLimited != "rate_limited" || ActionSkipGroup != "skip_group" {
 		t.Fatalf("attempt enum values changed")
+	}
+	if ModelConsistencyNotApplicable != "not_applicable" ||
+		ModelConsistencyMatch != "match" || ModelConsistencyUnknown != "unknown" ||
+		ModelConsistencyMismatch != "mismatch" {
+		t.Fatalf("model consistency values changed")
 	}
 }
