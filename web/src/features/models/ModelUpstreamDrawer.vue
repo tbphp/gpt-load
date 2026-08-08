@@ -4,6 +4,7 @@ import { computed, ref, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import { getUpstreamModelDetail, type UpstreamModelDetailDto } from '@/app/resources/models'
 import { controlQueryKeys } from '@/app/query-keys'
 import { groupDetailLocation } from '@/app/route-locations'
@@ -13,6 +14,7 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import ModelPriceMatrix from '@/features/model-prices/ModelPriceMatrix.vue'
 import ModelPriceResetDialog from '@/features/model-prices/ModelPriceResetDialog.vue'
 import { useModelPriceEditor } from '@/features/model-prices/use-model-price-editor'
@@ -33,6 +35,7 @@ const detailQuery = useQuery({
   queryFn: ({ signal }) => getUpstreamModelDetail(client, props.priceId as number, signal),
   enabled: computed(() => props.open && props.priceId !== null),
 })
+const initialLoading = useStableLoading(() => props.open && detailQuery.isPending.value)
 const detail = computed(() => detailQuery.data.value)
 
 /**
@@ -117,10 +120,12 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
       />
     </template>
 
-    <QueryFeedback
-      v-if="detailQuery.isPending.value"
-      state="loading"
-      :message="t('models.drawer.loading')"
+    <SkeletonSurface
+      v-if="(open && detailQuery.isPending.value) || initialLoading"
+      variant="detail"
+      min-height="640px"
+      :concealed="!initialLoading"
+      :label="t('models.drawer.loading')"
     />
     <QueryFeedback
       v-else-if="detailQuery.isError.value"

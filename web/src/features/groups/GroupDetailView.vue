@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import {
   groupModelsQueryOptions,
   groupSettingsQueryOptions,
@@ -14,7 +15,9 @@ import { groupKeyCollectionQueryOptions } from '@/app/resources/upstream-keys'
 import { groupsLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import GroupHeader from './GroupHeader.vue'
 import GroupKeysTab from './keys/GroupKeysTab.vue'
@@ -30,6 +33,12 @@ const { t } = useI18n()
 const groupId = computed(() => parsePositiveId(route.params.id))
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
 const summaryQuery = useQuery(groupSummaryQueryOptions(client, groupId))
+const initialLoading = useStableLoading(
+  () => summaryQuery.isPending.value && summaryQuery.data.value === undefined,
+)
+const summaryRefreshing = computed(
+  () => summaryQuery.data.value !== undefined && summaryQuery.isFetching.value,
+)
 
 watch(
   groupId,
@@ -58,10 +67,12 @@ watch(
         }}</RouterLink>
       </div>
       <template v-else>
-        <QueryFeedback
-          v-if="summaryQuery.isPending.value"
-          state="loading"
-          :message="t('group.loading')"
+        <AsyncRefreshIndicator :active="summaryRefreshing" :label="t('group.loading')" />
+        <SkeletonSurface
+          v-if="(summaryQuery.isPending.value && !summaryQuery.data.value) || initialLoading"
+          variant="detail"
+          :concealed="!initialLoading"
+          :label="t('group.loading')"
         />
         <QueryFeedback
           v-else-if="summaryQuery.isError.value && !summaryQuery.data.value"

@@ -5,14 +5,17 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import { homeBaseQueryOptions, type HomeRange } from '@/app/resources/home'
 import { homeLocation } from '@/app/route-locations'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import PageSection from '@/components/layout/PageSection.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import ConsumptionRanking from './ConsumptionRanking.vue'
 import GatewayConnection from './GatewayConnection.vue'
@@ -56,6 +59,13 @@ const statisticsLoading = computed(() => {
   return statistics.state.value.kind === 'initial'
 })
 const statisticsSwitching = computed(() => statistics.state.value.kind === 'switching')
+const baseLoading = useStableLoading(() => baseQuery.isPending.value)
+const statisticsInitialLoading = useStableLoading(statisticsLoading)
+const statisticsTransition = useStableLoading(statisticsSwitching)
+const baseRefreshing = computed(
+  () => baseQuery.data.value !== undefined && baseQuery.isFetching.value,
+)
+const homeRefreshing = computed(() => baseRefreshing.value || statistics.refreshing.value)
 const displayedRange = computed(
   () => statistics.targetRange.value ?? snapshot.value?.range ?? statistics.selectedRange.value,
 )
@@ -132,18 +142,17 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 <template>
   <PageFrame aria-labelledby="home-title">
     <LedgerSheet class="home-view__sheet" :class="{ 'home-view__sheet--welcome': isEmpty }">
-      <div
-        v-if="baseQuery.isPending.value"
-        class="home-view__loading"
-        :aria-label="t('home.ledger.loading')"
-      >
-        <SkeletonBlock height="2rem" />
-        <SkeletonBlock height="7.5rem" />
-        <SkeletonBlock height="12rem" />
-      </div>
+      <AsyncRefreshIndicator :active="homeRefreshing" :label="t('home.ledger.loading')" />
+
+      <SkeletonSurface
+        v-if="baseQuery.isPending.value || baseLoading"
+        variant="page"
+        :concealed="!baseLoading"
+        :label="t('home.ledger.loading')"
+      />
 
       <section
-        v-else-if="baseQuery.isError.value"
+        v-else-if="baseQuery.isError.value && !baseQuery.data.value"
         class="home-view__error"
         aria-labelledby="home-title"
       >
@@ -159,13 +168,20 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
       <HomeWelcome v-else-if="isEmpty" />
 
       <template v-else-if="baseQuery.data.value">
+        <QueryFeedback
+          v-if="baseQuery.isError.value"
+          state="stale"
+          :message="t('home.ledger.baseError')"
+          :retry-label="t('common.retry')"
+          @retry="baseQuery.refetch()"
+        />
         <HomeSummary
           :base="baseQuery.data.value"
           :statistics-state="statistics.state.value"
           :selected-range="statistics.selectedRange.value"
           :observed-at-ms="statistics.lastSuccessfulObservedAtMS.value"
           :uptime-now-ms="uptimeNowMS"
-          :loading="statisticsSwitching"
+          :loading="statisticsTransition"
           @select-range="selectRange"
         />
 
@@ -175,7 +191,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
             :title="t('home.ledger.trendTitle', { range: rangeLabel(displayedRange) })"
           >
             <SkeletonBlock
-              v-if="statisticsSwitching"
+              v-if="statisticsTransition"
               class="home-view__trend-skeleton"
               height="auto"
               :aria-label="t('home.ledger.statisticsLoading')"
@@ -194,11 +210,15 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
             />
           </PageSection>
           <PageSection
-            v-else-if="statisticsLoading"
+            v-else-if="statisticsLoading || statisticsInitialLoading"
             :title="t('home.ledger.statisticsLoading')"
             class="home-view__statistics-section"
           >
-            <SkeletonBlock height="12rem" :aria-label="t('home.ledger.statisticsLoading')" />
+            <SkeletonBlock
+              height="12rem"
+              :concealed="!statisticsInitialLoading"
+              :aria-label="t('home.ledger.statisticsLoading')"
+            />
           </PageSection>
         </section>
 
@@ -208,15 +228,19 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
             :rankings="snapshot.rankings"
             :range="rangeLabel(displayedRange)"
             :dimension="routeState.ranking"
-            :loading="statisticsSwitching"
+            :loading="statisticsTransition"
             @update:dimension="selectRanking"
           />
           <PageSection
-            v-else-if="statisticsLoading"
+            v-else-if="statisticsLoading || statisticsInitialLoading"
             :title="t('home.ledger.statisticsLoading')"
             class="home-view__statistics-section"
           >
-            <SkeletonBlock height="17rem" :aria-label="t('home.ledger.statisticsLoading')" />
+            <SkeletonBlock
+              height="17rem"
+              :concealed="!statisticsInitialLoading"
+              :aria-label="t('home.ledger.statisticsLoading')"
+            />
           </PageSection>
         </section>
 
@@ -233,16 +257,10 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 </template>
 
 <style scoped>
-.home-view__loading,
 .home-view__error {
   display: grid;
   gap: var(--space-5);
   min-height: 420px;
-}
-
-.home-view__loading {
-  align-content: start;
-  min-height: 860px;
 }
 
 .home-view__title {
@@ -269,7 +287,6 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 }
 
 @media (max-width: 860px) {
-  .home-view__loading,
   .home-view__sheet--welcome {
     min-height: 0;
   }

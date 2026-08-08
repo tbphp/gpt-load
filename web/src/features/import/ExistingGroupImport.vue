@@ -6,14 +6,17 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { InvalidResponseError } from '@/api/errors'
+import { useStableLoading } from '@/app/loading-state'
 import { groupOptionsQueryOptions, importGroupKeys } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
@@ -78,6 +81,12 @@ const routeGroupID = computed(() =>
 const operationGroupID = computed(() => operation.operation.value?.payload.groupID)
 const targetGroupID = computed(() => operationGroupID.value ?? routeGroupID.value)
 const groupsQuery = useQuery(groupOptionsQueryOptions(api))
+const groupsLoading = useStableLoading(
+  () => groupsQuery.isPending.value && groupsQuery.data.value === undefined,
+)
+const groupsRefreshing = computed(
+  () => groupsQuery.data.value !== undefined && groupsQuery.isFetching.value,
+)
 const selectedGroup = computed(() => {
   const id = targetGroupID.value
   return id === undefined
@@ -236,9 +245,23 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <InlineFeedback v-if="groupsQuery.isPending.value && !groupsQuery.data.value" tone="info">
-        {{ t('import.existing.groupsLoading') }}
-      </InlineFeedback>
+      <AsyncRefreshIndicator
+        :active="groupsRefreshing"
+        :label="t('import.existing.groupsLoading')"
+      />
+
+      <SkeletonSurface
+        v-if="(groupsQuery.isPending.value && !groupsQuery.data.value) || groupsLoading"
+        variant="collection"
+        :rows="1"
+        :columns="2"
+        row-height="64px"
+        mobile-row-height="88px"
+        min-height="102px"
+        :show-pagination="false"
+        :concealed="!groupsLoading"
+        :label="t('import.existing.groupsLoading')"
+      />
       <div
         v-else-if="groupsQuery.isError.value && !groupsQuery.data.value"
         class="existing-import__query-error"

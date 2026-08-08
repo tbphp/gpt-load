@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { CircleDollarSign, LoaderCircle, Radar, RefreshCw } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { CircleDollarSign, Radar, RefreshCw } from '@lucide/vue'
+import { computed, ref, toRef, watch } from 'vue'
 
+import { useStableLoading } from '@/app/loading-state'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import type { ModelCandidate } from '@/app/resources/providers'
 
 import type { ModelDiscoveryDrawerLabels } from './model-draft'
@@ -35,6 +37,7 @@ const emit = defineEmits<{
   retry: []
   confirm: [candidates: ModelCandidate[]]
 }>()
+const loadingVisible = useStableLoading(toRef(props, 'loading'))
 
 const internalSearch = ref(props.search ?? '')
 const internalFilter = ref<DiscoveryFilter>(props.filter ?? 'unadded')
@@ -182,14 +185,18 @@ function confirm(): void {
       />
     </template>
     <div class="model-discovery-drawer" :aria-busy="loading ? 'true' : undefined">
-      <div v-if="loading" class="model-discovery-drawer__state">
-        <InlineFeedback>
-          <template #glyph>
-            <LoaderCircle class="model-discovery-drawer__loading-icon" :size="16" />
-          </template>
-          {{ labels.loading }}
-        </InlineFeedback>
-      </div>
+      <SkeletonSurface
+        v-if="loading || loadingVisible"
+        variant="collection"
+        :rows="5"
+        :columns="3"
+        row-height="58px"
+        mobile-row-height="76px"
+        min-height="328px"
+        :show-pagination="false"
+        :concealed="!loadingVisible"
+        :label="labels.loading"
+      />
       <div v-else-if="error" class="model-discovery-drawer__state">
         <InlineFeedback tone="danger">
           {{ error }}
@@ -316,10 +323,6 @@ function confirm(): void {
   align-self: center;
 }
 
-.model-discovery-drawer__loading-icon {
-  animation: model-discovery-drawer-spin 1s linear infinite;
-}
-
 .model-discovery-drawer__candidate-list {
   display: grid;
   margin: 0;
@@ -438,18 +441,6 @@ function confirm(): void {
 
   .model-discovery-drawer__actions :deep(.app-button) {
     flex: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .model-discovery-drawer__loading-icon {
-    animation: none;
-  }
-}
-
-@keyframes model-discovery-drawer-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 </style>

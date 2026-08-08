@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useStableLoading } from '@/app/loading-state'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
@@ -21,10 +22,12 @@ import {
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatISOInstant, formatInteger, formatLocalInstant, formatPercent } from '@/lib/format'
 
@@ -73,6 +76,9 @@ const failed = ref(false)
 const resultStale = ref(false)
 const submitted = ref<RouteInspectRequest>()
 const observation = ref<RouteInspectResponseDto>()
+const resultLoadingActive = computed(() => pending.value && observation.value === undefined)
+const resultLoading = useStableLoading(resultLoadingActive)
+const resultRefreshing = computed(() => pending.value && observation.value !== undefined)
 const resultSummary = ref<HTMLHeadingElement | null>(null)
 const observationDateTime = computed(() =>
   observation.value === undefined ? undefined : formatISOInstant(observation.value.observed_at_ms),
@@ -425,10 +431,16 @@ onBeforeUnmount(() => {
     />
 
     <div class="inspector-stack">
-      <QueryFeedback
-        v-if="pending && !observation"
-        state="loading"
-        :message="t('monitor.inspector.request.loading')"
+      <AsyncRefreshIndicator
+        :active="resultRefreshing"
+        :label="t('monitor.inspector.request.loading')"
+      />
+      <SkeletonSurface
+        v-if="resultLoadingActive || resultLoading"
+        variant="detail"
+        min-height="330px"
+        :concealed="!resultLoading"
+        :label="t('monitor.inspector.request.loading')"
       />
       <QueryFeedback
         v-else-if="failed && !observation"

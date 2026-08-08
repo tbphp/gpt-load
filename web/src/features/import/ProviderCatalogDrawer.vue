@@ -2,11 +2,14 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useStableLoading } from '@/app/loading-state'
 import type { ProviderSuggestion } from '@/app/resources/providers'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 const props = defineProps<{
   open: boolean
@@ -56,6 +59,9 @@ const hasAnyResults = computed(
     curatedMatches.value.length > 0 ||
     catalogMatches.value.length > 0,
 )
+const initialLoadingActive = computed(() => props.loading && !hasAnyResults.value)
+const initialLoadingVisible = useStableLoading(initialLoadingActive)
+const refreshing = computed(() => props.loading && hasAnyResults.value)
 
 function providerMeta(provider: ProviderSuggestion): string {
   const protocolsText = provider.protocols.length
@@ -115,9 +121,20 @@ function hostOf(url: string): string {
         </div>
       </section>
 
-      <InlineFeedback v-if="loading" class="provider-catalog-drawer__state">
-        {{ t('import.presets.loading') }}
-      </InlineFeedback>
+      <AsyncRefreshIndicator :active="refreshing" :label="t('import.presets.loading')" />
+
+      <SkeletonSurface
+        v-if="initialLoadingActive || initialLoadingVisible"
+        variant="collection"
+        :rows="5"
+        :columns="3"
+        row-height="64px"
+        mobile-row-height="76px"
+        min-height="358px"
+        :show-pagination="false"
+        :concealed="!initialLoadingVisible"
+        :label="t('import.presets.loading')"
+      />
       <InlineFeedback v-else-if="error" class="provider-catalog-drawer__state" tone="danger">
         {{ t('import.presets.loadFailed') }}
         <template #action>

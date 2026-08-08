@@ -29,6 +29,16 @@
   --color-danger-bg: #fbebe9;
   --color-neutral: #5a5f66;
   --color-neutral-bg: #eceded;
+  --color-skeleton-base: color-mix(
+    in srgb,
+    var(--color-surface-sunken) 82%,
+    var(--color-border-subtle)
+  );
+  --color-skeleton-highlight: color-mix(
+    in srgb,
+    var(--color-surface-raised) 70%,
+    var(--color-border-subtle)
+  );
   --color-interactive-hover: color-mix(in srgb, var(--color-surface-sunken) 58%, transparent);
   --color-feedback-success-border: color-mix(
     in srgb,
@@ -121,6 +131,7 @@
   --duration-normal: 180ms;
   --duration-data: 220ms;
   --duration-skeleton: 1.4s;
+  --duration-loading-indicator: 1.2s;
   --easing-standard: ease;
   --easing-data: ease-out;
 

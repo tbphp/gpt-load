@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { useCollectionLoading } from '@/app/loading-state'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
@@ -16,12 +17,14 @@ import {
 } from '@/app/resources/request-logs'
 import { monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
+import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
 
@@ -70,6 +73,27 @@ const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
 const logs = computed(() => logsQuery.data.value?.items ?? [])
+const {
+  initial: initialLoading,
+  transition: collectionTransition,
+  refreshing: collectionRefreshing,
+  rows: skeletonRows,
+} = useCollectionLoading(
+  {
+    pending: () => logsQuery.isPending.value,
+    placeholder: () => logsQuery.isPlaceholderData.value,
+    fetching: () => logsQuery.isFetching.value,
+    hasData: () => logsQuery.data.value !== undefined,
+    itemCount: () => logs.value.length,
+  },
+  { fallbackRows: 20 },
+)
+const logsRefreshing = computed(
+  () =>
+    collectionRefreshing.value ||
+    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
+    (accessKeyOptionsQuery.data.value !== undefined && accessKeyOptionsQuery.isFetching.value),
+)
 const currentPage = computed(() => routeState.value.cursorHistory.length + 1)
 const paginationBusy = computed(() => paginationPending.value || logsQuery.isFetching.value)
 const filterSignature = computed(() =>
@@ -474,10 +498,18 @@ function costLabel(log: RequestLogItemDto): string {
     >
       {{ t('monitor.logs.options.partialFailed') }}
     </InlineFeedback>
-    <QueryFeedback
-      v-if="logsQuery.isPending.value"
-      state="loading"
-      :message="t('monitor.logs.loading')"
+
+    <AsyncRefreshIndicator :active="logsRefreshing" :label="t('monitor.logs.loading')" />
+
+    <SkeletonSurface
+      v-if="logsQuery.isPending.value || initialLoading"
+      variant="collection"
+      :rows="appliedFilters.limit ?? 20"
+      :columns="8"
+      row-height="72px"
+      mobile-row-height="176px"
+      :concealed="!initialLoading"
+      :label="t('monitor.logs.loading')"
     />
     <QueryFeedback
       v-else-if="logsQuery.isError.value && !logsQuery.data.value"
@@ -486,7 +518,7 @@ function costLabel(log: RequestLogItemDto): string {
       :retry-label="t('common.retry')"
       @retry="logsQuery.refetch()"
     />
-    <template v-else>
+    <template v-else-if="logsQuery.data.value">
       <QueryFeedback
         v-if="logsQuery.isError.value"
         state="stale"
@@ -494,8 +526,17 @@ function costLabel(log: RequestLogItemDto): string {
         :retry-label="t('common.retry')"
         @retry="logsQuery.refetch()"
       />
+      <SkeletonSurface
+        v-if="collectionTransition"
+        variant="collection"
+        :rows="skeletonRows"
+        :columns="8"
+        row-height="72px"
+        mobile-row-height="176px"
+        :label="t('monitor.logs.loading')"
+      />
       <LedgerRecordList
-        v-if="logs.length"
+        v-else-if="logs.length"
         grid-class="logs-list"
         :label="t('monitor.logs.caption')"
         :row-count="logs.length + 1"
@@ -681,6 +722,7 @@ function costLabel(log: RequestLogItemDto): string {
         <template #icon><Search :size="20" /></template>
       </EmptyState>
       <PaginationBar
+        v-if="!collectionTransition"
         cursor
         :page="currentPage"
         :page-size="appliedFilters.limit ?? 20"
