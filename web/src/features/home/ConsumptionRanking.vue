@@ -15,20 +15,27 @@ const props = withDefaults(
     rankings: HomeRankings
     range: string
     dimension: HomeRankingDimension
+    modelsOnly?: boolean
     loading?: boolean
   }>(),
   {
     loading: false,
+    modelsOnly: false,
   },
 )
 const emit = defineEmits<{ 'update:dimension': [dimension: HomeRankingDimension] }>()
 
 const { locale, t } = useI18n()
-const options = computed(() => [
-  { value: 'models', label: t('home.ledger.ranking.tabs.models') },
-  { value: 'groups', label: t('home.ledger.ranking.tabs.groups') },
-  { value: 'accessKeys', label: t('home.ledger.ranking.tabs.accessKeys') },
-])
+const options = computed(() => {
+  const models = { value: 'models', label: t('home.ledger.ranking.tabs.models') }
+  return props.modelsOnly
+    ? [models]
+    : [
+        models,
+        { value: 'groups', label: t('home.ledger.ranking.tabs.groups') },
+        { value: 'accessKeys', label: t('home.ledger.ranking.tabs.accessKeys') },
+      ]
+})
 const rows = computed(() => {
   if (props.dimension === 'models') return props.rankings.models.slice(0, 5)
   if (props.dimension === 'groups') return props.rankings.groups.slice(0, 5)
@@ -71,6 +78,7 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
         {{ t('home.ledger.ranking.title', { range }) }}
       </h2>
       <SegmentedControl
+        v-if="!modelsOnly"
         :model-value="dimension"
         :label="t('home.ledger.ranking.tabs.label')"
         :options="options"

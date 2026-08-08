@@ -16,8 +16,10 @@ import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
+import { useAuthSession } from '@/features/auth/auth-session'
 
 import ConsumptionRanking from './ConsumptionRanking.vue'
+import CurrentAccessKeyCard from './CurrentAccessKeyCard.vue'
 import GatewayConnection from './GatewayConnection.vue'
 import HomeSummary from './HomeSummary.vue'
 import HomeWelcome from './HomeWelcome.vue'
@@ -33,11 +35,16 @@ import {
 import type { GatewayClientID } from './gateway-clients'
 
 const client = useApiClient()
+const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
 const baseQuery = useQuery(homeBaseQueryOptions(client))
-const routeState = computed(() => parseHomeRouteQuery(route.query))
+const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const routeState = computed<HomeRouteState>(() => {
+  const state = parseHomeRouteQuery(route.query)
+  return isAccessKey.value ? { ...state, ranking: 'models', accessKeyID: undefined } : state
+})
 const statistics = useHomeStatisticsPresenter(client, { initialRange: routeState.value.range })
 const serverClockOffsetMS = ref(0)
 const nowMS = ref(Date.now())
@@ -84,7 +91,10 @@ const selectedAccessKeyID = computed(() => {
 watch(
   () => route.query,
   (query) => {
-    const state = parseHomeRouteQuery(query)
+    const parsed = parseHomeRouteQuery(query)
+    const state = isAccessKey.value
+      ? { ...parsed, ranking: 'models' as const, accessKeyID: undefined }
+      : parsed
     if (!isCanonicalHomeRouteQuery(query, state)) {
       void router.replace(homeLocation(serializeHomeRouteQuery(state)))
     }
@@ -122,6 +132,7 @@ function selectRanking(dimension: HomeRankingDimension): void {
 }
 
 function selectAccessKey(id: number): void {
+  if (isAccessKey.value) return
   navigate({ accessKeyID: id })
 }
 
@@ -141,7 +152,10 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 
 <template>
   <PageFrame aria-labelledby="home-title">
-    <LedgerSheet class="home-view__sheet" :class="{ 'home-view__sheet--welcome': isEmpty }">
+    <LedgerSheet
+      class="home-view__sheet"
+      :class="{ 'home-view__sheet--welcome': isEmpty && !isAccessKey }"
+    >
       <AsyncRefreshIndicator :active="homeRefreshing" :label="t('home.ledger.loading')" />
 
       <SkeletonSurface
@@ -165,7 +179,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
         />
       </section>
 
-      <HomeWelcome v-else-if="isEmpty" />
+      <HomeWelcome v-else-if="isEmpty && !isAccessKey" />
 
       <template v-else-if="baseQuery.data.value">
         <QueryFeedback
@@ -183,6 +197,11 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           :uptime-now-ms="uptimeNowMS"
           :loading="statisticsTransition"
           @select-range="selectRange"
+        />
+
+        <CurrentAccessKeyCard
+          v-if="baseQuery.data.value.current_access_key"
+          :access-key="baseQuery.data.value.current_access_key"
         />
 
         <section class="home-view__statistics-region home-view__statistics-region--trend">
@@ -228,6 +247,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
             :rankings="snapshot.rankings"
             :range="rangeLabel(displayedRange)"
             :dimension="routeState.ranking"
+            :models-only="isAccessKey"
             :loading="statisticsTransition"
             @update:dimension="selectRanking"
           />
@@ -248,6 +268,8 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           :access-keys="baseQuery.data.value.access_keys"
           :selected-access-key-id="selectedAccessKeyID"
           :client-id="routeState.client"
+          :credential="isAccessKey ? session.getAuthKey() : undefined"
+          :self-scoped="isAccessKey"
           @update:selected-access-key-id="selectAccessKey"
           @update:client-id="selectClient"
         />

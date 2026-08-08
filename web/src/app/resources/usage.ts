@@ -65,7 +65,7 @@ export interface UsageReportDto {
   breakdown_order: UsageBreakdownOrder
   breakdown_count: number
   collection_health: {
-    scope: 'current_process'
+    scope: 'current_process' | 'access_key'
     dropped_total: number
     write_failure_total: number
     last_write_failure_at_ms: number | null
@@ -172,7 +172,7 @@ function projectCollectionHealth(value: unknown): UsageReportDto['collection_hea
     'last_write_failure_at_ms',
   ])
   return {
-    scope: projectEnum(record.scope, ['current_process'] as const),
+    scope: projectEnum(record.scope, ['current_process', 'access_key'] as const),
     dropped_total: projectSafeInteger(record.dropped_total, { minimum: 0 }),
     write_failure_total: projectSafeInteger(record.write_failure_total, { minimum: 0 }),
     last_write_failure_at_ms: projectNullableEpochMilliseconds(record.last_write_failure_at_ms),

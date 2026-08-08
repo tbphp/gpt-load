@@ -165,6 +165,50 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 	}
 }
 
+func TestReadAccessKeyHomeBaseScopesInventoryToRoutableModels(t *testing.T) {
+	fixture := newServiceFixture(t)
+	allowed := createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "allowed", UpstreamURL: "https://allowed.example/v1",
+		Protocols: models.JSON(`["openai-completions"]`),
+		Models: models.JSON(`[
+			{"id":"upstream-allowed","alias":"client-allowed"},
+			{"id":"upstream-hidden","alias":"client-hidden"}
+		]`),
+		Config: models.JSON(`{}`), Enabled: true,
+	})
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "private", UpstreamURL: "https://private.example",
+		Protocols: models.JSON(`["gemini"]`),
+		Models:    models.JSON(`[{"id":"private-upstream","alias":"private-client"}]`),
+		Config:    models.JSON(`{}`), Enabled: true,
+	})
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "scoped home",
+		Filters: &AccessKeyFilters{
+			Groups:    []uint{allowed.ID},
+			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+			Models:    []string{"client-allowed"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+
+	result, err := fixture.service.ReadAccessKeyHomeBase(
+		t.Context(),
+		time.Date(2026, time.August, 8, 20, 0, 0, 0, time.UTC).UnixMilli(),
+		created.ID,
+	)
+	if err != nil {
+		t.Fatalf("ReadAccessKeyHomeBase() error = %v", err)
+	}
+	if result.Inventory != (HomeInventory{GroupCount: 1, ModelCount: 1}) ||
+		len(result.AccessKeys) != 1 || result.AccessKeys[0].ID != created.ID ||
+		result.CurrentAccessKey == nil || result.CurrentAccessKey.ID != created.ID {
+		t.Fatalf("ReadAccessKeyHomeBase() = %#v", result)
+	}
+}
+
 func TestReadHomeBaseFailsClosed(t *testing.T) {
 	t.Run("invalid time", func(t *testing.T) {
 		fixture := newServiceFixture(t)

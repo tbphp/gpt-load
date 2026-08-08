@@ -2,6 +2,11 @@ export default {
   accessKeys: {
     title: 'Access keys',
     description: 'Issue and manage plaintext-sensitive credentials for data-plane clients.',
+    loginNotice: {
+      title: 'AccessKeys can also sign in',
+      description:
+        "When distributing an AccessKey, tell its holder to enter it on this instance's sign-in page. It can view its Home, available models, usage, and redacted request history, but cannot change configuration.",
+    },
     create: 'Create AccessKey',
     copy: 'Copy AccessKey',
     toast: {

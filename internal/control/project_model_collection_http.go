@@ -12,6 +12,10 @@ func (s *Server) handleListProjectModels(c *gin.Context) {
 		writeServiceError(c, "list_project_models", apiErr)
 		return
 	}
+	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
+		query.GroupStatus = ProjectModelGroupStatusEnabled
+		query.AccessKeyID = &accessKeyID
+	}
 	result, err := s.service.ListProjectModels(c.Request.Context(), query)
 	if err != nil {
 		writeServiceError(c, "list_project_models", err)

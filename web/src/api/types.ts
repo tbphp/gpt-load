@@ -12,8 +12,11 @@ export interface ErrorEnvelope<T = unknown> {
   data?: T
 }
 
+export type AuthPrincipalType = 'admin' | 'access_key'
+
 export interface AuthSessionPayload {
   authenticated: boolean
+  principal_type: AuthPrincipalType
 }
 
 export interface AuthLockedPayload {

@@ -133,7 +133,10 @@ async function submit(): Promise<void> {
     await session.login(candidate.value)
     const target = safeRedirect(route.query.redirect, router)
     recovery.sweep()
-    if (router.resolve(target).name !== pageRouteNames.import) recovery.clear()
+    const preserveImportRecovery =
+      session.getPrincipalType() === 'admin' &&
+      router.resolve(target).name === pageRouteNames.import
+    if (!preserveImportRecovery) recovery.clear()
     await router.replace(target)
   } catch (error: unknown) {
     if (error instanceof ApiError && error.code === 'UNAUTHORIZED') {
@@ -244,6 +247,10 @@ async function submit(): Promise<void> {
             @update:open="setHelpOpen"
           >
             <div class="ledger-login__auth-sources">
+              <div class="ledger-login__auth-source">
+                <strong>{{ t('auth.help.accessKeyTitle') }}</strong>
+                <p>{{ t('auth.help.accessKeyDescription') }}</p>
+              </div>
               <div class="ledger-login__auth-source">
                 <strong>{{ t('auth.help.environmentTitle') }}</strong>
                 <i18n-t keypath="auth.help.environmentDescription" tag="p">

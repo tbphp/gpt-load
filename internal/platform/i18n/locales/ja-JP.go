@@ -22,6 +22,7 @@ var MessagesJaJP = map[string]string{
 	"model_price.referenced":                          "モデル価格はグループから参照されています",
 	"model_price.automatic_delete_forbidden":          "自動モデル価格は手動で削除できません",
 	"auth.invalid_key":                                "無効な認証キー",
+	"auth.forbidden":                                  "現在のキーにはこの機能へのアクセス権がありません",
 	"auth.locked":                                     "認証試行回数が多すぎます。しばらくしてから再試行してください",
 	"group.not_found":                                 "グループが存在しません",
 	"group.name_exists":                               "グループ名が既に存在します",

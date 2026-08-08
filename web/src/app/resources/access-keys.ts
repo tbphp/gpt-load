@@ -153,7 +153,7 @@ function expectedCollectionPageItems(pagination: AccessKeyCollectionPaginationDt
   return finalPageItems === 0 ? pagination.page_size : finalPageItems
 }
 
-function projectAccessKeyCollectionItem(value: unknown): AccessKeyCollectionItemDto {
+export function projectAccessKeyCollectionItem(value: unknown): AccessKeyCollectionItemDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, collectionItemFields)
   const metadata = projectAccessKeyMetadata(
@@ -235,10 +235,14 @@ export function accessKeyCollectionQueryOptions(
   })
 }
 
-export function accessKeyOptionsQueryOptions(client: ApiClient) {
+export function accessKeyOptionsQueryOptions(
+  client: ApiClient,
+  enabled: MaybeRefOrGetter<boolean> = true,
+) {
   return queryOptions({
     queryKey: controlQueryKeys.accessKeys.options(),
     queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
+    enabled: computed(() => toValue(enabled)),
     gcTime: 0,
   })
 }

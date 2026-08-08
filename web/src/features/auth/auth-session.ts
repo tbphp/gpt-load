@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/vue-query'
 import { inject, reactive, readonly, type DeepReadonly, type InjectionKey } from 'vue'
 
 import { ApiError, InvalidResponseError, NetworkError, RequestCancelledError } from '@/api/errors'
-import type { AuthSessionPayload } from '@/api/types'
+import type { AuthPrincipalType, AuthSessionPayload } from '@/api/types'
 import { controlQueryKeys } from '@/app/query-keys'
 
 export const authSessionQueryKey = ['auth', 'session'] as const
@@ -20,11 +20,13 @@ export type AuthPhase =
 export interface AuthState {
   phase: AuthPhase
   retryAfterSeconds: number
+  principalType: AuthPrincipalType | null
 }
 
 export interface AuthSession {
   readonly state: DeepReadonly<AuthState>
   getAuthKey(): string
+  getPrincipalType(): AuthPrincipalType | null
   hasCredential(): boolean
   ensureValidated(): Promise<void>
   login(candidate: string): Promise<void>
@@ -81,6 +83,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
   const state = reactive<AuthState>({
     phase: credential ? 'unvalidated' : 'anonymous',
     retryAfterSeconds: 0,
+    principalType: null,
   })
   let validationPromise: Promise<void> | undefined
 
@@ -90,6 +93,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     removeStoredCredential(deps.storage)
     state.phase = 'anonymous'
     state.retryAfterSeconds = 0
+    state.principalType = null
     deps.onClear?.()
     void clearAuthenticatedClientState(deps.queryClient)
   }
@@ -142,12 +146,13 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
         retry: false,
       })
       .then((payload) => {
-        if (payload?.authenticated !== true) {
+        if (!isValidAuthSessionPayload(payload)) {
           throw new InvalidResponseError()
         }
         if (revision === credentialRevision && key === credential) {
           state.phase = 'validated'
           state.retryAfterSeconds = 0
+          state.principalType = payload.principal_type
         }
       })
       .catch((error: unknown) => {
@@ -177,7 +182,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
 
   async function login(candidate: string): Promise<void> {
     const payload = await deps.validate(candidate, false)
-    if (payload?.authenticated !== true) {
+    if (!isValidAuthSessionPayload(payload)) {
       throw new InvalidResponseError()
     }
 
@@ -187,13 +192,17 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     writeStoredCredential(deps.storage, candidate)
     state.phase = 'validated'
     state.retryAfterSeconds = 0
-    deps.queryClient.setQueryData(authSessionQueryKey, { authenticated: true })
+    state.principalType = payload.principal_type
+    deps.queryClient.setQueryData(authSessionQueryKey, payload)
   }
 
   return {
     state: readonly(state),
     getAuthKey() {
       return credential
+    },
+    getPrincipalType() {
+      return state.principalType
     },
     hasCredential() {
       return credential.length > 0
@@ -203,6 +212,13 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     retryValidation,
     clear,
   }
+}
+
+function isValidAuthSessionPayload(payload: AuthSessionPayload | undefined): boolean {
+  return (
+    payload?.authenticated === true &&
+    (payload.principal_type === 'admin' || payload.principal_type === 'access_key')
+  )
 }
 
 export const authSessionKey: InjectionKey<AuthSession> = Symbol('auth-session')

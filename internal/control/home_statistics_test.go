@@ -53,11 +53,12 @@ func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 		Data    struct {
-			ServerNowMS int64           `json:"server_now_ms"`
-			StartedAtMS int64           `json:"started_at_ms"`
-			Version     string          `json:"version"`
-			Inventory   HomeInventory   `json:"inventory"`
-			AccessKeys  []HomeAccessKey `json:"access_keys"`
+			ServerNowMS      int64                    `json:"server_now_ms"`
+			StartedAtMS      int64                    `json:"started_at_ms"`
+			Version          string                   `json:"version"`
+			Inventory        HomeInventory            `json:"inventory"`
+			AccessKeys       []HomeAccessKey          `json:"access_keys"`
+			CurrentAccessKey *AccessKeyCollectionItem `json:"current_access_key"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
@@ -69,7 +70,8 @@ func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
 		envelope.Data.Version != version.Version ||
 		envelope.Data.Inventory != (HomeInventory{}) ||
 		envelope.Data.AccessKeys == nil ||
-		len(envelope.Data.AccessKeys) != 0 {
+		len(envelope.Data.AccessKeys) != 0 ||
+		envelope.Data.CurrentAccessKey != nil {
 		t.Fatalf("home response = %#v", envelope)
 	}
 	assertManagementWireObject(
@@ -81,8 +83,54 @@ func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
 			"version",
 			"inventory",
 			"access_keys",
+			"current_access_key",
 		},
 	)
+}
+
+func TestHomeBaseHTTPScopesAccessKeyAndIncludesCurrentProfile(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	current, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "current home key",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey(current) error = %v", err)
+	}
+	other, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "other private key",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey(other) error = %v", err)
+	}
+	server := NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service)
+	engine := gin.New()
+	server.RegisterRoutes(engine)
+
+	recorder := performHomeRequest(engine, "/api/home", current.Key)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("AccessKey GET /api/home = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", recorder.Header().Get("Cache-Control"))
+	}
+	var envelope struct {
+		Data struct {
+			AccessKeys       []HomeAccessKey         `json:"access_keys"`
+			CurrentAccessKey AccessKeyCollectionItem `json:"current_access_key"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode AccessKey home response: %v", err)
+	}
+	if len(envelope.Data.AccessKeys) != 1 ||
+		envelope.Data.AccessKeys[0].ID != current.ID ||
+		envelope.Data.CurrentAccessKey.ID != current.ID ||
+		envelope.Data.CurrentAccessKey.Name != current.Name ||
+		strings.Contains(recorder.Body.String(), other.Name) ||
+		strings.Contains(recorder.Body.String(), current.Key) {
+		t.Fatalf("AccessKey home scope = %s", recorder.Body.String())
+	}
 }
 
 func TestHomeBaseHTTPRejectsEveryQueryBeforeReading(t *testing.T) {
@@ -378,6 +426,63 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 			"rankings",
 		},
 	)
+}
+
+func TestHomeStatisticsHTTPBindsAccessKeyAndRemovesOtherRankingDimensions(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "home statistics viewer",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	now := time.Date(2026, time.August, 8, 18, 0, 0, 0, time.UTC)
+	privateName := "other private key"
+	reader := &recordingHomeStatisticsReader{
+		fn: func(query requestlog.HomeStatisticsQuery) requestlog.HomeStatisticsReport {
+			report := homeStatisticsReportForQuery(t, query)
+			report.TopModels = []requestlog.HomeModelRanking{{Model: "allowed-model"}}
+			report.TopGroups = []requestlog.HomeGroupRanking{{
+				Group: requestlog.HomeStatisticsRef{ID: 99, Deleted: true},
+			}}
+			report.TopAccessKeys = []requestlog.HomeAccessKeyRanking{{
+				AccessKey: requestlog.HomeStatisticsRef{ID: 100, Name: &privateName},
+			}}
+			return report
+		},
+	}
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.homeStatistics = reader
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	recorder := performHomeRequest(engine, "/api/home/statistics?range=30d", created.Key)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("AccessKey home statistics = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].AccessKeyID == nil ||
+		*reader.queries[0].AccessKeyID != created.ID {
+		t.Fatalf("HomeStatisticsQuery = %#v", reader.queries)
+	}
+	var envelope struct {
+		Data struct {
+			Rankings struct {
+				Models     []json.RawMessage `json:"models"`
+				Groups     []json.RawMessage `json:"groups"`
+				AccessKeys []json.RawMessage `json:"access_keys"`
+			} `json:"rankings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode AccessKey home statistics: %v", err)
+	}
+	if len(envelope.Data.Rankings.Models) != 1 ||
+		len(envelope.Data.Rankings.Groups) != 0 ||
+		len(envelope.Data.Rankings.AccessKeys) != 0 ||
+		strings.Contains(recorder.Body.String(), privateName) {
+		t.Fatalf("AccessKey rankings = %s", recorder.Body.String())
+	}
 }
 
 func TestHomeStatisticsHTTPAcceptsOnlyOneSupportedRange(t *testing.T) {

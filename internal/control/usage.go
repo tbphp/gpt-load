@@ -111,6 +111,13 @@ func (server *Server) handleUsage(c *gin.Context) {
 		writeServiceError(c, "usage", apiErr)
 		return
 	}
+	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
+		if query.GroupID != nil {
+			writeServiceError(c, "usage", app_errors.ErrBadRequest)
+			return
+		}
+		query.AccessKeyID = &accessKeyID
+	}
 	report, err := server.service.QueryUsage(c.Request.Context(), query)
 	if err != nil {
 		writeServiceError(c, "usage", err)
@@ -290,7 +297,8 @@ func (service *Service) mapUsageResponse(
 	query requestlog.UsageQuery,
 	report requestlog.UsageReport,
 ) (usageResponse, error) {
-	if service.requestLogStats == nil {
+	accessKeyScoped := query.AccessKeyID != nil
+	if !accessKeyScoped && service.requestLogStats == nil {
 		return usageResponse{}, app_errors.ErrInternalServer
 	}
 	switch query.BreakdownOrder {
@@ -308,7 +316,10 @@ func (service *Service) mapUsageResponse(
 	if err != nil {
 		return usageResponse{}, err
 	}
-	stats := service.requestLogStats.Stats()
+	stats := requestlog.Stats{}
+	if !accessKeyScoped {
+		stats = service.requestLogStats.Stats()
+	}
 	if stats.DroppedTotal > uint64(maxSafeInteger) ||
 		stats.WriteFailureTotal > uint64(maxSafeInteger) {
 		return usageResponse{}, fmt.Errorf("map usage collection health: unsafe counter")
@@ -349,6 +360,9 @@ func (service *Service) mapUsageResponse(
 		BreakdownOrder:     report.BreakdownOrder,
 		BreakdownCount:     report.BreakdownCount,
 	}
+	if accessKeyScoped {
+		result.CollectionHealth = usageCollectionHealthResponse{Scope: "access_key"}
+	}
 	for _, point := range report.Series {
 		if err := validateSafeMilliseconds(point.BucketStartMS); err != nil {
 			return usageResponse{}, fmt.Errorf("map usage bucket_start_ms: %w", err)
@@ -377,6 +391,9 @@ func (service *Service) mapUsageResponse(
 		result.Breakdown = append(result.Breakdown, usageBreakdownResponse{
 			GroupID: row.GroupID, Model: row.Model, usageAggregateResponse: aggregate,
 		})
+		if accessKeyScoped {
+			result.Breakdown[len(result.Breakdown)-1].GroupID = 0
+		}
 	}
 	return result, nil
 }

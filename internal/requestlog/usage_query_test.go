@@ -116,6 +116,68 @@ func TestQueryUsageExcludesLegacyZeroAttemptAggregates(t *testing.T) {
 	}
 }
 
+func TestQueryUsageScopesAccessKeyAndCollapsesBreakdownByModel(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.August, 8, 15, 0, 0, 0, time.UTC)
+
+	firstGroup := usageStat(start, 7, "shared-model", 2)
+	firstGroup.AccessKeyID = 41
+	secondGroup := usageStat(start, 8, "shared-model", 3)
+	secondGroup.AccessKeyID = 41
+	otherModel := usageStat(start, 8, "other-model", 1)
+	otherModel.AccessKeyID = 41
+	otherAccessKey := usageStat(start, 7, "shared-model", 100)
+	otherAccessKey.AccessKeyID = 42
+	createUsageStats(t, db, firstGroup, secondGroup, otherModel, otherAccessKey)
+
+	accessKeyID := uint(41)
+	report, err := service.QueryUsage(context.Background(), UsageQuery{
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
+		Granularity:    UsageGranularityHour,
+		AccessKeyID:    &accessKeyID,
+		Limit:          100,
+		BreakdownOrder: UsageBreakdownOrderRequests,
+	})
+	if err != nil {
+		t.Fatalf("QueryUsage() error = %v", err)
+	}
+	if report.Summary.RequestCount != 6 || report.BreakdownCount != 2 ||
+		len(report.Breakdown) != 2 {
+		t.Fatalf("scoped report = %#v", report)
+	}
+	if report.Breakdown[0].GroupID != 0 ||
+		report.Breakdown[0].Model != "shared-model" ||
+		report.Breakdown[0].RequestCount != 5 {
+		t.Fatalf("collapsed breakdown[0] = %#v", report.Breakdown[0])
+	}
+	if report.Breakdown[1].GroupID != 0 ||
+		report.Breakdown[1].Model != "other-model" ||
+		report.Breakdown[1].RequestCount != 1 {
+		t.Fatalf("collapsed breakdown[1] = %#v", report.Breakdown[1])
+	}
+}
+
+func TestQueryUsageRejectsZeroAccessKeyScope(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.August, 8, 16, 0, 0, 0, time.UTC)
+	zero := uint(0)
+
+	_, err := service.QueryUsage(context.Background(), UsageQuery{
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
+		Granularity:    UsageGranularityHour,
+		AccessKeyID:    &zero,
+		Limit:          100,
+		BreakdownOrder: UsageBreakdownOrderRequests,
+	})
+	if err == nil {
+		t.Fatal("QueryUsage() error = nil, want zero AccessKey scope rejection")
+	}
+}
+
 func TestQueryUsageMergesHourlyRowsIntoThirtyUTCDays(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
@@ -459,6 +521,7 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
 		usageStatScope(db, input),
 		input.Limit,
 		input.BreakdownOrder,
+		false,
 	); err != nil ||
 		len(breakdown) != 100 || !truncated || breakdown[99].GroupID != 100 {
 		t.Fatalf("pre-integrity breakdown = %#v/%t/%v, want valid top 100 without group 102", breakdown, truncated, err)

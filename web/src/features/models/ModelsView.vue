@@ -33,6 +33,7 @@ import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useAuthSession } from '@/features/auth/auth-session'
 
 import ModelTree from './ModelTree.vue'
 import ModelUpstreamDrawer from './ModelUpstreamDrawer.vue'
@@ -44,10 +45,12 @@ import {
 } from './models-route'
 
 const client = useApiClient()
+const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
 const { locale, n, t } = useI18n()
-const routeState = computed(() => parseModelsRouteQuery(route.query))
+const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const routeState = computed(() => scopeModelsState(parseModelsRouteQuery(route.query)))
 const filters = computed(() => routeState.value.filters)
 const searchDraft = ref(filters.value.q ?? '')
 const searchDebounce = useDebouncedAction(250)
@@ -131,7 +134,7 @@ watch(
   () => route.query,
   (query) => {
     searchDebounce.cancel()
-    const state = parseModelsRouteQuery(query)
+    const state = scopeModelsState(parseModelsRouteQuery(query))
     searchDraft.value = state.filters.q ?? ''
     if (!isCanonicalModelsRouteQuery(query, state)) {
       void router.replace(modelsLocation(serializeModelsRouteQuery(state)))
@@ -139,6 +142,14 @@ watch(
   },
   { deep: true, immediate: true },
 )
+
+function scopeModelsState(state: ModelsRouteState): ModelsRouteState {
+  if (!isAccessKey.value) return state
+  return {
+    filters: { ...state.filters, group_status: 'enabled' },
+    selectedPriceID: undefined,
+  }
+}
 
 function navigate(patch: Partial<ModelsRouteState>, replace = false): void {
   const next = { ...routeState.value, ...patch }
@@ -230,6 +241,7 @@ async function confirmDiscard(): Promise<boolean> {
 }
 
 async function openUpstream(upstream: ModelUpstreamDto): Promise<void> {
+  if (isAccessKey.value) return
   if (upstream.price.id === activePriceID.value && drawerOpen.value) return
   if (drawerOpen.value && drawer.value && !(await drawer.value.confirmDiscardSwitch())) return
   drawer.value?.discardChanges()
@@ -250,7 +262,7 @@ function goToGroups(): void {
     <LedgerSheet class="models-page" :aria-busy="collectionBusy ? 'true' : undefined">
       <PageHeader id="models-title" :title="t('models.title')">
         <template #actions>
-          <AppButton size="compact" :busy="syncPending" @click="runSync">
+          <AppButton v-if="!isAccessKey" size="compact" :busy="syncPending" @click="runSync">
             <RefreshCw :size="15" aria-hidden="true" />{{ t('models.actions.sync') }}
           </AppButton>
         </template>
@@ -258,10 +270,10 @@ function goToGroups(): void {
 
       <AsyncRefreshIndicator :active="collectionRefreshing" :label="t('models.loading')" />
 
-      <InlineFeedback v-if="syncSucceeded" appearance="ledger" tone="success">
+      <InlineFeedback v-if="!isAccessKey && syncSucceeded" appearance="ledger" tone="success">
         {{ t('models.sync.succeeded') }}
       </InlineFeedback>
-      <InlineFeedback v-if="syncFailure" appearance="ledger" tone="danger">
+      <InlineFeedback v-if="!isAccessKey && syncFailure" appearance="ledger" tone="danger">
         {{ t('models.sync.failed') }}
         <template #action>
           <AppButton variant="link" size="inline" @click="runSync">
@@ -319,15 +331,18 @@ function goToGroups(): void {
           </span>
           <span aria-hidden="true">·</span>
           <span :title="t('models.context')">{{ t('models.status.unit') }}</span>
-          <span aria-hidden="true">·</span>
-          <StatusBadge size="compact" :tone="catalogTone">{{ catalogLabel }}</StatusBadge>
-          <span v-if="data.catalog.successful_fetch_at_ms > 0" class="models-page__status-time">
-            <AppDateTime :instant="data.catalog.successful_fetch_at_ms" :locale="locale" />
-          </span>
+          <template v-if="!isAccessKey">
+            <span aria-hidden="true">·</span>
+            <StatusBadge size="compact" :tone="catalogTone">{{ catalogLabel }}</StatusBadge>
+            <span v-if="data.catalog.successful_fetch_at_ms > 0" class="models-page__status-time">
+              <AppDateTime :instant="data.catalog.successful_fetch_at_ms" :locale="locale" />
+            </span>
+          </template>
         </p>
 
         <CollectionFilterBar
           class="models-page__filters"
+          :class="{ 'models-page__filters--scoped': isAccessKey }"
           :label="t('models.filters.region')"
           :show-result="hasConditions"
         >
@@ -342,7 +357,7 @@ function goToGroups(): void {
               @clear="clearSearch"
             />
           </label>
-          <label class="collection-filter-field">
+          <label v-if="!isAccessKey" class="collection-filter-field">
             <span class="collection-filter-label">{{ t('models.filters.groupStatusLabel') }}</span>
             <AppSelect
               size="compact"
@@ -410,14 +425,14 @@ function goToGroups(): void {
             >
               {{ t('models.filters.reset') }}
             </AppButton>
-            <AppButton v-else size="compact" @click="goToGroups">
+            <AppButton v-else-if="!isAccessKey" size="compact" @click="goToGroups">
               {{ t('models.actions.configureGroups') }}
             </AppButton>
           </template>
         </EmptyState>
 
         <template v-else>
-          <ModelTree :items="data.items" @open="openUpstream" />
+          <ModelTree :items="data.items" :read-only="isAccessKey" @open="openUpstream" />
           <PaginationBar
             :page="data.pagination.page"
             :page-size="data.pagination.page_size"
@@ -431,6 +446,7 @@ function goToGroups(): void {
       </template>
 
       <ModelUpstreamDrawer
+        v-if="!isAccessKey"
         ref="drawer"
         :open="drawerOpen"
         :price-id="activePriceID"
@@ -469,6 +485,10 @@ function goToGroups(): void {
 .models-page :deep(.models-page__filters.collection-filter-bar) {
   grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(142px, 0.42fr));
   padding-top: var(--space-1);
+}
+
+.models-page :deep(.models-page__filters--scoped.collection-filter-bar) {
+  grid-template-columns: minmax(240px, 1fr) minmax(142px, 0.42fr);
 }
 
 @media (max-width: 980px) {

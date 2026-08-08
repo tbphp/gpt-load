@@ -116,6 +116,10 @@ func (s *Server) handleHomeStatistics(c *gin.Context) {
 		writeServiceError(c, "home_statistics", apiErr)
 		return
 	}
+	accessKeyID, accessKeyScoped := currentAccessKeyID(c)
+	if accessKeyScoped {
+		query.AccessKeyID = &accessKeyID
+	}
 	report, err := s.service.QueryHomeStatistics(
 		c.Request.Context(),
 		query,
@@ -123,6 +127,10 @@ func (s *Server) handleHomeStatistics(c *gin.Context) {
 	if err != nil {
 		writeServiceError(c, "home_statistics", err)
 		return
+	}
+	if accessKeyScoped {
+		report.TopGroups = []requestlog.HomeGroupRanking{}
+		report.TopAccessKeys = []requestlog.HomeAccessKeyRanking{}
 	}
 	result, err := mapHomeStatisticsResponse(query, report)
 	if err != nil {

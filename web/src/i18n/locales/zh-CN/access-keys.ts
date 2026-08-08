@@ -2,6 +2,11 @@ export default {
   accessKeys: {
     title: '访问密钥',
     description: '签发并管理用于数据面客户端的明文敏感凭据。',
+    loginNotice: {
+      title: 'AccessKey 也可以登录',
+      description:
+        '分发 AccessKey 时，可同时告知使用者在当前实例登录页输入该密钥；登录后只能查看自身的首页、可用模型、用量和脱敏请求记录，不能修改配置。',
+    },
     create: '创建访问密钥',
     copy: '复制访问密钥',
     toast: {

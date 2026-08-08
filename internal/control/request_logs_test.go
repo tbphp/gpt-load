@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -720,12 +721,163 @@ func TestRequestLogEndpointRequiresManagementAuthentication(t *testing.T) {
 	}
 }
 
+func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	current, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "log viewer",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey(current) error = %v", err)
+	}
+	other, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "other private key",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey(other) error = %v", err)
+	}
+	requestID := "00000000-0000-4000-8000-000000000701"
+	record := requestlog.Record{
+		RequestID:             requestID,
+		CompletedAtMS:         time.Date(2026, time.August, 8, 19, 0, 0, 0, time.UTC).UnixMilli(),
+		AccessKey:             requestlog.AccessKeyRef{ID: current.ID, Name: &current.Name},
+		Protocol:              protocol.OpenAICompletions,
+		ClientModel:           "client-model",
+		UpstreamModel:         "private-upstream-model",
+		UpstreamReportedModel: "private-reported-model",
+		ModelConsistency:      telemetry.ModelConsistencyMismatch,
+		Status:                telemetry.RequestStatusSuccess,
+		StatusCode:            http.StatusOK,
+		DurationMs:            120,
+		AttemptCount:          2,
+		AffinityHit:           true,
+		GroupID:               99,
+		UsageState:            usage.StateComplete,
+		CostState:             pricing.CostStatePriced,
+		PricingCompleteness:   pricing.CompletenessComplete,
+		UncachedInputTokens:   10,
+		OutputTokens:          2,
+		EstimatedCostNanoUSD:  50,
+		Attempts: []requestlog.Attempt{{
+			Sequence: 1, GroupID: 99, GroupName: "private group", KeyID: 101,
+			UpstreamModel: "private-upstream-model",
+		}},
+	}
+	reader := &recordingRequestLogReader{pages: []requestlog.Page{
+		{Items: []requestlog.Record{record}},
+		{Items: []requestlog.Record{record}},
+		{Items: []requestlog.Record{}},
+	}}
+	fixture.service.requestLogs = reader
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	list := performRequestLogRequest(engine, current.Key, "client_model=client-model")
+	if list.Code != http.StatusOK {
+		t.Fatalf("AccessKey logs = %d %s, want 200", list.Code, list.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].AccessKeyID == nil ||
+		*reader.queries[0].AccessKeyID != current.ID {
+		t.Fatalf("AccessKey list query = %#v", reader.queries)
+	}
+	assertAccessKeyLogRedaction(t, list.Body.Bytes(), false)
+	if strings.Contains(list.Body.String(), other.Name) {
+		t.Fatalf("AccessKey logs expose another key: %s", list.Body.String())
+	}
+
+	for _, query := range []string{
+		"access_key_id=" + strconv.FormatUint(uint64(other.ID), 10),
+		"group_id=99",
+		"upstream_model=private-upstream-model",
+		"retry_state=retried",
+	} {
+		recorder := performRequestLogRequest(engine, current.Key, query)
+		if recorder.Code != http.StatusBadRequest || len(reader.queries) != 1 {
+			t.Fatalf("AccessKey log filter %q = %d %s, calls=%d", query, recorder.Code, recorder.Body.String(), len(reader.queries))
+		}
+	}
+
+	detailRequest := httptest.NewRequest(http.MethodGet, "/api/logs/"+requestID, nil)
+	detailRequest.Header.Set("Authorization", "Bearer "+current.Key)
+	detail := httptest.NewRecorder()
+	engine.ServeHTTP(detail, detailRequest)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("AccessKey log detail = %d %s, want 200", detail.Code, detail.Body.String())
+	}
+	if len(reader.queries) != 2 || reader.queries[1].RequestID != requestID ||
+		reader.queries[1].AccessKeyID == nil || *reader.queries[1].AccessKeyID != current.ID ||
+		len(reader.getRequests) != 0 {
+		t.Fatalf("AccessKey detail lookup = queries %#v, gets %#v", reader.queries, reader.getRequests)
+	}
+	assertAccessKeyLogRedaction(t, detail.Body.Bytes(), true)
+
+	missingRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/logs/00000000-0000-4000-8000-000000000702",
+		nil,
+	)
+	missingRequest.Header.Set("Authorization", "Bearer "+current.Key)
+	missing := httptest.NewRecorder()
+	engine.ServeHTTP(missing, missingRequest)
+	if missing.Code != http.StatusNotFound || len(reader.queries) != 3 ||
+		len(reader.getRequests) != 0 {
+		t.Fatalf("cross-key detail = %d %s, queries=%#v gets=%#v", missing.Code, missing.Body.String(), reader.queries, reader.getRequests)
+	}
+}
+
+func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
+	t.Helper()
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatalf("decode AccessKey log envelope: %v", err)
+	}
+	var item map[string]json.RawMessage
+	if detail {
+		if err := json.Unmarshal(envelope.Data, &item); err != nil {
+			t.Fatalf("decode AccessKey log detail: %v", err)
+		}
+	} else {
+		var page struct {
+			Items []map[string]json.RawMessage `json:"items"`
+		}
+		if err := json.Unmarshal(envelope.Data, &page); err != nil || len(page.Items) != 1 {
+			t.Fatalf("decode AccessKey log page = %#v/%v", page, err)
+		}
+		item = page.Items[0]
+	}
+	for field, want := range map[string]string{
+		"upstream_model":          "null",
+		"upstream_reported_model": "null",
+		"model_consistency":       `"not_applicable"`,
+		"affinity_hit":            "false",
+		"group_id":                "null",
+		"attempt_count":           "0",
+	} {
+		if string(item[field]) != want {
+			t.Fatalf("AccessKey log %s = %s, want %s; body=%s", field, item[field], want, body)
+		}
+	}
+	if detail && string(item["attempts"]) != "[]" {
+		t.Fatalf("AccessKey attempts = %s, want []; body=%s", item["attempts"], body)
+	}
+	for _, secret := range []string{
+		"private-upstream-model", "private-reported-model", "private group",
+	} {
+		if bytes.Contains(body, []byte(secret)) {
+			t.Fatalf("AccessKey log exposes %q: %s", secret, body)
+		}
+	}
+}
+
 type recordingRequestLogReader struct {
-	pages   []requestlog.Page
-	queries []requestlog.ListQuery
-	err     error
-	details map[string]requestlog.Record
-	getErr  error
+	pages       []requestlog.Page
+	queries     []requestlog.ListQuery
+	err         error
+	details     map[string]requestlog.Record
+	getErr      error
+	getRequests []string
 }
 
 func (reader *recordingRequestLogReader) List(
@@ -747,6 +899,7 @@ func (reader *recordingRequestLogReader) Get(
 	_ context.Context,
 	requestID string,
 ) (requestlog.Record, error) {
+	reader.getRequests = append(reader.getRequests, requestID)
 	if reader.getErr != nil {
 		return requestlog.Record{}, reader.getErr
 	}

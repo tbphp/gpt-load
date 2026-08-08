@@ -37,6 +37,7 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
+import { useAuthSession } from '@/features/auth/auth-session'
 
 import {
   applyLogFilterDraft,
@@ -61,14 +62,24 @@ import {
 } from './log-format'
 import LogDetailDrawer from './LogDetailDrawer.vue'
 import LogsFilterForm from './LogsFilterForm.vue'
-import { logsMonitorQuery, parseLogsMonitorState, type LogsMonitorState } from './monitor-route'
+import {
+  logsMonitorQuery,
+  parseLogsMonitorState,
+  scopeAccessKeyLogFilters,
+  type LogsMonitorState,
+} from './monitor-route'
 
 const client = useApiClient()
+const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
 const logPageSizes = [20, 50, 100] as const
-const appliedFilters = computed(() => parseAppliedLogFilters(route.query))
+const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const appliedFilters = computed(() => {
+  const filters = parseAppliedLogFilters(route.query)
+  return isAccessKey.value ? scopeAccessKeyLogFilters(filters) : filters
+})
 const routeState = computed(() => parseLogsMonitorState(route.query))
 const selectedRequestID = computed(() => routeState.value.selectedRequestID)
 const advancedOpen = computed(() => routeState.value.filtersOpen)
@@ -79,8 +90,10 @@ const pageTransitionOrigin = ref<LogsMonitorState | null>(null)
 const currentCursor = computed(() => routeState.value.cursorHistory.at(-1))
 let detailFocusTimer: number | undefined
 
-const groupsQuery = useQuery(groupOptionsQueryOptions(client))
-const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
+const groupsQuery = useQuery(groupOptionsQueryOptions(client, () => !isAccessKey.value))
+const accessKeyOptionsQuery = useQuery(
+  accessKeyOptionsQueryOptions(client, () => !isAccessKey.value),
+)
 const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
 const logs = computed(() => logsQuery.data.value?.items ?? [])
 const {
@@ -101,15 +114,17 @@ const {
 const logsRefreshing = computed(
   () =>
     collectionRefreshing.value ||
-    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
-    (accessKeyOptionsQuery.data.value !== undefined && accessKeyOptionsQuery.isFetching.value),
+    (!isAccessKey.value && groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
+    (!isAccessKey.value &&
+      accessKeyOptionsQuery.data.value !== undefined &&
+      accessKeyOptionsQuery.isFetching.value),
 )
 const currentPage = computed(() => routeState.value.cursorHistory.length + 1)
 const paginationBusy = computed(() => paginationPending.value || logsQuery.isFetching.value)
 const filterSignature = computed(() =>
   JSON.stringify(serializeAppliedLogFilters(appliedFilters.value)),
 )
-const advancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
+const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'upstream_model',
   'access_key_id',
   'request_id',
@@ -138,8 +153,25 @@ const advancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'cost_min_nano_usd',
   'cost_max_nano_usd',
 ]
+const accessKeyForbiddenFilterKeys = new Set<keyof RequestLogFilters>([
+  'group_id',
+  'upstream_model',
+  'access_key_id',
+  'upstream_key_id',
+  'attempt_status_code',
+  'failure_category',
+  'error_code',
+  'retry_state',
+  'retry_count_min',
+  'retry_count_max',
+])
+const advancedFilterKeys = computed(() =>
+  isAccessKey.value
+    ? allAdvancedFilterKeys.filter((key) => !accessKeyForbiddenFilterKeys.has(key))
+    : allAdvancedFilterKeys,
+)
 const advancedCount = computed(
-  () => advancedFilterKeys.filter((key) => appliedFilters.value[key] !== undefined).length,
+  () => advancedFilterKeys.value.filter((key) => appliedFilters.value[key] !== undefined).length,
 )
 const hasNonTimeFilters = computed(() =>
   Object.keys(appliedFilters.value).some(
@@ -155,7 +187,7 @@ const appliedChips = computed(() => {
       label: `${formatDateFilter(filters.from_ms)} → ${formatDateFilter(filters.to_ms)}`,
     })
   }
-  if (filters.group_id !== undefined) {
+  if (!isAccessKey.value && filters.group_id !== undefined) {
     const group = groupsQuery.data.value?.find(({ id }) => id === filters.group_id)
     values.push({
       key: 'group_id',
@@ -178,7 +210,7 @@ const appliedChips = computed(() => {
       label: advancedChipLabel('client_model', filters.client_model),
     })
   }
-  for (const key of advancedFilterKeys) {
+  for (const key of advancedFilterKeys.value) {
     const value = filters[key]
     if (value === undefined) continue
     values.push({ key, label: advancedChipLabel(key, value) })
@@ -279,6 +311,7 @@ function updateDraftField(field: keyof LogFilterDraft, value: string): void {
 }
 
 async function commitFilters(filters: RequestLogFilters): Promise<void> {
+  if (isAccessKey.value) filters = scopeAccessKeyLogFilters(filters)
   const serialized = serializeAppliedLogFilters(filters)
   const nextSignature = JSON.stringify(serialized)
   draft.value = createLogFilterDraft(filters)
@@ -514,6 +547,7 @@ function costLabel(log: RequestLogItemDto): string {
       :applied-chips="appliedChips"
       :advanced-count="advancedCount"
       :advanced-open="advancedOpen"
+      :self-scoped="isAccessKey"
       @update:advanced-open="setAdvancedOpen"
       @update-field="updateDraftField"
       @remove-filter="removeFilter"
@@ -522,7 +556,7 @@ function costLabel(log: RequestLogItemDto): string {
     />
 
     <InlineFeedback
-      v-if="groupsQuery.isError.value || accessKeyOptionsQuery.isError.value"
+      v-if="!isAccessKey && (groupsQuery.isError.value || accessKeyOptionsQuery.isError.value)"
       tone="warning"
     >
       {{ t('monitor.logs.options.partialFailed') }}
@@ -534,7 +568,7 @@ function costLabel(log: RequestLogItemDto): string {
       v-if="logsQuery.isPending.value || initialLoading"
       variant="collection"
       :rows="appliedFilters.limit ?? 20"
-      :columns="8"
+      :columns="isAccessKey ? 7 : 8"
       row-height="72px"
       mobile-row-height="176px"
       :concealed="!initialLoading"
@@ -559,21 +593,21 @@ function costLabel(log: RequestLogItemDto): string {
         v-if="collectionTransition"
         variant="collection"
         :rows="skeletonRows"
-        :columns="8"
+        :columns="isAccessKey ? 7 : 8"
         row-height="72px"
         mobile-row-height="176px"
         :label="t('monitor.logs.loading')"
       />
       <LedgerRecordList
         v-else-if="logs.length"
-        grid-class="logs-list"
+        :grid-class="isAccessKey ? 'logs-list logs-list--scoped' : 'logs-list'"
         :label="t('monitor.logs.caption')"
         :row-count="logs.length + 1"
         :scroll-hint="t('monitor.scrollHint')"
       >
         <template #header>
           <span role="columnheader">{{ t('monitor.logs.columns.time') }}</span>
-          <span role="columnheader">{{ t('monitor.logs.columns.route') }}</span>
+          <span v-if="!isAccessKey" role="columnheader">{{ t('monitor.logs.columns.route') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.modelProtocol') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.response') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.cost') }}</span>
@@ -599,6 +633,7 @@ function costLabel(log: RequestLogItemDto): string {
             </time>
           </div>
           <div
+            v-if="!isAccessKey"
             class="ledger-record-list__cell logs-list__cell"
             role="cell"
             :data-label="t('monitor.logs.columns.route')"
@@ -824,6 +859,7 @@ function costLabel(log: RequestLogItemDto): string {
     <LogDetailDrawer
       :open="Boolean(selectedRequestID)"
       :request-id="selectedRequestID"
+      :self-scoped="isAccessKey"
       @update:open="setDetailOpen(undefined, $event)"
     />
   </div>
@@ -842,6 +878,11 @@ function costLabel(log: RequestLogItemDto): string {
   --ledger-record-list-column-gap: 16px;
   --ledger-record-list-record-min-height: 72px;
   --ledger-record-list-record-padding: 10px 0;
+}
+
+.logs-list--scoped {
+  --ledger-record-list-grid: 116px minmax(180px, 1.2fr) 112px minmax(88px, 0.58fr)
+    minmax(142px, 0.9fr) 126px 34px;
 }
 
 .logs-list__cell {

@@ -36,6 +36,7 @@ type ProjectModelListQuery struct {
 	Search        string
 	Page          int64
 	PageSize      int64
+	AccessKeyID   *uint
 }
 
 func parseProjectModelListQuery(rawQuery string, forceQuery bool) (ProjectModelListQuery, *errors.APIError) {
@@ -115,6 +116,10 @@ func validateProjectModelListQuery(query ProjectModelListQuery) error {
 	if query.Page <= 0 || query.Page > maxSafeInteger ||
 		query.PageSize <= 0 || query.PageSize > maxProjectModelPageSize ||
 		utf8.RuneCountInString(query.Search) > maxProjectModelSearchRunes {
+		return errors.ErrValidation
+	}
+	if query.AccessKeyID != nil &&
+		(*query.AccessKeyID == 0 || query.GroupStatus != ProjectModelGroupStatusEnabled) {
 		return errors.ErrValidation
 	}
 	return nil

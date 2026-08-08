@@ -24,6 +24,7 @@ const props = defineProps<{
   errors: LogFilterErrors
   accessKeys: AccessKeyOptionDto[]
   accessKeysFailed: boolean
+  selfScoped?: boolean
 }>()
 const emit = defineEmits<{
   'update:open': [open: boolean]
@@ -102,6 +103,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
         <h3>{{ t('monitor.logs.filters.sections.request') }}</h3>
         <div class="logs-advanced__grid">
           <FormField
+            v-if="!selfScoped"
             id="logs-access-key"
             :label="t('monitor.logs.filters.accessKey')"
             size="compact"
@@ -162,7 +164,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
         </div>
       </section>
 
-      <section class="logs-advanced__section">
+      <section v-if="!selfScoped" class="logs-advanced__section">
         <h3>{{ t('monitor.logs.filters.sections.attempt') }}</h3>
         <div class="logs-advanced__grid">
           <FormField

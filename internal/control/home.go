@@ -33,8 +33,9 @@ type HomeAccessKey struct {
 }
 
 type HomeBase struct {
-	Inventory  HomeInventory   `json:"inventory"`
-	AccessKeys []HomeAccessKey `json:"access_keys"`
+	Inventory        HomeInventory            `json:"inventory"`
+	AccessKeys       []HomeAccessKey          `json:"access_keys"`
+	CurrentAccessKey *AccessKeyCollectionItem `json:"current_access_key"`
 }
 
 type homeResponse struct {
@@ -51,10 +52,15 @@ type homeUpstreamKeyRow struct {
 }
 
 type homeAccessKeyRow struct {
-	ID        uint
-	Name      string
-	KeySuffix string
-	Filters   models.JSON
+	ID              uint
+	Name            string
+	KeySuffix       string
+	Status          string
+	Filters         models.JSON
+	RPMLimit        int64
+	CreatedAtMS     int64
+	UpdatedAtMS     int64
+	LastRequestAtMS *int64
 }
 
 type homeReadRows struct {
@@ -66,6 +72,25 @@ type homeReadRows struct {
 func (s *Service) ReadHomeBase(
 	ctx context.Context,
 	nowMS int64,
+) (HomeBase, error) {
+	return s.readHomeBase(ctx, nowMS, nil)
+}
+
+func (s *Service) ReadAccessKeyHomeBase(
+	ctx context.Context,
+	nowMS int64,
+	accessKeyID uint,
+) (HomeBase, error) {
+	if accessKeyID == 0 {
+		return HomeBase{}, app_errors.ErrUnauthorized
+	}
+	return s.readHomeBase(ctx, nowMS, &accessKeyID)
+}
+
+func (s *Service) readHomeBase(
+	ctx context.Context,
+	nowMS int64,
+	accessKeyID *uint,
 ) (HomeBase, error) {
 	if s == nil || s.db == nil || s.manager == nil || s.registrySnapshot == nil {
 		return HomeBase{}, fmt.Errorf(
@@ -106,16 +131,31 @@ func (s *Service) ReadHomeBase(
 		return HomeBase{}, app_errors.ParseDBError(err)
 	}
 
-	inventory := HomeInventory{
-		GroupCount:       rows.groupCount,
-		UpstreamKeyCount: int64(len(rows.upstreamKeys)),
-		ModelCount:       countHomeModels(snapshot),
+	var allowedGroups map[uint]struct{}
+	if accessKeyID != nil {
+		accessKey, exists := snapshot.AccessKeysByID[*accessKeyID]
+		if !exists || accessKey.Status != state.AccessKeyStatusActive {
+			return HomeBase{}, app_errors.ErrUnauthorized
+		}
+		allowedGroups = accessibleHomeGroups(snapshot, accessKey)
 	}
-	inventory.AvailableUpstreamKeyCount, err = countAvailableHomeKeys(
+
+	inventory := HomeInventory{}
+	if accessKeyID == nil {
+		inventory.GroupCount = rows.groupCount
+		inventory.UpstreamKeyCount = int64(len(rows.upstreamKeys))
+		inventory.ModelCount = countHomeModels(snapshot)
+	} else {
+		inventory.GroupCount = int64(len(allowedGroups))
+		inventory.UpstreamKeyCount = countHomeUpstreamKeys(rows.upstreamKeys, allowedGroups)
+		inventory.ModelCount = countScopedHomeModels(snapshot, allowedGroups, snapshot.AccessKeysByID[*accessKeyID])
+	}
+	inventory.AvailableUpstreamKeyCount, err = countAvailableHomeKeysInGroups(
 		snapshot,
 		rows.upstreamKeys,
 		runtimeKeys,
 		now,
+		allowedGroups,
 	)
 	if err != nil {
 		return HomeBase{}, err
@@ -123,14 +163,29 @@ func (s *Service) ReadHomeBase(
 	if err := validateHomeInventory(inventory); err != nil {
 		return HomeBase{}, err
 	}
-	accessKeys, err := mapHomeAccessKeys(rows.accessKeys)
+	accessKeyRows := rows.accessKeys
+	if accessKeyID != nil {
+		accessKeyRows = filterHomeAccessKeyRows(rows.accessKeys, *accessKeyID)
+		if len(accessKeyRows) != 1 {
+			return HomeBase{}, app_errors.ErrUnauthorized
+		}
+	}
+	accessKeys, err := mapHomeAccessKeys(accessKeyRows)
 	if err != nil {
 		return HomeBase{}, err
 	}
-	return HomeBase{
+	result := HomeBase{
 		Inventory:  inventory,
 		AccessKeys: accessKeys,
-	}, nil
+	}
+	if accessKeyID != nil {
+		current, err := mapHomeCurrentAccessKey(accessKeyRows[0])
+		if err != nil {
+			return HomeBase{}, err
+		}
+		result.CurrentAccessKey = &current
+	}
+	return result, nil
 }
 
 func (s *Server) handleHome(c *gin.Context) {
@@ -148,7 +203,16 @@ func (s *Server) handleHome(c *gin.Context) {
 		writeServiceError(c, "home", err)
 		return
 	}
-	base, err := s.service.ReadHomeBase(c.Request.Context(), serverNowMS)
+	var base HomeBase
+	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
+		base, err = s.service.ReadAccessKeyHomeBase(
+			c.Request.Context(),
+			serverNowMS,
+			accessKeyID,
+		)
+	} else {
+		base, err = s.service.ReadHomeBase(c.Request.Context(), serverNowMS)
+	}
 	if err != nil {
 		writeServiceError(c, "home", err)
 		return
@@ -176,7 +240,11 @@ func (s *Service) readHomeRows(
 			return fmt.Errorf("query home upstream keys: %w", err)
 		}
 		if err := tx.Model(&models.AccessKey{}).
-			Select("id", "name", "key_suffix", "filters").
+			Select(
+				"id", "name", "key_suffix", "status", "filters", "rpm_limit",
+				"created_at_ms", "updated_at_ms",
+				"(SELECT MAX(request_logs.completed_at_ms) FROM request_logs WHERE request_logs.access_key_id = access_keys.id) AS last_request_at_ms",
+			).
 			Where("status = ?", state.AccessKeyStatusActive).
 			Order("id ASC").
 			Find(&result.accessKeys).Error; err != nil {
@@ -206,11 +274,106 @@ func countHomeModels(snapshot *state.ConfigSnapshot) int64 {
 	return int64(len(names))
 }
 
+func accessibleHomeGroups(
+	snapshot *state.ConfigSnapshot,
+	accessKey state.AccessKeyView,
+) map[uint]struct{} {
+	result := make(map[uint]struct{})
+	for groupID, group := range snapshot.Groups {
+		if len(accessKey.Filters.Groups) > 0 {
+			if _, allowed := accessKey.Filters.Groups[groupID]; !allowed {
+				continue
+			}
+		}
+		protocolAllowed := len(accessKey.Filters.Protocols) == 0
+		for _, value := range group.Protocols {
+			if _, allowed := accessKey.Filters.Protocols[value]; allowed {
+				protocolAllowed = true
+				break
+			}
+		}
+		if !protocolAllowed {
+			continue
+		}
+		if len(accessKey.Filters.Models) > 0 {
+			modelAllowed := false
+			for _, model := range group.Models {
+				if _, allowed := accessKey.Filters.Models[homeExternalModelName(model)]; allowed {
+					modelAllowed = true
+					break
+				}
+			}
+			if !modelAllowed {
+				continue
+			}
+		}
+		result[groupID] = struct{}{}
+	}
+	return result
+}
+
+func countScopedHomeModels(
+	snapshot *state.ConfigSnapshot,
+	allowedGroups map[uint]struct{},
+	accessKey state.AccessKeyView,
+) int64 {
+	names := make(map[string]struct{})
+	for groupID := range allowedGroups {
+		group, exists := snapshot.Groups[groupID]
+		if !exists {
+			continue
+		}
+		for _, model := range group.Models {
+			name := homeExternalModelName(model)
+			if name == "" {
+				continue
+			}
+			if len(accessKey.Filters.Models) > 0 {
+				if _, allowed := accessKey.Filters.Models[name]; !allowed {
+					continue
+				}
+			}
+			names[name] = struct{}{}
+		}
+	}
+	return int64(len(names))
+}
+
+func homeExternalModelName(model state.ModelConfig) string {
+	if alias := strings.TrimSpace(model.Alias); alias != "" {
+		return alias
+	}
+	return strings.TrimSpace(model.ID)
+}
+
+func countHomeUpstreamKeys(
+	rows []homeUpstreamKeyRow,
+	allowedGroups map[uint]struct{},
+) int64 {
+	var count int64
+	for _, row := range rows {
+		if _, allowed := allowedGroups[row.GroupID]; allowed {
+			count++
+		}
+	}
+	return count
+}
+
 func countAvailableHomeKeys(
 	snapshot *state.ConfigSnapshot,
 	persisted []homeUpstreamKeyRow,
 	runtime []state.KeyRuntimeView,
 	now time.Time,
+) (int64, error) {
+	return countAvailableHomeKeysInGroups(snapshot, persisted, runtime, now, nil)
+}
+
+func countAvailableHomeKeysInGroups(
+	snapshot *state.ConfigSnapshot,
+	persisted []homeUpstreamKeyRow,
+	runtime []state.KeyRuntimeView,
+	now time.Time,
+	allowedGroups map[uint]struct{},
 ) (int64, error) {
 	runtimeByID := make(map[uint]state.KeyRuntimeView, len(runtime))
 	for _, key := range runtime {
@@ -277,7 +440,8 @@ func countAvailableHomeKeys(
 				app_errors.ErrInternalServer,
 			)
 		}
-		if group.Enabled &&
+		_, groupAllowed := allowedGroups[row.GroupID]
+		if (allowedGroups == nil || groupAllowed) && group.Enabled &&
 			status == state.KeyStatusActive &&
 			key.RuntimeState(now) == state.KeyRuntimeAvailable {
 			available++
@@ -330,6 +494,39 @@ func mapHomeAccessKeys(rows []homeAccessKeyRow) ([]HomeAccessKey, error) {
 		})
 	}
 	return result, nil
+}
+
+func filterHomeAccessKeyRows(rows []homeAccessKeyRow, accessKeyID uint) []homeAccessKeyRow {
+	result := make([]homeAccessKeyRow, 0, 1)
+	for _, row := range rows {
+		if row.ID == accessKeyID {
+			result = append(result, row)
+		}
+	}
+	return result
+}
+
+func mapHomeCurrentAccessKey(row homeAccessKeyRow) (AccessKeyCollectionItem, error) {
+	metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
+		ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
+		Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
+		CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
+	})
+	if err != nil {
+		return AccessKeyCollectionItem{}, err
+	}
+	if row.LastRequestAtMS != nil {
+		if err := validateSafeMilliseconds(*row.LastRequestAtMS); err != nil {
+			return AccessKeyCollectionItem{}, fmt.Errorf(
+				"map home current access key last request: %w",
+				err,
+			)
+		}
+	}
+	return AccessKeyCollectionItem{
+		AccessKeyMetadata: metadata,
+		LastRequestAtMS:   row.LastRequestAtMS,
+	}, nil
 }
 
 func validateHomeInventory(value HomeInventory) error {

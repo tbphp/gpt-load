@@ -27,6 +27,7 @@ const props = defineProps<{
   appliedChips: AppliedChip[]
   advancedCount: number
   advancedOpen: boolean
+  selfScoped?: boolean
 }>()
 const emit = defineEmits<{
   'update:advancedOpen': [open: boolean]
@@ -109,6 +110,7 @@ function applyAdvanced(): void {
       />
 
       <AppSelect
+        v-if="!selfScoped"
         class="logs-filter__group"
         :model-value="draft.group_id"
         :label="t('monitor.logs.filters.group')"
@@ -160,6 +162,7 @@ function applyAdvanced(): void {
     :errors="errors"
     :access-keys="accessKeys"
     :access-keys-failed="accessKeysFailed"
+    :self-scoped="selfScoped"
     @update-field="update"
     @update:open="emit('update:advancedOpen', $event)"
     @apply="applyAdvanced"

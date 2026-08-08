@@ -2,6 +2,11 @@ export default {
   accessKeys: {
     title: 'AccessKey',
     description: 'データプレーンクライアント向けの平文機密資格情報を発行・管理します。',
+    loginNotice: {
+      title: 'AccessKey でもログインできます',
+      description:
+        'AccessKey を配布する際は、このインスタンスのログインページで入力できることも利用者に伝えてください。ログイン後は、自身のホーム、利用可能なモデル、使用量、秘匿情報を除いたリクエスト履歴だけを確認でき、設定は変更できません。',
+    },
     create: 'AccessKey を作成',
     copy: 'AccessKey をコピー',
     toast: {

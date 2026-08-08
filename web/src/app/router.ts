@@ -35,6 +35,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       titleKey: 'shell.import',
       requiresAuth: true,
+      adminOnly: true,
       primaryNav: 'groups',
       messageNamespaces: ['import'],
     },
@@ -44,6 +45,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       titleKey: 'groups.title',
       requiresAuth: true,
+      adminOnly: true,
       primaryNav: 'groups',
       messageNamespaces: ['group'],
     },
@@ -53,6 +55,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       titleKey: 'shell.groupDetail',
       requiresAuth: true,
+      adminOnly: true,
       primaryNav: 'groups',
       messageNamespaces: ['group', 'import'],
     },
@@ -62,6 +65,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       titleKey: 'shell.accessKeys',
       requiresAuth: true,
+      adminOnly: true,
       primaryNav: 'access-keys',
       messageNamespaces: ['access-keys'],
     },
@@ -89,6 +93,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       titleKey: 'shell.settings',
       requiresAuth: true,
+      adminOnly: true,
       primaryNav: 'settings',
       messageNamespaces: ['settings', 'model-prices', 'import'],
     },
@@ -106,6 +111,7 @@ const routes: RouteRecordRaw[] = [
 
 export interface RouterAuth {
   hasCredential(): boolean
+  getPrincipalType(): 'admin' | 'access_key' | null
 }
 
 export interface RouterMessages {
@@ -139,6 +145,9 @@ export function createAppRouter(
       !pagePathMatches(to.name, to.path)
     ) {
       return notFoundLocation(decodedPathSegments(to.path))
+    }
+    if (to.meta.adminOnly && auth.getPrincipalType() === 'access_key') {
+      return { name: pageRouteNames.home }
     }
     if (!to.meta.requiresAuth || auth.hasCredential()) {
       return true

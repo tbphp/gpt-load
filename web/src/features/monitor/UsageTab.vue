@@ -30,6 +30,7 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatCacheHitRate } from '@/lib/cache-rate'
 import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
+import { useAuthSession } from '@/features/auth/auth-session'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 import {
@@ -46,21 +47,27 @@ import {
   usageBreakdownIdentity,
   usageMonitorQuery,
   type UsageMonitorState,
+  scopeAccessKeyUsageFilters,
 } from './monitor-route'
 import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSummary from './UsageSummary.vue'
 
 const client = useApiClient()
+const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
-const appliedFilters = computed(() => parseAppliedUsageFilters(route.query))
+const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const appliedFilters = computed(() => {
+  const filters = parseAppliedUsageFilters(route.query)
+  return isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
+})
 const routeState = computed(() => parseUsageMonitorState(route.query))
 const filterOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
 
-const groupsQuery = useQuery(groupOptionsQueryOptions(client))
+const groupsQuery = useQuery(groupOptionsQueryOptions(client, () => !isAccessKey.value))
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
 const {
@@ -80,7 +87,7 @@ const {
 const usageRefreshing = computed(
   () =>
     reportRefreshing.value ||
-    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value),
+    (!isAccessKey.value && groupsQuery.data.value !== undefined && groupsQuery.isFetching.value),
 )
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
 const orderOptions = computed(() => [
@@ -201,7 +208,8 @@ async function navigate(
     seriesExpanded: false,
   },
 ): Promise<void> {
-  await router.push(monitorLocation(usageMonitorQuery(filters, state)))
+  const scopedFilters = isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
+  await router.push(monitorLocation(usageMonitorQuery(scopedFilters, state)))
 }
 
 function breakdownExpanded(groupID: number, model: string): boolean {
@@ -269,8 +277,9 @@ defineExpose({ openFilters, refresh })
 
       <InlineFeedback
         v-if="
-          report.collection_health.dropped_total > 0 ||
-          report.collection_health.write_failure_total > 0
+          !isAccessKey &&
+          (report.collection_health.dropped_total > 0 ||
+            report.collection_health.write_failure_total > 0)
         "
         tone="danger"
         appearance="ledger"
@@ -404,10 +413,16 @@ defineExpose({ openFilters, refresh })
             :label="t('monitor.usage.breakdown.caption')"
             :row-count="report.breakdown.length + 1"
             :scroll-hint="t('monitor.scrollHint')"
-            grid-class="usage-breakdown-grid"
+            :grid-class="
+              isAccessKey
+                ? 'usage-breakdown-grid usage-breakdown-grid--scoped'
+                : 'usage-breakdown-grid'
+            "
           >
             <template #header>
-              <span role="columnheader">{{ t('monitor.usage.columns.group') }}</span>
+              <span v-if="!isAccessKey" role="columnheader">{{
+                t('monitor.usage.columns.group')
+              }}</span>
               <span role="columnheader">{{ t('monitor.usage.columns.upstreamModel') }}</span>
               <span role="columnheader">{{ t('monitor.usage.columns.requests') }}</span>
               <span role="columnheader">{{ t('monitor.usage.columns.totalTokens') }}</span>
@@ -428,7 +443,11 @@ defineExpose({ openFilters, refresh })
                 role="row"
                 :aria-rowindex="index + 2"
               >
-                <div class="ledger-record-list__cell usage-breakdown-record__identity" role="cell">
+                <div
+                  v-if="!isAccessKey"
+                  class="ledger-record-list__cell usage-breakdown-record__identity"
+                  role="cell"
+                >
                   <OverflowTooltip as="strong" :content="groupName(row.group_id)">
                     {{ groupName(row.group_id) }}
                   </OverflowTooltip>
@@ -583,6 +602,7 @@ defineExpose({ openFilters, refresh })
       :errors="filterErrors"
       :groups="groupsQuery.data.value ?? []"
       :groups-failed="groupsQuery.isError.value"
+      :self-scoped="isAccessKey"
       @update:open="setFilterOpen"
       @update-field="updateDraftField"
       @apply="applyFilters"
@@ -698,6 +718,10 @@ defineExpose({ openFilters, refresh })
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   padding-inline: 14px;
+}
+
+.usage-breakdown-grid--scoped {
+  --ledger-record-list-grid: minmax(170px, 1.2fr) 82px 92px 122px minmax(160px, 1.1fr) 34px;
 }
 
 .usage-breakdown-record {

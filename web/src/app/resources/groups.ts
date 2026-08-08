@@ -597,11 +597,15 @@ export function groupCollectionQueryOptions(
   })
 }
 
-export function groupOptionsQueryOptions(client: ApiClient) {
+export function groupOptionsQueryOptions(
+  client: ApiClient,
+  enabled: MaybeRefOrGetter<boolean> = true,
+) {
   return queryOptions({
     ...manualGroupQueryOptions,
     queryKey: controlQueryKeys.groups.options(),
     queryFn: ({ signal }) => listGroupOptions(client, signal),
+    enabled: computed(() => toValue(enabled)),
   })
 }
 

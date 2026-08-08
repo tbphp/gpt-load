@@ -14,9 +14,16 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { isTimeRange } from '@/lib/time'
+import { useAuthSession } from '@/features/auth/auth-session'
 
 import HealthTab from './HealthTab.vue'
-import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
+import {
+  normalizeAccessKeyMonitorQuery,
+  normalizeMonitorQuery,
+  normalizeMonitorTab,
+  sameMonitorQuery,
+  scopeAccessKeyUsageFilters,
+} from './monitor-route'
 import { usageMonitorQuery } from './monitor-route'
 import { parseAppliedUsageFilters } from './usage-filters'
 
@@ -25,22 +32,38 @@ const LogsTab = lazySurface(() => import('./LogsTab.vue'))
 const UsageTab = lazySurface(() => import('./UsageTab.vue'))
 
 const route = useRoute()
+const session = useAuthSession()
 const router = useRouter()
 const { t } = useI18n()
 const healthTab = ref<InstanceType<typeof HealthTab> | null>(null)
 const usageTab = ref<{ openFilters: () => void; refresh: () => Promise<void> } | null>(null)
 const healthRefreshPending = ref(false)
 const usageRefreshPending = ref(false)
-const activeTab = computed(() => normalizeMonitorTab(route.query.tab))
-const canonicalQuery = computed(() => normalizeMonitorQuery(route.query))
+const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const canonicalQuery = computed(() =>
+  isAccessKey.value
+    ? normalizeAccessKeyMonitorQuery(route.query)
+    : normalizeMonitorQuery(route.query),
+)
+const activeTab = computed(() => normalizeMonitorTab(canonicalQuery.value.tab))
 const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQuery.value))
-const items = computed<AppTabItem[]>(() => [
-  { value: 'health', label: t('monitor.tabs.health') },
-  { value: 'usage', label: t('monitor.tabs.usage') },
-  { value: 'logs', label: t('monitor.tabs.logs') },
-  { value: 'inspector', label: t('monitor.tabs.inspector') },
-])
-const usageFilters = computed(() => parseAppliedUsageFilters(route.query))
+const items = computed<AppTabItem[]>(() => {
+  const shared = [
+    { value: 'usage', label: t('monitor.tabs.usage') },
+    { value: 'logs', label: t('monitor.tabs.logs') },
+  ]
+  return isAccessKey.value
+    ? shared
+    : [
+        { value: 'health', label: t('monitor.tabs.health') },
+        ...shared,
+        { value: 'inspector', label: t('monitor.tabs.inspector') },
+      ]
+})
+const usageFilters = computed(() => {
+  const filters = parseAppliedUsageFilters(route.query)
+  return isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
+})
 const usageRangeOptions = computed(() =>
   usageRanges.map((value) => ({
     value,
@@ -49,7 +72,7 @@ const usageRangeOptions = computed(() =>
 )
 const usageFilterCount = computed(
   () =>
-    Number(usageFilters.value.group_id !== undefined) +
+    Number(!isAccessKey.value && usageFilters.value.group_id !== undefined) +
     Number(usageFilters.value.model !== undefined),
 )
 
@@ -66,6 +89,7 @@ watch(
 
 function selectTab(value: string): void {
   const tab = normalizeMonitorTab(value)
+  if (isAccessKey.value && tab !== 'usage' && tab !== 'logs') return
   if (tab === activeTab.value) return
   void router.push(monitorLocation({ tab }))
 }

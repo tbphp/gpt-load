@@ -30,7 +30,11 @@ import {
   requestLogUsageDisplayState,
 } from './log-format'
 
-const props = defineProps<{ open: boolean; requestId: string | undefined }>()
+const props = defineProps<{
+  open: boolean
+  requestId: string | undefined
+  selfScoped?: boolean
+}>()
 defineEmits<{ 'update:open': [open: boolean] }>()
 const client = useApiClient()
 const { locale, t } = useI18n()
@@ -200,7 +204,7 @@ function groupLabel(): string {
               }}<template v-if="log.status_code"> · {{ log.status_code }}</template>
             </dd>
           </div>
-          <div>
+          <div v-if="!selfScoped">
             <dt>{{ t('monitor.logs.drawer.attemptCount') }}</dt>
             <dd>{{ log.attempt_count }}</dd>
           </div>
@@ -234,7 +238,7 @@ function groupLabel(): string {
       <section class="log-detail__section">
         <h3>{{ t('monitor.logs.drawer.route') }}</h3>
         <dl class="log-detail__grid">
-          <div>
+          <div v-if="!selfScoped">
             <dt>{{ t('monitor.logs.drawer.accessKey') }}</dt>
             <dd>{{ accessKeyLabel() }}</dd>
           </div>
@@ -248,13 +252,13 @@ function groupLabel(): string {
               <code>{{ log.client_model ?? '—' }}</code>
             </dd>
           </div>
-          <div>
+          <div v-if="!selfScoped">
             <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
             <dd>
               <code>{{ log.upstream_model ?? '—' }}</code>
             </dd>
           </div>
-          <div>
+          <div v-if="!selfScoped">
             <dt>{{ t('monitor.logs.drawer.group') }}</dt>
             <dd>{{ groupLabel() }}</dd>
           </div>
@@ -327,7 +331,12 @@ function groupLabel(): string {
             <dd>{{ costAmountLabel }}</dd>
           </div>
           <div
-            v-if="costDisplayState !== 'unpriced' && receipt && usageDisplayState === 'reported'"
+            v-if="
+              !selfScoped &&
+              costDisplayState !== 'unpriced' &&
+              receipt &&
+              usageDisplayState === 'reported'
+            "
             class="log-detail__wide"
           >
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
@@ -339,7 +348,7 @@ function groupLabel(): string {
         </dl>
       </section>
 
-      <section class="log-detail__section">
+      <section v-if="!selfScoped" class="log-detail__section">
         <h3>{{ t('monitor.logs.drawer.attempts') }}</h3>
         <p v-if="log.attempts.length === 0" class="log-detail__empty">
           {{ t('monitor.logs.drawer.noAttempts') }}

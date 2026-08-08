@@ -13,6 +13,7 @@ import { presentClientModel, type ClientModelRow } from './model-presenter'
 
 const props = defineProps<{
   items: ClientModelDto[]
+  readOnly?: boolean
 }>()
 const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
 const { t } = useI18n()
@@ -23,9 +24,14 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
 <template>
   <div class="model-tree">
     <div class="model-tree__scroll">
-      <div class="model-tree__grid" role="table" :aria-label="t('models.tree.label')">
+      <div
+        class="model-tree__grid"
+        :class="{ 'model-tree__grid--read-only': readOnly }"
+        role="table"
+        :aria-label="t('models.tree.label')"
+      >
         <div class="model-tree__row model-tree__row--head" role="row">
-          <span class="model-tree__cell" role="columnheader">
+          <span v-if="!readOnly" class="model-tree__cell" role="columnheader">
             {{ t('models.tree.modelColumn') }}
           </span>
           <span
@@ -80,6 +86,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
             <div class="model-tree__cell model-tree__upstream" role="cell">
               <span class="model-tree__ident">
                 <button
+                  v-if="!readOnly"
                   type="button"
                   class="model-tree__open"
                   :aria-label="t('models.tree.open', { model: entry.upstream.model_id })"
@@ -87,6 +94,9 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
                 >
                   {{ entry.upstream.model_id }}
                 </button>
+                <span v-else class="model-tree__upstream-name">
+                  {{ entry.upstream.model_id }}
+                </span>
                 <CopyChip
                   class="model-tree__copy"
                   layout="icon"
@@ -122,7 +132,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
               <ModelPriceStatusBadge :price="entry.upstream.price" />
             </div>
 
-            <div class="model-tree__cell model-tree__cell--action" role="cell">
+            <div v-if="!readOnly" class="model-tree__cell model-tree__cell--action" role="cell">
               <IconButton
                 variant="ghost"
                 size="xs"
@@ -163,6 +173,13 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
     repeat(4, minmax(78px, 104px))
     auto
     var(--control-xs);
+}
+
+.model-tree__grid--read-only {
+  grid-template-columns:
+    minmax(220px, 1fr)
+    repeat(4, minmax(78px, 104px))
+    auto;
 }
 
 .model-tree__row {
@@ -351,6 +368,13 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   font-size: var(--text-meta);
   overflow-wrap: anywhere;
   text-align: left;
+}
+
+.model-tree__upstream-name {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  overflow-wrap: anywhere;
 }
 
 .model-tree__open:hover {

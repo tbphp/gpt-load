@@ -22,6 +22,7 @@ var MessagesZhCN = map[string]string{
 	"model_price.referenced":                          "模型价格仍被分组引用",
 	"model_price.automatic_delete_forbidden":          "自动模型价格不能手动删除",
 	"auth.invalid_key":                                "无效的授权密钥",
+	"auth.forbidden":                                  "当前密钥无权访问此功能",
 	"auth.locked":                                     "认证尝试过多，请稍后重试",
 	"group.not_found":                                 "分组不存在",
 	"group.name_exists":                               "分组名称已存在",

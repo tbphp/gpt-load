@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/i18n"
+	"gpt-load/internal/state"
 )
 
 const authTestKey = "test-auth-key"
@@ -384,12 +386,178 @@ func TestAuthSessionEndpointReturnsAuthenticatedWithoutDatabaseAccess(t *testing
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	var data map[string]bool
+	var data struct {
+		Authenticated bool   `json:"authenticated"`
+		PrincipalType string `json:"principal_type"`
+	}
 	if err := json.Unmarshal(envelope.Data, &data); err != nil {
 		t.Fatalf("decode data: %v", err)
 	}
-	if envelope.Code != 0 || len(data) != 1 || !data["authenticated"] {
-		t.Fatalf("envelope code/data = %d/%s, want only authenticated=true", envelope.Code, envelope.Data)
+	if envelope.Code != 0 || !data.Authenticated || data.PrincipalType != "admin" {
+		t.Fatalf("envelope code/data = %d/%s, want authenticated admin", envelope.Code, envelope.Data)
+	}
+}
+
+func TestAuthSessionEndpointAcceptsActiveAccessKeyAndRejectsAdminRoutes(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "readonly shared views",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+
+	session := serveAuthRequest(
+		engine,
+		"/api/auth/session",
+		"192.0.2.53:1234",
+		"Bearer "+created.Key,
+		nil,
+	)
+	if session.Code != http.StatusOK {
+		t.Fatalf("access key session = %d %s, want 200", session.Code, session.Body.String())
+	}
+	var sessionEnvelope struct {
+		Code int `json:"code"`
+		Data struct {
+			Authenticated bool   `json:"authenticated"`
+			PrincipalType string `json:"principal_type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(session.Body.Bytes(), &sessionEnvelope); err != nil {
+		t.Fatalf("decode access key session: %v", err)
+	}
+	if sessionEnvelope.Code != 0 || !sessionEnvelope.Data.Authenticated ||
+		sessionEnvelope.Data.PrincipalType != "access_key" {
+		t.Fatalf("access key session = %#v, want authenticated access_key", sessionEnvelope)
+	}
+
+	forbidden := serveAuthRequest(
+		engine,
+		"/api/settings",
+		"192.0.2.54:1234",
+		"Bearer "+created.Key,
+		nil,
+	)
+	if forbidden.Code != http.StatusForbidden ||
+		!strings.Contains(forbidden.Body.String(), `"code":"FORBIDDEN"`) {
+		t.Fatalf(
+			"access key GET /api/settings = %d %s, want 403",
+			forbidden.Code,
+			forbidden.Body.String(),
+		)
+	}
+
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{}`))
+	updateRequest.RemoteAddr = "192.0.2.57:1234"
+	updateRequest.Header.Set("Authorization", "Bearer "+created.Key)
+	updateRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != http.StatusForbidden ||
+		!strings.Contains(updateRecorder.Body.String(), `"code":"FORBIDDEN"`) {
+		t.Fatalf(
+			"access key PUT /api/settings = %d %s, want 403",
+			updateRecorder.Code,
+			updateRecorder.Body.String(),
+		)
+	}
+}
+
+func TestAccessKeyAuthenticationDoesNotClearPeerFailuresOrLock(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "readonly shared views",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	const peer = "192.0.2.58:1234"
+
+	assertSessionStatus := func(authorization string, wantStatus int) {
+		t.Helper()
+		recorder := serveAuthRequest(
+			engine,
+			"/api/auth/session",
+			peer,
+			authorization,
+			nil,
+		)
+		if recorder.Code != wantStatus {
+			t.Fatalf(
+				"response = %d %s, want %d",
+				recorder.Code,
+				recorder.Body.String(),
+				wantStatus,
+			)
+		}
+	}
+
+	for range authFailureLimit - 1 {
+		assertSessionStatus("Bearer wrong-key", http.StatusUnauthorized)
+	}
+	assertSessionStatus("Bearer "+created.Key, http.StatusOK)
+	assertSessionStatus("Bearer wrong-key", http.StatusTooManyRequests)
+
+	assertSessionStatus("Bearer "+created.Key, http.StatusOK)
+	assertSessionStatus("Bearer wrong-key", http.StatusTooManyRequests)
+
+	assertSessionStatus("Bearer "+authTestKey, http.StatusOK)
+	assertSessionStatus("Bearer wrong-key", http.StatusUnauthorized)
+}
+
+func TestAuthSessionEndpointRejectsDisabledAccessKey(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	status := state.AccessKeyStatusDisabled
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name:   "disabled shared views",
+		Status: &status,
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+
+	recorder := serveAuthRequest(
+		engine,
+		"/api/auth/session",
+		"192.0.2.55:1234",
+		"Bearer "+created.Key,
+		nil,
+	)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled access key session = %d %s, want 401", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAuthSessionEndpointRejectsCredentialMatchingAdminAndAccessKey(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "collision",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: created.Key}, fixture.service).RegisterRoutes(engine)
+
+	recorder := serveAuthRequest(
+		engine,
+		"/api/auth/session",
+		"192.0.2.56:1234",
+		"Bearer "+created.Key,
+		nil,
+	)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("colliding credential session = %d %s, want 401", recorder.Code, recorder.Body.String())
 	}
 }
 

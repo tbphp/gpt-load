@@ -169,16 +169,51 @@ func (service *Service) GetRequestLog(ctx context.Context, requestID string) (re
 	return record, nil
 }
 
+func (service *Service) GetAccessKeyRequestLog(
+	ctx context.Context,
+	requestID string,
+	accessKeyID uint,
+) (requestlog.Record, error) {
+	if accessKeyID == 0 {
+		return requestlog.Record{}, app_errors.ErrUnauthorized
+	}
+	page, err := service.ListRequestLogs(ctx, requestlog.ListQuery{
+		AccessKeyID: &accessKeyID,
+		RequestID:   requestID,
+		Limit:       1,
+	})
+	if err != nil {
+		return requestlog.Record{}, err
+	}
+	if len(page.Items) != 1 {
+		return requestlog.Record{}, app_errors.ErrResourceNotFound
+	}
+	return sanitizeAccessKeyRequestLog(page.Items[0]), nil
+}
+
 func (s *Server) handleListRequestLogs(c *gin.Context) {
+	accessKeyID, accessKeyScoped := currentAccessKeyID(c)
+	if accessKeyScoped && requestLogQueryUsesInternalFields(c.Request.URL.RawQuery) {
+		writeServiceError(c, "list_request_logs", app_errors.ErrBadRequest)
+		return
+	}
 	query, apiErr := parseRequestLogQuery(c.Request.URL.RawQuery)
 	if apiErr != nil {
 		writeServiceError(c, "list_request_logs", apiErr)
 		return
 	}
+	if accessKeyScoped {
+		query.AccessKeyID = &accessKeyID
+	}
 	page, err := s.service.ListRequestLogs(c.Request.Context(), query)
 	if err != nil {
 		writeServiceError(c, "list_request_logs", err)
 		return
+	}
+	if accessKeyScoped {
+		for index := range page.Items {
+			page.Items[index] = sanitizeAccessKeyRequestLog(page.Items[index])
+		}
 	}
 	result, err := mapRequestLogListResponse(page)
 	if err != nil {
@@ -194,7 +229,17 @@ func (s *Server) handleGetRequestLog(c *gin.Context) {
 		writeServiceError(c, "get_request_log", app_errors.ErrBadRequest)
 		return
 	}
-	record, err := s.service.GetRequestLog(c.Request.Context(), requestID)
+	var record requestlog.Record
+	var err error
+	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
+		record, err = s.service.GetAccessKeyRequestLog(
+			c.Request.Context(),
+			requestID,
+			accessKeyID,
+		)
+	} else {
+		record, err = s.service.GetRequestLog(c.Request.Context(), requestID)
+	}
 	if err != nil {
 		writeServiceError(c, "get_request_log", err)
 		return
@@ -205,6 +250,41 @@ func (s *Server) handleGetRequestLog(c *gin.Context) {
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
+}
+
+func requestLogQueryUsesInternalFields(rawQuery string) bool {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return false
+	}
+	for _, key := range []string{
+		"group_id",
+		"upstream_model",
+		"access_key_id",
+		"upstream_key_id",
+		"attempt_status_code",
+		"failure_category",
+		"error_code",
+		"retry_state",
+		"retry_count_min",
+		"retry_count_max",
+	} {
+		if _, exists := values[key]; exists {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
+	record.UpstreamModel = ""
+	record.UpstreamReportedModel = ""
+	record.ModelConsistency = telemetry.ModelConsistencyNotApplicable
+	record.AttemptCount = 0
+	record.AffinityHit = false
+	record.GroupID = 0
+	record.Attempts = []requestlog.Attempt{}
+	return record
 }
 
 func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.APIError) {

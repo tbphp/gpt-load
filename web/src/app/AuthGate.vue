@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { nextTick, ref, toRef, watch } from 'vue'
+import { computed, nextTick, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
-import { loginLocation } from '@/app/route-locations'
+import { homeLocation, loginLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -13,10 +13,16 @@ import { useCountdown } from '@/features/auth/use-countdown'
 
 const session = useAuthSession()
 const recovery = useImportRecovery()
+const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const countdown = useCountdown(toRef(session.state, 'retryAfterSeconds'))
 const gateRoot = ref<HTMLElement | null>(null)
+const canRenderRoute = computed(
+  () =>
+    session.state.phase === 'validated' &&
+    !(session.state.principalType === 'access_key' && route.meta.adminOnly === true),
+)
 
 if (session.state.phase !== 'validated') {
   void session.ensureValidated().catch(() => {})
@@ -40,6 +46,16 @@ watch(
   { immediate: true },
 )
 
+watch(
+  [() => session.state.phase, () => session.state.principalType, () => route.meta.adminOnly],
+  ([phase, principalType, adminOnly]) => {
+    if (phase === 'validated' && principalType === 'access_key' && adminOnly === true) {
+      void router.replace(homeLocation())
+    }
+  },
+  { immediate: true },
+)
+
 async function retryValidation(): Promise<void> {
   try {
     await session.retryValidation()
@@ -56,9 +72,9 @@ function changeAuthKey(): void {
 </script>
 
 <template>
-  <slot v-if="session.state.phase === 'validated'" />
+  <slot v-if="canRenderRoute" />
 
-  <main v-else ref="gateRoot" class="auth-gate-shell">
+  <main v-else-if="session.state.phase !== 'validated'" ref="gateRoot" class="auth-gate-shell">
     <SurfaceCard class="auth-gate-card" aria-labelledby="auth-gate-title">
       <h1 id="auth-gate-title" class="auth-gate-title">{{ t('common.appName') }}</h1>
 

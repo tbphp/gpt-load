@@ -604,6 +604,68 @@ func TestUsageAPIRequiresManagementAuthentication(t *testing.T) {
 	}
 }
 
+func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "usage viewer",
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	now := time.Date(2026, time.August, 8, 17, 30, 0, 0, time.UTC)
+	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
+		Breakdown: []requestlog.UsageBreakdown{{
+			GroupID: 99,
+			Model:   "allowed-model",
+		}},
+		BreakdownCount: 1,
+	}}
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.usageStats = reader
+	fixture.requestLogStats.value.DroppedTotal = 100
+	fixture.requestLogStats.value.WriteFailureTotal = 50
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	recorder := performUsageRequest(engine, created.Key, "range=7d&upstream_model=allowed-model")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("AccessKey usage response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].AccessKeyID == nil ||
+		*reader.queries[0].AccessKeyID != created.ID || reader.queries[0].GroupID != nil {
+		t.Fatalf("AccessKey UsageQuery = %#v", reader.queries)
+	}
+	var envelope struct {
+		Data struct {
+			Breakdown []struct {
+				GroupID uint `json:"group_id"`
+			} `json:"breakdown"`
+			CollectionHealth usageCollectionHealthResponse `json:"collection_health"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode AccessKey usage response: %v", err)
+	}
+	if len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 0 ||
+		envelope.Data.CollectionHealth.Scope != "access_key" ||
+		envelope.Data.CollectionHealth.DroppedTotal != 0 ||
+		envelope.Data.CollectionHealth.WriteFailureTotal != 0 ||
+		envelope.Data.CollectionHealth.LastWriteFailureAtMS != nil {
+		t.Fatalf("AccessKey usage redaction = %#v", envelope.Data)
+	}
+
+	forbiddenFilter := performUsageRequest(engine, created.Key, "group_id=1")
+	if forbiddenFilter.Code != http.StatusBadRequest || len(reader.queries) != 1 {
+		t.Fatalf(
+			"AccessKey group filter = %d %s, calls=%d, want 400/no query",
+			forbiddenFilter.Code,
+			forbiddenFilter.Body.String(),
+			len(reader.queries),
+		)
+	}
+}
+
 type recordingUsageStatReader struct {
 	queries []requestlog.UsageQuery
 	report  requestlog.UsageReport

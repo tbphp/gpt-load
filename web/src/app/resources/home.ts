@@ -2,11 +2,13 @@ import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
-import type { AccessProtocol } from '@/api/control/types'
+import type { AccessKeyCollectionItemDto, AccessProtocol } from '@/api/control/types'
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { isCanonicalMaskedAccessKey } from '@/lib/access-key-mask'
+
+import { projectAccessKeyCollectionItem } from './access-keys'
 
 import {
   assertNoSecretLikeFields,
@@ -39,6 +41,7 @@ export interface HomeBaseDto {
     masked_key: string
     protocols: AccessProtocol[]
   }>
+  current_access_key: AccessKeyCollectionItemDto | null
 }
 
 export interface HomeStatisticsSummary {
@@ -113,6 +116,7 @@ const homeBaseFields = [
   'version',
   'inventory',
   'access_keys',
+  'current_access_key',
 ] as const
 const inventoryFields = [
   'group_count',
@@ -222,6 +226,10 @@ export function projectHomeBase(value: unknown): HomeBaseDto {
     version: projectNonBlankTrimmedString(record.version),
     inventory: projectHomeInventory(record.inventory),
     access_keys: accessKeys,
+    current_access_key:
+      record.current_access_key === null
+        ? null
+        : projectAccessKeyCollectionItem(record.current_access_key),
   }
 }
 

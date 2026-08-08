@@ -33,18 +33,27 @@ const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
 
-const navigation = computed(() => [
-  { key: 'home', to: homeLocation(), label: t('shell.home') },
-  { key: 'groups', to: groupsLocation(), label: t('shell.groups') },
-  { key: 'models', to: modelsLocation(), label: t('shell.models') },
-  {
-    key: 'access-keys',
-    to: accessKeysLocation(),
-    label: t('shell.accessKeys'),
-  },
-  { key: 'monitor', to: monitorLocation(), label: t('shell.monitor') },
-  { key: 'settings', to: settingsLocation(), label: t('shell.settings') },
-])
+const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const navigation = computed(() => {
+  const shared = [
+    { key: 'home', to: homeLocation(), label: t('shell.home') },
+    { key: 'models', to: modelsLocation(), label: t('shell.models') },
+    { key: 'monitor', to: monitorLocation(), label: t('shell.monitor') },
+  ]
+  if (isAccessKey.value) return shared
+  return [
+    shared[0]!,
+    { key: 'groups', to: groupsLocation(), label: t('shell.groups') },
+    shared[1]!,
+    {
+      key: 'access-keys',
+      to: accessKeysLocation(),
+      label: t('shell.accessKeys'),
+    },
+    shared[2]!,
+    { key: 'settings', to: settingsLocation(), label: t('shell.settings') },
+  ]
+})
 const currentLocale = computed(() => locale.value as AppLocale)
 
 function isPrimaryActive(key: string): boolean {
@@ -115,6 +124,7 @@ watch(
 
       <div class="shell-actions">
         <RouterLink
+          v-if="!isAccessKey"
           class="button-link import-action"
           :to="importLocation()"
           :aria-label="t('shell.import')"

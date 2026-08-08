@@ -166,6 +166,37 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndExcludesLegacyZeroAttemptAgg
 	}
 }
 
+func TestQueryHomeStatisticsScopesAccessKeyAndOnlyReturnsModelRankings(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	const bucketStartMS int64 = 1_784_894_400_000
+	createUsageStats(
+		t,
+		db,
+		homeStatisticsStat(bucketStartMS, 41, 7, "shared-model", 2, 200),
+		homeStatisticsStat(bucketStartMS, 41, 8, "shared-model", 3, 300),
+		homeStatisticsStat(bucketStartMS, 42, 7, "private-model", 100, 10_000),
+	)
+	accessKeyID := uint(41)
+
+	report, err := newRequestLogTestService(db).QueryHomeStatistics(
+		context.Background(),
+		HomeStatisticsQuery{
+			Range:        HomeStatistics24H,
+			ObservedAtMS: 1_784_896_496_789,
+			AccessKeyID:  &accessKeyID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("QueryHomeStatistics() error = %v", err)
+	}
+	if report.Summary.RequestCount != 5 || len(report.TopModels) != 1 ||
+		report.TopModels[0].Model != "shared-model" ||
+		report.TopModels[0].RequestCount != 5 ||
+		len(report.TopGroups) != 0 || len(report.TopAccessKeys) != 0 {
+		t.Fatalf("scoped home statistics = %#v", report)
+	}
+}
+
 func TestQueryHomeStatisticsUsesOneReadSnapshot(t *testing.T) {
 	db, dsn := openRequestLogFileDB(t)
 	const bucketStartMS int64 = 1_784_894_400_000
@@ -293,9 +324,11 @@ func TestQueryHomeStatisticsRejectsUnsafeOrCorruptAggregates(t *testing.T) {
 
 func TestQueryHomeStatisticsRejectsInvalidQuery(t *testing.T) {
 	service := newRequestLogTestService(openRequestLogQueryDB(t))
+	zero := uint(0)
 	for _, query := range []HomeStatisticsQuery{
 		{Range: HomeStatisticsRange("1h"), ObservedAtMS: 1},
 		{Range: HomeStatistics24H, ObservedAtMS: -1},
+		{Range: HomeStatistics24H, ObservedAtMS: 1, AccessKeyID: &zero},
 	} {
 		if _, err := service.QueryHomeStatistics(context.Background(), query); err == nil {
 			t.Fatalf("QueryHomeStatistics(%#v) error = nil", query)

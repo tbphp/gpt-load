@@ -27,6 +27,7 @@ const (
 type HomeStatisticsQuery struct {
 	Range        HomeStatisticsRange
 	ObservedAtMS int64
+	AccessKeyID  *uint
 }
 
 type HomeStatisticsRef struct {
@@ -78,6 +79,11 @@ func (service *Service) QueryHomeStatistics(
 	if err != nil {
 		return HomeStatisticsReport{}, err
 	}
+	if input.AccessKeyID != nil && *input.AccessKeyID == 0 {
+		return HomeStatisticsReport{}, fmt.Errorf(
+			"query home statistics: invalid access key scope",
+		)
+	}
 	fromMS, toMS, err := epochms.WindowEndingAt(input.ObservedAtMS, width, count)
 	if err != nil {
 		return HomeStatisticsReport{}, fmt.Errorf("query home statistics: invalid observed time: %w", err)
@@ -86,6 +92,7 @@ func (service *Service) QueryHomeStatistics(
 		FromMS:         fromMS,
 		ToMS:           toMS,
 		Granularity:    granularity,
+		AccessKeyID:    input.AccessKeyID,
 		Limit:          homeStatisticsRankingLimit,
 		BreakdownOrder: UsageBreakdownOrderCost,
 	}
@@ -131,25 +138,31 @@ func (service *Service) QueryHomeStatistics(
 		if err != nil {
 			return err
 		}
-		groupRows, err := queryHomeGroupRankings(
-			usageStatScope(connection, usageInput),
-		)
-		if err != nil {
-			return err
-		}
-		accessRows, err := queryHomeAccessKeyRankings(
-			usageStatScope(connection, usageInput),
-		)
-		if err != nil {
-			return err
-		}
-		groupRefs, err := loadHomeGroupRefs(connection, groupRows)
-		if err != nil {
-			return err
-		}
-		accessRefs, err := loadHomeAccessKeyRefs(connection, accessRows)
-		if err != nil {
-			return err
+		var groupRows []homeGroupRankingRow
+		var accessRows []homeAccessKeyRankingRow
+		groupRefs := map[uint]HomeStatisticsRef{}
+		accessRefs := map[uint]HomeStatisticsRef{}
+		if input.AccessKeyID == nil {
+			groupRows, err = queryHomeGroupRankings(
+				usageStatScope(connection, usageInput),
+			)
+			if err != nil {
+				return err
+			}
+			accessRows, err = queryHomeAccessKeyRankings(
+				usageStatScope(connection, usageInput),
+			)
+			if err != nil {
+				return err
+			}
+			groupRefs, err = loadHomeGroupRefs(connection, groupRows)
+			if err != nil {
+				return err
+			}
+			accessRefs, err = loadHomeAccessKeyRefs(connection, accessRows)
+			if err != nil {
+				return err
+			}
 		}
 
 		report.Summary = summary

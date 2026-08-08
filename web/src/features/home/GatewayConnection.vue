@@ -22,6 +22,8 @@ const props = defineProps<{
   accessKeys: HomeBaseDto['access_keys']
   selectedAccessKeyId: number | null
   clientId: GatewayClientID
+  credential?: string
+  selfScoped?: boolean
 }>()
 const emit = defineEmits<{
   'update:selectedAccessKeyId': [id: number]
@@ -249,7 +251,10 @@ async function withRevealedKey(
   let secret: string | undefined
   const isCurrent = () => operationIsCurrent(identity, controller)
   try {
-    secret = (await revealAccessKey(client, identity.accessKeyID, controller.signal)).key
+    secret = props.selfScoped
+      ? props.credential
+      : (await revealAccessKey(client, identity.accessKeyID, controller.signal)).key
+    if (!secret) throw new Error('ACCESS_KEY_UNAVAILABLE')
     if (!isCurrent()) return false
     await operation(secret, isCurrent)
     if (!isCurrent()) return false
@@ -338,7 +343,7 @@ onBeforeUnmount(() => {
 
     <div v-if="!selectedKey" class="gateway-connection__empty">
       <p>{{ t('home.ledger.connection.noAccessKey') }}</p>
-      <RouterLink class="button-link" :to="accessKeysLocation()">
+      <RouterLink v-if="!selfScoped" class="button-link" :to="accessKeysLocation()">
         {{ t('home.ledger.connection.createAccessKey') }}
       </RouterLink>
     </div>
@@ -356,7 +361,7 @@ onBeforeUnmount(() => {
               :model-value="String(selectedKey.id)"
               :label="t('home.ledger.connection.accessKey')"
               :options="selectOptions"
-              :disabled="actionBusy"
+              :disabled="actionBusy || selfScoped"
               @update:model-value="selectKey"
             />
             <CopyAction

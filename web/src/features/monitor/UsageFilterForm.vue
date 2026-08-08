@@ -15,6 +15,7 @@ const props = defineProps<{
   errors: UsageFilterErrors
   groups: GroupOptionDto[]
   groupsFailed: boolean
+  selfScoped?: boolean
 }>()
 const emit = defineEmits<{
   'update:open': [open: boolean]
@@ -63,6 +64,7 @@ function error(field: keyof UsageFilterErrors): string | undefined {
     <form class="usage-filter-drawer" @submit.prevent="emit('apply')">
       <div class="usage-filter-drawer__grid">
         <FormField
+          v-if="!selfScoped"
           id="usage-group"
           :label="t('monitor.usage.filters.group')"
           size="compact"

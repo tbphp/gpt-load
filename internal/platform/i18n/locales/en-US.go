@@ -22,6 +22,7 @@ var MessagesEnUS = map[string]string{
 	"model_price.referenced":                          "The model price is still referenced by Groups",
 	"model_price.automatic_delete_forbidden":          "Automatic model prices cannot be deleted manually",
 	"auth.invalid_key":                                "Invalid authorization key",
+	"auth.forbidden":                                  "The current key cannot access this feature",
 	"auth.locked":                                     "Too many authentication attempts; try again later",
 	"group.not_found":                                 "Group not found",
 	"group.name_exists":                               "Group name already exists",

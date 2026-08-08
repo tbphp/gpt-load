@@ -390,6 +390,14 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
           :label="t('accessKeys.collection.loading')"
         />
 
+        <InlineFeedback class="access-keys__login-notice" appearance="ledger" tone="info">
+          <template #glyph><KeyRound :size="12" aria-hidden="true" /></template>
+          <span class="access-keys__login-message">
+            <strong>{{ t('accessKeys.loginNotice.title') }}</strong>
+            <span>{{ t('accessKeys.loginNotice.description') }}</span>
+          </span>
+        </InlineFeedback>
+
         <AccessKeyDrawer
           v-if="drawerOpen && (drawerRoute?.mode === 'create' || selected)"
           :open="drawerOpen"
@@ -588,6 +596,24 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
 </template>
 
 <style scoped>
+.access-keys__login-notice {
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.access-keys__login-message {
+  display: grid;
+  gap: 2px;
+}
+
+.access-keys__login-message strong {
+  color: var(--color-text);
+  font-weight: 650;
+}
+
+.access-keys__login-message > span {
+  color: var(--color-text-muted);
+}
+
 .access-keys__operation {
   display: flex;
   align-items: center;

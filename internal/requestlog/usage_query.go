@@ -54,7 +54,11 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		if err != nil {
 			return err
 		}
-		breakdownCount, err := queryUsageBreakdownCount(usageStatScope(connection, input))
+		collapseByModel := input.AccessKeyID != nil
+		breakdownCount, err := queryUsageBreakdownCount(
+			usageStatScope(connection, input),
+			collapseByModel,
+		)
 		if err != nil {
 			return err
 		}
@@ -62,6 +66,7 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 			usageStatScope(connection, input),
 			limit,
 			input.BreakdownOrder,
+			collapseByModel,
 		)
 		if err != nil {
 			return err
@@ -90,6 +95,9 @@ func validateUsageQuery(input UsageQuery) error {
 		int64(maxUsageSeriesHours)*epochms.MillisecondsPerHour {
 		return fmt.Errorf("query usage: time range exceeds %d hours", maxUsageSeriesHours)
 	}
+	if input.AccessKeyID != nil && *input.AccessKeyID == 0 {
+		return fmt.Errorf("query usage: invalid access key scope")
+	}
 	switch input.Granularity {
 	case UsageGranularityHour, UsageGranularityDay:
 	default:
@@ -115,6 +123,9 @@ func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 		Where("NOT (group_id = ? AND model = ?)", 0, "")
 	if input.GroupID != nil {
 		scope = scope.Where("group_id = ?", *input.GroupID)
+	}
+	if input.AccessKeyID != nil {
+		scope = scope.Where("access_key_id = ?", *input.AccessKeyID)
 	}
 	if input.UpstreamModel != "" {
 		scope = scope.Where("model = ?", input.UpstreamModel)
@@ -196,8 +207,13 @@ func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeri
 	return mergeUsageHoursToDays(source)
 }
 
-func queryUsageBreakdownCount(scope *gorm.DB) (int64, error) {
-	grouped := scope.Select("group_id, model").Group("group_id, model")
+func queryUsageBreakdownCount(scope *gorm.DB, collapseByModel bool) (int64, error) {
+	var grouped *gorm.DB
+	if collapseByModel {
+		grouped = scope.Select("model").Group("model")
+	} else {
+		grouped = scope.Select("group_id, model").Group("group_id, model")
+	}
 	var count int64
 	if err := scope.Session(&gorm.Session{NewDB: true}).
 		Table("(?) AS usage_breakdown_items", grouped).
@@ -214,10 +230,17 @@ func queryUsageBreakdown(
 	scope *gorm.DB,
 	limit int,
 	order UsageBreakdownOrder,
+	collapseByModel bool,
 ) ([]UsageBreakdown, bool, error) {
 	var rows []usageBreakdownRow
-	query := scope.Select("group_id, model, " + usageAggregateSelect).
-		Group("group_id, model")
+	var query *gorm.DB
+	if collapseByModel {
+		query = scope.Select("0 AS group_id, model, " + usageAggregateSelect).
+			Group("model")
+	} else {
+		query = scope.Select("group_id, model, " + usageAggregateSelect).
+			Group("group_id, model")
+	}
 	switch order {
 	case UsageBreakdownOrderRequests:
 		query = query.

@@ -2,6 +2,7 @@ import type { LocationQueryRaw } from 'vue-router'
 
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { UsageFilters } from '@/app/resources/usage'
+import type { RequestLogFilters } from '@/app/resources/request-logs'
 import { defaultTimeRange } from '@/lib/time'
 
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
@@ -59,6 +60,46 @@ export function normalizeMonitorQuery(query: Record<string, unknown>): LocationQ
     return usageMonitorQuery(parseAppliedUsageFilters(query), parseUsageMonitorState(query))
   }
   return logsMonitorQuery(parseAppliedLogFilters(query), parseLogsMonitorState(query))
+}
+
+const accessKeyForbiddenLogFilters: readonly (keyof RequestLogFilters)[] = [
+  'group_id',
+  'upstream_model',
+  'access_key_id',
+  'upstream_key_id',
+  'attempt_status_code',
+  'failure_category',
+  'error_code',
+  'retry_state',
+  'retry_count_min',
+  'retry_count_max',
+]
+
+export function scopeAccessKeyUsageFilters(filters: UsageFilters): UsageFilters {
+  const scoped = { ...filters }
+  delete scoped.group_id
+  return scoped
+}
+
+export function scopeAccessKeyLogFilters(filters: RequestLogFilters): RequestLogFilters {
+  const scoped = { ...filters }
+  for (const field of accessKeyForbiddenLogFilters) delete scoped[field]
+  return scoped
+}
+
+export function normalizeAccessKeyMonitorQuery(query: Record<string, unknown>): LocationQueryRaw {
+  const tab = normalizeMonitorTab(query.tab)
+  if (tab === 'logs') {
+    return logsMonitorQuery(
+      scopeAccessKeyLogFilters(parseAppliedLogFilters(query)),
+      parseLogsMonitorState(query),
+    )
+  }
+  const state = parseUsageMonitorState(query)
+  return usageMonitorQuery(scopeAccessKeyUsageFilters(parseAppliedUsageFilters(query)), {
+    ...state,
+    expandedBreakdowns: state.expandedBreakdowns.filter(({ groupID }) => groupID === 0),
+  })
 }
 
 export function parseHealthMonitorState(query: Record<string, unknown>): HealthMonitorState {
