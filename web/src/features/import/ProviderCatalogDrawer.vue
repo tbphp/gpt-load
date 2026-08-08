@@ -9,6 +9,7 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 const props = defineProps<{
@@ -113,8 +114,12 @@ function hostOf(url: string): string {
           >
             <span class="provider-catalog-drawer__mark">{{ provider.mark || '···' }}</span>
             <span>
-              <strong>{{ provider.name }}</strong>
-              <small>{{ providerMeta(provider) }}</small>
+              <OverflowTooltip as="strong" :content="provider.name" :focusable="false">
+                {{ provider.name }}
+              </OverflowTooltip>
+              <OverflowTooltip as="small" :content="providerMeta(provider)" :focusable="false">
+                {{ providerMeta(provider) }}
+              </OverflowTooltip>
             </span>
             <span aria-hidden="true">→</span>
           </button>
@@ -156,8 +161,12 @@ function hostOf(url: string): string {
             >
               <span class="provider-catalog-drawer__mark">{{ provider.mark || '···' }}</span>
               <span>
-                <strong>{{ provider.name }}</strong>
-                <small>{{ providerMeta(provider) }}</small>
+                <OverflowTooltip as="strong" :content="provider.name" :focusable="false">
+                  {{ provider.name }}
+                </OverflowTooltip>
+                <OverflowTooltip as="small" :content="providerMeta(provider)" :focusable="false">
+                  {{ providerMeta(provider) }}
+                </OverflowTooltip>
               </span>
               <span aria-hidden="true">→</span>
             </button>
@@ -176,8 +185,12 @@ function hostOf(url: string): string {
             >
               <span class="provider-catalog-drawer__mark">{{ provider.mark || '···' }}</span>
               <span>
-                <strong>{{ provider.name }}</strong>
-                <small>{{ providerMeta(provider) }}</small>
+                <OverflowTooltip as="strong" :content="provider.name" :focusable="false">
+                  {{ provider.name }}
+                </OverflowTooltip>
+                <OverflowTooltip as="small" :content="providerMeta(provider)" :focusable="false">
+                  {{ providerMeta(provider) }}
+                </OverflowTooltip>
               </span>
               <span aria-hidden="true">→</span>
             </button>

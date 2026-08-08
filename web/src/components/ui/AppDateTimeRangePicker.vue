@@ -8,6 +8,7 @@ import { currentTimeZone, timeRangeMilliseconds, timeRanges } from '@/lib/time'
 import AppButton from './AppButton.vue'
 import AppPopover from './AppPopover.vue'
 import FormField from './FormField.vue'
+import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = defineProps<{
   from: string
@@ -74,7 +75,9 @@ function selectShortcut(milliseconds: number): void {
         :aria-label="label"
       >
         <CalendarClock :size="14" aria-hidden="true" />
-        <span>{{ display }}</span>
+        <OverflowTooltip as="span" :content="display" :focusable="false">
+          {{ display }}
+        </OverflowTooltip>
       </AppButton>
     </template>
 

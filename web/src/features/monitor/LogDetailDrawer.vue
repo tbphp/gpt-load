@@ -13,6 +13,7 @@ import {
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -177,7 +178,9 @@ function groupLabel(): string {
           <AppDateTime :instant="log.completed_at_ms" :locale="locale" precision="second" />
         </span>
         <span class="log-detail__request-id">
-          <code>{{ log.request_id }}</code>
+          <OverflowTooltip as="code" :content="log.request_id">
+            {{ log.request_id }}
+          </OverflowTooltip>
           <CopyButton
             :value="log.request_id"
             :label="t('monitor.logs.drawer.copyRequestId')"

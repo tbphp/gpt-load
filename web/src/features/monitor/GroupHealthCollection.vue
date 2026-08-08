@@ -2,6 +2,7 @@
 import { ArrowRight, ScrollText } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 
 import type { HealthGroupDto, KeyCounts } from '@/app/resources/health'
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
@@ -9,6 +10,7 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import KeyHealthBar from '@/components/ui/KeyHealthBar.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
@@ -119,9 +121,14 @@ function keyHealthLabel(counts: KeyCounts): string {
           :aria-rowindex="index + 2"
         >
           <div class="ledger-record-list__cell group-health-record__identity" role="cell">
-            <RouterLink class="group-health-record__name" :to="groupDetailLocation(group.id)">
+            <OverflowTooltip
+              :as="RouterLink"
+              class="group-health-record__name"
+              :content="group.name"
+              :to="groupDetailLocation(group.id)"
+            >
               {{ group.name }}
-            </RouterLink>
+            </OverflowTooltip>
             <small>#{{ group.id }}</small>
           </div>
 

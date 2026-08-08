@@ -24,6 +24,7 @@ import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -428,14 +429,18 @@ defineExpose({ openFilters, refresh })
                 :aria-rowindex="index + 2"
               >
                 <div class="ledger-record-list__cell usage-breakdown-record__identity" role="cell">
-                  <strong>{{ groupName(row.group_id) }}</strong>
+                  <OverflowTooltip as="strong" :content="groupName(row.group_id)">
+                    {{ groupName(row.group_id) }}
+                  </OverflowTooltip>
                   <small>{{ groupMeta(row.group_id) }}</small>
                 </div>
                 <div class="ledger-record-list__cell usage-breakdown-record__model" role="cell">
                   <span class="usage-cell-label">{{
                     t('monitor.usage.columns.upstreamModel')
                   }}</span>
-                  <code>{{ modelLabel(row.model) }}</code>
+                  <OverflowTooltip as="code" :content="modelLabel(row.model)">
+                    {{ modelLabel(row.model) }}
+                  </OverflowTooltip>
                 </div>
                 <div class="ledger-record-list__cell usage-breakdown-record__number" role="cell">
                   <span class="usage-cell-label">{{ t('monitor.usage.columns.requests') }}</span>

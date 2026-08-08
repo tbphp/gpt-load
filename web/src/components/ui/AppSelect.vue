@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from 'reka-ui'
 
+import OverflowTooltip from './OverflowTooltip.vue'
+
 interface SelectOption {
   value: string
   label: string
@@ -72,7 +74,14 @@ const selectedLabel = computed(
       :aria-label="label"
       :disabled="props.disabled"
     >
-      <SelectValue class="app-select__value">{{ selectedLabel }}</SelectValue>
+      <OverflowTooltip
+        as="span"
+        class="app-select__value"
+        :content="selectedLabel"
+        :focusable="false"
+      >
+        <SelectValue>{{ selectedLabel }}</SelectValue>
+      </OverflowTooltip>
       <ChevronDown class="app-select__chevron" :size="16" aria-hidden="true" />
     </SelectTrigger>
     <SelectPortal>

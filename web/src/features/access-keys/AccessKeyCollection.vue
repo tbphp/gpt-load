@@ -12,6 +12,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
@@ -105,7 +106,7 @@ watch(
       :aria-rowindex="(page - 1) * pageSize + index + 2"
     >
       <div class="ledger-record-list__cell access-key-name" role="cell">
-        <span :title="record.name">{{ record.name }}</span>
+        <span>{{ record.name }}</span>
       </div>
 
       <div class="ledger-record-list__cell access-key-secret-cell" role="cell">
@@ -131,7 +132,7 @@ watch(
         <dl>
           <div v-for="scope in record.scopeRows" :key="scope.label">
             <dt>{{ scope.label }}</dt>
-            <dd :title="scope.value">{{ scope.value }}</dd>
+            <OverflowTooltip as="dd" :content="scope.value">{{ scope.value }}</OverflowTooltip>
           </div>
         </dl>
       </div>

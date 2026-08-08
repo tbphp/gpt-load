@@ -3,7 +3,7 @@ import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert } from '@luc
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import type {
@@ -34,6 +34,7 @@ import KeyHealthBar from '@/components/ui/KeyHealthBar.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
@@ -402,14 +403,17 @@ function keyHealthLabel(counts: KeyCounts): string {
               :aria-rowindex="(data.pagination.page - 1) * data.pagination.page_size + index + 2"
             >
               <div class="ledger-record-list__cell identity" role="cell">
-                <RouterLink
+                <OverflowTooltip
+                  :as="RouterLink"
                   class="group-name"
+                  :content="group.name"
+                  measure-selector=".group-name__label"
                   :to="groupDetailLocation(group.id)"
                   :aria-label="t('groups.collection.openDetail', { name: group.name })"
                 >
                   <span class="group-id">#{{ group.id }}</span>
-                  <span>{{ group.name }}</span>
-                </RouterLink>
+                  <span class="group-name__label">{{ group.name }}</span>
+                </OverflowTooltip>
               </div>
 
               <div class="ledger-record-list__cell group-status" role="cell">

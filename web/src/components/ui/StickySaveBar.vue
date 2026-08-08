@@ -3,6 +3,7 @@ import { TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 
 import AppButton from './AppButton.vue'
+import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -49,9 +50,14 @@ const visualState = computed(() => {
     :data-status="visualState"
     :aria-busy="pending || undefined"
   >
-    <div class="sticky-save-bar__status" aria-live="polite">
+    <OverflowTooltip
+      as="div"
+      class="sticky-save-bar__status"
+      measure-selector=".sticky-save-bar__status strong"
+      aria-live="polite"
+    >
       <slot name="status" :dirty="dirty" :pending="pending" :status="status" :error="error" />
-    </div>
+    </OverflowTooltip>
     <p v-if="error" class="sticky-save-bar__error" role="alert">
       <TriangleAlert v-if="errorPlacement === 'floating'" :size="16" aria-hidden="true" />
       <span>{{ error }}</span>

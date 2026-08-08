@@ -8,6 +8,7 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import type { ModelCandidate } from '@/app/resources/providers'
@@ -224,8 +225,12 @@ function confirm(): void {
               @change="setCandidate(candidate, ($event.target as HTMLInputElement).checked)"
             />
             <span class="model-discovery-drawer__identity">
-              <strong>{{ candidate.name }}</strong>
-              <code>{{ candidate.id }}</code>
+              <OverflowTooltip as="strong" :content="candidate.name" :focusable="false">
+                {{ candidate.name }}
+              </OverflowTooltip>
+              <OverflowTooltip as="code" :content="candidate.id" :focusable="false">
+                {{ candidate.id }}
+              </OverflowTooltip>
             </span>
             <span class="model-discovery-drawer__evidence">
               <AppTooltip v-if="candidate.sources.includes('live')" :content="labels.sources.live">
