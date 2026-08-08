@@ -76,6 +76,46 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 	}
 }
 
+func TestQueryUsageExcludesLegacyZeroAttemptAggregates(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.August, 8, 14, 0, 0, 0, time.UTC)
+	attributed := usageStat(start, 7, "model-a", 3)
+	attributed.AccessKeyID = 1
+	legacyZeroAttempt := models.UsageStat{
+		BucketStartMS: start.UnixMilli(),
+		AccessKeyID:   1,
+		GroupID:       0,
+		Model:         "",
+		RequestCount:  2,
+		FailureCount:  2,
+	}
+	createUsageStats(t, db, attributed, legacyZeroAttempt)
+
+	report, err := service.QueryUsage(context.Background(), UsageQuery{
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
+		Granularity:    UsageGranularityHour,
+		Limit:          100,
+		BreakdownOrder: UsageBreakdownOrderRequests,
+	})
+	if err != nil {
+		t.Fatalf("QueryUsage() error = %v", err)
+	}
+	if report.Summary.RequestCount != 3 || report.Summary.SuccessCount != 3 ||
+		report.Summary.FailureCount != 0 {
+		t.Fatalf("summary = %#v, want only attributed requests", report.Summary)
+	}
+	if len(report.Series) != 1 || report.Series[0].RequestCount != 3 ||
+		report.Series[0].FailureCount != 0 {
+		t.Fatalf("series = %#v, want only attributed requests", report.Series)
+	}
+	if report.BreakdownCount != 1 || len(report.Breakdown) != 1 ||
+		report.Breakdown[0].GroupID != 7 || report.Breakdown[0].Model != "model-a" {
+		t.Fatalf("breakdown = %#v count=%d", report.Breakdown, report.BreakdownCount)
+	}
+}
+
 func TestQueryUsageMergesHourlyRowsIntoThirtyUTCDays(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)

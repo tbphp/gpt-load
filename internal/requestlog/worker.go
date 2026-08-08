@@ -257,6 +257,11 @@ func buildUsageAggregationJournals(
 ) ([]models.UsageAggregationJournal, error) {
 	journals := make([]models.UsageAggregationJournal, 0, len(rows))
 	for _, row := range rows {
+		// Zero-attempt requests are durable request-log observations only. They did
+		// not reach an upstream and must not contribute to any usage statistics.
+		if row.AttemptCount == 0 {
+			continue
+		}
 		deltas, err := buildUsageStatDeltas([]models.RequestLog{row})
 		if err != nil {
 			return nil, err

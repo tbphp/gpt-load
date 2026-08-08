@@ -70,7 +70,7 @@ func TestQueryHomeStatisticsReturnsDenseEpochWindowsForEmptyData(t *testing.T) {
 	}
 }
 
-func TestQueryHomeStatisticsBuildsTopFiveRankingsAndDeletedRefs(t *testing.T) {
+func TestQueryHomeStatisticsBuildsTopFiveRankingsAndExcludesLegacyZeroAttemptAggregates(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	groupA := createHomeStatisticsGroup(t, db, "Group A")
 	groupB := createHomeStatisticsGroup(t, db, "Group B")
@@ -78,12 +78,20 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndDeletedRefs(t *testing.T) {
 	accessB := createHomeStatisticsAccessKey(t, db, "Access B", "0002")
 	const bucketStartMS int64 = 1_784_894_400_000
 
+	legacyZeroAttempt := models.UsageStat{
+		BucketStartMS: bucketStartMS,
+		AccessKeyID:   accessA.ID,
+		GroupID:       0,
+		Model:         "",
+		RequestCount:  20,
+		FailureCount:  20,
+	}
 	rows := []models.UsageStat{
 		homeStatisticsStat(bucketStartMS, accessA.ID, groupA.ID, "z-model", 5, 500),
 		homeStatisticsStat(bucketStartMS, accessA.ID, groupA.ID, "a-model", 5, 500),
 		homeStatisticsStat(bucketStartMS, accessB.ID, groupB.ID, "a-model", 5, 500),
 		homeStatisticsStat(bucketStartMS, 999, 999, "deleted-model", 100, 400),
-		homeStatisticsStat(bucketStartMS, 0, 0, "", 20, 300),
+		legacyZeroAttempt,
 		homeStatisticsStat(bucketStartMS, accessB.ID, groupB.ID, "low-model", 1, 200),
 		homeStatisticsStat(bucketStartMS, accessB.ID, groupB.ID, "excluded-model", 1, 100),
 	}
@@ -99,15 +107,16 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndDeletedRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryHomeStatistics() error = %v", err)
 	}
-	if report.Summary.RequestCount != 137 ||
-		report.Summary.SuccessCount != 137 ||
-		report.Summary.UncachedInputTokens != 1_370 ||
-		report.Summary.EstimatedCostNanoUSD != 2_500 {
+	if report.Summary.RequestCount != 117 ||
+		report.Summary.SuccessCount != 117 ||
+		report.Summary.FailureCount != 0 ||
+		report.Summary.UncachedInputTokens != 1_170 ||
+		report.Summary.EstimatedCostNanoUSD != 2_200 {
 		t.Fatalf("summary = %#v", report.Summary)
 	}
 	if len(report.TopModels) != 5 ||
-		len(report.TopGroups) != 4 ||
-		len(report.TopAccessKeys) != 4 {
+		len(report.TopGroups) != 3 ||
+		len(report.TopAccessKeys) != 3 {
 		t.Fatalf(
 			"ranking lengths = %d/%d/%d",
 			len(report.TopModels),
@@ -123,8 +132,8 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndDeletedRefs(t *testing.T) {
 		{"a-model", 10, 1_000},
 		{"z-model", 5, 500},
 		{"deleted-model", 100, 400},
-		{"", 20, 300},
 		{"low-model", 1, 200},
+		{"excluded-model", 1, 100},
 	}
 	for index, want := range wantModels {
 		got := report.TopModels[index]
@@ -151,11 +160,9 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndDeletedRefs(t *testing.T) {
 			*report.TopAccessKeys[0].AccessKey.Name,
 		)
 	}
-	for _, index := range []int{2, 3} {
-		if !report.TopAccessKeys[index].AccessKey.Deleted ||
-			report.TopAccessKeys[index].AccessKey.Name != nil {
-			t.Fatalf("deleted/zero access ref = %#v", report.TopAccessKeys[index].AccessKey)
-		}
+	if !report.TopAccessKeys[2].AccessKey.Deleted ||
+		report.TopAccessKeys[2].AccessKey.Name != nil {
+		t.Fatalf("deleted access ref = %#v", report.TopAccessKeys[2].AccessKey)
 	}
 }
 

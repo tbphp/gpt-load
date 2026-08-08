@@ -531,19 +531,19 @@ func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
 	}
 }
 
-func TestUsageAPIReturnsUnattributedAggregateFromSQLite(t *testing.T) {
+func TestUsageAPIExcludesLegacyZeroAttemptAggregateFromSQLite(t *testing.T) {
 	initControlI18n(t)
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	fixture := newServiceFixture(t)
 	if err := fixture.db.Create(&models.UsageStat{
 		BucketStartMS: now.Add(-time.Hour).UnixMilli(),
-		AccessKeyID:   0,
+		AccessKeyID:   1,
 		GroupID:       0,
 		Model:         "",
 		RequestCount:  1,
-		SuccessCount:  1,
+		FailureCount:  1,
 	}).Error; err != nil {
-		t.Fatalf("create unattributed UsageStat: %v", err)
+		t.Fatalf("create legacy zero-attempt UsageStat: %v", err)
 	}
 	fixture.service.now = func() time.Time { return now }
 	fixture.service.usageStats = requestlog.NewService(fixture.db, nil, nil)
@@ -556,6 +556,10 @@ func TestUsageAPIReturnsUnattributedAggregateFromSQLite(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
+			Summary struct {
+				RequestCount int64 `json:"request_count"`
+				FailureCount int64 `json:"failure_count"`
+			} `json:"summary"`
 			Breakdown []struct {
 				GroupID      uint   `json:"group_id"`
 				Model        string `json:"model"`
@@ -566,11 +570,9 @@ func TestUsageAPIReturnsUnattributedAggregateFromSQLite(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(envelope.Data.Breakdown) != 1 ||
-		envelope.Data.Breakdown[0].GroupID != 0 ||
-		envelope.Data.Breakdown[0].Model != "" ||
-		envelope.Data.Breakdown[0].RequestCount != 1 {
-		t.Fatalf("unattributed breakdown = %#v", envelope.Data.Breakdown)
+	if envelope.Data.Summary.RequestCount != 0 || envelope.Data.Summary.FailureCount != 0 ||
+		len(envelope.Data.Breakdown) != 0 {
+		t.Fatalf("usage data = %#v", envelope.Data)
 	}
 }
 

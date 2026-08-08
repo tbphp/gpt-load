@@ -717,6 +717,57 @@ func TestWriteBatchSeparatesHourAccessGroupAndUpstreamModelWithoutSkippingZeroDi
 	}
 }
 
+func TestWriteBatchPersistsZeroAttemptRequestWithoutUsageAggregation(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	completedAt := time.Date(2026, time.August, 8, 14, 1, 37, 0, time.Local)
+	zeroAttempt := models.RequestLog{
+		ID:                  aggregationRequestID(28),
+		CompletedAtMS:       completedAt.UTC().UnixMilli(),
+		AccessKeyID:         1,
+		Protocol:            "openai-responses",
+		ClientModel:         "luna",
+		ModelConsistency:    string(telemetry.ModelConsistencyNotApplicable),
+		Status:              string(telemetry.RequestStatusError),
+		StatusCode:          503,
+		ErrorCode:           "no_available_candidate",
+		ErrorSummary:        "No available upstream candidate.",
+		UsageState:          string(usage.StateNotApplicable),
+		CostState:           string(pricing.CostStateNotApplicable),
+		PricingCompleteness: string(pricing.CompletenessNotApplicable),
+	}
+	attempted := aggregationRow(
+		aggregationRequestID(29),
+		completedAt.Add(time.Second),
+		9,
+		"model-a",
+	)
+
+	if err := (&gormBatchWriter{db: db}).WriteBatch(
+		context.Background(),
+		[]models.RequestLog{zeroAttempt, attempted},
+	); err != nil {
+		t.Fatalf("WriteBatch() error = %v", err)
+	}
+
+	assertRequestLogAndUsageStatCounts(t, db, 2, 1)
+	assertUsageJournalCount(t, db, 1)
+	var persisted models.RequestLog
+	if err := db.First(&persisted, "id = ?", zeroAttempt.ID).Error; err != nil {
+		t.Fatalf("query zero-attempt RequestLog: %v", err)
+	}
+	if persisted.AttemptCount != 0 || persisted.ErrorCode != zeroAttempt.ErrorCode {
+		t.Fatalf("zero-attempt RequestLog = %+v", persisted)
+	}
+	var stat models.UsageStat
+	if err := db.First(&stat).Error; err != nil {
+		t.Fatalf("query attempted UsageStat: %v", err)
+	}
+	if stat.GroupID != attempted.GroupID || stat.Model != attempted.UpstreamModel ||
+		stat.RequestCount != 1 {
+		t.Fatalf("attempted UsageStat = %+v", stat)
+	}
+}
+
 func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 	newRow := func() models.RequestLog {
 		return aggregationRow(

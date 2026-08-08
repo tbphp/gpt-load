@@ -196,6 +196,7 @@ func aggregationRow(
 		Status:               string(telemetry.RequestStatusSuccess),
 		StatusCode:           200,
 		DurationMs:           10,
+		AttemptCount:         1,
 		UncachedInputTokens:  1,
 		OutputTokens:         2,
 		EstimatedCostNanoUSD: 250_000_000,
