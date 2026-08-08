@@ -21,18 +21,20 @@ export function useSectionNavigation({
 
   function synchronizeSection(): void {
     sectionFrame = 0
-    const elements = ids.value
+    const sectionIDs = ids.value
+    const elements = sectionIDs
       .map((id) => document.getElementById(id))
       .filter((element): element is HTMLElement => element !== null)
-    if (!elements.length) return
+    if (!sectionIDs.length || elements.length !== sectionIDs.length) return
 
     let current = elements[0]
     for (const element of elements) {
       if (element.getBoundingClientRect().top <= topOffset) current = element
       else break
     }
+    const pageHeight = document.documentElement.scrollHeight
     const pageBottom = window.scrollY + window.innerHeight
-    if (pageBottom >= document.documentElement.scrollHeight - 2)
+    if (pageHeight > window.innerHeight + 2 && pageBottom >= pageHeight - 2)
       current = elements.at(-1) ?? current
     activeSection.value = current.id
   }
