@@ -62,6 +62,12 @@ const snapshot = computed(() => {
   const state = statistics.state.value
   return state.kind === 'initial' ? null : state.snapshot
 })
+const homeTrendSeries = computed(() =>
+  (snapshot.value?.series ?? []).map((point) => ({
+    ...point,
+    request_count: point.request_count - point.failure_count,
+  })),
+)
 const statisticsLoading = computed(() => {
   return statistics.state.value.kind === 'initial'
 })
@@ -217,11 +223,11 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
             />
             <TrendChart
               v-else
-              :series="snapshot.series"
+              :series="homeTrendSeries"
               :title="t('home.ledger.trendTitle', { range: rangeLabel(snapshot.range) })"
               :description="t('home.ledger.trendDescription')"
               :empty-label="t('home.ledger.trendEmpty')"
-              :request-label="t('home.ledger.requestsLabel')"
+              :request-label="t('home.ledger.successLabel')"
               :failure-label="t('home.ledger.failuresLabel')"
               :range-start="snapshot.from_ms"
               :range-end="snapshot.to_ms"

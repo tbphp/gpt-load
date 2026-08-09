@@ -23,10 +23,13 @@ export interface UsageBreakdownIdentity {
   model: string
 }
 
+export type UsageTrendMetric = 'requests' | 'tokens' | 'cost'
+
 export interface UsageMonitorState {
   filtersOpen: boolean
   expandedBreakdowns: UsageBreakdownIdentity[]
   seriesExpanded: boolean
+  metric: UsageTrendMetric
 }
 
 export interface LogsMonitorState {
@@ -116,11 +119,13 @@ export function usageMonitorQuery(
     filtersOpen: false,
     expandedBreakdowns: [],
     seriesExpanded: false,
+    metric: 'requests',
   },
 ): LocationQueryRaw {
   const normalized: LocationQueryRaw = {
     tab: 'usage',
     range: filters.range,
+    metric: state.metric,
   }
   const groupID = normalizeUsageGroupID(filters.group_id)
   const model = normalizeUsageModel(filters.model)
@@ -139,7 +144,12 @@ export function parseUsageMonitorState(query: Record<string, unknown>): UsageMon
     filtersOpen: query.panel === 'filters',
     expandedBreakdowns: parseUsageBreakdowns(query.expanded_breakdowns),
     seriesExpanded: query.series === 'expanded',
+    metric: normalizeUsageTrendMetric(query.metric),
   }
+}
+
+function normalizeUsageTrendMetric(raw: unknown): UsageTrendMetric {
+  return raw === 'tokens' || raw === 'cost' ? raw : 'requests'
 }
 
 export function usageBreakdownIdentity(groupID: number, model: string): UsageBreakdownIdentity {

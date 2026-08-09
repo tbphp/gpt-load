@@ -21,6 +21,7 @@ import {
   normalizeAccessKeyMonitorQuery,
   normalizeMonitorQuery,
   normalizeMonitorTab,
+  parseUsageMonitorState,
   sameMonitorQuery,
   scopeAccessKeyUsageFilters,
 } from './monitor-route'
@@ -116,7 +117,20 @@ async function refreshUsage(): Promise<void> {
 
 function selectUsageRange(value: string): void {
   if (!isTimeRange(value)) return
-  void router.push(monitorLocation(usageMonitorQuery({ ...usageFilters.value, range: value })))
+  const state = parseUsageMonitorState(route.query)
+  void router.push(
+    monitorLocation(
+      usageMonitorQuery(
+        { ...usageFilters.value, range: value },
+        {
+          filtersOpen: false,
+          expandedBreakdowns: [],
+          seriesExpanded: false,
+          metric: state.metric,
+        },
+      ),
+    ),
+  )
 }
 </script>
 

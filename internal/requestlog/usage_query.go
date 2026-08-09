@@ -28,7 +28,8 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := validateUsageQuery(input); err != nil {
+	bucketWidthMS, err := validateUsageQuery(input)
+	if err != nil {
 		return UsageReport{}, err
 	}
 
@@ -38,7 +39,7 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	}
 
 	var report UsageReport
-	err := dbtx.Run(ctx, service.db, dbtx.Options{
+	err = dbtx.Run(ctx, service.db, dbtx.Options{
 		Mode:           dbtx.ReadSnapshot,
 		CleanupTimeout: usageRollbackTimeout,
 		Operation:      "usage read transaction",
@@ -50,7 +51,7 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		if err != nil {
 			return err
 		}
-		series, err := queryUsageSeries(usageStatScope(connection, input), input.Granularity)
+		series, err := queryUsageSeries(usageStatScope(connection, input), bucketWidthMS)
 		if err != nil {
 			return err
 		}
@@ -87,27 +88,52 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	return report, nil
 }
 
-func validateUsageQuery(input UsageQuery) error {
+func validateUsageQuery(input UsageQuery) (int64, error) {
 	if input.FromMS < 0 || input.ToMS <= input.FromMS {
-		return fmt.Errorf("query usage: invalid time range")
+		return 0, fmt.Errorf("query usage: invalid time range")
 	}
 	if input.ToMS-input.FromMS >
 		int64(maxUsageSeriesHours)*epochms.MillisecondsPerHour {
-		return fmt.Errorf("query usage: time range exceeds %d hours", maxUsageSeriesHours)
+		return 0, fmt.Errorf("query usage: time range exceeds %d hours", maxUsageSeriesHours)
 	}
 	if input.AccessKeyID != nil && *input.AccessKeyID == 0 {
-		return fmt.Errorf("query usage: invalid access key scope")
+		return 0, fmt.Errorf("query usage: invalid access key scope")
 	}
+	bucketWidthMS := input.BucketWidthMS
 	switch input.Granularity {
-	case UsageGranularityHour, UsageGranularityDay:
+	case UsageGranularityHour:
+		if bucketWidthMS == 0 {
+			bucketWidthMS = epochms.MillisecondsPerHour
+		}
+	case UsageGranularityDay:
+		if bucketWidthMS == 0 {
+			bucketWidthMS = epochms.MillisecondsPerDay
+		}
 	default:
-		return fmt.Errorf("query usage: unsupported granularity %q", input.Granularity)
+		return 0, fmt.Errorf("query usage: unsupported granularity %q", input.Granularity)
+	}
+	if bucketWidthMS < epochms.MillisecondsPerHour ||
+		bucketWidthMS > epochms.MillisecondsPerDay ||
+		bucketWidthMS%epochms.MillisecondsPerHour != 0 {
+		return 0, fmt.Errorf("query usage: invalid bucket width %d", bucketWidthMS)
+	}
+	if input.Granularity == UsageGranularityHour &&
+		bucketWidthMS >= epochms.MillisecondsPerDay {
+		return 0, fmt.Errorf("query usage: hourly granularity requires a sub-day bucket")
+	}
+	if input.Granularity == UsageGranularityDay &&
+		bucketWidthMS != epochms.MillisecondsPerDay {
+		return 0, fmt.Errorf("query usage: daily granularity requires a day bucket")
+	}
+	if input.FromMS%bucketWidthMS != 0 || input.ToMS%bucketWidthMS != 0 ||
+		(input.ToMS-input.FromMS)%bucketWidthMS != 0 {
+		return 0, fmt.Errorf("query usage: time range is not bucket aligned")
 	}
 	switch input.BreakdownOrder {
 	case UsageBreakdownOrderRequests, UsageBreakdownOrderCost:
-		return nil
+		return bucketWidthMS, nil
 	default:
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"query usage: unsupported breakdown order %q",
 			input.BreakdownOrder,
 		)
@@ -179,7 +205,12 @@ func queryUsageSummary(scope *gorm.DB) (UsageAggregate, error) {
 	return summary, nil
 }
 
-func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeriesPoint, error) {
+func queryUsageSeries(scope *gorm.DB, bucketWidthMS int64) ([]UsageSeriesPoint, error) {
+	if bucketWidthMS < epochms.MillisecondsPerHour ||
+		bucketWidthMS > epochms.MillisecondsPerDay ||
+		bucketWidthMS%epochms.MillisecondsPerHour != 0 {
+		return nil, fmt.Errorf("query usage series: invalid bucket width %d", bucketWidthMS)
+	}
 	var source []usageHourPoint
 	if err := scope.Select("bucket_start_ms, " + usageAggregateSelect).
 		Group("bucket_start_ms").
@@ -193,7 +224,7 @@ func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeri
 			return nil, fmt.Errorf("validate usage source series: %w", err)
 		}
 	}
-	if granularity == UsageGranularityHour {
+	if bucketWidthMS == epochms.MillisecondsPerHour {
 		series := make([]UsageSeriesPoint, 0, len(source))
 		for _, point := range source {
 			series = append(series, UsageSeriesPoint{
@@ -204,7 +235,7 @@ func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeri
 		}
 		return series, nil
 	}
-	return mergeUsageHoursToDays(source)
+	return mergeUsageHours(source, bucketWidthMS)
 }
 
 func queryUsageBreakdownCount(scope *gorm.DB, collapseByModel bool) (int64, error) {
@@ -282,29 +313,29 @@ func queryUsageBreakdown(
 	return breakdown, truncated, nil
 }
 
-func mergeUsageHoursToDays(source []usageHourPoint) ([]UsageSeriesPoint, error) {
+func mergeUsageHours(source []usageHourPoint, bucketWidthMS int64) ([]UsageSeriesPoint, error) {
 	// queryUsageSeries orders source by bucket_start_ms ASC; adjacent-only
-	// daily folding depends on it.
+	// bucket folding depends on it.
 	series := make([]UsageSeriesPoint, 0, len(source))
 	for _, point := range source {
-		dayStartMS, err := epochms.AlignDown(
+		bucketStartMS, err := epochms.AlignDown(
 			point.BucketStartMS,
-			epochms.MillisecondsPerDay,
+			bucketWidthMS,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("align usage day: %w", err)
+			return nil, fmt.Errorf("align usage bucket: %w", err)
 		}
-		if len(series) == 0 || series[len(series)-1].BucketStartMS != dayStartMS {
+		if len(series) == 0 || series[len(series)-1].BucketStartMS != bucketStartMS {
 			series = append(series, UsageSeriesPoint{
-				BucketStartMS:  dayStartMS,
-				BucketEndMS:    dayStartMS + epochms.MillisecondsPerDay,
+				BucketStartMS:  bucketStartMS,
+				BucketEndMS:    bucketStartMS + bucketWidthMS,
 				UsageAggregate: point.UsageAggregate,
 			})
 			continue
 		}
 		merged, err := addUsageAggregates(series[len(series)-1].UsageAggregate, point.UsageAggregate)
 		if err != nil {
-			return nil, fmt.Errorf("merge usage day %d: %w", dayStartMS, err)
+			return nil, fmt.Errorf("merge usage bucket %d: %w", bucketStartMS, err)
 		}
 		series[len(series)-1].UsageAggregate = merged
 	}

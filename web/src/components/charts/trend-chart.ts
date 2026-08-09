@@ -57,8 +57,7 @@ function parseDatum(datum: TrendDatum): ParsedDatum | undefined {
     !Number.isSafeInteger(requestCount) ||
     requestCount < 0 ||
     !Number.isSafeInteger(failureCount) ||
-    failureCount < 0 ||
-    failureCount > requestCount
+    failureCount < 0
   ) {
     return undefined
   }

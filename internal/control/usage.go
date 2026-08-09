@@ -74,6 +74,7 @@ type usageCollectionHealthResponse struct {
 type usageResponse struct {
 	Range              string                         `json:"range"`
 	Granularity        requestlog.UsageGranularity    `json:"granularity"`
+	BucketWidthMS      int64                          `json:"bucket_width_ms"`
 	FromMS             int64                          `json:"from_ms"`
 	ToMS               int64                          `json:"to_ms"`
 	ObservedAtMS       int64                          `json:"observed_at_ms"`
@@ -194,50 +195,29 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		} else {
 			query.Granularity = requestlog.UsageGranularityDay
 		}
+		query.BucketWidthMS = bucketWidth
 		if fromMS%bucketWidth != 0 || toMS%bucketWidth != 0 {
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
 		rangeValue = ""
 	}
 	if !hasFrom {
-		switch rangeValue {
-		case usageRange1Hour, usageRange24Hours:
-			hours := map[string]int{
-				usageRange1Hour:   1,
-				usageRange24Hours: 24,
-			}[rangeValue]
-			fromMS, toMS, err := epochms.WindowEndingAt(
-				observedAtMS,
-				epochms.MillisecondsPerHour,
-				hours,
-			)
-			if err != nil {
-				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
-			}
-			query.FromMS = fromMS
-			query.ToMS = toMS
-			query.Granularity = requestlog.UsageGranularityHour
-		case usageRange3Days, usageRange7Days, usageRange15Days, usageRange30Days:
-			days := map[string]int{
-				usageRange3Days:  3,
-				usageRange7Days:  7,
-				usageRange15Days: 15,
-				usageRange30Days: 30,
-			}[rangeValue]
-			fromMS, toMS, err := epochms.WindowEndingAt(
-				observedAtMS,
-				epochms.MillisecondsPerDay,
-				days,
-			)
-			if err != nil {
-				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
-			}
-			query.FromMS = fromMS
-			query.ToMS = toMS
-			query.Granularity = requestlog.UsageGranularityDay
-		default:
+		preset, ok := usageRangePreset(rangeValue)
+		if !ok {
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
+		fromMS, toMS, err := epochms.WindowEndingAt(
+			observedAtMS,
+			preset.bucketWidthMS,
+			preset.bucketCount,
+		)
+		if err != nil {
+			return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+		}
+		query.FromMS = fromMS
+		query.ToMS = toMS
+		query.Granularity = preset.granularity
+		query.BucketWidthMS = preset.bucketWidthMS
 	}
 	if value, ok := singleQueryValue(values, "group_id"); ok {
 		groupID, apiErr := parseUsageGroupID(value)
@@ -263,6 +243,31 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		}
 	}
 	return query, nil
+}
+
+type usagePreset struct {
+	bucketWidthMS int64
+	bucketCount   int
+	granularity   requestlog.UsageGranularity
+}
+
+func usageRangePreset(value string) (usagePreset, bool) {
+	switch value {
+	case usageRange1Hour:
+		return usagePreset{epochms.MillisecondsPerHour, 1, requestlog.UsageGranularityHour}, true
+	case usageRange24Hours:
+		return usagePreset{epochms.MillisecondsPerHour, 24, requestlog.UsageGranularityHour}, true
+	case usageRange3Days:
+		return usagePreset{3 * epochms.MillisecondsPerHour, 24, requestlog.UsageGranularityHour}, true
+	case usageRange7Days:
+		return usagePreset{6 * epochms.MillisecondsPerHour, 28, requestlog.UsageGranularityHour}, true
+	case usageRange15Days:
+		return usagePreset{12 * epochms.MillisecondsPerHour, 30, requestlog.UsageGranularityHour}, true
+	case usageRange30Days:
+		return usagePreset{epochms.MillisecondsPerDay, 30, requestlog.UsageGranularityDay}, true
+	default:
+		return usagePreset{}, false
+	}
 }
 
 func validUsageModel(value string) bool {
@@ -324,7 +329,11 @@ func (service *Service) mapUsageResponse(
 		stats.WriteFailureTotal > uint64(maxSafeInteger) {
 		return usageResponse{}, fmt.Errorf("map usage collection health: unsafe counter")
 	}
-	rangeValue, err := usageResponseRange(query)
+	bucketWidthMS, err := usageResponseBucketWidth(query)
+	if err != nil {
+		return usageResponse{}, err
+	}
+	rangeValue, err := usageResponseRange(query, bucketWidthMS)
 	if err != nil {
 		return usageResponse{}, err
 	}
@@ -342,11 +351,12 @@ func (service *Service) mapUsageResponse(
 		return usageResponse{}, fmt.Errorf("map usage observed_at_ms: %w", err)
 	}
 	result := usageResponse{
-		Range:        rangeValue,
-		Granularity:  query.Granularity,
-		FromMS:       query.FromMS,
-		ToMS:         query.ToMS,
-		ObservedAtMS: observedAtMS,
+		Range:         rangeValue,
+		Granularity:   query.Granularity,
+		BucketWidthMS: bucketWidthMS,
+		FromMS:        query.FromMS,
+		ToMS:          query.ToMS,
+		ObservedAtMS:  observedAtMS,
 		CollectionHealth: usageCollectionHealthResponse{
 			Scope:                "current_process",
 			DroppedTotal:         stats.DroppedTotal,
@@ -398,29 +408,54 @@ func (service *Service) mapUsageResponse(
 	return result, nil
 }
 
-func usageResponseRange(query requestlog.UsageQuery) (string, error) {
+func usageResponseBucketWidth(query requestlog.UsageQuery) (int64, error) {
+	bucketWidthMS := query.BucketWidthMS
+	if bucketWidthMS == 0 {
+		switch query.Granularity {
+		case requestlog.UsageGranularityHour:
+			bucketWidthMS = epochms.MillisecondsPerHour
+		case requestlog.UsageGranularityDay:
+			bucketWidthMS = epochms.MillisecondsPerDay
+		default:
+			return 0, fmt.Errorf("map usage response: invalid granularity")
+		}
+	}
+	if bucketWidthMS < epochms.MillisecondsPerHour ||
+		bucketWidthMS > epochms.MillisecondsPerDay ||
+		bucketWidthMS%epochms.MillisecondsPerHour != 0 {
+		return 0, fmt.Errorf("map usage response: invalid bucket width")
+	}
+	if query.Granularity == requestlog.UsageGranularityHour &&
+		bucketWidthMS >= epochms.MillisecondsPerDay {
+		return 0, fmt.Errorf("map usage response: invalid hourly bucket width")
+	}
+	if query.Granularity == requestlog.UsageGranularityDay &&
+		bucketWidthMS != epochms.MillisecondsPerDay {
+		return 0, fmt.Errorf("map usage response: invalid daily bucket width")
+	}
+	return bucketWidthMS, nil
+}
+
+func usageResponseRange(query requestlog.UsageQuery, bucketWidthMS int64) (string, error) {
 	duration := query.ToMS - query.FromMS
-	switch query.Granularity {
-	case requestlog.UsageGranularityHour:
-		if duration == epochms.MillisecondsPerHour {
-			return usageRange1Hour, nil
-		}
-		if duration == 24*epochms.MillisecondsPerHour {
-			return usageRange24Hours, nil
-		}
-	case requestlog.UsageGranularityDay:
-		for rangeValue, days := range map[string]int64{
-			usageRange3Days:  3,
-			usageRange7Days:  7,
-			usageRange15Days: 15,
-			usageRange30Days: 30,
-		} {
-			if duration == days*epochms.MillisecondsPerDay {
-				return rangeValue, nil
-			}
-		}
-	default:
+	if query.Granularity != requestlog.UsageGranularityHour &&
+		query.Granularity != requestlog.UsageGranularityDay {
 		return "", fmt.Errorf("map usage response: invalid granularity")
+	}
+	for _, rangeValue := range []string{
+		usageRange1Hour,
+		usageRange24Hours,
+		usageRange3Days,
+		usageRange7Days,
+		usageRange15Days,
+		usageRange30Days,
+	} {
+		preset, _ := usageRangePreset(rangeValue)
+		if query.Granularity == preset.granularity &&
+			bucketWidthMS == preset.bucketWidthMS &&
+			duration == int64(preset.bucketCount)*preset.bucketWidthMS {
+			return rangeValue, nil
+		}
 	}
 	return usageRangeCustom, nil
 }

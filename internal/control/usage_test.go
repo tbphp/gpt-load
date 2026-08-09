@@ -46,6 +46,7 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 		wantFrom    time.Time
 		wantTo      time.Time
 		granularity requestlog.UsageGranularity
+		bucketWidth int64
 	}{
 		{
 			name:        "1 hour uses one complete UTC hour",
@@ -54,6 +55,7 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			wantFrom:    time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
 			wantTo:      time.Date(2026, time.July, 27, 13, 0, 0, 0, time.UTC),
 			granularity: requestlog.UsageGranularityHour,
+			bucketWidth: int64(time.Hour / time.Millisecond),
 		},
 		{
 			name:        "24 hours crosses the local and UTC day at an exact hour boundary",
@@ -62,6 +64,7 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			wantFrom:    time.Date(2026, time.July, 25, 17, 0, 0, 0, time.UTC),
 			wantTo:      time.Date(2026, time.July, 26, 17, 0, 0, 0, time.UTC),
 			granularity: requestlog.UsageGranularityHour,
+			bucketWidth: int64(time.Hour / time.Millisecond),
 		},
 		{
 			name:        "30 days crosses the local and UTC day at exact day boundaries",
@@ -70,30 +73,34 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			wantFrom:    time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
 			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
 			granularity: requestlog.UsageGranularityDay,
+			bucketWidth: int64(24 * time.Hour / time.Millisecond),
 		},
 		{
-			name:        "3 days uses complete UTC days",
+			name:        "3 days uses three hour buckets",
 			rawQuery:    "range=3d",
 			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 25, 0, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityDay,
+			wantFrom:    time.Date(2026, time.July, 24, 15, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 27, 15, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityHour,
+			bucketWidth: int64(3 * time.Hour / time.Millisecond),
 		},
 		{
-			name:        "7 days uses complete UTC days",
+			name:        "7 days uses six hour buckets",
 			rawQuery:    "range=7d",
 			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 21, 0, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityDay,
+			wantFrom:    time.Date(2026, time.July, 20, 18, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 27, 18, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityHour,
+			bucketWidth: int64(6 * time.Hour / time.Millisecond),
 		},
 		{
-			name:        "15 days uses complete UTC days",
+			name:        "15 days uses twelve hour buckets",
 			rawQuery:    "range=15d",
 			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
 			wantFrom:    time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC),
 			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityDay,
+			granularity: requestlog.UsageGranularityHour,
+			bucketWidth: int64(12 * time.Hour / time.Millisecond),
 		},
 		{
 			name:        "custom 24 hours accepts exact UTC hour boundaries",
@@ -102,6 +109,7 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			wantFrom:    time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC),
 			wantTo:      time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC),
 			granularity: requestlog.UsageGranularityHour,
+			bucketWidth: int64(time.Hour / time.Millisecond),
 		},
 		{
 			name:        "custom 30 days accepts exact UTC day boundaries",
@@ -110,6 +118,7 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			wantFrom:    time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
 			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
 			granularity: requestlog.UsageGranularityDay,
+			bucketWidth: int64(24 * time.Hour / time.Millisecond),
 		},
 	}
 
@@ -121,15 +130,18 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 			}
 			if query.FromMS != test.wantFrom.UnixMilli() ||
 				query.ToMS != test.wantTo.UnixMilli() ||
-				query.Granularity != test.granularity {
+				query.Granularity != test.granularity ||
+				query.BucketWidthMS != test.bucketWidth {
 				t.Fatalf(
-					"parseUsageQuery() window = %d to %d (%s), want %d to %d (%s)",
+					"parseUsageQuery() window = %d to %d (%s, %dms), want %d to %d (%s, %dms)",
 					query.FromMS,
 					query.ToMS,
 					query.Granularity,
+					query.BucketWidthMS,
 					test.wantFrom.UnixMilli(),
 					test.wantTo.UnixMilli(),
 					test.granularity,
+					test.bucketWidth,
 				)
 			}
 		})
@@ -138,23 +150,36 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 
 func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC)
-	for _, value := range []string{"1h", "24h", "3d", "7d", "15d", "30d"} {
-		t.Run(value, func(t *testing.T) {
+	tests := []struct {
+		rangeValue    string
+		bucketWidthMS int64
+	}{
+		{rangeValue: "1h", bucketWidthMS: int64(time.Hour / time.Millisecond)},
+		{rangeValue: "24h", bucketWidthMS: int64(time.Hour / time.Millisecond)},
+		{rangeValue: "3d", bucketWidthMS: int64(3 * time.Hour / time.Millisecond)},
+		{rangeValue: "7d", bucketWidthMS: int64(6 * time.Hour / time.Millisecond)},
+		{rangeValue: "15d", bucketWidthMS: int64(12 * time.Hour / time.Millisecond)},
+		{rangeValue: "30d", bucketWidthMS: int64(24 * time.Hour / time.Millisecond)},
+	}
+	for _, test := range tests {
+		t.Run(test.rangeValue, func(t *testing.T) {
 			engine, _ := newUsageTestEngine(t, now, &recordingUsageStatReader{})
-			recorder := performUsageRequest(engine, "test-auth-key", "range="+value)
+			recorder := performUsageRequest(engine, "test-auth-key", "range="+test.rangeValue)
 			if recorder.Code != http.StatusOK {
 				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 			}
 			var envelope struct {
 				Data struct {
-					Range string `json:"range"`
+					Range         string `json:"range"`
+					BucketWidthMS int64  `json:"bucket_width_ms"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}
-			if envelope.Data.Range != value {
-				t.Fatalf("range = %q, want %q", envelope.Data.Range, value)
+			if envelope.Data.Range != test.rangeValue ||
+				envelope.Data.BucketWidthMS != test.bucketWidthMS {
+				t.Fatalf("range/bucket width = %q/%d, want %q/%d", envelope.Data.Range, envelope.Data.BucketWidthMS, test.rangeValue, test.bucketWidthMS)
 			}
 		})
 	}

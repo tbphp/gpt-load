@@ -55,6 +55,7 @@ export interface UsageAggregateDto {
 export interface UsageReportDto {
   range: UsageRange
   granularity: 'hour' | 'day'
+  bucket_width_ms: number
   from_ms: number
   to_ms: number
   observed_at_ms: number
@@ -92,6 +93,7 @@ const aggregateFields = [...aggregateKeys, 'estimated_cost_nano_usd'] as const
 const reportFields = [
   'range',
   'granularity',
+  'bucket_width_ms',
   'from_ms',
   'to_ms',
   'observed_at_ms',
@@ -105,21 +107,24 @@ const reportFields = [
 ] as const
 const hourMs = 60 * 60 * 1000
 const dayMs = 24 * hourMs
-const usageRangeContract: Record<UsageRange, { granularity: 'hour' | 'day'; buckets: number }> = {
-  '1h': { granularity: 'hour', buckets: 1 },
-  '24h': { granularity: 'hour', buckets: 24 },
-  '3d': { granularity: 'day', buckets: 3 },
-  '7d': { granularity: 'day', buckets: 7 },
-  '15d': { granularity: 'day', buckets: 15 },
-  '30d': { granularity: 'day', buckets: 30 },
+const usageRangeContract: Record<
+  UsageRange,
+  { granularity: 'hour' | 'day'; bucketWidthMs: number; buckets: number }
+> = {
+  '1h': { granularity: 'hour', bucketWidthMs: hourMs, buckets: 1 },
+  '24h': { granularity: 'hour', bucketWidthMs: hourMs, buckets: 24 },
+  '3d': { granularity: 'hour', bucketWidthMs: 3 * hourMs, buckets: 24 },
+  '7d': { granularity: 'hour', bucketWidthMs: 6 * hourMs, buckets: 28 },
+  '15d': { granularity: 'hour', bucketWidthMs: 12 * hourMs, buckets: 30 },
+  '30d': { granularity: 'day', bucketWidthMs: dayMs, buckets: 30 },
 }
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
 }
 
-function isUTCAligned(timestampValue: number, granularity: 'hour' | 'day'): boolean {
-  return timestampValue % (granularity === 'hour' ? hourMs : dayMs) === 0
+function isUTCAligned(timestampValue: number, bucketWidthMs: number): boolean {
+  return timestampValue % bucketWidthMs === 0
 }
 
 export function projectUsageAggregate(value: unknown): UsageAggregateDto {
@@ -186,16 +191,17 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   const granularity = projectEnum(record.granularity, ['hour', 'day'] as const)
   const rangeContract = usageRangeContract[range]
   if (granularity !== rangeContract.granularity) invalidResponse()
+  const bucketWidthMs = projectSafeInteger(record.bucket_width_ms, { minimum: hourMs })
+  if (bucketWidthMs !== rangeContract.bucketWidthMs) invalidResponse()
   const observedAtMS = projectEpochMilliseconds(record.observed_at_ms)
   const rangeFromMS = projectEpochMilliseconds(record.from_ms)
   const rangeToMS = projectEpochMilliseconds(record.to_ms)
-  const bucketDurationMs = granularity === 'hour' ? hourMs : dayMs
   const bucketCount = rangeContract.buckets
   if (
-    !isUTCAligned(rangeFromMS, granularity) ||
-    !isUTCAligned(rangeToMS, granularity) ||
-    rangeToMS - rangeFromMS !== bucketDurationMs * bucketCount ||
-    observedAtMS < rangeToMS - bucketDurationMs ||
+    !isUTCAligned(rangeFromMS, bucketWidthMs) ||
+    !isUTCAligned(rangeToMS, bucketWidthMs) ||
+    rangeToMS - rangeFromMS !== bucketWidthMs * bucketCount ||
+    observedAtMS < rangeToMS - bucketWidthMs ||
     observedAtMS >= rangeToMS
   ) {
     invalidResponse()
@@ -213,9 +219,9 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     const bucketStartMS = projectEpochMilliseconds(item.bucket_start_ms)
     const bucketEndMS = projectEpochMilliseconds(item.bucket_end_ms)
     if (
-      !isUTCAligned(bucketStartMS, granularity) ||
-      !isUTCAligned(bucketEndMS, granularity) ||
-      bucketEndMS - bucketStartMS !== bucketDurationMs ||
+      !isUTCAligned(bucketStartMS, bucketWidthMs) ||
+      !isUTCAligned(bucketEndMS, bucketWidthMs) ||
+      bucketEndMS - bucketStartMS !== bucketWidthMs ||
       bucketStartMS < rangeFromMS ||
       bucketEndMS > rangeToMS ||
       bucketStartMS < previousBucketEndMS
@@ -252,6 +258,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   return {
     range,
     granularity,
+    bucket_width_ms: bucketWidthMs,
     from_ms: rangeFromMS,
     to_ms: rangeToMS,
     observed_at_ms: observedAtMS,

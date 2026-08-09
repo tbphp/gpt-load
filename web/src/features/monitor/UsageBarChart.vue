@@ -1,87 +1,91 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 
-import {
-  formatISOInstant,
-  formatInteger,
-  formatLocalInstant,
-  formatLocalTimeRange,
-  formatPercent,
-} from '@/lib/format'
+import { formatISOInstant, formatInteger, formatLocalTimeRange } from '@/lib/format'
 
 import {
-  buildTrendGeometry,
-  completeTrendSeries,
-  isTrendSeriesUsable,
-  type TrendDatum,
-} from './trend-chart'
+  buildUsageBarGeometry,
+  completeUsageBarSeries,
+  isUsageBarSeriesUsable,
+  type UsageBarDatum,
+} from './usage-bar-chart'
 
 const props = withDefaults(
   defineProps<{
-    series: readonly TrendDatum[]
+    series: readonly UsageBarDatum[]
     title: string
     description: string
     emptyLabel: string
-    requestLabel: string
-    failureLabel: string
+    primaryLabel: string
+    secondaryLabel?: string
+    primaryZeroDisplay?: string
+    secondaryZeroDisplay?: string
+    detailZeroDisplay?: string
     rangeStart: number
     rangeEnd: number
     locale?: string
-    showBucketRange?: boolean
-    showSinglePoint?: boolean
-    failureRateLabel?: string
+    grouped?: boolean
   }>(),
   {
     locale: 'en-US',
-    showBucketRange: false,
-    showSinglePoint: false,
-    failureRateLabel: undefined,
+    grouped: false,
+    secondaryLabel: undefined,
+    primaryZeroDisplay: undefined,
+    secondaryZeroDisplay: undefined,
+    detailZeroDisplay: undefined,
   },
 )
 
 const chartHeight = 158
 const compactChart = ref(false)
 const width = computed(() => (compactChart.value ? chartHeight * 2 : 1000))
-const maximumFailureHeight = 46
-const descriptionID = `trend-chart-description-${useId()}`
+const descriptionID = `usage-bar-chart-description-${useId()}`
 const chartElement = ref<HTMLElement>()
 const activePointIndex = ref<number | null>(null)
 const selectionAnnouncement = ref('')
 let announcementGeneration = 0
 let compactMedia: MediaQueryList | undefined
 const chartSeries = computed(() => {
-  if (!isTrendSeriesUsable(props.series, props.rangeStart, props.rangeEnd)) return []
-  return completeTrendSeries(props.series, props.rangeStart, props.rangeEnd)
+  if (!isUsageBarSeriesUsable(props.series, props.rangeStart, props.rangeEnd)) return []
+  const completed = completeUsageBarSeries(props.series, props.rangeStart, props.rangeEnd)
+  const detailTemplate = props.series.find((datum) => datum.details?.length)?.details
+  if (!detailTemplate) return completed
+  return completed.map((datum) =>
+    datum.details
+      ? datum
+      : {
+          ...datum,
+          details: detailTemplate.map((detail) => ({
+            label: detail.label,
+            display: props.detailZeroDisplay ?? formatInteger(0, props.locale),
+          })),
+        },
+  )
 })
 const seriesKey = computed(
   () =>
-    `${props.rangeStart}:${props.rangeEnd}:${chartSeries.value
+    `${props.locale}:${props.primaryLabel}:${props.secondaryLabel ?? ''}:${props.grouped}:${props.primaryZeroDisplay ?? ''}:${props.secondaryZeroDisplay ?? ''}:${props.detailZeroDisplay ?? ''}:${props.rangeStart}:${props.rangeEnd}:${chartSeries.value
       .map(
         (datum) =>
-          `${datum.bucket_start_ms}:${datum.bucket_end_ms}:${datum.request_count}:${datum.failure_count}`,
+          `${datum.bucket_start_ms}:${datum.bucket_end_ms}:${datum.primary_value}:${datum.secondary_value}:${datum.primary_display ?? ''}:${datum.secondary_display ?? ''}:${datum.details?.map((detail) => `${detail.label}:${detail.display}`).join(',') ?? ''}`,
       )
       .join('|')}`,
 )
 const geometry = computed(() =>
-  buildTrendGeometry(
+  buildUsageBarGeometry(
     chartSeries.value,
     width.value,
     chartHeight,
-    maximumFailureHeight,
     props.rangeStart,
     props.rangeEnd,
+    props.grouped,
   ),
-)
-const singlePoint = computed(() =>
-  props.showSinglePoint && geometry.value.requestPoints.length === 1
-    ? geometry.value.requestPoints[0]
-    : undefined,
 )
 const activePoint = computed(() => {
   const index = activePointIndex.value
   if (index === null) return undefined
   const datum = chartSeries.value[index]
-  const point = geometry.value.requestPoints[index]
+  const point = geometry.value.points[index]
   return datum && point ? { datum, point } : undefined
 })
 const tooltipStyle = computed(() => {
@@ -111,27 +115,38 @@ watch(seriesKey, () => {
   clearAnnouncement()
 })
 
-function formatBucketTime(datum: TrendDatum): string {
-  return props.showBucketRange
-    ? formatLocalTimeRange(datum.bucket_start_ms, datum.bucket_end_ms, props.locale)
-    : formatLocalInstant(datum.bucket_start_ms, props.locale)
+function formatBucketTime(datum: UsageBarDatum): string {
+  return formatLocalTimeRange(datum.bucket_start_ms, datum.bucket_end_ms, props.locale)
 }
 
-function tooltipValue(value: number): string {
-  return formatInteger(value, props.locale)
+function primaryTooltipValue(datum: UsageBarDatum): string {
+  return (
+    datum.primary_display ??
+    (datum.primary_value === 0 ? props.primaryZeroDisplay : undefined) ??
+    formatInteger(datum.primary_value, props.locale)
+  )
 }
 
-function failureRateValue(datum: TrendDatum): string {
-  return formatPercent(datum.failure_count, datum.request_count + datum.failure_count, props.locale)
+function secondaryTooltipValue(datum: UsageBarDatum): string {
+  return (
+    datum.secondary_display ??
+    (datum.secondary_value === 0 ? props.secondaryZeroDisplay : undefined) ??
+    formatInteger(datum.secondary_value, props.locale)
+  )
 }
 
 function pointAnnouncement(index: number): string {
   const datum = chartSeries.value[index]
   if (!datum) return ''
-  const outcomes = `${formatBucketTime(datum)} · ${props.requestLabel} ${tooltipValue(datum.request_count)} · ${props.failureLabel} ${tooltipValue(datum.failure_count)}`
-  return props.failureRateLabel
-    ? `${outcomes} · ${props.failureRateLabel} ${failureRateValue(datum)}`
-    : outcomes
+  const primary = `${formatBucketTime(datum)} · ${props.primaryLabel} ${primaryTooltipValue(datum)}`
+  const values =
+    props.grouped && props.secondaryLabel
+      ? `${primary} · ${props.secondaryLabel} ${secondaryTooltipValue(datum)}`
+      : primary
+  return (datum.details ?? []).reduce(
+    (announcement, detail) => `${announcement} · ${detail.label} ${detail.display}`,
+    values,
+  )
 }
 
 function clearAnnouncement(): void {
@@ -156,7 +171,7 @@ function selectPoint(index: number | null, announce = false): void {
 
 function nearestPointIndex(event: PointerEvent | MouseEvent): number | null {
   const element = chartElement.value
-  const points = geometry.value.requestPoints
+  const points = geometry.value.points
   if (!element || points.length === 0) return null
   const bounds = element.getBoundingClientRect()
   if (bounds.width <= 0) return null
@@ -236,7 +251,7 @@ onBeforeUnmount(() => {
 <template>
   <figure
     ref="chartElement"
-    class="trend-chart"
+    class="usage-bar-chart"
     tabindex="0"
     role="group"
     :aria-label="title"
@@ -247,22 +262,22 @@ onBeforeUnmount(() => {
     @pointerleave="onPointerLeave"
     @pointermove="onPointerMove"
   >
-    <span :id="descriptionID" class="trend-chart__visually-hidden">
+    <span :id="descriptionID" class="usage-bar-chart__visually-hidden">
       {{ chartSeries.length === 0 ? emptyLabel : description }}
     </span>
-    <span class="trend-chart__visually-hidden" aria-live="polite" aria-atomic="true">
+    <span class="usage-bar-chart__visually-hidden" aria-live="polite" aria-atomic="true">
       {{ selectionAnnouncement }}
     </span>
-    <div class="trend-chart__plot-stack">
-      <Transition name="trend-chart__data" appear>
-        <div :key="seriesKey" class="trend-chart__data-layer">
-          <div class="trend-chart__request-frame">
+    <div class="usage-bar-chart__plot-stack">
+      <Transition name="usage-bar-chart__data" appear>
+        <div :key="seriesKey" class="usage-bar-chart__data-layer">
+          <div class="usage-bar-chart__frame">
             <svg
-              class="trend-chart__graphic"
+              class="usage-bar-chart__graphic"
               :viewBox="`0 0 ${width} ${chartHeight}`"
               aria-hidden="true"
             >
-              <g class="trend-chart__grid">
+              <g class="usage-bar-chart__grid">
                 <line
                   v-for="lineY in [
                     geometry.plotTop,
@@ -276,10 +291,9 @@ onBeforeUnmount(() => {
                   :y2="lineY"
                 />
               </g>
-              <path class="trend-chart__area" :d="geometry.requestAreaPath" />
-              <g class="trend-chart__failure-bars">
+              <g class="usage-bar-chart__primary-bars">
                 <rect
-                  v-for="(bar, index) in geometry.failureBars.filter((bar) => bar.value > 0)"
+                  v-for="(bar, index) in geometry.primaryBars.filter((bar) => bar.value > 0)"
                   :key="`${bar.x}:${index}`"
                   :x="bar.x"
                   :y="bar.y"
@@ -288,70 +302,75 @@ onBeforeUnmount(() => {
                   rx="1.5"
                 />
               </g>
-              <path class="trend-chart__line" :d="geometry.requestPath" />
-              <circle
-                v-if="singlePoint"
-                class="trend-chart__dot"
-                :cx="singlePoint.x"
-                :cy="singlePoint.y"
-                r="4.5"
-              />
-              <Transition name="trend-chart__active">
-                <g v-if="activePoint" class="trend-chart__active-markers">
+              <g v-if="grouped" class="usage-bar-chart__secondary-bars">
+                <rect
+                  v-for="(bar, index) in geometry.secondaryBars.filter((bar) => bar.value > 0)"
+                  :key="`${bar.x}:${index}`"
+                  :x="bar.x"
+                  :y="bar.y"
+                  :width="bar.width"
+                  :height="bar.height"
+                  rx="1.5"
+                />
+              </g>
+              <Transition name="usage-bar-chart__active">
+                <g v-if="activePoint" class="usage-bar-chart__active-markers">
                   <line
-                    class="trend-chart__guide"
+                    class="usage-bar-chart__guide"
                     :x1="activePoint.point.x"
                     :y1="geometry.plotTop"
                     :x2="activePoint.point.x"
                     :y2="geometry.baseline"
                   />
-                  <circle
-                    class="trend-chart__dot"
-                    :cx="activePoint.point.x"
-                    :cy="activePoint.point.y"
-                    r="4.5"
-                  />
                 </g>
               </Transition>
             </svg>
-            <Transition name="trend-chart__active">
+            <Transition name="usage-bar-chart__active">
               <div
                 v-if="activePoint"
-                class="trend-chart__tooltip"
-                :class="`trend-chart__tooltip--${tooltipAlignment}`"
+                class="usage-bar-chart__tooltip"
+                :class="`usage-bar-chart__tooltip--${tooltipAlignment}`"
                 :style="tooltipStyle"
                 role="tooltip"
               >
                 <time
-                  class="trend-chart__tooltip-time"
+                  class="usage-bar-chart__tooltip-time"
                   :datetime="formatISOInstant(activePoint.datum.bucket_start_ms)"
                 >
                   {{ formatBucketTime(activePoint.datum) }}
                 </time>
-                <span class="trend-chart__tooltip-row">
-                  <span class="trend-chart__tooltip-key">
-                    <i class="trend-chart__tooltip-swatch trend-chart__tooltip-swatch--request"></i>
-                    {{ requestLabel }}
+                <span class="usage-bar-chart__tooltip-row">
+                  <span class="usage-bar-chart__tooltip-key">
+                    <i
+                      class="usage-bar-chart__tooltip-swatch usage-bar-chart__tooltip-swatch--primary"
+                    ></i>
+                    {{ primaryLabel }}
                   </span>
-                  <strong class="trend-chart__tooltip-value">
-                    {{ tooltipValue(activePoint.datum.request_count) }}
+                  <strong class="usage-bar-chart__tooltip-value">
+                    {{ primaryTooltipValue(activePoint.datum) }}
                   </strong>
                 </span>
-                <span class="trend-chart__tooltip-row">
-                  <span class="trend-chart__tooltip-key">
-                    <i class="trend-chart__tooltip-swatch trend-chart__tooltip-swatch--failure"></i>
-                    {{ failureLabel }}
+                <span v-if="grouped && secondaryLabel" class="usage-bar-chart__tooltip-row">
+                  <span class="usage-bar-chart__tooltip-key">
+                    <i
+                      class="usage-bar-chart__tooltip-swatch usage-bar-chart__tooltip-swatch--secondary"
+                    ></i>
+                    {{ secondaryLabel }}
                   </span>
-                  <strong class="trend-chart__tooltip-value">
-                    {{ tooltipValue(activePoint.datum.failure_count) }}
+                  <strong class="usage-bar-chart__tooltip-value">
+                    {{ secondaryTooltipValue(activePoint.datum) }}
                   </strong>
                 </span>
-                <span v-if="failureRateLabel" class="trend-chart__tooltip-row">
-                  <span class="trend-chart__tooltip-key trend-chart__tooltip-key--detail">
-                    {{ failureRateLabel }}
+                <span
+                  v-for="detail in activePoint.datum.details ?? []"
+                  :key="detail.label"
+                  class="usage-bar-chart__tooltip-row"
+                >
+                  <span class="usage-bar-chart__tooltip-key usage-bar-chart__tooltip-key--detail">
+                    {{ detail.label }}
                   </span>
-                  <strong class="trend-chart__tooltip-value">
-                    {{ failureRateValue(activePoint.datum) }}
+                  <strong class="usage-bar-chart__tooltip-value">
+                    {{ detail.display }}
                   </strong>
                 </span>
               </div>
@@ -364,7 +383,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.trend-chart {
+.usage-bar-chart {
   position: relative;
   display: grid;
   min-width: 0;
@@ -372,7 +391,7 @@ onBeforeUnmount(() => {
   cursor: crosshair;
 }
 
-.trend-chart__visually-hidden {
+.usage-bar-chart__visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -382,61 +401,47 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.trend-chart__request-frame {
+.usage-bar-chart__frame {
   position: relative;
   height: 100%;
 }
 
-.trend-chart__plot-stack {
+.usage-bar-chart__plot-stack {
   position: relative;
   aspect-ratio: var(--chart-aspect-ratio);
 }
 
-.trend-chart__data-layer {
+.usage-bar-chart__data-layer {
   height: 100%;
 }
 
-.trend-chart__graphic {
+.usage-bar-chart__graphic {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.trend-chart__grid line {
+.usage-bar-chart__grid line {
   stroke: var(--color-border-subtle);
   stroke-width: 1;
   stroke-dasharray: var(--chart-grid-dash);
 }
 
-.trend-chart__area {
+.usage-bar-chart__primary-bars rect {
   fill: var(--color-action);
-  opacity: 0.1;
-}
-
-.trend-chart__line {
-  fill: none;
-  stroke: var(--color-action);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: var(--chart-line-width);
-}
-
-.trend-chart__guide {
-  stroke: var(--color-border-strong);
-}
-
-.trend-chart__dot {
-  fill: var(--color-action);
-  stroke: var(--color-surface-raised);
-  stroke-width: 2.5;
-}
-
-.trend-chart__failure-bars rect {
-  fill: var(--color-danger);
   opacity: 0.78;
 }
 
-.trend-chart__tooltip {
+.usage-bar-chart__secondary-bars rect {
+  fill: var(--color-success);
+  opacity: 0.78;
+}
+
+.usage-bar-chart__guide {
+  stroke: var(--color-border-strong);
+}
+
+.usage-bar-chart__tooltip {
   position: absolute;
   z-index: 2;
   min-width: 134px;
@@ -450,7 +455,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.trend-chart__tooltip-time {
+.usage-bar-chart__tooltip-time {
   display: block;
   margin-bottom: 5px;
   color: var(--color-text-faint);
@@ -458,7 +463,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 
-.trend-chart__tooltip-row {
+.usage-bar-chart__tooltip-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -466,22 +471,22 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.trend-chart__tooltip-row + .trend-chart__tooltip-row {
+.usage-bar-chart__tooltip-row + .usage-bar-chart__tooltip-row {
   margin-top: 2px;
 }
 
-.trend-chart__tooltip-key {
+.usage-bar-chart__tooltip-key {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--color-text-muted);
 }
 
-.trend-chart__tooltip-key--detail {
+.usage-bar-chart__tooltip-key--detail {
   padding-left: 13px;
 }
 
-.trend-chart__tooltip-swatch {
+.usage-bar-chart__tooltip-swatch {
   display: block;
   width: 7px;
   height: 7px;
@@ -489,62 +494,61 @@ onBeforeUnmount(() => {
   border-radius: 2px;
 }
 
-.trend-chart__tooltip-swatch--request {
+.usage-bar-chart__tooltip-swatch--primary {
   background: var(--color-action);
 }
 
-.trend-chart__tooltip-swatch--failure {
-  background: var(--color-danger);
+.usage-bar-chart__tooltip-swatch--secondary {
+  background: var(--color-success);
 }
 
-.trend-chart__tooltip-value {
+.usage-bar-chart__tooltip-value {
   color: var(--color-text);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
-.trend-chart__tooltip--start {
+.usage-bar-chart__tooltip--start {
   transform: translate(0, -100%);
 }
 
-.trend-chart__tooltip--end {
+.usage-bar-chart__tooltip--end {
   transform: translate(-100%, -100%);
 }
 
 @media (max-width: 620px) {
-  .trend-chart__plot-stack {
+  .usage-bar-chart__plot-stack {
     min-height: 120px;
     aspect-ratio: 2 / 1;
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .trend-chart__data-enter-active,
-  .trend-chart__data-leave-active {
+  .usage-bar-chart__data-enter-active,
+  .usage-bar-chart__data-leave-active {
     transition: opacity var(--duration-data) var(--easing-data);
   }
 
-  .trend-chart__data-leave-active {
+  .usage-bar-chart__data-leave-active {
     position: absolute;
     inset: 0;
   }
 
-  .trend-chart__data-enter-from,
-  .trend-chart__data-leave-to,
-  .trend-chart__active-enter-from,
-  .trend-chart__active-leave-to {
+  .usage-bar-chart__data-enter-from,
+  .usage-bar-chart__data-leave-to,
+  .usage-bar-chart__active-enter-from,
+  .usage-bar-chart__active-leave-to {
     opacity: 0;
   }
 
-  .trend-chart__active-enter-active,
-  .trend-chart__active-leave-active {
+  .usage-bar-chart__active-enter-active,
+  .usage-bar-chart__active-leave-active {
     transition: opacity var(--duration-fast) var(--easing-standard);
   }
 
-  .trend-chart__area,
-  .trend-chart__line,
-  .trend-chart__failure-bars rect {
+  .usage-bar-chart__primary-bars rect,
+  .usage-bar-chart__secondary-bars rect {
     transition: fill var(--duration-data) var(--easing-data);
   }
 }

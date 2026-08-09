@@ -92,6 +92,7 @@ func (service *Service) QueryHomeStatistics(
 		FromMS:         fromMS,
 		ToMS:           toMS,
 		Granularity:    granularity,
+		BucketWidthMS:  width,
 		AccessKeyID:    input.AccessKeyID,
 		Limit:          homeStatisticsRankingLimit,
 		BreakdownOrder: UsageBreakdownOrderCost,
@@ -122,7 +123,7 @@ func (service *Service) QueryHomeStatistics(
 		}
 		sparseSeries, err := queryUsageSeries(
 			usageStatScope(connection, usageInput),
-			granularity,
+			width,
 		)
 		if err != nil {
 			return err

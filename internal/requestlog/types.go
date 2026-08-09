@@ -152,6 +152,7 @@ type UsageQuery struct {
 	FromMS         int64
 	ToMS           int64
 	Granularity    UsageGranularity
+	BucketWidthMS  int64
 	AccessKeyID    *uint
 	GroupID        *uint
 	UpstreamModel  string

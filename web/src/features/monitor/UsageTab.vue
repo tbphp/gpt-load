@@ -18,6 +18,7 @@ import {
 import { monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import TrendChart from '@/components/charts/TrendChart.vue'
+import type { TrendDatum } from '@/components/charts/trend-chart'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
@@ -26,6 +27,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatCacheHitRate } from '@/lib/cache-rate'
@@ -33,6 +35,7 @@ import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from 
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
+import UsageBarChart from './UsageBarChart.vue'
 import {
   applyUsageFilterDraft,
   createUsageFilterDraft,
@@ -41,12 +44,14 @@ import {
   type UsageFilterDraft,
   type UsageFilterErrors,
 } from './usage-filters'
+import type { UsageBarDatum } from './usage-bar-chart'
 import {
   parseUsageMonitorState,
   sameUsageBreakdownIdentity,
   usageBreakdownIdentity,
   usageMonitorQuery,
   type UsageMonitorState,
+  type UsageTrendMetric,
   scopeAccessKeyUsageFilters,
 } from './monitor-route'
 import UsageFilterForm from './UsageFilterForm.vue'
@@ -94,6 +99,98 @@ const orderOptions = computed(() => [
   { value: 'requests', label: t('monitor.usage.breakdown.orderRequests') },
   { value: 'cost', label: t('monitor.usage.breakdown.orderCost') },
 ])
+const costChartResolution = 1_000_000_000n
+const trendMetricOptions = computed(() => [
+  { value: 'requests', label: t('monitor.usage.trend.metrics.requests') },
+  { value: 'tokens', label: t('monitor.usage.trend.metrics.tokens') },
+  { value: 'cost', label: t('monitor.usage.trend.metrics.cost') },
+])
+const trendPresentation = computed(() => {
+  switch (routeState.value.metric) {
+    case 'tokens':
+      return {
+        title: t('monitor.usage.trend.tokensTitle'),
+        description: t('monitor.usage.trend.tokensDescription'),
+        accessibleDescription: t('monitor.usage.trend.tokensAccessibleDescription'),
+        valueLabel: t('monitor.usage.columns.totalTokens'),
+        secondaryLabel: t('monitor.usage.tokens.cacheRead'),
+      }
+    case 'cost':
+      return {
+        title: t('monitor.usage.trend.costTitle'),
+        description: t('monitor.usage.trend.costDescription'),
+        accessibleDescription: t('monitor.usage.trend.costAccessibleDescription'),
+        valueLabel: t('monitor.usage.columns.estimatedCost'),
+        secondaryLabel: undefined,
+      }
+    default:
+      return {
+        title: t('monitor.usage.trend.title'),
+        description: t('monitor.usage.trend.description'),
+        accessibleDescription: t('monitor.usage.trend.accessibleDescription'),
+        valueLabel: t('monitor.usage.columns.success'),
+        secondaryLabel: t('monitor.usage.columns.failure'),
+      }
+  }
+})
+
+function formatTrendCost(aggregate: UsageAggregateDto): string {
+  return formatEstimatedCost(aggregate.estimated_cost_nano_usd, locale.value)
+}
+
+function formatTrendTokens(value: number): string {
+  return formatTokens(value, locale.value)
+}
+
+function normalizeTrendCost(value: bigint, maximum: bigint): number {
+  if (maximum === 0n) return 0
+  return Number((value * costChartResolution + maximum / 2n) / maximum)
+}
+
+const requestTrendSeries = computed<TrendDatum[]>(() =>
+  (report.value?.series ?? []).map((bucket) => ({
+    bucket_start_ms: bucket.bucket_start_ms,
+    bucket_end_ms: bucket.bucket_end_ms,
+    request_count: bucket.success_count,
+    failure_count: bucket.failure_count,
+  })),
+)
+
+const barTrendSeries = computed<UsageBarDatum[]>(() => {
+  const buckets = report.value?.series ?? []
+  if (routeState.value.metric === 'tokens') {
+    return buckets.map((bucket) => ({
+      bucket_start_ms: bucket.bucket_start_ms,
+      bucket_end_ms: bucket.bucket_end_ms,
+      primary_value: bucket.total_tokens,
+      secondary_value: bucket.cache_read_tokens,
+      primary_display: formatTrendTokens(bucket.total_tokens),
+      secondary_display: formatTrendTokens(bucket.cache_read_tokens),
+      details: [
+        {
+          label: t('monitor.usage.trend.inputTokens'),
+          display: formatTrendTokens(inputTokens(bucket)),
+        },
+        {
+          label: t('monitor.usage.trend.outputTokens'),
+          display: formatTrendTokens(bucket.output_tokens),
+        },
+      ],
+    }))
+  }
+  if (routeState.value.metric === 'cost') {
+    const costs = buckets.map((bucket) => BigInt(bucket.estimated_cost_nano_usd))
+    const maximum = costs.reduce((current, value) => (value > current ? value : current), 0n)
+    return buckets.map((bucket, index) => ({
+      bucket_start_ms: bucket.bucket_start_ms,
+      bucket_end_ms: bucket.bucket_end_ms,
+      primary_value: normalizeTrendCost(costs[index]!, maximum),
+      secondary_value: 0,
+      primary_display: formatTrendCost(bucket),
+    }))
+  }
+  return []
+})
 
 watch(
   [
@@ -121,9 +218,12 @@ function rangeLabel(range: UsageRange): string {
 }
 
 function granularityLabel(): string {
-  return report.value?.granularity === 'hour'
-    ? t('monitor.usage.trend.hourly')
-    : t('monitor.usage.trend.daily')
+  const bucketWidthMS = report.value?.bucket_width_ms
+  if (bucketWidthMS === 60 * 60 * 1000) return t('monitor.usage.trend.hourly')
+  if (bucketWidthMS === 24 * 60 * 60 * 1000) return t('monitor.usage.trend.daily')
+  return t('monitor.usage.trend.everyHours', {
+    count: (bucketWidthMS ?? 0) / (60 * 60 * 1000),
+  })
 }
 
 function formatCost(aggregate: UsageAggregateDto): string {
@@ -200,12 +300,21 @@ async function updateBreakdownOrder(value: string): Promise<void> {
   )
 }
 
+async function updateTrendMetric(value: string): Promise<void> {
+  if (value !== 'requests' && value !== 'tokens' && value !== 'cost') return
+  await navigate(appliedFilters.value, {
+    ...routeState.value,
+    metric: value as UsageTrendMetric,
+  })
+}
+
 async function navigate(
   filters: UsageFilters,
   state: UsageMonitorState = {
     filtersOpen: false,
     expandedBreakdowns: [],
     seriesExpanded: false,
+    metric: routeState.value.metric,
   },
 ): Promise<void> {
   const scopedFilters = isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
@@ -305,21 +414,55 @@ defineExpose({ openFilters, refresh })
         <section class="usage-trend-panel" aria-labelledby="usage-trend-title">
           <MonitorSectionHeading
             id="usage-trend-title"
-            :title="t('monitor.usage.trend.title')"
-            :description="t('monitor.usage.trend.description')"
+            :title="trendPresentation.title"
+            :description="trendPresentation.description"
             :meta="`${rangeLabel(report.range)} · ${granularityLabel()}`"
-          />
+          >
+            <template #actions>
+              <SegmentedControl
+                :model-value="routeState.metric"
+                :label="t('monitor.usage.trend.metrics.label')"
+                :options="trendMetricOptions"
+                size="compact"
+                @update:model-value="updateTrendMetric"
+              />
+            </template>
+          </MonitorSectionHeading>
           <div class="usage-trend-panel__chart">
             <TrendChart
-              :series="report.series"
-              :title="t('monitor.usage.trend.title')"
-              :description="t('monitor.usage.trend.accessibleDescription')"
+              v-if="routeState.metric === 'requests'"
+              :series="requestTrendSeries"
+              :title="trendPresentation.title"
+              :description="trendPresentation.accessibleDescription"
               :empty-label="t('monitor.usage.trend.empty')"
-              :request-label="t('monitor.usage.columns.requests')"
-              :failure-label="t('monitor.usage.columns.failure')"
+              :request-label="trendPresentation.valueLabel"
+              :failure-label="trendPresentation.secondaryLabel ?? ''"
               :range-start="report.from_ms"
               :range-end="report.to_ms"
               :locale="locale"
+              show-bucket-range
+              show-single-point
+              :failure-rate-label="t('monitor.usage.trend.failureRate')"
+            />
+            <UsageBarChart
+              v-else
+              :series="barTrendSeries"
+              :title="trendPresentation.title"
+              :description="trendPresentation.accessibleDescription"
+              :empty-label="t('monitor.usage.trend.empty')"
+              :primary-label="trendPresentation.valueLabel"
+              :secondary-label="trendPresentation.secondaryLabel"
+              :primary-zero-display="
+                routeState.metric === 'cost'
+                  ? formatEstimatedCost('0', locale)
+                  : formatTrendTokens(0)
+              "
+              :secondary-zero-display="formatTrendTokens(0)"
+              :detail-zero-display="formatTrendTokens(0)"
+              :range-start="report.from_ms"
+              :range-end="report.to_ms"
+              :locale="locale"
+              :grouped="routeState.metric === 'tokens'"
             />
           </div>
         </section>
@@ -634,6 +777,10 @@ defineExpose({ openFilters, refresh })
   gap: 12px;
 }
 
+.usage-trend-panel :deep(.monitor-section-heading) {
+  flex-wrap: wrap;
+}
+
 .usage-trend-panel__chart {
   min-width: 0;
   overflow: hidden;
@@ -641,6 +788,14 @@ defineExpose({ openFilters, refresh })
   border-radius: var(--radius-card);
   background: var(--color-surface);
   padding: 18px 20px 14px;
+}
+
+@media (max-width: 620px) {
+  .usage-trend-panel :deep(.monitor-section-heading__actions) {
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+  }
 }
 
 .usage-analysis-grid {

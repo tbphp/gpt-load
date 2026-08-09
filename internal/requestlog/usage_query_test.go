@@ -218,6 +218,86 @@ func TestQueryUsageMergesHourlyRowsIntoThirtyUTCDays(t *testing.T) {
 	}
 }
 
+func TestQueryUsageMergesHourlyRowsIntoAdaptiveBuckets(t *testing.T) {
+	start := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	for _, width := range []time.Duration{3 * time.Hour, 6 * time.Hour, 12 * time.Hour} {
+		t.Run(width.String(), func(t *testing.T) {
+			db := openRequestLogQueryDB(t)
+			service := newRequestLogTestService(db)
+			createUsageStats(
+				t,
+				db,
+				usageStat(start, 9, "merge", 1),
+				usageStat(start.Add(width-time.Hour), 9, "merge", 2),
+				usageStat(start.Add(width), 9, "merge", 3),
+				usageStat(start.Add(2*width-time.Hour), 9, "merge", 4),
+			)
+
+			report, err := service.QueryUsage(context.Background(), UsageQuery{
+				FromMS:         start.UnixMilli(),
+				ToMS:           start.Add(2 * width).UnixMilli(),
+				Granularity:    UsageGranularityHour,
+				BucketWidthMS:  width.Milliseconds(),
+				Limit:          100,
+				BreakdownOrder: UsageBreakdownOrderRequests,
+			})
+			if err != nil {
+				t.Fatalf("QueryUsage() error = %v", err)
+			}
+			if len(report.Series) != 2 || report.Summary.RequestCount != 10 {
+				t.Fatalf("adaptive series/summary = %#v/%#v, want two buckets/10 requests", report.Series, report.Summary)
+			}
+			for index, wantRequests := range []int64{3, 7} {
+				point := report.Series[index]
+				wantStart := start.Add(time.Duration(index) * width)
+				if point.BucketStartMS != wantStart.UnixMilli() ||
+					point.BucketEndMS != wantStart.Add(width).UnixMilli() ||
+					point.RequestCount != wantRequests || point.SuccessCount != wantRequests ||
+					point.UncachedInputTokens != wantRequests*10 ||
+					point.CacheReadTokens != wantRequests ||
+					point.OutputTokens != wantRequests*2 ||
+					point.EstimatedCostNanoUSD != wantRequests*100_000_000 {
+					t.Fatalf("adaptive point %d = %#v", index, point)
+				}
+			}
+		})
+	}
+}
+
+func TestQueryUsageRejectsInvalidBucketWidths(t *testing.T) {
+	start := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name        string
+		from        time.Time
+		to          time.Time
+		granularity UsageGranularity
+		width       time.Duration
+	}{
+		{name: "not whole hours", from: start, to: start.Add(5 * time.Hour), granularity: UsageGranularityHour, width: 150 * time.Minute},
+		{name: "hour bucket is not aligned", from: start.Add(time.Hour), to: start.Add(7 * time.Hour), granularity: UsageGranularityHour, width: 3 * time.Hour},
+		{name: "hour range is not divisible", from: start, to: start.Add(5 * time.Hour), granularity: UsageGranularityHour, width: 3 * time.Hour},
+		{name: "daily granularity requires a day", from: start, to: start.Add(24 * time.Hour), granularity: UsageGranularityDay, width: 12 * time.Hour},
+		{name: "hour granularity cannot use a day", from: start, to: start.Add(24 * time.Hour), granularity: UsageGranularityHour, width: 24 * time.Hour},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := openRequestLogQueryDB(t)
+			service := newRequestLogTestService(db)
+			_, err := service.QueryUsage(context.Background(), UsageQuery{
+				FromMS:         test.from.UnixMilli(),
+				ToMS:           test.to.UnixMilli(),
+				Granularity:    test.granularity,
+				BucketWidthMS:  test.width.Milliseconds(),
+				Limit:          100,
+				BreakdownOrder: UsageBreakdownOrderRequests,
+			})
+			if err == nil {
+				t.Fatal("QueryUsage() error = nil, want invalid bucket width rejection")
+			}
+		})
+	}
+}
+
 func TestQueryUsageLimitsBreakdownToStableTopHundred(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
@@ -514,7 +594,7 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
 	if summary, err := queryUsageSummary(usageStatScope(db, input)); err != nil || summary.RequestCount != 303 {
 		t.Fatalf("pre-integrity summary = %#v/%v, want valid 303-request aggregate", summary, err)
 	}
-	if series, err := queryUsageSeries(usageStatScope(db, input), input.Granularity); err != nil || len(series) != 1 {
+	if series, err := queryUsageSeries(usageStatScope(db, input), time.Hour.Milliseconds()); err != nil || len(series) != 1 {
 		t.Fatalf("pre-integrity series = %#v/%v, want one valid hour aggregate", series, err)
 	}
 	if breakdown, truncated, err := queryUsageBreakdown(
