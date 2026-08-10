@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
@@ -15,10 +17,9 @@ import (
 )
 
 type GroupSettingsResponse struct {
+	ChannelID       channel.ID                   `json:"channel_id"`
+	Params          json.RawMessage              `json:"params"`
 	Name            string                       `json:"name"`
-	ProviderID      *string                      `json:"provider_id"`
-	UpstreamURL     string                       `json:"upstream_url"`
-	Protocols       []protocol.Protocol          `json:"protocols"`
 	ValidationModel *string                      `json:"validation_model"`
 	Enabled         bool                         `json:"enabled"`
 	WeightManual    *int                         `json:"weight_manual"`
@@ -27,32 +28,24 @@ type GroupSettingsResponse struct {
 }
 
 type GroupSettingsUpdateRequest struct {
-	Name            optionalField[string]              `json:"name"`
-	ProviderID      optionalField[string]              `json:"provider_id"`
-	UpstreamURL     optionalField[string]              `json:"upstream_url"`
-	Protocols       optionalField[[]protocol.Protocol] `json:"protocols"`
-	ValidationModel optionalField[string]              `json:"validation_model"`
-	Enabled         optionalField[bool]                `json:"enabled"`
-	WeightManual    optionalField[int]                 `json:"weight_manual"`
-	Overrides       optionalField[config.Settings]     `json:"overrides"`
-	// Deprecated: retained for compatibility; URL changes no longer require confirmation.
-	ConfirmUpstreamChange bool `json:"confirm_upstream_change"`
+	Name            optionalField[string]          `json:"name"`
+	Params          optionalField[json.RawMessage] `json:"params"`
+	ValidationModel optionalField[string]          `json:"validation_model"`
+	Enabled         optionalField[bool]            `json:"enabled"`
+	WeightManual    optionalField[int]             `json:"weight_manual"`
+	Overrides       optionalField[config.Settings] `json:"overrides"`
 }
 
 type normalizedGroupSettingsUpdate struct {
 	name               *string
-	providerID         *string
-	providerIDSet      bool
-	upstreamURL        *string
-	protocols          []protocol.Protocol
-	protocolsSet       bool
+	params             json.RawMessage
+	paramsSet          bool
 	validationModel    *string
 	validationModelSet bool
 	enabled            *bool
 	weightManual       *int
 	weightManualSet    bool
 	encodedOverrides   models.JSON
-	overrides          config.Settings
 	overridesSet       bool
 }
 
@@ -71,24 +64,32 @@ func (s *Service) GetGroupSettings(ctx context.Context, groupID uint) (GroupSett
 	snapshot := s.manager.Current()
 	if snapshot == nil {
 		return GroupSettingsResponse{}, fmt.Errorf(
-			"runtime snapshot unavailable: %w",
-			app_errors.ErrInternalServer,
+			"runtime snapshot unavailable: %w", app_errors.ErrInternalServer,
 		)
 	}
-	return groupSettingsResponse(group, snapshot.Settings)
+	return groupSettingsResponse(group, snapshot.Settings, s.channelRegistry)
 }
 
 func groupSettingsResponse(
 	group models.Group,
 	system state.RuntimeSettings,
+	registry *channel.Registry,
 ) (GroupSettingsResponse, error) {
-	protocols := make([]protocol.Protocol, 0)
-	if err := decodeGroupDiscoveryJSON(group.Protocols, &protocols); err != nil {
-		return GroupSettingsResponse{}, fmt.Errorf("decode group %d protocols: %w", group.ID, err)
+	if registry == nil || group.ChannelID == "" {
+		return GroupSettingsResponse{}, fmt.Errorf(
+			"resolve group %d channel: %w", group.ID, app_errors.ErrInternalServer,
+		)
+	}
+	channelID := channel.ID(group.ChannelID)
+	validated, err := registry.ValidateParams(channelID, json.RawMessage(group.Params))
+	if err != nil {
+		return GroupSettingsResponse{}, fmt.Errorf(
+			"validate group %d params: %w", group.ID, app_errors.ErrInternalServer,
+		)
 	}
 	overrides := make(config.Settings)
-	if len(group.Config) > 0 {
-		if err := decodeGroupDiscoveryJSON(group.Config, &overrides); err != nil {
+	if len(group.Overrides) > 0 {
+		if err := decodeGroupDiscoveryJSON(group.Overrides, &overrides); err != nil {
 			return GroupSettingsResponse{}, fmt.Errorf("decode group %d config: %w", group.ID, err)
 		}
 	}
@@ -98,16 +99,13 @@ func groupSettingsResponse(
 	effective, err := effectiveGroupConfig(system, overrides)
 	if err != nil {
 		return GroupSettingsResponse{}, fmt.Errorf(
-			"resolve group %d effective config: %w",
-			group.ID,
-			app_errors.ErrInternalServer,
+			"resolve group %d effective config: %w", group.ID, app_errors.ErrInternalServer,
 		)
 	}
 	return GroupSettingsResponse{
+		ChannelID:       channelID,
+		Params:          validated.CanonicalJSON(),
 		Name:            group.Name,
-		ProviderID:      cloneString(group.ProviderID),
-		UpstreamURL:     group.UpstreamURL,
-		Protocols:       protocols,
 		ValidationModel: cloneString(group.ValidationModel),
 		Enabled:         group.Enabled,
 		WeightManual:    cloneInt(group.WeightManual),
@@ -129,8 +127,7 @@ func normalizeGroupSettingsUpdate(
 ) (normalizedGroupSettingsUpdate, error) {
 	for _, nullable := range []bool{
 		request.Name.Set && request.Name.Null,
-		request.UpstreamURL.Set && request.UpstreamURL.Null,
-		request.Protocols.Set && request.Protocols.Null,
+		request.Params.Set && request.Params.Null,
 		request.Enabled.Set && request.Enabled.Null,
 		request.Overrides.Set && request.Overrides.Null,
 	} {
@@ -138,9 +135,8 @@ func normalizeGroupSettingsUpdate(
 			return normalizedGroupSettingsUpdate{}, app_errors.ErrValidation
 		}
 	}
-	if !request.Name.Set && !request.ProviderID.Set && !request.UpstreamURL.Set && !request.Protocols.Set &&
-		!request.ValidationModel.Set && !request.Enabled.Set && !request.WeightManual.Set &&
-		!request.Overrides.Set {
+	if !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
+		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
 	}
 
@@ -152,30 +148,9 @@ func normalizeGroupSettingsUpdate(
 		}
 		result.name = value
 	}
-	if request.ProviderID.Set {
-		result.providerIDSet = true
-		if !request.ProviderID.Null {
-			value, err := normalizeProviderID(&request.ProviderID.Value)
-			if err != nil {
-				return normalizedGroupSettingsUpdate{}, app_errors.ErrValidation
-			}
-			result.providerID = value
-		}
-	}
-	if request.UpstreamURL.Set {
-		value, _, err := normalizeUpstreamBaseURL(request.UpstreamURL.Value)
-		if err != nil {
-			return normalizedGroupSettingsUpdate{}, err
-		}
-		result.upstreamURL = &value
-	}
-	if request.Protocols.Set {
-		values, err := normalizeGroupProtocols(request.Protocols.Value)
-		if err != nil {
-			return normalizedGroupSettingsUpdate{}, err
-		}
-		result.protocols = values
-		result.protocolsSet = true
+	if request.Params.Set {
+		result.paramsSet = true
+		result.params = append(json.RawMessage(nil), request.Params.Value...)
 	}
 	if request.ValidationModel.Set {
 		result.validationModelSet = true
@@ -202,12 +177,11 @@ func normalizeGroupSettingsUpdate(
 		}
 	}
 	if request.Overrides.Set {
-		settings, encoded, err := normalizeGroupSettings(request.Overrides.Value)
+		_, encoded, err := normalizeGroupSettings(request.Overrides.Value)
 		if err != nil {
 			return normalizedGroupSettingsUpdate{}, err
 		}
 		result.encodedOverrides = encoded
-		result.overrides = settings
 		result.overridesSet = true
 	}
 	return result, nil
@@ -227,52 +201,29 @@ func (s *Service) UpdateGroupSettings(
 	}
 
 	var committed models.Group
-	providerReferencesChanged := false
 	snapshot, err := s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
 			return err
 		}
-		if err := validateGroupRowCandidate(ctx, tx, group); err != nil {
+		if err := validateGroupRowCandidate(ctx, tx, group, s.channelRegistry); err != nil {
 			return fmt.Errorf("validate existing group %d: %w", groupID, app_errors.ErrInternalServer)
 		}
 
-		updates := make(map[string]any, 8)
+		updates := make(map[string]any, 6)
 		if normalized.name != nil {
 			group.Name = *normalized.name
 			updates["name"] = group.Name
 		}
-		if normalized.providerIDSet {
-			if !optionalStringsEqual(group.ProviderID, normalized.providerID) {
-				if err := s.validateSelectableProviderID(normalized.providerID); err != nil {
-					return err
-				}
-				var groupModels []GroupModel
-				if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
-					return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)
-				}
-				providerReferencesChanged = len(groupModels) > 0
+		if normalized.paramsSet {
+			params, validateErr := s.channelRegistry.ValidateParams(
+				channel.ID(group.ChannelID), normalized.params,
+			)
+			if validateErr != nil {
+				return app_errors.ErrValidation
 			}
-			group.ProviderID = cloneString(normalized.providerID)
-			updates["provider_id"] = cloneString(normalized.providerID)
-		}
-		if normalized.upstreamURL != nil {
-			currentURL, _, normalizeErr := normalizeUpstreamBaseURL(group.UpstreamURL)
-			if normalizeErr != nil {
-				return fmt.Errorf("normalize persisted group URL: %w", app_errors.ErrInternalServer)
-			}
-			if currentURL != *normalized.upstreamURL {
-				group.UpstreamURL = *normalized.upstreamURL
-				updates["upstream_url"] = group.UpstreamURL
-			}
-		}
-		if normalized.protocolsSet {
-			encoded, encodeErr := json.Marshal(normalized.protocols)
-			if encodeErr != nil {
-				return encodeErr
-			}
-			group.Protocols = models.JSON(encoded)
-			updates["protocols"] = group.Protocols
+			group.Params = models.JSON(params.CanonicalJSON())
+			updates["params"] = append(models.JSON(nil), group.Params...)
 		}
 		if normalized.validationModelSet {
 			group.ValidationModel = normalized.validationModel
@@ -287,17 +238,19 @@ func (s *Service) UpdateGroupSettings(
 			updates["weight_manual"] = normalized.weightManual
 		}
 		if normalized.overridesSet {
-			group.Config = normalized.encodedOverrides
-			updates["config"] = group.Config
+			group.Overrides = normalized.encodedOverrides
+			updates["overrides"] = group.Overrides
 		}
-		if err := validateGroupInjectUsageOptionsConstraint(group); err != nil {
+		if err := validateGroupInjectUsageOptionsConstraint(group, s.channelRegistry); err != nil {
 			return err
 		}
-		if err := validateGroupRowCandidate(ctx, tx, group); err != nil {
+		if err := validateGroupRowCandidate(ctx, tx, group, s.channelRegistry); err != nil {
 			return app_errors.ErrValidation
 		}
-		if err := tx.Model(&models.Group{}).Where("id = ?", groupID).Updates(updates).Error; err != nil {
-			return app_errors.ParseDBError(err)
+		if len(updates) > 0 {
+			if err := tx.Model(&models.Group{}).Where("id = ?", groupID).Updates(updates).Error; err != nil {
+				return app_errors.ParseDBError(err)
+			}
 		}
 		committed = group
 		return nil
@@ -305,46 +258,25 @@ func (s *Service) UpdateGroupSettings(
 	if err != nil {
 		return GroupSettingsResponse{}, withControlOperationContext(err, groupID, 0)
 	}
-	if providerReferencesChanged && s.catalogSync != nil {
-		s.catalogSync.RequestGroupSync()
-	}
-	result, err := groupSettingsResponse(committed, snapshot.Settings)
-	if err != nil {
-		return GroupSettingsResponse{}, err
-	}
-	return result, nil
+	return groupSettingsResponse(committed, snapshot.Settings, s.channelRegistry)
 }
 
-func optionalStringsEqual(left, right *string) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
-}
-
-func validateGroupInjectUsageOptionsConstraint(group models.Group) error {
+func validateGroupInjectUsageOptionsConstraint(group models.Group, registry *channel.Registry) error {
 	settings := make(config.Settings)
-	if len(group.Config) > 0 {
-		if err := decodeGroupDiscoveryJSON(group.Config, &settings); err != nil {
+	if len(group.Overrides) > 0 {
+		if err := decodeGroupDiscoveryJSON(group.Overrides, &settings); err != nil {
 			return app_errors.ErrValidation
 		}
 	}
-	if _, injectUsageOptionsSet := settings[state.SettingInjectUsageOptions]; injectUsageOptionsSet &&
-		!groupSupportsOpenAICompletions(group.Protocols) {
+	if _, set := settings[state.SettingInjectUsageOptions]; !set {
+		return nil
+	}
+	if registry == nil {
+		return app_errors.ErrValidation
+	}
+	descriptor, ok := registry.Get(channel.ID(group.ChannelID))
+	if !ok || !slices.Contains(descriptor.ClientProtocols, protocol.OpenAICompletions) {
 		return app_errors.ErrValidation
 	}
 	return nil
-}
-
-func groupSupportsOpenAICompletions(raw models.JSON) bool {
-	var protocols []protocol.Protocol
-	if err := decodeGroupDiscoveryJSON(raw, &protocols); err != nil {
-		return false
-	}
-	for _, value := range protocols {
-		if value == protocol.OpenAICompletions {
-			return true
-		}
-	}
-	return false
 }

@@ -8,6 +8,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { useCollectionLoading } from '@/app/loading-state'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
+import { listChannels } from '@/app/resources/channels'
+import { controlQueryKeys } from '@/app/query-keys'
 import {
   usageQueryOptions,
   type UsageAggregateDto,
@@ -73,6 +75,12 @@ const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value)
 const filterErrors = ref<UsageFilterErrors>({})
 
 const groupsQuery = useQuery(groupOptionsQueryOptions(client, () => !isAccessKey.value))
+const channelsQuery = useQuery({
+  queryKey: controlQueryKeys.channels.list(''),
+  queryFn: ({ signal }) => listChannels(client, '', signal),
+  enabled: computed(() => !isAccessKey.value),
+  staleTime: 5 * 60 * 1_000,
+})
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
 const {
@@ -92,7 +100,10 @@ const {
 const usageRefreshing = computed(
   () =>
     reportRefreshing.value ||
-    (!isAccessKey.value && groupsQuery.data.value !== undefined && groupsQuery.isFetching.value),
+    (!isAccessKey.value && groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
+    (!isAccessKey.value &&
+      channelsQuery.data.value !== undefined &&
+      channelsQuery.isFetching.value),
 )
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
 const orderOptions = computed(() => [
@@ -196,7 +207,9 @@ watch(
   [
     () => appliedFilters.value.range,
     () => appliedFilters.value.group_id,
-    () => appliedFilters.value.model,
+    () => appliedFilters.value.channel_id,
+    () => appliedFilters.value.credential_id,
+    () => appliedFilters.value.upstream_model,
     () => appliedFilters.value.breakdown_order,
   ],
   () => {
@@ -252,8 +265,21 @@ function groupName(groupID: number): string {
   )
 }
 
-function groupMeta(groupID: number): string {
-  return groupID === 0 ? t('monitor.usage.breakdown.unattributedMeta') : `Group #${groupID}`
+function routeMeta(row: NonNullable<typeof report.value>['breakdown'][number]): string {
+  if (isAccessKey.value) return t('monitor.usage.breakdown.redactedRoute')
+  const parts = [
+    row.group_id === 0 ? t('monitor.usage.breakdown.unattributedMeta') : `Group #${row.group_id}`,
+  ]
+  if (row.channel_id !== null) {
+    const channel = channelsQuery.data.value?.items.find(
+      ({ channel_id }) => channel_id === row.channel_id,
+    )
+    parts.push(channel?.name ?? row.channel_id)
+  }
+  if (row.credential_id !== null) {
+    parts.push(t('monitor.usage.breakdown.credentialRef', { id: row.credential_id }))
+  }
+  return parts.join(' · ')
 }
 
 function modelLabel(model: string): string {
@@ -321,16 +347,27 @@ async function navigate(
   await router.push(monitorLocation(usageMonitorQuery(scopedFilters, state)))
 }
 
-function breakdownExpanded(groupID: number, model: string): boolean {
-  const identity = usageBreakdownIdentity(groupID, model)
+function breakdownExpanded(
+  groupID: number,
+  channelID: string | null,
+  credentialID: number | null,
+  model: string,
+): boolean {
+  const identity = usageBreakdownIdentity(groupID, channelID, credentialID, model)
   return routeState.value.expandedBreakdowns.some((candidate) =>
     sameUsageBreakdownIdentity(candidate, identity),
   )
 }
 
-function setBreakdownExpanded(groupID: number, model: string, event: Event): void {
+function setBreakdownExpanded(
+  groupID: number,
+  channelID: string | null,
+  credentialID: number | null,
+  model: string,
+  event: Event,
+): void {
   const expanded = (event.currentTarget as HTMLDetailsElement).open
-  const identity = usageBreakdownIdentity(groupID, model)
+  const identity = usageBreakdownIdentity(groupID, channelID, credentialID, model)
   const current = routeState.value.expandedBreakdowns
   const alreadyExpanded = current.some((candidate) =>
     sameUsageBreakdownIdentity(candidate, identity),
@@ -381,6 +418,13 @@ defineExpose({ openFilters, refresh })
         :retry-label="t('common.retry')"
         @retry="usageQuery.refetch()"
       />
+
+      <InlineFeedback
+        v-if="!isAccessKey && (groupsQuery.isError.value || channelsQuery.isError.value)"
+        tone="warning"
+      >
+        {{ t('monitor.usage.options.partialFailed') }}
+      </InlineFeedback>
 
       <UsageSummary :summary="report.summary" />
 
@@ -564,7 +608,7 @@ defineExpose({ openFilters, refresh })
           >
             <template #header>
               <span v-if="!isAccessKey" role="columnheader">{{
-                t('monitor.usage.columns.group')
+                t('monitor.usage.columns.route')
               }}</span>
               <span role="columnheader">{{ t('monitor.usage.columns.upstreamModel') }}</span>
               <span role="columnheader">{{ t('monitor.usage.columns.requests') }}</span>
@@ -576,10 +620,18 @@ defineExpose({ openFilters, refresh })
 
             <details
               v-for="(row, index) in report.breakdown"
-              :key="`${row.group_id}:${row.model}`"
+              :key="`${row.group_id}:${row.channel_id ?? '-'}:${row.credential_id ?? '-'}:${row.model}`"
               class="usage-breakdown-record"
-              :open="breakdownExpanded(row.group_id, row.model)"
-              @toggle="setBreakdownExpanded(row.group_id, row.model, $event)"
+              :open="breakdownExpanded(row.group_id, row.channel_id, row.credential_id, row.model)"
+              @toggle="
+                setBreakdownExpanded(
+                  row.group_id,
+                  row.channel_id,
+                  row.credential_id,
+                  row.model,
+                  $event,
+                )
+              "
             >
               <summary
                 class="ledger-record-list__record usage-breakdown-record__summary"
@@ -594,7 +646,7 @@ defineExpose({ openFilters, refresh })
                   <OverflowTooltip as="strong" :content="groupName(row.group_id)">
                     {{ groupName(row.group_id) }}
                   </OverflowTooltip>
-                  <small>{{ groupMeta(row.group_id) }}</small>
+                  <small>{{ routeMeta(row) }}</small>
                 </div>
                 <div class="ledger-record-list__cell usage-breakdown-record__model" role="cell">
                   <span class="usage-cell-label">{{
@@ -641,6 +693,14 @@ defineExpose({ openFilters, refresh })
               </summary>
 
               <dl class="usage-breakdown-record__detail">
+                <div v-if="!isAccessKey">
+                  <dt>{{ t('monitor.usage.columns.channel') }}</dt>
+                  <dd>{{ row.channel_id ?? '—' }}</dd>
+                </div>
+                <div v-if="!isAccessKey">
+                  <dt>{{ t('monitor.usage.columns.credential') }}</dt>
+                  <dd>{{ row.credential_id === null ? '—' : `#${row.credential_id}` }}</dd>
+                </div>
                 <div>
                   <dt>{{ t('monitor.usage.columns.success') }}</dt>
                   <dd>{{ formatInteger(row.success_count, locale) }}</dd>
@@ -744,7 +804,9 @@ defineExpose({ openFilters, refresh })
       :draft="draft"
       :errors="filterErrors"
       :groups="groupsQuery.data.value ?? []"
+      :channels="channelsQuery.data.value?.items ?? []"
       :groups-failed="groupsQuery.isError.value"
+      :channels-failed="channelsQuery.isError.value"
       :self-scoped="isAccessKey"
       @update:open="setFilterOpen"
       @update-field="updateDraftField"

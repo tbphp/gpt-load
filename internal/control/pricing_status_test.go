@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
@@ -24,9 +25,13 @@ func TestResolveCandidatePricingUsesCurrentAutomaticPriceMatch(t *testing.T) {
 		},
 	}}
 	status, source := resolveCandidatePricing(
-		&models.ModelPrice{InputPriceNanoUSDPerMillionTokens: &price},
+		&models.ModelPrice{
+			ChannelID:                         string(channel.OpenAI),
+			ModelID:                           "gpt-4o",
+			InputPriceNanoUSDPerMillionTokens: &price,
+		},
 		snapshot,
-		"gpt-4o",
+		pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-4o"},
 	)
 	if status != PricingStatusConfigured || source == nil || *source != "OpenAI" {
 		t.Fatalf("pricing = %q, %v, want configured and automatic Provider match", status, source)
@@ -35,9 +40,9 @@ func TestResolveCandidatePricingUsesCurrentAutomaticPriceMatch(t *testing.T) {
 
 func TestResolveCandidatePricingHidesManuallyUnpricedSource(t *testing.T) {
 	status, source := resolveCandidatePricing(
-		&models.ModelPrice{IsManual: true},
+		&models.ModelPrice{ChannelID: string(channel.OpenAI), ModelID: "gpt-4o", IsManual: true},
 		nil,
-		"gpt-4o",
+		pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-4o"},
 	)
 	if status != PricingStatusConfigured || source != nil {
 		t.Fatalf("pricing = %q, %v, want configured without source", status, source)

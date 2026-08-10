@@ -18,13 +18,13 @@ func TestModelRewritersDeriveRequestsWithoutMutatingOriginal(t *testing.T) {
 		wantModel string
 	}{
 		{
-			name: "openai", rewriter: NewOpenAI(http.DefaultClient), upstream: "provider-openai",
+			name: "openai", rewriter: NewOpenAI(), upstream: "provider-openai",
 			request:  &ParsedRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Header: http.Header{"X-Test": {"one"}}, Body: []byte(`{"model":"public","metadata":{"n":9007199254740993}}`)},
 			wantPath: "/v1/chat/completions", wantModel: "provider-openai",
 		},
 		{
 			name:     "openai responses",
-			rewriter: NewOpenAIResponses(http.DefaultClient),
+			rewriter: NewOpenAIResponses(),
 			upstream: "provider-responses",
 			request: &ParsedRequest{
 				Method: http.MethodPost,
@@ -36,12 +36,12 @@ func TestModelRewritersDeriveRequestsWithoutMutatingOriginal(t *testing.T) {
 			wantModel: "provider-responses",
 		},
 		{
-			name: "anthropic", rewriter: NewAnthropic(http.DefaultClient), upstream: "provider-claude",
+			name: "anthropic", rewriter: NewAnthropic(), upstream: "provider-claude",
 			request:  &ParsedRequest{Method: http.MethodPost, Path: "/v1/messages", Body: []byte(`{"model":"public","messages":[]}`)},
 			wantPath: "/v1/messages", wantModel: "provider-claude",
 		},
 		{
-			name: "gemini", rewriter: NewGemini(http.DefaultClient), upstream: "provider-gemini",
+			name: "gemini", rewriter: NewGemini(), upstream: "provider-gemini",
 			request:  &ParsedRequest{Method: http.MethodPost, Path: "/v1beta/models/public:generateContent", Body: []byte(`{}`)},
 			wantPath: "/v1beta/models/provider-gemini:generateContent",
 		},
@@ -94,12 +94,12 @@ func TestModelRewritersRewriteResponseFields(t *testing.T) {
 		body     string
 		path     []string
 	}{
-		{name: "openai", rewriter: NewOpenAI(http.DefaultClient), body: `{"model":"real","n":9007199254740993}`, path: []string{"model"}},
-		{name: "openai responses object", rewriter: NewOpenAIResponses(http.DefaultClient), body: `{"type":"response","model":"real","n":9007199254740993}`, path: []string{"model"}},
-		{name: "openai responses event", rewriter: NewOpenAIResponses(http.DefaultClient), body: `{"type":"response.completed","response":{"model":"real"},"n":9007199254740993}`, path: []string{"response", "model"}},
-		{name: "anthropic response", rewriter: NewAnthropic(http.DefaultClient), body: `{"type":"message","model":"real"}`, path: []string{"model"}},
-		{name: "anthropic message_start", rewriter: NewAnthropic(http.DefaultClient), body: `{"type":"message_start","message":{"model":"real"}}`, path: []string{"message", "model"}},
-		{name: "gemini", rewriter: NewGemini(http.DefaultClient), body: `{"modelVersion":"real"}`, path: []string{"modelVersion"}},
+		{name: "openai", rewriter: NewOpenAI(), body: `{"model":"real","n":9007199254740993}`, path: []string{"model"}},
+		{name: "openai responses object", rewriter: NewOpenAIResponses(), body: `{"type":"response","model":"real","n":9007199254740993}`, path: []string{"model"}},
+		{name: "openai responses event", rewriter: NewOpenAIResponses(), body: `{"type":"response.completed","response":{"model":"real"},"n":9007199254740993}`, path: []string{"response", "model"}},
+		{name: "anthropic response", rewriter: NewAnthropic(), body: `{"type":"message","model":"real"}`, path: []string{"model"}},
+		{name: "anthropic message_start", rewriter: NewAnthropic(), body: `{"type":"message_start","message":{"model":"real"}}`, path: []string{"message", "model"}},
+		{name: "gemini", rewriter: NewGemini(), body: `{"modelVersion":"real"}`, path: []string{"modelVersion"}},
 	}
 
 	for _, test := range tests {
@@ -133,7 +133,7 @@ func TestModelRewritersRewriteResponseFields(t *testing.T) {
 func TestOpenAIResponsesResponseModelRewriteTreatsNullResponseAsAbsent(t *testing.T) {
 	body := []byte(`{"type":"response.output_text.delta","response":null,"delta":"hello"}`)
 
-	got, err := NewOpenAIResponses(http.DefaultClient).RewriteResponseModel(body, "public")
+	got, err := NewOpenAIResponses().RewriteResponseModel(body, "public")
 	if err != nil {
 		t.Fatalf("RewriteResponseModel() error = %v", err)
 	}
@@ -148,10 +148,10 @@ func TestModelRewritersRejectInvalidTargetModels(t *testing.T) {
 		value ModelRewriter
 		req   *ParsedRequest
 	}{
-		{name: "openai", value: NewOpenAI(http.DefaultClient), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
-		{name: "openai responses", value: NewOpenAIResponses(http.DefaultClient), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
-		{name: "anthropic", value: NewAnthropic(http.DefaultClient), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
-		{name: "gemini", value: NewGemini(http.DefaultClient), req: &ParsedRequest{Path: "/v1beta/models/public:generateContent"}},
+		{name: "openai", value: NewOpenAI(), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
+		{name: "openai responses", value: NewOpenAIResponses(), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
+		{name: "anthropic", value: NewAnthropic(), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
+		{name: "gemini", value: NewGemini(), req: &ParsedRequest{Path: "/v1beta/models/public:generateContent"}},
 	}
 	for _, test := range rewriters {
 		t.Run(test.name, func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestModelRewritersRejectInvalidTargetModels(t *testing.T) {
 			}
 		})
 	}
-	gemini := NewGemini(http.DefaultClient)
+	gemini := NewGemini()
 	if _, err := gemini.RewriteRequestModel(&ParsedRequest{Path: "/v1beta/models/public:generateContent"}, "models/provider"); err == nil {
 		t.Fatal("Gemini RewriteRequestModel() accepted slash in model")
 	}
@@ -181,10 +181,10 @@ func TestModelRewritersRequireRequestModelAndCloneAbsentResponse(t *testing.T) {
 		request  *ParsedRequest
 		response []byte
 	}{
-		{name: "openai", rewriter: NewOpenAI(http.DefaultClient), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"id":"one"}`)},
-		{name: "openai responses", rewriter: NewOpenAIResponses(http.DefaultClient), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"id":"resp_one"}`)},
-		{name: "anthropic", rewriter: NewAnthropic(http.DefaultClient), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"type":"content_block_delta"}`)},
-		{name: "gemini", rewriter: NewGemini(http.DefaultClient), request: &ParsedRequest{Path: "/v1beta/models/:generateContent"}, response: []byte(`{"candidates":[]}`)},
+		{name: "openai", rewriter: NewOpenAI(), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"id":"one"}`)},
+		{name: "openai responses", rewriter: NewOpenAIResponses(), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"id":"resp_one"}`)},
+		{name: "anthropic", rewriter: NewAnthropic(), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"type":"content_block_delta"}`)},
+		{name: "gemini", rewriter: NewGemini(), request: &ParsedRequest{Path: "/v1beta/models/:generateContent"}, response: []byte(`{"candidates":[]}`)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := test.rewriter.RewriteRequestModel(test.request, "provider"); err == nil {

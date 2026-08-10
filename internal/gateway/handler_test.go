@@ -20,13 +20,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
-	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
@@ -38,6 +38,68 @@ import (
 func withProviderErrorBeforeCommit(result UpstreamResult) UpstreamResult {
 	result.ProviderErrorBeforeCommit = true
 	return result
+}
+
+func TestHandlerForwardsStructuredCloudCredentialWithoutAPIKeyAssumption(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"id":"ok","model":"anthropic.claude-test"}`),
+	}}}
+	handler, manager, registry := newHandlerForTest(t, forwarder)
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "bedrock", ChannelID: channel.AWSBedrock,
+			Params: json.RawMessage(`{"region":"us-east-1"}`),
+			Models: []state.ModelConfig{{ID: "anthropic.claude-test"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "bedrock-credential",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	const canonical = `{"access_key":"AKIA_TEST","secret_key":"bedrock-secret","session_token":"bedrock-session"}`
+	encrypted, err := handler.encryption.Encrypt(canonical)
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "bedrock-credential",
+		EncryptedValue: encrypted,
+	}}); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"anthropic.claude-test","messages":[{"role":"user","content":"ping"}]}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+		t.Fatalf("status/inputs = %d/%d; body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	input := forwarder.inputs[0]
+	if input.ChannelID != string(channel.AWSBedrock) || input.APIKey != "" ||
+		string(input.Credential.Data()) != canonical {
+		t.Fatalf("forward input = %#v; credential=%s", input, input.Credential.Data())
+	}
+	if want := []string{"AKIA_TEST", "bedrock-secret", "bedrock-session"}; !reflect.DeepEqual(input.CredentialSecrets, want) {
+		t.Fatalf("credential secrets = %#v, want %#v", input.CredentialSecrets, want)
+	}
 }
 
 type scriptedForwarder struct {
@@ -110,24 +172,24 @@ func (*blockingRequestBody) Close() error {
 }
 
 type mutatingRuntimeRegistry struct {
-	*state.KeyRegistry
+	*state.CredentialRegistry
 	mutate  func()
 	mutated bool
 }
 
 type recordingRuntimeRegistry struct {
-	*state.KeyRegistry
-	cooldownKeyID    uint
-	cooldownUntil    time.Time
-	cooldownCalls    int
-	incrFailureCalls int
-	lastFailureCount int
-	blacklistCalls   int
-	clearCalls       int
+	*state.CredentialRegistry
+	cooldownCredentialID uint
+	cooldownUntil        time.Time
+	cooldownCalls        int
+	incrFailureCalls     int
+	lastFailureCount     int
+	blacklistCalls       int
+	clearCalls           int
 }
 
 type captureCountingRuntimeRegistry struct {
-	runtimeKeyRegistry
+	runtimeCredentialRegistry
 	captureCalls int
 }
 
@@ -146,11 +208,11 @@ func (value *cancelingSuccessfulInspectDialect) InspectRequest(
 	return metadata, err
 }
 
-func (registry *captureCountingRuntimeRegistry) CaptureActiveKeyRefs(
+func (registry *captureCountingRuntimeRegistry) CaptureActiveCredentialRefs(
 	groupIDs []uint,
-) []state.KeyRef {
+) []state.CredentialRef {
 	registry.captureCalls++
-	return registry.runtimeKeyRegistry.CaptureActiveKeyRefs(groupIDs)
+	return registry.runtimeCredentialRegistry.CaptureActiveCredentialRefs(groupIDs)
 }
 
 type gatewayMutationObservation struct {
@@ -159,14 +221,14 @@ type gatewayMutationObservation struct {
 	incrFailureCalls int
 	lastFailureCount int
 	blacklistCalls   int
-	stats            health.KeyStats
+	stats            health.CredentialStats
 }
 
 func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
 	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
-	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "cipher",
+	registry := &recordingRuntimeRegistry{CredentialRegistry: state.NewCredentialRegistry()}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -180,20 +242,20 @@ func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
 	handler := &Handler{registry: registry, stats: stats, mutations: coordinator}
 	done := make(chan struct{})
 	go func() {
-		handler.applyKeyAction(1, health.Result{
+		handler.applyCredentialAction(1, health.Result{
 			Category: health.FailureCategoryRateLimited,
-			Action:   health.ActionCooldownKey,
+			Action:   health.ActionCooldownCredential,
 		}, http.StatusTooManyRequests, now)
 		close(done)
 	}()
 
 	receiveTestSignal(t, coordinator.entered, "cooldown coordinator entry")
-	if registry.cooldownCalls != 0 || stats.Snapshot(1, now) != (health.KeyStats{}) {
+	if registry.cooldownCalls != 0 || stats.Snapshot(1, now) != (health.CredentialStats{}) {
 		t.Fatal("cooldown bundle changed state before coordinator callback")
 	}
 	close(coordinator.releaseEntry)
 	observed := receiveTestSignal(t, coordinator.observed, "cooldown mutation observation")
-	if observed.cooldownCalls != 1 || observed.stats != (health.KeyStats{
+	if observed.cooldownCalls != 1 || observed.stats != (health.CredentialStats{
 		Problem:             1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: health.FailureCategoryRateLimited,
@@ -214,18 +276,18 @@ type barrierGatewayMutationCoordinator struct {
 }
 
 type gatewayFailureOrderRegistry struct {
-	*state.KeyRegistry
+	*state.CredentialRegistry
 	failureEntered chan struct{}
 	releaseFailure chan struct{}
 	enterOnce      sync.Once
 }
 
-func (registry *gatewayFailureOrderRegistry) IncrFailure(keyID uint) (int, bool) {
+func (registry *gatewayFailureOrderRegistry) IncrFailure(credentialID uint) (int, bool) {
 	registry.enterOnce.Do(func() {
 		close(registry.failureEntered)
 		<-registry.releaseFailure
 	})
-	return registry.KeyRegistry.IncrFailure(keyID)
+	return registry.CredentialRegistry.IncrFailure(credentialID)
 }
 
 func newBarrierGatewayMutationCoordinator(
@@ -258,35 +320,35 @@ func receiveTestSignal[T any](t *testing.T, signal <-chan T, name string) T {
 	}
 }
 
-func (registry *recordingRuntimeRegistry) SetCooldown(keyID uint, until time.Time) bool {
-	registry.cooldownKeyID = keyID
+func (registry *recordingRuntimeRegistry) SetCooldown(credentialID uint, until time.Time) bool {
+	registry.cooldownCredentialID = credentialID
 	registry.cooldownUntil = until
 	registry.cooldownCalls++
-	return registry.KeyRegistry.SetCooldown(keyID, until)
+	return registry.CredentialRegistry.SetCooldown(credentialID, until)
 }
 
-func (registry *recordingRuntimeRegistry) IncrFailure(keyID uint) (int, bool) {
+func (registry *recordingRuntimeRegistry) IncrFailure(credentialID uint) (int, bool) {
 	registry.incrFailureCalls++
-	count, ok := registry.KeyRegistry.IncrFailure(keyID)
+	count, ok := registry.CredentialRegistry.IncrFailure(credentialID)
 	registry.lastFailureCount = count
 	return count, ok
 }
 
-func (registry *recordingRuntimeRegistry) SetBlacklisted(keyID uint) bool {
+func (registry *recordingRuntimeRegistry) SetBlacklisted(credentialID uint) bool {
 	registry.blacklistCalls++
-	return registry.KeyRegistry.SetBlacklisted(keyID)
+	return registry.CredentialRegistry.SetBlacklisted(credentialID)
 }
 
-func (registry *recordingRuntimeRegistry) ClearFailure(keyID uint) bool {
+func (registry *recordingRuntimeRegistry) ClearFailure(credentialID uint) bool {
 	registry.clearCalls++
-	return registry.KeyRegistry.ClearFailure(keyID)
+	return registry.CredentialRegistry.ClearFailure(credentialID)
 }
 
 func TestHandlerCoordinatesSuccessMutation(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive, FailureCount: 2, EncryptedValue: "cipher",
+	registry := &recordingRuntimeRegistry{CredentialRegistry: state.NewCredentialRegistry()}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, FailureCount: 2, EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -301,16 +363,16 @@ func TestHandlerCoordinatesSuccessMutation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handler.recordSuccess(1, now)
+		handler.recordCredentialSuccess(1, now)
 		close(done)
 	}()
 	receiveTestSignal(t, coordinator.entered, "success coordinator entry")
-	if registry.clearCalls != 0 || stats.Snapshot(1, now) != (health.KeyStats{}) {
+	if registry.clearCalls != 0 || stats.Snapshot(1, now) != (health.CredentialStats{}) {
 		t.Fatalf("success bundle changed state before coordinator callback")
 	}
 	close(coordinator.releaseEntry)
 	observed := receiveTestSignal(t, coordinator.observed, "success mutation observation")
-	if observed.clearCalls != 1 || observed.stats != (health.KeyStats{Success: 1}) {
+	if observed.clearCalls != 1 || observed.stats != (health.CredentialStats{Success: 1}) {
 		t.Fatalf("coordinator callback observation = %#v", observed)
 	}
 	select {
@@ -324,9 +386,9 @@ func TestHandlerCoordinatesSuccessMutation(t *testing.T) {
 
 func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "cipher",
+	registry := &recordingRuntimeRegistry{CredentialRegistry: state.NewCredentialRegistry()}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -334,22 +396,22 @@ func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
 	handler := &Handler{registry: registry, stats: stats}
 	until := now.Add(30 * time.Second)
 
-	handler.applyKeyAction(1, health.Result{
+	handler.applyCredentialAction(1, health.Result{
 		Category:      health.FailureCategoryRateLimited,
-		Action:        health.ActionCooldownKey,
+		Action:        health.ActionCooldownCredential,
 		CooldownUntil: until,
 	}, http.StatusTooManyRequests, now)
 
-	if registry.cooldownCalls != 1 || registry.cooldownKeyID != 1 ||
+	if registry.cooldownCalls != 1 || registry.cooldownCredentialID != 1 ||
 		!registry.cooldownUntil.Equal(until) {
 		t.Fatalf(
 			"cooldown mutation = calls:%d key:%d until:%s",
 			registry.cooldownCalls,
-			registry.cooldownKeyID,
+			registry.cooldownCredentialID,
 			registry.cooldownUntil,
 		)
 	}
-	if got, want := stats.Snapshot(1, now), (health.KeyStats{
+	if got, want := stats.Snapshot(1, now), (health.CredentialStats{
 		Problem:             1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: health.FailureCategoryRateLimited,
@@ -368,37 +430,37 @@ func TestHandlerSkipsStatsWhenRegistryKeyWasDeletedBeforeCompletion(t *testing.T
 		{
 			name: "cooldown",
 			mutate: func(handler *Handler) {
-				handler.applyKeyAction(1, health.Result{
+				handler.applyCredentialAction(1, health.Result{
 					Category: health.FailureCategoryRateLimited,
-					Action:   health.ActionCooldownKey,
+					Action:   health.ActionCooldownCredential,
 				}, http.StatusTooManyRequests, now)
 			},
 		},
 		{
 			name: "attributable failure",
 			mutate: func(handler *Handler) {
-				handler.applyKeyAction(1, health.Result{
+				handler.applyCredentialAction(1, health.Result{
 					Category: health.FailureCategoryInvalidKey,
-					Action:   health.ActionFailKey,
+					Action:   health.ActionFailCredential,
 				}, http.StatusUnauthorized, now)
 			},
 		},
 		{
 			name: "success",
 			mutate: func(handler *Handler) {
-				handler.recordSuccess(1, now)
+				handler.recordCredentialSuccess(1, now)
 			},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stats := health.NewStatsStore()
 			handler := &Handler{
-				registry:  state.NewKeyRegistry(),
+				registry:  state.NewCredentialRegistry(),
 				stats:     stats,
 				mutations: health.NewMutationCoordinator(),
 			}
 			test.mutate(handler)
-			if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+			if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
 				t.Fatalf("stats after deleted-key completion = %#v, want zero", got)
 			}
 		})
@@ -407,9 +469,9 @@ func TestHandlerSkipsStatsWhenRegistryKeyWasDeletedBeforeCompletion(t *testing.T
 
 func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive, FailureCount: 2, EncryptedValue: "cipher",
+	registry := &recordingRuntimeRegistry{CredentialRegistry: state.NewCredentialRegistry()}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, FailureCount: 2, EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -426,22 +488,22 @@ func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handler.applyKeyAction(1, health.Result{
+		handler.applyCredentialAction(1, health.Result{
 			Category: health.FailureCategoryInvalidKey,
-			Action:   health.ActionFailKey,
+			Action:   health.ActionFailCredential,
 		}, http.StatusUnauthorized, now)
 		close(done)
 	}()
 	receiveTestSignal(t, coordinator.entered, "failure coordinator entry")
 	if registry.incrFailureCalls != 0 || registry.blacklistCalls != 0 ||
-		stats.Snapshot(1, now) != (health.KeyStats{}) {
+		stats.Snapshot(1, now) != (health.CredentialStats{}) {
 		t.Fatalf("failure bundle changed state before coordinator callback")
 	}
 	close(coordinator.releaseEntry)
 	observed := receiveTestSignal(t, coordinator.observed, "failure mutation observation")
 	if observed.incrFailureCalls != 1 || observed.lastFailureCount != 3 ||
 		observed.blacklistCalls != 1 ||
-		observed.stats != (health.KeyStats{
+		observed.stats != (health.CredentialStats{
 			Failure:             1,
 			Problem:             1,
 			ConsecutiveFailure:  1,
@@ -462,18 +524,18 @@ func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 
 func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFailed(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	baseRegistry := state.NewKeyRegistry()
-	if err := baseRegistry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+	baseRegistry := state.NewCredentialRegistry()
+	if err := baseRegistry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
-	ref := baseRegistry.BlacklistedKeys()[0]
+	ref := baseRegistry.BlacklistedCredentials()[0]
 	registry := &gatewayFailureOrderRegistry{
-		KeyRegistry:    baseRegistry,
-		failureEntered: make(chan struct{}),
-		releaseFailure: make(chan struct{}),
+		CredentialRegistry: baseRegistry,
+		failureEntered:     make(chan struct{}),
+		releaseFailure:     make(chan struct{}),
 	}
 	stats := health.NewStatsStore()
 	stats.RecordFailure(1, health.FailureCategoryAmbiguous, 0, now)
@@ -482,7 +544,7 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 
 	failureDone := make(chan struct{})
 	go func() {
-		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, 0, now)
+		handler.applyCredentialAction(1, health.Result{Action: health.ActionFailCredential}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, registry.failureEntered, "gateway failure mutation")
@@ -507,12 +569,13 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 		t.Fatal("stale validation recovery = true after gateway failure, want false")
 	}
 
-	if got, want := baseRegistry.BlacklistedKeys(), []state.KeyRef{{
-		ID: 1, GroupID: 1, EncryptedValue: "cipher", FailureGeneration: 1,
+	if got, want := baseRegistry.BlacklistedCredentials(), []state.CredentialRef{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "test-1", EncryptedValue: "cipher", FailureGeneration: 1,
 	}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("blacklisted keys = %#v, want %#v", got, want)
 	}
-	if got, want := stats.Snapshot(1, now), (health.KeyStats{
+	if got, want := stats.Snapshot(1, now), (health.CredentialStats{
 		Failure: 2, Problem: 2, ConsecutiveFailure: 2, ConsecutiveProblem: 2,
 	}); got != want {
 		t.Fatalf("stats = %#v, want %#v", got, want)
@@ -521,14 +584,14 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 
 func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
-	ref := registry.BlacklistedKeys()[0]
+	ref := registry.BlacklistedCredentials()[0]
 	stats := health.NewStatsStore()
 	stats.RecordFailure(1, health.FailureCategoryAmbiguous, 0, now)
 	mutations := health.NewMutationCoordinator()
@@ -555,7 +618,7 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	failureDone := make(chan struct{})
 	go func() {
 		close(failureAttempted)
-		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, 0, now)
+		handler.applyCredentialAction(1, health.Result{Action: health.ActionFailCredential}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, failureAttempted, "gateway failure attempt")
@@ -565,25 +628,25 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	}
 	receiveTestSignal(t, failureDone, "gateway failure completion")
 
-	if got := registry.BlacklistedKeys(); len(got) != 0 {
+	if got := registry.BlacklistedCredentials(); len(got) != 0 {
 		t.Fatalf("blacklisted keys = %#v, want recovered key with new sub-threshold failure", got)
 	}
-	if refs := registry.CaptureActiveKeyRefs([]uint{1}); len(refs) != 1 || refs[0].FailureGeneration != 2 {
+	if refs := registry.CaptureActiveCredentialRefs([]uint{1}); len(refs) != 1 || refs[0].FailureGeneration != 2 {
 		t.Fatalf("active refs = %#v, want generation 2 after recovery then failure", refs)
 	}
-	if got, want := stats.Snapshot(1, now), (health.KeyStats{
+	if got, want := stats.Snapshot(1, now), (health.CredentialStats{
 		Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
 	}); got != want {
 		t.Fatalf("stats = %#v, want %#v", got, want)
 	}
 }
 
-func (registry *mutatingRuntimeRegistry) CollectCandidates(
+func (registry *mutatingRuntimeRegistry) CollectCredentialCandidates(
 	groupIDs []uint,
 	excluded func(uint) bool,
 	now time.Time,
-) []state.KeyMeta {
-	candidates := registry.KeyRegistry.CollectCandidates(groupIDs, excluded, now)
+) []state.CredentialMeta {
+	candidates := registry.CredentialRegistry.CollectCredentialCandidates(groupIDs, excluded, now)
 	if !registry.mutated && len(candidates) > 0 {
 		registry.mutated = true
 		registry.mutate()
@@ -650,14 +713,14 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 	tests := []struct {
 		name   string
 		result UpstreamResult
-		want   health.KeyStats
+		want   health.CredentialStats
 	}{
 		{
 			name: "2xx success",
 			result: UpstreamResult{
 				StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
 			},
-			want: health.KeyStats{Success: 1},
+			want: health.CredentialStats{Success: 1},
 		},
 		{
 			name: "invalid key",
@@ -665,7 +728,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: []byte(`{"error":"invalid key"}`),
 				ClassificationBody: []byte(`{"error":"invalid key"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{
+			want: health.CredentialStats{
 				Failure:             1,
 				Problem:             1,
 				ConsecutiveFailure:  1,
@@ -680,7 +743,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				StatusCode: http.StatusBadRequest, Header: make(http.Header), Body: []byte(`{"error":"invalid input"}`),
 				ClassificationBody: []byte(`{"error":"invalid input"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{},
+			want: health.CredentialStats{},
 		},
 		{
 			name: "rate limited",
@@ -688,7 +751,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				StatusCode: http.StatusTooManyRequests, Header: make(http.Header), Body: []byte(`{"error":"rate limit"}`),
 				ClassificationBody: []byte(`{"error":"rate limit"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{
+			want: health.CredentialStats{
 				Problem:             1,
 				ConsecutiveProblem:  1,
 				LastFailureCategory: health.FailureCategoryRateLimited,
@@ -701,7 +764,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				StatusCode: http.StatusNotFound, Header: make(http.Header), Body: []byte(`{"error":"model not found"}`),
 				ClassificationBody: []byte(`{"error":"model not found"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{
+			want: health.CredentialStats{
 				Problem:             1,
 				ConsecutiveProblem:  1,
 				LastFailureCategory: health.FailureCategoryModelUnavailable,
@@ -714,21 +777,21 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				StatusCode: http.StatusInternalServerError, Header: make(http.Header), Body: []byte(`{"error":"overloaded"}`),
 				ClassificationBody: []byte(`{"error":"overloaded"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{},
+			want: health.CredentialStats{},
 		},
 		{
 			name: "pre-write transport",
 			result: UpstreamResult{
 				Err: errors.New("dial upstream"),
 			},
-			want: health.KeyStats{},
+			want: health.CredentialStats{},
 		},
 		{
 			name: "context canceled",
 			result: UpstreamResult{
 				Err: context.Canceled,
 			},
-			want: health.KeyStats{},
+			want: health.CredentialStats{},
 		},
 	}
 
@@ -776,7 +839,7 @@ func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
-	if got := stats.Snapshot(1, now); got != (health.KeyStats{
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{
 		Failure:             1,
 		Problem:             1,
 		ConsecutiveFailure:  1,
@@ -786,7 +849,7 @@ func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
 	}) {
 		t.Fatalf("first key stats = %#v, want one failure", got)
 	}
-	if got := stats.Snapshot(2, now); got != (health.KeyStats{Success: 1}) {
+	if got := stats.Snapshot(2, now); got != (health.CredentialStats{Success: 1}) {
 		t.Fatalf("second key stats = %#v, want one success", got)
 	}
 }
@@ -829,19 +892,19 @@ func TestHandlerRecordsStreamSuccessAtReadyTime(t *testing.T) {
 			}()
 
 			receiveTestSignal(t, forwarder.ready, "stream-ready callback")
-			if got := stats.Snapshot(1, now); got != (health.KeyStats{Success: 1}) {
+			if got := stats.Snapshot(1, now); got != (health.CredentialStats{Success: 1}) {
 				t.Fatalf("stats before forward returns = %#v, want one success", got)
 			}
 			forwarder.Release()
 			receiveTestSignal(t, done, "stream request completion")
-			if got := stats.Snapshot(1, now); got != (health.KeyStats{Success: 1}) {
+			if got := stats.Snapshot(1, now); got != (health.CredentialStats{Success: 1}) {
 				t.Fatalf("stats after forward returns = %#v, want one success", got)
 			}
 		})
 	}
 
 	preCommitForwarder := &scriptedForwarder{streamResults: []UpstreamResult{{
-		Err: errors.New("first stream event failed"), RequestWritten: true, RetryableBeforeCommit: true,
+		Err: errors.New("first stream event failed"), RequestWritten: true,
 	}}}
 	engine, handler, _, stats := newStatsHandlerTestRuntime(t, preCommitForwarder, "sk-one")
 	handler.now = func() time.Time { return now }
@@ -852,7 +915,7 @@ func TestHandlerRecordsStreamSuccessAtReadyTime(t *testing.T) {
 	)
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
-	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
 		t.Fatalf("pre-commit stream stats = %#v, want zero", got)
 	}
 }
@@ -881,7 +944,7 @@ func TestHandlerDoesNotRecordCanceledAttempt(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
-	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
 		t.Fatalf("canceled attempt stats = %#v, want zero", got)
 	}
 }
@@ -906,7 +969,7 @@ func TestHandlerDoesNotRecordCommittedNonStreamingAttempt(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
-	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
 		t.Fatalf("committed attempt stats = %#v, want zero", got)
 	}
 }
@@ -1054,15 +1117,16 @@ func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 				"sk-one",
 			)
 			if _, err := manager.Publish(state.CompileInput{
+				ChannelRegistry: channel.NewRegistry(),
 				Groups: []state.GroupConfig{{
-					ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid",
-					Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+					ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 					Models: []state.ModelConfig{{
 						ID:    "gpt-4o",
 						Alias: test.model,
 					}},
 					Enabled: true,
 				}},
+				Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
 				AccessKeys: []state.AccessKeyConfig{{
 					ID:      1,
 					Name:    "client",
@@ -1166,7 +1230,7 @@ func TestHandlerServesLocalModelEndpoints(t *testing.T) {
 		},
 		{
 			name: "Gemini with query key", method: http.MethodGet, target: "/v1beta/models?key=gl-client",
-			expected: `{"models":[{"name":"models/alpha"},{"name":"models/zeta"}]}`,
+			expected: `{"models":[{"name":"models/alpha"},{"name":"models/beta"},{"name":"models/zeta"}]}`,
 		},
 	}
 	for _, test := range tests {
@@ -1236,10 +1300,10 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	}
 	manager := state.NewManager()
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "openai", UpstreamURL: "https://unused.example.com",
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:    []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
+			ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"), Status: state.AccessKeyStatusActive,
@@ -1249,7 +1313,7 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	}
 	spyEncryption := &decryptPanicEncryption{Service: keyService}
 	handler := NewHandler(
-		manager, state.NewKeyRegistry(), spyEncryption, panicForwarder{}, dialect.NewSet(), health.NewStatsStore(),
+		manager, state.NewCredentialRegistry(), spyEncryption, panicForwarder{}, dialect.NewSet(), health.NewStatsStore(),
 		health.NewMutationCoordinator(),
 		nil, nil, nil,
 	)
@@ -1303,16 +1367,15 @@ func newModelListHandlerEngineWithLimit(
 	}
 	manager := state.NewManager()
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
 			{
-				ID: 1, Name: "multi", UpstreamURL: "https://multi.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic, protocol.Gemini},
-				Models:    []state.ModelConfig{{ID: "zeta"}, {ID: "alpha"}}, Enabled: true,
+				ID: 1, Name: "multi", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "zeta"}, {ID: "alpha"}}, Enabled: true,
 			},
 			{
-				ID: 2, Name: "openai", UpstreamURL: "https://openai.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
-				Models:    []state.ModelConfig{{ID: "beta"}}, Enabled: true,
+				ID: 2, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "beta"}}, Enabled: true,
 			},
 		},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -1323,7 +1386,7 @@ func newModelListHandlerEngineWithLimit(
 		t.Fatalf("Publish() error = %v", err)
 	}
 	handler := NewHandler(
-		manager, state.NewKeyRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(), health.NewStatsStore(),
+		manager, state.NewCredentialRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(), health.NewStatsStore(),
 		health.NewMutationCoordinator(),
 		nil, nil, nil,
 	)
@@ -1335,19 +1398,19 @@ func newModelListHandlerEngineWithLimit(
 
 type panicRuntimeRegistry struct{}
 
-func (panicRuntimeRegistry) CollectCandidates([]uint, func(uint) bool, time.Time) []state.KeyMeta {
+func (panicRuntimeRegistry) CollectCredentialCandidates([]uint, func(uint) bool, time.Time) []state.CredentialMeta {
 	panic("model endpoint collected upstream candidates")
 }
 
-func (panicRuntimeRegistry) ActiveEncryptedValue(uint, uint) (string, bool) {
+func (panicRuntimeRegistry) ActiveEncryptedCredentialData(uint, uint) (string, bool) {
 	panic("model endpoint read an upstream key")
 }
 
-func (panicRuntimeRegistry) CaptureActiveKeyRefs([]uint) []state.KeyRef {
+func (panicRuntimeRegistry) CaptureActiveCredentialRefs([]uint) []state.CredentialRef {
 	panic("model endpoint captured upstream keys")
 }
 
-func (panicRuntimeRegistry) ActiveEncryptedValueIfMatch(state.KeyRef) (string, bool) {
+func (panicRuntimeRegistry) ActiveEncryptedCredentialDataIfMatch(state.CredentialRef) (string, bool) {
 	panic("model endpoint matched an upstream key")
 }
 
@@ -1719,7 +1782,7 @@ func TestHandlerCapturesKeyIdentityOnlyAfterDecodedInspection(t *testing.T) {
 				Body: []byte(`{"ok":true}`), RequestWritten: true,
 			}}}
 			handler, _, registry := newHandlerForTest(t, forwarder, "sk-upstream")
-			counting := &captureCountingRuntimeRegistry{runtimeKeyRegistry: registry}
+			counting := &captureCountingRuntimeRegistry{runtimeCredentialRegistry: registry}
 			handler.registry = counting
 			engine := gin.New()
 			bindGatewayRoutesForTest(t, engine, handler)
@@ -1754,7 +1817,7 @@ func TestHandlerCapturesKeyIdentityOnlyAfterDecodedInspection(t *testing.T) {
 	t.Run("canceled body read", func(t *testing.T) {
 		forwarder := &scriptedForwarder{}
 		handler, _, registry := newHandlerForTest(t, forwarder, "sk-upstream")
-		counting := &captureCountingRuntimeRegistry{runtimeKeyRegistry: registry}
+		counting := &captureCountingRuntimeRegistry{runtimeCredentialRegistry: registry}
 		handler.registry = counting
 		engine := gin.New()
 		bindGatewayRoutesForTest(t, engine, handler)
@@ -1790,7 +1853,7 @@ func TestHandlerCapturesKeyIdentityOnlyAfterDecodedInspection(t *testing.T) {
 	t.Run("canceled after successful inspection", func(t *testing.T) {
 		forwarder := &scriptedForwarder{}
 		handler, _, registry := newHandlerForTest(t, forwarder, "sk-upstream")
-		counting := &captureCountingRuntimeRegistry{runtimeKeyRegistry: registry}
+		counting := &captureCountingRuntimeRegistry{runtimeCredentialRegistry: registry}
 		handler.registry = counting
 		requestContext, cancel := context.WithCancel(context.Background())
 		baseDialect := handler.dialects[protocol.OpenAICompletions]
@@ -2295,7 +2358,7 @@ func TestHandlerTerminatesRequestWrittenStreamFailuresBeforeCommit(t *testing.T)
 		{
 			name: "protocol error does not reach committed success",
 			results: []UpstreamResult{
-				{Err: protocolFailure, RequestWritten: true, RetryableBeforeCommit: true},
+				{Err: protocolFailure, RequestWritten: true},
 				{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
 			},
 			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamProtocol.Code, wantAttempts: 1,
@@ -2303,7 +2366,7 @@ func TestHandlerTerminatesRequestWrittenStreamFailuresBeforeCommit(t *testing.T)
 		{
 			name: "first-event timeout does not reach committed success",
 			results: []UpstreamResult{
-				{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true},
+				{Err: context.DeadlineExceeded, RequestWritten: true},
 				{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
 			},
 			wantStatus: http.StatusGatewayTimeout, wantCode: reasonUpstreamTimeout.Code, wantAttempts: 1,
@@ -2311,24 +2374,24 @@ func TestHandlerTerminatesRequestWrittenStreamFailuresBeforeCommit(t *testing.T)
 		{
 			name: "protocol errors exhausted",
 			results: []UpstreamResult{
-				{Err: protocolFailure, RequestWritten: true, RetryableBeforeCommit: true},
-				{Err: protocolFailure, RequestWritten: true, RetryableBeforeCommit: true},
+				{Err: protocolFailure, RequestWritten: true},
+				{Err: protocolFailure, RequestWritten: true},
 			},
 			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamProtocol.Code, wantAttempts: 1,
 		},
 		{
 			name: "first-event timeouts exhausted",
 			results: []UpstreamResult{
-				{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true},
-				{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true},
+				{Err: context.DeadlineExceeded, RequestWritten: true},
+				{Err: context.DeadlineExceeded, RequestWritten: true},
 			},
 			wantStatus: http.StatusGatewayTimeout, wantCode: reasonUpstreamTimeout.Code, wantAttempts: 1,
 		},
 		{
 			name: "transport failures exhausted",
 			results: []UpstreamResult{
-				{Err: errors.New("stream disconnected"), RequestWritten: true, RetryableBeforeCommit: true},
-				{Err: errors.New("stream disconnected"), RequestWritten: true, RetryableBeforeCommit: true},
+				{Err: errors.New("stream disconnected"), RequestWritten: true},
+				{Err: errors.New("stream disconnected"), RequestWritten: true},
 			},
 			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamConnect.Code, wantAttempts: 1,
 		},
@@ -2360,31 +2423,12 @@ func TestHandlerTerminatesRequestWrittenStreamFailuresBeforeCommit(t *testing.T)
 
 func TestHandlerRetriesClassifiedFirstProviderErrorAndReturns502OnExhaustion(t *testing.T) {
 	const marker = "rate_limit_error"
-	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "text/event-stream")
-		writer.Header().Set("Retry-After", "1")
-		_, _ = io.WriteString(
-			writer,
-			`event: error`+"\n"+`data: {"error":{"type":"`+marker+`"}}`+"\n\n",
-		)
-	}))
-	defer upstream.Close()
-
-	input := streamForwardInput(upstream.URL)
-	input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
-		"X-Ordinary-Marker": marker,
-	}}
-	providerError := NewForwarder(
-		platformhttp.NewHTTPClientManager(),
-		redact.New(),
-	).ForwardStream(t.Context(), input, newRecordingResponseWriter())
-	if providerError.Err != nil ||
-		!providerError.ProviderErrorBeforeCommit ||
-		!bytes.Contains(providerError.ClassificationBody, []byte(marker)) {
-		t.Fatalf(
-			"ordinary HeaderRule changed Provider classification evidence: %#v",
-			providerError,
-		)
+	providerError := UpstreamResult{
+		StatusCode:                http.StatusOK,
+		Header:                    http.Header{"Retry-After": []string{"1"}},
+		ClassificationBody:        []byte(`{"error":{"type":"` + marker + `"}}`),
+		ProviderErrorBeforeCommit: true,
+		RequestWritten:            true,
 	}
 
 	t.Run("retryable category changes key", func(t *testing.T) {
@@ -2465,7 +2509,7 @@ func TestHandlerFirstProviderErrorDoesNotCommitOrRecordSuccess(t *testing.T) {
 	if recorder.Code != http.StatusBadGateway || len(forwarder.streamInputs) != 1 {
 		t.Fatalf("status/attempts = %d/%d", recorder.Code, len(forwarder.streamInputs))
 	}
-	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
 		t.Fatalf("stats = %#v, want no success/failure record", got)
 	}
 	count, ok := registry.IncrFailure(1)
@@ -2479,11 +2523,11 @@ func TestHandlerDoesNotRetryRequestWrittenAmbiguousPreCommitFailures(t *testing.
 		name   string
 		result UpstreamResult
 	}{
-		{name: "timeout", result: UpstreamResult{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true}},
-		{name: "read error", result: UpstreamResult{Err: errors.New("read failed"), RequestWritten: true, RetryableBeforeCommit: true}},
-		{name: "clean EOF", result: UpstreamResult{Err: errIncompleteSSEEvent, RequestWritten: true, RetryableBeforeCommit: true}},
-		{name: "framing", result: UpstreamResult{Err: fmt.Errorf("%w: framing", ErrUpstreamProtocol), RequestWritten: true, RetryableBeforeCommit: true}},
-		{name: "encoding", result: UpstreamResult{Err: fmt.Errorf("%w: encoding", ErrUpstreamProtocol), RequestWritten: true, RetryableBeforeCommit: true}},
+		{name: "timeout", result: UpstreamResult{Err: context.DeadlineExceeded, RequestWritten: true}},
+		{name: "read error", result: UpstreamResult{Err: errors.New("read failed"), RequestWritten: true}},
+		{name: "clean EOF", result: UpstreamResult{Err: errIncompleteSSEEvent, RequestWritten: true}},
+		{name: "framing", result: UpstreamResult{Err: fmt.Errorf("%w: framing", ErrUpstreamProtocol), RequestWritten: true}},
+		{name: "encoding", result: UpstreamResult{Err: fmt.Errorf("%w: encoding", ErrUpstreamProtocol), RequestWritten: true}},
 	}
 
 	for _, test := range tests {
@@ -2508,9 +2552,9 @@ func TestHandlerDoesNotRetryRequestWrittenAmbiguousPreCommitFailures(t *testing.
 	}
 }
 
-func TestHandlerRetriesRequestNotWrittenTransportFailure(t *testing.T) {
+func TestHandlerSkipsGroupAfterRequestNotWrittenTransportFailure(t *testing.T) {
 	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
-		{Err: errors.New("dial failed"), RequestWritten: false, RetryableBeforeCommit: true},
+		{Err: errors.New("dial failed"), RequestWritten: false},
 		{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
 	}}
 	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
@@ -2523,7 +2567,7 @@ func TestHandlerRetriesRequestNotWrittenTransportFailure(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK || len(forwarder.streamInputs) != 2 {
+	if recorder.Code != http.StatusBadGateway || len(forwarder.streamInputs) != 1 {
 		t.Fatalf("status/attempts = %d/%d, body=%s",
 			recorder.Code, len(forwarder.streamInputs), recorder.Body.String())
 	}
@@ -2545,7 +2589,7 @@ func TestHandlerStopsAtStreamingTerminalBoundaries(t *testing.T) {
 		{
 			name: "downstream cancellation",
 			result: UpstreamResult{
-				Err: context.Canceled, RequestWritten: true, RetryableBeforeCommit: true,
+				Err: context.Canceled, RequestWritten: true,
 			},
 		},
 	}
@@ -2588,7 +2632,7 @@ func TestHandlerDoesNotRetryDownstreamWriteDeadline(t *testing.T) {
 	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
 		{
 			Err: deadlineErr, RequestWritten: true,
-			Committed: true, RetryableBeforeCommit: true,
+			Committed: true,
 		},
 		{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
 	}}
@@ -2619,7 +2663,7 @@ func TestHandlerDoesNotRetryDownstreamWriteDeadline(t *testing.T) {
 
 func TestHandlerDoesNotAdvanceCandidatesAfterRequestDeadline(t *testing.T) {
 	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
-		{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true},
+		{Err: context.DeadlineExceeded, RequestWritten: true},
 		{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
 	}}
 	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
@@ -2767,7 +2811,7 @@ func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			forwarder := &scriptedForwarder{results: []UpstreamResult{test.result}}
 			handler, _, registry := newHandlerForTest(t, forwarder, "sk-one")
-			recording := &recordingRuntimeRegistry{KeyRegistry: registry}
+			recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
 			handler.registry = recording
 			handler.now = func() time.Time { return attemptNow }
 			engine := gin.New()
@@ -2779,10 +2823,10 @@ func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
 
-			if recording.cooldownCalls != 1 || recording.cooldownKeyID != 1 ||
+			if recording.cooldownCalls != 1 || recording.cooldownCredentialID != 1 ||
 				!recording.cooldownUntil.Equal(test.want) {
 				t.Fatalf("cooldown = calls:%d key:%d until:%v, want 1/1/%v",
-					recording.cooldownCalls, recording.cooldownKeyID,
+					recording.cooldownCalls, recording.cooldownCredentialID,
 					recording.cooldownUntil, test.want)
 			}
 		})
@@ -2838,7 +2882,7 @@ func TestHandlerBlacklistsKeyOnThirdInvalidFailure(t *testing.T) {
 		if recorder.Code != http.StatusUnauthorized {
 			t.Fatalf("attempt %d response = %d %s", attempt, recorder.Code, recorder.Body.String())
 		}
-		blacklisted := registry.BlacklistedKeys()
+		blacklisted := registry.BlacklistedCredentials()
 		if (attempt < 3 && len(blacklisted) != 0) ||
 			(attempt == 3 && (len(blacklisted) != 1 || blacklisted[0].ID != 1)) {
 			t.Fatalf("attempt %d blacklisted = %#v", attempt, blacklisted)
@@ -2934,9 +2978,9 @@ func TestHandlerLeavesKeyRegistryUnchangedForNonKeyActions(t *testing.T) {
 		health.Action(255),
 	} {
 		t.Run(fmt.Sprintf("action_%d", action), func(t *testing.T) {
-			recording := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
+			recording := &recordingRuntimeRegistry{CredentialRegistry: state.NewCredentialRegistry()}
 			handler := &Handler{registry: recording}
-			handler.applyKeyAction(1, health.Result{Action: action}, 0, time.Time{})
+			handler.applyCredentialAction(1, health.Result{Action: action}, 0, time.Time{})
 			if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 ||
 				recording.blacklistCalls != 0 || recording.clearCalls != 0 {
 				t.Fatalf("mutation calls = cooldown:%d failure:%d blacklist:%d clear:%d",
@@ -3015,10 +3059,12 @@ func TestHandlerReturnsModelRequiredByFilterForProtocolOnlyRequest(t *testing.T)
 		t.Fatalf("NewService() error = %v", err)
 	}
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
 			ID:        1,
 			Name:      "responses",
-			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+			ChannelID: channel.OpenAI,
+			Params:    json.RawMessage(`{}`),
 			Enabled:   true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -3034,7 +3080,7 @@ func TestHandlerReturnsModelRequiredByFilterForProtocolOnlyRequest(t *testing.T)
 		t.Fatalf("Publish() error = %v", err)
 	}
 	handler.dialects = dialect.NewSet(
-		dialect.NewOpenAIResponses(http.DefaultClient),
+		dialect.NewOpenAIResponses(),
 	)
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
@@ -3169,7 +3215,7 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 	defer upstream.Close()
 
 	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, externalModel,
-		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAI()),
 		dialectGatewayGroup{id: 1, name: "openai-1", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-one"},
 			models:  []state.ModelConfig{{ID: upstreamModel, Alias: externalModel}}},
@@ -3216,11 +3262,16 @@ func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T
 			return
 		}
 		if _, err := manager.Publish(state.CompileInput{
+			ChannelRegistry: channel.NewRegistry(),
 			Groups: []state.GroupConfig{{
-				ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid", Enabled: true,
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: []state.ModelConfig{{ID: "gpt-4o"}},
+				ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Enabled: true,
+				Models:   []state.ModelConfig{{ID: "gpt-4o"}},
 				Settings: config.Settings{state.SettingInjectUsageOptions: false},
 			}},
+			Credentials: []state.CredentialConfig{
+				testCredentialConfig(1, 1),
+				testCredentialConfig(2, 1),
+			},
 			AccessKeys: []state.AccessKeyConfig{{
 				ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"), Status: state.AccessKeyStatusActive,
 			}},
@@ -3254,18 +3305,18 @@ func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T
 func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*testing.T, *state.KeyRegistry, encryption.Service)
+		mutate func(*testing.T, *state.CredentialRegistry, encryption.Service)
 	}{
 		{
 			name: "key moved to another group",
-			mutate: func(t *testing.T, registry *state.KeyRegistry, keyService encryption.Service) {
+			mutate: func(t *testing.T, registry *state.CredentialRegistry, keyService encryption.Service) {
 				t.Helper()
 				encrypted, err := keyService.Encrypt("sk-group-two")
 				if err != nil {
 					t.Fatalf("Encrypt(group two key) error = %v", err)
 				}
-				if err := registry.Replace([]state.KeyEntry{{
-					ID: 1, GroupID: 2, Status: state.KeyStatusActive, EncryptedValue: encrypted,
+				if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+					ID: 1, GroupID: 2, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, EncryptedValue: encrypted,
 				}}); err != nil {
 					t.Fatalf("Replace(moved key) error = %v", err)
 				}
@@ -3273,10 +3324,10 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 		},
 		{
 			name: "key disabled",
-			mutate: func(t *testing.T, registry *state.KeyRegistry, _ encryption.Service) {
+			mutate: func(t *testing.T, registry *state.CredentialRegistry, _ encryption.Service) {
 				t.Helper()
-				if err := registry.SetKeyStatus(1, state.KeyStatusDisabled); err != nil {
-					t.Fatalf("SetKeyStatus(disabled) error = %v", err)
+				if err := registry.SetCredentialStatus(1, state.CredentialStatusDisabled); err != nil {
+					t.Fatalf("SetCredentialStatus(disabled) error = %v", err)
 				}
 			},
 		},
@@ -3293,10 +3344,10 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 				t.Fatalf("NewService() error = %v", err)
 			}
 			runtimeRegistry := &mutatingRuntimeRegistry{
-				KeyRegistry: registry,
-				mutate:      func() { tt.mutate(t, registry, keyService) },
+				CredentialRegistry: registry,
+				mutate:             func() { tt.mutate(t, registry, keyService) },
 			}
-			openAI := dialect.NewOpenAI(http.DefaultClient)
+			openAI := dialect.NewOpenAI()
 			handler := NewHandler(
 				manager, registry, keyService, forwarder, dialect.NewSet(openAI), health.NewStatsStore(),
 				health.NewMutationCoordinator(),
@@ -3332,32 +3383,32 @@ func TestHandlerFreezesKeyIdentityAfterInspectingBody(t *testing.T) {
 	tests := []struct {
 		name         string
 		seedPlain    string
-		seedStatus   state.KeyStatus
+		seedStatus   state.CredentialStatus
 		currentPlain string
-		mutate       func(*state.KeyRegistry, string) error
+		mutate       func(*state.CredentialRegistry, string) error
 	}{
 		{
 			name: "new import", currentPlain: "sk-imported",
-			mutate: func(registry *state.KeyRegistry, encrypted string) error {
-				return registry.ApplyImport(1, []state.KeyEntry{{
-					ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+			mutate: func(registry *state.CredentialRegistry, encrypted string) error {
+				return registry.ApplyCredentialImport(1, []state.CredentialEntry{{
+					ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 					EncryptedValue: encrypted,
 				}})
 			},
 		},
 		{
 			name: "disabled becomes active", seedPlain: "sk-enabled",
-			seedStatus: state.KeyStatusDisabled, currentPlain: "sk-enabled",
-			mutate: func(registry *state.KeyRegistry, _ string) error {
-				return registry.SetKeyStatus(1, state.KeyStatusActive)
+			seedStatus: state.CredentialStatusDisabled, currentPlain: "sk-enabled",
+			mutate: func(registry *state.CredentialRegistry, _ string) error {
+				return registry.SetCredentialStatus(1, state.CredentialStatusActive)
 			},
 		},
 		{
 			name: "same ID gets new ciphertext", seedPlain: "sk-old",
-			seedStatus: state.KeyStatusActive, currentPlain: "sk-replaced",
-			mutate: func(registry *state.KeyRegistry, encrypted string) error {
-				return registry.ApplyImport(1, []state.KeyEntry{{
-					ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+			seedStatus: state.CredentialStatusActive, currentPlain: "sk-replaced",
+			mutate: func(registry *state.CredentialRegistry, encrypted string) error {
+				return registry.ApplyCredentialImport(1, []state.CredentialEntry{{
+					ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 					EncryptedValue: encrypted,
 				}})
 			},
@@ -3397,8 +3448,8 @@ func TestHandlerFreezesKeyIdentityAfterInspectingBody(t *testing.T) {
 						t.Fatalf("Encrypt(seed key) error = %v", err)
 					}
 				}
-				if replaceErr := registry.Replace([]state.KeyEntry{{
-					ID: 1, GroupID: 1, Status: test.seedStatus,
+				if replaceErr := registry.ReplaceCredentials([]state.CredentialEntry{{
+					ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: test.seedStatus,
 					EncryptedValue: seedCiphertext,
 				}}); replaceErr != nil {
 					t.Fatalf("Replace(seed key) error = %v", replaceErr)
@@ -3473,18 +3524,18 @@ func TestHandlerFreezesKeyIdentityAfterInspectingBody(t *testing.T) {
 func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 	tests := []struct {
 		name            string
-		makeUnavailable func(*testing.T, *state.KeyRegistry)
-		recover         func(*testing.T, *state.KeyRegistry, string)
+		makeUnavailable func(*testing.T, *state.CredentialRegistry)
+		recover         func(*testing.T, *state.CredentialRegistry, string)
 	}{
 		{
 			name: "blacklisted",
-			makeUnavailable: func(t *testing.T, registry *state.KeyRegistry) {
+			makeUnavailable: func(t *testing.T, registry *state.CredentialRegistry) {
 				t.Helper()
 				if ok := registry.SetBlacklisted(3); !ok {
 					t.Fatal("SetBlacklisted(3) = false")
 				}
 			},
-			recover: func(t *testing.T, registry *state.KeyRegistry, _ string) {
+			recover: func(t *testing.T, registry *state.CredentialRegistry, _ string) {
 				t.Helper()
 				if ok := registry.Recover(3); !ok {
 					t.Fatal("Recover(3) = false")
@@ -3493,16 +3544,16 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 		},
 		{
 			name: "cooldown",
-			makeUnavailable: func(t *testing.T, registry *state.KeyRegistry) {
+			makeUnavailable: func(t *testing.T, registry *state.CredentialRegistry) {
 				t.Helper()
 				if ok := registry.SetCooldown(3, time.Now().Add(time.Hour)); !ok {
 					t.Fatal("SetCooldown(3) = false")
 				}
 			},
-			recover: func(t *testing.T, registry *state.KeyRegistry, encrypted string) {
+			recover: func(t *testing.T, registry *state.CredentialRegistry, encrypted string) {
 				t.Helper()
-				if err := registry.ApplyImport(1, []state.KeyEntry{{
-					ID: 3, GroupID: 1, Status: state.KeyStatusActive,
+				if err := registry.ApplyCredentialImport(1, []state.CredentialEntry{{
+					ID: 3, GroupID: 1, Version: 1, IdentityGeneration: 3, Fingerprint: "test-3", Status: state.CredentialStatusActive,
 					EncryptedValue: encrypted,
 				}}); err != nil {
 					t.Fatalf("ApplyImport(recovered cooldown key) error = %v", err)
@@ -3553,17 +3604,17 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 				return encrypted
 			}
 			recoverableCiphertext := encrypt("sk-recoverable")
-			if err := registry.Replace([]state.KeyEntry{
+			if err := registry.ReplaceCredentials([]state.CredentialEntry{
 				{
-					ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+					ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 					EncryptedValue: encrypt("sk-first"),
 				},
 				{
-					ID: 2, GroupID: 1, Status: state.KeyStatusDisabled,
+					ID: 2, GroupID: 1, Version: 1, IdentityGeneration: 2, Fingerprint: "test-2", Status: state.CredentialStatusDisabled,
 					EncryptedValue: encrypt("sk-newly-enabled"),
 				},
 				{
-					ID: 3, GroupID: 1, Status: state.KeyStatusActive,
+					ID: 3, GroupID: 1, Version: 1, IdentityGeneration: 3, Fingerprint: "test-3", Status: state.CredentialStatusActive,
 					EncryptedValue: recoverableCiphertext,
 				},
 			}); err != nil {
@@ -3585,8 +3636,8 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 			}()
 
 			receiveTestSignal(t, firstForward, "first forward")
-			if err := registry.SetKeyStatus(2, state.KeyStatusActive); err != nil {
-				t.Fatalf("SetKeyStatus(2, active) error = %v", err)
+			if err := registry.SetCredentialStatus(2, state.CredentialStatusActive); err != nil {
+				t.Fatalf("SetCredentialStatus(2, active) error = %v", err)
 			}
 			test.recover(t, registry, recoverableCiphertext)
 			close(releaseForward)
@@ -3618,12 +3669,19 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 		t.Fatalf("NewService() error = %v", err)
 	}
 	manager := state.NewManager()
+	baseURL := testUpstreamBaseURL(upstreamURL, protocol.OpenAICompletions)
+	channelID, params := testChannelConfig(t, protocol.OpenAICompletions, baseURL)
+	credentialConfigs := make([]state.CredentialConfig, 0, len(upstreamKeys))
+	for index := range upstreamKeys {
+		credentialConfigs = append(credentialConfigs, testCredentialConfig(uint(index+1), 1))
+	}
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "openai", UpstreamURL: testUpstreamBaseURL(upstreamURL, protocol.OpenAICompletions),
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+			ID: 1, Name: "openai", ChannelID: channelID, Params: params,
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
+		Credentials: credentialConfigs,
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"),
 			Status: state.AccessKeyStatusActive,
@@ -3631,28 +3689,21 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	registry := state.NewKeyRegistry()
-	entries := make([]state.KeyEntry, 0, len(upstreamKeys))
+	registry := state.NewCredentialRegistry()
+	entries := make([]state.CredentialEntry, 0, len(upstreamKeys))
 	for index, plaintext := range upstreamKeys {
-		encrypted, err := keyService.Encrypt(plaintext)
-		if err != nil {
-			t.Fatalf("Encrypt() error = %v", err)
-		}
-		entries = append(entries, state.KeyEntry{
-			ID: uint(index + 1), GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: encrypted,
-		})
+		entries = append(entries, testCredentialEntry(t, keyService, uint(index+1), 1, plaintext))
 	}
-	if err := registry.Replace(entries); err != nil {
-		t.Fatalf("Replace() error = %v", err)
+	if err := registry.ReplaceCredentials(entries); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
 	}
 
-	clients := platformhttp.NewHTTPClientManager()
-	openAI := dialect.NewOpenAI(clients.GetClient(testDialectClientConfig()))
+	openAI := dialect.NewOpenAI()
 	handler := NewHandler(
 		manager,
 		registry,
 		keyService,
-		NewForwarder(clients, redact.New()),
+		newTestExecutionForwarder(t),
 		dialect.NewSet(openAI),
 		health.NewStatsStore(),
 		health.NewMutationCoordinator(),
@@ -3679,7 +3730,7 @@ func newHandlerTestRuntime(
 	t *testing.T,
 	forwarder AttemptForwarder,
 	upstreamKeys ...string,
-) (*gin.Engine, *state.Manager, *state.KeyRegistry) {
+) (*gin.Engine, *state.Manager, *state.CredentialRegistry) {
 	t.Helper()
 	handler, manager, registry := newHandlerForTest(t, forwarder, upstreamKeys...)
 	engine := gin.New()
@@ -3691,7 +3742,7 @@ func newStatsHandlerTestRuntime(
 	t *testing.T,
 	forwarder AttemptForwarder,
 	upstreamKeys ...string,
-) (*gin.Engine, *Handler, *state.KeyRegistry, *health.StatsStore) {
+) (*gin.Engine, *Handler, *state.CredentialRegistry, *health.StatsStore) {
 	t.Helper()
 	stats := health.NewStatsStore()
 	handler, _, registry := newHandlerForTestWithStats(t, forwarder, stats, upstreamKeys...)
@@ -3704,7 +3755,7 @@ func newHandlerForTest(
 	t *testing.T,
 	forwarder AttemptForwarder,
 	upstreamKeys ...string,
-) (*Handler, *state.Manager, *state.KeyRegistry) {
+) (*Handler, *state.Manager, *state.CredentialRegistry) {
 	return newHandlerForTestWithStats(t, forwarder, health.NewStatsStore(), upstreamKeys...)
 }
 
@@ -3713,7 +3764,7 @@ func newHandlerForTestWithStats(
 	forwarder AttemptForwarder,
 	stats *health.StatsStore,
 	upstreamKeys ...string,
-) (*Handler, *state.Manager, *state.KeyRegistry) {
+) (*Handler, *state.Manager, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	keyService, err := encryption.NewService("handler-test-master-key")
@@ -3721,12 +3772,25 @@ func newHandlerForTestWithStats(
 		t.Fatalf("NewService() error = %v", err)
 	}
 	manager := state.NewManager()
+	credentialConfigs := make([]state.CredentialConfig, 0, len(upstreamKeys))
+	for index := range upstreamKeys {
+		credentialConfigs = append(credentialConfigs, state.CredentialConfig{
+			ID:                 uint(index + 1),
+			GroupID:            1,
+			Status:             state.CredentialStatusActive,
+			Version:            1,
+			IdentityGeneration: uint64(index + 1),
+			Fingerprint:        fmt.Sprintf("credential-%d", index+1),
+		})
+	}
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid",
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+			ID: 1, Name: "openai", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
+		Credentials: credentialConfigs,
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"),
 			Status: state.AccessKeyStatusActive,
@@ -3734,22 +3798,29 @@ func newHandlerForTestWithStats(
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	registry := state.NewKeyRegistry()
-	entries := make([]state.KeyEntry, 0, len(upstreamKeys))
+	registry := state.NewCredentialRegistry()
+	entries := make([]state.CredentialEntry, 0, len(upstreamKeys))
 	for index, plaintext := range upstreamKeys {
-		encrypted, err := keyService.Encrypt(plaintext)
+		credential, err := json.Marshal(map[string]string{"api_key": plaintext})
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		encrypted, err := keyService.Encrypt(string(credential))
 		if err != nil {
 			t.Fatalf("Encrypt() error = %v", err)
 		}
-		entries = append(entries, state.KeyEntry{
-			ID: uint(index + 1), GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: encrypted,
+		entries = append(entries, state.CredentialEntry{
+			ID: uint(index + 1), GroupID: 1,
+			Version: 1, IdentityGeneration: uint64(index + 1),
+			Fingerprint: fmt.Sprintf("credential-%d", index+1),
+			Status:      state.CredentialStatusActive, EncryptedValue: encrypted,
 		})
 	}
-	if err := registry.Replace(entries); err != nil {
-		t.Fatalf("Replace() error = %v", err)
+	if err := registry.ReplaceCredentials(entries); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
 	}
 
-	openAI := dialect.NewOpenAI(http.DefaultClient)
+	openAI := dialect.NewOpenAI()
 	handler := NewHandler(
 		manager, registry, keyService, forwarder, dialect.NewSet(openAI), stats,
 		health.NewMutationCoordinator(),

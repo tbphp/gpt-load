@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -18,11 +19,12 @@ import (
 )
 
 type ProjectModelGroupDTO struct {
-	ID         uint                `json:"id"`
-	Name       string              `json:"name"`
-	ProviderID *string             `json:"provider_id"`
-	Enabled    bool                `json:"enabled"`
-	Protocols  []protocol.Protocol `json:"protocols"`
+	ID              uint                `json:"id"`
+	Name            string              `json:"name"`
+	ChannelID       channel.ID          `json:"channel_id"`
+	Params          json.RawMessage     `json:"params"`
+	Enabled         bool                `json:"enabled"`
+	ClientProtocols []protocol.Protocol `json:"client_protocols"`
 }
 
 type ProjectModelCapabilitiesDTO struct {
@@ -147,7 +149,7 @@ type projectModelUpstreamRecord struct {
 type projectModelRecord struct {
 	clientModel string
 	protocols   []protocol.Protocol
-	upstreams   map[string]*projectModelUpstreamRecord
+	upstreams   map[pricing.Identity]*projectModelUpstreamRecord
 }
 
 func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQuery) (ProjectModelListResponse, error) {
@@ -178,14 +180,16 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 		groups = cloneGroupRows(groups)
 		return nil
 	})
+	protocolOverrides := map[uint][]protocol.Protocol(nil)
 	if err == nil && query.AccessKeyID != nil {
 		if s.manager == nil {
 			err = app_errors.ErrInternalServer
 		} else {
-			groups, err = scopeProjectModelGroups(
+			groups, protocolOverrides, err = scopeProjectModelGroups(
 				groups,
 				s.manager.Current(),
 				*query.AccessKeyID,
+				s.channelRegistry,
 			)
 		}
 	}
@@ -201,13 +205,16 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 	if err != nil {
 		return ProjectModelListResponse{}, err
 	}
-	groupRecords, groupDTOs, err := projectModelGroups(groups)
+	groupRecords, groupDTOs, err := projectModelGroups(groups, s.channelRegistry, protocolOverrides)
 	if err != nil {
 		return ProjectModelListResponse{}, err
 	}
 	priceRecords := make(map[pricing.Identity]modelPriceListRecord, len(prices))
 	for _, row := range prices {
-		identity := pricing.Identity{ModelID: row.ModelID}
+		identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+		if err != nil {
+			return ProjectModelListResponse{}, fmt.Errorf("validate persisted price identity: %w", app_errors.ErrInternalServer)
+		}
 		if query.AccessKeyID != nil {
 			if _, referenced := references.references[identity]; !referenced {
 				continue
@@ -232,7 +239,7 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			if err := ctx.Err(); err != nil {
 				return ProjectModelListResponse{}, err
 			}
-			identity, err := PriceIdentityForModel(model.ID)
+			identity, err := PriceIdentityForChannelModel(group.row.ChannelID, model.ID)
 			if err != nil {
 				return ProjectModelListResponse{}, fmt.Errorf("validate group %d model %q: %w", group.row.ID, model.ID, app_errors.ErrInternalServer)
 			}
@@ -249,12 +256,12 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 				root = &projectModelRecord{
 					clientModel: clientModel,
 					protocols:   []protocol.Protocol{},
-					upstreams:   make(map[string]*projectModelUpstreamRecord),
+					upstreams:   make(map[pricing.Identity]*projectModelUpstreamRecord),
 				}
 				records[clientModel] = root
 			}
-			root.protocols = mergeProjectModelProtocols(root.protocols, group.dto.Protocols)
-			upstream := root.upstreams[model.ID]
+			root.protocols = mergeProjectModelProtocols(root.protocols, group.dto.ClientProtocols)
+			upstream := root.upstreams[identity]
 			if upstream == nil {
 				affectedGroups, err := projectModelAffectedGroups(identity, references, groupDTOs)
 				if err != nil {
@@ -263,10 +270,10 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 				upstream = &projectModelUpstreamRecord{
 					modelID: model.ID, aliasApplied: strings.TrimSpace(model.Alias) != "",
 					price: priceRecord.dto, affectedGroups: affectedGroups,
-					catalogReference: projectModelCatalogReference(priceRecord.dto, model.ID, catalogSnapshot),
+					catalogReference: projectModelCatalogReference(priceRecord.dto, identity, catalogSnapshot),
 					groupSeen:        make(map[uint]struct{}),
 				}
-				root.upstreams[model.ID] = upstream
+				root.upstreams[identity] = upstream
 			}
 			if _, duplicate := upstream.groupSeen[group.row.ID]; !duplicate {
 				upstream.groupSeen[group.row.ID] = struct{}{}
@@ -297,7 +304,10 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			dto.UpstreamModels = append(dto.UpstreamModels, upstreamDTO)
 		}
 		sort.SliceStable(dto.UpstreamModels, func(left, right int) bool {
-			return dto.UpstreamModels[left].ModelID < dto.UpstreamModels[right].ModelID
+			if dto.UpstreamModels[left].ModelID != dto.UpstreamModels[right].ModelID {
+				return dto.UpstreamModels[left].ModelID < dto.UpstreamModels[right].ModelID
+			}
+			return dto.UpstreamModels[left].Price.ChannelID < dto.UpstreamModels[right].Price.ChannelID
 		})
 		if len(dto.UpstreamModels) == 0 || !projectModelSearchMatch(dto, query.Search) {
 			continue
@@ -337,15 +347,17 @@ func scopeProjectModelGroups(
 	groups []models.Group,
 	snapshot *state.ConfigSnapshot,
 	accessKeyID uint,
-) ([]models.Group, error) {
+	registry *channel.Registry,
+) ([]models.Group, map[uint][]protocol.Protocol, error) {
 	if snapshot == nil || accessKeyID == 0 {
-		return nil, app_errors.ErrUnauthorized
+		return nil, nil, app_errors.ErrUnauthorized
 	}
 	accessKey, exists := snapshot.AccessKeysByID[accessKeyID]
 	if !exists || accessKey.Status != state.AccessKeyStatusActive {
-		return nil, app_errors.ErrUnauthorized
+		return nil, nil, app_errors.ErrUnauthorized
 	}
 	result := make([]models.Group, 0, len(groups))
+	protocolsByGroup := make(map[uint][]protocol.Protocol, len(groups))
 	for _, group := range groups {
 		if !group.Enabled {
 			continue
@@ -355,9 +367,9 @@ func scopeProjectModelGroups(
 				continue
 			}
 		}
-		protocols, err := projectModelGroupProtocols(group)
+		protocols, err := projectModelGroupProtocols(registry, group)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		filteredProtocols := make([]protocol.Protocol, 0, len(protocols))
 		for _, value := range protocols {
@@ -373,7 +385,7 @@ func scopeProjectModelGroups(
 		}
 		var groupModels []GroupModel
 		if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
-			return nil, fmt.Errorf(
+			return nil, nil, fmt.Errorf(
 				"decode group %d models for access scope: %w",
 				group.ID,
 				app_errors.ErrInternalServer,
@@ -395,19 +407,15 @@ func scopeProjectModelGroups(
 		if len(filteredModels) == 0 {
 			continue
 		}
-		protocolJSON, err := json.Marshal(filteredProtocols)
-		if err != nil {
-			return nil, fmt.Errorf("encode scoped group protocols: %w", err)
-		}
 		modelJSON, err := json.Marshal(filteredModels)
 		if err != nil {
-			return nil, fmt.Errorf("encode scoped group models: %w", err)
+			return nil, nil, fmt.Errorf("encode scoped group models: %w", err)
 		}
-		group.Protocols = models.JSON(protocolJSON)
 		group.Models = models.JSON(modelJSON)
+		protocolsByGroup[group.ID] = append([]protocol.Protocol(nil), filteredProtocols...)
 		result = append(result, group)
 	}
-	return result, nil
+	return result, protocolsByGroup, nil
 }
 
 func (s *Service) GetUpstreamModelDetail(ctx context.Context, priceID uint) (UpstreamModelDetailDTO, error) {
@@ -446,14 +454,21 @@ func (s *Service) GetUpstreamModelDetail(ctx context.Context, priceID uint) (Ups
 	if err != nil {
 		return UpstreamModelDetailDTO{}, err
 	}
-	groupRecords, _, err := projectModelGroups(groups)
+	groupRecords, _, err := projectModelGroups(groups, s.channelRegistry, nil)
 	if err != nil {
 		return UpstreamModelDetailDTO{}, err
 	}
 	associations := make([]UpstreamModelAssociationDTO, 0)
 	clientModels := make(map[string]struct{})
 	groupIDs := make(map[uint]struct{})
+	identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+	if err != nil {
+		return UpstreamModelDetailDTO{}, fmt.Errorf("validate model detail price identity: %w", app_errors.ErrInternalServer)
+	}
 	for _, group := range groupRecords {
+		if group.row.ChannelID != row.ChannelID {
+			continue
+		}
 		for _, model := range group.models {
 			if model.ID != row.ModelID {
 				continue
@@ -481,26 +496,45 @@ func (s *Service) GetUpstreamModelDetail(ctx context.Context, priceID uint) (Ups
 	})
 	return UpstreamModelDetailDTO{
 		ModelID: row.ModelID, Price: price.dto,
-		CatalogReference: projectModelCatalogReference(price.dto, row.ModelID, catalogSnapshot),
+		CatalogReference: projectModelCatalogReference(price.dto, identity, catalogSnapshot),
 		Associations:     associations, ClientModelCount: len(clientModels), GroupCount: len(groupIDs),
 	}, nil
 }
 
-func projectModelGroups(groups []models.Group) ([]projectModelGroupRecord, map[uint]ProjectModelGroupDTO, error) {
+func projectModelGroups(
+	groups []models.Group,
+	registry *channel.Registry,
+	protocolOverrides map[uint][]protocol.Protocol,
+) ([]projectModelGroupRecord, map[uint]ProjectModelGroupDTO, error) {
 	records := make([]projectModelGroupRecord, 0, len(groups))
 	dtos := make(map[uint]ProjectModelGroupDTO, len(groups))
 	for _, group := range groups {
-		protocols, err := projectModelGroupProtocols(group)
+		protocols, overridden := protocolOverrides[group.ID]
+		var err error
+		if !overridden {
+			protocols, err = projectModelGroupProtocols(registry, group)
+		}
 		if err != nil {
 			return nil, nil, err
+		}
+		if len(protocols) == 0 {
+			return nil, nil, fmt.Errorf("group %d has no client protocols: %w", group.ID, app_errors.ErrInternalServer)
+		}
+		if registry == nil {
+			return nil, nil, app_errors.ErrInternalServer
+		}
+		params, err := registry.ValidateParams(channel.ID(group.ChannelID), json.RawMessage(group.Params))
+		if err != nil {
+			return nil, nil, fmt.Errorf("validate group %d channel params: %w", group.ID, app_errors.ErrInternalServer)
 		}
 		var groupModels []GroupModel
 		if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
 			return nil, nil, fmt.Errorf("decode group %d models: %w", group.ID, app_errors.ErrInternalServer)
 		}
 		dto := ProjectModelGroupDTO{
-			ID: group.ID, Name: group.Name, ProviderID: cloneString(group.ProviderID), Enabled: group.Enabled,
-			Protocols: append([]protocol.Protocol(nil), protocols...),
+			ID: group.ID, Name: group.Name, ChannelID: channel.ID(group.ChannelID),
+			Params: params.CanonicalJSON(), Enabled: group.Enabled,
+			ClientProtocols: append([]protocol.Protocol(nil), protocols...),
 		}
 		dtos[group.ID] = dto
 		records = append(records, projectModelGroupRecord{row: group, dto: dto, models: groupModels})
@@ -515,7 +549,12 @@ func projectModelAffectedGroups(
 ) ([]ProjectModelGroupDTO, error) {
 	reference, exists := references.references[identity]
 	if !exists || len(reference.groupIDs) == 0 {
-		return nil, fmt.Errorf("missing model price references for %s: %w", identity.ModelID, app_errors.ErrInternalServer)
+		return nil, fmt.Errorf(
+			"missing model price references for %s/%s: %w",
+			identity.ChannelID,
+			identity.ModelID,
+			app_errors.ErrInternalServer,
+		)
 	}
 	result := make([]ProjectModelGroupDTO, 0, len(reference.groupIDs))
 	for groupID := range reference.groupIDs {
@@ -563,12 +602,18 @@ func projectModelPricingVisible(status PricingStatus, filter ProjectModelPricing
 	return filter == ProjectModelPricingStatusAll || (filter == ProjectModelPricingStatusPending && status == PricingStatusPending) || (filter == ProjectModelPricingStatusConfigured && status == PricingStatusConfigured)
 }
 
-func projectModelGroupProtocols(group models.Group) ([]protocol.Protocol, error) {
-	var values []protocol.Protocol
-	if err := decodeGroupDiscoveryJSON(group.Protocols, &values); err != nil {
-		return nil, fmt.Errorf("decode group %d protocols: %w", group.ID, app_errors.ErrInternalServer)
+func projectModelGroupProtocols(registry *channel.Registry, group models.Group) ([]protocol.Protocol, error) {
+	if registry == nil || group.ChannelID == "" {
+		return nil, fmt.Errorf("group %d has no channel: %w", group.ID, app_errors.ErrInternalServer)
 	}
-	result := mergeProjectModelProtocols(nil, values)
+	descriptor, ok := registry.Get(channel.ID(group.ChannelID))
+	if !ok {
+		return nil, fmt.Errorf("group %d has unknown channel: %w", group.ID, app_errors.ErrInternalServer)
+	}
+	if _, err := registry.ValidateParams(channel.ID(group.ChannelID), json.RawMessage(group.Params)); err != nil {
+		return nil, fmt.Errorf("group %d has invalid channel params: %w", group.ID, app_errors.ErrInternalServer)
+	}
+	result := mergeProjectModelProtocols(nil, descriptor.ClientProtocols)
 	if len(result) == 0 {
 		return nil, fmt.Errorf("group %d has no valid protocols: %w", group.ID, app_errors.ErrInternalServer)
 	}
@@ -594,48 +639,42 @@ func mergeProjectModelProtocols(left, right []protocol.Protocol) []protocol.Prot
 
 func projectModelCatalogReference(
 	price ModelPriceDTO,
-	modelID string,
+	identity pricing.Identity,
 	snapshot *catalog.Snapshot,
 ) *ProjectModelCatalogReferenceDTO {
 	if snapshot == nil {
 		return nil
 	}
-	lookup := func(providerID, source string) *ProjectModelCatalogReferenceDTO {
-		provider, exists := snapshot.Providers[providerID]
-		if !exists {
-			return nil
-		}
-		model, exists := provider.Models[modelID]
-		if !exists {
-			return nil
-		}
-		providerName := strings.TrimSpace(provider.Name)
-		if providerName == "" {
-			providerName = providerID
-		}
-		return &ProjectModelCatalogReferenceDTO{
-			Source: source, ProviderID: providerID, ProviderName: providerName,
-			Model: projectModelCatalogModel(model),
-		}
-	}
-
-	tested := make(map[string]struct{})
+	var model catalog.Model
+	providerID := ""
 	if price.MatchedProviderID != nil {
-		providerID := *price.MatchedProviderID
-		tested[providerID] = struct{}{}
-		if reference := lookup(providerID, "reference_provider"); reference != nil {
-			return reference
+		providerID = *price.MatchedProviderID
+		provider, exists := snapshot.Providers[providerID]
+		if exists {
+			model, exists = provider.Models[identity.ModelID]
+			if !exists {
+				providerID = ""
+			}
+		} else {
+			providerID = ""
 		}
 	}
-	for _, providerID := range catalogProviderLookupOrder(snapshot, "") {
-		if _, alreadyTested := tested[providerID]; alreadyTested {
-			continue
-		}
-		if reference := lookup(providerID, "reference_provider"); reference != nil {
-			return reference
+	if providerID == "" {
+		var ok bool
+		model, providerID, _, ok = resolveCatalogModelForIdentity(snapshot, identity, false)
+		if !ok {
+			return nil
 		}
 	}
-	return nil
+	provider := snapshot.Providers[providerID]
+	providerName := strings.TrimSpace(provider.Name)
+	if providerName == "" {
+		providerName = providerID
+	}
+	return &ProjectModelCatalogReferenceDTO{
+		Source: "reference_provider", ProviderID: providerID, ProviderName: providerName,
+		Model: projectModelCatalogModel(model),
+	}
 }
 
 func projectModelCatalogModel(model catalog.Model) ProjectModelCatalogDTO {
@@ -695,6 +734,9 @@ func projectModelSearchMatch(record ProjectModelDTO, search string) bool {
 	}
 	for _, upstream := range record.UpstreamModels {
 		if strings.Contains(strings.ToLower(upstream.ModelID), search) {
+			return true
+		}
+		if strings.Contains(strings.ToLower(upstream.Price.ChannelID), search) {
 			return true
 		}
 		if reference := upstream.CatalogReference; reference != nil {

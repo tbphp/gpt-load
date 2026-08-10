@@ -19,10 +19,10 @@ import (
 )
 
 type HomeInventory struct {
-	GroupCount                int64 `json:"group_count"`
-	UpstreamKeyCount          int64 `json:"upstream_key_count"`
-	AvailableUpstreamKeyCount int64 `json:"available_upstream_key_count"`
-	ModelCount                int64 `json:"model_count"`
+	GroupCount               int64 `json:"group_count"`
+	CredentialCount          int64 `json:"credential_count"`
+	AvailableCredentialCount int64 `json:"available_credential_count"`
+	ModelCount               int64 `json:"model_count"`
 }
 
 type HomeAccessKey struct {
@@ -45,10 +45,12 @@ type homeResponse struct {
 	HomeBase
 }
 
-type homeUpstreamKeyRow struct {
-	ID      uint
-	GroupID uint
-	Status  models.UpstreamKeyStatus
+type homeCredentialRow struct {
+	ID          uint
+	GroupID     uint
+	Fingerprint string
+	Status      models.CredentialStatus
+	UpdatedAtMS int64
 }
 
 type homeAccessKeyRow struct {
@@ -64,9 +66,9 @@ type homeAccessKeyRow struct {
 }
 
 type homeReadRows struct {
-	groupCount   int64
-	upstreamKeys []homeUpstreamKeyRow
-	accessKeys   []homeAccessKeyRow
+	groupCount  int64
+	credentials []homeCredentialRow
+	accessKeys  []homeAccessKeyRow
 }
 
 func (s *Service) ReadHomeBase(
@@ -143,16 +145,16 @@ func (s *Service) readHomeBase(
 	inventory := HomeInventory{}
 	if accessKeyID == nil {
 		inventory.GroupCount = rows.groupCount
-		inventory.UpstreamKeyCount = int64(len(rows.upstreamKeys))
+		inventory.CredentialCount = int64(len(rows.credentials))
 		inventory.ModelCount = countHomeModels(snapshot)
 	} else {
 		inventory.GroupCount = int64(len(allowedGroups))
-		inventory.UpstreamKeyCount = countHomeUpstreamKeys(rows.upstreamKeys, allowedGroups)
+		inventory.CredentialCount = countHomeCredentials(rows.credentials, allowedGroups)
 		inventory.ModelCount = countScopedHomeModels(snapshot, allowedGroups, snapshot.AccessKeysByID[*accessKeyID])
 	}
-	inventory.AvailableUpstreamKeyCount, err = countAvailableHomeKeysInGroups(
+	inventory.AvailableCredentialCount, err = countAvailableHomeCredentialsInGroups(
 		snapshot,
-		rows.upstreamKeys,
+		rows.credentials,
 		runtimeKeys,
 		now,
 		allowedGroups,
@@ -233,11 +235,11 @@ func (s *Service) readHomeRows(
 		if err := tx.Model(&models.Group{}).Count(&result.groupCount).Error; err != nil {
 			return fmt.Errorf("count home groups: %w", err)
 		}
-		if err := tx.Model(&models.UpstreamKey{}).
-			Select("id", "group_id", "status").
+		if err := tx.Model(&models.Credential{}).
+			Select("id", "group_id", "fingerprint", "status", "updated_at_ms").
 			Order("id ASC").
-			Find(&result.upstreamKeys).Error; err != nil {
-			return fmt.Errorf("query home upstream keys: %w", err)
+			Find(&result.credentials).Error; err != nil {
+			return fmt.Errorf("query home credentials: %w", err)
 		}
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
@@ -286,7 +288,7 @@ func accessibleHomeGroups(
 			}
 		}
 		protocolAllowed := len(accessKey.Filters.Protocols) == 0
-		for _, value := range group.Protocols {
+		for _, value := range group.ClientProtocols {
 			if _, allowed := accessKey.Filters.Protocols[value]; allowed {
 				protocolAllowed = true
 				break
@@ -346,8 +348,8 @@ func homeExternalModelName(model state.ModelConfig) string {
 	return strings.TrimSpace(model.ID)
 }
 
-func countHomeUpstreamKeys(
-	rows []homeUpstreamKeyRow,
+func countHomeCredentials(
+	rows []homeCredentialRow,
 	allowedGroups map[uint]struct{},
 ) int64 {
 	var count int64
@@ -359,38 +361,38 @@ func countHomeUpstreamKeys(
 	return count
 }
 
-func countAvailableHomeKeys(
+func countAvailableHomeCredentials(
 	snapshot *state.ConfigSnapshot,
-	persisted []homeUpstreamKeyRow,
-	runtime []state.KeyRuntimeView,
+	persisted []homeCredentialRow,
+	runtime []state.CredentialRuntimeView,
 	now time.Time,
 ) (int64, error) {
-	return countAvailableHomeKeysInGroups(snapshot, persisted, runtime, now, nil)
+	return countAvailableHomeCredentialsInGroups(snapshot, persisted, runtime, now, nil)
 }
 
-func countAvailableHomeKeysInGroups(
+func countAvailableHomeCredentialsInGroups(
 	snapshot *state.ConfigSnapshot,
-	persisted []homeUpstreamKeyRow,
-	runtime []state.KeyRuntimeView,
+	persisted []homeCredentialRow,
+	runtime []state.CredentialRuntimeView,
 	now time.Time,
 	allowedGroups map[uint]struct{},
 ) (int64, error) {
-	runtimeByID := make(map[uint]state.KeyRuntimeView, len(runtime))
-	for _, key := range runtime {
-		if key.ID == 0 {
+	runtimeByID := make(map[uint]state.CredentialRuntimeView, len(runtime))
+	for _, credential := range runtime {
+		if credential.ID == 0 {
 			return 0, fmt.Errorf(
-				"count available home keys: runtime key has zero id: %w",
+				"count available home credentials: runtime credential has zero id: %w",
 				app_errors.ErrInternalServer,
 			)
 		}
-		if _, duplicate := runtimeByID[key.ID]; duplicate {
+		if _, duplicate := runtimeByID[credential.ID]; duplicate {
 			return 0, fmt.Errorf(
-				"count available home keys: duplicate runtime key %d: %w",
-				key.ID,
+				"count available home credentials: duplicate runtime credential %d: %w",
+				credential.ID,
 				app_errors.ErrInternalServer,
 			)
 		}
-		runtimeByID[key.ID] = key
+		runtimeByID[credential.ID] = credential
 	}
 
 	seen := make(map[uint]struct{}, len(persisted))
@@ -398,58 +400,60 @@ func countAvailableHomeKeysInGroups(
 	for _, row := range persisted {
 		if row.ID == 0 {
 			return 0, fmt.Errorf(
-				"count available home keys: persisted key has zero id: %w",
+				"count available home credentials: persisted credential has zero id: %w",
 				app_errors.ErrInternalServer,
 			)
 		}
 		if _, duplicate := seen[row.ID]; duplicate {
 			return 0, fmt.Errorf(
-				"count available home keys: duplicate persisted key %d: %w",
+				"count available home credentials: duplicate persisted credential %d: %w",
 				row.ID,
 				app_errors.ErrInternalServer,
 			)
 		}
 		seen[row.ID] = struct{}{}
 		group, groupExists := snapshot.GroupCatalog[row.GroupID]
-		key, keyExists := runtimeByID[row.ID]
-		if !groupExists || !keyExists || key.GroupID != row.GroupID {
+		credential, credentialExists := runtimeByID[row.ID]
+		if !groupExists || !credentialExists || credential.GroupID != row.GroupID {
 			return 0, fmt.Errorf(
-				"count available home key %d: runtime configuration mismatch: %w",
+				"count available home credential %d: runtime configuration mismatch: %w",
 				row.ID,
 				app_errors.ErrInternalServer,
 			)
 		}
 
-		var status state.KeyStatus
+		var status state.CredentialStatus
 		switch row.Status {
-		case models.UpstreamKeyStatusActive:
-			status = state.KeyStatusActive
-		case models.UpstreamKeyStatusDisabled:
-			status = state.KeyStatusDisabled
+		case models.CredentialStatusActive:
+			status = state.CredentialStatusActive
+		case models.CredentialStatusDisabled:
+			status = state.CredentialStatusDisabled
 		default:
 			return 0, fmt.Errorf(
-				"count available home key %d: invalid persisted status: %w",
+				"count available home credential %d: invalid persisted status: %w",
 				row.ID,
 				app_errors.ErrInternalServer,
 			)
 		}
-		if key.Status != status {
+		if credential.Status != status ||
+			credential.Version != groupCollectionCredentialVersion(row.UpdatedAtMS) ||
+			credential.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint) {
 			return 0, fmt.Errorf(
-				"count available home key %d: runtime status mismatch: %w",
+				"count available home credential %d: runtime identity mismatch: %w",
 				row.ID,
 				app_errors.ErrInternalServer,
 			)
 		}
 		_, groupAllowed := allowedGroups[row.GroupID]
 		if (allowedGroups == nil || groupAllowed) && group.Enabled &&
-			status == state.KeyStatusActive &&
-			key.RuntimeState(now) == state.KeyRuntimeAvailable {
+			status == state.CredentialStatusActive &&
+			credential.RuntimeState(now) == state.CredentialRuntimeAvailable {
 			available++
 		}
 	}
 	if len(runtimeByID) != len(seen) {
 		return 0, fmt.Errorf(
-			"count available home keys: runtime key set mismatch: %w",
+			"count available home credentials: runtime credential set mismatch: %w",
 			app_errors.ErrInternalServer,
 		)
 	}
@@ -535,10 +539,10 @@ func validateHomeInventory(value HomeInventory) error {
 		value int64
 	}{
 		{name: "group count", value: value.GroupCount},
-		{name: "upstream key count", value: value.UpstreamKeyCount},
+		{name: "credential count", value: value.CredentialCount},
 		{
-			name:  "available upstream key count",
-			value: value.AvailableUpstreamKeyCount,
+			name:  "available credential count",
+			value: value.AvailableCredentialCount,
 		},
 		{name: "model count", value: value.ModelCount},
 	} {

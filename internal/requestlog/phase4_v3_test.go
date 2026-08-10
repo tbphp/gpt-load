@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/telemetry"
@@ -22,10 +24,12 @@ func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T)
 		Status:                telemetry.RequestStatusSuccess,
 		StatusCode:            200,
 		Attempts: []telemetry.Attempt{{
-			Sequence: 1, GroupID: 73, KeyID: 9, UpstreamModel: "provider-model",
+			Sequence: 1, GroupID: 73, ChannelID: channel.OpenAI, CredentialID: 9,
+			Operation: execution.OperationChatCompletion, RouteMode: channel.RouteNative,
+			UpstreamModel: "provider-model", DispatchState: execution.DispatchMaybeSent,
 		}},
 		Usage: telemetry.UsageObservation{
-			GroupID: 73, KeyID: 9, AttemptSequence: 1,
+			GroupID: 73, ChannelID: channel.OpenAI, CredentialID: 9, AttemptSequence: 1,
 			Result: usage.Result{
 				State:  usage.StateComplete,
 				Tokens: usage.Tokens{Output: 1_000_000},

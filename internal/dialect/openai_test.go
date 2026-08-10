@@ -1,157 +1,28 @@
 package dialect
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
 	"testing"
-	"time"
 
-	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
-	"gpt-load/internal/state"
-	"gpt-load/internal/testutil/fakeupstream"
 	"gpt-load/internal/usage"
 )
 
-func TestParsedRequestCarriesForwardingInputs(t *testing.T) {
-	request := ParsedRequest{
-		Method:   http.MethodPost,
-		Path:     "/v1/chat/completions",
-		RawQuery: "trace=true",
-		Header:   http.Header{"X-Test": {"value"}},
-		Body:     []byte(`{"model":"gpt-4o"}`),
-	}
-
-	if request.Method != http.MethodPost ||
-		request.Path != "/v1/chat/completions" ||
-		request.RawQuery != "trace=true" ||
-		request.Header.Get("X-Test") != "value" ||
-		string(request.Body) != `{"model":"gpt-4o"}` {
-		t.Fatalf("ParsedRequest lost forwarding input: %#v", request)
+func TestParsedRequestCarriesIngressInputs(t *testing.T) {
+	request := ParsedRequest{Method: "POST", Path: "/v1/chat/completions", RawQuery: "trace=true", Body: []byte(`{"model":"gpt-4o"}`)}
+	if request.Method != "POST" || request.Path != "/v1/chat/completions" ||
+		request.RawQuery != "trace=true" || len(request.Body) == 0 {
+		t.Fatalf("ParsedRequest = %#v", request)
 	}
 }
 
 func TestOpenAIProtocol(t *testing.T) {
-	dialect := NewOpenAI(http.DefaultClient)
-
-	if got := dialect.Protocol(); got != protocol.OpenAICompletions {
-		t.Fatalf("OpenAI.Protocol() = %q, want %q", got, protocol.OpenAICompletions)
-	}
-}
-
-func TestOpenAIInjectCredential(t *testing.T) {
-	dialect := NewOpenAI(http.DefaultClient)
-	headers := make(http.Header)
-
-	dialect.InjectCredential(headers, "sk-upstream")
-
-	if got := headers.Get("Authorization"); got != "Bearer sk-upstream" {
-		t.Fatalf("Authorization = %q, want Bearer credential", got)
-	}
-}
-
-func TestOpenAIBuildUpstreamURL(t *testing.T) {
-	dialect := NewOpenAI(http.DefaultClient)
-	tests := []struct {
-		name    string
-		base    string
-		request *ParsedRequest
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "complete API prefix",
-			base: "https://api.example.com/v1",
-			request: &ParsedRequest{
-				Path:     "/v1/chat/completions",
-				RawQuery: "trace=true",
-			},
-			want: "https://api.example.com/v1/chat/completions?trace=true",
-		},
-		{
-			name: "base path prefix",
-			base: "https://api.example.com/compatible/v1/",
-			request: &ParsedRequest{
-				Path: "/v1/chat/completions",
-			},
-			want: "https://api.example.com/compatible/v1/chat/completions",
-		},
-		{
-			name: "base query is preserved",
-			base: "https://api.example.com/v1?api-version=2024-10-01",
-			request: &ParsedRequest{
-				Path: "/v1/chat/completions",
-			},
-			want: "https://api.example.com/v1/chat/completions?api-version=2024-10-01",
-		},
-		{
-			name: "base and request queries are combined",
-			base: "https://api.example.com/v1?api-version=2024-10-01",
-			request: &ParsedRequest{
-				Path:     "/v1/chat/completions",
-				RawQuery: "trace=true",
-			},
-			want: "https://api.example.com/v1/chat/completions?api-version=2024-10-01&trace=true",
-		},
-		{
-			name:    "nil request",
-			base:    "https://api.example.com",
-			request: nil,
-			wantErr: true,
-		},
-		{
-			name: "relative request path",
-			base: "https://api.example.com",
-			request: &ParsedRequest{
-				Path: "v1/chat/completions",
-			},
-			wantErr: true,
-		},
-		{
-			name: "relative base",
-			base: "api.example.com/v1",
-			request: &ParsedRequest{
-				Path: "/v1/chat/completions",
-			},
-			wantErr: true,
-		},
-		{
-			name: "unsupported base scheme",
-			base: "ftp://api.example.com/v1",
-			request: &ParsedRequest{
-				Path: "/v1/chat/completions",
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := dialect.BuildUpstreamURL(tt.base, tt.request)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("BuildUpstreamURL() = %q, want error", got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("BuildUpstreamURL() error = %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("BuildUpstreamURL() = %q, want %q", got, tt.want)
-			}
-		})
+	if got := NewOpenAI().Protocol(); got != protocol.OpenAICompletions {
+		t.Fatalf("Protocol() = %q, want %q", got, protocol.OpenAICompletions)
 	}
 }
 
 func TestOpenAIInspectRequest(t *testing.T) {
-	dialect := NewOpenAI(http.DefaultClient)
+	selected := NewOpenAI()
 	tests := []struct {
 		name       string
 		request    *ParsedRequest
@@ -159,85 +30,42 @@ func TestOpenAIInspectRequest(t *testing.T) {
 		wantStream bool
 		wantErr    bool
 	}{
-		{
-			name:       "non-stream",
-			request:    &ParsedRequest{Body: []byte(`{"model":"gpt-4o","messages":[]}`)},
-			wantModel:  "gpt-4o",
-			wantStream: false,
-		},
-		{
-			name:       "stream true",
-			request:    &ParsedRequest{Body: []byte(`{"model":"gpt-4o-mini","stream":true}`)},
-			wantModel:  "gpt-4o-mini",
-			wantStream: true,
-		},
-		{
-			name:    "nil request",
-			request: nil,
-			wantErr: true,
-		},
-		{
-			name:    "invalid JSON",
-			request: &ParsedRequest{Body: []byte(`{"model":`)},
-			wantErr: true,
-		},
-		{
-			name:    "missing model",
-			request: &ParsedRequest{Body: []byte(`{"stream":true}`)},
-			wantErr: true,
-		},
-		{
-			name:    "blank model",
-			request: &ParsedRequest{Body: []byte(`{"model":"  "}`)},
-			wantErr: true,
-		},
-		{
-			name:    "model with boundary whitespace",
-			request: &ParsedRequest{Body: []byte(`{"model":" gpt-4o "}`)},
-			wantErr: true,
-		},
+		{name: "non-stream", request: &ParsedRequest{Body: []byte(`{"model":"gpt-4o","messages":[]}`)}, wantModel: "gpt-4o"},
+		{name: "stream", request: &ParsedRequest{Body: []byte(`{"model":"gpt-4o-mini","stream":true}`)}, wantModel: "gpt-4o-mini", wantStream: true},
+		{name: "nil", wantErr: true},
+		{name: "invalid JSON", request: &ParsedRequest{Body: []byte(`{"model":`)}, wantErr: true},
+		{name: "missing model", request: &ParsedRequest{Body: []byte(`{"stream":true}`)}, wantErr: true},
+		{name: "blank model", request: &ParsedRequest{Body: []byte(`{"model":"  "}`)}, wantErr: true},
+		{name: "model boundary whitespace", request: &ParsedRequest{Body: []byte(`{"model":" gpt-4o "}`)}, wantErr: true},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			metadata, err := dialect.InspectRequest(tt.request)
-			if tt.wantErr {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metadata, err := selected.InspectRequest(test.request)
+			if test.wantErr {
 				if err == nil {
-					t.Fatalf("InspectRequest() = (%#v, nil), want error", metadata)
+					t.Fatalf("InspectRequest() = %#v, nil", metadata)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("InspectRequest() error = %v", err)
-			}
-			if metadata.Model == nil || *metadata.Model != tt.wantModel ||
-				metadata.Stream != tt.wantStream || !metadata.ObserveUsage {
-				t.Fatalf(
-					"InspectRequest() = %#v, want model=%q stream=%t observe=true",
-					metadata,
-					tt.wantModel,
-					tt.wantStream,
-				)
+			if err != nil || metadata.Model == nil || *metadata.Model != test.wantModel ||
+				metadata.Stream != test.wantStream || !metadata.ObserveUsage {
+				t.Fatalf("InspectRequest() = %#v, %v", metadata, err)
 			}
 		})
 	}
 }
 
 func TestOpenAIInspectRequestMarksUnsupportedPricingModes(t *testing.T) {
-	t.Parallel()
-	dialect := NewOpenAI(http.DefaultClient)
+	selected := NewOpenAI()
 	for _, body := range []string{
 		`{"model":"gpt-5","service_tier":"priority"}`,
 		`{"model":"gpt-5","service_tier":"flex"}`,
 		`{"model":"gpt-5","speed":"fast"}`,
 		`{"model":"gpt-5","reasoning":{"mode":"pro"}}`,
 	} {
-		metadata, err := dialect.InspectRequest(&ParsedRequest{Body: []byte(body)})
-		if err != nil {
-			t.Fatalf("InspectRequest(%s) error = %v", body, err)
-		}
-		if !metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
-			t.Fatalf("InspectRequest(%s) diagnostics = %#v, want unsupported billable detail", body, metadata.UsageDiagnostics)
+		metadata, err := selected.InspectRequest(&ParsedRequest{Body: []byte(body)})
+		if err != nil || !metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
+			t.Fatalf("InspectRequest(%s) = %#v, %v", body, metadata, err)
 		}
 	}
 	for _, body := range []string{
@@ -245,270 +73,9 @@ func TestOpenAIInspectRequestMarksUnsupportedPricingModes(t *testing.T) {
 		`{"model":"gpt-5","service_tier":"auto"}`,
 		`{"model":"gpt-5","service_tier":"default"}`,
 	} {
-		metadata, err := dialect.InspectRequest(&ParsedRequest{Body: []byte(body)})
-		if err != nil {
-			t.Fatalf("InspectRequest(%s) error = %v", body, err)
-		}
-		if metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
-			t.Fatalf("InspectRequest(%s) unexpectedly marked unsupported", body)
-		}
-	}
-}
-
-func TestOpenAIClassifyStatus(t *testing.T) {
-	dialect := NewOpenAI(http.DefaultClient)
-	tests := []struct {
-		name   string
-		status int
-		body   string
-		want   health.FailureCategory
-	}{
-		{name: "success is not retryable", status: http.StatusOK, want: health.FailureCategoryOK},
-		{
-			name:   "success body marker is not retryable",
-			status: http.StatusOK,
-			body:   `{"choices":[{"message":{"content":"rate limit"}}]}`,
-			want:   health.FailureCategoryOK,
-		},
-		{name: "success marker ignored", status: http.StatusOK, body: `{"error":{"code":"rate_limit"}}`, want: health.FailureCategoryOK},
-		{name: "generic bad request", status: http.StatusBadRequest, body: `{"error":"invalid input"}`, want: health.FailureCategoryClientError},
-		{name: "payload too large", status: http.StatusRequestEntityTooLarge, want: health.FailureCategoryClientError},
-		{name: "unprocessable entity", status: http.StatusUnprocessableEntity, want: health.FailureCategoryClientError},
-		{name: "unauthorized", status: http.StatusUnauthorized, want: health.FailureCategoryInvalidKey},
-		{name: "forbidden", status: http.StatusForbidden, want: health.FailureCategoryInvalidKey},
-		{name: "model not found", status: http.StatusNotFound, want: health.FailureCategoryModelUnavailable},
-		{name: "rate limited", status: http.StatusTooManyRequests, want: health.FailureCategoryRateLimited},
-		{name: "upstream server error", status: http.StatusInternalServerError, want: health.FailureCategoryUpstreamHostError},
-		{
-			name:   "rate keyword overrides 400",
-			status: http.StatusBadRequest,
-			body:   `{"error":{"code":"rate_limit_exceeded"}}`,
-			want:   health.FailureCategoryRateLimited,
-		},
-		{name: "rate marker precedes key status", status: http.StatusUnauthorized, body: `{"error":{"code":"rate_limit_exceeded"}}`, want: health.FailureCategoryRateLimited},
-		{
-			name:   "invalid key keyword overrides 400",
-			status: http.StatusBadRequest,
-			body:   `{"error":{"code":"invalid_api_key"}}`,
-			want:   health.FailureCategoryInvalidKey,
-		},
-		{
-			name:   "model keyword overrides 400",
-			status: http.StatusBadRequest,
-			body:   `{"error":{"message":"model not supported"}}`,
-			want:   health.FailureCategoryModelUnavailable,
-		},
-		{
-			name:   "unsupported parameter remains non retryable",
-			status: http.StatusBadRequest,
-			body:   `{"error":{"message":"parameter response_format is not supported"}}`,
-			want:   health.FailureCategoryClientError,
-		},
-		{name: "quota field validation is client error", status: http.StatusBadRequest, body: `{"error":"quota field is invalid"}`, want: health.FailureCategoryClientError},
-		{name: "disabled feature is client error", status: http.StatusBadRequest, body: `{"error":"feature is disabled"}`, want: health.FailureCategoryClientError},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := dialect.ClassifyStatus(tt.status, []byte(tt.body)); got != tt.want {
-				t.Fatalf("ClassifyStatus(%d) = %v, want %v", tt.status, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestOpenAIListModelsUsesDefaultCredentialWithEmptyRules(t *testing.T) {
-	server := fakeupstream.New(fakeupstream.Step{
-		Status:  http.StatusOK,
-		Fixture: "openai/models.json",
-	})
-	defer server.Close()
-
-	dialect := NewOpenAI(server.Client())
-	models, err := dialect.ListModels(
-		context.Background(),
-		server.URL+"/v1",
-		"sk-default-models",
-		state.HeaderRules{},
-	)
-	if err != nil {
-		t.Fatalf("ListModels() error = %v", err)
-	}
-	want := []string{"gpt-4o", "gpt-4o-mini"}
-	if !reflect.DeepEqual(models, want) {
-		t.Fatalf("ListModels() = %#v, want %#v", models, want)
-	}
-
-	requests := server.Requests()
-	if len(requests) != 1 {
-		t.Fatalf("upstream requests = %d, want 1", len(requests))
-	}
-	if requests[0].Method != http.MethodGet ||
-		requests[0].Path != "/v1/models" {
-		t.Fatalf("upstream request = %#v, want GET /v1/models", requests[0])
-	}
-	if got := requests[0].Headers.Get("Authorization"); got != "Bearer sk-default-models" {
-		t.Fatalf("Authorization = %q, want default Bearer credential", got)
-	}
-}
-
-func TestOpenAIListModelsAppliesHeaderRuleOverrides(t *testing.T) {
-	server := fakeupstream.New(fakeupstream.Step{
-		Status:  http.StatusOK,
-		Fixture: "openai/models.json",
-	})
-	defer server.Close()
-
-	dialect := NewOpenAI(server.Client())
-	_, err := dialect.ListModels(
-		context.Background(),
-		server.URL+"/v1",
-		"sk-custom-models",
-		state.HeaderRules{
-			Set: map[string]string{
-				"Authorization": "Token ${API_KEY}",
-				"X-Custom-Key":  "${API_KEY}",
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("ListModels() error = %v", err)
-	}
-
-	request := server.Requests()[0]
-	if got := request.Headers.Get("Authorization"); got != "Token sk-custom-models" {
-		t.Fatalf("Authorization = %q, want custom override", got)
-	}
-	if got := request.Headers.Get("X-Custom-Key"); got != "sk-custom-models" {
-		t.Fatalf("X-Custom-Key = %q, want expanded key", got)
-	}
-}
-
-func TestOpenAIListModelsIdentityRepresentationAndCollectsUniqueModels(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		assertOutboundRequestRepresentation(t, request, 0, map[string]string{
-			"Authorization": "Token secret",
-			"X-Business":    "preserved",
-		})
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"a"},{"id":"a"},{"id":"b"}]}`)),
-		}, nil
-	})}
-
-	models, err := NewOpenAI(client).ListModels(
-		context.Background(),
-		"https://api.example.com",
-		"secret",
-		legacyRepresentationHeaderRules(map[string]string{"Authorization": "Token ${API_KEY}"}),
-	)
-	if err != nil {
-		t.Fatalf("ListModels() error = %v", err)
-	}
-	if !reflect.DeepEqual(models, []string{"a", "b"}) {
-		t.Fatalf("ListModels() = %#v, want [a b]", models)
-	}
-}
-
-func TestOpenAIListModelsRejectsUniqueModelOverflow(t *testing.T) {
-	type item struct {
-		ID string `json:"id"`
-	}
-	payload := struct {
-		Data []item `json:"data"`
-	}{Data: make([]item, maxUniqueModelListEntries+1)}
-	for index := range payload.Data {
-		payload.Data[index].ID = fmt.Sprintf("model-%06d", index)
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal OpenAI model payload: %v", err)
-	}
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode:    http.StatusOK,
-			Header:        make(http.Header),
-			Body:          io.NopCloser(strings.NewReader(string(body))),
-			ContentLength: int64(len(body)),
-		}, nil
-	})}
-
-	models, err := NewOpenAI(client).ListModels(
-		context.Background(), "https://api.example.com", "secret", state.HeaderRules{},
-	)
-	if err == nil || models != nil {
-		t.Fatalf("ListModels() = %#v, %v, want nil models and error", models, err)
-	}
-}
-
-func TestOpenAIListModelsHonorsContextTimeout(t *testing.T) {
-	server := fakeupstream.New(fakeupstream.Step{
-		Status:  http.StatusOK,
-		Fixture: "openai/models.json",
-		Delay:   200 * time.Millisecond,
-	})
-	defer server.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-
-	dialect := NewOpenAI(server.Client())
-	_, err := dialect.ListModels(
-		ctx,
-		server.URL+"/v1",
-		"sk-timeout",
-		state.HeaderRules{},
-	)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("ListModels() error = %v, want context deadline exceeded", err)
-	}
-}
-
-func TestOpenAIListModelsRejectsNonSuccessWithoutLeakingKey(t *testing.T) {
-	server := fakeupstream.New(fakeupstream.Step{
-		Status:  http.StatusUnauthorized,
-		Fixture: "openai/401.json",
-	})
-	defer server.Close()
-
-	const apiKey = "sk-must-not-leak"
-	dialect := NewOpenAI(server.Client())
-	_, err := dialect.ListModels(
-		context.Background(),
-		server.URL+"/v1",
-		apiKey,
-		state.HeaderRules{},
-	)
-	if err == nil {
-		t.Fatal("ListModels() error = nil, want upstream status error")
-	}
-	if !strings.Contains(err.Error(), "status 401") {
-		t.Fatalf("ListModels() error = %v, want status 401", err)
-	}
-	if strings.Contains(err.Error(), apiKey) {
-		t.Fatalf("ListModels() error leaked API key: %v", err)
-	}
-}
-
-func TestOpenAIListModelsTransportErrorDoesNotExposeURLOrKey(t *testing.T) {
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, errors.New("forced transport failure")
-	})}
-
-	const apiKey = "sk-transport-canary"
-	_, err := NewOpenAI(client).ListModels(
-		context.Background(),
-		"https://api.example.com?token=query-canary",
-		apiKey,
-		state.HeaderRules{},
-	)
-	if err == nil {
-		t.Fatal("ListModels() error = nil, want transport error")
-	}
-	for _, forbidden := range []string{apiKey, "query-canary", "api.example.com"} {
-		if strings.Contains(err.Error(), forbidden) {
-			t.Fatalf("ListModels() error exposes %q: %v", forbidden, err)
+		metadata, err := selected.InspectRequest(&ParsedRequest{Body: []byte(body)})
+		if err != nil || metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
+			t.Fatalf("InspectRequest(%s) = %#v, %v", body, metadata, err)
 		}
 	}
 }

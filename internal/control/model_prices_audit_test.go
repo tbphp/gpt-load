@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/storage/models"
 )
 
@@ -239,6 +240,7 @@ func newModelPriceAuditFixture(t *testing.T) (serviceFixture, models.ModelPrice)
 	fixture := newServiceFixture(t)
 	input := int64(1_000_000_000)
 	row := models.ModelPrice{
+		ChannelID:                         string(channel.OpenAICompatible),
 		ModelID:                           "model-audit-secret",
 		InputPriceNanoUSDPerMillionTokens: &input,
 	}

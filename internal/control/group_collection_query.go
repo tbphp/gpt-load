@@ -5,23 +5,20 @@ import (
 	"sort"
 	"strings"
 	"unicode"
-
-	"gpt-load/internal/protocol"
 )
 
 type GroupCollectionSort string
 
 const (
-	GroupCollectionSortStatus  GroupCollectionSort = "status"
-	GroupCollectionSortName    GroupCollectionSort = "name"
-	GroupCollectionSortKeys    GroupCollectionSort = "keys"
-	GroupCollectionSortCreated GroupCollectionSort = "created"
+	GroupCollectionSortStatus      GroupCollectionSort = "status"
+	GroupCollectionSortName        GroupCollectionSort = "name"
+	GroupCollectionSortCredentials GroupCollectionSort = "credentials"
+	GroupCollectionSortCreated     GroupCollectionSort = "created"
 )
 
 type GroupCollectionQuery struct {
 	Query    string
 	Status   *GroupCollectionStatus
-	Protocol *protocol.Protocol
 	Sort     GroupCollectionSort
 	Page     int64
 	PageSize int64
@@ -118,32 +115,13 @@ func matchesGroupCollectionQuery(
 	if query.Status != nil && record.Status != *query.Status {
 		return false
 	}
-	if query.Protocol != nil && !groupCollectionHasProtocol(record.Protocols, *query.Protocol) {
-		return false
-	}
 	if query.Query == "" {
 		return true
 	}
 	if groupCollectionContainsFold(record.Name, query.Query) ||
-		groupCollectionContainsFold(record.UpstreamURL, query.Query) {
+		groupCollectionContainsFold(string(record.ChannelID), query.Query) ||
+		groupCollectionContainsFold(string(record.Params), query.Query) {
 		return true
-	}
-	for _, value := range record.Protocols {
-		if groupCollectionContainsFold(string(value), query.Query) {
-			return true
-		}
-	}
-	return false
-}
-
-func groupCollectionHasProtocol(
-	values []protocol.Protocol,
-	want protocol.Protocol,
-) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
 	}
 	return false
 }
@@ -180,9 +158,10 @@ func sortGroupCollectionRecords(
 		switch sortBy {
 		case GroupCollectionSortName:
 			return compareGroupCollectionNames(left, right)
-		case GroupCollectionSortKeys:
-			if left.KeyCounts.Total != right.KeyCounts.Total {
-				return left.KeyCounts.Total > right.KeyCounts.Total
+		case GroupCollectionSortCredentials:
+			leftTotal, rightTotal := groupCollectionCredentialTotal(left), groupCollectionCredentialTotal(right)
+			if leftTotal != rightTotal {
+				return leftTotal > rightTotal
 			}
 			return compareGroupCollectionNames(left, right)
 		case GroupCollectionSortCreated:
@@ -199,6 +178,10 @@ func sortGroupCollectionRecords(
 			return compareGroupCollectionNames(left, right)
 		}
 	})
+}
+
+func groupCollectionCredentialTotal(record groupCollectionRecord) int64 {
+	return record.CredentialCounts.Total
 }
 
 func groupCollectionStatusOrder(value GroupCollectionStatus) int {
@@ -264,7 +247,6 @@ func groupCollectionPageItems(
 
 func cloneGroupCollectionItem(value GroupCollectionItem) GroupCollectionItem {
 	cloned := value
-	cloned.ProviderID = cloneString(value.ProviderID)
-	cloned.Protocols = append([]protocol.Protocol(nil), value.Protocols...)
+	cloned.Params = append([]byte(nil), value.Params...)
 	return cloned
 }

@@ -12,10 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 )
@@ -41,22 +41,23 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	blacklistedPlaintext := "invalid-key-secret-lock"
 	zero := 0
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{
 			{
-				ID: 1, Name: "active", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+				ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 			{
-				ID: 2, Name: "disabled", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+				ID: 2, Name: "disabled", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: false,
 			},
 			{
-				ID: 3, Name: "zero-weight", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+				ID: 3, Name: "zero-weight", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models:       []state.ModelConfig{{ID: "model"}},
 				WeightManual: &zero, Enabled: true,
 			},
 			{
-				ID: 4, Name: "empty", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+				ID: 4, Name: "empty", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 		},
@@ -64,30 +65,30 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	keyWeightZero := 0
-	if err := fixture.registry.Replace([]state.KeyEntry{
-		{ID: 11, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "available"},
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
+		{ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusActive, EncryptedValue: "available"},
 		{
-			ID: 12, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 12, GroupID: 1, Version: 1, IdentityGeneration: 12, Fingerprint: "test-12", Status: state.CredentialStatusActive,
 			CooldownUntil: now.Add(time.Minute), FailureCount: 1,
 			EncryptedValue: encryptHealthKey(t, fixture, cooldownPlaintext),
 		},
 		{
-			ID: 13, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 13, GroupID: 1, Version: 1, IdentityGeneration: 13, Fingerprint: "test-13", Status: state.CredentialStatusActive,
 			Blacklisted: true, CooldownUntil: now.Add(time.Hour),
 			FailureCount:   3,
 			EncryptedValue: encryptHealthKey(t, fixture, blacklistedPlaintext),
 		},
 		{
-			ID: 14, GroupID: 1, Status: state.KeyStatusDisabled,
+			ID: 14, GroupID: 1, Version: 1, IdentityGeneration: 14, Fingerprint: "test-14", Status: state.CredentialStatusDisabled,
 			Blacklisted: true, EncryptedValue: "disabled",
 		},
 		{
-			ID: 15, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 15, GroupID: 1, Version: 1, IdentityGeneration: 15, Fingerprint: "test-15", Status: state.CredentialStatusActive,
 			WeightManual: &keyWeightZero, Blacklisted: true,
 			EncryptedValue: "weight-zero",
 		},
-		{ID: 21, GroupID: 2, Status: state.KeyStatusActive, EncryptedValue: "disabled-group"},
-		{ID: 31, GroupID: 3, Status: state.KeyStatusActive, EncryptedValue: "zero-group"},
+		{ID: 21, GroupID: 2, Version: 1, IdentityGeneration: 21, Fingerprint: "test-21", Status: state.CredentialStatusActive, EncryptedValue: "disabled-group"},
+		{ID: 31, GroupID: 3, Version: 1, IdentityGeneration: 31, Fingerprint: "test-31", Status: state.CredentialStatusActive, EncryptedValue: "zero-group"},
 	}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -111,7 +112,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		t.Fatalf("observation metadata = %#v", got)
 	}
 	wantCounts := healthCountsResponse{
-		Total: 7, Available: 1, Cooldown: 1, Blacklisted: 1, Disabled: 4,
+		Credentials: 3, Available: 1, Cooldown: 1, Blacklisted: 1,
 	}
 	if got.Counts != wantCounts {
 		t.Fatalf("global counts = %#v, want %#v", got.Counts, wantCounts)
@@ -121,34 +122,34 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		t.Fatalf("group order = %#v", got.Groups)
 	}
 	if got.Groups[0].Counts != (healthCountsResponse{
-		Total: 5, Available: 1, Cooldown: 1, Blacklisted: 1, Disabled: 2,
+		Credentials: 3, Available: 1, Cooldown: 1, Blacklisted: 1,
 	}) {
 		t.Fatalf("active group counts = %#v", got.Groups[0].Counts)
 	}
-	if got.Groups[1].Counts.Disabled != 1 || got.Groups[2].Counts.Disabled != 1 ||
-		got.Groups[3].Counts.Total != 0 {
+	if got.Groups[1].Counts.Credentials != 0 || got.Groups[2].Counts.Credentials != 0 ||
+		got.Groups[3].Counts.Credentials != 0 {
 		t.Fatalf("disabled/zero/empty group counts = %#v", got.Groups)
 	}
-	if len(got.CooldownKeys) != 1 || got.CooldownKeys[0].KeyID != 12 ||
-		got.CooldownKeys[0].Mask != "rate****safe" ||
-		got.CooldownKeys[0].LastFailureCategory != "rate_limited" ||
-		got.CooldownKeys[0].LastStatusCode == nil ||
-		*got.CooldownKeys[0].LastStatusCode != 429 ||
-		got.CooldownKeys[0].RecentSuccessCount != 1 ||
-		got.CooldownKeys[0].RecentProblemCount != 1 ||
-		got.CooldownKeys[0].ConsecutiveProblemCount != 1 ||
-		got.CooldownKeys[0].Recovery.Mode != "cooldown_expiry" {
-		t.Fatalf("cooldown details = %#v", got.CooldownKeys)
+	if len(got.CooldownCredentials) != 1 || got.CooldownCredentials[0].CredentialID != 12 ||
+		got.CooldownCredentials[0].Mask != "rate****safe" ||
+		got.CooldownCredentials[0].LastFailureCategory != "rate_limited" ||
+		got.CooldownCredentials[0].LastStatusCode == nil ||
+		*got.CooldownCredentials[0].LastStatusCode != 429 ||
+		got.CooldownCredentials[0].RecentSuccessCount != 1 ||
+		got.CooldownCredentials[0].RecentProblemCount != 1 ||
+		got.CooldownCredentials[0].ConsecutiveProblemCount != 1 ||
+		got.CooldownCredentials[0].Recovery.Mode != "cooldown_expiry" {
+		t.Fatalf("cooldown details = %#v", got.CooldownCredentials)
 	}
-	if len(got.BlacklistedKeys) != 1 || got.BlacklistedKeys[0].KeyID != 13 ||
-		got.BlacklistedKeys[0].Mask != "inva****lock" ||
-		got.BlacklistedKeys[0].LastFailureCategory != "invalid_key" ||
-		got.BlacklistedKeys[0].LastStatusCode == nil ||
-		*got.BlacklistedKeys[0].LastStatusCode != 401 ||
-		got.BlacklistedKeys[0].ConsecutiveProblemCount != 1 ||
-		got.BlacklistedKeys[0].Recovery.Mode != "validation_probe" ||
-		got.BlacklistedKeys[0].Recovery.AtMS != nil {
-		t.Fatalf("blacklisted details = %#v", got.BlacklistedKeys)
+	if len(got.BlacklistedCredentials) != 1 || got.BlacklistedCredentials[0].CredentialID != 13 ||
+		got.BlacklistedCredentials[0].Mask != "inva****lock" ||
+		got.BlacklistedCredentials[0].LastFailureCategory != "invalid_key" ||
+		got.BlacklistedCredentials[0].LastStatusCode == nil ||
+		*got.BlacklistedCredentials[0].LastStatusCode != 401 ||
+		got.BlacklistedCredentials[0].ConsecutiveProblemCount != 1 ||
+		got.BlacklistedCredentials[0].Recovery.Mode != "validation_probe" ||
+		got.BlacklistedCredentials[0].Recovery.AtMS != nil {
+		t.Fatalf("blacklisted details = %#v", got.BlacklistedCredentials)
 	}
 	if got.RequestLog.DroppedTotal != 2 ||
 		got.RequestLog.LastWriteFailureAtMS == nil ||
@@ -158,19 +159,22 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	}
 }
 
-func TestRuntimeHealthRequiresValidationConfigurationForBlacklistedKeyWithoutTarget(t *testing.T) {
+func TestRuntimeHealthAdvertisesExecutorValidationForChannelCredential(t *testing.T) {
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
-	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "resources-only", Protocols: []protocol.Protocol{protocol.OpenAIResponses},
-		Enabled: true,
-	}}}); err != nil {
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "channel", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
+		}},
+	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID: 11, GroupID: 1, Status: state.KeyStatusActive, Blacklisted: true,
-		EncryptedValue: encryptHealthKey(t, fixture, "blacklisted-without-target"),
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusActive, Blacklisted: true,
+		EncryptedValue: encryptHealthKey(t, fixture, `{"api_key":"blacklisted-channel-credential"}`),
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -180,12 +184,12 @@ func TestRuntimeHealthRequiresValidationConfigurationForBlacklistedKeyWithoutTar
 	if err != nil {
 		t.Fatalf("RuntimeHealth() error = %v", err)
 	}
-	if len(got.BlacklistedKeys) != 1 {
-		t.Fatalf("blacklisted keys = %#v", got.BlacklistedKeys)
+	if len(got.BlacklistedCredentials) != 1 {
+		t.Fatalf("blacklisted keys = %#v", got.BlacklistedCredentials)
 	}
-	recovery := got.BlacklistedKeys[0].Recovery
-	if recovery.Automatic || recovery.Mode != "configuration_required" || recovery.AtMS != nil {
-		t.Fatalf("recovery = %#v, want manual configuration requirement", recovery)
+	recovery := got.BlacklistedCredentials[0].Recovery
+	if !recovery.Automatic || recovery.Mode != "validation_probe" || recovery.AtMS != nil {
+		t.Fatalf("recovery = %#v, want automatic validation probe", recovery)
 	}
 }
 
@@ -193,14 +197,14 @@ func TestRuntimeHealthExposesProblemCountsInsteadOfFailureAliases(t *testing.T) 
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
-	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "active", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
+		ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID: 11, GroupID: 1, Status: state.KeyStatusActive,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusActive,
 		CooldownUntil:  now.Add(time.Minute),
 		EncryptedValue: encryptHealthKey(t, fixture, "rate-limit-secret-safe"),
 	}}); err != nil {
@@ -219,15 +223,15 @@ func TestRuntimeHealthExposesProblemCountsInsteadOfFailureAliases(t *testing.T) 
 		t.Fatalf("Marshal() error = %v", err)
 	}
 	var document struct {
-		CooldownKeys []map[string]json.RawMessage `json:"cooldown_keys"`
+		CooldownCredentials []map[string]json.RawMessage `json:"cooldown_credentials"`
 	}
 	if err := json.Unmarshal(body, &document); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if len(document.CooldownKeys) != 1 {
-		t.Fatalf("cooldown key count = %d, want 1", len(document.CooldownKeys))
+	if len(document.CooldownCredentials) != 1 {
+		t.Fatalf("cooldown key count = %d, want 1", len(document.CooldownCredentials))
 	}
-	key := document.CooldownKeys[0]
+	key := document.CooldownCredentials[0]
 	for field, want := range map[string]uint64{
 		"recent_success_count":      1,
 		"recent_problem_count":      2,
@@ -253,42 +257,43 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{
 			{
-				ID: 2, Name: "two", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+				ID: 2, Name: "two", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 			{
-				ID: 1, Name: "one", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+				ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 		},
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
 		{
-			ID: 22, GroupID: 2, Status: state.KeyStatusActive,
+			ID: 22, GroupID: 2, Version: 1, IdentityGeneration: 22, Fingerprint: "test-22", Status: state.CredentialStatusActive,
 			CooldownUntil:  now.Add(time.Minute),
 			EncryptedValue: encryptHealthKey(t, fixture, "cooldown-secret-0022"),
 		},
 		{
-			ID: 13, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 13, GroupID: 1, Version: 1, IdentityGeneration: 13, Fingerprint: "test-13", Status: state.CredentialStatusActive,
 			Blacklisted:    true,
 			EncryptedValue: encryptHealthKey(t, fixture, "blacklisted-secret-0013"),
 		},
 		{
-			ID: 12, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 12, GroupID: 1, Version: 1, IdentityGeneration: 12, Fingerprint: "test-12", Status: state.CredentialStatusActive,
 			CooldownUntil:  now.Add(time.Minute),
 			EncryptedValue: encryptHealthKey(t, fixture, "cooldown-secret-0012"),
 		},
 		{
-			ID: 21, GroupID: 2, Status: state.KeyStatusActive,
+			ID: 21, GroupID: 2, Version: 1, IdentityGeneration: 21, Fingerprint: "test-21", Status: state.CredentialStatusActive,
 			Blacklisted:    true,
 			EncryptedValue: encryptHealthKey(t, fixture, "blacklisted-secret-0021"),
 		},
 		{
-			ID: 11, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusActive,
 			CooldownUntil:  now.Add(time.Minute),
 			EncryptedValue: encryptHealthKey(t, fixture, "cooldown-secret-0011"),
 		},
@@ -299,19 +304,19 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RuntimeHealth() error = %v", err)
 	}
-	pairs := func(items []healthProblemKeyResponse) [][2]uint {
+	pairs := func(items []healthProblemCredentialResponse) [][2]uint {
 		result := make([][2]uint, 0, len(items))
 		for _, item := range items {
-			result = append(result, [2]uint{item.GroupID, item.KeyID})
+			result = append(result, [2]uint{item.GroupID, item.CredentialID})
 		}
 		return result
 	}
-	if gotPairs, want := pairs(got.CooldownKeys), [][2]uint{
+	if gotPairs, want := pairs(got.CooldownCredentials), [][2]uint{
 		{1, 11}, {1, 12}, {2, 22},
 	}; !reflect.DeepEqual(gotPairs, want) {
 		t.Fatalf("cooldown order = %v, want %v", gotPairs, want)
 	}
-	if gotPairs, want := pairs(got.BlacklistedKeys), [][2]uint{
+	if gotPairs, want := pairs(got.BlacklistedCredentials), [][2]uint{
 		{1, 13}, {2, 21},
 	}; !reflect.DeepEqual(gotPairs, want) {
 		t.Fatalf("blacklisted order = %v, want %v", gotPairs, want)
@@ -323,14 +328,14 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	fixture.service.now = healthNow
 	plaintext := "provider-secret-credential-tail"
 	ciphertext := encryptHealthKey(t, fixture, plaintext)
-	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
+		ID: 1, Name: "safe", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		Blacklisted: true, EncryptedValue: ciphertext,
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -343,11 +348,11 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RuntimeHealth() error = %v", err)
 	}
-	if len(result.BlacklistedKeys) != 1 ||
-		result.BlacklistedKeys[0].Mask != "prov****tail" ||
-		result.BlacklistedKeys[0].LastFailureCategory != "ambiguous" ||
-		result.BlacklistedKeys[0].LastStatusCode != nil {
-		t.Fatalf("blacklisted details = %#v", result.BlacklistedKeys)
+	if len(result.BlacklistedCredentials) != 1 ||
+		result.BlacklistedCredentials[0].Mask != "prov****tail" ||
+		result.BlacklistedCredentials[0].LastFailureCategory != "ambiguous" ||
+		result.BlacklistedCredentials[0].LastStatusCode != nil {
+		t.Fatalf("blacklisted details = %#v", result.BlacklistedCredentials)
 	}
 	body, err := json.Marshal(result)
 	if err != nil {
@@ -404,14 +409,14 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.now = healthNow
-	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
+		ID: 1, Name: "safe", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		Blacklisted: true, EncryptedValue: "not-a-valid-ciphertext",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -427,11 +432,31 @@ func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
 
 func TestHealthProblemMaskFailsClosedWhenCiphertextIsMissing(t *testing.T) {
 	fixture := newServiceFixture(t)
-	if _, err := fixture.service.healthProblemMask(nil, 1); !errors.Is(
+	if _, err := fixture.service.healthProblemMask(nil, 1, ""); !errors.Is(
 		err,
 		app_errors.ErrInternalServer,
 	) {
 		t.Fatalf("healthProblemMask() error = %v, want INTERNAL_SERVER_ERROR", err)
+	}
+}
+
+func TestHealthProblemMaskExtractsTypedCredentialSecret(t *testing.T) {
+	fixture := newServiceFixture(t)
+	ciphertext := encryptHealthKey(
+		t,
+		fixture,
+		`{"api_key":"provider-secret-credential-tail"}`,
+	)
+	mask, err := fixture.service.healthProblemMask(
+		map[uint]string{1: ciphertext},
+		1,
+		channel.OpenAI,
+	)
+	if err != nil {
+		t.Fatalf("healthProblemMask() error = %v", err)
+	}
+	if mask != "prov****tail" || strings.Contains(mask, "api_key") || strings.Contains(mask, "{") {
+		t.Fatalf("healthProblemMask() = %q, want api_key-only mask", mask)
 	}
 }
 
@@ -444,7 +469,7 @@ func TestRuntimeHealthDTOHasNoCredentialOrScoreFields(t *testing.T) {
 		reflect.TypeOf(runtimeHealthResponse{}),
 		reflect.TypeOf(healthCountsResponse{}),
 		reflect.TypeOf(healthGroupResponse{}),
-		reflect.TypeOf(healthProblemKeyResponse{}),
+		reflect.TypeOf(healthProblemCredentialResponse{}),
 		reflect.TypeOf(healthRecoveryResponse{}),
 		reflect.TypeOf(requestLogHealthResponse{}),
 	}
@@ -460,8 +485,8 @@ func TestRuntimeHealthDTOHasNoCredentialOrScoreFields(t *testing.T) {
 
 func TestRuntimeHealthFailsLoudForRegistryCatalogMismatch(t *testing.T) {
 	fixture := newServiceFixture(t)
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 999, Status: state.KeyStatusActive,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 999, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -519,7 +544,7 @@ func TestRuntimeHealthEndpointRequiresManagementAuthentication(t *testing.T) {
 	}
 	body := success.Body.String()
 	for _, emptyArray := range []string{
-		`"groups":[]`, `"cooldown_keys":[]`, `"blacklisted_keys":[]`,
+		`"groups":[]`, `"cooldown_credentials":[]`, `"blacklisted_credentials":[]`,
 	} {
 		if !strings.Contains(body, emptyArray) {
 			t.Fatalf("response must contain %s: %s", emptyArray, body)

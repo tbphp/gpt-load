@@ -14,9 +14,9 @@ type StatsBucketCheckpoint struct {
 	Problem uint64 `json:"problem"`
 }
 
-// StatsRuntimeCheckpoint contains the raw rolling-window state for one key.
+// StatsRuntimeCheckpoint contains the raw rolling-window state for one credential.
 type StatsRuntimeCheckpoint struct {
-	KeyID               uint                    `json:"key_id"`
+	CredentialID        uint                    `json:"credential_id"`
 	Buckets             []StatsBucketCheckpoint `json:"buckets"`
 	ConsecutiveFailure  uint64                  `json:"consecutive_failure"`
 	ConsecutiveProblem  uint64                  `json:"consecutive_problem"`
@@ -27,11 +27,11 @@ type StatsRuntimeCheckpoint struct {
 }
 
 // CaptureRuntimeCheckpoint returns detached rolling-window state in stable
-// key order. It does not include request queues or access-key rate limits.
+// credential order. It does not include request queues or access-key rate limits.
 func (store *StatsStore) CaptureRuntimeCheckpoint() []StatsRuntimeCheckpoint {
 	store.mu.Lock()
 	checkpoints := make([]StatsRuntimeCheckpoint, 0, len(store.windows))
-	for keyID, window := range store.windows {
+	for credentialID, window := range store.windows {
 		buckets := make([]StatsBucketCheckpoint, 0, len(window.buckets))
 		for _, bucket := range window.buckets {
 			buckets = append(buckets, StatsBucketCheckpoint{
@@ -43,7 +43,7 @@ func (store *StatsStore) CaptureRuntimeCheckpoint() []StatsRuntimeCheckpoint {
 			})
 		}
 		checkpoints = append(checkpoints, StatsRuntimeCheckpoint{
-			KeyID:               keyID,
+			CredentialID:        credentialID,
 			Buckets:             buckets,
 			ConsecutiveFailure:  window.consecutiveFailure,
 			ConsecutiveProblem:  window.consecutiveProblem,
@@ -54,12 +54,14 @@ func (store *StatsStore) CaptureRuntimeCheckpoint() []StatsRuntimeCheckpoint {
 		})
 	}
 	store.mu.Unlock()
-	sort.Slice(checkpoints, func(i, j int) bool { return checkpoints[i].KeyID < checkpoints[j].KeyID })
+	sort.Slice(checkpoints, func(i, j int) bool {
+		return checkpoints[i].CredentialID < checkpoints[j].CredentialID
+	})
 	return checkpoints
 }
 
-// RestoreRuntimeCheckpoint replaces the supplied keys' rolling-window state.
-// Invalid key IDs and malformed bucket lists are ignored because checkpoint
+// RestoreRuntimeCheckpoint replaces the supplied credentials' rolling-window state.
+// Invalid credential IDs and malformed bucket lists are ignored because checkpoint
 // data is explicitly best-effort.
 func (store *StatsStore) RestoreRuntimeCheckpoint(checkpoints []StatsRuntimeCheckpoint) int {
 	store.mu.Lock()
@@ -67,10 +69,10 @@ func (store *StatsStore) RestoreRuntimeCheckpoint(checkpoints []StatsRuntimeChec
 
 	restored := 0
 	for _, checkpoint := range checkpoints {
-		if checkpoint.KeyID == 0 || len(checkpoint.Buckets) > statsBucketCount {
+		if checkpoint.CredentialID == 0 || len(checkpoint.Buckets) > statsBucketCount {
 			continue
 		}
-		window := &keyStatsWindow{
+		window := &credentialStatsWindow{
 			consecutiveFailure:  checkpoint.ConsecutiveFailure,
 			consecutiveProblem:  checkpoint.ConsecutiveProblem,
 			lastEventAt:         checkpoint.LastEventAt,
@@ -91,7 +93,7 @@ func (store *StatsStore) RestoreRuntimeCheckpoint(checkpoints []StatsRuntimeChec
 				problem: bucket.Problem,
 			}
 		}
-		store.windows[checkpoint.KeyID] = window
+		store.windows[checkpoint.CredentialID] = window
 		restored++
 	}
 	return restored

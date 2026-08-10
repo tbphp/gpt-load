@@ -29,14 +29,14 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 		t.Fatal("schema_migrations is missing")
 	}
 	assertColumns(t, db, "model_prices", []string{
-		"model_id",
+		"channel_id", "model_id",
 		"input_price_nano_usd_per_million_tokens",
 		"output_price_nano_usd_per_million_tokens",
 		"cache_read_price_nano_usd_per_million_tokens",
 		"cache_write_price_nano_usd_per_million_tokens",
 		"context_price_tiers", "is_manual", "created_at_ms", "updated_at_ms",
 	})
-	assertUniqueIndex(t, db, "model_prices", "idx_model_prices_model", []string{"model_id"})
+	assertUniqueIndex(t, db, "model_prices", "idx_model_prices_channel_model", []string{"channel_id", "model_id"})
 
 	columns := initialV2Columns(t, db, "model_prices")
 	for _, name := range []string{
@@ -83,9 +83,11 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
 	}
 	assertColumns(t, db, "request_log_attempts", []string{
 		"request_id", "sequence", "completed_at_ms", "group_id", "group_name",
-		"key_id", "upstream_model", "status_code", "duration_ms",
+		"channel_id", "credential_id", "operation", "route_mode", "upstream_model",
+		"upstream_request_id", "dispatch_state", "response_started",
+		"status_code", "duration_ms",
 		"failure_category", "action", "will_retry", "error_code", "error_summary",
-		"pricing_receipt",
+		"committed", "pricing_receipt",
 	})
 
 	var foreignKeys []struct {
@@ -129,18 +131,23 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 	}
 
 	groups := initialV2Columns(t, db, "groups")
-	providerID, ok := groups["provider_id"]
-	if !ok {
-		t.Fatal("groups.provider_id is missing")
+	for _, name := range []string{"channel_id", "params", "models", "overrides"} {
+		if _, ok := groups[name]; !ok {
+			t.Errorf("groups.%s is missing", name)
+		}
 	}
-	if providerID.NotNull != 0 || !strings.EqualFold(providerID.Type, "varchar(255)") {
-		t.Fatalf("groups.provider_id = type:%q notnull:%d, want varchar(255) nullable",
-			providerID.Type, providerID.NotNull)
+	for _, removed := range []string{"provider_id", "upstream_url", "protocols", "convert_enabled"} {
+		if _, ok := groups[removed]; ok {
+			t.Errorf("groups retains retired column %q", removed)
+		}
+	}
+	if db.Migrator().HasTable("upstream_keys") {
+		t.Fatal("retired upstream_keys table exists")
 	}
 
 	for table, columns := range map[string][]string{
-		"request_logs": {"cache_write_unknown_tokens", "pricing_completeness"},
-		"usage_stats":  {"cache_write_unknown_tokens", "pricing_partial_count"},
+		"request_logs": {"channel_id", "credential_id", "cache_write_unknown_tokens", "pricing_completeness"},
+		"usage_stats":  {"channel_id", "credential_id", "cache_write_unknown_tokens", "pricing_partial_count"},
 	} {
 		got := initialV2Columns(t, db, table)
 		for _, name := range columns {
@@ -157,7 +164,8 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 	}
 	journal := initialV2Columns(t, db, "usage_aggregation_journal")
 	for _, name := range []string{
-		"request_id", "bucket_start_ms", "access_key_id", "group_id", "model",
+		"request_id", "bucket_start_ms", "access_key_id", "channel_id", "group_id",
+		"credential_id", "model",
 		"request_count", "success_count", "failure_count",
 		"uncached_input_tokens", "output_tokens", "cache_read_tokens",
 		"cache_write_5m_tokens", "cache_write_1h_tokens",
@@ -197,8 +205,8 @@ func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
 	for index, column := range priceColumns {
 		t.Run(column, func(t *testing.T) {
 			query := fmt.Sprintf(`INSERT INTO model_prices (
-				model_id, %s, is_manual, created_at_ms, updated_at_ms
-			) VALUES (?, -1, false, 1, 1)`, column)
+				channel_id, model_id, %s, is_manual, created_at_ms, updated_at_ms
+			) VALUES ('openai', ?, -1, false, 1, 1)`, column)
 			if err := db.Exec(query, fmt.Sprintf("model-%d", index)).Error; err == nil {
 				t.Fatalf("negative %s was accepted", column)
 			}
@@ -210,6 +218,7 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 	db := openMigratedInitialV2TestDatabase(t)
 
 	empty := models.ModelPrice{
+		ChannelID:         "openai",
 		ModelID:           "empty-tiers",
 		ContextPriceTiers: models.JSON(`[]`),
 	}
@@ -227,7 +236,8 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 	}
 
 	valid := models.ModelPrice{
-		ModelID: "valid-tiers",
+		ChannelID: "openai",
+		ModelID:   "valid-tiers",
 		ContextPriceTiers: models.JSON(`[
 			{"threshold_tokens":0,"input_price_nano_usd_per_million_tokens":1},
 			{"threshold_tokens":100,"cache_write_price_nano_usd_per_million_tokens":0}
@@ -257,6 +267,7 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 	for index, test := range invalid {
 		t.Run(test.name, func(t *testing.T) {
 			row := models.ModelPrice{
+				ChannelID:         "openai",
 				ModelID:           fmt.Sprintf("invalid-tier-%d", index),
 				ContextPriceTiers: models.JSON(test.raw),
 			}
@@ -304,7 +315,7 @@ func TestModelPriceValidatesContextTiersAcrossGORMWritePaths(t *testing.T) {
 				incoming := row
 				incoming.ID = 0
 				return db.Clauses(clause.OnConflict{
-					Columns: []clause.Column{{Name: "model_id"}},
+					Columns: []clause.Column{{Name: "channel_id"}, {Name: "model_id"}},
 					DoUpdates: clause.Assignments(map[string]any{
 						"context_price_tiers": tiers,
 					}),
@@ -368,7 +379,7 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 
 	for table, names := range map[string][]string{
 		"groups":             {"created_at_ms", "updated_at_ms"},
-		"upstream_keys":      {"created_at_ms", "updated_at_ms"},
+		"credentials":        {"created_at_ms", "updated_at_ms"},
 		"access_keys":        {"created_at_ms", "updated_at_ms"},
 		"model_prices":       {"created_at_ms", "updated_at_ms"},
 		"request_logs":       {"completed_at_ms"},
@@ -514,7 +525,7 @@ func TestAutoMigrateDoesNotReapplyCompletedMigrationForChangedTable(t *testing.T
 
 func TestAutoMigrateDoesNotReapplyCompletedMigrationForMissingIndex(t *testing.T) {
 	db := openMigratedInitialV2TestDatabase(t)
-	if err := db.Exec("DROP INDEX idx_model_prices_model").Error; err != nil {
+	if err := db.Exec("DROP INDEX idx_model_prices_channel_model").Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.AutoMigrate(db); err != nil {
@@ -549,7 +560,8 @@ func createModelPriceForWritePath(t *testing.T, modelID string) (*gorm.DB, model
 	t.Helper()
 	db := openMigratedInitialV2TestDatabase(t)
 	row := models.ModelPrice{
-		ModelID: modelID,
+		ChannelID: "openai",
+		ModelID:   modelID,
 		ContextPriceTiers: models.JSON(
 			`[{"threshold_tokens":0,"input_price_nano_usd_per_million_tokens":1}]`,
 		),

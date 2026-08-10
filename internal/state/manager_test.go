@@ -1,11 +1,12 @@
 package state
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
-	"gpt-load/internal/protocol"
+	"gpt-load/internal/channel"
 )
 
 func TestManagerPublishStartsAtRevisionOne(t *testing.T) {
@@ -56,7 +57,7 @@ func TestManagerPublishFailureKeepsCurrentSnapshot(t *testing.T) {
 	}
 
 	invalid := managerCompileInput(2)
-	invalid.Groups[0].Protocols = []protocol.Protocol{protocol.Protocol("invalid")}
+	invalid.Groups[0].ChannelID = channel.ID("invalid")
 	if _, err := manager.Publish(invalid); err == nil {
 		t.Fatal("Publish() error = nil, want invalid protocol error")
 	}
@@ -94,7 +95,7 @@ func TestManagerMatchesCompiledInputWithoutChangingRevision(t *testing.T) {
 	}
 
 	invalid := managerCompileInput(1)
-	invalid.Groups[0].Protocols = []protocol.Protocol{"reserved"}
+	invalid.Groups[0].Params = json.RawMessage(`{"unexpected":true}`)
 	if _, err := manager.Matches(invalid); err == nil {
 		t.Fatal("Matches(invalid) error = nil, want compile rejection")
 	}
@@ -248,12 +249,11 @@ func awaitManagerSignal(t *testing.T, signal <-chan struct{}, name string) {
 }
 
 func managerCompileInput(groupID uint) CompileInput {
-	return CompileInput{Groups: []GroupConfig{{
-		ID:          groupID,
-		Name:        "group",
-		UpstreamURL: "https://upstream.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Models:      []ModelConfig{{ID: "model"}},
-		Enabled:     true,
-	}}}
+	return CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{{
+			ID: groupID, Name: "group", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "model"}}, Enabled: true,
+		}},
+	}
 }

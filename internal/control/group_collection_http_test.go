@@ -4,15 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -21,10 +20,6 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 	available := GroupCollectionStatusAvailable
 	unavailable := GroupCollectionStatusUnavailable
 	disabled := GroupCollectionStatusDisabled
-	openAICompletions := protocol.OpenAICompletions
-	openAIResponses := protocol.OpenAIResponses
-	anthropic := protocol.Anthropic
-	gemini := protocol.Gemini
 	q200 := strings.Repeat("猫", 200)
 
 	tests := []struct {
@@ -82,34 +77,6 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 			},
 		},
 		{
-			name:     "protocol openai completions",
-			rawQuery: "protocol=openai-completions",
-			want: GroupCollectionQuery{
-				Protocol: &openAICompletions, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
-			},
-		},
-		{
-			name:     "protocol openai responses",
-			rawQuery: "protocol=openai-responses",
-			want: GroupCollectionQuery{
-				Protocol: &openAIResponses, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
-			},
-		},
-		{
-			name:     "protocol anthropic",
-			rawQuery: "protocol=anthropic",
-			want: GroupCollectionQuery{
-				Protocol: &anthropic, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
-			},
-		},
-		{
-			name:     "protocol gemini",
-			rawQuery: "protocol=gemini",
-			want: GroupCollectionQuery{
-				Protocol: &gemini, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
-			},
-		},
-		{
 			name:     "sort status",
 			rawQuery: "sort=status",
 			want: GroupCollectionQuery{
@@ -124,10 +91,10 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 			},
 		},
 		{
-			name:     "sort keys",
-			rawQuery: "sort=keys",
+			name:     "sort credentials",
+			rawQuery: "sort=credentials",
 			want: GroupCollectionQuery{
-				Sort: GroupCollectionSortKeys, Page: 1, PageSize: 20,
+				Sort: GroupCollectionSortCredentials, Page: 1, PageSize: 20,
 			},
 		},
 		{
@@ -160,9 +127,9 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 		},
 		{
 			name:     "all fields combine",
-			rawQuery: "q=+alpha+&status=available&protocol=anthropic&sort=created&page=2&page_size=100",
+			rawQuery: "q=+alpha+&status=available&sort=created&page=2&page_size=100",
 			want: GroupCollectionQuery{
-				Query: "alpha", Status: &available, Protocol: &anthropic,
+				Query: "alpha", Status: &available,
 				Sort: GroupCollectionSortCreated, Page: 2, PageSize: 100,
 			},
 		},
@@ -227,6 +194,21 @@ func TestParseGroupCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 	}
 }
 
+func TestGroupCollectionQueryUsesCredentialSortAndRejectsProtocolFilter(t *testing.T) {
+	got, apiErr := parseGroupCollectionQuery("sort=credentials", false)
+	if apiErr != nil {
+		t.Fatalf("parseGroupCollectionQuery(sort=credentials) error = %v", apiErr)
+	}
+	if got.Sort != GroupCollectionSort("credentials") {
+		t.Fatalf("sort = %q, want credentials", got.Sort)
+	}
+	for _, rawQuery := range []string{"sort=keys", "protocol=anthropic"} {
+		if _, apiErr := parseGroupCollectionQuery(rawQuery, false); apiErr == nil || apiErr.Code != "BAD_REQUEST" {
+			t.Fatalf("parseGroupCollectionQuery(%q) error = %v, want BAD_REQUEST", rawQuery, apiErr)
+		}
+	}
+}
+
 func assertGroupCollectionQueryEqual(
 	t *testing.T,
 	got GroupCollectionQuery,
@@ -241,10 +223,6 @@ func assertGroupCollectionQueryEqual(
 		got.Status != nil && *got.Status != *want.Status {
 		t.Fatalf("query status = %#v, want %#v", got.Status, want.Status)
 	}
-	if (got.Protocol == nil) != (want.Protocol == nil) ||
-		got.Protocol != nil && *got.Protocol != *want.Protocol {
-		t.Fatalf("query protocol = %#v, want %#v", got.Protocol, want.Protocol)
-	}
 }
 
 func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing.T) {
@@ -256,7 +234,8 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 		10,
 		"alpha",
 		true,
-		`["openai-completions","gemini"]`,
+		channel.OpenAICompatible,
+		`{"base_url":"https://alpha.example/v1"}`,
 		`[{"id":"private-alpha","alias":"public-alpha"},{"id":"second-alpha","alias":""}]`,
 	)
 	createGroupOptionGroup(
@@ -265,17 +244,18 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 		20,
 		"zulu",
 		false,
-		`["anthropic"]`,
+		channel.Anthropic,
+		`{}`,
 		`[{"id":"private-zulu","alias":"public-zulu"}]`,
 	)
 	entry := createGroupCollectionKey(
 		t,
 		fixture,
 		10,
-		models.UpstreamKeyStatusActive,
+		models.CredentialStatusActive,
 		nil,
 	)
-	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{entry})
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{entry})
 	observedAt := time.Date(2026, time.August, 1, 9, 10, 11, 0, time.UTC)
 	fixture.service.now = func() time.Time { return observedAt }
 
@@ -309,13 +289,10 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 	item := collectionData.Items[0]
 	if item.ID != 10 || item.Name != "alpha" ||
 		item.Status != GroupCollectionStatusAvailable ||
-		item.UpstreamURL != "https://alpha.example/v1" ||
-		!reflect.DeepEqual(item.Protocols, []protocol.Protocol{
-			protocol.OpenAICompletions,
-			protocol.Gemini,
-		}) ||
+		item.ChannelID != channel.OpenAICompatible ||
+		string(item.Params) != `{"base_url":"https://alpha.example/v1"}` ||
 		item.ModelCount != 2 ||
-		item.KeyCounts != (GroupCollectionKeyCounts{Total: 1, Available: 1}) {
+		item.CredentialCounts != (GroupCollectionCredentialCounts{Total: 1, Available: 1}) {
 		t.Fatalf("collection item = %#v, want exact public fields", item)
 	}
 
@@ -331,13 +308,14 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 	if len(optionData) != 2 ||
 		optionData[0].ID != 10 || optionData[0].Name != "alpha" ||
 		!optionData[0].Enabled ||
-		!reflect.DeepEqual(optionData[0].Protocols, []protocol.Protocol{protocol.OpenAICompletions, protocol.Gemini}) ||
+		optionData[0].ChannelID != channel.OpenAICompatible ||
+		string(optionData[0].Params) != `{"base_url":"https://alpha.example/v1"}` ||
 		len(optionData[0].Models) != 2 ||
 		optionData[0].Models[0] != "public-alpha" ||
 		optionData[0].Models[1] != "second-alpha" ||
 		optionData[1].ID != 20 || optionData[1].Name != "zulu" ||
 		optionData[1].Enabled ||
-		!reflect.DeepEqual(optionData[1].Protocols, []protocol.Protocol{protocol.Anthropic}) ||
+		optionData[1].ChannelID != channel.Anthropic || string(optionData[1].Params) != `{}` ||
 		len(optionData[1].Models) != 1 || optionData[1].Models[0] != "public-zulu" {
 		t.Fatalf("options data = %#v, want exact ID-ordered directory", optionData)
 	}
@@ -356,9 +334,10 @@ func TestGroupCollectionHTTPAllowsAvailableKeysInAnUnavailableStatus(t *testing.
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "http-zero-model-completions", true, nil)
+	setGroupCollectionChannel(t, fixture, group, channel.Anthropic, models.JSON(`{}`))
 	setGroupCollectionRoute(t, fixture, group, `["openai-completions"]`, `[]`)
-	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{
-		createGroupCollectionKey(t, fixture, group.ID, models.UpstreamKeyStatusActive, nil),
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{
+		createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil),
 	})
 
 	engine := gin.New()
@@ -379,7 +358,7 @@ func TestGroupCollectionHTTPAllowsAvailableKeysInAnUnavailableStatus(t *testing.
 		len(data.Items) != 1 ||
 		data.Items[0].Status != GroupCollectionStatusUnavailable ||
 		data.Items[0].ModelCount != 0 ||
-		data.Items[0].KeyCounts != (GroupCollectionKeyCounts{Total: 1, Available: 1}) {
+		data.Items[0].CredentialCounts != (GroupCollectionCredentialCounts{Total: 1, Available: 1}) {
 		t.Fatalf("collection data = %#v, want unavailable route with available key bucket", data)
 	}
 }
@@ -512,10 +491,10 @@ func decodeGroupOptionsSuccess(
 		t.Fatalf("decode raw options data: %v", err)
 	}
 	for _, rawOption := range rawOptions {
-		if len(rawOption) != 5 {
-			t.Fatalf("option fields = %#v, want exactly id/name/enabled/protocols/models", rawOption)
+		if len(rawOption) != 6 {
+			t.Fatalf("option fields = %#v, want exactly id/name/channel_id/params/enabled/models", rawOption)
 		}
-		for _, field := range []string{"id", "name", "enabled", "protocols", "models"} {
+		for _, field := range []string{"id", "name", "channel_id", "params", "enabled", "models"} {
 			if _, ok := rawOption[field]; !ok {
 				t.Fatalf("option fields = %#v, missing %q", rawOption, field)
 			}

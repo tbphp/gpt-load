@@ -3,35 +3,33 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"sort"
+	"errors"
 	"strconv"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
 type groupCreateDigestBody struct {
-	Name                   *string             `json:"name"`
-	ProviderID             *string             `json:"provider_id"`
-	UpstreamURL            string              `json:"upstream_url"`
-	Protocols              []protocol.Protocol `json:"protocols"`
-	Models                 []GroupModel        `json:"models"`
-	Keys                   []string            `json:"keys"`
-	ConfirmSameUpstreamURL bool                `json:"confirm_same_upstream_url"`
+	Name              *string         `json:"name"`
+	ChannelID         channel.ID      `json:"channel_id"`
+	Params            json.RawMessage `json:"params"`
+	Models            []GroupModel    `json:"models"`
+	Credentials       []string        `json:"credentials"`
+	ConfirmSameTarget bool            `json:"confirm_same_target,omitempty"`
 }
 
-type groupKeyImportDigestBody struct {
-	Keys []string `json:"keys"`
+type credentialImportDigestBody struct {
+	Credentials []string `json:"credentials"`
 }
 
 func (s *Service) CreateGroupIdempotent(
@@ -43,23 +41,19 @@ func (s *Service) CreateGroupIdempotent(
 	if err != nil {
 		return GroupCreateResult{}, err
 	}
-	keyLines, err := normalizeIdempotencyKeyLines(request.Keys)
+	credentialLines, err := normalizeIdempotencyKeyLines(request.Credentials)
 	if err != nil {
 		return GroupCreateResult{}, err
 	}
-	protocols := append([]protocol.Protocol(nil), normalized.protocols...)
-	sort.Slice(protocols, func(left, right int) bool {
-		return string(protocols[left]) < string(protocols[right])
-	})
-	canonicalBody, err := canonicalIdempotencyBody(groupCreateDigestBody{
-		Name:                   normalized.explicitName,
-		ProviderID:             normalized.providerID,
-		UpstreamURL:            normalized.upstreamURL,
-		Protocols:              protocols,
-		Models:                 append([]GroupModel(nil), normalized.models...),
-		Keys:                   keyLines,
-		ConfirmSameUpstreamURL: normalized.confirmSameUpstreamURL,
-	})
+	digestBody := groupCreateDigestBody{
+		Name:              normalized.explicitName,
+		ChannelID:         normalized.channelID,
+		Params:            append(json.RawMessage(nil), normalized.params...),
+		Models:            append([]GroupModel(nil), normalized.models...),
+		Credentials:       credentialLines,
+		ConfirmSameTarget: normalized.confirmSameTarget,
+	}
+	canonicalBody, err := canonicalIdempotencyBody(digestBody)
 	if err != nil {
 		return GroupCreateResult{}, app_errors.ErrInternalServer
 	}
@@ -81,7 +75,7 @@ func (s *Service) CreateGroupIdempotent(
 			logrus.WarnLevel,
 			utils.LogPlaneControl,
 			logrus.Fields{"host": normalized.hostname},
-			"Creating upstream group with a private or local host",
+			"Creating channel group with a private or local host",
 		)
 	}
 	var catalogSnapshot *catalog.Snapshot
@@ -97,64 +91,52 @@ func (s *Service) CreateGroupIdempotent(
 			}
 		},
 		Mutate: func(tx *gorm.DB) (idempotentMutationResult, error) {
-			if !normalized.confirmSameUpstreamURL {
-				conflicts, err := findGroupsByUpstreamURL(tx, normalized.upstreamURL)
+			if !normalized.confirmSameTarget {
+				conflicts, err := findGroupsByTarget(tx, normalized.channelID, normalized.params)
 				if err != nil {
 					return idempotentMutationResult{}, err
 				}
 				if len(conflicts) > 0 {
 					return idempotentMutationResult{}, app_errors.NewAPIErrorWithData(
-						app_errors.ErrUpstreamURLConflict,
-						UpstreamURLConflictData{Groups: conflicts},
+						app_errors.ErrChannelTargetConflict,
+						SameTargetConflictData{Groups: conflicts},
 					)
 				}
 			}
-			name, err := resolveGroupCreateName(
-				tx,
-				normalized.explicitName,
-				normalized.hostname,
-			)
+			name, err := resolveGroupCreateName(tx, normalized.explicitName, normalized.defaultName)
 			if err != nil {
 				return idempotentMutationResult{}, err
-			}
-			encodedProtocols, err := json.Marshal(normalized.protocols)
-			if err != nil {
-				return idempotentMutationResult{}, app_errors.ErrInternalServer
 			}
 			encodedModels, err := json.Marshal(normalized.models)
 			if err != nil {
 				return idempotentMutationResult{}, app_errors.ErrInternalServer
 			}
 			group := models.Group{
-				Name:        name,
-				ProviderID:  cloneString(normalized.providerID),
-				UpstreamURL: normalized.upstreamURL,
-				Protocols:   models.JSON(encodedProtocols),
-				Models:      models.JSON(encodedModels),
-				Config:      normalized.encodedConfig,
-				Enabled:     true,
+				Name:      name,
+				ChannelID: string(normalized.channelID),
+				Params:    append(models.JSON(nil), normalized.params...),
+				Models:    models.JSON(encodedModels),
+				Overrides: normalized.encodedOverrides,
+				Enabled:   true,
 			}
 			if err := tx.Create(&group).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}
-			entries, added, duplicated, err := s.persistUpstreamKeys(
-				tx,
-				group.ID,
-				normalized.keys,
-			)
+			added, duplicated, err := s.persistCredentials(tx, group.ID, normalized.credentials)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
-			if err := state.ValidateKeyEntries(entries); err != nil {
-				return idempotentMutationResult{}, fmt.Errorf(
-					"validate created group keys: %w",
-					err,
-				)
+			entries, err := stateloader.BuildGroupCredentialEntries(ctx, tx, group.ID)
+			if err != nil {
+				return idempotentMutationResult{}, err
+			}
+			if err := state.ValidateCredentialEntries(entries); err != nil {
+				return idempotentMutationResult{}, err
 			}
 			if err := reconcileReferencedPrices(tx, catalogSnapshot); err != nil {
 				return idempotentMutationResult{}, err
 			}
-			input, err := stateloader.BuildCompileInput(ctx, tx)
+			input, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
@@ -165,8 +147,10 @@ func (s *Service) CreateGroupIdempotent(
 				return idempotentMutationResult{}, err
 			}
 			result := GroupCreateResult{
-				GroupID: group.ID, GroupName: group.Name,
-				KeysAdded: added, KeysDuplicated: duplicated,
+				GroupID:               group.ID,
+				GroupName:             group.Name,
+				CredentialsAdded:      added,
+				CredentialsDuplicated: duplicated,
 			}
 			canonicalResult, err := canonicaljson.Marshal(result)
 			if err != nil {
@@ -185,76 +169,75 @@ func (s *Service) CreateGroupIdempotent(
 	if err := json.Unmarshal(operationResult.CanonicalResult, &result); err != nil {
 		return GroupCreateResult{}, app_errors.ErrInternalServer
 	}
-	if !operationResult.Replayed && normalized.providerID != nil &&
-		len(normalized.models) > 0 && s.catalogSync != nil {
+	if !operationResult.Replayed && len(normalized.models) > 0 && s.catalogSync != nil {
 		s.catalogSync.RequestGroupSync()
 	}
 	return result, nil
 }
 
-func (s *Service) ImportGroupKeysIdempotent(
+func (s *Service) ImportGroupCredentialsIdempotent(
 	ctx context.Context,
 	idempotencyKey string,
 	groupID uint,
-	request GroupKeyImportRequest,
-) (GroupKeyImportResult, error) {
+	request CredentialImportRequest,
+) (CredentialImportResult, error) {
 	if groupID == 0 {
-		return GroupKeyImportResult{}, app_errors.ErrValidation
+		return CredentialImportResult{}, app_errors.ErrValidation
 	}
-	keys, err := s.normalizeUpstreamKeys(request.Keys)
+	credentialLines, err := normalizeIdempotencyKeyLines(request.Credentials)
 	if err != nil {
-		return GroupKeyImportResult{}, err
+		return CredentialImportResult{}, err
 	}
-	keyLines, err := normalizeIdempotencyKeyLines(request.Keys)
+	canonicalBody, err := canonicalIdempotencyBody(credentialImportDigestBody{Credentials: credentialLines})
 	if err != nil {
-		return GroupKeyImportResult{}, err
-	}
-	canonicalBody, err := canonicalIdempotencyBody(
-		groupKeyImportDigestBody{Keys: keyLines},
-	)
-	if err != nil {
-		return GroupKeyImportResult{}, app_errors.ErrInternalServer
+		return CredentialImportResult{}, app_errors.ErrInternalServer
 	}
 	resourceIdentity := "group:" + strconv.FormatUint(uint64(groupID), 10)
 	digest, err := buildIdempotencyDigest(idempotencyDigestInput{
 		Version:         1,
 		Method:          "POST",
-		OperationKind:   operationKindGroupKeyImport,
-		PathTemplate:    "/api/groups/:group_id/keys/import",
+		OperationKind:   operationKindCredentialImport,
+		PathTemplate:    "/api/groups/:group_id/credentials/import",
 		ResourceLocator: resourceIdentity,
 		AuthScopeID:     idempotencyAuthScopeID,
 		CanonicalBody:   canonicalBody,
 	})
 	if err != nil {
-		return GroupKeyImportResult{}, app_errors.ErrInternalServer
+		return CredentialImportResult{}, app_errors.ErrInternalServer
 	}
 
 	operationResult, err := s.executeIdempotentOperation(ctx, idempotentOperationInput{
 		IdempotencyKey: idempotencyKey,
 		DigestVersion:  1,
 		RequestDigest:  digest.Digest,
-		Kind:           operationKindGroupKeyImport,
+		Kind:           operationKindCredentialImport,
 		Mutate: func(tx *gorm.DB) (idempotentMutationResult, error) {
-			var group struct{ ID uint }
-			if err := tx.Model(&models.Group{}).
-				Select("id").
-				Where("id = ?", groupID).
-				Take(&group).Error; err != nil {
+			var group models.Group
+			if err := tx.Select("id", "channel_id").Where("id = ?", groupID).Take(&group).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return idempotentMutationResult{}, groupNotFoundError()
+				}
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}
-			entries, added, duplicated, err := s.persistUpstreamKeys(
-				tx,
-				groupID,
-				keys,
-			)
+			normalized, err := s.normalizeCredentials(channel.ID(group.ChannelID), request.Credentials)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
-			if err := state.ValidateKeyEntries(entries); err != nil {
+			added, duplicated, err := s.persistCredentials(tx, groupID, normalized)
+			if err != nil {
 				return idempotentMutationResult{}, err
 			}
-			result := GroupKeyImportResult{
-				GroupID: groupID, KeysAdded: added, KeysDuplicated: duplicated,
+			entries, err := stateloader.BuildGroupCredentialEntries(ctx, tx, groupID)
+			if err != nil {
+				return idempotentMutationResult{}, err
+			}
+			if err := state.ValidateCredentialEntries(entries); err != nil {
+				return idempotentMutationResult{}, err
+			}
+			result := CredentialImportResult{
+				GroupID:               groupID,
+				CredentialsAdded:      added,
+				CredentialsDuplicated: duplicated,
 			}
 			canonicalResult, err := canonicaljson.Marshal(result)
 			if err != nil {
@@ -267,11 +250,11 @@ func (s *Service) ImportGroupKeysIdempotent(
 		},
 	})
 	if err != nil {
-		return GroupKeyImportResult{}, err
+		return CredentialImportResult{}, err
 	}
-	var result GroupKeyImportResult
+	var result CredentialImportResult
 	if err := json.Unmarshal(operationResult.CanonicalResult, &result); err != nil {
-		return GroupKeyImportResult{}, app_errors.ErrInternalServer
+		return CredentialImportResult{}, app_errors.ErrInternalServer
 	}
 	return result, nil
 }

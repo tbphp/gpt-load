@@ -2,11 +2,12 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 
 	"gpt-load/internal/catalog"
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -29,23 +30,20 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 	}})
 	zero := int64(0)
 	if err := fixture.db.Create(&models.ModelPrice{
+		ChannelID:                         string(channel.OpenAI),
 		ModelID:                           "shared",
 		InputPriceNanoUSDPerMillionTokens: &zero,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"shared", "live-only", "shared"}, nil
 		},
 	})
-	providerID := "openai"
 	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
-		ProviderID:  &providerID,
-		UpstreamURL: "https://proxy.example/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Keys:        "secret",
+		ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Credentials: "secret",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -65,15 +63,14 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 	}
 
 	withoutProvider, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
-		UpstreamURL: "https://api.openai.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Keys:        "secret",
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://api.openai.com/v1"}`), Credentials: "secret",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(withoutProvider.Models, []ModelCandidate{
-		{ID: "shared", Name: "shared", Sources: []string{"live"}, PricingStatus: PricingStatusConfigured},
+		{ID: "shared", Name: "shared", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
 		{ID: "live-only", Name: "live-only", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
 	}) {
 		t.Fatalf("URL-inferred candidates = %#v", withoutProvider.Models)
@@ -98,17 +95,24 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 			},
 		},
 	}})
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAICompletions,
-		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
-			return []string{"shared-model"}, nil
+	fixture.service.executor = newRecordingDiscoveryExecutor(
+		&recordingDiscoveryExecutorTarget{
+			value: protocol.OpenAICompletions,
+			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+				return []string{"shared-model"}, nil
+			},
 		},
-	})
+		&recordingDiscoveryExecutorTarget{
+			value: protocol.Anthropic,
+			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+				return []string{"shared-model"}, nil
+			},
+		},
+	)
 
 	request := ModelDiscoveryRequest{
-		UpstreamURL: "https://proxy.example/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Keys:        "secret",
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://proxy.example/v1"}`), Credentials: "secret",
 	}
 	custom, err := fixture.service.DiscoverModels(t.Context(), request)
 	if err != nil {
@@ -124,10 +128,10 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 	}
 
 	savedCustom, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://saved-custom.example/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID:   channel.OpenAICompatible,
+		Params:      json.RawMessage(`{"base_url":"https://saved-custom.example/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Keys:        "saved-secret",
+		Credentials: "saved-secret",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,8 +149,8 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 		t.Fatalf("custom Group candidates = %#v", customGroup.Models)
 	}
 
-	providerID := "anthropic"
-	request.ProviderID = &providerID
+	request.ChannelID = channel.Anthropic
+	request.Params = json.RawMessage(`{}`)
 	provider, err := fixture.service.DiscoverModels(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +158,7 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 	if !reflect.DeepEqual(provider.Models, []ModelCandidate{
 		{
 			ID: "shared-model", Name: "Anthropic model", Sources: []string{"live", "catalog"},
-			PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
+			PricingStatus: PricingStatusPending,
 		},
 	}) {
 		t.Fatalf("provider draft candidates = %#v", provider.Models)
@@ -174,7 +178,7 @@ func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testi
 			},
 		},
 	}})
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"shared", "live-only"}, nil
@@ -182,18 +186,17 @@ func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testi
 	})
 	providerID := "openai"
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		ProviderID:  &providerID,
-		UpstreamURL: "https://saved-proxy.example/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID:   channel.OpenAI,
+		Params:      json.RawMessage(`{}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{{ID: "shared"}}},
-		Keys:        "saved-secret",
+		Credentials: "saved-secret",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	zero := int64(0)
 	if err := fixture.db.Model(&models.ModelPrice{}).
-		Where("model_id = ?", "shared").
+		Where("channel_id = ? AND model_id = ?", channel.OpenAI, "shared").
 		Update("input_price_nano_usd_per_million_tokens", &zero).Error; err != nil {
 		t.Fatal(err)
 	}

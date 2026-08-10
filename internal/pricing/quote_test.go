@@ -28,7 +28,7 @@ func TestQuoteMapsUsageStatesBeforeLookup(t *testing.T) {
 }
 
 func TestQuoteUsesHighestEligibleTierAtInclusiveBoundary(t *testing.T) {
-	identity := Identity{ModelID: "gpt-4.1"}
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	table := mustTable(t, Rule{
 		Identity: identity,
 		Prices:   Prices{Input: fixedPrice(1)},
@@ -49,7 +49,7 @@ func TestQuoteUsesHighestEligibleTierAtInclusiveBoundary(t *testing.T) {
 }
 
 func TestQuoteTierReplacesBaseSlotsWithoutFallback(t *testing.T) {
-	identity := Identity{ModelID: "claude-sonnet"}
+	identity := Identity{ChannelID: "anthropic", ModelID: "claude-sonnet"}
 	table := mustTable(t, Rule{
 		Identity: identity,
 		Prices:   Prices{Input: fixedPrice(10), Output: fixedPrice(20)},
@@ -70,7 +70,7 @@ func TestQuoteTierReplacesBaseSlotsWithoutFallback(t *testing.T) {
 }
 
 func TestQuotePricesCacheWriteFiveMinutesDirectlyAndOneHourAtExactEightFifths(t *testing.T) {
-	identity := Identity{ModelID: "claude-sonnet"}
+	identity := Identity{ChannelID: "anthropic", ModelID: "claude-sonnet"}
 	table := mustTable(t, Rule{Identity: identity, Prices: Prices{CacheWrite: fixedPrice(5)}})
 	quote := table.Quote(identity, usage.Result{
 		Tokens: usage.Tokens{CacheWrite5M: 1_000_000, CacheWrite1H: 1_000_000},
@@ -83,7 +83,7 @@ func TestQuotePricesCacheWriteFiveMinutesDirectlyAndOneHourAtExactEightFifths(t 
 }
 
 func TestQuoteIncludesUnknownCacheWriteInTierButNeverChargesIt(t *testing.T) {
-	identity := Identity{ModelID: "claude-sonnet"}
+	identity := Identity{ChannelID: "anthropic", ModelID: "claude-sonnet"}
 	table := mustTable(t, Rule{
 		Identity: identity,
 		Prices:   Prices{Input: fixedPrice(1), CacheWrite: fixedPrice(math.MaxInt64)},
@@ -103,7 +103,7 @@ func TestQuoteIncludesUnknownCacheWriteInTierButNeverChargesIt(t *testing.T) {
 }
 
 func TestQuotePreservesKnownCostWhenAnotherPositiveComponentIsUnavailable(t *testing.T) {
-	identity := Identity{ModelID: "gpt-4.1"}
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(7)}})
 	quote := table.Quote(identity, usage.Result{
 		Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1},
@@ -116,7 +116,7 @@ func TestQuotePreservesKnownCostWhenAnotherPositiveComponentIsUnavailable(t *tes
 }
 
 func TestQuoteCompleteUsageDiagnosticsDoNotMakeKnownCostPartial(t *testing.T) {
-	identity := Identity{ModelID: "gpt-4.1"}
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(9)}})
 	tests := []struct {
 		name             string
@@ -151,7 +151,7 @@ func TestQuoteCompleteUsageDiagnosticsDoNotMakeKnownCostPartial(t *testing.T) {
 }
 
 func TestQuoteSeparatesPricedStateFromCompleteness(t *testing.T) {
-	identity := Identity{ModelID: "gpt-4.1"}
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	tests := []struct {
 		name   string
 		result usage.Result
@@ -171,8 +171,11 @@ func TestQuoteSeparatesPricedStateFromCompleteness(t *testing.T) {
 			})
 		}
 
-		if got := allNull.Quote(Identity{ModelID: "missing"}, usage.Result{State: usage.StateComplete}); got != (Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}) {
+		if got := allNull.Quote(Identity{ChannelID: identity.ChannelID, ModelID: "missing"}, usage.Result{State: usage.StateComplete}); got != (Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}) {
 			t.Fatalf("missing exact rule Quote() = %#v, want unpriced unavailable", got)
+		}
+		if got := allNull.Quote(Identity{ChannelID: "other-channel", ModelID: identity.ModelID}, usage.Result{State: usage.StateComplete}); got != (Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}) {
+			t.Fatalf("wrong-channel rule Quote() = %#v, want unpriced unavailable", got)
 		}
 	}
 
@@ -184,7 +187,7 @@ func TestQuoteSeparatesPricedStateFromCompleteness(t *testing.T) {
 }
 
 func TestQuoteRejectsNegativeTokensAndOverflowFailClosed(t *testing.T) {
-	identity := Identity{ModelID: "gpt-4.1"}
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	table := mustTable(t, Rule{Identity: identity, Prices: Prices{
 		Input: fixedPrice(math.MaxInt64), Output: fixedPrice(math.MaxInt64),
 		CacheRead: fixedPrice(0), CacheWrite: fixedPrice(0),
@@ -214,7 +217,7 @@ func TestQuoteRejectsNegativeTokensAndOverflowFailClosed(t *testing.T) {
 }
 
 func TestQuotePartialUsageKeepsKnownCostAndPartialCompleteness(t *testing.T) {
-	identity := Identity{ModelID: "gemini-2.5-pro"}
+	identity := Identity{ChannelID: "gemini", ModelID: "gemini-2.5-pro"}
 	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Output: fixedPrice(4)}})
 	var diagnostics usage.Diagnostics
 	diagnostics.Add(usage.DiagnosticInvalidPayload)
@@ -230,7 +233,7 @@ func TestQuotePartialUsageKeepsKnownCostAndPartialCompleteness(t *testing.T) {
 }
 
 func TestQuoteWithReceiptFreezesExactTieredCalculation(t *testing.T) {
-	identity := Identity{ModelID: "claude-sonnet"}
+	identity := Identity{ChannelID: "anthropic", ModelID: "claude-sonnet"}
 	threshold := int64(1_000)
 	table := mustTable(t, Rule{
 		Identity: identity,
@@ -263,11 +266,14 @@ func TestQuoteWithReceiptFreezesExactTieredCalculation(t *testing.T) {
 	}) {
 		t.Fatalf("QuoteWithReceipt() quote = %#v", quote)
 	}
-	if receipt == nil || receipt.SchemaVersion != 2 || receipt.Method != "unit_rate_sum" ||
+	if receipt == nil || receipt.SchemaVersion != 3 || receipt.Method != "unit_rate_sum" ||
 		receipt.MethodVersion != 1 || receipt.Currency != "USD" ||
-		receipt.Rule != (ReceiptRule{ModelID: identity.ModelID}) || receipt.ContextThresholdTokens == nil ||
+		receipt.Rule != (ReceiptRule{ChannelID: identity.ChannelID, ModelID: identity.ModelID}) || receipt.ContextThresholdTokens == nil ||
 		*receipt.ContextThresholdTokens != threshold || receipt.TotalNanoUSD != 27 {
 		t.Fatalf("QuoteWithReceipt() receipt = %#v", receipt)
+	}
+	if err := ValidateReceipt(*receipt); err != nil {
+		t.Fatalf("generated v3 receipt is invalid: %v", err)
 	}
 	if got, want := len(receipt.LineItems), 5; got != want {
 		t.Fatalf("receipt line items = %d, want %d: %#v", got, want, receipt.LineItems)
@@ -280,7 +286,7 @@ func TestQuoteWithReceiptFreezesExactTieredCalculation(t *testing.T) {
 }
 
 func TestQuoteWithReceiptPreservesUnpricedPositiveComponents(t *testing.T) {
-	identity := Identity{ModelID: "gpt-4.1"}
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(7)}})
 
 	quote, receipt := table.QuoteWithReceipt(identity, usage.Result{

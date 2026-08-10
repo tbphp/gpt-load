@@ -65,7 +65,7 @@ export default {
     lead: 'Use AUTH_KEY to manage the gateway, or an AccessKey to view its Home, models, requests, and usage. The server identifies the credential automatically',
     capabilities: {
       1: {
-        title: 'Manage upstream keys centrally',
+        title: 'Manage channel credentials centrally',
         description: 'Maintain Groups, models, and availability in one place',
       },
       2: {
@@ -124,7 +124,7 @@ export default {
     monitor: 'Monitor',
     models: 'Models',
     settings: 'Settings',
-    import: 'Import upstream keys',
+    import: 'Import credentials',
     groupDetail: 'Group details',
     preferences: 'Preferences',
     language: 'Language',
@@ -168,7 +168,7 @@ export default {
       successLabel: 'Success',
       failuresLabel: 'Failures',
       factGroups: 'Groups',
-      factAvailableKeys: 'keys available',
+      factAvailableCredentials: 'credentials available',
       factModels: 'models',
       updated: 'Updated',
       version: 'Version',
@@ -182,22 +182,20 @@ export default {
       tokens: '{count} tokens',
       tokensWithUnpriced: '{tokens} · {unpriced} unpriced',
       welcomeTitle: 'Welcome to GPT-Load',
-      importKeys: 'Import upstream keys',
+      importCredentials: 'Import channel credentials',
       welcomeDescription:
-        'Import your first upstream key to create Groups and start forwarding native API requests',
+        'Choose a channel and import its API keys to create a Group and start forwarding requests',
       welcomeGuideTitle: 'Complete your first setup in three steps',
       welcomeEstimatedTime: 'Estimated 1–2 minutes',
-      welcomeStep1Title: 'Choose an upstream service',
-      welcomeStep1Description:
-        'OpenAI, Anthropic, Gemini, and compatible protocol services are supported',
-      welcomeStep2Title: 'Configure Groups and models',
-      welcomeStep2Description:
-        'Set the upstream address, protocols, and available models for related keys',
-      welcomeStep3Title: 'Import one or more keys',
+      welcomeStep1Title: 'Choose a channel',
+      welcomeStep1Description: 'Search built-in official and compatible channels by name',
+      welcomeStep2Title: 'Confirm Group details',
+      welcomeStep2Description: 'Models are optional; only compatible channels ask for a base URL',
+      welcomeStep3Title: 'Import one or more credentials',
       welcomeStep3Description:
-        'Paste upstream keys and confirm the import to begin managing availability immediately',
+        'Paste the channel API keys and confirm to begin managing availability immediately',
       welcomeSecurityNote:
-        'Upstream keys are stored encrypted; empty charts stay hidden until import is complete',
+        'Channel credentials are stored encrypted; empty charts stay hidden until import is complete',
       currentAccessKey: {
         eyebrow: 'Current sign-in identity',
         active: 'Active',

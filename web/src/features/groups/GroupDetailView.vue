@@ -11,7 +11,7 @@ import {
   groupSettingsQueryOptions,
   groupSummaryQueryOptions,
 } from '@/app/resources/groups'
-import { groupKeyCollectionQueryOptions } from '@/app/resources/upstream-keys'
+import { credentialCollectionQueryOptions } from '@/app/resources/credentials'
 import { groupsLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -20,11 +20,11 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import GroupHeader from './GroupHeader.vue'
-import GroupKeysTab from './keys/GroupKeysTab.vue'
+import GroupCredentialsTab from './credentials/GroupCredentialsTab.vue'
 import GroupModelsTab from './models/GroupModelsTab.vue'
 import GroupTabs from './GroupTabs.vue'
 import GroupSettingsTab from './settings/GroupSettingsTab.vue'
-import { normalizeGroupTab, parseGroupKeyRouteQuery, parsePositiveId } from './group-route'
+import { normalizeGroupTab, parseCredentialRouteQuery, parsePositiveId } from './group-route'
 
 const route = useRoute()
 const client = useApiClient()
@@ -46,7 +46,7 @@ watch(
     if (id === undefined) return
     void Promise.allSettled([
       queryClient.prefetchQuery(
-        groupKeyCollectionQueryOptions(client, id, parseGroupKeyRouteQuery(route.query)),
+        credentialCollectionQueryOptions(client, id, parseCredentialRouteQuery(route.query)),
       ),
       queryClient.prefetchQuery(groupModelsQueryOptions(client, id)),
       queryClient.prefetchQuery(groupSettingsQueryOptions(client, id)),
@@ -91,10 +91,14 @@ watch(
           />
           <GroupHeader :group="summaryQuery.data.value" />
           <GroupTabs
-            :key-count="summaryQuery.data.value.key_count"
+            :credential-count="summaryQuery.data.value.credential_count"
             :model-count="summaryQuery.data.value.model_count"
           >
-            <GroupKeysTab v-if="activeTab === 'keys'" :key="groupId" :group-id="groupId" />
+            <GroupCredentialsTab
+              v-if="activeTab === 'credentials'"
+              :key="groupId"
+              :group-id="groupId"
+            />
             <GroupModelsTab v-else-if="activeTab === 'models'" :key="groupId" :group-id="groupId" />
             <GroupSettingsTab
               v-else-if="activeTab === 'settings'"

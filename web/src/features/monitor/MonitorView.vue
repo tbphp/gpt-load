@@ -74,7 +74,9 @@ const usageRangeOptions = computed(() =>
 const usageFilterCount = computed(
   () =>
     Number(!isAccessKey.value && usageFilters.value.group_id !== undefined) +
-    Number(usageFilters.value.model !== undefined),
+    Number(!isAccessKey.value && usageFilters.value.channel_id !== undefined) +
+    Number(!isAccessKey.value && usageFilters.value.credential_id !== undefined) +
+    Number(usageFilters.value.upstream_model !== undefined),
 )
 
 watch(

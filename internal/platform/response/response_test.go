@@ -49,10 +49,10 @@ func TestErrorI18nFromAPIErrorIncludesOptionalData(t *testing.T) {
 	context.Request.Header.Set("Accept-Language", "en-US")
 	i18n.Middleware()(context)
 
-	apiErr := app_errors.NewAPIErrorWithData(app_errors.ErrUpstreamURLConflict, map[string]any{
+	apiErr := app_errors.NewAPIErrorWithData(app_errors.ErrChannelTargetConflict, map[string]any{
 		"groups": []string{"group-a", "group-b"},
 	})
-	ErrorI18nFromAPIError(context, apiErr, "group.upstream_url_conflict")
+	ErrorI18nFromAPIError(context, apiErr, "group.channel_target_conflict")
 
 	var body struct {
 		Code string `json:"code"`
@@ -63,7 +63,7 @@ func TestErrorI18nFromAPIErrorIncludesOptionalData(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if body.Code != app_errors.ErrUpstreamURLConflict.Code || len(body.Data.Groups) != 2 {
+	if body.Code != app_errors.ErrChannelTargetConflict.Code || len(body.Data.Groups) != 2 {
 		t.Fatalf("response = %#v", body)
 	}
 }

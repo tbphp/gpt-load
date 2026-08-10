@@ -14,6 +14,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/pricing"
@@ -32,6 +34,8 @@ const (
 var canonicalLowercaseUUIDv4 = regexp.MustCompile(
 	`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
 )
+
+var requestLogChannelRegistry = channel.NewRegistry()
 
 type RequestLogReader interface {
 	List(context.Context, requestlog.ListQuery) (requestlog.Page, error)
@@ -57,24 +61,32 @@ type requestLogReasoningResponse struct {
 }
 
 type requestLogAttemptResponse struct {
-	Sequence        int                               `json:"sequence"`
-	GroupID         uint                              `json:"group_id"`
-	GroupName       string                            `json:"group_name"`
-	KeyID           uint                              `json:"key_id"`
-	UpstreamModel   *string                           `json:"upstream_model"`
-	StatusCode      int                               `json:"status_code"`
-	DurationMs      int64                             `json:"duration_ms"`
-	FailureCategory telemetry.FailureCategory         `json:"failure_category"`
-	Action          telemetry.Action                  `json:"action"`
-	WillRetry       bool                              `json:"will_retry"`
-	ErrorCode       string                            `json:"error_code"`
-	ErrorSummary    string                            `json:"error_summary"`
-	PricingReceipt  *requestLogPricingReceiptResponse `json:"pricing_receipt"`
+	Sequence          int                               `json:"sequence"`
+	GroupID           uint                              `json:"group_id"`
+	GroupName         string                            `json:"group_name"`
+	ChannelID         *channel.ID                       `json:"channel_id"`
+	CredentialID      *uint                             `json:"credential_id"`
+	Operation         *execution.Operation              `json:"operation"`
+	RouteMode         *channel.RouteMode                `json:"route_mode"`
+	UpstreamModel     *string                           `json:"upstream_model"`
+	UpstreamRequestID *string                           `json:"upstream_request_id"`
+	DispatchState     *execution.DispatchState          `json:"dispatch_state"`
+	ResponseStarted   bool                              `json:"response_started"`
+	StatusCode        int                               `json:"status_code"`
+	DurationMs        int64                             `json:"duration_ms"`
+	FailureCategory   telemetry.FailureCategory         `json:"failure_category"`
+	Action            string                            `json:"action"`
+	WillRetry         bool                              `json:"will_retry"`
+	ErrorCode         string                            `json:"error_code"`
+	ErrorSummary      string                            `json:"error_summary"`
+	Committed         bool                              `json:"committed"`
+	PricingReceipt    *requestLogPricingReceiptResponse `json:"pricing_receipt"`
 }
 
 type requestLogPricingIdentityResponse struct {
-	ScopeKey *string `json:"scope_key,omitempty"`
-	ModelID  string  `json:"model_id"`
+	ScopeKey  *string `json:"scope_key,omitempty"`
+	ChannelID *string `json:"channel_id,omitempty"`
+	ModelID   string  `json:"model_id"`
 }
 
 type requestLogPricingMultiplierResponse struct {
@@ -122,6 +134,8 @@ type requestLogItemResponse struct {
 	ErrorSummary            string                       `json:"error_summary"`
 	AffinityHit             bool                         `json:"affinity_hit"`
 	GroupID                 *uint                        `json:"group_id"`
+	ChannelID               *channel.ID                  `json:"channel_id"`
+	CredentialID            *uint                        `json:"credential_id"`
 	UsageState              usage.State                  `json:"usage_state"`
 	CostState               pricing.CostState            `json:"cost_state"`
 	PricingCompleteness     pricing.Completeness         `json:"pricing_completeness"`
@@ -259,9 +273,10 @@ func requestLogQueryUsesInternalFields(rawQuery string) bool {
 	}
 	for _, key := range []string{
 		"group_id",
+		"channel_id",
+		"credential_id",
 		"upstream_model",
 		"access_key_id",
-		"upstream_key_id",
 		"attempt_status_code",
 		"failure_category",
 		"error_code",
@@ -283,6 +298,8 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.AttemptCount = 0
 	record.AffinityHit = false
 	record.GroupID = 0
+	record.ChannelID = ""
+	record.CredentialID = 0
 	record.Attempts = []requestlog.Attempt{}
 	return record
 }
@@ -293,10 +310,11 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		return requestlog.ListQuery{}, app_errors.ErrBadRequest
 	}
 	allowed := map[string]struct{}{
-		"from_ms": {}, "to_ms": {}, "group_id": {}, "client_model": {}, "upstream_model": {}, "access_key_id": {},
+		"from_ms": {}, "to_ms": {}, "group_id": {}, "channel_id": {}, "credential_id": {},
+		"client_model": {}, "upstream_model": {}, "access_key_id": {},
 		"status": {}, "request_id": {}, "protocol": {}, "stream": {}, "final_status_code": {},
 		"usage_state": {}, "cost_state": {}, "pricing_completeness": {}, "cache_present": {},
-		"upstream_key_id": {}, "attempt_status_code": {}, "failure_category": {}, "error_code": {},
+		"attempt_status_code": {}, "failure_category": {}, "error_code": {},
 		"retry_state": {}, "retry_count_min": {}, "retry_count_max": {},
 		"first_response_min_ms": {}, "first_response_max_ms": {},
 		"duration_min_ms": {}, "duration_max_ms": {},
@@ -335,6 +353,20 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 			return requestlog.ListQuery{}, apiErr
 		}
 		query.GroupID = &parsed
+	}
+	if value, ok := singleQueryValue(values, "channel_id"); ok {
+		parsed, apiErr := parseRequestLogChannelID(value)
+		if apiErr != nil {
+			return requestlog.ListQuery{}, apiErr
+		}
+		query.ChannelID = parsed
+	}
+	if value, ok := singleQueryValue(values, "credential_id"); ok {
+		parsed, apiErr := parseRequestLogID(value)
+		if apiErr != nil {
+			return requestlog.ListQuery{}, apiErr
+		}
+		query.CredentialID = &parsed
 	}
 	if value, ok := singleQueryValue(values, "client_model"); ok {
 		if !validUsageModel(value) {
@@ -424,13 +456,6 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 			return requestlog.ListQuery{}, app_errors.ErrValidation
 		}
 		query.CachePresent = &parsed
-	}
-	if value, ok := singleQueryValue(values, "upstream_key_id"); ok {
-		parsed, apiErr := parseRequestLogID(value)
-		if apiErr != nil {
-			return requestlog.ListQuery{}, apiErr
-		}
-		query.UpstreamKeyID = &parsed
 	}
 	if value, ok := singleQueryValue(values, "attempt_status_code"); ok {
 		parsed, apiErr := parseRequestLogStatusCode(value)
@@ -550,6 +575,14 @@ func parseRequestLogID(value string) (uint, *app_errors.APIError) {
 		return 0, app_errors.ErrValidation
 	}
 	return uint(parsed), nil
+}
+
+func parseRequestLogChannelID(value string) (channel.ID, *app_errors.APIError) {
+	channelID := channel.ID(value)
+	if _, ok := requestLogChannelRegistry.Get(channelID); !ok {
+		return "", app_errors.ErrValidation
+	}
+	return channelID, nil
 }
 
 func parseRequestLogBool(value string) (bool, bool) {
@@ -811,6 +844,8 @@ func mapRequestLogItemResponse(
 		ErrorSummary:            record.ErrorSummary,
 		AffinityHit:             record.AffinityHit,
 		GroupID:                 usageCost.groupID,
+		ChannelID:               usageCost.channelID,
+		CredentialID:            usageCost.credentialID,
 		UsageState:              record.UsageState,
 		CostState:               record.CostState,
 		PricingCompleteness:     record.PricingCompleteness,
@@ -875,27 +910,66 @@ func mapRequestLogDetailResponse(record requestlog.Record) (requestLogDetailResp
 	}
 	attempts := make([]requestLogAttemptResponse, 0, len(record.Attempts))
 	for _, attempt := range record.Attempts {
-		receipt, err := mapRequestLogPricingReceipt(attempt.PricingReceipt)
+		mapped, err := mapRequestLogAttempt(attempt)
 		if err != nil {
 			return requestLogDetailResponse{}, err
 		}
-		attempts = append(attempts, requestLogAttemptResponse{
-			Sequence:        attempt.Sequence,
-			GroupID:         attempt.GroupID,
-			GroupName:       attempt.GroupName,
-			KeyID:           attempt.KeyID,
-			UpstreamModel:   nullableRequestLogModel(attempt.UpstreamModel),
-			StatusCode:      attempt.StatusCode,
-			DurationMs:      attempt.DurationMs,
-			FailureCategory: attempt.FailureCategory,
-			Action:          attempt.Action,
-			WillRetry:       attempt.WillRetry,
-			ErrorCode:       attempt.ErrorCode,
-			ErrorSummary:    attempt.ErrorSummary,
-			PricingReceipt:  receipt,
-		})
+		attempts = append(attempts, mapped)
 	}
 	return requestLogDetailResponse{requestLogItemResponse: item, Attempts: attempts}, nil
+}
+
+func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse, error) {
+	channelID, err := nullableRequestLogChannelID(attempt.ChannelID)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	credentialID, err := nullableRequestLogID(attempt.CredentialID, "credential")
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	operation, err := nullableRequestLogOperation(attempt.Operation)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	routeMode, err := nullableRequestLogRouteMode(attempt.RouteMode)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	dispatchState, err := nullableRequestLogDispatchState(attempt.DispatchState)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	receipt, err := mapRequestLogPricingReceipt(attempt.PricingReceipt)
+	if err != nil {
+		return requestLogAttemptResponse{}, err
+	}
+	return requestLogAttemptResponse{
+		Sequence:          attempt.Sequence,
+		GroupID:           attempt.GroupID,
+		GroupName:         attempt.GroupName,
+		ChannelID:         channelID,
+		CredentialID:      credentialID,
+		Operation:         operation,
+		RouteMode:         routeMode,
+		UpstreamModel:     nullableRequestLogModel(attempt.UpstreamModel),
+		UpstreamRequestID: nullableRequestLogModel(attempt.UpstreamRequestID),
+		DispatchState:     dispatchState,
+		ResponseStarted:   attempt.ResponseStarted,
+		StatusCode:        attempt.StatusCode,
+		DurationMs:        attempt.DurationMs,
+		FailureCategory:   attempt.FailureCategory,
+		Action:            requestLogAttemptAction(attempt.Action),
+		WillRetry:         attempt.WillRetry,
+		ErrorCode:         attempt.ErrorCode,
+		ErrorSummary:      attempt.ErrorSummary,
+		Committed:         attempt.Committed,
+		PricingReceipt:    receipt,
+	}, nil
+}
+
+func requestLogAttemptAction(action telemetry.Action) string {
+	return string(action)
 }
 
 func mapRequestLogPricingReceipt(
@@ -919,6 +993,14 @@ func mapRequestLogPricingReceipt(
 	if receipt.SchemaVersion == 1 {
 		scopeKey := receipt.Rule.ScopeKey
 		result.Rule.ScopeKey = &scopeKey
+	}
+	if receipt.SchemaVersion == 3 {
+		channelID := channel.ID(receipt.Rule.ChannelID)
+		if _, ok := requestLogChannelRegistry.Get(channelID); !ok {
+			return nil, fmt.Errorf("map request log pricing receipt: unknown channel ID")
+		}
+		value := string(channelID)
+		result.Rule.ChannelID = &value
 	}
 	if receipt.ContextThresholdTokens != nil {
 		value := strconv.FormatInt(*receipt.ContextThresholdTokens, 10)
@@ -954,8 +1036,62 @@ func nullableRequestLogModel(value string) *string {
 	return &value
 }
 
+func nullableRequestLogChannelID(value channel.ID) (*channel.ID, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if _, ok := requestLogChannelRegistry.Get(value); !ok {
+		return nil, fmt.Errorf("unknown channel ID")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogID(value uint, field string) (*uint, error) {
+	if value == 0 {
+		return nil, nil
+	}
+	if uint64(value) > uint64(maxSafeInteger) {
+		return nil, fmt.Errorf("unsafe %s ID", field)
+	}
+	return &value, nil
+}
+
+func nullableRequestLogOperation(value execution.Operation) (*execution.Operation, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid operation")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogRouteMode(value channel.RouteMode) (*channel.RouteMode, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid route mode")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogDispatchState(
+	value execution.DispatchState,
+) (*execution.DispatchState, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid dispatch state")
+	}
+	return &value, nil
+}
+
 type requestLogUsageCostResponse struct {
 	groupID              *uint
+	channelID            *channel.ID
+	credentialID         *uint
 	estimatedCostNanoUSD string
 }
 
@@ -993,12 +1129,22 @@ func mapRequestLogUsageCost(record requestlog.Record) (requestLogUsageCostRespon
 	if uint64(record.GroupID) > uint64(maxSafeInteger) {
 		return requestLogUsageCostResponse{}, fmt.Errorf("map request log final Group ID: unsafe value")
 	}
+	channelID, err := nullableRequestLogChannelID(record.ChannelID)
+	if err != nil {
+		return requestLogUsageCostResponse{}, fmt.Errorf("map request log final channel: %w", err)
+	}
+	credentialID, err := nullableRequestLogID(record.CredentialID, "credential")
+	if err != nil {
+		return requestLogUsageCostResponse{}, fmt.Errorf("map request log final credential: %w", err)
+	}
 	if record.EstimatedCostNanoUSD < 0 {
 		return requestLogUsageCostResponse{}, fmt.Errorf(
 			"map request log usage/cost: negative estimated cost",
 		)
 	}
 	result := requestLogUsageCostResponse{
+		channelID:            channelID,
+		credentialID:         credentialID,
 		estimatedCostNanoUSD: strconv.FormatInt(record.EstimatedCostNanoUSD, 10),
 	}
 	if record.GroupID != 0 {

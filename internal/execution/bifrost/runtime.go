@@ -1,0 +1,302 @@
+// Package bifrost adapts the official Bifrost Core SDK to the neutral execution contract.
+package bifrost
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+
+	core "github.com/maximhq/bifrost/core"
+	"github.com/maximhq/bifrost/core/schemas"
+
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
+)
+
+const (
+	providerConcurrency = 32
+	providerBufferSize  = 256
+	providerTimeoutSecs = 300
+)
+
+var errKeyPoolDisabled = errors.New("Bifrost key pool is disabled; DirectKey is required")
+
+// Runtime owns one long-lived Bifrost Core and executes attempts with explicit credentials.
+type Runtime struct {
+	core         *core.Bifrost
+	account      *directAccount
+	registry     *channel.Registry
+	capabilities execution.CapabilitySet
+	allowPrivate bool
+	shutdownOnce sync.Once
+	closed       atomic.Bool
+}
+
+type runtimeOptions struct {
+	allowPrivateNetwork bool
+	openAIBaseURL       string
+	anthropicBaseURL    string
+	geminiBaseURL       string
+}
+
+// NewRuntime initializes one production runtime. Administrators may configure private-network
+// compatible endpoints; Bifrost still rejects link-local and otherwise unsafe destinations.
+func NewRuntime(ctx context.Context) (*Runtime, error) {
+	return newRuntime(ctx, runtimeOptions{allowPrivateNetwork: true})
+}
+
+func newRuntime(ctx context.Context, options runtimeOptions) (*Runtime, error) {
+	account := newDirectAccount()
+	account.setConfig(schemas.OpenAI, providerConfig(options.openAIBaseURL, false, schemas.OpenAI, options.allowPrivateNetwork))
+	account.setConfig(schemas.Anthropic, providerConfig(options.anthropicBaseURL, false, schemas.Anthropic, options.allowPrivateNetwork))
+	account.setConfig(schemas.Gemini, providerConfig(options.geminiBaseURL, false, schemas.Gemini, options.allowPrivateNetwork))
+	account.setConfig(schemas.Azure, providerConfig("", false, schemas.Azure, options.allowPrivateNetwork))
+	account.setConfig(schemas.Bedrock, providerConfig("", false, schemas.Bedrock, options.allowPrivateNetwork))
+	account.setConfig(schemas.Vertex, providerConfig("", false, schemas.Vertex, options.allowPrivateNetwork))
+
+	bifrostCore, err := core.Init(ctx, schemas.BifrostConfig{
+		Account:         account,
+		LLMPlugins:      []schemas.LLMPlugin{},
+		MCPPlugins:      []schemas.MCPPlugin{},
+		Logger:          core.NewNoOpLogger(),
+		InitialPoolSize: 64,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize execution runtime: %w", err)
+	}
+	features, err := execution.NewFeatureSet(
+		execution.FeatureStreaming,
+		execution.FeatureTools,
+		execution.FeatureReasoning,
+		execution.FeatureMultimodal,
+		execution.FeatureStructuredOutput,
+	)
+	if err != nil {
+		bifrostCore.Shutdown()
+		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
+	}
+	resourceFeatures, err := execution.NewFeatureSet(execution.FeatureNativeResourceSemantics)
+	if err != nil {
+		bifrostCore.Shutdown()
+		return nil, fmt.Errorf("initialize resource capabilities: %w", err)
+	}
+	responsesFeatures, err := execution.NewFeatureSet(
+		execution.FeatureStreaming,
+		execution.FeatureTools,
+		execution.FeatureReasoning,
+		execution.FeatureMultimodal,
+		execution.FeatureStructuredOutput,
+		execution.FeatureNativeResourceSemantics,
+	)
+	if err != nil {
+		bifrostCore.Shutdown()
+		return nil, fmt.Errorf("initialize responses capabilities: %w", err)
+	}
+	passthroughFeatures, err := execution.NewFeatureSet(
+		execution.FeatureStreaming,
+		execution.FeatureNativeResourceSemantics,
+	)
+	if err != nil {
+		bifrostCore.Shutdown()
+		return nil, fmt.Errorf("initialize passthrough capabilities: %w", err)
+	}
+	responsesUtilityFeatures, err := execution.NewFeatureSet(
+		execution.FeatureTools,
+		execution.FeatureReasoning,
+		execution.FeatureMultimodal,
+		execution.FeatureStructuredOutput,
+	)
+	if err != nil {
+		bifrostCore.Shutdown()
+		return nil, fmt.Errorf("initialize Responses utility capabilities: %w", err)
+	}
+	capabilities, err := execution.NewCapabilitySet(
+		execution.Capability{Operation: execution.OperationChatCompletion, Features: features},
+		execution.Capability{Operation: execution.OperationResponsesCreate, Features: responsesFeatures},
+		execution.Capability{Operation: execution.OperationResponsesRetrieve, Features: resourceFeatures},
+		execution.Capability{Operation: execution.OperationResponsesDelete, Features: resourceFeatures},
+		execution.Capability{Operation: execution.OperationResponsesCancel, Features: resourceFeatures},
+		execution.Capability{Operation: execution.OperationResponsesInputItems, Features: resourceFeatures},
+		execution.Capability{Operation: execution.OperationResponsesCompact, Features: responsesUtilityFeatures},
+		execution.Capability{Operation: execution.OperationResponsesInputTokens, Features: responsesUtilityFeatures},
+		execution.Capability{Operation: execution.OperationResponsesPassthrough, Features: passthroughFeatures},
+		execution.Capability{Operation: execution.OperationListModels},
+		execution.Capability{Operation: execution.OperationProbe},
+	)
+	if err != nil {
+		bifrostCore.Shutdown()
+		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
+	}
+	return &Runtime{
+		core:         bifrostCore,
+		account:      account,
+		registry:     channel.NewRegistry(),
+		capabilities: capabilities,
+		allowPrivate: options.allowPrivateNetwork,
+	}, nil
+}
+
+// Capabilities returns an independent capability snapshot.
+func (r *Runtime) Capabilities() execution.CapabilitySet {
+	if r == nil {
+		return execution.CapabilitySet{}
+	}
+	return r.capabilities.Clone()
+}
+
+// Shutdown releases the shared SDK runtime. It is safe to call more than once.
+func (r *Runtime) Shutdown() {
+	if r == nil {
+		return
+	}
+	r.shutdownOnce.Do(func() {
+		r.closed.Store(true)
+		if r.core != nil {
+			r.core.Shutdown()
+		}
+	})
+}
+
+func providerConfig(baseURL string, custom bool, baseProvider schemas.ModelProvider, allowPrivateNetwork bool) *schemas.ProviderConfig {
+	networkBaseURL := baseURL
+	if custom && baseProvider == schemas.OpenAI {
+		// OpenAI passthrough always appends /v1 before the request path. Channel
+		// base_url is a complete API prefix, so remove only that exact suffix.
+		networkBaseURL = strings.TrimSuffix(baseURL, "/v1")
+	}
+	config := &schemas.ProviderConfig{
+		NetworkConfig: schemas.NetworkConfig{
+			BaseURL:                        networkBaseURL,
+			DefaultRequestTimeoutInSeconds: providerTimeoutSecs,
+			MaxRetries:                     0,
+			StreamIdleTimeoutInSeconds:     120,
+			AllowPrivateNetwork:            allowPrivateNetwork,
+		},
+		ConcurrencyAndBufferSize: schemas.ConcurrencyAndBufferSize{
+			Concurrency: providerConcurrency,
+			BufferSize:  providerBufferSize,
+		},
+		SendBackRawRequest:      false,
+		SendBackRawResponse:     false,
+		StoreRawRequestResponse: false,
+	}
+	if custom {
+		customConfig := &schemas.CustomProviderConfig{
+			BaseProviderType: baseProvider,
+			AllowedRequests: &schemas.AllowedRequests{
+				ListModels:           true,
+				ChatCompletion:       true,
+				ChatCompletionStream: true,
+				Passthrough:          true,
+				PassthroughStream:    true,
+			},
+		}
+		if baseProvider == schemas.OpenAI {
+			// Channel base_url is the complete API prefix (commonly ending in /v1),
+			// while Bifrost's OpenAI default assumes a provider origin and appends /v1.
+			customConfig.RequestPathOverrides = map[schemas.RequestType]string{
+				schemas.ChatCompletionRequest:       baseURL + "/chat/completions",
+				schemas.ChatCompletionStreamRequest: baseURL + "/chat/completions",
+			}
+		}
+		config.CustomProviderConfig = customConfig
+	}
+	return config
+}
+
+type directAccount struct {
+	mu           sync.RWMutex
+	configs      map[schemas.ModelProvider]*schemas.ProviderConfig
+	keyPoolCalls atomic.Uint64
+}
+
+func newDirectAccount() *directAccount {
+	return &directAccount{configs: make(map[schemas.ModelProvider]*schemas.ProviderConfig)}
+}
+
+func (a *directAccount) GetConfiguredProviders() ([]schemas.ModelProvider, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	providers := make([]schemas.ModelProvider, 0, len(a.configs))
+	for provider := range a.configs {
+		providers = append(providers, provider)
+	}
+	return providers, nil
+}
+
+func (a *directAccount) GetKeysForProvider(context.Context, schemas.ModelProvider) ([]schemas.Key, error) {
+	a.keyPoolCalls.Add(1)
+	return nil, errKeyPoolDisabled
+}
+
+func (a *directAccount) GetConfigForProvider(provider schemas.ModelProvider) (*schemas.ProviderConfig, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	config, ok := a.configs[provider]
+	if !ok {
+		return nil, fmt.Errorf("provider config is not registered")
+	}
+	return cloneProviderConfig(config), nil
+}
+
+func (a *directAccount) setConfig(provider schemas.ModelProvider, config *schemas.ProviderConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, exists := a.configs[provider]; !exists {
+		a.configs[provider] = cloneProviderConfig(config)
+	}
+}
+
+func cloneProviderConfig(source *schemas.ProviderConfig) *schemas.ProviderConfig {
+	if source == nil {
+		return nil
+	}
+	clone := *source
+	clone.NetworkConfig.ExtraHeaders = cloneStringMap(source.NetworkConfig.ExtraHeaders)
+	clone.NetworkConfig.BetaHeaderOverrides = cloneBoolMap(source.NetworkConfig.BetaHeaderOverrides)
+	if source.CustomProviderConfig != nil {
+		custom := *source.CustomProviderConfig
+		if source.CustomProviderConfig.AllowedRequests != nil {
+			allowed := *source.CustomProviderConfig.AllowedRequests
+			custom.AllowedRequests = &allowed
+		}
+		custom.RequestPathOverrides = make(map[schemas.RequestType]string, len(source.CustomProviderConfig.RequestPathOverrides))
+		for key, value := range source.CustomProviderConfig.RequestPathOverrides {
+			custom.RequestPathOverrides[key] = value
+		}
+		clone.CustomProviderConfig = &custom
+	}
+	if source.OpenAIConfig != nil {
+		openAIConfig := *source.OpenAIConfig
+		clone.OpenAIConfig = &openAIConfig
+	}
+	return &clone
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	if source == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
+}
+
+func cloneBoolMap(source map[string]bool) map[string]bool {
+	if source == nil {
+		return nil
+	}
+	clone := make(map[string]bool, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
+}
+
+var _ execution.Executor = (*Runtime)(nil)
+var _ schemas.Account = (*directAccount)(nil)

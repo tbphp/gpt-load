@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"gpt-load/internal/pricing"
-	"gpt-load/internal/protocol"
 )
 
 // ModelCost is the exact provider price data retained for one model.
@@ -62,16 +61,11 @@ type Model struct {
 	Cost     *ModelCost
 }
 
-// Provider is the retained Models.dev provider identity and model map. Mark and
-// Protocols are local suggestion metadata and are never read from Models.dev.
+// Provider is the retained Models.dev provider identity and model map.
 type Provider struct {
-	ID        string
-	Name      string
-	APIURL    string
-	NPM       string
-	Mark      string
-	Protocols []protocol.Protocol
-	Models    map[string]Model
+	ID     string
+	Name   string
+	Models map[string]Model
 }
 
 // Snapshot is one complete validated catalog generation.
@@ -114,7 +108,6 @@ func cloneSnapshot(snapshot *Snapshot) *Snapshot {
 }
 
 func cloneProvider(provider Provider) Provider {
-	provider.Protocols = append([]protocol.Protocol(nil), provider.Protocols...)
 	if provider.Models != nil {
 		models := make(map[string]Model, len(provider.Models))
 		for id, model := range provider.Models {

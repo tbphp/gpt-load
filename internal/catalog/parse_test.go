@@ -54,8 +54,7 @@ func TestParseModelsDevUsesExactDecimalsAndCanonicalTiers(t *testing.T) {
 
 	snapshot := mustParse(t, raw)
 	provider := snapshot.Providers["openai"]
-	if provider.ID != "openai" || provider.Name != "OpenAI" ||
-		provider.APIURL != "https://api.openai.com/v1/" || provider.NPM != "@ai-sdk/openai" {
+	if provider.ID != "openai" || provider.Name != "OpenAI" {
 		t.Fatalf("provider = %#v", provider)
 	}
 

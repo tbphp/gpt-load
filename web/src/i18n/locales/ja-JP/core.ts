@@ -64,7 +64,7 @@ export default {
     lead: 'AUTH_KEY ではゲートウェイを管理し、AccessKey では自身のホーム、モデル、リクエスト、使用量だけを確認できます。サーバーが認証情報を自動判定します',
     capabilities: {
       1: {
-        title: 'アップストリームキーを一元管理',
+        title: 'チャネル認証情報を一元管理',
         description: 'Group、モデル、利用可能状況をまとめて管理します',
       },
       2: {
@@ -122,7 +122,7 @@ export default {
     monitor: 'モニター',
     models: 'モデル',
     settings: '設定',
-    import: 'アップストリームキーをインポート',
+    import: 'チャネル認証情報をインポート',
     groupDetail: 'Group 詳細',
     preferences: '環境設定',
     language: '言語',
@@ -166,7 +166,7 @@ export default {
       successLabel: '成功',
       failuresLabel: '失敗',
       factGroups: '個の Group',
-      factAvailableKeys: '個のキーが利用可能',
+      factAvailableCredentials: '個の認証情報が利用可能',
       factModels: '個のモデル',
       updated: '更新',
       version: 'バージョン',
@@ -180,22 +180,19 @@ export default {
       tokens: '{count} tokens',
       tokensWithUnpriced: '{tokens} · 価格未設定 {unpriced} 件',
       welcomeTitle: 'GPT-Load へようこそ',
-      importKeys: 'アップストリームキーをインポート',
-      welcomeDescription:
-        '最初のアップストリームキーをインポートすると、Group を作成してネイティブ API リクエストを転送できます',
+      importCredentials: 'チャネル認証情報をインポート',
+      welcomeDescription: 'チャネルを選び、対応する API キーをインポートして Group を作成します',
       welcomeGuideTitle: '初回接続を 3 ステップで完了',
       welcomeEstimatedTime: '所要 1～2 分',
-      welcomeStep1Title: 'アップストリームサービスを選択',
-      welcomeStep1Description:
-        'OpenAI、Anthropic、Gemini、および互換プロトコルのサービスに対応します',
-      welcomeStep2Title: 'Group とモデルを設定',
-      welcomeStep2Description:
-        '用途が同じキーに対して、アップストリームアドレス、プロトコル、利用可能なモデルを設定します',
-      welcomeStep3Title: 'キーを 1 つ以上インポート',
+      welcomeStep1Title: 'チャネルを選択',
+      welcomeStep1Description: '組み込みの公式チャネルと互換チャネルを名前で検索できます',
+      welcomeStep2Title: 'Group 情報を確認',
+      welcomeStep2Description: 'モデルは任意で、互換チャネルのみベース URL の入力が必要です',
+      welcomeStep3Title: '認証情報を 1 つ以上インポート',
       welcomeStep3Description:
-        'アップストリームキーを貼り付けてインポートを確認すると、可用性管理がすぐに始まります',
+        'チャネルの API キーを貼り付けて確認すると、可用性管理がすぐに始まります',
       welcomeSecurityNote:
-        'アップストリームキーは暗号化して保存され、インポート完了前に意味のない空グラフは表示しません',
+        'チャネル認証情報は暗号化して保存され、インポート完了前に意味のない空グラフは表示しません',
       currentAccessKey: {
         eyebrow: '現在のログイン情報',
         active: '有効',

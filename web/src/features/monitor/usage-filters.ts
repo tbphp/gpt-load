@@ -7,7 +7,9 @@ export interface UsageFilterDraft {
   range: UsageFilters['range']
   breakdown_order: NonNullable<UsageFilters['breakdown_order']>
   group_id: string
-  model: string
+  channel_id: string
+  credential_id: string
+  upstream_model: string
 }
 
 export type UsageFilterErrors = Partial<
@@ -18,7 +20,9 @@ const emptyDraft = (): UsageFilterDraft => ({
   range: defaultTimeRange,
   breakdown_order: 'requests',
   group_id: '',
-  model: '',
+  channel_id: '',
+  credential_id: '',
+  upstream_model: '',
 })
 
 export function normalizeUsageRange(raw: unknown): UsageFilters['range'] {
@@ -39,12 +43,21 @@ export function normalizeUsageModel(raw: unknown): string | undefined {
   return normalizeMonitorText(raw)
 }
 
+export function normalizeUsageChannelID(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !/^[a-z][a-z0-9_]{0,99}$/u.test(raw)) return undefined
+  return raw
+}
+
 export function parseAppliedUsageFilters(query: Record<string, unknown>): UsageFilters {
   const filters: UsageFilters = { range: normalizeUsageRange(query.range) }
   const groupID = normalizeUsageGroupID(query.group_id)
-  const model = normalizeUsageModel(query.model)
+  const channelID = normalizeUsageChannelID(query.channel_id)
+  const credentialID = normalizeUsageGroupID(query.credential_id)
+  const upstreamModel = normalizeUsageModel(query.upstream_model ?? query.model)
   if (groupID !== undefined) filters.group_id = groupID
-  if (model !== undefined) filters.model = model
+  if (channelID !== undefined) filters.channel_id = channelID
+  if (credentialID !== undefined) filters.credential_id = credentialID
+  if (upstreamModel !== undefined) filters.upstream_model = upstreamModel
   if (query.breakdown_order === 'cost') filters.breakdown_order = 'cost'
   return filters
 }
@@ -55,7 +68,9 @@ export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft 
     range: filters.range,
     breakdown_order: filters.breakdown_order ?? 'requests',
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
-    model: filters.model ?? '',
+    channel_id: filters.channel_id ?? '',
+    credential_id: filters.credential_id === undefined ? '' : String(filters.credential_id),
+    upstream_model: filters.upstream_model ?? '',
   }
 }
 
@@ -69,9 +84,13 @@ export function applyUsageFilterDraft(draft: UsageFilterDraft): UsageFilters {
     breakdown_order: draft.breakdown_order,
   }
   const groupID = normalizeUsageGroupID(draft.group_id)
-  const model = normalizeUsageModel(draft.model)
+  const channelID = normalizeUsageChannelID(draft.channel_id)
+  const credentialID = normalizeUsageGroupID(draft.credential_id)
+  const upstreamModel = normalizeUsageModel(draft.upstream_model)
   if (groupID !== undefined) filters.group_id = groupID
-  if (model !== undefined) filters.model = model
+  if (channelID !== undefined) filters.channel_id = channelID
+  if (credentialID !== undefined) filters.credential_id = credentialID
+  if (upstreamModel !== undefined) filters.upstream_model = upstreamModel
   return filters
 }
 
@@ -80,8 +99,14 @@ export function validateUsageFilterDraft(draft: UsageFilterDraft): UsageFilterEr
   if (draft.group_id && normalizeUsageGroupID(draft.group_id) === undefined) {
     errors.group_id = 'monitor.usage.errors.positiveId'
   }
-  if (draft.model && normalizeUsageModel(draft.model) === undefined) {
-    errors.model = 'monitor.usage.errors.model'
+  if (draft.channel_id && normalizeUsageChannelID(draft.channel_id) === undefined) {
+    errors.channel_id = 'monitor.usage.errors.channelId'
+  }
+  if (draft.credential_id && normalizeUsageGroupID(draft.credential_id) === undefined) {
+    errors.credential_id = 'monitor.usage.errors.credentialId'
+  }
+  if (draft.upstream_model && normalizeUsageModel(draft.upstream_model) === undefined) {
+    errors.upstream_model = 'monitor.usage.errors.model'
   }
   return errors
 }

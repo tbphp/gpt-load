@@ -3,15 +3,11 @@ package dialect
 import (
 	"bufio"
 	"bytes"
-	"context"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
-	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
 
@@ -40,17 +36,17 @@ func TestUsageProviderNonStreamConformance(t *testing.T) {
 	}{
 		{
 			name:      "OpenAI",
-			extractor: NewOpenAI(http.DefaultClient),
+			extractor: NewOpenAI(),
 			body:      `{"usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`,
 		},
 		{
 			name:      "Anthropic",
-			extractor: NewAnthropic(http.DefaultClient),
+			extractor: NewAnthropic(),
 			body:      `{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"output_tokens":30}}`,
 		},
 		{
 			name:      "Gemini",
-			extractor: NewGemini(http.DefaultClient),
+			extractor: NewGemini(),
 			body:      `{"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":30}}`,
 		},
 	}
@@ -130,20 +126,4 @@ func (d *usageDialectOnly) Protocol() protocol.Protocol { return protocol.OpenAI
 
 func (d *usageDialectOnly) InspectRequest(*ParsedRequest) (RequestMetadata, error) {
 	return RequestMetadata{}, nil
-}
-
-func (d *usageDialectOnly) BuildUpstreamURL(string, *ParsedRequest) (string, error) { return "", nil }
-
-func (d *usageDialectOnly) InjectCredential(http.Header, string) {}
-
-func (d *usageDialectOnly) ListModels(context.Context, string, string, state.HeaderRules) ([]string, error) {
-	return nil, nil
-}
-
-func (d *usageDialectOnly) Probe(context.Context, string, string, state.HeaderRules, string) error {
-	return nil
-}
-
-func (d *usageDialectOnly) ClassifyStatus(int, []byte) health.FailureCategory {
-	return health.FailureCategoryOK
 }

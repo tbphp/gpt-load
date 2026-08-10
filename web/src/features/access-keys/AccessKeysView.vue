@@ -19,6 +19,7 @@ import {
   updateAccessKey,
 } from '@/app/resources/access-keys'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
+import { channelsQueryOptions } from '@/app/resources/channels'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { accessKeysLocation } from '@/app/route-locations'
 import { useToast } from '@/app/toast'
@@ -70,6 +71,7 @@ const pendingStatusIDs = ref(new Set<number>())
 const statusControllers = new Map<number, AbortController>()
 const accessKeysQuery = useQuery(accessKeyCollectionQueryOptions(client, filters))
 const groupsQuery = useQuery(groupOptionsQueryOptions(client))
+const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const data = computed(() => accessKeysQuery.data.value)
 const collectionBusy = computed(() => data.value !== undefined && accessKeysQuery.isFetching.value)
 const {
@@ -90,7 +92,8 @@ const {
 const pageRefreshing = computed(
   () =>
     collectionRefreshing.value ||
-    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value),
+    (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
+    (channelsQuery.data.value !== undefined && channelsQuery.isFetching.value),
 )
 const hasFilterCriteria = computed(
   () => filters.value.q !== undefined || filters.value.status !== undefined,
@@ -120,8 +123,10 @@ const statusSummaryItems = computed(() => {
   ]
 })
 const groupCatalogState = computed(() => {
-  if (groupsQuery.isError.value) return groupsQuery.data.value ? 'stale' : 'error'
-  if (groupsQuery.isPending.value) return 'loading'
+  if (groupsQuery.isError.value || channelsQuery.isError.value) {
+    return groupsQuery.data.value && channelsQuery.data.value ? 'stale' : 'error'
+  }
+  if (groupsQuery.isPending.value || channelsQuery.isPending.value) return 'loading'
   return 'ready'
 })
 const operationNoticeKey = computed(() =>
@@ -254,6 +259,10 @@ function resetConditions(): void {
   searchDebounce.cancel()
   searchDraft.value = ''
   routeWithFilters({ page: 1, page_size: 20 })
+}
+
+function retryGroupCatalog(): void {
+  void Promise.allSettled([groupsQuery.refetch(), channelsQuery.refetch()])
 }
 
 function setPage(page: number): void {
@@ -403,6 +412,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
           :open="drawerOpen"
           :access-key="selected"
           :groups="groupsQuery.data.value ?? []"
+          :channels="channelsQuery.data.value?.items ?? []"
           :total="data?.summary.total ?? 0"
           :group-catalog-state="groupCatalogState"
           :create-operation="createOperation"
@@ -483,12 +493,12 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
             @retry="accessKeysQuery.refetch()"
           />
           <QueryFeedback
-            v-if="groupsQuery.isError.value"
+            v-if="groupsQuery.isError.value || channelsQuery.isError.value"
             class="stale-banner"
             state="stale"
             :message="t('accessKeys.groupsStale')"
             :retry-label="t('common.retry')"
-            @retry="groupsQuery.refetch()"
+            @retry="retryGroupCatalog"
           />
 
           <template v-if="data.summary.total > 0">

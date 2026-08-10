@@ -15,7 +15,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
@@ -197,12 +198,10 @@ func TestRouteInspectSupportsResponsesWithoutModel(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID:          1,
-			Name:        "responses",
-			UpstreamURL: "https://responses.invalid",
-			Protocols:   []protocol.Protocol{protocol.OpenAIResponses},
-			Enabled:     true,
+			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID:      10,
@@ -213,10 +212,10 @@ func TestRouteInspectSupportsResponsesWithoutModel(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID:             21,
-		GroupID:        1,
-		Status:         state.KeyStatusActive,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 21, GroupID: 1, Version: 1, IdentityGeneration: 21,
+		Fingerprint:    "test-21",
+		Status:         state.CredentialStatusActive,
 		EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -255,12 +254,10 @@ func TestRouteInspectSupportsResponsesWithoutModel(t *testing.T) {
 func TestRouteInspectWithoutModelReturnsSharedFilterReason(t *testing.T) {
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID:          1,
-			Name:        "responses",
-			UpstreamURL: "https://responses.invalid",
-			Protocols:   []protocol.Protocol{protocol.OpenAIResponses},
-			Enabled:     true,
+			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID:      10,
@@ -297,18 +294,19 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	fixture.service.now = func() time.Time { return now }
 	groupWeight := 20
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{
 			{
-				ID: 2, Name: "backup", UpstreamURL: "https://backup.invalid",
-				Protocols:    []protocol.Protocol{protocol.OpenAICompletions},
+				ID: 2, Name: "backup", ChannelID: channel.OpenAI,
+				Params:       json.RawMessage(`{}`),
 				Models:       []state.ModelConfig{{ID: "provider-backup", Alias: "public-model"}},
 				WeightManual: &groupWeight, Enabled: true,
 			},
 			{
-				ID: 1, Name: "primary", UpstreamURL: "https://not-called.invalid",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
-				Enabled:   true,
+				ID: 1, Name: "primary", ChannelID: channel.OpenAI,
+				Params:  json.RawMessage(`{}`),
+				Models:  []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
+				Enabled: true,
 			},
 		},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -319,18 +317,18 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	keyWeight := 25
-	if err := fixture.registry.Replace([]state.KeyEntry{
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
 		{
-			ID: 31, GroupID: 2, Status: state.KeyStatusActive,
+			ID: 31, GroupID: 2, Version: 1, IdentityGeneration: 31, Fingerprint: "test-31", Status: state.CredentialStatusActive,
 			WeightAuto: 30, EncryptedValue: "cipher-three",
 		},
 		{
-			ID: 22, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 22, GroupID: 1, Version: 1, IdentityGeneration: 22, Fingerprint: "test-22", Status: state.CredentialStatusActive,
 			CooldownUntil: now.Add(time.Minute), WeightAuto: 40,
 			EncryptedValue: "cipher-two",
 		},
 		{
-			ID: 21, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 21, GroupID: 1, Version: 1, IdentityGeneration: 21, Fingerprint: "test-21", Status: state.CredentialStatusActive,
 			WeightManual: &keyWeight, WeightAuto: 90,
 			EncryptedValue: "cipher-one",
 		},
@@ -364,36 +362,36 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 		routeModelValue(primary.UpstreamModel) != "provider-model" ||
 		primary.WeightManual != nil || !primary.Included ||
 		!primary.Routable || primary.ReasonCode != nil ||
-		len(primary.Keys) != 2 ||
-		primary.Keys[0].KeyID != 21 || primary.Keys[1].KeyID != 22 {
+		len(primary.Credentials) != 2 ||
+		primary.Credentials[0].CredentialID != 21 || primary.Credentials[1].CredentialID != 22 {
 		t.Fatalf("primary group = %#v", primary)
 	}
-	available := primary.Keys[0]
+	available := primary.Credentials[0]
 	if !available.Available || available.ReasonCode != nil ||
 		available.WeightManual == nil || *available.WeightManual != 25 ||
 		available.WeightAuto != 90 || available.EffectiveWeight != 50*25 ||
 		available.CooldownUntilMS != nil {
 		t.Fatalf("available key = %#v", available)
 	}
-	cooldown := primary.Keys[1]
+	cooldown := primary.Credentials[1]
 	if cooldown.Available || cooldown.WeightManual != nil ||
 		cooldown.WeightAuto != 40 || cooldown.EffectiveWeight != 0 ||
 		cooldown.CooldownUntilMS == nil ||
 		*cooldown.CooldownUntilMS != now.Add(time.Minute).UnixMilli() {
 		t.Fatalf("cooldown key = %#v", cooldown)
 	}
-	assertRouteReason(t, cooldown.ReasonCode, scheduler.ReasonKeyCooldown)
+	assertRouteReason(t, cooldown.ReasonCode, scheduler.ReasonCredentialCooldown)
 	backup := got.Groups[1]
 	if backup.GroupName != "backup" ||
 		routeModelValue(backup.UpstreamModel) != "provider-backup" ||
 		backup.WeightManual == nil || *backup.WeightManual != 20 ||
 		!backup.Included || !backup.Routable || backup.ReasonCode != nil ||
-		len(backup.Keys) != 1 || backup.Keys[0].KeyID != 31 ||
-		!backup.Keys[0].Available || backup.Keys[0].ReasonCode != nil ||
-		backup.Keys[0].WeightManual != nil ||
-		backup.Keys[0].WeightAuto != 30 ||
-		backup.Keys[0].EffectiveWeight != 20*30 ||
-		backup.Keys[0].CooldownUntilMS != nil {
+		len(backup.Credentials) != 1 || backup.Credentials[0].CredentialID != 31 ||
+		!backup.Credentials[0].Available || backup.Credentials[0].ReasonCode != nil ||
+		backup.Credentials[0].WeightManual != nil ||
+		backup.Credentials[0].WeightAuto != 30 ||
+		backup.Credentials[0].EffectiveWeight != 20*30 ||
+		backup.Credentials[0].CooldownUntilMS != nil {
 		t.Fatalf("backup group = %#v", backup)
 	}
 	body := recorder.Body.String()
@@ -449,14 +447,15 @@ func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
 			fixture.service.now = func() time.Time { return now }
 			manual := 15
 			if _, err := fixture.manager.Publish(state.CompileInput{
+				ChannelRegistry: fixture.channelRegistry,
 				Groups: []state.GroupConfig{
 					{
-						ID: 2, Name: "second", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+						ID: 2, Name: "second", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 						Models:       []state.ModelConfig{{ID: "provider-two", Alias: "public-model"}},
 						WeightManual: &manual, Enabled: true,
 					},
 					{
-						ID: 1, Name: "first", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+						ID: 1, Name: "first", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 						Models:  []state.ModelConfig{{ID: "provider-one", Alias: "public-model"}},
 						Enabled: true,
 					},
@@ -468,9 +467,9 @@ func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("Publish() error = %v", err)
 			}
-			if err := fixture.registry.Replace([]state.KeyEntry{
-				{ID: 22, GroupID: 2, Status: state.KeyStatusActive, EncryptedValue: "two"},
-				{ID: 11, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "one"},
+			if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
+				{ID: 22, GroupID: 2, Version: 1, IdentityGeneration: 22, Fingerprint: "test-22", Status: state.CredentialStatusActive, EncryptedValue: "two"},
+				{ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusActive, EncryptedValue: "one"},
 			}); err != nil {
 				t.Fatalf("Replace() error = %v", err)
 			}
@@ -504,7 +503,7 @@ func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
 			}
 			for index, group := range got.Groups {
 				if group.Included || group.Routable ||
-					group.Keys == nil || len(group.Keys) != 0 {
+					group.Credentials == nil || len(group.Credentials) != 0 {
 					t.Fatalf("filtered group %d = %#v", index, group)
 				}
 				assertRouteReason(t, group.ReasonCode, scheduler.ReasonGroupFiltered)
@@ -526,8 +525,9 @@ func TestRouteInspectEndpointReturnsNoRouteTargetExplanation(t *testing.T) {
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "primary", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+			ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "configured-model"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -563,8 +563,9 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 	fixture.service.now = func() time.Time { return now }
 	groupWeight := 25
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "primary", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+			ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models:       []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
 			WeightManual: &groupWeight, Enabled: true,
 		}},
@@ -582,21 +583,21 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 	if cooldownAt.Location() == time.UTC {
 		t.Fatal("cooldown fixture must use a non-UTC location")
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
 		{
-			ID: 14, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 14, GroupID: 1, Version: 1, IdentityGeneration: 14, Fingerprint: "test-14", Status: state.CredentialStatusActive,
 			WeightAuto: 70, CooldownUntil: cooldownAt, EncryptedValue: "cooldown",
 		},
 		{
-			ID: 12, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 12, GroupID: 1, Version: 1, IdentityGeneration: 12, Fingerprint: "test-12", Status: state.CredentialStatusActive,
 			WeightManual: &zero, WeightAuto: 45, EncryptedValue: "zero",
 		},
 		{
-			ID: 13, GroupID: 1, Status: state.KeyStatusActive,
+			ID: 13, GroupID: 1, Version: 1, IdentityGeneration: 13, Fingerprint: "test-13", Status: state.CredentialStatusActive,
 			WeightAuto: 60, Blacklisted: true, EncryptedValue: "blacklisted",
 		},
 		{
-			ID: 11, GroupID: 1, Status: state.KeyStatusDisabled,
+			ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusDisabled,
 			WeightManual: &disabledManual, WeightAuto: 30, EncryptedValue: "disabled",
 		},
 	}); err != nil {
@@ -615,7 +616,7 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 		got.Routable {
 		t.Fatalf("unavailable response = %#v", got)
 	}
-	assertRouteReason(t, got.ReasonCode, scheduler.ReasonNoAvailableKey)
+	assertRouteReason(t, got.ReasonCode, scheduler.ReasonNoAvailableCredential)
 	if len(got.Groups) != 1 {
 		t.Fatalf("groups = %#v", got.Groups)
 	}
@@ -623,40 +624,40 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 	if group.GroupID != 1 || group.GroupName != "primary" ||
 		routeModelValue(group.UpstreamModel) != "provider-model" ||
 		group.WeightManual == nil || *group.WeightManual != 25 ||
-		!group.Included || group.Routable || len(group.Keys) != 4 {
+		!group.Included || group.Routable || len(group.Credentials) != 4 {
 		t.Fatalf("unavailable group = %#v", group)
 	}
-	assertRouteReason(t, group.ReasonCode, scheduler.ReasonNoAvailableKey)
+	assertRouteReason(t, group.ReasonCode, scheduler.ReasonNoAvailableCredential)
 	wantReasons := []scheduler.ReasonCode{
-		scheduler.ReasonKeyDisabled,
-		scheduler.ReasonKeyWeightZero,
-		scheduler.ReasonKeyBlacklisted,
-		scheduler.ReasonKeyCooldown,
+		scheduler.ReasonCredentialDisabled,
+		scheduler.ReasonCredentialWeightZero,
+		scheduler.ReasonCredentialBlacklisted,
+		scheduler.ReasonCredentialCooldown,
 	}
 	wantManual := []*int{&disabledManual, &zero, nil, nil}
 	wantAuto := []int{30, 45, 60, 70}
-	for index, key := range group.Keys {
-		if key.KeyID != uint(11+index) || key.Available ||
-			key.EffectiveWeight != 0 ||
-			key.WeightAuto != wantAuto[index] {
-			t.Fatalf("unavailable key %d = %#v", index, key)
+	for index, credential := range group.Credentials {
+		if credential.CredentialID != uint(11+index) || credential.Available ||
+			credential.EffectiveWeight != 0 ||
+			credential.WeightAuto != wantAuto[index] {
+			t.Fatalf("unavailable credential %d = %#v", index, credential)
 		}
-		assertRouteReason(t, key.ReasonCode, wantReasons[index])
+		assertRouteReason(t, credential.ReasonCode, wantReasons[index])
 		if wantManual[index] == nil {
-			if key.WeightManual != nil {
-				t.Fatalf("key %d manual weight = %v, want nil", index, key.WeightManual)
+			if credential.WeightManual != nil {
+				t.Fatalf("key %d manual weight = %v, want nil", index, credential.WeightManual)
 			}
-		} else if key.WeightManual == nil ||
-			*key.WeightManual != *wantManual[index] {
-			t.Fatalf("key %d manual weight = %v, want %d", index, key.WeightManual, *wantManual[index])
+		} else if credential.WeightManual == nil ||
+			*credential.WeightManual != *wantManual[index] {
+			t.Fatalf("key %d manual weight = %v, want %d", index, credential.WeightManual, *wantManual[index])
 		}
 		if index == 3 {
-			if key.CooldownUntilMS == nil ||
-				*key.CooldownUntilMS != cooldownAt.UnixMilli() {
-				t.Fatalf("cooldown = %v, want %v", key.CooldownUntilMS, cooldownAt.UnixMilli())
+			if credential.CooldownUntilMS == nil ||
+				*credential.CooldownUntilMS != cooldownAt.UnixMilli() {
+				t.Fatalf("cooldown = %v, want %v", credential.CooldownUntilMS, cooldownAt.UnixMilli())
 			}
-		} else if key.CooldownUntilMS != nil {
-			t.Fatalf("key %d cooldown = %v, want nil", index, key.CooldownUntilMS)
+		} else if credential.CooldownUntilMS != nil {
+			t.Fatalf("key %d cooldown = %v, want nil", index, credential.CooldownUntilMS)
 		}
 	}
 	if strings.Count(recorder.Body.String(), `"cooldown_until_ms":null`) != 3 {
@@ -758,20 +759,11 @@ func (spy *routeInspectEncryptionSpy) Hash(string) string {
 
 func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {
 	var upstreamCalls atomic.Int64
-	upstream := httptest.NewServer(http.HandlerFunc(func(
-		writer http.ResponseWriter,
-		request *http.Request,
-	) {
-		upstreamCalls.Add(1)
-		writer.WriteHeader(http.StatusNoContent)
-	}))
-	defer upstream.Close()
-
 	fixture := newServiceFixture(t)
 	encryptionSpy := &routeInspectEncryptionSpy{}
 	fixture.service.encryption = encryptionSpy
 	dialectCalls := 0
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(
 			context.Context,
@@ -784,10 +776,10 @@ func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {
 		},
 	})
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "upstream", UpstreamURL: upstream.URL,
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:    []state.ModelConfig{{ID: "model"}}, Enabled: true,
+			ID: 1, Name: "upstream", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: "hash",
@@ -796,8 +788,8 @@ func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -859,8 +851,9 @@ func TestRouteInspectCatalogMismatchReturnsInternalServerError(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "primary", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+			ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -869,7 +862,7 @@ func TestRouteInspectCatalogMismatchReturnsInternalServerError(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	fixture.manager.Current().RouteCatalog[protocol.OpenAICompletions]["model"] = []state.RouteTarget{{
+	fixture.manager.Current().ExecutionRouteCatalog[protocol.OpenAICompletions][execution.OperationChatCompletion]["model"] = []state.RouteTarget{{
 		GroupID: 999, UpstreamModelID: "model",
 	}}
 	engine := gin.New()

@@ -6,28 +6,25 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, InvalidResponseError, RequestCancelledError } from '@/api/errors'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { constrainCollectionSearch } from '@/app/route-query'
 import {
+  channelsQueryOptions,
+  normalizeChannelSearch,
+  type ChannelDto,
+} from '@/app/resources/channels'
+import {
   createGroup,
   discoverModels,
-  groupCollectionQueryOptions,
-  importGroupKeys,
-  isUpstreamUrlConflictData,
+  importGroupCredentials,
+  isSameTargetConflictData,
   type GroupCreateRequest,
   type ModelDiscoveryRequest,
-  type UpstreamUrlConflictData,
+  type SameTargetConflictData,
 } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
-import {
-  normalizeProviderSearch,
-  providerSuggestionsByIDsQueryOptions,
-  providerSuggestionsQueryOptions,
-  type ModelCandidate,
-  type ProviderSuggestion,
-} from '@/app/resources/providers'
+import { type ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -53,13 +50,12 @@ import ImportConnectionSection from './ImportConnectionSection.vue'
 import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
-import { analyzeKeys } from './key-analysis'
-import KeyTextarea from './KeyTextarea.vue'
+import { analyzeCredentials } from './credential-analysis'
+import CredentialTextarea from './CredentialTextarea.vue'
 import type { ImportDraft, ModelDraftItem } from './model-draft'
 import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
-import ProviderCatalogDrawer from './ProviderCatalogDrawer.vue'
-import ProviderPresetPicker from './ProviderPresetPicker.vue'
-import { deriveRecentProviderIDs } from './recent-providers'
+import ChannelCatalogDrawer from './ChannelCatalogDrawer.vue'
+import ChannelPresetPicker from './ChannelPresetPicker.vue'
 import {
   parseImportRouteQuery,
   serializeImportRouteQuery,
@@ -77,17 +73,16 @@ const router = useRouter()
 const { t } = useI18n()
 const importOperationOwner = useImportOperationOwner()
 const createOperation = importOperationOwner.createGroup
-const appendOperation = importOperationOwner.importKeys
+const appendOperation = importOperationOwner.importCredentials
 const routeState = computed(() => parseImportRouteQuery(route.query))
 
 function freshDraft(): ImportDraft {
   return {
     mode: 'new',
-    provider_id: null,
+    channel_id: '',
+    params: {},
     name: '',
-    upstream_url: '',
-    protocols: [],
-    keys: '',
+    credentials: '',
     models: [],
   }
 }
@@ -95,15 +90,15 @@ function freshDraft(): ImportDraft {
 function cloneDraft(source: ImportDraft): ImportDraft {
   return {
     ...source,
-    protocols: [...source.protocols],
+    params: { ...source.params },
     models: source.models.map((model) => ({ ...model, sources: [...model.sources] })),
   }
 }
 
-function upstreamURLConflict(cause: unknown): UpstreamUrlConflictData | null {
+function sameTargetConflict(cause: unknown): SameTargetConflictData | null {
   return cause instanceof ApiError &&
     cause.code === 'UPSTREAM_URL_CONFLICT' &&
-    isUpstreamUrlConflictData(cause.data)
+    isSameTargetConflictData(cause.data)
     ? cause.data
     : null
 }
@@ -119,37 +114,21 @@ const draft = reactive<ImportDraft>(
 )
 let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
 const discoveryCandidates = ref<ModelCandidate[]>([])
-const providerSearchInput = ref(routeState.value.providerSearch ?? draft.provider_id ?? '')
-const providerSearchQuery = ref(normalizeProviderSearch(providerSearchInput.value))
-const providerSearchDebounce = useDebouncedAction(250)
-const selectedProvider = ref<ProviderSuggestion | null>(null)
-const shouldApplyDefaultProvider = ref(!operationDraft && !props.initialDraft)
-const providerSuggestionsQuery = useQuery(providerSuggestionsQueryOptions(api, providerSearchQuery))
-const officialProviders = computed(
-  () =>
-    providerSuggestionsQuery.data.value?.items.filter(({ source }) => source === 'official') ?? [],
+const channelSearchInput = ref(routeState.value.channelSearch ?? '')
+const channelSearchQuery = ref(normalizeChannelSearch(channelSearchInput.value))
+const channelSearchDebounce = useDebouncedAction(250)
+const shouldApplyDefaultChannel = ref(!operationDraft && !props.initialDraft)
+const channelsQuery = useQuery(channelsQueryOptions(api, channelSearchQuery))
+const allChannelsQuery = useQuery(channelsQueryOptions(api, ''))
+const allChannels = computed(() => allChannelsQuery.data.value?.items ?? [])
+const featuredChannels = computed(() => allChannels.value.slice(0, 3))
+const selectedChannel = computed<ChannelDto | null>(
+  () => allChannels.value.find(({ channel_id }) => channel_id === draft.channel_id) ?? null,
 )
-const catalogSuggestions = computed(
-  () =>
-    providerSuggestionsQuery.data.value?.items.filter(({ source }) => source !== 'official') ?? [],
+const channelCatalogLoading = computed(
+  () => channelsQuery.isFetching.value || allChannelsQuery.isFetching.value,
 )
-const recentGroupsQuery = useQuery(
-  groupCollectionQueryOptions(api, { sort: 'created', page: 1, page_size: 20 }),
-)
-const recentProviderIDs = computed(() =>
-  deriveRecentProviderIDs(recentGroupsQuery.data.value?.items ?? []),
-)
-const recentProvidersQuery = useQuery(providerSuggestionsByIDsQueryOptions(api, recentProviderIDs))
-const recentProviders = computed(() =>
-  recentProviderIDs.value.length ? (recentProvidersQuery.data.value?.items ?? []) : [],
-)
-const providerCatalogLoading = computed(
-  () =>
-    providerSuggestionsQuery.isFetching.value ||
-    recentGroupsQuery.isFetching.value ||
-    recentProvidersQuery.isFetching.value,
-)
-const catalogDrawerOpen = computed(() => routeState.value.panel === 'providers')
+const catalogDrawerOpen = computed(() => routeState.value.panel === 'channels')
 const discoveryErrorKey = ref('')
 const discoveryLoading = ref(false)
 const discoveryDrawerOpen = computed(() => routeState.value.panel === 'discovery')
@@ -159,8 +138,8 @@ const modelEditor = ref<{
 }>()
 const errorKey = ref('')
 const submissionError = ref<HTMLElement>()
-const conflict = ref<UpstreamUrlConflictData | null>(
-  upstreamURLConflict(createOperation.lastError.value),
+const conflict = ref<SameTargetConflictData | null>(
+  sameTargetConflict(createOperation.lastError.value),
 )
 const serverModelConflicts = ref<ModelNameConflict[]>([])
 const completed = ref(false)
@@ -203,15 +182,19 @@ let discoveryRequestIdentity = 0
 let discoveryPanelRun = false
 let componentActive = true
 
-const keyAnalysis = computed(() => analyzeKeys(draft.keys))
-const urlError = computed(() => {
-  const value = draft.upstream_url.trim()
-  if (!value || !isValidUpstreamBaseURL(value)) return t('import.connection.urlError')
+const credentialAnalysis = computed(() => analyzeCredentials(draft.credentials, draft.channel_id))
+const paramsError = computed(() => {
+  const channel = selectedChannel.value
+  if (!channel) return t('import.presets.channelRequired')
+  for (const field of channel.param_fields) {
+    const value = draft.params[field.key]?.trim() ?? ''
+    if (field.required && !value) return t('import.connection.paramRequired', { name: field.label })
+    if (field.input_kind === 'url' && value && !isValidUpstreamBaseURL(value)) {
+      return t('import.connection.urlError')
+    }
+  }
   return ''
 })
-const protocolsError = computed(() =>
-  draft.protocols.length ? '' : t('import.connection.protocolsError'),
-)
 const modelConflicts = computed(() =>
   serverModelConflicts.value.length
     ? serverModelConflicts.value
@@ -233,19 +216,17 @@ const submissionErrorMessage = computed(
 const canDiscover = computed(
   () =>
     !payloadLocked.value &&
-    !urlError.value &&
-    !protocolsError.value &&
-    keyAnalysis.value.nonEmptyCount > 0 &&
-    !keyAnalysis.value.tooManyKeys,
+    !paramsError.value &&
+    credentialAnalysis.value.nonEmptyCount > 0 &&
+    !credentialAnalysis.value.tooManyCredentials,
 )
 const canCreate = computed(
   () =>
     !payloadLocked.value &&
     !mutationPending.value &&
-    !urlError.value &&
-    !protocolsError.value &&
-    keyAnalysis.value.nonEmptyCount > 0 &&
-    !keyAnalysis.value.tooManyKeys &&
+    !paramsError.value &&
+    credentialAnalysis.value.nonEmptyCount > 0 &&
+    !credentialAnalysis.value.tooManyCredentials &&
     modelValidity.value.invalidIndexes.size === 0,
 )
 const currentModelIDs = computed(() => draft.models.map(({ id }) => id.trim()).filter(Boolean))
@@ -254,8 +235,7 @@ const dirty = computed(
 )
 const summary = computed(() =>
   t(draft.models.length ? 'import.summary' : 'import.summaryOptional', {
-    keys: keyAnalysis.value.nonEmptyCount,
-    protocols: draft.protocols.length,
+    credentials: credentialAnalysis.value.nonEmptyCount,
     models: draft.models.length,
   }),
 )
@@ -345,8 +325,8 @@ function invalidateDiscovery(): void {
   discoveryErrorKey.value = ''
 }
 
-function cancelDefaultProvider(): void {
-  shouldApplyDefaultProvider.value = false
+function cancelDefaultChannel(): void {
+  shouldApplyDefaultChannel.value = false
 }
 
 function updateRoute(patch: Partial<ImportRouteState>, replace = false): void {
@@ -385,69 +365,55 @@ function setDiscoveryFilter(value: ImportDiscoveryFilter): void {
 }
 
 watch(
-  () => routeState.value.providerSearch,
+  () => routeState.value.channelSearch,
   (search) => {
-    const value = search ?? draft.provider_id ?? ''
-    if (value === providerSearchInput.value) return
-    providerSearchInput.value = value
-    providerSearchDebounce.cancel()
-    providerSearchQuery.value = normalizeProviderSearch(value)
+    const value = search ?? ''
+    if (value === channelSearchInput.value) return
+    channelSearchInput.value = value
+    channelSearchDebounce.cancel()
+    channelSearchQuery.value = normalizeChannelSearch(value)
   },
 )
 
-function setProviderSearch(value: string): void {
-  providerSearchInput.value = value
-  cancelDefaultProvider()
-  updateRoute({ providerSearch: constrainCollectionSearch(value) }, true)
-  providerSearchDebounce.schedule(() => {
-    providerSearchQuery.value = normalizeProviderSearch(value)
+function setChannelSearch(value: string): void {
+  channelSearchInput.value = value
+  cancelDefaultChannel()
+  updateRoute({ channelSearch: constrainCollectionSearch(value) }, true)
+  channelSearchDebounce.schedule(() => {
+    channelSearchQuery.value = normalizeChannelSearch(value)
   })
 }
 
-function retryProviderSuggestions(): void {
-  providerSearchDebounce.cancel()
-  const normalizedInput = normalizeProviderSearch(providerSearchInput.value)
-  const normalizedQuery = normalizeProviderSearch(providerSearchQuery.value)
+function retryChannels(): void {
+  channelSearchDebounce.cancel()
+  const normalizedInput = normalizeChannelSearch(channelSearchInput.value)
+  const normalizedQuery = normalizeChannelSearch(channelSearchQuery.value)
   if (normalizedQuery !== normalizedInput) {
-    providerSearchQuery.value = normalizedInput
+    channelSearchQuery.value = normalizedInput
     return
   }
-  void providerSuggestionsQuery.refetch()
+  void channelsQuery.refetch()
 }
 
 watch(
-  [
-    () => draft.provider_id,
-    () => draft.upstream_url,
-    () => draft.keys,
-    () => draft.protocols.join('\u0000'),
-  ],
+  [() => draft.channel_id, () => JSON.stringify(draft.params), () => draft.credentials],
   invalidateDiscovery,
 )
 
 watch(
-  () => providerSuggestionsQuery.data.value?.items,
-  (providers) => {
-    if (!providers) return
-    const current = draft.provider_id
-      ? providers.find(({ provider_id }) => provider_id === draft.provider_id)
-      : undefined
-    if (current) selectedProvider.value = current
-    if (!shouldApplyDefaultProvider.value) return
+  allChannels,
+  (channels) => {
+    if (!channels.length || !shouldApplyDefaultChannel.value) return
     if (JSON.stringify(snapshotDraft()) !== JSON.stringify(defaultDraft)) {
-      cancelDefaultProvider()
+      cancelDefaultChannel()
       return
     }
-    const provider = providers.find(({ source }) => source === 'official')
-    if (!provider) return
-    cancelDefaultProvider()
-    selectedProvider.value = provider
-    draft.provider_id = provider.provider_id
-    draft.upstream_url = provider.api_url ?? ''
-    draft.protocols = [...provider.protocols]
-    defaultDraft.provider_id = provider.provider_id
-    defaultDraft.upstream_url = provider.api_url ?? ''
-    defaultDraft.protocols = [...provider.protocols]
+    const channel = channels[0]
+    cancelDefaultChannel()
+    draft.channel_id = channel.channel_id
+    draft.params = initialChannelParams(channel)
+    defaultDraft.channel_id = channel.channel_id
+    defaultDraft.params = initialChannelParams(channel)
   },
   { immediate: true },
 )
@@ -459,48 +425,21 @@ watch(
   },
 )
 
-function selectProvider(provider: ProviderSuggestion | null): void {
+function initialChannelParams(channel: ChannelDto): Record<string, string> {
+  return Object.fromEntries(channel.param_fields.map(({ key }) => [key, '']))
+}
+
+function selectChannel(channel: ChannelDto): void {
   if (payloadLocked.value) return
-  cancelDefaultProvider()
-  selectedProvider.value = provider
-  draft.provider_id = provider?.provider_id ?? null
-  if (provider === null) {
-    // Explicit "custom connection": start from a blank slate.
-    draft.upstream_url = ''
-    draft.protocols = []
-    return
-  }
-  // A Provider choice is an atomic connection preset. Catalog-only entries
-  // deliberately have no connection fields, so clear the previous Provider's
-  // URL/protocols and require the user to provide a valid custom connection.
-  draft.upstream_url = provider.api_url ?? ''
-  draft.protocols = [...provider.protocols]
-}
-
-function selectRecentProvider(provider: ProviderSuggestion): void {
-  if (payloadLocked.value) return
-  selectProvider(provider)
+  cancelDefaultChannel()
+  draft.channel_id = channel.channel_id
+  draft.params = initialChannelParams(channel)
   setPanel(undefined)
 }
 
-function selectSuggestionFromCatalog(provider: ProviderSuggestion): void {
-  selectProvider(provider)
-  setPanel(undefined)
-}
-
-function chooseCustomFromCatalog(): void {
-  selectProvider(null)
-  setPanel(undefined)
-}
-
-function setProtocols(protocols: GroupProtocol[]): void {
-  cancelDefaultProvider()
-  draft.protocols = protocols
-}
-
-function setUpstreamURL(value: string): void {
-  cancelDefaultProvider()
-  draft.upstream_url = value
+function setChannelParam(key: string, value: string): void {
+  cancelDefaultChannel()
+  draft.params = { ...draft.params, [key]: value }
 }
 
 function createManualRow(): ModelDraftItem {
@@ -545,10 +484,11 @@ function requestDiscovery(): void {
 function startDiscovery(): void {
   if (!canDiscover.value || discoveryLoading.value) return
   const request = {
-    provider_id: draft.provider_id,
-    upstream_url: draft.upstream_url.trim(),
-    protocols: [...draft.protocols],
-    keys: draft.keys,
+    channel_id: draft.channel_id,
+    params: Object.fromEntries(
+      Object.entries(draft.params).map(([key, value]) => [key, value.trim()]),
+    ),
+    credentials: draft.credentials,
   }
   cancelDiscovery()
   const controller = new AbortController()
@@ -614,22 +554,23 @@ function addManualModel(): void {
   void modelEditor.value?.addManual()
 }
 
-function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
+function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
   const name = draft.name.trim()
   return {
-    provider_id: draft.provider_id,
+    channel_id: draft.channel_id,
+    params: Object.fromEntries(
+      Object.entries(draft.params).map(([key, value]) => [key, value.trim()]),
+    ),
     ...(name ? { name } : {}),
-    upstream_url: draft.upstream_url.trim(),
-    protocols: [...draft.protocols],
     models: toGroupModels(draft.models),
-    keys: draft.keys,
-    confirm_same_upstream_url: confirmSameURL,
+    credentials: draft.credentials,
+    confirm_same_target: confirmSameTarget,
   }
 }
 
 async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promise<void> {
   completed.value = true
-  draft.keys = ''
+  draft.credentials = ''
   recovery.clear()
   if (kind === 'create') createOperation.reset()
   else appendOperation.reset()
@@ -638,7 +579,7 @@ async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promis
     queryClient,
     kind === 'create'
       ? mutationInvalidationPlans.group.create
-      : mutationInvalidationPlans.group.importKeys(groupID),
+      : mutationInvalidationPlans.group.importCredentials(groupID),
   )
   if (!componentActive) return
   await router.push(groupDetailLocation(groupID))
@@ -674,9 +615,9 @@ async function executeCreateOperation(): Promise<void> {
   }
   if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
   const cause = createOperation.lastError.value
-  const upstreamConflict = upstreamURLConflict(cause)
-  if (upstreamConflict) {
-    conflict.value = upstreamConflict
+  const targetConflict = sameTargetConflict(cause)
+  if (targetConflict) {
+    conflict.value = targetConflict
     return
   }
   if (cause instanceof ApiError && cause.code === 'MODEL_NAME_CONFLICT') {
@@ -703,7 +644,7 @@ async function submitSeparateGroup(): Promise<void> {
     !importOperationOwner.beginCreate(
       {
         ...payload.request,
-        confirm_same_upstream_url: true,
+        confirm_same_target: true,
       },
       payload.draft,
     )
@@ -718,10 +659,11 @@ async function appendToGroup(groupID: number): Promise<void> {
   const current = createOperation.operation.value
   if (!current || !conflict.value || mutationPending.value) return
   const displayedConflict = conflict.value
-  const keys = current.payload.request.keys
+  const credentials = current.payload.request.credentials
   const stableDraft = current.payload.draft
   createOperation.reset()
-  if (!importOperationOwner.beginImportKeys({ groupID, keys }, 'new', stableDraft)) return
+  if (!importOperationOwner.beginImportCredentials({ groupID, credentials }, 'new', stableDraft))
+    return
   await executeAppendOperation()
   if (conflict.value === displayedConflict) conflict.value = null
 }
@@ -730,10 +672,10 @@ async function executeAppendOperation(): Promise<void> {
   if (!appendOperation.operation.value) return
   errorKey.value = ''
   const outcome = await appendOperation.execute(async (operation, signal) => {
-    const imported = await importGroupKeys(
+    const imported = await importGroupCredentials(
       api,
       operation.payload.groupID,
-      { keys: operation.payload.keys },
+      { credentials: operation.payload.credentials },
       operation.idempotencyKey,
       signal,
     )
@@ -780,7 +722,7 @@ function updateConflictDialog(open: boolean): void {
 
 onBeforeUnmount(() => {
   componentActive = false
-  providerSearchDebounce.cancel()
+  channelSearchDebounce.cancel()
   cancelDiscovery()
   unregisterRecovery()
 })
@@ -798,43 +740,49 @@ onBeforeUnmount(() => {
       @abandon="abandonOperation"
     />
 
-    <ProviderPresetPicker
-      :model-value="draft.provider_id"
-      :selected-provider="selectedProvider"
-      :official-providers="officialProviders"
+    <ChannelPresetPicker
+      :model-value="draft.channel_id"
+      :selected-channel="selectedChannel"
+      :featured-channels="featuredChannels"
+      :search-results="channelsQuery.data.value?.items ?? []"
+      :search="channelSearchInput"
+      :searching="channelsQuery.isFetching.value"
+      :search-error="channelsQuery.isError.value"
       :disabled="payloadLocked"
-      @select="selectProvider"
-      @browse="setPanel('providers')"
+      @select="selectChannel"
+      @browse="setPanel('channels')"
+      @retry="retryChannels"
+      @update:search="setChannelSearch"
     />
 
-    <ProviderCatalogDrawer
+    <ChannelCatalogDrawer
       :open="catalogDrawerOpen"
-      :recent="recentProviders"
-      :suggestions="catalogSuggestions"
-      :search="providerSearchInput"
-      :loading="providerCatalogLoading"
-      :error="providerSuggestionsQuery.isError.value"
-      @update:open="setPanel($event ? 'providers' : undefined)"
-      @update:search="setProviderSearch"
-      @retry="retryProviderSuggestions"
-      @select-suggestion="selectSuggestionFromCatalog"
-      @select-recent="selectRecentProvider"
-      @custom="chooseCustomFromCatalog"
+      :recent="[]"
+      :channels="channelsQuery.data.value?.items ?? []"
+      :search="channelSearchInput"
+      :loading="channelCatalogLoading"
+      :error="channelsQuery.isError.value"
+      @update:open="setPanel($event ? 'channels' : undefined)"
+      @update:search="setChannelSearch"
+      @retry="retryChannels"
+      @select="selectChannel"
     />
 
     <ImportConnectionSection
+      :channel="selectedChannel"
       :name="draft.name"
-      :upstream-url="draft.upstream_url"
-      :protocols="draft.protocols"
-      :url-error="urlError"
-      :protocols-error="protocolsError"
+      :params="draft.params"
+      :params-error="paramsError"
       :disabled="payloadLocked"
       @update:name="draft.name = $event"
-      @update:upstream-url="setUpstreamURL"
-      @update:protocols="setProtocols"
+      @update:param="setChannelParam"
     />
 
-    <KeyTextarea v-model="draft.keys" :disabled="payloadLocked" />
+    <CredentialTextarea
+      v-model="draft.credentials"
+      :channel="selectedChannel"
+      :disabled="payloadLocked"
+    />
 
     <section class="new-group-import__models" aria-labelledby="import-models-heading">
       <PanelHeader

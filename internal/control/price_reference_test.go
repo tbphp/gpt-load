@@ -5,10 +5,75 @@ import (
 	"testing"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/pricing"
 )
 
-func TestResolveAutomaticPriceUsesGlobalPriorityNotRouteProvider(t *testing.T) {
+func TestPriceIdentityForChannelModelRequiresRegisteredChannel(t *testing.T) {
+	identity, err := PriceIdentityForChannelModel(string(channel.OpenAICompatible), "shared")
+	if err != nil || identity != (pricing.Identity{
+		ChannelID: string(channel.OpenAICompatible), ModelID: "shared",
+	}) {
+		t.Fatalf("PriceIdentityForChannelModel() = %#v, %v", identity, err)
+	}
+	if _, err := PriceIdentityForChannelModel("unknown", "shared"); err == nil {
+		t.Fatal("PriceIdentityForChannelModel() accepted an unregistered channel")
+	}
+}
+
+func TestResolveAutomaticPriceForIdentityUsesOfficialChannelCatalogProvider(t *testing.T) {
+	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	anthropicCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			"shared": {ID: "shared", Cost: openAICost},
+		}},
+		"anthropic": {ID: "anthropic", Models: map[string]catalog.Model{
+			"shared": {ID: "shared", Cost: anthropicCost},
+		}},
+	}}
+
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Anthropic), ModelID: "shared",
+	})
+	if !ok || match.cost != anthropicCost || match.providerID != "anthropic" ||
+		match.source != ModelPriceMatchSourceChannelCatalogProvider {
+		t.Fatalf("official channel match = %#v, %t", match, ok)
+	}
+}
+
+func TestResolveAutomaticPriceForIdentityDoesNotFallbackForOfficialChannel(t *testing.T) {
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			"shared": {ID: "shared", Cost: &catalog.ModelCost{}},
+		}},
+	}}
+
+	if match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Anthropic), ModelID: "shared",
+	}); ok {
+		t.Fatalf("official channel unexpectedly fell back: %#v", match)
+	}
+}
+
+func TestResolveAutomaticPriceForIdentityFallsBackForCompatibleChannel(t *testing.T) {
+	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			"shared": {ID: "shared", Cost: openAICost},
+		}},
+	}}
+
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.OpenAICompatible), ModelID: "shared",
+	})
+	if !ok || match.cost != openAICost || match.providerID != "openai" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("compatible channel match = %#v, %t", match, ok)
+	}
+}
+
+func TestCompatibleAutomaticPriceUsesGlobalPriority(t *testing.T) {
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
@@ -20,23 +85,29 @@ func TestResolveAutomaticPriceUsesGlobalPriorityNotRouteProvider(t *testing.T) {
 	for id, provider := range snapshot.Providers {
 		want.Providers[id] = provider
 	}
-	cost, providerID, ok := resolveAutomaticPrice(snapshot, "shared")
-	if !ok || cost != openAICost || providerID != "openai" {
-		t.Fatalf("global price = (%p, %q, %t), want openai", cost, providerID, ok)
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.OpenAICompatible), ModelID: "shared",
+	})
+	if !ok || match.cost != openAICost || match.providerID != "openai" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("compatible price = (%p, %q, %q, %t), want openai fallback", match.cost, match.providerID, match.source, ok)
 	}
 	if !reflect.DeepEqual(snapshot, &want) {
 		t.Fatal("global price resolution mutated catalog snapshot")
 	}
 }
 
-func TestResolveAutomaticPriceFallsBackToStableProviderID(t *testing.T) {
+func TestCompatibleAutomaticPriceFallsBackToStableProviderID(t *testing.T) {
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"zeta":  {ID: "zeta", Models: map[string]catalog.Model{"shared": {ID: "shared", Cost: &catalog.ModelCost{}}}},
 		"alpha": {ID: "alpha", Models: map[string]catalog.Model{"shared": {ID: "shared", Cost: alphaCost}}},
 	}}
-	cost, providerID, ok := resolveAutomaticPrice(snapshot, "shared")
-	if !ok || cost != alphaCost || providerID != "alpha" {
-		t.Fatalf("global fallback = (%p, %q, %t)", cost, providerID, ok)
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.OpenAICompatible), ModelID: "shared",
+	})
+	if !ok || match.cost != alphaCost || match.providerID != "alpha" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("compatible fallback = (%p, %q, %q, %t)", match.cost, match.providerID, match.source, ok)
 	}
 }

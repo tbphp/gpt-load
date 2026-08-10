@@ -86,7 +86,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		t.Fatalf("second AutoMigrate() error = %v", err)
 	}
 	for _, table := range []string{
-		"groups", "upstream_keys", "access_keys", "request_logs", "request_log_attempts",
+		"groups", "credentials", "access_keys", "request_logs", "request_log_attempts",
 		"usage_aggregation_journal", "usage_stats", "model_prices", "system_settings",
 		"jobs", "control_operations", "schema_migrations",
 	} {
@@ -97,23 +97,19 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 
 	suffix := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	group := models.Group{
-		Name:        fmt.Sprintf("integration-%s-%d", suffix, time.Now().UnixNano()),
-		UpstreamURL: "https://integration.example.com",
-		Protocols:   models.JSON(`["openai-completions"]`),
-		Models:      models.JSON(`[]`),
-		Config:      models.JSON(`{}`),
-		Enabled:     true,
+		Name:      fmt.Sprintf("integration-%s-%d", suffix, time.Now().UnixNano()),
+		ChannelID: "openai_compatible", Params: models.JSON(`{"base_url":"https://integration.example.com"}`),
+		Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true,
 	}
 	if err := db.Create(&group).Error; err != nil {
 		t.Fatalf("create group: %v", err)
 	}
-	key := models.UpstreamKey{
-		GroupID:  group.ID,
-		KeyValue: "ciphertext",
-		KeyHash:  fmt.Sprintf("integration-%d", time.Now().UnixNano()),
+	credential := models.Credential{
+		GroupID: group.ID, Data: "encrypted-data",
+		Fingerprint: fmt.Sprintf("integration-credential-%d", time.Now().UnixNano()),
 	}
-	if err := db.Create(&key).Error; err != nil {
-		t.Fatalf("create upstream key: %v", err)
+	if err := db.Create(&credential).Error; err != nil {
+		t.Fatalf("create credential: %v", err)
 	}
 
 	setting := models.SystemSetting{
@@ -152,7 +148,9 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	stat := models.UsageStat{
 		BucketStartMS: time.Now().UnixMilli(),
 		AccessKeyID:   1,
+		ChannelID:     group.ChannelID,
 		GroupID:       group.ID,
+		CredentialID:  credential.ID,
 		Model:         "integration-model",
 		RequestCount:  1,
 		SuccessCount:  1,
@@ -160,7 +158,8 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	upsert := clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "bucket_start_ms"}, {Name: "access_key_id"},
-			{Name: "group_id"}, {Name: "model"},
+			{Name: "channel_id"}, {Name: "group_id"},
+			{Name: "credential_id"}, {Name: "model"},
 		},
 		DoUpdates: clause.AssignmentColumns([]string{"request_count", "success_count"}),
 	}
@@ -198,8 +197,8 @@ func TestExternalDatabaseModelPriceIdentityUsesExactComparison(t *testing.T) {
 	}
 
 	base := fmt.Sprintf("external-model-%d", time.Now().UnixNano())
-	upper := models.ModelPrice{ModelID: "Model-" + base}
-	lower := models.ModelPrice{ModelID: "model-" + base}
+	upper := models.ModelPrice{ChannelID: "openai", ModelID: "Model-" + base}
+	lower := models.ModelPrice{ChannelID: "openai", ModelID: "model-" + base}
 	if err := db.Create(&upper).Error; err != nil {
 		t.Fatalf("create first case-distinct model price: %v", err)
 	}
@@ -248,7 +247,7 @@ func TestExternalDatabaseReadSnapshotUsesRepeatableRead(t *testing.T) {
 		if before != 0 {
 			return fmt.Errorf("initial model price count = %d, want 0", before)
 		}
-		if err := db.Create(&models.ModelPrice{ModelID: modelID}).Error; err != nil {
+		if err := db.Create(&models.ModelPrice{ChannelID: "openai", ModelID: modelID}).Error; err != nil {
 			return err
 		}
 		var after int64

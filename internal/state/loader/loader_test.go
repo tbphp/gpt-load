@@ -12,6 +12,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -31,9 +33,9 @@ func TestLoadSystemSettingsDecodesPersistedValues(t *testing.T) {
 		mustCreate(t, db, &row)
 	}
 	mustCreate(t, db, &models.Group{
-		Name: "unrelated", UpstreamURL: "https://unrelated.example.com",
-		Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(`[]`),
-		Config: models.JSON(`{}`), Enabled: true,
+		Name: "unrelated", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models:    models.JSON(`[]`),
+		Overrides: models.JSON(`{}`), Enabled: true,
 	})
 
 	var orderColumns []clause.OrderByColumn
@@ -180,7 +182,7 @@ func TestLoadSystemSettingsExcludesInternalSystemSettings(t *testing.T) {
 func TestLoaderPublishesDefaultsFromEmptyDatabase(t *testing.T) {
 	db := openMigratedDatabase(t)
 	manager := state.NewManager()
-	if err := loader.New(db, manager, state.NewKeyRegistry()).Load(context.Background()); err != nil {
+	if err := loader.New(db, manager, state.NewCredentialRegistry()).Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	got := manager.Current().Settings
@@ -197,7 +199,7 @@ func TestLoaderRejectsUnknownPublicSystemSetting(t *testing.T) {
 	db := openMigratedDatabase(t)
 	mustCreate(t, db, &models.SystemSetting{Key: "unknown_public", Value: "true"})
 	manager := state.NewManager()
-	err := loader.New(db, manager, state.NewKeyRegistry()).Load(context.Background())
+	err := loader.New(db, manager, state.NewCredentialRegistry()).Load(context.Background())
 	if err == nil || manager.Current() != nil {
 		t.Fatalf("Load() error/current = %v/%#v", err, manager.Current())
 	}
@@ -218,7 +220,7 @@ func TestLoaderRejectsInvalidKnownPublicSystemSettingsWithoutPublishing(t *testi
 			mustCreate(t, db, &models.SystemSetting{Key: test.key, Value: test.value})
 			manager := state.NewManager()
 
-			err := loader.New(db, manager, state.NewKeyRegistry()).Load(context.Background())
+			err := loader.New(db, manager, state.NewCredentialRegistry()).Load(context.Background())
 			if err == nil {
 				t.Fatalf("Load() accepted %s=%s", test.key, test.value)
 			}
@@ -232,7 +234,7 @@ func TestLoaderRejectsInvalidKnownPublicSystemSettingsWithoutPublishing(t *testi
 func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	db := openMigratedDatabase(t)
 	manager := state.NewManager()
-	registry := state.NewKeyRegistry()
+	registry := state.NewCredentialRegistry()
 
 	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -245,8 +247,8 @@ func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	if snapshot.Revision != 1 {
 		t.Errorf("snapshot revision = %d, want 1", snapshot.Revision)
 	}
-	if snapshot.Candidates == nil || len(snapshot.Candidates) != 0 {
-		t.Errorf("snapshot candidates = %#v, want initialized empty map", snapshot.Candidates)
+	if snapshot.ExecutionCandidates == nil || len(snapshot.ExecutionCandidates) != 0 {
+		t.Errorf("snapshot candidates = %#v, want initialized empty map", snapshot.ExecutionCandidates)
 	}
 	if snapshot.Groups == nil || len(snapshot.Groups) != 0 {
 		t.Errorf("snapshot groups = %#v, want initialized empty map", snapshot.Groups)
@@ -254,7 +256,7 @@ func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	if snapshot.AccessKeysByHash == nil || len(snapshot.AccessKeysByHash) != 0 {
 		t.Errorf("snapshot access keys = %#v, want initialized empty map", snapshot.AccessKeysByHash)
 	}
-	if got := registry.CollectCandidates([]uint{1}, nil, time.Time{}); len(got) != 0 {
+	if got := registry.CollectCredentialCandidates([]uint{1}, nil, time.Time{}); len(got) != 0 {
 		t.Errorf("registry candidates = %#v, want empty", got)
 	}
 }
@@ -270,9 +272,8 @@ func TestBuildCompileInputReadsUncommittedTransactionState(t *testing.T) {
 	})
 
 	group := models.Group{
-		Name: "pending", UpstreamURL: "https://pending.example",
-		Protocols: models.JSON(`["openai-completions"]`),
-		Models:    models.JSON(`[{"id":"gpt-pending"}]`), Config: models.JSON(`{}`), Enabled: true,
+		Name: "pending", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[{"id":"gpt-pending"}]`), Overrides: models.JSON(`{}`), Enabled: true,
 	}
 	mustCreate(t, tx, &group)
 	mustCreate(t, tx, &models.AccessKey{
@@ -294,8 +295,8 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	db := openMigratedDatabase(t)
 	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})
 	group := createRuntimeGroup(t, db, "owned", protocol.OpenAICompletions, "gpt-owned")
-	if err := db.Model(&group).Update("config", models.JSON(`{"request_timeout":30}`)).Error; err != nil {
-		t.Fatalf("update group config: %v", err)
+	if err := db.Model(&group).Update("overrides", models.JSON(`{"request_timeout":30}`)).Error; err != nil {
+		t.Fatalf("update group overrides: %v", err)
 	}
 	mustCreate(t, db, &models.AccessKey{
 		Name: "owned", KeyValue: "cipher", KeyHash: "owned-hash", Status: "active",
@@ -308,7 +309,7 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 		t.Fatalf("first BuildCompileInput() error = %v", err)
 	}
 	first.SystemSettings["connect_timeout"] = 99
-	first.Groups[0].Protocols[0] = protocol.Anthropic
+	first.Groups[0].Params[0] = '['
 	first.Groups[0].Settings["request_timeout"] = 99
 	first.AccessKeys[0].Filters.Groups[999] = struct{}{}
 	first.AccessKeys[0].Filters.Models["mutated"] = struct{}{}
@@ -320,8 +321,8 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	if got := fmt.Sprint(second.SystemSettings["connect_timeout"]); got != "20" {
 		t.Fatalf("connect_timeout = %q, want 20", got)
 	}
-	if second.Groups[0].Protocols[0] != protocol.OpenAICompletions {
-		t.Fatalf("protocol = %q, want openai", second.Groups[0].Protocols[0])
+	if second.Groups[0].ChannelID != channel.OpenAI || string(second.Groups[0].Params) != `{}` {
+		t.Fatalf("channel group = %#v, want OpenAI with canonical params", second.Groups[0])
 	}
 	if got := fmt.Sprint(second.Groups[0].Settings["request_timeout"]); got != "30" {
 		t.Fatalf("request_timeout = %q, want 30", got)
@@ -334,39 +335,6 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	}
 }
 
-func TestBuildCompileInputDoesNotQueryUpstreamKeys(t *testing.T) {
-	db := openMigratedDatabase(t)
-	group := createRuntimeGroup(t, db, "query-boundary", protocol.OpenAICompletions, "gpt-query")
-	mustCreate(t, db, &models.AccessKey{
-		Name: "query-boundary", KeyValue: "cipher", KeyHash: "query-boundary-hash",
-		KeySuffix: "0002", Status: "active", Filters: models.JSON(`{}`),
-	})
-	mustCreate(t, db, &models.UpstreamKey{
-		GroupID: group.ID, KeyValue: "upstream-cipher", KeyHash: "upstream-query-hash",
-		Status: models.UpstreamKeyStatusActive,
-	})
-
-	const callbackName = "test:build_compile_input_tables"
-	seen := make(map[string]int)
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		seen[tx.Statement.Table]++
-	}); err != nil {
-		t.Fatalf("register query callback: %v", err)
-	}
-
-	if _, err := loader.BuildCompileInput(context.Background(), db); err != nil {
-		t.Fatalf("BuildCompileInput() error = %v", err)
-	}
-	if seen["upstream_keys"] != 0 {
-		t.Fatalf("upstream_keys query count = %d, want 0", seen["upstream_keys"])
-	}
-	for _, table := range []string{"system_settings", "groups", "access_keys"} {
-		if seen[table] != 1 {
-			t.Errorf("%s query count = %d, want 1; all=%#v", table, seen[table], seen)
-		}
-	}
-}
-
 func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	db := openMigratedDatabase(t)
 	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})
@@ -376,15 +344,15 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	})
 
 	enabled := models.Group{
-		Name:        "enabled",
-		UpstreamURL: "https://enabled.example.com/v1",
-		Protocols:   models.JSON(`["openai-completions"]`),
+		Name:      "enabled",
+		ChannelID: string(channel.OpenAI),
+		Params:    models.JSON(`{}`),
 		Models: models.JSON(`[
 			{"id":"gpt-4o","alias":"Primary"},
 			{"id":"gpt-4o","alias":"Secondary"},
 			{"id":"gpt-4.1","alias":"Other"}
 		]`),
-		Config: models.JSON(`{
+		Overrides: models.JSON(`{
 			"request_timeout":30,
 			"header_rules":{"set":{"X-Group":"group"},"remove":["X-Group-Remove"]}
 		}`),
@@ -392,12 +360,12 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	}
 	mustCreate(t, db, &enabled)
 	disabled := models.Group{
-		Name:        "disabled",
-		UpstreamURL: "https://disabled.example.com/v1",
-		Protocols:   models.JSON(`["openai-completions"]`),
-		Models:      models.JSON(`[{"id":"hidden","alias":"Hidden"}]`),
-		Config:      models.JSON(`{}`),
-		Enabled:     true,
+		Name:      "disabled",
+		ChannelID: string(channel.OpenAI),
+		Params:    models.JSON(`{}`),
+		Models:    models.JSON(`[{"id":"hidden","alias":"Hidden"}]`),
+		Overrides: models.JSON(`{}`),
+		Enabled:   true,
 	}
 	mustCreate(t, db, &disabled)
 	if err := db.Model(&disabled).Update("enabled", false).Error; err != nil {
@@ -405,7 +373,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	}
 
 	manager := state.NewManager()
-	registry := state.NewKeyRegistry()
+	registry := state.NewCredentialRegistry()
 	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -457,7 +425,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 		t.Errorf("group header remove rules = %#v, want group override", view.HeaderRules.Remove)
 	}
 
-	openAICandidates := snapshot.Candidates[protocol.OpenAICompletions]
+	openAICandidates := snapshot.ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]
 	if len(openAICandidates) != 3 {
 		t.Fatalf("OpenAI candidates = %#v, want three external model names", openAICandidates)
 	}
@@ -473,7 +441,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	if _, ok := openAICandidates["hidden"]; ok {
 		t.Fatal("disabled group model hidden is present in candidates")
 	}
-	if got := snapshot.RouteCatalog[protocol.OpenAICompletions]["Hidden"]; len(got) != 1 ||
+	if got := snapshot.ExecutionRouteCatalog[protocol.OpenAICompletions][execution.OperationChatCompletion]["Hidden"]; len(got) != 1 ||
 		got[0].GroupID != disabled.ID || got[0].UpstreamModelID != "hidden" {
 		t.Fatalf("disabled RouteCatalog entry = %#v", got)
 	}
@@ -494,17 +462,17 @@ func TestLoaderMapsValidationModelIntoRuntimeSnapshot(t *testing.T) {
 			db := openMigratedDatabase(t)
 			group := models.Group{
 				Name:            "validation-" + test.name,
-				UpstreamURL:     "https://validation.example.com/v1",
-				Protocols:       models.JSON(`["openai-completions"]`),
+				ChannelID:       string(channel.OpenAI),
+				Params:          models.JSON(`{}`),
 				Models:          models.JSON(`[{"id":"real-model","alias":"public-model"}]`),
 				ValidationModel: test.validationModel,
-				Config:          models.JSON(`{}`),
+				Overrides:       models.JSON(`{}`),
 				Enabled:         true,
 			}
 			mustCreate(t, db, &group)
 
 			manager := state.NewManager()
-			registry := state.NewKeyRegistry()
+			registry := state.NewCredentialRegistry()
 			if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
@@ -513,7 +481,7 @@ func TestLoaderMapsValidationModelIntoRuntimeSnapshot(t *testing.T) {
 			if got := snapshot.Groups[group.ID].ValidationModel; got != test.want {
 				t.Fatalf("ValidationModel = %q, want %q", got, test.want)
 			}
-			if got := snapshot.Candidates[protocol.OpenAICompletions]["public-model"][0].UpstreamModelID; got != "real-model" {
+			if got := snapshot.ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]["public-model"][0].UpstreamModelID; got != "real-model" {
 				t.Fatalf("candidate upstream model = %q, want real-model", got)
 			}
 		})
@@ -523,30 +491,30 @@ func TestLoaderMapsValidationModelIntoRuntimeSnapshot(t *testing.T) {
 func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 	tests := []struct {
 		name      string
-		protocols models.JSON
+		channelID string
+		params    models.JSON
 		models    models.JSON
-		config    models.JSON
+		overrides models.JSON
 		wantError string
 	}{
-		{name: "protocols object", protocols: models.JSON(`{}`), models: models.JSON(`[]`), config: models.JSON(`{}`), wantError: "protocols"},
-		{name: "models object", protocols: models.JSON(`["openai-completions"]`), models: models.JSON(`{}`), config: models.JSON(`{}`), wantError: "models"},
-		{name: "config array", protocols: models.JSON(`["openai-completions"]`), models: models.JSON(`[]`), config: models.JSON(`[]`), wantError: "config"},
-		{name: "unknown group setting", protocols: models.JSON(`["openai-completions"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{"unknown":true}`), wantError: "unknown group setting"},
-		{name: "duplicate protocol", protocols: models.JSON(`["openai-completions","openai-completions"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{}`), wantError: "duplicate protocol"},
-		{name: "blank model id", protocols: models.JSON(`["openai-completions"]`), models: models.JSON(`[{"id":"  "}]`), config: models.JSON(`{}`), wantError: "model id is required"},
+		{name: "unknown channel", channelID: "unknown", params: models.JSON(`{}`), models: models.JSON(`[]`), overrides: models.JSON(`{}`), wantError: "unknown channel"},
+		{name: "invalid channel params", channelID: string(channel.OpenAICompatible), params: models.JSON(`{}`), models: models.JSON(`[]`), overrides: models.JSON(`{}`), wantError: "params.base_url"},
+		{name: "models object", channelID: string(channel.OpenAI), params: models.JSON(`{}`), models: models.JSON(`{}`), overrides: models.JSON(`{}`), wantError: "models"},
+		{name: "overrides array", channelID: string(channel.OpenAI), params: models.JSON(`{}`), models: models.JSON(`[]`), overrides: models.JSON(`[]`), wantError: "overrides"},
+		{name: "unknown group setting", channelID: string(channel.OpenAI), params: models.JSON(`{}`), models: models.JSON(`[{"id":"gpt-4o"}]`), overrides: models.JSON(`{"unknown":true}`), wantError: "unknown group setting"},
+		{name: "blank model id", channelID: string(channel.OpenAI), params: models.JSON(`{}`), models: models.JSON(`[{"id":"  "}]`), overrides: models.JSON(`{}`), wantError: "model id is required"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := openMigratedDatabase(t)
 			group := models.Group{
-				Name: "invalid", UpstreamURL: "https://invalid.example.com/v1",
-				Protocols: test.protocols,
-				Models:    test.models, Config: test.config, Enabled: true,
+				Name: "invalid", ChannelID: test.channelID, Params: test.params,
+				Models: test.models, Overrides: test.overrides, Enabled: true,
 			}
 			mustCreate(t, db, &group)
 			manager := state.NewManager()
-			registry := state.NewKeyRegistry()
+			registry := state.NewCredentialRegistry()
 
 			err := loader.New(db, manager, registry).Load(context.Background())
 			if err == nil {
@@ -558,14 +526,14 @@ func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 			if manager.Current() != nil {
 				t.Fatalf("Current() = %#v after failed load, want nil", manager.Current())
 			}
-			if got := registry.CollectCandidates([]uint{group.ID}, nil, time.Time{}); len(got) != 0 {
+			if got := registry.CollectCredentialCandidates([]uint{group.ID}, nil, time.Time{}); len(got) != 0 {
 				t.Fatalf("registry candidates after failed load = %#v, want empty", got)
 			}
 		})
 	}
 }
 
-func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
+func TestLoaderMapsAccessAndCredentials(t *testing.T) {
 	db := openMigratedDatabase(t)
 	firstGroup := createRuntimeGroup(t, db, "first", protocol.OpenAICompletions, "gpt-4o")
 	if err := db.Model(&firstGroup).Update("models", models.JSON(`[{"id":"gpt-4o","alias":"Primary"}]`)).Error; err != nil {
@@ -589,18 +557,18 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	mustCreate(t, db, &disabledAccess)
 
 	firstWeight := 7
-	keys := []models.UpstreamKey{
-		{GroupID: firstGroup.ID, KeyValue: "upstream-cipher-one", KeyHash: "upstream-hash-one", Status: models.UpstreamKeyStatusActive, WeightManual: &firstWeight},
-		{GroupID: firstGroup.ID, KeyValue: "upstream-cipher-two", KeyHash: "upstream-hash-two", Status: models.UpstreamKeyStatusDisabled},
-		{GroupID: secondGroup.ID, KeyValue: "upstream-cipher-three", KeyHash: "upstream-hash-three", Status: models.UpstreamKeyStatusActive},
-		{GroupID: secondGroup.ID, KeyValue: "upstream-cipher-four", KeyHash: "upstream-hash-four", Status: models.UpstreamKeyStatusDisabled},
+	credentials := []models.Credential{
+		{GroupID: firstGroup.ID, Data: "credential-cipher-one", Fingerprint: "credential-fingerprint-one", Status: models.CredentialStatusActive, WeightManual: &firstWeight},
+		{GroupID: firstGroup.ID, Data: "credential-cipher-two", Fingerprint: "credential-fingerprint-two", Status: models.CredentialStatusDisabled},
+		{GroupID: secondGroup.ID, Data: "credential-cipher-three", Fingerprint: "credential-fingerprint-three", Status: models.CredentialStatusActive},
+		{GroupID: secondGroup.ID, Data: "credential-cipher-four", Fingerprint: "credential-fingerprint-four", Status: models.CredentialStatusDisabled},
 	}
-	for index := range keys {
-		mustCreate(t, db, &keys[index])
+	for index := range credentials {
+		mustCreate(t, db, &credentials[index])
 	}
 
 	manager := state.NewManager()
-	registry := state.NewKeyRegistry()
+	registry := state.NewCredentialRegistry()
 	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -627,7 +595,7 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 		got.Name != secondGroup.Name || !got.Enabled {
 		t.Fatalf("second GroupCatalog entry = %#v", got)
 	}
-	if len(snapshot.RouteCatalog) == 0 {
+	if len(snapshot.ExecutionRouteCatalog) == 0 {
 		t.Fatal("RouteCatalog was not compiled from persisted groups")
 	}
 	if _, ok := access.Filters.Groups[firstGroup.ID]; !ok {
@@ -646,27 +614,27 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 		t.Errorf("access filters models = %#v, must not expose hidden upstream id", access.Filters.Models)
 	}
 
-	candidates := registry.CollectCandidates([]uint{firstGroup.ID, secondGroup.ID}, nil, time.Time{})
+	candidates := registry.CollectCredentialCandidates([]uint{firstGroup.ID, secondGroup.ID}, nil, time.Time{})
 	if len(candidates) != 2 {
-		t.Fatalf("registry candidates = %#v, want two active keys", candidates)
+		t.Fatalf("registry candidates = %#v, want two active credentials", candidates)
 	}
-	if candidates[0].ID != keys[0].ID || candidates[0].GroupID != firstGroup.ID || candidates[0].WeightManual == nil || *candidates[0].WeightManual != firstWeight {
-		t.Errorf("first candidate = %#v, want active weighted key %d", candidates[0], keys[0].ID)
+	if candidates[0].ID != credentials[0].ID || candidates[0].GroupID != firstGroup.ID || candidates[0].WeightManual == nil || *candidates[0].WeightManual != firstWeight {
+		t.Errorf("first candidate = %#v, want active weighted credential %d", candidates[0], credentials[0].ID)
 	}
-	if candidates[1].ID != keys[2].ID || candidates[1].GroupID != secondGroup.ID {
-		t.Errorf("second candidate = %#v, want active key %d", candidates[1], keys[2].ID)
+	if candidates[1].ID != credentials[2].ID || candidates[1].GroupID != secondGroup.ID {
+		t.Errorf("second candidate = %#v, want active credential %d", candidates[1], credentials[2].ID)
 	}
-	for _, key := range keys {
-		got, ok := registry.EncryptedValue(key.ID)
-		if !ok || got != key.KeyValue {
-			t.Errorf("EncryptedValue(%d) = %q, %t, want %q, true", key.ID, got, ok, key.KeyValue)
+	for _, credential := range credentials {
+		got, ok := registry.EncryptedCredentialData(credential.ID)
+		if !ok || got != credential.Data {
+			t.Errorf("EncryptedValue(%d) = %q, %t, want %q, true", credential.ID, got, ok, credential.Data)
 		}
 	}
 
 	snapshotText := fmt.Sprintf("%#v", snapshot)
 	for _, secret := range []string{
 		activeAccess.KeyValue, disabledAccess.KeyValue,
-		keys[0].KeyValue, keys[1].KeyValue, keys[2].KeyValue, keys[3].KeyValue,
+		credentials[0].Data, credentials[1].Data, credentials[2].Data, credentials[3].Data,
 	} {
 		if strings.Contains(snapshotText, secret) {
 			t.Errorf("snapshot exposes credential material %q", secret)
@@ -674,48 +642,48 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	}
 }
 
-func TestBuildGroupKeyEntriesReadsOnlyRequestedGroupInStableOrder(t *testing.T) {
+func TestBuildGroupCredentialEntriesReadsOnlyRequestedGroupInStableOrder(t *testing.T) {
 	db := openMigratedDatabase(t)
 	firstGroup := createRuntimeGroup(t, db, "first-entries", protocol.OpenAICompletions, "gpt-4o")
 	secondGroup := createRuntimeGroup(t, db, "second-entries", protocol.Anthropic, "claude")
 	weight := 9
-	keys := []models.UpstreamKey{
+	credentials := []models.Credential{
 		{
-			GroupID: secondGroup.ID, KeyValue: "other-cipher",
-			KeyHash: "other-hash", Status: models.UpstreamKeyStatusActive,
+			GroupID: secondGroup.ID, Data: "other-cipher",
+			Fingerprint: "other-fingerprint", Status: models.CredentialStatusActive,
 		},
 		{
-			GroupID: firstGroup.ID, KeyValue: "first-cipher",
-			KeyHash: "first-hash", Status: models.UpstreamKeyStatusActive,
+			GroupID: firstGroup.ID, Data: "first-cipher",
+			Fingerprint: "first-fingerprint", Status: models.CredentialStatusActive,
 		},
 		{
-			GroupID: firstGroup.ID, KeyValue: "second-cipher",
-			KeyHash: "second-hash", Status: models.UpstreamKeyStatusDisabled,
+			GroupID: firstGroup.ID, Data: "second-cipher",
+			Fingerprint: "second-fingerprint", Status: models.CredentialStatusDisabled,
 			WeightManual: &weight,
 		},
 	}
-	for index := range keys {
-		mustCreate(t, db, &keys[index])
+	for index := range credentials {
+		mustCreate(t, db, &credentials[index])
 	}
 
-	got, err := loader.BuildGroupKeyEntries(t.Context(), db, firstGroup.ID)
+	got, err := loader.BuildGroupCredentialEntries(t.Context(), db, firstGroup.ID)
 	if err != nil {
-		t.Fatalf("BuildGroupKeyEntries() error = %v", err)
+		t.Fatalf("BuildGroupCredentialEntries() error = %v", err)
 	}
-	if len(got) != 2 || got[0].ID != keys[1].ID || got[1].ID != keys[2].ID {
-		t.Fatalf("BuildGroupKeyEntries() = %#v", got)
+	if len(got) != 2 || got[0].ID != credentials[1].ID || got[1].ID != credentials[2].ID {
+		t.Fatalf("BuildGroupCredentialEntries() = %#v", got)
 	}
 	if got[1].WeightManual == nil || *got[1].WeightManual != weight ||
-		got[1].Status != state.KeyStatusDisabled ||
+		got[1].Status != state.CredentialStatusDisabled ||
 		got[1].EncryptedValue != "second-cipher" {
 		t.Fatalf("second entry = %#v", got[1])
 	}
 }
 
-func TestBuildGroupKeyEntriesRejectsMissingGroup(t *testing.T) {
+func TestBuildGroupCredentialEntriesRejectsMissingGroup(t *testing.T) {
 	db := openMigratedDatabase(t)
-	if _, err := loader.BuildGroupKeyEntries(t.Context(), db, 999); err == nil {
-		t.Fatal("BuildGroupKeyEntries(missing group) error = nil")
+	if _, err := loader.BuildGroupCredentialEntries(t.Context(), db, 999); err == nil {
+		t.Fatal("BuildGroupCredentialEntries(missing group) error = nil")
 	}
 }
 
@@ -728,7 +696,7 @@ func TestLoaderMapsAccessKeyRPMLimit(t *testing.T) {
 	mustCreate(t, db, &accessKey)
 
 	manager := state.NewManager()
-	registry := state.NewKeyRegistry()
+	registry := state.NewCredentialRegistry()
 	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -795,11 +763,11 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 			wantError: "unknown field",
 		},
 		{
-			name: "empty upstream ciphertext",
+			name: "empty credential ciphertext",
 			insert: func(t *testing.T, db *gorm.DB, group models.Group) {
-				mustCreate(t, db, &models.UpstreamKey{
-					GroupID: group.ID, KeyValue: "", KeyHash: "empty-cipher-hash",
-					Status: models.UpstreamKeyStatusActive,
+				mustCreate(t, db, &models.Credential{
+					GroupID: group.ID, Data: "", Fingerprint: "empty-cipher-fingerprint",
+					Status: models.CredentialStatusActive,
 				})
 			},
 			wantError: "encrypted value is required",
@@ -812,7 +780,7 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 			group := createRuntimeGroup(t, db, "valid", protocol.OpenAICompletions, "gpt-4o")
 			test.insert(t, db, group)
 			manager := state.NewManager()
-			registry := state.NewKeyRegistry()
+			registry := state.NewCredentialRegistry()
 
 			err := loader.New(db, manager, registry).Load(context.Background())
 			if err == nil {
@@ -824,7 +792,7 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 			if manager.Current() != nil {
 				t.Fatalf("Current() = %#v after failed load, want nil", manager.Current())
 			}
-			if got := registry.CollectCandidates([]uint{group.ID}, nil, time.Time{}); len(got) != 0 {
+			if got := registry.CollectCredentialCandidates([]uint{group.ID}, nil, time.Time{}); len(got) != 0 {
 				t.Fatalf("registry candidates after failed load = %#v, want empty", got)
 			}
 		})
@@ -862,10 +830,16 @@ func mustCreate(t *testing.T, db *gorm.DB, value any) {
 
 func createRuntimeGroup(t *testing.T, db *gorm.DB, name string, p protocol.Protocol, model string) models.Group {
 	t.Helper()
+	channelID := channel.OpenAI
+	switch p {
+	case protocol.Anthropic:
+		channelID = channel.Anthropic
+	case protocol.Gemini:
+		channelID = channel.Gemini
+	}
 	group := models.Group{
-		Name: name, UpstreamURL: "https://" + name + ".example.com/v1",
-		Protocols: models.JSON(fmt.Sprintf(`[%q]`, p)),
-		Models:    models.JSON(fmt.Sprintf(`[{"id":%q}]`, model)), Config: models.JSON(`{}`), Enabled: true,
+		Name: name, ChannelID: string(channelID), Params: models.JSON(`{}`),
+		Models: models.JSON(fmt.Sprintf(`[{"id":%q}]`, model)), Overrides: models.JSON(`{}`), Enabled: true,
 	}
 	mustCreate(t, db, &group)
 	return group

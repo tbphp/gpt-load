@@ -1,8 +1,5 @@
 import { inject, type InjectionKey } from 'vue'
 
-import { isDataProtocol } from '@/api/control/protocols'
-import type { GroupProtocol } from '@/api/control/types'
-
 import type { ImportRecoveryDraft, ModelDraftItem } from './model-draft'
 
 export const importRecoveryStorageKey = 'gpt-load.import-reauth-draft'
@@ -25,17 +22,13 @@ export interface ImportRecoveryService {
 }
 
 interface ImportRecoveryRecord {
-  version: 3
+  version: 5
   expires_at: number
   draft: ImportRecoveryDraft
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isProtocol(value: unknown): value is GroupProtocol {
-  return isDataProtocol(value)
 }
 
 function hasOnlyFields(value: Record<string, unknown>, fields: readonly string[]): boolean {
@@ -72,57 +65,45 @@ function isModel(value: unknown): value is ModelDraftItem {
   )
 }
 
-function isProviderID(value: unknown): value is string | null {
+function isChannelID(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z][a-z0-9_]*$/u.test(value) && value.length <= 100
+}
+
+function isChannelParams(value: unknown): value is Record<string, string> {
   return (
-    value === null ||
-    (typeof value === 'string' &&
-      value.length > 0 &&
-      value === value.trim() &&
-      !value.includes(':') &&
-      !/[\u0000-\u001f\u007f]/u.test(value))
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([key, item]) => /^[a-z][a-z0-9_]*$/u.test(key) && typeof item === 'string',
+    )
   )
 }
 
 function isNewImportDraft(value: Record<string, unknown>): boolean {
   if (!(
-    hasOnlyFields(value, [
-      'mode',
-      'provider_id',
-      'name',
-      'upstream_url',
-      'protocols',
-      'keys',
-      'models',
-    ]) &&
+    hasOnlyFields(value, ['mode', 'channel_id', 'params', 'name', 'credentials', 'models']) &&
     value.mode === 'new' &&
-    isProviderID(value.provider_id) &&
+    isChannelID(value.channel_id) &&
+    isChannelParams(value.params) &&
     typeof value.name === 'string' &&
-    typeof value.upstream_url === 'string' &&
-    Array.isArray(value.protocols) &&
-    value.protocols.every(isProtocol) &&
-    typeof value.keys === 'string' &&
+    typeof value.credentials === 'string' &&
     Array.isArray(value.models) &&
     value.models.every(isModel)
   )) {
     return false
   }
   const models = value.models as ModelDraftItem[]
-  const protocols = value.protocols as GroupProtocol[]
-  return (
-    new Set(protocols).size === protocols.length &&
-    new Set(models.map(({ key }) => key)).size === models.length
-  )
+  return new Set(models.map(({ key }) => key)).size === models.length
 }
 
 function isExistingImportDraft(value: Record<string, unknown>): boolean {
   return (
-    hasOnlyFields(value, ['mode', 'group_id', 'keys']) &&
+    hasOnlyFields(value, ['mode', 'group_id', 'credentials']) &&
     value.mode === 'existing' &&
     (value.group_id === null ||
       (typeof value.group_id === 'number' &&
         Number.isSafeInteger(value.group_id) &&
         value.group_id > 0)) &&
-    typeof value.keys === 'string'
+    typeof value.credentials === 'string'
   )
 }
 
@@ -136,7 +117,7 @@ function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
     if (
       !isRecord(value) ||
       !hasOnlyFields(value, ['version', 'expires_at', 'draft']) ||
-      value.version !== 3 ||
+      value.version !== 5 ||
       typeof value.expires_at !== 'number' ||
       !Number.isFinite(value.expires_at) ||
       !isImportDraft(value.draft)
@@ -214,7 +195,7 @@ export function createImportRecoveryService(
     if (!deps.storage) return 'storage-unavailable'
 
     const record: ImportRecoveryRecord = {
-      version: 3,
+      version: 5,
       expires_at: deps.now() + importRecoveryTtlMs,
       draft,
     }

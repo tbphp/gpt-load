@@ -666,16 +666,26 @@ func logMissingAutomaticPricePriorityProviders(snapshot *catalog.Snapshot) {
 }
 
 func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) error {
+	references, err := loadReferencedPrices(tx)
+	if err != nil {
+		return err
+	}
 	var rows []models.ModelPrice
 	if err := tx.Where("is_manual = ?", false).Order("id ASC").Find(&rows).Error; err != nil {
 		return fmt.Errorf("load automatic model prices: %w", app_errors.ParseDBError(err))
 	}
 	for _, row := range rows {
-		cost, _, ok := resolveAutomaticPrice(snapshot, row.ModelID)
+		identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+		if err != nil {
+			return fmt.Errorf("validate automatic model price identity: %w", app_errors.ErrInternalServer)
+		}
+		if _, referenced := references[identity]; !referenced {
+			continue
+		}
+		match, ok := resolveAutomaticPriceForIdentity(snapshot, identity)
 		desired := models.ModelPrice{}
 		if ok {
-			var err error
-			desired, err = automaticCatalogValues(cost)
+			desired, err = automaticCatalogValues(match.cost)
 			if err != nil {
 				return fmt.Errorf("normalize catalog price: %w", app_errors.ErrInternalServer)
 			}
@@ -754,7 +764,10 @@ func cleanupUnreferencedAutomaticPrices(tx *gorm.DB) error {
 	}
 	ids := make([]uint, 0)
 	for _, row := range rows {
-		identity := pricing.Identity{ModelID: row.ModelID}
+		identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+		if err != nil {
+			return fmt.Errorf("validate automatic price cleanup identity: %w", app_errors.ErrInternalServer)
+		}
 		if _, referenced := references[identity]; !referenced {
 			ids = append(ids, row.ID)
 		}

@@ -79,6 +79,7 @@ export default {
       relationships: '关联关系',
       clientModels: '客户端模型',
       groups: '分组',
+      channel: '渠道',
       updatedAt: '更新于',
       copyModel: '复制上游模型 {model}',
       copySucceeded: '已复制',

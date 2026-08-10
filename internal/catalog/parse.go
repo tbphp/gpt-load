@@ -97,20 +97,14 @@ func parseProvider(key string, raw json.RawMessage) (Provider, error) {
 		return Provider{}, err
 	}
 
-	apiURL, err := decodeStringField(fields, "api")
-	if err != nil {
+	if _, err := decodeStringField(fields, "api"); err != nil {
 		return Provider{}, err
 	}
-	npm, err := decodeStringField(fields, "npm")
-	if err != nil {
+	if _, err := decodeStringField(fields, "npm"); err != nil {
 		return Provider{}, err
 	}
 	provider := Provider{
-		ID:     id,
-		Name:   name,
-		APIURL: strings.TrimSpace(apiURL),
-		NPM:    strings.TrimSpace(npm),
-		Models: make(map[string]Model, len(modelValues)),
+		ID: id, Name: name, Models: make(map[string]Model, len(modelValues)),
 	}
 	for modelKey, rawModel := range modelValues {
 		model, err := parseModel(modelKey, rawModel)

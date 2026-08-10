@@ -6,6 +6,7 @@ import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessProtocol, FailureCategory } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { projectChannelID } from '@/app/resources/channels'
 
 import { normalizeRequestLogFilters, requestLogFilterFields } from './request-log-filters'
 
@@ -24,7 +25,8 @@ import {
 
 export type RequestLogStatus = 'success' | 'error' | 'incomplete' | 'canceled'
 export type RequestLogModelConsistency = 'not_applicable' | 'match' | 'unknown' | 'mismatch'
-export type RequestLogAction = 'terminate' | 'retry' | 'cooldown_key' | 'fail_key' | 'skip_group'
+export type RequestLogAction =
+  'terminate' | 'retry' | 'cooldown_credential' | 'fail_credential' | 'skip_group'
 export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_applicable'
 export type RequestLogCostState = 'priced' | 'unpriced' | 'not_applicable'
 export type RequestLogPricingCompleteness =
@@ -32,6 +34,20 @@ export type RequestLogPricingCompleteness =
 export type RequestLogRetryState = 'retried' | 'not_retried'
 export type RequestLogReceiptLineState = 'priced' | 'unpriced'
 export type RequestLogPageSize = 20 | 50 | 100
+export type RequestLogOperation =
+  | 'chat_completion'
+  | 'responses_create'
+  | 'responses_retrieve'
+  | 'responses_delete'
+  | 'responses_cancel'
+  | 'responses_input_items'
+  | 'responses_compact'
+  | 'responses_input_tokens'
+  | 'responses_passthrough'
+  | 'list_models'
+  | 'probe'
+export type RequestLogRouteMode = 'native' | 'converted'
+export type RequestLogDispatchState = 'not_sent' | 'maybe_sent'
 
 export type { FailureCategory } from '@/api/control/types'
 
@@ -40,6 +56,8 @@ export interface RequestLogFilters {
   to_ms?: number
   limit?: RequestLogPageSize
   group_id?: number
+  channel_id?: string
+  credential_id?: number
   client_model?: string
   upstream_model?: string
   access_key_id?: number
@@ -52,7 +70,6 @@ export interface RequestLogFilters {
   cost_state?: RequestLogCostState
   pricing_completeness?: RequestLogPricingCompleteness
   cache_present?: boolean
-  upstream_key_id?: number
   attempt_status_code?: number
   failure_category?: FailureCategory
   error_code?: string
@@ -81,11 +98,11 @@ export interface RequestLogPricingLineDto {
 }
 
 export interface RequestLogPricingReceiptDto {
-  schema_version: 1 | 2
+  schema_version: 1 | 2 | 3
   method: 'unit_rate_sum'
   method_version: 1
   currency: 'USD'
-  rule: { scope_key?: string; model_id: string }
+  rule: { scope_key?: string; channel_id?: string; model_id: string }
   context_threshold_tokens: string | null
   line_items: RequestLogPricingLineDto[]
   total_nano_usd: string
@@ -95,8 +112,14 @@ export interface RequestLogAttemptDto {
   sequence: number
   group_id: number
   group_name: string
-  key_id: number
+  channel_id: string | null
+  credential_id: number | null
+  operation: RequestLogOperation | null
+  route_mode: RequestLogRouteMode | null
   upstream_model: string | null
+  upstream_request_id: string | null
+  dispatch_state: RequestLogDispatchState | null
+  response_started: boolean
   status_code: number
   duration_ms: number
   failure_category: FailureCategory
@@ -104,6 +127,7 @@ export interface RequestLogAttemptDto {
   will_retry: boolean
   error_code: string
   error_summary: string
+  committed: boolean
   pricing_receipt: RequestLogPricingReceiptDto | null
 }
 
@@ -133,6 +157,8 @@ export interface RequestLogItemDto {
   error_summary: string
   affinity_hit: boolean
   group_id: number | null
+  channel_id: string | null
+  credential_id: number | null
   usage_state: RequestLogUsageState
   cost_state: RequestLogCostState
   pricing_completeness: RequestLogPricingCompleteness
@@ -167,7 +193,28 @@ const failureCategories = [
   'downstream_cancel',
   'ambiguous',
 ] as const
-const actions = ['terminate', 'retry', 'cooldown_key', 'fail_key', 'skip_group'] as const
+const actions = [
+  'terminate',
+  'retry',
+  'cooldown_credential',
+  'fail_credential',
+  'skip_group',
+] as const
+const operations = [
+  'chat_completion',
+  'responses_create',
+  'responses_retrieve',
+  'responses_delete',
+  'responses_cancel',
+  'responses_input_items',
+  'responses_compact',
+  'responses_input_tokens',
+  'responses_passthrough',
+  'list_models',
+  'probe',
+] as const
+const routeModes = ['native', 'converted'] as const
+const dispatchStates = ['not_sent', 'maybe_sent'] as const
 const usageStates = ['complete', 'partial', 'missing', 'not_applicable'] as const
 const costStates = ['priced', 'unpriced', 'not_applicable'] as const
 const pricingCompletenessValues = ['complete', 'partial', 'unavailable', 'not_applicable'] as const
@@ -200,6 +247,8 @@ const itemFields = [
   'error_summary',
   'affinity_hit',
   'group_id',
+  'channel_id',
+  'credential_id',
   'usage_state',
   'cost_state',
   'pricing_completeness',
@@ -260,7 +309,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     'total_nano_usd',
   ])
   const rule = projectRecord(record.rule)
-  assertNoSecretLikeFields(rule, ['scope_key', 'model_id'])
+  assertNoSecretLikeFields(rule, ['scope_key', 'channel_id', 'model_id'])
   const lines = projectArray(record.line_items, (lineValue): RequestLogPricingLineDto => {
     const line = projectRecord(lineValue)
     assertNoSecretLikeFields(line, [
@@ -292,12 +341,14 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
-  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 2 }) as
-    1 | 2
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 3 }) as
+    1 | 2 | 3
   const scopeKey = rule.scope_key === undefined ? undefined : projectNonBlankString(rule.scope_key)
+  const channelID = rule.channel_id === undefined ? undefined : projectChannelID(rule.channel_id)
   if (
-    (schemaVersion === 1 && scopeKey === undefined) ||
-    (schemaVersion === 2 && scopeKey !== undefined)
+    (schemaVersion === 1 && (scopeKey === undefined || channelID !== undefined)) ||
+    (schemaVersion === 2 && (scopeKey !== undefined || channelID !== undefined)) ||
+    (schemaVersion === 3 && (scopeKey !== undefined || channelID === undefined))
   ) {
     invalidResponse()
   }
@@ -308,6 +359,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     currency: projectEnum(record.currency, ['USD'] as const),
     rule: {
       ...(scopeKey === undefined ? {} : { scope_key: scopeKey }),
+      ...(channelID === undefined ? {} : { channel_id: channelID }),
       model_id: projectNonBlankString(rule.model_id),
     },
     context_threshold_tokens:
@@ -325,8 +377,14 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'sequence',
     'group_id',
     'group_name',
-    'key_id',
+    'channel_id',
+    'credential_id',
+    'operation',
+    'route_mode',
     'upstream_model',
+    'upstream_request_id',
+    'dispatch_state',
+    'response_started',
     'status_code',
     'duration_ms',
     'failure_category',
@@ -334,14 +392,25 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'will_retry',
     'error_code',
     'error_summary',
+    'committed',
     'pricing_receipt',
   ])
   return {
     sequence: projectSafeInteger(record.sequence, { minimum: 1 }),
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
-    key_id: projectSafeInteger(record.key_id, { minimum: 1 }),
+    channel_id: record.channel_id === null ? null : projectChannelID(record.channel_id),
+    credential_id:
+      record.credential_id === null
+        ? null
+        : projectSafeInteger(record.credential_id, { minimum: 1 }),
+    operation: record.operation === null ? null : projectEnum(record.operation, operations),
+    route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     upstream_model: projectNullableModel(record.upstream_model),
+    upstream_request_id: projectNullableModel(record.upstream_request_id),
+    dispatch_state:
+      record.dispatch_state === null ? null : projectEnum(record.dispatch_state, dispatchStates),
+    response_started: projectBoolean(record.response_started),
     status_code: projectStatusCode(record.status_code),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),
     failure_category: projectEnum(record.failure_category, failureCategories),
@@ -349,6 +418,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     will_retry: projectBoolean(record.will_retry),
     error_code: projectString(record.error_code, { allowEmpty: true }),
     error_summary: projectString(record.error_summary, { allowEmpty: true }),
+    committed: projectBoolean(record.committed),
     pricing_receipt: projectPricingReceipt(record.pricing_receipt),
   }
 }
@@ -444,6 +514,11 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     error_summary: projectString(record.error_summary, { allowEmpty: true }),
     affinity_hit: projectBoolean(record.affinity_hit),
     group_id: record.group_id === null ? null : projectSafeInteger(record.group_id, { minimum: 1 }),
+    channel_id: record.channel_id === null ? null : projectChannelID(record.channel_id),
+    credential_id:
+      record.credential_id === null
+        ? null
+        : projectSafeInteger(record.credential_id, { minimum: 1 }),
     ...projectUsageCost(record),
   }
 }

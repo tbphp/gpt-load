@@ -2,6 +2,7 @@ package control
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,12 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
-	platformhttp "gpt-load/internal/platform/httpclient"
-	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
 
@@ -45,10 +44,11 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 		upstreamKey   = "sk-data-plane-upstream"
 	)
 	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID: groupID, Name: "data-plane", UpstreamURL: upstream.URL,
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+			ID: groupID, Name: "data-plane", ChannelID: channel.OpenAICompatible,
+			Params: json.RawMessage(`{"base_url":"` + upstream.URL + `/v1"}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: fixture.encryption.Hash(accessKey),
@@ -57,22 +57,25 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Publish(data plane) error = %v", err)
 	}
-	ciphertext, err := fixture.encryption.Encrypt(upstreamKey)
+	credentialData := `{"api_key":"` + upstreamKey + `"}`
+	ciphertext, err := fixture.encryption.Encrypt(credentialData)
 	if err != nil {
 		t.Fatalf("Encrypt(upstream key) error = %v", err)
 	}
-	if err := fixture.registry.ApplyImport(groupID, []state.KeyEntry{{
-		ID: upstreamKeyID, GroupID: groupID, Status: state.KeyStatusActive, EncryptedValue: ciphertext,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: upstreamKeyID, GroupID: groupID, Version: 1, IdentityGeneration: 1,
+		Fingerprint: fixture.encryption.Hash(credentialData), Status: state.CredentialStatusActive,
+		EncryptedValue: ciphertext,
 	}}); err != nil {
-		t.Fatalf("ApplyImport() error = %v", err)
+		t.Fatalf("ReplaceCredentials() error = %v", err)
 	}
 
-	openAI := dialect.NewOpenAI(http.DefaultClient)
+	openAI := dialect.NewOpenAI()
 	handler := gateway.NewHandler(
 		fixture.manager,
 		fixture.registry,
 		fixture.encryption,
-		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
+		gateway.NewExecutionForwarder(controlHTTPExecutor{}),
 		dialect.NewSet(openAI),
 		health.NewStatsStore(),
 		health.NewMutationCoordinator(),
@@ -132,7 +135,10 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 			t.Fatal("data-plane request did not complete while control writeMu was held")
 		}
 	}
-	if got, ok := fixture.registry.ActiveEncryptedValue(upstreamKeyID, groupID); !ok || got != ciphertext {
+	if got, ok := fixture.registry.ActiveEncryptedCredentialDataIfMatch(state.CredentialRef{
+		ID: upstreamKeyID, GroupID: groupID, Version: 1, IdentityGeneration: 1,
+		Fingerprint: fixture.encryption.Hash(credentialData), EncryptedValue: ciphertext,
+	}); !ok || got != ciphertext {
 		t.Fatalf("Registry value = %q, %t, want active ciphertext", got, ok)
 	}
 

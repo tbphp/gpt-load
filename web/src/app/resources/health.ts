@@ -3,9 +3,9 @@ import { queryOptions } from '@tanstack/vue-query'
 import type { ApiClient } from '@/api/client'
 import type {
   HealthGroupDto,
-  HealthProblemKeyDto,
+  HealthProblemCredentialDto,
   HealthRecoveryDto,
-  KeyCounts,
+  HealthCredentialCountsDto,
   RequestLogHealthDto,
   RuntimeHealthDto,
 } from '@/api/control/types'
@@ -26,14 +26,14 @@ import {
 
 export type {
   HealthGroupDto,
-  HealthProblemKeyDto,
+  HealthProblemCredentialDto,
   HealthRecoveryDto,
-  KeyCounts,
+  HealthCredentialCountsDto,
   RequestLogHealthDto,
   RuntimeHealthDto,
 } from '@/api/control/types'
 
-const countFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
+const countFields = ['credentials', 'available', 'cooldown', 'blacklisted'] as const
 const healthFields = [
   'observed_at_ms',
   'version',
@@ -42,12 +42,12 @@ const healthFields = [
   'stats_window_seconds',
   'counts',
   'groups',
-  'cooldown_keys',
-  'blacklisted_keys',
+  'cooldown_credentials',
+  'blacklisted_credentials',
   'request_log',
 ] as const
-const problemKeyFields = [
-  'key_id',
+const problemCredentialFields = [
+  'credential_id',
   'group_id',
   'group_name',
   'cooldown_until_ms',
@@ -101,23 +101,22 @@ function projectNonBlankString(value: unknown): string {
   return result
 }
 
-function projectHealthKeyMask(value: unknown): string {
+function projectHealthCredentialMask(value: unknown): string {
   const mask = projectString(value)
   if (mask !== '****' && !longMaskPattern.test(mask)) invalidResponse()
   return mask
 }
 
-export function projectHealthCounts(value: unknown): KeyCounts {
+export function projectHealthCounts(value: unknown): HealthCredentialCountsDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, countFields)
   const result = {
-    total: projectSafeInteger(record.total, { minimum: 0 }),
+    credentials: projectSafeInteger(record.credentials, { minimum: 0 }),
     available: projectSafeInteger(record.available, { minimum: 0 }),
     cooldown: projectSafeInteger(record.cooldown, { minimum: 0 }),
     blacklisted: projectSafeInteger(record.blacklisted, { minimum: 0 }),
-    disabled: projectSafeInteger(record.disabled, { minimum: 0 }),
   }
-  if (result.total !== result.available + result.cooldown + result.blacklisted + result.disabled) {
+  if (result.credentials !== result.available + result.cooldown + result.blacklisted) {
     invalidResponse()
   }
   return result
@@ -144,9 +143,9 @@ function projectRecovery(value: unknown): HealthRecoveryDto {
   }
 }
 
-function projectProblemKey(value: unknown): HealthProblemKeyDto {
+function projectProblemCredential(value: unknown): HealthProblemCredentialDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, problemKeyFields)
+  assertNoSecretLikeFields(record, problemCredentialFields)
   const recovery = projectRecovery(record.recovery)
   const cooldownUntilMS = projectNullableEpochMilliseconds(record.cooldown_until_ms)
 
@@ -161,7 +160,7 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
   }
 
   return {
-    key_id: projectSafeInteger(record.key_id, { minimum: 1 }),
+    credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
     cooldown_until_ms: cooldownUntilMS,
@@ -177,7 +176,7 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
         : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 }),
     weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
     recovery,
-    mask: projectHealthKeyMask(record.mask),
+    mask: projectHealthCredentialMask(record.mask),
     last_failure_category: projectEnum(record.last_failure_category, problemFailureCategories),
     last_status_code:
       record.last_status_code === null
@@ -218,8 +217,8 @@ export function projectRuntimeHealth(value: unknown): RuntimeHealthDto {
     stats_window_seconds: projectSafeInteger(record.stats_window_seconds, { minimum: 1 }),
     counts: projectHealthCounts(record.counts),
     groups: projectArray(record.groups, projectHealthGroup),
-    cooldown_keys: projectArray(record.cooldown_keys, projectProblemKey),
-    blacklisted_keys: projectArray(record.blacklisted_keys, projectProblemKey),
+    cooldown_credentials: projectArray(record.cooldown_credentials, projectProblemCredential),
+    blacklisted_credentials: projectArray(record.blacklisted_credentials, projectProblemCredential),
     request_log: projectRequestLogHealth(record.request_log),
   }
 }

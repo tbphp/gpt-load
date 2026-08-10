@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,7 +16,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -34,7 +36,7 @@ func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *
 				nil,
 			),
 		}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
 
@@ -55,7 +57,7 @@ func TestValidationWorkerFallsBackToFirstRealModelID(t *testing.T) {
 		validationSnapshot(map[uint]state.GroupView{
 			1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, " \t", []state.ModelConfig{{ID: "  real-model  ", Alias: "external-model"}}),
 		}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
 
@@ -78,14 +80,14 @@ func TestValidationWorkerUsesResponsesProbeForResponsesOnlyGroup(t *testing.T) {
 				nil,
 			),
 		}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
 
 	worker.Validate(context.Background())
 
 	want := []validationProbeCall{{
-		protocol: protocol.OpenAIResponses,
+		protocol: protocol.OpenAICompletions,
 		model:    "gpt-5",
 		apiKey:   "plain-key-7",
 	}}
@@ -94,19 +96,64 @@ func TestValidationWorkerUsesResponsesProbeForResponsesOnlyGroup(t *testing.T) {
 	}
 }
 
+func TestValidationWorkerProbesStructuredCloudCredential(t *testing.T) {
+	group := validationGroup(nil, "anthropic.claude-test", nil)
+	setValidationChannel(&group, channel.AWSBedrock, json.RawMessage(`{"region":"us-east-1"}`))
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{1: group}),
+		[]state.CredentialRef{{
+			ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7,
+			Fingerprint: "bedrock-fingerprint", EncryptedValue: "bedrock-cipher",
+		}},
+		&validationProbeRecorder{},
+	)
+	worker.decryptor = fixedValidationDecryptor{
+		plaintext: `{"access_key":"AKIA_TEST","secret_key":"bedrock-secret"}`,
+	}
+	var observed execution.AttemptSpec
+	worker.executor = scriptedDiscoveryExecutor{execute: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+	) execution.AttemptResult {
+		observed = spec.Clone()
+		return execution.AttemptResult{
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			StatusCode:      http.StatusOK,
+			Header:          http.Header{},
+		}
+	}}
+
+	worker.Validate(context.Background())
+
+	if got, want := string(observed.Credential.Data()),
+		`{"access_key":"AKIA_TEST","secret_key":"bedrock-secret"}`; got != want {
+		t.Fatalf("credential = %s, want %s", got, want)
+	}
+	if observed.ChannelID != string(channel.AWSBedrock) ||
+		observed.Operation != execution.OperationProbe ||
+		observed.ClientProtocol != protocol.OpenAICompletions ||
+		observed.UpstreamModel != "anthropic.claude-test" {
+		t.Fatalf("attempt = %#v", observed)
+	}
+	if got, want := worker.recorder.events(), []string{
+		fmt.Sprintf("registry.weight:7:%d", state.DefaultWeight), "registry.recover:7", "stats.reset:7",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recovery events = %#v, want %#v", got, want)
+	}
+}
+
 func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
-	group := state.GroupView{
-		ID:              42,
-		UpstreamURL:     "https://upstream.example.com/v1",
-		Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
-		ValidationModel: " model-a ",
-		HeaderRules: state.HeaderRules{
-			Set: map[string]string{
-				"X-Zeta":  "last",
-				"x-alpha": "first",
-			},
-			Remove: []string{"X-Old", "x-beta"},
+	group := validationGroup(
+		[]protocol.Protocol{protocol.OpenAICompletions}, " model-a ", nil,
+	)
+	group.ID = 42
+	group.HeaderRules = state.HeaderRules{
+		Set: map[string]string{
+			"X-Zeta":  "last",
+			"x-alpha": "first",
 		},
+		Remove: []string{"X-Old", "x-beta"},
 	}
 
 	target, ok := buildGroupValidationTarget(group)
@@ -116,7 +163,7 @@ func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
 	if target.protocol != protocol.OpenAICompletions || target.model != "model-a" {
 		t.Fatalf("target protocol/model = %q/%q, want openai/model-a", target.protocol, target.model)
 	}
-	const want = "7ece2253053165e5b6ee50d11ab75e86feffca6162a52f08361d6ee2010e0760"
+	const want = "96758d0d5d971626ff21a2e501edd86c6799c2aa17d7924cc40469d2e3a698b9"
 	if got := fmt.Sprintf("%x", target.signature); got != want {
 		t.Fatalf("validation signature = %s, want canonical digest %s", got, want)
 	}
@@ -132,11 +179,11 @@ func TestValidationSignatureChangesForEveryCoveredInput(t *testing.T) {
 		{name: "group id", base: base, mutate: func(group *state.GroupView) {
 			group.ID++
 		}},
-		{name: "upstream URL", base: base, mutate: func(group *state.GroupView) {
-			group.UpstreamURL += "/changed"
+		{name: "channel target", base: base, mutate: func(group *state.GroupView) {
+			setValidationChannel(group, channel.OpenAICompatible, json.RawMessage(`{"base_url":"https://changed.example/v1"}`))
 		}},
-		{name: "selected protocol", base: base, mutate: func(group *state.GroupView) {
-			group.Protocols[0] = protocol.Anthropic
+		{name: "provider family", base: base, mutate: func(group *state.GroupView) {
+			setValidationChannel(group, channel.Anthropic, json.RawMessage(`{}`))
 		}},
 		{name: "explicit validation model", base: base, mutate: func(group *state.GroupView) {
 			group.ValidationModel = "model-b"
@@ -215,12 +262,13 @@ func TestValidationWorkerSkipsMissingGroupProtocolModelAndDialect(t *testing.T) 
 		2: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, " \t", nil),
 		3: validationGroup([]protocol.Protocol{protocol.Gemini}, "model", nil),
 	})
-	worker := newValidationWorkerForTest(snapshot, []state.KeyRef{
+	worker := newValidationWorkerForTest(snapshot, []state.CredentialRef{
 		{ID: 1, GroupID: 9, EncryptedValue: "key-1"},
 		{ID: 2, GroupID: 1, EncryptedValue: "key-2"},
 		{ID: 3, GroupID: 2, EncryptedValue: "key-3"},
 		{ID: 4, GroupID: 3, EncryptedValue: "key-4"},
 	}, probes)
+	worker.executor = nil
 
 	worker.Validate(context.Background())
 
@@ -236,7 +284,7 @@ func TestValidationWorkerKeepsKeyBlacklistedOnDecryptOrProbeFailure(t *testing.T
 	probes := &validationProbeRecorder{errByKey: map[string]error{"plain-key-2": errors.New("probe failed")}}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
-		[]state.KeyRef{
+		[]state.CredentialRef{
 			{ID: 1, GroupID: 1, EncryptedValue: "decrypt-fails"},
 			{ID: 2, GroupID: 1, EncryptedValue: "key-2"},
 		},
@@ -258,7 +306,7 @@ func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
 	coordinator := &barrierValidationMutationCoordinator{
@@ -293,7 +341,7 @@ func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.
 		t.Fatalf("snapshot reads = %d, want 1", got)
 	}
 	if got := worker.registry.(*validationRegistryRecorder).blacklistedCalls(); got != 1 {
-		t.Fatalf("BlacklistedKeys calls = %d, want 1", got)
+		t.Fatalf("BlacklistedCredentials calls = %d, want 1", got)
 	}
 }
 
@@ -301,7 +349,7 @@ func TestValidationWorkerRecoverIfMatchFailsDoesNotResetStats(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
 	worker.registry.(*validationRegistryRecorder).recoveryOK = false
@@ -315,9 +363,9 @@ func TestValidationWorkerRecoverIfMatchFailsDoesNotResetStats(t *testing.T) {
 
 func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 7, GroupID: 1, Status: state.KeyStatusActive,
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7, Fingerprint: "test-7", Status: state.CredentialStatusActive,
 		Blacklisted: true, FailureCount: 3, EncryptedValue: "key-7",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -334,14 +382,14 @@ func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *t
 		stats:     stats,
 		mutations: health.NewMutationCoordinator(),
 		decryptor: validationDecryptor{},
-		dialects: dialect.Set{protocol.OpenAICompletions: &validationTestDialect{
-			protocol: protocol.OpenAICompletions,
+		channels:  channel.NewRegistry(),
+		executor: &validationTestExecutor{
 			probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 				close(probeStarted)
 				<-releaseProbe
 				return nil
 			}},
-		}},
+		},
 	}
 
 	done := make(chan struct{})
@@ -356,12 +404,13 @@ func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *t
 	close(releaseProbe)
 	awaitValidationDone(t, done)
 
-	if got, want := registry.BlacklistedKeys(), []state.KeyRef{{
-		ID: 7, GroupID: 1, EncryptedValue: "key-7", FailureGeneration: 1,
+	if got, want := registry.BlacklistedCredentials(), []state.CredentialRef{{
+		ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7,
+		Fingerprint: "test-7", EncryptedValue: "key-7", FailureGeneration: 1,
 	}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("blacklisted keys = %#v, want stale recovery rejected as %#v", got, want)
 	}
-	if got, want := stats.Snapshot(7, now), (health.KeyStats{
+	if got, want := stats.Snapshot(7, now), (health.CredentialStats{
 		Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
 	}); got != want {
 		t.Fatalf("stats after stale recovery = %#v, want %#v", got, want)
@@ -375,11 +424,11 @@ func TestValidationSignatureChangesDuringProbeRejectRecovery(t *testing.T) {
 		prepare func(*state.GroupView)
 		mutate  func(*state.GroupView)
 	}{
-		{name: "upstream URL", mutate: func(group *state.GroupView) {
-			group.UpstreamURL += "/changed"
+		{name: "channel target", mutate: func(group *state.GroupView) {
+			setValidationChannel(group, channel.OpenAICompatible, json.RawMessage(`{"base_url":"https://changed.example/v1"}`))
 		}},
-		{name: "protocol", mutate: func(group *state.GroupView) {
-			group.Protocols[0] = protocol.Anthropic
+		{name: "provider family", mutate: func(group *state.GroupView) {
+			setValidationChannel(group, channel.Anthropic, json.RawMessage(`{}`))
 		}},
 		{name: "explicit model", mutate: func(group *state.GroupView) {
 			group.ValidationModel = "model-b"
@@ -405,13 +454,12 @@ func TestValidationSignatureChangesDuringProbeRejectRecovery(t *testing.T) {
 			}
 			worker := newValidationWorkerForTest(
 				validationSnapshot(map[uint]state.GroupView{1: captured}),
-				[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+				[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 				&validationProbeRecorder{},
 			)
 			current := cloneValidationGroup(captured)
 			test.mutate(&current)
-			worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
-				protocol: protocol.OpenAICompletions,
+			worker.validationWorker.executor = &validationTestExecutor{
 				probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 					worker.snapshots.(*validationSnapshotRecorder).setSnapshot(
 						validationSnapshot(map[uint]state.GroupView{1: current}),
@@ -436,21 +484,16 @@ func TestValidationWorkerUnrelatedSnapshotRevisionAllowsRecovery(t *testing.T) {
 			Revision: 1,
 			Groups:   map[uint]state.GroupView{1: cloneValidationGroup(oldGroup)},
 		},
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		&validationProbeRecorder{},
 	)
-	worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
-		protocol: protocol.OpenAICompletions,
+	worker.validationWorker.executor = &validationTestExecutor{
 		probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 			worker.snapshots.(*validationSnapshotRecorder).setSnapshot(&state.ConfigSnapshot{
 				Revision: 2,
 				Groups: map[uint]state.GroupView{
 					1: cloneValidationGroup(oldGroup),
-					2: {
-						ID: 2, UpstreamURL: "https://unrelated.example.com",
-						Protocols: []protocol.Protocol{protocol.Anthropic},
-						Models:    []state.ModelConfig{{ID: "unrelated"}},
-					},
+					2: validationGroup([]protocol.Protocol{protocol.Anthropic}, "unrelated", []state.ModelConfig{{ID: "unrelated"}}),
 				},
 			})
 			return nil
@@ -473,11 +516,10 @@ func TestValidationSignatureRemovedOrDisabledGroupRejectsRecovery(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			worker := newValidationWorkerForTest(
 				validationSnapshot(map[uint]state.GroupView{1: validationSignatureGroup()}),
-				[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+				[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 				&validationProbeRecorder{},
 			)
-			worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
-				protocol: protocol.OpenAICompletions,
+			worker.validationWorker.executor = &validationTestExecutor{
 				probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 					// Disabled Groups are omitted from ConfigSnapshot.Groups, as are removed Groups.
 					worker.snapshots.(*validationSnapshotRecorder).setSnapshot(validationSnapshot(nil))
@@ -520,18 +562,18 @@ func (source *observableValidationSnapshotSource) active() bool {
 }
 
 type publicationValidationRegistry struct {
-	delegate              *state.KeyRegistry
+	delegate              *state.CredentialRegistry
 	callbackActive        func() bool
 	recoverCallbackActive chan bool
 	recoverEntered        chan struct{}
 	releaseRecover        chan struct{}
 }
 
-func (registry *publicationValidationRegistry) BlacklistedKeys() []state.KeyRef {
-	return registry.delegate.BlacklistedKeys()
+func (registry *publicationValidationRegistry) BlacklistedCredentials() []state.CredentialRef {
+	return registry.delegate.BlacklistedCredentials()
 }
 
-func (registry *publicationValidationRegistry) RecoverIfMatch(ref state.KeyRef, weight int) bool {
+func (registry *publicationValidationRegistry) RecoverIfMatch(ref state.CredentialRef, weight int) bool {
 	registry.recoverCallbackActive <- registry.callbackActive()
 	close(registry.recoverEntered)
 	<-registry.releaseRecover
@@ -558,9 +600,9 @@ func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(
 	if _, err := manager.Publish(validationManagerCompileInput("https://upstream.example.com")); err != nil {
 		t.Fatalf("initial Publish() error = %v", err)
 	}
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 7, GroupID: 1, Status: state.KeyStatusActive,
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7, Fingerprint: "test-7", Status: state.CredentialStatusActive,
 		Blacklisted: true, FailureCount: 3, EncryptedValue: "key-7",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -590,10 +632,8 @@ func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(
 		stats:     blockingStats,
 		mutations: health.NewMutationCoordinator(),
 		decryptor: validationDecryptor{},
-		dialects: dialect.Set{protocol.OpenAICompletions: &validationTestDialect{
-			protocol: protocol.OpenAICompletions,
-			probes:   probes,
-		}},
+		channels:  channel.NewRegistry(),
+		executor:  &validationTestExecutor{probes: probes},
 	}
 
 	validationDone := make(chan struct{})
@@ -634,10 +674,10 @@ func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(
 		t.Fatal("timed out waiting for Publish after validation callback returned")
 	}
 
-	if got := registry.BlacklistedKeys(); len(got) != 0 {
+	if got := registry.BlacklistedCredentials(); len(got) != 0 {
 		t.Fatalf("blacklisted keys after recovery = %#v, want none", got)
 	}
-	if got := stats.Snapshot(7, now); got != (health.KeyStats{}) {
+	if got := stats.Snapshot(7, now); got != (health.CredentialStats{}) {
 		t.Fatalf("stats after recovery = %#v, want reset", got)
 	}
 	if snapshots.active() {
@@ -659,7 +699,7 @@ func TestValidationSignatureMismatchLogDoesNotLeakSensitiveInputs(t *testing.T) 
 	})
 
 	oldGroup := validationSignatureGroup()
-	oldGroup.UpstreamURL = "https://sensitive.example.com/path"
+	setValidationChannel(&oldGroup, channel.OpenAICompatible, json.RawMessage(`{"base_url":"https://sensitive.example.com/path"}`))
 	oldGroup.HeaderRules.Set["X-Secret"] = "sensitive-header-value"
 	oldTarget, ok := buildGroupValidationTarget(oldGroup)
 	if !ok {
@@ -673,11 +713,10 @@ func TestValidationSignatureMismatchLogDoesNotLeakSensitiveInputs(t *testing.T) 
 	}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: oldGroup}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
 		&validationProbeRecorder{},
 	)
-	worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
-		protocol: protocol.OpenAICompletions,
+	worker.validationWorker.executor = &validationTestExecutor{
 		probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 			worker.snapshots.(*validationSnapshotRecorder).setSnapshot(
 				validationSnapshot(map[uint]state.GroupView{1: currentGroup}),
@@ -735,7 +774,7 @@ func (coordinator *barrierValidationMutationCoordinator) Do(_ uint, fn func()) {
 func TestValidationWorkerConditionalRecoveryFailureCompletesCoordinatorInterval(t *testing.T) {
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		&validationProbeRecorder{},
 	)
 	worker.registry.(*validationRegistryRecorder).recoveryOK = false
@@ -766,23 +805,23 @@ func TestValidationWorkerConditionalRecoveryFailureCompletesCoordinatorInterval(
 func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
 	tests := []struct {
 		name            string
-		mutate          func(t *testing.T, registry *state.KeyRegistry)
+		mutate          func(t *testing.T, registry *state.CredentialRegistry)
 		expectedCipher  string
 		expectedEnabled bool
 	}{
 		{
-			name: "disabled after sweep", expectedCipher: "cipher-original", mutate: func(t *testing.T, registry *state.KeyRegistry) {
+			name: "disabled after sweep", expectedCipher: "cipher-original", mutate: func(t *testing.T, registry *state.CredentialRegistry) {
 				t.Helper()
-				if err := registry.SetKeyStatus(7, state.KeyStatusDisabled); err != nil {
-					t.Fatalf("SetKeyStatus() error = %v", err)
+				if err := registry.SetCredentialStatus(7, state.CredentialStatusDisabled); err != nil {
+					t.Fatalf("SetCredentialStatus() error = %v", err)
 				}
 			},
 		},
 		{
-			name: "replaced after sweep", expectedCipher: "cipher-replaced", expectedEnabled: true, mutate: func(t *testing.T, registry *state.KeyRegistry) {
+			name: "replaced after sweep", expectedCipher: "cipher-replaced", expectedEnabled: true, mutate: func(t *testing.T, registry *state.CredentialRegistry) {
 				t.Helper()
-				if err := registry.Replace([]state.KeyEntry{{
-					ID: 7, GroupID: 1, Status: state.KeyStatusActive, Blacklisted: true,
+				if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+					ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7, Fingerprint: "test-7", Status: state.CredentialStatusActive, Blacklisted: true,
 					FailureCount: 5, WeightAuto: 17, EncryptedValue: "cipher-replaced",
 				}}); err != nil {
 					t.Fatalf("Replace() error = %v", err)
@@ -793,9 +832,9 @@ func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			registry := state.NewKeyRegistry()
-			if err := registry.Replace([]state.KeyEntry{{
-				ID: 7, GroupID: 1, Status: state.KeyStatusActive, Blacklisted: true,
+			registry := state.NewCredentialRegistry()
+			if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+				ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7, Fingerprint: "test-7", Status: state.CredentialStatusActive, Blacklisted: true,
 				FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-original",
 			}}); err != nil {
 				t.Fatalf("Replace() error = %v", err)
@@ -821,22 +860,23 @@ func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
 			close(releaseProbe)
 			awaitValidationDone(t, done)
 
-			if got := len(registry.ActiveKeyIDs()); test.expectedEnabled && got != 1 {
+			if got := len(registry.ActiveCredentialIDs()); test.expectedEnabled && got != 1 {
 				t.Fatalf("active key count = %d, want 1", got)
 			} else if !test.expectedEnabled && got != 0 {
 				t.Fatalf("active key count = %d, want 0", got)
 			}
 			if !test.expectedEnabled {
-				if err := registry.SetKeyStatus(7, state.KeyStatusActive); err != nil {
-					t.Fatalf("SetKeyStatus() error = %v", err)
+				if err := registry.SetCredentialStatus(7, state.CredentialStatusActive); err != nil {
+					t.Fatalf("SetCredentialStatus() error = %v", err)
 				}
 			}
-			if got, want := registry.BlacklistedKeys(), []state.KeyRef{{
-				ID: 7, GroupID: 1, EncryptedValue: test.expectedCipher, FailureGeneration: 0,
+			if got, want := registry.BlacklistedCredentials(), []state.CredentialRef{{
+				ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7,
+				Fingerprint: "test-7", EncryptedValue: test.expectedCipher, FailureGeneration: 0,
 			}}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("blacklisted keys after stale recovery = %#v, want %#v", got, want)
 			}
-			if got := registry.CollectCandidates([]uint{1}, nil, time.Time{}); len(got) != 0 {
+			if got := registry.CollectCredentialCandidates([]uint{1}, nil, time.Time{}); len(got) != 0 {
 				t.Fatalf("candidates after stale recovery = %#v, want none", got)
 			}
 		})
@@ -857,12 +897,10 @@ func TestValidationWorkerFailureLogUsesSafeStructuredFields(t *testing.T) {
 	})
 
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: {
-			UpstreamURL:     "https://sensitive.example.com/path",
-			Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
-			ValidationModel: "model",
-		}}),
-		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup(
+			[]protocol.Protocol{protocol.OpenAICompletions}, "model", nil,
+		)}),
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
 		&validationProbeRecorder{},
 	)
 	worker.decryptor = validationDecryptor{errors: map[string]error{"cipher-secret": errors.New("plain-secret underlying failure")}}
@@ -968,8 +1006,8 @@ func TestValidationWorkerDoesNotProbeQueuedJobAfterCancellation(t *testing.T) {
 		nil,
 		probes,
 	)
-	jobs := make(chan state.KeyRef, 1)
-	jobs <- state.KeyRef{ID: 7, GroupID: 1, EncryptedValue: "key-7"}
+	jobs := make(chan state.CredentialRef, 1)
+	jobs <- state.CredentialRef{ID: 7, GroupID: 1, EncryptedValue: "key-7"}
 	close(jobs)
 	ctx := &validationCancelAfterJobContext{
 		done:    make(chan struct{}),
@@ -1073,20 +1111,20 @@ func (recorder *validationEventRecorder) events() []string {
 
 type validationRegistryRecorder struct {
 	mu              sync.Mutex
-	refs            []state.KeyRef
+	refs            []state.CredentialRef
 	blacklistedRead int
 	recoveryOK      bool
 	recorder        *validationEventRecorder
 }
 
-func (registry *validationRegistryRecorder) BlacklistedKeys() []state.KeyRef {
+func (registry *validationRegistryRecorder) BlacklistedCredentials() []state.CredentialRef {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	registry.blacklistedRead++
-	return append([]state.KeyRef(nil), registry.refs...)
+	return append([]state.CredentialRef(nil), registry.refs...)
 }
 
-func (registry *validationRegistryRecorder) RecoverIfMatch(ref state.KeyRef, weight int) bool {
+func (registry *validationRegistryRecorder) RecoverIfMatch(ref state.CredentialRef, weight int) bool {
 	registry.mu.Lock()
 	recoveryOK := registry.recoveryOK
 	registry.mu.Unlock()
@@ -1124,7 +1162,16 @@ func (decryptor validationDecryptor) Decrypt(value string) (string, error) {
 	if err := decryptor.errors[value]; err != nil {
 		return "", err
 	}
-	return "plain-" + value, nil
+	encoded, err := json.Marshal(map[string]string{"api_key": "plain-" + value})
+	return string(encoded), err
+}
+
+type fixedValidationDecryptor struct {
+	plaintext string
+}
+
+func (decryptor fixedValidationDecryptor) Decrypt(string) (string, error) {
+	return decryptor.plaintext, nil
 }
 
 type validationProbeCall struct {
@@ -1173,37 +1220,50 @@ func (recorder *validationProbeRecorder) invoke(ctx context.Context, p protocol.
 	return recorder.errByKey[apiKey]
 }
 
-type validationTestDialect struct {
-	protocol protocol.Protocol
-	probes   *validationProbeRecorder
+type validationTestExecutor struct {
+	probes *validationProbeRecorder
 }
 
-func (dialect *validationTestDialect) Protocol() protocol.Protocol {
-	return dialect.protocol
+func (*validationTestExecutor) Capabilities() execution.CapabilitySet {
+	return execution.CapabilitySet{}
 }
 
-func (*validationTestDialect) InspectRequest(
-	*dialect.ParsedRequest,
-) (dialect.RequestMetadata, error) {
-	return dialect.RequestMetadata{}, nil
+func (executor *validationTestExecutor) Execute(
+	ctx context.Context,
+	spec execution.AttemptSpec,
+) execution.AttemptResult {
+	var credential struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal(spec.Credential.Data(), &credential); err != nil {
+		return validationExecutionFailure(execution.ErrorKindInvalidRequest)
+	}
+	if err := executor.probes.invoke(ctx, spec.ClientProtocol, spec.UpstreamModel, credential.APIKey); err != nil {
+		kind := execution.ErrorKindProvider
+		if errors.Is(err, context.Canceled) {
+			kind = execution.ErrorKindCanceled
+		}
+		return validationExecutionFailure(kind)
+	}
+	return execution.AttemptResult{
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		StatusCode: http.StatusOK, Header: http.Header{},
+	}
 }
 
-func (*validationTestDialect) BuildUpstreamURL(string, *dialect.ParsedRequest) (string, error) {
-	return "", nil
+func (*validationTestExecutor) ExecuteStream(
+	context.Context,
+	execution.AttemptSpec,
+	execution.StreamSink,
+) execution.StreamResult {
+	panic("unexpected stream execution")
 }
 
-func (*validationTestDialect) InjectCredential(http.Header, string) {}
-
-func (*validationTestDialect) ListModels(context.Context, string, string, state.HeaderRules) ([]string, error) {
-	return nil, nil
-}
-
-func (dialect *validationTestDialect) Probe(ctx context.Context, _ string, apiKey string, _ state.HeaderRules, model string) error {
-	return dialect.probes.invoke(ctx, dialect.protocol, model, apiKey)
-}
-
-func (*validationTestDialect) ClassifyStatus(int, []byte) health.FailureCategory {
-	return health.FailureCategoryAmbiguous
+func validationExecutionFailure(kind execution.ErrorKind) execution.AttemptResult {
+	return execution.AttemptResult{
+		DispatchState: execution.DispatchMaybeSent,
+		Error:         &execution.ErrorEvidence{Kind: kind, Summary: "test probe failed"},
+	}
 }
 
 type validationTestWorker struct {
@@ -1211,17 +1271,9 @@ type validationTestWorker struct {
 	recorder *validationEventRecorder
 }
 
-func newValidationWorkerForTest(snapshot *state.ConfigSnapshot, refs []state.KeyRef, probes *validationProbeRecorder) *validationTestWorker {
+func newValidationWorkerForTest(snapshot *state.ConfigSnapshot, refs []state.CredentialRef, probes *validationProbeRecorder) *validationTestWorker {
 	recorder := &validationEventRecorder{}
 	registry := &validationRegistryRecorder{refs: refs, recoveryOK: true, recorder: recorder}
-	dialects := dialect.Set{}
-	for _, p := range []protocol.Protocol{
-		protocol.OpenAICompletions,
-		protocol.OpenAIResponses,
-		protocol.Anthropic,
-	} {
-		dialects[p] = &validationTestDialect{protocol: p, probes: probes}
-	}
 	return &validationTestWorker{
 		validationWorker: &validationWorker{
 			snapshots: &validationSnapshotRecorder{snapshot: snapshot},
@@ -1229,13 +1281,14 @@ func newValidationWorkerForTest(snapshot *state.ConfigSnapshot, refs []state.Key
 			stats:     &validationStatsRecorder{recorder: recorder},
 			mutations: health.NewMutationCoordinator(),
 			decryptor: validationDecryptor{},
-			dialects:  dialects,
+			channels:  channel.NewRegistry(),
+			executor:  &validationTestExecutor{probes: probes},
 		},
 		recorder: recorder,
 	}
 }
 
-func newRealRegistryValidationWorker(registry *state.KeyRegistry, probes *validationProbeRecorder) *validationWorker {
+func newRealRegistryValidationWorker(registry *state.CredentialRegistry, probes *validationProbeRecorder) *validationWorker {
 	return &validationWorker{
 		snapshots: &validationSnapshotRecorder{snapshot: validationSnapshot(map[uint]state.GroupView{
 			1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil),
@@ -1244,7 +1297,8 @@ func newRealRegistryValidationWorker(registry *state.KeyRegistry, probes *valida
 		stats:     health.NewStatsStore(),
 		mutations: health.NewMutationCoordinator(),
 		decryptor: validationDecryptor{},
-		dialects:  dialect.Set{protocol.OpenAICompletions: &validationTestDialect{protocol: protocol.OpenAICompletions, probes: probes}},
+		channels:  channel.NewRegistry(),
+		executor:  &validationTestExecutor{probes: probes},
 	}
 }
 
@@ -1253,34 +1307,55 @@ func validationSnapshot(groups map[uint]state.GroupView) *state.ConfigSnapshot {
 }
 
 func validationGroup(protocols []protocol.Protocol, validationModel string, models []state.ModelConfig) state.GroupView {
-	return state.GroupView{
-		UpstreamURL:     "https://upstream.example.com",
-		Protocols:       protocols,
+	group := state.GroupView{
 		ValidationModel: validationModel,
 		Models:          models,
 	}
+	if len(protocols) == 0 {
+		return group
+	}
+	channelID := channel.OpenAI
+	switch protocols[0] {
+	case protocol.Anthropic:
+		channelID = channel.Anthropic
+	case protocol.Gemini:
+		channelID = channel.Gemini
+	}
+	setValidationChannel(&group, channelID, json.RawMessage(`{}`))
+	return group
+}
+
+func setValidationChannel(group *state.GroupView, channelID channel.ID, params json.RawMessage) {
+	resolved, err := channel.NewRegistry().Resolve(channelID, params)
+	if err != nil {
+		panic(err)
+	}
+	group.ChannelID = channelID
+	group.Params = append(json.RawMessage(nil), params...)
+	group.ResolvedTarget = resolved
 }
 
 func validationSignatureGroup() state.GroupView {
-	return state.GroupView{
-		ID:              1,
-		UpstreamURL:     "https://upstream.example.com",
-		Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
-		ValidationModel: "model-a",
-		Models:          []state.ModelConfig{{ID: "model-a"}},
-		HeaderRules: state.HeaderRules{
-			Set: map[string]string{
-				"X-Alpha": "first",
-				"X-Zeta":  "last",
-			},
-			Remove: []string{"X-Old"},
+	group := validationGroup(
+		[]protocol.Protocol{protocol.OpenAICompletions},
+		"model-a",
+		[]state.ModelConfig{{ID: "model-a"}},
+	)
+	group.ID = 1
+	group.HeaderRules = state.HeaderRules{
+		Set: map[string]string{
+			"X-Alpha": "first",
+			"X-Zeta":  "last",
 		},
+		Remove: []string{"X-Old"},
 	}
+	return group
 }
 
 func cloneValidationGroup(group state.GroupView) state.GroupView {
 	cloned := group
-	cloned.Protocols = append([]protocol.Protocol(nil), group.Protocols...)
+	cloned.Params = append(json.RawMessage(nil), group.Params...)
+	cloned.ResolvedTarget.TargetConfig = append(json.RawMessage(nil), group.ResolvedTarget.TargetConfig...)
 	cloned.Models = append([]state.ModelConfig(nil), group.Models...)
 	cloned.HeaderRules.Set = make(map[string]string, len(group.HeaderRules.Set))
 	for name, value := range group.HeaderRules.Set {
@@ -1291,22 +1366,22 @@ func cloneValidationGroup(group state.GroupView) state.GroupView {
 }
 
 func validationManagerCompileInput(upstreamURL string) state.CompileInput {
-	return state.CompileInput{Groups: []state.GroupConfig{{
+	return state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{{
 		ID:              1,
 		Name:            "group",
-		UpstreamURL:     upstreamURL,
+		ChannelID:       channel.OpenAICompatible,
+		Params:          json.RawMessage(`{"base_url":"` + upstreamURL + `"}`),
 		ValidationModel: "model-a",
-		Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
 		Models:          []state.ModelConfig{{ID: "model-a"}},
 		Enabled:         true,
 	}}}
 }
 
-func validationRefs(count int) []state.KeyRef {
-	refs := make([]state.KeyRef, count)
+func validationRefs(count int) []state.CredentialRef {
+	refs := make([]state.CredentialRef, count)
 	for index := range refs {
 		keyID := uint(index + 1)
-		refs[index] = state.KeyRef{ID: keyID, GroupID: 1, EncryptedValue: fmt.Sprintf("key-%d", keyID)}
+		refs[index] = state.CredentialRef{ID: keyID, GroupID: 1, EncryptedValue: fmt.Sprintf("key-%d", keyID)}
 	}
 	return refs
 }

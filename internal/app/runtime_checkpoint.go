@@ -22,8 +22,8 @@ type RuntimeStateCheckpoint interface {
 }
 
 type runtimeStateCheckpointDocument struct {
-	Keys  []state.KeyRuntimeCheckpoint    `json:"keys,omitempty"`
-	Stats []health.StatsRuntimeCheckpoint `json:"stats,omitempty"`
+	Credentials []state.CredentialRuntimeCheckpoint `json:"credentials,omitempty"`
+	Stats       []health.StatsRuntimeCheckpoint     `json:"stats,omitempty"`
 }
 
 // FileRuntimeStateCheckpoint stores the small, disposable runtime checkpoint
@@ -31,14 +31,14 @@ type runtimeStateCheckpointDocument struct {
 // malformed or partially written file cannot be retried on every restart.
 type FileRuntimeStateCheckpoint struct {
 	path       string
-	registry   *state.KeyRegistry
+	registry   *state.CredentialRegistry
 	stats      *health.StatsStore
 	removeFile func(string) error
 }
 
 func NewFileRuntimeStateCheckpoint(
 	dataDir string,
-	registry *state.KeyRegistry,
+	registry *state.CredentialRegistry,
 	stats *health.StatsStore,
 ) *FileRuntimeStateCheckpoint {
 	return &FileRuntimeStateCheckpoint{
@@ -71,7 +71,7 @@ func (checkpoint *FileRuntimeStateCheckpoint) Restore(ctx context.Context) error
 		return fmt.Errorf("decode runtime state checkpoint: %w", err)
 	}
 	if checkpoint.registry != nil {
-		checkpoint.registry.RestoreRuntimeCheckpoint(document.Keys)
+		checkpoint.registry.RestoreRuntimeCheckpoint(document.Credentials)
 	}
 	if checkpoint.stats != nil {
 		checkpoint.stats.RestoreRuntimeCheckpoint(document.Stats)
@@ -88,7 +88,7 @@ func (checkpoint *FileRuntimeStateCheckpoint) Save(ctx context.Context) error {
 	}
 	document := runtimeStateCheckpointDocument{}
 	if checkpoint.registry != nil {
-		document.Keys = checkpoint.registry.CaptureRuntimeCheckpoint()
+		document.Credentials = checkpoint.registry.CaptureRuntimeCheckpoint()
 	}
 	if checkpoint.stats != nil {
 		document.Stats = checkpoint.stats.CaptureRuntimeCheckpoint()

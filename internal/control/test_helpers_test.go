@@ -1,6 +1,7 @@
 package control
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/catalog"
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
@@ -25,6 +26,7 @@ import (
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
+	"gpt-load/internal/storage/models"
 )
 
 var (
@@ -32,6 +34,48 @@ var (
 	controlI18nErr          error
 	testIdempotencySequence atomic.Uint64
 )
+
+type blockingDecryptService struct {
+	encryption.Service
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (service blockingDecryptService) Decrypt(ciphertext string) (string, error) {
+	close(service.started)
+	<-service.release
+	return service.Service.Decrypt(ciphertext)
+}
+
+func loadCreatedGroupModels(t *testing.T, fixture serviceFixture, groupID uint) []GroupModel {
+	t.Helper()
+	var group models.Group
+	if err := fixture.db.First(&group, groupID).Error; err != nil {
+		t.Fatalf("query group %d: %v", groupID, err)
+	}
+	var result []GroupModel
+	if err := json.Unmarshal(group.Models, &result); err != nil {
+		t.Fatalf("decode group %d models: %v", groupID, err)
+	}
+	if result == nil {
+		result = make([]GroupModel, 0)
+	}
+	return result
+}
+
+func createGroupWithCredentials(t *testing.T, fixture serviceFixture, credentials string) uint {
+	t.Helper()
+	name := fmt.Sprintf("credential-group-%d", testIdempotencySequence.Add(1))
+	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: &name, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-4o"}}},
+		Credentials: credentials,
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup(%q) error = %v", name, err)
+	}
+	return result.GroupID
+}
 
 // RegisterRoutes keeps package tests concise while production registration
 // remains exclusively owned by the shared HTTP route registry.
@@ -67,7 +111,8 @@ func setRequiredTestIdempotencyHeader(request *http.Request) {
 type serviceFixture struct {
 	db              *gorm.DB
 	manager         *state.Manager
-	registry        *state.KeyRegistry
+	registry        *state.CredentialRegistry
+	channelRegistry *channel.Registry
 	priceRuntime    *PriceRuntime
 	catalogRuntime  *catalog.Runtime
 	encryption      encryption.Service
@@ -134,7 +179,8 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	t.Helper()
 	db := openControlTestDBWithDSN(t, dsn)
 	manager := state.NewManager()
-	registry := state.NewKeyRegistry()
+	registry := state.NewCredentialRegistry()
+	channelRegistry := channel.NewRegistry()
 	keyService, err := encryption.NewService("control-test-master-key-material-2026")
 	if err != nil {
 		t.Fatalf("encryption.NewService() error = %v", err)
@@ -148,7 +194,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	priceRuntime := NewPriceRuntime()
 	catalogRuntime := &catalog.Runtime{}
 	return serviceFixture{
-		db: db, manager: manager, registry: registry, encryption: keyService,
+		db: db, manager: manager, registry: registry, channelRegistry: channelRegistry, encryption: keyService,
 		priceRuntime: priceRuntime, catalogRuntime: catalogRuntime,
 		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
 		service: NewService(
@@ -159,13 +205,14 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 			catalogRuntime,
 			nil,
 			keyService,
-			dialect.NewSet(),
+			controlHTTPExecutor{},
 			nil,
 			nil,
 			nil,
 			stats,
 			mutations,
 			requestLogStats,
+			channelRegistry,
 		),
 	}
 }

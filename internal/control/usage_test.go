@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
@@ -283,7 +284,8 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 			},
 		}},
 		Breakdown: []requestlog.UsageBreakdown{{
-			GroupID: 9, Model: "upstream-model",
+			GroupID: 9, ChannelID: channel.OpenAI, CredentialID: 13,
+			Model: "upstream-model",
 			UsageAggregate: requestlog.UsageAggregate{
 				RequestCount: 1, UncachedInputTokens: 2, CacheWriteUnknownTokens: 4,
 				OutputTokens: 3, PricingPartialCount: 1,
@@ -297,7 +299,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	recorder := performUsageRequest(
 		engine,
 		"test-auth-key",
-		"range=30d&group_id=9&upstream_model=upstream-model&breakdown_order=cost",
+		"range=30d&group_id=9&channel_id=openai&credential_id=13&upstream_model=upstream-model&breakdown_order=cost",
 	)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -310,6 +312,8 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		query.FromMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.GroupID == nil || *query.GroupID != 9 ||
+		query.ChannelID != channel.OpenAI ||
+		query.CredentialID == nil || *query.CredentialID != 13 ||
 		query.UpstreamModel != "upstream-model" || query.Limit != 100 ||
 		query.BreakdownOrder != requestlog.UsageBreakdownOrderCost {
 		t.Fatalf("30 day UsageQuery = %#v", query)
@@ -337,6 +341,8 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 			} `json:"series"`
 			Breakdown []struct {
 				GroupID                 uint   `json:"group_id"`
+				ChannelID               string `json:"channel_id"`
+				CredentialID            uint   `json:"credential_id"`
 				Model                   string `json:"model"`
 				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
 				PricingPartialCount     int64  `json:"pricing_partial_count"`
@@ -364,11 +370,18 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		envelope.Data.Series[0].PricingPartialCount != 1 ||
 		envelope.Data.Series[0].EstimatedCostNanoUSD != "1123456789012" ||
 		len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 9 ||
+		envelope.Data.Breakdown[0].ChannelID != string(channel.OpenAI) ||
+		envelope.Data.Breakdown[0].CredentialID != 13 ||
 		envelope.Data.Breakdown[0].Model != "upstream-model" ||
 		envelope.Data.Breakdown[0].CacheWriteUnknownTokens != 4 ||
 		envelope.Data.Breakdown[0].PricingPartialCount != 1 ||
 		envelope.Data.Breakdown[0].EstimatedCostNanoUSD != "250000000" {
 		t.Fatalf("usage response = %#v", envelope.Data)
+	}
+	for _, legacyField := range []string{`"key_id"`, `"upstream_key_id"`} {
+		if strings.Contains(recorder.Body.String(), legacyField) {
+			t.Fatalf("usage response exposes legacy field %s: %s", legacyField, recorder.Body.String())
+		}
 	}
 }
 
@@ -442,6 +455,15 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 		{query: "group_id=1&group_id=2", code: "BAD_REQUEST"},
 		{query: "group_id=9007199254740992", code: "VALIDATION_FAILED"},
 		{query: "group_id=-1", code: "BAD_REQUEST"},
+		{query: "channel_id=", code: "VALIDATION_FAILED"},
+		{query: "channel_id=unknown", code: "VALIDATION_FAILED"},
+		{query: "channel_id=openai&channel_id=anthropic", code: "BAD_REQUEST"},
+		{query: "credential_id=0", code: "VALIDATION_FAILED"},
+		{query: "credential_id=01", code: "BAD_REQUEST"},
+		{query: "credential_id=9007199254740992", code: "VALIDATION_FAILED"},
+		{query: "credential_id=1&credential_id=2", code: "BAD_REQUEST"},
+		{query: "key_id=1", code: "BAD_REQUEST"},
+		{query: "upstream_key_id=1", code: "BAD_REQUEST"},
 		{query: "model=legacy", code: "BAD_REQUEST"},
 		{query: "upstream_model=", code: "VALIDATION_FAILED"},
 		{query: "breakdown_order=", code: "VALIDATION_FAILED"},
@@ -641,8 +663,8 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 	now := time.Date(2026, time.August, 8, 17, 30, 0, 0, time.UTC)
 	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
 		Breakdown: []requestlog.UsageBreakdown{{
-			GroupID: 99,
-			Model:   "allowed-model",
+			GroupID: 99, ChannelID: channel.OpenAI, CredentialID: 101,
+			Model: "allowed-model",
 		}},
 		BreakdownCount: 1,
 	}}
@@ -664,7 +686,9 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 	var envelope struct {
 		Data struct {
 			Breakdown []struct {
-				GroupID uint `json:"group_id"`
+				GroupID      uint    `json:"group_id"`
+				ChannelID    *string `json:"channel_id"`
+				CredentialID *uint   `json:"credential_id"`
 			} `json:"breakdown"`
 			CollectionHealth usageCollectionHealthResponse `json:"collection_health"`
 		} `json:"data"`
@@ -673,6 +697,8 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 		t.Fatalf("decode AccessKey usage response: %v", err)
 	}
 	if len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 0 ||
+		envelope.Data.Breakdown[0].ChannelID != nil ||
+		envelope.Data.Breakdown[0].CredentialID != nil ||
 		envelope.Data.CollectionHealth.Scope != "access_key" ||
 		envelope.Data.CollectionHealth.DroppedTotal != 0 ||
 		envelope.Data.CollectionHealth.WriteFailureTotal != 0 ||
@@ -680,14 +706,17 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 		t.Fatalf("AccessKey usage redaction = %#v", envelope.Data)
 	}
 
-	forbiddenFilter := performUsageRequest(engine, created.Key, "group_id=1")
-	if forbiddenFilter.Code != http.StatusBadRequest || len(reader.queries) != 1 {
-		t.Fatalf(
-			"AccessKey group filter = %d %s, calls=%d, want 400/no query",
-			forbiddenFilter.Code,
-			forbiddenFilter.Body.String(),
-			len(reader.queries),
-		)
+	for _, filter := range []string{"group_id=1", "channel_id=openai", "credential_id=101"} {
+		forbidden := performUsageRequest(engine, created.Key, filter)
+		if forbidden.Code != http.StatusBadRequest || len(reader.queries) != 1 {
+			t.Fatalf(
+				"AccessKey internal filter %q = %d %s, calls=%d, want 400/no query",
+				filter,
+				forbidden.Code,
+				forbidden.Body.String(),
+				len(reader.queries),
+			)
+		}
 	}
 }
 

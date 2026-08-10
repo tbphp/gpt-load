@@ -3,10 +3,10 @@
 English | [中文](README_CN.md) | [日本語](README_JP.md)
 
 [![Release](https://img.shields.io/github/v/release/tbphp/gpt-load)](https://github.com/tbphp/gpt-load/releases)
-![Go Version](https://img.shields.io/badge/Go-1.25-blue.svg)
+![Go Version](https://img.shields.io/badge/Go-1.26-blue.svg)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-GPT-Load is a self-hosted AI API key aggregator and native-protocol gateway written in Go. A single binary with an embedded admin UI manages keys for OpenAI, Anthropic, Gemini, and compatible upstreams while exposing each provider's native data-plane endpoints.
+GPT-Load is a self-hosted multi-provider AI gateway written in Go. A single binary with an embedded admin UI manages channel presets and encrypted credentials while exposing OpenAI, Anthropic, and Gemini-compatible client endpoints.
 
 For the maintained 1.4.x release documentation, visit the [official documentation](https://www.gpt-load.com/docs?lang=en).
 
@@ -41,13 +41,14 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 > [!WARNING]
 > 2.0 is a **pre-release local candidate**. M3/M4 candidate code and retained local verification evidence exist, but release exit and publication are not complete. No `v2.0.0` tag, GitHub Release, public binary, or public container image has been verified as available. A checkout or branch is not release evidence.
 
-2.0 is a greenfield rewrite whose data is incompatible with 1.x. `main` remains the 1.4.x maintenance line. The release contract reserves explicit `2`, `2.0`, and `v2.0.0` container tags and does not move `latest` automatically; these names do not imply that images have been published.
+2.0 is a greenfield rewrite whose data is incompatible with 1.x. Existing 2.x databases migrate forward in place; stop the service and back up the database with its matching encryption key before upgrading. `main` remains the 1.4.x maintenance line. The release contract reserves explicit `2`, `2.0`, and `v2.0.0` container tags and does not move `latest` automatically; these names do not imply that images have been published.
 
 ## 2.0 capabilities
 
 - **Two planes:** provider-native paths on the data plane; management APIs under `/api`, with the admin UI embedded in the same Go binary.
-- **Four selectable native protocols:** OpenAI Completions, OpenAI Responses, Anthropic Messages, and Gemini requests are forwarded in their respective protocols. A Group may enable any combination. GPT-Load does not translate between protocols.
-- **Key and traffic management:** Groups, encrypted upstream keys, AccessKeys, model discovery, filtering and rate limits, scheduling, health state, cooldown, blacklist, and automatic weights.
+- **Four client protocols:** OpenAI Completions, OpenAI Responses, Anthropic Messages, and Gemini requests keep their public endpoints. Each channel declares its supported native and converted operations; unsupported feature combinations fail before dispatch.
+- **Channel and traffic management:** Users select a searchable code-defined channel, then enter models and encrypted credentials. GPT-Load owns AccessKey filtering, cross-Group credential scheduling, retry decisions, health state, cooldown, blacklist, and automatic weights.
+- **Provider execution:** The official Bifrost Core Go SDK maintains provider-specific authentication, request/response conversion, streaming, normalized usage, and provider errors. GPT-Load pins one selected credential per logical attempt and disables Bifrost's configured retry and fallback policy.
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
 - **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, exact four-slot model prices synchronized from Models.dev where available, and user-managed prices.
 
@@ -58,12 +59,11 @@ The M3 control-plane UI and M4 usage/pricing scope are present in the local cand
 - Correctness is guaranteed for a **single application instance** only; multi-instance coordination is not supported.
 - Supports SQLite, MySQL, and PostgreSQL through one unified `DATABASE_DSN` configuration. The current release targets the latest stable versions of these three engines; other database products are not supported.
 - The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
-- Protocol configuration is a clean break: use `openai-completions`, `openai-responses`, `anthropic`, or `gemini`. The old `openai`, `openai-response`, and `openai-chat-completions` values are invalid and have no compatibility path.
-- A stored old protocol value causes the complete `ConfigSnapshot` compilation, and therefore startup/publication, to fail. The error identifies the Group or AccessKey and invalid value. Rebuild the pre-release 2.0 data before starting; there is no in-place protocol-value migration.
+- Client protocol filters use `openai-completions`, `openai-responses`, `anthropic`, or `gemini`. A Group stores one `channel_id`; the code-owned channel preset determines provider behavior, accepted client protocols, credential schema, discovery, and Models.dev mapping.
 - OpenAI Responses resource routing has no Key affinity. Stateful turns using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one upstream Key or an upstream that shares resource storage across Keys. Otherwise the selected upstream may return a resource-not-found error.
-- Upstream keys must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
-- There is no automatic 1.x migration, in-place upgrade, or reverse synchronization.
-- There is no protocol conversion, online billing reconciliation, online backup API, or backup CLI. Models.dev synchronization supplies estimation metadata only; it is not a provider bill or invoice.
+- Channel credentials must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
+- There is no automatic 1.x migration or reverse synchronization. Existing 2.x schemas migrate forward through the migration ledger.
+- There is no online billing reconciliation, online backup API, or backup CLI. Models.dev synchronization supplies estimation metadata only; it is not a provider bill or invoice.
 
 ## Quick start
 
@@ -128,9 +128,9 @@ Data-plane requests use an AccessKey. Provider-compatible credentials are accept
 | Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini non-streaming generation |
 | Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Gemini streaming generation |
 
-GPT-Load does not translate one dialect into another. The AccessKey and runtime configuration select the Group; it is not passed as a URL path segment.
+The AccessKey and runtime configuration select the Group; it is not passed as a URL path segment. The selected channel determines whether an operation is native or converted. Conversion is capability-gated and never treated as arbitrary lossless JSON transformation.
 
-The canonical protocol configuration values and display names are:
+The canonical client protocol filter values and display names are:
 
 | Configuration value | Display name |
 |---|---|
@@ -139,16 +139,16 @@ The canonical protocol configuration values and display names are:
 | `anthropic` | Anthropic |
 | `gemini` | Gemini |
 
-The built-in OpenAI provider preset keeps the `openai` preset ID, uses `https://api.openai.com/v1` as its URL, and enables both OpenAI protocols by default. They remain ordinary independent checkboxes: either one or both may be selected.
+The built-in `openai` channel supports both OpenAI client protocols. Other official, curated, compatible, and cloud channels expose only the operations and features declared by their code-owned presets; users do not configure protocol checkboxes per Group.
 
-Responses routing uses the namespace boundary, not a per-resource allowlist. After AccessKey authentication, `/v1/responses` and its ordinary subpaths are sent through the same scheduler and forwarding pipeline. Decoded `.` or `..` path segments are rejected locally so normalization or redirects cannot escape the authorized namespace. `OPTIONS`, `CONNECT`, and `TRACE` are also rejected locally; other methods, including `GET`, `POST`, `DELETE`, and `HEAD`, are forwarded. Paths and queries are preserved within Go URL normalization: decoded `URL.Path` is re-encoded and `RawPath` is not retained. GPT-Load does not search other Keys for a resource ID; the selected upstream's response, including a resource-not-found error, is returned through the normal response-safety boundary.
+Responses routing uses the namespace boundary, not a per-resource allowlist. After AccessKey authentication, `/v1/responses` and its ordinary subpaths are sent through the same scheduler and execution pipeline. Decoded `.` or `..` path segments are rejected locally so normalization or redirects cannot escape the authorized namespace. `OPTIONS`, `CONNECT`, and `TRACE` are also rejected locally; other methods, including `GET`, `POST`, `DELETE`, and `HEAD`, are forwarded. Paths and queries are preserved within Go URL normalization: decoded `URL.Path` is re-encoded and `RawPath` is not retained. GPT-Load does not search other Credentials for a resource ID; the selected upstream's response, including a resource-not-found error, is returned through the normal response-safety boundary.
 
-A Group that enables Responses may keep an empty model list and still serve model-free Responses resource endpoints. Requests that include a model, including ordinary create requests, still require a configured model route.
+A Group whose channel supports Responses may keep an empty model list and still serve model-free Responses resource endpoints. Requests that include a model, including ordinary create requests, still require a configured model route.
 
 > [!WARNING]
-> 2.0.0 does not implement Responses affinity. Stateful multi-turn requests using `previous_response_id` or `conversation`, and resource operations on an earlier response ID, may reach a different Group/Key and receive an upstream 404. Use a single Key, stateless item replay with `store: false`, or an upstream with shared resource storage until affinity is implemented.
+> 2.0.0 does not implement Responses affinity. Stateful multi-turn requests using `previous_response_id` or `conversation`, and resource operations on an earlier response ID, may reach a different Group/Credential and receive an upstream 404. Use a single Credential, stateless item replay with `store: false`, or an upstream with shared resource storage until affinity is implemented.
 
-Responses create and compact requests participate in usage extraction. Retrieve, delete, cancel, input-items, input-token-count, and unknown extension subpaths are recorded with usage `not_applicable`. `InjectUsageOptions` remains capability-based: the Responses dialect does not support OpenAI Completions' `stream_options.include_usage`, so that Group setting is ignored for Responses. A Responses-only Group probe sends `input: "ping"`, `max_output_tokens: 16`, and `store: false`; when both OpenAI protocols are selected, OpenAI Completions is the representative Group/Key probe. Health is not tracked per protocol.
+Responses create and compact requests participate in usage extraction. Retrieve, delete, cancel, input-items, input-token-count, and unknown extension subpaths are recorded with usage `not_applicable`. Discovery and validation are selected by the channel preset rather than by user-configured protocol checkboxes.
 
 OpenAI Completions example:
 
@@ -188,7 +188,7 @@ print(response.output_text)
 
 ## Management, usage, and cost
 
-The admin UI is served at `/`, and management APIs are under `/api`; both use `AUTH_KEY`. The UI covers Groups, upstream keys, AccessKeys, runtime settings, health, logs, route inspection, Usage, and model-price management. Current code and UI are the management API reference; this README intentionally avoids copying a route list that can drift.
+The admin UI is served at `/`, and management APIs are under `/api`; both use `AUTH_KEY`. The UI covers the searchable channel directory, Groups, encrypted credentials, AccessKeys, runtime settings, health, logs, route inspection, Usage, and model-price management. Current code and UI are the management API reference; this README intentionally avoids copying a route list that can drift.
 
 Automatic catalog synchronization is enabled by default and uses the control plane to fetch the fixed endpoint `https://models.dev/api.json`; startup remains asynchronous and can use the durable last-known-good catalog. Manual synchronization remains available. Data-plane requests never contact Models.dev.
 
@@ -197,7 +197,7 @@ Usage/Cost quality boundaries:
 - `complete` and `partial` usage contribute their known token dimensions; `missing` usage contributes only request and quality counts.
 - `priced` requests contribute their known estimated cost. `pricing_partial` retains the calculable portion while reporting incomplete price coverage; `unpriced` requests are never assigned guessed prices.
 - A clean EOF on a stream does not guarantee complete usage, and compatible relays may omit the provider's official terminal usage.
-- Prices match the exact upstream model within the Group's Provider or custom-Group scope. The four flat slots are input, output, cache read, and cache write; an explicit zero means free, while an unset slot remains unavailable.
+- Prices match the exact `(channel_id, upstream model)` identity. Models.dev is the sole automatic source; explicit user overrides and the existing fallback rules remain available. The four flat slots are input, output, cache read, and cache write; an explicit zero means free, while an unset slot remains unavailable.
 - Price changes affect future writes only. Historical RequestLog and UsageStat rows are not recalculated.
 - Current-process dropped/write-failure counters and durable database-window aggregates have different scopes.
 
@@ -211,7 +211,7 @@ Usage/Cost quality boundaries:
 | `DATA_DIR` | `./data` | Native persistent directory; the container overrides it to `/app/data` |
 | `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects managed SQLite. Non-empty values use one of `sqlite`, `mysql`, or `postgres` URL forms and are operator-managed |
 | `AUTH_KEY` | generated keyfile | Management bearer credential; an explicit value cannot contain whitespace; otherwise reads or creates `${DATA_DIR}/auth.key` |
-| `ENCRYPTION_KEY` | generated keyfile | Master key for encrypted upstream keys; otherwise reads or creates `${DATA_DIR}/encryption.key` |
+| `ENCRYPTION_KEY` | generated keyfile | Master key for encrypted channel credentials; otherwise reads or creates `${DATA_DIR}/encryption.key` |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | unset | Optional strict boolean override for Models.dev automatic synchronization; unset uses the runtime setting, which defaults to enabled |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | Graceful shutdown timeout in seconds |
 | `READ_TIMEOUT` | `60` | Maximum time to read a complete request, in seconds |
@@ -237,9 +237,9 @@ The empty value is the only application-managed database mode. A non-empty SQLit
 - Database ownership follows only the raw `DATABASE_DSN`: empty means the managed SQLite DB/WAL/SHM under `${DATA_DIR}`; every non-empty value means an external, operator-owned database that GPT-Load does not mkdir, chmod, or create database users for and that must be backed up separately.
 - Secret ownership is independent of database ownership. For each secret, `/api/system/info` reports `key_file` or `environment`: archive a reported `key_file` (`auth.key` or `encryption.key`) from `DATA_DIR` regardless of the database source, or restore an `environment` secret separately from the protected external secret system.
 - On POSIX, managed `${DATA_DIR}` is restricted to `0700` and managed DB/WAL/SHM plus application-created key files to `0600`. Windows uses current-user-only ACLs, but the Windows runtime stop/ACL gate has not been executed for this candidate.
-- Losing the matching `encryption.key`, from either source, makes encrypted upstream keys unrecoverable. 2.0.0 has no automatic repair or master-key rotation.
+- Losing the matching `encryption.key`, from either source, makes encrypted channel credentials unrecoverable. 2.0.0 has no automatic repair or master-key rotation.
 - Managed SQLite uses WAL. Before backing it up, stop incoming traffic and wait for a clean exit: use `SIGTERM` on POSIX, or Ctrl+C, Ctrl+Break, or the service manager's stop action on Windows. External MySQL/PostgreSQL backups must follow the operator's engine-native backup procedure.
-- Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or upstream keys into logs, public issues, screenshots, or ordinary backup manifests.
+- Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or channel credentials into logs, public issues, screenshots, or ordinary backup manifests.
 
 ### Public operations baseline
 
@@ -259,7 +259,7 @@ This checklist is self-contained and does not require access to the project's pr
 
 1. Keep 1.x running and verify that its backup can be restored.
 2. Give 2.0 a separate port, `DATA_DIR`, database, and Compose project/named volume. Do not share any of these with 1.x.
-3. Manually rebuild the minimum Groups, upstream keys, AccessKeys, and rules; validate all four protocol variants, logs, and usage/cost in isolation.
+3. Manually rebuild the minimum Groups, channel credentials, AccessKeys, and rules; validate the required client protocols, logs, and usage/cost in isolation.
 4. Move entry traffic during a maintenance window or small rollout. On failure, stop 2.0 and switch back to the original 1.x deployment; do not reverse-import new 2.0 data.
 
 `latest` is not a safe 1.x-to-2.0 upgrade channel. Use the public operations baseline above for backup and restore, and keep the original 1.x deployment and data intact until the rollback window closes.
@@ -282,7 +282,7 @@ make check
 
 Frontend unit tests and browser E2E tests are not part of the project workflow. Frontend verification consists of dependency installation, linting, formatting, type-checking, and building.
 
-2.0.0 is expected to provide five native raw binaries plus `SHA256SUMS`:
+2.0.0 is expected to provide five native raw binaries plus `SHA256SUMS`, a CycloneDX SBOM, and project/third-party license notices:
 
 - `gpt-load-linux-amd64`
 - `gpt-load-linux-arm64`
@@ -294,4 +294,4 @@ These are the expected names in the release contract, not a claim that a downloa
 
 ## License and security
 
-GPT-Load is released under the [MIT License](LICENSE). Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+GPT-Load is released under the [MIT License](LICENSE). Distributed third-party notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with license texts under [`LICENSES/`](LICENSES/). Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).

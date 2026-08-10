@@ -10,7 +10,6 @@ import (
 
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
-	"gpt-load/internal/protocol"
 )
 
 const (
@@ -68,7 +67,7 @@ func parseGroupCollectionQuery(
 	}
 	for key, entries := range values {
 		switch key {
-		case "q", "status", "protocol", "sort", "page", "page_size":
+		case "q", "status", "sort", "page", "page_size":
 		default:
 			return GroupCollectionQuery{}, app_errors.ErrBadRequest
 		}
@@ -90,19 +89,12 @@ func parseGroupCollectionQuery(
 		}
 		query.Status = status
 	}
-	if entries, exists := values["protocol"]; exists {
-		protocolValue, ok := parseGroupCollectionProtocol(entries[0])
-		if !ok {
-			return GroupCollectionQuery{}, app_errors.ErrBadRequest
-		}
-		query.Protocol = &protocolValue
-	}
 	if entries, exists := values["sort"]; exists {
 		sortValue := GroupCollectionSort(entries[0])
 		switch sortValue {
 		case GroupCollectionSortStatus,
 			GroupCollectionSortName,
-			GroupCollectionSortKeys,
+			GroupCollectionSortCredentials,
 			GroupCollectionSortCreated:
 			query.Sort = sortValue
 		default:
@@ -137,19 +129,6 @@ func parseGroupCollectionStatus(
 		return &status, true
 	default:
 		return nil, false
-	}
-}
-
-func parseGroupCollectionProtocol(value string) (protocol.Protocol, bool) {
-	protocolValue := protocol.Protocol(value)
-	switch protocolValue {
-	case protocol.OpenAICompletions,
-		protocol.OpenAIResponses,
-		protocol.Anthropic,
-		protocol.Gemini:
-		return protocolValue, true
-	default:
-		return "", false
 	}
 }
 

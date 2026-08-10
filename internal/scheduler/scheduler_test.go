@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"encoding/json"
 	"errors"
 	"math/rand"
 	"reflect"
@@ -8,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -67,7 +70,7 @@ func TestFilterTargetsAppliesAccessKeyDimensions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			targets, _ := filterTargetsWithReason(snapshot, Query{
-				Protocol:      tt.protocol,
+				ClientProtocol: tt.protocol, Operation: execution.OperationChatCompletion,
 				ExternalModel: modelPointer(tt.model),
 				AccessKey:     state.AccessKeyView{ID: 10, Filters: tt.filters},
 			})
@@ -88,7 +91,7 @@ func TestFilterTargetsSkipsCandidateWithoutGroupView(t *testing.T) {
 	got, _ := filterTargetsWithReason(
 		snapshot,
 		Query{
-			Protocol:      protocol.OpenAICompletions,
+			ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion,
 			ExternalModel: modelPointer("gpt-4o"),
 		},
 	)
@@ -97,114 +100,20 @@ func TestFilterTargetsSkipsCandidateWithoutGroupView(t *testing.T) {
 	}
 }
 
-func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
+func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
+	t.Parallel()
+
 	snapshot, err := state.Compile(state.CompileInput{
-		Groups: []state.GroupConfig{
-			{
-				ID: 4, Name: "disabled-openai",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []state.ModelConfig{{ID: "disabled-model"}},
-				Enabled:   false,
-			},
-			{
-				ID: 3, Name: "multi",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
-				Models:    []state.ModelConfig{{ID: "multi-model"}},
-				Enabled:   true,
-			},
-			{
-				ID: 2, Name: "anthropic",
-				Protocols: []protocol.Protocol{protocol.Anthropic},
-				Models:    []state.ModelConfig{{ID: "anthropic-model"}},
-				Enabled:   true,
-			},
-			{
-				ID: 1, Name: "openai",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []state.ModelConfig{{ID: "openai-model"}},
-				Enabled:   true,
-			},
-		},
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 7, Name: "responses", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Enabled: true,
+		}},
 	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-
-	tests := []struct {
-		name      string
-		selected  protocol.Protocol
-		accessKey state.AccessKeyView
-		want      []uint
-	}{
-		{
-			name:     "enabled protocol groups sorted without model",
-			selected: protocol.OpenAICompletions,
-			accessKey: state.AccessKeyView{
-				Status: state.AccessKeyStatusActive,
-				Filters: state.FilterSet{
-					Models: map[string]struct{}{"model-known-after-body": {}},
-				},
-			},
-			want: []uint{1, 3},
-		},
-		{
-			name:     "group filter",
-			selected: protocol.OpenAICompletions,
-			accessKey: state.AccessKeyView{
-				Status: state.AccessKeyStatusActive,
-				Filters: state.FilterSet{
-					Groups: map[uint]struct{}{2: {}, 3: {}},
-				},
-			},
-			want: []uint{3},
-		},
-		{
-			name:     "allowed protocol filter",
-			selected: protocol.Anthropic,
-			accessKey: state.AccessKeyView{
-				Status: state.AccessKeyStatusActive,
-				Filters: state.FilterSet{
-					Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}},
-				},
-			},
-			want: []uint{2, 3},
-		},
-		{
-			name:     "denied protocol filter",
-			selected: protocol.OpenAICompletions,
-			accessKey: state.AccessKeyView{
-				Status: state.AccessKeyStatusActive,
-				Filters: state.FilterSet{
-					Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}},
-				},
-			},
-			want: []uint{},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := CandidateGroupIDs(snapshot, test.selected, test.accessKey)
-			if !reflect.DeepEqual(got, test.want) {
-				t.Fatalf("CandidateGroupIDs() = %#v, want %#v", got, test.want)
-			}
-		})
-	}
-}
-
-func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
-	t.Parallel()
-
-	snapshot, err := state.Compile(state.CompileInput{Groups: []state.GroupConfig{{
-		ID:        7,
-		Name:      "responses",
-		Protocols: []protocol.Protocol{protocol.OpenAIResponses},
-		Enabled:   true,
-	}}})
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-	source := fakeKeySource{keys: []state.KeyMeta{{
+	source := fakeCredentialSource{keys: []state.CredentialMeta{{
 		ID: 71, GroupID: 7, WeightAuto: state.DefaultWeight,
 	}}}
 
@@ -212,8 +121,9 @@ func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
 		snapshot,
 		source,
 		Query{
-			Protocol:      protocol.OpenAIResponses,
-			ExternalModel: nil,
+			ClientProtocol: protocol.OpenAIResponses,
+			Operation:      execution.OperationResponsesRetrieve,
+			ExternalModel:  nil,
 			AccessKey: state.AccessKeyView{
 				Status: state.AccessKeyStatusActive,
 			},
@@ -223,40 +133,14 @@ func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next() error = %v", err)
 	}
-	if selection.GroupID != 7 || selection.KeyID != 71 ||
+	if selection.GroupID != 7 || selection.CredentialID != 71 ||
 		selection.UpstreamModelID != nil {
 		t.Fatalf("Selection = %#v, want protocol-only group/key and nil model", selection)
 	}
 }
 
-func TestCandidateGroupIDsUsesProtocolProjectionWithoutModels(t *testing.T) {
-	t.Parallel()
-
-	snapshot, err := state.Compile(state.CompileInput{Groups: []state.GroupConfig{{
-		ID:        8,
-		Protocols: []protocol.Protocol{protocol.OpenAIResponses},
-		Enabled:   true,
-	}}})
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-	got := CandidateGroupIDs(
-		snapshot,
-		protocol.OpenAIResponses,
-		state.AccessKeyView{
-			Status: state.AccessKeyStatusActive,
-			Filters: state.FilterSet{
-				Models: map[string]struct{}{"must-not-apply-before-body": {}},
-			},
-		},
-	)
-	if !reflect.DeepEqual(got, []uint{8}) {
-		t.Fatalf("CandidateGroupIDs() = %#v, want [8]", got)
-	}
-}
-
-type fakeKeySource struct {
-	keys []state.KeyMeta
+type fakeCredentialSource struct {
+	keys []state.CredentialMeta
 }
 
 type zeroRandSource struct{}
@@ -264,12 +148,12 @@ type zeroRandSource struct{}
 func (zeroRandSource) Int63() int64 { return 0 }
 func (zeroRandSource) Seed(int64)   {}
 
-func (source fakeKeySource) CollectCandidates(groupIDs []uint, excluded func(uint) bool, _ time.Time) []state.KeyMeta {
+func (source fakeCredentialSource) CollectCredentialCandidates(groupIDs []uint, excluded func(uint) bool, _ time.Time) []state.CredentialMeta {
 	allowed := make(map[uint]struct{}, len(groupIDs))
 	for _, groupID := range groupIDs {
 		allowed[groupID] = struct{}{}
 	}
-	result := make([]state.KeyMeta, 0, len(source.keys))
+	result := make([]state.CredentialMeta, 0, len(source.keys))
 	for _, key := range source.keys {
 		if _, ok := allowed[key.GroupID]; !ok || (excluded != nil && excluded(key.ID)) {
 			continue
@@ -282,15 +166,15 @@ func (source fakeKeySource) CollectCandidates(groupIDs []uint, excluded func(uin
 
 func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 11, GroupID: 1, Status: state.KeyStatusActive,
-		CooldownUntil: now.Add(time.Second), EncryptedValue: "cipher",
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
+		CooldownUntil: now.Add(time.Second), Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
 
-	query := Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}
+	query := Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}
 	cooling := newWithClock(schedulerSnapshot(), registry, query, rand.New(rand.NewSource(1)), func() time.Time {
 		return now
 	})
@@ -302,26 +186,26 @@ func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
 		return now.Add(time.Second)
 	})
 	selection, err := expired.Next()
-	if err != nil || selection.KeyID != 11 {
+	if err != nil || selection.CredentialID != 11 {
 		t.Fatalf("Next() at cooldown boundary = (%#v, %v), want key 11", selection, err)
 	}
 }
 
 func TestIteratorSkipGroupExcludesWholeGroup(t *testing.T) {
-	source := fakeKeySource{keys: []state.KeyMeta{
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 11, GroupID: 1}, {ID: 12, GroupID: 1}, {ID: 21, GroupID: 2},
 	}}
 	iterator := New(schedulerSnapshot(), source,
-		Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(zeroRandSource{}))
 	first, err := iterator.Next()
-	if err != nil || first.KeyID != 11 {
+	if err != nil || first.CredentialID != 11 {
 		t.Fatalf("first Next() = (%#v, %v), want key 11", first, err)
 	}
 	iterator.SkipGroup(1)
 	iterator.SkipGroup(1)
 	second, err := iterator.Next()
-	if err != nil || second.KeyID != 21 {
+	if err != nil || second.CredentialID != 21 {
 		t.Fatalf("second Next() = (%#v, %v), want key 21", second, err)
 	}
 	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -330,10 +214,10 @@ func TestIteratorSkipGroupExcludesWholeGroup(t *testing.T) {
 }
 
 func TestIteratorSkipGroupIsRequestLocal(t *testing.T) {
-	source := fakeKeySource{keys: []state.KeyMeta{
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
 	}}
-	query := Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}
+	query := Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}
 	first := New(schedulerSnapshot(), source, query, rand.New(zeroRandSource{}))
 	first.SkipGroup(1)
 	selection, err := first.Next()
@@ -351,9 +235,9 @@ func TestIteratorSkipGroupIgnoresNilReceiverAndZeroID(t *testing.T) {
 	var nilIterator *Iterator
 	nilIterator.SkipGroup(1)
 
-	iterator := New(schedulerSnapshot(), fakeKeySource{keys: []state.KeyMeta{
+	iterator := New(schedulerSnapshot(), fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
-	}}, Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}, rand.New(zeroRandSource{}))
+	}}, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, rand.New(zeroRandSource{}))
 	iterator.SkipGroup(0)
 	selection, err := iterator.Next()
 	if err != nil || selection.GroupID != 1 {
@@ -362,24 +246,24 @@ func TestIteratorSkipGroupIgnoresNilReceiverAndZeroID(t *testing.T) {
 }
 
 func TestIteratorSkipGroupExcludesKeysAddedAfterSkip(t *testing.T) {
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{
-		{ID: 11, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "one"},
-		{ID: 21, GroupID: 2, Status: state.KeyStatusActive, EncryptedValue: "two"},
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{
+		{ID: 11, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "one"},
+		{ID: 21, GroupID: 2, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "two"},
 	}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
 	iterator := New(schedulerSnapshot(), registry,
-		Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(zeroRandSource{}))
 	iterator.SkipGroup(1)
-	if err := registry.ApplyImport(1, []state.KeyEntry{{
-		ID: 12, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "new",
+	if err := registry.ApplyCredentialImport(1, []state.CredentialEntry{{
+		ID: 12, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "new",
 	}}); err != nil {
 		t.Fatalf("ApplyImport() error = %v", err)
 	}
 	selection, err := iterator.Next()
-	if err != nil || selection.KeyID != 21 {
+	if err != nil || selection.CredentialID != 21 {
 		t.Fatalf("Next() = (%#v, %v), want group 2 key 21", selection, err)
 	}
 	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -388,7 +272,7 @@ func TestIteratorSkipGroupExcludesKeysAddedAfterSkip(t *testing.T) {
 }
 
 func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
-	source := fakeKeySource{keys: []state.KeyMeta{
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 11, GroupID: 1},
 		{ID: 12, GroupID: 1},
 		{ID: 21, GroupID: 2},
@@ -396,7 +280,7 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 	iterator := New(
 		schedulerSnapshot(),
 		source,
-		Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(rand.NewSource(7)),
 	)
 
@@ -406,10 +290,10 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
 		}
-		if _, duplicate := seen[selection.KeyID]; duplicate {
-			t.Fatalf("key %d selected twice", selection.KeyID)
+		if _, duplicate := seen[selection.CredentialID]; duplicate {
+			t.Fatalf("key %d selected twice", selection.CredentialID)
 		}
-		seen[selection.KeyID] = struct{}{}
+		seen[selection.CredentialID] = struct{}{}
 		if selection.Group.ID != selection.GroupID ||
 			selection.UpstreamModelID == nil ||
 			*selection.UpstreamModelID == "" {
@@ -431,19 +315,19 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 	group.WeightManual = &lightGroup
 	snapshot.Groups[2] = group
 
-	source := fakeKeySource{keys: []state.KeyMeta{
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 1, GroupID: 1, WeightAuto: 100},
 		{ID: 2, GroupID: 2, WeightAuto: 100},
 	}}
 	counts := map[uint]int{}
 	random := rand.New(rand.NewSource(99))
 	for range 12000 {
-		iterator := New(snapshot, source, Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}, random)
+		iterator := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, random)
 		selection, err := iterator.Next()
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
 		}
-		counts[selection.KeyID]++
+		counts[selection.CredentialID]++
 	}
 	ratio := float64(counts[1]) / float64(counts[2])
 	if ratio < 1.85 || ratio > 2.15 {
@@ -453,7 +337,7 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 
 func TestIteratorUsesKeyWeights(t *testing.T) {
 	manualWeight := 100
-	source := fakeKeySource{keys: []state.KeyMeta{
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 1, GroupID: 1, WeightManual: &manualWeight, WeightAuto: 1},
 		{ID: 2, GroupID: 1, WeightAuto: 50},
 	}}
@@ -463,14 +347,14 @@ func TestIteratorUsesKeyWeights(t *testing.T) {
 		iterator := New(
 			schedulerSnapshot(),
 			source,
-			Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 			random,
 		)
 		selection, err := iterator.Next()
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
 		}
-		counts[selection.KeyID]++
+		counts[selection.CredentialID]++
 	}
 	ratio := float64(counts[1]) / float64(counts[2])
 	if ratio < 1.85 || ratio > 2.15 {
@@ -485,14 +369,14 @@ func TestEffectiveWeightCombinesGroupAndKeyWeights(t *testing.T) {
 	tests := []struct {
 		name  string
 		group state.GroupView
-		key   state.KeyMeta
+		key   state.CredentialMeta
 		want  int64
 	}{
-		{name: "defaults", group: state.GroupView{}, key: state.KeyMeta{}, want: 50 * 50},
-		{name: "group and auto key", group: state.GroupView{WeightManual: &groupManual}, key: state.KeyMeta{WeightAuto: 30}, want: 20 * 30},
-		{name: "manual key overrides auto", group: state.GroupView{WeightManual: &groupManual}, key: state.KeyMeta{WeightManual: &keyManual, WeightAuto: 90}, want: 20 * 40},
-		{name: "zero group", group: state.GroupView{WeightManual: &zero}, key: state.KeyMeta{WeightAuto: 30}},
-		{name: "zero key", group: state.GroupView{WeightManual: &groupManual}, key: state.KeyMeta{WeightManual: &zero, WeightAuto: 30}},
+		{name: "defaults", group: state.GroupView{}, key: state.CredentialMeta{}, want: 50 * 50},
+		{name: "group and auto key", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightAuto: 30}, want: 20 * 30},
+		{name: "manual key overrides auto", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightManual: &keyManual, WeightAuto: 90}, want: 20 * 40},
+		{name: "zero group", group: state.GroupView{WeightManual: &zero}, key: state.CredentialMeta{WeightAuto: 30}},
+		{name: "zero key", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightManual: &zero, WeightAuto: 30}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -514,16 +398,16 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 		group := snapshot.Groups[1]
 		group.WeightManual = &zero
 		snapshot.Groups[1] = group
-		source := fakeKeySource{keys: []state.KeyMeta{
+		source := fakeCredentialSource{keys: []state.CredentialMeta{
 			{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
 			{ID: 21, GroupID: 2, WeightAuto: state.DefaultWeight},
 		}}
 
 		random := rand.New(rand.NewSource(1))
 		for range 200 {
-			iterator := New(snapshot, source, Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}, random)
+			iterator := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, random)
 			selection, err := iterator.Next()
-			if err != nil || selection.KeyID != 21 {
+			if err != nil || selection.CredentialID != 21 {
 				t.Fatalf("Next() = (%#v, %v), want enabled group key 21", selection, err)
 			}
 		}
@@ -531,16 +415,16 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 
 	t.Run("key", func(t *testing.T) {
 		zero := 0
-		source := fakeKeySource{keys: []state.KeyMeta{
+		source := fakeCredentialSource{keys: []state.CredentialMeta{
 			{ID: 11, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
 			{ID: 12, GroupID: 1, WeightAuto: state.DefaultWeight},
 		}}
 
 		random := rand.New(rand.NewSource(1))
 		for range 200 {
-			iterator := New(schedulerSnapshot(), source, Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}, random)
+			iterator := New(schedulerSnapshot(), source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, random)
 			selection, err := iterator.Next()
-			if err != nil || selection.KeyID != 12 {
+			if err != nil || selection.CredentialID != 12 {
 				t.Fatalf("Next() = (%#v, %v), want enabled key 12", selection, err)
 			}
 		}
@@ -558,8 +442,8 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 		}
 		iterator := New(
 			snapshot,
-			fakeKeySource{keys: []state.KeyMeta{{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight}}},
-			Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+			fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight}}},
+			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 			rand.New(rand.NewSource(1)),
 		)
 		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -571,11 +455,11 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 		zero := 0
 		iterator := New(
 			schedulerSnapshot(),
-			fakeKeySource{keys: []state.KeyMeta{
+			fakeCredentialSource{keys: []state.CredentialMeta{
 				{ID: 11, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
 				{ID: 21, GroupID: 2, WeightManual: &zero, WeightAuto: state.DefaultWeight},
 			}},
-			Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 			rand.New(rand.NewSource(1)),
 		)
 		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -587,49 +471,49 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 func TestIteratorUsesDefaultWeights(t *testing.T) {
 	iterator := New(
 		schedulerSnapshot(),
-		fakeKeySource{keys: []state.KeyMeta{{ID: 11, GroupID: 1}}},
-		Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+		fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}}},
+		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(rand.NewSource(1)),
 	)
 	selection, err := iterator.Next()
-	if err != nil || selection.KeyID != 11 {
+	if err != nil || selection.CredentialID != 11 {
 		t.Fatalf("Next() with default weights = (%#v, %v), want key 11", selection, err)
 	}
 }
 
 func TestIteratorReadsRegistryChangesBetweenNextCalls(t *testing.T) {
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 11, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "cipher-one",
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
 	iterator := New(
 		schedulerSnapshot(),
 		registry,
-		Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")},
+		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(rand.NewSource(1)),
 	)
 	first, err := iterator.Next()
-	if err != nil || first.KeyID != 11 {
+	if err != nil || first.CredentialID != 11 {
 		t.Fatalf("first Next() = (%#v, %v)", first, err)
 	}
-	if err := registry.ApplyImport(1, []state.KeyEntry{{
-		ID: 12, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "cipher-two",
+	if err := registry.ApplyCredentialImport(1, []state.CredentialEntry{{
+		ID: 12, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two",
 	}}); err != nil {
 		t.Fatalf("ApplyImport() error = %v", err)
 	}
 	second, err := iterator.Next()
-	if err != nil || second.KeyID != 12 {
+	if err != nil || second.CredentialID != 12 {
 		t.Fatalf("second Next() = (%#v, %v), want newly added key 12", second, err)
 	}
 }
 
-func TestIteratorRestrictsLiveCandidatesToAllowedKeyIDs(t *testing.T) {
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 11, GroupID: 1, Status: state.KeyStatusActive,
-		EncryptedValue: "cipher-captured",
+func TestIteratorRestrictsLiveCandidatesToAllowedCredentialIDs(t *testing.T) {
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-captured",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -638,23 +522,23 @@ func TestIteratorRestrictsLiveCandidatesToAllowedKeyIDs(t *testing.T) {
 		schedulerSnapshot(),
 		registry,
 		Query{
-			Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o"),
-			AllowedKeyIDs: allowed,
+			ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o"),
+			AllowedCredentialIDs: allowed,
 		},
 		rand.New(zeroRandSource{}),
 	)
 
 	delete(allowed, 11)
 	allowed[12] = struct{}{}
-	if err := registry.ApplyImport(1, []state.KeyEntry{{
-		ID: 12, GroupID: 1, Status: state.KeyStatusActive,
-		EncryptedValue: "cipher-imported-after-iterator",
+	if err := registry.ApplyCredentialImport(1, []state.CredentialEntry{{
+		ID: 12, GroupID: 1, Status: state.CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-imported-after-iterator",
 	}}); err != nil {
 		t.Fatalf("ApplyImport() error = %v", err)
 	}
 
 	first, err := iterator.Next()
-	if err != nil || first.KeyID != 11 {
+	if err != nil || first.CredentialID != 11 {
 		t.Fatalf("first Next() = (%#v, %v), want captured key 11", first, err)
 	}
 	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -664,7 +548,7 @@ func TestIteratorRestrictsLiveCandidatesToAllowedKeyIDs(t *testing.T) {
 
 func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 	snapshot := schedulerSnapshot()
-	source := fakeKeySource{keys: []state.KeyMeta{
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 11, GroupID: 1}, {ID: 12, GroupID: 1},
 		{ID: 21, GroupID: 2}, {ID: 22, GroupID: 2},
 		{ID: 31, GroupID: 3},
@@ -684,7 +568,7 @@ func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 			filters.Models = map[string]struct{}{"gpt-4o": {}}
 		}
 		query := Query{
-			Protocol:      protocol.OpenAICompletions,
+			ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion,
 			ExternalModel: modelPointer("gpt-4o"),
 			AccessKey:     state.AccessKeyView{ID: uint(caseIndex + 1), Filters: filters},
 		}
@@ -733,9 +617,9 @@ func TestIteratorExhaustsForNilOrEmptyDependencies(t *testing.T) {
 		name     string
 		iterator *Iterator
 	}{
-		{name: "nil snapshot", iterator: New(nil, fakeKeySource{}, Query{}, rand.New(rand.NewSource(1)))},
-		{name: "nil key source", iterator: New(schedulerSnapshot(), nil, Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}, rand.New(rand.NewSource(1)))},
-		{name: "nil random", iterator: New(schedulerSnapshot(), fakeKeySource{}, Query{Protocol: protocol.OpenAICompletions, ExternalModel: modelPointer("gpt-4o")}, nil)},
+		{name: "nil snapshot", iterator: New(nil, fakeCredentialSource{}, Query{}, rand.New(rand.NewSource(1)))},
+		{name: "nil key source", iterator: New(schedulerSnapshot(), nil, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, rand.New(rand.NewSource(1)))},
+		{name: "nil random", iterator: New(schedulerSnapshot(), fakeCredentialSource{}, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, nil)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -747,22 +631,22 @@ func TestIteratorExhaustsForNilOrEmptyDependencies(t *testing.T) {
 }
 
 func schedulerSnapshot() *state.ConfigSnapshot {
-	return &state.ConfigSnapshot{
-		Candidates: map[protocol.Protocol]map[string][]state.RouteTarget{
-			protocol.OpenAICompletions: {
-				"gpt-4o": {
-					{GroupID: 1, UpstreamModelID: "gpt-4o"},
-					{GroupID: 2, UpstreamModelID: "provider-gpt-4o"},
-				},
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{
+				ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "gpt-4o", Alias: "gpt-4o"}}, Enabled: true,
+			},
+			{
+				ID: 2, Name: "two", ChannelID: channel.OpenAICompatible,
+				Params: json.RawMessage(`{"base_url":"https://two.example/v1"}`),
+				Models: []state.ModelConfig{{ID: "provider-gpt-4o", Alias: "gpt-4o"}}, Enabled: true,
 			},
 		},
-		Groups: map[uint]state.GroupView{
-			1: {ID: 1, Name: "one", UpstreamURL: "https://one.example"},
-			2: {ID: 2, Name: "two", UpstreamURL: "https://two.example"},
-		},
-		GroupCatalog: map[uint]state.GroupCatalogView{
-			1: {ID: 1, Name: "one", Enabled: true},
-			2: {ID: 2, Name: "two", Enabled: true},
-		},
+	})
+	if err != nil {
+		panic(err)
 	}
+	return snapshot
 }

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"gpt-load/internal/scheduler"
 )
 
 func TestAccessKeyMillisWireOmitsLegacyTimestampKeys(t *testing.T) {
@@ -38,7 +40,7 @@ func TestHealthMillisWireUsesNullableEpochMilliseconds(t *testing.T) {
 		t,
 		runtimeHealthResponse{
 			ObservedAtMS: 1_784_894_400_000,
-			CooldownKeys: []healthProblemKeyResponse{{
+			CooldownCredentials: []healthProblemCredentialResponse{{
 				CooldownUntilMS: &cooldownUntilMS,
 				Recovery: healthRecoveryResponse{
 					Automatic: true,
@@ -52,7 +54,7 @@ func TestHealthMillisWireUsesNullableEpochMilliseconds(t *testing.T) {
 		},
 		[]string{
 			"observed_at_ms",
-			"cooldown_keys",
+			"cooldown_credentials",
 			"request_log",
 		},
 	)
@@ -65,13 +67,65 @@ func TestInspectMillisWireUsesEpochMilliseconds(t *testing.T) {
 		routeInspectResponse{
 			ObservedAtMS: 1_784_894_400_000,
 			Groups: []routeInspectGroupResponse{{
-				Keys: []routeInspectKeyResponse{{
+				Credentials: []routeInspectCredentialResponse{{
 					CooldownUntilMS: &cooldownUntilMS,
 				}},
 			}},
 		},
 		[]string{"observed_at_ms", "groups"},
 	)
+}
+
+func TestHealthAndRouteInspectionUseCredentialWireNames(t *testing.T) {
+	healthBody, err := json.Marshal(runtimeHealthResponse{
+		Counts:                 healthCountsResponse{Credentials: 1, Available: 1},
+		CooldownCredentials:    []healthProblemCredentialResponse{{CredentialID: 7}},
+		BlacklistedCredentials: []healthProblemCredentialResponse{},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(health) error = %v", err)
+	}
+	for _, token := range []string{
+		`"counts":{"credentials":1,"available":1,"cooldown":0,"blacklisted":0}`,
+		`"cooldown_credentials":[{"credential_id":7`,
+		`"blacklisted_credentials":[]`,
+	} {
+		if !strings.Contains(string(healthBody), token) {
+			t.Fatalf("health wire missing %s: %s", token, healthBody)
+		}
+	}
+	for _, legacy := range []string{
+		`"total"`, `"disabled"`, `"cooldown_keys"`, `"blacklisted_keys"`, `"key_id"`,
+	} {
+		if strings.Contains(string(healthBody), legacy) {
+			t.Fatalf("health wire exposes legacy field %s: %s", legacy, healthBody)
+		}
+	}
+
+	inspectBody, err := json.Marshal(routeInspectResponse{
+		Groups: []routeInspectGroupResponse{{
+			Credentials: []routeInspectCredentialResponse{{
+				CredentialID: 9,
+				ReasonCode:   optionalReason(scheduler.ReasonCredentialCooldown),
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(route inspection) error = %v", err)
+	}
+	for _, token := range []string{
+		`"credentials":[{"credential_id":9`,
+		`"reason_code":"credential_cooldown"`,
+	} {
+		if !strings.Contains(string(inspectBody), token) {
+			t.Fatalf("route inspection wire missing %s: %s", token, inspectBody)
+		}
+	}
+	for _, legacy := range []string{`"keys"`, `"key_id"`, `"key_cooldown"`} {
+		if strings.Contains(string(inspectBody), legacy) {
+			t.Fatalf("route inspection wire exposes legacy field %s: %s", legacy, inspectBody)
+		}
+	}
 }
 
 func TestRequestLogMillisCostWireUsesCursorV2Fields(t *testing.T) {

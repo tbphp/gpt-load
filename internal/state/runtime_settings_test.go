@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
-	"gpt-load/internal/protocol"
 )
 
 func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
@@ -74,8 +74,8 @@ func TestCompileRejectsInvalidGlobalSettingsWithoutGroups(t *testing.T) {
 }
 
 func TestCompileValidatesDisabledGroupSettings(t *testing.T) {
-	_, err := Compile(CompileInput{Groups: []GroupConfig{{
-		ID: 1, Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+	_, err := Compile(CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{
+		ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Settings: config.Settings{"request_log_retention_days": 30},
 		Enabled:  false,
 	}}})

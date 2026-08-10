@@ -20,27 +20,26 @@ export default {
       none: 'None',
       overview: {
         label: 'Health overview',
-        available: 'Available keys',
-        total: '{total} keys total',
+        credentials: 'Credentials',
+        credentialsDescription: 'Active runtime credentials',
+        available: 'Available',
+        availableDescription: 'Ready for scheduling',
         cooldown: 'Cooling down',
         cooldownClear: 'No recovery wait',
         cooldownRecovery: 'Earliest recovery in {time}',
         blacklisted: 'Blacklisted',
-        blacklistedRecovery: 'See the recovery guidance for each key',
-        blacklistedClear: 'No blacklisted keys',
-        disabled: 'Configuration excluded',
-        disabledDescription: 'Excluded by configuration',
+        blacklistedRecovery: 'See each credential recovery guide',
+        blacklistedClear: 'No blacklisted credentials',
       },
       status: {
-        empty: 'No upstream Keys',
-        unavailable: 'No upstream Key is currently available',
+        empty: 'No channel credentials',
+        unavailable: 'No channel credential is currently available',
         exceptions: 'Runtime exceptions exist',
-        clear: 'No current upstream-Key exception',
+        clear: 'No current credential runtime exception',
       },
       summary: {
         title: 'Runtime health',
-        description:
-          'States and raw counters exposed by the current upstream-Key runtime snapshot.',
+        description: 'States and raw counters exposed by the current credential runtime snapshot.',
         revision: 'Revision {revision}',
         observedAt: 'Observed at {time}',
       },
@@ -54,11 +53,10 @@ export default {
       groups: {
         title: 'Group health',
         description:
-          'Shows current available keys only; it does not guarantee routability for a particular AccessKey, protocol, or model.',
+          'Shows current available credentials only; it does not guarantee routability for a particular AccessKey, protocol, or model.',
         empty: 'No Groups are configured.',
         disabled: 'Disabled',
-        configurationExcluded: 'Configuration excluded',
-        emptyKeys: 'No keys',
+        emptyCredentials: 'No credentials',
         unavailable: 'Unavailable',
         attention: 'Needs attention',
         limited: 'Limited capacity',
@@ -67,12 +65,12 @@ export default {
         columns: {
           group: 'Group',
           status: 'Scheduling',
-          keyHealth: 'Key composition',
+          credentialHealth: 'Credential composition',
           exceptions: 'Current exceptions',
           actions: 'Actions',
         },
-        keyHealthLabel:
-          '{total} keys: {available} available, {cooldown} cooling down, {blacklisted} blacklisted, {disabled} disabled',
+        credentialHealthLabel:
+          '{total} credentials: {available} available, {cooldown} cooling down, {blacklisted} blacklisted',
         cooldownCount: '{count} cooldown',
         blacklistedCount: '{count} blacklisted',
         none: 'None',
@@ -82,26 +80,25 @@ export default {
         collapse: 'Collapse Groups',
       },
       problems: {
-        title: 'Keys that need attention',
+        title: 'Credentials that need attention',
         description:
-          'Current cooldown and blacklisted keys; the last {minutes} minutes help explain recent behavior.',
+          'Current cooldown and blacklisted credentials; the last {minutes} minutes help explain recent behavior.',
         count: '{count} total',
-        empty: 'Key health is clear',
+        empty: 'Credential health is clear',
         emptyDescription:
-          'All {count} available keys are participating normally; none are cooling down or blacklisted.',
+          'All {count} available credentials are participating normally; none are cooling down or blacklisted.',
         emptyHint: 'New problems will appear here in order of scheduling impact.',
-        inactiveTitle: 'No runtime key exceptions',
+        inactiveTitle: 'No runtime credential exceptions',
         inactiveDescription:
-          'No keys are cooling down or blacklisted. Review the overview and Group health for availability configuration.',
-        noneForStatus: 'No keys have this status.',
+          'No credentials are cooling down or blacklisted. Review the overview and Group health for availability configuration.',
+        noneForStatus: 'No credentials have this status.',
         cooldown: 'Cooling down',
         blacklisted: 'Blacklisted',
-        keyId: 'Key #{id}',
         remaining: '{time} remaining',
-        keyMeta: '{group}',
-        tableLabel: 'Keys that need attention',
+        credentialMeta: '{group}',
+        tableLabel: 'Credentials that need attention',
         columns: {
-          identity: 'Key / Group',
+          identity: 'Credential / Group',
           status: 'Status',
           window: 'Current window',
           recovery: 'Recovery',
@@ -117,7 +114,7 @@ export default {
         validationHint: 'Recovers after a successful probe',
         configurationRecovery: 'Validation configuration required',
         configurationHint: 'Configure a validation model to enable automatic recovery',
-        viewLogs: 'View request logs for key {key}',
+        viewLogs: 'View request logs for credential {credential}',
         viewGroup: 'View Group {group}',
       },
       details: {
@@ -187,11 +184,14 @@ export default {
       options: {
         groupsFailed:
           'Group names are unavailable. Enter a positive Group ID instead; usage reporting is unaffected.',
+        partialFailed:
+          'Some Group or channel options are unavailable. Usage queries remain available.',
       },
       filters: {
         label: 'Usage report filters',
         title: 'Filter usage and cost',
-        description: 'Narrow the current aggregate by Group and upstream model.',
+        description:
+          'Narrow the current aggregate by Group, channel, credential, and upstream model.',
         close: 'Close usage and cost filters',
         button: 'Filter',
         range: 'Range',
@@ -209,6 +209,9 @@ export default {
         groupHelp: 'Optional exact Group scope.',
         groupIdHelp: 'Group names failed to load; enter an optional positive Group ID.',
         anyGroup: 'All Groups',
+        channel: 'Channel',
+        anyChannel: 'All channels',
+        credential: 'Credential ID',
         model: 'Upstream model',
         modelPlaceholder: 'Exact model name',
         modelHelp: 'Optional exact upstream model after routing.',
@@ -224,6 +227,8 @@ export default {
       },
       errors: {
         positiveId: 'Enter a valid positive Group ID.',
+        channelId: 'Select or enter a valid channel ID.',
+        credentialId: 'Enter a valid positive credential ID.',
         model: 'Upstream model cannot contain surrounding whitespace or control characters.',
       },
       scope: {
@@ -233,7 +238,8 @@ export default {
       },
       empty: {
         title: 'No usage data matches',
-        description: 'Change the range or reset the Group and upstream-model filters.',
+        description:
+          'Change the range or reset the Group, channel, credential, and upstream-model filters.',
       },
       kpi: {
         title: 'Usage summary',
@@ -250,7 +256,7 @@ export default {
       },
       tokens: {
         title: 'Reported token categories',
-        description: 'Split by provider-neutral usage fields returned upstream.',
+        description: 'Split by standardized usage fields returned upstream.',
         uncachedInput: 'Uncached input',
         cacheRead: 'Cache read',
         cacheWrite5m: 'Cache write (5m)',
@@ -329,12 +335,15 @@ export default {
         disclosure: 'View time-bucket details',
       },
       breakdown: {
-        title: 'Group and upstream-model breakdown',
-        description: 'Backend-ranked aggregates use the final Group and upstream model.',
-        caption: 'Usage breakdown by final Group and upstream model',
+        title: 'Route and upstream-model breakdown',
+        description:
+          'Backend-ranked aggregates use the final Group, channel, credential, and upstream model.',
+        caption: 'Usage breakdown by final route and upstream model',
         truncated: 'Only the backend top 100 breakdown rows are shown.',
         unattributedGroup: 'Unattributed Group',
         unattributedMeta: 'No Group attribution',
+        redactedRoute: 'Route identity redacted',
+        credentialRef: 'Credential #{id}',
         unknownModel: 'Unknown model',
         count: '{count} items',
         truncatedShort: 'Results truncated',
@@ -345,6 +354,9 @@ export default {
       columns: {
         window: 'UTC window',
         group: 'Final Group',
+        route: 'Final route',
+        channel: 'Channel',
+        credential: 'Credential',
         upstreamModel: 'Upstream model',
         requests: 'Requests',
         success: 'Success',
@@ -364,7 +376,8 @@ export default {
     },
     inspector: {
       title: 'Route inspector',
-      description: 'Explain candidate Groups and Keys for an input against the current runtime.',
+      description:
+        'Explain candidate Groups and credentials for an input against the current runtime.',
       boundary:
         'Current runtime only. Read-only. No upstream request is sent. No tokens are consumed.',
       protocols: {
@@ -409,7 +422,7 @@ export default {
       empty: {
         title: 'Enter conditions to inspect the route',
         description:
-          'The result explains candidate Groups, Key state, and exclusion reasons in the current configuration snapshot.',
+          'The result explains candidate Groups, credential state, and exclusion reasons in the current configuration snapshot.',
       },
       result: {
         title: 'Current runtime observation',
@@ -426,7 +439,7 @@ export default {
         accessKey: 'AccessKey',
         accessKeyStatus: 'AccessKey status',
         candidateGroups: 'Candidate Groups',
-        availableKeys: 'Available Keys',
+        availableCredentials: 'Available credentials',
         reason: 'Reason',
         inputChanged:
           'The inputs have changed. The observation below still belongs to the last submitted inputs.',
@@ -436,7 +449,7 @@ export default {
       groups: {
         title: 'Candidate Groups',
         description:
-          'Shares use the effective-weight total of available Keys in current candidate Groups and are not fixed traffic ratios.',
+          'Shares use the effective-weight total of available credentials in current candidate Groups and are not fixed traffic ratios.',
         count: '{count}',
         tableLabel: 'Candidate Group route explanation',
         completeEmpty:
@@ -450,24 +463,24 @@ export default {
         columns: {
           group: 'Group',
           status: 'Status',
-          keys: 'Keys',
+          credentials: 'Credentials',
           weight: 'Effective weight',
           share: 'Weight share',
           actions: 'Actions',
         },
       },
-      keys: {
-        title: 'Key-level explanation',
-        identity: 'Key #{id}',
+      credentials: {
+        title: 'Credential-level explanation',
+        identity: 'Credential #{id}',
         available: 'Available',
         unavailable: 'Unavailable',
         summary: '{available} available · {unavailable} unavailable',
-        tableLabel: 'Key route explanation for {name}',
-        noneReturned: 'No Key candidates were returned for this Group.',
+        tableLabel: 'Credential route explanation for {name}',
+        noneReturned: 'No credential candidates were returned for this Group.',
         cooldownUntil: 'Cooldown until',
         none: 'None',
         columns: {
-          key: 'Key',
+          credential: 'Credential',
           status: 'Status',
           manual: 'Manual weight',
           auto: 'Auto weight',
@@ -486,7 +499,7 @@ export default {
       excluded: {
         title: 'Excluded Groups',
         description:
-          'Shows Group-level exclusions only. Expand candidate Groups for Key-level reasons.',
+          'Shows Group-level exclusions only. Expand candidate Groups for credential-level reasons.',
         empty: 'No Groups are excluded for the current input.',
         tableLabel: 'Excluded Group route explanation',
         reasonCode: 'Reason code',
@@ -497,17 +510,19 @@ export default {
         protocol_filtered: 'AccessKey filters exclude this protocol',
         model_filtered: 'AccessKey filters exclude this model',
         model_required_by_filter: 'A model is required by the AccessKey model filter',
+        capability_unsupported: 'The channel does not support the requested capability',
         no_route_target: 'No route target matches this model and protocol',
         group_disabled: 'Group is disabled',
         group_filtered: 'AccessKey filters exclude this Group',
         no_available_group: 'No candidate Group is currently routable',
-        no_keys: 'Group has no runtime keys',
+        no_credentials: 'Group has no runtime credentials',
         group_weight_zero: 'Group effective weight is zero',
-        key_disabled: 'Key is disabled',
-        key_blacklisted: 'Key is blacklisted',
-        key_cooldown: 'Key is cooling down',
-        key_weight_zero: 'Key effective weight is zero',
-        no_available_key: 'Group has no currently available Key',
+        credential_disabled: 'Credential is disabled',
+        credential_blacklisted: 'Credential is blacklisted',
+        credential_cooldown: 'Credential is cooling down',
+        credential_weight_zero: 'Credential effective weight is zero',
+        credential_not_allowed: 'Credential is excluded from this request',
+        no_available_credential: 'Group has no currently available credential',
         unknown: 'Unknown route reason',
       },
     },
@@ -561,7 +576,9 @@ export default {
         anyStatus: 'Any status',
         requestId: 'Request ID',
         finalStatusCode: 'Final HTTP status',
-        upstreamKey: 'Any-attempt upstream key ID',
+        channel: 'Any-attempt channel',
+        anyChannel: 'Any channel',
+        credential: 'Any-attempt credential ID',
         attemptStatusCode: 'Any-attempt status',
         failureCategory: 'Any-attempt failure',
         errorCode: 'Any-attempt error code',
@@ -585,6 +602,8 @@ export default {
         appliedClientModel: 'Client model {value}',
         appliedUpstreamModel: 'Attempt upstream model {value}',
         appliedAccessKey: 'AccessKey {value}',
+        appliedChannel: 'Channel {value}',
+        appliedCredential: 'Credential #{value}',
         appliedStatus: 'Status {value}',
         appliedUsageState: 'Usage {value}',
         appliedCostState: 'Cost {value}',
@@ -639,6 +658,7 @@ export default {
         dateTime: 'Enter a valid local date and time.',
         range: 'To must be later than From.',
         positiveId: 'Select a valid positive ID.',
+        channelId: 'Select or enter a valid channel ID.',
         model: 'Client model cannot contain surrounding whitespace or control characters.',
         status: 'Select a valid status.',
         requestId: 'Enter a canonical lowercase UUIDv4.',
@@ -655,6 +675,7 @@ export default {
       yes: 'Yes',
       no: 'No',
       attemptCount: '{count} attempts',
+      credentialRef: 'Credential #{id}',
       details: 'View details',
       failureCategory: {
         ok: 'OK',
@@ -670,8 +691,8 @@ export default {
       action: {
         terminate: 'Terminate',
         retry: 'Retry',
-        cooldown_key: 'Cooldown key',
-        fail_key: 'Fail key',
+        cooldown_credential: 'Cooldown credential',
+        fail_credential: 'Mark credential failed',
         skip_group: 'Skip Group',
         unknown: 'Unknown action',
       },
@@ -724,7 +745,13 @@ export default {
         committed: 'Committed',
         notCommitted: 'Not committed',
         group: 'Historical Group',
-        upstreamKey: 'Historical upstream key',
+        channel: 'Historical channel',
+        credential: 'Historical credential',
+        operation: 'Operation',
+        routeMode: 'Route mode',
+        dispatchState: 'Dispatch state',
+        responseStarted: 'Response started',
+        upstreamRequestId: 'Upstream request ID',
         failureCategory: 'Failure category',
         action: 'Action',
         willRetry: 'Will retry',
@@ -827,6 +854,10 @@ export default {
         formula: 'Cost calculation',
         input: 'Input',
         output: 'Output',
+        schema: 'Pricing receipt version',
+        identity: 'Pricing identity',
+        historicalSchema1: 'Historical scope',
+        historicalSchema2: 'Historical global price',
       },
     },
   },

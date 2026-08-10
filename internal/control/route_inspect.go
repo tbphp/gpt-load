@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/protocol"
@@ -25,8 +26,8 @@ type routeInspectAccessKeyResponse struct {
 	Status state.AccessKeyStatus `json:"status"`
 }
 
-type routeInspectKeyResponse struct {
-	KeyID           uint                  `json:"key_id"`
+type routeInspectCredentialResponse struct {
+	CredentialID    uint                  `json:"credential_id"`
 	Available       bool                  `json:"available"`
 	ReasonCode      *scheduler.ReasonCode `json:"reason_code"`
 	WeightManual    *int                  `json:"weight_manual"`
@@ -36,14 +37,14 @@ type routeInspectKeyResponse struct {
 }
 
 type routeInspectGroupResponse struct {
-	GroupID       uint                      `json:"group_id"`
-	GroupName     string                    `json:"group_name"`
-	UpstreamModel *string                   `json:"upstream_model"`
-	WeightManual  *int                      `json:"weight_manual"`
-	Included      bool                      `json:"included"`
-	Routable      bool                      `json:"routable"`
-	ReasonCode    *scheduler.ReasonCode     `json:"reason_code"`
-	Keys          []routeInspectKeyResponse `json:"keys"`
+	GroupID       uint                             `json:"group_id"`
+	GroupName     string                           `json:"group_name"`
+	UpstreamModel *string                          `json:"upstream_model"`
+	WeightManual  *int                             `json:"weight_manual"`
+	Included      bool                             `json:"included"`
+	Routable      bool                             `json:"routable"`
+	ReasonCode    *scheduler.ReasonCode            `json:"reason_code"`
+	Credentials   []routeInspectCredentialResponse `json:"credentials"`
 }
 
 type routeInspectResponse struct {
@@ -94,9 +95,10 @@ func (service *Service) InspectRoute(
 		observation.snapshot,
 		observation.keys,
 		scheduler.Query{
-			Protocol:      request.Protocol,
-			ExternalModel: cloneRouteModel(request.ExternalModel),
-			AccessKey:     accessKey,
+			ClientProtocol: request.Protocol,
+			Operation:      routeInspectOperation(request.Protocol, request.ExternalModel),
+			ExternalModel:  cloneRouteModel(request.ExternalModel),
+			AccessKey:      accessKey,
 		},
 		observation.observedAt,
 	)
@@ -115,6 +117,19 @@ func (service *Service) InspectRoute(
 		accessKey,
 		explanation,
 	)
+}
+
+func routeInspectOperation(
+	clientProtocol protocol.Protocol,
+	externalModel *string,
+) execution.Operation {
+	if clientProtocol == protocol.OpenAIResponses {
+		if externalModel == nil {
+			return execution.OperationResponsesRetrieve
+		}
+		return execution.OperationResponsesCreate
+	}
+	return execution.OperationChatCompletion
 }
 
 func mapRouteInspectResponse(
@@ -148,23 +163,23 @@ func mapRouteInspectResponse(
 			Included:      group.Included,
 			Routable:      group.Routable,
 			ReasonCode:    optionalReason(group.Reason),
-			Keys:          []routeInspectKeyResponse{},
+			Credentials:   []routeInspectCredentialResponse{},
 		}
-		for _, key := range group.Keys {
-			cooldownUntilMS, err := optionalSafeEpochMilliseconds(key.CooldownUntil)
+		for _, credential := range group.Credentials {
+			cooldownUntilMS, err := optionalSafeEpochMilliseconds(credential.CooldownUntil)
 			if err != nil {
 				return routeInspectResponse{}, fmt.Errorf(
 					"map route inspection cooldown_until_ms: %w",
 					err,
 				)
 			}
-			groupResponse.Keys = append(groupResponse.Keys, routeInspectKeyResponse{
-				KeyID:           key.KeyID,
-				Available:       key.Available,
-				ReasonCode:      optionalReason(key.Reason),
-				WeightManual:    cloneInt(key.WeightManual),
-				WeightAuto:      key.WeightAuto,
-				EffectiveWeight: key.EffectiveWeight,
+			groupResponse.Credentials = append(groupResponse.Credentials, routeInspectCredentialResponse{
+				CredentialID:    credential.CredentialID,
+				Available:       credential.Available,
+				ReasonCode:      optionalReason(credential.Reason),
+				WeightManual:    cloneInt(credential.WeightManual),
+				WeightAuto:      credential.WeightAuto,
+				EffectiveWeight: credential.EffectiveWeight,
 				CooldownUntilMS: cooldownUntilMS,
 			})
 		}

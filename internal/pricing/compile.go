@@ -9,6 +9,7 @@ import (
 
 const (
 	maxProviderIDBytes = 246
+	maxChannelIDBytes  = 64
 	maxModelIDBytes    = 255
 )
 
@@ -53,7 +54,11 @@ func NewTable(rules []Rule) (*Table, error) {
 			return nil, err
 		}
 		if _, exists := table.rules[rule.Identity]; exists {
-			return nil, fmt.Errorf("duplicate pricing model ID %q", rule.Identity.ModelID)
+			return nil, fmt.Errorf(
+				"duplicate pricing identity channel_id=%q model_id=%q",
+				rule.Identity.ChannelID,
+				rule.Identity.ModelID,
+			)
 		}
 		table.rules[rule.Identity] = cloneRule(rule)
 	}
@@ -99,13 +104,35 @@ func validateRule(rule Rule) error {
 }
 
 func validateIdentity(identity Identity) error {
-	if len(identity.ModelID) == 0 || len(identity.ModelID) > maxModelIDBytes {
+	if err := validateChannelID(identity.ChannelID); err != nil {
+		return err
+	}
+	return validateModelID(identity.ModelID)
+}
+
+func validateChannelID(channelID string) error {
+	if len(channelID) == 0 || len(channelID) > maxChannelIDBytes {
+		return fmt.Errorf("channel ID must be 1 through %d bytes", maxChannelIDBytes)
+	}
+	if strings.TrimSpace(channelID) != channelID {
+		return fmt.Errorf("channel ID must not have surrounding whitespace")
+	}
+	for _, character := range channelID {
+		if unicode.IsControl(character) {
+			return fmt.Errorf("channel ID must not contain control characters")
+		}
+	}
+	return nil
+}
+
+func validateModelID(modelID string) error {
+	if len(modelID) == 0 || len(modelID) > maxModelIDBytes {
 		return fmt.Errorf("model ID must be 1 through %d bytes", maxModelIDBytes)
 	}
-	if strings.TrimSpace(identity.ModelID) != identity.ModelID {
+	if strings.TrimSpace(modelID) != modelID {
 		return fmt.Errorf("model ID must not have surrounding whitespace")
 	}
-	for _, character := range identity.ModelID {
+	for _, character := range modelID {
 		if unicode.IsControl(character) {
 			return fmt.Errorf("model ID must not contain control characters")
 		}
@@ -113,20 +140,38 @@ func validateIdentity(identity Identity) error {
 	return nil
 }
 
-func validateReceiptRule(rule ReceiptRule, requireScope bool) error {
-	if err := validateIdentity(Identity{ModelID: rule.ModelID}); err != nil {
-		return err
-	}
-	if rule.ScopeKey == "" {
-		if requireScope {
+func validateReceiptRule(rule ReceiptRule, schemaVersion int) error {
+	switch schemaVersion {
+	case 1:
+		if err := validateModelID(rule.ModelID); err != nil {
+			return err
+		}
+		if rule.ChannelID != "" {
+			return fmt.Errorf("legacy v1 receipt must not contain a channel ID")
+		}
+		if rule.ScopeKey == "" {
 			return fmt.Errorf("legacy receipt scope key is required")
 		}
+		return validateScopeKey(rule.ScopeKey)
+	case 2:
+		if err := validateModelID(rule.ModelID); err != nil {
+			return err
+		}
+		if rule.ScopeKey != "" {
+			return fmt.Errorf("global receipt must not contain a scope key")
+		}
+		if rule.ChannelID != "" {
+			return fmt.Errorf("global receipt must not contain a channel ID")
+		}
 		return nil
+	case 3:
+		if rule.ScopeKey != "" {
+			return fmt.Errorf("channel receipt must not contain a scope key")
+		}
+		return validateIdentity(Identity{ChannelID: rule.ChannelID, ModelID: rule.ModelID})
+	default:
+		return fmt.Errorf("unsupported receipt rule schema version")
 	}
-	if !requireScope {
-		return fmt.Errorf("global receipt must not contain a scope key")
-	}
-	return validateScopeKey(rule.ScopeKey)
 }
 
 func validateScopeKey(scopeKey string) error {

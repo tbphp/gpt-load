@@ -7,10 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/platform/version"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
@@ -21,11 +21,10 @@ type RequestLogStatsReader interface {
 }
 
 type healthCountsResponse struct {
-	Total       int `json:"total"`
+	Credentials int `json:"credentials"`
 	Available   int `json:"available"`
 	Cooldown    int `json:"cooldown"`
 	Blacklisted int `json:"blacklisted"`
-	Disabled    int `json:"disabled"`
 }
 
 type healthGroupResponse struct {
@@ -41,8 +40,8 @@ type healthRecoveryResponse struct {
 	AtMS      *int64 `json:"at_ms"`
 }
 
-type healthProblemKeyResponse struct {
-	KeyID                   uint                   `json:"key_id"`
+type healthProblemCredentialResponse struct {
+	CredentialID            uint                   `json:"credential_id"`
 	GroupID                 uint                   `json:"group_id"`
 	GroupName               string                 `json:"group_name"`
 	Mask                    string                 `json:"mask"`
@@ -76,16 +75,16 @@ type requestLogHealthResponse struct {
 }
 
 type runtimeHealthResponse struct {
-	ObservedAtMS       int64                      `json:"observed_at_ms"`
-	Version            string                     `json:"version"`
-	UptimeSeconds      int64                      `json:"uptime_seconds"`
-	SnapshotRevision   uint64                     `json:"snapshot_revision"`
-	StatsWindowSeconds int64                      `json:"stats_window_seconds"`
-	Counts             healthCountsResponse       `json:"counts"`
-	Groups             []healthGroupResponse      `json:"groups"`
-	CooldownKeys       []healthProblemKeyResponse `json:"cooldown_keys"`
-	BlacklistedKeys    []healthProblemKeyResponse `json:"blacklisted_keys"`
-	RequestLog         requestLogHealthResponse   `json:"request_log"`
+	ObservedAtMS           int64                             `json:"observed_at_ms"`
+	Version                string                            `json:"version"`
+	UptimeSeconds          int64                             `json:"uptime_seconds"`
+	SnapshotRevision       uint64                            `json:"snapshot_revision"`
+	StatsWindowSeconds     int64                             `json:"stats_window_seconds"`
+	Counts                 healthCountsResponse              `json:"counts"`
+	Groups                 []healthGroupResponse             `json:"groups"`
+	CooldownCredentials    []healthProblemCredentialResponse `json:"cooldown_credentials"`
+	BlacklistedCredentials []healthProblemCredentialResponse `json:"blacklisted_credentials"`
+	RequestLog             requestLogHealthResponse          `json:"request_log"`
 }
 
 type healthBucket string
@@ -99,19 +98,19 @@ const (
 
 func classifyHealthKey(
 	group state.GroupCatalogView,
-	key state.KeyRuntimeView,
+	key state.CredentialRuntimeView,
 	now time.Time,
 ) healthBucket {
 	if !group.Enabled ||
 		(group.WeightManual != nil && *group.WeightManual == 0) ||
-		key.Status != state.KeyStatusActive ||
+		key.Status != state.CredentialStatusActive ||
 		(key.WeightManual != nil && *key.WeightManual == 0) {
 		return healthBucketDisabled
 	}
 	switch key.RuntimeState(now) {
-	case state.KeyRuntimeBlacklisted:
+	case state.CredentialRuntimeBlacklisted:
 		return healthBucketBlacklisted
-	case state.KeyRuntimeCooldown:
+	case state.CredentialRuntimeCooldown:
 		return healthBucketCooldown
 	default:
 		return healthBucketAvailable
@@ -119,16 +118,16 @@ func classifyHealthKey(
 }
 
 func addHealthCount(counts *healthCountsResponse, bucket healthBucket) {
-	counts.Total++
 	switch bucket {
 	case healthBucketAvailable:
+		counts.Credentials++
 		counts.Available++
 	case healthBucketCooldown:
+		counts.Credentials++
 		counts.Cooldown++
 	case healthBucketBlacklisted:
+		counts.Credentials++
 		counts.Blacklisted++
-	case healthBucketDisabled:
-		counts.Disabled++
 	}
 }
 
@@ -150,19 +149,20 @@ func optionalHealthStatusCode(value int) *int {
 
 func (service *Service) healthProblemMask(
 	ciphertexts map[uint]string,
-	keyID uint,
+	credentialID uint,
+	channelID channel.ID,
 ) (string, error) {
-	if service == nil || service.encryption == nil || keyID == 0 {
+	if service == nil || service.encryption == nil || credentialID == 0 {
 		return "", fmt.Errorf(
 			"map runtime health problem key: %w",
 			app_errors.ErrInternalServer,
 		)
 	}
-	ciphertext, exists := ciphertexts[keyID]
+	ciphertext, exists := ciphertexts[credentialID]
 	if !exists || ciphertext == "" {
 		return "", fmt.Errorf(
 			"map runtime health problem key %d: ciphertext unavailable: %w",
-			keyID,
+			credentialID,
 			app_errors.ErrInternalServer,
 		)
 	}
@@ -170,20 +170,21 @@ func (service *Service) healthProblemMask(
 	if err != nil {
 		return "", fmt.Errorf(
 			"map runtime health problem key %d: decrypt credential: %v: %w",
-			keyID,
+			credentialID,
 			err,
 			app_errors.ErrInternalServer,
 		)
 	}
-	mask := utils.MaskAPIKey(plaintext)
-	if mask == "" {
+	validated, err := normalizeStoredCredential(service.channelRegistry, channelID, plaintext)
+	if err != nil {
 		return "", fmt.Errorf(
-			"map runtime health problem key %d: empty credential: %w",
-			keyID,
+			"map runtime health problem credential %d: validate credential: %v: %w",
+			credentialID,
+			err,
 			app_errors.ErrInternalServer,
 		)
 	}
-	return mask, nil
+	return maskCanonicalCredential(validated.CanonicalJSON())
 }
 
 func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
@@ -202,12 +203,12 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		return runtimeHealthResponse{}, fmt.Errorf("map runtime health observed_at_ms: %w", err)
 	}
 	result := runtimeHealthResponse{
-		ObservedAtMS:       observedAtMS,
-		SnapshotRevision:   observation.snapshot.Revision,
-		StatsWindowSeconds: int64(health.StatsWindow / time.Second),
-		Groups:             []healthGroupResponse{},
-		CooldownKeys:       []healthProblemKeyResponse{},
-		BlacklistedKeys:    []healthProblemKeyResponse{},
+		ObservedAtMS:           observedAtMS,
+		SnapshotRevision:       observation.snapshot.Revision,
+		StatsWindowSeconds:     int64(health.StatsWindow / time.Second),
+		Groups:                 []healthGroupResponse{},
+		CooldownCredentials:    []healthProblemCredentialResponse{},
+		BlacklistedCredentials: []healthProblemCredentialResponse{},
 	}
 	groupIDs := make([]uint, 0, len(observation.snapshot.GroupCatalog))
 	for groupID := range observation.snapshot.GroupCatalog {
@@ -231,7 +232,12 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
 			continue
 		}
-		mask, err := service.healthProblemMask(observation.problemCiphertexts, key.ID)
+		groupView := observation.snapshot.Groups[key.GroupID]
+		mask, err := service.healthProblemMask(
+			observation.problemCiphertexts,
+			key.ID,
+			groupView.ChannelID,
+		)
 		if err != nil {
 			return runtimeHealthResponse{}, err
 		}
@@ -242,8 +248,8 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			lastFailureCategory = health.FailureCategoryAmbiguous
 			lastStatusCode = 0
 		}
-		detail := healthProblemKeyResponse{
-			KeyID:                   key.ID,
+		detail := healthProblemCredentialResponse{
+			CredentialID:            key.ID,
 			GroupID:                 key.GroupID,
 			GroupName:               group.Name,
 			Mask:                    mask,
@@ -270,18 +276,17 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 				Mode:      "cooldown_expiry",
 				AtMS:      cooldownUntilMS,
 			}
-			result.CooldownKeys = append(result.CooldownKeys, detail)
+			result.CooldownCredentials = append(result.CooldownCredentials, detail)
 		} else {
 			detail.Recovery = healthRecoveryResponse{Mode: "configuration_required"}
-			if validationGroup, exists := observation.snapshot.Groups[key.GroupID]; exists {
-				if _, valid := buildGroupValidationTarget(validationGroup); valid {
-					detail.Recovery = healthRecoveryResponse{
-						Automatic: true,
-						Mode:      "validation_probe",
+			if service.executor != nil && service.channelRegistry != nil {
+				if validationGroup, exists := observation.snapshot.Groups[key.GroupID]; exists {
+					if _, valid := buildGroupValidationTarget(validationGroup); valid {
+						detail.Recovery = healthRecoveryResponse{Automatic: true, Mode: "validation_probe"}
 					}
 				}
 			}
-			result.BlacklistedKeys = append(result.BlacklistedKeys, detail)
+			result.BlacklistedCredentials = append(result.BlacklistedCredentials, detail)
 		}
 	}
 	requestLog, err := mapRequestLogHealth(service.requestLogStats.Stats())

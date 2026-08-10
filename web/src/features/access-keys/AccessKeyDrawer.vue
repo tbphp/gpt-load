@@ -11,6 +11,7 @@ import {
   type CreateAccessKeyRequest,
 } from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
+import type { ChannelDto } from '@/app/resources/channels'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
@@ -59,6 +60,7 @@ const props = withDefaults(
     open: boolean
     accessKey: AccessKeyDto | null
     groups: GroupOptionDto[]
+    channels: ChannelDto[]
     total: number
     groupCatalogState?: GroupCatalogState
     createOperation?: PendingAccessKeyCreateOperation | null
@@ -107,7 +109,7 @@ const selectedGroupIDs = computed(() =>
   draft.value.scopeModes.groups === 'restricted' ? draft.value.filters.groups : [],
 )
 const supportedProtocolOptions = computed(() =>
-  buildAccessKeyProtocolCandidates(props.groups, selectedGroupIDs.value),
+  buildAccessKeyProtocolCandidates(props.groups, props.channels, selectedGroupIDs.value),
 )
 const catalogModelOptions = computed(() =>
   buildAccessKeyModelOptions(props.groups, [], selectedGroupIDs.value),

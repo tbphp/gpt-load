@@ -477,7 +477,7 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 		Tokens: usage.Tokens{Output: 1_000_000},
 	}
 	eventA.Usage.AttemptSequence = 1
-	eventA.Usage.KeyID = 8
+	eventA.Usage.CredentialID = 8
 	eventA.Usage.Pricing = telemetry.PricingObservation{
 		UpstreamModel: "snapshot-model",
 		CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
@@ -500,7 +500,7 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 		Tokens: usage.Tokens{Output: 1_000_000},
 	}
 	eventB.Usage.AttemptSequence = 1
-	eventB.Usage.KeyID = 8
+	eventB.Usage.CredentialID = 8
 	eventB.Usage.Pricing = telemetry.PricingObservation{
 		UpstreamModel: "snapshot-model",
 		CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),

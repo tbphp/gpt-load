@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -22,15 +24,17 @@ import (
 )
 
 type Loader struct {
-	db       *gorm.DB
-	manager  *state.Manager
-	registry *state.KeyRegistry
+	db              *gorm.DB
+	manager         *state.Manager
+	registry        *state.CredentialRegistry
+	channelRegistry *channel.Registry
 }
 
 type compileRows struct {
-	settings   []models.SystemSetting
-	groups     []models.Group
-	accessKeys []models.AccessKey
+	settings    []models.SystemSetting
+	groups      []models.Group
+	credentials []models.Credential
+	accessKeys  []models.AccessKey
 }
 
 type modelDTO struct {
@@ -67,8 +71,16 @@ func (f filterDTO) toState() state.FilterSet {
 	return filters
 }
 
-func New(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) *Loader {
-	return &Loader{db: db, manager: manager, registry: registry}
+func New(
+	db *gorm.DB,
+	manager *state.Manager,
+	registry *state.CredentialRegistry,
+	registries ...*channel.Registry,
+) *Loader {
+	return &Loader{
+		db: db, manager: manager, registry: registry,
+		channelRegistry: selectChannelRegistry(registries),
+	}
 }
 
 func (l *Loader) Load(ctx context.Context) error {
@@ -76,8 +88,8 @@ func (l *Loader) Load(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read runtime state: %w", err)
 	}
-	if err := state.ValidateKeyEntries(entries); err != nil {
-		return fmt.Errorf("validate upstream keys: %w", err)
+	if err := state.ValidateCredentialEntries(entries); err != nil {
+		return fmt.Errorf("validate credentials: %w", err)
 	}
 	snapshot, err := l.manager.Publish(input)
 	if err != nil {
@@ -87,13 +99,13 @@ func (l *Loader) Load(ctx context.Context) error {
 		"event":    "startup.config_snapshot_publish",
 		"revision": snapshot.Revision,
 	}).Info("config snapshot published")
-	if err := l.registry.Replace(entries); err != nil {
-		return fmt.Errorf("replace key registry: %w", err)
+	if err := l.registry.ReplaceCredentials(entries); err != nil {
+		return fmt.Errorf("replace credential registry: %w", err)
 	}
 	logrus.WithFields(logrus.Fields{
-		"event": "startup.key_registry_load",
-		"keys":  len(entries),
-	}).Info("key registry loaded")
+		"event":       "startup.credential_registry_load",
+		"credentials": len(entries),
+	}).Info("credential registry loaded")
 	return nil
 }
 
@@ -109,6 +121,12 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 		return compileRows{}, fmt.Errorf("query groups: %w", err)
 	}
 	if err := db.
+		Select("id", "group_id", "fingerprint", "status", "weight_manual", "updated_at_ms").
+		Order("id ASC").
+		Find(&rows.credentials).Error; err != nil {
+		return compileRows{}, fmt.Errorf("query credential metadata: %w", err)
+	}
+	if err := db.
 		Select("id", "name", "key_hash", "status", "filters", "rpm_limit").
 		Order("id ASC").
 		Find(&rows.accessKeys).Error; err != nil {
@@ -117,16 +135,20 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 	return rows, nil
 }
 
-func queryUpstreamKeys(ctx context.Context, db *gorm.DB) ([]models.UpstreamKey, error) {
-	var rows []models.UpstreamKey
+func queryCredentials(ctx context.Context, db *gorm.DB) ([]models.Credential, error) {
+	var rows []models.Credential
 	if err := db.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("query upstream keys: %w", err)
+		return nil, fmt.Errorf("query credentials: %w", err)
 	}
 	return rows, nil
 }
 
 // BuildCompileInput maps persisted configuration rows into a runtime compiler input.
-func BuildCompileInput(ctx context.Context, db *gorm.DB) (state.CompileInput, error) {
+func BuildCompileInput(
+	ctx context.Context,
+	db *gorm.DB,
+	registries ...*channel.Registry,
+) (state.CompileInput, error) {
 	rows, err := queryCompileRows(ctx, db)
 	if err != nil {
 		return state.CompileInput{}, err
@@ -135,6 +157,8 @@ func BuildCompileInput(ctx context.Context, db *gorm.DB) (state.CompileInput, er
 	if err != nil {
 		return state.CompileInput{}, err
 	}
+	input.ChannelRegistry = selectChannelRegistry(registries)
+	input.Credentials = mapCredentialConfigs(rows.credentials)
 	input.AccessKeys, err = mapAccessKeys(rows.accessKeys)
 	if err != nil {
 		return state.CompileInput{}, err
@@ -142,13 +166,13 @@ func BuildCompileInput(ctx context.Context, db *gorm.DB) (state.CompileInput, er
 	return input, nil
 }
 
-// BuildGroupKeyEntries maps the persisted key configuration for one group.
+// BuildGroupCredentialEntries maps persisted credentials for one group.
 // Runtime health fields are initialized to their durable baseline.
-func BuildGroupKeyEntries(
+func BuildGroupCredentialEntries(
 	ctx context.Context,
 	db *gorm.DB,
 	groupID uint,
-) ([]state.KeyEntry, error) {
+) ([]state.CredentialEntry, error) {
 	if groupID == 0 {
 		return nil, fmt.Errorf("group id is required")
 	}
@@ -160,30 +184,39 @@ func BuildGroupKeyEntries(
 		Take(&group).Error; err != nil {
 		return nil, fmt.Errorf("query group %d: %w", groupID, err)
 	}
-	var rows []models.UpstreamKey
+	var rows []models.Credential
 	if err := db.WithContext(ctx).
 		Where("group_id = ?", groupID).
 		Order("id ASC").
 		Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("query group %d upstream keys: %w", groupID, err)
+		return nil, fmt.Errorf("query group %d credentials: %w", groupID, err)
 	}
-	entries := mapUpstreamKeys(rows)
-	if err := state.ValidateKeyEntries(entries); err != nil {
-		return nil, fmt.Errorf("validate group %d upstream keys: %w", groupID, err)
+	entries := mapCredentials(rows)
+	if err := state.ValidateCredentialEntries(entries); err != nil {
+		return nil, fmt.Errorf("validate group %d credentials: %w", groupID, err)
 	}
 	return entries, nil
 }
 
-func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.KeyEntry, error) {
-	input, err := BuildCompileInput(ctx, l.db)
+func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.CredentialEntry, error) {
+	input, err := BuildCompileInput(ctx, l.db, l.channelRegistry)
 	if err != nil {
 		return state.CompileInput{}, nil, err
 	}
-	upstreamKeys, err := queryUpstreamKeys(ctx, l.db)
+	credentials, err := queryCredentials(ctx, l.db)
 	if err != nil {
 		return state.CompileInput{}, nil, err
 	}
-	return input, mapUpstreamKeys(upstreamKeys), nil
+	return input, mapCredentials(credentials), nil
+}
+
+func selectChannelRegistry(registries []*channel.Registry) *channel.Registry {
+	for _, registry := range registries {
+		if registry != nil {
+			return registry
+		}
+	}
+	return channel.NewRegistry()
 }
 
 func decodeJSON(raw models.JSON, target any) error {
@@ -276,17 +309,13 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 		input.SystemSettings[row.Key] = value
 	}
 	for _, row := range rows.groups {
-		var protocols []protocol.Protocol
-		if err := decodeJSON(row.Protocols, &protocols); err != nil {
-			return state.CompileInput{}, fmt.Errorf("decode group %d protocols: %w", row.ID, err)
-		}
 		var storedModels []modelDTO
 		if err := decodeJSON(row.Models, &storedModels); err != nil {
 			return state.CompileInput{}, fmt.Errorf("decode group %d models: %w", row.ID, err)
 		}
 		settings := make(config.Settings)
-		if err := decodeJSON(row.Config, &settings); err != nil {
-			return state.CompileInput{}, fmt.Errorf("decode group %d config: %w", row.ID, err)
+		if err := decodeJSON(row.Overrides, &settings); err != nil {
+			return state.CompileInput{}, fmt.Errorf("decode group %d overrides: %w", row.ID, err)
 		}
 		validationModel := ""
 		if row.ValidationModel != nil {
@@ -297,28 +326,20 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 		for _, model := range storedModels {
 			runtimeModels = append(runtimeModels, state.ModelConfig{ID: model.ID, Alias: model.Alias})
 		}
-		input.Groups = append(input.Groups, state.GroupConfig{
+		group := state.GroupConfig{
 			ID:              row.ID,
 			Name:            row.Name,
-			ProviderID:      cloneStringPointer(row.ProviderID),
-			UpstreamURL:     row.UpstreamURL,
+			ChannelID:       channel.ID(row.ChannelID),
+			Params:          append(json.RawMessage(nil), row.Params...),
 			ValidationModel: validationModel,
-			Protocols:       append([]protocol.Protocol(nil), protocols...),
 			Models:          runtimeModels,
 			Settings:        settings,
-			WeightManual:    row.WeightManual,
+			WeightManual:    cloneWeight(row.WeightManual),
 			Enabled:         row.Enabled,
-		})
+		}
+		input.Groups = append(input.Groups, group)
 	}
 	return input, nil
-}
-
-func cloneStringPointer(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }
 
 func mapAccessKeys(rows []models.AccessKey) ([]state.AccessKeyConfig, error) {
@@ -336,14 +357,56 @@ func mapAccessKeys(rows []models.AccessKey) ([]state.AccessKeyConfig, error) {
 	return result, nil
 }
 
-func mapUpstreamKeys(rows []models.UpstreamKey) []state.KeyEntry {
-	result := make([]state.KeyEntry, 0, len(rows))
+func mapCredentialConfigs(rows []models.Credential) []state.CredentialConfig {
+	result := make([]state.CredentialConfig, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, state.KeyEntry{
-			ID: row.ID, GroupID: row.GroupID, WeightManual: row.WeightManual,
-			WeightAuto: state.DefaultWeight,
-			Status:     state.KeyStatus(row.Status), EncryptedValue: row.KeyValue,
+		result = append(result, state.CredentialConfig{
+			ID: row.ID, GroupID: row.GroupID, WeightManual: cloneWeight(row.WeightManual),
+			Status:             state.CredentialStatus(row.Status),
+			Version:            credentialVersion(row.UpdatedAtMS),
+			IdentityGeneration: credentialIdentityGeneration(row.Fingerprint),
+			Fingerprint:        row.Fingerprint,
 		})
 	}
 	return result
+}
+
+func mapCredentials(rows []models.Credential) []state.CredentialEntry {
+	result := make([]state.CredentialEntry, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, state.CredentialEntry{
+			ID: row.ID, GroupID: row.GroupID,
+			Version:            credentialVersion(row.UpdatedAtMS),
+			IdentityGeneration: credentialIdentityGeneration(row.Fingerprint),
+			Fingerprint:        row.Fingerprint, WeightManual: cloneWeight(row.WeightManual),
+			WeightAuto: state.DefaultWeight,
+			Status:     state.CredentialStatus(row.Status), EncryptedValue: row.Data,
+		})
+	}
+	return result
+}
+
+func credentialVersion(updatedAtMS int64) uint64 {
+	if updatedAtMS < 1 {
+		return 1
+	}
+	return uint64(updatedAtMS)
+}
+
+func credentialIdentityGeneration(fingerprint string) uint64 {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(fingerprint))
+	generation := hasher.Sum64()
+	if generation == 0 {
+		return 1
+	}
+	return generation
+}
+
+func cloneWeight(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

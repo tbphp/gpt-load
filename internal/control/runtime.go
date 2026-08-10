@@ -6,7 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/state"
@@ -20,11 +21,11 @@ const (
 )
 
 type autoWeightRegistry interface {
-	ActiveKeyIDs() []uint
-	SetAutoWeight(keyID uint, weight int) bool
+	ActiveCredentialIDs() []uint
+	SetAutoWeight(credentialID uint, weight int) bool
 }
 
-type keyMutationCoordinator interface {
+type credentialMutationCoordinator interface {
 	Do(uint, func())
 }
 
@@ -62,7 +63,7 @@ func (ticker standardRuntimeTicker) Stop() {
 type Runtime struct {
 	registry           autoWeightRegistry
 	stats              *health.StatsStore
-	mutations          keyMutationCoordinator
+	mutations          credentialMutationCoordinator
 	validator          validationSweep
 	requestLogCleaner  RequestLogCleaner
 	operationRecovery  operationRecoveryRuntime
@@ -75,12 +76,13 @@ type Runtime struct {
 }
 
 func NewRuntime(
-	registry *state.KeyRegistry,
+	registry *state.CredentialRegistry,
 	stats *health.StatsStore,
 	mutations *health.MutationCoordinator,
 	manager *state.Manager,
 	encryptionService encryption.Service,
-	dialects dialect.Set,
+	channelRegistry *channel.Registry,
+	executor execution.Executor,
 	requestLogCleaner RequestLogCleaner,
 	operationRecovery *Service,
 	catalogSync *CatalogSyncCoordinator,
@@ -108,7 +110,8 @@ func NewRuntime(
 		stats,
 		mutations,
 		encryptionService,
-		dialects,
+		channelRegistry,
+		executor,
 	)
 	return runtime
 }
@@ -204,10 +207,10 @@ func (runtime *Runtime) runRetention(ctx context.Context, ticker runtimeTicker) 
 }
 
 func (runtime *Runtime) recompute(now time.Time) {
-	for _, keyID := range runtime.registry.ActiveKeyIDs() {
-		runtime.mutations.Do(keyID, func() {
-			stats := runtime.stats.Snapshot(keyID, now)
-			runtime.registry.SetAutoWeight(keyID, calculateAutoWeight(stats))
+	for _, credentialID := range runtime.registry.ActiveCredentialIDs() {
+		runtime.mutations.Do(credentialID, func() {
+			stats := runtime.stats.Snapshot(credentialID, now)
+			runtime.registry.SetAutoWeight(credentialID, calculateAutoWeight(stats))
 		})
 	}
 }

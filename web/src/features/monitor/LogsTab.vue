@@ -17,6 +17,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { useCollectionLoading } from '@/app/loading-state'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
+import { listChannels } from '@/app/resources/channels'
+import { controlQueryKeys } from '@/app/query-keys'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
   requestLogQueryOptions,
@@ -91,6 +93,12 @@ const currentCursor = computed(() => routeState.value.cursorHistory.at(-1))
 let detailFocusTimer: number | undefined
 
 const groupsQuery = useQuery(groupOptionsQueryOptions(client, () => !isAccessKey.value))
+const channelsQuery = useQuery({
+  queryKey: controlQueryKeys.channels.list(''),
+  queryFn: ({ signal }) => listChannels(client, '', signal),
+  enabled: computed(() => !isAccessKey.value),
+  staleTime: 5 * 60 * 1_000,
+})
 const accessKeyOptionsQuery = useQuery(
   accessKeyOptionsQueryOptions(client, () => !isAccessKey.value),
 )
@@ -116,6 +124,9 @@ const logsRefreshing = computed(
     collectionRefreshing.value ||
     (!isAccessKey.value && groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
     (!isAccessKey.value &&
+      channelsQuery.data.value !== undefined &&
+      channelsQuery.isFetching.value) ||
+    (!isAccessKey.value &&
       accessKeyOptionsQuery.data.value !== undefined &&
       accessKeyOptionsQuery.isFetching.value),
 )
@@ -125,6 +136,8 @@ const filterSignature = computed(() =>
   JSON.stringify(serializeAppliedLogFilters(appliedFilters.value)),
 )
 const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
+  'channel_id',
+  'credential_id',
   'upstream_model',
   'access_key_id',
   'request_id',
@@ -135,7 +148,6 @@ const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'cost_state',
   'pricing_completeness',
   'cache_present',
-  'upstream_key_id',
   'attempt_status_code',
   'failure_category',
   'error_code',
@@ -155,9 +167,10 @@ const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
 ]
 const accessKeyForbiddenFilterKeys = new Set<keyof RequestLogFilters>([
   'group_id',
+  'channel_id',
+  'credential_id',
   'upstream_model',
   'access_key_id',
-  'upstream_key_id',
   'attempt_status_code',
   'failure_category',
   'error_code',
@@ -265,6 +278,15 @@ function advancedChipLabel(key: keyof RequestLogFilters, value: unknown): string
       value: accessKey?.name ?? `#${value}`,
     })
   }
+  if (key === 'channel_id') {
+    const channel = channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === value)
+    return t('monitor.logs.filters.appliedChannel', {
+      value: channel?.name ?? String(value),
+    })
+  }
+  if (key === 'credential_id') {
+    return t('monitor.logs.filters.appliedCredential', { value })
+  }
   if (key === 'client_model') return t('monitor.logs.filters.appliedClientModel', { value })
   if (key === 'upstream_model') return t('monitor.logs.filters.appliedUpstreamModel', { value })
   if (key === 'request_id') return t('monitor.logs.filters.appliedRequestId', { value })
@@ -293,7 +315,8 @@ function advancedChipLabel(key: keyof RequestLogFilters, value: unknown): string
     cost_state: 'costStateLabel',
     pricing_completeness: 'completenessLabel',
     cache_present: 'cachePresent',
-    upstream_key_id: 'upstreamKey',
+    channel_id: 'channel',
+    credential_id: 'credential',
     attempt_status_code: 'attemptStatusCode',
     error_code: 'errorCode',
   }
@@ -438,6 +461,20 @@ function groupLabel(log: RequestLogItemDto): string {
   return group?.name ?? `Group #${log.group_id}`
 }
 
+function finalRouteLabel(log: RequestLogItemDto): string {
+  const parts = [groupLabel(log)]
+  if (log.channel_id !== null) {
+    const channel = channelsQuery.data.value?.items.find(
+      ({ channel_id }) => channel_id === log.channel_id,
+    )
+    parts.push(channel?.name ?? log.channel_id)
+  }
+  if (log.credential_id !== null) {
+    parts.push(t('monitor.logs.credentialRef', { id: log.credential_id }))
+  }
+  return parts.join(' · ')
+}
+
 function responseLabel(log: RequestLogItemDto): string {
   if (log.status === 'success') return t('monitor.logs.response.normal')
   if (log.status === 'error') {
@@ -541,8 +578,10 @@ function costLabel(log: RequestLogItemDto): string {
       :draft="draft"
       :errors="filterErrors"
       :groups="groupsQuery.data.value ?? []"
+      :channels="channelsQuery.data.value?.items ?? []"
       :access-keys="accessKeyOptionsQuery.data.value ?? []"
       :groups-failed="groupsQuery.isError.value"
+      :channels-failed="channelsQuery.isError.value"
       :access-keys-failed="accessKeyOptionsQuery.isError.value"
       :applied-chips="appliedChips"
       :advanced-count="advancedCount"
@@ -556,7 +595,12 @@ function costLabel(log: RequestLogItemDto): string {
     />
 
     <InlineFeedback
-      v-if="!isAccessKey && (groupsQuery.isError.value || accessKeyOptionsQuery.isError.value)"
+      v-if="
+        !isAccessKey &&
+        (groupsQuery.isError.value ||
+          channelsQuery.isError.value ||
+          accessKeyOptionsQuery.isError.value)
+      "
       tone="warning"
     >
       {{ t('monitor.logs.options.partialFailed') }}
@@ -641,8 +685,8 @@ function costLabel(log: RequestLogItemDto): string {
             <OverflowTooltip as="span" :content="accessKeyLabel(log)">
               {{ accessKeyLabel(log) }}
             </OverflowTooltip>
-            <OverflowTooltip as="small" :content="groupLabel(log)">
-              {{ groupLabel(log) }}
+            <OverflowTooltip as="small" :content="finalRouteLabel(log)">
+              {{ finalRouteLabel(log) }}
             </OverflowTooltip>
           </div>
           <div

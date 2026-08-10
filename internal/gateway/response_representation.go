@@ -31,7 +31,11 @@ type preparedErrorRepresentation struct {
 	changed        bool
 }
 
-func (forwarder *Forwarder) prepareSuccessRepresentation(
+type responseProcessor struct {
+	redactor *redact.Redactor
+}
+
+func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	input ForwardInput,
 	status int,
 	headers http.Header,
@@ -94,7 +98,11 @@ func (forwarder *Forwarder) prepareSuccessRepresentation(
 		}
 	}
 
-	changed := encoding != contentcoding.Identity ||
+	// The execution adapter may already have projected the selected upstream
+	// model back to the client alias. Conservatively treat every aliased route
+	// as a representation rewrite so upstream validators/digests are never
+	// forwarded for bytes whose identity changed before this boundary.
+	changed := encoding != contentcoding.Identity || needsModelRewrite(input) ||
 		!bytes.Equal(originalPlain, downstreamPlain)
 	if status == http.StatusPartialContent && changed {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("changed partial response")
@@ -141,7 +149,7 @@ func (forwarder *Forwarder) prepareSuccessRepresentation(
 	}, nil
 }
 
-func (forwarder *Forwarder) prepareErrorRepresentation(
+func (forwarder *responseProcessor) prepareErrorRepresentation(
 	input ForwardInput,
 	headers http.Header,
 	wire []byte,
@@ -232,7 +240,7 @@ func (forwarder *Forwarder) prepareErrorRepresentation(
 	}
 }
 
-func (forwarder *Forwarder) failClosedErrorRepresentation(
+func (forwarder *responseProcessor) failClosedErrorRepresentation(
 	input ForwardInput,
 	headers http.Header,
 	secrets []string,

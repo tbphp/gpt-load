@@ -36,7 +36,7 @@ func TestOperationRequiredStagesAreKindSpecificAndDetached(t *testing.T) {
 			},
 		},
 		{
-			kind: operationKindGroupKeyImport,
+			kind: operationKindCredentialImport,
 			want: []operationStage{
 				operationStageDBCommitted,
 				operationStageRegistryApplied,

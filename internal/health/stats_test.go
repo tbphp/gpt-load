@@ -28,13 +28,13 @@ func TestStatsStoreSnapshotUnknownKeyReturnsZero(t *testing.T) {
 	now := statsBase()
 
 	for _, keyID := range []uint{0, 1} {
-		if got := store.Snapshot(keyID, now); got != (KeyStats{}) {
+		if got := store.Snapshot(keyID, now); got != (CredentialStats{}) {
 			t.Fatalf("Snapshot(%d) = %#v, want zero value", keyID, got)
 		}
 	}
 
 	store.RecordFailure(0, FailureCategoryAmbiguous, 0, now)
-	if got := store.Snapshot(0, now); got != (KeyStats{}) {
+	if got := store.Snapshot(0, now); got != (CredentialStats{}) {
 		t.Fatalf("Snapshot(0) after Record = %#v, want zero value", got)
 	}
 }
@@ -49,7 +49,7 @@ func TestStatsStoreRecordAggregatesRollingWindow(t *testing.T) {
 	store.RecordFailure(1, FailureCategoryAmbiguous, 0, base.Add(-5*time.Minute))
 
 	got := store.Snapshot(1, base)
-	want := KeyStats{Success: 2, Failure: 1, Problem: 1}
+	want := CredentialStats{Success: 2, Failure: 1, Problem: 1}
 	if got != want {
 		t.Fatalf("Snapshot() = %#v, want %#v", got, want)
 	}
@@ -64,7 +64,7 @@ func TestStatsStoreRecordDiscardsOlderSlotCollision(t *testing.T) {
 		store.RecordSuccess(1, base.Add(5*time.Minute))
 
 		got := store.Snapshot(1, base.Add(5*time.Minute))
-		want := KeyStats{Success: 1}
+		want := CredentialStats{Success: 1}
 		if got != want {
 			t.Fatalf("Snapshot() = %#v, want %#v", got, want)
 		}
@@ -76,7 +76,7 @@ func TestStatsStoreRecordDiscardsOlderSlotCollision(t *testing.T) {
 		store.RecordSuccess(1, base)
 
 		got := store.Snapshot(1, base.Add(5*time.Minute))
-		want := KeyStats{Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1}
+		want := CredentialStats{Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1}
 		if got != want {
 			t.Fatalf("Snapshot() = %#v, want %#v", got, want)
 		}
@@ -91,7 +91,7 @@ func TestStatsStoreSnapshotExcludesExpiredAndFutureBuckets(t *testing.T) {
 	store.RecordSuccess(1, base.Add(time.Minute))
 
 	got := store.Snapshot(1, base)
-	want := KeyStats{ConsecutiveFailure: 0}
+	want := CredentialStats{ConsecutiveFailure: 0}
 	if got != want {
 		t.Fatalf("Snapshot() = %#v, want %#v", got, want)
 	}
@@ -103,14 +103,14 @@ func TestStatsStoreConsecutiveFailureLifecycle(t *testing.T) {
 
 	store.RecordFailure(1, FailureCategoryAmbiguous, 0, base.Add(-5*time.Minute))
 	store.RecordFailure(1, FailureCategoryAmbiguous, 0, base.Add(-4*time.Minute))
-	if got, want := store.Snapshot(1, base), (KeyStats{
+	if got, want := store.Snapshot(1, base), (CredentialStats{
 		Failure: 1, Problem: 1, ConsecutiveFailure: 2, ConsecutiveProblem: 2,
 	}); got != want {
 		t.Fatalf("after failures Snapshot() = %#v, want %#v", got, want)
 	}
 
 	store.RecordSuccess(1, base)
-	if got, want := store.Snapshot(1, base), (KeyStats{Success: 1, Failure: 1, Problem: 1}); got != want {
+	if got, want := store.Snapshot(1, base), (CredentialStats{Success: 1, Failure: 1, Problem: 1}); got != want {
 		t.Fatalf("after success Snapshot() = %#v, want %#v", got, want)
 	}
 }
@@ -120,7 +120,7 @@ func TestStatsStoreProblemContextLifecycle(t *testing.T) {
 	base := statsBase()
 
 	store.RecordProblem(7, FailureCategoryRateLimited, 429, base)
-	if got, want := store.Snapshot(7, base), (KeyStats{
+	if got, want := store.Snapshot(7, base), (CredentialStats{
 		Problem:             1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: FailureCategoryRateLimited,
@@ -130,7 +130,7 @@ func TestStatsStoreProblemContextLifecycle(t *testing.T) {
 	}
 
 	store.RecordFailure(7, FailureCategoryInvalidKey, 401, base.Add(time.Second))
-	if got, want := store.Snapshot(7, base), (KeyStats{
+	if got, want := store.Snapshot(7, base), (CredentialStats{
 		Failure:             1,
 		Problem:             2,
 		ConsecutiveFailure:  1,
@@ -142,7 +142,7 @@ func TestStatsStoreProblemContextLifecycle(t *testing.T) {
 	}
 
 	store.RecordSuccess(7, base.Add(2*time.Second))
-	if got, want := store.Snapshot(7, base), (KeyStats{
+	if got, want := store.Snapshot(7, base), (CredentialStats{
 		Success: 1,
 		Failure: 1,
 		Problem: 2,
@@ -159,7 +159,7 @@ func TestStatsStoreOlderEventDoesNotReplaceLatestFailureContext(t *testing.T) {
 	store.RecordProblem(7, FailureCategoryRateLimited, 429, base.Add(-time.Minute))
 
 	got := store.Snapshot(7, base)
-	want := KeyStats{
+	want := CredentialStats{
 		Failure:             1,
 		Problem:             2,
 		ConsecutiveFailure:  1,
@@ -179,7 +179,7 @@ func TestStatsStoreSnapshotReturnsValueCopy(t *testing.T) {
 
 	snapshot := store.Snapshot(1, base)
 	snapshot.Success = 99
-	if got, want := store.Snapshot(1, base), (KeyStats{Success: 1}); got != want {
+	if got, want := store.Snapshot(1, base), (CredentialStats{Success: 1}); got != want {
 		t.Fatalf("Snapshot() after mutating prior result = %#v, want %#v", got, want)
 	}
 }
@@ -192,7 +192,7 @@ func TestStatsStoreResetClearsWindowAndStreak(t *testing.T) {
 	store.RecordFailure(7, FailureCategoryAmbiguous, 0, base)
 	store.Reset(7)
 
-	if got := store.Snapshot(7, base); got != (KeyStats{}) {
+	if got := store.Snapshot(7, base); got != (CredentialStats{}) {
 		t.Fatalf("Snapshot() after Reset = %#v, want zero", got)
 	}
 }
@@ -207,7 +207,7 @@ func TestStatsStoreClearProblemStatePreservesRollingBuckets(t *testing.T) {
 	store.ClearProblemState(7)
 
 	got := store.Snapshot(7, base)
-	want := KeyStats{Success: 1, Failure: 2, Problem: 2}
+	want := CredentialStats{Success: 1, Failure: 2, Problem: 2}
 	if got != want {
 		t.Fatalf("Snapshot() after ClearProblemState = %#v, want %#v", got, want)
 	}
@@ -224,13 +224,13 @@ func TestStatsStoreResetUnknownAndZeroKeyIsNoop(t *testing.T) {
 
 	store.Reset(0)
 	store.Reset(7)
-	if got := store.Snapshot(7, base); got != (KeyStats{}) {
+	if got := store.Snapshot(7, base); got != (CredentialStats{}) {
 		t.Fatalf("Snapshot() after Reset unknown key = %#v, want zero", got)
 	}
 
 	store.RecordFailure(7, FailureCategoryAmbiguous, 0, base)
 	store.Reset(0)
-	if got, want := store.Snapshot(7, base), (KeyStats{
+	if got, want := store.Snapshot(7, base), (CredentialStats{
 		Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
 	}); got != want {
 		t.Fatalf("Snapshot() after Reset(0) = %#v, want %#v", got, want)

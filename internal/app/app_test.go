@@ -59,6 +59,27 @@ type requestLogRuntimeFake struct {
 	stopCalls  atomic.Int32
 }
 
+type executionRuntimeFake struct {
+	shutdownCalls atomic.Int32
+}
+
+func (fake *executionRuntimeFake) Shutdown() {
+	fake.shutdownCalls.Add(1)
+}
+
+func TestAppStopShutsDownExecutionRuntime(t *testing.T) {
+	t.Parallel()
+
+	runtime := &executionRuntimeFake{}
+	application := NewApp(AppParams{ExecutionRuntime: runtime})
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if got := runtime.shutdownCalls.Load(); got != 1 {
+		t.Fatalf("Shutdown() calls = %d, want 1", got)
+	}
+}
+
 func newRequestLogRuntimeFake(
 	startFunc func() error,
 	stopFunc func(context.Context) error,
@@ -309,7 +330,7 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 		t.Fatalf("WriteTimeout = %s, want 0 for streaming responses", application.httpServer.WriteTimeout)
 	}
 	for _, table := range []string{
-		"groups", "upstream_keys", "access_keys", "request_logs", "usage_stats",
+		"groups", "credentials", "access_keys", "request_logs", "usage_stats",
 		"model_prices", "system_settings", "jobs", "control_operations", "schema_migrations",
 	} {
 		if !db.Migrator().HasTable(table) {
@@ -1081,7 +1102,7 @@ func TestAppStopDeadlineJoinsRequestLogErrorAndClosesDatabase(t *testing.T) {
 
 func newTestRuntimeState(db *gorm.DB) (*state.Manager, *loader.Loader) {
 	manager := state.NewManager()
-	registry := state.NewKeyRegistry()
+	registry := state.NewCredentialRegistry()
 	return manager, loader.New(db, manager, registry)
 }
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -35,21 +36,24 @@ func modelPriceHasConfiguredValue(row models.ModelPrice) bool {
 func resolveCandidatePricing(
 	row *models.ModelPrice,
 	snapshot *catalog.Snapshot,
-	modelID string,
+	identity pricing.Identity,
 ) (PricingStatus, *string) {
 	if row != nil {
 		status := resolvePricingStatus(row)
 		if status != PricingStatusConfigured || !modelPriceHasConfiguredValue(*row) || row.IsManual {
 			return status, nil
 		}
-		if _, providerID, ok := resolveAutomaticPrice(snapshot, modelID); ok {
-			source := pricingSourceName(snapshot, providerID, providerID)
+		if row.ChannelID != identity.ChannelID || row.ModelID != identity.ModelID {
+			return status, nil
+		}
+		if match, ok := resolveAutomaticPriceForIdentity(snapshot, identity); ok {
+			source := pricingSourceName(snapshot, match.providerID, match.providerID)
 			return status, &source
 		}
 		return status, nil
 	}
-	if _, providerID, ok := resolveAutomaticPrice(snapshot, modelID); ok {
-		source := pricingSourceName(snapshot, providerID, providerID)
+	if match, ok := resolveAutomaticPriceForIdentity(snapshot, identity); ok {
+		source := pricingSourceName(snapshot, match.providerID, match.providerID)
 		return PricingStatusConfigured, &source
 	}
 	return PricingStatusPending, nil

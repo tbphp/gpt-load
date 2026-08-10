@@ -359,11 +359,11 @@ func homeStatisticsStat(
 func createHomeStatisticsGroup(t *testing.T, db *gorm.DB, name string) models.Group {
 	t.Helper()
 	row := models.Group{
-		Name:        name,
-		UpstreamURL: "https://example.invalid",
-		Protocols:   models.JSON(`[]`),
-		Models:      models.JSON(`[]`),
-		Enabled:     true,
+		Name:      name,
+		ChannelID: "openai",
+		Params:    models.JSON(`{}`),
+		Models:    models.JSON(`[]`),
+		Enabled:   true,
 	}
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatalf("create Group %q: %v", name, err)

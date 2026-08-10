@@ -13,13 +13,13 @@ export type FailureCategory =
   | 'ambiguous'
 
 export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'
-export type GroupCollectionSort = 'status' | 'name' | 'keys' | 'created'
+export type GroupCollectionSort = 'status' | 'name' | 'credentials' | 'created'
 export type ModelPricingStatus = 'pending' | 'configured'
+export type ChannelParamsDto = Record<string, string>
 
 export interface GroupCollectionFilters {
   q?: string
   status?: GroupCollectionStatus
-  protocol?: GroupProtocol
   sort: GroupCollectionSort
   page: number
   page_size: 20
@@ -35,12 +35,11 @@ export interface GroupCollectionSummaryDto {
 export interface GroupCollectionItemDto {
   id: number
   name: string
-  provider_id: string | null
+  channel_id: string
+  params: ChannelParamsDto
   status: GroupCollectionStatus
-  upstream_url: string
-  protocols: GroupProtocol[]
   model_count: number
-  key_counts: KeyCounts
+  credential_counts: CredentialCounts
 }
 
 export interface GroupCollectionPaginationDto {
@@ -60,11 +59,10 @@ export interface GroupCollectionResponseDto {
 export interface GroupSummaryDto {
   id: number
   name: string
-  provider_id: string | null
+  channel_id: string
+  params: ChannelParamsDto
   service_status: GroupCollectionStatus
-  upstream_url: string
-  protocols: GroupProtocol[]
-  key_count: number
+  credential_count: number
   model_count: number
 }
 
@@ -93,9 +91,8 @@ export interface GroupEffectiveConfigDto {
 
 export interface GroupSettingsDto {
   name: string
-  provider_id: string | null
-  upstream_url: string
-  protocols: GroupProtocol[]
+  channel_id: string
+  params: ChannelParamsDto
   validation_model: string | null
   enabled: boolean
   weight_manual: number | null
@@ -117,23 +114,23 @@ export interface GroupModelsDto {
   pending: number
 }
 
-export type GroupKeyStatus = 'available' | 'cooldown' | 'blacklisted' | 'disabled'
-export type GroupKeyConfiguredStatus = 'active' | 'disabled'
-export type GroupKeyWeightMode = 'auto' | 'manual'
-export type GroupKeyRecoveryMode = 'none' | 'cooldown' | 'probe' | 'manual'
+export type CredentialStatus = 'available' | 'cooldown' | 'blacklisted' | 'disabled'
+export type CredentialConfiguredStatus = 'active' | 'disabled'
+export type CredentialWeightMode = 'auto' | 'manual'
+export type CredentialRecoveryMode = 'none' | 'cooldown' | 'probe' | 'manual'
 
-export interface GroupKeyRecoveryDto {
-  mode: GroupKeyRecoveryMode
+export interface CredentialRecoveryDto {
+  mode: CredentialRecoveryMode
   automatic: boolean
   at_ms: number | null
 }
 
-export interface GroupKeyItemDto {
-  id: number
+export interface CredentialItemDto {
+  credential_id: number
   mask: string
-  configured_status: GroupKeyConfiguredStatus
-  effective_status: GroupKeyStatus
-  weight_mode: GroupKeyWeightMode
+  configured_status: CredentialConfiguredStatus
+  effective_status: CredentialStatus
+  weight_mode: CredentialWeightMode
   weight: number | null
   recent_success_count: number
   recent_failure_count: number
@@ -141,16 +138,16 @@ export interface GroupKeyItemDto {
   last_failure_category: FailureCategory
   last_status_code: number | null
   cooldown_until_ms: number | null
-  recovery: GroupKeyRecoveryDto
+  recovery: CredentialRecoveryDto
 }
 
-export interface GroupKeyRevealDto {
-  id: number
-  key: string
+export interface CredentialRevealDto {
+  credential_id: number
+  credential: Record<string, string>
   revealed_at_ms: number
 }
 
-export interface GroupKeySummaryDto {
+export interface CredentialSummaryDto {
   total: number
   available: number
   cooldown: number
@@ -158,42 +155,43 @@ export interface GroupKeySummaryDto {
   disabled: number
 }
 
-export interface GroupKeyPaginationDto {
+export interface CredentialPaginationDto {
   page: number
   page_size: 20 | 50 | 100
   total_items: number
   total_pages: number
 }
 
-export interface GroupKeyCollectionDto {
+export interface CredentialCollectionDto {
   observed_at_ms: number
   stats_window_seconds: number
-  summary: GroupKeySummaryDto
-  items: GroupKeyItemDto[]
-  pagination: GroupKeyPaginationDto
+  summary: CredentialSummaryDto
+  items: CredentialItemDto[]
+  pagination: CredentialPaginationDto
 }
 
-export interface GroupKeyCollectionFilters {
+export interface CredentialCollectionFilters {
   q?: string
-  status?: GroupKeyStatus
+  status?: CredentialStatus
   page: number
   page_size: 20 | 50 | 100
 }
 
-export interface GroupKeyBatchResultDto {
-  affected_ids: number[]
-  summary: GroupKeySummaryDto
+export interface CredentialBatchResultDto {
+  affected_credential_ids: number[]
+  summary: CredentialSummaryDto
 }
 
 export interface GroupOptionDto {
   id: number
   name: string
+  channel_id: string
+  params: ChannelParamsDto
   enabled: boolean
-  protocols: GroupProtocol[]
   models: string[]
 }
 
-export interface KeyCounts {
+export interface CredentialCounts {
   total: number
   available: number
   cooldown: number
@@ -201,11 +199,18 @@ export interface KeyCounts {
   disabled: number
 }
 
+export interface HealthCredentialCountsDto {
+  credentials: number
+  available: number
+  cooldown: number
+  blacklisted: number
+}
+
 export interface HealthGroupDto {
   id: number
   name: string
   enabled: boolean
-  counts: KeyCounts
+  counts: HealthCredentialCountsDto
 }
 
 export interface HealthRecoveryDto {
@@ -214,8 +219,8 @@ export interface HealthRecoveryDto {
   at_ms: number | null
 }
 
-export interface HealthProblemKeyDto {
-  key_id: number
+export interface HealthProblemCredentialDto {
+  credential_id: number
   group_id: number
   group_name: string
   cooldown_until_ms: number | null
@@ -254,10 +259,10 @@ export interface RuntimeHealthDto {
   uptime_seconds: number
   snapshot_revision: number
   stats_window_seconds: number
-  counts: KeyCounts
+  counts: HealthCredentialCountsDto
   groups: HealthGroupDto[]
-  cooldown_keys: HealthProblemKeyDto[]
-  blacklisted_keys: HealthProblemKeyDto[]
+  cooldown_credentials: HealthProblemCredentialDto[]
+  blacklisted_credentials: HealthProblemCredentialDto[]
   request_log: RequestLogHealthDto
 }
 

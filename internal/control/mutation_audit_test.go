@@ -93,25 +93,25 @@ func TestMutationLocatorsOnlyExposeValidatedIDs(t *testing.T) {
 			locate: groupMutationLocator, want: "group:unknown",
 		},
 		{
-			name: "group key",
+			name: "group credential",
 			params: gin.Params{
 				{Key: "group_id", Value: "7"},
-				{Key: "key_id", Value: "9"},
+				{Key: "credential_id", Value: "9"},
 			},
-			locate: groupKeyMutationLocator, want: "group:7/key:9",
+			locate: groupCredentialMutationLocator, want: "group:7/credential:9",
 		},
 		{
-			name: "group key invalid key",
+			name: "group credential invalid credential",
 			params: gin.Params{
 				{Key: "group_id", Value: "7"},
-				{Key: "key_id", Value: "-7"},
+				{Key: "credential_id", Value: "-7"},
 			},
-			locate: groupKeyMutationLocator, want: "group:7/key:unknown",
+			locate: groupCredentialMutationLocator, want: "group:7/credential:unknown",
 		},
 		{
-			name:   "group keys",
+			name:   "group credentials",
 			params: gin.Params{{Key: "group_id", Value: "12"}},
-			locate: groupKeysMutationLocator, want: "group:12/keys",
+			locate: groupCredentialsMutationLocator, want: "group:12/credentials",
 		},
 		{
 			name:   "access key",

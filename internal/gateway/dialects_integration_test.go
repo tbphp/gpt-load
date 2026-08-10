@@ -18,12 +18,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
-	platformhttp "gpt-load/internal/platform/httpclient"
-	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/fakeupstream"
@@ -62,7 +61,7 @@ func newDialectGatewayEngine(
 	model string,
 	dialects dialect.Set,
 	groups ...dialectGatewayGroup,
-) (*gin.Engine, *state.KeyRegistry) {
+) (*gin.Engine, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	keyService, err := encryption.NewService("dialect-gateway-test-master-key")
@@ -71,34 +70,31 @@ func newDialectGatewayEngine(
 	}
 
 	configs := make([]state.GroupConfig, 0, len(groups))
-	entries := make([]state.KeyEntry, 0)
-	keyID := uint(1)
+	entries := make([]state.CredentialEntry, 0)
+	credentialConfigs := make([]state.CredentialConfig, 0)
+	credentialID := uint(1)
 	for _, group := range groups {
 		models := group.models
 		if len(models) == 0 {
 			models = []state.ModelConfig{{ID: model}}
 		}
+		baseURL := testUpstreamBaseURL(group.upstreamURL, selectedProtocol)
+		channelID, params := testChannelConfig(t, selectedProtocol, baseURL)
 		configs = append(configs, state.GroupConfig{
-			ID: group.id, Name: group.name, UpstreamURL: testUpstreamBaseURL(group.upstreamURL, selectedProtocol),
-			Protocols: []protocol.Protocol{selectedProtocol},
-			Models:    models, Enabled: true,
+			ID: group.id, Name: group.name, ChannelID: channelID, Params: params,
+			Models: models, Enabled: true,
 		})
 		for _, apiKey := range group.apiKeys {
-			ciphertext, encryptErr := keyService.Encrypt(apiKey)
-			if encryptErr != nil {
-				t.Fatalf("Encrypt(group %d key) error = %v", group.id, encryptErr)
-			}
-			entries = append(entries, state.KeyEntry{
-				ID: keyID, GroupID: group.id, Status: state.KeyStatusActive,
-				EncryptedValue: ciphertext,
-			})
-			keyID++
+			entries = append(entries, testCredentialEntry(t, keyService, credentialID, group.id, apiKey))
+			credentialConfigs = append(credentialConfigs, testCredentialConfig(credentialID, group.id))
+			credentialID++
 		}
 	}
 
 	manager := state.NewManager()
 	snapshot, err := manager.Publish(state.CompileInput{
-		Groups: configs,
+		ChannelRegistry: channel.NewRegistry(), Groups: configs,
+		Credentials: credentialConfigs,
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"),
 			Status: state.AccessKeyStatusActive,
@@ -116,15 +112,15 @@ func newDialectGatewayEngine(
 		snapshot.Groups[group.id] = view
 	}
 
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace(entries); err != nil {
-		t.Fatalf("Replace() error = %v", err)
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials(entries); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
 	}
 	handler := NewHandler(
 		manager,
 		registry,
 		keyService,
-		NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
+		newTestExecutionForwarder(t),
 		dialects,
 		health.NewStatsStore(),
 		health.NewMutationCoordinator(),
@@ -148,22 +144,22 @@ func TestGatewayDecodesSupportedClientContentCodings(t *testing.T) {
 	}{
 		{
 			name: "OpenAI completions", protocol: protocol.OpenAICompletions,
-			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewOpenAI()),
 			path:     "/v1/chat/completions", plaintext: []byte(`{"model":"public-model","stream":false}`),
 		},
 		{
 			name: "Anthropic messages", protocol: protocol.Anthropic,
-			dialects: dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewAnthropic()),
 			path:     "/v1/messages", plaintext: []byte(`{"model":"public-model","max_tokens":1,"messages":[]}`),
 		},
 		{
 			name: "Gemini generation", protocol: protocol.Gemini,
-			dialects: dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewGemini()),
 			path:     "/v1beta/models/public-model:generateContent", plaintext: []byte(`{"contents":[{"role":"user","parts":[{"text":"ping"}]}]}`),
 		},
 		{
 			name: "Responses create", protocol: protocol.OpenAIResponses,
-			dialects: dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewOpenAIResponses()),
 			path:     "/v1/responses", plaintext: []byte(`{"model":"public-model","input":"ping"}`),
 		},
 	}
@@ -256,7 +252,7 @@ func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocall
 		t,
 		protocol.OpenAIResponses,
 		"public-model",
-		dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAIResponses()),
 		dialectGatewayGroup{
 			id: 1, name: "responses", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-responses"},
@@ -469,7 +465,7 @@ func TestResponsesNamespaceRejectsNormalizationEscapesBeforeForward(t *testing.T
 		t,
 		protocol.OpenAIResponses,
 		"public-model",
-		dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAIResponses()),
 		dialectGatewayGroup{
 			id: 1, name: "responses", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-responses"},
@@ -520,7 +516,7 @@ func TestResponsesNamespaceRejectsDecodedDuplicateStreamQueryBeforeForward(t *te
 		t,
 		protocol.OpenAIResponses,
 		"public-model",
-		dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAIResponses()),
 		dialectGatewayGroup{
 			id: 1, name: "responses", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-responses"},
@@ -557,7 +553,7 @@ func TestGatewayRewritesEachAttemptFromOriginal(t *testing.T) {
 	defer second.Close()
 
 	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "public",
-		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAI()),
 		dialectGatewayGroup{
 			id: 1, name: "first", upstreamURL: first.URL, apiKeys: []string{"sk-first"},
 			models: []state.ModelConfig{{ID: "provider-one", Alias: "public"}},
@@ -608,7 +604,7 @@ func TestHandlerHostFailureSkipsGroupForCurrentRequestOnly(t *testing.T) {
 	defer backup.Close()
 
 	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "gpt-4o",
-		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAI()),
 		dialectGatewayGroup{id: 1, name: "primary", upstreamURL: primary.URL,
 			apiKeys: []string{"sk-primary-one", "sk-primary-two"}},
 		dialectGatewayGroup{id: 2, name: "backup", upstreamURL: backup.URL,
@@ -641,7 +637,7 @@ func TestHandlerReturnsLastHostErrorWhenSkippedGroupHasNoBackup(t *testing.T) {
 	defer upstream.Close()
 
 	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "gpt-4o",
-		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAI()),
 		dialectGatewayGroup{id: 1, name: "only", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-one", "sk-two"}},
 	)
@@ -670,28 +666,28 @@ func TestForwarderRewritesAliasedNonStreamingResponses(t *testing.T) {
 	}{
 		{
 			name: "OpenAI", value: protocol.OpenAICompletions,
-			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewOpenAI()),
 			path:     "/v1/chat/completions", requestBody: `{"model":"public-model"}`,
 			upstreamResponse: `{"id":"chatcmpl-1","model":"provider-response"}`,
 			responseField:    "model",
 		},
 		{
 			name: "OpenAI Responses", value: protocol.OpenAIResponses,
-			dialects: dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewOpenAIResponses()),
 			path:     "/v1/responses", requestBody: `{"model":"public-model","input":"ping"}`,
 			upstreamResponse: `{"id":"resp-1","object":"response","model":"provider-response"}`,
 			responseField:    "model",
 		},
 		{
 			name: "Anthropic", value: protocol.Anthropic,
-			dialects: dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewAnthropic()),
 			path:     "/v1/messages", requestBody: `{"model":"public-model"}`,
 			upstreamResponse: `{"type":"message","model":"provider-response"}`,
 			responseField:    "model",
 		},
 		{
 			name: "Gemini", value: protocol.Gemini,
-			dialects: dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewGemini()),
 			path:     "/v1beta/models/public-model:generateContent", requestBody: `{}`,
 			upstreamResponse: `{"modelVersion":"provider-response","candidates":[]}`,
 			responseField:    "modelVersion",
@@ -772,7 +768,7 @@ func TestTransparentModelRoutePreservesWire(t *testing.T) {
 	defer upstream.Close()
 
 	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "same-model",
-		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAI()),
 		dialectGatewayGroup{
 			id: 1, name: "transparent", upstreamURL: upstream.URL, apiKeys: []string{"provider-key"},
 			models:      []state.ModelConfig{{ID: "same-model"}},
@@ -822,14 +818,14 @@ func TestGatewayRewritesAliasedStreams(t *testing.T) {
 	}{
 		{
 			name: "OpenAI", value: protocol.OpenAICompletions,
-			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewOpenAI()),
 			path:     "/v1/chat/completions", requestBody: `{"model":"public-model","stream":true}`,
 			streamBody: "data: {\"id\":\"1\",\"model\":\"provider-model\",\"choices\":[]}\n\ndata: [DONE]\n\n",
 			want:       `"model":"public-model"`, unchanged: "data: [DONE]\n\n",
 		},
 		{
 			name: "Anthropic", value: protocol.Anthropic,
-			dialects: dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewAnthropic()),
 			path:     "/v1/messages", requestBody: `{"model":"public-model","stream":true}`,
 			streamBody: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"provider-model\"}}\n\n" +
 				"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"unchanged\"}}\n\n",
@@ -837,7 +833,7 @@ func TestGatewayRewritesAliasedStreams(t *testing.T) {
 		},
 		{
 			name: "Gemini", value: protocol.Gemini,
-			dialects: dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			dialects: dialect.NewSet(dialect.NewGemini()),
 			path:     "/v1beta/models/public-model:streamGenerateContent", requestBody: `{}`,
 			streamBody: "data: {\"modelVersion\":\"provider-model\",\"candidates\":[]}\n\n",
 			want:       `"modelVersion":"public-model"`,
@@ -910,13 +906,13 @@ func TestAnthropicGatewayNonStreamAuthAndForwarding(t *testing.T) {
 		wantVersion string
 	}{
 		{name: "Bearer remains Anthropic", authHeader: "Bearer gl-client", wantVersion: anthropicDefaultVersionForTest},
-		{name: "x-api-key carrier", apiKey: "gl-client", version: "2024-01-01", wantVersion: "2024-01-01"},
+		{name: "x-api-key carrier", apiKey: "gl-client", version: "2024-01-01", wantVersion: anthropicDefaultVersionForTest},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			upstream := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "success.json"})
 			defer upstream.Close()
 			engine, _ := newDialectGatewayEngine(t, protocol.Anthropic, "claude-3-5-sonnet",
-				dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+				dialect.NewSet(dialect.NewAnthropic()),
 				dialectGatewayGroup{id: 1, name: "anthropic", upstreamURL: upstream.URL, apiKeys: []string{"sk-anthropic-upstream"}},
 			)
 			body := `{"model":"claude-3-5-sonnet","messages":[{"role":"user","content":"ping"}]}`
@@ -960,7 +956,7 @@ func TestAnthropicGatewayFailover(t *testing.T) {
 	)
 	defer upstream.Close()
 	engine, _ := newDialectGatewayEngine(t, protocol.Anthropic, "claude-3-5-sonnet",
-		dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+		dialect.NewSet(dialect.NewAnthropic()),
 		dialectGatewayGroup{id: 1, name: "anthropic", upstreamURL: upstream.URL, apiKeys: []string{"sk-anthropic-one", "sk-anthropic-two"}},
 	)
 	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-3-5-sonnet"}`))
@@ -990,7 +986,7 @@ func TestAnthropicGatewayFailover(t *testing.T) {
 	}))
 	defer clientError.Close()
 	engine, _ = newDialectGatewayEngine(t, protocol.Anthropic, "claude-3-5-sonnet",
-		dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+		dialect.NewSet(dialect.NewAnthropic()),
 		dialectGatewayGroup{id: 1, name: "anthropic", upstreamURL: clientError.URL, apiKeys: []string{"sk-one", "sk-two"}},
 	)
 	request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-3-5-sonnet"}`))
@@ -1024,7 +1020,7 @@ func TestAnthropicGatewayStream(t *testing.T) {
 	defer backup.Close()
 
 	engine, _ := newDialectGatewayEngine(t, protocol.Anthropic, "claude-3-5-sonnet",
-		dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+		dialect.NewSet(dialect.NewAnthropic()),
 		dialectGatewayGroup{
 			id: 1, name: "primary", upstreamURL: primary.URL, apiKeys: []string{"sk-primary"},
 			headerRules: state.HeaderRules{Set: map[string]string{"Accept-Encoding": "gzip"}},
@@ -1101,7 +1097,7 @@ func TestGeminiGatewayNonStreamAuthAndQuery(t *testing.T) {
 			upstream := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "success.json"})
 			defer upstream.Close()
 			engine, _ := newDialectGatewayEngine(t, protocol.Gemini, "gemini-2.5-pro",
-				dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+				dialect.NewSet(dialect.NewGemini()),
 				dialectGatewayGroup{
 					id: 1, name: "gemini", upstreamURL: upstream.URL + "?tenant=base&alt=proto",
 					apiKeys: []string{"gemini-upstream-key"},
@@ -1144,7 +1140,7 @@ func TestGeminiGatewayFailover(t *testing.T) {
 	)
 	defer upstream.Close()
 	engine, _ := newDialectGatewayEngine(t, protocol.Gemini, "gemini-2.5-pro",
-		dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+		dialect.NewSet(dialect.NewGemini()),
 		dialectGatewayGroup{id: 1, name: "gemini", upstreamURL: upstream.URL, apiKeys: []string{"gemini-key-one", "gemini-key-two"}},
 	)
 	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent?trace=true", strings.NewReader(`{}`))
@@ -1166,7 +1162,7 @@ func TestGeminiGatewayStream(t *testing.T) {
 	upstream := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "stream.sse", Stream: true})
 	defer upstream.Close()
 	engine, _ := newDialectGatewayEngine(t, protocol.Gemini, "gemini-2.5-pro",
-		dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+		dialect.NewSet(dialect.NewGemini()),
 		dialectGatewayGroup{
 			id: 1, name: "gemini-stream", upstreamURL: upstream.URL + "?tenant=base&alt=json",
 			apiKeys:     []string{"gemini-stream-key"},
@@ -1200,7 +1196,7 @@ func TestGeminiGatewayStream(t *testing.T) {
 }
 
 func TestGeminiGatewayCompressed(t *testing.T) {
-	t.Run("request-written compressed response terminates before retry", func(t *testing.T) {
+	t.Run("SDK-normalized response remains one logical attempt", func(t *testing.T) {
 		compressed := fakeupstream.New(fakeupstream.Step{
 			Status: http.StatusOK, Fixture: "stream.sse", Stream: true,
 			Headers: http.Header{"Content-Encoding": {"gzip"}},
@@ -1209,7 +1205,7 @@ func TestGeminiGatewayCompressed(t *testing.T) {
 		backup := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "stream.sse", Stream: true})
 		defer backup.Close()
 		engine, _ := newDialectGatewayEngine(t, protocol.Gemini, "gemini-2.5-pro",
-			dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			dialect.NewSet(dialect.NewGemini()),
 			dialectGatewayGroup{id: 1, name: "compressed", upstreamURL: compressed.URL, apiKeys: []string{"bad-key"}},
 			dialectGatewayGroup{id: 2, name: "backup", upstreamURL: backup.URL, apiKeys: []string{"good-key"}},
 		)
@@ -1217,14 +1213,14 @@ func TestGeminiGatewayCompressed(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusBadGateway || recorder.Header().Get(debugHeaderAttempts) != "1" ||
-			!strings.Contains(recorder.Body.String(), reasonUpstreamProtocol.Code) ||
+		if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "1" ||
+			!strings.Contains(recorder.Body.String(), "data:") ||
 			len(compressed.Requests()) != 1 || len(backup.Requests()) != 0 {
 			t.Fatalf("response = %d headers=%v compressed=%d backup=%d body=%s", recorder.Code, recorder.Header(), len(compressed.Requests()), len(backup.Requests()), recorder.Body.String())
 		}
 	})
 
-	t.Run("all bad candidates return fixed protocol error", func(t *testing.T) {
+	t.Run("transport encoding metadata does not trigger candidate retry", func(t *testing.T) {
 		first := fakeupstream.New(fakeupstream.Step{
 			Status: http.StatusOK, Fixture: "stream.sse", Stream: true,
 			Headers: http.Header{"Content-Encoding": {"gzip"}},
@@ -1236,7 +1232,7 @@ func TestGeminiGatewayCompressed(t *testing.T) {
 		})
 		defer second.Close()
 		engine, registry := newDialectGatewayEngine(t, protocol.Gemini, "gemini-2.5-pro",
-			dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			dialect.NewSet(dialect.NewGemini()),
 			dialectGatewayGroup{id: 1, name: "first", upstreamURL: first.URL, apiKeys: []string{"secret-one"}},
 			dialectGatewayGroup{id: 2, name: "second", upstreamURL: second.URL, apiKeys: []string{"secret-two"}},
 		)
@@ -1244,12 +1240,13 @@ func TestGeminiGatewayCompressed(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusBadGateway || recorder.Header().Get(debugHeaderAttempts) != "1" ||
-			!strings.Contains(recorder.Body.String(), reasonUpstreamProtocol.Code) ||
-			len(registry.CollectCandidates([]uint{1, 2}, nil, time.Time{})) != 2 {
-			t.Fatalf("response = %d headers=%v candidates=%d body=%s", recorder.Code, recorder.Header(), len(registry.CollectCandidates([]uint{1, 2}, nil, time.Time{})), recorder.Body.String())
+		if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "1" ||
+			!strings.Contains(recorder.Body.String(), "data:") ||
+			len(first.Requests()) != 1 || len(second.Requests()) != 0 ||
+			len(registry.CollectCredentialCandidates([]uint{1, 2}, nil, time.Time{})) != 2 {
+			t.Fatalf("response = %d headers=%v candidates=%d body=%s", recorder.Code, recorder.Header(), len(registry.CollectCredentialCandidates([]uint{1, 2}, nil, time.Time{})), recorder.Body.String())
 		}
-		for _, forbidden := range []string{"secret-one", "secret-two", "data:"} {
+		for _, forbidden := range []string{"secret-one", "secret-two"} {
 			if strings.Contains(recorder.Body.String(), forbidden) {
 				t.Fatalf("response exposes %q: %s", forbidden, recorder.Body.String())
 			}

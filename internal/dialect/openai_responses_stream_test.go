@@ -1,14 +1,13 @@
 package dialect
 
 import (
-	"net/http"
 	"testing"
 )
 
 func TestOpenAIResponsesClassifiesStreamEvents(t *testing.T) {
 	t.Parallel()
 
-	classifier, ok := any(NewOpenAIResponses(http.DefaultClient)).(StreamEventClassifier)
+	classifier, ok := any(NewOpenAIResponses()).(StreamEventClassifier)
 	if !ok {
 		t.Fatal("OpenAI Responses does not expose StreamEventClassifier")
 	}
@@ -87,7 +86,7 @@ func TestOpenAIResponsesClassifiesStreamEvents(t *testing.T) {
 func TestOpenAIResponsesRejectsConflictingStreamEventNames(t *testing.T) {
 	t.Parallel()
 
-	classifier := any(NewOpenAIResponses(http.DefaultClient)).(StreamEventClassifier)
+	classifier := any(NewOpenAIResponses()).(StreamEventClassifier)
 	_, err := classifier.ClassifyStreamEvent(StreamEvent{
 		Name:    "response.completed",
 		Payload: []byte(`{"type":"response.failed","response":{"error":{"code":"server_error"}}}`),

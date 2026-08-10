@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,10 +20,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
-	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -34,6 +34,14 @@ import (
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
+
+func requestLogSelection(groupID, credentialID uint, name string) scheduler.Selection {
+	return scheduler.Selection{
+		GroupID: groupID, ChannelID: channel.OpenAI, CredentialID: credentialID,
+		RouteMode: channel.RouteNative,
+		Group:     state.GroupView{ID: groupID, Name: name, ChannelID: channel.OpenAI},
+	}
+}
 
 func TestRequestRecorderCapturesFirstResponseAfterDownstreamCommit(t *testing.T) {
 	startedAt := time.Date(2026, time.August, 5, 8, 0, 0, 0, time.UTC)
@@ -203,7 +211,7 @@ func TestNewRequestRecorderInitializesUsageNotApplicable(t *testing.T) {
 	if event.Usage.Result.State != usage.StateNotApplicable ||
 		event.Usage.Result.Tokens != (usage.Tokens{}) ||
 		event.Usage.GroupID != 0 ||
-		event.Usage.KeyID != 0 ||
+		event.Usage.CredentialID != 0 ||
 		event.Usage.AttemptSequence != 0 {
 		t.Fatalf("initial Usage = %#v", event.Usage)
 	}
@@ -225,13 +233,12 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 		"sk-first",
 	)
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID:          1,
-			Name:        "responses",
-			UpstreamURL: "http://upstream.invalid",
-			Protocols:   []protocol.Protocol{protocol.OpenAIResponses},
-			Enabled:     true,
+			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID:      1,
 			Name:    "client",
@@ -241,7 +248,7 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient))
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/responses/resp_123", nil)
 	request.Header.Set("Authorization", "Bearer gl-client")
@@ -351,7 +358,7 @@ func TestHandlerRecordsModelConsistencyOnlyForSuccessfulModeledRequests(t *testi
 	}
 }
 
-func TestHandlerBillableResponsesUsageWithoutModelIsUnpriced(t *testing.T) {
+func TestHandlerBillableResponsesUsageWithoutPriceIsUnpriced(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
@@ -367,10 +374,13 @@ func TestHandlerBillableResponsesUsageWithoutModelIsUnpriced(t *testing.T) {
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
 	)
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "responses", UpstreamURL: "http://upstream.invalid",
-			Protocols: []protocol.Protocol{protocol.OpenAIResponses}, Enabled: true,
+			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "unpriced-model"}}, Enabled: true,
 		}},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
 			Status: state.AccessKeyStatusActive,
@@ -378,16 +388,16 @@ func TestHandlerBillableResponsesUsageWithoutModelIsUnpriced(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient))
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
 	handler.priceTables = &mutableGatewayPriceTableProvider{table: mustGatewayPriceTable(t, 1, true)}
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"ping"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"unpriced-model","input":"ping"}`))
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	events := sink.snapshot()
 	if len(events) != 1 || withoutPricingReceipt(events[0].Usage.Pricing) != (telemetry.PricingObservation{
-		CostState: "unpriced", PricingCompleteness: "unavailable",
+		UpstreamModel: "unpriced-model", CostState: "unpriced", PricingCompleteness: "unavailable",
 	}) {
 		t.Fatalf("events = %#v", events)
 	}
@@ -406,17 +416,17 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
 			recorder := newRequestRecorder(sink, "req-usage-bind", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
-			recorder.appendAttempt(scheduler.Selection{GroupID: 11, Group: state.GroupView{Name: "first"}, KeyID: 21}, UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
-			second := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+			recorder.appendAttempt(requestLogSelection(11, 21, "first"), UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+			second := recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 
 			recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: test.result}, health.Result{}, "provider", second)
 			recorder.emit()
 
 			event := sink.events[0]
-			if event.Usage.Result != test.result || event.Usage.GroupID != 12 || event.Usage.KeyID != 22 || event.Usage.AttemptSequence != 2 {
+			if event.Usage.Result != test.result || event.Usage.GroupID != 12 || event.Usage.ChannelID != channel.OpenAI || event.Usage.CredentialID != 22 || event.Usage.AttemptSequence != 2 {
 				t.Fatalf("Usage = %#v", event.Usage)
 			}
-			if event.Attempts[1].GroupID != event.Usage.GroupID || event.Attempts[1].KeyID != event.Usage.KeyID || event.Attempts[1].Sequence != event.Usage.AttemptSequence {
+			if event.Attempts[1].GroupID != event.Usage.GroupID || event.Attempts[1].ChannelID != event.Usage.ChannelID || event.Attempts[1].CredentialID != event.Usage.CredentialID || event.Attempts[1].Sequence != event.Usage.AttemptSequence {
 				t.Fatalf("attempt/Usage identity = %#v/%#v", event.Attempts[1], event.Usage)
 			}
 		})
@@ -426,12 +436,12 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 func TestRequestRecorderNon2xxKeepsAttributionButNotApplicable(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
-	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusTooManyRequests}, telemetry.FailureCategoryRateLimited, telemetry.ActionRetry, "", "", time.Unix(100, 0), time.Unix(100, 0))
+	index := recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{StatusCode: http.StatusTooManyRequests}, telemetry.FailureCategoryRateLimited, telemetry.ActionRetry, "", "", time.Unix(100, 0), time.Unix(100, 0))
 	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}}, health.Result{Category: health.FailureCategoryRateLimited}, "provider", index)
 	recorder.emit()
 
 	event := sink.events[0]
-	if event.Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || event.Usage.GroupID != 12 || event.Usage.KeyID != 22 || event.Usage.AttemptSequence != 1 {
+	if event.Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || event.Usage.GroupID != 12 || event.Usage.ChannelID != channel.OpenAI || event.Usage.CredentialID != 22 || event.Usage.AttemptSequence != 1 {
 		t.Fatalf("Usage = %#v", event.Usage)
 	}
 }
@@ -441,7 +451,7 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 		t.Run(fmt.Sprintf("index_%d", index), func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
 			recorder := newRequestRecorder(sink, "req-usage-invalid", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
-			recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+			recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 			recorder.bindUsage(index, usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}, true)
 			recorder.emit()
 
@@ -461,14 +471,14 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 func TestRequestRecorderDownstreamFailureKeepsBoundUsage(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
-	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+	index := recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 	result := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
 	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: result}, health.Result{}, "provider", index)
 	recorder.completeDownstreamWrite(http.StatusOK)
 	recorder.emit()
 
 	event := sink.events[0]
-	if event.Status != telemetry.RequestStatusIncomplete || event.Usage.Result != result || event.Usage.GroupID != 12 || event.Usage.KeyID != 22 || event.Usage.AttemptSequence != 1 {
+	if event.Status != telemetry.RequestStatusIncomplete || event.Usage.Result != result || event.Usage.GroupID != 12 || event.Usage.ChannelID != channel.OpenAI || event.Usage.CredentialID != 22 || event.Usage.AttemptSequence != 1 {
 		t.Fatalf("event = %#v", event)
 	}
 }
@@ -486,7 +496,7 @@ func TestHandlerPublishesUsageForActualNonStreamingResponseAttempt(t *testing.T)
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	events := sink.snapshot()
-	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 2 || events[0].Usage.AttemptSequence != 2 {
+	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || events[0].Usage.GroupID != 1 || events[0].Usage.CredentialID != 2 || events[0].Usage.AttemptSequence != 2 {
 		t.Fatalf("events = %#v", events)
 	}
 }
@@ -546,13 +556,13 @@ func TestRequestRecorderPreservesKnownCostWhenUsedOutputPriceIsUnavailable(t *te
 	)
 	model := "gpt-4o"
 	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
-		groupID: 1, upstreamModel: model, table: table, applicable: true,
+		channelID: string(channel.OpenAI), groupID: 1,
+		upstreamModel: model, table: table, applicable: true,
 	})
+	selection := requestLogSelection(1, 2, "group")
+	selection.UpstreamModelID = &model
 	index := recorder.appendAttempt(
-		scheduler.Selection{
-			GroupID: 1, Group: state.GroupView{Name: "group"}, KeyID: 2,
-			UpstreamModelID: &model,
-		},
+		selection,
 		UpstreamResult{StatusCode: http.StatusOK},
 		telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "",
 		time.Unix(100, 0), time.Unix(101, 0),
@@ -585,13 +595,13 @@ func TestRequestRecorderMergesRequestPricingDiagnosticsIntoKnownCost(t *testing.
 	recorder.setUsageDiagnostics(diagnostics)
 	model := "gpt-4o"
 	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
-		groupID: 1, upstreamModel: model, table: table, applicable: true,
+		channelID: string(channel.OpenAI), groupID: 1,
+		upstreamModel: model, table: table, applicable: true,
 	})
+	selection := requestLogSelection(1, 2, "group")
+	selection.UpstreamModelID = &model
 	index := recorder.appendAttempt(
-		scheduler.Selection{
-			GroupID: 1, Group: state.GroupView{Name: "group"}, KeyID: 2,
-			UpstreamModelID: &model,
-		},
+		selection,
 		UpstreamResult{StatusCode: http.StatusOK},
 		telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "",
 		time.Unix(100, 0), time.Unix(101, 0),
@@ -617,10 +627,9 @@ func TestRequestRecorderMergesRequestPricingDiagnosticsIntoKnownCost(t *testing.
 }
 
 func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *testing.T) {
-	providerID := "openai"
 	model := "provider-model"
 	table, err := pricing.NewTable([]pricing.Rule{{
-		Identity: pricing.Identity{ModelID: model},
+		Identity: pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: model},
 		Prices: pricing.Prices{Input: pricing.Price{
 			NanoUSDPerMillion: 3_000_000_000, Set: true,
 		}},
@@ -638,12 +647,13 @@ func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
 	)
 	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "provider", ProviderID: &providerID,
-			UpstreamURL: "http://upstream.invalid",
-			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-			Models:      []state.ModelConfig{{ID: model, Alias: "client-alias"}}, Enabled: true,
+			ID: 1, Name: "provider", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: model, Alias: "client-alias"}}, Enabled: true,
 		}},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
 			Status: state.AccessKeyStatusActive,
@@ -718,7 +728,7 @@ func mustGatewayPriceTable(t *testing.T, input int64, outputSet bool) *pricing.T
 		prices.Output = pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(input), Set: true}
 	}
 	table, err := pricing.NewTable([]pricing.Rule{{
-		Identity: pricing.Identity{ModelID: "gpt-4o"},
+		Identity: pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-4o"},
 		Prices:   prices,
 	}})
 	if err != nil {
@@ -753,11 +763,11 @@ func TestHandlerDiscardsPreCommitStreamUsageOnRetry(t *testing.T) {
 	}
 	event := events[0]
 	if event.Usage.Result != second || event.Usage.Result == first ||
-		event.Usage.GroupID != 1 || event.Usage.KeyID != 2 || event.Usage.AttemptSequence != 2 {
+		event.Usage.GroupID != 1 || event.Usage.CredentialID != 2 || event.Usage.AttemptSequence != 2 {
 		t.Fatalf("event Usage = %#v, want second attempt Usage", event.Usage)
 	}
 	if len(event.Attempts) != 2 || event.Attempts[1].GroupID != event.Usage.GroupID ||
-		event.Attempts[1].KeyID != event.Usage.KeyID || event.Attempts[1].Sequence != event.Usage.AttemptSequence {
+		event.Attempts[1].CredentialID != event.Usage.CredentialID || event.Attempts[1].Sequence != event.Usage.AttemptSequence {
 		t.Fatalf("attempts/Usage = %#v/%#v", event.Attempts, event.Usage)
 	}
 }
@@ -821,7 +831,7 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 			},
 		}) ||
 		event.Usage.GroupID != 1 ||
-		event.Usage.KeyID != 1 ||
+		event.Usage.CredentialID != 1 ||
 		event.Usage.AttemptSequence != 1 ||
 		len(event.Attempts) != 1 {
 		t.Fatalf("response/event = %d/%#v", response.Code, event)
@@ -829,7 +839,7 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 	attempt := event.Attempts[0]
 	if attempt.StatusCode != http.StatusOK ||
 		attempt.FailureCategory != telemetry.FailureCategoryRateLimited ||
-		attempt.Action != telemetry.ActionCooldownKey ||
+		attempt.Action != telemetry.ActionCooldownCredential ||
 		attempt.Committed ||
 		attempt.ErrorSummary != fixedErrorSummary("upstream_sse_error") {
 		t.Fatalf("attempt = %#v", attempt)
@@ -866,7 +876,7 @@ func TestHandlerRetryExhaustionUsesProviderErrorAttemptAndItsFrozenPrice(t *test
 			ClassificationBody: []byte(`{"error":"invalid key"}`),
 			RequestWritten:     true,
 		},
-		{Err: errors.New("dial failed"), RetryableBeforeCommit: true},
+		{Err: errors.New("dial failed")},
 	}}
 	forwarder.onStreamCall = func(index int, _ http.ResponseWriter) {
 		switch index {
@@ -904,7 +914,7 @@ func TestHandlerRetryExhaustionUsesProviderErrorAttemptAndItsFrozenPrice(t *test
 		t.Fatalf("response/events = %d/%#v", response.Code, events)
 	}
 	event := events[0]
-	if event.Usage.GroupID != 1 || event.Usage.KeyID != 1 ||
+	if event.Usage.GroupID != 1 || event.Usage.CredentialID != 1 ||
 		event.Usage.AttemptSequence != 1 || withoutPricingReceipt(event.Usage.Pricing) != (telemetry.PricingObservation{
 		UpstreamModel:        "gpt-4o",
 		CostState:            string(pricing.CostStatePriced),
@@ -923,8 +933,8 @@ func TestHandlerRememberedLastResponseKeepsOriginalUsageAttempt(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
 		{StatusCode: http.StatusTooManyRequests, Header: make(http.Header), ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`), RequestWritten: true},
-		{Err: errors.New("transport two"), RetryableBeforeCommit: true},
-		{Err: errors.New("transport three"), RetryableBeforeCommit: true},
+		{Err: errors.New("transport two")},
+		{Err: errors.New("transport three")},
 	}}
 	engine, handler, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second", "sk-third")
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
@@ -933,7 +943,7 @@ func TestHandlerRememberedLastResponseKeepsOriginalUsageAttempt(t *testing.T) {
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	events := sink.snapshot()
-	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 1 || events[0].Usage.AttemptSequence != 1 {
+	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || events[0].Usage.GroupID != 1 || events[0].Usage.CredentialID != 1 || events[0].Usage.AttemptSequence != 1 {
 		t.Fatalf("events = %#v", events)
 	}
 }
@@ -949,7 +959,7 @@ func TestHandlerFinalNon2xxPublishesNotApplicableWithResponseAttribution(t *test
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	events := sink.snapshot()
-	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 1 || events[0].Usage.AttemptSequence != 1 {
+	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || events[0].Usage.GroupID != 1 || events[0].Usage.CredentialID != 1 || events[0].Usage.AttemptSequence != 1 {
 		t.Fatalf("events = %#v", events)
 	}
 }
@@ -961,7 +971,7 @@ func TestHandlerTerminalAttemptUsageKeepsRouteAttribution(t *testing.T) {
 		upstreamKeys        []string
 		wantStatus          telemetry.RequestStatus
 		wantGroupID         uint
-		wantKeyID           uint
+		wantCredentialID    uint
 		wantAttemptSequence int
 		wantUpstreamModel   string
 	}{
@@ -971,7 +981,7 @@ func TestHandlerTerminalAttemptUsageKeepsRouteAttribution(t *testing.T) {
 			upstreamKeys:        []string{"sk-first"},
 			wantStatus:          telemetry.RequestStatusError,
 			wantGroupID:         1,
-			wantKeyID:           1,
+			wantCredentialID:    1,
 			wantAttemptSequence: 1,
 			wantUpstreamModel:   "gpt-4o",
 		},
@@ -981,22 +991,22 @@ func TestHandlerTerminalAttemptUsageKeepsRouteAttribution(t *testing.T) {
 			upstreamKeys:        []string{"sk-first"},
 			wantStatus:          telemetry.RequestStatusCanceled,
 			wantGroupID:         1,
-			wantKeyID:           1,
+			wantCredentialID:    1,
 			wantAttemptSequence: 1,
 			wantUpstreamModel:   "gpt-4o",
 		},
 		{
-			name: "retried transports use the final attempt",
+			name: "transport failure keeps the skipped group attempt",
 			forwarder: &scriptedForwarder{results: []UpstreamResult{
-				{Err: errors.New("transport one"), RetryableBeforeCommit: true},
-				{Err: errors.New("transport two"), RetryableBeforeCommit: true},
+				{Err: errors.New("transport one")},
+				{Err: errors.New("transport two")},
 				{Err: errors.New("transport three"), RequestWritten: true},
 			}},
 			upstreamKeys:        []string{"sk-first", "sk-second", "sk-third"},
 			wantStatus:          telemetry.RequestStatusError,
 			wantGroupID:         1,
-			wantKeyID:           3,
-			wantAttemptSequence: 3,
+			wantCredentialID:    1,
+			wantAttemptSequence: 1,
 			wantUpstreamModel:   "gpt-4o",
 		},
 		{
@@ -1013,6 +1023,10 @@ func TestHandlerTerminalAttemptUsageKeepsRouteAttribution(t *testing.T) {
 			request.Header.Set("Authorization", "Bearer gl-client")
 			engine.ServeHTTP(httptest.NewRecorder(), request)
 			events := sink.snapshot()
+			var wantChannelID channel.ID
+			if test.wantGroupID != 0 {
+				wantChannelID = channel.OpenAI
+			}
 			wantPricing := telemetry.PricingObservation{
 				CostState:           "not_applicable",
 				PricingCompleteness: "not_applicable",
@@ -1025,7 +1039,8 @@ func TestHandlerTerminalAttemptUsageKeepsRouteAttribution(t *testing.T) {
 				events[0].Usage != (telemetry.UsageObservation{
 					Result:          usage.Result{State: usage.StateNotApplicable},
 					GroupID:         test.wantGroupID,
-					KeyID:           test.wantKeyID,
+					ChannelID:       wantChannelID,
+					CredentialID:    test.wantCredentialID,
 					AttemptSequence: test.wantAttemptSequence,
 					Pricing:         wantPricing,
 				}) {
@@ -1253,19 +1268,6 @@ func (reader cancelingErrorReadCloser) Read([]byte) (int, error) {
 
 func (cancelingErrorReadCloser) Close() error { return nil }
 
-type countingHealthDialect struct {
-	dialect.Dialect
-	classifyCalls int
-}
-
-func (value *countingHealthDialect) ClassifyStatus(
-	status int,
-	body []byte,
-) health.FailureCategory {
-	value.classifyCalls++
-	return value.Dialect.ClassifyStatus(status, body)
-}
-
 type cancelingExtractDialect struct {
 	dialect.Dialect
 	cancel       context.CancelFunc
@@ -1316,7 +1318,7 @@ func newRequestLogHandlerTestRuntime(
 	limiter AccessKeyRPMLimiter,
 	sink telemetry.RequestLogSink,
 	upstreamKeys ...string,
-) (*gin.Engine, *Handler, *state.Manager, *state.KeyRegistry) {
+) (*gin.Engine, *Handler, *state.Manager, *state.CredentialRegistry) {
 	t.Helper()
 	handler, manager, registry := newHandlerForTest(t, forwarder, upstreamKeys...)
 	handler.limiter = limiter
@@ -1390,10 +1392,10 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 	publish := func(limit int64) {
 		t.Helper()
 		if _, err := manager.Publish(state.CompileInput{
+			ChannelRegistry: channel.NewRegistry(),
 			Groups: []state.GroupConfig{{
-				ID: 1, Name: "openai", UpstreamURL: "https://unused.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+				ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 			}},
 			AccessKeys: []state.AccessKeyConfig{{
 				ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"),
@@ -1412,7 +1414,7 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 	}
 	handler := NewHandler(
 		manager,
-		state.NewKeyRegistry(),
+		state.NewCredentialRegistry(),
 		keyService,
 		&scriptedForwarder{},
 		dialect.NewSet(),
@@ -1688,13 +1690,10 @@ func TestHandlerPrioritizesClientCancellationOverLocalInferenceErrors(t *testing
 			)
 			stats := health.NewStatsStore()
 			handler.stats = stats
-			runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
+			runtimeRegistry := &recordingRuntimeRegistry{CredentialRegistry: registry}
 			handler.registry = runtimeRegistry
-			healthDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAICompletions],
-			}
 			extractDialect := &cancelingExtractDialect{
-				Dialect: healthDialect,
+				Dialect: handler.dialects[protocol.OpenAICompletions],
 				err:     sentinel,
 			}
 			if test.cancelOnExtract {
@@ -1748,19 +1747,13 @@ func TestHandlerPrioritizesClientCancellationOverLocalInferenceErrors(t *testing
 			if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
 				t.Fatal("canceled local failure reached upstream")
 			}
-			if healthDialect.classifyCalls != 0 {
-				t.Fatalf(
-					"health classifier calls = %d, want zero",
-					healthDialect.classifyCalls,
-				)
-			}
 			if runtimeRegistry.cooldownCalls != 0 ||
 				runtimeRegistry.incrFailureCalls != 0 ||
 				runtimeRegistry.blacklistCalls != 0 ||
 				runtimeRegistry.clearCalls != 0 {
 				t.Fatalf("Registry side effects = %#v", runtimeRegistry)
 			}
-			if got := stats.Snapshot(1, time.Now()); got != (health.KeyStats{}) {
+			if got := stats.Snapshot(1, time.Now()); got != (health.CredentialStats{}) {
 				t.Fatalf("StatsStore side effects = %#v, want zero", got)
 			}
 		})
@@ -1813,7 +1806,7 @@ func TestHandlerRecordsNonStreamingRetryChain(t *testing.T) {
 		first, second := event.Attempts[0], event.Attempts[1]
 		if first.Sequence != 1 || !first.WillRetry ||
 			first.FailureCategory != telemetry.FailureCategoryInvalidKey ||
-			first.Action != telemetry.ActionFailKey ||
+			first.Action != telemetry.ActionFailCredential ||
 			first.ErrorCode != "upstream_invalid_key" ||
 			first.ErrorSummary != "first invalid key" ||
 			first.DurationMs <= 0 {
@@ -2026,15 +2019,10 @@ func TestHandlerRecordsCommittedStreamTerminalMatrix(t *testing.T) {
 				sink,
 				"sk-one",
 			)
-			runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
+			runtimeRegistry := &recordingRuntimeRegistry{CredentialRegistry: registry}
 			handler.registry = runtimeRegistry
 			now := time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC)
 			handler.now = func() time.Time { return now }
-			selectedDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAICompletions],
-			}
-			handler.dialects[protocol.OpenAICompletions] = selectedDialect
-
 			request := httptest.NewRequest(
 				http.MethodPost,
 				"/v1/chat/completions",
@@ -2079,16 +2067,13 @@ func TestHandlerRecordsCommittedStreamTerminalMatrix(t *testing.T) {
 					downstreamBody,
 				)
 			}
-			if selectedDialect.classifyCalls != 0 {
-				t.Fatalf("health classifier calls = %d, want 0", selectedDialect.classifyCalls)
-			}
 			if runtimeRegistry.cooldownCalls != 0 ||
 				runtimeRegistry.incrFailureCalls != 0 ||
 				runtimeRegistry.blacklistCalls != 0 ||
 				runtimeRegistry.clearCalls != 1 {
 				t.Fatalf("Registry side effects = %#v", runtimeRegistry)
 			}
-			if got := handler.stats.Snapshot(1, now); got != (health.KeyStats{Success: 1}) {
+			if got := handler.stats.Snapshot(1, now); got != (health.CredentialStats{Success: 1}) {
 				t.Fatalf("StatsStore side effects = %#v, want existing ready success only", got)
 			}
 		})
@@ -2158,12 +2143,8 @@ func TestHandlerStreamTelemetryDoesNotChangeHealthOrRetrySideEffects(t *testing.
 				"sk-one",
 				"sk-two",
 			)
-			runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
+			runtimeRegistry := &recordingRuntimeRegistry{CredentialRegistry: registry}
 			handler.registry = runtimeRegistry
-			selectedDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAICompletions],
-			}
-			handler.dialects[protocol.OpenAICompletions] = selectedDialect
 			now := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
 			handler.now = func() time.Time { return now }
 
@@ -2178,16 +2159,13 @@ func TestHandlerStreamTelemetryDoesNotChangeHealthOrRetrySideEffects(t *testing.
 			if len(forwarder.streamInputs) != 1 {
 				t.Fatalf("stream attempts = %d, want observation-only terminal return", len(forwarder.streamInputs))
 			}
-			if selectedDialect.classifyCalls != 0 {
-				t.Fatalf("health classifier calls = %d, want 0", selectedDialect.classifyCalls)
-			}
 			if runtimeRegistry.cooldownCalls != 0 ||
 				runtimeRegistry.incrFailureCalls != 0 ||
 				runtimeRegistry.blacklistCalls != 0 ||
 				runtimeRegistry.clearCalls != 0 {
 				t.Fatalf("Registry side effects = %#v", runtimeRegistry)
 			}
-			if got := handler.stats.Snapshot(1, now); got != (health.KeyStats{}) {
+			if got := handler.stats.Snapshot(1, now); got != (health.CredentialStats{}) {
 				t.Fatalf("StatsStore side effects = %#v, want zero", got)
 			}
 			events := sink.snapshot()
@@ -2266,17 +2244,13 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 	handler, _, registry := newHandlerForTestWithStats(
 		t, forwarder, stats, "sk-one",
 	)
-	runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
+	runtimeRegistry := &recordingRuntimeRegistry{CredentialRegistry: registry}
 	handler.registry = runtimeRegistry
 	handler.limiter = &recordingAccessKeyRPMLimiter{}
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
 	handler.requestNow = newSteppingRequestClock()
-	selectedDialect := &countingHealthDialect{
-		Dialect: handler.dialects[protocol.OpenAICompletions],
-	}
-	handler.dialects[protocol.OpenAICompletions] = selectedDialect
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 
@@ -2300,7 +2274,7 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 		t.Fatalf("event = %#v, want uncommitted client cancellation", event)
 	}
 	if event.Usage.Result != (usage.Result{State: usage.StateNotApplicable}) ||
-		event.Usage.GroupID != 1 || event.Usage.KeyID != 1 ||
+		event.Usage.GroupID != 1 || event.Usage.CredentialID != 1 ||
 		event.Usage.AttemptSequence != 1 {
 		t.Fatalf("event Usage = %#v, want canceled attempt route attribution", event.Usage)
 	}
@@ -2310,19 +2284,13 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 		attempt.WillRetry {
 		t.Fatalf("attempt = %#v, want read-only downstream_cancel/terminate", attempt)
 	}
-	if selectedDialect.classifyCalls != 0 {
-		t.Fatalf(
-			"health classifier calls = %d, canceled early branch must not judge again",
-			selectedDialect.classifyCalls,
-		)
-	}
 	if runtimeRegistry.cooldownCalls != 0 ||
 		runtimeRegistry.incrFailureCalls != 0 ||
 		runtimeRegistry.blacklistCalls != 0 ||
 		runtimeRegistry.clearCalls != 0 {
 		t.Fatalf("Registry side effects = %#v", runtimeRegistry)
 	}
-	if got := stats.Snapshot(1, time.Now()); got != (health.KeyStats{}) {
+	if got := stats.Snapshot(1, time.Now()); got != (health.CredentialStats{}) {
 		t.Fatalf("StatsStore side effects = %#v", got)
 	}
 }
@@ -2438,7 +2406,7 @@ func TestHandlerPrioritizesClientCancellationOverDownstreamWriteFailure(t *testi
 				event.StatusCode != test.wantHTTP ||
 				event.UpstreamModel != "gpt-4o" ||
 				event.Usage.GroupID != 1 ||
-				event.Usage.KeyID != 1 ||
+				event.Usage.CredentialID != 1 ||
 				event.Usage.AttemptSequence != 1 {
 				t.Fatalf(
 					"event status/code/http = %q/%q/%d, want %q/%q/%d with route attribution: %#v",
@@ -2455,82 +2423,6 @@ func TestHandlerPrioritizesClientCancellationOverDownstreamWriteFailure(t *testi
 	}
 }
 
-func TestForwarderRedactsResolvedCredentialSecretsBeforeClassification(t *testing.T) {
-	const (
-		apiKey           = "opaque-provider-secret"
-		authorization    = "Token " + apiKey
-		apiKeyHeader     = "Secondary " + apiKey
-		customRule       = "opaque  literal\tvalue"
-		ordinaryEncoding = "gzip"
-		disallowedBody   = "resolved-opaque-disallowed"
-	)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		writer.WriteHeader(http.StatusBadRequest)
-		message := strings.Join(
-			[]string{apiKey, authorization, apiKeyHeader, customRule, ordinaryEncoding},
-			" ",
-		)
-		_, _ = writer.Write([]byte(
-			`{"error":{"message":` + strconv.Quote(message) +
-				`},"debug":"` + disallowedBody + `"}`,
-		))
-	}))
-	defer server.Close()
-
-	input := ForwardInput{
-		Dialect: dialect.NewOpenAI(http.DefaultClient),
-		Group: state.GroupView{
-			UpstreamURL: server.URL,
-			HeaderRules: state.HeaderRules{Set: map[string]string{
-				"Authorization":   "Token ${API_KEY}",
-				"Api-Key":         "Secondary ${API_KEY}",
-				"X-Custom-Rule":   customRule,
-				"Accept-Encoding": ordinaryEncoding,
-			}},
-		},
-		APIKey: apiKey,
-		Request: &dialect.ParsedRequest{
-			Method: http.MethodPost,
-			Path:   "/v1/chat/completions",
-			Header: make(http.Header),
-			Body:   []byte(`{"model":"gpt-4o"}`),
-		},
-	}
-	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
-	result := forwarder.Forward(context.Background(), input)
-
-	for _, secret := range []string{apiKey, authorization, apiKeyHeader} {
-		if strings.Contains(string(result.ClassificationBody), secret) ||
-			strings.Contains(result.ErrorSummary, secret) {
-			t.Fatalf("resolved credential %q leaked: %#v", secret, result)
-		}
-	}
-	classificationSummary := allowedErrorSummary(result.ClassificationBody)
-	for _, ordinary := range []string{customRule, ordinaryEncoding} {
-		if !strings.Contains(classificationSummary, ordinary) {
-			t.Fatalf(
-				"ordinary HeaderRule value %q was changed in ClassificationBody summary %q: %#v",
-				ordinary,
-				classificationSummary,
-				result,
-			)
-		}
-		if strings.Contains(result.ErrorSummary, ordinary) {
-			t.Fatalf("ErrorSummary leaked HeaderRules value %q: %#v", ordinary, result)
-		}
-	}
-	if strings.Contains(result.ErrorSummary, "opaque literal value") {
-		t.Fatalf("ErrorSummary leaked normalized HeaderRules value: %#v", result)
-	}
-	if result.ErrorSummary == "" || !strings.Contains(result.ErrorSummary, redact.Placeholder) {
-		t.Fatalf("ErrorSummary = %q, want non-empty redacted allowed-path summary", result.ErrorSummary)
-	}
-	if strings.Contains(result.ErrorSummary, disallowedBody) {
-		t.Fatalf("ErrorSummary used disallowed JSON path: %q", result.ErrorSummary)
-	}
-}
-
 func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries(t *testing.T) {
 	const (
 		apiKey           = "fake-recorder-provider-key"
@@ -2538,15 +2430,15 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 		ordinaryEncoding = "gzip"
 	)
 	selection := scheduler.Selection{
-		GroupID: 11,
+		GroupID: 11, ChannelID: channel.OpenAI, CredentialID: 21,
+		RouteMode: channel.RouteNative,
 		Group: state.GroupView{
-			ID: 11,
+			ID: 11, ChannelID: channel.OpenAI,
 			HeaderRules: state.HeaderRules{Set: map[string]string{
 				"X-Custom":        customRule,
 				"Accept-Encoding": ordinaryEncoding,
 			}},
 		},
-		KeyID: 21,
 	}
 	for _, test := range []struct {
 		name   string
@@ -2563,7 +2455,7 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 			record: func(recorder *requestRecorder, result UpstreamResult) int {
 				return recorder.recordAttempt(
 					selection,
-					apiKey,
+					[]string{apiKey},
 					result,
 					health.Result{
 						Category: health.FailureCategoryClientError,
@@ -2595,7 +2487,7 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 			record: func(recorder *requestRecorder, result UpstreamResult) int {
 				return recorder.recordStreamAttempt(
 					selection,
-					apiKey,
+					[]string{apiKey},
 					result,
 					time.Unix(100, 0),
 					time.Unix(101, 0),
@@ -2649,14 +2541,14 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 func TestRequestRecorderPreservesFixedTerminalSummariesWithShortHeaderRuleLiteral(t *testing.T) {
 	const shortLiteral = "a"
 	selection := scheduler.Selection{
-		GroupID: 11,
+		GroupID: 11, ChannelID: channel.OpenAI, CredentialID: 21,
+		RouteMode: channel.RouteNative,
 		Group: state.GroupView{
-			ID: 11,
+			ID: 11, ChannelID: channel.OpenAI,
 			HeaderRules: state.HeaderRules{Set: map[string]string{
 				"X-Short": shortLiteral,
 			}},
 		},
-		KeyID: 21,
 	}
 	sink := &recordingRequestLogSink{}
 	recorder := newRequestRecorder(
@@ -2676,7 +2568,7 @@ func TestRequestRecorderPreservesFixedTerminalSummariesWithShortHeaderRuleLitera
 	}
 	attempt := recorder.recordStreamAttempt(
 		selection,
-		"fake-fixed-summary-provider-key",
+		[]string{"fake-fixed-summary-provider-key"},
 		result,
 		time.Unix(100, 0),
 		time.Unix(101, 0),
@@ -2702,15 +2594,15 @@ func TestRequestRecorderPreservesFixedTerminalSummariesWithShortHeaderRuleLitera
 func TestRequestRecorderPreservesProviderErrorFixedSummaryWithOrdinaryHeaderRules(t *testing.T) {
 	const marker = "rate_limit_error"
 	selection := scheduler.Selection{
-		GroupID: 11,
+		GroupID: 11, ChannelID: channel.OpenAI, CredentialID: 21,
+		RouteMode: channel.RouteNative,
 		Group: state.GroupView{
-			ID: 11,
+			ID: 11, ChannelID: channel.OpenAI,
 			HeaderRules: state.HeaderRules{Set: map[string]string{
 				"X-Ordinary-Marker": marker,
 				"X-Short-Literal":   "a",
 			}},
 		},
-		KeyID: 21,
 	}
 	sink := &recordingRequestLogSink{}
 	recorder := newRequestRecorder(
@@ -2731,12 +2623,12 @@ func TestRequestRecorderPreservesProviderErrorFixedSummaryWithOrdinaryHeaderRule
 	}
 	decision := health.Result{
 		Category: health.FailureCategoryRateLimited,
-		Action:   health.ActionCooldownKey,
+		Action:   health.ActionCooldownCredential,
 	}
 
 	recorder.recordAttempt(
 		selection,
-		"fake-provider-fixed-summary-key",
+		[]string{"fake-provider-fixed-summary-key"},
 		result,
 		decision,
 		time.Unix(100, 0),

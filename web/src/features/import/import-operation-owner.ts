@@ -3,7 +3,7 @@ import { inject, readonly, ref, watch, type InjectionKey } from 'vue'
 import type {
   GroupCreateRequest,
   GroupCreateResult,
-  GroupKeyImportResult,
+  CredentialImportResult,
 } from '@/app/resources/groups'
 import { registerEphemeralStateCleaner } from '@/app/ephemeral-state'
 
@@ -15,9 +15,9 @@ export interface CreateGroupImportOperationPayload {
   draft: ImportDraft
 }
 
-export interface ImportKeysOperationPayload {
+export interface ImportCredentialsOperationPayload {
   groupID: number
-  keys: string
+  credentials: string
   draft: ImportRecoveryDraft
 }
 
@@ -26,11 +26,14 @@ export function createImportOperationOwner() {
     CreateGroupImportOperationPayload,
     GroupCreateResult
   >()
-  const importKeys = useStableImportOperation<ImportKeysOperationPayload, GroupKeyImportResult>()
+  const importCredentials = useStableImportOperation<
+    ImportCredentialsOperationPayload,
+    CredentialImportResult
+  >()
   const operationMode = ref<'new' | 'existing' | null>(null)
 
   const stopOperationWatch = watch(
-    [createGroup.operation, importKeys.operation],
+    [createGroup.operation, importCredentials.operation],
     ([createOperation, importOperation]) => {
       if (!createOperation && !importOperation) operationMode.value = null
     },
@@ -38,27 +41,27 @@ export function createImportOperationOwner() {
   )
 
   function beginCreate(request: GroupCreateRequest, draft: ImportDraft) {
-    if (importKeys.operation.value) return null
+    if (importCredentials.operation.value) return null
     const operation = createGroup.begin({ request, draft })
     operationMode.value = 'new'
     return operation
   }
 
-  function beginImportKeys(
-    payload: { groupID: number; keys: string },
+  function beginImportCredentials(
+    payload: { groupID: number; credentials: string },
     mode: 'new' | 'existing',
     draft: ImportRecoveryDraft,
   ) {
     if (createGroup.operation.value) return null
-    if (importKeys.operation.value && operationMode.value !== mode) return null
-    const operation = importKeys.begin({ ...payload, draft })
+    if (importCredentials.operation.value && operationMode.value !== mode) return null
+    const operation = importCredentials.begin({ ...payload, draft })
     operationMode.value = mode
     return operation
   }
 
   function clear(): void {
     createGroup.reset()
-    importKeys.reset()
+    importCredentials.reset()
     operationMode.value = null
   }
 
@@ -69,10 +72,10 @@ export function createImportOperationOwner() {
 
   return {
     createGroup,
-    importKeys,
+    importCredentials,
     operationMode: readonly(operationMode),
     beginCreate,
-    beginImportKeys,
+    beginImportCredentials,
     clear,
     dispose,
   }

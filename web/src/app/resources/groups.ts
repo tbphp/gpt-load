@@ -2,8 +2,9 @@ import { keepPreviousData, queryOptions, type QueryClient } from '@tanstack/vue-
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
-import { enabledDataProtocols } from '@/api/control/protocols'
 import type {
+  ChannelParamsDto,
+  CredentialCounts,
   GroupCollectionFilters,
   GroupCollectionItemDto,
   GroupCollectionPaginationDto,
@@ -13,18 +14,13 @@ import type {
   GroupModelItemDto,
   GroupModelsDto,
   GroupOptionDto,
-  GroupProtocol,
   GroupSettingsDto,
   GroupSummaryDto,
-  KeyCounts,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeGroupCollectionFilters } from '@/app/query-keys'
-import {
-  projectModelCandidate,
-  projectProviderID,
-  type ModelCandidate,
-} from '@/app/resources/providers'
+import { projectModelCandidate, type ModelCandidate } from '@/app/resources/providers'
+import { projectChannelID } from '@/app/resources/channels'
 
 import {
   assertNoSecretLikeFields,
@@ -32,7 +28,6 @@ import {
   projectBoolean,
   projectEpochMilliseconds,
   projectEnum,
-  projectHTTPURL,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -41,18 +36,16 @@ import {
 const groupSummaryFields = [
   'id',
   'name',
-  'provider_id',
+  'channel_id',
+  'params',
   'service_status',
-  'upstream_url',
-  'protocols',
-  'key_count',
+  'credential_count',
   'model_count',
 ] as const
 const groupSettingsFields = [
   'name',
-  'provider_id',
-  'upstream_url',
-  'protocols',
+  'channel_id',
+  'params',
   'validation_model',
   'enabled',
   'weight_manual',
@@ -72,16 +65,15 @@ const groupCollectionSummaryFields = ['total', 'available', 'unavailable', 'disa
 const groupCollectionItemFields = [
   'id',
   'name',
-  'provider_id',
+  'channel_id',
+  'params',
   'status',
-  'upstream_url',
-  'protocols',
   'model_count',
-  'key_counts',
+  'credential_counts',
 ] as const
 const groupCollectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
-const groupOptionFields = ['id', 'name', 'enabled', 'protocols', 'models'] as const
-const keyCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
+const groupOptionFields = ['id', 'name', 'channel_id', 'params', 'enabled', 'models'] as const
+const credentialCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
 const groupCollectionStatuses = ['available', 'unavailable', 'disabled'] as const
 const runtimeSettingFields = [
   'connect_timeout',
@@ -124,9 +116,7 @@ export type {
 
 export type GroupSettingsUpdateRequest = Partial<{
   name: string
-  provider_id: string | null
-  upstream_url: string
-  protocols: GroupProtocol[]
+  params: ChannelParamsDto
   validation_model: string | null
   enabled: boolean
   weight_manual: number | null
@@ -143,10 +133,9 @@ export interface GroupInUseData {
 }
 
 export interface ModelDiscoveryRequest {
-  provider_id: string | null
-  upstream_url: string
-  protocols: readonly GroupProtocol[]
-  keys: string
+  channel_id: string
+  params: ChannelParamsDto
+  credentials: string
 }
 
 export interface ModelDiscoveryResult {
@@ -165,32 +154,31 @@ export interface GroupModelsReplaceRequest {
 
 export interface GroupCreateRequest {
   name?: string
-  provider_id: string | null
-  upstream_url: string
-  protocols: readonly GroupProtocol[]
+  channel_id: string
+  params: ChannelParamsDto
   models: GroupModelUpdateDto[]
-  keys: string
-  confirm_same_upstream_url: boolean
+  credentials: string
+  confirm_same_target: boolean
 }
 
 export interface GroupCreateResult {
   group_id: number
   group_name: string
-  keys_added: number
-  keys_duplicated: number
+  credentials_added: number
+  credentials_duplicated: number
 }
 
-export interface GroupKeyImportRequest {
-  keys: string
+export interface CredentialImportRequest {
+  credentials: string
 }
 
-export interface GroupKeyImportResult {
+export interface CredentialImportResult {
   group_id: number
-  keys_added: number
-  keys_duplicated: number
+  credentials_added: number
+  credentials_duplicated: number
 }
 
-export interface UpstreamUrlConflictData {
+export interface SameTargetConflictData {
   groups: Array<{ id: number; name: string }>
 }
 
@@ -200,8 +188,14 @@ function projectNonBlankString(value: unknown): string {
   return result
 }
 
-function projectNullableProviderID(value: unknown): string | null {
-  return value === null ? null : projectProviderID(value)
+function projectChannelParams(value: unknown): ChannelParamsDto {
+  const record = projectRecord(value)
+  const params: ChannelParamsDto = {}
+  for (const [key, paramValue] of Object.entries(record)) {
+    if (key !== key.trim() || !/^[a-z][a-z0-9_]*$/u.test(key)) throw new InvalidResponseError()
+    params[key] = projectString(paramValue)
+  }
+  return params
 }
 
 function projectHeaderRules(value: unknown): HeaderRulesDto {
@@ -251,18 +245,13 @@ function projectRuntimeConfig(
 export function projectGroupSummary(value: unknown): GroupSummaryDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupSummaryFields)
-  const protocols = projectArray(record.protocols, (protocol) =>
-    projectEnum(protocol, enabledDataProtocols),
-  )
-  if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
-    provider_id: projectNullableProviderID(record.provider_id),
+    channel_id: projectChannelID(record.channel_id),
+    params: projectChannelParams(record.params),
     service_status: projectEnum(record.service_status, groupCollectionStatuses),
-    upstream_url: projectHTTPURL(record.upstream_url),
-    protocols,
-    key_count: projectSafeInteger(record.key_count, { minimum: 0 }),
+    credential_count: projectSafeInteger(record.credential_count, { minimum: 0 }),
     model_count: projectSafeInteger(record.model_count, { minimum: 0 }),
   }
 }
@@ -270,15 +259,10 @@ export function projectGroupSummary(value: unknown): GroupSummaryDto {
 export function projectGroupSettings(value: unknown): GroupSettingsDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupSettingsFields)
-  const protocols = projectArray(record.protocols, (protocol) =>
-    projectEnum(protocol, enabledDataProtocols),
-  )
-  if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
   return {
     name: projectNonBlankString(record.name),
-    provider_id: projectNullableProviderID(record.provider_id),
-    upstream_url: projectHTTPURL(record.upstream_url),
-    protocols,
+    channel_id: projectChannelID(record.channel_id),
+    params: projectChannelParams(record.params),
     validation_model:
       record.validation_model === null ? null : projectNonBlankString(record.validation_model),
     enabled: projectBoolean(record.enabled),
@@ -327,9 +311,9 @@ export function projectGroupModels(value: unknown): GroupModelsDto {
   return { items, total, pending }
 }
 
-function projectKeyCounts(value: unknown): KeyCounts {
+function projectCredentialCounts(value: unknown): CredentialCounts {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, keyCountFields)
+  assertNoSecretLikeFields(record, credentialCountFields)
   const result = {
     total: projectSafeInteger(record.total, { minimum: 0 }),
     available: projectSafeInteger(record.available, { minimum: 0 }),
@@ -361,31 +345,20 @@ function projectGroupCollectionSummary(value: unknown): GroupCollectionSummaryDt
 function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupCollectionItemFields)
-  const protocols = projectArray(record.protocols, (protocol) =>
-    projectEnum(protocol, enabledDataProtocols),
-  )
-  if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
   const status = projectEnum(record.status, groupCollectionStatuses) as GroupCollectionStatus
-  const keyCounts = projectKeyCounts(record.key_counts)
+  const credentialCounts = projectCredentialCounts(record.credential_counts)
   const modelCount = projectSafeInteger(record.model_count, { minimum: 0 })
-  const hasRoutableRequest = modelCount > 0 || protocols.includes('openai-responses')
-  const routeAvailable = keyCounts.available > 0 && hasRoutableRequest
-  if (
-    (status === 'available' && !routeAvailable) ||
-    (status === 'unavailable' && routeAvailable) ||
-    (status === 'disabled' && keyCounts.disabled !== keyCounts.total)
-  ) {
+  if (status === 'disabled' && credentialCounts.disabled !== credentialCounts.total) {
     throw new InvalidResponseError()
   }
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
-    provider_id: projectNullableProviderID(record.provider_id),
+    channel_id: projectChannelID(record.channel_id),
+    params: projectChannelParams(record.params),
     status,
-    upstream_url: projectHTTPURL(record.upstream_url),
-    protocols,
     model_count: modelCount,
-    key_counts: keyCounts,
+    credential_counts: credentialCounts,
   }
 }
 
@@ -439,19 +412,14 @@ export function projectGroupCollection(value: unknown): GroupCollectionResponseD
 function projectGroupOption(value: unknown): GroupOptionDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupOptionFields)
-  const protocols = projectArray(record.protocols, (protocol) =>
-    projectEnum(protocol, enabledDataProtocols),
-  )
-  if (protocols.length === 0 || new Set(protocols).size !== protocols.length) {
-    throw new InvalidResponseError()
-  }
   const models = projectArray(record.models, projectNonBlankString)
   if (new Set(models).size !== models.length) throw new InvalidResponseError()
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
+    channel_id: projectChannelID(record.channel_id),
+    params: projectChannelParams(record.params),
     enabled: projectBoolean(record.enabled),
-    protocols,
     models,
   }
 }
@@ -474,22 +442,27 @@ function projectDiscoveryResult(value: unknown): ModelDiscoveryResult {
 
 function projectGroupCreateResult(value: unknown): GroupCreateResult {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['group_id', 'group_name', 'keys_added', 'keys_duplicated'])
+  assertNoSecretLikeFields(record, [
+    'group_id',
+    'group_name',
+    'credentials_added',
+    'credentials_duplicated',
+  ])
   return {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
-    keys_added: projectSafeInteger(record.keys_added, { minimum: 0 }),
-    keys_duplicated: projectSafeInteger(record.keys_duplicated, { minimum: 0 }),
+    credentials_added: projectSafeInteger(record.credentials_added, { minimum: 0 }),
+    credentials_duplicated: projectSafeInteger(record.credentials_duplicated, { minimum: 0 }),
   }
 }
 
-function projectGroupKeyImportResult(value: unknown): GroupKeyImportResult {
+function projectCredentialImportResult(value: unknown): CredentialImportResult {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['group_id', 'keys_added', 'keys_duplicated'])
+  assertNoSecretLikeFields(record, ['group_id', 'credentials_added', 'credentials_duplicated'])
   return {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
-    keys_added: projectSafeInteger(record.keys_added, { minimum: 0 }),
-    keys_duplicated: projectSafeInteger(record.keys_duplicated, { minimum: 0 }),
+    credentials_added: projectSafeInteger(record.credentials_added, { minimum: 0 }),
+    credentials_duplicated: projectSafeInteger(record.credentials_duplicated, { minimum: 0 }),
   }
 }
 
@@ -502,7 +475,7 @@ function projectIDName(value: unknown): { id: number; name: string } {
   }
 }
 
-export function isUpstreamUrlConflictData(value: unknown): value is UpstreamUrlConflictData {
+export function isSameTargetConflictData(value: unknown): value is SameTargetConflictData {
   try {
     const record = projectRecord(value)
     const groups = projectArray(record.groups, projectIDName)
@@ -534,7 +507,6 @@ export async function listGroupCollection(
   params.set('page_size', String(normalized.page_size))
   if (normalized.q !== undefined) params.set('q', normalized.q)
   if (normalized.status !== undefined) params.set('status', normalized.status)
-  if (normalized.protocol !== undefined) params.set('protocol', normalized.protocol)
   const result = projectGroupCollection(
     await client.request(`/api/groups?${params.toString()}`, { method: 'GET', signal }),
   )
@@ -765,10 +737,6 @@ export async function invalidateGroupSummary(
       queryKey: controlQueryKeys.models.all,
       refetchType: 'none',
     }),
-    queryClient.invalidateQueries({
-      queryKey: controlQueryKeys.providers.modelsAll(),
-      refetchType: 'none',
-    }),
   ])
 }
 
@@ -789,7 +757,7 @@ export async function invalidateGroupSettingsDependents(
       refetchType: 'active',
     }),
     queryClient.invalidateQueries({
-      queryKey: controlQueryKeys.groups.keysAll(groupID),
+      queryKey: controlQueryKeys.groups.credentialsAll(groupID),
       refetchType: 'active',
     }),
     queryClient.invalidateQueries({
@@ -807,10 +775,6 @@ export async function invalidateGroupSettingsDependents(
     }),
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.models.all,
-      refetchType: 'active',
-    }),
-    queryClient.invalidateQueries({
-      queryKey: controlQueryKeys.providers.modelsAll(),
       refetchType: 'active',
     }),
   ])
@@ -832,7 +796,10 @@ export function clearGroupResourceCaches(queryClient: QueryClient, groupID: numb
   queryClient.removeQueries({ queryKey: controlQueryKeys.groups.summary(groupID), exact: true })
   queryClient.removeQueries({ queryKey: controlQueryKeys.groups.models(groupID), exact: true })
   queryClient.removeQueries({ queryKey: controlQueryKeys.groups.settings(groupID), exact: true })
-  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.keysAll(groupID), exact: false })
+  queryClient.removeQueries({
+    queryKey: controlQueryKeys.groups.credentialsAll(groupID),
+    exact: false,
+  })
 }
 
 export async function createGroup(
@@ -851,15 +818,15 @@ export async function createGroup(
   )
 }
 
-export async function importGroupKeys(
+export async function importGroupCredentials(
   client: ApiClient,
   groupID: number,
-  body: GroupKeyImportRequest,
+  body: CredentialImportRequest,
   idempotencyKey: string,
   signal?: AbortSignal,
-): Promise<GroupKeyImportResult> {
-  return projectGroupKeyImportResult(
-    await client.request(`/api/groups/${groupID}/keys/import`, {
+): Promise<CredentialImportResult> {
+  return projectCredentialImportResult(
+    await client.request(`/api/groups/${groupID}/credentials/import`, {
       method: 'POST',
       headers: { 'Idempotency-Key': idempotencyKey },
       json: body,

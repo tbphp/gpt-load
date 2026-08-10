@@ -84,9 +84,7 @@ const displayedRange = computed(
 )
 const isEmpty = computed(() => {
   const inventory = baseQuery.data.value?.inventory
-  return (
-    inventory !== undefined && inventory.group_count === 0 && inventory.upstream_key_count === 0
-  )
+  return inventory !== undefined && inventory.group_count === 0 && inventory.credential_count === 0
 })
 const selectedAccessKeyID = computed(() => {
   const accessKeys = baseQuery.data.value?.access_keys ?? []

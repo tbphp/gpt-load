@@ -101,11 +101,11 @@ func TestBuildContainerExposesUnifiedRouteCatalog(t *testing.T) {
 		},
 		{
 			ModuleName: "control",
-			RouteName:  "control.group-keys.reveal",
+			RouteName:  "control.group-credentials.reveal",
 			Owner:      httproute.OwnerControl,
 			Auth:       httproute.AuthControl,
 			Methods:    []string{http.MethodPost},
-			Path:       "/api/groups/:group_id/keys/:key_id/reveal",
+			Path:       "/api/groups/:group_id/credentials/:credential_id/reveal",
 		},
 		{
 			ModuleName: "control",

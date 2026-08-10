@@ -21,7 +21,7 @@ func TestInspectRequestCapturesExplicitReasoningConfiguration(t *testing.T) {
 	}{
 		{
 			name:  "OpenAI completions effort",
-			value: NewOpenAI(http.DefaultClient),
+			value: NewOpenAI(),
 			request: &ParsedRequest{
 				Body: []byte(`{"model":"gpt-5","reasoning_effort":"HIGH"}`),
 			},
@@ -29,7 +29,7 @@ func TestInspectRequestCapturesExplicitReasoningConfiguration(t *testing.T) {
 		},
 		{
 			name:  "OpenAI Responses mode and effort",
-			value: NewOpenAIResponses(http.DefaultClient),
+			value: NewOpenAIResponses(),
 			request: &ParsedRequest{
 				Method: http.MethodPost,
 				Path:   "/v1/responses",
@@ -39,7 +39,7 @@ func TestInspectRequestCapturesExplicitReasoningConfiguration(t *testing.T) {
 		},
 		{
 			name:  "Anthropic adaptive effort",
-			value: NewAnthropic(http.DefaultClient),
+			value: NewAnthropic(),
 			request: &ParsedRequest{
 				Body: []byte(`{"model":"claude-sonnet-4-6","thinking":{"type":"adaptive"},"output_config":{"effort":"HIGH"}}`),
 			},
@@ -47,7 +47,7 @@ func TestInspectRequestCapturesExplicitReasoningConfiguration(t *testing.T) {
 		},
 		{
 			name:  "Anthropic manual budget",
-			value: NewAnthropic(http.DefaultClient),
+			value: NewAnthropic(),
 			request: &ParsedRequest{
 				Body: []byte(`{"model":"claude-sonnet-4-5","thinking":{"type":"enabled","budget_tokens":4096}}`),
 			},
@@ -55,7 +55,7 @@ func TestInspectRequestCapturesExplicitReasoningConfiguration(t *testing.T) {
 		},
 		{
 			name:  "Gemini level and dynamic budget",
-			value: NewGemini(http.DefaultClient),
+			value: NewGemini(),
 			request: &ParsedRequest{
 				Path: "/v1beta/models/gemini-3-flash:generateContent",
 				Body: []byte(`{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH","thinkingBudget":-1}}}`),
@@ -88,12 +88,12 @@ func TestInspectRequestIgnoresInvalidReasoningMetadata(t *testing.T) {
 	}{
 		{
 			name:    "OpenAI completions wrong effort type",
-			value:   NewOpenAI(http.DefaultClient),
+			value:   NewOpenAI(),
 			request: &ParsedRequest{Body: []byte(`{"model":"gpt-5","reasoning_effort":3}`)},
 		},
 		{
 			name:  "OpenAI Responses unknown reasoning object",
-			value: NewOpenAIResponses(http.DefaultClient),
+			value: NewOpenAIResponses(),
 			request: &ParsedRequest{
 				Method: http.MethodPost,
 				Path:   "/v1/responses",
@@ -102,13 +102,13 @@ func TestInspectRequestIgnoresInvalidReasoningMetadata(t *testing.T) {
 		},
 		{
 			name:    "Anthropic wrong budget type",
-			value:   NewAnthropic(http.DefaultClient),
+			value:   NewAnthropic(),
 			request: &ParsedRequest{Body: []byte(`{"model":"claude-sonnet-4-5","thinking":{"type":"enabled","budget_tokens":"4096"}}`)},
 			want:    reasoning.Config{Mode: "enabled"},
 		},
 		{
 			name:  "Gemini invalid body remains pass through metadata",
-			value: NewGemini(http.DefaultClient),
+			value: NewGemini(),
 			request: &ParsedRequest{
 				Path: "/v1beta/models/gemini-3-flash:generateContent",
 				Body: []byte("{"),

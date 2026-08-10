@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage/models"
 )
@@ -18,9 +19,16 @@ func TestGroupDetailLedgerRoutesReplaceLegacyContracts(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
-	groupID := createGroupForKeyImport(t, fixture, "sk-ledger-route")
-	var key models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Take(&key).Error; err != nil {
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("credential-ledger-route"), ChannelID: channel.OpenAI,
+		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true}, Credentials: "sk-ledger-route",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := created.GroupID
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&credential).Error; err != nil {
 		t.Fatal(err)
 	}
 	engine := gin.New()
@@ -47,10 +55,10 @@ func TestGroupDetailLedgerRoutesReplaceLegacyContracts(t *testing.T) {
 		{name: "models put", method: http.MethodPut, path: fmt.Sprintf("/api/groups/%d/models", groupID), body: `{}`},
 		{name: "settings get", method: http.MethodGet, path: fmt.Sprintf("/api/groups/%d/settings", groupID)},
 		{name: "settings put", method: http.MethodPut, path: fmt.Sprintf("/api/groups/%d/settings", groupID), body: `{}`},
-		{name: "keys collection", method: http.MethodGet, path: fmt.Sprintf("/api/groups/%d/keys", groupID)},
-		{name: "key update", method: http.MethodPut, path: fmt.Sprintf("/api/groups/%d/keys/%d", groupID, key.ID), body: `{}`},
-		{name: "key restore", method: http.MethodPost, path: fmt.Sprintf("/api/groups/%d/keys/%d/restore", groupID, key.ID), body: `{}`},
-		{name: "key batch", method: http.MethodPost, path: fmt.Sprintf("/api/groups/%d/keys/batch", groupID), body: `{}`},
+		{name: "credentials collection", method: http.MethodGet, path: fmt.Sprintf("/api/groups/%d/credentials", groupID)},
+		{name: "credential update", method: http.MethodPut, path: fmt.Sprintf("/api/groups/%d/credentials/%d", groupID, credential.ID), body: `{}`},
+		{name: "credential restore", method: http.MethodPost, path: fmt.Sprintf("/api/groups/%d/credentials/%d/restore", groupID, credential.ID), body: `{}`},
+		{name: "credential batch", method: http.MethodPost, path: fmt.Sprintf("/api/groups/%d/credentials/batch", groupID), body: `{}`},
 	}
 	for _, route := range canonical {
 		t.Run(route.name+" requires authentication", func(t *testing.T) {
@@ -77,7 +85,7 @@ func TestGroupDetailLedgerRoutesReplaceLegacyContracts(t *testing.T) {
 		t,
 		engine,
 		http.MethodPut,
-		fmt.Sprintf("/api/groups/%d/keys/%d", groupID, key.ID),
+		fmt.Sprintf("/api/groups/%d/credentials/%d", groupID, credential.ID),
 		`{"weight_manual":25}`,
 		"Bearer test-auth-key",
 	)
@@ -89,19 +97,19 @@ func TestGroupDetailLedgerRoutesReplaceLegacyContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, field := range []string{
-		"id", "mask", "configured_status", "effective_status", "weight_mode", "weight",
+		"credential_id", "mask", "configured_status", "effective_status", "weight_mode", "weight",
 		"recent_success_count", "recent_failure_count", "consecutive_failure_count",
 		"last_failure_category", "last_status_code", "cooldown_until_ms", "recovery",
 	} {
 		if _, exists := envelope.Data[field]; !exists {
-			t.Fatalf("updated key missing ledger field %q: %s", field, updated.Body.String())
+			t.Fatalf("updated credential missing ledger field %q: %s", field, updated.Body.String())
 		}
 	}
 	for _, field := range []string{
 		"group_id", "status", "weight_manual", "weight_auto", "blacklisted", "failure_count",
 	} {
 		if _, exists := envelope.Data[field]; exists {
-			t.Fatalf("updated key exposes legacy field %q: %s", field, updated.Body.String())
+			t.Fatalf("updated credential exposes legacy field %q: %s", field, updated.Body.String())
 		}
 	}
 
@@ -109,7 +117,7 @@ func TestGroupDetailLedgerRoutesReplaceLegacyContracts(t *testing.T) {
 		t,
 		engine,
 		http.MethodPut,
-		fmt.Sprintf("/api/groups/%d/keys/%d", groupID, key.ID),
+		fmt.Sprintf("/api/groups/%d/credentials/%d", groupID, credential.ID),
 		`{"weight_manual":0}`,
 		"Bearer test-auth-key",
 	)

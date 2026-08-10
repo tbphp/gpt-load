@@ -28,11 +28,11 @@ type contextPriceTierJSON struct {
 	CacheWritePriceNanoUSDPerMillionTokens *int64 `json:"cache_write_price_nano_usd_per_million_tokens"`
 }
 
-// ModelPrice stores one catalog or manual global price for an exact upstream
-// model ID. Routing scope never participates in pricing.
+// ModelPrice stores one catalog or manual price for an exact channel/model pair.
 type ModelPrice struct {
 	ID                                     uint   `gorm:"primaryKey;autoIncrement"`
-	ModelID                                string `gorm:"type:varchar(255);not null;uniqueIndex:idx_model_prices_model"`
+	ChannelID                              string `gorm:"type:varchar(64);not null;uniqueIndex:idx_model_prices_channel_model,priority:1"`
+	ModelID                                string `gorm:"type:varchar(255);not null;uniqueIndex:idx_model_prices_channel_model,priority:2"`
 	InputPriceNanoUSDPerMillionTokens      *int64 `gorm:"column:input_price_nano_usd_per_million_tokens;check:chk_model_price_input_nano,input_price_nano_usd_per_million_tokens IS NULL OR input_price_nano_usd_per_million_tokens >= 0"`
 	OutputPriceNanoUSDPerMillionTokens     *int64 `gorm:"column:output_price_nano_usd_per_million_tokens;check:chk_model_price_output_nano,output_price_nano_usd_per_million_tokens IS NULL OR output_price_nano_usd_per_million_tokens >= 0"`
 	CacheReadPriceNanoUSDPerMillionTokens  *int64 `gorm:"column:cache_read_price_nano_usd_per_million_tokens;check:chk_model_price_cache_read_nano,cache_read_price_nano_usd_per_million_tokens IS NULL OR cache_read_price_nano_usd_per_million_tokens >= 0"`

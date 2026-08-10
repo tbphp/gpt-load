@@ -8,24 +8,24 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
 )
 
 func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 	fixture := newServiceFixture(t)
 	createGroupOptionGroup(t, fixture, 20, "later enabled", true,
-		`["openai-completions","gemini"]`,
+		channel.OpenAICompatible, `{"base_url":"https://later-enabled.example/v1"}`,
 		`[{"id":" upstream-first ","alias":" public-first "},{"id":" upstream-second ","alias":"   "}]`,
 	)
 	createGroupOptionGroup(t, fixture, 10, "earlier disabled", false,
-		`["anthropic"]`,
+		channel.Anthropic, `{}`,
 		`[{"id":" upstream-third ","alias":""},{"id":" upstream-fourth ","alias":" public-fourth "}]`,
 	)
-	if err := fixture.db.Create(&models.UpstreamKey{
-		GroupID: 10, KeyValue: "ciphertext-secret", KeyHash: "hash-secret",
-		Status: models.UpstreamKeyStatusActive,
+	if err := fixture.db.Create(&models.Credential{
+		GroupID: 10, Data: "ciphertext-secret", Fingerprint: "hash-secret",
+		Status: models.CredentialStatusActive,
 	}).Error; err != nil {
 		t.Fatalf("create unrelated upstream key: %v", err)
 	}
@@ -34,20 +34,14 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListGroupOptions() error = %v", err)
 	}
-	want := []GroupOption{
-		{
-			ID: 10, Name: "earlier disabled", Enabled: false,
-			Protocols: []protocol.Protocol{protocol.Anthropic},
-			Models:    []string{"upstream-third", "public-fourth"},
-		},
-		{
-			ID: 20, Name: "later enabled", Enabled: true,
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Gemini},
-			Models:    []string{"public-first", "upstream-second"},
-		},
-	}
-	if !reflect.DeepEqual(options, want) {
-		t.Fatalf("ListGroupOptions() = %#v, want %#v", options, want)
+	if len(options) != 2 || options[0].ID != 10 || options[0].Name != "earlier disabled" ||
+		options[0].ChannelID != channel.Anthropic || string(options[0].Params) != `{}` ||
+		options[0].Enabled || !reflect.DeepEqual(options[0].Models, []string{"upstream-third", "public-fourth"}) ||
+		options[1].ID != 20 || options[1].Name != "later enabled" ||
+		options[1].ChannelID != channel.OpenAICompatible ||
+		string(options[1].Params) != `{"base_url":"https://later-enabled.example/v1"}` ||
+		!options[1].Enabled || !reflect.DeepEqual(options[1].Models, []string{"public-first", "upstream-second"}) {
+		t.Fatalf("ListGroupOptions() = %#v, want terminal channel options", options)
 	}
 
 	encoded, err := json.Marshal(options)
@@ -55,7 +49,7 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 		t.Fatalf("json.Marshal(options) error = %v", err)
 	}
 	for _, forbiddenField := range []string{
-		"upstream_url", "key_value", "key_hash", "keyvalue", "keyhash",
+		"upstream_url", "protocols", "key_value", "key_hash", "keyvalue", "keyhash",
 	} {
 		if containsJSONToken(encoded, forbiddenField) {
 			t.Fatalf("options JSON exposes field %q: %s", forbiddenField, encoded)
@@ -71,7 +65,7 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 func TestListGroupOptionsFailsClosedForInvalidDataDatabaseAndCancellation(t *testing.T) {
 	t.Run("invalid models JSON", func(t *testing.T) {
 		fixture := newServiceFixture(t)
-		createGroupOptionGroup(t, fixture, 1, "invalid", true, `["openai-completions"]`, `{"not":"an array"}`)
+		createGroupOptionGroup(t, fixture, 1, "invalid", true, channel.OpenAI, `{}`, `{"not":"an array"}`)
 
 		options, err := fixture.service.ListGroupOptions(t.Context())
 		if options != nil || !errors.Is(err, app_errors.ErrInternalServer) {
@@ -79,14 +73,17 @@ func TestListGroupOptionsFailsClosedForInvalidDataDatabaseAndCancellation(t *tes
 		}
 	})
 
-	for name, rawProtocols := range map[string]string{
-		"invalid protocols JSON": `{"not":"an array"}`,
-		"invalid protocol":       `["openai"]`,
-		"duplicate protocol":     `["anthropic","anthropic"]`,
+	for name, test := range map[string]struct {
+		channelID channel.ID
+		params    string
+	}{
+		"invalid params shape": {channelID: channel.OpenAICompatible, params: `[]`},
+		"invalid params":       {channelID: channel.OpenAICompatible, params: `{"base_url":"relative"}`},
+		"unknown channel":      {channelID: channel.ID("unknown"), params: `{}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fixture := newServiceFixture(t)
-			createGroupOptionGroup(t, fixture, 1, "invalid", true, rawProtocols, `[]`)
+			createGroupOptionGroup(t, fixture, 1, "invalid", true, test.channelID, test.params, `[]`)
 
 			options, err := fixture.service.ListGroupOptions(t.Context())
 			if options != nil || !errors.Is(err, app_errors.ErrInternalServer) {
@@ -129,15 +126,16 @@ func createGroupOptionGroup(
 	id uint,
 	name string,
 	enabled bool,
-	rawProtocols string,
+	channelID channel.ID,
+	rawParams string,
 	rawModels string,
 ) {
 	t.Helper()
 	group := validControlGroup(name)
 	group.ID = id
-	group.Protocols = models.JSON(rawProtocols)
+	group.ChannelID = string(channelID)
+	group.Params = models.JSON(rawParams)
 	group.Models = models.JSON(rawModels)
-	group.UpstreamURL = "https://" + strings.ReplaceAll(name, " ", "-") + ".example/v1"
 	if err := fixture.db.Create(group).Error; err != nil {
 		t.Fatalf("create group %q: %v", name, err)
 	}

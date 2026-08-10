@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyOptionDto, GroupOptionDto } from '@/api/control/types'
+import type { ChannelDto } from '@/app/resources/channels'
 import AppDateTimeRangePicker from '@/components/ui/AppDateTimeRangePicker.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -21,8 +22,10 @@ const props = defineProps<{
   draft: LogFilterDraft
   errors: LogFilterErrors
   groups: GroupOptionDto[]
+  channels: ChannelDto[]
   accessKeys: AccessKeyOptionDto[]
   groupsFailed: boolean
+  channelsFailed: boolean
   accessKeysFailed: boolean
   appliedChips: AppliedChip[]
   advancedCount: number
@@ -161,7 +164,9 @@ function applyAdvanced(): void {
     :draft="draft"
     :errors="errors"
     :access-keys="accessKeys"
+    :channels="channels"
     :access-keys-failed="accessKeysFailed"
+    :channels-failed="channelsFailed"
     :self-scoped="selfScoped"
     @update-field="update"
     @update:open="emit('update:advancedOpen', $event)"

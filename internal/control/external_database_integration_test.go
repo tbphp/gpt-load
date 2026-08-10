@@ -1,13 +1,14 @@
 package control
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"gpt-load/internal/protocol"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/storage/models"
 )
 
@@ -26,13 +27,13 @@ func TestExternalDatabaseGroupPriceReconciliation(t *testing.T) {
 	modelID := fmt.Sprintf("external-control-model-%d", suffix)
 	create := func(name, upstreamURL string) GroupCreateResult {
 		result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-			Name:        &name,
-			UpstreamURL: upstreamURL,
-			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+			Name:      &name,
+			ChannelID: channel.OpenAICompatible,
+			Params:    json.RawMessage(`{"base_url":"` + upstreamURL + `"}`),
 			Models: optionalGroupModels{Set: true, Values: []GroupModel{{
 				ID: modelID,
 			}}},
-			Keys: fmt.Sprintf("sk-external-control-%d", suffix),
+			Credentials: fmt.Sprintf("sk-external-control-%d", suffix),
 		})
 		if err != nil {
 			t.Fatalf("CreateGroup(%q) error = %v", name, err)

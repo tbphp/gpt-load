@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -19,9 +20,9 @@ func TestListGroupCollectionCapturesThenQueries(t *testing.T) {
 	fixture.service.now = func() time.Time { return time.UnixMilli(observedAt) }
 	available := createGroupCollectionGroup(t, fixture, "available", true, nil)
 	disabled := createGroupCollectionGroup(t, fixture, "disabled", false, nil)
-	entries := []state.KeyEntry{
-		createGroupCollectionKey(t, fixture, available.ID, models.UpstreamKeyStatusActive, nil),
-		createGroupCollectionKey(t, fixture, disabled.ID, models.UpstreamKeyStatusActive, nil),
+	entries := []state.CredentialEntry{
+		createGroupCollectionKey(t, fixture, available.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, disabled.ID, models.CredentialStatusActive, nil),
 	}
 	publishGroupCollectionRuntime(t, fixture, entries)
 
@@ -51,8 +52,8 @@ func TestListGroupCollectionQueryDoesNotSearchPersistedModelIDOrAlias(t *testing
 	if err := fixture.db.Model(group).Update("models", group.Models).Error; err != nil {
 		t.Fatalf("update persisted models: %v", err)
 	}
-	entry := createGroupCollectionKey(t, fixture, group.ID, models.UpstreamKeyStatusActive, nil)
-	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{entry})
+	entry := createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil)
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{entry})
 
 	for _, query := range []string{"private-upstream-model", "public-model-alias"} {
 		t.Run(query, func(t *testing.T) {
@@ -114,7 +115,6 @@ func TestGroupCollectionQueryMatchesUnicodeSimpleFoldAndSortsWithIt(t *testing.T
 
 func TestGroupCollectionQueryCombinesFiltersAndSummarizesCompleteCollection(t *testing.T) {
 	available := GroupCollectionStatusAvailable
-	anthropic := protocol.Anthropic
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(1, "Alpha", GroupCollectionStatusAvailable, "https://alpha.example/v1", []protocol.Protocol{protocol.OpenAICompletions}, 1, 100),
 		groupCollectionQueryRecord(2, "Alpha anthropic", GroupCollectionStatusAvailable, "https://alpha.example/v1", []protocol.Protocol{protocol.Anthropic}, 2, 200),
@@ -123,10 +123,10 @@ func TestGroupCollectionQueryCombinesFiltersAndSummarizesCompleteCollection(t *t
 	}
 
 	result := queryGroupCollectionRecords(1_700, records, GroupCollectionQuery{
-		Query: "ALPHA", Status: &available, Protocol: &anthropic,
+		Query: "ALPHA", Status: &available,
 		Sort: GroupCollectionSortName, Page: 1, PageSize: 20,
 	})
-	if got, want := groupCollectionItemIDs(result.Items), []uint{2}; !reflect.DeepEqual(got, want) {
+	if got, want := groupCollectionItemIDs(result.Items), []uint{1, 2}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("combined filter item IDs = %#v, want %#v", got, want)
 	}
 	if got, want := result.Summary, (GroupCollectionSummary{
@@ -154,7 +154,7 @@ func TestGroupCollectionQueryUsesFixedSortsWithIDTieBreak(t *testing.T) {
 	}{
 		{sort: GroupCollectionSortStatus, want: []uint{2, 3, 5, 4, 1}},
 		{sort: GroupCollectionSortName, want: []uint{2, 5, 4, 1, 3}},
-		{sort: GroupCollectionSortKeys, want: []uint{2, 3, 5, 4, 1}},
+		{sort: GroupCollectionSortCredentials, want: []uint{2, 3, 5, 4, 1}},
 		{sort: GroupCollectionSortCreated, want: []uint{5, 4, 3, 2, 1}},
 	}
 	for _, test := range tests {
@@ -196,7 +196,7 @@ func TestGroupCollectionQueryUsesIDTieBreakAfterEachSortPrimaryAndName(t *testin
 		},
 		{
 			name: "keys ascending ID after same keys and name",
-			sort: GroupCollectionSortKeys,
+			sort: GroupCollectionSortCredentials,
 			records: []groupCollectionRecord{
 				groupCollectionQueryRecord(10, "same", GroupCollectionStatusAvailable, "https://ten.example/v1", nil, 5, 100),
 				groupCollectionQueryRecord(9, "same", GroupCollectionStatusDisabled, "https://nine.example/v1", nil, 5, 200),
@@ -300,11 +300,24 @@ func groupCollectionQueryRecord(
 	keys int64,
 	createdAtMS int64,
 ) groupCollectionRecord {
+	channelID := channel.OpenAICompatible
+	for _, selectedProtocol := range protocols {
+		switch selectedProtocol {
+		case protocol.Anthropic:
+			channelID = channel.AnthropicCompatible
+		case protocol.Gemini:
+			channelID = channel.GeminiCompatible
+		}
+	}
+	params, err := json.Marshal(map[string]string{"base_url": upstreamURL})
+	if err != nil {
+		panic(err)
+	}
 	return groupCollectionRecord{
 		GroupCollectionItem: GroupCollectionItem{
-			ID: id, Name: name, Status: status, UpstreamURL: upstreamURL,
-			Protocols: protocols, ModelCount: 7,
-			KeyCounts: GroupCollectionKeyCounts{Total: keys},
+			ID: id, Name: name, Status: status, ChannelID: channelID,
+			Params: params, ModelCount: 7,
+			CredentialCounts: GroupCollectionCredentialCounts{Total: keys},
 		},
 		CreatedAtMS: createdAtMS,
 	}

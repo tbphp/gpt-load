@@ -23,9 +23,9 @@ const (
 type operationKind string
 
 const (
-	operationKindAccessKeyCreate operationKind = "access_key_create"
-	operationKindGroupCreate     operationKind = "group_create"
-	operationKindGroupKeyImport  operationKind = "group_key_import"
+	operationKindAccessKeyCreate  operationKind = "access_key_create"
+	operationKindGroupCreate      operationKind = "group_create"
+	operationKindCredentialImport operationKind = "credential_import"
 )
 
 type idempotencyDigestInput struct {
@@ -104,7 +104,8 @@ func buildIdempotencyDigest(
 
 func (kind operationKind) valid() bool {
 	switch kind {
-	case operationKindAccessKeyCreate, operationKindGroupCreate, operationKindGroupKeyImport:
+	case operationKindAccessKeyCreate, operationKindGroupCreate,
+		operationKindCredentialImport:
 		return true
 	default:
 		return false
@@ -129,7 +130,7 @@ func normalizeIdempotencyKeyLines(raw string) ([]string, error) {
 			continue
 		}
 		lines = append(lines, normalized)
-		if len(lines) > maxUpstreamKeyLines {
+		if len(lines) > maxCredentialLines {
 			return nil, app_errors.ErrValidation
 		}
 	}

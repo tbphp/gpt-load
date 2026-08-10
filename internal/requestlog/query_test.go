@@ -10,6 +10,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -76,7 +78,7 @@ func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
 		Sequence:        1,
 		GroupID:         7,
 		GroupName:       "Primary",
-		KeyID:           11,
+		CredentialID:    11,
 		UpstreamModel:   "model",
 		StatusCode:      200,
 		DurationMs:      10,
@@ -97,6 +99,10 @@ func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
 		if bytes.Contains(encoded, forbidden) {
 			t.Fatalf("decoded attempt retains historical key material %q: %s", forbidden, encoded)
 		}
+	}
+	if bytes.Contains(encoded, []byte(`"key_id"`)) ||
+		!bytes.Contains(encoded, []byte(`"credential_id":11`)) {
+		t.Fatalf("decoded attempt identity JSON = %s, want credential_id only", encoded)
 	}
 }
 
@@ -431,13 +437,13 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 	db := openRequestLogQueryDB(t)
 	event := testEvent("00000000-0000-4000-8000-000000000210")
 	event.Attempts = []telemetry.Attempt{
-		{Sequence: 1, GroupID: 12, GroupName: "retry", KeyID: 1, UpstreamModel: "retry-model", FailureCategory: telemetry.FailureCategoryRateLimited, Action: telemetry.ActionRetry, WillRetry: true},
-		{Sequence: 2, GroupID: 13, GroupName: "final", KeyID: 2, UpstreamModel: "final-model", FailureCategory: telemetry.FailureCategoryOK, Action: telemetry.ActionTerminate},
+		{Sequence: 1, GroupID: 12, GroupName: "retry", ChannelID: channel.OpenAI, CredentialID: 1, Operation: execution.OperationChatCompletion, RouteMode: channel.RouteNative, UpstreamModel: "retry-model", DispatchState: execution.DispatchMaybeSent, FailureCategory: telemetry.FailureCategoryRateLimited, Action: telemetry.ActionRetry, WillRetry: true},
+		{Sequence: 2, GroupID: 13, GroupName: "final", ChannelID: channel.OpenAI, CredentialID: 2, Operation: execution.OperationChatCompletion, RouteMode: channel.RouteNative, UpstreamModel: "final-model", DispatchState: execution.DispatchMaybeSent, FailureCategory: telemetry.FailureCategoryOK, Action: telemetry.ActionTerminate},
 	}
 	event.UpstreamModel = "final-model"
 	event.UpstreamReportedModel = "final-model"
 	event.Usage = telemetry.UsageObservation{
-		GroupID: 13, KeyID: 2, AttemptSequence: 2,
+		GroupID: 13, ChannelID: channel.OpenAI, CredentialID: 2, AttemptSequence: 2,
 		Result: usage.Result{
 			State: usage.StateNotApplicable,
 		},
@@ -476,12 +482,12 @@ func TestServiceListAttemptFiltersMustMatchTheSameAttempt(t *testing.T) {
 		"client-model",
 		[]Attempt{
 			{
-				Sequence: 1, GroupID: 12, GroupName: "retry", KeyID: 1,
+				Sequence: 1, GroupID: 12, GroupName: "retry", CredentialID: 1,
 				StatusCode: 429, FailureCategory: telemetry.FailureCategoryRateLimited,
 				Action: telemetry.ActionRetry, WillRetry: true,
 			},
 			{
-				Sequence: 2, GroupID: 13, GroupName: "final", KeyID: 2,
+				Sequence: 2, GroupID: 13, GroupName: "final", CredentialID: 2,
 				StatusCode: 200, FailureCategory: telemetry.FailureCategoryOK,
 				Action: telemetry.ActionTerminate,
 			},
@@ -523,13 +529,13 @@ func TestServiceListZeroRetryRangeIncludesRequestsWithoutUpstreamAttempts(t *tes
 	)
 	single := requestLogQueryRow(
 		"00000000-0000-4000-8000-000000000213", base.Add(time.Second), 71, "single",
-		[]Attempt{{Sequence: 1, GroupID: 12, GroupName: "single", KeyID: 1}},
+		[]Attempt{{Sequence: 1, GroupID: 12, GroupName: "single", CredentialID: 1}},
 	)
 	retried := requestLogQueryRow(
 		"00000000-0000-4000-8000-000000000214", base.Add(2*time.Second), 71, "retried",
 		[]Attempt{
-			{Sequence: 1, GroupID: 12, GroupName: "retry", KeyID: 1, WillRetry: true},
-			{Sequence: 2, GroupID: 12, GroupName: "final", KeyID: 2},
+			{Sequence: 1, GroupID: 12, GroupName: "retry", CredentialID: 1, WillRetry: true},
+			{Sequence: 2, GroupID: 12, GroupName: "final", CredentialID: 2},
 		},
 	)
 	for _, row := range []models.RequestLog{zero, single, retried} {
@@ -636,7 +642,7 @@ func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 		CompletedAtMS:   row.CompletedAtMS,
 		GroupID:         7,
 		GroupName:       "Primary",
-		KeyID:           9,
+		CredentialID:    9,
 		StatusCode:      200,
 		DurationMs:      10,
 		FailureCategory: string(telemetry.FailureCategoryOK),
@@ -695,9 +701,12 @@ func requestLogQueryRow(
 		if groupID == 0 {
 			groupID = 1
 		}
-		keyID := attempt.KeyID
-		if keyID == 0 {
-			keyID = 1
+		credentialID := attempt.CredentialID
+		if credentialID == 0 {
+			credentialID = attempt.CredentialID
+		}
+		if credentialID == 0 {
+			credentialID = 1
 		}
 		sequence := attempt.Sequence
 		if sequence == 0 {
@@ -712,20 +721,27 @@ func requestLogQueryRow(
 			action = telemetry.ActionTerminate
 		}
 		attemptRows = append(attemptRows, models.RequestLogAttempt{
-			RequestID:       id,
-			Sequence:        sequence,
-			CompletedAtMS:   completedAt.UTC().UnixMilli(),
-			GroupID:         groupID,
-			GroupName:       attempt.GroupName,
-			KeyID:           keyID,
-			UpstreamModel:   attempt.UpstreamModel,
-			StatusCode:      attempt.StatusCode,
-			DurationMs:      attempt.DurationMs,
-			FailureCategory: string(failureCategory),
-			Action:          string(action),
-			WillRetry:       attempt.WillRetry,
-			ErrorCode:       attempt.ErrorCode,
-			ErrorSummary:    attempt.ErrorSummary,
+			RequestID:         id,
+			Sequence:          sequence,
+			CompletedAtMS:     completedAt.UTC().UnixMilli(),
+			GroupID:           groupID,
+			GroupName:         attempt.GroupName,
+			ChannelID:         string(attempt.ChannelID),
+			CredentialID:      credentialID,
+			Operation:         string(attempt.Operation),
+			RouteMode:         string(attempt.RouteMode),
+			UpstreamModel:     attempt.UpstreamModel,
+			UpstreamRequestID: attempt.UpstreamRequestID,
+			DispatchState:     string(attempt.DispatchState),
+			ResponseStarted:   attempt.ResponseStarted,
+			StatusCode:        attempt.StatusCode,
+			DurationMs:        attempt.DurationMs,
+			FailureCategory:   string(failureCategory),
+			Action:            string(action),
+			WillRetry:         attempt.WillRetry,
+			ErrorCode:         attempt.ErrorCode,
+			ErrorSummary:      attempt.ErrorSummary,
+			Committed:         attempt.Committed,
 		})
 	}
 	return models.RequestLog{

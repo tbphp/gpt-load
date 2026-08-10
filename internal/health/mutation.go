@@ -15,24 +15,24 @@ func NewMutationCoordinator() *MutationCoordinator {
 	return &MutationCoordinator{}
 }
 
-func (coordinator *MutationCoordinator) Do(keyID uint, fn func()) {
+func (coordinator *MutationCoordinator) Do(credentialID uint, fn func()) {
 	if fn == nil {
 		return
 	}
-	index := int(keyID % uint(len(coordinator.stripes)))
+	index := int(credentialID % uint(len(coordinator.stripes)))
 	coordinator.stripes[index].Lock()
 	defer coordinator.stripes[index].Unlock()
 	fn()
 }
 
-func (coordinator *MutationCoordinator) DoMany(keyIDs []uint, fn func()) {
+func (coordinator *MutationCoordinator) DoMany(credentialIDs []uint, fn func()) {
 	if fn == nil {
 		return
 	}
-	selected := make(map[int]struct{}, len(keyIDs))
-	indexes := make([]int, 0, len(keyIDs))
-	for _, keyID := range keyIDs {
-		index := int(keyID % uint(len(coordinator.stripes)))
+	selected := make(map[int]struct{}, len(credentialIDs))
+	indexes := make([]int, 0, len(credentialIDs))
+	for _, credentialID := range credentialIDs {
+		index := int(credentialID % uint(len(coordinator.stripes)))
 		if _, exists := selected[index]; exists {
 			continue
 		}

@@ -7,12 +7,12 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import type {
+  CredentialCounts,
   GroupCollectionFilters,
   GroupCollectionSort,
   GroupCollectionStatus,
-  GroupProtocol,
-  KeyCounts,
 } from '@/api/control/types'
+import { channelsQueryOptions } from '@/app/resources/channels'
 import { groupCollectionQueryOptions } from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
 import { useCollectionLoading } from '@/app/loading-state'
@@ -30,7 +30,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import KeyHealthBar from '@/components/ui/KeyHealthBar.vue'
+import CredentialHealthBar from '@/components/ui/CredentialHealthBar.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -45,13 +45,7 @@ import {
   serializeGroupCollectionRouteQuery,
 } from './group-collection-route'
 
-const protocolOptions: readonly GroupProtocol[] = [
-  'openai-completions',
-  'openai-responses',
-  'anthropic',
-  'gemini',
-]
-const sortOptions: readonly GroupCollectionSort[] = ['status', 'name', 'keys', 'created']
+const sortOptions: readonly GroupCollectionSort[] = ['status', 'name', 'credentials', 'created']
 
 const client = useApiClient()
 const route = useRoute()
@@ -60,14 +54,12 @@ const { n, t } = useI18n()
 const filters = computed(() => parseGroupCollectionRouteQuery(route.query))
 const searchDraft = ref(filters.value.q ?? '')
 const groupsQuery = useQuery(groupCollectionQueryOptions(client, filters))
+const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const searchDebounce = useDebouncedAction(250)
 
 const data = computed(() => groupsQuery.data.value)
 const hasFilterCriteria = computed(
-  () =>
-    filters.value.q !== undefined ||
-    filters.value.status !== undefined ||
-    filters.value.protocol !== undefined,
+  () => filters.value.q !== undefined || filters.value.status !== undefined,
 )
 const hasChangedConditions = computed(
   () => hasFilterCriteria.value || filters.value.sort !== 'status',
@@ -88,10 +80,6 @@ const {
   },
   { fallbackRows: 20 },
 )
-const protocolSelectOptions = computed(() => [
-  { value: 'all', label: t('groups.collection.filters.allProtocols') },
-  ...protocolOptions.map((protocol) => ({ value: protocol, label: protocol })),
-])
 const sortSelectOptions = computed(() =>
   sortOptions.map((sort) => ({
     value: sort,
@@ -166,7 +154,7 @@ function routeWithFilters(next: GroupCollectionFilters, replace = false): void {
 }
 
 function updateConditions(
-  patch: Partial<Pick<GroupCollectionFilters, 'q' | 'status' | 'protocol' | 'sort'>>,
+  patch: Partial<Pick<GroupCollectionFilters, 'q' | 'status' | 'sort'>>,
 ): void {
   const q = constrainGroupCollectionSearchQuery(searchDraft.value)
   routeWithFilters({ ...filters.value, q, ...patch, page: 1 })
@@ -188,10 +176,6 @@ function setStatus(status: string | undefined): void {
   updateConditions({ status: status as GroupCollectionStatus | undefined })
 }
 
-function setProtocol(value: string): void {
-  updateConditions({ protocol: value === 'all' ? undefined : (value as GroupProtocol) })
-}
-
 function setSort(value: string): void {
   updateConditions({ sort: value as GroupCollectionSort })
 }
@@ -206,14 +190,21 @@ function setPage(page: number): void {
   routeWithFilters({ ...filters.value, page })
 }
 
-function keyHealthLabel(counts: KeyCounts): string {
-  return t('groups.collection.keyHealthLabel', {
+function credentialHealthLabel(counts: CredentialCounts): string {
+  return t('groups.collection.credentialHealthLabel', {
     total: n(counts.total),
     available: n(counts.available),
     cooldown: n(counts.cooldown),
     blacklisted: n(counts.blacklisted),
     disabled: n(counts.disabled),
   })
+}
+
+function channelName(channelID: string): string {
+  return (
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === channelID)?.name ??
+    channelID
+  )
 }
 </script>
 
@@ -225,7 +216,7 @@ function keyHealthLabel(counts: KeyCounts): string {
           <RouterLink v-slot="{ navigate }" :to="importLocation()" custom>
             <AppButton role="link" @click="navigate">
               <KeyRound :size="16" aria-hidden="true" />
-              {{ t('groups.collection.importKeys') }}
+              {{ t('groups.collection.importCredentials') }}
             </AppButton>
           </RouterLink>
         </template>
@@ -301,19 +292,6 @@ function keyHealthLabel(counts: KeyCounts): string {
               />
             </label>
 
-            <label class="collection-filter-field collection-filter-field--monospace">
-              <span class="collection-filter-label">
-                {{ t('groups.collection.filters.protocolLabel') }}
-              </span>
-              <AppSelect
-                size="compact"
-                :label="t('groups.collection.filters.protocolLabel')"
-                :model-value="filters.protocol ?? 'all'"
-                :options="protocolSelectOptions"
-                @update:model-value="setProtocol"
-              />
-            </label>
-
             <label class="collection-filter-field">
               <span class="collection-filter-label">
                 {{ t('groups.collection.filters.sortLabel') }}
@@ -361,7 +339,7 @@ function keyHealthLabel(counts: KeyCounts): string {
           <template #actions>
             <RouterLink class="button-link" :to="importLocation()">
               <KeyRound :size="15" aria-hidden="true" />
-              {{ t('groups.collection.importKeys') }}
+              {{ t('groups.collection.importCredentials') }}
             </RouterLink>
           </template>
         </EmptyState>
@@ -389,9 +367,9 @@ function keyHealthLabel(counts: KeyCounts): string {
             <template #header>
               <span role="columnheader">{{ t('groups.collection.columns.group') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.status') }}</span>
-              <span role="columnheader">{{ t('groups.collection.columns.upstream') }}</span>
+              <span role="columnheader">{{ t('groups.collection.columns.channel') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.models') }}</span>
-              <span role="columnheader">{{ t('groups.collection.columns.keyHealth') }}</span>
+              <span role="columnheader">{{ t('groups.collection.columns.credentialHealth') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.actions') }}</span>
             </template>
 
@@ -423,17 +401,15 @@ function keyHealthLabel(counts: KeyCounts): string {
               </div>
 
               <div class="ledger-record-list__cell endpoint" role="cell">
+                <strong class="channel-name">{{ channelName(group.channel_id) }}</strong>
+                <code class="channel-id">{{ group.channel_id }}</code>
                 <CopyChip
-                  :value="group.upstream_url"
-                  :label="t('groups.collection.copyUrl', { url: group.upstream_url })"
+                  v-if="group.params.base_url"
+                  :value="group.params.base_url"
+                  :label="t('groups.collection.copyUrl', { url: group.params.base_url })"
                   :success-label="t('groups.collection.copySuccess')"
                   :failure-label="t('groups.collection.copyFailure')"
                 />
-                <div class="protocols">
-                  <span v-for="protocol in group.protocols" :key="protocol" class="protocol">
-                    {{ protocol }}
-                  </span>
-                </div>
               </div>
 
               <div class="ledger-record-list__cell model-count" role="cell">
@@ -441,11 +417,13 @@ function keyHealthLabel(counts: KeyCounts): string {
                 <strong>{{ n(group.model_count) }}</strong>
               </div>
 
-              <div class="ledger-record-list__cell key-health" role="cell">
-                <span class="mobile-label">{{ t('groups.collection.columns.keyHealth') }}</span>
-                <KeyHealthBar
-                  :counts="group.key_counts"
-                  :label="keyHealthLabel(group.key_counts)"
+              <div class="ledger-record-list__cell credential-health" role="cell">
+                <span class="mobile-label">{{
+                  t('groups.collection.columns.credentialHealth')
+                }}</span>
+                <CredentialHealthBar
+                  :counts="group.credential_counts"
+                  :label="credentialHealthLabel(group.credential_counts)"
                 />
               </div>
 
@@ -456,15 +434,17 @@ function keyHealthLabel(counts: KeyCounts): string {
                   custom
                 >
                   <AppButton
-                    class="append-key"
+                    class="append-credential"
                     role="link"
                     variant="secondary"
                     size="compact"
-                    :aria-label="t('groups.collection.appendKeyFor', { name: group.name })"
+                    :aria-label="t('groups.collection.appendCredentialFor', { name: group.name })"
                     @click="navigate"
                   >
                     <Plus :size="15" aria-hidden="true" />
-                    <span class="append-key__label">{{ t('groups.collection.appendKey') }}</span>
+                    <span class="append-credential__label">{{
+                      t('groups.collection.appendCredential')
+                    }}</span>
                   </AppButton>
                 </RouterLink>
                 <RouterLink v-slot="{ navigate }" :to="groupDetailLocation(group.id)" custom>
@@ -551,26 +531,16 @@ function keyHealthLabel(counts: KeyCounts): string {
   width: 100%;
 }
 
-.protocols {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.protocol {
-  display: inline-flex;
-  min-height: 23px;
-  align-items: center;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
+.channel-id {
   color: var(--color-text-faint);
-  padding: 3px 7px;
   font-family: var(--font-mono);
   font-size: 11px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.channel-name {
+  color: var(--color-text);
+  font-size: var(--text-sm);
 }
 
 .model-count {
@@ -588,7 +558,7 @@ function keyHealthLabel(counts: KeyCounts): string {
   line-height: 1.25;
 }
 
-.key-health {
+.credential-health {
   display: grid;
   min-width: 0;
   align-items: center;
@@ -619,13 +589,13 @@ function keyHealthLabel(counts: KeyCounts): string {
     --ledger-record-list-column-gap: 12px;
   }
 
-  .append-key {
+  .append-credential {
     width: 34px;
     min-width: 34px;
     padding: 0;
   }
 
-  .append-key__label {
+  .append-credential__label {
     display: none;
   }
 }

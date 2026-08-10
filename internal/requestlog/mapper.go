@@ -37,7 +37,7 @@ func mapEvent(
 		return models.RequestLog{}, fmt.Errorf("map request event usage/pricing: %w", err)
 	}
 
-	receipt, err := canonicalPricingReceipt(event.Usage.Pricing)
+	receipt, err := canonicalPricingReceipt(event.Usage.Pricing, string(event.Usage.ChannelID))
 	if err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event pricing receipt: %w", err)
 	}
@@ -48,21 +48,28 @@ func mapEvent(
 			attemptReceipt = receipt
 		}
 		attempts = append(attempts, models.RequestLogAttempt{
-			RequestID:       event.RequestID,
-			Sequence:        attempt.Sequence,
-			CompletedAtMS:   completedAtMS,
-			GroupID:         attempt.GroupID,
-			GroupName:       redactIdentityValue(redactor, attempt.GroupName),
-			KeyID:           attempt.KeyID,
-			UpstreamModel:   redactIdentityValue(redactor, projectModel(attempt.UpstreamModel)),
-			StatusCode:      attempt.StatusCode,
-			DurationMs:      attempt.DurationMs,
-			FailureCategory: string(attempt.FailureCategory),
-			Action:          string(attempt.Action),
-			WillRetry:       attempt.WillRetry,
-			ErrorCode:       attempt.ErrorCode,
-			ErrorSummary:    sanitizeSummary(redactor, attempt.ErrorSummary),
-			PricingReceipt:  attemptReceipt,
+			RequestID:         event.RequestID,
+			Sequence:          attempt.Sequence,
+			CompletedAtMS:     completedAtMS,
+			GroupID:           attempt.GroupID,
+			GroupName:         redactIdentityValue(redactor, attempt.GroupName),
+			ChannelID:         string(attempt.ChannelID),
+			CredentialID:      attempt.CredentialID,
+			Operation:         string(attempt.Operation),
+			RouteMode:         string(attempt.RouteMode),
+			UpstreamModel:     redactIdentityValue(redactor, projectModel(attempt.UpstreamModel)),
+			UpstreamRequestID: redactIdentityValue(redactor, projectModel(attempt.UpstreamRequestID)),
+			DispatchState:     string(attempt.DispatchState),
+			ResponseStarted:   attempt.ResponseStarted,
+			StatusCode:        attempt.StatusCode,
+			DurationMs:        attempt.DurationMs,
+			FailureCategory:   string(attempt.FailureCategory),
+			Action:            string(attempt.Action),
+			WillRetry:         attempt.WillRetry,
+			ErrorCode:         attempt.ErrorCode,
+			ErrorSummary:      sanitizeSummary(redactor, attempt.ErrorSummary),
+			Committed:         attempt.Committed,
+			PricingReceipt:    attemptReceipt,
 		})
 	}
 
@@ -74,6 +81,8 @@ func mapEvent(
 		CompletedAtMS:           completedAtMS,
 		AccessKeyID:             event.AccessKeyID,
 		GroupID:                 event.Usage.GroupID,
+		ChannelID:               string(event.Usage.ChannelID),
+		CredentialID:            event.Usage.CredentialID,
 		Protocol:                string(event.Protocol),
 		ClientModel:             redactIdentityValue(redactor, projectModel(event.ClientModel)),
 		UpstreamModel:           redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
@@ -146,7 +155,10 @@ func validateModelObservation(event telemetry.RequestEvent) error {
 	return nil
 }
 
-func canonicalPricingReceipt(observation telemetry.PricingObservation) (models.JSON, error) {
+func canonicalPricingReceipt(
+	observation telemetry.PricingObservation,
+	channelID string,
+) (models.JSON, error) {
 	if observation.ReceiptJSON == "" {
 		return nil, nil
 	}
@@ -157,7 +169,10 @@ func canonicalPricingReceipt(observation telemetry.PricingObservation) (models.J
 	if err := pricing.ValidateReceipt(receipt); err != nil {
 		return nil, err
 	}
-	if receipt.SchemaVersion != 2 || receipt.Rule != (pricing.ReceiptRule{ModelID: observation.UpstreamModel}) ||
+	if receipt.SchemaVersion != 3 || receipt.Rule != (pricing.ReceiptRule{
+		ChannelID: channelID,
+		ModelID:   observation.UpstreamModel,
+	}) ||
 		receipt.TotalNanoUSD != observation.EstimatedCostNanoUSD {
 		return nil, fmt.Errorf("receipt does not match frozen pricing observation")
 	}
@@ -213,8 +228,15 @@ func validateFrozenObservation(event telemetry.RequestEvent) error {
 		pricingObservation.UpstreamModel == "" {
 		return fmt.Errorf("priced observation requires exact identity")
 	}
+	for _, attempt := range event.Attempts {
+		if _, err := validatedAttemptObservation(attempt); err != nil {
+			return err
+		}
+	}
 
-	usageBound := event.Usage.GroupID != 0 || event.Usage.KeyID != 0 ||
+	usageCredentialID := event.Usage.CredentialID
+	usageBound := event.Usage.GroupID != 0 || usageCredentialID != 0 ||
+		event.Usage.ChannelID != "" ||
 		event.Usage.AttemptSequence != 0
 	if !usageBound {
 		if result.State != usage.StateNotApplicable {
@@ -225,16 +247,21 @@ func validateFrozenObservation(event telemetry.RequestEvent) error {
 		}
 		return nil
 	}
-	if event.Usage.GroupID == 0 || event.Usage.KeyID == 0 || event.Usage.AttemptSequence < 1 {
+	if event.Usage.GroupID == 0 || usageCredentialID == 0 || event.Usage.AttemptSequence < 1 {
 		return fmt.Errorf("partial usage attribution")
+	}
+	if !validChannelID(string(event.Usage.ChannelID)) {
+		return fmt.Errorf("invalid usage channel ID")
 	}
 
 	matchingAttempts := 0
 	boundModel := ""
 	for _, attempt := range event.Attempts {
+		attemptCredentialID, _ := validatedAttemptObservation(attempt)
 		if attempt.Sequence == event.Usage.AttemptSequence &&
 			attempt.GroupID == event.Usage.GroupID &&
-			attempt.KeyID == event.Usage.KeyID {
+			attempt.ChannelID == event.Usage.ChannelID &&
+			attemptCredentialID == usageCredentialID {
 			matchingAttempts++
 			boundModel = attempt.UpstreamModel
 		}
@@ -250,6 +277,26 @@ func validateFrozenObservation(event telemetry.RequestEvent) error {
 		return fmt.Errorf("inconsistent bound upstream model")
 	}
 	return nil
+}
+
+func validatedAttemptObservation(attempt telemetry.Attempt) (uint, error) {
+	credentialID := attempt.CredentialID
+	if (credentialID == 0) != (attempt.ChannelID == "") {
+		return 0, fmt.Errorf("invalid attempt %d identity", attempt.Sequence)
+	}
+	if !validRawModelOrEmpty(attempt.UpstreamRequestID) {
+		return 0, fmt.Errorf("invalid attempt %d upstream request ID", attempt.Sequence)
+	}
+	if (credentialID != 0 || attempt.ChannelID != "") &&
+		(!validChannelID(string(attempt.ChannelID)) || !attempt.Operation.Valid() ||
+			!attempt.RouteMode.Valid() || !attempt.DispatchState.Valid()) {
+		return 0, fmt.Errorf("invalid attempt %d execution observation", attempt.Sequence)
+	}
+	return credentialID, nil
+}
+
+func validChannelID(channelID string) bool {
+	return channelID != "" && len(channelID) <= 64 && validRawModel(channelID)
 }
 
 func validateFrozenPricingState(

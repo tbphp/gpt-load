@@ -91,16 +91,21 @@ func collectVisibleModelIDs(
 				continue
 			}
 		}
-		for modelID, targets := range snapshot.Candidates[selectedProtocol] {
-			if len(accessKey.Filters.Models) > 0 {
-				if _, ok := accessKey.Filters.Models[modelID]; !ok {
+		for _, byModel := range snapshot.ExecutionCandidates[selectedProtocol] {
+			for modelID, targets := range byModel {
+				if modelID == state.NoModelRouteKey {
 					continue
 				}
+				if len(accessKey.Filters.Models) > 0 {
+					if _, ok := accessKey.Filters.Models[modelID]; !ok {
+						continue
+					}
+				}
+				if !anyVisibleTarget(targets, accessKey.Filters.Groups) {
+					continue
+				}
+				visible[modelID] = struct{}{}
 			}
-			if !anyVisibleTarget(targets, accessKey.Filters.Groups) {
-				continue
-			}
-			visible[modelID] = struct{}{}
 		}
 	}
 	result := make([]string, 0, len(visible))

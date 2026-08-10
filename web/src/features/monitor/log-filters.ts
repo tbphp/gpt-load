@@ -19,6 +19,8 @@ export interface LogFilterDraft {
   from: string
   to: string
   group_id: string
+  channel_id: string
+  credential_id: string
   status: string
   client_model: string
   upstream_model: string
@@ -31,7 +33,6 @@ export interface LogFilterDraft {
   cost_state: string
   pricing_completeness: string
   cache_present: string
-  upstream_key_id: string
   attempt_status_code: string
   failure_category: string
   error_code: string
@@ -74,6 +75,7 @@ export const requestLogFailureCategories = [
 export const requestLogRetryStates = ['retried', 'not_retried'] as const
 
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const channelIDPattern = /^[a-z][a-z0-9_]{0,99}$/u
 const canonicalNonNegativeInteger = /^(?:0|[1-9]\d*)$/
 function defaultRange(): Pick<RequestLogFilters, 'from_ms' | 'to_ms'> {
   const now = Math.floor(Date.now() / 1000) * 1000
@@ -92,6 +94,8 @@ function emptyDraft(): LogFilterDraft {
     from: '',
     to: '',
     group_id: '',
+    channel_id: '',
+    credential_id: '',
     status: '',
     client_model: '',
     upstream_model: '',
@@ -104,7 +108,6 @@ function emptyDraft(): LogFilterDraft {
     cost_state: '',
     pricing_completeness: '',
     cache_present: '',
-    upstream_key_id: '',
     attempt_status_code: '',
     failure_category: '',
     error_code: '',
@@ -158,6 +161,8 @@ export function createLogFilterDraft(filters: RequestLogFilters = defaultRange()
     from: toLocalDateTime(filters.from_ms),
     to: toLocalDateTime(filters.to_ms),
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
+    channel_id: filters.channel_id ?? '',
+    credential_id: filters.credential_id === undefined ? '' : String(filters.credential_id),
     status: filters.status ?? '',
     client_model: filters.client_model ?? '',
     upstream_model: filters.upstream_model ?? '',
@@ -171,7 +176,6 @@ export function createLogFilterDraft(filters: RequestLogFilters = defaultRange()
     cost_state: filters.cost_state ?? '',
     pricing_completeness: filters.pricing_completeness ?? '',
     cache_present: filters.cache_present === undefined ? '' : String(filters.cache_present),
-    upstream_key_id: filters.upstream_key_id === undefined ? '' : String(filters.upstream_key_id),
     attempt_status_code:
       filters.attempt_status_code === undefined ? '' : String(filters.attempt_status_code),
     failure_category: filters.failure_category ?? '',
@@ -203,6 +207,8 @@ export function applyLogFilterDraft(draft: LogFilterDraft): RequestLogFilters {
   if (draft.from) filters.from_ms = new Date(draft.from).getTime()
   if (draft.to) filters.to_ms = new Date(draft.to).getTime()
   if (draft.group_id) filters.group_id = Number(draft.group_id)
+  if (draft.channel_id) filters.channel_id = draft.channel_id
+  if (draft.credential_id) filters.credential_id = Number(draft.credential_id)
   if (draft.status) filters.status = draft.status as RequestLogStatus
   if (draft.client_model) filters.client_model = draft.client_model
   if (draft.upstream_model) filters.upstream_model = draft.upstream_model
@@ -217,7 +223,6 @@ export function applyLogFilterDraft(draft: LogFilterDraft): RequestLogFilters {
     filters.pricing_completeness = draft.pricing_completeness as RequestLogPricingCompleteness
   }
   if (draft.cache_present) filters.cache_present = draft.cache_present === 'true'
-  if (draft.upstream_key_id) filters.upstream_key_id = Number(draft.upstream_key_id)
   if (draft.attempt_status_code) filters.attempt_status_code = Number(draft.attempt_status_code)
   if (draft.failure_category) {
     filters.failure_category = draft.failure_category as RequestLogFilters['failure_category']
@@ -291,7 +296,7 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): RequestL
   }
   const limit = parseSafeInteger(query.limit)
   filters.limit = limit === 20 || limit === 50 || limit === 100 ? (limit as RequestLogPageSize) : 20
-  const ids = ['group_id', 'access_key_id', 'upstream_key_id'] as const
+  const ids = ['group_id', 'access_key_id', 'credential_id'] as const
   for (const field of ids) {
     const value = parseSafeInteger(query[field], 1)
     if (value !== undefined) Object.assign(filters, { [field]: value })
@@ -320,6 +325,8 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): RequestL
     const value = parseText(query[field])
     if (value !== undefined) Object.assign(filters, { [field]: value })
   }
+  const channelID = scalar(query.channel_id)
+  if (channelID && channelIDPattern.test(channelID)) filters.channel_id = channelID
   const requestID = scalar(query.request_id)
   if (requestID && requestIDPattern.test(requestID)) filters.request_id = requestID
   const status = parseEnum(query.status, requestLogStatuses)
@@ -398,9 +405,12 @@ export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
   if (!from) errors.from = 'monitor.logs.errors.dateTime'
   if (!to) errors.to = 'monitor.logs.errors.dateTime'
   if (from && to && from.getTime() >= to.getTime()) errors.to = 'monitor.logs.errors.range'
-  for (const field of ['group_id', 'access_key_id', 'upstream_key_id'] as const) {
+  for (const field of ['group_id', 'access_key_id', 'credential_id'] as const) {
     validateIntegerField(errors, draft, field)
     if (draft[field] === '0') errors[field] = 'monitor.logs.errors.positiveId'
+  }
+  if (draft.channel_id && !channelIDPattern.test(draft.channel_id)) {
+    errors.channel_id = 'monitor.logs.errors.channelId'
   }
   for (const field of [
     'retry_count_min',

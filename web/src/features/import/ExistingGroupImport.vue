@@ -7,7 +7,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { InvalidResponseError } from '@/api/errors'
 import { useStableLoading } from '@/app/loading-state'
-import { groupOptionsQueryOptions, importGroupKeys } from '@/app/resources/groups'
+import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
+import { groupOptionsQueryOptions, importGroupCredentials } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -21,9 +22,9 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
-import { analyzeKeys } from './key-analysis'
+import { analyzeCredentials } from './credential-analysis'
 import { parseImportRouteQuery } from './import-route'
-import KeyTextarea from './KeyTextarea.vue'
+import CredentialTextarea from './CredentialTextarea.vue'
 import type { ExistingGroupImportDraft } from './model-draft'
 
 const props = defineProps<{ initialDraft?: ExistingGroupImportDraft | null }>()
@@ -37,12 +38,12 @@ const completed = ref(false)
 const errorKey = ref('')
 const submissionError = ref<HTMLElement>()
 const importOperationOwner = useImportOperationOwner()
-const operation = importOperationOwner.importKeys
+const operation = importOperationOwner.importCredentials
 const stableInitialDraft = operation.operation.value?.payload.draft
-const keys = ref(
+const credentials = ref(
   stableInitialDraft?.mode === 'existing'
-    ? stableInitialDraft.keys
-    : (props.initialDraft?.keys ?? ''),
+    ? stableInitialDraft.credentials
+    : (props.initialDraft?.credentials ?? ''),
 )
 if (operation.outcome.value?.kind === 'confirmed') operation.reset()
 const pending = operation.pending
@@ -81,6 +82,7 @@ const routeGroupID = computed(() =>
 const operationGroupID = computed(() => operation.operation.value?.payload.groupID)
 const targetGroupID = computed(() => operationGroupID.value ?? routeGroupID.value)
 const groupsQuery = useQuery(groupOptionsQueryOptions(api))
+const channelsQuery = useQuery(channelsQueryOptions(api, ''))
 const groupsLoading = useStableLoading(
   () => groupsQuery.isPending.value && groupsQuery.data.value === undefined,
 )
@@ -92,6 +94,12 @@ const selectedGroup = computed(() => {
   return id === undefined
     ? null
     : (groupsQuery.data.value?.find((group) => group.id === id) ?? null)
+})
+const selectedChannel = computed<ChannelDto | null>(() => {
+  const channelID = selectedGroup.value?.channel_id
+  return channelID
+    ? (channelsQuery.data.value?.items.find((channel) => channel.channel_id === channelID) ?? null)
+    : null
 })
 const selectedGroupMissing = computed(
   () =>
@@ -106,16 +114,18 @@ const selectorOptions = computed(() => [
     label: t('import.existing.groupOption', { id: group.id, name: group.name }),
   })),
 ])
-const keyAnalysis = computed(() => analyzeKeys(keys.value))
+const credentialAnalysis = computed(() =>
+  analyzeCredentials(credentials.value, selectedGroup.value?.channel_id),
+)
 const canSubmit = computed(
   () =>
     !payloadLocked.value &&
     !pending.value &&
     selectedGroup.value !== null &&
-    keyAnalysis.value.nonEmptyCount > 0 &&
-    !keyAnalysis.value.tooManyKeys,
+    credentialAnalysis.value.nonEmptyCount > 0 &&
+    !credentialAnalysis.value.tooManyCredentials,
 )
-const dirty = computed(() => !completed.value && keys.value !== '')
+const dirty = computed(() => !completed.value && credentials.value !== '')
 const actionSummary = computed(() =>
   selectedGroup.value
     ? t('import.existing.actionSummary', { name: selectedGroup.value.name })
@@ -137,7 +147,7 @@ const unregisterRecovery = recovery.register(() =>
       : {
           mode: 'existing',
           group_id: targetGroupID.value ?? null,
-          keys: keys.value,
+          credentials: credentials.value,
         },
 )
 
@@ -159,11 +169,15 @@ async function submit(): Promise<void> {
   const groupID = targetGroupID.value
   if (groupID === undefined || !selectedGroup.value || !canSubmit.value) return
   if (
-    !importOperationOwner.beginImportKeys({ groupID, keys: keys.value }, 'existing', {
-      mode: 'existing',
-      group_id: groupID,
-      keys: keys.value,
-    })
+    !importOperationOwner.beginImportCredentials(
+      { groupID, credentials: credentials.value },
+      'existing',
+      {
+        mode: 'existing',
+        group_id: groupID,
+        credentials: credentials.value,
+      },
+    )
   ) {
     return
   }
@@ -175,10 +189,10 @@ async function executeImportOperation(): Promise<void> {
   if (!current) return
   errorKey.value = ''
   const outcome = await operation.execute(async (stableOperation, signal) => {
-    const imported = await importGroupKeys(
+    const imported = await importGroupCredentials(
       api,
       stableOperation.payload.groupID,
-      { keys: stableOperation.payload.keys },
+      { credentials: stableOperation.payload.credentials },
       stableOperation.idempotencyKey,
       signal,
     )
@@ -189,10 +203,13 @@ async function executeImportOperation(): Promise<void> {
   if (outcome.kind === 'confirmed') {
     const targetID = current.payload.groupID
     completed.value = true
-    keys.value = ''
+    credentials.value = ''
     recovery.clear()
     operation.reset()
-    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.importKeys(targetID))
+    await applyInvalidationPlan(
+      queryClient,
+      mutationInvalidationPlans.group.importCredentials(targetID),
+    )
     if (!componentActive) return
     await router.push(groupDetailLocation(targetID))
     return
@@ -319,13 +336,14 @@ onBeforeUnmount(() => {
       </template>
     </section>
 
-    <KeyTextarea
-      v-model="keys"
+    <CredentialTextarea
+      v-model="credentials"
+      :channel="selectedChannel"
       :disabled="payloadLocked"
       :show-header-description="false"
-      :storage-description="t('import.existing.keyStorageNotice')"
+      :storage-description="t('import.existing.credentialStorageNotice')"
       :duplicate-label="t('import.existing.batchDuplicates')"
-      :show-upstream-notice="false"
+      :show-credential-notice="false"
       :rows="8"
     />
 

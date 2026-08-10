@@ -2,9 +2,11 @@ package control
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"hash"
+	"net/http"
 	"net/textproto"
 	"sort"
 	"strings"
@@ -12,7 +14,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
@@ -27,8 +30,8 @@ type validationSweep interface {
 }
 
 type validationRegistry interface {
-	BlacklistedKeys() []state.KeyRef
-	RecoverIfMatch(ref state.KeyRef, weight int) bool
+	BlacklistedCredentials() []state.CredentialRef
+	RecoverIfMatch(ref state.CredentialRef, weight int) bool
 }
 
 type statsResetter interface {
@@ -48,9 +51,10 @@ type validationWorker struct {
 	snapshots snapshotSource
 	registry  validationRegistry
 	stats     statsResetter
-	mutations keyMutationCoordinator
+	mutations credentialMutationCoordinator
 	decryptor credentialDecryptor
-	dialects  dialect.Set
+	channels  *channel.Registry
+	executor  execution.Executor
 }
 
 type groupValidationSignature [sha256.Size]byte
@@ -65,11 +69,12 @@ var _ validationSweep = (*validationWorker)(nil)
 
 func newValidationWorker(
 	manager *state.Manager,
-	registry *state.KeyRegistry,
+	registry *state.CredentialRegistry,
 	stats *health.StatsStore,
 	mutations *health.MutationCoordinator,
 	decryptor encryption.Service,
-	dialects dialect.Set,
+	channels *channel.Registry,
+	executor execution.Executor,
 ) *validationWorker {
 	return &validationWorker{
 		snapshots: manager,
@@ -77,7 +82,8 @@ func newValidationWorker(
 		stats:     stats,
 		mutations: mutations,
 		decryptor: decryptor,
-		dialects:  dialects,
+		channels:  channels,
+		executor:  executor,
 	}
 }
 
@@ -89,14 +95,14 @@ func (worker *validationWorker) Validate(ctx context.Context) {
 	if snapshot == nil {
 		return
 	}
-	refs := worker.registry.BlacklistedKeys()
+	refs := worker.registry.BlacklistedCredentials()
 	if len(refs) == 0 {
 		return
 	}
 
 	concurrency := min(validationConcurrency, len(refs))
 
-	jobs := make(chan state.KeyRef)
+	jobs := make(chan state.CredentialRef)
 	var workers sync.WaitGroup
 	workers.Add(concurrency)
 	for range concurrency {
@@ -124,7 +130,7 @@ dispatch:
 func (worker *validationWorker) consumeValidationJobs(
 	ctx context.Context,
 	snapshot *state.ConfigSnapshot,
-	jobs <-chan state.KeyRef,
+	jobs <-chan state.CredentialRef,
 ) {
 	for {
 		select {
@@ -139,7 +145,7 @@ func (worker *validationWorker) consumeValidationJobs(
 	}
 }
 
-func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state.ConfigSnapshot, ref state.KeyRef) {
+func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state.ConfigSnapshot, ref state.CredentialRef) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -149,18 +155,12 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		return
 	}
 	target, ok := buildGroupValidationTarget(group)
-	if !ok && len(group.Protocols) == 0 {
-		logValidationFailure(ref, "", "missing_protocol")
-		return
-	}
 	if !ok {
-		logValidationFailure(ref, string(group.Protocols[0]), "missing_model")
+		logValidationFailure(ref, "", "missing_target_or_model")
 		return
 	}
-
-	selectedDialect, ok := worker.dialects[target.protocol]
-	if !ok || selectedDialect == nil {
-		logValidationFailure(ref, string(target.protocol), "missing_dialect")
+	if worker.executor == nil || worker.channels == nil {
+		logValidationFailure(ref, string(target.protocol), "missing_executor")
 		return
 	}
 	if worker.decryptor == nil {
@@ -171,20 +171,65 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		logValidationFailure(ref, string(target.protocol), "conditional_recover")
 		return
 	}
-	apiKey, err := worker.decryptor.Decrypt(ref.EncryptedValue)
+	plaintext, err := worker.decryptor.Decrypt(ref.EncryptedValue)
 	if err != nil {
 		if ctx.Err() == nil {
 			logValidationFailure(ref, string(target.protocol), "decrypt")
 		}
 		return
 	}
-	if err := selectedDialect.Probe(
-		ctx,
-		group.UpstreamURL,
-		apiKey,
-		group.HeaderRules,
-		target.model,
-	); err != nil {
+	credential, err := normalizeStoredCredential(worker.channels, group.ChannelID, plaintext)
+	if err != nil {
+		if ctx.Err() == nil {
+			logValidationFailure(ref, string(target.protocol), "credential")
+		}
+		return
+	}
+	apiKey, _ := credential.Value("api_key")
+	method, path, body, err := validationRequestShape(group, target)
+	if err != nil {
+		logValidationFailure(ref, string(target.protocol), "request")
+		return
+	}
+	requestID, err := newOperationID(cryptorand.Reader)
+	if err != nil {
+		logValidationFailure(ref, string(target.protocol), "request_identity")
+		return
+	}
+	attemptID, err := newOperationID(cryptorand.Reader)
+	if err != nil {
+		logValidationFailure(ref, string(target.protocol), "attempt_identity")
+		return
+	}
+	version := ref.Version
+	if version == 0 {
+		version = 1
+	}
+	generation := ref.IdentityGeneration
+	if generation == 0 {
+		generation = 1
+	}
+	spec := execution.NewAttemptSpec(execution.AttemptSpec{
+		RequestID: requestID, AttemptID: attemptID, Sequence: 1,
+		ChannelID: string(group.ChannelID), ClientProtocol: target.protocol,
+		Operation: execution.OperationProbe, ClientModel: target.model, UpstreamModel: target.model,
+		Method: method, Path: path, Header: applyControlHeaderRules(group.HeaderRules, apiKey), Body: body,
+		TargetConfig: group.ResolvedTarget.TargetConfig,
+		Timeouts:     executionTimeouts(group.Timeouts),
+		Credential: execution.NewCredentialSnapshot(
+			ref.ID, version, generation, credential.CanonicalJSON(),
+		),
+	})
+	if err := spec.Validate(); err != nil {
+		logValidationFailure(ref, string(target.protocol), "request")
+		return
+	}
+	result := worker.executor.Execute(ctx, spec)
+	if ctx.Err() != nil {
+		return
+	}
+	if result.Validate() != nil || result.Error != nil ||
+		result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
 		if ctx.Err() == nil {
 			logValidationFailure(ref, string(target.protocol), "probe")
 		}
@@ -230,8 +275,8 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 }
 
 func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, bool) {
-	selectedProtocol, ok := representativeProtocol(group.Protocols)
-	if !ok {
+	if group.ChannelID == "" || group.ResolvedTarget.ChannelID != group.ChannelID ||
+		!group.ResolvedTarget.ProviderKind.Valid() {
 		return groupValidationTarget{}, false
 	}
 	probeModel := strings.TrimSpace(group.ValidationModel)
@@ -241,6 +286,14 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	if probeModel == "" {
 		return groupValidationTarget{}, false
 	}
+	selectedProtocol, _, _, _, err := utilityRequestShape(
+		group.ResolvedTarget.ProviderKind,
+		execution.OperationProbe,
+		probeModel,
+	)
+	if err != nil {
+		return groupValidationTarget{}, false
+	}
 	return groupValidationTarget{
 		protocol:  selectedProtocol,
 		model:     probeModel,
@@ -248,19 +301,16 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	}, true
 }
 
-func representativeProtocol(
-	values []protocol.Protocol,
-) (protocol.Protocol, bool) {
-	present := make(map[protocol.Protocol]struct{}, len(values))
-	for _, value := range values {
-		present[value] = struct{}{}
-	}
-	for _, value := range protocol.DataPlaneProtocols() {
-		if _, exists := present[value]; exists {
-			return value, true
-		}
-	}
-	return "", false
+func validationRequestShape(
+	group state.GroupView,
+	target groupValidationTarget,
+) (string, string, []byte, error) {
+	_, method, path, body, err := utilityRequestShape(
+		group.ResolvedTarget.ProviderKind,
+		execution.OperationProbe,
+		target.model,
+	)
+	return method, path, body, err
 }
 
 func computeGroupValidationSignature(
@@ -270,7 +320,9 @@ func computeGroupValidationSignature(
 ) groupValidationSignature {
 	hasher := sha256.New()
 	writeValidationSignatureUint64(hasher, uint64(group.ID))
-	writeValidationSignaturePart(hasher, []byte(group.UpstreamURL))
+	writeValidationSignaturePart(hasher, []byte(group.ChannelID))
+	writeValidationSignaturePart(hasher, []byte(group.ResolvedTarget.ProviderKind))
+	writeValidationSignaturePart(hasher, group.ResolvedTarget.TargetConfig)
 	writeValidationSignaturePart(hasher, []byte(selectedProtocol))
 	writeValidationSignaturePart(hasher, []byte(probeModel))
 
@@ -329,16 +381,16 @@ func normalizeValidationHeaderName(name string) string {
 	return strings.ToLower(textproto.CanonicalMIMEHeaderKey(name))
 }
 
-func logValidationFailure(ref state.KeyRef, protocol, stage string) {
+func logValidationFailure(ref state.CredentialRef, protocol, stage string) {
 	utils.LogPlaneBestEffort(
 		logrus.StandardLogger(),
 		logrus.WarnLevel,
 		utils.LogPlaneControl,
 		logrus.Fields{
-			"key_id":   ref.ID,
-			"group_id": ref.GroupID,
-			"protocol": protocol,
-			"stage":    stage,
+			"credential_id": ref.ID,
+			"group_id":      ref.GroupID,
+			"protocol":      protocol,
+			"stage":         stage,
 		},
 		"Validation failed",
 	)

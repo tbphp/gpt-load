@@ -48,8 +48,19 @@ const costDisplayState = computed(() =>
   log.value ? requestLogCostDisplayState(log.value) : 'not_applicable',
 )
 const receipt = computed(
-  () => log.value?.attempts.find((attempt) => attempt.pricing_receipt)?.pricing_receipt,
+  () =>
+    log.value?.attempts.find((attempt) => attempt.committed && attempt.pricing_receipt)
+      ?.pricing_receipt ??
+    log.value?.attempts.find((attempt) => attempt.pricing_receipt)?.pricing_receipt,
 )
+const pricingIdentity = computed(() => {
+  const value = receipt.value
+  if (!value) return '—'
+  if (value.schema_version === 3) {
+    return `${value.rule.channel_id} · ${value.rule.model_id}`
+  }
+  return `${t(`monitor.logs.receipt.historicalSchema${value.schema_version}`)} · ${value.rule.model_id}`
+})
 const cacheRows = computed(() => {
   if (!log.value || usageDisplayState.value !== 'reported') return []
   return [
@@ -262,6 +273,16 @@ function groupLabel(): string {
             <dt>{{ t('monitor.logs.drawer.group') }}</dt>
             <dd>{{ groupLabel() }}</dd>
           </div>
+          <div v-if="!selfScoped">
+            <dt>{{ t('monitor.logs.drawer.channel') }}</dt>
+            <dd>
+              <code>{{ log.channel_id ?? '—' }}</code>
+            </dd>
+          </div>
+          <div v-if="!selfScoped">
+            <dt>{{ t('monitor.logs.drawer.credential') }}</dt>
+            <dd>{{ log.credential_id === null ? '—' : `#${log.credential_id}` }}</dd>
+          </div>
           <template v-if="log.reasoning">
             <div v-if="log.reasoning.mode">
               <dt>{{ t('monitor.logs.drawer.reasoningMode') }}</dt>
@@ -345,6 +366,16 @@ function groupLabel(): string {
               <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
             </dd>
           </div>
+          <div v-if="!selfScoped && receipt">
+            <dt>{{ t('monitor.logs.receipt.schema') }}</dt>
+            <dd>v{{ receipt.schema_version }}</dd>
+          </div>
+          <div v-if="!selfScoped && receipt">
+            <dt>{{ t('monitor.logs.receipt.identity') }}</dt>
+            <dd>
+              <code>{{ pricingIdentity }}</code>
+            </dd>
+          </div>
         </dl>
       </section>
 
@@ -367,13 +398,57 @@ function groupLabel(): string {
               <dd>{{ attempt.group_name }} · #{{ attempt.group_id }}</dd>
             </div>
             <div>
-              <dt>{{ t('monitor.logs.drawer.upstreamKey') }}</dt>
-              <dd>#{{ attempt.key_id }}</dd>
+              <dt>{{ t('monitor.logs.drawer.channel') }}</dt>
+              <dd>
+                <code>{{ attempt.channel_id ?? '—' }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.logs.drawer.credential') }}</dt>
+              <dd>{{ attempt.credential_id === null ? '—' : `#${attempt.credential_id}` }}</dd>
             </div>
             <div>
               <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
               <dd>
                 <code>{{ attempt.upstream_model ?? '—' }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.logs.drawer.operation') }}</dt>
+              <dd>
+                <code>{{ attempt.operation ?? '—' }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.logs.drawer.routeMode') }}</dt>
+              <dd>
+                <code>{{ attempt.route_mode ?? '—' }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.logs.drawer.dispatchState') }}</dt>
+              <dd>
+                <code>{{ attempt.dispatch_state ?? '—' }}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.logs.drawer.responseStarted') }}</dt>
+              <dd>{{ attempt.response_started ? t('monitor.logs.yes') : t('monitor.logs.no') }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.logs.drawer.committed') }}</dt>
+              <dd>
+                {{
+                  attempt.committed
+                    ? t('monitor.logs.drawer.committed')
+                    : t('monitor.logs.drawer.notCommitted')
+                }}
+              </dd>
+            </div>
+            <div v-if="attempt.upstream_request_id">
+              <dt>{{ t('monitor.logs.drawer.upstreamRequestId') }}</dt>
+              <dd>
+                <code>{{ attempt.upstream_request_id }}</code>
               </dd>
             </div>
             <div>

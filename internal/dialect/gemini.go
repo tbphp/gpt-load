@@ -1,62 +1,28 @@
 package dialect
 
 import (
-	"context"
 	"fmt"
-	"net/http"
-	"net/url"
 	"strings"
 
-	"gpt-load/internal/health"
-	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
-	"gpt-load/internal/state"
 )
 
 const (
-	geminiGenerationPrefix   = "/v1beta/models/"
-	geminiGenerateSuffix     = ":generateContent"
-	geminiStreamSuffix       = ":streamGenerateContent"
-	geminiModelsResourcePath = "/models"
+	geminiGenerationPrefix = "/v1beta/models/"
+	geminiGenerateSuffix   = ":generateContent"
+	geminiStreamSuffix     = ":streamGenerateContent"
 )
 
-var geminiFailureMarkers = failureMarkers{
-	rateLimited:      []string{"resource_exhausted", "rate_limit", "rate limit", "quota_exceeded", "quota exceeded"},
-	modelUnavailable: []string{"model_not_found", "model not found", "model_not_supported", "model not supported", "no access to model"},
-	invalidKey:       []string{"api_key_invalid", "unauthenticated", "permission_denied", "api key not valid", "invalid api key", "api key disabled", "api key banned"},
-	upstreamHost:     []string{"service_unavailable", "backend_error", "internal_error"},
-}
-
-type Gemini struct {
-	client *http.Client
-}
-
-type geminiModelPage struct {
-	Models []struct {
-		Name string `json:"name"`
-	} `json:"models"`
-	NextPageToken string `json:"nextPageToken"`
-}
+type Gemini struct{}
 
 var _ Dialect = (*Gemini)(nil)
 
-func NewGemini(client *http.Client) *Gemini {
-	return &Gemini{client: client}
+func NewGemini() *Gemini {
+	return &Gemini{}
 }
 
-func (d *Gemini) Protocol() protocol.Protocol {
+func (*Gemini) Protocol() protocol.Protocol {
 	return protocol.Gemini
-}
-
-func (d *Gemini) InjectCredential(headers http.Header, apiKey string) {
-	if headers == nil {
-		return
-	}
-	headers.Set("X-Goog-Api-Key", apiKey)
-}
-
-func (d *Gemini) CredentialHeaderNames() []string {
-	return []string{"X-Goog-Api-Key"}
 }
 
 func (d *Gemini) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
@@ -67,185 +33,18 @@ func (d *Gemini) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 	if err != nil {
 		return RequestMetadata{}, err
 	}
-	return RequestMetadata{
+	metadata := RequestMetadata{
 		Model:        &model,
 		Stream:       stream,
 		ObserveUsage: true,
 		Reasoning:    inspectGeminiReasoning(req.Body),
-	}, nil
-}
-
-func (d *Gemini) BuildUpstreamURL(base string, req *ParsedRequest) (string, error) {
-	if req == nil {
-		return "", fmt.Errorf("parsed request is required")
 	}
-	_, stream, err := parseGeminiGenerationPath(req.Path)
-	if err != nil {
-		return "", err
-	}
-	resourcePath := strings.TrimPrefix(req.Path, "/v1beta")
-	upstream, err := resolveUpstreamURL(base, resourcePath, req.RawQuery)
-	if err != nil {
-		return "", err
-	}
-	parsed, err := url.Parse(upstream)
-	if err != nil {
-		return "", fmt.Errorf("parse Gemini upstream URL: %w", err)
-	}
-	query := parsed.Query()
-	query.Del("alt")
-	if stream {
-		query.Set("alt", "sse")
-	}
-	parsed.RawQuery = query.Encode()
-	return parsed.String(), nil
-}
-
-func (d *Gemini) ListModels(
-	ctx context.Context,
-	baseURL, apiKey string,
-	rules state.HeaderRules,
-) ([]string, error) {
-	requestURL, err := resolveUpstreamURL(baseURL, geminiModelsResourcePath, "")
-	if err != nil {
-		return nil, fmt.Errorf("build Gemini model-list URL: %w", err)
-	}
-	parsed, err := url.Parse(requestURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse Gemini model-list URL: %w", err)
-	}
-
-	collector := newModelListCollector()
-	seenPageTokens := make(map[string]struct{})
-	pageToken := ""
-	for pageNumber := 1; pageNumber <= maxModelListPages; pageNumber++ {
-		page, err := d.listModelsPage(ctx, parsed, apiKey, rules, pageToken)
-		if err != nil {
-			return nil, err
-		}
-		pageModels := make([]string, 0, len(page.Models))
-		for _, item := range page.Models {
-			name := strings.TrimPrefix(item.Name, "models/")
-			if name != "" {
-				pageModels = append(pageModels, name)
-			}
-		}
-		if err := collector.Add(pageModels); err != nil {
-			return nil, err
-		}
-		if page.NextPageToken == "" {
-			return collector.Result(), nil
-		}
-		if strings.TrimSpace(page.NextPageToken) == "" {
-			return nil, fmt.Errorf("Gemini model-list page token is empty")
-		}
-		if _, repeated := seenPageTokens[page.NextPageToken]; repeated {
-			return nil, fmt.Errorf("Gemini model-list page token repeated")
-		}
-		if pageNumber == maxModelListPages || collector.Full() {
-			return nil, fmt.Errorf("Gemini model-list pagination limit exceeded")
-		}
-		seenPageTokens[page.NextPageToken] = struct{}{}
-		pageToken = page.NextPageToken
-	}
-	return nil, fmt.Errorf("Gemini model-list pagination limit exceeded")
-}
-
-func (d *Gemini) listModelsPage(
-	ctx context.Context,
-	endpoint *url.URL,
-	apiKey string,
-	rules state.HeaderRules,
-	pageToken string,
-) (geminiModelPage, error) {
-	pageEndpoint := *endpoint
-	query := pageEndpoint.Query()
-	query.Del("pageSize")
-	query.Set("pageSize", "1000")
-	query.Del("pageToken")
-	if pageToken != "" {
-		query.Set("pageToken", pageToken)
-	}
-	pageEndpoint.RawQuery = query.Encode()
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageEndpoint.String(), nil)
-	if err != nil {
-		return geminiModelPage{}, fmt.Errorf("create Gemini model-list request: %w", err)
-	}
-	ApplyCredential(d, request.Header, apiKey, rules)
-	platformheader.NormalizeUpstreamRequestRepresentation(request, 0)
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return geminiModelPage{}, fmt.Errorf("request Gemini model list: %w", contextErr)
-		}
-		return geminiModelPage{}, fmt.Errorf("request Gemini model list failed")
-	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return geminiModelPage{}, fmt.Errorf("request Gemini model list: upstream status %d", response.StatusCode)
-	}
-
-	var page geminiModelPage
-	if err := decodeModelListPage(response, &page); err != nil {
-		return geminiModelPage{}, fmt.Errorf("decode Gemini model list: %w", err)
-	}
-	return page, nil
-}
-
-func (d *Gemini) Probe(
-	ctx context.Context,
-	baseURL, apiKey string,
-	rules state.HeaderRules,
-	validationModel string,
-) error {
-	if err := validateProbeModel(validationModel); err != nil {
-		return err
-	}
-	requestURL, err := d.BuildUpstreamURL(baseURL, &ParsedRequest{
-		Method: http.MethodPost,
-		Path:   geminiGenerationPrefix + validationModel + geminiGenerateSuffix,
-	})
-	if err != nil {
-		return fmt.Errorf("build %s probe URL failed", d.Protocol())
-	}
-	return executeProbe(ctx, d.client, d, requestURL, apiKey, rules, struct {
-		Contents []struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"contents"`
-		GenerationConfig struct {
-			MaxOutputTokens int `json:"maxOutputTokens"`
-		} `json:"generationConfig"`
-	}{
-		Contents: []struct {
-			Role  string `json:"role"`
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		}{
-			{
-				Role: "user",
-				Parts: []struct {
-					Text string `json:"text"`
-				}{{Text: "ping"}},
-			},
-		},
-		GenerationConfig: struct {
-			MaxOutputTokens int `json:"maxOutputTokens"`
-		}{MaxOutputTokens: 1},
-	})
-}
-
-func (d *Gemini) ClassifyStatus(status int, body []byte) health.FailureCategory {
-	return classifyStatusWithMarkers(status, body, geminiFailureMarkers)
-}
-
-func (d *Gemini) ClassifyProviderError(body []byte) health.FailureCategory {
-	return classifyProviderErrorWithMarkers(body, geminiFailureMarkers)
+	metadata.Operation, metadata.RequiredFeatures = chatExecutionMetadata(
+		req.Body,
+		metadata.Stream,
+		metadata.Reasoning,
+	)
+	return metadata, nil
 }
 
 func parseGeminiGenerationPath(path string) (model string, stream bool, err error) {

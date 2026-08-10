@@ -15,7 +15,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/platform/contentcoding"
@@ -64,28 +66,29 @@ type PriceTableProvider interface {
 	Load() *pricing.Table
 }
 
-type keyMutationCoordinator interface {
+type credentialMutationCoordinator interface {
 	Do(uint, func())
 }
 
-type runtimeKeyRegistry interface {
-	scheduler.KeySource
-	CaptureActiveKeyRefs(groupIDs []uint) []state.KeyRef
-	ActiveEncryptedValueIfMatch(ref state.KeyRef) (string, bool)
-	SetCooldown(keyID uint, until time.Time) bool
-	IncrFailure(keyID uint) (int, bool)
-	SetBlacklisted(keyID uint) bool
-	ClearFailure(keyID uint) bool
+type runtimeCredentialRegistry interface {
+	scheduler.CredentialSource
+	CaptureActiveCredentialRefs(groupIDs []uint) []state.CredentialRef
+	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
+	SetCooldown(credentialID uint, until time.Time) bool
+	IncrFailure(credentialID uint) (int, bool)
+	SetBlacklisted(credentialID uint) bool
+	ClearFailure(credentialID uint) bool
 }
 
 type Handler struct {
 	manager             *state.Manager
-	registry            runtimeKeyRegistry
+	channels            *channel.Registry
+	registry            runtimeCredentialRegistry
 	encryption          encryption.Service
 	forwarder           AttemptForwarder
 	dialects            dialect.Set
 	stats               *health.StatsStore
-	mutations           keyMutationCoordinator
+	mutations           credentialMutationCoordinator
 	limiter             AccessKeyRPMLimiter
 	requestLogSink      telemetry.RequestLogSink
 	priceTables         PriceTableProvider
@@ -106,6 +109,7 @@ func (handler *Handler) freezeAttemptPricing(
 	applicable bool,
 ) frozenAttemptPricing {
 	frozen := frozenAttemptPricing{
+		channelID:     string(selection.ChannelID),
 		groupID:       selection.GroupID,
 		upstreamModel: optionalModelValue(selection.UpstreamModelID),
 		applicable:    applicable,
@@ -118,7 +122,7 @@ func (handler *Handler) freezeAttemptPricing(
 
 func NewHandler(
 	manager *state.Manager,
-	registry *state.KeyRegistry,
+	registry *state.CredentialRegistry,
 	encryptionService encryption.Service,
 	forwarder AttemptForwarder,
 	dialects dialect.Set,
@@ -135,7 +139,7 @@ func NewHandler(
 		requestLogSink = telemetry.NoopRequestLogSink{}
 	}
 	return &Handler{
-		manager: manager, registry: registry, encryption: encryptionService,
+		manager: manager, channels: channel.NewRegistry(), registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
@@ -161,7 +165,8 @@ func NewHandler(
 // focused gateway tests.
 func NewHandlerWithLifecycle(
 	manager *state.Manager,
-	registry *state.KeyRegistry,
+	registry *state.CredentialRegistry,
+	channelRegistry *channel.Registry,
 	encryptionService encryption.Service,
 	forwarder AttemptForwarder,
 	dialects dialect.Set,
@@ -184,6 +189,9 @@ func NewHandlerWithLifecycle(
 		requestLogSink,
 		priceTables,
 	)
+	if channelRegistry != nil {
+		handler.channels = channelRegistry
+	}
 	handler.lifecycle = lifecycle
 	return handler
 }
@@ -194,47 +202,47 @@ func (unlimitedAccessKeyRPMLimiter) Allow(uint, int64) ratelimit.LimitDecision {
 	return ratelimit.LimitDecision{Allowed: true}
 }
 
-func (handler *Handler) applyKeyAction(
-	keyID uint,
+func (handler *Handler) applyCredentialAction(
+	credentialID uint,
 	decision health.Result,
 	statusCode int,
 	attemptNow time.Time,
 ) {
 	switch decision.Action {
-	case health.ActionCooldownKey:
+	case health.ActionCooldownCredential:
 		mutate := func() {
 			until := decision.CooldownUntil
 			if decision.UseFixed {
 				until = attemptNow.Add(fixedCooldown)
 			}
-			if handler.registry.SetCooldown(keyID, until) {
-				handler.stats.RecordProblem(keyID, decision.Category, statusCode, attemptNow)
+			if handler.registry.SetCooldown(credentialID, until) {
+				handler.stats.RecordProblem(credentialID, decision.Category, statusCode, attemptNow)
 			}
 		}
 		if handler.mutations == nil {
 			mutate()
 		} else {
-			handler.mutations.Do(keyID, mutate)
+			handler.mutations.Do(credentialID, mutate)
 		}
-	case health.ActionFailKey:
-		handler.mutations.Do(keyID, func() {
-			count, ok := handler.registry.IncrFailure(keyID)
+	case health.ActionFailCredential:
+		handler.mutations.Do(credentialID, func() {
+			count, ok := handler.registry.IncrFailure(credentialID)
 			if !ok {
 				return
 			}
 			if count >= blacklistFailureThreshold &&
-				!handler.registry.SetBlacklisted(keyID) {
+				!handler.registry.SetBlacklisted(credentialID) {
 				return
 			}
-			handler.stats.RecordFailure(keyID, decision.Category, statusCode, attemptNow)
+			handler.stats.RecordFailure(credentialID, decision.Category, statusCode, attemptNow)
 		})
 	}
 }
 
-func (handler *Handler) recordSuccess(keyID uint, at time.Time) {
-	handler.mutations.Do(keyID, func() {
-		if handler.registry.ClearFailure(keyID) {
-			handler.stats.RecordSuccess(keyID, at)
+func (handler *Handler) recordCredentialSuccess(credentialID uint, at time.Time) {
+	handler.mutations.Do(credentialID, func() {
+		if handler.registry.ClearFailure(credentialID) {
+			handler.stats.RecordSuccess(credentialID, at)
 		}
 	})
 }
@@ -392,39 +400,42 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		recorder.completeCanceled(0, -1)
 		return
 	}
-	candidateGroupIDs := scheduler.CandidateGroupIDs(
-		snapshot,
-		selectedRoute.Protocol,
-		accessKey,
-	)
-	capturedRefs := handler.registry.CaptureActiveKeyRefs(candidateGroupIDs)
-	allowedKeyRefs := make(map[uint]state.KeyRef, len(capturedRefs))
+	query := scheduler.Query{
+		ClientProtocol:   selectedRoute.Protocol,
+		Operation:        metadata.Operation,
+		RequiredFeatures: metadata.RequiredFeatures,
+		ExternalModel:    metadata.Model,
+		AccessKey:        accessKey,
+	}
+	candidateGroupIDs := scheduler.CandidateGroupIDsForQuery(snapshot, query)
+	capturedRefs := handler.registry.CaptureActiveCredentialRefs(candidateGroupIDs)
+	allowedCredentialRefs := make(map[uint]state.CredentialRef, len(capturedRefs))
 	for _, ref := range capturedRefs {
-		allowedKeyRefs[ref.ID] = ref
+		allowedCredentialRefs[ref.ID] = ref
 	}
 	recorder.setClientModel(model)
+	recorder.setOperation(metadata.Operation)
 	recorder.setStream(metadata.Stream)
 	recorder.setReasoning(metadata.Reasoning)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
 	recorder.setUsageDiagnostics(metadata.UsageDiagnostics)
 
-	allowedKeyIDs := make(map[uint]struct{}, len(allowedKeyRefs))
-	for keyID := range allowedKeyRefs {
-		allowedKeyIDs[keyID] = struct{}{}
+	allowedCredentialIDs := make(map[uint]struct{}, len(allowedCredentialRefs))
+	for credentialID := range allowedCredentialRefs {
+		allowedCredentialIDs[credentialID] = struct{}{}
 	}
-	iterator := scheduler.New(snapshot, handler.registry, scheduler.Query{
-		Protocol: selectedRoute.Protocol, ExternalModel: metadata.Model, AccessKey: accessKey,
-		AllowedKeyIDs: allowedKeyIDs,
-	}, handler.newRandom())
+	query.AllowedCredentialIDs = allowedCredentialIDs
+	iterator := scheduler.New(snapshot, handler.registry, query, handler.newRandom())
 	handler.executeAttempts(
 		ginContext,
 		iterator,
-		allowedKeyRefs,
+		allowedCredentialRefs,
 		selectedDialect,
 		parsed,
 		model,
 		metadata.Stream,
 		metadata.ObserveUsage,
+		metadata.Operation,
 		recorder,
 	)
 }
@@ -524,12 +535,13 @@ func headerFieldValues(headers http.Header, name string) []string {
 func (handler *Handler) executeAttempts(
 	ginContext *gin.Context,
 	iterator *scheduler.Iterator,
-	allowedKeyRefs map[uint]state.KeyRef,
+	allowedCredentialRefs map[uint]state.CredentialRef,
 	selectedDialect dialect.Dialect,
 	parsed *dialect.ParsedRequest,
 	externalModel string,
 	stream bool,
 	observeUsage bool,
+	operation execution.Operation,
 	recorder *requestRecorder,
 ) {
 	type deferredAttempt struct {
@@ -555,29 +567,55 @@ func (handler *Handler) executeAttempts(
 		if err != nil {
 			break
 		}
-		ref, allowed := allowedKeyRefs[selection.KeyID]
+		ref, allowed := allowedCredentialRefs[selection.CredentialID]
 		if !allowed || ref.GroupID != selection.GroupID {
 			continue
 		}
-		encrypted, active := handler.registry.ActiveEncryptedValueIfMatch(ref)
+		encrypted, active := handler.registry.ActiveEncryptedCredentialDataIfMatch(ref)
 		if !active {
 			continue
 		}
-		apiKey, err := handler.encryption.Decrypt(encrypted)
+		decryptedCredential, err := handler.encryption.Decrypt(encrypted)
+		if err != nil {
+			continue
+		}
+		normalizedCredential, err := normalizeChannelCredential(
+			handler.channels,
+			selection.ChannelID,
+			decryptedCredential,
+		)
 		if err != nil {
 			continue
 		}
 
 		attempts++
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
-		selectedKeyID := selection.KeyID
+		selectedCredentialID := selection.CredentialID
+		executionRequestID := "untracked"
+		if recorder != nil {
+			executionRequestID = recorder.requestID
+		}
 		input := ForwardInput{
 			Dialect: selectedDialect, ObserveUsage: observeUsage,
-			Group: selection.Group, APIKey: apiKey, Request: parsed,
+			Group: selection.Group, APIKey: normalizedCredential.apiKey,
+			CredentialSecrets: normalizedCredential.secrets, Request: parsed,
 			ExternalModel:   externalModel,
 			UpstreamModelID: optionalModelValue(selection.UpstreamModelID),
+			RequestID:       executionRequestID,
+			AttemptID:       executionRequestID + ":" + strconv.Itoa(attempts),
+			AttemptSequence: uint32(attempts),
+			ClientProtocol:  selectedDialect.Protocol(),
+			Operation:       operation,
+			ChannelID:       string(selection.ChannelID),
+			TargetConfig:    selection.ResolvedTarget.TargetConfig,
+			Credential: execution.NewCredentialSnapshot(
+				selection.CredentialID,
+				ref.Version,
+				ref.IdentityGeneration,
+				normalizedCredential.payload,
+			),
 			OnStreamReady: func() {
-				handler.recordSuccess(selectedKeyID, handler.now())
+				handler.recordCredentialSuccess(selectedCredentialID, handler.now())
 			},
 			OnFirstResponse: func() {
 				recorder.recordFirstResponse()
@@ -595,6 +633,7 @@ func (handler *Handler) executeAttempts(
 		} else {
 			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
 		}
+		result = normalizeUpstreamResultEvidence(result)
 		attemptCompleted := time.Time{}
 		if recorder != nil {
 			attemptCompleted = recorder.now()
@@ -610,7 +649,7 @@ func (handler *Handler) executeAttempts(
 					)
 				}
 				recordedAttempt := recorder.recordStreamAttempt(
-					selection, apiKey, result, attemptStarted, attemptCompleted,
+					selection, normalizedCredential.secrets, result, attemptStarted, attemptCompleted,
 				)
 				recorder.completeStream(result, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 			}
@@ -620,7 +659,7 @@ func (handler *Handler) executeAttempts(
 			if recorder != nil {
 				recordedAttempt := recorder.recordAttempt(
 					selection,
-					apiKey,
+					normalizedCredential.secrets,
 					result,
 					health.Result{
 						Category: health.FailureCategoryDownstreamCancel,
@@ -637,20 +676,14 @@ func (handler *Handler) executeAttempts(
 		if !stream && !result.ProviderErrorBeforeCommit && result.HasResponse() &&
 			result.StatusCode >= http.StatusOK &&
 			result.StatusCode < http.StatusMultipleChoices {
-			handler.recordSuccess(selection.KeyID, attemptNow)
+			handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
 		}
-		decision := health.Judge(selectedDialect, health.Attempt{
-			StatusCode: result.StatusCode, Body: result.ClassificationBody,
-			Header: result.Header, Now: attemptNow,
-			Err: result.Err, RequestWritten: result.RequestWritten,
-			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
-			ProviderErrorBeforeCommit: result.ProviderErrorBeforeCommit,
-		})
+		decision := judgeUpstreamResult(result, attemptNow)
 		recordedAttempt := recorder.recordAttempt(
-			selection, apiKey, result, decision, attemptStarted, attemptCompleted,
+			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyKeyAction(selection.KeyID, decision, result.StatusCode, attemptNow)
+		handler.applyCredentialAction(selection.CredentialID, decision, result.StatusCode, attemptNow)
 		if decision.Action == health.ActionSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}

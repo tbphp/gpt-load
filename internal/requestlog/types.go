@@ -4,6 +4,8 @@ import (
 	"errors"
 	"time"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
@@ -26,19 +28,26 @@ const (
 )
 
 type Attempt struct {
-	Sequence        int                       `json:"sequence"`
-	GroupID         uint                      `json:"group_id"`
-	GroupName       string                    `json:"group_name"`
-	KeyID           uint                      `json:"key_id"`
-	UpstreamModel   string                    `json:"upstream_model"`
-	StatusCode      int                       `json:"status_code"`
-	DurationMs      int64                     `json:"duration_ms"`
-	FailureCategory telemetry.FailureCategory `json:"failure_category"`
-	Action          telemetry.Action          `json:"action"`
-	WillRetry       bool                      `json:"will_retry"`
-	ErrorCode       string                    `json:"error_code"`
-	ErrorSummary    string                    `json:"error_summary"`
-	PricingReceipt  *pricing.Receipt          `json:"pricing_receipt,omitempty"`
+	Sequence          int                       `json:"sequence"`
+	GroupID           uint                      `json:"group_id"`
+	GroupName         string                    `json:"group_name"`
+	ChannelID         channel.ID                `json:"channel_id"`
+	CredentialID      uint                      `json:"credential_id"`
+	Operation         execution.Operation       `json:"operation"`
+	RouteMode         channel.RouteMode         `json:"route_mode"`
+	UpstreamModel     string                    `json:"upstream_model"`
+	UpstreamRequestID string                    `json:"upstream_request_id"`
+	DispatchState     execution.DispatchState   `json:"dispatch_state"`
+	ResponseStarted   bool                      `json:"response_started"`
+	StatusCode        int                       `json:"status_code"`
+	DurationMs        int64                     `json:"duration_ms"`
+	FailureCategory   telemetry.FailureCategory `json:"failure_category"`
+	Action            telemetry.Action          `json:"action"`
+	WillRetry         bool                      `json:"will_retry"`
+	ErrorCode         string                    `json:"error_code"`
+	ErrorSummary      string                    `json:"error_summary"`
+	Committed         bool                      `json:"committed"`
+	PricingReceipt    *pricing.Receipt          `json:"pricing_receipt,omitempty"`
 }
 
 type RetryState string
@@ -57,6 +66,7 @@ type ListQuery struct {
 	FromMS              *int64
 	ToMS                *int64
 	GroupID             *uint
+	ChannelID           channel.ID
 	ClientModel         string
 	UpstreamModel       string
 	AccessKeyID         *uint
@@ -69,7 +79,7 @@ type ListQuery struct {
 	CostState           pricing.CostState
 	PricingCompleteness pricing.Completeness
 	CachePresent        *bool
-	UpstreamKeyID       *uint
+	CredentialID        *uint
 	AttemptStatusCode   *int
 	FailureCategory     telemetry.FailureCategory
 	AttemptErrorCode    string
@@ -117,6 +127,8 @@ type Record struct {
 	Reasoning               reasoning.Config
 	Attempts                []Attempt
 	GroupID                 uint
+	ChannelID               channel.ID
+	CredentialID            uint
 	UsageState              usage.State
 	CostState               pricing.CostState
 	PricingCompleteness     pricing.Completeness
@@ -155,6 +167,8 @@ type UsageQuery struct {
 	BucketWidthMS  int64
 	AccessKeyID    *uint
 	GroupID        *uint
+	ChannelID      channel.ID
+	CredentialID   *uint
 	UpstreamModel  string
 	Limit          int
 	BreakdownOrder UsageBreakdownOrder
@@ -184,8 +198,10 @@ type UsageSeriesPoint struct {
 }
 
 type UsageBreakdown struct {
-	GroupID uint
-	Model   string
+	GroupID      uint
+	ChannelID    channel.ID
+	CredentialID uint
+	Model        string
 	UsageAggregate
 }
 

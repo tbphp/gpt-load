@@ -3,198 +3,216 @@ package state
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
-type KeyStatus string
+type CredentialStatus string
 
 const (
-	KeyStatusActive   KeyStatus = "active"
-	KeyStatusDisabled KeyStatus = "disabled"
+	CredentialStatusActive   CredentialStatus = "active"
+	CredentialStatusDisabled CredentialStatus = "disabled"
 )
 
-type KeyEntry struct {
-	ID                uint
-	GroupID           uint
-	WeightManual      *int
-	WeightAuto        int
-	Status            KeyStatus
-	CooldownUntil     time.Time
-	Blacklisted       bool
-	FailureCount      int
-	FailureGeneration uint64
-	EncryptedValue    string
+type CredentialEntry struct {
+	ID                 uint
+	GroupID            uint
+	Version            uint64
+	IdentityGeneration uint64
+	Fingerprint        string
+	WeightManual       *int
+	WeightAuto         int
+	Status             CredentialStatus
+	CooldownUntil      time.Time
+	Blacklisted        bool
+	FailureCount       int
+	FailureGeneration  uint64
+	EncryptedValue     string
 }
 
-type KeyMeta struct {
-	ID           uint
-	GroupID      uint
-	WeightManual *int
-	WeightAuto   int
+type CredentialMeta struct {
+	ID                 uint
+	GroupID            uint
+	Version            uint64
+	IdentityGeneration uint64
+	WeightManual       *int
+	WeightAuto         int
 }
 
-type KeyRef struct {
-	ID                uint
-	GroupID           uint
-	EncryptedValue    string
-	FailureGeneration uint64
+type CredentialRef struct {
+	ID                 uint
+	GroupID            uint
+	Version            uint64
+	IdentityGeneration uint64
+	Fingerprint        string
+	EncryptedValue     string
+	FailureGeneration  uint64
 }
 
-type KeyRegistry struct {
-	mu        sync.RWMutex
-	buckets   map[uint]map[uint]*KeyEntry
-	keyGroups map[uint]uint
+type CredentialRegistry struct {
+	mu               sync.RWMutex
+	buckets          map[uint]map[uint]*CredentialEntry
+	credentialGroups map[uint]uint
 }
 
-func NewKeyRegistry() *KeyRegistry {
-	return &KeyRegistry{
-		buckets:   make(map[uint]map[uint]*KeyEntry),
-		keyGroups: make(map[uint]uint),
+func NewCredentialRegistry() *CredentialRegistry {
+	return &CredentialRegistry{
+		buckets:          make(map[uint]map[uint]*CredentialEntry),
+		credentialGroups: make(map[uint]uint),
 	}
 }
 
-func ValidateKeyEntries(entries []KeyEntry) error {
+func ValidateCredentialEntries(entries []CredentialEntry) error {
 	seen := make(map[uint]struct{}, len(entries))
 	for _, entry := range entries {
 		if entry.ID == 0 {
-			return fmt.Errorf("key id is required")
+			return fmt.Errorf("credential id is required")
 		}
 		if entry.GroupID == 0 {
-			return fmt.Errorf("key %d group id is required", entry.ID)
+			return fmt.Errorf("credential %d group id is required", entry.ID)
 		}
-		if entry.Status != KeyStatusActive && entry.Status != KeyStatusDisabled {
-			return fmt.Errorf("key %d has invalid status %q", entry.ID, entry.Status)
+		if entry.Status != CredentialStatusActive && entry.Status != CredentialStatusDisabled {
+			return fmt.Errorf("credential %d has invalid status %q", entry.ID, entry.Status)
 		}
-		if err := validateManualWeight(fmt.Sprintf("key %d", entry.ID), entry.WeightManual); err != nil {
+		if err := validateManualWeight(fmt.Sprintf("credential %d", entry.ID), entry.WeightManual); err != nil {
 			return err
 		}
 		if entry.WeightAuto < 0 || entry.WeightAuto > MaxWeight {
-			return fmt.Errorf("key %d auto weight must be between 1 and %d", entry.ID, MaxWeight)
+			return fmt.Errorf("credential %d auto weight must be between 0 and %d", entry.ID, MaxWeight)
 		}
 		if entry.EncryptedValue == "" {
-			return fmt.Errorf("key %d encrypted value is required", entry.ID)
+			return fmt.Errorf("credential %d encrypted value is required", entry.ID)
+		}
+		if entry.Version == 0 {
+			return fmt.Errorf("credential %d version is required", entry.ID)
+		}
+		if entry.IdentityGeneration == 0 {
+			return fmt.Errorf("credential %d identity generation is required", entry.ID)
+		}
+		if strings.TrimSpace(entry.Fingerprint) == "" {
+			return fmt.Errorf("credential %d fingerprint is required", entry.ID)
 		}
 		if _, duplicate := seen[entry.ID]; duplicate {
-			return fmt.Errorf("duplicate key id %d", entry.ID)
+			return fmt.Errorf("duplicate credential id %d", entry.ID)
 		}
 		seen[entry.ID] = struct{}{}
 	}
 	return nil
 }
 
-func (r *KeyRegistry) Replace(entries []KeyEntry) error {
-	if err := ValidateKeyEntries(entries); err != nil {
+func (r *CredentialRegistry) ReplaceCredentials(entries []CredentialEntry) error {
+	if err := ValidateCredentialEntries(entries); err != nil {
 		return err
 	}
 
-	buckets := make(map[uint]map[uint]*KeyEntry)
-	keyGroups := make(map[uint]uint, len(entries))
+	buckets := make(map[uint]map[uint]*CredentialEntry)
+	credentialGroups := make(map[uint]uint, len(entries))
 	for _, entry := range entries {
 		if buckets[entry.GroupID] == nil {
-			buckets[entry.GroupID] = make(map[uint]*KeyEntry)
+			buckets[entry.GroupID] = make(map[uint]*CredentialEntry)
 		}
-		cloned := cloneKeyEntry(entry)
+		cloned := cloneCredentialEntry(entry)
 		buckets[entry.GroupID][entry.ID] = &cloned
-		keyGroups[entry.ID] = entry.GroupID
+		credentialGroups[entry.ID] = entry.GroupID
 	}
 
 	r.mu.Lock()
 	r.buckets = buckets
-	r.keyGroups = keyGroups
+	r.credentialGroups = credentialGroups
 	r.mu.Unlock()
 	return nil
 }
 
-func (r *KeyRegistry) ApplyImport(groupID uint, entries []KeyEntry) error {
+func (r *CredentialRegistry) ApplyCredentialImport(groupID uint, entries []CredentialEntry) error {
 	if groupID == 0 {
 		return fmt.Errorf("group id is required")
 	}
-	if err := ValidateKeyEntries(entries); err != nil {
+	if err := ValidateCredentialEntries(entries); err != nil {
 		return err
 	}
 	for _, entry := range entries {
 		if entry.GroupID != groupID {
-			return fmt.Errorf("key %d belongs to group %d, want %d", entry.ID, entry.GroupID, groupID)
+			return fmt.Errorf("credential %d belongs to group %d, want %d", entry.ID, entry.GroupID, groupID)
 		}
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, entry := range entries {
-		if existingGroupID, exists := r.keyGroups[entry.ID]; exists && existingGroupID != groupID {
-			return fmt.Errorf("key %d already belongs to group %d", entry.ID, existingGroupID)
+		if existingGroupID, exists := r.credentialGroups[entry.ID]; exists && existingGroupID != groupID {
+			return fmt.Errorf("credential %d already belongs to group %d", entry.ID, existingGroupID)
 		}
 	}
 	for _, entry := range entries {
 		if r.buckets[groupID] == nil {
-			r.buckets[groupID] = make(map[uint]*KeyEntry)
+			r.buckets[groupID] = make(map[uint]*CredentialEntry)
 		}
-		cloned := cloneKeyEntry(entry)
+		cloned := cloneCredentialEntry(entry)
 		r.buckets[groupID][entry.ID] = &cloned
-		r.keyGroups[entry.ID] = groupID
+		r.credentialGroups[entry.ID] = groupID
 	}
 	return nil
 }
 
-// SnapshotGroupKeyEntriesExact returns detached selected entries without
-// applying the configuration replacement resets used by cloneKeyEntry.
-func (r *KeyRegistry) SnapshotGroupKeyEntriesExact(
+// SnapshotGroupCredentialEntriesExact returns detached selected entries without
+// applying the configuration replacement resets used by cloneCredentialEntry.
+func (r *CredentialRegistry) SnapshotGroupCredentialEntriesExact(
 	groupID uint,
-	keyIDs []uint,
-) ([]KeyEntry, error) {
+	credentialIDs []uint,
+) ([]CredentialEntry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if err := r.validateGroupKeyIDsLocked(groupID, keyIDs); err != nil {
+	if err := r.validateGroupCredentialIDsLocked(groupID, credentialIDs); err != nil {
 		return nil, err
 	}
-	entries := make([]KeyEntry, 0, len(keyIDs))
-	for _, keyID := range keyIDs {
-		entries = append(entries, detachKeyEntryExact(*r.buckets[groupID][keyID]))
+	entries := make([]CredentialEntry, 0, len(credentialIDs))
+	for _, credentialID := range credentialIDs {
+		entries = append(entries, detachCredentialEntryExact(*r.buckets[groupID][credentialID]))
 	}
 	return entries, nil
 }
 
-// RestoreGroupKeyEntriesExact atomically restores only selected entries,
+// RestoreGroupCredentialEntriesExact atomically restores only selected entries,
 // including their runtime failure generation. Unselected entries are untouched.
-func (r *KeyRegistry) RestoreGroupKeyEntriesExact(groupID uint, entries []KeyEntry) error {
+func (r *CredentialRegistry) RestoreGroupCredentialEntriesExact(groupID uint, entries []CredentialEntry) error {
 	if groupID == 0 {
 		return fmt.Errorf("group id is required")
 	}
 	if len(entries) == 0 {
-		return fmt.Errorf("key entries are required")
+		return fmt.Errorf("credential entries are required")
 	}
-	if err := ValidateKeyEntries(entries); err != nil {
+	if err := ValidateCredentialEntries(entries); err != nil {
 		return err
 	}
 	for _, entry := range entries {
 		if entry.GroupID != groupID {
-			return fmt.Errorf("key %d belongs to group %d, want %d", entry.ID, entry.GroupID, groupID)
+			return fmt.Errorf("credential %d belongs to group %d, want %d", entry.ID, entry.GroupID, groupID)
 		}
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, entry := range entries {
-		if existingGroupID, exists := r.keyGroups[entry.ID]; exists && existingGroupID != groupID {
-			return fmt.Errorf("key %d already belongs to group %d", entry.ID, existingGroupID)
+		if existingGroupID, exists := r.credentialGroups[entry.ID]; exists && existingGroupID != groupID {
+			return fmt.Errorf("credential %d already belongs to group %d", entry.ID, existingGroupID)
 		}
 	}
 	if r.buckets[groupID] == nil {
-		r.buckets[groupID] = make(map[uint]*KeyEntry)
+		r.buckets[groupID] = make(map[uint]*CredentialEntry)
 	}
 	for _, entry := range entries {
-		detached := detachKeyEntryExact(entry)
+		detached := detachCredentialEntryExact(entry)
 		r.buckets[groupID][entry.ID] = &detached
-		r.keyGroups[entry.ID] = groupID
+		r.credentialGroups[entry.ID] = groupID
 	}
 	return nil
 }
 
 // MatchesGroup compares the persisted configuration-owned fields for one
 // group. Runtime health state is intentionally excluded.
-func (r *KeyRegistry) MatchesGroup(groupID uint, entries []KeyEntry) bool {
-	if groupID == 0 || ValidateKeyEntries(entries) != nil {
+func (r *CredentialRegistry) MatchesGroup(groupID uint, entries []CredentialEntry) bool {
+	if groupID == 0 || ValidateCredentialEntries(entries) != nil {
 		return false
 	}
 	for _, entry := range entries {
@@ -210,17 +228,17 @@ func (r *KeyRegistry) MatchesGroup(groupID uint, entries []KeyEntry) bool {
 
 // ReconcileGroup makes one group match DB truth while preserving runtime
 // health state for entries whose persisted configuration is already equal.
-func (r *KeyRegistry) ReconcileGroup(groupID uint, entries []KeyEntry) (bool, error) {
+func (r *CredentialRegistry) ReconcileGroup(groupID uint, entries []CredentialEntry) (bool, error) {
 	if groupID == 0 {
 		return false, fmt.Errorf("group id is required")
 	}
-	if err := ValidateKeyEntries(entries); err != nil {
+	if err := ValidateCredentialEntries(entries); err != nil {
 		return false, err
 	}
 	for _, entry := range entries {
 		if entry.GroupID != groupID {
 			return false, fmt.Errorf(
-				"key %d belongs to group %d, want %d",
+				"credential %d belongs to group %d, want %d",
 				entry.ID,
 				entry.GroupID,
 				groupID,
@@ -231,10 +249,10 @@ func (r *KeyRegistry) ReconcileGroup(groupID uint, entries []KeyEntry) (bool, er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, entry := range entries {
-		if existingGroupID, exists := r.keyGroups[entry.ID]; exists &&
+		if existingGroupID, exists := r.credentialGroups[entry.ID]; exists &&
 			existingGroupID != groupID {
 			return false, fmt.Errorf(
-				"key %d already belongs to group %d",
+				"credential %d already belongs to group %d",
 				entry.ID,
 				existingGroupID,
 			)
@@ -245,47 +263,50 @@ func (r *KeyRegistry) ReconcileGroup(groupID uint, entries []KeyEntry) (bool, er
 	}
 
 	previous := r.buckets[groupID]
-	next := make(map[uint]*KeyEntry, len(entries))
+	next := make(map[uint]*CredentialEntry, len(entries))
 	for _, desired := range entries {
 		if existing := previous[desired.ID]; existing != nil &&
-			samePersistedKeyConfig(*existing, desired) {
+			samePersistedCredentialConfig(*existing, desired) {
 			next[desired.ID] = existing
 			continue
 		}
-		cloned := cloneKeyEntry(desired)
+		cloned := cloneCredentialEntry(desired)
 		next[desired.ID] = &cloned
 	}
-	for keyID := range previous {
-		delete(r.keyGroups, keyID)
+	for credentialID := range previous {
+		delete(r.credentialGroups, credentialID)
 	}
 	if len(next) == 0 {
 		delete(r.buckets, groupID)
 	} else {
 		r.buckets[groupID] = next
-		for keyID := range next {
-			r.keyGroups[keyID] = groupID
+		for credentialID := range next {
+			r.credentialGroups[credentialID] = groupID
 		}
 	}
 	return true, nil
 }
 
-func (r *KeyRegistry) matchesGroupLocked(groupID uint, entries []KeyEntry) bool {
+func (r *CredentialRegistry) matchesGroupLocked(groupID uint, entries []CredentialEntry) bool {
 	current := r.buckets[groupID]
 	if len(current) != len(entries) {
 		return false
 	}
 	for _, desired := range entries {
 		existing := current[desired.ID]
-		if existing == nil || !samePersistedKeyConfig(*existing, desired) {
+		if existing == nil || !samePersistedCredentialConfig(*existing, desired) {
 			return false
 		}
 	}
 	return true
 }
 
-func samePersistedKeyConfig(left, right KeyEntry) bool {
+func samePersistedCredentialConfig(left, right CredentialEntry) bool {
 	if left.ID != right.ID ||
 		left.GroupID != right.GroupID ||
+		left.Version != right.Version ||
+		left.IdentityGeneration != right.IdentityGeneration ||
+		left.Fingerprint != right.Fingerprint ||
 		left.Status != right.Status ||
 		left.EncryptedValue != right.EncryptedValue {
 		return false
@@ -296,49 +317,49 @@ func samePersistedKeyConfig(left, right KeyEntry) bool {
 	return *left.WeightManual == *right.WeightManual
 }
 
-func (r *KeyRegistry) RemoveKey(keyID uint) bool {
+func (r *CredentialRegistry) RemoveCredential(credentialID uint) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	groupID, ok := r.keyGroups[keyID]
+	groupID, ok := r.credentialGroups[credentialID]
 	if !ok {
 		return false
 	}
-	delete(r.buckets[groupID], keyID)
+	delete(r.buckets[groupID], credentialID)
 	if len(r.buckets[groupID]) == 0 {
 		delete(r.buckets, groupID)
 	}
-	delete(r.keyGroups, keyID)
+	delete(r.credentialGroups, credentialID)
 	return true
 }
 
-func (r *KeyRegistry) UpdateGroupKeyStatuses(
+func (r *CredentialRegistry) UpdateGroupCredentialStatuses(
 	groupID uint,
-	keyIDs []uint,
-	status KeyStatus,
+	credentialIDs []uint,
+	status CredentialStatus,
 ) error {
-	if status != KeyStatusActive && status != KeyStatusDisabled {
-		return fmt.Errorf("invalid key status %q", status)
+	if status != CredentialStatusActive && status != CredentialStatusDisabled {
+		return fmt.Errorf("invalid credential status %q", status)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if err := r.validateGroupKeyIDsLocked(groupID, keyIDs); err != nil {
+	if err := r.validateGroupCredentialIDsLocked(groupID, credentialIDs); err != nil {
 		return err
 	}
-	for _, keyID := range keyIDs {
-		r.buckets[groupID][keyID].Status = status
+	for _, credentialID := range credentialIDs {
+		r.buckets[groupID][credentialID].Status = status
 	}
 	return nil
 }
 
-func (r *KeyRegistry) RemoveGroupKeys(groupID uint, keyIDs []uint) error {
+func (r *CredentialRegistry) RemoveGroupCredentials(groupID uint, credentialIDs []uint) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if err := r.validateGroupKeyIDsLocked(groupID, keyIDs); err != nil {
+	if err := r.validateGroupCredentialIDsLocked(groupID, credentialIDs); err != nil {
 		return err
 	}
-	for _, keyID := range keyIDs {
-		delete(r.buckets[groupID], keyID)
-		delete(r.keyGroups, keyID)
+	for _, credentialID := range credentialIDs {
+		delete(r.buckets[groupID], credentialID)
+		delete(r.credentialGroups, credentialID)
 	}
 	if len(r.buckets[groupID]) == 0 {
 		delete(r.buckets, groupID)
@@ -346,37 +367,37 @@ func (r *KeyRegistry) RemoveGroupKeys(groupID uint, keyIDs []uint) error {
 	return nil
 }
 
-func (r *KeyRegistry) validateGroupKeyIDsLocked(groupID uint, keyIDs []uint) error {
+func (r *CredentialRegistry) validateGroupCredentialIDsLocked(groupID uint, credentialIDs []uint) error {
 	if groupID == 0 {
 		return fmt.Errorf("group id is required")
 	}
-	if len(keyIDs) == 0 {
-		return fmt.Errorf("key ids are required")
+	if len(credentialIDs) == 0 {
+		return fmt.Errorf("credential ids are required")
 	}
-	seen := make(map[uint]struct{}, len(keyIDs))
-	for _, keyID := range keyIDs {
-		if keyID == 0 {
-			return fmt.Errorf("key id is required")
+	seen := make(map[uint]struct{}, len(credentialIDs))
+	for _, credentialID := range credentialIDs {
+		if credentialID == 0 {
+			return fmt.Errorf("credential id is required")
 		}
-		if _, duplicate := seen[keyID]; duplicate {
-			return fmt.Errorf("duplicate key id %d", keyID)
+		if _, duplicate := seen[credentialID]; duplicate {
+			return fmt.Errorf("duplicate credential id %d", credentialID)
 		}
-		seen[keyID] = struct{}{}
-		actualGroupID, exists := r.keyGroups[keyID]
+		seen[credentialID] = struct{}{}
+		actualGroupID, exists := r.credentialGroups[credentialID]
 		if !exists {
-			return fmt.Errorf("key %d not found", keyID)
+			return fmt.Errorf("credential %d not found", credentialID)
 		}
 		if actualGroupID != groupID {
-			return fmt.Errorf("key %d belongs to group %d, want %d", keyID, actualGroupID, groupID)
+			return fmt.Errorf("credential %d belongs to group %d, want %d", credentialID, actualGroupID, groupID)
 		}
-		if r.buckets[groupID][keyID] == nil {
-			return fmt.Errorf("key %d not found in group %d", keyID, groupID)
+		if r.buckets[groupID][credentialID] == nil {
+			return fmt.Errorf("credential %d not found in group %d", credentialID, groupID)
 		}
 	}
 	return nil
 }
 
-func (r *KeyRegistry) RemoveGroup(groupID uint) bool {
+func (r *CredentialRegistry) RemoveGroup(groupID uint) bool {
 	if groupID == 0 {
 		return false
 	}
@@ -386,75 +407,77 @@ func (r *KeyRegistry) RemoveGroup(groupID uint) bool {
 	if !exists {
 		return false
 	}
-	for keyID := range bucket {
-		delete(r.keyGroups, keyID)
+	for credentialID := range bucket {
+		delete(r.credentialGroups, credentialID)
 	}
 	delete(r.buckets, groupID)
 	return true
 }
 
-func (r *KeyRegistry) SetKeyStatus(keyID uint, status KeyStatus) error {
-	if status != KeyStatusActive && status != KeyStatusDisabled {
-		return fmt.Errorf("invalid key status %q", status)
+func (r *CredentialRegistry) SetCredentialStatus(credentialID uint, status CredentialStatus) error {
+	if status != CredentialStatusActive && status != CredentialStatusDisabled {
+		return fmt.Errorf("invalid credential status %q", status)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	groupID, ok := r.keyGroups[keyID]
+	groupID, ok := r.credentialGroups[credentialID]
 	if !ok {
-		return fmt.Errorf("key %d not found", keyID)
+		return fmt.Errorf("credential %d not found", credentialID)
 	}
-	r.buckets[groupID][keyID].Status = status
+	r.buckets[groupID][credentialID].Status = status
 	return nil
 }
 
-func (r *KeyRegistry) UpdateKeyConfig(
-	keyID uint,
-	status KeyStatus,
+func (r *CredentialRegistry) UpdateCredentialConfig(
+	credentialID uint,
+	status CredentialStatus,
 	weightManual *int,
 ) error {
-	if status != KeyStatusActive && status != KeyStatusDisabled {
-		return fmt.Errorf("invalid key status %q", status)
+	if status != CredentialStatusActive && status != CredentialStatusDisabled {
+		return fmt.Errorf("invalid credential status %q", status)
 	}
-	if err := validateManualWeight(fmt.Sprintf("key %d", keyID), weightManual); err != nil {
+	if err := validateManualWeight(fmt.Sprintf("credential %d", credentialID), weightManual); err != nil {
 		return err
 	}
 	clonedWeight := cloneWeight(weightManual)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
-		return fmt.Errorf("key %d not found", keyID)
+		return fmt.Errorf("credential %d not found", credentialID)
 	}
 	entry.Status = status
 	entry.WeightManual = clonedWeight
 	return nil
 }
 
-func (r *KeyRegistry) EncryptedValue(keyID uint) (string, bool) {
+// EncryptedCredentialData returns encrypted credential data for the selected
+// stable credential ID. Decryption belongs to the gateway execution boundary.
+func (r *CredentialRegistry) EncryptedCredentialData(credentialID uint) (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	groupID, ok := r.keyGroups[keyID]
+	groupID, ok := r.credentialGroups[credentialID]
 	if !ok {
 		return "", false
 	}
-	return r.buckets[groupID][keyID].EncryptedValue, true
+	return r.buckets[groupID][credentialID].EncryptedValue, true
 }
 
-func (r *KeyRegistry) ActiveEncryptedValue(keyID, expectedGroupID uint) (string, bool) {
+func (r *CredentialRegistry) ActiveEncryptedCredentialData(credentialID, expectedGroupID uint) (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	groupID, ok := r.keyGroups[keyID]
+	groupID, ok := r.credentialGroups[credentialID]
 	if !ok || groupID != expectedGroupID {
 		return "", false
 	}
-	entry, ok := r.buckets[groupID][keyID]
-	if !ok || entry.Status != KeyStatusActive {
+	entry, ok := r.buckets[groupID][credentialID]
+	if !ok || entry.Status != CredentialStatusActive {
 		return "", false
 	}
 	return entry.EncryptedValue, true
 }
 
-func (r *KeyRegistry) CaptureActiveKeyRefs(groupIDs []uint) []KeyRef {
+func (r *CredentialRegistry) CaptureActiveCredentialRefs(groupIDs []uint) []CredentialRef {
 	selectedGroups := make(map[uint]struct{}, len(groupIDs))
 	for _, groupID := range groupIDs {
 		if groupID != 0 {
@@ -463,14 +486,16 @@ func (r *KeyRegistry) CaptureActiveKeyRefs(groupIDs []uint) []KeyRef {
 	}
 
 	r.mu.RLock()
-	refs := make([]KeyRef, 0)
+	refs := make([]CredentialRef, 0)
 	for groupID := range selectedGroups {
 		for _, entry := range r.buckets[groupID] {
-			if entry.Status != KeyStatusActive {
+			if entry.Status != CredentialStatusActive {
 				continue
 			}
-			refs = append(refs, KeyRef{
-				ID: entry.ID, GroupID: entry.GroupID, EncryptedValue: entry.EncryptedValue,
+			refs = append(refs, CredentialRef{
+				ID: entry.ID, GroupID: entry.GroupID,
+				Version: entry.Version, IdentityGeneration: entry.IdentityGeneration,
+				Fingerprint: entry.Fingerprint, EncryptedValue: entry.EncryptedValue,
 				FailureGeneration: entry.FailureGeneration,
 			})
 		}
@@ -485,10 +510,10 @@ func (r *KeyRegistry) CaptureActiveKeyRefs(groupIDs []uint) []KeyRef {
 	return refs
 }
 
-func (r *KeyRegistry) ActiveEncryptedValueIfMatch(ref KeyRef) (string, bool) {
+func (r *CredentialRegistry) ActiveEncryptedCredentialDataIfMatch(ref CredentialRef) (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	groupID, ok := r.keyGroups[ref.ID]
+	groupID, ok := r.credentialGroups[ref.ID]
 	if !ok || groupID != ref.GroupID {
 		return "", false
 	}
@@ -496,8 +521,11 @@ func (r *KeyRegistry) ActiveEncryptedValueIfMatch(ref KeyRef) (string, bool) {
 	if !ok ||
 		entry.ID != ref.ID ||
 		entry.GroupID != ref.GroupID ||
+		entry.Version != ref.Version ||
+		entry.IdentityGeneration != ref.IdentityGeneration ||
+		entry.Fingerprint != ref.Fingerprint ||
 		entry.EncryptedValue != ref.EncryptedValue ||
-		entry.Status != KeyStatusActive {
+		entry.Status != CredentialStatusActive {
 		return "", false
 	}
 	// FailureGeneration is intentionally excluded: failure accounting must not
@@ -505,12 +533,12 @@ func (r *KeyRegistry) ActiveEncryptedValueIfMatch(ref KeyRef) (string, bool) {
 	return entry.EncryptedValue, true
 }
 
-func (r *KeyRegistry) ActiveKeyIDs() []uint {
+func (r *CredentialRegistry) ActiveCredentialIDs() []uint {
 	r.mu.RLock()
-	ids := make([]uint, 0, len(r.keyGroups))
+	ids := make([]uint, 0, len(r.credentialGroups))
 	for _, bucket := range r.buckets {
 		for _, entry := range bucket {
-			if entry.Status == KeyStatusActive {
+			if entry.Status == CredentialStatusActive {
 				ids = append(ids, entry.ID)
 			}
 		}
@@ -520,17 +548,19 @@ func (r *KeyRegistry) ActiveKeyIDs() []uint {
 	return ids
 }
 
-func (r *KeyRegistry) CollectCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []KeyMeta {
+// CollectCredentialCandidates returns currently schedulable credentials.
+func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []CredentialMeta {
 	r.mu.RLock()
-	metas := make([]KeyMeta, 0)
+	metas := make([]CredentialMeta, 0)
 	for _, groupID := range groupIDs {
 		for _, entry := range r.buckets[groupID] {
 			view := runtimeView(entry)
-			if view.RuntimeState(now) != KeyRuntimeAvailable {
+			if view.RuntimeState(now) != CredentialRuntimeAvailable {
 				continue
 			}
-			meta := KeyMeta{
+			meta := CredentialMeta{
 				ID: view.ID, GroupID: view.GroupID,
+				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
 				WeightManual: cloneWeight(view.WeightManual), WeightAuto: view.WeightAuto,
 			}
 			metas = append(metas, meta)
@@ -554,10 +584,10 @@ func (r *KeyRegistry) CollectCandidates(groupIDs []uint, excluded func(uint) boo
 	return filtered
 }
 
-func (r *KeyRegistry) SetCooldown(keyID uint, until time.Time) bool {
+func (r *CredentialRegistry) SetCooldown(credentialID uint, until time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return false
 	}
@@ -567,13 +597,13 @@ func (r *KeyRegistry) SetCooldown(keyID uint, until time.Time) bool {
 	return true
 }
 
-func (r *KeyRegistry) SetAutoWeight(keyID uint, weight int) bool {
+func (r *CredentialRegistry) SetAutoWeight(credentialID uint, weight int) bool {
 	if weight < 1 || weight > MaxWeight {
 		return false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return false
 	}
@@ -581,13 +611,13 @@ func (r *KeyRegistry) SetAutoWeight(keyID uint, weight int) bool {
 	return true
 }
 
-func (r *KeyRegistry) RestoreRuntimeState(keyID uint, weight int) bool {
+func (r *CredentialRegistry) RestoreRuntimeState(credentialID uint, weight int) bool {
 	if weight < 1 || weight > MaxWeight {
 		return false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return false
 	}
@@ -599,10 +629,10 @@ func (r *KeyRegistry) RestoreRuntimeState(keyID uint, weight int) bool {
 	return true
 }
 
-func (r *KeyRegistry) SetBlacklisted(keyID uint) bool {
+func (r *CredentialRegistry) SetBlacklisted(credentialID uint) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return false
 	}
@@ -613,10 +643,10 @@ func (r *KeyRegistry) SetBlacklisted(keyID uint) bool {
 	return true
 }
 
-func (r *KeyRegistry) IncrFailure(keyID uint) (int, bool) {
+func (r *CredentialRegistry) IncrFailure(credentialID uint) (int, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return 0, false
 	}
@@ -625,10 +655,10 @@ func (r *KeyRegistry) IncrFailure(keyID uint) (int, bool) {
 	return entry.FailureCount, true
 }
 
-func (r *KeyRegistry) ClearFailure(keyID uint) bool {
+func (r *CredentialRegistry) ClearFailure(credentialID uint) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return false
 	}
@@ -639,10 +669,10 @@ func (r *KeyRegistry) ClearFailure(keyID uint) bool {
 	return true
 }
 
-func (r *KeyRegistry) Recover(keyID uint) bool {
+func (r *CredentialRegistry) Recover(credentialID uint) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(keyID)
+	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return false
 	}
@@ -654,18 +684,22 @@ func (r *KeyRegistry) Recover(keyID uint) bool {
 	return true
 }
 
-func (r *KeyRegistry) RecoverIfMatch(ref KeyRef, weight int) bool {
+func (r *CredentialRegistry) RecoverIfMatch(ref CredentialRef, weight int) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if weight < 1 || weight > MaxWeight {
 		return false
 	}
-	groupID, ok := r.keyGroups[ref.ID]
+	groupID, ok := r.credentialGroups[ref.ID]
 	if !ok || groupID != ref.GroupID {
 		return false
 	}
 	entry, ok := r.buckets[groupID][ref.ID]
-	if !ok || entry.Status != KeyStatusActive || !entry.Blacklisted || entry.GroupID != ref.GroupID || entry.EncryptedValue != ref.EncryptedValue || entry.FailureGeneration != ref.FailureGeneration {
+	if !ok || entry.Status != CredentialStatusActive || !entry.Blacklisted ||
+		entry.GroupID != ref.GroupID || entry.Version != ref.Version ||
+		entry.IdentityGeneration != ref.IdentityGeneration ||
+		entry.Fingerprint != ref.Fingerprint || entry.EncryptedValue != ref.EncryptedValue ||
+		entry.FailureGeneration != ref.FailureGeneration {
 		return false
 	}
 	entry.WeightAuto = weight
@@ -675,16 +709,18 @@ func (r *KeyRegistry) RecoverIfMatch(ref KeyRef, weight int) bool {
 	return true
 }
 
-func (r *KeyRegistry) BlacklistedKeys() []KeyRef {
+func (r *CredentialRegistry) BlacklistedCredentials() []CredentialRef {
 	r.mu.RLock()
-	refs := make([]KeyRef, 0)
+	refs := make([]CredentialRef, 0)
 	for _, bucket := range r.buckets {
 		for _, entry := range bucket {
-			if entry.Status != KeyStatusActive || !entry.Blacklisted {
+			if entry.Status != CredentialStatusActive || !entry.Blacklisted {
 				continue
 			}
-			refs = append(refs, KeyRef{
-				ID: entry.ID, GroupID: entry.GroupID, EncryptedValue: entry.EncryptedValue,
+			refs = append(refs, CredentialRef{
+				ID: entry.ID, GroupID: entry.GroupID,
+				Version: entry.Version, IdentityGeneration: entry.IdentityGeneration,
+				Fingerprint: entry.Fingerprint, EncryptedValue: entry.EncryptedValue,
 				FailureGeneration: entry.FailureGeneration,
 			})
 		}
@@ -699,16 +735,16 @@ func (r *KeyRegistry) BlacklistedKeys() []KeyRef {
 	return refs
 }
 
-func (r *KeyRegistry) entryLocked(keyID uint) (*KeyEntry, bool) {
-	groupID, ok := r.keyGroups[keyID]
+func (r *CredentialRegistry) entryLocked(credentialID uint) (*CredentialEntry, bool) {
+	groupID, ok := r.credentialGroups[credentialID]
 	if !ok {
 		return nil, false
 	}
-	entry, ok := r.buckets[groupID][keyID]
+	entry, ok := r.buckets[groupID][credentialID]
 	return entry, ok
 }
 
-func cloneKeyEntry(entry KeyEntry) KeyEntry {
+func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.FailureGeneration = 0
 	if entry.WeightAuto == 0 {
@@ -717,7 +753,7 @@ func cloneKeyEntry(entry KeyEntry) KeyEntry {
 	return entry
 }
 
-func detachKeyEntryExact(entry KeyEntry) KeyEntry {
+func detachCredentialEntryExact(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	return entry
 }

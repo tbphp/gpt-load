@@ -6,24 +6,27 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
-func TestReconcileReferencedPricesUsesOneGlobalIdentity(t *testing.T) {
+func TestReconcileReferencedPricesUsesChannelModelIdentity(t *testing.T) {
 	fixture := newServiceFixture(t)
-	providerID := "openai"
 	createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "provider", ProviderID: &providerID, UpstreamURL: "https://provider.example/v1",
-		Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(`[{"id":"shared","alias":"a"}]`), Config: models.JSON(`{}`), Enabled: true,
+		Name: "openai", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[{"id":"shared","alias":"a"}]`), Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "custom", UpstreamURL: "https://custom.example/v1",
-		Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(`[{"id":"shared","alias":"b"}]`), Config: models.JSON(`{}`), Enabled: true,
+		Name: "anthropic", ChannelID: string(channel.Anthropic), Params: models.JSON(`{}`),
+		Models: models.JSON(`[{"id":"shared","alias":"b"}]`), Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
 			"shared": {ID: "shared", Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2_000_000_000)}}},
+		}},
+		"anthropic": {ID: "anthropic", Models: map[string]catalog.Model{
+			"shared": {ID: "shared", Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(3_000_000_000)}}},
 		}},
 	}}
 	if err := fixture.service.withControlTransaction(t.Context(), func(tx *gorm.DB) error {
@@ -35,16 +38,40 @@ func TestReconcileReferencedPricesUsesOneGlobalIdentity(t *testing.T) {
 	if err := fixture.db.Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].ModelID != "shared" || rows[0].InputPriceNanoUSDPerMillionTokens == nil || *rows[0].InputPriceNanoUSDPerMillionTokens != 2_000_000_000 {
+	if len(rows) != 2 {
 		t.Fatalf("reconciled rows = %#v", rows)
 	}
-	if _, ok := mustLoadPriceTable(t, fixture.db).Lookup(pricing.Identity{ModelID: "shared"}); !ok {
-		t.Fatal("global runtime table did not contain shared model")
+	byChannel := make(map[string]models.ModelPrice, len(rows))
+	for _, row := range rows {
+		byChannel[row.ChannelID] = row
+	}
+	if row := byChannel[string(channel.OpenAI)]; row.InputPriceNanoUSDPerMillionTokens == nil ||
+		*row.InputPriceNanoUSDPerMillionTokens != 2_000_000_000 {
+		t.Fatalf("OpenAI price = %#v", row)
+	}
+	if row := byChannel[string(channel.Anthropic)]; row.InputPriceNanoUSDPerMillionTokens == nil ||
+		*row.InputPriceNanoUSDPerMillionTokens != 3_000_000_000 {
+		t.Fatalf("Anthropic price = %#v", row)
+	}
+	table := mustLoadPriceTable(t, fixture.db)
+	for _, identity := range []pricing.Identity{
+		{ChannelID: string(channel.OpenAI), ModelID: "shared"},
+		{ChannelID: string(channel.Anthropic), ModelID: "shared"},
+	} {
+		if _, ok := table.Lookup(identity); !ok {
+			t.Fatalf("runtime table does not contain %#v", identity)
+		}
 	}
 }
 
 func createPriceTestGroup(t *testing.T, db *gorm.DB, group models.Group) models.Group {
 	t.Helper()
+	if group.ChannelID == "" {
+		group.ChannelID = string(channel.OpenAICompatible)
+	}
+	if len(group.Params) == 0 {
+		group.Params = models.JSON(`{"base_url":"https://` + group.Name + `.example/v1"}`)
+	}
 	if err := db.Create(&group).Error; err != nil {
 		t.Fatalf("create price test group: %v", err)
 	}

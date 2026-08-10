@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/app"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
@@ -266,7 +267,7 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		db *gorm.DB,
 		_ *gin.Engine,
 		manager *state.Manager,
-		registry *state.KeyRegistry,
+		registry *state.CredentialRegistry,
 		startupBootstrap app.StartupBootstrap,
 		runtimeState app.RuntimeStateLoader,
 		gatewayHandler *gateway.Handler,
@@ -316,7 +317,7 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		if _, ok := snapshot.AccessKeysByHash[keyService.Hash(plaintext)]; !ok {
 			t.Fatal("first snapshot cannot authenticate default AccessKey")
 		}
-		if got := registry.CollectCandidates(nil, nil, time.Time{}); len(got) != 0 {
+		if got := registry.CollectCredentialCandidates(nil, nil, time.Time{}); len(got) != 0 {
 			t.Fatalf("empty registry candidates = %#v", got)
 		}
 		if attemptForwarder == nil {
@@ -802,8 +803,9 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 	}
 	err = dependencyContainer.Invoke(func(
 		engine *gin.Engine,
+		channels *channel.Registry,
 		manager *state.Manager,
-		registry *state.KeyRegistry,
+		registry *state.CredentialRegistry,
 		stats *health.StatsStore,
 		keyService encryption.Service,
 		db *gorm.DB,
@@ -814,8 +816,8 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 				_ = sqlDB.Close()
 			}
 		})
-		if _, publishErr := manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-			ID: 1, Name: "shared", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+		if _, publishErr := manager.Publish(state.CompileInput{ChannelRegistry: channels, Groups: []state.GroupConfig{{
+			ID: 1, Name: "shared", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}}}); publishErr != nil {
 			t.Fatalf("Publish() error = %v", publishErr)
@@ -824,8 +826,9 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 		if encryptErr != nil {
 			t.Fatalf("Encrypt() error = %v", encryptErr)
 		}
-		if replaceErr := registry.Replace([]state.KeyEntry{{
-			ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+		if replaceErr := registry.ReplaceCredentials([]state.CredentialEntry{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "container-credential",
 			Blacklisted: true, EncryptedValue: ciphertext,
 		}}); replaceErr != nil {
 			t.Fatalf("Replace() error = %v", replaceErr)
@@ -841,19 +844,19 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 		}
 		var envelope struct {
 			Data struct {
-				BlacklistedKeys []struct {
-					KeyID              uint   `json:"key_id"`
+				BlacklistedCredentials []struct {
+					CredentialID       uint   `json:"credential_id"`
 					RecentProblemCount uint64 `json:"recent_problem_count"`
-				} `json:"blacklisted_keys"`
+				} `json:"blacklisted_credentials"`
 			} `json:"data"`
 		}
 		if decodeErr := json.Unmarshal(recorder.Body.Bytes(), &envelope); decodeErr != nil {
 			t.Fatalf("decode response: %v", decodeErr)
 		}
-		if len(envelope.Data.BlacklistedKeys) != 1 ||
-			envelope.Data.BlacklistedKeys[0].KeyID != 1 ||
-			envelope.Data.BlacklistedKeys[0].RecentProblemCount != 1 {
-			t.Fatalf("blacklisted stats = %#v", envelope.Data.BlacklistedKeys)
+		if len(envelope.Data.BlacklistedCredentials) != 1 ||
+			envelope.Data.BlacklistedCredentials[0].CredentialID != 1 ||
+			envelope.Data.BlacklistedCredentials[0].RecentProblemCount != 1 {
+			t.Fatalf("blacklisted stats = %#v", envelope.Data.BlacklistedCredentials)
 		}
 	})
 	if err != nil {

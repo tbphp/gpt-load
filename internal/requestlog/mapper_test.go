@@ -38,7 +38,7 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 		},
 	}
 	event.Usage.AttemptSequence = 1
-	event.Usage.KeyID = 8
+	event.Usage.CredentialID = 8
 	event.Usage.Pricing = telemetry.PricingObservation{
 		UpstreamModel:        "upstream-model",
 		CostState:            string(pricing.CostStatePriced),
@@ -69,7 +69,7 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	}
 
 	if len(row.AttemptRows) != 1 || row.AttemptRows[0].GroupID != 7 ||
-		row.AttemptRows[0].KeyID != 8 {
+		row.AttemptRows[0].CredentialID != 8 {
 		t.Fatalf("attempts = %+v", row.AttemptRows)
 	}
 }
@@ -93,7 +93,7 @@ func TestMapEventPersistsEveryValidFrozenPricingState(t *testing.T) {
 			event := testEvent("state-" + test.name)
 			event.Usage.Result.State = test.usageState
 			event.Usage.AttemptSequence = 1
-			event.Usage.KeyID = 8
+			event.Usage.CredentialID = 8
 			event.Usage.Pricing = telemetry.PricingObservation{
 				UpstreamModel:        event.UpstreamModel,
 				CostState:            string(test.costState),
@@ -114,7 +114,7 @@ func TestMapEventRejectsInvalidFrozenObservationAtomically(t *testing.T) {
 		event := testEvent("invalid-frozen")
 		event.Usage.Result = usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 1}}
 		event.Usage.AttemptSequence = 1
-		event.Usage.KeyID = 8
+		event.Usage.CredentialID = 8
 		event.Usage.Pricing = telemetry.PricingObservation{
 			UpstreamModel: event.UpstreamModel,
 			CostState:     string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),

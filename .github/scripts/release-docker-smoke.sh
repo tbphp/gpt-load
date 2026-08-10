@@ -148,6 +148,9 @@ docker run --name "${probe}" \
   --entrypoint /bin/sh \
   "${image}" -ceu '
     test "$(id -u):$(id -g)" = "10001:10001"
+    test -r /app/licenses/LICENSE
+    test -r /app/licenses/THIRD_PARTY_NOTICES.md
+    test -r /app/licenses/Apache-2.0.txt
     printf canary >/app/data/release-write-canary
     test "$(cat /app/data/release-write-canary)" = canary
     rm /app/data/release-write-canary
@@ -233,21 +236,20 @@ test "$(
 api_get "/api/usage?range=24h" >"${task_tmp}/usage-empty.json"
 api_get "/api/model-prices" >"${task_tmp}/prices-empty.json"
 
-upstream_key="task13-upstream-${suffix}-$(openssl rand -hex 12)"
+credential_secret="task13-credential-${suffix}-$(openssl rand -hex 12)"
 group_idempotency_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 group_response="$(
   api_write POST "/api/groups" "$(
     node -e '
       process.stdout.write(JSON.stringify({
         name:"Task13 Release Smoke Group",
-        upstream_url:process.argv[1],
-        protocols:["openai-completions"],
-        models:[{id:"task13-release-model",alias:""}],
-        config:{},
-        keys:process.argv[2],
-        confirm_same_upstream_url:false,
+        channel_id:"openai_compatible",
+        params:{base_url:process.argv[1]},
+        models:[{id:"task13-release-model",alias:"",alias_enabled:false}],
+        credentials:process.argv[2],
+        confirm_same_target:false,
       }));
-    ' "http://host.docker.internal:${fake_port}/v1" "${upstream_key}"
+    ' "http://host.docker.internal:${fake_port}/v1" "${credential_secret}"
   )" "${group_idempotency_key}"
 )"
 group_id="$(
@@ -256,7 +258,8 @@ group_id="$(
     const value=JSON.parse(fs.readFileSync(0,"utf8"));
     const group=value.data;
     if(value.code!==0||!group||group.group_name!=="Task13 Release Smoke Group"||
-       !Number.isSafeInteger(group.group_id)||group.group_id<=0) process.exit(1);
+       !Number.isSafeInteger(group.group_id)||group.group_id<=0||
+       group.credentials_added!==1||group.credentials_duplicated!==0) process.exit(1);
     process.stdout.write(String(group.group_id));
   '
 )"
@@ -269,19 +272,18 @@ model_price_id="$(
   printf '%s' "${model_price_list}" | node -e '
     const fs=require("fs");
     const value=JSON.parse(fs.readFileSync(0,"utf8"));
-    const groupID=process.argv[1];
+    const channelID=process.argv[1];
     const modelID=process.argv[2];
     const items=value.data&&value.data.items;
     if(value.code!==0||!Array.isArray(items)) process.exit(1);
     const matches=items.filter(item=>
-      item&&item.scope&&item.scope.kind==="group"&&item.scope.id===groupID&&
-      item.model_id===modelID
+      item&&item.channel_id===channelID&&item.model_id===modelID
     );
     if(matches.length!==1||!Number.isSafeInteger(matches[0].id)||matches[0].id<=0) {
       process.exit(1);
     }
     process.stdout.write(String(matches[0].id));
-  ' "${group_id}" "task13-release-model"
+  ' "openai_compatible" "task13-release-model"
 )"
 unset model_price_list
 test -n "${model_price_id}"
@@ -384,15 +386,18 @@ node -e '
   const groups=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
   const prices=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
   const usage=JSON.parse(fs.readFileSync(process.argv[3],"utf8"));
-  const groupID=process.argv[4];
+  const groupID=Number(process.argv[4]);
   const priceID=Number(process.argv[5]);
   const modelID=process.argv[6];
-  if(!groups.data.some(item=>item.name==="Task13 Release Smoke Group")) process.exit(1);
+  const groupItems=groups.data&&groups.data.items;
+  if(!Array.isArray(groupItems)||!groupItems.some(item=>
+    item.id===groupID&&item.name==="Task13 Release Smoke Group"&&
+    item.channel_id==="openai_compatible"&&item.credential_counts.total===1
+  )) process.exit(1);
   const items=prices.data&&prices.data.items;
   if(!Array.isArray(items)||!Number.isSafeInteger(priceID)||priceID<=0) process.exit(1);
   const matches=items.filter(item=>
-    item&&item.scope&&item.scope.kind==="group"&&item.scope.id===groupID&&
-    item.model_id===modelID
+    item&&item.channel_id==="openai_compatible"&&item.model_id===modelID
   );
   if(matches.length!==1||matches[0].id!==priceID||
      matches[0].method!=="user_set"||matches[0].pricing_status!=="configured") {
@@ -435,8 +440,8 @@ summary_file="${task_tmp}/summary.txt"
   printf 'graceful_stop_exit=0\n'
 } >"${summary_file}"
 
-secret_labels=(auth_key encryption_key access_key upstream_key)
-secret_values=("${auth_key}" "${encryption_key}" "${access_key}" "${upstream_key}")
+secret_labels=(auth_key encryption_key access_key credential_secret)
+secret_values=("${auth_key}" "${encryption_key}" "${access_key}" "${credential_secret}")
 for index in "${!secret_labels[@]}"; do
   secret_label="${secret_labels[${index}]}"
   secret_value="${secret_values[${index}]}"

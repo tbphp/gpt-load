@@ -10,30 +10,29 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
 type GroupCreateRequest struct {
-	Name                   *string             `json:"name"`
-	ProviderID             *string             `json:"provider_id"`
-	UpstreamURL            string              `json:"upstream_url"`
-	Protocols              []protocol.Protocol `json:"protocols"`
-	Models                 optionalGroupModels `json:"models"`
-	Keys                   string              `json:"keys"`
-	ConfirmSameUpstreamURL bool                `json:"confirm_same_upstream_url"`
+	Name              *string             `json:"name"`
+	ChannelID         channel.ID          `json:"channel_id"`
+	Params            json.RawMessage     `json:"params"`
+	Models            optionalGroupModels `json:"models"`
+	Credentials       string              `json:"credentials"`
+	ConfirmSameTarget bool                `json:"confirm_same_target"`
 }
 
 type GroupCreateResult struct {
-	GroupID        uint   `json:"group_id"`
-	GroupName      string `json:"group_name"`
-	KeysAdded      int    `json:"keys_added"`
-	KeysDuplicated int    `json:"keys_duplicated"`
+	GroupID               uint   `json:"group_id"`
+	GroupName             string `json:"group_name"`
+	CredentialsAdded      int    `json:"credentials_added"`
+	CredentialsDuplicated int    `json:"credentials_duplicated"`
 }
 
 type ExistingGroupSummary struct {
@@ -41,20 +40,20 @@ type ExistingGroupSummary struct {
 	Name string `json:"name"`
 }
 
-type UpstreamURLConflictData struct {
+type SameTargetConflictData struct {
 	Groups []ExistingGroupSummary `json:"groups"`
 }
 
 type normalizedGroupCreate struct {
-	providerID             *string
-	upstreamURL            string
-	hostname               string
-	protocols              []protocol.Protocol
-	explicitName           *string
-	models                 []GroupModel
-	encodedConfig          models.JSON
-	keys                   normalizedUpstreamKeys
-	confirmSameUpstreamURL bool
+	channelID         channel.ID
+	params            models.JSON
+	defaultName       string
+	hostname          string
+	explicitName      *string
+	models            []GroupModel
+	encodedOverrides  models.JSON
+	credentials       normalizedCredentials
+	confirmSameTarget bool
 }
 
 func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (GroupCreateResult, error) {
@@ -68,46 +67,41 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 			logrus.WarnLevel,
 			utils.LogPlaneControl,
 			logrus.Fields{"host": normalized.hostname},
-			"Creating upstream group with a private or local host",
+			"Creating channel group with a private or local host",
 		)
 	}
 
 	result := GroupCreateResult{}
-	requestedEntries := make([]state.KeyEntry, 0, len(normalized.keys.candidates))
+	requestedEntries := make([]state.CredentialEntry, 0, len(normalized.credentials.candidates))
 	_, err = s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
-		if !normalized.confirmSameUpstreamURL {
-			conflicts, err := findGroupsByUpstreamURL(tx, normalized.upstreamURL)
+		if !normalized.confirmSameTarget {
+			conflicts, err := findGroupsByTarget(tx, normalized.channelID, normalized.params)
 			if err != nil {
 				return err
 			}
 			if len(conflicts) > 0 {
 				return app_errors.NewAPIErrorWithData(
-					app_errors.ErrUpstreamURLConflict,
-					UpstreamURLConflictData{Groups: conflicts},
+					app_errors.ErrChannelTargetConflict,
+					SameTargetConflictData{Groups: conflicts},
 				)
 			}
 		}
 
-		name, err := resolveGroupCreateName(tx, normalized.explicitName, normalized.hostname)
+		name, err := resolveGroupCreateName(tx, normalized.explicitName, normalized.defaultName)
 		if err != nil {
 			return err
-		}
-		encodedProtocols, err := json.Marshal(normalized.protocols)
-		if err != nil {
-			return fmt.Errorf("encode group protocols: %w", err)
 		}
 		encodedModels, err := json.Marshal(normalized.models)
 		if err != nil {
 			return fmt.Errorf("encode group models: %w", err)
 		}
 		group := models.Group{
-			Name:        name,
-			ProviderID:  cloneString(normalized.providerID),
-			UpstreamURL: normalized.upstreamURL,
-			Protocols:   models.JSON(encodedProtocols),
-			Models:      models.JSON(encodedModels),
-			Config:      normalized.encodedConfig,
-			Enabled:     true,
+			Name:      name,
+			ChannelID: string(normalized.channelID),
+			Params:    append(models.JSON(nil), normalized.params...),
+			Models:    models.JSON(encodedModels),
+			Overrides: normalized.encodedOverrides,
+			Enabled:   true,
 		}
 		if err := tx.Create(&group).Error; err != nil {
 			return app_errors.ParseDBError(err)
@@ -115,22 +109,21 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 
 		result.GroupID = group.ID
 		result.GroupName = group.Name
-		requestedEntries, result.KeysAdded, result.KeysDuplicated, err =
-			s.persistUpstreamKeys(tx, group.ID, normalized.keys)
+		result.CredentialsAdded, result.CredentialsDuplicated, err =
+			s.persistCredentials(tx, group.ID, normalized.credentials)
 		if err != nil {
 			return err
 		}
-		if err := state.ValidateKeyEntries(requestedEntries); err != nil {
-			return fmt.Errorf("validate created group keys: %w", err)
-		}
-		return nil
+		requestedEntries, err = stateloader.BuildGroupCredentialEntries(ctx, tx, group.ID)
+		return err
 	}, func() error {
-		return s.applyMissingRegistryKeys(result.GroupID, requestedEntries)
+		_, reconcileErr := s.reconcileRegistryGroup(result.GroupID, requestedEntries)
+		return reconcileErr
 	})
 	if err != nil {
 		return GroupCreateResult{}, err
 	}
-	if normalized.providerID != nil && len(normalized.models) > 0 && s.catalogSync != nil {
+	if len(normalized.models) > 0 && s.catalogSync != nil {
 		s.catalogSync.RequestGroupSync()
 	}
 	return result, nil
@@ -140,23 +133,19 @@ func (s *Service) normalizeGroupCreate(
 	ctx context.Context,
 	request GroupCreateRequest,
 ) (normalizedGroupCreate, error) {
-	upstreamURL, hostname, err := normalizeUpstreamBaseURL(request.UpstreamURL)
-	if err != nil {
-		return normalizedGroupCreate{}, err
+	if s == nil || s.channelRegistry == nil || request.ChannelID == "" {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
-	protocols, err := normalizeGroupProtocols(request.Protocols)
-	if err != nil {
-		return normalizedGroupCreate{}, err
-	}
-	explicitName, err := normalizeGroupName(request.Name)
-	if err != nil {
-		return normalizedGroupCreate{}, err
-	}
-	providerID, err := normalizeProviderID(request.ProviderID)
+	params, err := s.channelRegistry.ValidateParams(request.ChannelID, request.Params)
 	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
-	if err := s.validateSelectableProviderID(providerID); err != nil {
+	descriptor, ok := s.channelRegistry.Get(request.ChannelID)
+	if !ok {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
+	}
+	explicitName, err := normalizeGroupName(request.Name)
+	if err != nil {
 		return normalizedGroupCreate{}, err
 	}
 	if !request.Models.Set {
@@ -166,7 +155,7 @@ func (s *Service) normalizeGroupCreate(
 	if err != nil {
 		return normalizedGroupCreate{}, err
 	}
-	keys, err := s.normalizeUpstreamKeys(request.Keys)
+	credentials, err := s.normalizeCredentials(request.ChannelID, request.Credentials)
 	if err != nil {
 		return normalizedGroupCreate{}, err
 	}
@@ -182,23 +171,38 @@ func (s *Service) normalizeGroupCreate(
 	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ParseDBError(err)
 	}
+	canonicalParams := params.CanonicalJSON()
 	_, err = state.Compile(state.CompileInput{
-		SystemSettings: systemSettings,
+		SystemSettings:  systemSettings,
+		ChannelRegistry: s.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "candidate", UpstreamURL: upstreamURL,
-			ProviderID: providerID,
-			Protocols:  protocols, Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
-		}}})
+			ID: 1, Name: "candidate", ChannelID: request.ChannelID,
+			Params: canonicalParams, Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
+		}},
+	})
 	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
 
+	defaultName := descriptor.Name
+	hostname := ""
+	if baseURL, exists := params.Value("base_url"); exists {
+		_, hostname, err = normalizeUpstreamBaseURL(baseURL)
+		if err != nil {
+			return normalizedGroupCreate{}, app_errors.ErrValidation
+		}
+		defaultName = hostname
+	}
 	return normalizedGroupCreate{
-		providerID:  providerID,
-		upstreamURL: upstreamURL, hostname: hostname, protocols: protocols,
-		explicitName: explicitName, models: groupModels,
-		encodedConfig: models.JSON(`{}`), keys: keys,
-		confirmSameUpstreamURL: request.ConfirmSameUpstreamURL,
+		channelID:         request.ChannelID,
+		params:            models.JSON(canonicalParams),
+		defaultName:       defaultName,
+		hostname:          hostname,
+		explicitName:      explicitName,
+		models:            groupModels,
+		encodedOverrides:  models.JSON(`{}`),
+		credentials:       credentials,
+		confirmSameTarget: request.ConfirmSameTarget,
 	}, nil
 }
 
@@ -249,14 +253,30 @@ func canonicalizeGroupSettingNumbers(value any) any {
 	}
 }
 
-func findGroupsByUpstreamURL(tx *gorm.DB, upstreamURL string) ([]ExistingGroupSummary, error) {
-	groups := make([]ExistingGroupSummary, 0)
+func findGroupsByTarget(
+	tx *gorm.DB,
+	channelID channel.ID,
+	params models.JSON,
+) ([]ExistingGroupSummary, error) {
+	type targetRow struct {
+		ID     uint
+		Name   string
+		Params models.JSON
+	}
+	var rows []targetRow
 	if err := tx.Model(&models.Group{}).
-		Select("id", "name").
-		Where("upstream_url = ?", upstreamURL).
+		Select("id", "name", "params").
+		Where("channel_id = ?", string(channelID)).
 		Order("id ASC").
-		Scan(&groups).Error; err != nil {
+		Find(&rows).Error; err != nil {
 		return nil, app_errors.ParseDBError(err)
+	}
+	groups := make([]ExistingGroupSummary, 0, len(rows))
+	for _, row := range rows {
+		if !bytes.Equal(bytes.TrimSpace(row.Params), bytes.TrimSpace(params)) {
+			continue
+		}
+		groups = append(groups, ExistingGroupSummary{ID: row.ID, Name: row.Name})
 	}
 	return groups, nil
 }

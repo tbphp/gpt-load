@@ -10,32 +10,32 @@ import (
 )
 
 func TestKeyRegistryReplaceAndEncryptedValue(t *testing.T) {
-	registry := NewKeyRegistry()
+	registry := NewCredentialRegistry()
 	weight := 7
-	entries := []KeyEntry{
+	entries := []CredentialEntry{
 		{
 			ID: 1, GroupID: 10, WeightManual: &weight,
-			Status: KeyStatusActive, EncryptedValue: "cipher-one",
+			Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 		},
 		{
 			ID: 2, GroupID: 20,
-			Status: KeyStatusDisabled, EncryptedValue: "cipher-two",
+			Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two",
 		},
 	}
-	if err := registry.Replace(entries); err != nil {
+	if err := registry.ReplaceCredentials(entries); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
 
 	for _, test := range []struct {
-		keyID uint
-		want  string
+		credentialID uint
+		want         string
 	}{
-		{keyID: 1, want: "cipher-one"},
-		{keyID: 2, want: "cipher-two"},
+		{credentialID: 1, want: "cipher-one"},
+		{credentialID: 2, want: "cipher-two"},
 	} {
-		got, ok := registry.EncryptedValue(test.keyID)
+		got, ok := registry.EncryptedCredentialData(test.credentialID)
 		if !ok || got != test.want {
-			t.Errorf("EncryptedValue(%d) = %q, %t, want %q, true", test.keyID, got, ok, test.want)
+			t.Errorf("EncryptedValue(%d) = %q, %t, want %q, true", test.credentialID, got, ok, test.want)
 		}
 	}
 
@@ -47,29 +47,29 @@ func TestKeyRegistryReplaceAndEncryptedValue(t *testing.T) {
 		t.Fatalf("stored WeightManual = %d after caller mutation, want 7", storedWeight)
 	}
 
-	if err := registry.Replace([]KeyEntry{{
+	if err := registry.ReplaceCredentials([]CredentialEntry{{
 		ID: 3, GroupID: 20,
-		Status: KeyStatusActive, EncryptedValue: "cipher-three",
+		Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three",
 	}}); err != nil {
 		t.Fatalf("second Replace() error = %v", err)
 	}
 	for _, removedID := range []uint{1, 2} {
-		if got, ok := registry.EncryptedValue(removedID); ok || got != "" {
+		if got, ok := registry.EncryptedCredentialData(removedID); ok || got != "" {
 			t.Errorf("EncryptedValue(%d) after replacement = %q, %t, want empty, false", removedID, got, ok)
 		}
 	}
-	if got, ok := registry.EncryptedValue(3); !ok || got != "cipher-three" {
+	if got, ok := registry.EncryptedCredentialData(3); !ok || got != "cipher-three" {
 		t.Fatalf("EncryptedValue(3) = %q, %t, want %q, true", got, ok, "cipher-three")
 	}
 }
 
 func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
-	registry := NewKeyRegistry()
+	registry := NewCredentialRegistry()
 	now := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive,
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
 		CooldownUntil: now.Add(time.Hour), Blacklisted: true,
-		FailureCount: 3, EncryptedValue: "cipher-one",
+		FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 
 	if ok := registry.RestoreRuntimeState(1, 37); !ok {
@@ -85,16 +85,16 @@ func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
 
 	before := registryEntry(t, registry, 1)
 	for _, test := range []struct {
-		keyID  uint
-		weight int
+		credentialID uint
+		weight       int
 	}{
-		{keyID: 0, weight: 37},
-		{keyID: 99, weight: 37},
-		{keyID: 1, weight: 0},
-		{keyID: 1, weight: MaxWeight + 1},
+		{credentialID: 0, weight: 37},
+		{credentialID: 99, weight: 37},
+		{credentialID: 1, weight: 0},
+		{credentialID: 1, weight: MaxWeight + 1},
 	} {
-		if registry.RestoreRuntimeState(test.keyID, test.weight) {
-			t.Fatalf("RestoreRuntimeState(%d, %d) = true, want false", test.keyID, test.weight)
+		if registry.RestoreRuntimeState(test.credentialID, test.weight) {
+			t.Fatalf("RestoreRuntimeState(%d, %d) = true, want false", test.credentialID, test.weight)
 		}
 	}
 	if after := registryEntry(t, registry, 1); !reflect.DeepEqual(after, before) {
@@ -103,26 +103,26 @@ func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
 }
 
 func TestKeyRegistryBatchMutationsAreAllOrNothing(t *testing.T) {
-	newRegistry := func(t *testing.T) *KeyRegistry {
+	newRegistry := func(t *testing.T) *CredentialRegistry {
 		t.Helper()
-		registry := NewKeyRegistry()
-		mustReplaceKeyEntries(t, registry, []KeyEntry{
-			{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
-			{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-two"},
-			{ID: 3, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+		registry := NewCredentialRegistry()
+		mustReplaceKeyEntries(t, registry, []CredentialEntry{
+			{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+			{ID: 2, GroupID: 10, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
+			{ID: 3, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three"},
 		})
 		return registry
 	}
 
 	t.Run("update statuses", func(t *testing.T) {
 		registry := newRegistry(t)
-		if err := registry.UpdateGroupKeyStatuses(10, []uint{1, 2}, KeyStatusDisabled); err != nil {
-			t.Fatalf("UpdateGroupKeyStatuses() error = %v", err)
+		if err := registry.UpdateGroupCredentialStatuses(10, []uint{1, 2}, CredentialStatusDisabled); err != nil {
+			t.Fatalf("UpdateGroupCredentialStatuses() error = %v", err)
 		}
-		if got := registryEntry(t, registry, 1).Status; got != KeyStatusDisabled {
+		if got := registryEntry(t, registry, 1).Status; got != CredentialStatusDisabled {
 			t.Fatalf("key 1 status = %q, want disabled", got)
 		}
-		if got := registryEntry(t, registry, 2).Status; got != KeyStatusDisabled {
+		if got := registryEntry(t, registry, 2).Status; got != CredentialStatusDisabled {
 			t.Fatalf("key 2 status = %q, want disabled", got)
 		}
 	})
@@ -139,8 +139,8 @@ func TestKeyRegistryBatchMutationsAreAllOrNothing(t *testing.T) {
 		t.Run("update rejects "+test.name, func(t *testing.T) {
 			registry := newRegistry(t)
 			before := registry.Snapshot()
-			if err := registry.UpdateGroupKeyStatuses(10, test.ids, KeyStatusDisabled); err == nil {
-				t.Fatal("UpdateGroupKeyStatuses() error = nil, want error")
+			if err := registry.UpdateGroupCredentialStatuses(10, test.ids, CredentialStatusDisabled); err == nil {
+				t.Fatal("UpdateGroupCredentialStatuses() error = nil, want error")
 			}
 			if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
 				t.Fatalf("registry after rejected update = %#v, want %#v", after, before)
@@ -149,8 +149,8 @@ func TestKeyRegistryBatchMutationsAreAllOrNothing(t *testing.T) {
 		t.Run("remove rejects "+test.name, func(t *testing.T) {
 			registry := newRegistry(t)
 			before := registry.Snapshot()
-			if err := registry.RemoveGroupKeys(10, test.ids); err == nil {
-				t.Fatal("RemoveGroupKeys() error = nil, want error")
+			if err := registry.RemoveGroupCredentials(10, test.ids); err == nil {
+				t.Fatal("RemoveGroupCredentials() error = nil, want error")
 			}
 			if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
 				t.Fatalf("registry after rejected remove = %#v, want %#v", after, before)
@@ -159,126 +159,126 @@ func TestKeyRegistryBatchMutationsAreAllOrNothing(t *testing.T) {
 	}
 
 	registry := newRegistry(t)
-	if err := registry.RemoveGroupKeys(10, []uint{2, 1}); err != nil {
-		t.Fatalf("RemoveGroupKeys() error = %v", err)
+	if err := registry.RemoveGroupCredentials(10, []uint{2, 1}); err != nil {
+		t.Fatalf("RemoveGroupCredentials() error = %v", err)
 	}
-	if _, ok := registry.EncryptedValue(1); ok {
+	if _, ok := registry.EncryptedCredentialData(1); ok {
 		t.Fatal("key 1 remains after batch removal")
 	}
-	if _, ok := registry.EncryptedValue(2); ok {
+	if _, ok := registry.EncryptedCredentialData(2); ok {
 		t.Fatal("key 2 remains after batch removal")
 	}
-	if got, ok := registry.EncryptedValue(3); !ok || got != "cipher-three" {
+	if got, ok := registry.EncryptedCredentialData(3); !ok || got != "cipher-three" {
 		t.Fatalf("other-group key = %q/%t", got, ok)
 	}
 }
 
 func TestKeyRegistryActiveEncryptedValueRequiresExpectedGroupAndActiveStatus(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
-		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-active"},
-		{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-disabled"},
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-active"},
+		{ID: 2, GroupID: 10, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-disabled"},
 	})
 
 	tests := []struct {
-		name    string
-		keyID   uint
-		groupID uint
-		want    string
-		wantOK  bool
+		name         string
+		credentialID uint
+		groupID      uint
+		want         string
+		wantOK       bool
 	}{
-		{name: "matching active key", keyID: 1, groupID: 10, want: "cipher-active", wantOK: true},
-		{name: "group mismatch", keyID: 1, groupID: 20},
-		{name: "disabled key", keyID: 2, groupID: 10},
-		{name: "missing key", keyID: 99, groupID: 10},
+		{name: "matching active key", credentialID: 1, groupID: 10, want: "cipher-active", wantOK: true},
+		{name: "group mismatch", credentialID: 1, groupID: 20},
+		{name: "disabled key", credentialID: 2, groupID: 10},
+		{name: "missing key", credentialID: 99, groupID: 10},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := registry.ActiveEncryptedValue(tt.keyID, tt.groupID)
+			got, ok := registry.ActiveEncryptedCredentialData(tt.credentialID, tt.groupID)
 			if got != tt.want || ok != tt.wantOK {
-				t.Fatalf("ActiveEncryptedValue(%d, %d) = %q, %t, want %q, %t", tt.keyID, tt.groupID, got, ok, tt.want, tt.wantOK)
+				t.Fatalf("ActiveEncryptedCredentialData(%d, %d) = %q, %t, want %q, %t", tt.credentialID, tt.groupID, got, ok, tt.want, tt.wantOK)
 			}
 		})
 	}
 
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-moved",
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-moved",
 	}})
-	if got, ok := registry.ActiveEncryptedValue(1, 10); got != "" || ok {
-		t.Fatalf("ActiveEncryptedValue(1, old group) = %q, %t, want empty, false", got, ok)
+	if got, ok := registry.ActiveEncryptedCredentialData(1, 10); got != "" || ok {
+		t.Fatalf("ActiveEncryptedCredentialData(1, old group) = %q, %t, want empty, false", got, ok)
 	}
-	if got, ok := registry.ActiveEncryptedValue(1, 20); got != "cipher-moved" || !ok {
-		t.Fatalf("ActiveEncryptedValue(1, new group) = %q, %t, want cipher-moved, true", got, ok)
+	if got, ok := registry.ActiveEncryptedCredentialData(1, 20); got != "cipher-moved" || !ok {
+		t.Fatalf("ActiveEncryptedCredentialData(1, new group) = %q, %t, want cipher-moved, true", got, ok)
 	}
 }
 
 func TestKeyRegistryCaptureActiveKeyRefsIncludesTemporarilyUnavailableKeys(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
 		{
-			ID: 21, GroupID: 2, Status: KeyStatusActive,
-			CooldownUntil: now.Add(time.Hour), EncryptedValue: "cipher-cooldown",
+			ID: 21, GroupID: 2, Status: CredentialStatusActive,
+			CooldownUntil: now.Add(time.Hour), Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-cooldown",
 		},
 		{
-			ID: 12, GroupID: 1, Status: KeyStatusDisabled,
-			EncryptedValue: "cipher-disabled",
+			ID: 12, GroupID: 1, Status: CredentialStatusDisabled,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-disabled",
 		},
 		{
-			ID: 11, GroupID: 1, Status: KeyStatusActive,
-			Blacklisted: true, EncryptedValue: "cipher-blacklisted",
+			ID: 11, GroupID: 1, Status: CredentialStatusActive,
+			Blacklisted: true, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-blacklisted",
 		},
 		{
-			ID: 22, GroupID: 2, Status: KeyStatusActive,
-			EncryptedValue: "cipher-available",
+			ID: 22, GroupID: 2, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-available",
 		},
 		{
-			ID: 31, GroupID: 3, Status: KeyStatusActive,
-			EncryptedValue: "cipher-other-group",
+			ID: 31, GroupID: 3, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-other-group",
 		},
 	})
 
-	want := []KeyRef{
-		{ID: 11, GroupID: 1, EncryptedValue: "cipher-blacklisted"},
-		{ID: 21, GroupID: 2, EncryptedValue: "cipher-cooldown"},
-		{ID: 22, GroupID: 2, EncryptedValue: "cipher-available"},
+	want := []CredentialRef{
+		{ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-blacklisted"},
+		{ID: 21, GroupID: 2, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-cooldown"},
+		{ID: 22, GroupID: 2, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-available"},
 	}
-	got := registry.CaptureActiveKeyRefs([]uint{2, 1})
+	got := registry.CaptureActiveCredentialRefs([]uint{2, 1})
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("CaptureActiveKeyRefs() = %#v, want %#v", got, want)
+		t.Fatalf("CaptureActiveCredentialRefs() = %#v, want %#v", got, want)
 	}
 	if _, ok := registry.IncrFailure(11); !ok {
 		t.Fatal("IncrFailure(11) = false, want true")
 	}
 	want[0].FailureGeneration = 1
-	if got := registry.CaptureActiveKeyRefs([]uint{1, 2}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("CaptureActiveKeyRefs() after failure = %#v, want %#v", got, want)
+	if got := registry.CaptureActiveCredentialRefs([]uint{1, 2}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("CaptureActiveCredentialRefs() after failure = %#v, want %#v", got, want)
 	}
 
 	got[0].EncryptedValue = "caller-mutated"
-	if again := registry.CaptureActiveKeyRefs([]uint{1, 2}); !reflect.DeepEqual(again, want) {
-		t.Fatalf("CaptureActiveKeyRefs() aliases caller result: %#v", again)
+	if again := registry.CaptureActiveCredentialRefs([]uint{1, 2}); !reflect.DeepEqual(again, want) {
+		t.Fatalf("CaptureActiveCredentialRefs() aliases caller result: %#v", again)
 	}
 }
 
 func TestKeyRegistryActiveEncryptedValueIfMatchRejectsIdentityChanges(t *testing.T) {
-	ref := KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-original"}
-	newRegistry := func(t *testing.T) *KeyRegistry {
+	ref := CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-original"}
+	newRegistry := func(t *testing.T) *CredentialRegistry {
 		t.Helper()
-		registry := NewKeyRegistry()
-		mustReplaceKeyEntries(t, registry, []KeyEntry{{
-			ID: 1, GroupID: 10, Status: KeyStatusActive,
-			EncryptedValue: "cipher-original",
+		registry := NewCredentialRegistry()
+		mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+			ID: 1, GroupID: 10, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-original",
 		}})
 		return registry
 	}
 
 	t.Run("matching active identity", func(t *testing.T) {
 		registry := newRegistry(t)
-		got, ok := registry.ActiveEncryptedValueIfMatch(ref)
+		got, ok := registry.ActiveEncryptedCredentialDataIfMatch(ref)
 		if !ok || got != "cipher-original" {
 			t.Fatalf(
-				"ActiveEncryptedValueIfMatch() = %q, %t, want cipher-original, true",
+				"ActiveEncryptedCredentialDataIfMatch() = %q, %t, want cipher-original, true",
 				got,
 				ok,
 			)
@@ -290,9 +290,9 @@ func TestKeyRegistryActiveEncryptedValueIfMatchRejectsIdentityChanges(t *testing
 		if _, ok := registry.IncrFailure(1); !ok {
 			t.Fatal("IncrFailure(1) = false, want true")
 		}
-		got, ok := registry.ActiveEncryptedValueIfMatch(ref)
+		got, ok := registry.ActiveEncryptedCredentialDataIfMatch(ref)
 		if !ok || got != "cipher-original" {
-			t.Fatalf("ActiveEncryptedValueIfMatch() = %q, %t, want cipher-original, true", got, ok)
+			t.Fatalf("ActiveEncryptedCredentialDataIfMatch() = %q, %t, want cipher-original, true", got, ok)
 		}
 	})
 
@@ -300,53 +300,53 @@ func TestKeyRegistryActiveEncryptedValueIfMatchRejectsIdentityChanges(t *testing
 		registry := newRegistry(t)
 		mismatched := ref
 		mismatched.ID = 2
-		if got, ok := registry.ActiveEncryptedValueIfMatch(mismatched); ok || got != "" {
-			t.Fatalf("ActiveEncryptedValueIfMatch(wrong ID) = %q, %t, want empty, false", got, ok)
+		if got, ok := registry.ActiveEncryptedCredentialDataIfMatch(mismatched); ok || got != "" {
+			t.Fatalf("ActiveEncryptedCredentialDataIfMatch(wrong ID) = %q, %t, want empty, false", got, ok)
 		}
 	})
 
 	t.Run("replaced ciphertext", func(t *testing.T) {
 		registry := newRegistry(t)
-		if err := registry.ApplyImport(10, []KeyEntry{{
-			ID: 1, GroupID: 10, Status: KeyStatusActive,
-			EncryptedValue: "cipher-replaced",
+		if err := registry.ApplyCredentialImport(10, []CredentialEntry{{
+			ID: 1, GroupID: 10, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-replaced",
 		}}); err != nil {
 			t.Fatalf("ApplyImport(replacement) error = %v", err)
 		}
-		if got, ok := registry.ActiveEncryptedValueIfMatch(ref); ok || got != "" {
-			t.Fatalf("ActiveEncryptedValueIfMatch(replaced) = %q, %t, want empty, false", got, ok)
+		if got, ok := registry.ActiveEncryptedCredentialDataIfMatch(ref); ok || got != "" {
+			t.Fatalf("ActiveEncryptedCredentialDataIfMatch(replaced) = %q, %t, want empty, false", got, ok)
 		}
 	})
 
 	t.Run("moved group", func(t *testing.T) {
 		registry := newRegistry(t)
-		mustReplaceKeyEntries(t, registry, []KeyEntry{{
-			ID: 1, GroupID: 20, Status: KeyStatusActive,
-			EncryptedValue: "cipher-original",
+		mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+			ID: 1, GroupID: 20, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-original",
 		}})
-		if got, ok := registry.ActiveEncryptedValueIfMatch(ref); ok || got != "" {
-			t.Fatalf("ActiveEncryptedValueIfMatch(moved) = %q, %t, want empty, false", got, ok)
+		if got, ok := registry.ActiveEncryptedCredentialDataIfMatch(ref); ok || got != "" {
+			t.Fatalf("ActiveEncryptedCredentialDataIfMatch(moved) = %q, %t, want empty, false", got, ok)
 		}
 	})
 
 	t.Run("disabled", func(t *testing.T) {
 		registry := newRegistry(t)
-		if err := registry.SetKeyStatus(1, KeyStatusDisabled); err != nil {
-			t.Fatalf("SetKeyStatus(disabled) error = %v", err)
+		if err := registry.SetCredentialStatus(1, CredentialStatusDisabled); err != nil {
+			t.Fatalf("SetCredentialStatus(disabled) error = %v", err)
 		}
-		if got, ok := registry.ActiveEncryptedValueIfMatch(ref); ok || got != "" {
-			t.Fatalf("ActiveEncryptedValueIfMatch(disabled) = %q, %t, want empty, false", got, ok)
+		if got, ok := registry.ActiveEncryptedCredentialDataIfMatch(ref); ok || got != "" {
+			t.Fatalf("ActiveEncryptedCredentialDataIfMatch(disabled) = %q, %t, want empty, false", got, ok)
 		}
 	})
 }
 
 func TestKeyRegistryActiveKeyIDs(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
-		{ID: 9, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-nine"},
-		{ID: 5, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-five"},
-		{ID: 3, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
-		{ID: 7, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-seven"},
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 9, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-nine"},
+		{ID: 5, GroupID: 10, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-five"},
+		{ID: 3, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three"},
+		{ID: 7, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-seven"},
 	})
 	if ok := registry.SetCooldown(3, time.Now().Add(time.Hour)); !ok {
 		t.Fatal("SetCooldown(3) = false, want true")
@@ -356,34 +356,34 @@ func TestKeyRegistryActiveKeyIDs(t *testing.T) {
 	}
 
 	want := []uint{3, 7, 9}
-	got := registry.ActiveKeyIDs()
+	got := registry.ActiveCredentialIDs()
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ActiveKeyIDs() = %v, want %v", got, want)
+		t.Fatalf("ActiveCredentialIDs() = %v, want %v", got, want)
 	}
 
 	got[0] = 99
-	if again := registry.ActiveKeyIDs(); !reflect.DeepEqual(again, want) {
-		t.Fatalf("ActiveKeyIDs() after caller mutation = %v, want %v", again, want)
+	if again := registry.ActiveCredentialIDs(); !reflect.DeepEqual(again, want) {
+		t.Fatalf("ActiveCredentialIDs() after caller mutation = %v, want %v", again, want)
 	}
 }
 
 func TestKeyRegistrySnapshotIsSortedDetachedAndCredentialFree(t *testing.T) {
 	weight := 17
 	now := time.Date(2026, time.July, 24, 10, 0, 0, 0, time.UTC)
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
 		{
-			ID: 22, GroupID: 2, Status: KeyStatusDisabled,
-			EncryptedValue: "cipher-disabled",
+			ID: 22, GroupID: 2, Status: CredentialStatusDisabled,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-disabled",
 		},
 		{
 			ID: 11, GroupID: 1, WeightManual: &weight, WeightAuto: 23,
-			Status: KeyStatusActive, CooldownUntil: now.Add(time.Minute),
-			Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher-secret",
+			Status: CredentialStatusActive, CooldownUntil: now.Add(time.Minute),
+			Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-secret",
 		},
 		{
-			ID: 12, GroupID: 1, Status: KeyStatusActive,
-			EncryptedValue: "cipher-default-weight",
+			ID: 12, GroupID: 1, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-default-weight",
 		},
 	})
 
@@ -407,28 +407,28 @@ func TestKeyRegistrySnapshotIsSortedDetachedAndCredentialFree(t *testing.T) {
 		t.Fatalf("Snapshot aliases Registry: %#v", again[0])
 	}
 
-	typ := reflect.TypeOf(KeyRuntimeView{})
+	typ := reflect.TypeOf(CredentialRuntimeView{})
 	for _, forbidden := range []string{
 		"EncryptedValue", "KeyHash", "Hash", "Mask", "HeaderRules",
 	} {
 		if _, exists := typ.FieldByName(forbidden); exists {
-			t.Fatalf("KeyRuntimeView exposes forbidden field %s", forbidden)
+			t.Fatalf("CredentialRuntimeView exposes forbidden field %s", forbidden)
 		}
 	}
 }
 
 func TestKeyRuntimeViewDoesNotExposeFailureGeneration(t *testing.T) {
-	typ := reflect.TypeOf(KeyRuntimeView{})
+	typ := reflect.TypeOf(CredentialRuntimeView{})
 	if _, exists := typ.FieldByName("FailureGeneration"); exists {
-		t.Fatal("KeyRuntimeView exposes forbidden field FailureGeneration")
+		t.Fatal("CredentialRuntimeView exposes forbidden field FailureGeneration")
 	}
 }
 
 func TestKeyRegistryFailureGenerationTracksActualFailureStateChanges(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive,
-		FailureGeneration: 99, EncryptedValue: "cipher-one",
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
+		FailureGeneration: 99, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 
 	assertGeneration := func(want uint64) {
@@ -476,50 +476,50 @@ func TestKeyRegistryFailureGenerationTracksActualFailureStateChanges(t *testing.
 	}
 	assertGeneration(4)
 
-	if err := registry.ApplyImport(10, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive,
-		FailureGeneration: 73, EncryptedValue: "cipher-imported",
+	if err := registry.ApplyCredentialImport(10, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
+		FailureGeneration: 73, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-imported",
 	}}); err != nil {
 		t.Fatalf("ApplyImport() error = %v", err)
 	}
 	assertGeneration(0)
 
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive,
-		FailureGeneration: 42, EncryptedValue: "cipher-replaced",
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
+		FailureGeneration: 42, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-replaced",
 	}})
 	assertGeneration(0)
 }
 
 func TestKeyRegistryReplaceFailurePreservesRegistry(t *testing.T) {
-	invalidBatches := map[string][]KeyEntry{
+	invalidBatches := map[string][]CredentialEntry{
 		"duplicate ids": {
-			{ID: 2, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-two"},
-			{ID: 2, GroupID: 20, Status: KeyStatusDisabled, EncryptedValue: "duplicate"},
+			{ID: 2, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
+			{ID: 2, GroupID: 20, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "duplicate"},
 		},
 		"invalid status": {
-			{ID: 3, GroupID: 30, Status: KeyStatus("cooldown"), EncryptedValue: "cipher-three"},
+			{ID: 3, GroupID: 30, Status: CredentialStatus("cooldown"), Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three"},
 		},
 	}
 
 	for name, batch := range invalidBatches {
 		t.Run(name, func(t *testing.T) {
-			registry := NewKeyRegistry()
-			if err := registry.Replace([]KeyEntry{{
+			registry := NewCredentialRegistry()
+			if err := registry.ReplaceCredentials([]CredentialEntry{{
 				ID: 1, GroupID: 10,
-				Status: KeyStatusActive, EncryptedValue: "original-cipher",
+				Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "original-cipher",
 			}}); err != nil {
 				t.Fatalf("seed Replace() error = %v", err)
 			}
 
-			if err := registry.Replace(batch); err == nil {
+			if err := registry.ReplaceCredentials(batch); err == nil {
 				t.Fatal("invalid Replace() error = nil, want error")
 			}
-			if got, ok := registry.EncryptedValue(1); !ok || got != "original-cipher" {
+			if got, ok := registry.EncryptedCredentialData(1); !ok || got != "original-cipher" {
 				t.Errorf("original EncryptedValue(1) = %q, %t after failed replacement, want %q, true", got, ok, "original-cipher")
 			}
 			for _, entry := range batch {
-				if got, ok := registry.EncryptedValue(entry.ID); ok || got != "" {
+				if got, ok := registry.EncryptedCredentialData(entry.ID); ok || got != "" {
 					t.Errorf("invalid EncryptedValue(%d) = %q, %t after failed replacement, want empty, false", entry.ID, got, ok)
 				}
 			}
@@ -528,16 +528,16 @@ func TestKeyRegistryReplaceFailurePreservesRegistry(t *testing.T) {
 }
 
 func TestKeyRegistryApplyImportUpsertsOnlyRequestedGroup(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
-		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "old-one"},
-		{ID: 2, GroupID: 20, Status: KeyStatusDisabled, EncryptedValue: "cipher-two"},
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "old-one"},
+		{ID: 2, GroupID: 20, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
 	})
 
 	weight := 12
-	if err := registry.ApplyImport(10, []KeyEntry{
-		{ID: 1, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "new-one"},
-		{ID: 3, GroupID: 10, WeightManual: &weight, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+	if err := registry.ApplyCredentialImport(10, []CredentialEntry{
+		{ID: 1, GroupID: 10, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "new-one"},
+		{ID: 3, GroupID: 10, WeightManual: &weight, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three"},
 	}); err != nil {
 		t.Fatalf("ApplyImport() error = %v", err)
 	}
@@ -556,23 +556,23 @@ func TestKeyRegistryApplyImportUpsertsOnlyRequestedGroup(t *testing.T) {
 }
 
 func TestKeyRegistryReconcileGroupUsesDBTruthAndPreservesSatisfiedRuntimeState(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
 		{
-			ID: 1, GroupID: 10, Status: KeyStatusActive,
-			EncryptedValue: "cipher-one",
+			ID: 1, GroupID: 10, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 		},
 		{
-			ID: 2, GroupID: 10, Status: KeyStatusActive,
-			EncryptedValue: "stale-cipher",
+			ID: 2, GroupID: 10, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "stale-cipher",
 		},
 		{
-			ID: 3, GroupID: 10, Status: KeyStatusDisabled,
-			EncryptedValue: "removed-from-db",
+			ID: 3, GroupID: 10, Status: CredentialStatusDisabled,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "removed-from-db",
 		},
 		{
-			ID: 4, GroupID: 20, Status: KeyStatusActive,
-			EncryptedValue: "other-group",
+			ID: 4, GroupID: 20, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "other-group",
 		},
 	})
 	if !registry.SetCooldown(1, time.Now().Add(time.Hour)) {
@@ -582,14 +582,14 @@ func TestKeyRegistryReconcileGroupUsesDBTruthAndPreservesSatisfiedRuntimeState(t
 		t.Fatal("IncrFailure(1) = false")
 	}
 
-	wantGroup := []KeyEntry{
+	wantGroup := []CredentialEntry{
 		{
-			ID: 1, GroupID: 10, Status: KeyStatusActive,
-			EncryptedValue: "cipher-one",
+			ID: 1, GroupID: 10, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 		},
 		{
-			ID: 2, GroupID: 10, Status: KeyStatusDisabled,
-			EncryptedValue: "cipher-two",
+			ID: 2, GroupID: 10, Status: CredentialStatusDisabled,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two",
 		},
 	}
 	if registry.MatchesGroup(10, wantGroup) {
@@ -609,14 +609,14 @@ func TestKeyRegistryReconcileGroupUsesDBTruthAndPreservesSatisfiedRuntimeState(t
 		got.CooldownUntil.IsZero() {
 		t.Fatalf("satisfied key runtime state was reset: %#v", got)
 	}
-	if got := registryEntry(t, registry, 2); got.Status != KeyStatusDisabled ||
+	if got := registryEntry(t, registry, 2); got.Status != CredentialStatusDisabled ||
 		got.EncryptedValue != "cipher-two" || got.FailureCount != 0 {
 		t.Fatalf("stale key was not rebuilt from DB truth: %#v", got)
 	}
-	if _, ok := registry.EncryptedValue(3); ok {
+	if _, ok := registry.EncryptedCredentialData(3); ok {
 		t.Fatal("key absent from DB truth remains in reconciled group")
 	}
-	if got, ok := registry.EncryptedValue(4); !ok || got != "other-group" {
+	if got, ok := registry.EncryptedCredentialData(4); !ok || got != "other-group" {
 		t.Fatalf("other group changed: %q, %t", got, ok)
 	}
 
@@ -633,43 +633,43 @@ func TestKeyRegistryReconcileGroupUsesDBTruthAndPreservesSatisfiedRuntimeState(t
 }
 
 func TestKeyRegistryReconcileGroupRejectsCrossGroupIdentityWithoutMutation(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 20, Status: KeyStatusActive,
-		EncryptedValue: "other-group",
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 20, Status: CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "other-group",
 	}})
 
-	_, err := registry.ReconcileGroup(10, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive,
-		EncryptedValue: "attempted-move",
+	_, err := registry.ReconcileGroup(10, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "attempted-move",
 	}})
 	if err == nil {
 		t.Fatal("ReconcileGroup(cross-group key) error = nil")
 	}
-	if got, ok := registry.EncryptedValue(1); !ok || got != "other-group" {
+	if got, ok := registry.EncryptedCredentialData(1); !ok || got != "other-group" {
 		t.Fatalf("failed reconciliation mutated registry: %q, %t", got, ok)
 	}
 }
 
 func TestKeyRegistryRemoveKey(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
-		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
-		{ID: 2, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-two"},
-		{ID: 3, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+		{ID: 2, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
+		{ID: 3, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three"},
 	})
 
-	if removed := registry.RemoveKey(1); !removed {
-		t.Fatal("RemoveKey(1) = false, want true")
+	if removed := registry.RemoveCredential(1); !removed {
+		t.Fatal("RemoveCredential(1) = false, want true")
 	}
 	assertEncryptedValue(t, registry, 1, "", false)
 	assertEncryptedValue(t, registry, 2, "cipher-two", true)
-	if removed := registry.RemoveKey(1); removed {
-		t.Fatal("second RemoveKey(1) = true, want false")
+	if removed := registry.RemoveCredential(1); removed {
+		t.Fatal("second RemoveCredential(1) = true, want false")
 	}
 
-	if removed := registry.RemoveKey(2); !removed {
-		t.Fatal("RemoveKey(2) = false, want true")
+	if removed := registry.RemoveCredential(2); !removed {
+		t.Fatal("RemoveCredential(2) = false, want true")
 	}
 	registry.mu.RLock()
 	_, emptyBucketRetained := registry.buckets[10]
@@ -681,22 +681,22 @@ func TestKeyRegistryRemoveKey(t *testing.T) {
 }
 
 func TestKeyRegistryRemoveGroupClearsBucketAndReverseIndexesAtomically(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
-		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
-		{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-two"},
-		{ID: 3, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+		{ID: 2, GroupID: 10, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
+		{ID: 3, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three"},
 	})
 
 	if removed := registry.RemoveGroup(10); !removed {
 		t.Fatal("RemoveGroup(10) = false, want true")
 	}
 	for _, id := range []uint{1, 2} {
-		if value, ok := registry.EncryptedValue(id); ok || value != "" {
+		if value, ok := registry.EncryptedCredentialData(id); ok || value != "" {
 			t.Fatalf("removed key %d = %q, %t", id, value, ok)
 		}
 	}
-	if value, ok := registry.EncryptedValue(3); !ok || value != "cipher-three" {
+	if value, ok := registry.EncryptedCredentialData(3); !ok || value != "cipher-three" {
 		t.Fatalf("other group key = %q, %t", value, ok)
 	}
 	if removed := registry.RemoveGroup(10); removed {
@@ -708,12 +708,12 @@ func TestKeyRegistryRemoveGroupClearsBucketAndReverseIndexesAtomically(t *testin
 }
 
 func TestKeyRegistryRemoveGroupIsRaceSafeWithRuntimeReaders(t *testing.T) {
-	registry := NewKeyRegistry()
-	entries := make([]KeyEntry, 0, 100)
+	registry := NewCredentialRegistry()
+	entries := make([]CredentialEntry, 0, 100)
 	for id := uint(1); id <= 100; id++ {
-		entries = append(entries, KeyEntry{
-			ID: id, GroupID: 10, Status: KeyStatusActive,
-			EncryptedValue: fmt.Sprintf("cipher-%d", id),
+		entries = append(entries, CredentialEntry{
+			ID: id, GroupID: 10, Status: CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: fmt.Sprintf("cipher-%d", id),
 		})
 	}
 	mustReplaceKeyEntries(t, registry, entries)
@@ -727,8 +727,8 @@ func TestKeyRegistryRemoveGroupIsRaceSafeWithRuntimeReaders(t *testing.T) {
 			<-start
 			for range 100 {
 				_ = registry.Snapshot()
-				_ = registry.CollectCandidates([]uint{10}, nil, time.Time{})
-				_ = registry.ActiveKeyIDs()
+				_ = registry.CollectCredentialCandidates([]uint{10}, nil, time.Time{})
+				_ = registry.ActiveCredentialIDs()
 			}
 		}()
 	}
@@ -741,47 +741,47 @@ func TestKeyRegistryRemoveGroupIsRaceSafeWithRuntimeReaders(t *testing.T) {
 }
 
 func TestKeyRegistrySetKeyStatus(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one",
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 
-	if err := registry.SetKeyStatus(1, KeyStatusDisabled); err != nil {
-		t.Fatalf("SetKeyStatus(disabled) error = %v", err)
+	if err := registry.SetCredentialStatus(1, CredentialStatusDisabled); err != nil {
+		t.Fatalf("SetCredentialStatus(disabled) error = %v", err)
 	}
-	if got := keyStatus(t, registry, 1); got != KeyStatusDisabled {
-		t.Fatalf("key status = %q, want %q", got, KeyStatusDisabled)
+	if got := keyStatus(t, registry, 1); got != CredentialStatusDisabled {
+		t.Fatalf("key status = %q, want %q", got, CredentialStatusDisabled)
 	}
 
-	if err := registry.SetKeyStatus(1, KeyStatus("cooldown")); err == nil {
-		t.Fatal("SetKeyStatus(invalid) error = nil, want error")
+	if err := registry.SetCredentialStatus(1, CredentialStatus("cooldown")); err == nil {
+		t.Fatal("SetCredentialStatus(invalid) error = nil, want error")
 	}
-	if got := keyStatus(t, registry, 1); got != KeyStatusDisabled {
-		t.Fatalf("key status after invalid update = %q, want %q", got, KeyStatusDisabled)
+	if got := keyStatus(t, registry, 1); got != CredentialStatusDisabled {
+		t.Fatalf("key status after invalid update = %q, want %q", got, CredentialStatusDisabled)
 	}
-	if err := registry.SetKeyStatus(99, KeyStatusActive); err == nil {
-		t.Fatal("SetKeyStatus(missing key) error = nil, want error")
+	if err := registry.SetCredentialStatus(99, CredentialStatusActive); err == nil {
+		t.Fatal("SetCredentialStatus(missing key) error = nil, want error")
 	}
 }
 
 func TestKeyRegistryCollectCandidatesFiltersStatusAndExcluded(t *testing.T) {
-	registry := NewKeyRegistry()
+	registry := NewCredentialRegistry()
 	weight := 7
-	mustReplaceKeyEntries(t, registry, []KeyEntry{
-		{ID: 4, GroupID: 30, Status: KeyStatusActive, EncryptedValue: "unselected"},
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 4, GroupID: 30, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "unselected"},
 		{
-			ID: 3, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-three",
+			ID: 3, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three",
 			CooldownUntil: time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC),
 			Blacklisted:   true, FailureCount: 9,
 		},
-		{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "disabled"},
-		{ID: 5, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "excluded"},
-		{ID: 1, GroupID: 10, WeightManual: &weight, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
+		{ID: 2, GroupID: 10, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "disabled"},
+		{ID: 5, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "excluded"},
+		{ID: 1, GroupID: 10, WeightManual: &weight, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
 	})
 
 	excluded := map[uint]bool{5: true}
-	got := registry.CollectCandidates([]uint{20, 10}, func(keyID uint) bool {
-		return excluded[keyID]
+	got := registry.CollectCredentialCandidates([]uint{20, 10}, func(credentialID uint) bool {
+		return excluded[credentialID]
 	}, time.Time{})
 	if len(got) != 1 {
 		t.Fatalf("CollectCandidates() length = %d, want 1: %#v", len(got), got)
@@ -794,23 +794,23 @@ func TestKeyRegistryCollectCandidatesFiltersStatusAndExcluded(t *testing.T) {
 	}
 
 	*got[0].WeightManual = 99
-	again := registry.CollectCandidates([]uint{10}, nil, time.Time{})
+	again := registry.CollectCredentialCandidates([]uint{10}, nil, time.Time{})
 	if len(again) != 1 || again[0].WeightManual == nil || *again[0].WeightManual != 7 {
 		t.Fatalf("CollectCandidates() after caller mutation = %#v, want isolated weight 7", again)
 	}
 
-	typ := reflect.TypeOf(KeyMeta{})
+	typ := reflect.TypeOf(CredentialMeta{})
 	for _, field := range []string{"EncryptedValue", "CooldownUntil", "Blacklisted", "FailureCount"} {
 		if _, ok := typ.FieldByName(field); ok {
-			t.Fatalf("KeyMeta exposes private field %s", field)
+			t.Fatalf("CredentialMeta exposes private field %s", field)
 		}
 	}
 }
 
 func TestKeyRegistryReservedRuntimeMutationsAreAtomic(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one",
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 
 	until := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
@@ -858,7 +858,7 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 		operations  = 48
 	)
 
-	registry := NewKeyRegistry()
+	registry := NewCredentialRegistry()
 	groupIDs := make([]uint, writerCount)
 	for writer := 0; writer < writerCount; writer++ {
 		groupIDs[writer] = uint(writer + 1)
@@ -875,45 +875,45 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for operation := 0; operation < operations; operation++ {
-				keyID := keyBase + uint(operation)
-				entry := KeyEntry{
-					ID: keyID, GroupID: groupID, Status: KeyStatusActive,
-					EncryptedValue: fmt.Sprintf("cipher-%d", keyID),
+				credentialID := keyBase + uint(operation)
+				entry := CredentialEntry{
+					ID: credentialID, GroupID: groupID, Status: CredentialStatusActive,
+					Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: fmt.Sprintf("cipher-%d", credentialID),
 				}
-				if err := registry.ApplyImport(groupID, []KeyEntry{entry}); err != nil {
-					errors <- fmt.Errorf("ApplyImport(group %d, key %d): %w", groupID, keyID, err)
+				if err := registry.ApplyCredentialImport(groupID, []CredentialEntry{entry}); err != nil {
+					errors <- fmt.Errorf("ApplyImport(group %d, key %d): %w", groupID, credentialID, err)
 					continue
 				}
-				if err := registry.SetKeyStatus(keyID, KeyStatusDisabled); err != nil {
-					errors <- fmt.Errorf("SetKeyStatus(%d, disabled): %w", keyID, err)
+				if err := registry.SetCredentialStatus(credentialID, CredentialStatusDisabled); err != nil {
+					errors <- fmt.Errorf("SetCredentialStatus(%d, disabled): %w", credentialID, err)
 				}
-				if ok := registry.SetAutoWeight(keyID, operation%MaxWeight+1); !ok {
-					errors <- fmt.Errorf("SetAutoWeight(%d) = false", keyID)
+				if ok := registry.SetAutoWeight(credentialID, operation%MaxWeight+1); !ok {
+					errors <- fmt.Errorf("SetAutoWeight(%d) = false", credentialID)
 				}
-				if ok := registry.SetCooldown(keyID, time.Unix(int64(operation+1), 0)); !ok {
-					errors <- fmt.Errorf("SetCooldown(%d) = false", keyID)
+				if ok := registry.SetCooldown(credentialID, time.Unix(int64(operation+1), 0)); !ok {
+					errors <- fmt.Errorf("SetCooldown(%d) = false", credentialID)
 				}
-				if ok := registry.SetBlacklisted(keyID); !ok {
-					errors <- fmt.Errorf("SetBlacklisted(%d) = false", keyID)
+				if ok := registry.SetBlacklisted(credentialID); !ok {
+					errors <- fmt.Errorf("SetBlacklisted(%d) = false", credentialID)
 				}
-				if _, ok := registry.IncrFailure(keyID); !ok {
-					errors <- fmt.Errorf("IncrFailure(%d) = false", keyID)
+				if _, ok := registry.IncrFailure(credentialID); !ok {
+					errors <- fmt.Errorf("IncrFailure(%d) = false", credentialID)
 				}
-				if ok := registry.ClearFailure(keyID); !ok {
-					errors <- fmt.Errorf("ClearFailure(%d) = false", keyID)
+				if ok := registry.ClearFailure(credentialID); !ok {
+					errors <- fmt.Errorf("ClearFailure(%d) = false", credentialID)
 				}
-				if ok := registry.Recover(keyID); !ok {
-					errors <- fmt.Errorf("Recover(%d) = false", keyID)
+				if ok := registry.Recover(credentialID); !ok {
+					errors <- fmt.Errorf("Recover(%d) = false", credentialID)
 				}
-				if err := registry.SetKeyStatus(keyID, KeyStatusActive); err != nil {
-					errors <- fmt.Errorf("SetKeyStatus(%d, active): %w", keyID, err)
+				if err := registry.SetCredentialStatus(credentialID, CredentialStatusActive); err != nil {
+					errors <- fmt.Errorf("SetCredentialStatus(%d, active): %w", credentialID, err)
 				}
 				if operation%3 == 0 {
-					if removed := registry.RemoveKey(keyID); !removed {
-						errors <- fmt.Errorf("RemoveKey(%d) = false", keyID)
+					if removed := registry.RemoveCredential(credentialID); !removed {
+						errors <- fmt.Errorf("RemoveCredential(%d) = false", credentialID)
 					}
-				} else if _, ok := registry.EncryptedValue(keyID); !ok {
-					errors <- fmt.Errorf("EncryptedValue(%d) missing after import", keyID)
+				} else if _, ok := registry.EncryptedCredentialData(credentialID); !ok {
+					errors <- fmt.Errorf("EncryptedValue(%d) missing after import", credentialID)
 				}
 			}
 		}()
@@ -926,10 +926,10 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 			<-start
 			for operation := 0; operation < writerCount*operations; operation++ {
 				writer := operation % writerCount
-				keyID := uint((writer+1)*1000 + operation/writerCount%operations)
-				registry.EncryptedValue(keyID)
-				registry.BlacklistedKeys()
-				candidates := registry.CollectCandidates(groupIDs, func(candidateID uint) bool {
+				credentialID := uint((writer+1)*1000 + operation/writerCount%operations)
+				registry.EncryptedCredentialData(credentialID)
+				registry.BlacklistedCredentials()
+				candidates := registry.CollectCredentialCandidates(groupIDs, func(candidateID uint) bool {
 					return candidateID%19 == uint(reader)%19
 				}, time.Now())
 				for index := 1; index < len(candidates); index++ {
@@ -962,16 +962,16 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 	}
 
 	finalWeight := 13
-	finalEntries := []KeyEntry{
-		{ID: 42, GroupID: 4, Status: KeyStatusActive, EncryptedValue: "final-forty-two"},
-		{ID: 43, GroupID: 4, Status: KeyStatusDisabled, EncryptedValue: "final-disabled"},
-		{ID: 7, GroupID: 2, WeightManual: &finalWeight, Status: KeyStatusActive, EncryptedValue: "final-seven"},
+	finalEntries := []CredentialEntry{
+		{ID: 42, GroupID: 4, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "final-forty-two"},
+		{ID: 43, GroupID: 4, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "final-disabled"},
+		{ID: 7, GroupID: 2, WeightManual: &finalWeight, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "final-seven"},
 	}
-	if err := registry.Replace(finalEntries); err != nil {
+	if err := registry.ReplaceCredentials(finalEntries); err != nil {
 		t.Fatalf("final Replace() error = %v", err)
 	}
 
-	got := registry.CollectCandidates([]uint{4, 2}, nil, time.Time{})
+	got := registry.CollectCredentialCandidates([]uint{4, 2}, nil, time.Time{})
 	if len(got) != 2 {
 		t.Fatalf("final CollectCandidates() length = %d, want 2: %#v", len(got), got)
 	}
@@ -982,12 +982,12 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 		t.Errorf("final CollectCandidates()[1] = %#v, want group 4 key 42 without manual weight", got[1])
 	}
 
-	for keyID, want := range map[uint]string{
+	for credentialID, want := range map[uint]string{
 		7:  "final-seven",
 		42: "final-forty-two",
 		43: "final-disabled",
 	} {
-		assertEncryptedValue(t, registry, keyID, want, true)
+		assertEncryptedValue(t, registry, credentialID, want, true)
 	}
 	for writer := 0; writer < writerCount; writer++ {
 		assertEncryptedValue(t, registry, uint((writer+1)*1000), "", false)
@@ -997,56 +997,56 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 func TestValidateKeyEntriesRejectsMalformedEntries(t *testing.T) {
 	tests := []struct {
 		name        string
-		entries     []KeyEntry
+		entries     []CredentialEntry
 		wantInError string
 	}{
 		{
 			name:        "zero id",
-			entries:     []KeyEntry{{GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher"}},
+			entries:     []CredentialEntry{{GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher"}},
 			wantInError: "id is required",
 		},
 		{
 			name:        "zero group id",
-			entries:     []KeyEntry{{ID: 1, Status: KeyStatusActive, EncryptedValue: "cipher"}},
+			entries:     []CredentialEntry{{ID: 1, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher"}},
 			wantInError: "group id is required",
 		},
 		{
 			name:        "invalid status",
-			entries:     []KeyEntry{{ID: 1, GroupID: 10, Status: KeyStatus("cooldown"), EncryptedValue: "cipher"}},
+			entries:     []CredentialEntry{{ID: 1, GroupID: 10, Status: CredentialStatus("cooldown"), Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher"}},
 			wantInError: "invalid status",
 		},
 		{
 			name:        "empty ciphertext",
-			entries:     []KeyEntry{{ID: 1, GroupID: 10, Status: KeyStatusActive}},
+			entries:     []CredentialEntry{{ID: 1, GroupID: 10, Status: CredentialStatusActive}},
 			wantInError: "encrypted value is required",
 		},
 		{
 			name: "duplicate id",
-			entries: []KeyEntry{
-				{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
-				{ID: 1, GroupID: 20, Status: KeyStatusDisabled, EncryptedValue: "cipher-two"},
+			entries: []CredentialEntry{
+				{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+				{ID: 1, GroupID: 20, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
 			},
-			wantInError: "duplicate key id 1",
+			wantInError: "duplicate credential id 1",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := ValidateKeyEntries(test.entries)
+			err := ValidateCredentialEntries(test.entries)
 			if err == nil {
-				t.Fatal("ValidateKeyEntries() error = nil, want error")
+				t.Fatal("ValidateCredentialEntries() error = nil, want error")
 			}
 			if !strings.Contains(err.Error(), test.wantInError) {
-				t.Fatalf("ValidateKeyEntries() error = %q, want substring %q", err, test.wantInError)
+				t.Fatalf("ValidateCredentialEntries() error = %q, want substring %q", err, test.wantInError)
 			}
 		})
 	}
 
-	if err := ValidateKeyEntries([]KeyEntry{
-		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
-		{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-two"},
+	if err := ValidateCredentialEntries([]CredentialEntry{
+		{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+		{ID: 2, GroupID: 10, Status: CredentialStatusDisabled, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
 	}); err != nil {
-		t.Fatalf("ValidateKeyEntries(valid) error = %v", err)
+		t.Fatalf("ValidateCredentialEntries(valid) error = %v", err)
 	}
 }
 
@@ -1054,40 +1054,40 @@ func TestKeyRegistryApplyImportFailureDoesNotMutateRegistry(t *testing.T) {
 	tests := []struct {
 		name    string
 		groupID uint
-		batch   []KeyEntry
+		batch   []CredentialEntry
 	}{
 		{
 			name:    "invalid entry after valid entry",
 			groupID: 10,
-			batch: []KeyEntry{
-				{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "updated-one"},
-				{ID: 2, GroupID: 10, Status: KeyStatusActive},
+			batch: []CredentialEntry{
+				{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "updated-one"},
+				{ID: 2, GroupID: 10, Status: CredentialStatusActive},
 			},
 		},
 		{
 			name:    "entry group differs from requested group",
 			groupID: 10,
-			batch: []KeyEntry{
-				{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "updated-one"},
-				{ID: 3, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+			batch: []CredentialEntry{
+				{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "updated-one"},
+				{ID: 3, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-three"},
 			},
 		},
 		{
 			name: "zero requested group",
-			batch: []KeyEntry{
-				{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "updated-one"},
+			batch: []CredentialEntry{
+				{ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "updated-one"},
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			registry := NewKeyRegistry()
-			mustReplaceKeyEntries(t, registry, []KeyEntry{{
-				ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "original-one",
+			registry := NewCredentialRegistry()
+			mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+				ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "original-one",
 			}})
 
-			if err := registry.ApplyImport(test.groupID, test.batch); err == nil {
+			if err := registry.ApplyCredentialImport(test.groupID, test.batch); err == nil {
 				t.Fatal("ApplyImport(invalid batch) error = nil, want error")
 			}
 			assertEncryptedValue(t, registry, 1, "original-one", true)
@@ -1101,14 +1101,14 @@ func TestKeyRegistryApplyImportFailureDoesNotMutateRegistry(t *testing.T) {
 }
 
 func TestKeyRegistryApplyImportRejectsExistingIDFromAnotherGroup(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "original-one",
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "original-one",
 	}})
 
-	err := registry.ApplyImport(20, []KeyEntry{
-		{ID: 2, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-two"},
-		{ID: 1, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "moved-one"},
+	err := registry.ApplyCredentialImport(20, []CredentialEntry{
+		{ID: 2, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
+		{ID: 1, GroupID: 20, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "moved-one"},
 	})
 	if err == nil {
 		t.Fatal("ApplyImport(cross-group key id) error = nil, want error")
@@ -1124,21 +1124,21 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 	oldWeight := 20
 	newWeight := 80
 	cooldown := time.Date(2026, time.July, 24, 12, 30, 0, 0, time.UTC)
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
 		ID: 11, GroupID: 7, WeightManual: &oldWeight, WeightAuto: 42,
-		Status: KeyStatusActive, CooldownUntil: cooldown,
-		Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher-secret",
+		Status: CredentialStatusActive, CooldownUntil: cooldown,
+		Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-secret",
 	}})
 
-	if err := registry.UpdateKeyConfig(11, KeyStatusDisabled, &newWeight); err != nil {
-		t.Fatalf("UpdateKeyConfig() error = %v", err)
+	if err := registry.UpdateCredentialConfig(11, CredentialStatusDisabled, &newWeight); err != nil {
+		t.Fatalf("UpdateCredentialConfig() error = %v", err)
 	}
 	newWeight = 99
 	registry.mu.RLock()
-	got := cloneKeyEntry(*registry.buckets[7][11])
+	got := cloneCredentialEntry(*registry.buckets[7][11])
 	registry.mu.RUnlock()
-	if got.Status != KeyStatusDisabled || got.WeightManual == nil || *got.WeightManual != 80 {
+	if got.Status != CredentialStatusDisabled || got.WeightManual == nil || *got.WeightManual != 80 {
 		t.Fatalf("config = %#v", got)
 	}
 	if got.WeightAuto != 42 || !got.CooldownUntil.Equal(cooldown) ||
@@ -1147,11 +1147,11 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 		t.Fatalf("runtime fields changed = %#v", got)
 	}
 
-	if err := registry.UpdateKeyConfig(11, KeyStatusActive, nil); err != nil {
+	if err := registry.UpdateCredentialConfig(11, CredentialStatusActive, nil); err != nil {
 		t.Fatal(err)
 	}
 	view := registry.Snapshot()[0]
-	if view.Status != KeyStatusActive || view.WeightManual != nil ||
+	if view.Status != CredentialStatusActive || view.WeightManual != nil ||
 		view.WeightAuto != 42 || !view.Blacklisted || view.FailureCount != 3 {
 		t.Fatalf("cleared manual state = %#v", view)
 	}
@@ -1159,27 +1159,27 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 
 func TestKeyRegistryUpdateKeyConfigRejectsInvalidInputWithoutPartialMutation(t *testing.T) {
 	weight := 30
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
 		ID: 1, GroupID: 10, WeightManual: &weight,
-		Status: KeyStatusActive, EncryptedValue: "cipher-one",
+		Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 	before := registry.Snapshot()
 
 	for _, test := range []struct {
-		name   string
-		keyID  uint
-		status KeyStatus
-		weight *int
+		name         string
+		credentialID uint
+		status       CredentialStatus
+		weight       *int
 	}{
-		{name: "missing", keyID: 99, status: KeyStatusDisabled},
-		{name: "invalid status", keyID: 1, status: KeyStatus("cooldown")},
-		{name: "negative weight", keyID: 1, status: KeyStatusDisabled, weight: intPointer(-1)},
-		{name: "large weight", keyID: 1, status: KeyStatusDisabled, weight: intPointer(101)},
+		{name: "missing", credentialID: 99, status: CredentialStatusDisabled},
+		{name: "invalid status", credentialID: 1, status: CredentialStatus("cooldown")},
+		{name: "negative weight", credentialID: 1, status: CredentialStatusDisabled, weight: intPointer(-1)},
+		{name: "large weight", credentialID: 1, status: CredentialStatusDisabled, weight: intPointer(101)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := registry.UpdateKeyConfig(test.keyID, test.status, test.weight); err == nil {
-				t.Fatal("UpdateKeyConfig() error = nil")
+			if err := registry.UpdateCredentialConfig(test.credentialID, test.status, test.weight); err == nil {
+				t.Fatal("UpdateCredentialConfig() error = nil")
 			}
 			if got := registry.Snapshot(); !reflect.DeepEqual(got, before) {
 				t.Fatalf("Registry mutated:\ngot=%#v\nwant=%#v", got, before)
@@ -1189,9 +1189,9 @@ func TestKeyRegistryUpdateKeyConfigRejectsInvalidInputWithoutPartialMutation(t *
 }
 
 func TestKeyRegistryUpdateKeyConfigIsRaceSafeWithRuntimeMutations(t *testing.T) {
-	registry := NewKeyRegistry()
-	mustReplaceKeyEntries(t, registry, []KeyEntry{{
-		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one",
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 	start := make(chan struct{})
 	var workers sync.WaitGroup
@@ -1203,7 +1203,7 @@ func TestKeyRegistryUpdateKeyConfigIsRaceSafeWithRuntimeMutations(t *testing.T) 
 			<-start
 			for index := 0; index < 100; index++ {
 				weight := (worker + index) % (MaxWeight + 1)
-				_ = registry.UpdateKeyConfig(1, KeyStatusActive, &weight)
+				_ = registry.UpdateCredentialConfig(1, CredentialStatusActive, &weight)
 				_ = registry.SetAutoWeight(1, (index%MaxWeight)+1)
 				_ = registry.SetCooldown(1, time.Unix(int64(index), 0))
 				_, _ = registry.IncrFailure(1)
@@ -1213,10 +1213,10 @@ func TestKeyRegistryUpdateKeyConfigIsRaceSafeWithRuntimeMutations(t *testing.T) 
 	close(start)
 	workers.Wait()
 	view := registry.Snapshot()[0]
-	if view.GroupID != 10 || view.Status != KeyStatusActive {
+	if view.GroupID != 10 || view.Status != CredentialStatusActive {
 		t.Fatalf("final safe view = %#v", view)
 	}
-	if value, ok := registry.EncryptedValue(1); !ok || value != "cipher-one" {
+	if value, ok := registry.EncryptedCredentialData(1); !ok || value != "cipher-one" {
 		t.Fatalf("credential = %q, %t", value, ok)
 	}
 }
@@ -1225,28 +1225,28 @@ func intPointer(value int) *int {
 	return &value
 }
 
-func mustReplaceKeyEntries(t *testing.T, registry *KeyRegistry, entries []KeyEntry) {
+func mustReplaceKeyEntries(t *testing.T, registry *CredentialRegistry, entries []CredentialEntry) {
 	t.Helper()
-	if err := registry.Replace(entries); err != nil {
+	if err := registry.ReplaceCredentials(entries); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
 }
 
-func assertEncryptedValue(t *testing.T, registry *KeyRegistry, keyID uint, want string, wantOK bool) {
+func assertEncryptedValue(t *testing.T, registry *CredentialRegistry, credentialID uint, want string, wantOK bool) {
 	t.Helper()
-	got, ok := registry.EncryptedValue(keyID)
+	got, ok := registry.EncryptedCredentialData(credentialID)
 	if got != want || ok != wantOK {
-		t.Errorf("EncryptedValue(%d) = %q, %t, want %q, %t", keyID, got, ok, want, wantOK)
+		t.Errorf("EncryptedValue(%d) = %q, %t, want %q, %t", credentialID, got, ok, want, wantOK)
 	}
 }
 
-func keyStatus(t *testing.T, registry *KeyRegistry, keyID uint) KeyStatus {
+func keyStatus(t *testing.T, registry *CredentialRegistry, credentialID uint) CredentialStatus {
 	t.Helper()
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
-	groupID, ok := registry.keyGroups[keyID]
+	groupID, ok := registry.credentialGroups[credentialID]
 	if !ok {
-		t.Fatalf("key %d does not exist", keyID)
+		t.Fatalf("key %d does not exist", credentialID)
 	}
-	return registry.buckets[groupID][keyID].Status
+	return registry.buckets[groupID][credentialID].Status
 }

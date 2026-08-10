@@ -11,7 +11,7 @@ import (
 type runtimeObservation struct {
 	observedAt time.Time
 	snapshot   *state.ConfigSnapshot
-	keys       []state.KeyRuntimeView
+	keys       []state.CredentialRuntimeView
 }
 
 type runtimeHealthObservation struct {
@@ -96,7 +96,7 @@ func (service *Service) captureRuntimeHealthObservation() (
 		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
 			continue
 		}
-		ciphertext, exists := service.registry.EncryptedValue(key.ID)
+		ciphertext, exists := service.registry.EncryptedCredentialData(key.ID)
 		if !exists || ciphertext == "" {
 			return runtimeHealthObservation{}, fmt.Errorf(
 				"capture runtime health observation: key %d ciphertext unavailable: %w",

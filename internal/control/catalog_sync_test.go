@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
@@ -226,8 +227,10 @@ func TestApplyCatalogSnapshotDoesNotLogCompletePriorityAndLogsEachSuccess(t *tes
 
 func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t *testing.T) {
 	fixture := newServiceFixture(t)
+	seedCatalogPriceGroup(t, fixture, "failure", nil, []string{"gpt"})
 	oldPrice := int64(1)
 	if err := fixture.db.Create(&models.ModelPrice{
+		ChannelID:                         string(channel.OpenAICompatible),
 		ModelID:                           "gpt",
 		InputPriceNanoUSDPerMillionTokens: &oldPrice,
 	}).Error; err != nil {
@@ -319,6 +322,7 @@ func TestCatalogStartupReconcilesDurableLKGBeforeAnyNetworkSync(t *testing.T) {
 	seedCatalogPriceGroup(t, fixture, "startup-lkg", &providerID, []string{"gpt"})
 	old := int64(1)
 	if err := fixture.db.Create(&models.ModelPrice{
+		ChannelID:                         string(channel.OpenAICompatible),
 		ModelID:                           "gpt",
 		InputPriceNanoUSDPerMillionTokens: &old,
 	}).Error; err != nil {
@@ -338,7 +342,7 @@ func TestCatalogStartupReconcilesDurableLKGBeforeAnyNetworkSync(t *testing.T) {
 	if err := fixture.service.EnsureInitialState(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	assertCatalogPriceRow(t, fixture, "provider:openai", "gpt", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "gpt", func(row models.ModelPrice) {
 		if row.InputPriceNanoUSDPerMillionTokens == nil ||
 			*row.InputPriceNanoUSDPerMillionTokens != 9 {
 			t.Fatalf("startup reconciled row = %#v", row)
@@ -466,7 +470,7 @@ func TestCatalogSync304PreservesPublishedGenerationsAndDoesNotStoreCache(t *test
 	}}
 	fixture.catalogRuntime.Publish(oldSnapshot)
 	oldTable, err := pricing.NewTable([]pricing.Rule{{
-		Identity: pricing.Identity{ModelID: "old"},
+		Identity: pricing.Identity{ChannelID: string(channel.OpenAICompatible), ModelID: "old"},
 		Prices:   pricing.Prices{Input: pricing.Price{Set: true, NanoUSDPerMillion: 1}},
 	}})
 	if err != nil {
@@ -1009,13 +1013,13 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 	oldInput, oldOutput, oldRead, oldWrite := int64(1), int64(2), int64(3), int64(4)
 	oldTiers := models.JSON(`[{"threshold_tokens":128000,"input_price_nano_usd_per_million_tokens":5}]`)
 	rows := []models.ModelPrice{
-		{ModelID: "changed", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, UpdatedAtMS: 111},
-		{ModelID: "missing-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 112},
-		{ModelID: "missing-provider-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 113},
-		{ModelID: "manual", IsManual: true, UpdatedAtMS: 114},
-		{ModelID: "stale", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 115},
-		{ModelID: "manual-stale", IsManual: true, UpdatedAtMS: 116},
-		{ModelID: "unchanged", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 117},
+		{ChannelID: string(channel.OpenAI), ModelID: "changed", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, UpdatedAtMS: 111},
+		{ChannelID: string(channel.OpenAI), ModelID: "missing-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 112},
+		{ChannelID: string(channel.OpenAICompatible), ModelID: "missing-provider-model", InputPriceNanoUSDPerMillionTokens: &oldInput, OutputPriceNanoUSDPerMillionTokens: &oldOutput, CacheReadPriceNanoUSDPerMillionTokens: &oldRead, CacheWritePriceNanoUSDPerMillionTokens: &oldWrite, ContextPriceTiers: oldTiers, UpdatedAtMS: 113},
+		{ChannelID: string(channel.OpenAI), ModelID: "manual", IsManual: true, UpdatedAtMS: 114},
+		{ChannelID: string(channel.OpenAICompatible), ModelID: "stale", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 115},
+		{ChannelID: string(channel.OpenAICompatible), ModelID: "manual-stale", IsManual: true, UpdatedAtMS: 116},
+		{ChannelID: string(channel.OpenAI), ModelID: "unchanged", InputPriceNanoUSDPerMillionTokens: &oldInput, UpdatedAtMS: 117},
 	}
 	for index := range rows {
 		if err := fixture.db.Create(&rows[index]).Error; err != nil {
@@ -1040,34 +1044,34 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 		t.Fatal(err)
 	}
 
-	assertCatalogPriceRow(t, fixture, "provider:openai", "changed", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "changed", func(row models.ModelPrice) {
 		if row.InputPriceNanoUSDPerMillionTokens == nil || *row.InputPriceNanoUSDPerMillionTokens != 9 ||
 			row.OutputPriceNanoUSDPerMillionTokens != nil || row.CacheReadPriceNanoUSDPerMillionTokens != nil || row.CacheWritePriceNanoUSDPerMillionTokens != nil {
 			t.Fatalf("changed row = %#v, want exact replacement and cleared missing slots", row)
 		}
 	})
-	assertCatalogPriceRow(t, fixture, "provider:openai", "missing-model", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "missing-model", func(row models.ModelPrice) {
 		if priceTestRowHasValue(row) {
 			t.Fatalf("missing model retained automatic catalog values: %#v", row)
 		}
 	})
-	assertCatalogPriceRow(t, fixture, "provider:missing-provider", "missing-provider-model", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "missing-provider-model", func(row models.ModelPrice) {
 		if priceTestRowHasValue(row) {
 			t.Fatalf("missing provider retained automatic catalog values: %#v", row)
 		}
 	})
-	assertCatalogPriceRow(t, fixture, "provider:openai", "manual", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "manual", func(row models.ModelPrice) {
 		if !row.IsManual || row.InputPriceNanoUSDPerMillionTokens != nil || row.UpdatedAtMS != 114 {
 			t.Fatalf("manual all-null row changed: %#v", row)
 		}
 	})
-	assertCatalogPriceRow(t, fixture, "provider:openai", "unchanged", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "unchanged", func(row models.ModelPrice) {
 		if row.UpdatedAtMS != 117 {
 			t.Fatalf("unchanged row timestamp = %d, want 117", row.UpdatedAtMS)
 		}
 	})
-	assertCatalogPriceMissing(t, fixture, "provider:openai", "stale")
-	assertCatalogPriceRow(t, fixture, "provider:openai", "manual-stale", func(row models.ModelPrice) {
+	assertCatalogPriceMissing(t, fixture, "stale")
+	assertCatalogPriceRow(t, fixture, "manual-stale", func(row models.ModelPrice) {
 		if !row.IsManual {
 			t.Fatal("unreferenced manual row lost ownership")
 		}
@@ -1077,17 +1081,17 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "custom", UpstreamURL: "https://custom.example/v1",
-		Protocols: models.JSON(`["openai-completions"]`),
+		Name: "custom", ChannelID: string(channel.OpenAICompatible),
+		Params:    models.JSON(`{"base_url":"https://custom.example/v1"}`),
 		Models:    models.JSON(`[{"id":"group-model","alias":""},{"id":"manual-group-model","alias":""}]`),
-		Config:    models.JSON(`{}`), Enabled: true,
+		Overrides: models.JSON(`{}`), Enabled: true,
 	})
-	scopeKey, _ := pricing.GroupScopeKey(group.ID)
 	oldInput, oldOutput, oldRead, oldWrite := int64(1), int64(2), int64(3), int64(4)
 	oldTiers := models.JSON(`[{"threshold_tokens":128000,"input_price_nano_usd_per_million_tokens":5}]`)
 	manualInput := int64(99)
 	for _, row := range []models.ModelPrice{
 		{
+			ChannelID:                              group.ChannelID,
 			ModelID:                                "group-model",
 			InputPriceNanoUSDPerMillionTokens:      &oldInput,
 			OutputPriceNanoUSDPerMillionTokens:     &oldOutput,
@@ -1096,6 +1100,7 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 			ContextPriceTiers:                      oldTiers, UpdatedAtMS: 111,
 		},
 		{
+			ChannelID:                         group.ChannelID,
 			ModelID:                           "manual-group-model",
 			InputPriceNanoUSDPerMillionTokens: &manualInput,
 			IsManual:                          true, UpdatedAtMS: 112,
@@ -1136,7 +1141,7 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 	if err := fixture.service.applyCatalogSnapshot(t.Context(), snapshot); err != nil {
 		t.Fatal(err)
 	}
-	assertCatalogPriceRow(t, fixture, scopeKey, "group-model", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "group-model", func(row models.ModelPrice) {
 		if row.IsManual || row.InputPriceNanoUSDPerMillionTokens == nil ||
 			*row.InputPriceNanoUSDPerMillionTokens != 8 ||
 			row.OutputPriceNanoUSDPerMillionTokens != nil ||
@@ -1155,12 +1160,87 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 			t.Fatalf("automatic Group tiers = %#v", tiers)
 		}
 	})
-	assertCatalogPriceRow(t, fixture, scopeKey, "manual-group-model", func(row models.ModelPrice) {
+	assertCatalogPriceRow(t, fixture, "manual-group-model", func(row models.ModelPrice) {
 		if !row.IsManual || row.InputPriceNanoUSDPerMillionTokens == nil ||
 			*row.InputPriceNanoUSDPerMillionTokens != 99 || row.UpdatedAtMS != 112 {
 			t.Fatalf("manual Group row changed: %#v", row)
 		}
 	})
+}
+
+func TestCatalogSyncScopesSameModelByChannelAndPreservesManualOverride(t *testing.T) {
+	fixture := newServiceFixture(t)
+	for _, group := range []models.Group{
+		{
+			Name: "official-openai", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+			Models: models.JSON(`[{"id":"shared"}]`), Enabled: true,
+		},
+		{
+			Name: "official-anthropic", ChannelID: string(channel.Anthropic), Params: models.JSON(`{}`),
+			Models: models.JSON(`[{"id":"shared"}]`), Enabled: true,
+		},
+	} {
+		createPriceTestGroup(t, fixture.db, group)
+	}
+	manual := int64(99)
+	if err := fixture.db.Create(&models.ModelPrice{
+		ChannelID: string(channel.OpenAI), ModelID: "shared",
+		InputPriceNanoUSDPerMillionTokens: &manual, IsManual: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai":    catalogProviderFixture("openai", "OpenAI", "shared", 10),
+		"anthropic": catalogProviderFixture("anthropic", "Anthropic", "shared", 20),
+	}}
+
+	if err := fixture.service.applyCatalogSnapshot(t.Context(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var rows []models.ModelPrice
+	if err := fixture.db.Where("model_id = ?", "shared").Order("channel_id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("channel prices = %#v", rows)
+	}
+	byChannel := make(map[string]models.ModelPrice, len(rows))
+	for _, row := range rows {
+		byChannel[row.ChannelID] = row
+	}
+	openAI := byChannel[string(channel.OpenAI)]
+	if !openAI.IsManual || openAI.InputPriceNanoUSDPerMillionTokens == nil ||
+		*openAI.InputPriceNanoUSDPerMillionTokens != 99 {
+		t.Fatalf("OpenAI manual price = %#v", openAI)
+	}
+	anthropic := byChannel[string(channel.Anthropic)]
+	if anthropic.IsManual || anthropic.InputPriceNanoUSDPerMillionTokens == nil ||
+		*anthropic.InputPriceNanoUSDPerMillionTokens != 20 {
+		t.Fatalf("Anthropic automatic price = %#v", anthropic)
+	}
+
+	listed, err := fixture.service.ListModelPrices(t.Context(), ModelPriceListQuery{
+		Usage: ModelPriceUsageAll, Status: ModelPriceStatusAll, Page: 1, PageSize: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Items) != 2 {
+		t.Fatalf("listed channel prices = %#v", listed.Items)
+	}
+	for _, item := range listed.Items {
+		if item.ChannelID == string(channel.OpenAI) {
+			if item.MatchSource != nil || item.MatchedProviderID != nil {
+				t.Fatalf("manual price exposes automatic match = %#v", item)
+			}
+			continue
+		}
+		if item.ChannelID != string(channel.Anthropic) || item.MatchSource == nil ||
+			*item.MatchSource != ModelPriceMatchSourceChannelCatalogProvider ||
+			item.MatchedProviderID == nil || *item.MatchedProviderID != "anthropic" {
+			t.Fatalf("automatic price match = %#v", item)
+		}
+	}
 }
 
 func TestCatalogSyncReconcileFailurePublishesNeitherRuntimeAndKeepsPendingLKG(t *testing.T) {
@@ -1169,6 +1249,7 @@ func TestCatalogSyncReconcileFailurePublishesNeitherRuntimeAndKeepsPendingLKG(t 
 	seedCatalogPriceGroup(t, fixture, "openai", &providerID, []string{"gpt"})
 	oldValue := int64(1)
 	if err := fixture.db.Create(&models.ModelPrice{
+		ChannelID:                         string(channel.OpenAI),
 		ModelID:                           "gpt",
 		InputPriceNanoUSDPerMillionTokens: &oldValue,
 	}).Error; err != nil {
@@ -1250,7 +1331,7 @@ func catalogResultFixture(
 		}
 		rawProviders[providerID] = map[string]any{
 			"id": provider.ID, "name": provider.Name,
-			"api": provider.APIURL, "npm": provider.NPM, "models": rawModels,
+			"api": "", "npm": "", "models": rawModels,
 		}
 	}
 	raw, err := json.Marshal(rawProviders)
@@ -1271,7 +1352,7 @@ func catalogResultFixture(
 }
 
 func catalogProviderFixture(id, name, modelID string, input pricing.NanoUSD) catalog.Provider {
-	provider := catalog.Provider{ID: id, Name: name, APIURL: "https://example.com/v1", Models: map[string]catalog.Model{}}
+	provider := catalog.Provider{ID: id, Name: name, Models: map[string]catalog.Model{}}
 	if modelID != "" {
 		provider.Models[modelID] = catalog.Model{
 			ID: modelID, Name: modelID,
@@ -1299,9 +1380,21 @@ func seedCatalogPriceGroup(
 	if err != nil {
 		t.Fatal(err)
 	}
+	channelID := channel.OpenAICompatible
+	params := models.JSON(`{"base_url":"https://` + name + `.example.com/v1"}`)
+	if providerID != nil {
+		switch *providerID {
+		case "openai":
+			channelID, params = channel.OpenAI, models.JSON(`{}`)
+		case "anthropic":
+			channelID, params = channel.Anthropic, models.JSON(`{}`)
+		case "google":
+			channelID, params = channel.Gemini, models.JSON(`{}`)
+		}
+	}
 	if err := fixture.db.Create(&models.Group{
-		Name: name, ProviderID: providerID, UpstreamURL: "https://" + name + ".example.com/v1",
-		Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(encoded), Enabled: true,
+		Name: name, ChannelID: string(channelID), Params: params,
+		Models: models.JSON(encoded), Enabled: true,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -1310,7 +1403,6 @@ func seedCatalogPriceGroup(
 func assertCatalogPriceRow(
 	t *testing.T,
 	fixture serviceFixture,
-	scopeKey string,
 	modelID string,
 	assert func(models.ModelPrice),
 ) {
@@ -1322,7 +1414,7 @@ func assertCatalogPriceRow(
 	assert(row)
 }
 
-func assertCatalogPriceMissing(t *testing.T, fixture serviceFixture, scopeKey, modelID string) {
+func assertCatalogPriceMissing(t *testing.T, fixture serviceFixture, modelID string) {
 	t.Helper()
 	var count int64
 	if err := fixture.db.Model(&models.ModelPrice{}).

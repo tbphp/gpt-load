@@ -4,7 +4,6 @@ import type {
   GroupCollectionFilters,
   GroupCollectionSort,
   GroupCollectionStatus,
-  GroupProtocol,
 } from '@/api/control/types'
 import {
   constrainCollectionSearch,
@@ -20,13 +19,7 @@ const defaultFilters: GroupCollectionFilters = {
   page_size: 20,
 }
 const statuses = new Set<GroupCollectionStatus>(['available', 'unavailable', 'disabled'])
-const protocols = new Set<GroupProtocol>([
-  'openai-completions',
-  'openai-responses',
-  'anthropic',
-  'gemini',
-])
-const sorts = new Set<GroupCollectionSort>(['status', 'name', 'keys', 'created'])
+const sorts = new Set<GroupCollectionSort>(['status', 'name', 'credentials', 'created'])
 
 export function normalizeGroupCollectionSearchQuery(value: string | undefined): string | undefined {
   return normalizeCollectionSearch(value)
@@ -40,16 +33,12 @@ export function parseGroupCollectionRouteQuery(query: LocationQuery): GroupColle
   const filters: GroupCollectionFilters = { ...defaultFilters }
   const q = normalizeGroupCollectionSearchQuery(scalarRouteQuery(query.q))
   const status = scalarRouteQuery(query.status)
-  const protocol = scalarRouteQuery(query.protocol)
   const sort = scalarRouteQuery(query.sort)
   const page = parsePositiveRouteInteger(query.page)
 
   if (q) filters.q = q
   if (status !== undefined && statuses.has(status as GroupCollectionStatus)) {
     filters.status = status as GroupCollectionStatus
-  }
-  if (protocol !== undefined && protocols.has(protocol as GroupProtocol)) {
-    filters.protocol = protocol as GroupProtocol
   }
   if (sort !== undefined && sorts.has(sort as GroupCollectionSort)) {
     filters.sort = sort as GroupCollectionSort
@@ -66,7 +55,6 @@ export function serializeGroupCollectionRouteQuery(
   const q = normalizeGroupCollectionSearchQuery(filters.q)
   if (q) query.q = q
   if (filters.status !== undefined) query.status = filters.status
-  if (filters.protocol !== undefined) query.protocol = filters.protocol
   if (filters.sort !== defaultFilters.sort) query.sort = filters.sort
   if (filters.page !== defaultFilters.page) query.page = String(filters.page)
   return query

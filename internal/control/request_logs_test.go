@@ -16,6 +16,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -53,6 +55,8 @@ func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing
 		{name: "access key plus", query: "access_key_id=%2B1"},
 		{name: "access key whitespace", query: "access_key_id=%201"},
 		{name: "access key duplicate", query: "access_key_id=1&access_key_id=2"},
+		{name: "legacy upstream key", query: "upstream_key_id=9"},
+		{name: "legacy key", query: "key_id=9"},
 		{name: "limit leading zero", query: "limit=01"},
 		{name: "limit plus", query: "limit=%2B1"},
 		{name: "limit whitespace", query: "limit=%201"},
@@ -100,6 +104,9 @@ func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
 		{name: "group unsafe", query: "group_id=9007199254740992"},
 		{name: "access key zero", query: "access_key_id=0"},
 		{name: "access key unsafe", query: "access_key_id=9007199254740992"},
+		{name: "unknown channel", query: "channel_id=unknown"},
+		{name: "credential zero", query: "credential_id=0"},
+		{name: "credential unsafe", query: "credential_id=9007199254740992"},
 		{name: "empty client model", query: "client_model="},
 		{name: "empty upstream model", query: "upstream_model="},
 		{name: "equal range", query: "from_ms=" + equalTime + "&to_ms=" + equalTime},
@@ -154,7 +161,8 @@ func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
 		"cost_state=priced",
 		"pricing_completeness=partial",
 		"cache_present=true",
-		"upstream_key_id=9",
+		"channel_id=openai",
+		"credential_id=9",
 		"attempt_status_code=429",
 		"failure_category=rate_limited",
 		"error_code=provider_rate_limit",
@@ -185,7 +193,8 @@ func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
 		got.UsageState != usage.StatePartial || got.CostState != pricing.CostStatePriced ||
 		got.PricingCompleteness != pricing.CompletenessPartial ||
 		got.CachePresent == nil || !*got.CachePresent ||
-		got.UpstreamKeyID == nil || *got.UpstreamKeyID != 9 ||
+		got.ChannelID != channel.OpenAI ||
+		got.CredentialID == nil || *got.CredentialID != 9 ||
 		got.AttemptStatusCode == nil || *got.AttemptStatusCode != 429 ||
 		got.FailureCategory != telemetry.FailureCategoryRateLimited ||
 		got.AttemptErrorCode != "provider_rate_limit" || got.RetryState != requestlog.RetryStateRetried ||
@@ -214,7 +223,8 @@ func TestRequestLogEndpointRejectsInvalidAdvancedFilters(t *testing.T) {
 		"cost_state=unknown",
 		"pricing_completeness=unknown",
 		"cache_present=yes",
-		"upstream_key_id=0",
+		"channel_id=unknown",
+		"credential_id=0",
 		"attempt_status_code=-1",
 		"failure_category=unknown",
 		"error_code=",
@@ -386,11 +396,14 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	rate := int64(1_000_000_000)
 	amount := int64(1_000_000)
 	receipt := &pricing.Receipt{
-		SchemaVersion: 1,
+		SchemaVersion: 3,
 		Method:        pricing.ReceiptMethodUnitRateSum,
 		MethodVersion: 1,
 		Currency:      "USD",
-		Rule:          pricing.ReceiptRule{ScopeKey: "group:12", ModelID: "gpt-4.1"},
+		Rule: pricing.ReceiptRule{
+			ChannelID: string(channel.OpenAI),
+			ModelID:   "gpt-4.1",
+		},
 		LineItems: []pricing.ReceiptLine{{
 			Code:                  "input",
 			Quantity:              1000,
@@ -405,6 +418,9 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		requestID: {
 			RequestID:            requestID,
 			CompletedAtMS:        1_784_894_400_000,
+			GroupID:              12,
+			ChannelID:            channel.OpenAI,
+			CredentialID:         99,
 			Protocol:             protocol.OpenAICompletions,
 			Status:               telemetry.RequestStatusSuccess,
 			StatusCode:           http.StatusOK,
@@ -415,16 +431,23 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 			UncachedInputTokens:  1000,
 			EstimatedCostNanoUSD: amount,
 			Attempts: []requestlog.Attempt{{
-				Sequence:        1,
-				GroupID:         12,
-				GroupName:       "Primary",
-				KeyID:           99,
-				UpstreamModel:   "gpt-4.1",
-				StatusCode:      http.StatusOK,
-				DurationMs:      1200,
-				FailureCategory: telemetry.FailureCategoryOK,
-				Action:          telemetry.ActionTerminate,
-				PricingReceipt:  receipt,
+				Sequence:          1,
+				GroupID:           12,
+				GroupName:         "Primary",
+				ChannelID:         channel.OpenAI,
+				CredentialID:      99,
+				Operation:         execution.OperationChatCompletion,
+				RouteMode:         channel.RouteNative,
+				UpstreamModel:     "gpt-4.1",
+				UpstreamRequestID: "upstream-request-1",
+				DispatchState:     execution.DispatchMaybeSent,
+				ResponseStarted:   true,
+				StatusCode:        http.StatusOK,
+				DurationMs:        1200,
+				FailureCategory:   telemetry.FailureCategoryOK,
+				Action:            telemetry.ActionTerminate,
+				Committed:         true,
+				PricingReceipt:    receipt,
 			}},
 		},
 	}}
@@ -438,13 +461,26 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	}
 	var envelope struct {
 		Data struct {
-			RequestID string `json:"request_id"`
-			Attempts  []struct {
-				KeyID          uint `json:"key_id"`
-				PricingReceipt struct {
+			RequestID    string `json:"request_id"`
+			ChannelID    string `json:"channel_id"`
+			CredentialID uint   `json:"credential_id"`
+			Attempts     []struct {
+				ChannelID         string `json:"channel_id"`
+				CredentialID      uint   `json:"credential_id"`
+				Operation         string `json:"operation"`
+				RouteMode         string `json:"route_mode"`
+				UpstreamRequestID string `json:"upstream_request_id"`
+				DispatchState     string `json:"dispatch_state"`
+				ResponseStarted   bool   `json:"response_started"`
+				Committed         bool   `json:"committed"`
+				PricingReceipt    struct {
 					Method       string `json:"method"`
 					TotalNanoUSD string `json:"total_nano_usd"`
-					LineItems    []struct {
+					Rule         struct {
+						ChannelID string `json:"channel_id"`
+						ModelID   string `json:"model_id"`
+					} `json:"rule"`
+					LineItems []struct {
 						Quantity      string `json:"quantity"`
 						AmountNanoUSD string `json:"amount_nano_usd"`
 					} `json:"line_items"`
@@ -455,17 +491,97 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if envelope.Data.RequestID != requestID || len(envelope.Data.Attempts) != 1 ||
-		envelope.Data.Attempts[0].KeyID != 99 ||
+	if envelope.Data.RequestID != requestID || envelope.Data.ChannelID != string(channel.OpenAI) ||
+		envelope.Data.CredentialID != 99 || len(envelope.Data.Attempts) != 1 ||
+		envelope.Data.Attempts[0].ChannelID != string(channel.OpenAI) ||
+		envelope.Data.Attempts[0].CredentialID != 99 ||
+		envelope.Data.Attempts[0].Operation != string(execution.OperationChatCompletion) ||
+		envelope.Data.Attempts[0].RouteMode != string(channel.RouteNative) ||
+		envelope.Data.Attempts[0].UpstreamRequestID != "upstream-request-1" ||
+		envelope.Data.Attempts[0].DispatchState != string(execution.DispatchMaybeSent) ||
+		!envelope.Data.Attempts[0].ResponseStarted || !envelope.Data.Attempts[0].Committed ||
 		envelope.Data.Attempts[0].PricingReceipt.Method != pricing.ReceiptMethodUnitRateSum ||
+		envelope.Data.Attempts[0].PricingReceipt.Rule.ChannelID != string(channel.OpenAI) ||
+		envelope.Data.Attempts[0].PricingReceipt.Rule.ModelID != "gpt-4.1" ||
 		envelope.Data.Attempts[0].PricingReceipt.TotalNanoUSD != "1000000" ||
 		len(envelope.Data.Attempts[0].PricingReceipt.LineItems) != 1 ||
 		envelope.Data.Attempts[0].PricingReceipt.LineItems[0].Quantity != "1000" ||
 		envelope.Data.Attempts[0].PricingReceipt.LineItems[0].AmountNanoUSD != "1000000" {
 		t.Fatalf("detail projection = %#v", envelope.Data)
 	}
-	if strings.Contains(strings.ToLower(recorder.Body.String()), "committed") {
-		t.Fatalf("detail exposes internal committed flag: %s", recorder.Body.String())
+	for _, legacyField := range []string{`"key_id"`, `"upstream_key_id"`} {
+		if strings.Contains(recorder.Body.String(), legacyField) {
+			t.Fatalf("detail exposes legacy field %s: %s", legacyField, recorder.Body.String())
+		}
+	}
+}
+
+func TestRequestLogPricingReceiptKeepsHistoricalSchemasReadable(t *testing.T) {
+	tests := []struct {
+		name          string
+		receipt       pricing.Receipt
+		wantScopeKey  string
+		wantChannelID string
+	}{
+		{
+			name: "v1 scoped identity",
+			receipt: pricing.Receipt{
+				SchemaVersion: 1,
+				Method:        pricing.ReceiptMethodUnitRateSum,
+				MethodVersion: 1,
+				Currency:      "USD",
+				Rule: pricing.ReceiptRule{
+					ScopeKey: "provider:openai",
+					ModelID:  "gpt-4.1",
+				},
+			},
+			wantScopeKey: "provider:openai",
+		},
+		{
+			name: "v2 global identity",
+			receipt: pricing.Receipt{
+				SchemaVersion: 2,
+				Method:        pricing.ReceiptMethodUnitRateSum,
+				MethodVersion: 1,
+				Currency:      "USD",
+				Rule:          pricing.ReceiptRule{ModelID: "gpt-4.1"},
+			},
+		},
+		{
+			name: "v3 channel identity",
+			receipt: pricing.Receipt{
+				SchemaVersion: 3,
+				Method:        pricing.ReceiptMethodUnitRateSum,
+				MethodVersion: 1,
+				Currency:      "USD",
+				Rule: pricing.ReceiptRule{
+					ChannelID: string(channel.OpenAI),
+					ModelID:   "gpt-4.1",
+				},
+			},
+			wantChannelID: string(channel.OpenAI),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mapped, err := mapRequestLogPricingReceipt(&test.receipt)
+			if err != nil {
+				t.Fatalf("mapRequestLogPricingReceipt() error = %v", err)
+			}
+			gotScopeKey := ""
+			if mapped.Rule.ScopeKey != nil {
+				gotScopeKey = *mapped.Rule.ScopeKey
+			}
+			gotChannelID := ""
+			if mapped.Rule.ChannelID != nil {
+				gotChannelID = *mapped.Rule.ChannelID
+			}
+			if mapped.SchemaVersion != test.receipt.SchemaVersion ||
+				mapped.Rule.ModelID != test.receipt.Rule.ModelID ||
+				gotScopeKey != test.wantScopeKey || gotChannelID != test.wantChannelID {
+				t.Fatalf("mapped receipt = %#v", mapped)
+			}
+		})
 	}
 }
 
@@ -502,17 +618,19 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	var envelope struct {
 		Data struct {
 			Items []struct {
-				GroupID                 *uint  `json:"group_id"`
-				UsageState              string `json:"usage_state"`
-				CostState               string `json:"cost_state"`
-				PricingCompleteness     string `json:"pricing_completeness"`
-				InputTokens             string `json:"input_tokens"`
-				CacheReadTokens         string `json:"cache_read_tokens"`
-				CacheWrite5MTokens      string `json:"cache_write_5m_tokens"`
-				CacheWrite1HTokens      string `json:"cache_write_1h_tokens"`
-				CacheWriteUnknownTokens string `json:"cache_write_unknown_tokens"`
-				OutputTokens            string `json:"output_tokens"`
-				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
+				GroupID                 *uint   `json:"group_id"`
+				ChannelID               *string `json:"channel_id"`
+				CredentialID            *uint   `json:"credential_id"`
+				UsageState              string  `json:"usage_state"`
+				CostState               string  `json:"cost_state"`
+				PricingCompleteness     string  `json:"pricing_completeness"`
+				InputTokens             string  `json:"input_tokens"`
+				CacheReadTokens         string  `json:"cache_read_tokens"`
+				CacheWrite5MTokens      string  `json:"cache_write_5m_tokens"`
+				CacheWrite1HTokens      string  `json:"cache_write_1h_tokens"`
+				CacheWriteUnknownTokens string  `json:"cache_write_unknown_tokens"`
+				OutputTokens            string  `json:"output_tokens"`
+				EstimatedCostNanoUSD    string  `json:"estimated_cost_nano_usd"`
 				Reasoning               *struct {
 					Mode         *string `json:"mode"`
 					Effort       *string `json:"effort"`
@@ -528,7 +646,8 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 		t.Fatalf("items = %#v", envelope.Data.Items)
 	}
 	item := envelope.Data.Items[0]
-	if item.GroupID != nil || item.UsageState != "complete" || item.CostState != "priced" ||
+	if item.GroupID != nil || item.ChannelID != nil || item.CredentialID != nil ||
+		item.UsageState != "complete" || item.CostState != "priced" ||
 		item.PricingCompleteness != "complete" ||
 		item.InputTokens != "16" || item.CacheReadTokens != "2" ||
 		item.CacheWrite5MTokens != "3" || item.CacheWrite1HTokens != "4" ||
@@ -752,6 +871,8 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		AttemptCount:          2,
 		AffinityHit:           true,
 		GroupID:               99,
+		ChannelID:             channel.OpenAI,
+		CredentialID:          101,
 		UsageState:            usage.StateComplete,
 		CostState:             pricing.CostStatePriced,
 		PricingCompleteness:   pricing.CompletenessComplete,
@@ -759,7 +880,8 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		OutputTokens:          2,
 		EstimatedCostNanoUSD:  50,
 		Attempts: []requestlog.Attempt{{
-			Sequence: 1, GroupID: 99, GroupName: "private group", KeyID: 101,
+			Sequence: 1, GroupID: 99, GroupName: "private group",
+			ChannelID: channel.OpenAI, CredentialID: 101,
 			UpstreamModel: "private-upstream-model",
 		}},
 	}
@@ -788,6 +910,8 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 	for _, query := range []string{
 		"access_key_id=" + strconv.FormatUint(uint64(other.ID), 10),
 		"group_id=99",
+		"channel_id=openai",
+		"credential_id=101",
 		"upstream_model=private-upstream-model",
 		"retry_state=retried",
 	} {
@@ -853,6 +977,8 @@ func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
 		"model_consistency":       `"not_applicable"`,
 		"affinity_hit":            "false",
 		"group_id":                "null",
+		"channel_id":              "null",
+		"credential_id":           "null",
 		"attempt_count":           "0",
 	} {
 		if string(item[field]) != want {
@@ -951,6 +1077,30 @@ func assertRequestLogErrorCode(t *testing.T, recorder *httptest.ResponseRecorder
 
 func encodeTestCursorPayload(payload string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(payload))
+}
+
+func TestRequestLogAttemptActionUsesCredentialTerms(t *testing.T) {
+	for input, want := range map[telemetry.Action]string{
+		telemetry.Action("cooldown_credential"): "cooldown_credential",
+		telemetry.Action("fail_credential"):     "fail_credential",
+		telemetry.ActionTerminate:               string(telemetry.ActionTerminate),
+	} {
+		mapped, err := mapRequestLogAttempt(requestlog.Attempt{Action: input})
+		if err != nil {
+			t.Fatalf("mapRequestLogAttempt(%q) error = %v", input, err)
+		}
+		if mapped.Action != want {
+			t.Fatalf("mapRequestLogAttempt(%q).Action = %q, want %q", input, mapped.Action, want)
+		}
+		encoded, err := json.Marshal(mapped)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q) error = %v", input, err)
+		}
+		if strings.Contains(string(encoded), `"action":"cooldown_key"`) ||
+			strings.Contains(string(encoded), `"action":"fail_key"`) {
+			t.Fatalf("attempt wire exposes legacy key action: %s", encoded)
+		}
+	}
 }
 
 func Example_requestLogOpaqueCursor() {

@@ -15,18 +15,19 @@ type Prices struct {
 	CacheWrite Price
 }
 
-// Identity is the exact global pricing identity of a real upstream model.
-// Routing groups and providers deliberately do not participate in matching.
+// Identity is the exact channel and upstream-model pricing identity.
 type Identity struct {
-	ModelID string `json:"model_id"`
+	ChannelID string `json:"channel_id"`
+	ModelID   string `json:"model_id"`
 }
 
 // ReceiptRule is the frozen model identity written into a request-time cost
-// receipt. ScopeKey is retained only to read historical v1 receipts. New v2
-// receipts leave it empty because prices are global.
+// receipt. ScopeKey is retained only to read historical v1 receipts; ChannelID
+// is populated only by v3 and later receipts.
 type ReceiptRule struct {
-	ScopeKey string `json:"scope_key,omitempty"`
-	ModelID  string `json:"model_id"`
+	ScopeKey  string `json:"scope_key,omitempty"`
+	ChannelID string `json:"channel_id,omitempty"`
+	ModelID   string `json:"model_id"`
 }
 
 // ContextTier replaces all base prices once its inclusive threshold is met.
@@ -35,7 +36,7 @@ type ContextTier struct {
 	Prices               Prices
 }
 
-// Rule is one exact scope and upstream-model price definition.
+// Rule is one exact channel and upstream-model price definition.
 type Rule struct {
 	Identity     Identity
 	Prices       Prices

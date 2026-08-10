@@ -4,12 +4,12 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
-import type { HealthGroupDto, KeyCounts } from '@/app/resources/health'
+import type { HealthCredentialCountsDto, HealthGroupDto } from '@/app/resources/health'
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import KeyHealthBar from '@/components/ui/KeyHealthBar.vue'
+import CredentialHealthBar from '@/components/ui/CredentialHealthBar.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
@@ -27,14 +27,11 @@ function status(group: HealthGroupDto) {
   if (!group.enabled) {
     return { key: 'disabled', label: t('monitor.health.groups.disabled'), tone: 'neutral' as const }
   }
-  if (group.counts.total === 0) {
-    return { key: 'empty', label: t('monitor.health.groups.emptyKeys'), tone: 'danger' as const }
-  }
-  if (group.counts.disabled === group.counts.total) {
+  if (group.counts.credentials === 0) {
     return {
-      key: 'configurationExcluded',
-      label: t('monitor.health.groups.configurationExcluded'),
-      tone: 'neutral' as const,
+      key: 'empty',
+      label: t('monitor.health.groups.emptyCredentials'),
+      tone: 'danger' as const,
     }
   }
   if (group.counts.available === 0) {
@@ -75,13 +72,12 @@ const visibleGroups = computed(() =>
 )
 const canToggle = computed(() => sortedGroups.value.length > defaultLimit)
 
-function keyHealthLabel(counts: KeyCounts): string {
-  return t('monitor.health.groups.keyHealthLabel', {
-    total: n(counts.total),
+function credentialHealthLabel(counts: HealthCredentialCountsDto): string {
+  return t('monitor.health.groups.credentialHealthLabel', {
+    total: n(counts.credentials),
     available: n(counts.available),
     cooldown: n(counts.cooldown),
     blacklisted: n(counts.blacklisted),
-    disabled: n(counts.disabled),
   })
 }
 </script>
@@ -108,7 +104,7 @@ function keyHealthLabel(counts: KeyCounts): string {
         <template #header>
           <span role="columnheader">{{ t('monitor.health.groups.columns.group') }}</span>
           <span role="columnheader">{{ t('monitor.health.groups.columns.status') }}</span>
-          <span role="columnheader">{{ t('monitor.health.groups.columns.keyHealth') }}</span>
+          <span role="columnheader">{{ t('monitor.health.groups.columns.credentialHealth') }}</span>
           <span role="columnheader">{{ t('monitor.health.groups.columns.exceptions') }}</span>
           <span role="columnheader">{{ t('monitor.health.groups.columns.actions') }}</span>
         </template>
@@ -139,7 +135,10 @@ function keyHealthLabel(counts: KeyCounts): string {
           </div>
 
           <div class="ledger-record-list__cell group-health-record__keys" role="cell">
-            <KeyHealthBar :counts="group.counts" :label="keyHealthLabel(group.counts)" />
+            <CredentialHealthBar
+              :counts="group.counts"
+              :label="credentialHealthLabel(group.counts)"
+            />
           </div>
 
           <div class="ledger-record-list__cell group-health-record__exceptions" role="cell">

@@ -12,9 +12,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -22,7 +22,7 @@ import (
 func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := validControlGroup("settings-read")
-	group.Config = models.JSON(`{
+	group.Overrides = models.JSON(`{
 		"connect_timeout":20,
 		"first_byte_timeout":180,
 		"request_timeout":480,
@@ -41,8 +41,8 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 	if err != nil {
 		t.Fatalf("GetGroupSettings() error = %v", err)
 	}
-	if got.Name != group.Name || got.UpstreamURL != group.UpstreamURL ||
-		!reflect.DeepEqual(got.Protocols, []protocol.Protocol{protocol.OpenAICompletions}) ||
+	if got.Name != group.Name || got.ChannelID != channel.OpenAICompatible ||
+		string(got.Params) != `{"base_url":"https://settings-read.example/v1"}` ||
 		!got.Enabled || got.WeightManual != nil {
 		t.Fatalf("persisted settings = %#v", got)
 	}
@@ -69,23 +69,31 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 
 func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-settings-update")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://settings-before.example.com/v1"}`),
+		Models:    optionalGroupModels{Set: true}, Credentials: "sk-settings-update",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := created.GroupID
 	beforeRevision := fixture.manager.Current().Revision
 	weight := 75
 	result, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
-		Name:                  optionalField[string]{Set: true, Value: " updated settings "},
-		UpstreamURL:           optionalField[string]{Set: true, Value: " HTTPS://SETTINGS-UPDATED.EXAMPLE.COM/v1/ "},
-		Protocols:             optionalField[[]protocol.Protocol]{Set: true, Value: []protocol.Protocol{protocol.OpenAICompletions}},
-		ValidationModel:       optionalField[string]{Set: true, Value: " gpt-4.1 "},
-		Enabled:               optionalField[bool]{Set: true, Value: false},
-		WeightManual:          optionalField[int]{Set: true, Value: weight},
-		Overrides:             optionalField[config.Settings]{Set: true, Value: config.Settings{"request_timeout": json.Number("720")}},
-		ConfirmUpstreamChange: true,
+		Name: optionalField[string]{Set: true, Value: " updated settings "},
+		Params: optionalField[json.RawMessage]{Set: true,
+			Value: json.RawMessage(`{"base_url":" HTTPS://SETTINGS-UPDATED.EXAMPLE.COM/v1/ "}`)},
+		ValidationModel: optionalField[string]{Set: true, Value: " gpt-4.1 "},
+		Enabled:         optionalField[bool]{Set: true, Value: false},
+		WeightManual:    optionalField[int]{Set: true, Value: weight},
+		Overrides:       optionalField[config.Settings]{Set: true, Value: config.Settings{"request_timeout": json.Number("720")}},
 	})
 	if err != nil {
 		t.Fatalf("UpdateGroupSettings() error = %v", err)
 	}
-	if result.Name != "updated settings" || result.UpstreamURL != "https://settings-updated.example.com/v1" ||
+	if result.Name != "updated settings" || result.ChannelID != channel.OpenAICompatible ||
+		string(result.Params) != `{"base_url":"https://settings-updated.example.com/v1"}` ||
 		result.ValidationModel == nil || *result.ValidationModel != "gpt-4.1" || result.Enabled ||
 		result.WeightManual == nil || *result.WeightManual != weight || result.Effective.RequestTimeout != 720 {
 		t.Fatalf("UpdateGroupSettings() = %#v", result)
@@ -105,20 +113,20 @@ func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *testing.T) {
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://settings-first.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID:   channel.OpenAICompatible,
+		Params:      json.RawMessage(`{"base_url":"https://settings-first.example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Keys:        "sk-settings-first",
+		Credentials: "sk-settings-first",
 	})
 	if err != nil {
 		t.Fatalf("first CreateGroup() error = %v", err)
 	}
 	sharedURL := "https://settings-shared.example.com/v1"
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: sharedURL,
-		Protocols:   []protocol.Protocol{protocol.Anthropic},
+		ChannelID:   channel.OpenAICompatible,
+		Params:      json.RawMessage(`{"base_url":"https://settings-shared.example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Keys:        "sk-settings-second",
+		Credentials: "sk-settings-second",
 	})
 	if err != nil {
 		t.Fatalf("second CreateGroup() error = %v", err)
@@ -126,25 +134,25 @@ func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *tes
 	beforeRevision := fixture.manager.Current().Revision
 
 	result, err := fixture.service.UpdateGroupSettings(t.Context(), first.GroupID, GroupSettingsUpdateRequest{
-		UpstreamURL: optionalField[string]{
+		Params: optionalField[json.RawMessage]{
 			Set:   true,
-			Value: " HTTPS://SETTINGS-SHARED.EXAMPLE.COM/v1/ ",
+			Value: json.RawMessage(`{"base_url":" HTTPS://SETTINGS-SHARED.EXAMPLE.COM/v1/ "}`),
 		},
 	})
 	if err != nil {
 		t.Fatalf("UpdateGroupSettings() error = %v", err)
 	}
-	if result.UpstreamURL != sharedURL {
-		t.Fatalf("updated upstream URL = %q, want %q", result.UpstreamURL, sharedURL)
+	if string(result.Params) != `{"base_url":"`+sharedURL+`"}` {
+		t.Fatalf("updated params = %s, want shared target", result.Params)
 	}
 	if got := fixture.manager.Current().Revision; got != beforeRevision+1 {
 		t.Fatalf("snapshot revision = %d, want %d", got, beforeRevision+1)
 	}
 }
 
-func TestUpdateGroupSettingsValidatesWeightAndInjectUsage(t *testing.T) {
+func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChannels(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-settings-validation")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-validation")
 	beforeRevision := fixture.manager.Current().Revision
 
 	for _, weight := range []optionalField[int]{
@@ -176,75 +184,28 @@ func TestUpdateGroupSettingsValidatesWeightAndInjectUsage(t *testing.T) {
 			}
 		})
 	}
-	anthropic := validControlGroup("settings-anthropic")
-	anthropic.Protocols = models.JSON(`["anthropic"]`)
-	if err := fixture.db.Create(anthropic).Error; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.manager.Publish(mustBuildCompileInput(t, fixture.db)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.service.UpdateGroupSettings(t.Context(), anthropic.ID, GroupSettingsUpdateRequest{
-		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{state.SettingInjectUsageOptions: true}},
-	}); !errors.Is(err, app_errors.ErrValidation) {
-		t.Fatalf("inject_usage_options without OpenAI completions error = %v", err)
-	}
-	if got := fixture.manager.Current().Revision; got != beforeRevision+4 {
-		t.Fatalf("invalid settings mutation revision = %d, want %d", got, beforeRevision+4)
-	}
-}
-
-func TestUpdateGroupSettingsRejectsProtocolChangeThatLeavesInjectUsageOptionsOnNonOpenAIGroup(t *testing.T) {
-	fixture := newServiceFixture(t)
-	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://settings-protocol-constraint.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Keys:        "sk-settings-protocol-constraint",
+	anthropic, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("settings-anthropic"), ChannelID: channel.Anthropic,
+		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true}, Credentials: "sk-anthropic",
 	})
 	if err != nil {
-		t.Fatalf("CreateGroup() error = %v", err)
-	}
-	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
-		Overrides: optionalField[config.Settings]{
-			Set: true,
-			Value: config.Settings{
-				state.SettingInjectUsageOptions: true,
-			},
-		},
-	}); err != nil {
-		t.Fatalf("enable inject_usage_options override: %v", err)
-	}
-	var before models.Group
-	if err := fixture.db.First(&before, created.GroupID).Error; err != nil {
 		t.Fatal(err)
 	}
-	beforeRevision := fixture.manager.Current().Revision
-
-	_, err = fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
-		Protocols: optionalField[[]protocol.Protocol]{
-			Set: true, Value: []protocol.Protocol{protocol.Anthropic},
-		},
+	updated, err := fixture.service.UpdateGroupSettings(t.Context(), anthropic.GroupID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{state.SettingInjectUsageOptions: true}},
 	})
-	if !errors.Is(err, app_errors.ErrValidation) {
-		t.Fatalf("UpdateGroupSettings() error = %v, want validation", err)
+	if err != nil || !updated.Effective.InjectUsageOptions {
+		t.Fatalf("cross-channel usage observation update = %#v, %v", updated, err)
 	}
-	var after models.Group
-	if err := fixture.db.First(&after, created.GroupID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("protocol constraint changed persisted group: got=%#v want=%#v", after, before)
-	}
-	if got := fixture.manager.Current().Revision; got != beforeRevision {
-		t.Fatalf("protocol constraint published revision %d, want %d", got, beforeRevision)
+	if got := fixture.manager.Current().Revision; got != beforeRevision+5 {
+		t.Fatalf("settings mutation revision = %d, want %d", got, beforeRevision+5)
 	}
 }
 
 func TestGroupSettingsHTTPRejectsStrictJSONAndUnauthorizedWithoutMutation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-settings-http")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-http")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	path := "/api/groups/" + stringGroupID(groupID) + "/settings"
@@ -272,7 +233,7 @@ func TestGroupSettingsHTTPRejectsStrictJSONAndUnauthorizedWithoutMutation(t *tes
 func TestGroupSettingsHTTPNotFoundAndDatabaseFailureDoNotMutate(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-settings-errors")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-errors")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	beforeRevision := fixture.manager.Current().Revision

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
@@ -59,8 +60,10 @@ type usageSeriesResponse struct {
 }
 
 type usageBreakdownResponse struct {
-	GroupID uint   `json:"group_id"`
-	Model   string `json:"model"`
+	GroupID      uint        `json:"group_id"`
+	ChannelID    *channel.ID `json:"channel_id"`
+	CredentialID *uint       `json:"credential_id"`
+	Model        string      `json:"model"`
 	usageAggregateResponse
 }
 
@@ -113,7 +116,7 @@ func (server *Server) handleUsage(c *gin.Context) {
 		return
 	}
 	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
-		if query.GroupID != nil {
+		if query.GroupID != nil || query.ChannelID != "" || query.CredentialID != nil {
 			writeServiceError(c, "usage", app_errors.ErrBadRequest)
 			return
 		}
@@ -142,6 +145,8 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		"from_ms":         {},
 		"to_ms":           {},
 		"group_id":        {},
+		"channel_id":      {},
+		"credential_id":   {},
 		"upstream_model":  {},
 		"breakdown_order": {},
 	}
@@ -225,6 +230,20 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 			return requestlog.UsageQuery{}, apiErr
 		}
 		query.GroupID = &groupID
+	}
+	if value, ok := singleQueryValue(values, "channel_id"); ok {
+		channelID, apiErr := parseRequestLogChannelID(value)
+		if apiErr != nil {
+			return requestlog.UsageQuery{}, apiErr
+		}
+		query.ChannelID = channelID
+	}
+	if value, ok := singleQueryValue(values, "credential_id"); ok {
+		credentialID, apiErr := parseUsageGroupID(value)
+		if apiErr != nil {
+			return requestlog.UsageQuery{}, apiErr
+		}
+		query.CredentialID = &credentialID
 	}
 	if value, ok := singleQueryValue(values, "upstream_model"); ok {
 		if !validUsageModel(value) {
@@ -394,15 +413,27 @@ func (service *Service) mapUsageResponse(
 		if uint64(row.GroupID) > uint64(maxSafeInteger) {
 			return usageResponse{}, fmt.Errorf("map usage breakdown: unsafe group")
 		}
+		channelID, err := nullableRequestLogChannelID(row.ChannelID)
+		if err != nil {
+			return usageResponse{}, fmt.Errorf("map usage breakdown: %w", err)
+		}
+		credentialID, err := nullableRequestLogID(row.CredentialID, "credential")
+		if err != nil {
+			return usageResponse{}, fmt.Errorf("map usage breakdown: %w", err)
+		}
 		aggregate, err := mapUsageAggregate(row.UsageAggregate)
 		if err != nil {
 			return usageResponse{}, err
 		}
 		result.Breakdown = append(result.Breakdown, usageBreakdownResponse{
-			GroupID: row.GroupID, Model: row.Model, usageAggregateResponse: aggregate,
+			GroupID: row.GroupID, ChannelID: channelID, CredentialID: credentialID,
+			Model: row.Model, usageAggregateResponse: aggregate,
 		})
 		if accessKeyScoped {
-			result.Breakdown[len(result.Breakdown)-1].GroupID = 0
+			redacted := &result.Breakdown[len(result.Breakdown)-1]
+			redacted.GroupID = 0
+			redacted.ChannelID = nil
+			redacted.CredentialID = nil
 		}
 	}
 	return result, nil

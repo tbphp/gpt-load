@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -66,7 +67,8 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 		t.Fatalf("list items = %#v", listData["items"])
 	}
 	item, ok := items[0].(map[string]any)
-	if !ok || item["id"] != float64(row.ID) || item["model_id"] != "gpt-wire" {
+	if !ok || item["id"] != float64(row.ID) ||
+		item["channel_id"] != string(channel.OpenAICompatible) || item["model_id"] != "gpt-wire" {
 		t.Fatalf("list item identity = %#v", items[0])
 	}
 	prices, ok := item["prices"].(map[string]any)
@@ -75,6 +77,9 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	}
 	if matchedProviderID, exists := item["matched_provider_id"]; !exists || matchedProviderID != "openai" {
 		t.Fatalf("list matched provider wire = %#v", item)
+	}
+	if matchSource, exists := item["match_source"]; !exists || matchSource != string(ModelPriceMatchSourceProviderPriorityFallback) {
+		t.Fatalf("list match source wire = %#v", item)
 	}
 	if _, leaked := item["price_scope_key"]; leaked {
 		t.Fatalf("list leaked internal scope: %#v", item)
@@ -107,6 +112,9 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	}
 	if matchedProviderID, exists := updated["matched_provider_id"]; !exists || matchedProviderID != nil {
 		t.Fatalf("updated matched provider wire = %#v", updated)
+	}
+	if matchSource, exists := updated["match_source"]; !exists || matchSource != nil {
+		t.Fatalf("updated match source wire = %#v", updated)
 	}
 
 	conflictResponse := serveModelPriceHTTPRequest(
@@ -265,6 +273,9 @@ func TestModelPriceHTTPResetDeleteAndStableErrorData(t *testing.T) {
 		if matchedProviderID, exists := data["matched_provider_id"]; !exists || matchedProviderID != nil {
 			t.Fatalf("reset matched provider wire = %#v", data)
 		}
+		if matchSource, exists := data["match_source"]; !exists || matchSource != nil {
+			t.Fatalf("reset match source wire = %#v", data)
+		}
 
 	})
 
@@ -283,20 +294,17 @@ func TestModelPriceHTTPResetDeleteAndStableErrorData(t *testing.T) {
 
 	t.Run("referenced delete conflict includes both counts", func(t *testing.T) {
 		fixture, engine, row := newModelPriceHTTPFixture(t, true)
-		providerID := "openai"
 		createPriceTestGroup(t, fixture.db, models.Group{
-			Name: "reference-one", ProviderID: &providerID,
-			UpstreamURL: "https://one.example/v1",
-			Protocols:   models.JSON(`["openai-completions"]`),
-			Models:      models.JSON(`[{"id":"gpt-wire","alias":"one"},{"id":"gpt-wire","alias":"two"}]`),
-			Config:      models.JSON(`{}`), Enabled: true,
+			Name: "reference-one", ChannelID: string(channel.OpenAICompatible),
+			Params:    models.JSON(`{"base_url":"https://one.example/v1"}`),
+			Models:    models.JSON(`[{"id":"gpt-wire","alias":"one"},{"id":"gpt-wire","alias":"two"}]`),
+			Overrides: models.JSON(`{}`), Enabled: true,
 		})
 		createPriceTestGroup(t, fixture.db, models.Group{
-			Name: "reference-two", ProviderID: &providerID,
-			UpstreamURL: "https://two.example/v1",
-			Protocols:   models.JSON(`["openai-completions"]`),
-			Models:      models.JSON(`[{"id":"gpt-wire","alias":"three"}]`),
-			Config:      models.JSON(`{}`), Enabled: false,
+			Name: "reference-two", ChannelID: string(channel.OpenAICompatible),
+			Params:    models.JSON(`{"base_url":"https://two.example/v1"}`),
+			Models:    models.JSON(`[{"id":"gpt-wire","alias":"three"}]`),
+			Overrides: models.JSON(`{}`), Enabled: false,
 		})
 		response := serveModelPriceHTTPRequest(
 			engine,
@@ -435,6 +443,7 @@ func newModelPriceHTTPFixture(
 	if seed {
 		input := int64(2_500_000_000)
 		row = models.ModelPrice{
+			ChannelID:                         string(channel.OpenAICompatible),
 			ModelID:                           "gpt-wire",
 			InputPriceNanoUSDPerMillionTokens: &input,
 		}

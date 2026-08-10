@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -35,7 +35,7 @@ func newFakeAutoWeightRegistry(activeIDs ...uint) *fakeAutoWeightRegistry {
 	}
 }
 
-func (registry *fakeAutoWeightRegistry) ActiveKeyIDs() []uint {
+func (registry *fakeAutoWeightRegistry) ActiveCredentialIDs() []uint {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	return append([]uint(nil), registry.activeIDs...)
@@ -425,9 +425,9 @@ func TestRuntimeContinuesWhenKeyDisappears(t *testing.T) {
 
 func TestRuntimeCooldownProblemDoesNotAffectAutoWeightSeenByCandidateCollection(t *testing.T) {
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 10, Status: state.KeyStatusActive, EncryptedValue: "cipher-one",
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -441,7 +441,7 @@ func TestRuntimeCooldownProblemDoesNotAffectAutoWeightSeenByCandidateCollection(
 		registry: registry, stats: stats, mutations: health.NewMutationCoordinator(),
 	}
 	runtime.recompute(base)
-	candidates := registry.CollectCandidates([]uint{10}, nil, base)
+	candidates := registry.CollectCredentialCandidates([]uint{10}, nil, base)
 	if len(candidates) != 1 || candidates[0].WeightAuto != 92 {
 		t.Fatalf("CollectCandidates() = %#v, want one candidate with WeightAuto 92", candidates)
 	}
@@ -511,7 +511,8 @@ func TestRuntimeCoordinatesAutoWeightWithValidationRecovery(t *testing.T) {
 		stats:     stats,
 		mutations: mutations,
 		decryptor: validationDecryptor{},
-		dialects:  dialect.Set{protocol.OpenAICompletions: &validationTestDialect{protocol: protocol.OpenAICompletions, probes: probes}},
+		channels:  channel.NewRegistry(),
+		executor:  &validationTestExecutor{probes: probes},
 	}
 
 	autoDone := make(chan struct{})
@@ -729,7 +730,7 @@ func newInterleavingRegistry() *interleavingRegistry {
 	}
 }
 
-func (*interleavingRegistry) ActiveKeyIDs() []uint {
+func (*interleavingRegistry) ActiveCredentialIDs() []uint {
 	return []uint{1}
 }
 
@@ -744,11 +745,11 @@ func (registry *interleavingRegistry) SetAutoWeight(_ uint, weight int) bool {
 	return true
 }
 
-func (*interleavingRegistry) BlacklistedKeys() []state.KeyRef {
-	return []state.KeyRef{{ID: 1, GroupID: 1, EncryptedValue: "cipher-one"}}
+func (*interleavingRegistry) BlacklistedCredentials() []state.CredentialRef {
+	return []state.CredentialRef{{ID: 1, GroupID: 1, EncryptedValue: "cipher-one"}}
 }
 
-func (registry *interleavingRegistry) RecoverIfMatch(_ state.KeyRef, weight int) bool {
+func (registry *interleavingRegistry) RecoverIfMatch(_ state.CredentialRef, weight int) bool {
 	registry.mu.Lock()
 	registry.currentWeight = weight
 	registry.recoveries++

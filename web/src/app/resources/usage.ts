@@ -4,6 +4,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { projectChannelID } from '@/app/resources/channels'
 import { timeRanges, type TimeRange } from '@/lib/time'
 
 import {
@@ -27,7 +28,9 @@ export interface UsageFilters {
   range: UsageRange
   breakdown_order?: UsageBreakdownOrder
   group_id?: number
-  model?: string
+  channel_id?: string
+  credential_id?: number
+  upstream_model?: string
 }
 
 type NormalizedUsageFilters = UsageFilters & {
@@ -61,7 +64,14 @@ export interface UsageReportDto {
   observed_at_ms: number
   summary: UsageAggregateDto
   series: Array<UsageAggregateDto & { bucket_start_ms: number; bucket_end_ms: number }>
-  breakdown: Array<UsageAggregateDto & { group_id: number; model: string }>
+  breakdown: Array<
+    UsageAggregateDto & {
+      group_id: number
+      channel_id: string | null
+      credential_id: number | null
+      model: string
+    }
+  >
   breakdown_truncated: boolean
   breakdown_order: UsageBreakdownOrder
   breakdown_count: number
@@ -243,6 +253,8 @@ export function projectUsageReport(value: unknown): UsageReportDto {
       ...aggregateKeys,
       'estimated_cost_nano_usd',
       'group_id',
+      'channel_id',
+      'credential_id',
       'model',
     ])
     const model = projectString(item.model, { allowEmpty: true })
@@ -252,6 +264,9 @@ export function projectUsageReport(value: unknown): UsageReportDto {
         Object.fromEntries(aggregateFields.map((field) => [field, item[field]])),
       ),
       group_id: projectSafeInteger(item.group_id, { minimum: 0 }),
+      channel_id: item.channel_id === null ? null : projectChannelID(item.channel_id),
+      credential_id:
+        item.credential_id === null ? null : projectSafeInteger(item.credential_id, { minimum: 1 }),
       model,
     }
   })
@@ -280,7 +295,9 @@ export function normalizeUsageFilters(filters: UsageFilters): NormalizedUsageFil
     breakdown_order: breakdownOrder,
   }
   if (filters.group_id !== undefined) result.group_id = filters.group_id
-  if (filters.model !== undefined) result.model = filters.model
+  if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
+  if (filters.credential_id !== undefined) result.credential_id = filters.credential_id
+  if (filters.upstream_model !== undefined) result.upstream_model = filters.upstream_model
   return result
 }
 
@@ -299,7 +316,13 @@ export async function getUsageReport(
     params.append('breakdown_order', normalized.breakdown_order)
   }
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
-  if (normalized.model !== undefined) params.append('upstream_model', normalized.model)
+  if (normalized.channel_id !== undefined) params.append('channel_id', normalized.channel_id)
+  if (normalized.credential_id !== undefined) {
+    params.append('credential_id', String(normalized.credential_id))
+  }
+  if (normalized.upstream_model !== undefined) {
+    params.append('upstream_model', normalized.upstream_model)
+  }
   const report = projectUsageReport(
     await client.request(`/api/usage?${params.toString()}`, { method: 'GET', signal }),
   )

@@ -12,13 +12,13 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
-	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
 
-const maxUpstreamKeyLines = 1000
+const maxCredentialLines = 1000
 
 type GroupModel struct {
 	ID           string `json:"id"`
@@ -50,13 +50,13 @@ func (model *GroupModel) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type upstreamKeyCandidate struct {
-	plaintext string
-	hash      string
+type credentialCandidate struct {
+	canonical   json.RawMessage
+	fingerprint string
 }
 
-type normalizedUpstreamKeys struct {
-	candidates     []upstreamKeyCandidate
+type normalizedCredentials struct {
+	candidates     []credentialCandidate
 	duplicateLines int
 }
 
@@ -180,26 +180,6 @@ func normalizeUpstreamBaseURL(raw string) (normalized, hostname string, err erro
 	return parsed.String(), hostname, nil
 }
 
-func normalizeGroupProtocols(values []protocol.Protocol) ([]protocol.Protocol, error) {
-	seen := make(map[protocol.Protocol]struct{}, len(values))
-	for _, value := range values {
-		if !value.DataPlaneEnabled() {
-			return nil, app_errors.ErrValidation
-		}
-		seen[value] = struct{}{}
-	}
-	if len(seen) == 0 {
-		return nil, app_errors.ErrValidation
-	}
-	result := make([]protocol.Protocol, 0, len(seen))
-	for _, value := range protocol.DataPlaneProtocols() {
-		if _, exists := seen[value]; exists {
-			result = append(result, value)
-		}
-	}
-	return result, nil
-}
-
 func normalizeGroupModels(values []GroupModel) ([]GroupModel, error) {
 	result := make([]GroupModel, 0, len(values))
 	indexesByClientModel := make(map[string][]int, len(values))
@@ -265,102 +245,131 @@ func normalizeGroupName(value *string) (*string, error) {
 	return &normalized, nil
 }
 
-func (s *Service) normalizeUpstreamKeys(raw string) (normalizedUpstreamKeys, error) {
-	result := normalizedUpstreamKeys{
-		candidates: make([]upstreamKeyCandidate, 0),
+func (s *Service) normalizeCredentials(
+	channelID channel.ID,
+	raw string,
+) (normalizedCredentials, error) {
+	if s == nil || s.channelRegistry == nil || s.encryption == nil {
+		return normalizedCredentials{}, app_errors.ErrInternalServer
 	}
+	result := normalizedCredentials{candidates: make([]credentialCandidate, 0)}
 	seen := make(map[string]struct{})
 	nonEmptyLines := 0
-	for _, line := range strings.Split(raw, "\n") {
+	for _, line := range credentialInputEntries(channelID, raw) {
 		plaintext := strings.TrimSpace(line)
 		if plaintext == "" {
 			continue
 		}
 		nonEmptyLines++
-		if nonEmptyLines > maxUpstreamKeyLines {
-			return normalizedUpstreamKeys{}, app_errors.ErrValidation
+		if nonEmptyLines > maxCredentialLines {
+			return normalizedCredentials{}, app_errors.ErrValidation
 		}
-		hash := s.encryption.Hash(plaintext)
-		if _, duplicate := seen[hash]; duplicate {
+		var encoded json.RawMessage
+		if strings.HasPrefix(plaintext, "{") {
+			encoded = json.RawMessage(plaintext)
+		} else {
+			marshaled, err := json.Marshal(map[string]string{"api_key": plaintext})
+			if err != nil {
+				return normalizedCredentials{}, app_errors.ErrInternalServer
+			}
+			encoded = marshaled
+		}
+		credential, err := s.channelRegistry.ValidateCredential(channelID, encoded)
+		if err != nil {
+			return normalizedCredentials{}, app_errors.ErrValidation
+		}
+		canonical := credential.CanonicalJSON()
+		fingerprint := s.encryption.Hash(string(canonical))
+		if _, duplicate := seen[fingerprint]; duplicate {
 			result.duplicateLines++
 			continue
 		}
-		seen[hash] = struct{}{}
-		result.candidates = append(result.candidates, upstreamKeyCandidate{
-			plaintext: plaintext,
-			hash:      hash,
+		seen[fingerprint] = struct{}{}
+		result.candidates = append(result.candidates, credentialCandidate{
+			canonical: append(json.RawMessage(nil), canonical...), fingerprint: fingerprint,
 		})
 	}
 	if len(result.candidates) == 0 {
-		return normalizedUpstreamKeys{}, app_errors.ErrValidation
+		return normalizedCredentials{}, app_errors.ErrValidation
 	}
 	return result, nil
 }
 
-func (s *Service) persistUpstreamKeys(
-	tx *gorm.DB,
-	groupID uint,
-	normalized normalizedUpstreamKeys,
-) ([]state.KeyEntry, int, int, error) {
-	hashes := make([]string, 0, len(normalized.candidates))
-	for _, candidate := range normalized.candidates {
-		hashes = append(hashes, candidate.hash)
+func credentialInputEntries(channelID channel.ID, raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if !strings.HasPrefix(trimmed, "{") || !json.Valid([]byte(trimmed)) {
+		return strings.Split(raw, "\n")
 	}
-	var existingRows []models.UpstreamKey
-	if err := tx.Where("group_id = ? AND key_hash IN ?", groupID, hashes).Find(&existingRows).Error; err != nil {
-		return nil, 0, 0, app_errors.ParseDBError(err)
-	}
-	existingByHash := make(map[string]models.UpstreamKey, len(existingRows))
-	for _, row := range existingRows {
-		existingByHash[row.KeyHash] = row
+	if channelID != channel.GoogleVertex {
+		return []string{trimmed}
 	}
 
-	entries := make([]state.KeyEntry, 0, len(normalized.candidates))
+	var object map[string]json.RawMessage
+	if json.Unmarshal([]byte(trimmed), &object) != nil {
+		return []string{trimmed}
+	}
+	if _, wrapped := object["service_account_json"]; wrapped {
+		return []string{trimmed}
+	}
+	var credentialType string
+	if json.Unmarshal(object["type"], &credentialType) != nil || credentialType != "service_account" {
+		return []string{trimmed}
+	}
+	encoded, err := json.Marshal(map[string]string{"service_account_json": trimmed})
+	if err != nil {
+		return []string{trimmed}
+	}
+	return []string{string(encoded)}
+}
+
+func (s *Service) persistCredentials(
+	tx *gorm.DB,
+	groupID uint,
+	normalized normalizedCredentials,
+) (int, int, error) {
+	fingerprints := make([]string, 0, len(normalized.candidates))
+	for _, candidate := range normalized.candidates {
+		fingerprints = append(fingerprints, candidate.fingerprint)
+	}
+	var existingRows []models.Credential
+	if err := tx.Where("group_id = ? AND fingerprint IN ?", groupID, fingerprints).
+		Find(&existingRows).Error; err != nil {
+		return 0, 0, app_errors.ParseDBError(err)
+	}
+	existingByFingerprint := make(map[string]struct{}, len(existingRows))
+	for _, row := range existingRows {
+		existingByFingerprint[row.Fingerprint] = struct{}{}
+	}
+
+	nowMS, err := epochms.FromTime(s.now())
+	if err != nil {
+		return 0, 0, app_errors.ErrInternalServer
+	}
+	if nowMS < 1 {
+		nowMS = 1
+	}
 	added := 0
 	duplicated := normalized.duplicateLines
 	for _, candidate := range normalized.candidates {
-		row, exists := existingByHash[candidate.hash]
-		if exists {
+		if _, exists := existingByFingerprint[candidate.fingerprint]; exists {
 			duplicated++
-		} else {
-			ciphertext, err := s.encryption.Encrypt(candidate.plaintext)
-			if err != nil {
-				return nil, 0, 0, fmt.Errorf("encrypt upstream key: %w", err)
-			}
-			row = models.UpstreamKey{
-				GroupID:  groupID,
-				KeyValue: ciphertext,
-				KeyHash:  candidate.hash,
-				Status:   models.UpstreamKeyStatusActive,
-			}
-			if err := tx.Create(&row).Error; err != nil {
-				return nil, 0, 0, app_errors.ParseDBError(err)
-			}
-			added++
+			continue
 		}
-		entries = append(entries, state.KeyEntry{
-			ID:             row.ID,
-			GroupID:        row.GroupID,
-			WeightManual:   row.WeightManual,
-			WeightAuto:     state.DefaultWeight,
-			Status:         state.KeyStatus(row.Status),
-			EncryptedValue: row.KeyValue,
-		})
-	}
-	return entries, added, duplicated, nil
-}
-
-func (s *Service) applyMissingRegistryKeys(groupID uint, entries []state.KeyEntry) error {
-	missing := make([]state.KeyEntry, 0, len(entries))
-	for _, entry := range entries {
-		if _, exists := s.registry.EncryptedValue(entry.ID); !exists {
-			missing = append(missing, entry)
+		ciphertext, err := s.encryption.Encrypt(string(candidate.canonical))
+		if err != nil {
+			return 0, 0, fmt.Errorf("encrypt credential: %w", err)
 		}
+		row := models.Credential{
+			GroupID: groupID, Data: ciphertext, Fingerprint: candidate.fingerprint,
+			Status: models.CredentialStatusActive, CreatedAtMS: nowMS, UpdatedAtMS: nowMS,
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return 0, 0, app_errors.ParseDBError(err)
+		}
+		existingByFingerprint[candidate.fingerprint] = struct{}{}
+		added++
 	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return s.registry.ApplyImport(groupID, missing)
+	return added, duplicated, nil
 }
 
 func isLiteralPrivateHost(hostname string) bool {

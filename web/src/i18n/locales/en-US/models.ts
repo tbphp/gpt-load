@@ -80,6 +80,7 @@ export default {
       relationships: 'Relationships',
       clientModels: 'Client models',
       groups: 'Groups',
+      channel: 'Channel',
       updatedAt: 'Updated',
       copyModel: 'Copy upstream model {model}',
       copySucceeded: 'Copied',

@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyOptionDto } from '@/api/control/types'
 import { enabledDataProtocols } from '@/api/control/protocols'
+import type { ChannelDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -23,7 +24,9 @@ const props = defineProps<{
   draft: LogFilterDraft
   errors: LogFilterErrors
   accessKeys: AccessKeyOptionDto[]
+  channels: ChannelDto[]
   accessKeysFailed: boolean
+  channelsFailed: boolean
   selfScoped?: boolean
 }>()
 const emit = defineEmits<{
@@ -78,6 +81,21 @@ const accessKeyOptions = () => [
   option('', t('monitor.logs.filters.anyAccessKey')),
   ...props.accessKeys.map((key) => option(String(key.id), `${key.name} · #${key.id}`)),
 ]
+const channelOptions = () => {
+  const options = [option('', t('monitor.logs.filters.anyChannel'))]
+  if (
+    props.draft.channel_id &&
+    !props.channels.some((channel) => channel.channel_id === props.draft.channel_id)
+  ) {
+    options.push(option(props.draft.channel_id, props.draft.channel_id))
+  }
+  return [
+    ...options,
+    ...props.channels.map((channel) =>
+      option(channel.channel_id, `${channel.name} · ${channel.channel_id}`),
+    ),
+  ]
+}
 
 function error(field: keyof LogFilterDraft): string | undefined {
   const key = props.errors[field]
@@ -168,19 +186,48 @@ function update(field: keyof LogFilterDraft, value: string): void {
         <h3>{{ t('monitor.logs.filters.sections.attempt') }}</h3>
         <div class="logs-advanced__grid">
           <FormField
-            id="logs-upstream-key"
-            :label="t('monitor.logs.filters.upstreamKey')"
+            id="logs-channel"
+            :label="t('monitor.logs.filters.channel')"
             size="compact"
-            :error="error('upstream_key_id')"
+            :error="error('channel_id')"
           >
             <template #default="{ describedBy, invalid }">
               <input
-                id="logs-upstream-key"
-                :value="draft.upstream_key_id"
+                v-if="channelsFailed"
+                id="logs-channel"
+                :value="draft.channel_id"
+                autocomplete="off"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('channel_id', ($event.target as HTMLInputElement).value)"
+              />
+              <AppSelect
+                v-else
+                id="logs-channel"
+                :model-value="draft.channel_id"
+                :label="t('monitor.logs.filters.channel')"
+                :options="channelOptions()"
+                size="compact"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @update:model-value="update('channel_id', $event)"
+              />
+            </template>
+          </FormField>
+          <FormField
+            id="logs-credential"
+            :label="t('monitor.logs.filters.credential')"
+            size="compact"
+            :error="error('credential_id')"
+          >
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-credential"
+                :value="draft.credential_id"
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('upstream_key_id', ($event.target as HTMLInputElement).value)"
+                @input="update('credential_id', ($event.target as HTMLInputElement).value)"
               />
             </template>
           </FormField>

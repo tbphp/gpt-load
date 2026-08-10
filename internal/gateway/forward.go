@@ -6,40 +6,47 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"math"
 	"mime"
 	"net"
 	"net/http"
-	"net/http/httptrace"
 	"net/textproto"
-	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/contentcoding"
-	platformhttp "gpt-load/internal/platform/httpclient"
 	platformheader "gpt-load/internal/platform/httpheader"
-	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
 
+// ForwardInput is the frozen logical-attempt input shared by the gateway
+// orchestrator and the provider-neutral execution adapter.
 type ForwardInput struct {
-	Dialect         dialect.Dialect
-	ObserveUsage    bool
-	Group           state.GroupView
-	APIKey          string
-	Request         *dialect.ParsedRequest
-	ExternalModel   string
-	UpstreamModelID string
-	OnStreamReady   func()
-	OnFirstResponse func()
+	Dialect           dialect.Dialect
+	ObserveUsage      bool
+	Group             state.GroupView
+	APIKey            string
+	CredentialSecrets []string
+	Request           *dialect.ParsedRequest
+	ExternalModel     string
+	UpstreamModelID   string
+	OnStreamReady     func()
+	OnFirstResponse   func()
+
+	RequestID       string
+	AttemptID       string
+	AttemptSequence uint32
+	ClientProtocol  protocol.Protocol
+	Operation       execution.Operation
+	ChannelID       string
+	TargetConfig    json.RawMessage
+	Credential      execution.CredentialSnapshot
 }
 
+// UpstreamResult is the gateway's stable view of one logical execution
+// attempt. SDK-internal transport recovery remains inside this result.
 type UpstreamResult struct {
 	StatusCode                int
 	Header                    http.Header
@@ -52,21 +59,17 @@ type UpstreamResult struct {
 	Err                       error
 	RequestWritten            bool
 	Committed                 bool
-	RetryableBeforeCommit     bool
 	ProviderErrorBeforeCommit bool
 	Stream                    StreamObservation
 	Usage                     usage.Result
+	DispatchState             execution.DispatchState
+	ResponseStarted           bool
+	UpstreamRequestID         string
+	ExecutionError            *execution.ErrorEvidence
 }
 
 func (result UpstreamResult) HasResponse() bool {
 	return result.StatusCode != 0 && result.Err == nil
-}
-
-type Forwarder struct {
-	clients            *platformhttp.HTTPClientManager
-	redactor           *redact.Redactor
-	streamWriteTimeout time.Duration
-	usageCapture       *usageCaptureBoundary
 }
 
 const (
@@ -78,569 +81,14 @@ const (
 
 var ErrUpstreamProtocol = errors.New("upstream protocol error")
 
-func NewForwarder(clients *platformhttp.HTTPClientManager, redactor *redact.Redactor) *Forwarder {
-	return &Forwarder{
-		clients: clients, redactor: redactor,
-		streamWriteTimeout: downstreamWriteTimeout,
-		usageCapture:       newUsageCaptureBoundary(),
-	}
-}
-
-func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) UpstreamResult {
-	if forwarder == nil || forwarder.clients == nil || forwarder.redactor == nil || input.Dialect == nil || input.Request == nil {
-		return UpstreamResult{Err: fmt.Errorf("forward input is incomplete")}
-	}
-	request, wroteRequest, _, err := forwarder.newUpstreamRequest(ctx, input, false)
-	if err != nil {
-		return UpstreamResult{Err: err}
-	}
-	knownSecrets := resolvedCredentialSecretValues(input, request.Header)
-	summarySecrets := resolvedErrorSummarySecretValues(
-		input.APIKey,
-		input.Group.HeaderRules,
-		knownSecrets...,
-	)
-	response, err := forwarder.clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Do(request)
-	if err != nil {
-		return UpstreamResult{Err: fmt.Errorf("perform upstream request: %w", err), RequestWritten: wroteRequest.Load()}
-	}
-	defer response.Body.Close()
-
-	representationHeaders := response.Header.Clone()
-	headers := cloneEndToEndHeaders(response.Header)
-	policy := classifyResponseBody(input.Request.Method, response.StatusCode)
-	if !policy.readBody {
-		encoding, parseErr := contentcoding.ParseContentEncoding(
-			headerFieldValues(representationHeaders, "Content-Encoding"),
-		)
-		if parseErr != nil || encoding != contentcoding.Identity {
-			return UpstreamResult{
-				Err:            fmt.Errorf("%w: bodyless response has non-identity Content-Encoding", ErrUpstreamProtocol),
-				RequestWritten: true,
-			}
-		}
-		if response.StatusCode == http.StatusPartialContent &&
-			!hasSafeHeadContentRange(representationHeaders) {
-			return UpstreamResult{
-				Err:            fmt.Errorf("%w: invalid HEAD partial Content-Range", ErrUpstreamProtocol),
-				RequestWritten: true,
-			}
-		}
-		safeHeaders := sanitizeForwardResponseHeaders(representationHeaders, input, knownSecrets...)
-		safeHeaders, _ = normalizeBufferedResponse(
-			input.Request.Method,
-			response.StatusCode,
-			safeHeaders,
-			nil,
-		)
-		return UpstreamResult{
-			StatusCode:     response.StatusCode,
-			Header:         safeHeaders,
-			RequestWritten: true,
-			Usage:          usage.Result{State: usage.StateNotApplicable},
-		}
-	}
-
-	success := response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices
-	limit := maxErrorResponseBodyBytes
-	if success {
-		limit = maxNonStreamingResponseBodyBytes
-	}
-	overflow := response.ContentLength > limit
-	var body []byte
-	if !overflow {
-		body, overflow, err = readBodyAtMost(response.Body, limit)
-	}
-	if err != nil {
-		return UpstreamResult{Err: fmt.Errorf("read upstream response: %w", err), RequestWritten: true}
-	}
-	if overflow && success {
-		return UpstreamResult{
-			Err:            fmt.Errorf("%w: non-streaming response body exceeds limit", ErrUpstreamProtocol),
-			RequestWritten: true,
-		}
-	}
-
-	result := UpstreamResult{
-		StatusCode:     response.StatusCode,
-		Body:           body,
-		RequestWritten: true,
-		Usage:          usage.Result{State: usage.StateNotApplicable},
-	}
-	if success {
-		prepared, prepareErr := forwarder.prepareSuccessRepresentation(
-			input,
-			response.StatusCode,
-			representationHeaders,
-			body,
-			knownSecrets,
-		)
-		if prepareErr != nil {
-			return UpstreamResult{Err: prepareErr, RequestWritten: true}
-		}
-		result.Body = prepared.downstream
-		result.Header = prepared.headers
-		applyResponseModelObservation(&result, prepared.modelObservation)
-		if input.ObserveUsage && forwarder.usageCapture != nil {
-			result.Usage = forwarder.usageCapture.extractNonStreamingPlain(
-				input.Dialect,
-				prepared.inspectable,
-			)
-		}
-		return result
-	}
-	if !success {
-		prepared := forwarder.prepareErrorRepresentation(
-			input,
-			representationHeaders,
-			body,
-			knownSecrets,
-		)
-		if overflow {
-			prepared = forwarder.failClosedErrorRepresentation(input, headers, knownSecrets)
-		}
-		result.Body = prepared.downstream
-		result.ClassificationBody = prepared.classification
-		result.ErrorSummary = summarizeErrorBody(
-			forwarder.redactor, prepared.classification, "", summarySecrets...,
-		)
-		result.Header = prepared.headers
-		return result
-	}
-	return result
-}
-
-func (forwarder *Forwarder) ForwardStream(
-	ctx context.Context,
-	input ForwardInput,
-	downstream http.ResponseWriter,
-) (result UpstreamResult) {
-	if forwarder == nil || forwarder.clients == nil || forwarder.redactor == nil ||
-		input.Dialect == nil || input.Request == nil || downstream == nil {
-		return UpstreamResult{Err: fmt.Errorf("stream forward input is incomplete")}
-	}
-
-	deadline := newFirstEventDeadline(ctx, input.Group.Timeouts.FirstByte)
-	defer deadline.stop()
-	request, wroteRequest, replay, err := forwarder.newUpstreamRequest(deadline.ctx, input, true)
-	if err != nil {
-		return UpstreamResult{Err: err}
-	}
-	knownSecrets := resolvedCredentialSecretValues(input, request.Header)
-	summarySecrets := resolvedErrorSummarySecretValues(
-		input.APIKey,
-		input.Group.HeaderRules,
-		knownSecrets...,
-	)
-	response, err := forwarder.clients.GetClient(streamingClientConfig(input.Group.Timeouts)).Do(request)
-	if err != nil {
-		requestWritten := wroteRequest.Load()
-		return UpstreamResult{
-			Err:            streamAttemptError(ctx, deadline.ctx, fmt.Errorf("perform upstream stream request: %w", err)),
-			RequestWritten: requestWritten, RetryableBeforeCommit: retryableBeforeCommit(ctx, requestWritten),
-		}
-	}
-	streamBody := response.Body
-	defer func() { _ = streamBody.Close() }()
-
-	representationHeaders := response.Header.Clone()
-	headers := cloneEndToEndHeaders(response.Header)
-	result = UpstreamResult{
-		StatusCode:     response.StatusCode,
-		RequestWritten: true,
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		body, overflow, readErr := readStreamingErrorBody(streamBody)
-		if readErr != nil {
-			result.Err = streamAttemptError(ctx, deadline.ctx, fmt.Errorf("read upstream stream error response: %w", readErr))
-			result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
-			return result
-		}
-		prepared := forwarder.prepareErrorRepresentation(input, representationHeaders, body, knownSecrets)
-		if overflow {
-			prepared = forwarder.failClosedErrorRepresentation(input, headers, knownSecrets)
-		}
-		result.Body = prepared.downstream
-		result.ClassificationBody = prepared.classification
-		result.ErrorSummary = summarizeErrorBody(
-			forwarder.redactor,
-			result.ClassificationBody,
-			"",
-			summarySecrets...,
-		)
-		result.Header = prepared.headers
-		return result
-	}
-	streamEvents := newStreamEventObserver(
-		input.Dialect,
-		forwarder.usageCapture.newStreamForRequest(
-			input.Dialect,
-			input.ObserveUsage,
-		),
-	)
-	modelTracker := newResponseModelTracker(input.Dialect, input.UpstreamModelID)
-	defer func() {
-		result.Usage = streamEvents.finalizeUsage()
-		if result.Stream.EndReason == StreamEndCleanEOF {
-			applyResponseModelObservation(&result, modelTracker.observation())
-		}
-	}()
-
-	if err := validateStreamContentEncoding(representationHeaders); err != nil {
-		result.Err = err
-		result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
-		return result
-	}
-
-	rewriteModel := needsModelRewrite(input)
-	var rewriter dialect.ModelRewriter
-	if rewriteModel {
-		var ok bool
-		rewriter, ok = input.Dialect.(dialect.ModelRewriter)
-		if !ok {
-			result.Err = fmt.Errorf("%w: dialect does not support model rewrite", ErrUpstreamProtocol)
-			result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
-			return result
-		}
-	}
-	firstPayloadPending := true
-	rewrittenStream := newSSEEventRewriteStream(streamBody, func(
-		event dialect.StreamEvent,
-		errorEvent bool,
-	) (sseEventRewriteResult, error) {
-		firstPayload := firstPayloadPending
-		firstPayloadPending = false
-		modelTracker.observe(event.Payload)
-		safePayload := event.Payload
-		for _, secret := range knownSecrets {
-			var ok bool
-			safePayload, ok = rewriteBoundedLiteral(
-				safePayload,
-				secret,
-				redact.Placeholder,
-				int64(maxSSEEventBytes),
-			)
-			if !ok {
-				return sseEventRewriteResult{}, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
-			}
-		}
-		safeEvent := dialect.StreamEvent{
-			Name:    event.Name,
-			Payload: safePayload,
-		}
-		wasTerminal := streamEvents.sawTerminal
-		providerError, err := streamEvents.classify(
-			safeEvent,
-			errorEvent,
-		)
-		if err != nil {
-			return sseEventRewriteResult{}, err
-		}
-		terminal := !wasTerminal && streamEvents.sawTerminal
-		if !firstPayload {
-			streamEvents.observeUsageEvent(safeEvent)
-		}
-		if providerError {
-			observationPayload := forwarder.redactor.Bytes(safePayload)
-			streamEvents.observeError(
-				summarizeErrorBody(
-					forwarder.redactor,
-					observationPayload,
-					fixedErrorSummary("upstream_sse_error"),
-					summarySecrets...,
-				),
-			)
-		}
-		if !rewriteModel {
-			return sseEventRewriteResult{body: safePayload, terminal: terminal}, nil
-		}
-		if providerError {
-			var ok bool
-			safePayload, ok = rewriteBoundedLiteral(
-				safePayload,
-				input.UpstreamModelID,
-				input.ExternalModel,
-				int64(maxSSEEventBytes),
-			)
-			if !ok {
-				return sseEventRewriteResult{}, fmt.Errorf("%w: rewrite upstream SSE model literal", ErrUpstreamProtocol)
-			}
-			return sseEventRewriteResult{body: safePayload, terminal: terminal}, nil
-		}
-		rewritten, err := rewriter.RewriteResponseModel(safePayload, input.ExternalModel)
-		if err != nil {
-			return sseEventRewriteResult{}, fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err)
-		}
-		return sseEventRewriteResult{body: rewritten, terminal: terminal}, nil
-	})
-	streamBody = rewrittenStream
-	invalidateRewrittenBodyHeaders(headers)
-
-	firstEvent, err := bufferFirstSSEEvent(streamBody)
-	if err != nil {
-		if !rewriteModel && errors.Is(err, errSSEEventTooLarge) {
-			err = errFirstSSEEventTooLarge
-		}
-		if errors.Is(err, errFirstSSEEventTooLarge) || errors.Is(err, errSSEEventTooLarge) {
-			err = fmt.Errorf("%w: %w", ErrUpstreamProtocol, err)
-		}
-		result.Err = streamAttemptError(ctx, deadline.ctx, err)
-		result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
-		return result
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		result.Err = ctxErr
-		return result
-	}
-
-	if firstEvent.IsProviderError || streamEvents.firstProviderError {
-		streamEvents.observeUsageEvent(dialect.StreamEvent{
-			Name:    firstEvent.Name,
-			Payload: firstEvent.Payload,
-		})
-		result.ClassificationBody = forwarder.safeProviderErrorPayload(
-			firstEvent.Payload,
-			knownSecrets,
-		)
-		result.ErrorSummary = fixedErrorSummary("upstream_sse_error")
-		result.Header = providerErrorRateLimitHeaders(
-			sanitizeForwardResponseHeaders(headers, input, knownSecrets...),
-		)
-		result.ProviderErrorBeforeCommit = true
-		result.Usage = usage.Result{State: usage.StateMissing}
-		return result
-	}
-	if !deadline.disarm() {
-		result.Err = streamAttemptError(ctx, deadline.ctx, context.DeadlineExceeded)
-		result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
-		return result
-	}
-	streamEvents.observeUsageEvent(dialect.StreamEvent{
-		Name:    firstEvent.Name,
-		Payload: firstEvent.Payload,
-	})
-
-	if input.OnStreamReady != nil {
-		input.OnStreamReady()
-	}
-
-	result.Header = normalizeStreamResponseHeaders(
-		sanitizeForwardResponseHeaders(headers, input, knownSecrets...),
-	)
-	streamWriter := newStreamWriteController(downstream, forwarder.streamWriteTimeout)
-	defer func() { _ = streamWriter.clear() }()
-
-	result.Committed = true
-	releaseCommittedRequestReplay(input.Request, replay)
-	if err := commitStream(streamWriter, response.StatusCode, result.Header, firstEvent.Prefix); err != nil {
-		result.Err = err
-		result.Stream = observeStreamTermination(ctx, err, streamEvents)
-		return result
-	}
-	if input.OnFirstResponse != nil {
-		input.OnFirstResponse()
-	}
-	if rewrittenStream.consumeReadTerminalBoundary() {
-		streamEvents.markTerminalForwarded()
-	}
-	if err := pumpStreamWithFlushObserver(
-		deadline.ctx,
-		streamBody,
-		streamWriter,
-		input.Group.Timeouts.StreamIdle,
-		func() {
-			if rewrittenStream.consumeReadTerminalBoundary() {
-				streamEvents.markTerminalForwarded()
-			}
-		},
-	); err != nil {
-		result.Err = err
-	}
-	if result.Err == nil {
-		result.Err = streamEvents.validateEOF()
-		if result.Err == nil && rewrittenStream.consumeReadTerminalBoundary() {
-			streamEvents.markTerminalForwarded()
-		}
-	}
-	result.Stream = observeStreamTermination(ctx, result.Err, streamEvents)
-	return result
-}
-
-func retryableBeforeCommit(parent context.Context, requestWritten bool) bool {
-	return !requestWritten && parent != nil && parent.Err() == nil
-}
-
-func providerErrorRateLimitHeaders(source http.Header) http.Header {
-	filtered := make(http.Header)
-	for name, values := range source {
-		lowered := strings.ToLower(name)
-		// Keep this allowlist synchronized with health.ParseRateLimitReset.
-		if lowered != "retry-after" &&
-			!(strings.HasPrefix(lowered, "anthropic-ratelimit-") &&
-				strings.HasSuffix(lowered, "-reset")) &&
-			lowered != "x-ratelimit-reset" &&
-			!strings.HasPrefix(lowered, "x-ratelimit-reset-") {
-			continue
-		}
-		filtered[name] = append([]string(nil), values...)
-	}
-	return filtered
-}
-
-func (forwarder *Forwarder) safeProviderErrorPayload(
-	payload []byte,
-	knownSecrets []string,
-) []byte {
-	safe := bytes.Clone(payload)
-	for _, secret := range knownSecrets {
-		var ok bool
-		safe, ok = rewriteBoundedLiteral(
-			safe,
-			secret,
-			redact.Placeholder,
-			int64(maxFirstSSEEventBytes),
-		)
-		if !ok {
-			return []byte(redact.Placeholder)
-		}
-	}
-	safe = forwarder.redactor.Bytes(safe)
-	if len(safe) > maxFirstSSEEventBytes {
-		return []byte(redact.Placeholder)
-	}
-	return safe
-}
-
-func releaseCommittedRequestReplay(parsed *dialect.ParsedRequest, replay *requestReplay) {
-	if parsed != nil {
-		parsed.Body = nil
-	}
-	if replay != nil {
-		replay.release()
-	}
-}
-
-func (forwarder *Forwarder) newUpstreamRequest(
-	ctx context.Context,
-	input ForwardInput,
-	stream bool,
-) (*http.Request, *atomic.Bool, *requestReplay, error) {
-	parsed := input.Request
-	rewrite := needsModelRewrite(input)
-	if rewrite {
-		rewriter, ok := input.Dialect.(dialect.ModelRewriter)
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("dialect does not support model rewriting")
-		}
-		derived, err := rewriter.RewriteRequestModel(input.Request, input.UpstreamModelID)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("rewrite upstream request model: %w", err)
-		}
-		if derived == nil {
-			return nil, nil, nil, fmt.Errorf("rewrite upstream request model returned nil request")
-		}
-		if int64(len(derived.Body)) > maxRequestBodyBytes {
-			return nil, nil, nil, fmt.Errorf("%w: rewritten request body exceeds limit", errRequestTooLarge)
-		}
-		parsed = derived
-	}
-	if stream && input.Group.InjectUsageOptions && forwarder != nil && forwarder.usageCapture != nil {
-		parsed = forwarder.usageCapture.injectStreamUsage(input.Dialect, parsed)
-	}
-	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, parsed)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("build upstream URL: %w", err)
-	}
-	replay := newRequestReplay(parsed.Body)
-	request, err := http.NewRequestWithContext(ctx, parsed.Method, upstreamURL, nil)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create upstream request: %w", err)
-	}
-	request.Body = replay.open()
-	request.ContentLength = int64(len(parsed.Body))
-	request.GetBody = nil
-	request.Header = cloneEndToEndHeaders(parsed.Header)
-	removeDownstreamCredentials(request.Header)
-	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
-	sanitizeUpstreamRequestHeaders(request.Header)
-	platformheader.NormalizeUpstreamRequestRepresentation(request, int64(len(parsed.Body)))
-	if _, exists := request.Header["User-Agent"]; !exists {
-		request.Header["User-Agent"] = nil
-	}
-
-	wroteRequest := &atomic.Bool{}
-	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wroteRequest.Store(true) }}
-	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
-	return request, wroteRequest, replay, nil
-}
-
 func needsModelRewrite(input ForwardInput) bool {
 	return input.ExternalModel != "" &&
 		input.UpstreamModelID != "" &&
 		input.ExternalModel != input.UpstreamModelID
 }
 
-func isResolvedCredentialHeaderName(selected dialect.Dialect, name string) bool {
-	if platformheader.IsCredentialName(name) {
-		return true
-	}
-	namer, ok := selected.(dialect.CredentialHeaderNamer)
-	if !ok {
-		return false
-	}
-	identity := canonicalHeaderIdentity(name)
-	if identity == "" {
-		return false
-	}
-	for _, dialectName := range namer.CredentialHeaderNames() {
-		if identity == canonicalHeaderIdentity(dialectName) {
-			return true
-		}
-	}
-	return false
-}
-
-func resolvedCredentialSecretValues(input ForwardInput, finalHeaders http.Header) []string {
-	if finalHeaders == nil {
-		finalHeaders = make(http.Header)
-		if input.Request != nil {
-			finalHeaders = cloneEndToEndHeaders(input.Request.Header)
-		}
-		removeDownstreamCredentials(finalHeaders)
-		dialect.ApplyCredential(
-			input.Dialect,
-			finalHeaders,
-			input.APIKey,
-			input.Group.HeaderRules,
-		)
-		sanitizeUpstreamRequestHeaders(finalHeaders)
-	}
-
-	secrets := make([]string, 0, 8)
-	seen := make(map[string]struct{})
-	appendSecret := func(value string) {
-		if value == "" {
-			return
-		}
-		if _, exists := seen[value]; exists {
-			return
-		}
-		seen[value] = struct{}{}
-		secrets = append(secrets, value)
-	}
-	appendSecret(input.APIKey)
-	for name, values := range finalHeaders {
-		if !isResolvedCredentialHeaderName(input.Dialect, name) {
-			continue
-		}
-		for _, value := range values {
-			appendSecret(value)
-		}
-	}
-	sort.SliceStable(secrets, func(left, right int) bool {
-		return len(secrets[left]) > len(secrets[right])
-	})
-	return secrets
+func isResolvedCredentialHeaderName(name string) bool {
+	return platformheader.IsCredentialName(name)
 }
 
 func rewriteBoundedLiteral(body []byte, literal, replacement string, limit int64) ([]byte, bool) {
@@ -648,9 +96,7 @@ func rewriteBoundedLiteral(body []byte, literal, replacement string, limit int64
 		return body, int64(len(body)) <= limit
 	}
 	if !json.Valid(body) {
-		return replaceAllBounded(
-			body, []byte(literal), []byte(replacement), limit,
-		)
+		return replaceAllBounded(body, []byte(literal), []byte(replacement), limit)
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -683,10 +129,7 @@ func rewriteJSONLiteralStrings(
 ) (any, bool, bool) {
 	switch typed := value.(type) {
 	case string:
-		rewritten, changed, ok := replaceStringBounded(
-			typed, literal, replacement, limit, budget,
-		)
-		return rewritten, changed, ok
+		return replaceStringBounded(typed, literal, replacement, limit, budget)
 	case []any:
 		changed := false
 		for index, item := range typed {
@@ -809,42 +252,6 @@ func invalidateRewrittenBodyHeaders(headers http.Header) {
 	}
 }
 
-func nonStreamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config {
-	return &platformhttp.Config{
-		ConnectTimeout:        timeouts.Connect,
-		RequestTimeout:        timeouts.Request,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   20,
-		ResponseHeaderTimeout: timeouts.FirstByte,
-		DisableCompression:    true,
-		WriteBufferSize:       32 * 1024,
-		ReadBufferSize:        32 * 1024,
-		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   timeouts.Connect,
-		ExpectContinueTimeout: time.Second,
-		DisableRedirects:      true,
-	}
-}
-
-func streamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config {
-	return &platformhttp.Config{
-		ConnectTimeout:        timeouts.Connect,
-		RequestTimeout:        0,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   20,
-		ResponseHeaderTimeout: timeouts.FirstByte,
-		DisableCompression:    true,
-		WriteBufferSize:       32 * 1024,
-		ReadBufferSize:        32 * 1024,
-		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   timeouts.Connect,
-		ExpectContinueTimeout: time.Second,
-		DisableRedirects:      true,
-	}
-}
-
 func validateStreamContentEncoding(headers http.Header) error {
 	encoding, err := contentcoding.ParseContentEncoding(
 		headerFieldValues(headers, "Content-Encoding"),
@@ -853,87 +260,6 @@ func validateStreamContentEncoding(headers http.Header) error {
 		return fmt.Errorf("%w: non-identity stream Content-Encoding", ErrUpstreamProtocol)
 	}
 	return nil
-}
-
-func readStreamingErrorBody(body io.Reader) ([]byte, bool, error) {
-	return readBodyAtMost(body, maxErrorResponseBodyBytes)
-}
-
-func readBodyAtMost(reader io.Reader, limit int64) ([]byte, bool, error) {
-	if reader == nil || limit < 0 {
-		return nil, false, fmt.Errorf("response reader/limit is invalid")
-	}
-	var limited io.Reader = reader
-	if limit < math.MaxInt64 {
-		limited = io.LimitReader(reader, limit+1)
-	}
-	body, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, false, err
-	}
-	if int64(len(body)) > limit {
-		return nil, true, nil
-	}
-	return body, false, nil
-}
-
-func streamAttemptError(parent, attempt context.Context, fallback error) error {
-	if err := parent.Err(); err != nil {
-		return err
-	}
-	if cause := context.Cause(attempt); cause != nil {
-		return cause
-	}
-	return fallback
-}
-
-type firstEventDeadline struct {
-	ctx      context.Context
-	cancel   context.CancelCauseFunc
-	mu       sync.Mutex
-	timer    *time.Timer
-	disarmed bool
-	expired  bool
-}
-
-func newFirstEventDeadline(parent context.Context, timeout time.Duration) *firstEventDeadline {
-	ctx, cancel := context.WithCancelCause(parent)
-	deadline := &firstEventDeadline{ctx: ctx, cancel: cancel}
-	deadline.timer = time.AfterFunc(timeout, deadline.expire)
-	return deadline
-}
-
-func (deadline *firstEventDeadline) expire() {
-	deadline.mu.Lock()
-	defer deadline.mu.Unlock()
-	if deadline.disarmed {
-		return
-	}
-	deadline.expired = true
-	deadline.cancel(context.DeadlineExceeded)
-}
-
-func (deadline *firstEventDeadline) disarm() bool {
-	deadline.mu.Lock()
-	defer deadline.mu.Unlock()
-	if deadline.expired {
-		return false
-	}
-	deadline.disarmed = true
-	if deadline.timer != nil {
-		deadline.timer.Stop()
-	}
-	return true
-}
-
-func (deadline *firstEventDeadline) stop() {
-	deadline.mu.Lock()
-	defer deadline.mu.Unlock()
-	deadline.disarmed = true
-	if deadline.timer != nil {
-		deadline.timer.Stop()
-	}
-	deadline.cancel(context.Canceled)
 }
 
 var hopByHopHeaders = map[string]struct{}{
@@ -1013,23 +339,6 @@ func headerValuesContainLiteral(values []string, literal string) bool {
 	return false
 }
 
-func sanitizeUpstreamResponseHeaders(source http.Header, apiKey string) http.Header {
-	headers := cloneEndToEndHeaders(source)
-	namesToDelete := make([]string, 0)
-	for actualName, values := range headers {
-		if platformheader.IsCredentialName(actualName) ||
-			strings.EqualFold(actualName, "Set-Cookie") ||
-			strings.EqualFold(actualName, "Set-Cookie2") ||
-			headerValuesContainLiteral(values, apiKey) {
-			namesToDelete = append(namesToDelete, actualName)
-		}
-	}
-	for _, name := range namesToDelete {
-		deleteHeaderField(headers, name)
-	}
-	return headers
-}
-
 func sanitizeForwardResponseHeaders(
 	source http.Header,
 	input ForwardInput,
@@ -1040,11 +349,12 @@ func sanitizeForwardResponseHeaders(
 	deleted := endToEndHeaderCleanupDeletedField(source, headers)
 	namesToDelete := make([]string, 0)
 	for actualName, values := range headers {
-		deleteField := isResolvedCredentialHeaderName(input.Dialect, actualName) ||
+		deleteField := isResolvedCredentialHeaderName(actualName) ||
+			strings.HasPrefix(strings.ToLower(actualName), "x-upstream-") ||
 			strings.EqualFold(actualName, "Set-Cookie") ||
 			strings.EqualFold(actualName, "Set-Cookie2") ||
 			headerValuesContainLiteral(values, input.APIKey)
-		for _, secret := range additionalSecrets {
+		for _, secret := range append(append([]string(nil), input.CredentialSecrets...), additionalSecrets...) {
 			if deleteField || secret == "" || secret == input.APIKey {
 				continue
 			}
@@ -1063,8 +373,7 @@ func sanitizeForwardResponseHeaders(
 	}
 	if !needsModelRewrite(input) {
 		if deleted {
-			deleteHeaderField(headers, "Signature")
-			deleteHeaderField(headers, "Signature-Input")
+			stripDownstreamResponseSignatures(headers)
 		}
 		return headers
 	}
@@ -1084,17 +393,11 @@ func sanitizeForwardResponseHeaders(
 			}
 			continue
 		}
-		if nameContainsModel {
-			deleteHeaderField(headers, name)
-			deleted = true
-			continue
-		}
 		deleteHeaderField(headers, name)
 		deleted = true
 	}
 	if deleted {
-		deleteHeaderField(headers, "Signature")
-		deleteHeaderField(headers, "Signature-Input")
+		stripDownstreamResponseSignatures(headers)
 	}
 	return headers
 }

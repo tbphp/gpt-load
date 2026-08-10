@@ -44,11 +44,13 @@ const detail = computed(() => detailQuery.data.value)
  */
 const placeholderPrice: UpstreamModelDetailDto['price'] = {
   id: 0,
+  channel_id: '',
   model_id: '',
   prices: { input: null, output: null, cache_read: null, cache_write: null },
   pricing_status: 'pending',
   method: null,
   matched_provider_id: null,
+  match_source: null,
   referenced: false,
   reference_count: 0,
   reference_group_count: 0,
@@ -137,6 +139,9 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
     <div v-else-if="detail" class="upstream-drawer">
       <div class="upstream-drawer__meta">
         <ModelPriceStatusBadge :price="price" />
+        <span class="upstream-drawer__channel">
+          {{ t('models.drawer.channel') }} <code>{{ price.channel_id }}</code>
+        </span>
         <span v-if="price.updated_at_ms > 0" class="upstream-drawer__faint">
           {{ t('models.drawer.updatedAt') }}
           <AppDateTime :instant="price.updated_at_ms" :locale="locale" />
@@ -259,6 +264,11 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
 
 .upstream-drawer__faint {
   color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.upstream-drawer__channel code {
+  color: var(--color-text);
   font-size: var(--text-label-xs);
 }
 

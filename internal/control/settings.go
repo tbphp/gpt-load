@@ -171,7 +171,7 @@ func (s *Service) UpdateSettingsIfMatch(
 		updatedAutoSyncEnabled  bool
 	)
 	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-		currentInput, err := stateloader.BuildCompileInput(ctx, tx)
+		currentInput, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
 		if err != nil {
 			return err
 		}
@@ -204,7 +204,7 @@ func (s *Service) UpdateSettingsIfMatch(
 		if err := s.applySettingUpdates(tx, updates); err != nil {
 			return err
 		}
-		input, err = stateloader.BuildCompileInput(ctx, tx)
+		input, err = stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
 		if err != nil {
 			return err
 		}

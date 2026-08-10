@@ -11,7 +11,7 @@ const (
 	StatsWindow      = time.Duration(statsBucketCount) * statsBucketWidth
 )
 
-type KeyStats struct {
+type CredentialStats struct {
 	Success             uint64
 	Failure             uint64
 	Problem             uint64
@@ -23,7 +23,7 @@ type KeyStats struct {
 
 type StatsStore struct {
 	mu      sync.Mutex
-	windows map[uint]*keyStatsWindow
+	windows map[uint]*credentialStatsWindow
 }
 
 type statsBucket struct {
@@ -34,7 +34,7 @@ type statsBucket struct {
 	problem uint64
 }
 
-type keyStatsWindow struct {
+type credentialStatsWindow struct {
 	buckets             [statsBucketCount]statsBucket
 	consecutiveFailure  uint64
 	consecutiveProblem  uint64
@@ -53,39 +53,39 @@ const (
 )
 
 func NewStatsStore() *StatsStore {
-	return &StatsStore{windows: make(map[uint]*keyStatsWindow)}
+	return &StatsStore{windows: make(map[uint]*credentialStatsWindow)}
 }
 
-func (store *StatsStore) RecordSuccess(keyID uint, at time.Time) {
-	store.record(keyID, statsEventSuccess, FailureCategoryOK, 0, at)
+func (store *StatsStore) RecordSuccess(credentialID uint, at time.Time) {
+	store.record(credentialID, statsEventSuccess, FailureCategoryOK, 0, at)
 }
 
 func (store *StatsStore) RecordFailure(
-	keyID uint,
+	credentialID uint,
 	category FailureCategory,
 	statusCode int,
 	at time.Time,
 ) {
-	store.record(keyID, statsEventFailure, category, statusCode, at)
+	store.record(credentialID, statsEventFailure, category, statusCode, at)
 }
 
 func (store *StatsStore) RecordProblem(
-	keyID uint,
+	credentialID uint,
 	category FailureCategory,
 	statusCode int,
 	at time.Time,
 ) {
-	store.record(keyID, statsEventProblem, category, statusCode, at)
+	store.record(credentialID, statsEventProblem, category, statusCode, at)
 }
 
 func (store *StatsStore) record(
-	keyID uint,
+	credentialID uint,
 	event statsEvent,
 	category FailureCategory,
 	statusCode int,
 	at time.Time,
 ) {
-	if keyID == 0 {
+	if credentialID == 0 {
 		return
 	}
 
@@ -95,10 +95,10 @@ func (store *StatsStore) record(
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	window := store.windows[keyID]
+	window := store.windows[credentialID]
 	if window == nil {
-		window = &keyStatsWindow{}
-		store.windows[keyID] = window
+		window = &credentialStatsWindow{}
+		store.windows[credentialID] = window
 	}
 
 	bucket := &window.buckets[slot]
@@ -137,23 +137,23 @@ func (store *StatsStore) record(
 	window.lastStatusCode = statusCode
 }
 
-func (store *StatsStore) Reset(keyID uint) {
-	if keyID == 0 {
+func (store *StatsStore) Reset(credentialID uint) {
+	if credentialID == 0 {
 		return
 	}
 
 	store.mu.Lock()
-	delete(store.windows, keyID)
+	delete(store.windows, credentialID)
 	store.mu.Unlock()
 }
 
-func (store *StatsStore) ClearProblemState(keyID uint) {
-	if keyID == 0 {
+func (store *StatsStore) ClearProblemState(credentialID uint) {
+	if credentialID == 0 {
 		return
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	window := store.windows[keyID]
+	window := store.windows[credentialID]
 	if window == nil {
 		return
 	}
@@ -163,21 +163,21 @@ func (store *StatsStore) ClearProblemState(keyID uint) {
 	window.lastStatusCode = 0
 }
 
-func (store *StatsStore) Snapshot(keyID uint, now time.Time) KeyStats {
-	if keyID == 0 {
-		return KeyStats{}
+func (store *StatsStore) Snapshot(credentialID uint, now time.Time) CredentialStats {
+	if credentialID == 0 {
+		return CredentialStats{}
 	}
 
 	currentMinute := now.UnixNano() / int64(statsBucketWidth)
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	window := store.windows[keyID]
+	window := store.windows[credentialID]
 	if window == nil {
-		return KeyStats{}
+		return CredentialStats{}
 	}
 
-	stats := KeyStats{
+	stats := CredentialStats{
 		ConsecutiveFailure:  window.consecutiveFailure,
 		ConsecutiveProblem:  window.consecutiveProblem,
 		LastFailureCategory: window.lastFailureCategory,

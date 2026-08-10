@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -59,12 +60,13 @@ func (s *Service) GetGroupModels(ctx context.Context, groupID uint) (GroupModels
 		return GroupModelsResponse{}, err
 	}
 
-	return mapGroupModelsResponse(groupModels, rows)
+	return mapGroupModelsResponse(group.ChannelID, groupModels, rows)
 }
 
 func mapGroupModelsResponse(
+	channelID string,
 	groupModels []GroupModel,
-	rows map[string]*models.ModelPrice,
+	rows modelPriceRows,
 ) (GroupModelsResponse, error) {
 	result := GroupModelsResponse{Items: make([]GroupModelResponse, 0, len(groupModels))}
 	for _, model := range groupModels {
@@ -78,7 +80,7 @@ func mapGroupModelsResponse(
 		if item.AliasEnabled {
 			item.ClientModel = model.Alias
 		}
-		item.PricingStatus = resolvePricingStatus(rows[model.ID])
+		item.PricingStatus = resolvePricingStatus(rows[pricing.Identity{ChannelID: channelID, ModelID: model.ID}])
 		if item.PricingStatus == PricingStatusPending {
 			result.Pending++
 		}
@@ -114,17 +116,17 @@ func (s *Service) UpdateGroupModels(
 		if err != nil {
 			return err
 		}
-		if err := validateGroupRowCandidate(ctx, tx, group); err != nil {
+		if err := validateGroupRowCandidate(ctx, tx, group, s.channelRegistry); err != nil {
 			return fmt.Errorf("validate existing group %d: %w", groupID, app_errors.ErrInternalServer)
 		}
 		var previous []GroupModel
 		if err := decodeGroupDiscoveryJSON(group.Models, &previous); err != nil {
 			return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)
 		}
-		modelIDsChanged = group.ProviderID != nil && !sameGroupModelIDs(previous, normalized)
+		modelIDsChanged = !sameGroupModelIDs(previous, normalized)
 
 		group.Models = models.JSON(encoded)
-		if err := validateGroupRowCandidate(ctx, tx, group); err != nil {
+		if err := validateGroupRowCandidate(ctx, tx, group, s.channelRegistry); err != nil {
 			return app_errors.ErrValidation
 		}
 		if err := tx.Model(&models.Group{}).

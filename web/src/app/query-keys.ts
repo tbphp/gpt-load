@@ -1,14 +1,13 @@
 import type { RequestLogFilters } from '@/app/resources/request-logs'
 import type { HomeRange } from '@/app/resources/home'
 import type { UsageFilters } from '@/app/resources/usage'
-import type { ProviderModelFilters } from '@/app/resources/providers'
 import type { ModelPriceFilters } from '@/app/resources/model-prices'
 import type { ModelCollectionFilters } from '@/app/resources/models'
 import { normalizeRequestLogFilters } from '@/app/resources/request-log-filters'
 import type {
   AccessKeyCollectionFilters,
+  CredentialCollectionFilters,
   GroupCollectionFilters,
-  GroupKeyCollectionFilters,
 } from '@/api/control/types'
 
 export function normalizeGroupCollectionFilters(
@@ -22,14 +21,13 @@ export function normalizeGroupCollectionFilters(
   const query = filters.q?.trim()
   if (query) normalized.q = query
   if (filters.status !== undefined) normalized.status = filters.status
-  if (filters.protocol !== undefined) normalized.protocol = filters.protocol
   return normalized
 }
 
-export function normalizeGroupKeyCollectionFilters(
-  filters: GroupKeyCollectionFilters,
-): GroupKeyCollectionFilters {
-  const normalized: GroupKeyCollectionFilters = {
+export function normalizeCredentialCollectionFilters(
+  filters: CredentialCollectionFilters,
+): CredentialCollectionFilters {
+  const normalized: CredentialCollectionFilters = {
     page: filters.page,
     page_size: filters.page_size,
   }
@@ -58,7 +56,9 @@ function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
     breakdown_order: filters.breakdown_order ?? 'requests',
   }
   if (filters.group_id !== undefined) result.group_id = filters.group_id
-  if (filters.model !== undefined) result.model = filters.model
+  if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
+  if (filters.credential_id !== undefined) result.credential_id = filters.credential_id
+  if (filters.upstream_model !== undefined) result.upstream_model = filters.upstream_model
   return result
 }
 
@@ -76,16 +76,20 @@ export const controlQueryKeys = {
     settings: (id: number) => ['control', 'groups', 'settings', id] as const,
     modelsAll: () => ['control', 'groups', 'models'] as const,
     models: (id: number) => ['control', 'groups', 'models', id] as const,
-    keysAll: (id: number) => ['control', 'groups', 'keys', id] as const,
-    keys: (id: number, filters: GroupKeyCollectionFilters) =>
+    credentialsAll: (id: number) => ['control', 'groups', 'credentials', id] as const,
+    credentials: (id: number, filters: CredentialCollectionFilters) =>
       [
         'control',
         'groups',
-        'keys',
+        'credentials',
         id,
         'collection',
-        normalizeGroupKeyCollectionFilters(filters),
+        normalizeCredentialCollectionFilters(filters),
       ] as const,
+  },
+  channels: {
+    all: ['control', 'channels'] as const,
+    list: (search: string) => ['control', 'channels', 'list', search] as const,
   },
   health: () => ['control', 'health'] as const,
   logs: {
@@ -117,16 +121,6 @@ export const controlQueryKeys = {
         normalizeAccessKeyCollectionFilters(filters),
       ] as const,
     options: () => ['control', 'access-keys', 'options'] as const,
-  },
-  providers: {
-    all: ['control', 'providers'] as const,
-    suggestionsAll: () => ['control', 'providers', 'suggestions'] as const,
-    suggestions: (search: string) => ['control', 'providers', 'suggestions', search] as const,
-    suggestionsByIDs: (providerIDs: readonly string[]) =>
-      ['control', 'providers', 'suggestions-by-ids', [...providerIDs]] as const,
-    modelsAll: () => ['control', 'providers', 'models'] as const,
-    models: (providerID: string, filters: ProviderModelFilters) =>
-      ['control', 'providers', 'models', providerID, filters] as const,
   },
   settingsAll: ['control', 'settings'] as const,
   settings: (locale: string) => ['control', 'settings', locale] as const,

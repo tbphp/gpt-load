@@ -62,20 +62,18 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 	if groupID == 0 {
 		return app_errors.ErrBadRequest
 	}
-	var deletedKeyIDs []uint
+	var deletedCredentialIDs []uint
 	providerReferencesChanged := false
 	_, err := s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		var group models.Group
 		if err := tx.Where("id = ?", groupID).Take(&group).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
-		if group.ProviderID != nil {
-			var groupModels []GroupModel
-			if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
-				return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)
-			}
-			providerReferencesChanged = len(groupModels) > 0
+		var groupModels []GroupModel
+		if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
+			return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)
 		}
+		providerReferencesChanged = len(groupModels) > 0
 		references, err := explicitGroupReferences(tx, groupID)
 		if err != nil {
 			return err
@@ -86,10 +84,10 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 				GroupInUseData{AccessKeys: references},
 			)
 		}
-		if err := tx.Model(&models.UpstreamKey{}).
+		if err := tx.Model(&models.Credential{}).
 			Where("group_id = ?", groupID).
 			Order("id ASC").
-			Pluck("id", &deletedKeyIDs).Error; err != nil {
+			Pluck("id", &deletedCredentialIDs).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
 		if err := tx.Delete(&group).Error; err != nil {
@@ -98,9 +96,9 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 		return nil
 	}, func() error {
 		s.registry.RemoveGroup(groupID)
-		for _, keyID := range deletedKeyIDs {
-			if _, exists := s.registry.EncryptedValue(keyID); exists {
-				return fmt.Errorf("deleted Registry key %d remains", keyID)
+		for _, credentialID := range deletedCredentialIDs {
+			if _, exists := s.registry.EncryptedCredentialData(credentialID); exists {
+				return fmt.Errorf("deleted Registry credential %d remains", credentialID)
 			}
 		}
 		return nil

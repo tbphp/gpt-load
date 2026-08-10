@@ -1,2 +1,2 @@
-// Package scheduler contains the pure routing and upstream-key selection domain.
+// Package scheduler contains the pure channel routing and credential selection domain.
 package scheduler

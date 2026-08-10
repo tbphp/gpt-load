@@ -23,7 +23,7 @@ import (
 
 func TestDeleteGroupRejectsActiveAndDisabledExplicitAccessKeyReferences(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-in-use")
+	groupID := createGroupWithCredentials(t, fixture, "sk-in-use")
 	other := validControlGroup("other-reference")
 	if err := fixture.db.Create(other).Error; err != nil {
 		t.Fatal(err)
@@ -88,9 +88,9 @@ func TestDeleteGroupRejectsActiveAndDisabledExplicitAccessKeyReferences(t *testi
 
 func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-delete-a\nsk-delete-b")
+	groupID := createGroupWithCredentials(t, fixture, "sk-delete-a\nsk-delete-b")
 	beforeRevision := fixture.manager.Current().Revision
-	var keyRows []models.UpstreamKey
+	var keyRows []models.Credential
 	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&keyRows).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T)
 		t.Fatalf("DeleteGroup() error = %v", err)
 	}
 	for _, row := range keyRows {
-		if value, ok := fixture.registry.EncryptedValue(row.ID); ok || value != "" {
+		if value, ok := fixture.registry.EncryptedCredentialData(row.ID); ok || value != "" {
 			t.Fatalf("Registry key %d remains = %q, %t", row.ID, value, ok)
 		}
 	}
@@ -112,7 +112,7 @@ func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T)
 	if err := fixture.db.Model(&models.Group{}).Where("id = ?", groupID).Count(&groupCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.db.Model(&models.UpstreamKey{}).Where("group_id = ?", groupID).Count(&keyCount).Error; err != nil {
+	if err := fixture.db.Model(&models.Credential{}).Where("group_id = ?", groupID).Count(&keyCount).Error; err != nil {
 		t.Fatal(err)
 	}
 	if groupCount != 0 || keyCount != 0 {
@@ -122,14 +122,14 @@ func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T)
 
 func TestDeleteGroupCompileFailurePreservesDatabaseRegistryAndSnapshot(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-delete-rollback")
+	groupID := createGroupWithCredentials(t, fixture, "sk-delete-rollback")
 	corrupt := validControlGroup("delete-corrupt-other")
 	if err := fixture.db.Create(corrupt).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := fixture.db.Exec(
-		"UPDATE groups SET protocols = ? WHERE id = ?",
-		`[]`,
+		"UPDATE groups SET channel_id = ? WHERE id = ?",
+		"unknown-channel",
 		corrupt.ID,
 	).Error; err != nil {
 		t.Fatal(err)
@@ -156,8 +156,8 @@ func TestDeleteGroupCompileFailurePreservesDatabaseRegistryAndSnapshot(t *testin
 
 func TestDeleteGroupCommitFailurePreservesDatabaseRegistryAndSnapshot(t *testing.T) {
 	fixture, dsn := newFileServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-delete-commit-busy")
-	var row models.UpstreamKey
+	groupID := createGroupWithCredentials(t, fixture, "sk-delete-commit-busy")
+	var row models.Credential
 	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -181,21 +181,21 @@ func TestDeleteGroupCommitFailurePreservesDatabaseRegistryAndSnapshot(t *testing
 		Where("id = ?", groupID).Count(&groupCount).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.db.Model(&models.UpstreamKey{}).
+	if err := fixture.db.Model(&models.Credential{}).
 		Where("id = ?", row.ID).Count(&keyCount).Error; err != nil {
 		t.Fatal(err)
 	}
 	if groupCount != 1 || keyCount != 1 {
 		t.Fatalf("rollback counts = group:%d key:%d", groupCount, keyCount)
 	}
-	if value, exists := fixture.registry.EncryptedValue(row.ID); !exists || value != row.KeyValue {
+	if value, exists := fixture.registry.EncryptedCredentialData(row.ID); !exists || value != row.Data {
 		t.Fatalf("Registry credential = %q, %t", value, exists)
 	}
 }
 
 func TestDeleteGroupCorruptAccessKeyFiltersPreservesDatabaseRegistryAndSnapshot(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-delete-corrupt-filter")
+	groupID := createGroupWithCredentials(t, fixture, "sk-delete-corrupt-filter")
 	corrupt := models.AccessKey{
 		Name: "Corrupt filters", KeyValue: "cipher-corrupt-filter", KeyHash: "hash-corrupt-filter",
 		KeySuffix: "0004", Status: string(state.AccessKeyStatusDisabled), Filters: models.JSON(`{}`),
@@ -229,8 +229,8 @@ func TestDeleteGroupCorruptAccessKeyFiltersPreservesDatabaseRegistryAndSnapshot(
 
 func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-delete-target-state")
-	var key models.UpstreamKey
+	groupID := createGroupWithCredentials(t, fixture, "sk-delete-target-state")
+	var key models.Credential
 	if err := fixture.db.Where("group_id = ?", groupID).Take(&key).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *test
 func TestDeleteGroupEndpointAuthenticationValidationNotFoundConflictAndSuccess(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-delete-http")
+	groupID := createGroupWithCredentials(t, fixture, "sk-delete-http")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	path := "/api/groups/" + strconv.FormatUint(uint64(groupID), 10)

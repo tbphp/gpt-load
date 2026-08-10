@@ -5,53 +5,57 @@ import (
 	"time"
 )
 
-type KeyRuntimeView struct {
-	ID            uint
-	GroupID       uint
-	WeightManual  *int
-	WeightAuto    int
-	Status        KeyStatus
-	CooldownUntil time.Time
-	Blacklisted   bool
-	FailureCount  int
+type CredentialRuntimeView struct {
+	ID                 uint
+	GroupID            uint
+	Version            uint64
+	IdentityGeneration uint64
+	WeightManual       *int
+	WeightAuto         int
+	Status             CredentialStatus
+	CooldownUntil      time.Time
+	Blacklisted        bool
+	FailureCount       int
 }
 
-type KeyRuntimeState string
+type CredentialRuntimeState string
 
 const (
-	KeyRuntimeAvailable   KeyRuntimeState = "available"
-	KeyRuntimeDisabled    KeyRuntimeState = "disabled"
-	KeyRuntimeBlacklisted KeyRuntimeState = "blacklisted"
-	KeyRuntimeCooldown    KeyRuntimeState = "cooldown"
+	CredentialRuntimeAvailable   CredentialRuntimeState = "available"
+	CredentialRuntimeDisabled    CredentialRuntimeState = "disabled"
+	CredentialRuntimeBlacklisted CredentialRuntimeState = "blacklisted"
+	CredentialRuntimeCooldown    CredentialRuntimeState = "cooldown"
 )
 
-func (view KeyRuntimeView) RuntimeState(now time.Time) KeyRuntimeState {
-	if view.Status != KeyStatusActive {
-		return KeyRuntimeDisabled
+func (view CredentialRuntimeView) RuntimeState(now time.Time) CredentialRuntimeState {
+	if view.Status != CredentialStatusActive {
+		return CredentialRuntimeDisabled
 	}
 	if view.Blacklisted {
-		return KeyRuntimeBlacklisted
+		return CredentialRuntimeBlacklisted
 	}
 	if view.CooldownUntil.After(now) {
-		return KeyRuntimeCooldown
+		return CredentialRuntimeCooldown
 	}
-	return KeyRuntimeAvailable
+	return CredentialRuntimeAvailable
 }
 
-func runtimeView(entry *KeyEntry) KeyRuntimeView {
-	return KeyRuntimeView{
-		ID:            entry.ID,
-		GroupID:       entry.GroupID,
-		WeightManual:  cloneWeight(entry.WeightManual),
-		WeightAuto:    entry.WeightAuto,
-		Status:        entry.Status,
-		CooldownUntil: entry.CooldownUntil,
-		Blacklisted:   entry.Blacklisted,
-		FailureCount:  entry.FailureCount,
+func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
+	return CredentialRuntimeView{
+		ID:                 entry.ID,
+		GroupID:            entry.GroupID,
+		Version:            entry.Version,
+		IdentityGeneration: entry.IdentityGeneration,
+		WeightManual:       cloneWeight(entry.WeightManual),
+		WeightAuto:         entry.WeightAuto,
+		Status:             entry.Status,
+		CooldownUntil:      entry.CooldownUntil,
+		Blacklisted:        entry.Blacklisted,
+		FailureCount:       entry.FailureCount,
 	}
 }
 
-func sortRuntimeViews(views []KeyRuntimeView) {
+func sortRuntimeViews(views []CredentialRuntimeView) {
 	sort.Slice(views, func(i, j int) bool {
 		if views[i].GroupID != views[j].GroupID {
 			return views[i].GroupID < views[j].GroupID
@@ -60,9 +64,9 @@ func sortRuntimeViews(views []KeyRuntimeView) {
 	})
 }
 
-func (r *KeyRegistry) Snapshot() []KeyRuntimeView {
+func (r *CredentialRegistry) Snapshot() []CredentialRuntimeView {
 	r.mu.RLock()
-	views := make([]KeyRuntimeView, 0, len(r.keyGroups))
+	views := make([]CredentialRuntimeView, 0, len(r.credentialGroups))
 	for _, bucket := range r.buckets {
 		for _, entry := range bucket {
 			views = append(views, runtimeView(entry))

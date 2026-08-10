@@ -1,14 +1,25 @@
 <script setup lang="ts">
 import { ArrowLeft } from '@lucide/vue'
+import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { GroupSummaryDto } from '@/app/resources/groups'
+import { useApiClient } from '@/api/client-context'
+import { channelsQueryOptions } from '@/app/resources/channels'
 import { groupsLocation } from '@/app/route-locations'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
-defineProps<{ group: GroupSummaryDto }>()
+const props = defineProps<{ group: GroupSummaryDto }>()
 const { t } = useI18n()
+const client = useApiClient()
+const channelsQuery = useQuery(channelsQueryOptions(client, ''))
+const channelName = computed(
+  () =>
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === props.group.channel_id)
+      ?.name ?? props.group.channel_id,
+)
 </script>
 
 <template>
@@ -27,17 +38,15 @@ const { t } = useI18n()
       </div>
       <div class="group-header__details">
         <span class="group-header__id">#{{ group.id }}</span>
+        <span class="meta-tag">{{ channelName }}</span>
+        <code class="group-header__channel-id">{{ group.channel_id }}</code>
         <CopyChip
-          :value="group.upstream_url"
-          :label="t('group.copyUpstreamUrl', { url: group.upstream_url })"
+          v-if="group.params.base_url"
+          :value="group.params.base_url"
+          :label="t('group.copyUpstreamUrl', { url: group.params.base_url })"
           :success-label="t('group.copySuccess')"
           :failure-label="t('group.copyFailure')"
         />
-        <div class="group-header__protocols" :aria-label="t('group.protocolsLabel')">
-          <span v-for="protocol in group.protocols" :key="protocol" class="meta-tag">{{
-            protocol
-          }}</span>
-        </div>
       </div>
     </div>
   </header>
@@ -97,11 +106,6 @@ const { t } = useI18n()
   font-family: var(--font-mono);
   font-size: var(--text-label-xs);
 }
-.group-header__protocols {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
 .group-header .meta-tag {
   display: inline-flex;
   min-height: 24px;
@@ -109,6 +113,11 @@ const { t } = useI18n()
   border: 1px solid var(--color-border-subtle);
   background: var(--color-surface-sunken);
   padding: 3px 7px;
+  font-size: var(--text-label-xs);
+}
+.group-header__channel-id {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
   font-size: var(--text-label-xs);
 }
 .group-header__details :deep(.copy-chip) {

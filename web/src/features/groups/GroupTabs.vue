@@ -8,13 +8,13 @@ import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 
 import { normalizeGroupQuery, normalizeGroupTab, type GroupTab } from './group-route'
 
-const props = defineProps<{ keyCount: number; modelCount: number }>()
+const props = defineProps<{ credentialCount: number; modelCount: number }>()
 const route = useRoute()
 const router = useRouter()
 const { n, t } = useI18n()
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
 const items = computed<AppTabItem[]>(() => [
-  { value: 'keys', label: t('group.tabs.keys'), count: n(props.keyCount) },
+  { value: 'credentials', label: t('group.tabs.credentials'), count: n(props.credentialCount) },
   { value: 'models', label: t('group.tabs.models'), count: n(props.modelCount) },
   { value: 'settings', label: t('group.tabs.settings') },
 ])

@@ -69,7 +69,13 @@ func newDatabaseDialector(database config.DatabaseConfig) (gorm.Dialector, error
 		}
 		return gormmysql.Open(dsn), nil
 	case config.DatabaseDriverPostgreSQL:
-		return gormpostgres.Open(database.DSN), nil
+		// Schema migrations rename/rebuild tables while the process is running.
+		// pgx's implicit statement cache otherwise can retain a result shape from
+		// the legacy table and fail the first query against the rebuilt table.
+		return gormpostgres.New(gormpostgres.Config{
+			DSN:                  database.DSN,
+			PreferSimpleProtocol: true,
+		}), nil
 	default:
 		return nil, fmt.Errorf("unsupported database driver")
 	}

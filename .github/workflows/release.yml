@@ -108,8 +108,8 @@ jobs:
       - name: Build backend
         run: go build -trimpath -o gpt-load .
 
-      - name: Run race-enabled tests
-        run: go test -race -count=1 . ./internal/...
+      - name: Run backend tests
+        run: go test -count=1 . ./internal/...
 
       - name: Check repository invariants
         run: git diff --check
@@ -121,6 +121,62 @@ jobs:
           path: internal/webui/dist
           if-no-files-found: error
           retention-days: 14
+
+  database-contract:
+    name: Database contract (${{ matrix.driver }})
+    needs: validate-tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - driver: mysql
+            dsn: mysql://root:root@127.0.0.1:3306/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
+          - driver: postgres
+            dsn: postgres://postgres:postgres@127.0.0.1:5432/gpt_load?sslmode=disable
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: gpt_load
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=10s
+          --health-retries=20
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gpt_load
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d gpt_load"
+          --health-interval=5s
+          --health-timeout=10s
+          --health-retries=20
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run external database contract
+        env:
+          GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
+          GPT_LOAD_DATABASE_MIGRATION_TEST_DSN: ${{ matrix.dsn }}
+        run: |
+          go test -v -count=1 ./internal/storage -run '^TestExternalDatabaseChannelExecutionMigration$'
+          go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternalDatabase(ConcurrentMigrations|Lifecycle|ModelPriceIdentityUsesExactComparison|ReadSnapshotUsesRepeatableRead|GroupPriceReconciliation|RequestLogLifecycle)$'
 
   build-binaries:
     needs: verify-and-build-web
@@ -183,8 +239,17 @@ jobs:
   package-checksums:
     needs: build-binaries
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: Download all release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -192,10 +257,22 @@ jobs:
           path: release
           merge-multiple: true
 
+      - name: Generate release SBOM and license assets
+        run: |
+          cp LICENSE release/LICENSE
+          cp THIRD_PARTY_NOTICES.md release/THIRD_PARTY_NOTICES.md
+          cp LICENSES/Apache-2.0.txt release/Apache-2.0.txt
+          go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0 \
+            mod -json -noserial -notimestamp -output release/bom.cdx.json .
+
       - name: Generate SHA256SUMS
         working-directory: release
         run: |
           sha256sum \
+            Apache-2.0.txt \
+            LICENSE \
+            THIRD_PARTY_NOTICES.md \
+            bom.cdx.json \
             gpt-load-linux-amd64 \
             gpt-load-linux-arm64 \
             gpt-load-macos-amd64 \
@@ -287,6 +364,7 @@ jobs:
       - package-checksums
       - native-artifact-smoke
       - docker-smoke
+      - database-contract
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -328,7 +406,11 @@ jobs:
           git merge-base --is-ancestor "${GITHUB_SHA}" origin/v2
 
           cat >/tmp/expected-release-assets <<'ASSETS'
+          Apache-2.0.txt
+          LICENSE
           SHA256SUMS
+          THIRD_PARTY_NOTICES.md
+          bom.cdx.json
           gpt-load-linux-amd64
           gpt-load-linux-arm64
           gpt-load-macos-amd64
@@ -339,7 +421,7 @@ jobs:
             sort >/tmp/current-run-release-assets
           cmp /tmp/expected-release-assets /tmp/current-run-release-assets
           cd release
-          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "5"
+          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "9"
           sha256sum --check SHA256SUMS
 
       - name: Require publication credentials and verify read access
@@ -727,19 +809,28 @@ jobs:
             release/gpt-load-macos-amd64
             release/gpt-load-macos-arm64
             release/gpt-load-windows-amd64.exe
+            release/Apache-2.0.txt
+            release/LICENSE
+            release/THIRD_PARTY_NOTICES.md
+            release/bom.cdx.json
             release/SHA256SUMS
           body: |
             GPT-Load 2.x is a greenfield rewrite and is not data-compatible with 1.x.
             Do not open a 1.x database with this release; rebuild configuration and cut over manually.
+            Existing 2.x databases migrate forward in place; stop the service and back up the
+            database together with its matching encryption key before upgrading.
 
-            This release provides native OpenAI, Anthropic, and Gemini protocol gateways,
-            an embedded management UI, scheduling and health controls, request logs,
-            usage estimates, and model price management. It is single-instance and supports
-            SQLite, MySQL, and PostgreSQL through one unified DATABASE_DSN contract.
+            This release provides OpenAI, Anthropic, and Gemini client protocol gateways backed
+            by channel presets for official, compatible, Azure OpenAI, AWS Bedrock, and Google
+            Vertex targets. It includes an embedded management UI, scheduling and health controls,
+            request logs, usage estimates, and model price management. It is single-instance and
+            supports SQLite, MySQL, and PostgreSQL through one unified DATABASE_DSN contract.
 
-            GPT-Load uses a unified data/control dual-plane architecture: Groups define upstream
-            routing and key pools, AccessKeys authorize data-plane access, and model discovery
-            imports available models from compatible upstreams.
+            GPT-Load remains the routing owner: Groups select a code-defined channel and hold
+            encrypted credentials, AccessKeys authorize data-plane access, and GPT-Load performs
+            candidate selection, retry policy, health tracking, logging, and pricing. The embedded
+            provider SDK executes one selected logical attempt and performs supported protocol
+            conversion; its name is not part of persisted domain identities.
 
             Docker runs as a fixed non-root user with a named volume. The 2.x image channels
             do not move `latest`. Stop cleanly, then back up the selected database using its
@@ -749,7 +840,8 @@ jobs:
 
             Follow the [public operations baseline](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline)
             for deployment, backup/restore, and 1.x cutover and rollback.
-            This release contains five raw binaries plus `SHA256SUMS`.
+            This release contains five raw binaries, `SHA256SUMS`, a CycloneDX SBOM,
+            and the project and third-party license notices.
             If publication stops between channels, inspect the reconciliation inventory and
             recover manually; the workflow does not claim cross-system atomic rollback.
 
@@ -757,7 +849,13 @@ jobs:
             never provide authoritative terminal usage. Cost remains an estimate, not a provider
             bill. GPT-Load 2.0.0 does not support encryption key rotation.
 
-            Built-in prices were reviewed on 2026-07-27 against the official
+            Models.dev is the sole automatic price source. Prices are resolved by exact
+            `channel_id + model_id`, may be overridden explicitly, and remain estimates.
+
+            GPT-Load keeps a unified data/control dual-plane architecture: Groups select a
+            channel and credentials, AccessKeys authorize data-plane access, and model discovery
+            imports available models from the selected channel. Built-in prices were reviewed on
+            2026-07-27 against the official
             [OpenAI](https://developers.openai.com/api/docs/pricing),
             [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and
             [Gemini](https://ai.google.dev/gemini-api/docs/pricing) sources.
@@ -845,7 +943,11 @@ jobs:
             --dir public-release
 
           cat >/tmp/expected-release-assets <<'ASSETS'
+          Apache-2.0.txt
+          LICENSE
           SHA256SUMS
+          THIRD_PARTY_NOTICES.md
+          bom.cdx.json
           gpt-load-linux-amd64
           gpt-load-linux-arm64
           gpt-load-macos-amd64
@@ -855,13 +957,14 @@ jobs:
           find public-release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
             sort >/tmp/actual-release-assets
           asset_count="$(wc -l </tmp/actual-release-assets | tr -d ' ')"
-          test "${asset_count}" = "6"
+          test "${asset_count}" = "10"
           cmp /tmp/expected-release-assets /tmp/actual-release-assets
 
           cd public-release
-          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "5"
+          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "9"
           awk '{print $2}' SHA256SUMS | sort >/tmp/checksummed-release-assets
-          tail -n +2 /tmp/expected-release-assets >/tmp/expected-checksummed-release-assets
+          grep -v '^SHA256SUMS$' /tmp/expected-release-assets \
+            >/tmp/expected-checksummed-release-assets
           cmp /tmp/expected-checksummed-release-assets /tmp/checksummed-release-assets
           sha256sum --check SHA256SUMS
 

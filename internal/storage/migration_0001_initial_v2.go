@@ -14,7 +14,7 @@ import (
 func createInitialV2Tables(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&models.Group{},
-		&models.UpstreamKey{},
+		&models.Credential{},
 		&models.AccessKey{},
 		&models.RequestLog{},
 		&models.RequestLogAttempt{},

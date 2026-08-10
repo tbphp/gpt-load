@@ -2,12 +2,14 @@ package control
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -25,14 +27,13 @@ type GroupEffectiveConfigResponse struct {
 // It deliberately excludes models and configuration that are loaded through focused
 // resources.
 type GroupSummaryResponse struct {
-	ID            uint                  `json:"id"`
-	Name          string                `json:"name"`
-	ProviderID    *string               `json:"provider_id"`
-	ServiceStatus GroupCollectionStatus `json:"service_status"`
-	UpstreamURL   string                `json:"upstream_url"`
-	Protocols     []protocol.Protocol   `json:"protocols"`
-	KeyCount      int64                 `json:"key_count"`
-	ModelCount    int                   `json:"model_count"`
+	ID              uint                  `json:"id"`
+	Name            string                `json:"name"`
+	ChannelID       channel.ID            `json:"channel_id"`
+	Params          json.RawMessage       `json:"params"`
+	ServiceStatus   GroupCollectionStatus `json:"service_status"`
+	CredentialCount int64                 `json:"credential_count"`
+	ModelCount      int                   `json:"model_count"`
 }
 
 func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSummaryResponse, error) {
@@ -48,14 +49,11 @@ func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSumma
 			continue
 		}
 		return GroupSummaryResponse{
-			ID:            record.ID,
-			Name:          record.Name,
-			ProviderID:    cloneString(record.ProviderID),
-			ServiceStatus: record.Status,
-			UpstreamURL:   record.UpstreamURL,
-			Protocols:     append([]protocol.Protocol(nil), record.Protocols...),
-			KeyCount:      record.KeyCounts.Total,
-			ModelCount:    int(record.ModelCount),
+			ID: record.ID, Name: record.Name,
+			ChannelID: record.ChannelID, Params: append(json.RawMessage(nil), record.Params...),
+			ServiceStatus:   record.Status,
+			CredentialCount: record.CredentialCounts.Total,
+			ModelCount:      int(record.ModelCount),
 		}, nil
 	}
 	return GroupSummaryResponse{}, app_errors.ErrResourceNotFound
@@ -89,6 +87,9 @@ func effectiveGroupConfig(
 func loadGroupRow(db *gorm.DB, groupID uint) (models.Group, error) {
 	var group models.Group
 	if err := db.Where("id = ?", groupID).Take(&group).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.Group{}, groupNotFoundError()
+		}
 		return models.Group{}, app_errors.ParseDBError(err)
 	}
 	return group, nil

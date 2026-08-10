@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -226,8 +228,12 @@ func testEvent(id string) telemetry.RequestEvent {
 			Sequence:        1,
 			GroupID:         7,
 			GroupName:       "primary",
-			KeyID:           8,
+			ChannelID:       channel.OpenAI,
+			CredentialID:    8,
+			Operation:       execution.OperationChatCompletion,
+			RouteMode:       channel.RouteNative,
 			UpstreamModel:   "upstream-model",
+			DispatchState:   execution.DispatchMaybeSent,
 			StatusCode:      200,
 			DurationMs:      20,
 			FailureCategory: telemetry.FailureCategoryOK,
@@ -235,7 +241,8 @@ func testEvent(id string) telemetry.RequestEvent {
 		}},
 		Usage: telemetry.UsageObservation{
 			GroupID:         7,
-			KeyID:           8,
+			ChannelID:       channel.OpenAI,
+			CredentialID:    8,
 			AttemptSequence: 1,
 			Result: usage.Result{
 				State: usage.StateNotApplicable,

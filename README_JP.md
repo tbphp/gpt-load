@@ -3,10 +3,10 @@
 [English](README.md) | [中文](README_CN.md) | 日本語
 
 [![Release](https://img.shields.io/github/v/release/tbphp/gpt-load)](https://github.com/tbphp/gpt-load/releases)
-![Go Version](https://img.shields.io/badge/Go-1.25-blue.svg)
+![Go Version](https://img.shields.io/badge/Go-1.26-blue.svg)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・ネイティブプロトコルゲートウェイです。管理UIを内蔵した単一バイナリでOpenAI、Anthropic、Geminiおよび互換上流のキーを管理し、各プロバイダーのネイティブなデータプレーンエンドポイントを公開します。
+GPT-Loadは、Goで構築されたセルフホスト型のマルチチャネルAIゲートウェイです。管理UIを内蔵した単一バイナリでチャネルプリセットと暗号化された認証情報を管理し、OpenAI、Anthropic、Gemini互換のクライアントエンドポイントを公開します。
 
 公開済みの1.4.xメンテナンスラインについては、[公式ドキュメント](https://www.gpt-load.com/docs?lang=ja)をご覧ください。
 
@@ -41,13 +41,14 @@ GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・�
 > [!WARNING]
 > 2.0は現在、**プレリリースのローカル候補**です。M3/M4の候補コードとローカル検証の保存済み証跡はありますが、正式なリリース判断・承認と公開は完了していません。`v2.0.0`タグ、GitHub Release、公開バイナリ、公開コンテナイメージが利用可能だと確認できる証拠はありません。checkoutやブランチの状態はリリースの証拠にはなりません。
 
-2.0は1.xとデータ互換性のないgreenfield rewriteです。`main`は引き続き1.4.xメンテナンスラインを提供します。リリース契約では明示的な`2`、`2.0`、`v2.0.0`コンテナタグを予約し、`latest`を自動更新しませんが、これらの名前自体はイメージの公開を意味しません。
+2.0は1.xとデータ互換性のないgreenfield rewriteです。既存の2.xデータベースはインプレースで前方移行できます。アップグレード前にサービスを停止し、対応するencryption keyとともにデータベースをバックアップしてください。`main`は引き続き1.4.xメンテナンスラインを提供します。リリース契約では明示的な`2`、`2.0`、`v2.0.0`コンテナタグを予約し、`latest`を自動更新しませんが、これらの名前自体はイメージの公開を意味しません。
 
 ## 2.0の機能
 
 - **2つのプレーン**：データプレーンはプロバイダーのネイティブパスを維持し、管理APIは`/api`に統一されます。管理UIは同じGoバイナリに内蔵されます。
-- **4つの選択可能なネイティブプロトコル**：OpenAI Completions、OpenAI Responses、Anthropic Messages、Geminiのリクエストをそれぞれのプロトコルで転送します。Groupでは任意に複数選択でき、プロトコル間の変換は行いません。
-- **キーとトラフィックの管理**：Group、暗号化された上流Key、AccessKey、モデル検出、フィルターとレート制限、スケジューリング、ヘルス状態、cooldown、blacklist、自動重み付け。
+- **4つのクライアントプロトコル**：OpenAI Completions、OpenAI Responses、Anthropic Messages、Geminiの公開エンドポイントを維持します。各チャネルはネイティブまたは変換可能なoperationを明示し、未対応の機能組み合わせは送信前に拒否します。
+- **チャネルとトラフィックの管理**：ユーザーは検索可能なコード定義チャネルを選び、モデルと暗号化認証情報を入力します。GPT-LoadがAccessKeyフィルター、Groupをまたぐ認証情報スケジューリング、リトライ判断、ヘルス、cooldown、blacklist、自動重み付けを所有します。
+- **Provider実行**：公式Bifrost Core Go SDKがProvider固有の認証、request/response変換、streaming、usage正規化、エラー解析を担当します。GPT-Loadは論理attemptごとに1つの認証情報を固定し、Bifrostの設定可能なretryとfallbackを無効にします。
 - **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
 - **使用量と推定コスト**：4プロトコルのうち生成usageを返すエンドポイントからusageを取得し、24時間/30日レポート、リクエスト単位の品質状態、利用可能な場合にModels.devから同期する完全一致の4価格スロット、ユーザー管理価格を提供します。
 
@@ -58,12 +59,11 @@ M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル�
 - 正しさを保証するのは**単一アプリケーションインスタンス**のみで、複数インスタンスの協調には対応しません。
 - 統一された `DATABASE_DSN` で SQLite、MySQL、PostgreSQL をサポートします。現在のリリースはこの3種類の最新安定版を対象とし、その他のデータベース製品には対応しません。
 - GroupはAccessKeyとランタイム設定で選択され、データプレーンURLには含まれません。
-- プロトコル設定はclean breakです。使用できる値は`openai-completions`、`openai-responses`、`anthropic`、`gemini`だけです。旧値`openai`、`openai-response`、`openai-chat-completions`に互換処理はありません。
-- データベースに旧プロトコル値が1件でも残ると、`ConfigSnapshot`全体のコンパイルが失敗し、起動または設定公開を停止します。エラーにはGroupまたはAccessKeyのIDと不正な値が含まれます。起動前にプレリリース2.0のデータを再構築してください。プロトコル値のインプレース移行はありません。
-- OpenAI ResponsesのリソースルーティングにはKey affinityがありません。`previous_response_id`または`conversation`を使うステートフルな複数ターンと、後続のretrieve/delete/cancel/input-itemsは、上流Keyが1つの場合、または上流がKey間でリソースストレージを共有する場合だけ確実です。それ以外では、選択された上流からresource-not-foundが返る可能性があります。
-- 上流キーは必ず保存時に暗号化され、平文へのフォールバックはありません。2.0.0はマスターキーのローテーションに対応せず、`migrate-keys`は明示的に失敗する延期コマンドのままです。
-- 1.xデータの自動移行、インプレースアップグレード、逆同期には対応しません。
-- プロトコル変換、オンライン請求照合、オンラインバックアップAPI、バックアップCLIは提供しません。Models.dev同期が提供するのは推定用メタデータだけで、プロバイダー請求書やインボイスではありません。
+- AccessKeyのクライアントプロトコルフィルターは`openai-completions`、`openai-responses`、`anthropic`、`gemini`を使用します。Groupは1つの`channel_id`だけを保存し、コード定義プリセットがProvider動作、クライアントプロトコル、認証情報schema、モデル検出、Models.dev対応を決定します。
+- OpenAI ResponsesのリソースルーティングにはCredential affinityがありません。`previous_response_id`または`conversation`を使うステートフルな複数ターンと、後続のretrieve/delete/cancel/input-itemsは、Credentialが1つの場合、または上流がCredential間でリソースストレージを共有する場合だけ確実です。それ以外では、選択された上流からresource-not-foundが返る可能性があります。
+- チャネル認証情報は必ず保存時に暗号化され、平文へのフォールバックはありません。2.0.0はマスターキーのローテーションに対応せず、`migrate-keys`は明示的に失敗する延期コマンドのままです。
+- 1.xデータの自動移行や逆同期には対応しません。既存2.x schemaはmigration ledgerで前方移行します。
+- オンライン請求照合、オンラインバックアップAPI、バックアップCLIは提供しません。Models.dev同期が提供するのは推定用メタデータだけで、プロバイダー請求書やインボイスではありません。
 
 ## クイックスタート
 
@@ -128,9 +128,9 @@ curl --fail http://localhost:3001/health
 | Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini非ストリーミング生成 |
 | Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Geminiストリーミング生成 |
 
-GPT-Loadは方言間の変換を行いません。GroupはAccessKeyとランタイム設定で選択され、URLパスセグメントとして渡しません。
+GroupはAccessKeyとランタイム設定で選択され、URLパスセグメントとして渡しません。選択されたチャネルがoperationをネイティブ実行するか変換するかを決定します。変換はcapability gateを通り、任意JSONの無損失変換を保証しません。
 
-正規のプロトコル設定値と表示名は次のとおりです。
+正規のクライアントプロトコルフィルター値と表示名は次のとおりです。
 
 | 設定値 | 表示名 |
 |---|---|
@@ -139,16 +139,16 @@ GPT-Loadは方言間の変換を行いません。GroupはAccessKeyとランタ�
 | `anthropic` | Anthropic |
 | `gemini` | Gemini |
 
-組み込みOpenAIプロバイダープリセットは、preset IDとして`openai`を維持し、URLに`https://api.openai.com/v1`を使用して、デフォルトで2つのOpenAIプロトコルを有効にします。両方とも通常の独立した選択肢で、どちらか一方または両方を選択できます。
+組み込み`openai`チャネルは2つのOpenAIクライアントプロトコルをサポートします。その他の公式、主要中継、互換、クラウドチャネルはコードプリセットで宣言されたoperationと機能だけを公開し、Groupごとのプロトコルチェックボックスはありません。
 
-Responsesルーティングはリソースごとのallowlistではなく、名前空間境界で一致します。AccessKey認証後、`/v1/responses`と通常のサブパスは同じスケジューラーおよび転送パイプラインに入ります。デコード済みの`.`または`..`パスセグメントは、正規化やリダイレクトによる認可済み名前空間からの逸脱を防ぐためローカルで拒否します。`OPTIONS`、`CONNECT`、`TRACE`もローカルで拒否し、`GET`、`POST`、`DELETE`、`HEAD`を含むその他のmethodは転送します。パスとqueryはGo URL正規化の範囲内で保持され、デコード済み`URL.Path`は再エンコードされ、`RawPath`は保持されません。GPT-LoadはリソースIDを使って別のKeyを検索しません。選択された上流の応答（resource-not-foundを含む）は、共通の応答安全境界を通して返されます。
+Responsesルーティングはリソースごとのallowlistではなく、名前空間境界で一致します。AccessKey認証後、`/v1/responses`と通常のサブパスは同じスケジューラーおよび実行パイプラインに入ります。デコード済みの`.`または`..`パスセグメントは、正規化やリダイレクトによる認可済み名前空間からの逸脱を防ぐためローカルで拒否します。`OPTIONS`、`CONNECT`、`TRACE`もローカルで拒否し、`GET`、`POST`、`DELETE`、`HEAD`を含むその他のmethodは転送します。パスとqueryはGo URL正規化の範囲内で保持され、デコード済み`URL.Path`は再エンコードされ、`RawPath`は保持されません。GPT-LoadはリソースIDを使って別のCredentialを検索しません。選択された上流の応答（resource-not-foundを含む）は、共通の応答安全境界を通して返されます。
 
-Responsesを有効にしたGroupはモデル一覧が空でも、modelを含まないResponsesリソースAPIを処理できます。通常のcreateを含むmodel付き要求には、引き続き一致するモデルルートが必要です。
+ResponsesをサポートするチャネルのGroupはモデル一覧が空でも、modelを含まないResponsesリソースAPIを処理できます。通常のcreateを含むmodel付き要求には、引き続き一致するモデルルートが必要です。
 
 > [!WARNING]
-> 2.0.0はResponses affinityを実装していません。`previous_response_id`または`conversation`を使うステートフルな複数ターン、および既存response IDへのリソース操作は、別のGroup/Keyに到達して上流404を受ける場合があります。affinity実装までは、単一Key、`store: false`によるステートレスなitem replay、またはKey間でリソースストレージを共有する上流を使用してください。
+> 2.0.0はResponses affinityを実装していません。`previous_response_id`または`conversation`を使うステートフルな複数ターン、および既存response IDへのリソース操作は、別のGroup/Credentialに到達して上流404を受ける場合があります。affinity実装までは、単一Credential、`store: false`によるステートレスなitem replay、またはCredential間でリソースストレージを共有する上流を使用してください。
 
-Responsesのcreateとcompactはusage抽出の対象です。retrieve、delete、cancel、input-items、input-token-count、不明な拡張サブパスはRequestLogでusage `not_applicable`として記録されます。`InjectUsageOptions`は引き続きcapabilityベースです。Responses dialectはOpenAI Completionsの`stream_options.include_usage`を実装しないため、このGroup設定はResponsesでは無視されます。Responsesだけを選択したGroupは`input: "ping"`、`max_output_tokens: 16`、`store: false`でprobeします。2つのOpenAIプロトコルを選択した場合は、OpenAI CompletionsをGroup/Keyの代表probeとして使用します。プロトコル単位のヘルス状態はありません。
+Responsesのcreateとcompactはusage抽出の対象です。retrieve、delete、cancel、input-items、input-token-count、不明な拡張サブパスはRequestLogでusage `not_applicable`として記録されます。モデル検出とvalidationはユーザーのプロトコル選択ではなく、チャネルプリセットが決定します。
 
 OpenAI Completionsの例：
 
@@ -188,7 +188,7 @@ print(response.output_text)
 
 ## 管理、使用量、コスト
 
-管理UIは`/`、管理APIは`/api`で提供され、どちらも`AUTH_KEY`を使用します。UIにはGroup、上流キー、AccessKey、ランタイム設定、ヘルス、ログ、ルート検査、Usage、モデル価格管理があります。管理APIの事実源は現在のコードとUIであり、このREADMEでは変化しやすいルート一覧を複製しません。
+管理UIは`/`、管理APIは`/api`で提供され、どちらも`AUTH_KEY`を使用します。UIには検索可能なチャネル一覧、Group、暗号化認証情報、AccessKey、ランタイム設定、ヘルス、ログ、ルート検査、Usage、モデル価格管理があります。管理APIの事実源は現在のコードとUIであり、このREADMEでは変化しやすいルート一覧を複製しません。
 
 モデルカタログの自動同期はデフォルトで有効で、コントロールプレーンから固定エンドポイント`https://models.dev/api.json`へアクセスします。起動処理は非同期のままで、永続化したlast-known-goodカタログを利用できます。手動同期も常に利用でき、データプレーンのリクエストがModels.devへアクセスすることはありません。
 
@@ -197,7 +197,7 @@ Usage/Costの品質境界：
 - `complete`と`partial`のusageは既知のtoken次元を集計し、`missing` usageはリクエスト数と品質カウントだけに入ります。
 - `priced`リクエストは既知の推定コストを集計します。`pricing_partial`は計算可能な部分を保持しながら価格カバレッジ不足を示し、`unpriced`に推測価格を割り当てることはありません。
 - ストリームのclean EOFは完全なusageを保証せず、互換中継サービスがプロバイダー公式の終端usageを返さない場合もあります。
-- 価格はGroupのProviderまたはカスタムGroupスコープ内で上流モデルに完全一致します。4つの平面価格スロットは入力、出力、キャッシュ読み取り、キャッシュ書き込みで、明示的な`0`は無料、未設定は推定不可を表します。
+- 価格は`(channel_id, 上流モデル)`に完全一致します。Models.devが唯一の自動価格ソースで、ユーザーの明示的overrideと既存fallbackルールは維持されます。4つの平面価格スロットは入力、出力、キャッシュ読み取り、キャッシュ書き込みで、明示的な`0`は無料、未設定は推定不可を表します。
 - 価格変更は今後の書き込みにだけ影響し、過去のRequestLogやUsageStatは再計算されません。
 - 現在のプロセスにおけるdropped/write-failureカウンターと、データベース期間内の永続集計は異なる範囲です。
 
@@ -211,7 +211,7 @@ Usage/Costの品質境界：
 | `DATA_DIR` | `./data` | ネイティブの永続ディレクトリ。コンテナ内では`/app/data`に上書き |
 | `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空ならmanaged SQLiteを選択。非空値は統一された`sqlite`、`mysql`、`postgres` URLで指定し、operatorが管理 |
 | `AUTH_KEY` | keyfileを自動生成 | 管理bearer認証情報。明示値に空白は使用不可。空の場合`${DATA_DIR}/auth.key`を読み取りまたは作成 |
-| `ENCRYPTION_KEY` | keyfileを自動生成 | 上流キー暗号化用マスターキー。空の場合`${DATA_DIR}/encryption.key`を読み取りまたは作成 |
+| `ENCRYPTION_KEY` | keyfileを自動生成 | チャネル認証情報の暗号化用マスターキー。空の場合`${DATA_DIR}/encryption.key`を読み取りまたは作成 |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | 未設定 | Models.dev自動同期の任意の厳密なboolean override。未設定ではデフォルト有効のランタイム設定を使用 |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | グレースフルシャットダウンの秒数 |
 | `READ_TIMEOUT` | `60` | リクエスト全体を読み取る最大秒数 |
@@ -237,9 +237,9 @@ postgres://user:password@db.example:5432/gpt_load?sslmode=require
 - データベースの所有区分はraw `DATABASE_DSN`だけで決まります。空なら`${DATA_DIR}`配下のmanaged SQLite DB/WAL/SHM、非空ならoperator所有のexternalデータベースです。GPT-Loadはexternalに対してmkdir、chmod、データベースやユーザー作成を行わず、operatorが別途バックアップします。
 - secretの所有区分はデータベースとは独立しています。`/api/system/info`がsecretごとにsourceを返します。データベースのsourceにかかわらず、`key_file`なら`DATA_DIR`内の対応する`auth.key` / `encryption.key`をアーカイブし、`environment`なら保護された外部secret systemから別途復元します。
 - POSIXではmanaged `${DATA_DIR}`を`0700`、managed DB/WAL/SHMとアプリケーションが作成したkeyファイルを`0600`に制限します。Windowsでは実行ユーザー専用ACLを使用しますが、この候補についてWindows runtimeの停止/ACLゲートは未実行です。
-- sourceにかかわらず、対応する`encryption.key`を失うと、暗号化済みの上流キーは復旧できません。2.0.0には自動修復やマスターキーのローテーションがありません。
+- sourceにかかわらず、対応する`encryption.key`を失うと、暗号化済みのチャネル認証情報は復旧できません。2.0.0には自動修復やマスターキーのローテーションがありません。
 - Managed SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、clean exitを待ちます。POSIXでは`SIGTERM`、WindowsではCtrl+C、Ctrl+Break、またはservice managerの停止操作を使用します。MySQL/PostgreSQLはoperatorのデータベースネイティブなバックアップ手順に従います。
-- AUTH_KEY、ENCRYPTION_KEY、AccessKey、上流キーをログ、公開issue、スクリーンショット、通常のバックアップ一覧に貼り付けないでください。
+- AUTH_KEY、ENCRYPTION_KEY、AccessKey、チャネル認証情報をログ、公開issue、スクリーンショット、通常のバックアップ一覧に貼り付けないでください。
 
 ### 公開運用ベースライン
 
@@ -259,7 +259,7 @@ postgres://user:password@db.example:5432/gpt_load?sslmode=require
 
 1. 1.xを稼働させたまま、バックアップから復元できることを確認します。
 2. 2.0には別のポート、`DATA_DIR`、データベース、Compose project、named volumeを用意し、1.xと共有しません。
-3. 最小限のGroup、上流キー、AccessKey、ルールを手動で再構築し、4つのプロトコル、ログ、usage/costを隔離環境で検証します。
+3. 最小限のGroup、チャネル認証情報、AccessKey、ルールを手動で再構築し、必要なクライアントプロトコル、ログ、usage/costを隔離環境で検証します。
 4. メンテナンス時間または小規模なロールアウトで入口トラフィックを切り替えます。失敗した場合は2.0を停止して元の1.xへ戻し、2.0で新たに生成されたデータを1.xへ逆インポートしません。
 
 `latest`は1.xから2.0への安全なアップグレードチャネルではありません。バックアップと復元は上記の公開運用ベースラインに従い、ロールバック期間が終了するまで元の1.xデプロイとデータを保持してください。
@@ -282,7 +282,7 @@ make check
 
 プロジェクトのワークフローには、フロントエンドのユニットテストとブラウザE2Eテストを含めません。フロントエンドの検証範囲は、依存関係のインストール、lint、format、type-check、buildです。
 
-2.0.0では5つのネイティブraw binaryと`SHA256SUMS`を提供する予定です。
+2.0.0では5つのネイティブraw binaryに加え、`SHA256SUMS`、CycloneDX SBOM、プロジェクトと第三者ライセンス通知を提供する予定です。
 
 - `gpt-load-linux-amd64`
 - `gpt-load-linux-arm64`
@@ -294,4 +294,4 @@ make check
 
 ## ライセンスとセキュリティ
 
-GPT-Loadは[MIT License](LICENSE)で公開されています。脆弱性は[SECURITY.md](SECURITY.md)の手順に従って報告してください。
+GPT-Loadは[MIT License](LICENSE)で公開されています。第三者通知は[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、完全なライセンス本文は[`LICENSES/`](LICENSES/)にあります。脆弱性は[SECURITY.md](SECURITY.md)の手順に従って報告してください。

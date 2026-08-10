@@ -43,8 +43,11 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 	unique := uint64(time.Now().UnixNano()) & 0xffffffffffff
 	requestID := fmt.Sprintf("00000000-0000-4000-8000-%012x", unique)
 	groupID := uint(unique % 1_000_000)
+	credentialID := groupID + 1
 	modelID := fmt.Sprintf("external-request-log-%012x", unique)
 	row := aggregationRow(requestID, now.Add(-40*24*time.Hour), groupID, modelID)
+	row.ChannelID = "openai"
+	row.CredentialID = credentialID
 	writer := &gormBatchWriter{db: db}
 	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
 		t.Fatalf("first WriteBatch() error = %v", err)
@@ -55,12 +58,32 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 	assertExternalRequestLogCount(t, db, "id = ?", []any{requestID}, 1)
 	// aggregationRow is deliberately placed on an exact hour, so its completed
 	// timestamp is the usage aggregate bucket as well.
-	assertExternalUsageStatCount(t, db, row.CompletedAtMS, row.AccessKeyID, groupID, modelID, 1)
+	assertExternalUsageStatCount(
+		t,
+		db,
+		row.CompletedAtMS,
+		row.AccessKeyID,
+		row.ChannelID,
+		groupID,
+		credentialID,
+		modelID,
+		1,
+	)
 
 	service := NewService(db, redact.New(), staticRetentionPolicy{days: 1})
 	service.Sweep(context.Background(), now)
 	assertExternalRequestLogCount(t, db, "id = ?", []any{requestID}, 0)
-	assertExternalUsageStatCount(t, db, row.CompletedAtMS, row.AccessKeyID, groupID, modelID, 0)
+	assertExternalUsageStatCount(
+		t,
+		db,
+		row.CompletedAtMS,
+		row.AccessKeyID,
+		row.ChannelID,
+		groupID,
+		credentialID,
+		modelID,
+		0,
+	)
 	var journals int64
 	if err := db.Model(&models.UsageAggregationJournal{}).
 		Where("request_id = ?", requestID).
@@ -88,7 +111,9 @@ func assertExternalUsageStatCount(
 	db *gorm.DB,
 	bucketStartMS int64,
 	accessKeyID uint,
+	channelID string,
 	groupID uint,
+	credentialID uint,
 	modelID string,
 	want int64,
 ) {
@@ -96,10 +121,12 @@ func assertExternalUsageStatCount(
 	var count int64
 	if err := db.Model(&models.UsageStat{}).
 		Where(
-			"bucket_start_ms = ? AND access_key_id = ? AND group_id = ? AND model = ?",
+			"bucket_start_ms = ? AND access_key_id = ? AND channel_id = ? AND group_id = ? AND credential_id = ? AND model = ?",
 			bucketStartMS,
 			accessKeyID,
+			channelID,
 			groupID,
+			credentialID,
 			modelID,
 		).
 		Count(&count).Error; err != nil {

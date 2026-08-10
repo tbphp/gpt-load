@@ -13,8 +13,8 @@ import { RequestCancelledError } from '@/api/errors'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import {
   inspectRoute,
+  type RouteInspectCredentialDto,
   type RouteInspectGroupDto,
-  type RouteInspectKeyDto,
   type RouteInspectReasonCode,
   type RouteInspectRequest,
   type RouteInspectResponseDto,
@@ -50,17 +50,19 @@ const knownReasons = new Set<RouteInspectReasonCode>([
   'protocol_filtered',
   'model_filtered',
   'model_required_by_filter',
+  'capability_unsupported',
   'no_route_target',
   'group_disabled',
   'group_filtered',
   'no_available_group',
-  'no_keys',
+  'no_credentials',
   'group_weight_zero',
-  'key_disabled',
-  'key_blacklisted',
-  'key_cooldown',
-  'key_weight_zero',
-  'no_available_key',
+  'credential_disabled',
+  'credential_blacklisted',
+  'credential_cooldown',
+  'credential_weight_zero',
+  'credential_not_allowed',
+  'no_available_credential',
 ])
 
 const client = useApiClient()
@@ -137,8 +139,8 @@ const includedGroups = computed(() =>
 const excludedGroups = computed(() =>
   (observation.value?.groups ?? []).filter((group) => !group.included),
 )
-const availableKeyCount = computed(() =>
-  includedGroups.value.reduce((total, group) => total + groupAvailableKeyCount(group), 0),
+const availableCredentialCount = computed(() =>
+  includedGroups.value.reduce((total, group) => total + groupAvailableCredentialCount(group), 0),
 )
 const totalEffectiveWeight = computed(() =>
   includedGroups.value.reduce((total, group) => total + groupEffectiveWeight(group), 0),
@@ -347,23 +349,28 @@ function groupTone(group: RouteInspectGroupDto): StatusTone {
   return group.routable ? 'success' : 'danger'
 }
 
-function keyTone(key: RouteInspectKeyDto): StatusTone {
-  if (key.available) return 'success'
-  if (key.reason_code === 'key_cooldown') return 'warning'
-  if (key.reason_code === 'key_blacklisted') return 'danger'
+function credentialTone(credential: RouteInspectCredentialDto): StatusTone {
+  if (credential.available) return 'success'
+  if (credential.reason_code === 'credential_cooldown') return 'warning'
+  if (credential.reason_code === 'credential_blacklisted') return 'danger'
   return 'neutral'
 }
 
-function keyStatusLabel(key: RouteInspectKeyDto): string {
-  return key.available ? t('monitor.inspector.keys.available') : reasonLabel(key.reason_code)
+function credentialStatusLabel(credential: RouteInspectCredentialDto): string {
+  return credential.available
+    ? t('monitor.inspector.credentials.available')
+    : reasonLabel(credential.reason_code)
 }
 
-function groupAvailableKeyCount(group: RouteInspectGroupDto): number {
-  return group.keys.filter((key) => key.available).length
+function groupAvailableCredentialCount(group: RouteInspectGroupDto): number {
+  return group.credentials.filter((credential) => credential.available).length
 }
 
 function groupEffectiveWeight(group: RouteInspectGroupDto): number {
-  return group.keys.reduce((total, key) => total + (key.available ? key.effective_weight : 0), 0)
+  return group.credentials.reduce(
+    (total, credential) => total + (credential.available ? credential.effective_weight : 0),
+    0,
+  )
 }
 
 function groupShare(group: RouteInspectGroupDto): number {
@@ -376,11 +383,11 @@ function groupShareLabel(group: RouteInspectGroupDto): string {
   return formatPercent(groupEffectiveWeight(group), totalEffectiveWeight.value, locale.value)
 }
 
-function candidateKeySummary(group: RouteInspectGroupDto): string {
-  const available = groupAvailableKeyCount(group)
-  return t('monitor.inspector.keys.summary', {
+function candidateCredentialSummary(group: RouteInspectGroupDto): string {
+  const available = groupAvailableCredentialCount(group)
+  return t('monitor.inspector.credentials.summary', {
     available: formattedInteger(available),
-    unavailable: formattedInteger(group.keys.length - available),
+    unavailable: formattedInteger(group.credentials.length - available),
   })
 }
 
@@ -579,13 +586,13 @@ onBeforeUnmount(() => {
               </OverflowTooltip>
             </div>
             <div class="route-fact">
-              <dt>{{ t('monitor.inspector.result.availableKeys') }}</dt>
+              <dt>{{ t('monitor.inspector.result.availableCredentials') }}</dt>
               <OverflowTooltip
                 as="dd"
                 class="route-fact__number"
-                :content="formattedInteger(availableKeyCount)"
+                :content="formattedInteger(availableCredentialCount)"
               >
-                {{ formattedInteger(availableKeyCount) }}
+                {{ formattedInteger(availableCredentialCount) }}
               </OverflowTooltip>
             </div>
           </dl>
@@ -617,7 +624,9 @@ onBeforeUnmount(() => {
             <div class="route-candidate-ledger__header" role="row" aria-rowindex="1">
               <span role="columnheader">{{ t('monitor.inspector.groups.columns.group') }}</span>
               <span role="columnheader">{{ t('monitor.inspector.groups.columns.status') }}</span>
-              <span role="columnheader">{{ t('monitor.inspector.groups.columns.keys') }}</span>
+              <span role="columnheader">{{
+                t('monitor.inspector.groups.columns.credentials')
+              }}</span>
               <span role="columnheader">{{ t('monitor.inspector.groups.columns.weight') }}</span>
               <span role="columnheader">{{ t('monitor.inspector.groups.columns.share') }}</span>
               <span role="columnheader">{{ t('monitor.inspector.groups.columns.actions') }}</span>
@@ -658,11 +667,11 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="route-candidate__measure" role="cell">
                   <span class="route-cell-label">{{
-                    t('monitor.inspector.groups.columns.keys')
+                    t('monitor.inspector.groups.columns.credentials')
                   }}</span>
                   <strong>
-                    {{ formattedInteger(groupAvailableKeyCount(group)) }} /
-                    {{ formattedInteger(group.keys.length) }}
+                    {{ formattedInteger(groupAvailableCredentialCount(group)) }} /
+                    {{ formattedInteger(group.credentials.length) }}
                   </strong>
                   <small>{{ t('monitor.inspector.groups.availableTotal') }}</small>
                 </div>
@@ -699,11 +708,11 @@ onBeforeUnmount(() => {
                 </span>
               </summary>
 
-              <div class="route-key-details">
-                <header class="route-key-details__header">
+              <div class="route-credential-details">
+                <header class="route-credential-details__header">
                   <div>
-                    <strong>{{ t('monitor.inspector.keys.title') }}</strong>
-                    <span>{{ candidateKeySummary(group) }}</span>
+                    <strong>{{ t('monitor.inspector.credentials.title') }}</strong>
+                    <span>{{ candidateCredentialSummary(group) }}</span>
                   </div>
                   <span>
                     {{
@@ -714,89 +723,111 @@ onBeforeUnmount(() => {
                   </span>
                 </header>
 
-                <p v-if="group.keys.length === 0" class="route-key-details__empty">
-                  {{ t('monitor.inspector.keys.noneReturned') }}
+                <p v-if="group.credentials.length === 0" class="route-credential-details__empty">
+                  {{ t('monitor.inspector.credentials.noneReturned') }}
                 </p>
 
                 <LedgerRecordList
                   v-else
-                  :label="t('monitor.inspector.keys.tableLabel', { name: group.group_name })"
-                  :row-count="group.keys.length + 1"
+                  :label="t('monitor.inspector.credentials.tableLabel', { name: group.group_name })"
+                  :row-count="group.credentials.length + 1"
                   :scroll-hint="t('monitor.scrollHint')"
-                  grid-class="route-key-grid"
+                  grid-class="route-credential-grid"
                 >
                   <template #header>
-                    <span role="columnheader">{{ t('monitor.inspector.keys.columns.key') }}</span>
                     <span role="columnheader">{{
-                      t('monitor.inspector.keys.columns.status')
+                      t('monitor.inspector.credentials.columns.credential')
                     }}</span>
                     <span role="columnheader">{{
-                      t('monitor.inspector.keys.columns.manual')
-                    }}</span>
-                    <span role="columnheader">{{ t('monitor.inspector.keys.columns.auto') }}</span>
-                    <span role="columnheader">{{
-                      t('monitor.inspector.keys.columns.effective')
+                      t('monitor.inspector.credentials.columns.status')
                     }}</span>
                     <span role="columnheader">{{
-                      t('monitor.inspector.keys.columns.cooldown')
+                      t('monitor.inspector.credentials.columns.manual')
+                    }}</span>
+                    <span role="columnheader">{{
+                      t('monitor.inspector.credentials.columns.auto')
+                    }}</span>
+                    <span role="columnheader">{{
+                      t('monitor.inspector.credentials.columns.effective')
+                    }}</span>
+                    <span role="columnheader">{{
+                      t('monitor.inspector.credentials.columns.cooldown')
                     }}</span>
                   </template>
 
                   <article
-                    v-for="(key, keyIndex) in group.keys"
-                    :key="key.key_id"
-                    class="ledger-record-list__record route-key-record"
+                    v-for="(credential, credentialIndex) in group.credentials"
+                    :key="credential.credential_id"
+                    class="ledger-record-list__record route-credential-record"
                     role="row"
-                    :aria-rowindex="keyIndex + 2"
+                    :aria-rowindex="credentialIndex + 2"
                   >
-                    <div class="ledger-record-list__cell route-key-record__identity" role="cell">
-                      <span class="route-key-label">{{
-                        t('monitor.inspector.keys.columns.key')
+                    <div
+                      class="ledger-record-list__cell route-credential-record__identity"
+                      role="cell"
+                    >
+                      <span class="route-credential-label">{{
+                        t('monitor.inspector.credentials.columns.credential')
                       }}</span>
-                      <code>#{{ key.key_id }}</code>
+                      <code>#{{ credential.credential_id }}</code>
                     </div>
-                    <div class="ledger-record-list__cell route-key-record__status" role="cell">
-                      <span class="route-key-label">{{
-                        t('monitor.inspector.keys.columns.status')
+                    <div
+                      class="ledger-record-list__cell route-credential-record__status"
+                      role="cell"
+                    >
+                      <span class="route-credential-label">{{
+                        t('monitor.inspector.credentials.columns.status')
                       }}</span>
-                      <StatusBadge :tone="keyTone(key)" size="compact">
-                        {{ keyStatusLabel(key) }}
+                      <StatusBadge :tone="credentialTone(credential)" size="compact">
+                        {{ credentialStatusLabel(credential) }}
                       </StatusBadge>
-                      <code v-if="key.reason_code">{{ key.reason_code }}</code>
+                      <code v-if="credential.reason_code">{{ credential.reason_code }}</code>
                     </div>
-                    <div class="ledger-record-list__cell route-key-record__weight" role="cell">
-                      <span class="route-key-label">{{
-                        t('monitor.inspector.keys.columns.manual')
+                    <div
+                      class="ledger-record-list__cell route-credential-record__weight"
+                      role="cell"
+                    >
+                      <span class="route-credential-label">{{
+                        t('monitor.inspector.credentials.columns.manual')
                       }}</span>
-                      <span>{{ nullableWeight(key.weight_manual) }}</span>
+                      <span>{{ nullableWeight(credential.weight_manual) }}</span>
                     </div>
-                    <div class="ledger-record-list__cell route-key-record__weight" role="cell">
-                      <span class="route-key-label">{{
-                        t('monitor.inspector.keys.columns.auto')
+                    <div
+                      class="ledger-record-list__cell route-credential-record__weight"
+                      role="cell"
+                    >
+                      <span class="route-credential-label">{{
+                        t('monitor.inspector.credentials.columns.auto')
                       }}</span>
-                      <span>{{ formattedInteger(key.weight_auto) }}</span>
+                      <span>{{ formattedInteger(credential.weight_auto) }}</span>
                     </div>
-                    <div class="ledger-record-list__cell route-key-record__weight" role="cell">
-                      <span class="route-key-label">{{
-                        t('monitor.inspector.keys.columns.effective')
+                    <div
+                      class="ledger-record-list__cell route-credential-record__weight"
+                      role="cell"
+                    >
+                      <span class="route-credential-label">{{
+                        t('monitor.inspector.credentials.columns.effective')
                       }}</span>
-                      <span>{{ formattedInteger(key.effective_weight) }}</span>
+                      <span>{{ formattedInteger(credential.effective_weight) }}</span>
                     </div>
-                    <div class="ledger-record-list__cell route-key-record__cooldown" role="cell">
-                      <span class="route-key-label">{{
-                        t('monitor.inspector.keys.columns.cooldown')
+                    <div
+                      class="ledger-record-list__cell route-credential-record__cooldown"
+                      role="cell"
+                    >
+                      <span class="route-credential-label">{{
+                        t('monitor.inspector.credentials.columns.cooldown')
                       }}</span>
                       <AppDateTime
-                        v-if="key.cooldown_until_ms !== null"
-                        :instant="key.cooldown_until_ms"
+                        v-if="credential.cooldown_until_ms !== null"
+                        :instant="credential.cooldown_until_ms"
                         :locale="locale"
                       />
-                      <span v-else>{{ t('monitor.inspector.keys.none') }}</span>
+                      <span v-else>{{ t('monitor.inspector.credentials.none') }}</span>
                     </div>
                   </article>
                 </LedgerRecordList>
 
-                <footer class="route-key-details__footer">
+                <footer class="route-credential-details__footer">
                   <RouterLink
                     v-slot="{ navigate }"
                     :to="groupDetailLocation(group.group_id)"
@@ -851,7 +882,7 @@ onBeforeUnmount(() => {
               :aria-rowindex="index + 2"
             >
               <div class="ledger-record-list__cell route-exclusion-record__identity" role="cell">
-                <span class="route-key-label">{{
+                <span class="route-credential-label">{{
                   t('monitor.inspector.groups.columns.group')
                 }}</span>
                 <OverflowTooltip as="strong" :content="group.group_name">
@@ -865,7 +896,7 @@ onBeforeUnmount(() => {
                 </OverflowTooltip>
               </div>
               <div class="ledger-record-list__cell" role="cell">
-                <span class="route-key-label">{{
+                <span class="route-credential-label">{{
                   t('monitor.inspector.groups.columns.status')
                 }}</span>
                 <StatusBadge tone="neutral" size="compact">
@@ -873,11 +904,13 @@ onBeforeUnmount(() => {
                 </StatusBadge>
               </div>
               <div class="ledger-record-list__cell route-exclusion-record__reason" role="cell">
-                <span class="route-key-label">{{ t('monitor.inspector.result.reason') }}</span>
+                <span class="route-credential-label">{{
+                  t('monitor.inspector.result.reason')
+                }}</span>
                 {{ reasonLabel(group.reason_code) }}
               </div>
               <div class="ledger-record-list__cell route-exclusion-record__code" role="cell">
-                <span class="route-key-label">{{
+                <span class="route-credential-label">{{
                   t('monitor.inspector.excluded.reasonCode')
                 }}</span>
                 <code>{{ group.reason_code ?? '—' }}</code>
@@ -1173,11 +1206,11 @@ onBeforeUnmount(() => {
 }
 
 .route-cell-label,
-.route-key-label {
+.route-credential-label {
   display: none;
 }
 
-.route-key-details {
+.route-credential-details {
   display: grid;
   gap: var(--space-3);
   border-top: 1px solid var(--color-border-subtle);
@@ -1185,62 +1218,62 @@ onBeforeUnmount(() => {
   padding: 14px 16px 16px;
 }
 
-.route-key-details__header,
-.route-key-details__header > div,
-.route-key-details__footer {
+.route-credential-details__header,
+.route-credential-details__header > div,
+.route-credential-details__footer {
   display: flex;
   min-width: 0;
   align-items: center;
 }
 
-.route-key-details__header {
+.route-credential-details__header {
   justify-content: space-between;
   gap: var(--space-4);
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
 
-.route-key-details__header > div {
+.route-credential-details__header > div {
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-.route-key-details__header strong {
+.route-credential-details__header strong {
   color: var(--color-text);
   font-weight: 620;
 }
 
-.route-key-details__empty {
+.route-credential-details__empty {
   margin: 0;
   color: var(--color-text-muted);
   padding: var(--space-3) 0;
   font-size: var(--text-sm);
 }
 
-.route-key-details__footer {
+.route-credential-details__footer {
   justify-content: flex-end;
 }
 
-.route-key-grid {
+.route-credential-grid {
   --ledger-record-list-grid: 88px minmax(170px, 1.4fr) 92px 92px 108px minmax(148px, 1fr);
   --ledger-record-list-column-gap: 14px;
 }
 
-.route-key-record {
+.route-credential-record {
   --ledger-record-list-record-min-height: 58px;
   --ledger-record-list-record-padding: 9px 0;
 }
 
-.route-key-record__identity code,
-.route-key-record__weight,
-.route-key-record__cooldown,
+.route-credential-record__identity code,
+.route-credential-record__weight,
+.route-credential-record__cooldown,
 .route-exclusion-record__code {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
-.route-key-record__status {
+.route-credential-record__status {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1248,7 +1281,7 @@ onBeforeUnmount(() => {
   gap: var(--space-1);
 }
 
-.route-key-record__status code {
+.route-credential-record__status code {
   color: var(--color-text-faint);
   font-size: 10px;
 }
@@ -1383,29 +1416,29 @@ onBeforeUnmount(() => {
   }
 
   .route-cell-label,
-  .route-key-label {
+  .route-credential-label {
     display: block;
     color: var(--color-text-faint);
     font-family: var(--font-sans);
     font-size: var(--text-label-xs);
   }
 
-  .route-key-record__identity,
-  .route-key-record__weight,
-  .route-key-record__cooldown,
+  .route-credential-record__identity,
+  .route-credential-record__weight,
+  .route-credential-record__cooldown,
   .route-exclusion-record > .ledger-record-list__cell {
     display: grid;
     gap: var(--space-1);
   }
 
-  .route-key-record__identity,
-  .route-key-record__status,
+  .route-credential-record__identity,
+  .route-credential-record__status,
   .route-exclusion-record__identity,
   .route-exclusion-record__reason {
     grid-column: 1 / -1;
   }
 
-  .route-key-record__status {
+  .route-credential-record__status {
     align-items: flex-start;
   }
 
@@ -1453,11 +1486,11 @@ onBeforeUnmount(() => {
     grid-row: 1 / span 5;
   }
 
-  .route-key-details {
+  .route-credential-details {
     padding-inline: 13px;
   }
 
-  .route-key-details__header {
+  .route-credential-details__header {
     align-items: flex-start;
     flex-direction: column;
     gap: var(--space-2);

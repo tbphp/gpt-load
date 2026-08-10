@@ -1,5 +1,6 @@
 import type { AccessProtocol, GroupOptionDto } from '@/api/control/types'
 import { enabledDataProtocols } from '@/api/control/protocols'
+import type { ChannelDto } from '@/app/resources/channels'
 
 export function accessKeyProtocolOptions(): AccessProtocol[] {
   return [...enabledDataProtocols]
@@ -7,12 +8,14 @@ export function accessKeyProtocolOptions(): AccessProtocol[] {
 
 export function buildAccessKeyProtocolCandidates(
   groups: GroupOptionDto[],
+  channels: ChannelDto[],
   selectedGroupIDs: readonly number[] = [],
 ): AccessProtocol[] {
   const selected = selectAccessKeyGroups(groups, selectedGroupIDs)
   const supported = new Set<AccessProtocol>()
+  const channelByID = new Map(channels.map((channel) => [channel.channel_id, channel]))
   for (const group of selected) {
-    for (const protocol of group.protocols) {
+    for (const protocol of channelByID.get(group.channel_id)?.client_protocols ?? []) {
       supported.add(protocol)
     }
   }

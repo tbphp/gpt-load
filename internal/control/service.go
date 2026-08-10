@@ -11,7 +11,8 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/dbtx"
@@ -31,28 +32,29 @@ const (
 type Service struct {
 	db                          *gorm.DB
 	manager                     *state.Manager
-	registry                    *state.KeyRegistry
-	registrySnapshot            func() []state.KeyRuntimeView
+	registry                    *state.CredentialRegistry
+	channelRegistry             *channel.Registry
+	registrySnapshot            func() []state.CredentialRuntimeView
 	priceRuntime                *PriceRuntime
 	catalogRuntime              *catalog.Runtime
 	catalogSync                 *CatalogSyncCoordinator
 	modelsDevAutoSyncOverride   *bool
 	encryption                  encryption.Service
-	dialects                    dialect.Set
+	executor                    execution.Executor
 	requestLogs                 RequestLogReader
 	usageStats                  UsageStatReader
 	homeStatistics              HomeStatisticsReader
 	stats                       *health.StatsStore
-	mutations                   keyMutationCoordinator
+	mutations                   credentialMutationCoordinator
 	requestLogStats             RequestLogStatsReader
 	modelDiscoveryTimeout       time.Duration
 	random                      io.Reader
 	operationRandom             io.Reader
 	now                         func() time.Time
 	publishSnapshot             func(state.CompileInput) (*state.ConfigSnapshot, error)
-	reconcileRegistryGroup      func(uint, []state.KeyEntry) (bool, error)
-	applyBatchRegistryMutation  func(uint, []uint, GroupKeyBatchAction) error
-	restoreBatchRegistryEntries func(uint, []state.KeyEntry) error
+	reconcileRegistryGroup      func(uint, []state.CredentialEntry) (bool, error)
+	applyBatchRegistryMutation  func(uint, []uint, CredentialBatchAction) error
+	restoreBatchRegistryEntries func(uint, []state.CredentialEntry) error
 	beforeAdvanceOperationStage func(
 		context.Context,
 		*models.ControlOperation,
@@ -65,24 +67,33 @@ type Service struct {
 func NewService(
 	db *gorm.DB,
 	manager *state.Manager,
-	registry *state.KeyRegistry,
+	registry *state.CredentialRegistry,
 	priceRuntime *PriceRuntime,
 	catalogRuntime *catalog.Runtime,
 	cfg *config.Config,
 	encryptionService encryption.Service,
-	dialects dialect.Set,
+	executor execution.Executor,
 	requestLogs RequestLogReader,
 	usageStats UsageStatReader,
 	homeStatistics HomeStatisticsReader,
 	stats *health.StatsStore,
 	mutations *health.MutationCoordinator,
 	requestLogStats RequestLogStatsReader,
+	channelRegistries ...*channel.Registry,
 ) *Service {
+	channelRegistry := channel.NewRegistry()
+	for _, candidate := range channelRegistries {
+		if candidate != nil {
+			channelRegistry = candidate
+			break
+		}
+	}
 	service := &Service{
 		db: db, manager: manager, registry: registry,
-		priceRuntime:   priceRuntime,
-		catalogRuntime: catalogRuntime,
-		encryption:     encryptionService, dialects: dialects, requestLogs: requestLogs,
+		channelRegistry: channelRegistry,
+		priceRuntime:    priceRuntime,
+		catalogRuntime:  catalogRuntime,
+		encryption:      encryptionService, executor: executor, requestLogs: requestLogs,
 		usageStats: usageStats, homeStatistics: homeStatistics,
 		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
@@ -97,8 +108,8 @@ func NewService(
 	}
 	service.publishSnapshot = manager.Publish
 	service.reconcileRegistryGroup = registry.ReconcileGroup
-	service.applyBatchRegistryMutation = service.applyGroupKeyBatchRegistryMutation
-	service.restoreBatchRegistryEntries = registry.RestoreGroupKeyEntriesExact
+	service.applyBatchRegistryMutation = service.applyCredentialBatchRegistryMutation
+	service.restoreBatchRegistryEntries = registry.RestoreGroupCredentialEntriesExact
 	service.registrySnapshot = registry.Snapshot
 	return service
 }
@@ -134,7 +145,7 @@ func (s *Service) writeGroupConfig(
 		if err := cleanupUnreferencedAutomaticPrices(tx); err != nil {
 			return err
 		}
-		input, err := stateloader.BuildCompileInput(ctx, tx)
+		input, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
 		if err != nil {
 			return err
 		}
@@ -182,7 +193,7 @@ func (s *Service) writeConfig(
 			return err
 		}
 		var err error
-		input, err = stateloader.BuildCompileInput(ctx, tx)
+		input, err = stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
 		if err != nil {
 			return err
 		}
@@ -207,10 +218,10 @@ func (s *Service) writeConfig(
 	return snapshot, nil
 }
 
-func (s *Service) writeKeyConfig(
+func (s *Service) writeCredentialConfig(
 	ctx context.Context,
 	groupID uint,
-	keyID uint,
+	credentialID uint,
 	mutate func(*gorm.DB) error,
 	afterCommit func() error,
 ) error {
@@ -228,7 +239,7 @@ func (s *Service) writeKeyConfig(
 			return withControlOperationContext(
 				newControlOperationError(stageApplyCommittedRegistryMutation),
 				groupID,
-				keyID,
+				credentialID,
 			)
 		}
 	}

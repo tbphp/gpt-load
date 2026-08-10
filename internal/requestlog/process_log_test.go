@@ -54,7 +54,7 @@ func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 	event.ErrorSummary = "provider failed"
 	event.DurationMs = 58_773
 	event.Usage.AttemptSequence = 1
-	event.Usage.KeyID = 8
+	event.Usage.CredentialID = 8
 	event.Usage.Result = usage.Result{
 		State: usage.StatePartial,
 		Tokens: usage.Tokens{
@@ -77,7 +77,7 @@ func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 		"status": "error", "http": http.StatusBadGateway,
 		"proto": string(protocol.OpenAICompletions), "ak_id": uint(42),
 		"model": "client-model", "up_model": "upstream-model",
-		"group": uint(7), "kid": uint(8), "duration": "58.8s",
+		"group": uint(7), "channel": "openai", "credential": uint(8), "duration": "58.8s",
 		"in_tokens": int64(15), "out_tokens": int64(6),
 		"usage": "partial", "cost_usd": "0.000055",
 		"err": "upstream_error", "err_msg": "provider failed",
@@ -127,7 +127,7 @@ func TestProjectProcessLogOmitsDefaultAndZeroValueFields(t *testing.T) {
 	want := logrus.Fields{
 		"event":  "request_completed",
 		"status": "success", "proto": "anthropic", "ak_id": uint(42),
-		"model": "client-model", "group": uint(7), "kid": uint(8),
+		"model": "client-model", "group": uint(7), "channel": "openai", "credential": uint(8),
 		"duration": "25ms",
 	}
 	assertProcessFields(t, fields, want)
@@ -176,14 +176,14 @@ func TestProjectProcessLogOmitsMissingAttribution(t *testing.T) {
 	if !ok {
 		t.Fatal("projection skipped")
 	}
-	for _, name := range []string{"group", "kid", "group_name", "up_model"} {
+	for _, name := range []string{"group", "credential", "group_name", "up_model"} {
 		if value, exists := fields[name]; exists {
 			t.Fatalf("%s = %#v, want omitted", name, value)
 		}
 	}
 }
 
-func TestProjectProcessLogKeepsKeyIDVisibleAfterRedaction(t *testing.T) {
+func TestProjectProcessLogKeepsCredentialIDVisibleAfterRedaction(t *testing.T) {
 	event := testEvent("key-id-visible")
 	_, fields, ok := projectProcessLog(redact.New(), event)
 	if !ok {
@@ -195,8 +195,8 @@ func TestProjectProcessLogKeepsKeyIDVisibleAfterRedaction(t *testing.T) {
 	if err := redact.NewHook(redact.New()).Fire(entry); err != nil {
 		t.Fatalf("redaction hook error = %v", err)
 	}
-	if got := entry.Data["kid"]; got != uint(8) {
-		t.Fatalf("kid = %#v, want 8", got)
+	if got := entry.Data["credential"]; got != uint(8) {
+		t.Fatalf("credential = %#v, want 8", got)
 	}
 }
 

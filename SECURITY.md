@@ -15,8 +15,8 @@ Report suspected vulnerabilities through [GitHub Private Vulnerability Reporting
 
 Please do not open a public issue for an undisclosed vulnerability. Use the private report so the maintainers can investigate and coordinate a fix before public disclosure.
 
-## Provider credential exposure boundary
+## Channel credential exposure boundary
 
-Provider keys and any derived fragments, including prefix/suffix masks, must not appear in data-plane response headers or bodies, request logs, or the request-log management API. Request-log attempts identify an upstream key only by its internal `key_id`.
+Channel credentials and any derived secret fragments must not appear in data-plane response headers or bodies, request logs, or the request-log management API. Request-log attempts identify the selected credential only by its internal `credential_id`, together with the non-secret `channel_id`.
 
-The authenticated Group upstream-key management list is the sole approved exception: it may return the existing mask so an operator can identify a key in the provider console. It remains protected by management authentication and never exposes plaintext credentials.
+The authenticated Group credential list is the sole approved mask exception: it may return a safe identifier mask so an operator can identify a credential in the provider console. Plaintext reveal is a separate authenticated, explicitly invoked endpoint and must never be logged or returned by collection, health, usage, or request-log APIs.

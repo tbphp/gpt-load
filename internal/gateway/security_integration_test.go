@@ -13,9 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
 
@@ -61,7 +61,7 @@ func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
 		}
 	})
 
-	t.Run("compressed stream exhaustion", func(t *testing.T) {
+	t.Run("SDK-normalized compressed stream", func(t *testing.T) {
 		const firstSecret = "custom-compressed-first-credential"
 		const secondSecret = "custom-compressed-second-credential"
 		compressedServer := func() *httptest.Server {
@@ -84,8 +84,8 @@ func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
 		recorder := performStreamingRequest(engine)
 
 		assertNoPlaintextSecrets(t, recorder, logs.String(), firstSecret, secondSecret)
-		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), reasonUpstreamProtocol.Code) {
-			t.Fatalf("protocol response = %d %s", recorder.Code, recorder.Body.String())
+		if recorder.Code != http.StatusOK || recorder.Body.String() != "data: forbidden\n\n" {
+			t.Fatalf("normalized response = %d %s", recorder.Code, recorder.Body.String())
 		}
 	})
 
@@ -180,13 +180,10 @@ func TestGatewaySecurityEventFormatterSecretMatrix(t *testing.T) {
 				providerKey,
 			)
 			if _, err := manager.Publish(state.CompileInput{
+				ChannelRegistry: channel.NewRegistry(),
 				Groups: []state.GroupConfig{{
-					ID:          1,
-					Name:        "safe-group",
-					UpstreamURL: "http://upstream.invalid",
-					Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-					Models:      []state.ModelConfig{{ID: "safe-model"}},
-					Enabled:     true,
+					ID: 1, Name: "safe-group", ChannelID: channel.OpenAI, Params: []byte(`{}`),
+					Models: []state.ModelConfig{{ID: "safe-model"}}, Enabled: true,
 				}},
 				AccessKeys: []state.AccessKeyConfig{{
 					ID:      77,

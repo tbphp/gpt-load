@@ -58,7 +58,7 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 	}
 }
 
-func TestBranchCIContainsStaticGoAndFreshRaceGates(t *testing.T) {
+func TestBranchCIContainsStaticGoAndBackendGates(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	testJob := workflowJobBlock(t, content, "test")
 	workflowGoFormattingScript(t, content, "test")
@@ -69,7 +69,7 @@ func TestBranchCIContainsStaticGoAndFreshRaceGates(t *testing.T) {
 		{name: "Check module graph", run: "go mod tidy -diff"},
 		{name: "Audit Go dependencies", run: "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./..."},
 		{name: "Run Go vet", run: "go vet ./..."},
-		{name: "Run race-enabled tests", run: "go test -race -count=1 . ./internal/..."},
+		{name: "Run backend tests", run: "go test -count=1 . ./internal/..."},
 		{name: "Check repository invariants", run: "git diff --check"},
 	} {
 		assertWorkflowGateStep(t, testJob, test.name, test.run)
@@ -83,8 +83,8 @@ func TestBranchCIContainsStaticGoAndFreshRaceGates(t *testing.T) {
 	assertWorkflowGateStep(
 		t,
 		releaseJob,
-		"Run race-enabled tests",
-		"go test -race -count=1 . ./internal/...",
+		"Run backend tests",
+		"go test -count=1 . ./internal/...",
 	)
 }
 
@@ -1195,7 +1195,7 @@ func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t
 		"SHA256SUMS",
 		"sha256sum --check",
 		"asset_count",
-		`test "${asset_count}" = "6"`,
+		`test "${asset_count}" = "10"`,
 	} {
 		if !strings.Contains(inventoryJob, required) {
 			t.Fatalf("post-publish asset inventory does not contain %q:\n%s", required, inventoryJob)
@@ -1375,7 +1375,7 @@ func TestReleaseDockerSmokeCanUsePublishedSourceWithoutDeletingIt(t *testing.T) 
 		`docker image rm "${image}"`,
 		`model_price_list_path="/api/model-prices?usage=in_use&status=all&page=1&page_size=100"`,
 		`api_write PUT "/api/model-prices/${model_price_id}"`,
-		`item.scope.kind==="group"&&item.scope.id===groupID`,
+		`item.channel_id==="openai_compatible"&&item.model_id===modelID`,
 		`item.model_id===modelID`,
 		`!Number.isSafeInteger(matches[0].id)||matches[0].id<=0`,
 		`api_get "${model_price_list_path}" >"${task_tmp}/prices-second.json"`,

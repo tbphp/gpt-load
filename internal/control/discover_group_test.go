@@ -12,7 +12,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -24,18 +24,17 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 	fixture, dsn := newFileServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
 	group.Name = "discovery-snapshot-old"
-	group.UpstreamURL = "https://discovery-old.example/v1"
-	group.Protocols = models.JSON(`["openai-completions"]`)
+	group.Params = models.JSON(`{"base_url":"https://discovery-old.example/v1"}`)
 	if err := fixture.db.Save(&group).Error; err != nil {
 		t.Fatalf("seed old Group version: %v", err)
 	}
-	seedPersistedDiscoveryKey(
+	seedPersistedDiscoveryCredential(
 		t,
 		fixture,
 		group.ID,
 		1,
 		"discovery-key-old",
-		models.UpstreamKeyStatusActive,
+		models.CredentialStatusActive,
 	)
 	if err := fixture.db.Create(&models.SystemSetting{
 		Key: "header_rules", Value: `{"set":{"X-Version":"old"}}`,
@@ -56,7 +55,7 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 			t.Errorf("close writer database: %v", err)
 		}
 	})
-	newCiphertext, err := fixture.encryption.Encrypt("discovery-key-new")
+	newCiphertext, err := fixture.encryption.Encrypt(`{"api_key":"discovery-key-new"}`)
 	if err != nil {
 		t.Fatalf("encrypt new key version: %v", err)
 	}
@@ -86,7 +85,7 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 		version string
 	}
 	observed := make(chan observedTarget, 1)
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(
 			_ context.Context,
@@ -117,13 +116,13 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 		writeDone <- writer.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&models.Group{}).Where("id = ?", group.ID).
 				Updates(map[string]any{
-					"name":         "discovery-snapshot-new",
-					"upstream_url": "https://discovery-new.example/v1",
+					"name":   "discovery-snapshot-new",
+					"params": models.JSON(`{"base_url":"https://discovery-new.example/v1"}`),
 				}).Error; err != nil {
 				return err
 			}
-			if err := tx.Model(&models.UpstreamKey{}).Where("group_id = ?", group.ID).
-				Update("key_value", newCiphertext).Error; err != nil {
+			if err := tx.Model(&models.Credential{}).Where("group_id = ?", group.ID).
+				Update("data", newCiphertext).Error; err != nil {
 				return err
 			}
 			return tx.Model(&models.SystemSetting{}).Where("key = ?", "header_rules").
@@ -172,17 +171,13 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
 	fixture, _ := newFileServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
-	group.Protocols = models.JSON(`["openai-completions"]`)
-	if err := fixture.db.Save(&group).Error; err != nil {
-		t.Fatal(err)
-	}
-	seedPersistedDiscoveryKey(
+	seedPersistedDiscoveryCredential(
 		t,
 		fixture,
 		group.ID,
 		1,
 		"release-snapshot-key",
-		models.UpstreamKeyStatusActive,
+		models.CredentialStatusActive,
 	)
 	decryptStarted := make(chan struct{})
 	releaseDecrypt := make(chan struct{})
@@ -191,7 +186,7 @@ func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
 		started: decryptStarted,
 		release: releaseDecrypt,
 	}
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"model"}, nil
@@ -234,14 +229,14 @@ func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
 	}
 }
 
-func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T) {
+func TestDiscoverGroupModelsUsesDisabledGroupAndActiveCredentialsInIDOrder(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, false, models.JSON(
 		`{"header_rules":{"set":{"X-Group":"group"},"remove":["X-Remove"]}}`,
 	))
-	seedPersistedDiscoveryKey(t, fixture, group.ID, 1, "key-1", models.UpstreamKeyStatusActive)
-	seedPersistedDiscoveryKey(t, fixture, group.ID, 2, "key-2", models.UpstreamKeyStatusDisabled)
-	seedPersistedDiscoveryKey(t, fixture, group.ID, 3, "key-3", models.UpstreamKeyStatusActive)
+	seedPersistedDiscoveryCredential(t, fixture, group.ID, 1, "key-1", models.CredentialStatusActive)
+	seedPersistedDiscoveryCredential(t, fixture, group.ID, 2, "key-2", models.CredentialStatusDisabled)
+	seedPersistedDiscoveryCredential(t, fixture, group.ID, 3, "key-3", models.CredentialStatusActive)
 	if err := fixture.db.Create(&models.SystemSetting{
 		Key: "header_rules", Value: `{"set":{"X-System":"system"}}`,
 	}).Error; err != nil {
@@ -249,8 +244,8 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T
 	}
 
 	var calls []string
-	newRecorder := func(value protocol.Protocol) *recordingDiscoveryDialect {
-		return &recordingDiscoveryDialect{
+	newRecorder := func(value protocol.Protocol) *recordingDiscoveryExecutorTarget {
+		return &recordingDiscoveryExecutorTarget{
 			value: value,
 			listFn: func(
 				_ context.Context,
@@ -258,24 +253,23 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T
 				rules state.HeaderRules,
 			) ([]string, error) {
 				calls = append(calls, string(value)+":"+apiKey)
-				if baseURL != group.UpstreamURL {
-					t.Fatalf("base URL = %q, want %q", baseURL, group.UpstreamURL)
+				if baseURL != "https://persisted.example.com/v1" {
+					t.Fatalf("base URL = %q, want persisted channel target", baseURL)
 				}
 				wantRules := state.HeaderRules{
-					Set: map[string]string{"X-Group": "group"}, Remove: []string{"X-Remove"},
+					Set: map[string]string{"X-Group": "group"},
 				}
 				if !reflect.DeepEqual(rules, wantRules) {
 					t.Fatalf("HeaderRules = %#v, want persisted Group override %#v", rules, wantRules)
 				}
-				if value == protocol.Anthropic && apiKey == "key-1" {
+				if value == protocol.OpenAICompletions && apiKey == "key-3" {
 					return []string{"z-model", "a-model"}, nil
 				}
 				return nil, errors.New("try next candidate")
 			},
 		}
 	}
-	fixture.service.dialects = dialect.NewSet(
-		newRecorder(protocol.Anthropic),
+	fixture.service.executor = newRecordingDiscoveryExecutor(
 		newRecorder(protocol.OpenAICompletions),
 	)
 
@@ -292,7 +286,6 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T
 	wantCalls := []string{
 		"openai-completions:key-1",
 		"openai-completions:key-3",
-		"anthropic:key-1",
 	}
 	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("calls = %#v, want protocol-outer active-key-ID-inner order %#v", calls, wantCalls)
@@ -311,10 +304,10 @@ func TestDiscoverGroupModelsReturnsNotFoundAndNoActiveUpstreamKey(t *testing.T) 
 	t.Run("no active upstream key", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
-		seedPersistedDiscoveryKey(t, fixture, group.ID, 1, "disabled", models.UpstreamKeyStatusDisabled)
+		seedPersistedDiscoveryCredential(t, fixture, group.ID, 1, "disabled", models.CredentialStatusDisabled)
 		_, err := fixture.service.DiscoverGroupModels(t.Context(), group.ID)
-		if !errors.Is(err, app_errors.ErrNoActiveUpstreamKey) {
-			t.Fatalf("DiscoverGroupModels() error = %v, want ErrNoActiveUpstreamKey", err)
+		if !errors.Is(err, app_errors.ErrNoActiveCredential) {
+			t.Fatalf("DiscoverGroupModels() error = %v, want ErrNoActiveCredential", err)
 		}
 	})
 }
@@ -322,16 +315,16 @@ func TestDiscoverGroupModelsReturnsNotFoundAndNoActiveUpstreamKey(t *testing.T) 
 func TestDiscoverGroupModelsDecryptsEveryKeyBeforeHTTP(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
-	seedPersistedDiscoveryKey(t, fixture, group.ID, 1, "key-1", models.UpstreamKeyStatusActive)
-	if err := fixture.db.Create(&models.UpstreamKey{
-		ID: 3, GroupID: group.ID, KeyValue: "corrupt-second-active-ciphertext",
-		KeyHash: "corrupt-hash", Status: models.UpstreamKeyStatusActive,
+	seedPersistedDiscoveryCredential(t, fixture, group.ID, 1, "key-1", models.CredentialStatusActive)
+	if err := fixture.db.Create(&models.Credential{
+		ID: 3, GroupID: group.ID, Data: "corrupt-second-active-ciphertext",
+		Fingerprint: "corrupt-hash", Status: models.CredentialStatusActive,
 	}).Error; err != nil {
 		t.Fatalf("seed corrupt active key: %v", err)
 	}
 
 	calls := 0
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.Anthropic,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			calls++
@@ -385,9 +378,9 @@ func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newServiceFixture(t)
 			created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-				UpstreamURL: "https://state.example.com/v1",
-				Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-				Keys:        "state-key",
+				ChannelID:   channel.OpenAICompatible,
+				Params:      []byte(`{"base_url":"https://state.example.com/v1"}`),
+				Credentials: "state-key",
 				Models: optionalGroupModels{
 					Set: true, Values: []GroupModel{{ID: "persisted-model"}},
 				},
@@ -398,7 +391,7 @@ func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T
 			before := captureGroupDiscoveryState(t, fixture, created.GroupID)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+			fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 				value: protocol.OpenAICompletions,
 				listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
 					return test.listFn(ctx, cancel)
@@ -423,16 +416,16 @@ func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T
 func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://discovery-lock.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID:   channel.OpenAICompatible,
+		Params:      []byte(`{"base_url":"https://discovery-lock.example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Keys:        "key-1",
+		Credentials: "key-1",
 	})
 	if err != nil {
 		t.Fatalf("seed CreateGroup() error = %v", err)
 	}
 	fixture.service.modelDiscoveryTimeout = 3 * time.Second
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"model"}, nil
@@ -458,7 +451,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
 			close(entered)
@@ -484,10 +477,10 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 	groupWriteDone := make(chan error, 1)
 	go func() {
 		_, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-			UpstreamURL: "https://concurrent-group-write.example.com/v1",
-			Protocols:   []protocol.Protocol{protocol.Anthropic},
+			ChannelID:   channel.AnthropicCompatible,
+			Params:      []byte(`{"base_url":"https://concurrent-group-write.example.com/v1"}`),
 			Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-			Keys:        "concurrent-group-key",
+			Credentials: "concurrent-group-key",
 		})
 		groupWriteDone <- err
 	}()
@@ -502,8 +495,8 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 
 	keyWriteDone := make(chan error, 1)
 	go func() {
-		_, err := fixture.service.ImportGroupKeys(t.Context(), created.GroupID, GroupKeyImportRequest{
-			Keys: "concurrent-imported-key",
+		_, err := fixture.service.ImportGroupCredentials(t.Context(), created.GroupID, CredentialImportRequest{
+			Credentials: "concurrent-imported-key",
 		})
 		keyWriteDone <- err
 	}()
@@ -533,7 +526,7 @@ type groupDiscoveryState struct {
 	config           string
 	snapshot         *state.ConfigSnapshot
 	snapshotRevision uint64
-	registryKeys     []state.KeyMeta
+	registryKeys     []state.CredentialMeta
 	registryValues   map[uint]string
 }
 
@@ -543,24 +536,24 @@ func captureGroupDiscoveryState(t *testing.T, fixture serviceFixture, groupID ui
 	if err := fixture.db.First(&group, groupID).Error; err != nil {
 		t.Fatalf("load Group state: %v", err)
 	}
-	var keyRows []models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&keyRows).Error; err != nil {
-		t.Fatalf("load key state: %v", err)
+	var credentialRows []models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&credentialRows).Error; err != nil {
+		t.Fatalf("load credential state: %v", err)
 	}
-	registryValues := make(map[uint]string, len(keyRows))
-	for _, keyRow := range keyRows {
-		if ciphertext, ok := fixture.registry.EncryptedValue(keyRow.ID); ok {
-			registryValues[keyRow.ID] = ciphertext
+	registryValues := make(map[uint]string, len(credentialRows))
+	for _, credentialRow := range credentialRows {
+		if ciphertext, ok := fixture.registry.EncryptedCredentialData(credentialRow.ID); ok {
+			registryValues[credentialRow.ID] = ciphertext
 		}
 	}
 	snapshot := fixture.manager.Current()
 	return groupDiscoveryState{
 		rowCounts:        discoveryRowCounts(t, fixture.db),
 		models:           string(group.Models),
-		config:           string(group.Config),
+		config:           string(group.Overrides),
 		snapshot:         snapshot,
 		snapshotRevision: snapshot.Revision,
-		registryKeys:     fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{}),
+		registryKeys:     fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, time.Time{}),
 		registryValues:   registryValues,
 	}
 }
@@ -569,13 +562,14 @@ func seedPersistedDiscoveryGroup(
 	t *testing.T,
 	fixture serviceFixture,
 	enabled bool,
-	groupConfig models.JSON,
+	overrides models.JSON,
 ) models.Group {
 	t.Helper()
 	group := models.Group{
-		Name: "persisted-discovery", UpstreamURL: "https://persisted.example.com/v1",
-		Protocols: models.JSON(`["anthropic","openai-completions"]`),
-		Models:    models.JSON(`[{"id":"persisted-only"}]`), Config: groupConfig, Enabled: enabled,
+		Name: "persisted-discovery", ChannelID: string(channel.OpenAICompatible),
+		Params:    models.JSON(`{"base_url":"https://persisted.example.com/v1"}`),
+		Models:    models.JSON(`[{"id":"persisted-only"}]`),
+		Overrides: overrides, Enabled: enabled,
 	}
 	if err := fixture.db.Create(&group).Error; err != nil {
 		t.Fatalf("seed persisted discovery Group: %v", err)
@@ -583,22 +577,23 @@ func seedPersistedDiscoveryGroup(
 	return group
 }
 
-func seedPersistedDiscoveryKey(
+func seedPersistedDiscoveryCredential(
 	t *testing.T,
 	fixture serviceFixture,
-	groupID, keyID uint,
+	groupID, credentialID uint,
 	plaintext string,
-	status models.UpstreamKeyStatus,
+	status models.CredentialStatus,
 ) {
 	t.Helper()
-	ciphertext, err := fixture.encryption.Encrypt(plaintext)
+	canonical := `{"api_key":` + fmt.Sprintf("%q", plaintext) + `}`
+	ciphertext, err := fixture.encryption.Encrypt(canonical)
 	if err != nil {
-		t.Fatalf("encrypt seeded discovery key: %v", err)
+		t.Fatalf("encrypt seeded discovery credential: %v", err)
 	}
-	if err := fixture.db.Create(&models.UpstreamKey{
-		ID: keyID, GroupID: groupID, KeyValue: ciphertext,
-		KeyHash: fixture.encryption.Hash(plaintext), Status: status,
+	if err := fixture.db.Create(&models.Credential{
+		ID: credentialID, GroupID: groupID, Data: ciphertext,
+		Fingerprint: fixture.encryption.Hash(canonical), Status: status,
 	}).Error; err != nil {
-		t.Fatalf("seed persisted discovery key: %v", err)
+		t.Fatalf("seed persisted discovery credential: %v", err)
 	}
 }

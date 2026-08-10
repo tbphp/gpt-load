@@ -121,7 +121,9 @@ func stageUsageAggregationJournals(
 type usageStatKey struct {
 	BucketStartMS int64
 	AccessKeyID   uint
+	ChannelID     string
 	GroupID       uint
+	CredentialID  uint
 	Model         string
 }
 
@@ -191,7 +193,9 @@ func applyUsageJournalBatch(
 		stat := existingStats[key]
 		stat.BucketStartMS = key.BucketStartMS
 		stat.AccessKeyID = key.AccessKeyID
+		stat.ChannelID = key.ChannelID
 		stat.GroupID = key.GroupID
+		stat.CredentialID = key.CredentialID
 		stat.Model = key.Model
 		total, err := checkedUsageStatTotal(stat, deltas[key])
 		if err != nil {
@@ -230,7 +234,9 @@ func usageStatUpsertClause() clause.OnConflict {
 		Columns: []clause.Column{
 			{Name: "bucket_start_ms"},
 			{Name: "access_key_id"},
+			{Name: "channel_id"},
 			{Name: "group_id"},
+			{Name: "credential_id"},
 			{Name: "model"},
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
@@ -274,7 +280,9 @@ func buildUsageAggregationJournals(
 				RequestID:               row.ID,
 				BucketStartMS:           key.BucketStartMS,
 				AccessKeyID:             key.AccessKeyID,
+				ChannelID:               key.ChannelID,
 				GroupID:                 key.GroupID,
+				CredentialID:            key.CredentialID,
 				Model:                   key.Model,
 				RequestCount:            delta.RequestCount,
 				SuccessCount:            delta.SuccessCount,
@@ -304,7 +312,9 @@ func buildUsageJournalDeltas(
 		key := usageStatKey{
 			BucketStartMS: journal.BucketStartMS,
 			AccessKeyID:   journal.AccessKeyID,
+			ChannelID:     journal.ChannelID,
 			GroupID:       journal.GroupID,
+			CredentialID:  journal.CredentialID,
 			Model:         journal.Model,
 		}
 		delta := deltas[key]
@@ -359,7 +369,9 @@ func buildUsageStatDeltas(rows []models.RequestLog) (map[usageStatKey]usageStatD
 		key := usageStatKey{
 			BucketStartMS: bucketStartMS,
 			AccessKeyID:   row.AccessKeyID,
+			ChannelID:     row.ChannelID,
 			GroupID:       row.GroupID,
+			CredentialID:  row.CredentialID,
 			Model:         row.UpstreamModel,
 		}
 		delta := deltas[key]
@@ -506,8 +518,14 @@ func sortedUsageStatKeys(deltas map[usageStatKey]usageStatDelta) []usageStatKey 
 		if keys[left].AccessKeyID != keys[right].AccessKeyID {
 			return keys[left].AccessKeyID < keys[right].AccessKeyID
 		}
+		if keys[left].ChannelID != keys[right].ChannelID {
+			return keys[left].ChannelID < keys[right].ChannelID
+		}
 		if keys[left].GroupID != keys[right].GroupID {
 			return keys[left].GroupID < keys[right].GroupID
+		}
+		if keys[left].CredentialID != keys[right].CredentialID {
+			return keys[left].CredentialID < keys[right].CredentialID
 		}
 		return keys[left].Model < keys[right].Model
 	})
@@ -522,19 +540,23 @@ func queryExistingUsageStats(
 	for index, key := range keys {
 		if index == 0 {
 			query = query.Where(
-				"bucket_start_ms = ? AND access_key_id = ? AND group_id = ? AND model = ?",
+				"bucket_start_ms = ? AND access_key_id = ? AND channel_id = ? AND group_id = ? AND credential_id = ? AND model = ?",
 				key.BucketStartMS,
 				key.AccessKeyID,
+				key.ChannelID,
 				key.GroupID,
+				key.CredentialID,
 				key.Model,
 			)
 			continue
 		}
 		query = query.Or(
-			"bucket_start_ms = ? AND access_key_id = ? AND group_id = ? AND model = ?",
+			"bucket_start_ms = ? AND access_key_id = ? AND channel_id = ? AND group_id = ? AND credential_id = ? AND model = ?",
 			key.BucketStartMS,
 			key.AccessKeyID,
+			key.ChannelID,
 			key.GroupID,
+			key.CredentialID,
 			key.Model,
 		)
 	}
@@ -547,7 +569,9 @@ func queryExistingUsageStats(
 		key := usageStatKey{
 			BucketStartMS: row.BucketStartMS,
 			AccessKeyID:   row.AccessKeyID,
+			ChannelID:     row.ChannelID,
 			GroupID:       row.GroupID,
+			CredentialID:  row.CredentialID,
 			Model:         row.Model,
 		}
 		existing[key] = row

@@ -8,6 +8,7 @@ import { defaultTimeRange } from '@/lib/time'
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
 import {
   normalizeUsageGroupID,
+  normalizeUsageChannelID,
   normalizeUsageModel,
   parseAppliedUsageFilters,
 } from './usage-filters'
@@ -20,6 +21,8 @@ export interface HealthMonitorState {
 
 export interface UsageBreakdownIdentity {
   groupID: number
+  channelID: string | null
+  credentialID: number | null
   model: string
 }
 
@@ -67,9 +70,10 @@ export function normalizeMonitorQuery(query: Record<string, unknown>): LocationQ
 
 const accessKeyForbiddenLogFilters: readonly (keyof RequestLogFilters)[] = [
   'group_id',
+  'channel_id',
+  'credential_id',
   'upstream_model',
   'access_key_id',
-  'upstream_key_id',
   'attempt_status_code',
   'failure_category',
   'error_code',
@@ -81,6 +85,8 @@ const accessKeyForbiddenLogFilters: readonly (keyof RequestLogFilters)[] = [
 export function scopeAccessKeyUsageFilters(filters: UsageFilters): UsageFilters {
   const scoped = { ...filters }
   delete scoped.group_id
+  delete scoped.channel_id
+  delete scoped.credential_id
   return scoped
 }
 
@@ -101,7 +107,10 @@ export function normalizeAccessKeyMonitorQuery(query: Record<string, unknown>): 
   const state = parseUsageMonitorState(query)
   return usageMonitorQuery(scopeAccessKeyUsageFilters(parseAppliedUsageFilters(query)), {
     ...state,
-    expandedBreakdowns: state.expandedBreakdowns.filter(({ groupID }) => groupID === 0),
+    expandedBreakdowns: state.expandedBreakdowns.filter(
+      ({ groupID, channelID, credentialID }) =>
+        groupID === 0 && channelID === null && credentialID === null,
+    ),
   })
 }
 
@@ -128,9 +137,13 @@ export function usageMonitorQuery(
     metric: state.metric,
   }
   const groupID = normalizeUsageGroupID(filters.group_id)
-  const model = normalizeUsageModel(filters.model)
+  const channelID = normalizeUsageChannelID(filters.channel_id)
+  const credentialID = normalizeUsageGroupID(filters.credential_id)
+  const upstreamModel = normalizeUsageModel(filters.upstream_model)
   if (groupID !== undefined) normalized.group_id = String(groupID)
-  if (model !== undefined) normalized.model = model
+  if (channelID !== undefined) normalized.channel_id = channelID
+  if (credentialID !== undefined) normalized.credential_id = String(credentialID)
+  if (upstreamModel !== undefined) normalized.upstream_model = upstreamModel
   if (filters.breakdown_order === 'cost') normalized.breakdown_order = 'cost'
   if (state.filtersOpen) normalized.panel = 'filters'
   const expandedBreakdowns = serializeUsageBreakdowns(state.expandedBreakdowns)
@@ -152,15 +165,25 @@ function normalizeUsageTrendMetric(raw: unknown): UsageTrendMetric {
   return raw === 'tokens' || raw === 'cost' ? raw : 'requests'
 }
 
-export function usageBreakdownIdentity(groupID: number, model: string): UsageBreakdownIdentity {
-  return { groupID, model }
+export function usageBreakdownIdentity(
+  groupID: number,
+  channelID: string | null,
+  credentialID: number | null,
+  model: string,
+): UsageBreakdownIdentity {
+  return { groupID, channelID, credentialID, model }
 }
 
 export function sameUsageBreakdownIdentity(
   left: UsageBreakdownIdentity,
   right: UsageBreakdownIdentity,
 ): boolean {
-  return left.groupID === right.groupID && left.model === right.model
+  return (
+    left.groupID === right.groupID &&
+    left.channelID === right.channelID &&
+    left.credentialID === right.credentialID &&
+    left.model === right.model
+  )
 }
 
 export function sameMonitorQuery(left: LocationQueryRaw, right: LocationQueryRaw): boolean {
@@ -275,24 +298,36 @@ function parseUsageBreakdowns(raw: unknown): UsageBreakdownIdentity[] {
     const identities: UsageBreakdownIdentity[] = []
     const seen = new Set<string>()
     for (const item of parsed) {
-      if (!Array.isArray(item) || item.length !== 2) return []
-      const [groupID, model] = item
+      if (!Array.isArray(item) || item.length !== 4) return []
+      const [groupID, channelID, credentialID, model] = item
       if (
         !Number.isSafeInteger(groupID) ||
         Number(groupID) < 0 ||
+        (channelID !== null && normalizeUsageChannelID(channelID) === undefined) ||
+        (credentialID !== null &&
+          (!Number.isSafeInteger(credentialID) || Number(credentialID) <= 0)) ||
         typeof model !== 'string' ||
         Array.from(model).length > 200 ||
         /[\u0000-\u001f\u007f]/u.test(model)
       ) {
         return []
       }
-      const key = JSON.stringify([groupID, model])
+      const key = JSON.stringify([groupID, channelID, credentialID, model])
       if (seen.has(key)) return []
       seen.add(key)
-      identities.push({ groupID: Number(groupID), model })
+      identities.push({
+        groupID: Number(groupID),
+        channelID: channelID === null ? null : String(channelID),
+        credentialID: credentialID === null ? null : Number(credentialID),
+        model,
+      })
     }
     return identities.sort(
-      (left, right) => left.groupID - right.groupID || left.model.localeCompare(right.model),
+      (left, right) =>
+        left.groupID - right.groupID ||
+        (left.channelID ?? '').localeCompare(right.channelID ?? '') ||
+        (left.credentialID ?? 0) - (right.credentialID ?? 0) ||
+        left.model.localeCompare(right.model),
     )
   } catch {
     return []
@@ -304,15 +339,30 @@ function serializeUsageBreakdowns(
 ): string | undefined {
   const normalized = [...identities]
     .filter(
-      ({ groupID, model }) =>
+      ({ groupID, channelID, credentialID, model }) =>
         Number.isSafeInteger(groupID) &&
         groupID >= 0 &&
+        (channelID === null || normalizeUsageChannelID(channelID) !== undefined) &&
+        (credentialID === null || (Number.isSafeInteger(credentialID) && credentialID > 0)) &&
         Array.from(model).length <= 200 &&
         !/[\u0000-\u001f\u007f]/u.test(model),
     )
-    .sort((left, right) => left.groupID - right.groupID || left.model.localeCompare(right.model))
+    .sort(
+      (left, right) =>
+        left.groupID - right.groupID ||
+        (left.channelID ?? '').localeCompare(right.channelID ?? '') ||
+        (left.credentialID ?? 0) - (right.credentialID ?? 0) ||
+        left.model.localeCompare(right.model),
+    )
   return normalized.length > 0
-    ? JSON.stringify(normalized.map(({ groupID, model }) => [groupID, model]))
+    ? JSON.stringify(
+        normalized.map(({ groupID, channelID, credentialID, model }) => [
+          groupID,
+          channelID,
+          credentialID,
+          model,
+        ]),
+      )
     : undefined
 }
 

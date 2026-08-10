@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"gpt-load/internal/catalog"
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -19,7 +20,6 @@ import (
 
 func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 	fixture := newServiceFixture(t)
-	providerID := "openai"
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {
 			ID: "openai",
@@ -34,14 +34,13 @@ func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 		},
 	}})
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		ProviderID:  &providerID,
-		UpstreamURL: "https://model-read.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID: channel.OpenAI,
+		Params:    json.RawMessage(`{}`),
 		Models: optionalGroupModels{Set: true, Values: []GroupModel{
 			{ID: "gpt-4o", Alias: "default", AliasEnabled: true},
 			{ID: "missing-price", Alias: ""},
 		}},
-		Keys: "sk-model-read",
+		Credentials: "sk-model-read",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,9 +65,11 @@ func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 
 func TestMapGroupModelsResponseTreatsContextTierOnlyPriceAsConfigured(t *testing.T) {
 	result, err := mapGroupModelsResponse(
+		string(channel.OpenAI),
 		[]GroupModel{{ID: "tiered-model"}},
-		map[string]*models.ModelPrice{
-			"tiered-model": {
+		modelPriceRows{
+			{ChannelID: string(channel.OpenAI), ModelID: "tiered-model"}: {
+				ChannelID:         string(channel.OpenAI),
 				ModelID:           "tiered-model",
 				ContextPriceTiers: models.JSON(`[{"threshold_tokens":1000,"input_price_nano_usd_per_million_tokens":1,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null}]`),
 			},
@@ -198,7 +199,7 @@ func TestNormalizeGroupModelsRejectsDuplicateExternalNames(t *testing.T) {
 
 func TestUpdateGroupModelsRequiresNonNullModelsField(t *testing.T) {
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-required-models")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-required-models")
 	for _, request := range []GroupModelsUpdateRequest{
 		{},
 		{Models: optionalGroupModels{Set: false}},
@@ -219,13 +220,13 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://model-save.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://model-save.example.com/v1"}`),
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
-		Keys: "sk-model-save-a\nsk-model-save-b",
+		Credentials: "sk-model-save-a\nsk-model-save-b",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +239,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	}
 	if err := fixture.db.Model(&models.Group{}).
 		Where("id = ?", created.GroupID).
-		Update("config", models.JSON(`{
+		Update("overrides", models.JSON(`{
 			"stream_idle_timeout":45,
 			"inject_usage_options":false,
 			"header_rules":{"remove":["X-Trace"]}
@@ -252,8 +253,8 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	}
 	beforeRevision := fixture.manager.Current().Revision
 	beforeRegistry := fixture.registry.Snapshot()
-	var beforeKeys []models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", created.GroupID).Order("id ASC").Find(&beforeKeys).Error; err != nil {
+	var beforeCredentials []models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Order("id ASC").Find(&beforeCredentials).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -292,7 +293,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	if err != nil {
 		t.Fatalf("GetGroupSummary() error = %v", err)
 	}
-	if settings.ValidationModel == nil || *settings.ValidationModel != validation || summary.KeyCount != 2 {
+	if settings.ValidationModel == nil || *settings.ValidationModel != validation || summary.CredentialCount != 2 {
 		t.Fatalf("settings/summary = %#v/%#v", settings, summary)
 	}
 	streamIdle, ok := settings.Overrides[state.SettingStreamIdleTimeout].(json.Number)
@@ -322,12 +323,12 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	if !reflect.DeepEqual(fixture.registry.Snapshot(), beforeRegistry) {
 		t.Fatal("models save changed Registry")
 	}
-	var afterKeys []models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", created.GroupID).Order("id ASC").Find(&afterKeys).Error; err != nil {
+	var afterCredentials []models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Order("id ASC").Find(&afterCredentials).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(afterKeys, beforeKeys) {
-		t.Fatalf("upstream keys changed: got=%#v want=%#v", afterKeys, beforeKeys)
+	if !reflect.DeepEqual(afterCredentials, beforeCredentials) {
+		t.Fatalf("credentials changed: got=%#v want=%#v", afterCredentials, beforeCredentials)
 	}
 	snapshot := fixture.manager.Current()
 	view := snapshot.Groups[created.GroupID]
@@ -337,7 +338,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, view.HeaderRules.Remove) {
 		t.Fatalf("effective/snapshot = %#v/%#v", settings.Effective, view)
 	}
-	targets := snapshot.Candidates[protocol.OpenAICompletions]
+	targets := snapshot.ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]
 	if len(targets) != 2 ||
 		targets["public-a"][0].UpstreamModelID != "provider-a" ||
 		targets["public-b"][0].UpstreamModelID != "provider-b" {
@@ -346,7 +347,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	if _, exists := targets["old-public"]; exists {
 		t.Fatalf("authoritative replacement retained old model: %#v", targets)
 	}
-	routes := snapshot.RouteCatalog[protocol.OpenAICompletions]
+	routes := snapshot.ExecutionRouteCatalog[protocol.OpenAICompletions][execution.OperationChatCompletion]
 	if len(routes) != 2 ||
 		routes["public-a"][0].UpstreamModelID != "provider-a" ||
 		routes["public-b"][0].UpstreamModelID != "provider-b" {
@@ -358,13 +359,13 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://empty-models.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://empty-models.example.com/v1"}`),
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
-		Keys: "sk-empty-models",
+		Credentials: "sk-empty-models",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -383,17 +384,17 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 	if fixture.manager.Current().Revision != before+1 {
 		t.Fatalf("revision = %d, want %d", fixture.manager.Current().Revision, before+1)
 	}
-	if len(fixture.manager.Current().Candidates[protocol.OpenAICompletions]) != 0 ||
-		len(fixture.manager.Current().RouteCatalog[protocol.OpenAICompletions]) != 0 {
+	if len(fixture.manager.Current().ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]) != 0 ||
+		len(fixture.manager.Current().ExecutionRouteCatalog[protocol.OpenAICompletions][execution.OperationChatCompletion]) != 0 {
 		t.Fatalf("model indexes = candidates:%#v routes:%#v",
-			fixture.manager.Current().Candidates, fixture.manager.Current().RouteCatalog)
+			fixture.manager.Current().ExecutionCandidates, fixture.manager.Current().ExecutionRouteCatalog)
 	}
 }
 
 func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
-	groupID := createGroupForKeyImport(t, fixture, "sk-no-discovery")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-no-discovery")
 	access, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 		Name: "filtered",
 		Filters: &AccessKeyFilters{
@@ -408,7 +409,7 @@ func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testin
 	if err := fixture.db.First(&beforeAccess, access.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			t.Fatal("UpdateGroupModels must not call model discovery")
@@ -444,7 +445,7 @@ func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testin
 func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 	t.Run("external collision", func(t *testing.T) {
 		fixture := newServiceFixture(t)
-		groupID := createGroupForKeyImport(t, fixture, "sk-invalid-models")
+		groupID := createGroupForCredentialImport(t, fixture, "sk-invalid-models")
 		beforeRevision := fixture.manager.Current().Revision
 		beforeRegistry := fixture.registry.Snapshot()
 		beforeModels := loadCreatedGroupModels(t, fixture, groupID)
@@ -467,12 +468,12 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 
 	t.Run("full compile failure", func(t *testing.T) {
 		fixture := newServiceFixture(t)
-		groupID := createGroupForKeyImport(t, fixture, "sk-compile-models")
+		groupID := createGroupForCredentialImport(t, fixture, "sk-compile-models")
 		corrupt := validControlGroup("model-save-corrupt-other")
 		if err := fixture.db.Create(corrupt).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := fixture.db.Exec("UPDATE groups SET protocols = ? WHERE id = ?", `[]`, corrupt.ID).Error; err != nil {
+		if err := fixture.db.Exec("UPDATE groups SET channel_id = ? WHERE id = ?", "unknown", corrupt.ID).Error; err != nil {
 			t.Fatal(err)
 		}
 		beforeRevision := fixture.manager.Current().Revision
@@ -494,13 +495,13 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 	t.Run("commit failure", func(t *testing.T) {
 		fixture, dsn := newFileServiceFixture(t)
 		created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-			UpstreamURL: "https://commit-failure-models.example.com/v1",
-			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+			ChannelID: channel.OpenAICompatible,
+			Params:    json.RawMessage(`{"base_url":"https://commit-failure-models.example.com/v1"}`),
 			Models: optionalGroupModels{
 				Set:    true,
 				Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 			},
-			Keys: "sk-commit-models",
+			Credentials: "sk-commit-models",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -532,7 +533,7 @@ func assertModelsUpdateStateUnchanged(
 	fixture serviceFixture,
 	groupID uint,
 	wantRevision uint64,
-	wantRegistry []state.KeyRuntimeView,
+	wantRegistry []state.CredentialRuntimeView,
 	wantModels []GroupModel,
 ) {
 	t.Helper()

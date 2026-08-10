@@ -24,11 +24,13 @@ type PriceSlotsDTO struct {
 
 type ModelPriceDTO struct {
 	ID                  uint                       `json:"id"`
+	ChannelID           string                     `json:"channel_id"`
 	ModelID             string                     `json:"model_id"`
 	Prices              PriceSlotsDTO              `json:"prices"`
 	PricingStatus       PricingStatus              `json:"pricing_status"`
 	Method              *string                    `json:"method"`
 	MatchedProviderID   *string                    `json:"matched_provider_id"`
+	MatchSource         *ModelPriceMatchSource     `json:"match_source"`
 	Referenced          bool                       `json:"referenced"`
 	ReferenceCount      int                        `json:"reference_count"`
 	ReferenceGroupCount int                        `json:"reference_group_count"`
@@ -198,7 +200,11 @@ func (s *Service) ResetModelPrice(
 		if err != nil {
 			return err
 		}
-		desired, err := resetModelPriceValues(row.ModelID, catalogSnapshot)
+		identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+		if err != nil {
+			return fmt.Errorf("validate model price identity: %w", app_errors.ErrInternalServer)
+		}
+		desired, err := resetModelPriceValues(identity, catalogSnapshot)
 		if err != nil {
 			return fmt.Errorf("normalize catalog model price: %w", app_errors.ErrInternalServer)
 		}
@@ -247,12 +253,12 @@ func (s *Service) ResetModelPrice(
 	return result, nil
 }
 
-func resetModelPriceValues(modelID string, snapshot *catalog.Snapshot) (models.ModelPrice, error) {
-	cost, _, ok := resolveAutomaticPrice(snapshot, modelID)
+func resetModelPriceValues(identity pricing.Identity, snapshot *catalog.Snapshot) (models.ModelPrice, error) {
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, identity)
 	if !ok {
 		return models.ModelPrice{}, nil
 	}
-	return automaticCatalogValues(cost)
+	return automaticCatalogValues(match.cost)
 }
 
 func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
@@ -275,8 +281,8 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
 		}
-		identity := pricing.Identity{ModelID: row.ModelID}
-		if _, err := pricing.NewTable([]pricing.Rule{{Identity: identity}}); err != nil {
+		identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+		if err != nil {
 			return fmt.Errorf("validate model price identity: %w", app_errors.ErrInternalServer)
 		}
 		references, err := loadPriceReferenceSnapshot(tx)
@@ -472,7 +478,7 @@ func projectModelPriceRow(
 	if _, err := pricing.NewTable([]pricing.Rule{rule}); err != nil {
 		return modelPriceListRecord{}, fmt.Errorf("validate persisted model price: %w", app_errors.ErrInternalServer)
 	}
-	identity := pricing.Identity{ModelID: row.ModelID}
+	identity := rule.Identity
 	reference := references.references[identity]
 	status := resolvePricingStatus(&row)
 	prices := PriceSlotsDTO{
@@ -483,22 +489,27 @@ func projectModelPriceRow(
 	}
 	configured := modelPriceHasConfiguredValue(row)
 	var matchedProviderID *string
+	var matchSource *ModelPriceMatchSource
 	matchedAutomaticPrice := false
-	matchedProvider := ""
 	if !row.IsManual {
-		_, matchedProvider, matchedAutomaticPrice = resolveAutomaticPrice(catalogSnapshot, row.ModelID)
+		match, matched := resolveAutomaticPriceForIdentity(catalogSnapshot, identity)
+		matchedAutomaticPrice = matched
 		if configured && matchedAutomaticPrice {
-			matchedProviderID = &matchedProvider
+			providerID := match.providerID
+			matchedProviderID = &providerID
+			source := match.source
+			matchSource = &source
 		} else {
 			matchedAutomaticPrice = false
 		}
 	}
 	dto := ModelPriceDTO{
-		ID: row.ID, ModelID: row.ModelID,
+		ID: row.ID, ChannelID: row.ChannelID, ModelID: row.ModelID,
 		Prices:              prices,
 		PricingStatus:       status,
 		Method:              modelPriceMethod(row, configured, matchedAutomaticPrice),
 		MatchedProviderID:   matchedProviderID,
+		MatchSource:         matchSource,
 		Referenced:          reference.referenceCount > 0,
 		ReferenceCount:      reference.referenceCount,
 		ReferenceGroupCount: reference.referenceGroupCount(),
@@ -624,7 +635,8 @@ func modelPriceRecordMatches(record modelPriceListRecord, query ModelPriceListQu
 		return false
 	}
 	return query.Search == "" ||
-		accessKeyCollectionContainsFold(record.dto.ModelID, query.Search)
+		accessKeyCollectionContainsFold(record.dto.ModelID, query.Search) ||
+		accessKeyCollectionContainsFold(record.dto.ChannelID, query.Search)
 }
 
 func sortModelPriceRecords(records []modelPriceListRecord) {
@@ -638,6 +650,9 @@ func sortModelPriceRecords(records []modelPriceListRecord) {
 		}
 		if left.dto.ModelID != right.dto.ModelID {
 			return left.dto.ModelID < right.dto.ModelID
+		}
+		if left.dto.ChannelID != right.dto.ChannelID {
+			return left.dto.ChannelID < right.dto.ChannelID
 		}
 		return left.dto.ID < right.dto.ID
 	})

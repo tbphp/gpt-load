@@ -7,7 +7,7 @@ import (
 	"gpt-load/internal/state"
 )
 
-func calculateAutoWeight(stats health.KeyStats) int {
+func calculateAutoWeight(stats health.CredentialStats) int {
 	total := stats.Success + stats.Failure
 	if total < 10 {
 		return state.DefaultWeight

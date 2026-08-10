@@ -1,7 +1,6 @@
 package dialect
 
 import (
-	"net/http"
 	"strings"
 	"testing"
 
@@ -9,7 +8,7 @@ import (
 )
 
 func TestUsageOpenAICanonicalFixtures(t *testing.T) {
-	extractor := NewOpenAI(http.DefaultClient)
+	extractor := NewOpenAI()
 	result, err := extractor.ExtractUsage(readUsageFixture(t, "openai", "nonstream.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +32,7 @@ func TestUsageOpenAICanonicalFixtures(t *testing.T) {
 }
 
 func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
-	extractor := NewOpenAI(http.DefaultClient)
+	extractor := NewOpenAI()
 	negativeTen := int64(-10)
 	tests := []struct {
 		name        string
@@ -117,7 +116,7 @@ func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 }
 
 func TestUsageOpenAINonStreamRequiredAndStrictNumbers(t *testing.T) {
-	extractor := NewOpenAI(http.DefaultClient)
+	extractor := NewOpenAI()
 	tests := []struct {
 		name       string
 		body       string
@@ -225,7 +224,7 @@ func TestUsageOpenAINonStreamRequiredAndStrictNumbers(t *testing.T) {
 }
 
 func TestUsageOpenAIClampsCachedAndChecksTotal(t *testing.T) {
-	extractor := NewOpenAI(http.DefaultClient)
+	extractor := NewOpenAI()
 	tests := []struct {
 		name      string
 		body      string
@@ -293,7 +292,7 @@ func TestUsageOpenAIClampsCachedAndChecksTotal(t *testing.T) {
 }
 
 func TestUsageOpenAIInvalidUsageObjectIsDiagnosedAndDoesNotDiscardStreamState(t *testing.T) {
-	extractor := NewOpenAI(http.DefaultClient)
+	extractor := NewOpenAI()
 	result, err := extractor.ExtractUsage([]byte(`{"usage":[]}`))
 	if err != nil || result.State != usage.StateMissing || result.Tokens != (usage.Tokens{}) {
 		t.Fatalf("invalid non-stream usage = %#v, %v", result, err)
@@ -333,7 +332,7 @@ func TestUsageOpenAIInvalidUsageObjectIsDiagnosedAndDoesNotDiscardStreamState(t 
 }
 
 func TestUsageOpenAIStreamSnapshotsAndFinality(t *testing.T) {
-	extractor := NewOpenAI(http.DefaultClient)
+	extractor := NewOpenAI()
 	tests := []struct {
 		name  string
 		steps []string
@@ -389,7 +388,7 @@ func TestUsageOpenAIStreamSnapshotsAndFinality(t *testing.T) {
 }
 
 func TestUsageOpenAIStreamReplaceSnapshotClearsAbsentTokensAndDiagnostics(t *testing.T) {
-	stream := NewOpenAI(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewOpenAI().NewUsageStreamExtractor()
 	for _, payload := range []string{
 		`{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":10,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":1.5}}}`,
 		`{"choices":[],"usage":{"prompt_tokens":100}}`,
@@ -407,7 +406,7 @@ func TestUsageOpenAIStreamReplaceSnapshotClearsAbsentTokensAndDiagnostics(t *tes
 }
 
 func TestUsageOpenAIStreamMalformedPayloadKeepsDiagnosticAndState(t *testing.T) {
-	stream := NewOpenAI(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewOpenAI().NewUsageStreamExtractor()
 	if err := stream.Observe([]byte(`{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +427,7 @@ func TestUsageOpenAIStreamMalformedPayloadKeepsDiagnosticAndState(t *testing.T) 
 }
 
 func TestUsageOpenAIMalformedBodiesAndObserveOwnership(t *testing.T) {
-	extractor := NewOpenAI(http.DefaultClient)
+	extractor := NewOpenAI()
 	for _, body := range [][]byte{[]byte(`{}`), []byte(`{"usage":null}`)} {
 		result, err := extractor.ExtractUsage(body)
 		if err != nil || result.State != usage.StateMissing || result.Tokens != (usage.Tokens{}) {

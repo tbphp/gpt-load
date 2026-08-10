@@ -1,13 +1,11 @@
 package dialect
 
 import (
-	"context"
 	"net/http"
 
-	"gpt-load/internal/health"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
-	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
 
@@ -22,6 +20,8 @@ type ParsedRequest struct {
 type RequestMetadata struct {
 	Model            *string
 	Stream           bool
+	Operation        execution.Operation
+	RequiredFeatures execution.FeatureSet
 	ObserveUsage     bool
 	UsageDiagnostics usage.Diagnostics
 	Reasoning        reasoning.Config
@@ -30,20 +30,6 @@ type RequestMetadata struct {
 type Dialect interface {
 	Protocol() protocol.Protocol
 	InspectRequest(req *ParsedRequest) (RequestMetadata, error)
-	BuildUpstreamURL(base string, req *ParsedRequest) (string, error)
-	InjectCredential(headers http.Header, apiKey string)
-	ListModels(
-		ctx context.Context,
-		baseURL, apiKey string,
-		rules state.HeaderRules,
-	) ([]string, error)
-	Probe(
-		ctx context.Context,
-		baseURL, apiKey string,
-		rules state.HeaderRules,
-		validationModel string,
-	) error
-	ClassifyStatus(status int, body []byte) health.FailureCategory
 }
 
 type ModelRewriter interface {
@@ -57,8 +43,4 @@ type ModelRewriter interface {
 // proxy behavior.
 type ResponseModelInspector interface {
 	InspectResponseModels(payload []byte) []string
-}
-
-type CredentialHeaderNamer interface {
-	CredentialHeaderNames() []string
 }

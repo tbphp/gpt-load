@@ -1,19 +1,17 @@
-import type { GroupProtocol, GroupSettingsDto } from '@/api/control/types'
+import type { ChannelParamsDto, GroupSettingsDto } from '@/api/control/types'
 import type {
   GroupRuntimeConfigDto,
   GroupSettingsUpdateRequest,
   HeaderRulesDto,
 } from '@/app/resources/groups'
-import { enabledDataProtocols } from '@/api/control/protocols'
 
 export type GroupTimeoutKey =
   'connect_timeout' | 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
 
 export interface GroupSettingsDraft {
-  provider_id: string | null
+  channel_id: string
+  params: ChannelParamsDto
   name: string
-  upstream_url: string
-  protocols: GroupProtocol[]
   validation_model: string | null
   enabled: boolean
   weight_manual: number | null
@@ -56,7 +54,7 @@ function normalizeOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto
 }
 
 export function createGroupSettingsDraft(group: GroupSettingsDto): GroupSettingsDraft {
-  return { ...group, protocols: [...group.protocols], overrides: cloneOverrides(group.overrides) }
+  return { ...group, params: { ...group.params }, overrides: cloneOverrides(group.overrides) }
 }
 
 export function setGroupConfigOverride(
@@ -76,14 +74,17 @@ export function buildGroupSettingsPatch(
   draft: GroupSettingsDraft,
 ): GroupSettingsUpdateRequest {
   const patch: GroupSettingsUpdateRequest = {}
-  const protocols = enabledDataProtocols.filter((protocol) => draft.protocols.includes(protocol))
   const overrides = normalizeOverrides(draft.overrides)
-  if (!protocols.includes('openai-completions')) delete overrides.inject_usage_options
-  if (draft.provider_id !== base.provider_id) patch.provider_id = draft.provider_id
   if (draft.name.trim() !== base.name) patch.name = draft.name.trim()
-  if (draft.upstream_url.trim() !== base.upstream_url)
-    patch.upstream_url = draft.upstream_url.trim()
-  if (JSON.stringify(protocols) !== JSON.stringify(base.protocols)) patch.protocols = protocols
+  const params = Object.fromEntries(
+    Object.entries(draft.params)
+      .map(([key, value]) => [key, value.trim()] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  )
+  const baseParams = Object.fromEntries(
+    Object.entries(base.params).sort(([left], [right]) => left.localeCompare(right)),
+  )
+  if (JSON.stringify(params) !== JSON.stringify(baseParams)) patch.params = params
   const validationModel = draft.validation_model?.trim() || null
   if (validationModel !== base.validation_model) patch.validation_model = validationModel
   if (draft.enabled !== base.enabled) patch.enabled = draft.enabled

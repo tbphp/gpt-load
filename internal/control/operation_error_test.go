@@ -26,7 +26,7 @@ func TestControlOperationErrorCarriesOnlyFixedContext(t *testing.T) {
 		t.Fatalf("error = %T, want *controlOperationError", err)
 	}
 	if operationErr.stage != stageApplyCommittedRegistryMutation ||
-		operationErr.groupID != 12 || operationErr.keyID != 34 ||
+		operationErr.groupID != 12 || operationErr.credentialID != 34 ||
 		operationErr.mismatchKind != "" {
 		t.Fatalf("operation error = %#v", operationErr)
 	}
@@ -40,11 +40,11 @@ func TestServiceErrorMessageIDUsesTypedResourceNotFound(t *testing.T) {
 		want      string
 	}{
 		{
-			name: "list Group keys missing Group", operation: "list_group_keys",
+			name: "list Group credentials missing Group", operation: "list_group_credentials",
 			err: groupNotFoundError(), want: "group.not_found",
 		},
 		{
-			name: "update Group key missing Group", operation: "update_group_key",
+			name: "update Group credential missing Group", operation: "update_group_credential",
 			err: groupNotFoundError(), want: "group.not_found",
 		},
 		{
@@ -52,12 +52,12 @@ func TestServiceErrorMessageIDUsesTypedResourceNotFound(t *testing.T) {
 			err: groupNotFoundError(), want: "group.not_found",
 		},
 		{
-			name: "update Group key missing Key", operation: "update_group_key",
-			err: keyNotFoundError(), want: "key.not_found",
+			name: "update Group credential missing Credential", operation: "update_group_credential",
+			err: credentialNotFoundError(), want: "credential.not_found",
 		},
 		{
-			name: "delete wrong-owner Key", operation: "delete_group_key",
-			err: keyNotFoundError(), want: "key.not_found",
+			name: "delete wrong-owner Credential", operation: "delete_group_credential",
+			err: credentialNotFoundError(), want: "credential.not_found",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -99,15 +99,15 @@ func TestLogServiceErrorUsesOnlyFixedOperationContext(t *testing.T) {
 		logrus.SetFormatter(previousFormatter)
 	})
 
-	logServiceError("list_group_keys", err, app_errors.ErrInternalServer.Code)
+	logServiceError("list_group_credentials", err, app_errors.ErrInternalServer.Code)
 	logText := logs.String()
 	for _, required := range []string{
 		`"msg":"[CONTROL] Operation failed"`,
-		`"operation":"list_group_keys"`,
+		`"operation":"list_group_credentials"`,
 		`"stage":"validate_db_registry_pair"`,
 		`"mismatch_kind":"weight_manual"`,
 		`"group_id":12`,
-		`"key_id":34`,
+		`"credential_id":34`,
 	} {
 		if !strings.Contains(logText, required) {
 			t.Fatalf("log output missing %q: %s", required, logText)

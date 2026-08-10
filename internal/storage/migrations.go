@@ -38,22 +38,11 @@ var migrations = []migration{
 		ID: "0001_initial_v2",
 		Up: createInitialV2Tables,
 	},
-	{
-		ID: "0002_request_log_reasoning",
-		Up: addRequestLogReasoningColumns,
-	},
-	{
-		ID: "0003_global_model_prices",
-		Up: migrateGlobalModelPrices,
-	},
-	{
-		ID: "0004_mysql_model_price_identity",
-		Up: migrateMySQLModelPriceIdentity,
-	},
-	{
-		ID: "0005_request_log_model_consistency",
-		Up: addRequestLogModelConsistencyColumns,
-	},
+	{ID: "0002_request_log_reasoning", Up: retainLegacyMigrationPosition},
+	{ID: "0003_global_model_prices", Up: retainLegacyMigrationPosition},
+	{ID: "0004_mysql_model_price_identity", Up: retainLegacyMigrationPosition},
+	{ID: "0005_request_log_model_consistency", Up: retainLegacyMigrationPosition},
+	{ID: "0006_channel_execution", Up: migrateChannelExecution},
 }
 
 func applyMigrations(db *gorm.DB) error {

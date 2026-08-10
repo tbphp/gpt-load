@@ -1,7 +1,6 @@
 package dialect
 
 import (
-	"net/http"
 	"strings"
 	"testing"
 
@@ -9,7 +8,7 @@ import (
 )
 
 func TestUsageGeminiCanonicalFixtures(t *testing.T) {
-	provider := Dialect(NewGemini(http.DefaultClient))
+	provider := Dialect(NewGemini())
 	extractor, ok := provider.(UsageExtractor)
 	if !ok {
 		t.Fatal("Gemini does not implement UsageExtractor")
@@ -36,7 +35,7 @@ func TestUsageGeminiCanonicalFixtures(t *testing.T) {
 }
 
 func TestUsageGeminiNonStreamOptionalFieldsAndArithmetic(t *testing.T) {
-	extractor := NewGemini(http.DefaultClient)
+	extractor := NewGemini()
 	tests := []struct {
 		name        string
 		body        string
@@ -109,7 +108,7 @@ func TestUsageGeminiNonStreamOptionalFieldsAndArithmetic(t *testing.T) {
 }
 
 func TestUsageGeminiRequiredFieldsAndStrictNumbers(t *testing.T) {
-	extractor := NewGemini(http.DefaultClient)
+	extractor := NewGemini()
 	tests := []struct {
 		name        string
 		body        string
@@ -179,7 +178,7 @@ func TestUsageGeminiRequiredFieldsAndStrictNumbers(t *testing.T) {
 }
 
 func TestUsageGeminiOptionalNullAndZeroPresence(t *testing.T) {
-	extractor := NewGemini(http.DefaultClient)
+	extractor := NewGemini()
 	tests := []struct {
 		name  string
 		body  string
@@ -240,7 +239,7 @@ func TestUsageGeminiOptionalNullAndZeroPresence(t *testing.T) {
 }
 
 func TestUsageGeminiStreamSnapshotsFinalityAndMalformedPayload(t *testing.T) {
-	extractor := NewGemini(http.DefaultClient)
+	extractor := NewGemini()
 	tests := []struct {
 		name        string
 		steps       []string
@@ -368,7 +367,7 @@ func TestUsageGeminiStreamSnapshotsFinalityAndMalformedPayload(t *testing.T) {
 }
 
 func TestUsageGeminiMalformedBodiesAreSanitized(t *testing.T) {
-	extractor := NewGemini(http.DefaultClient)
+	extractor := NewGemini()
 	for _, body := range [][]byte{
 		[]byte(`[]`),
 		[]byte(`{"usageMetadata":{"promptTokenCount":100}} {}`),

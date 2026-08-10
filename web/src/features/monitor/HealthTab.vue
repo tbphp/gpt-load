@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
-import { healthQueryOptions, type HealthProblemKeyDto } from '@/app/resources/health'
+import { healthQueryOptions, type HealthProblemCredentialDto } from '@/app/resources/health'
 import { monitorLocation } from '@/app/route-locations'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -20,7 +20,7 @@ import RequestLogHealthCard from './RequestLogHealthCard.vue'
 import { healthMonitorQuery, parseHealthMonitorState } from './monitor-route'
 
 interface ProblemItem {
-  key: HealthProblemKeyDto
+  credential: HealthProblemCredentialDto
   kind: 'cooldown' | 'blacklisted'
   tone: 'warning' | 'danger'
 }
@@ -57,31 +57,31 @@ const problemItems = computed<ProblemItem[]>(() => {
   if (!data) return []
   const groupCounts = new Map(data.groups.map((group) => [group.id, group.counts]))
   const items: ProblemItem[] = [
-    ...data.cooldown_keys.map((key) => ({
-      key,
+    ...data.cooldown_credentials.map((credential) => ({
+      credential,
       kind: 'cooldown' as const,
       tone: 'warning' as const,
     })),
-    ...data.blacklisted_keys.map((key) => ({
-      key,
+    ...data.blacklisted_credentials.map((credential) => ({
+      credential,
       kind: 'blacklisted' as const,
       tone: 'danger' as const,
     })),
   ]
 
   return items.sort((left, right) => {
-    const leftUnavailable = groupCounts.get(left.key.group_id)?.available === 0 ? 0 : 1
-    const rightUnavailable = groupCounts.get(right.key.group_id)?.available === 0 ? 0 : 1
+    const leftUnavailable = groupCounts.get(left.credential.group_id)?.available === 0 ? 0 : 1
+    const rightUnavailable = groupCounts.get(right.credential.group_id)?.available === 0 ? 0 : 1
     const leftKind = left.kind === 'blacklisted' ? 0 : 1
     const rightKind = right.kind === 'blacklisted' ? 0 : 1
-    const leftRecovery = left.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER
-    const rightRecovery = right.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER
+    const leftRecovery = left.credential.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER
+    const rightRecovery = right.credential.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER
     return (
       leftUnavailable - rightUnavailable ||
       leftKind - rightKind ||
       leftRecovery - rightRecovery ||
-      left.key.group_name.localeCompare(right.key.group_name) ||
-      left.key.key_id - right.key.key_id
+      left.credential.group_name.localeCompare(right.credential.group_name) ||
+      left.credential.credential_id - right.credential.credential_id
     )
   })
 })
@@ -92,20 +92,23 @@ const focusContentHeight = computed(() => {
   const visibleRows = Math.min(problemItems.value.length, 3)
   return Math.max(compactMinimum, headerHeight + visibleRows * rowHeight)
 })
-const recoveryByKey = computed<Record<number, RecoveryDisplay | undefined>>(() =>
+const recoveryByCredential = computed<Record<number, RecoveryDisplay | undefined>>(() =>
   Object.fromEntries(
-    problemItems.value.map((item) => [item.key.key_id, recoveryDisplay(item.key)]),
+    problemItems.value.map((item) => [
+      item.credential.credential_id,
+      recoveryDisplay(item.credential),
+    ]),
   ),
 )
 const earliestCooldown = computed<RecoveryDisplay | null>(() => {
   const earliest = problemItems.value
-    .filter((item) => item.kind === 'cooldown' && item.key.cooldown_until_ms !== null)
+    .filter((item) => item.kind === 'cooldown' && item.credential.cooldown_until_ms !== null)
     .sort(
       (left, right) =>
-        (left.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER) -
-        (right.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER),
+        (left.credential.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER) -
+        (right.credential.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER),
     )[0]
-  return earliest ? (recoveryByKey.value[earliest.key.key_id] ?? null) : null
+  return earliest ? (recoveryByCredential.value[earliest.credential.credential_id] ?? null) : null
 })
 
 function stopElapsedTimer(): void {
@@ -163,17 +166,17 @@ function remainingLabel(totalSeconds: number): string {
   return t('monitor.health.recovery.seconds', { seconds: totalSeconds })
 }
 
-function recoveryDisplay(key: HealthProblemKeyDto): RecoveryDisplay | undefined {
+function recoveryDisplay(credential: HealthProblemCredentialDto): RecoveryDisplay | undefined {
   const observedAtMS = healthQuery.data.value?.observed_at_ms
-  if (key.cooldown_until_ms === null || observedAtMS === undefined) return undefined
+  if (credential.cooldown_until_ms === null || observedAtMS === undefined) return undefined
   const remainingSeconds = Math.max(
     0,
-    Math.ceil((key.cooldown_until_ms - (observedAtMS + elapsedMs.value)) / 1_000),
+    Math.ceil((credential.cooldown_until_ms - (observedAtMS + elapsedMs.value)) / 1_000),
   )
   return {
     relative: remainingLabel(remainingSeconds),
     exact: t('monitor.health.recovery.exact', {
-      time: formatLocalInstant(key.cooldown_until_ms, locale.value),
+      time: formatLocalInstant(credential.cooldown_until_ms, locale.value),
     }),
   }
 }
@@ -228,7 +231,7 @@ defineExpose({ refresh })
       >
         <HealthProblemCollection
           :items="problemItems"
-          :recovery-by-key="recoveryByKey"
+          :recovery-by-credential="recoveryByCredential"
           :stats-window-seconds="healthQuery.data.value.stats_window_seconds"
           :available-count="healthQuery.data.value.counts.available"
         />

@@ -2,13 +2,16 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -45,46 +48,54 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 		t.Fatalf("disable group: %v", err)
 	}
 
-	keys := []models.UpstreamKey{
+	credentials := []models.Credential{
 		{
-			ID: 1, GroupID: enabled.ID, KeyValue: "cipher-1", KeyHash: "hash-1",
-			Status: models.UpstreamKeyStatusActive,
+			ID: 1, GroupID: enabled.ID, Data: "cipher-1", Fingerprint: "hash-1",
+			Status: models.CredentialStatusActive,
 		},
 		{
-			ID: 2, GroupID: enabled.ID, KeyValue: "cipher-2", KeyHash: "hash-2",
-			Status: models.UpstreamKeyStatusActive,
+			ID: 2, GroupID: enabled.ID, Data: "cipher-2", Fingerprint: "hash-2",
+			Status: models.CredentialStatusActive,
 		},
 		{
-			ID: 3, GroupID: enabledTwo.ID, KeyValue: "cipher-3", KeyHash: "hash-3",
-			Status: models.UpstreamKeyStatusDisabled,
+			ID: 3, GroupID: enabledTwo.ID, Data: "cipher-3", Fingerprint: "hash-3",
+			Status: models.CredentialStatusDisabled,
 		},
 		{
-			ID: 4, GroupID: disabled.ID, KeyValue: "cipher-4", KeyHash: "hash-4",
-			Status: models.UpstreamKeyStatusActive,
+			ID: 4, GroupID: disabled.ID, Data: "cipher-4", Fingerprint: "hash-4",
+			Status: models.CredentialStatusActive,
 		},
 	}
-	if err := fixture.db.Create(&keys).Error; err != nil {
-		t.Fatalf("create upstream keys: %v", err)
+	if err := fixture.db.Create(&credentials).Error; err != nil {
+		t.Fatalf("create credentials: %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
 		{
-			ID: 1, GroupID: enabled.ID, Status: state.KeyStatusActive,
+			ID: 1, GroupID: enabled.ID, Status: state.CredentialStatusActive,
+			Version:            groupCollectionCredentialVersion(credentials[0].UpdatedAtMS),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[0].Fingerprint), Fingerprint: credentials[0].Fingerprint,
 			EncryptedValue: "cipher-1",
 		},
 		{
-			ID: 2, GroupID: enabled.ID, Status: state.KeyStatusActive,
+			ID: 2, GroupID: enabled.ID, Status: state.CredentialStatusActive,
+			Version:            groupCollectionCredentialVersion(credentials[1].UpdatedAtMS),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[1].Fingerprint), Fingerprint: credentials[1].Fingerprint,
 			CooldownUntil: now.Add(time.Hour), EncryptedValue: "cipher-2",
 		},
 		{
-			ID: 3, GroupID: enabledTwo.ID, Status: state.KeyStatusDisabled,
+			ID: 3, GroupID: enabledTwo.ID, Status: state.CredentialStatusDisabled,
+			Version:            groupCollectionCredentialVersion(credentials[2].UpdatedAtMS),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[2].Fingerprint), Fingerprint: credentials[2].Fingerprint,
 			EncryptedValue: "cipher-3",
 		},
 		{
-			ID: 4, GroupID: disabled.ID, Status: state.KeyStatusActive,
+			ID: 4, GroupID: disabled.ID, Status: state.CredentialStatusActive,
+			Version:            groupCollectionCredentialVersion(credentials[3].UpdatedAtMS),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[3].Fingerprint), Fingerprint: credentials[3].Fingerprint,
 			EncryptedValue: "cipher-4",
 		},
 	}); err != nil {
-		t.Fatalf("registry.Replace() error = %v", err)
+		t.Fatalf("registry.ReplaceCredentials() error = %v", err)
 	}
 
 	accessKeys := []models.AccessKey{
@@ -116,7 +127,7 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 	if err := fixture.db.Create(&accessKeys).Error; err != nil {
 		t.Fatalf("create access keys: %v", err)
 	}
-	input, err := stateloader.BuildCompileInput(context.Background(), fixture.db)
+	input, err := stateloader.BuildCompileInput(context.Background(), fixture.db, fixture.channelRegistry)
 	if err != nil {
 		t.Fatalf("BuildCompileInput() error = %v", err)
 	}
@@ -125,7 +136,7 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 	}
 
 	registrySnapshotCalls := 0
-	fixture.service.registrySnapshot = func() []state.KeyRuntimeView {
+	fixture.service.registrySnapshot = func() []state.CredentialRuntimeView {
 		registrySnapshotCalls++
 		return fixture.registry.Snapshot()
 	}
@@ -136,10 +147,10 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 	}
 	want := HomeBase{
 		Inventory: HomeInventory{
-			GroupCount:                3,
-			UpstreamKeyCount:          4,
-			AvailableUpstreamKeyCount: 1,
-			ModelCount:                4,
+			GroupCount:               3,
+			CredentialCount:          4,
+			AvailableCredentialCount: 1,
+			ModelCount:               4,
 		},
 		AccessKeys: []HomeAccessKey{
 			{
@@ -165,22 +176,40 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 	}
 }
 
+func TestHomeInventoryWireUsesCredentialTerms(t *testing.T) {
+	encoded, err := json.Marshal(HomeInventory{
+		GroupCount: 1, CredentialCount: 2, AvailableCredentialCount: 1, ModelCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	text := string(encoded)
+	for _, field := range []string{`"credential_count":2`, `"available_credential_count":1`} {
+		if !strings.Contains(text, field) {
+			t.Fatalf("home inventory missing %s: %s", field, text)
+		}
+	}
+	for _, legacy := range []string{"upstream_key_count", "available_upstream_key_count"} {
+		if strings.Contains(text, legacy) {
+			t.Fatalf("home inventory exposes %s: %s", legacy, text)
+		}
+	}
+}
+
 func TestReadAccessKeyHomeBaseScopesInventoryToRoutableModels(t *testing.T) {
 	fixture := newServiceFixture(t)
 	allowed := createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "allowed", UpstreamURL: "https://allowed.example/v1",
-		Protocols: models.JSON(`["openai-completions"]`),
+		Name: "allowed", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
 		Models: models.JSON(`[
 			{"id":"upstream-allowed","alias":"client-allowed"},
 			{"id":"upstream-hidden","alias":"client-hidden"}
 		]`),
-		Config: models.JSON(`{}`), Enabled: true,
+		Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "private", UpstreamURL: "https://private.example",
-		Protocols: models.JSON(`["gemini"]`),
+		Name: "private", ChannelID: string(channel.Gemini), Params: models.JSON(`{}`),
 		Models:    models.JSON(`[{"id":"private-upstream","alias":"private-client"}]`),
-		Config:    models.JSON(`{}`), Enabled: true,
+		Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 		Name: "scoped home",

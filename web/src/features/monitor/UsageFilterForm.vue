@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 
 import type { GroupOptionDto } from '@/api/control/types'
+import type { ChannelDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -14,7 +15,9 @@ const props = defineProps<{
   draft: UsageFilterDraft
   errors: UsageFilterErrors
   groups: GroupOptionDto[]
+  channels: ChannelDto[]
   groupsFailed: boolean
+  channelsFailed: boolean
   selfScoped?: boolean
 }>()
 const emit = defineEmits<{
@@ -43,6 +46,22 @@ function groupOptions() {
   return [
     ...options,
     ...props.groups.map((group) => option(String(group.id), `${group.name} · #${group.id}`)),
+  ]
+}
+
+function channelOptions() {
+  const options = [option('', t('monitor.usage.filters.anyChannel'))]
+  if (
+    props.draft.channel_id &&
+    !props.channels.some((channel) => channel.channel_id === props.draft.channel_id)
+  ) {
+    options.push(option(props.draft.channel_id, props.draft.channel_id))
+  }
+  return [
+    ...options,
+    ...props.channels.map((channel) =>
+      option(channel.channel_id, `${channel.name} · ${channel.channel_id}`),
+    ),
   ]
 }
 
@@ -95,20 +114,73 @@ function error(field: keyof UsageFilterErrors): string | undefined {
           </template>
         </FormField>
         <FormField
+          v-if="!selfScoped"
+          id="usage-channel"
+          :label="t('monitor.usage.filters.channel')"
+          size="compact"
+          :error="error('channel_id')"
+        >
+          <template #default="{ describedBy, invalid }">
+            <input
+              v-if="channelsFailed"
+              id="usage-channel"
+              :value="draft.channel_id"
+              autocomplete="off"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @input="emit('updateField', 'channel_id', ($event.target as HTMLInputElement).value)"
+            />
+            <AppSelect
+              v-else
+              id="usage-channel"
+              :model-value="draft.channel_id"
+              :label="t('monitor.usage.filters.channel')"
+              :options="channelOptions()"
+              size="compact"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @update:model-value="emit('updateField', 'channel_id', $event)"
+            />
+          </template>
+        </FormField>
+        <FormField
+          v-if="!selfScoped"
+          id="usage-credential"
+          :label="t('monitor.usage.filters.credential')"
+          size="compact"
+          :error="error('credential_id')"
+        >
+          <template #default="{ describedBy, invalid }">
+            <input
+              id="usage-credential"
+              :value="draft.credential_id"
+              inputmode="numeric"
+              autocomplete="off"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @input="
+                emit('updateField', 'credential_id', ($event.target as HTMLInputElement).value)
+              "
+            />
+          </template>
+        </FormField>
+        <FormField
           id="usage-model"
           :label="t('monitor.usage.filters.model')"
           size="compact"
-          :error="error('model')"
+          :error="error('upstream_model')"
         >
           <template #default="{ describedBy, invalid }">
             <input
               id="usage-model"
-              :value="draft.model"
+              :value="draft.upstream_model"
               autocomplete="off"
               :placeholder="t('monitor.usage.filters.modelPlaceholder')"
               :aria-describedby="describedBy"
               :aria-invalid="invalid || undefined"
-              @input="emit('updateField', 'model', ($event.target as HTMLInputElement).value)"
+              @input="
+                emit('updateField', 'upstream_model', ($event.target as HTMLInputElement).value)
+              "
             />
           </template>
         </FormField>

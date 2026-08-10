@@ -8,24 +8,26 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
 )
 
 type GroupOption struct {
-	ID        uint                `json:"id"`
-	Name      string              `json:"name"`
-	Enabled   bool                `json:"enabled"`
-	Protocols []protocol.Protocol `json:"protocols"`
-	Models    []string            `json:"models"`
+	ID        uint            `json:"id"`
+	Name      string          `json:"name"`
+	ChannelID channel.ID      `json:"channel_id"`
+	Params    json.RawMessage `json:"params"`
+	Enabled   bool            `json:"enabled"`
+	Models    []string        `json:"models"`
 }
 
 type groupOptionRow struct {
 	ID        uint
 	Name      string
+	ChannelID string
+	Params    models.JSON
 	Enabled   bool
-	Protocols models.JSON
 	Models    models.JSON
 }
 
@@ -49,7 +51,7 @@ func (s *Service) ListGroupOptions(ctx context.Context) ([]GroupOption, error) {
 	if err != nil {
 		return nil, app_errors.ParseDBError(err)
 	}
-	options, err := mapGroupOptions(rows)
+	options, err := mapGroupOptions(rows, s.channelRegistry)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return nil, parentErr
 	}
@@ -63,7 +65,7 @@ func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, er
 	var rows []groupOptionRow
 	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
 		return tx.Model(&models.Group{}).
-			Select("id", "name", "enabled", "protocols", "models").
+			Select("id", "name", "channel_id", "params", "enabled", "models").
 			Order("id ASC").
 			Find(&rows).Error
 	})
@@ -71,26 +73,31 @@ func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, er
 		return nil, err
 	}
 	for index := range rows {
-		rows[index].Protocols = append(models.JSON(nil), rows[index].Protocols...)
+		rows[index].Params = append(models.JSON(nil), rows[index].Params...)
 		rows[index].Models = append(models.JSON(nil), rows[index].Models...)
 	}
 	return rows, nil
 }
 
-func mapGroupOptions(rows []groupOptionRow) ([]GroupOption, error) {
+func mapGroupOptions(rows []groupOptionRow, registries ...*channel.Registry) ([]GroupOption, error) {
+	var registry *channel.Registry
+	for _, candidate := range registries {
+		if candidate != nil {
+			registry = candidate
+			break
+		}
+	}
 	options := make([]GroupOption, 0, len(rows))
 	for _, row := range rows {
-		var protocols []protocol.Protocol
-		if err := json.Unmarshal(row.Protocols, &protocols); err != nil {
-			return nil, groupCollectionDataError(
-				"decode group %d protocols: %v", row.ID, err,
-			)
+		channelID := channel.ID(row.ChannelID)
+		if registry == nil {
+			return nil, groupCollectionDataError("channel registry is nil")
 		}
-		if err := validateGroupCollectionProtocols(protocols); err != nil {
-			return nil, groupCollectionDataError(
-				"validate group %d protocols: %v", row.ID, err,
-			)
+		validated, err := registry.ValidateParams(channelID, json.RawMessage(row.Params))
+		if err != nil {
+			return nil, groupCollectionDataError("validate group %d params: %v", row.ID, err)
 		}
+		params := validated.CanonicalJSON()
 		var models []GroupModel
 		if err := json.Unmarshal(row.Models, &models); err != nil {
 			return nil, groupCollectionDataError(
@@ -103,11 +110,9 @@ func mapGroupOptions(rows []groupOptionRow) ([]GroupOption, error) {
 			)
 		}
 		option := GroupOption{
-			ID:        row.ID,
-			Name:      row.Name,
-			Enabled:   row.Enabled,
-			Protocols: append([]protocol.Protocol(nil), protocols...),
-			Models:    make([]string, 0, len(models)),
+			ID: row.ID, Name: row.Name, ChannelID: channelID,
+			Params: append(json.RawMessage(nil), params...), Enabled: row.Enabled,
+			Models: make([]string, 0, len(models)),
 		}
 		for _, model := range models {
 			alias := strings.TrimSpace(model.Alias)

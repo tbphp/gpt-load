@@ -20,13 +20,14 @@ const (
 	mismatchGroupID         = "group_id"
 	mismatchStatus          = "status"
 	mismatchWeightManual    = "weight_manual"
+	mismatchIdentity        = "identity"
 )
 
 type controlOperationError struct {
 	stage        string
 	mismatchKind string
 	groupID      uint
-	keyID        uint
+	credentialID uint
 }
 
 func (e *controlOperationError) Error() string {
@@ -57,30 +58,30 @@ func groupNotFoundError() error {
 	return &controlResourceNotFoundError{resource: "group"}
 }
 
-func keyNotFoundError() error {
-	return &controlResourceNotFoundError{resource: "key"}
+func credentialNotFoundError() error {
+	return &controlResourceNotFoundError{resource: "credential"}
 }
 
 func dbRegistryMismatch(
 	kind dbRegistryMismatchKind,
 	groupID uint,
-	keyID uint,
+	credentialID uint,
 ) error {
 	return &controlOperationError{
 		stage:        stageValidateDBRegistryPair,
 		mismatchKind: string(kind),
 		groupID:      groupID,
-		keyID:        keyID,
+		credentialID: credentialID,
 	}
 }
 
-func withControlOperationContext(err error, groupID, keyID uint) error {
+func withControlOperationContext(err error, groupID, credentialID uint) error {
 	var operationErr *controlOperationError
 	if !errors.As(err, &operationErr) {
 		return err
 	}
 	cloned := *operationErr
 	cloned.groupID = groupID
-	cloned.keyID = keyID
+	cloned.credentialID = credentialID
 	return &cloned
 }

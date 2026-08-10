@@ -4,6 +4,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { ApiClient } from '@/api/client'
 import { ApiError, InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { projectChannelID } from '@/app/resources/channels'
 
 import {
   assertNoSecretLikeFields,
@@ -21,6 +22,7 @@ export type ModelPriceStatus = 'pending' | 'configured'
 export type ModelPriceStatusFilter = ModelPriceStatus | 'all'
 export type ModelPriceUsageFilter = 'in_use' | 'unreferenced' | 'all'
 export type ModelPriceMethod = 'auto_sync' | 'user_set' | 'user_marked_unpriced'
+export type ModelPriceMatchSource = 'channel_catalog_provider' | 'provider_priority_fallback'
 
 export interface ModelPriceFilters {
   usage: ModelPriceUsageFilter
@@ -44,11 +46,13 @@ export interface ModelPriceContextTierDto {
 
 export interface ModelPriceDto {
   id: number
+  channel_id: string
   model_id: string
   prices: ModelPriceSlotsDto
   pricing_status: ModelPriceStatus
   method: ModelPriceMethod | null
   matched_provider_id: string | null
+  match_source: ModelPriceMatchSource | null
   referenced: boolean
   reference_count: number
   reference_group_count: number
@@ -102,11 +106,13 @@ const collectionFields = ['items', 'pagination'] as const
 const paginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
 const itemFields = [
   'id',
+  'channel_id',
   'model_id',
   'prices',
   'pricing_status',
   'method',
   'matched_provider_id',
+  'match_source',
   'referenced',
   'reference_count',
   'reference_group_count',
@@ -175,6 +181,7 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
   assertNoSecretLikeFields(record, itemFields)
   const result: ModelPriceDto = {
     id: projectSafeInteger(record.id, { minimum: 1 }),
+    channel_id: projectChannelID(record.channel_id),
     model_id: projectIdentityString(record.model_id),
     prices: projectPrices(record.prices),
     pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),
@@ -183,6 +190,13 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
       record.matched_provider_id === null
         ? null
         : projectIdentityString(record.matched_provider_id),
+    match_source:
+      record.match_source === null
+        ? null
+        : projectEnum(record.match_source, [
+            'channel_catalog_provider',
+            'provider_priority_fallback',
+          ] as const),
     referenced: projectBoolean(record.referenced),
     reference_count: projectSafeInteger(record.reference_count, { minimum: 0 }),
     reference_group_count: projectSafeInteger(record.reference_group_count, { minimum: 0 }),
@@ -199,10 +213,13 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     result.referenced !== result.reference_count > 0 ||
     (result.pricing_status === 'pending' &&
       (result.method !== null || result.matched_provider_id !== null)) ||
-    (hasAutomaticReference && result.matched_provider_id === null) ||
-    (hasManualMethod && result.matched_provider_id !== null) ||
-    (result.method === null && result.matched_provider_id !== null) ||
-    (result.matched_provider_id !== null && !hasAutomaticReference) ||
+    (hasAutomaticReference &&
+      (result.matched_provider_id === null || result.match_source === null)) ||
+    (hasManualMethod && (result.matched_provider_id !== null || result.match_source !== null)) ||
+    (result.method === null &&
+      (result.matched_provider_id !== null || result.match_source !== null)) ||
+    ((result.matched_provider_id !== null || result.match_source !== null) &&
+      !hasAutomaticReference) ||
     (result.can_delete && (!result.can_reset || result.referenced))
   ) {
     invalidResponse()

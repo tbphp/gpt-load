@@ -84,7 +84,7 @@ func operationRequiredStages(kind operationKind) ([]operationStage, error) {
 			operationStageSnapshotPublished,
 			operationStageCompleted,
 		}
-	case operationKindGroupKeyImport:
+	case operationKindCredentialImport:
 		stages = []operationStage{
 			operationStageDBCommitted,
 			operationStageRegistryApplied,
@@ -355,7 +355,7 @@ func (s *Service) recoverOperationLocked(
 		case operationStageRegistryApplied:
 			stageErr = s.recoverRegistryOperation(ctx, operation)
 		case operationStageSnapshotPublished:
-			compileInput, inputErr := stateloader.BuildCompileInput(ctx, s.db)
+			compileInput, inputErr := stateloader.BuildCompileInput(ctx, s.db, s.channelRegistry)
 			if inputErr != nil {
 				stageErr = inputErr
 			} else {
@@ -389,7 +389,7 @@ func (s *Service) recoverRegistryOperation(
 	if err != nil {
 		return err
 	}
-	entries, err := stateloader.BuildGroupKeyEntries(ctx, s.db, groupID)
+	entries, err := stateloader.BuildGroupCredentialEntries(ctx, s.db, groupID)
 	if err != nil {
 		return err
 	}

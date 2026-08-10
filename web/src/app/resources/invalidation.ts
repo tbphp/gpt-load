@@ -14,11 +14,11 @@ function plan(
   return { exact, prefixes }
 }
 
-const importedKeyResourcePlan = (groupID: number) =>
+const importedCredentialResourcePlan = (groupID: number) =>
   plan(
     [controlQueryKeys.groups.summary(groupID), controlQueryKeys.health()],
     [
-      controlQueryKeys.groups.keysAll(groupID),
+      controlQueryKeys.groups.credentialsAll(groupID),
       controlQueryKeys.groups.collectionAll,
       controlQueryKeys.home.all,
     ],
@@ -36,7 +36,6 @@ export const mutationInvalidationPlans = {
         controlQueryKeys.home.all,
         controlQueryKeys.models.all,
         controlQueryKeys.modelPrices(),
-        controlQueryKeys.providers.modelsAll(),
       ],
     ),
     delete: plan(
@@ -46,10 +45,9 @@ export const mutationInvalidationPlans = {
         controlQueryKeys.home.all,
         controlQueryKeys.models.all,
         controlQueryKeys.modelPrices(),
-        controlQueryKeys.providers.modelsAll(),
       ],
     ),
-    importKeys: importedKeyResourcePlan,
+    importCredentials: importedCredentialResourcePlan,
   },
   accessKey: {
     create: plan(
@@ -80,7 +78,6 @@ export const mutationInvalidationPlans = {
       [
         controlQueryKeys.modelPrices(),
         controlQueryKeys.models.all,
-        controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],
     ),
@@ -89,7 +86,6 @@ export const mutationInvalidationPlans = {
       [
         controlQueryKeys.modelPrices(),
         controlQueryKeys.models.all,
-        controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],
     ),
@@ -98,7 +94,6 @@ export const mutationInvalidationPlans = {
       [
         controlQueryKeys.modelPrices(),
         controlQueryKeys.models.all,
-        controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],
     ),
@@ -107,7 +102,6 @@ export const mutationInvalidationPlans = {
       [
         controlQueryKeys.modelPrices(),
         controlQueryKeys.models.all,
-        controlQueryKeys.providers.modelsAll(),
         controlQueryKeys.groups.modelsAll(),
       ],
     ),

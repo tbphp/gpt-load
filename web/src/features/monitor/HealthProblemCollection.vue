@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
-import type { HealthProblemKeyDto } from '@/app/resources/health'
+import type { HealthProblemCredentialDto } from '@/app/resources/health'
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
@@ -15,7 +15,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 
 interface HealthProblemItem {
-  key: HealthProblemKeyDto
+  credential: HealthProblemCredentialDto
   kind: 'cooldown' | 'blacklisted'
   tone: 'warning' | 'danger'
 }
@@ -27,7 +27,7 @@ interface RecoveryDisplay {
 
 const props = defineProps<{
   items: HealthProblemItem[]
-  recoveryByKey: Record<number, RecoveryDisplay | undefined>
+  recoveryByCredential: Record<number, RecoveryDisplay | undefined>
   statsWindowSeconds: number
   availableCount: number
 }>()
@@ -38,10 +38,10 @@ function statusLabel(item: HealthProblemItem): string {
   return t(`monitor.health.problems.${item.kind}`)
 }
 
-function keyMeta(key: HealthProblemKeyDto): string {
-  const result = [t('monitor.health.problems.keyMeta', { group: key.group_name })]
-  if (key.last_status_code !== null) result.push(String(key.last_status_code))
-  result.push(t(`monitor.health.failureCategories.${key.last_failure_category}`))
+function credentialMeta(credential: HealthProblemCredentialDto): string {
+  const result = [t('monitor.health.problems.credentialMeta', { group: credential.group_name })]
+  if (credential.last_status_code !== null) result.push(String(credential.last_status_code))
+  result.push(t(`monitor.health.failureCategories.${credential.last_failure_category}`))
   return result.join(' · ')
 }
 </script>
@@ -113,7 +113,7 @@ function keyMeta(key: HealthProblemKeyDto): string {
         </span>
       </template>
 
-      <template v-for="(item, index) in items" :key="item.key.key_id">
+      <template v-for="(item, index) in items" :key="item.credential.credential_id">
         <article
           class="ledger-record-list__record problem-health-record"
           role="row"
@@ -123,13 +123,13 @@ function keyMeta(key: HealthProblemKeyDto): string {
             <OverflowTooltip
               :as="RouterLink"
               class="problem-health-record__mask"
-              :content="item.key.mask"
-              :to="groupDetailLocation(item.key.group_id, { tab: 'keys' })"
+              :content="item.credential.mask"
+              :to="groupDetailLocation(item.credential.group_id, { tab: 'credentials' })"
             >
-              {{ item.key.mask }}
+              {{ item.credential.mask }}
             </OverflowTooltip>
-            <OverflowTooltip as="small" :content="keyMeta(item.key)">
-              {{ keyMeta(item.key) }}
+            <OverflowTooltip as="small" :content="credentialMeta(item.credential)">
+              {{ credentialMeta(item.credential) }}
             </OverflowTooltip>
           </div>
 
@@ -146,15 +146,15 @@ function keyMeta(key: HealthProblemKeyDto): string {
               :content="
                 t('monitor.health.problems.window', {
                   minutes: n(statsWindowMinutes),
-                  problems: n(item.key.recent_problem_count),
-                  successes: n(item.key.recent_success_count),
+                  problems: n(item.credential.recent_problem_count),
+                  successes: n(item.credential.recent_success_count),
                 })
               "
               :aria-label="
                 t('monitor.health.problems.window', {
                   minutes: n(statsWindowMinutes),
-                  problems: n(item.key.recent_problem_count),
-                  successes: n(item.key.recent_success_count),
+                  problems: n(item.credential.recent_problem_count),
+                  successes: n(item.credential.recent_success_count),
                 })
               "
             >
@@ -167,47 +167,52 @@ function keyMeta(key: HealthProblemKeyDto): string {
               </span>
               <span
                 :class="
-                  item.key.recent_problem_count === 0
+                  item.credential.recent_problem_count === 0
                     ? 'problem-health-record__window-value--success'
                     : 'problem-health-record__window-value--danger'
                 "
               >
-                {{ n(item.key.recent_problem_count) }}
+                {{ n(item.credential.recent_problem_count) }}
               </span>
               <span aria-hidden="true">/</span>
               <span
                 :class="
-                  item.key.recent_success_count === 0
+                  item.credential.recent_success_count === 0
                     ? 'problem-health-record__window-value--danger'
                     : 'problem-health-record__window-value--success'
                 "
               >
-                {{ n(item.key.recent_success_count) }}
+                {{ n(item.credential.recent_success_count) }}
               </span>
             </OverflowTooltip>
             <OverflowTooltip
               as="small"
               :content="
                 t('monitor.health.problems.consecutive', {
-                  count: n(item.key.consecutive_problem_count),
+                  count: n(item.credential.consecutive_problem_count),
                 })
               "
             >
               {{
                 t('monitor.health.problems.consecutive', {
-                  count: n(item.key.consecutive_problem_count),
+                  count: n(item.credential.consecutive_problem_count),
                 })
               }}
             </OverflowTooltip>
           </div>
 
           <div class="ledger-record-list__cell problem-health-record__recovery" role="cell">
-            <template v-if="item.kind === 'cooldown' && recoveryByKey[item.key.key_id]">
-              <AppTooltip :content="recoveryByKey[item.key.key_id]!.exact" side="bottom">
+            <template
+              v-if="item.kind === 'cooldown' && recoveryByCredential[item.credential.credential_id]"
+            >
+              <AppTooltip
+                :content="recoveryByCredential[item.credential.credential_id]!.exact"
+                side="bottom"
+              >
                 <span class="problem-health-record__recovery-time" tabindex="0">
                   {{
                     t('monitor.health.problems.cooldownRecovery', {
-                      time: recoveryByKey[item.key.key_id]!.relative,
+                      time: recoveryByCredential[item.credential.credential_id]!.relative,
                     })
                   }}
                 </span>
@@ -217,7 +222,7 @@ function keyMeta(key: HealthProblemKeyDto): string {
               </OverflowTooltip>
             </template>
             <template v-else>
-              <template v-if="item.key.recovery.mode === 'validation_probe'">
+              <template v-if="item.credential.recovery.mode === 'validation_probe'">
                 <OverflowTooltip
                   as="span"
                   :content="t('monitor.health.problems.validationRecovery')"
@@ -251,8 +256,8 @@ function keyMeta(key: HealthProblemKeyDto): string {
               :to="
                 monitorLocation({
                   tab: 'logs',
-                  group_id: String(item.key.group_id),
-                  upstream_key_id: String(item.key.key_id),
+                  group_id: String(item.credential.group_id),
+                  credential_id: String(item.credential.credential_id),
                 })
               "
               custom
@@ -261,7 +266,7 @@ function keyMeta(key: HealthProblemKeyDto): string {
                 role="link"
                 variant="ghost"
                 size="compact"
-                :label="t('monitor.health.problems.viewLogs', { key: item.key.mask })"
+                :label="t('monitor.health.problems.viewLogs', { credential: item.credential.mask })"
                 @click="navigate"
               >
                 <ScrollText :size="15" aria-hidden="true" />
@@ -269,14 +274,16 @@ function keyMeta(key: HealthProblemKeyDto): string {
             </RouterLink>
             <RouterLink
               v-slot="{ navigate }"
-              :to="groupDetailLocation(item.key.group_id, { tab: 'keys' })"
+              :to="groupDetailLocation(item.credential.group_id, { tab: 'credentials' })"
               custom
             >
               <IconButton
                 role="link"
                 variant="ghost"
                 size="compact"
-                :label="t('monitor.health.problems.viewGroup', { group: item.key.group_name })"
+                :label="
+                  t('monitor.health.problems.viewGroup', { group: item.credential.group_name })
+                "
                 @click="navigate"
               >
                 <ArrowRight :size="15" aria-hidden="true" />

@@ -1,46 +1,30 @@
 <script setup lang="ts">
-import { Check } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { GroupProtocol } from '@/api/control/types'
-import { enabledDataProtocols } from '@/api/control/protocols'
-import UpstreamBaseURLHint from '@/components/config/UpstreamBaseURLHint.vue'
-import AppSearchInput from '@/components/ui/AppSearchInput.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
+import type { ChannelParamsDto } from '@/api/control/types'
+import type { ChannelFieldDto } from '@/app/resources/channels'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
-
-interface ProviderOption {
-  value: string
-  label: string
-}
 
 const props = defineProps<{
   section: 'general' | 'routing'
-  providerId: string | null
-  providerSearch: string
-  providerOptions: ProviderOption[]
+  channelId: string
+  channelName: string
+  paramFields: ChannelFieldDto[]
+  params: ChannelParamsDto
   name: string
-  upstreamUrl: string
   validationModel: string | null
   weightManual: number | null
-  protocols: GroupProtocol[]
   enabled: boolean
   pending: boolean
   nameError: string
-  upstreamUrlError: string
-  protocolsError: string
-  providerLoading: boolean
-  providerError: boolean
+  paramErrors: Record<string, string>
 }>()
 const emit = defineEmits<{
-  'update:providerId': [value: string | null]
-  'update:providerSearch': [value: string]
+  'update:param': [key: string, value: string]
   'update:name': [value: string]
-  'update:upstreamUrl': [value: string]
   'update:validationModel': [value: string | null]
   'update:weightManual': [value: number | null]
-  toggleProtocol: [protocol: GroupProtocol, checked: boolean]
   'update:enabled': [value: boolean]
 }>()
 const { t } = useI18n()
@@ -54,8 +38,6 @@ const weightValid = computed(
     props.weightManual === null ||
     (Number.isInteger(props.weightManual) && props.weightManual >= 1 && props.weightManual <= 100),
 )
-const customProviderValue = 'custom:'
-
 function setWeightMode(value: string): void {
   if (props.pending) return
   emit('update:weightManual', value === 'auto' ? null : (props.weightManual ?? 50))
@@ -69,6 +51,14 @@ function setWeightMode(value: string): void {
       <p>{{ t('group.settings.base.description') }}</p>
     </header>
     <div class="group-settings__grid">
+      <div class="group-settings__field">
+        <span>{{ t('group.settings.base.channel') }}</span>
+        <div class="group-settings__readonly" :aria-label="t('group.settings.base.channel')">
+          <strong>{{ channelName }}</strong>
+          <code>{{ channelId }}</code>
+        </div>
+        <small>{{ t('group.settings.base.channelHelp') }}</small>
+      </div>
       <label class="group-settings__field">
         <span>{{ t('group.settings.base.name') }}</span>
         <input
@@ -88,54 +78,26 @@ function setWeightMode(value: string): void {
           @input="emit('update:validationModel', ($event.target as HTMLInputElement).value || null)"
         />
       </label>
-      <label class="group-settings__field group-settings__wide">
-        <span>{{ t('group.settings.base.upstreamUrl') }}</span>
+      <label
+        v-for="field in paramFields"
+        :key="field.key"
+        class="group-settings__field group-settings__wide"
+      >
+        <span>{{ field.label }}</span>
         <input
           class="group-settings__mono"
-          type="url"
-          :value="upstreamUrl"
+          :type="field.input_kind === 'url' ? 'url' : 'text'"
+          :value="params[field.key] ?? ''"
           :disabled="pending"
-          :aria-invalid="upstreamUrlError ? 'true' : undefined"
-          @input="emit('update:upstreamUrl', ($event.target as HTMLInputElement).value)"
+          :required="field.required"
+          :aria-invalid="paramErrors[field.key] ? 'true' : undefined"
+          @input="emit('update:param', field.key, ($event.target as HTMLInputElement).value)"
         />
-        <small v-if="upstreamUrlError" role="alert">{{ upstreamUrlError }}</small>
-        <small>{{ t('group.settings.base.urlWarning') }}</small>
-        <UpstreamBaseURLHint
-          :url="upstreamUrl"
-          :protocols="protocols"
-          :missing-message="t('group.settings.base.urlPrefixMissing')"
-          :duplicate-message="t('group.settings.base.urlPrefixDuplicate')"
-        />
+        <small v-if="paramErrors[field.key]" role="alert">{{ paramErrors[field.key] }}</small>
+        <small v-else-if="field.input_kind === 'url'">{{
+          t('group.settings.base.urlWarning')
+        }}</small>
       </label>
-    </div>
-    <div class="group-settings__provider-row">
-      <span>
-        <strong>{{ t('group.settings.base.provider') }}</strong>
-        <small v-if="providerError" role="alert">
-          {{ t('group.settings.base.providerLoadFailed') }}
-        </small>
-        <small v-else>{{ t('group.settings.base.providerHelp') }}</small>
-      </span>
-      <div class="group-settings__provider-controls">
-        <AppSearchInput
-          :model-value="providerSearch"
-          :label="t('group.settings.base.providerSearch')"
-          :placeholder="t('group.settings.base.providerSearch')"
-          :clear-label="t('group.settings.base.providerClearSearch')"
-          :disabled="pending"
-          @update:model-value="emit('update:providerSearch', $event)"
-        />
-        <AppSelect
-          :model-value="providerId ?? customProviderValue"
-          :label="t('group.settings.base.provider')"
-          :options="providerOptions"
-          :disabled="pending || providerLoading"
-          size="compact"
-          @update:model-value="
-            emit('update:providerId', $event === customProviderValue ? null : $event)
-          "
-        />
-      </div>
     </div>
     <label class="group-settings__switch-row">
       <span class="group-settings__switch-copy">
@@ -159,24 +121,6 @@ function setWeightMode(value: string): void {
       <h3>{{ t('group.settings.sections.routing') }}</h3>
       <p>{{ t('group.settings.routing.description') }}</p>
     </header>
-    <fieldset class="group-settings__field group-settings__wide">
-      <legend>{{ t('group.settings.base.protocols') }}</legend>
-      <div class="group-settings__checks">
-        <label v-for="protocol in enabledDataProtocols" :key="protocol">
-          <input
-            type="checkbox"
-            :checked="protocols.includes(protocol)"
-            :disabled="pending"
-            @change="emit('toggleProtocol', protocol, ($event.target as HTMLInputElement).checked)"
-          />
-          <span class="group-settings__check-box" aria-hidden="true">
-            <Check :size="14" />
-          </span>
-          <code>{{ protocol }}</code>
-        </label>
-      </div>
-      <small v-if="protocolsError" role="alert">{{ protocolsError }}</small>
-    </fieldset>
     <div class="group-settings__field group-settings__wide">
       <span>{{ t('group.settings.base.weight') }}</span>
       <div class="group-settings__weight-editor">
@@ -274,13 +218,44 @@ function setWeightMode(value: string): void {
 
 .group-settings__field input:not([type='checkbox']) {
   width: 100%;
-  min-height: var(--control-md);
+  min-height: var(--touch-target);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);
   padding: 0 var(--space-3);
   font: inherit;
+}
+
+.group-settings__field input:not([type='checkbox']):focus-visible {
+  border-color: var(--color-action);
+  outline: 2px solid color-mix(in srgb, var(--color-action) 26%, transparent);
+  outline-offset: 1px;
+}
+
+.group-settings__readonly {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 8px var(--space-3);
+}
+
+.group-settings__readonly strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-settings__readonly code {
+  flex: none;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 
 .group-settings__mono,
@@ -303,46 +278,6 @@ fieldset {
   border-top: 1px solid var(--color-border-subtle);
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 8px 2px;
-}
-
-.group-settings__provider-row {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  border-top: 1px solid var(--color-border-subtle);
-  padding: 8px 2px;
-}
-
-.group-settings__provider-row > span {
-  display: grid;
-  gap: 2px;
-}
-
-.group-settings__provider-row strong {
-  font-size: 12.5px;
-}
-
-.group-settings__provider-row small {
-  color: var(--color-text-faint);
-  font-size: 11px;
-}
-
-.group-settings__provider-row small[role='alert'] {
-  color: var(--color-danger);
-}
-
-.group-settings__provider-controls {
-  display: grid;
-  width: min(100%, 420px);
-  grid-template-columns: minmax(160px, 1fr) minmax(130px, auto);
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.group-settings__provider-controls :deep(.app-select__trigger) {
-  width: 100%;
 }
 
 .group-settings__switch-copy {
@@ -407,78 +342,14 @@ fieldset {
   background: var(--color-action-ink);
 }
 
-.group-settings__switch input:disabled + span,
-.group-settings__checks input:disabled + .group-settings__check-box {
+.group-settings__switch input:disabled + span {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.group-settings__checks {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-.group-settings__checks label {
-  position: relative;
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  min-height: var(--touch-target);
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  padding: 7px 10px;
-  cursor: pointer;
-}
-
-.group-settings__checks label:hover {
-  border-color: var(--color-border-control);
-}
-
-.group-settings__checks input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  opacity: 0;
-}
-
-.group-settings__check-box {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  border: 1px solid var(--color-border-control);
-  border-radius: 4px;
-  background: var(--color-surface);
-  color: var(--color-action-ink);
-}
-
-.group-settings__check-box svg {
-  opacity: 0;
-  transform: scale(0.78);
-  transition:
-    opacity var(--duration-fast) var(--easing-standard),
-    transform var(--duration-fast) var(--easing-standard);
-}
-
-.group-settings__checks input:checked + .group-settings__check-box {
-  border-color: var(--color-action);
-  background: var(--color-action);
-}
-
-.group-settings__checks input:checked + .group-settings__check-box svg {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.group-settings__checks code {
-  overflow-wrap: anywhere;
-  font-size: var(--text-label-xs);
+.group-settings__switch input:focus-visible + span {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
 }
 
 .group-settings__weight-editor {
@@ -489,13 +360,12 @@ fieldset {
 
 .group-settings__field .group-settings__weight-editor > input {
   width: 90px !important;
-  min-height: var(--control-compact);
+  min-height: var(--touch-target);
   flex: 0 0 90px;
 }
 
 @media (max-width: 800px) {
-  .group-settings__grid,
-  .group-settings__checks {
+  .group-settings__grid {
     grid-template-columns: 1fr;
   }
 
@@ -503,17 +373,7 @@ fieldset {
     grid-column: auto;
   }
 
-  .group-settings__provider-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .group-settings__provider-controls {
-    width: 100%;
-  }
-
   .group-settings__field input:not([type='checkbox']) {
-    min-height: var(--touch-target);
     font-size: 16px;
   }
 
@@ -539,16 +399,9 @@ fieldset {
   }
 }
 
-@media (max-width: 560px) {
-  .group-settings__provider-controls {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .group-settings__switch > span,
-  .group-settings__switch > span::after,
-  .group-settings__check-box svg {
+  .group-settings__switch > span::after {
     transition: none;
   }
 }

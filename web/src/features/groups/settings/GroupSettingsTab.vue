@@ -10,18 +10,16 @@ import type { GroupSettingsDto, HeaderRulesDto } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
+import { channelsQueryOptions, type ChannelFieldDto } from '@/app/resources/channels'
 import {
   cacheGroupSettings,
   groupSettingsQueryOptions,
   invalidateGroupSettingsDependents,
   updateGroupSettings,
 } from '@/app/resources/groups'
-import { providerSuggestionsQueryOptions } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
-import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import { groupDetailLocation } from '@/app/route-locations'
-import { constrainCollectionSearch } from '@/app/route-query'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -61,16 +59,13 @@ const router = useRouter()
 const { t } = useI18n()
 const routeState = computed(() => parseGroupSettingsRouteQuery(route.query))
 const query = useQuery(groupSettingsQueryOptions(client, () => props.groupId))
+const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const initialLoading = useStableLoading(
   () => query.isPending.value && query.data.value === undefined,
 )
 const queryRefreshing = computed(() => query.data.value !== undefined && query.isFetching.value)
 const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
-const providerSearchInput = ref(routeState.value.providerSearch ?? '')
-const providerSearch = ref(routeState.value.providerSearch ?? '')
-const providerSearchDebounce = useDebouncedAction(250)
-const providerQuery = useQuery(providerSuggestionsQueryOptions(client, providerSearch))
 const pending = ref(false)
 const deletePending = ref(false)
 const deleted = ref(false)
@@ -84,27 +79,20 @@ const {
   show: showSavedFeedback,
 } = useTransientFlag(1_600)
 const timeoutKeys = groupTimeoutKeys
-const customProviderValue = 'custom:'
-const providerOptions = computed(() => {
-  const items = providerQuery.data.value?.items ?? []
-  const options = [
-    { value: customProviderValue, label: t('group.settings.base.providerCustom') },
-    ...items.map(({ provider_id, name }) => ({ value: provider_id, label: name })),
-  ]
-  const current = draft.value?.provider_id
-  if (current && !items.some(({ provider_id }) => provider_id === current)) {
-    options.push({ value: current, label: current })
-  }
-  return options
+const selectedChannel = computed(() =>
+  channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.value?.channel_id),
+)
+const channelName = computed(() => selectedChannel.value?.name ?? draft.value?.channel_id ?? '')
+const channelParamFields = computed<ChannelFieldDto[]>(() => {
+  if (selectedChannel.value) return selectedChannel.value.param_fields
+  return Object.keys(draft.value?.params ?? {}).map((key) => ({
+    key,
+    label: key === 'base_url' ? t('group.settings.base.upstreamUrl') : key,
+    input_kind: key === 'base_url' ? 'url' : 'text',
+    required: true,
+    sensitive: false,
+  }))
 })
-
-function setProviderSearch(value: string): void {
-  providerSearchInput.value = value
-  updateRoute({ providerSearch: constrainCollectionSearch(value) }, true)
-  providerSearchDebounce.schedule(() => {
-    providerSearch.value = value
-  })
-}
 let controller: AbortController | undefined
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
@@ -128,14 +116,18 @@ const mutationPending = computed(() => pending.value || deletePending.value)
 const nameError = computed(() =>
   draft.value?.name.trim() ? '' : t('group.settings.base.nameError'),
 )
-const urlError = computed(() => {
-  const value = draft.value?.upstream_url.trim() ?? ''
-  if (!value || !isValidUpstreamBaseURL(value)) return t('group.settings.base.upstreamUrlError')
-  return ''
+const paramErrors = computed<Record<string, string>>(() => {
+  const result: Record<string, string> = {}
+  for (const field of channelParamFields.value) {
+    const value = draft.value?.params[field.key]?.trim() ?? ''
+    if (field.required && !value) {
+      result[field.key] = t('group.settings.base.paramRequired', { field: field.label })
+    } else if (field.input_kind === 'url' && value && !isValidUpstreamBaseURL(value)) {
+      result[field.key] = t('group.settings.base.upstreamUrlError')
+    }
+  }
+  return result
 })
-const protocolsError = computed(() =>
-  draft.value?.protocols.length ? '' : t('group.settings.base.protocolsError'),
-)
 const weightValid = computed(() => {
   const value = draft.value?.weight_manual
   return (
@@ -151,14 +143,13 @@ const timeoutValid = computed(() =>
 const valid = computed(
   () =>
     !nameError.value &&
-    !urlError.value &&
-    !protocolsError.value &&
+    Object.keys(paramErrors.value).length === 0 &&
     weightValid.value &&
     timeoutValid.value &&
     headerRulesValid.value,
 )
 const showInjectUsage = computed(
-  () => draft.value?.protocols.includes('openai-completions') ?? false,
+  () => selectedChannel.value?.client_protocols.includes('openai-completions') ?? false,
 )
 const displayedHeaderRules = computed<HeaderRulesDto>(
   () =>
@@ -214,17 +205,6 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => routeState.value.providerSearch,
-  (value) => {
-    const search = value ?? ''
-    if (search === providerSearchInput.value) return
-    providerSearchDebounce.cancel()
-    providerSearchInput.value = search
-    providerSearch.value = search
-  },
-)
-
 function updateRoute(patch: Partial<GroupSettingsRouteState>, replace = false): void {
   const state = { ...routeState.value, ...patch }
   const location = groupDetailLocation(props.groupId, serializeGroupSettingsRouteQuery(state))
@@ -256,14 +236,9 @@ function setHeaderRulesExpanded(event: Event): void {
   }
 }
 
-function toggleProtocol(protocol: GroupSettingsDraft['protocols'][number], checked: boolean): void {
+function updateParam(key: string, value: string): void {
   if (!draft.value) return
-  const protocols = checked
-    ? [...new Set([...draft.value.protocols, protocol])]
-    : draft.value.protocols.filter((value) => value !== protocol)
-  const overrides = { ...draft.value.overrides }
-  if (!protocols.includes('openai-completions')) delete overrides.inject_usage_options
-  draft.value = { ...draft.value, protocols, overrides }
+  draft.value = { ...draft.value, params: { ...draft.value.params, [key]: value } }
 }
 
 function setTimeoutOverride(key: GroupTimeoutKey, enabled: boolean): void {
@@ -388,54 +363,40 @@ onBeforeUnmount(() => {
         <div class="group-settings__content">
           <GroupSettingsBaseForm
             section="general"
-            :provider-id="draft.provider_id"
-            :provider-search="providerSearchInput"
-            :provider-options="providerOptions"
-            :provider-loading="providerQuery.isFetching.value"
-            :provider-error="providerQuery.isError.value"
+            :channel-id="draft.channel_id"
+            :channel-name="channelName"
+            :param-fields="channelParamFields"
+            :params="draft.params"
             :name="draft.name"
-            :upstream-url="draft.upstream_url"
             :validation-model="draft.validation_model"
             :weight-manual="draft.weight_manual"
-            :protocols="draft.protocols"
             :enabled="draft.enabled"
             :pending="mutationPending"
             :name-error="nameError"
-            :upstream-url-error="urlError"
-            :protocols-error="protocolsError"
-            @update:provider-id="draft.provider_id = $event"
-            @update:provider-search="setProviderSearch"
+            :param-errors="paramErrors"
+            @update:param="updateParam"
             @update:name="draft.name = $event"
-            @update:upstream-url="draft.upstream_url = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:weight-manual="draft.weight_manual = $event"
-            @toggle-protocol="toggleProtocol"
             @update:enabled="draft.enabled = $event"
           />
           <GroupSettingsBaseForm
             section="routing"
-            :provider-id="draft.provider_id"
-            :provider-search="providerSearchInput"
-            :provider-options="providerOptions"
-            :provider-loading="providerQuery.isFetching.value"
-            :provider-error="providerQuery.isError.value"
+            :channel-id="draft.channel_id"
+            :channel-name="channelName"
+            :param-fields="channelParamFields"
+            :params="draft.params"
             :name="draft.name"
-            :upstream-url="draft.upstream_url"
             :validation-model="draft.validation_model"
             :weight-manual="draft.weight_manual"
-            :protocols="draft.protocols"
             :enabled="draft.enabled"
             :pending="mutationPending"
             :name-error="nameError"
-            :upstream-url-error="urlError"
-            :protocols-error="protocolsError"
-            @update:provider-id="draft.provider_id = $event"
-            @update:provider-search="setProviderSearch"
+            :param-errors="paramErrors"
+            @update:param="updateParam"
             @update:name="draft.name = $event"
-            @update:upstream-url="draft.upstream_url = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:weight-manual="draft.weight_manual = $event"
-            @toggle-protocol="toggleProtocol"
             @update:enabled="draft.enabled = $event"
           />
           <section id="settings-runtime" class="group-settings__section">

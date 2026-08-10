@@ -1,6 +1,6 @@
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 
-import type { GroupKeyCollectionFilters, GroupKeyStatus } from '@/api/control/types'
+import type { CredentialCollectionFilters, CredentialStatus } from '@/api/control/types'
 import {
   constrainCollectionSearch,
   isCanonicalRouteQuery,
@@ -11,13 +11,13 @@ import {
   serializePositiveRouteIntegerList,
 } from '@/app/route-query'
 
-export type GroupTab = 'keys' | 'models' | 'settings'
+export type GroupTab = 'credentials' | 'models' | 'settings'
 export type GroupSettingsSection = 'general' | 'routing' | 'runtime' | 'headers' | 'danger'
 export type GroupModelDiscoveryFilter = 'unadded' | 'all'
 
-export interface GroupKeyRouteState {
-  expandedKeyIDs: number[]
-  weightKeyID?: number
+export interface CredentialRouteState {
+  expandedCredentialIDs: number[]
+  weightCredentialID?: number
 }
 
 export interface GroupModelsRouteState {
@@ -30,11 +30,15 @@ export interface GroupModelsRouteState {
 export interface GroupSettingsRouteState {
   section: GroupSettingsSection
   headerRulesExpanded: boolean
-  providerSearch?: string
 }
 
-const keyStatuses = new Set<GroupKeyStatus>(['available', 'cooldown', 'blacklisted', 'disabled'])
-const keyPageSizes = new Set<GroupKeyCollectionFilters['page_size']>([20, 50, 100])
+const credentialStatuses = new Set<CredentialStatus>([
+  'available',
+  'cooldown',
+  'blacklisted',
+  'disabled',
+])
+const credentialPageSizes = new Set<CredentialCollectionFilters['page_size']>([20, 50, 100])
 const settingsSections = new Set<GroupSettingsSection>([
   'general',
   'routing',
@@ -50,63 +54,64 @@ export function parsePositiveId(raw: unknown): number | undefined {
 }
 
 export function normalizeGroupTab(raw: unknown): GroupTab {
-  return raw === 'models' || raw === 'settings' || raw === 'keys' ? raw : 'keys'
+  return raw === 'models' || raw === 'settings' || raw === 'credentials' ? raw : 'credentials'
 }
 
-export function normalizeGroupKeySearch(value: string | undefined): string | undefined {
+export function normalizeCredentialSearch(value: string | undefined): string | undefined {
   return normalizeCollectionSearch(value)
 }
 
-export function constrainGroupKeySearch(value: string | undefined): string | undefined {
+export function constrainCredentialSearch(value: string | undefined): string | undefined {
   return constrainCollectionSearch(value)
 }
 
-export function parseGroupKeyRouteQuery(query: LocationQuery): GroupKeyCollectionFilters {
-  const status = scalarRouteQuery(query.key_status)
+export function parseCredentialRouteQuery(query: LocationQuery): CredentialCollectionFilters {
+  const status = scalarRouteQuery(query.credential_status)
   const pageSize = parsePositiveRouteInteger(query.page_size)
-  const filters: GroupKeyCollectionFilters = {
+  const filters: CredentialCollectionFilters = {
     page: parsePositiveRouteInteger(query.page) ?? 1,
-    page_size: keyPageSizes.has(pageSize as GroupKeyCollectionFilters['page_size'])
-      ? (pageSize as GroupKeyCollectionFilters['page_size'])
+    page_size: credentialPageSizes.has(pageSize as CredentialCollectionFilters['page_size'])
+      ? (pageSize as CredentialCollectionFilters['page_size'])
       : 20,
   }
-  const q = normalizeGroupKeySearch(scalarRouteQuery(query.q))
+  const q = normalizeCredentialSearch(scalarRouteQuery(query.q))
   if (q !== undefined) filters.q = q
-  if (status !== undefined && keyStatuses.has(status as GroupKeyStatus)) {
-    filters.status = status as GroupKeyStatus
+  if (status !== undefined && credentialStatuses.has(status as CredentialStatus)) {
+    filters.status = status as CredentialStatus
   }
   return filters
 }
 
-export function parseGroupKeyRouteState(query: LocationQuery): GroupKeyRouteState {
+export function parseCredentialRouteState(query: LocationQuery): CredentialRouteState {
   return {
-    expandedKeyIDs: parsePositiveRouteIntegerList(query.expanded_key_ids),
-    weightKeyID: parsePositiveRouteInteger(query.weight_key_id),
+    expandedCredentialIDs: parsePositiveRouteIntegerList(query.expanded_credential_ids),
+    weightCredentialID: parsePositiveRouteInteger(query.weight_credential_id),
   }
 }
 
-export function serializeGroupKeyRouteQuery(
-  filters: GroupKeyCollectionFilters,
-  state: GroupKeyRouteState = { expandedKeyIDs: [] },
+export function serializeCredentialRouteQuery(
+  filters: CredentialCollectionFilters,
+  state: CredentialRouteState = { expandedCredentialIDs: [] },
 ): LocationQueryRaw {
-  const query: LocationQueryRaw = { tab: 'keys' }
-  const q = normalizeGroupKeySearch(filters.q)
+  const query: LocationQueryRaw = { tab: 'credentials' }
+  const q = normalizeCredentialSearch(filters.q)
   if (q !== undefined) query.q = q
-  if (filters.status !== undefined) query.key_status = filters.status
+  if (filters.status !== undefined) query.credential_status = filters.status
   if (filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size !== 20) query.page_size = String(filters.page_size)
-  const expanded = serializePositiveRouteIntegerList(state.expandedKeyIDs)
-  if (expanded !== undefined) query.expanded_key_ids = expanded
-  if (state.weightKeyID !== undefined) query.weight_key_id = String(state.weightKeyID)
+  const expanded = serializePositiveRouteIntegerList(state.expandedCredentialIDs)
+  if (expanded !== undefined) query.expanded_credential_ids = expanded
+  if (state.weightCredentialID !== undefined)
+    query.weight_credential_id = String(state.weightCredentialID)
   return query
 }
 
-export function isCanonicalGroupKeyRouteQuery(
+export function isCanonicalCredentialRouteQuery(
   query: LocationQuery,
-  filters: GroupKeyCollectionFilters,
-  state: GroupKeyRouteState = { expandedKeyIDs: [] },
+  filters: CredentialCollectionFilters,
+  state: CredentialRouteState = { expandedCredentialIDs: [] },
 ): boolean {
-  return isCanonicalRouteQuery(query, serializeGroupKeyRouteQuery(filters, state))
+  return isCanonicalRouteQuery(query, serializeCredentialRouteQuery(filters, state))
 }
 
 export function parseGroupModelsRouteQuery(query: LocationQuery): GroupModelsRouteState {
@@ -143,7 +148,6 @@ export function parseGroupSettingsRouteQuery(query: LocationQuery): GroupSetting
         ? (rawSection as GroupSettingsSection)
         : 'general',
     headerRulesExpanded: scalarRouteQuery(query.headers) === 'expanded',
-    providerSearch: normalizeCollectionSearch(scalarRouteQuery(query.provider_q)),
   }
 }
 
@@ -151,17 +155,15 @@ export function serializeGroupSettingsRouteQuery(state: GroupSettingsRouteState)
   const query: LocationQueryRaw = { tab: 'settings' }
   if (state.section !== 'general') query.section = state.section
   if (state.headerRulesExpanded) query.headers = 'expanded'
-  const providerSearch = normalizeCollectionSearch(state.providerSearch)
-  if (providerSearch !== undefined) query.provider_q = providerSearch
   return query
 }
 
 export function normalizeGroupQuery(query: LocationQuery): LocationQueryRaw {
   const tab = normalizeGroupTab(query.tab)
-  if (tab === 'keys') {
-    return serializeGroupKeyRouteQuery(
-      parseGroupKeyRouteQuery(query),
-      parseGroupKeyRouteState(query),
+  if (tab === 'credentials') {
+    return serializeCredentialRouteQuery(
+      parseCredentialRouteQuery(query),
+      parseCredentialRouteState(query),
     )
   }
   if (tab === 'models') return serializeGroupModelsRouteQuery(parseGroupModelsRouteQuery(query))

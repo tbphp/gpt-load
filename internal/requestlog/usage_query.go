@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/dbtx"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/pricing"
@@ -99,6 +100,12 @@ func validateUsageQuery(input UsageQuery) (int64, error) {
 	if input.AccessKeyID != nil && *input.AccessKeyID == 0 {
 		return 0, fmt.Errorf("query usage: invalid access key scope")
 	}
+	if input.ChannelID != "" && !validChannelID(string(input.ChannelID)) {
+		return 0, fmt.Errorf("query usage: invalid channel scope")
+	}
+	if input.CredentialID != nil && *input.CredentialID == 0 {
+		return 0, fmt.Errorf("query usage: invalid credential scope")
+	}
 	bucketWidthMS := input.BucketWidthMS
 	switch input.Granularity {
 	case UsageGranularityHour:
@@ -149,6 +156,12 @@ func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 		Where("NOT (group_id = ? AND model = ?)", 0, "")
 	if input.GroupID != nil {
 		scope = scope.Where("group_id = ?", *input.GroupID)
+	}
+	if input.ChannelID != "" {
+		scope = scope.Where("channel_id = ?", input.ChannelID)
+	}
+	if input.CredentialID != nil {
+		scope = scope.Where("credential_id = ?", *input.CredentialID)
 	}
 	if input.AccessKeyID != nil {
 		scope = scope.Where("access_key_id = ?", *input.AccessKeyID)
@@ -241,9 +254,11 @@ func queryUsageSeries(scope *gorm.DB, bucketWidthMS int64) ([]UsageSeriesPoint, 
 func queryUsageBreakdownCount(scope *gorm.DB, collapseByModel bool) (int64, error) {
 	var grouped *gorm.DB
 	if collapseByModel {
-		grouped = scope.Select("model").Group("model")
+		grouped = scope.Select("channel_id, credential_id, model").
+			Group("channel_id, credential_id, model")
 	} else {
-		grouped = scope.Select("group_id, model").Group("group_id, model")
+		grouped = scope.Select("channel_id, group_id, credential_id, model").
+			Group("channel_id, group_id, credential_id, model")
 	}
 	var count int64
 	if err := scope.Session(&gorm.Session{NewDB: true}).
@@ -266,11 +281,11 @@ func queryUsageBreakdown(
 	var rows []usageBreakdownRow
 	var query *gorm.DB
 	if collapseByModel {
-		query = scope.Select("0 AS group_id, model, " + usageAggregateSelect).
-			Group("model")
+		query = scope.Select("0 AS group_id, channel_id, credential_id, model, " + usageAggregateSelect).
+			Group("channel_id, credential_id, model")
 	} else {
-		query = scope.Select("group_id, model, " + usageAggregateSelect).
-			Group("group_id, model")
+		query = scope.Select("group_id, channel_id, credential_id, model, " + usageAggregateSelect).
+			Group("channel_id, group_id, credential_id, model")
 	}
 	switch order {
 	case UsageBreakdownOrderRequests:
@@ -288,7 +303,9 @@ func queryUsageBreakdown(
 		)
 	}
 	if err := query.
+		Order("channel_id ASC").
 		Order("group_id ASC").
+		Order("credential_id ASC").
 		Order("model ASC").
 		Limit(limit + 1).
 		Find(&rows).Error; err != nil {
@@ -306,6 +323,8 @@ func queryUsageBreakdown(
 		}
 		breakdown = append(breakdown, UsageBreakdown{
 			GroupID:        row.GroupID,
+			ChannelID:      channel.ID(row.ChannelID),
+			CredentialID:   row.CredentialID,
 			Model:          row.Model,
 			UsageAggregate: row.UsageAggregate,
 		})
@@ -463,7 +482,9 @@ type usageStatIntegrity struct {
 }
 
 type usageBreakdownRow struct {
-	GroupID uint
-	Model   string
+	GroupID      uint
+	ChannelID    string
+	CredentialID uint
+	Model        string
 	UsageAggregate
 }

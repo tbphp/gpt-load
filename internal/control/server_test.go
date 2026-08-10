@@ -20,7 +20,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
-	"gpt-load/internal/dialect"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
@@ -93,7 +94,7 @@ func TestGroupCollectionHTTPRoutesDeclareStaticOptionsBeforeDynamicDetail(t *tes
 		{name: "control.groups.get", path: "/groups/:group_id"},
 		{name: "control.groups.settings.get", path: "/groups/:group_id/settings"},
 		{name: "control.groups.models.get", path: "/groups/:group_id/models"},
-		{name: "control.group-keys.list", path: "/groups/:group_id/keys"},
+		{name: "control.group-credentials.list", path: "/groups/:group_id/credentials"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("GET group routes = %#v, want %#v", got, want)
@@ -326,9 +327,9 @@ func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
 }
 
 type duplicateJSONControlState struct {
-	rowCounts [5]int64
+	rowCounts [4]int64
 	snapshot  *state.ConfigSnapshot
-	registry  []state.KeyRuntimeView
+	registry  []state.CredentialRuntimeView
 }
 
 func captureDuplicateJSONControlState(
@@ -336,10 +337,9 @@ func captureDuplicateJSONControlState(
 	fixture serviceFixture,
 ) duplicateJSONControlState {
 	t.Helper()
-	var counts [5]int64
+	var counts [4]int64
 	for index, model := range []any{
 		&models.Group{},
-		&models.UpstreamKey{},
 		&models.AccessKey{},
 		&models.SystemSetting{},
 		&models.ModelPrice{},
@@ -400,8 +400,8 @@ type controlJSONBodyLimitState struct {
 	rowCounts       [3]int64
 	snapshot        *state.ConfigSnapshot
 	group           models.Group
-	upstreamKey     models.UpstreamKey
-	registryRuntime []state.KeyRuntimeView
+	credential      models.Credential
+	registryRuntime []state.CredentialRuntimeView
 	accessKey       models.AccessKey
 }
 
@@ -416,16 +416,16 @@ func captureControlJSONBodyLimitState(
 	if err := fixture.db.First(&group, groupID).Error; err != nil {
 		t.Fatalf("load body-limit Group: %v", err)
 	}
-	var upstreamKey models.UpstreamKey
+	var credential models.Credential
 	if err := fixture.db.Where("group_id = ?", groupID).
-		Order("id ASC").Take(&upstreamKey).Error; err != nil {
-		t.Fatalf("load body-limit UpstreamKey: %v", err)
+		Order("id ASC").Take(&credential).Error; err != nil {
+		t.Fatalf("load body-limit Credential: %v", err)
 	}
 	return controlJSONBodyLimitState{
 		rowCounts:       discoveryRowCounts(t, fixture.db),
 		snapshot:        fixture.manager.Current(),
 		group:           group,
-		upstreamKey:     upstreamKey,
+		credential:      credential,
 		registryRuntime: fixture.registry.Snapshot(),
 		accessKey:       loadAccessKeyRow(t, fixture.db, accessKeyID),
 	}
@@ -455,8 +455,8 @@ func assertControlJSONBodyLimitStateUnchanged(
 	if !reflect.DeepEqual(got.group, want.group) {
 		t.Errorf("persisted Group changed")
 	}
-	if !reflect.DeepEqual(got.upstreamKey, want.upstreamKey) {
-		t.Errorf("persisted UpstreamKey changed")
+	if !reflect.DeepEqual(got.credential, want.credential) {
+		t.Errorf("persisted Credential changed")
 	}
 	if !reflect.DeepEqual(got.registryRuntime, want.registryRuntime) {
 		t.Errorf(
@@ -486,11 +486,11 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 				`"protocols":["openai-completions"],"models":[],"keys":"sk-body-limit-create"}`,
 		},
 		{
-			name: "import group keys", method: http.MethodPost,
+			name: "import group credentials", method: http.MethodPost,
 			path: func(groupID, _, _ uint) string {
-				return "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/keys/import"
+				return "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/credentials/import"
 			},
-			jsonPrefix: `{"keys":"sk-body-limit-import"}`,
+			jsonPrefix: `{"credentials":"sk-body-limit-import"}`,
 		},
 		{
 			name: "update group settings", method: http.MethodPut,
@@ -514,17 +514,17 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			jsonPrefix: `{"models":[]}`,
 		},
 		{
-			name: "update upstream key", method: http.MethodPut,
+			name: "update credential", method: http.MethodPut,
 			path: func(groupID, upstreamKeyID, _ uint) string {
-				return fmt.Sprintf("/api/groups/%d/keys/%d", groupID, upstreamKeyID)
+				return fmt.Sprintf("/api/groups/%d/credentials/%d", groupID, upstreamKeyID)
 			},
 			jsonPrefix: `{"status":"disabled"}`,
 		},
 		{
 			name: "discover draft models", method: http.MethodPost,
 			path: func(uint, uint, uint) string { return "/api/models/discover" },
-			jsonPrefix: `{"upstream_url":"https://body-limit-discover.example.com/v1",` +
-				`"protocols":["openai-completions"],"keys":"sk-body-limit-discover"}`,
+			jsonPrefix: `{"channel_id":"openai_compatible","params":{"base_url":"https://body-limit-discover.example.com/v1"},` +
+				`"credentials":"sk-body-limit-discover"}`,
 		},
 		{
 			name: "create access key", method: http.MethodPost,
@@ -551,7 +551,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 	} {
 		t.Run(endpoint.method+" "+endpoint.name, func(t *testing.T) {
 			fixture := newServiceFixture(t)
-			groupID := createGroupForKeyImport(t, fixture, "sk-body-limit-seed")
+			groupID := createGroupForCredentialImport(t, fixture, "sk-body-limit-seed")
 			accessKey, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 				Name: "body-limit-seed-access-key",
 			})
@@ -559,7 +559,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 				t.Fatalf("seed CreateAccessKey() error = %v", err)
 			}
 			discoveryCalls := 0
-			fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+			fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 				value: protocol.OpenAICompletions,
 				listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 					discoveryCalls++
@@ -570,7 +570,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 			before := captureControlJSONBodyLimitState(t, fixture, groupID, accessKey.ID)
 
-			path := endpoint.path(groupID, before.upstreamKey.ID, accessKey.ID)
+			path := endpoint.path(groupID, before.credential.ID, accessKey.ID)
 			request := httptest.NewRequest(endpoint.method, path, oversizedControlJSONBody(endpoint.jsonPrefix))
 			request.ContentLength = -1
 			request.Header.Set("Authorization", "Bearer test-auth-key")
@@ -795,7 +795,7 @@ func TestGroupCreateHTTPReturnsNarrowSuccessAndConflictEnvelopes(t *testing.T) {
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
-		`{"name":"primary","upstream_url":"https://api.example.com/v1/","protocols":["openai-completions"],"models":[{"id":"gpt-4o","alias":"public-gpt","alias_enabled":true}],"keys":"sk-first"}`,
+		`{"name":"primary","channel_id":"openai_compatible","params":{"base_url":"https://api.example.com/v1/"},"models":[{"id":"gpt-4o","alias":"public-gpt","alias_enabled":true}],"credentials":"sk-first"}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -815,12 +815,12 @@ func TestGroupCreateHTTPReturnsNarrowSuccessAndConflictEnvelopes(t *testing.T) {
 	if success.Code != 0 || len(success.Data) != 4 {
 		t.Fatalf("success response = %#v", success)
 	}
-	for _, field := range []string{"group_id", "group_name", "keys_added", "keys_duplicated"} {
+	for _, field := range []string{"group_id", "group_name", "credentials_added", "credentials_duplicated"} {
 		if success.Data[field] == nil {
 			t.Fatalf("success data lacks %q: %#v", field, success.Data)
 		}
 	}
-	for _, forbidden := range []string{`"models"`, `"config"`, `"keys"`, "sk-first"} {
+	for _, forbidden := range []string{`"models"`, `"config"`, `"credentials"`, `"keys"`, "sk-first"} {
 		if strings.Contains(recorder.Body.String(), forbidden) {
 			t.Fatalf("success response exposes %q: %s", forbidden, recorder.Body.String())
 		}
@@ -835,7 +835,7 @@ func TestGroupCreateHTTPReturnsNarrowSuccessAndConflictEnvelopes(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
-		`{"upstream_url":" HTTPS://API.example.com/v1 ","protocols":["anthropic"],"models":[],"keys":"sk-second"}`,
+		`{"channel_id":"openai_compatible","params":{"base_url":" HTTPS://API.example.com/v1 "},"models":[],"credentials":"sk-second"}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -852,7 +852,7 @@ func TestGroupCreateHTTPReturnsNarrowSuccessAndConflictEnvelopes(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &conflict); err != nil {
 		t.Fatalf("decode conflict response: %v", err)
 	}
-	if conflict.Code != "UPSTREAM_URL_CONFLICT" || len(conflict.Data) != 1 {
+	if conflict.Code != "CHANNEL_TARGET_CONFLICT" || len(conflict.Data) != 1 {
 		t.Fatalf("conflict response = %#v", conflict)
 	}
 	groups := conflict.Data["groups"]
@@ -877,26 +877,26 @@ func TestGroupCreateHTTPRejectsLegacyMissingAndMalformedContractsWithoutMutation
 		},
 		{
 			name: "omitted models",
-			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
-				`"keys":"sk-secret"}`,
+			body: `{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},` +
+				`"credentials":"sk-secret"}`,
 			code: app_errors.ErrValidation.Code,
 		},
 		{
 			name: "null models",
-			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
-				`"models":null,"keys":"sk-secret"}`,
+			body: `{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},` +
+				`"models":null,"credentials":"sk-secret"}`,
 			code: app_errors.ErrValidation.Code,
 		},
 		{
 			name: "unknown model field",
-			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
-				`"models":[{"id":"gpt-4o","unknown":true}],"keys":"sk-secret"}`,
+			body: `{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},` +
+				`"models":[{"id":"gpt-4o","unknown":true}],"credentials":"sk-secret"}`,
 			code: app_errors.ErrInvalidJSON.Code,
 		},
 		{
 			name: "malformed JSON",
-			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
-				`"models":[],"keys":"sk-secret"`,
+			body: `{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},` +
+				`"models":[],"credentials":"sk-secret"`,
 			code: app_errors.ErrInvalidJSON.Code,
 		},
 	}
@@ -926,17 +926,17 @@ func TestGroupCreateHTTPRejectsLegacyMissingAndMalformedContractsWithoutMutation
 	}
 }
 
-func TestImportGroupKeysEndpointReturnsSuccessEnvelope(t *testing.T) {
+func TestImportGroupCredentialsEndpointReturnsSuccessEnvelope(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-existing")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-existing")
 	beforeSnapshot := fixture.manager.Current()
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/groups/"+strconv.FormatUint(uint64(groupID), 10)+"/keys/import", strings.NewReader(
-		`{"keys":"sk-existing\nsk-new\nsk-new"}`,
+	request := httptest.NewRequest(http.MethodPost, "/api/groups/"+strconv.FormatUint(uint64(groupID), 10)+"/credentials/import", strings.NewReader(
+		`{"credentials":"sk-existing\nsk-new\nsk-new"}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -956,12 +956,12 @@ func TestImportGroupKeysEndpointReturnsSuccessEnvelope(t *testing.T) {
 	if envelope.Code != 0 || len(envelope.Data) != 3 {
 		t.Fatalf("success envelope = %#v", envelope)
 	}
-	for _, field := range []string{"group_id", "keys_added", "keys_duplicated"} {
+	for _, field := range []string{"group_id", "credentials_added", "credentials_duplicated"} {
 		if _, ok := envelope.Data[field]; !ok {
 			t.Fatalf("success data lacks %q: %#v", field, envelope.Data)
 		}
 	}
-	var result GroupKeyImportResult
+	var result CredentialImportResult
 	data, err := json.Marshal(envelope.Data)
 	if err != nil {
 		t.Fatal(err)
@@ -969,7 +969,7 @@ func TestImportGroupKeysEndpointReturnsSuccessEnvelope(t *testing.T) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.GroupID != groupID || result.KeysAdded != 1 || result.KeysDuplicated != 2 {
+	if result.GroupID != groupID || result.CredentialsAdded != 1 || result.CredentialsDuplicated != 2 {
 		t.Fatalf("result = %#v", result)
 	}
 	if fixture.manager.Current() != beforeSnapshot {
@@ -977,10 +977,10 @@ func TestImportGroupKeysEndpointReturnsSuccessEnvelope(t *testing.T) {
 	}
 }
 
-func TestImportGroupKeysEndpointRejectsUnknownFieldsAndInvalidGroupID(t *testing.T) {
+func TestImportGroupCredentialsEndpointRejectsUnknownFieldsAndInvalidGroupID(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-existing")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-existing")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
@@ -989,17 +989,17 @@ func TestImportGroupKeysEndpointRejectsUnknownFieldsAndInvalidGroupID(t *testing
 		groupID string
 		body    string
 	}{
-		{name: "unknown field", groupID: strconv.FormatUint(uint64(groupID), 10), body: `{"keys":"sk-new","name":"must-not-change"}`},
-		{name: "multiple JSON values", groupID: strconv.FormatUint(uint64(groupID), 10), body: `{"keys":"sk-new"} {"keys":"sk-other"}`},
-		{name: "zero group ID", groupID: "0", body: `{"keys":"sk-new"}`},
-		{name: "non-numeric group ID", groupID: "not-a-number", body: `{"keys":"sk-new"}`},
-		{name: "overflowing group ID", groupID: "18446744073709551616", body: `{"keys":"sk-new"}`},
+		{name: "unknown field", groupID: strconv.FormatUint(uint64(groupID), 10), body: `{"credentials":"sk-new","name":"must-not-change"}`},
+		{name: "multiple JSON values", groupID: strconv.FormatUint(uint64(groupID), 10), body: `{"credentials":"sk-new"} {"credentials":"sk-other"}`},
+		{name: "zero group ID", groupID: "0", body: `{"credentials":"sk-new"}`},
+		{name: "non-numeric group ID", groupID: "not-a-number", body: `{"credentials":"sk-new"}`},
+		{name: "overflowing group ID", groupID: "18446744073709551616", body: `{"credentials":"sk-new"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			beforeSnapshot := fixture.manager.Current()
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodPost, "/api/groups/"+test.groupID+"/keys/import", strings.NewReader(test.body))
+			request := httptest.NewRequest(http.MethodPost, "/api/groups/"+test.groupID+"/credentials/import", strings.NewReader(test.body))
 			request.Header.Set("Authorization", "Bearer test-auth-key")
 			request.Header.Set("Content-Type", "application/json")
 			setRequiredTestIdempotencyHeader(request)
@@ -1011,19 +1011,19 @@ func TestImportGroupKeysEndpointRejectsUnknownFieldsAndInvalidGroupID(t *testing
 			if fixture.manager.Current() != beforeSnapshot {
 				t.Fatal("invalid endpoint request published Snapshot")
 			}
-			assertImportedKeyState(t, fixture, groupID, 1)
+			assertImportedCredentialState(t, fixture, groupID, 1)
 		})
 	}
 }
 
-func TestImportGroupKeysEndpointReturnsGroupNotFound(t *testing.T) {
+func TestImportGroupCredentialsEndpointReturnsGroupNotFound(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/groups/999/keys/import", strings.NewReader(`{"keys":"sk-new"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/groups/999/credentials/import", strings.NewReader(`{"credentials":"sk-new"}`))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept-Language", "zh-CN")
@@ -1042,6 +1042,35 @@ func TestImportGroupKeysEndpointReturnsGroupNotFound(t *testing.T) {
 	}
 	if envelope.Code != "NOT_FOUND" || envelope.Message != "分组不存在" {
 		t.Fatalf("not-found envelope = %#v", envelope)
+	}
+}
+
+func createGroupForCredentialImport(t *testing.T, fixture serviceFixture, credentials string) uint {
+	t.Helper()
+	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name:      stringPointer("credential-import-" + strconv.FormatUint(testIdempotencySequence.Add(1), 10)),
+		ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		Models: optionalGroupModels{Set: true}, Credentials: credentials,
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	return result.GroupID
+}
+
+func assertImportedCredentialState(t *testing.T, fixture serviceFixture, groupID uint, want int) {
+	t.Helper()
+	var rows []models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != want {
+		t.Fatalf("persisted credentials = %d, want %d", len(rows), want)
+	}
+	for _, row := range rows {
+		if value, ok := fixture.registry.EncryptedCredentialData(row.ID); !ok || value != row.Data {
+			t.Fatalf("Registry credential %d = %q, %t, want %q", row.ID, value, ok, row.Data)
+		}
 	}
 }
 
@@ -1151,7 +1180,7 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-update-http")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-update-http")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
@@ -1161,12 +1190,12 @@ func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 		code string
 	}{
 		{name: "empty object", body: `{}`, code: app_errors.ErrBadRequest.Code},
-		{name: "confirmation only", body: `{"confirm_upstream_change":true}`, code: app_errors.ErrBadRequest.Code},
+		{name: "retired confirmation", body: `{"confirm_upstream_change":true}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "unknown field", body: `{"name":"changed","unknown":true}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "multiple JSON values", body: `{"name":"changed"} {"enabled":false}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "null name", body: `{"name":null}`, code: app_errors.ErrValidation.Code},
 		{name: "negative weight", body: `{"weight_manual":-1}`, code: app_errors.ErrValidation.Code},
-		{name: "empty protocols", body: `{"protocols":[]}`, code: app_errors.ErrValidation.Code},
+		{name: "retired protocols", body: `{"protocols":[]}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "invalid overrides", body: `{"overrides":{"first_byte_timeout":-1}}`, code: app_errors.ErrValidation.Code},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -1200,7 +1229,7 @@ func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-update-null")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-update-null")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
@@ -1208,12 +1237,12 @@ func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testin
 	if err := fixture.db.First(&beforeGroup, groupID).Error; err != nil {
 		t.Fatal(err)
 	}
-	var beforeKeys []models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&beforeKeys).Error; err != nil {
+	var beforeCredentials []models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&beforeCredentials).Error; err != nil {
 		t.Fatal(err)
 	}
 	beforeRevision := fixture.manager.Current().Revision
-	beforeRegistry := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{})
+	beforeRegistry := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, time.Time{})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
@@ -1233,17 +1262,17 @@ func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testin
 	if !reflect.DeepEqual(afterGroup, beforeGroup) {
 		t.Fatalf("persisted group changed: got=%#v want=%#v", afterGroup, beforeGroup)
 	}
-	var afterKeys []models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&afterKeys).Error; err != nil {
+	var afterCredentials []models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&afterCredentials).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(afterKeys, beforeKeys) {
-		t.Fatalf("persisted keys changed: got=%#v want=%#v", afterKeys, beforeKeys)
+	if !reflect.DeepEqual(afterCredentials, beforeCredentials) {
+		t.Fatalf("persisted credentials changed: got=%#v want=%#v", afterCredentials, beforeCredentials)
 	}
 	if got := fixture.manager.Current().Revision; got != beforeRevision {
 		t.Fatalf("snapshot revision = %d, want %d", got, beforeRevision)
 	}
-	if got := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{}); !reflect.DeepEqual(got, beforeRegistry) {
+	if got := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, time.Time{}); !reflect.DeepEqual(got, beforeRegistry) {
 		t.Fatalf("Registry candidates changed: got=%#v want=%#v", got, beforeRegistry)
 	}
 }
@@ -1251,13 +1280,19 @@ func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testin
 func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	firstID := createGroupForKeyImport(t, fixture, "sk-update-first")
+	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("first-group"), ChannelID: channel.OpenAICompatible,
+		Params: json.RawMessage(`{"base_url":"https://first.example.com/v1"}`),
+		Models: optionalGroupModels{Set: true}, Credentials: "sk-update-first",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID := first.GroupID
 	second, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name:        stringPointer("other-group"),
-		UpstreamURL: "https://conflict.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Keys:        "sk-update-second",
+		Name: stringPointer("other-group"), ChannelID: channel.OpenAICompatible,
+		Params: json.RawMessage(`{"base_url":"https://conflict.example.com/v1"}`),
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-update-second",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1267,7 +1302,7 @@ func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *tes
 	path := "/api/groups/" + strconv.FormatUint(uint64(firstID), 10) + "/settings"
 
 	request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(
-		`{"upstream_url":"https://unique.example.com/v1"}`,
+		`{"params":{"base_url":"https://unique.example.com/v1"}}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -1279,7 +1314,7 @@ func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *tes
 	}
 
 	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
-		`{"upstream_url":"https://conflict.example.com/v1/"}`,
+		`{"params":{"base_url":"https://conflict.example.com/v1/"}}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -1295,7 +1330,8 @@ func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *tes
 	if err := json.Unmarshal(recorder.Body.Bytes(), &duplicateSuccess); err != nil {
 		t.Fatal(err)
 	}
-	if duplicateSuccess.Code != 0 || duplicateSuccess.Data.UpstreamURL != "https://conflict.example.com/v1" {
+	if duplicateSuccess.Code != 0 || duplicateSuccess.Data.ChannelID != channel.OpenAICompatible ||
+		string(duplicateSuccess.Data.Params) != `{"base_url":"https://conflict.example.com/v1"}` {
 		t.Fatalf("duplicate URL success envelope = %#v", duplicateSuccess)
 	}
 
@@ -1309,7 +1345,7 @@ func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *tes
 	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrDuplicateResource.Code, "分组名称已存在")
 
 	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
-		`{"upstream_url":" HTTPS://UNIQUE.example.com/v1/ ","enabled":false}`,
+		`{"params":{"base_url":" HTTPS://UNIQUE.example.com/v1/ "},"enabled":false}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -1328,7 +1364,7 @@ func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *tes
 		t.Fatal(err)
 	}
 	if success.Code != 0 || success.Message != "成功" || success.Data.Enabled ||
-		success.Data.UpstreamURL != "https://unique.example.com/v1" {
+		string(success.Data.Params) != `{"base_url":"https://unique.example.com/v1"}` {
 		t.Fatalf("success envelope = %#v", success)
 	}
 
@@ -1345,7 +1381,7 @@ func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *tes
 func TestUpdateGroupSettingsEndpointRejectsOversizedJSON(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-update-limit")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-update-limit")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	before := fixture.manager.Current().Revision
@@ -1370,13 +1406,13 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://model-save-http-invalid.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://model-save-http-invalid.example.com/v1"}`),
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
-		Keys: "sk-model-save-http-invalid",
+		Credentials: "sk-model-save-http-invalid",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1431,7 +1467,7 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 func TestGroupModelsHTTPReturnsStructuredConflictWithoutMutation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-model-conflict-http")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-model-conflict-http")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	beforeRevision := fixture.manager.Current().Revision
@@ -1469,7 +1505,7 @@ func TestGroupModelsHTTPRejectsMissingAliasEnabledWithoutMutation(t *testing.T) 
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
-	groupID := createGroupForKeyImport(t, fixture, "sk-model-alias-default")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-model-alias-default")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	beforeRevision := fixture.manager.Current().Revision
@@ -1500,13 +1536,13 @@ func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://model-save-http.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://model-save-http.example.com/v1"}`),
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
-		Keys: "sk-model-save-http",
+		Credentials: "sk-model-save-http",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1712,13 +1748,13 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	initControlI18n(t)
 	const authKey = "test-auth-key"
 
-	newServer := func(value *recordingDiscoveryDialect) (*Service, *gin.Engine) {
+	newServer := func(value *recordingDiscoveryExecutorTarget) (*Service, *gin.Engine) {
 		t.Helper()
 		fixture := newServiceFixture(t)
 		if value == nil {
-			fixture.service.dialects = dialect.NewSet()
+			fixture.service.executor = nil
 		} else {
-			fixture.service.dialects = dialect.NewSet(value)
+			fixture.service.executor = newRecordingDiscoveryExecutor(value)
 		}
 		engine := gin.New()
 		NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
@@ -1726,7 +1762,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	}
 
 	t.Run("success preserves order", func(t *testing.T) {
-		_, engine := newServer(&recordingDiscoveryDialect{
+		_, engine := newServer(&recordingDiscoveryExecutorTarget{
 			value: protocol.OpenAICompletions,
 			listFn: func(
 				context.Context,
@@ -1738,8 +1774,8 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 			},
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream"}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},`+
+				`"credentials":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
@@ -1765,7 +1801,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	})
 
 	t.Run("empty list remains an array", func(t *testing.T) {
-		_, engine := newServer(&recordingDiscoveryDialect{
+		_, engine := newServer(&recordingDiscoveryExecutorTarget{
 			value: protocol.OpenAICompletions,
 			listFn: func(
 				context.Context,
@@ -1777,8 +1813,8 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 			},
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream"}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},`+
+				`"credentials":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"models":[]`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1786,7 +1822,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	})
 
 	t.Run("authentication is inherited", func(t *testing.T) {
-		_, engine := newServer(&recordingDiscoveryDialect{
+		_, engine := newServer(&recordingDiscoveryExecutorTarget{
 			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				t.Fatal("ListModels called without valid management authentication")
@@ -1795,8 +1831,8 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 		})
 		for _, token := range []string{"", "wrong-key"} {
 			recorder := serveDiscoveryRequest(t, engine, token,
-				`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-					`"keys":"sk-upstream"}`,
+				`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},`+
+					`"credentials":"sk-upstream"}`,
 			)
 			if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), `"code":"UNAUTHORIZED"`) {
 				t.Fatalf("auth %q response = %d %s", token, recorder.Code, recorder.Body.String())
@@ -1805,7 +1841,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	})
 
 	t.Run("strict JSON", func(t *testing.T) {
-		_, engine := newServer(&recordingDiscoveryDialect{
+		_, engine := newServer(&recordingDiscoveryExecutorTarget{
 			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				t.Fatal("ListModels called for invalid JSON")
@@ -1813,11 +1849,11 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 			},
 		})
 		for _, payload := range []string{
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","config":{}}`,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","unknown":true}`,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream"}{}`,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream"`,
-			`{"upstream_url":"https://api.example.com","protocol":"openai-completions","key":"sk-upstream"}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},"credentials":"sk-upstream","config":{}}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},"credentials":"sk-upstream","unknown":true}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},"credentials":"sk-upstream"}{}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},"credentials":"sk-upstream"`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream"}`,
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, payload)
 			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"code":"INVALID_JSON"`) {
@@ -1833,8 +1869,8 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 			status  int
 			code    string
 		}{
-			{payload: `{"upstream_url":"/relative","protocols":["openai-completions"],"keys":"secret-key"}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
-			{payload: `{"upstream_url":"https://api.example.com?token=query-secret","protocols":["openai-completions"],"keys":"secret-key"}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
+			{payload: `{"channel_id":"openai_compatible","params":{"base_url":"/relative"},"credentials":"secret-key"}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
+			{payload: `{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com?token=query-secret"},"credentials":"secret-key"}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, test.payload)
 			if recorder.Code != test.status || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
@@ -1849,7 +1885,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	})
 
 	t.Run("upstream failures map to localized bad gateway", func(t *testing.T) {
-		service, engine := newServer(&recordingDiscoveryDialect{
+		service, engine := newServer(&recordingDiscoveryExecutorTarget{
 			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				return nil, fmt.Errorf("raw upstream failure with secret-body")
@@ -1864,8 +1900,8 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 			{language: "zh-CN", message: "上游服务错误"},
 		} {
 			recorder := serveDiscoveryRequestWithLanguage(t, engine, authKey,
-				`{"upstream_url":"https://api.example.com?token=query-secret",`+
-					`"protocols":["openai-completions"],"keys":"secret-key"}`,
+				`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com?token=query-secret"},`+
+					`"credentials":"secret-key"}`,
 				test.language,
 			)
 			if recorder.Code != http.StatusBadGateway ||
@@ -1882,7 +1918,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	})
 
 	t.Run("timeout maps to bad gateway", func(t *testing.T) {
-		service, engine := newServer(&recordingDiscoveryDialect{
+		service, engine := newServer(&recordingDiscoveryExecutorTarget{
 			value: protocol.OpenAICompletions,
 			listFn: func(ctx context.Context, _ string, _ string, _ state.HeaderRules) ([]string, error) {
 				<-ctx.Done()
@@ -1891,8 +1927,8 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 		})
 		service.modelDiscoveryTimeout = 20 * time.Millisecond
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream"}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},`+
+				`"credentials":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1900,19 +1936,21 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 	})
 
 	t.Run("broken upstream JSON maps to bad gateway", func(t *testing.T) {
-		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"data":[`))
-		}))
-		defer upstream.Close()
-
 		fixture := newServiceFixture(t)
-		fixture.service.dialects = dialect.NewSet(dialect.NewOpenAI(upstream.Client()))
+		fixture.service.executor = scriptedDiscoveryExecutor{execute: func(
+			context.Context,
+			execution.AttemptSpec,
+		) execution.AttemptResult {
+			return execution.AttemptResult{
+				DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+				StatusCode: http.StatusOK, Header: http.Header{}, Body: []byte(`{"data":[`),
+			}
+		}}
 		engine := gin.New()
 		NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"`+upstream.URL+`","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream"}`,
+			`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},`+
+				`"credentials":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1932,7 +1970,7 @@ func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 		bodySecret  = "distinctive-upstream-body"
 	)
 	fixture := newServiceFixture(t)
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.Anthropic,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return nil, fmt.Errorf("provider error: %s", bodySecret)
@@ -1947,8 +1985,8 @@ func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 	t.Cleanup(func() { logrus.SetOutput(previousOutput) })
 
 	recorder := serveDiscoveryRequest(t, engine, authSecret,
-		`{"upstream_url":"https://api.example.com?token=`+querySecret+`",`+
-			`"protocols":["anthropic"],"keys":"`+keySecret+`"}`,
+		`{"channel_id":"anthropic_compatible","params":{"base_url":"https://api.example.com?token=`+querySecret+`"},`+
+			`"credentials":"`+keySecret+`"}`,
 	)
 	if recorder.Code != http.StatusBadGateway {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1977,22 +2015,22 @@ func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
 		t.Helper()
 		fixture := newServiceFixture(t)
 		created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-			UpstreamURL: "https://persisted-server.example.com/v1",
-			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+			ChannelID:   channel.OpenAICompatible,
+			Params:      json.RawMessage(`{"base_url":"https://persisted-server.example.com/v1"}`),
 			Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-			Keys:        "persisted-server-key",
+			Credentials: "persisted-server-key",
 		})
 		if err != nil {
 			t.Fatalf("seed CreateGroup() error = %v", err)
 		}
 		if !activeKey {
-			if err := fixture.db.Model(&models.UpstreamKey{}).
+			if err := fixture.db.Model(&models.Credential{}).
 				Where("group_id = ?", created.GroupID).
-				Update("status", models.UpstreamKeyStatusDisabled).Error; err != nil {
+				Update("status", models.CredentialStatusDisabled).Error; err != nil {
 				t.Fatalf("disable persisted discovery key: %v", err)
 			}
 		}
-		fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+		fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				return []string{"z-model", "a-model"}, nil
@@ -2079,15 +2117,15 @@ func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
 			language string
 			message  string
 		}{
-			{language: "en-US", message: "No active upstream key is available for this group"},
-			{language: "zh-CN", message: "该分组没有可用的活跃上游密钥"},
-			{language: "ja-JP", message: "このグループには利用可能な有効なアップストリームキーがありません"},
+			{language: "en-US", message: "No active credential is available for this group"},
+			{language: "zh-CN", message: "该分组没有可用凭据"},
+			{language: "ja-JP", message: "このグループには利用可能な認証情報がありません"},
 		} {
 			recorder := serveGroupDiscoveryRequest(
 				t, engine, authKey, test.language, groupID, nil,
 			)
 			if recorder.Code != http.StatusConflict ||
-				!strings.Contains(recorder.Body.String(), `"code":"NO_ACTIVE_UPSTREAM_KEY"`) ||
+				!strings.Contains(recorder.Body.String(), `"code":"NO_ACTIVE_CREDENTIAL"`) ||
 				!strings.Contains(recorder.Body.String(), test.message) {
 				t.Fatalf("%s response = %d %s", test.language, recorder.Code, recorder.Body.String())
 			}
@@ -2362,7 +2400,7 @@ func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
 		fixture.catalogRuntime,
 		nil,
 		fixture.encryption,
-		fixture.service.dialects,
+		fixture.service.executor,
 		fixture.service.requestLogs,
 		fixture.service.usageStats,
 		fixture.service.homeStatistics,

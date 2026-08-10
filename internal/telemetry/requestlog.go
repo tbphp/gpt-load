@@ -3,6 +3,8 @@ package telemetry
 import (
 	"time"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -42,27 +44,33 @@ const (
 type Action string
 
 const (
-	ActionTerminate   Action = "terminate"
-	ActionRetry       Action = "retry"
-	ActionCooldownKey Action = "cooldown_key"
-	ActionFailKey     Action = "fail_key"
-	ActionSkipGroup   Action = "skip_group"
+	ActionTerminate          Action = "terminate"
+	ActionRetry              Action = "retry"
+	ActionCooldownCredential Action = "cooldown_credential"
+	ActionFailCredential     Action = "fail_credential"
+	ActionSkipGroup          Action = "skip_group"
 )
 
 type Attempt struct {
-	Sequence        int
-	GroupID         uint
-	GroupName       string
-	KeyID           uint
-	UpstreamModel   string
-	StatusCode      int
-	DurationMs      int64
-	FailureCategory FailureCategory
-	Action          Action
-	WillRetry       bool
-	ErrorCode       string
-	ErrorSummary    string
-	Committed       bool
+	Sequence          int
+	GroupID           uint
+	GroupName         string
+	ChannelID         channel.ID
+	CredentialID      uint
+	Operation         execution.Operation
+	RouteMode         channel.RouteMode
+	UpstreamModel     string
+	UpstreamRequestID string
+	DispatchState     execution.DispatchState
+	ResponseStarted   bool
+	StatusCode        int
+	DurationMs        int64
+	FailureCategory   FailureCategory
+	Action            Action
+	WillRetry         bool
+	ErrorCode         string
+	ErrorSummary      string
+	Committed         bool
 }
 
 // PricingObservation is the frozen, dependency-neutral quote selected by the
@@ -78,7 +86,8 @@ type PricingObservation struct {
 type UsageObservation struct {
 	Result          usage.Result
 	GroupID         uint
-	KeyID           uint
+	ChannelID       channel.ID
+	CredentialID    uint
 	AttemptSequence int
 	Pricing         PricingObservation
 }

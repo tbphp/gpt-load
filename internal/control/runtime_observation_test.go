@@ -1,14 +1,15 @@
 package control
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/encryption"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -27,7 +28,7 @@ func (probe healthDecryptLockProbe) Decrypt(ciphertext string) (string, error) {
 func TestCaptureRuntimeObservationWaitsForPublishedConfigPair(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := validControlGroup("runtime-observation")
-	var key models.UpstreamKey
+	var key models.Credential
 	runtimeApplied := make(chan struct{})
 	allowPublish := make(chan struct{})
 	var releaseOnce sync.Once
@@ -41,16 +42,15 @@ func TestCaptureRuntimeObservationWaitsForPublishedConfigPair(t *testing.T) {
 			if err := tx.Create(group).Error; err != nil {
 				return err
 			}
-			key = models.UpstreamKey{
-				GroupID: group.ID, KeyValue: "cipher-runtime-observation",
-				KeyHash: "hash-runtime-observation",
-				Status:  models.UpstreamKeyStatusActive,
+			key = models.Credential{
+				GroupID: group.ID, Data: "cipher-runtime-observation",
+				Fingerprint: "hash-runtime-observation", Status: models.CredentialStatusActive,
 			}
 			return tx.Create(&key).Error
 		}, func() error {
-			if err := fixture.registry.ApplyImport(group.ID, []state.KeyEntry{{
-				ID: key.ID, GroupID: group.ID, Status: state.KeyStatusActive,
-				EncryptedValue: key.KeyValue,
+			if err := fixture.registry.ApplyCredentialImport(group.ID, []state.CredentialEntry{{
+				ID: key.ID, GroupID: group.ID, Status: state.CredentialStatusActive,
+				Version: 1, IdentityGeneration: 1, Fingerprint: key.Fingerprint, EncryptedValue: key.Data,
 			}}); err != nil {
 				return err
 			}
@@ -114,7 +114,7 @@ func TestCaptureRuntimeObservationWaitsForPublishedConfigPair(t *testing.T) {
 func TestCaptureRuntimeHealthObservationWaitsForPublishedConfigPair(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := validControlGroup("runtime-health-observation")
-	var key models.UpstreamKey
+	var key models.Credential
 	runtimeApplied := make(chan struct{})
 	allowPublish := make(chan struct{})
 	var releaseOnce sync.Once
@@ -128,16 +128,15 @@ func TestCaptureRuntimeHealthObservationWaitsForPublishedConfigPair(t *testing.T
 			if err := tx.Create(group).Error; err != nil {
 				return err
 			}
-			key = models.UpstreamKey{
-				GroupID: group.ID, KeyValue: "cipher-runtime-health-observation",
-				KeyHash: "hash-runtime-health-observation",
-				Status:  models.UpstreamKeyStatusActive,
+			key = models.Credential{
+				GroupID: group.ID, Data: "cipher-runtime-health-observation",
+				Fingerprint: "hash-runtime-health-observation", Status: models.CredentialStatusActive,
 			}
 			return tx.Create(&key).Error
 		}, func() error {
-			if err := fixture.registry.ApplyImport(group.ID, []state.KeyEntry{{
-				ID: key.ID, GroupID: group.ID, Status: state.KeyStatusActive,
-				EncryptedValue: key.KeyValue,
+			if err := fixture.registry.ApplyCredentialImport(group.ID, []state.CredentialEntry{{
+				ID: key.ID, GroupID: group.ID, Status: state.CredentialStatusActive,
+				Version: 1, IdentityGeneration: 1, Fingerprint: key.Fingerprint, EncryptedValue: key.Data,
 			}}); err != nil {
 				return err
 			}
@@ -222,14 +221,14 @@ func TestRuntimeHealthReleasesReadLockBeforeDecryptingProblemKeys(t *testing.T) 
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
-	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "health-lock", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
+		ID: 1, Name: "health-lock", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		CooldownUntil:  now.Add(time.Minute),
 		EncryptedValue: encryptHealthKey(t, fixture, "health-lock-secret-safe"),
 	}}); err != nil {

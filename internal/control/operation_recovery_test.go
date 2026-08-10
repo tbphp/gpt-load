@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -22,7 +22,7 @@ func TestOperationReplayRepairsPostCommitRegistryFailureWithoutRerunningMutation
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x31}, 16))
 	reconcileCalls := 0
-	fixture.service.reconcileRegistryGroup = func(uint, []state.KeyEntry) (bool, error) {
+	fixture.service.reconcileRegistryGroup = func(uint, []state.CredentialEntry) (bool, error) {
 		reconcileCalls++
 		return false, errors.New("injected registry failure")
 	}
@@ -65,7 +65,7 @@ func TestOperationReplayRepairsPostCommitRegistryFailureWithoutRerunningMutation
 		t.Fatalf("replay/mutation = %t/%d, want true/1", replayed.Replayed, mutations)
 	}
 	groupID := mustResourceGroupID(t, replayed.ResourceIdentity)
-	if value, ok := fixture.registry.EncryptedValue(1); !ok || value != "cipher-one" {
+	if value, ok := fixture.registry.EncryptedCredentialData(1); !ok || value != "cipher-one" {
 		t.Fatalf("recovered registry key = %q, %t", value, ok)
 	}
 	if current := fixture.manager.Current(); current == nil || current.Groups[groupID].ID != groupID {
@@ -79,7 +79,7 @@ func TestOperationReplayOnlyRecordsStageWhenRegistrySideEffectAlreadySatisfied(t
 	reconcileCalls := 0
 	fixture.service.reconcileRegistryGroup = func(
 		groupID uint,
-		entries []state.KeyEntry,
+		entries []state.CredentialEntry,
 	) (bool, error) {
 		reconcileCalls++
 		return fixture.registry.ReconcileGroup(groupID, entries)
@@ -109,7 +109,7 @@ func TestOperationReplayOnlyRecordsStageWhenRegistrySideEffectAlreadySatisfied(t
 	if reconcileCalls != 1 {
 		t.Fatalf("initial reconcile calls = %d, want 1", reconcileCalls)
 	}
-	if value, ok := fixture.registry.EncryptedValue(1); !ok || value != "cipher-one" {
+	if value, ok := fixture.registry.EncryptedCredentialData(1); !ok || value != "cipher-one" {
 		t.Fatalf("side effect did not complete before stage failure: %q, %t", value, ok)
 	}
 
@@ -129,7 +129,7 @@ func TestOperationReplayOnlyRecordsStageWhenRegistrySideEffectAlreadySatisfied(t
 func TestOperationBarrierBlocksNewMutationBehindOlderRecovery(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x33}, 32))
-	fixture.service.reconcileRegistryGroup = func(uint, []state.KeyEntry) (bool, error) {
+	fixture.service.reconcileRegistryGroup = func(uint, []state.CredentialEntry) (bool, error) {
 		return false, errors.New("registry remains unavailable")
 	}
 	firstMutations := 0
@@ -189,7 +189,7 @@ func TestOperationBarrierBlocksNewMutationBehindOlderRecovery(t *testing.T) {
 		t.Fatalf("catalog apply published behind recovery barrier: before=%#v after=%#v", beforeCatalog, afterCatalog)
 	}
 
-	fixture.service.reconcileRegistryGroup = func(uint, []state.KeyEntry) (bool, error) {
+	fixture.service.reconcileRegistryGroup = func(uint, []state.CredentialEntry) (bool, error) {
 		return true, nil
 	}
 	recoveredCatalog := &catalog.Snapshot{Providers: map[string]catalog.Provider{
@@ -370,21 +370,21 @@ func newDurableGroupOperationInput(
 		Mutate: func(tx operationTransaction) (idempotentMutationResult, error) {
 			*mutations++
 			group := models.Group{
-				Name:        "group-" + idempotencyKey[:4],
-				UpstreamURL: "https://upstream.example.com",
-				Protocols:   models.JSON(`["` + string(protocol.OpenAICompletions) + `"]`),
-				Models:      models.JSON(`[]`),
-				Config:      models.JSON(`{}`),
-				Enabled:     true,
+				Name:      "group-" + idempotencyKey[:4],
+				ChannelID: string(channel.OpenAI),
+				Params:    models.JSON(`{}`),
+				Models:    models.JSON(`[]`),
+				Overrides: models.JSON(`{}`),
+				Enabled:   true,
 			}
 			if err := tx.Create(&group).Error; err != nil {
 				return idempotentMutationResult{}, err
 			}
-			key := models.UpstreamKey{
-				GroupID: group.ID, KeyValue: "cipher-one", KeyHash: "hash-one",
-				Status: models.UpstreamKeyStatusActive,
+			credential := models.Credential{
+				GroupID: group.ID, Data: "cipher-one", Fingerprint: "fingerprint-one",
+				Status: models.CredentialStatusActive, UpdatedAtMS: 1,
 			}
-			if err := tx.Create(&key).Error; err != nil {
+			if err := tx.Create(&credential).Error; err != nil {
 				return idempotentMutationResult{}, err
 			}
 			result := []byte(fmt.Sprintf(`{"group_id":%d}`, group.ID))

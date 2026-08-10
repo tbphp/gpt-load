@@ -81,6 +81,7 @@ export default {
       relationships: '関連',
       clientModels: 'クライアントモデル',
       groups: 'Group',
+      channel: 'チャネル',
       updatedAt: '更新',
       copyModel: '上流モデル {model} をコピー',
       copySucceeded: 'コピーしました',

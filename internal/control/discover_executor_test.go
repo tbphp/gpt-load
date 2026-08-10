@@ -2,335 +2,328 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"gpt-load/internal/dialect"
-	"gpt-load/internal/health"
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
 
-type recordingDiscoveryDialect struct {
+// recordingDiscoveryExecutorTarget acts as a provider-neutral execution target.
+// This lets the discovery service tests focus
+// on target freezing and credential failover rather than SDK wire details.
+type recordingDiscoveryExecutorTarget struct {
 	value  protocol.Protocol
 	listFn func(context.Context, string, string, state.HeaderRules) ([]string, error)
 }
 
-func (d *recordingDiscoveryDialect) Protocol() protocol.Protocol {
-	return d.value
-}
-
-func (*recordingDiscoveryDialect) InspectRequest(
-	*dialect.ParsedRequest,
-) (dialect.RequestMetadata, error) {
-	return dialect.RequestMetadata{}, nil
-}
-
-func (*recordingDiscoveryDialect) BuildUpstreamURL(string, *dialect.ParsedRequest) (string, error) {
-	return "", nil
-}
-
-func (*recordingDiscoveryDialect) InjectCredential(http.Header, string) {}
-
-func (d *recordingDiscoveryDialect) ListModels(
+func (recorder *recordingDiscoveryExecutorTarget) ListModels(
 	ctx context.Context,
-	baseURL, apiKey string,
+	baseURL string,
+	apiKey string,
 	rules state.HeaderRules,
 ) ([]string, error) {
-	return d.listFn(ctx, baseURL, apiKey, rules)
+	return recorder.listFn(ctx, baseURL, apiKey, rules)
 }
 
-func (*recordingDiscoveryDialect) Probe(context.Context, string, string, state.HeaderRules, string) error {
-	return nil
+type recordingDiscoveryExecutor struct {
+	byProtocol map[protocol.Protocol]*recordingDiscoveryExecutorTarget
 }
 
-func (*recordingDiscoveryDialect) ClassifyStatus(int, []byte) health.FailureCategory {
-	return health.FailureCategoryClientError
+func newRecordingDiscoveryExecutor(values ...*recordingDiscoveryExecutorTarget) execution.Executor {
+	byProtocol := make(map[protocol.Protocol]*recordingDiscoveryExecutorTarget, len(values))
+	for _, value := range values {
+		if value != nil {
+			byProtocol[value.value] = value
+		}
+	}
+	return &recordingDiscoveryExecutor{byProtocol: byProtocol}
 }
 
-func TestExecuteModelDiscoveryUsesProtocolOuterKeyInnerFallback(t *testing.T) {
-	var calls []string
-	newRecorder := func(value protocol.Protocol) *recordingDiscoveryDialect {
-		return &recordingDiscoveryDialect{
-			value: value,
-			listFn: func(
-				_ context.Context,
-				baseURL, apiKey string,
-				rules state.HeaderRules,
-			) ([]string, error) {
-				calls = append(calls, string(value)+":"+apiKey)
-				if baseURL != "https://api.example.com/v1" || rules.Set["X-Test"] != "draft" {
-					t.Fatalf("ListModels target = %q, %#v", baseURL, rules)
-				}
-				if value == protocol.Anthropic && apiKey == "key-a" {
-					return make([]string, 0), nil
-				}
-				return nil, errors.New("try next combination")
+func (*recordingDiscoveryExecutor) Capabilities() execution.CapabilitySet {
+	return execution.CapabilitySet{}
+}
+
+func (executor *recordingDiscoveryExecutor) Execute(
+	ctx context.Context,
+	spec execution.AttemptSpec,
+) execution.AttemptResult {
+	recorder := executor.byProtocol[spec.ClientProtocol]
+	if recorder == nil || recorder.listFn == nil {
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchNotSent,
+			Error: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindInvalidRequest, Summary: "missing test executor",
 			},
 		}
 	}
-	service := &Service{
-		dialects:              dialect.NewSet(newRecorder(protocol.OpenAICompletions), newRecorder(protocol.Anthropic)),
-		modelDiscoveryTimeout: time.Second,
+	var target struct {
+		BaseURL string `json:"base_url"`
 	}
-	result, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
-		baseURL:     "https://api.example.com/v1",
-		protocols:   []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
-		keys:        []string{"key-a", "key-b"},
-		headerRules: state.HeaderRules{Set: map[string]string{"X-Test": "draft"}},
-	})
+	_ = json.Unmarshal(spec.TargetConfig, &target)
+	var credential struct {
+		APIKey string `json:"api_key"`
+	}
+	_ = json.Unmarshal(spec.Credential.Data(), &credential)
+	rules := state.HeaderRules{Set: make(map[string]string)}
+	for name, values := range spec.Header {
+		if strings.EqualFold(name, "Accept-Encoding") || len(values) == 0 {
+			continue
+		}
+		rules.Set[name] = values[len(values)-1]
+	}
+	models, err := recorder.listFn(ctx, target.BaseURL, credential.APIKey, rules)
 	if err != nil {
-		t.Fatalf("executeModelDiscovery() error = %v", err)
-	}
-	if result.Models == nil || len(result.Models) != 0 {
-		t.Fatalf("models = %#v, want non-nil empty success", result.Models)
-	}
-	wantCalls := []string{
-		"openai-completions:key-a",
-		"openai-completions:key-b",
-		"anthropic:key-a",
-	}
-	if !reflect.DeepEqual(calls, wantCalls) {
-		t.Fatalf("calls = %#v, want %#v", calls, wantCalls)
-	}
-}
-
-func TestExecuteModelDiscoveryUsesCanonicalOpenAIRepresentativeFirst(t *testing.T) {
-	t.Parallel()
-
-	var calls []protocol.Protocol
-	newRecorder := func(value protocol.Protocol) *recordingDiscoveryDialect {
-		return &recordingDiscoveryDialect{
-			value: value,
-			listFn: func(
-				context.Context,
-				string,
-				string,
-				state.HeaderRules,
-			) ([]string, error) {
-				calls = append(calls, value)
-				return []string{"gpt-5"}, nil
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent,
+			Error: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindTransport, Summary: "test discovery failed",
 			},
 		}
 	}
-	service := &Service{
-		dialects: dialect.NewSet(
-			newRecorder(protocol.OpenAIResponses),
-			newRecorder(protocol.OpenAICompletions),
-		),
-		modelDiscoveryTimeout: time.Second,
-	}
-	result, err := service.executeModelDiscovery(
-		context.Background(),
-		discoveryTarget{
-			baseURL: "https://api.example.com",
-			protocols: []protocol.Protocol{
-				protocol.OpenAIResponses,
-				protocol.OpenAICompletions,
-			},
-			keys: []string{"key-a"},
-		},
-	)
-	if err != nil {
-		t.Fatalf("executeModelDiscovery() error = %v", err)
-	}
-	if !reflect.DeepEqual(result.Models, []ModelCandidate{
-		{ID: "gpt-5", Name: "gpt-5", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
-	}) {
-		t.Fatalf("models = %#v", result.Models)
-	}
-	if !reflect.DeepEqual(calls, []protocol.Protocol{
-		protocol.OpenAICompletions,
-	}) {
-		t.Fatalf("ListModels protocols = %#v, want Chat only", calls)
+	body := encodeDiscoveryModelsForTest(spec.ClientProtocol, models)
+	return execution.AttemptResult{
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		StatusCode: http.StatusOK, Header: http.Header{}, Body: body,
 	}
 }
 
-func TestExecuteModelDiscoveryRejectsMissingDialectBeforeHTTP(t *testing.T) {
-	calls := 0
-	openAI := &recordingDiscoveryDialect{
-		value: protocol.OpenAICompletions,
-		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
-			calls++
-			return nil, nil
-		},
-	}
-	service := &Service{
-		dialects:              dialect.NewSet(openAI),
-		modelDiscoveryTimeout: time.Second,
-	}
-	target := discoveryTarget{
-		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
-		keys:      []string{"secret-key"},
-	}
-	_, err := service.executeModelDiscovery(context.Background(), target)
-	if err == nil || errors.Is(err, app_errors.ErrBadGateway) {
-		t.Fatalf("missing Dialect error = %v, want internal invariant error", err)
-	}
-	if calls != 0 {
-		t.Fatalf("ListModels calls = %d, want preflight rejection", calls)
-	}
+func (*recordingDiscoveryExecutor) ExecuteStream(
+	context.Context,
+	execution.AttemptSpec,
+	execution.StreamSink,
+) execution.StreamResult {
+	panic("unexpected stream execution")
+}
 
-	service.dialects = dialect.Set{protocol.OpenAICompletions: openAI, protocol.Anthropic: nil}
-	_, err = service.executeModelDiscovery(context.Background(), target)
-	if err == nil || errors.Is(err, app_errors.ErrBadGateway) || calls != 0 {
-		t.Fatalf("nil Dialect result = error %v, calls %d", err, calls)
+func encodeDiscoveryModelsForTest(value protocol.Protocol, models []string) []byte {
+	items := make([]map[string]string, 0, len(models))
+	for _, model := range models {
+		if value == protocol.Gemini {
+			items = append(items, map[string]string{"name": "models/" + model})
+		} else {
+			items = append(items, map[string]string{"id": model})
+		}
 	}
+	payload := map[string]any{"data": items}
+	if value == protocol.Gemini {
+		payload = map[string]any{"models": items}
+	}
+	body, _ := json.Marshal(payload)
+	return body
+}
 
-	for name, invalid := range map[string]discoveryTarget{
-		"base URL":  {protocols: []protocol.Protocol{protocol.OpenAICompletions}, keys: []string{"key"}},
-		"protocols": {baseURL: "https://api.example.com", keys: []string{"key"}},
-		"keys":      {baseURL: "https://api.example.com", protocols: []protocol.Protocol{protocol.OpenAICompletions}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := service.executeModelDiscovery(context.Background(), invalid); err == nil {
-				t.Fatal("empty target error = nil")
-			}
+func discoveryTargetForTest(
+	t *testing.T,
+	channelID channel.ID,
+	baseURL string,
+	keys []string,
+	rules state.HeaderRules,
+) discoveryTarget {
+	t.Helper()
+	registry := channel.NewRegistry()
+	params := json.RawMessage(`{}`)
+	if baseURL != "" {
+		encoded, err := json.Marshal(map[string]string{"base_url": baseURL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		params = encoded
+	}
+	resolved, err := registry.Resolve(channelID, params)
+	if err != nil {
+		t.Fatalf("Resolve(%q) error = %v", channelID, err)
+	}
+	credentials := make([]discoveryCredential, 0, len(keys))
+	for index, key := range keys {
+		data, err := json.Marshal(map[string]string{"api_key": key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		credentials = append(credentials, discoveryCredential{
+			snapshot: execution.NewCredentialSnapshot(uint(index+1), 1, uint64(index+1), data),
+			apiKey:   key,
 		})
 	}
-	if calls != 0 {
-		t.Fatalf("ListModels calls after empty targets = %d, want 0", calls)
+	return discoveryTarget{
+		channelID: channelID, resolvedTarget: resolved, credentials: credentials,
+		headerRules: rules, catalogProviderID: resolved.CatalogProviderID,
+	}
+}
+
+func TestExecuteModelDiscoveryUsesNeutralExecutor(t *testing.T) {
+	t.Parallel()
+
+	var observed execution.AttemptSpec
+	executor := scriptedDiscoveryExecutor{execute: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+	) execution.AttemptResult {
+		observed = spec.Clone()
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{},
+			Body: []byte(`{"object":"list","data":[{"id":"gpt-test"}]}`),
+		}
+	}}
+	service := &Service{executor: executor, modelDiscoveryTimeout: time.Second}
+	target := discoveryTargetForTest(
+		t, channel.OpenAICompatible, "https://api.example.com/v1", []string{"secret-key"}, state.HeaderRules{},
+	)
+	result, err := service.executeModelDiscovery(context.Background(), target)
+	if err != nil {
+		t.Fatalf("executeModelDiscovery() error = %v", err)
+	}
+	if observed.Operation != execution.OperationListModels ||
+		observed.ChannelID != string(channel.OpenAICompatible) ||
+		observed.Credential.ID == 0 || string(observed.TargetConfig) != `{"base_url":"https://api.example.com/v1"}` {
+		t.Fatalf("observed spec = %#v", observed)
+	}
+	if got := result.Models; len(got) != 1 || got[0].ID != "gpt-test" {
+		t.Fatalf("models = %#v", got)
+	}
+}
+
+type scriptedDiscoveryExecutor struct {
+	execute func(context.Context, execution.AttemptSpec) execution.AttemptResult
+}
+
+func (scriptedDiscoveryExecutor) Capabilities() execution.CapabilitySet {
+	return execution.CapabilitySet{}
+}
+
+func (executor scriptedDiscoveryExecutor) Execute(ctx context.Context, spec execution.AttemptSpec) execution.AttemptResult {
+	return executor.execute(ctx, spec)
+}
+
+func (scriptedDiscoveryExecutor) ExecuteStream(context.Context, execution.AttemptSpec, execution.StreamSink) execution.StreamResult {
+	panic("unexpected stream execution")
+}
+
+func TestExecuteModelDiscoveryFallsBackAcrossCredentialsInStableOrder(t *testing.T) {
+	var calls []string
+	recorder := &recordingDiscoveryExecutorTarget{
+		value: protocol.OpenAICompletions,
+		listFn: func(_ context.Context, baseURL, apiKey string, rules state.HeaderRules) ([]string, error) {
+			calls = append(calls, apiKey)
+			if baseURL != "https://api.example.com/v1" || rules.Set["X-Test"] != "draft" {
+				t.Fatalf("target = %q/%#v", baseURL, rules)
+			}
+			if apiKey == "key-b" {
+				return []string{" z-model ", "a-model", "z-model"}, nil
+			}
+			return nil, errors.New("try next credential")
+		},
+	}
+	service := &Service{executor: newRecordingDiscoveryExecutor(recorder), modelDiscoveryTimeout: time.Second}
+	target := discoveryTargetForTest(t, channel.OpenAICompatible, "https://api.example.com/v1",
+		[]string{"key-a", "key-b"}, state.HeaderRules{Set: map[string]string{"X-Test": "draft"}})
+	result, err := service.executeModelDiscovery(context.Background(), target)
+	if err != nil {
+		t.Fatalf("executeModelDiscovery() error = %v", err)
+	}
+	if !reflect.DeepEqual(calls, []string{"key-a", "key-b"}) {
+		t.Fatalf("calls = %#v", calls)
+	}
+	if got := []string{result.Models[0].ID, result.Models[1].ID}; !reflect.DeepEqual(got, []string{"z-model", "a-model"}) {
+		t.Fatalf("models = %#v", result.Models)
 	}
 }
 
 func TestExecuteModelDiscoverySharesOneTotalTimeout(t *testing.T) {
+	var mu sync.Mutex
 	var deadlines []time.Time
-	newRecorder := func(value protocol.Protocol) *recordingDiscoveryDialect {
-		return &recordingDiscoveryDialect{
-			value: value,
-			listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
-				deadline, ok := ctx.Deadline()
-				if !ok {
-					t.Fatal("ListModels context has no deadline")
-				}
-				deadlines = append(deadlines, deadline)
-				time.Sleep(2 * time.Millisecond)
-				return nil, errors.New("retry")
-			},
-		}
+	recorder := &recordingDiscoveryExecutorTarget{
+		value: protocol.Anthropic,
+		listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("discovery context has no deadline")
+			}
+			mu.Lock()
+			deadlines = append(deadlines, deadline)
+			mu.Unlock()
+			return nil, errors.New("retry")
+		},
 	}
-	service := &Service{
-		dialects:              dialect.NewSet(newRecorder(protocol.OpenAICompletions), newRecorder(protocol.Anthropic)),
-		modelDiscoveryTimeout: 200 * time.Millisecond,
-	}
-	_, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
-		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
-		keys:      []string{"key-a", "key-b"},
-	})
+	service := &Service{executor: newRecordingDiscoveryExecutor(recorder), modelDiscoveryTimeout: time.Second}
+	target := discoveryTargetForTest(t, channel.AnthropicCompatible, "https://api.example.com",
+		[]string{"key-a", "key-b"}, state.HeaderRules{})
+	_, err := service.executeModelDiscovery(context.Background(), target)
 	if !errors.Is(err, app_errors.ErrBadGateway) {
-		t.Fatalf("executeModelDiscovery() error = %v, want ErrBadGateway", err)
+		t.Fatalf("executeModelDiscovery() error = %v", err)
 	}
-	if len(deadlines) != 4 {
-		t.Fatalf("observed deadlines = %d, want all four combinations", len(deadlines))
-	}
-	for index := 1; index < len(deadlines); index++ {
-		if !deadlines[index].Equal(deadlines[0]) {
-			t.Fatalf("deadline[%d] = %v, want shared %v", index, deadlines[index], deadlines[0])
-		}
-	}
-}
-
-func TestExecuteModelDiscoveryRejectsSuccessAfterInternalTimeout(t *testing.T) {
-	service := &Service{
-		dialects: dialect.NewSet(&recordingDiscoveryDialect{
-			value: protocol.OpenAICompletions,
-			listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
-				<-ctx.Done()
-				return []string{"late-model"}, nil
-			},
-		}),
-		modelDiscoveryTimeout: 10 * time.Millisecond,
-	}
-	result, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
-		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAICompletions},
-		keys:      []string{"key-a"},
-	})
-	if !errors.Is(err, app_errors.ErrBadGateway) {
-		t.Fatalf("executeModelDiscovery() = %#v, %v, want zero result and ErrBadGateway", result, err)
-	}
-	if result.Models != nil {
-		t.Fatalf("models = %#v, want nil after internal timeout", result.Models)
+	if len(deadlines) != 2 || !deadlines[0].Equal(deadlines[1]) {
+		t.Fatalf("deadlines = %#v", deadlines)
 	}
 }
 
 func TestExecuteModelDiscoveryReturnsParentCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
-	service := &Service{
-		dialects: dialect.NewSet(&recordingDiscoveryDialect{
-			value: protocol.OpenAICompletions,
-			listFn: func(discoveryCtx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
-				calls++
-				cancel()
-				<-discoveryCtx.Done()
-				return nil, discoveryCtx.Err()
-			},
-		}),
-		modelDiscoveryTimeout: time.Second,
+	recorder := &recordingDiscoveryExecutorTarget{
+		value: protocol.Gemini,
+		listFn: func(discoveryCtx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+			calls++
+			cancel()
+			<-discoveryCtx.Done()
+			return nil, discoveryCtx.Err()
+		},
 	}
-	_, err := service.executeModelDiscovery(ctx, discoveryTarget{
-		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAICompletions},
-		keys:      []string{"key-a", "key-b"},
-	})
-	if err != context.Canceled {
-		t.Fatalf("executeModelDiscovery() error = %v, want exact context.Canceled", err)
-	}
-	if calls != 1 {
-		t.Fatalf("ListModels calls = %d, want stop after parent cancellation", calls)
+	service := &Service{executor: newRecordingDiscoveryExecutor(recorder), modelDiscoveryTimeout: time.Second}
+	target := discoveryTargetForTest(t, channel.GeminiCompatible, "https://api.example.com",
+		[]string{"key-a", "key-b"}, state.HeaderRules{})
+	_, err := service.executeModelDiscovery(ctx, target)
+	if err != context.Canceled || calls != 1 {
+		t.Fatalf("error/calls = %v/%d", err, calls)
 	}
 }
 
-func TestExecuteModelDiscoverySanitizesAllCombinationFailures(t *testing.T) {
-	const (
-		baseURLSecret = "https://secret.example.com/v1?token=query-secret"
-		bodySecret    = "distinctive-upstream-body"
-		partialSecret = "partial-secret-model"
-	)
-	keys := []string{"key-secret-a", "key-secret-b"}
-	newRecorder := func(value protocol.Protocol) *recordingDiscoveryDialect {
-		return &recordingDiscoveryDialect{
-			value: value,
-			listFn: func(_ context.Context, baseURL, apiKey string, _ state.HeaderRules) ([]string, error) {
-				return []string{partialSecret}, fmt.Errorf(
-					"provider failure url=%s key=%s body=%s",
-					baseURL,
-					apiKey,
-					bodySecret,
-				)
-			},
-		}
-	}
+func TestExecuteModelDiscoveryRejectsInvalidTargetBeforeDispatch(t *testing.T) {
+	calls := 0
 	service := &Service{
-		dialects:              dialect.NewSet(newRecorder(protocol.OpenAICompletions), newRecorder(protocol.Anthropic)),
+		executor: scriptedDiscoveryExecutor{execute: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+			calls++
+			return execution.AttemptResult{}
+		}},
 		modelDiscoveryTimeout: time.Second,
 	}
-	result, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
-		baseURL:   baseURLSecret,
-		protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
-		keys:      keys,
-	})
-	if !errors.Is(err, app_errors.ErrBadGateway) {
-		t.Fatalf("executeModelDiscovery() error = %v, want ErrBadGateway", err)
+	for name, target := range map[string]discoveryTarget{
+		"empty channel": {},
+		"empty credentials": func() discoveryTarget {
+			value := discoveryTargetForTest(t, channel.OpenAICompatible, "https://api.example.com", []string{"key"}, state.HeaderRules{})
+			value.credentials = nil
+			return value
+		}(),
+		"mismatched target": func() discoveryTarget {
+			value := discoveryTargetForTest(t, channel.OpenAICompatible, "https://api.example.com", []string{"key"}, state.HeaderRules{})
+			value.channelID = channel.AnthropicCompatible
+			return value
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := service.executeModelDiscovery(context.Background(), target); err == nil {
+				t.Fatal("invalid target error = nil")
+			}
+		})
 	}
-	if result.Models != nil {
-		t.Fatalf("partial result = %#v, want zero result", result)
+	if calls != 0 {
+		t.Fatalf("dispatch calls = %d", calls)
 	}
-	for _, forbidden := range append(
-		[]string{baseURLSecret, "secret.example.com", "query-secret", bodySecret, partialSecret},
-		keys...,
-	) {
-		if strings.Contains(err.Error(), forbidden) {
-			t.Fatalf("error exposes %q: %s", forbidden, err)
-		}
+}
+
+func TestNormalizeDiscoveredModels(t *testing.T) {
+	got := normalizeDiscoveredModels([]string{" model-b ", "", "model-a", "model-b", "\t"})
+	if !reflect.DeepEqual(got, []string{"model-b", "model-a"}) {
+		t.Fatalf("normalizeDiscoveredModels() = %#v", got)
 	}
 }

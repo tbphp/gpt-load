@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 )
@@ -187,11 +187,10 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 
 	groupName := "ETag unrelated group"
 	if _, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name:        &groupName,
-		UpstreamURL: "https://example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Name: &groupName, ChannelID: channel.OpenAICompatible,
+		Params:      json.RawMessage(`{"base_url":"https://example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Keys:        "sk-unrelated-etag-key",
+		Credentials: "sk-unrelated-etag-key",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +203,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 	}
 
 	reloadedManager := state.NewManager()
-	reloadedRegistry := state.NewKeyRegistry()
+	reloadedRegistry := state.NewCredentialRegistry()
 	if err := stateloader.New(fixture.db, reloadedManager, reloadedRegistry).Load(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +215,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 		fixture.catalogRuntime,
 		nil,
 		fixture.encryption,
-		fixture.service.dialects,
+		fixture.service.executor,
 		fixture.service.requestLogs,
 		fixture.service.usageStats,
 		fixture.service.homeStatistics,

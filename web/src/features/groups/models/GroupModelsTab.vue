@@ -327,8 +327,8 @@ async function runDiscovery(): Promise<void> {
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
     discoveryError.value =
-      cause instanceof ApiError && cause.code === 'NO_ACTIVE_UPSTREAM_KEY'
-        ? t('group.modelEditor.noActiveKey.title')
+      cause instanceof ApiError && cause.code === 'NO_ACTIVE_CREDENTIAL'
+        ? t('group.modelEditor.noActiveCredential.title')
         : t('common.modelDiscoveryFailed')
   } finally {
     if (controller === active) {

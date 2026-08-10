@@ -78,7 +78,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
 
           <div
             v-for="(entry, index) in row.upstreams"
-            :key="entry.upstream.model_id"
+            :key="entry.upstream.price.id"
             class="model-tree__row model-tree__row--upstream"
             :class="{ 'model-tree__row--last': index === row.upstreams.length - 1 }"
             role="row"
@@ -106,6 +106,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
                   :failure-label="t('models.tree.copyFailed')"
                 />
               </span>
+              <code class="model-tree__channel">{{ entry.upstream.price.channel_id }}</code>
               <span v-if="entry.tierCount > 0" class="model-tree__tag">
                 {{ t('models.tree.tierCount', { count: entry.tierCount }) }}
               </span>
@@ -295,6 +296,15 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
   white-space: nowrap;
+}
+
+.model-tree__channel {
+  border-radius: var(--radius-tag);
+  background: var(--color-tag);
+  padding: 1px 6px;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
 }
 
 .model-tree__row--upstream {

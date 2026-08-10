@@ -43,9 +43,9 @@ func TestProviderScopeKeyRejectsNonCanonicalProviderIDs(t *testing.T) {
 	}
 }
 
-func TestNewTableRequiresExactGlobalModelIdentity(t *testing.T) {
-	firstRule := Rule{Identity: Identity{ModelID: "openai/gpt-4.1"}}
-	secondRule := Rule{Identity: Identity{ModelID: "gpt-4.1"}}
+func TestNewTableRequiresExactChannelModelIdentity(t *testing.T) {
+	firstRule := Rule{Identity: Identity{ChannelID: "openai", ModelID: "shared-model"}}
+	secondRule := Rule{Identity: Identity{ChannelID: "azure-openai", ModelID: "shared-model"}}
 	table := mustTable(t, firstRule, secondRule)
 
 	for _, identity := range []Identity{firstRule.Identity, secondRule.Identity} {
@@ -54,8 +54,8 @@ func TestNewTableRequiresExactGlobalModelIdentity(t *testing.T) {
 		}
 	}
 	for _, identity := range []Identity{
-		{ModelID: "openai/gpt-4"},
-		{ModelID: "gpt-4.1-preview"},
+		{ChannelID: "anthropic", ModelID: "shared-model"},
+		{ChannelID: "openai", ModelID: "shared-model-preview"},
 	} {
 		if got, ok := table.Lookup(identity); ok {
 			t.Fatalf("Lookup(%#v) = %#v, true, want exact miss", identity, got)
@@ -64,14 +64,19 @@ func TestNewTableRequiresExactGlobalModelIdentity(t *testing.T) {
 }
 
 func TestNewTableRejectsInvalidIdentityAndDuplicates(t *testing.T) {
-	valid := Identity{ModelID: "gpt-4.1"}
+	valid := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	invalid := []Identity{
 		{},
-		{ModelID: ""},
-		{ModelID: " gpt-4.1"},
-		{ModelID: "gpt-4.1 "},
-		{ModelID: "gpt-4.1\n"},
-		{ModelID: strings.Repeat("m", 256)},
+		{ChannelID: "", ModelID: "gpt-4.1"},
+		{ChannelID: " openai", ModelID: "gpt-4.1"},
+		{ChannelID: "openai ", ModelID: "gpt-4.1"},
+		{ChannelID: "openai\n", ModelID: "gpt-4.1"},
+		{ChannelID: strings.Repeat("c", 65), ModelID: "gpt-4.1"},
+		{ChannelID: "openai", ModelID: ""},
+		{ChannelID: "openai", ModelID: " gpt-4.1"},
+		{ChannelID: "openai", ModelID: "gpt-4.1 "},
+		{ChannelID: "openai", ModelID: "gpt-4.1\n"},
+		{ChannelID: "openai", ModelID: strings.Repeat("m", 256)},
 	}
 	for _, identity := range invalid {
 		t.Run(identity.ModelID, func(t *testing.T) {
@@ -83,21 +88,43 @@ func TestNewTableRejectsInvalidIdentityAndDuplicates(t *testing.T) {
 
 	if _, err := NewTable([]Rule{{Identity: valid}, {Identity: valid, IsManual: true}}); err == nil {
 		t.Fatal("NewTable() accepted duplicate exact identity")
+	} else if !strings.Contains(err.Error(), valid.ChannelID) || !strings.Contains(err.Error(), valid.ModelID) {
+		t.Fatalf("duplicate error %q does not identify channel and model", err)
 	}
 }
 
-func TestNewTableRejectsRepeatedModelID(t *testing.T) {
+func TestNewTableAllowsRepeatedModelIDAcrossChannels(t *testing.T) {
+	rules := []Rule{
+		{Identity: Identity{ChannelID: "openai", ModelID: "shared-model"}},
+		{Identity: Identity{ChannelID: "azure-openai", ModelID: "shared-model"}},
+	}
+	table, err := NewTable(rules)
+	if err != nil {
+		t.Fatalf("NewTable() error = %v", err)
+	}
+	for _, rule := range rules {
+		if got, ok := table.Lookup(rule.Identity); !ok || got.Identity != rule.Identity {
+			t.Fatalf("Lookup(%#v) = %#v, %t", rule.Identity, got, ok)
+		}
+	}
+	if _, ok := table.Lookup(Identity{ChannelID: "anthropic", ModelID: "shared-model"}); ok {
+		t.Fatal("Lookup() matched a model from another channel")
+	}
+}
+
+func TestNewTableRejectsDuplicateChannelModelIdentity(t *testing.T) {
+	identity := Identity{ChannelID: "openai", ModelID: "shared-model"}
 	_, err := NewTable([]Rule{
-		{Identity: Identity{ModelID: "shared-model"}},
-		{Identity: Identity{ModelID: "shared-model"}},
+		{Identity: identity},
+		{Identity: identity},
 	})
 	if err == nil {
-		t.Fatal("NewTable() accepted two rules for the same upstream model")
+		t.Fatal("NewTable() accepted duplicate channel/model identity")
 	}
 }
 
 func TestNewTableValidatesPricesAndContextTiers(t *testing.T) {
-	identity := Identity{ModelID: "gpt-4.1"}
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-4.1"}
 	tests := []struct {
 		name string
 		rule Rule
@@ -131,7 +158,7 @@ func TestNewTableValidatesPricesAndContextTiers(t *testing.T) {
 
 func TestTableDeepClonesConstructionAndLookup(t *testing.T) {
 	rules := []Rule{{
-		Identity: Identity{ModelID: "claude:3_5/model"},
+		Identity: Identity{ChannelID: "anthropic", ModelID: "claude:3_5/model"},
 		Prices:   Prices{Input: fixedPrice(1)},
 		ContextTiers: []ContextTier{{
 			InputThresholdTokens: 100,

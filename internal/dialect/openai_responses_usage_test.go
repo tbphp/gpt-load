@@ -1,7 +1,6 @@
 package dialect
 
 import (
-	"net/http"
 	"testing"
 
 	"gpt-load/internal/usage"
@@ -10,7 +9,7 @@ import (
 func TestOpenAIResponsesUsageNonStreaming(t *testing.T) {
 	t.Parallel()
 
-	extractor, ok := any(NewOpenAIResponses(http.DefaultClient)).(UsageExtractor)
+	extractor, ok := any(NewOpenAIResponses()).(UsageExtractor)
 	if !ok {
 		t.Fatal("OpenAI Responses does not expose UsageExtractor capability")
 	}
@@ -129,7 +128,7 @@ func TestOpenAIResponsesUsageNonStreaming(t *testing.T) {
 func TestOpenAIResponsesUsageStreamingFinality(t *testing.T) {
 	t.Parallel()
 
-	extractor := NewOpenAIResponses(http.DefaultClient)
+	extractor := NewOpenAIResponses()
 	tests := []struct {
 		name  string
 		steps []string
@@ -213,7 +212,7 @@ func TestOpenAIResponsesUsageStreamingFinality(t *testing.T) {
 func TestOpenAIResponsesUsageUsesExplicitSSEEventForFinality(t *testing.T) {
 	t.Parallel()
 
-	stream := NewOpenAIResponses(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewOpenAIResponses().NewUsageStreamExtractor()
 	observer, ok := stream.(UsageStreamEventObserver)
 	if !ok {
 		t.Fatal("OpenAI Responses usage stream does not observe SSE event names")

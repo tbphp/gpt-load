@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -19,38 +21,47 @@ const (
 	ReasonProtocolFiltered      ReasonCode = "protocol_filtered"
 	ReasonModelFiltered         ReasonCode = "model_filtered"
 	ReasonModelRequiredByFilter ReasonCode = "model_required_by_filter"
+	ReasonCapabilityUnsupported ReasonCode = "capability_unsupported"
 	ReasonNoRouteTarget         ReasonCode = "no_route_target"
 	ReasonGroupDisabled         ReasonCode = "group_disabled"
 	ReasonGroupFiltered         ReasonCode = "group_filtered"
 	ReasonNoAvailableGroup      ReasonCode = "no_available_group"
-	ReasonNoKeys                ReasonCode = "no_keys"
+	ReasonNoCredentials         ReasonCode = "no_credentials"
 	ReasonGroupWeightZero       ReasonCode = "group_weight_zero"
-	ReasonKeyDisabled           ReasonCode = "key_disabled"
-	ReasonKeyBlacklisted        ReasonCode = "key_blacklisted"
-	ReasonKeyCooldown           ReasonCode = "key_cooldown"
-	ReasonKeyWeightZero         ReasonCode = "key_weight_zero"
-	ReasonNoAvailableKey        ReasonCode = "no_available_key"
+	ReasonCredentialDisabled    ReasonCode = "credential_disabled"
+	ReasonCredentialBlacklisted ReasonCode = "credential_blacklisted"
+	ReasonCredentialCooldown    ReasonCode = "credential_cooldown"
+	ReasonCredentialWeightZero  ReasonCode = "credential_weight_zero"
+	ReasonCredentialNotAllowed  ReasonCode = "credential_not_allowed"
+	ReasonNoAvailableCredential ReasonCode = "no_available_credential"
 )
 
 type Inspection struct {
-	Routable bool
-	Reason   ReasonCode
-	Groups   []GroupInspection
+	ClientProtocol   protocol.Protocol
+	Operation        execution.Operation
+	RequiredFeatures []execution.Feature
+	ExternalModel    *string
+	Routable         bool
+	Reason           ReasonCode
+	Groups           []GroupInspection
 }
 
 type GroupInspection struct {
-	GroupID         uint
-	GroupName       string
-	UpstreamModelID *string
-	WeightManual    *int
-	Included        bool
-	Routable        bool
-	Reason          ReasonCode
-	Keys            []KeyInspection
+	GroupID             uint
+	GroupName           string
+	ChannelID           channel.ID
+	RouteMode           channel.RouteMode
+	CapabilitySupported bool
+	UpstreamModelID     *string
+	WeightManual        *int
+	Included            bool
+	Routable            bool
+	Reason              ReasonCode
+	Credentials         []CredentialInspection
 }
 
-type KeyInspection struct {
-	KeyID           uint
+type CredentialInspection struct {
+	CredentialID    uint
 	Available       bool
 	Reason          ReasonCode
 	WeightManual    *int
@@ -59,16 +70,15 @@ type KeyInspection struct {
 	CooldownUntil   time.Time
 }
 
-type targetDecision struct {
-	target   evaluationTarget
-	group    state.GroupCatalogView
-	included bool
-	reason   ReasonCode
-}
+// CredentialRuntimeView is the scheduler's neutral view of runtime health.
+type CredentialRuntimeView = state.CredentialRuntimeView
 
-type evaluationTarget struct {
-	GroupID         uint
-	UpstreamModelID *string
+type targetDecision struct {
+	target       state.RouteTarget
+	group        state.GroupCatalogView
+	capabilityOK bool
+	included     bool
+	reason       ReasonCode
 }
 
 func cloneWeight(weight *int) *int {
@@ -81,27 +91,44 @@ func cloneWeight(weight *int) *int {
 
 func evaluateTargets(
 	snapshot *state.ConfigSnapshot,
-	modelIndex map[protocol.Protocol]map[string][]state.RouteTarget,
-	protocolIndex map[protocol.Protocol][]uint,
-	query Query,
+	index state.ExecutionCandidateIndex,
+	query normalizedQuery,
 ) ([]targetDecision, ReasonCode, error) {
 	if snapshot == nil {
 		return nil, "", fmt.Errorf("%w: nil ConfigSnapshot", ErrInconsistentSnapshot)
 	}
-	if len(query.AccessKey.Filters.Protocols) > 0 {
-		if _, allowed := query.AccessKey.Filters.Protocols[query.Protocol]; !allowed {
+	if query.accessKey.Status == state.AccessKeyStatusDisabled {
+		return []targetDecision{}, ReasonAccessKeyDisabled, nil
+	}
+	if len(query.accessKey.Filters.Protocols) > 0 {
+		if _, allowed := query.accessKey.Filters.Protocols[query.clientProtocol]; !allowed {
 			return []targetDecision{}, ReasonProtocolFiltered, nil
 		}
 	}
-	if len(query.AccessKey.Filters.Models) > 0 {
-		if query.ExternalModel == nil {
+	if len(query.accessKey.Filters.Models) > 0 {
+		if query.externalModel == nil {
 			return []targetDecision{}, ReasonModelRequiredByFilter, nil
 		}
-		if _, allowed := query.AccessKey.Filters.Models[*query.ExternalModel]; !allowed {
+		if _, allowed := query.accessKey.Filters.Models[*query.externalModel]; !allowed {
 			return []targetDecision{}, ReasonModelFiltered, nil
 		}
 	}
-	routes := evaluationTargets(modelIndex, protocolIndex, query)
+	if !query.clientProtocol.Valid() || !query.operation.Valid() || query.requiredFeatures.Validate() != nil {
+		return []targetDecision{}, ReasonCapabilityUnsupported, nil
+	}
+	byOperation := index[query.clientProtocol]
+	if len(byOperation) == 0 {
+		return []targetDecision{}, ReasonNoRouteTarget, nil
+	}
+	byModel, operationSupported := byOperation[query.operation]
+	if !operationSupported {
+		return []targetDecision{}, ReasonCapabilityUnsupported, nil
+	}
+	modelKey := state.NoModelRouteKey
+	if query.externalModel != nil {
+		modelKey = *query.externalModel
+	}
+	routes := byModel[modelKey]
 	if len(routes) == 0 {
 		return []targetDecision{}, ReasonNoRouteTarget, nil
 	}
@@ -109,29 +136,43 @@ func evaluateTargets(
 	decisions := make([]targetDecision, 0, len(routes))
 	seenGroups := make(map[uint]struct{}, len(routes))
 	included := 0
-	for _, target := range routes {
-		if _, duplicate := seenGroups[target.GroupID]; duplicate {
+	for _, route := range routes {
+		if _, duplicate := seenGroups[route.GroupID]; duplicate {
 			continue
 		}
-		seenGroups[target.GroupID] = struct{}{}
-		group, exists := snapshot.GroupCatalog[target.GroupID]
+		seenGroups[route.GroupID] = struct{}{}
+		group, exists := snapshot.GroupCatalog[route.GroupID]
 		if !exists {
 			return nil, "", fmt.Errorf(
 				"%w: route target group %d missing from catalog",
 				ErrInconsistentSnapshot,
-				target.GroupID,
+				route.GroupID,
 			)
 		}
-		decision := targetDecision{target: target, group: group, included: true}
+		capabilityOK := route.ResolvedTarget.Supports(
+			query.clientProtocol,
+			query.operation,
+			query.requiredFeatures,
+		)
+		decision := targetDecision{
+			target: cloneRouteTarget(route), group: group,
+			capabilityOK: capabilityOK, included: true,
+		}
+		groupFiltered := false
+		if len(query.accessKey.Filters.Groups) > 0 {
+			_, allowed := query.accessKey.Filters.Groups[route.GroupID]
+			groupFiltered = !allowed
+		}
 		switch {
 		case !group.Enabled:
 			decision.included = false
 			decision.reason = ReasonGroupDisabled
-		case len(query.AccessKey.Filters.Groups) > 0:
-			if _, allowed := query.AccessKey.Filters.Groups[target.GroupID]; !allowed {
-				decision.included = false
-				decision.reason = ReasonGroupFiltered
-			}
+		case groupFiltered:
+			decision.included = false
+			decision.reason = ReasonGroupFiltered
+		case !capabilityOK:
+			decision.included = false
+			decision.reason = ReasonCapabilityUnsupported
 		}
 		if decision.included {
 			included++
@@ -150,31 +191,6 @@ func evaluateTargets(
 	return decisions, reason, nil
 }
 
-func evaluationTargets(
-	modelIndex map[protocol.Protocol]map[string][]state.RouteTarget,
-	protocolIndex map[protocol.Protocol][]uint,
-	query Query,
-) []evaluationTarget {
-	if query.ExternalModel == nil {
-		groupIDs := protocolIndex[query.Protocol]
-		result := make([]evaluationTarget, 0, len(groupIDs))
-		for _, groupID := range groupIDs {
-			result = append(result, evaluationTarget{GroupID: groupID})
-		}
-		return result
-	}
-	routes := modelIndex[query.Protocol][*query.ExternalModel]
-	result := make([]evaluationTarget, 0, len(routes))
-	for _, route := range routes {
-		upstreamModelID := route.UpstreamModelID
-		result = append(result, evaluationTarget{
-			GroupID:         route.GroupID,
-			UpstreamModelID: &upstreamModelID,
-		})
-	}
-	return result
-}
-
 func accessKeyAllowsGroup(accessKey state.AccessKeyView, groupID uint) bool {
 	if len(accessKey.Filters.Groups) == 0 {
 		return true
@@ -190,54 +206,62 @@ func normalizedAutoWeight(weight int) int {
 	return weight
 }
 
-func effectiveWeight(groupManual, keyManual *int, keyAuto int) int64 {
+func effectiveWeight(groupManual, credentialManual *int, credentialAuto int) int64 {
 	groupWeight := state.DefaultWeight
 	if groupManual != nil {
 		groupWeight = *groupManual
 	}
-	keyWeight := normalizedAutoWeight(keyAuto)
-	if keyManual != nil {
-		keyWeight = *keyManual
+	credentialWeight := normalizedAutoWeight(credentialAuto)
+	if credentialManual != nil {
+		credentialWeight = *credentialManual
 	}
-	if groupWeight <= 0 || keyWeight <= 0 {
+	if groupWeight <= 0 || credentialWeight <= 0 {
 		return 0
 	}
-	return int64(groupWeight) * int64(keyWeight)
+	return int64(groupWeight) * int64(credentialWeight)
 }
 
-func inspectKey(
+func inspectCredential(
 	group state.GroupCatalogView,
-	key state.KeyRuntimeView,
+	credential CredentialRuntimeView,
+	allowedCredentialIDs map[uint]struct{},
 	now time.Time,
-) KeyInspection {
-	result := KeyInspection{
-		KeyID: key.ID, WeightManual: cloneWeight(key.WeightManual),
-		WeightAuto: normalizedAutoWeight(key.WeightAuto),
+) CredentialInspection {
+	result := CredentialInspection{
+		CredentialID: credential.ID,
+		WeightManual: cloneWeight(credential.WeightManual),
+		WeightAuto:   normalizedAutoWeight(credential.WeightAuto),
 	}
 	if group.WeightManual != nil && *group.WeightManual == 0 {
 		result.Reason = ReasonGroupWeightZero
 		return result
 	}
-	if key.Status != state.KeyStatusActive {
-		result.Reason = ReasonKeyDisabled
+	if allowedCredentialIDs != nil {
+		if _, allowed := allowedCredentialIDs[credential.ID]; !allowed {
+			result.Reason = ReasonCredentialNotAllowed
+			return result
+		}
+	}
+	if credential.Status != state.CredentialStatusActive {
+		result.Reason = ReasonCredentialDisabled
 		return result
 	}
-	if key.WeightManual != nil && *key.WeightManual == 0 {
-		result.Reason = ReasonKeyWeightZero
+	if credential.WeightManual != nil && *credential.WeightManual == 0 {
+		result.Reason = ReasonCredentialWeightZero
 		return result
 	}
-	switch key.RuntimeState(now) {
-	case state.KeyRuntimeBlacklisted:
-		result.Reason = ReasonKeyBlacklisted
-	case state.KeyRuntimeCooldown:
-		result.Reason = ReasonKeyCooldown
-		result.CooldownUntil = key.CooldownUntil
+	switch credential.RuntimeState(now) {
+	case state.CredentialRuntimeBlacklisted:
+		result.Reason = ReasonCredentialBlacklisted
+	case state.CredentialRuntimeCooldown:
+		result.Reason = ReasonCredentialCooldown
+		result.CooldownUntil = credential.CooldownUntil
 	default:
 		result.Available = true
 		result.EffectiveWeight = effectiveWeight(
 			group.WeightManual,
-			key.WeightManual,
-			key.WeightAuto,
+			credential.WeightManual,
+			credential.WeightAuto,
 		)
 	}
 	return result
@@ -245,44 +269,50 @@ func inspectKey(
 
 func Inspect(
 	snapshot *state.ConfigSnapshot,
-	keys []state.KeyRuntimeView,
+	credentials []CredentialRuntimeView,
 	query Query,
 	now time.Time,
 ) (Inspection, error) {
-	result := Inspection{Groups: []GroupInspection{}}
+	normalized := normalizeQuery(query)
+	result := Inspection{
+		ClientProtocol:   normalized.clientProtocol,
+		Operation:        normalized.operation,
+		RequiredFeatures: normalized.requiredFeatures.Features(),
+		ExternalModel:    cloneString(normalized.externalModel),
+		Groups:           []GroupInspection{},
+	}
 	if snapshot == nil {
 		return Inspection{}, fmt.Errorf("%w: nil ConfigSnapshot", ErrInconsistentSnapshot)
 	}
-	if query.AccessKey.Status == state.AccessKeyStatusDisabled {
+	if normalized.accessKey.Status == state.AccessKeyStatusDisabled {
 		result.Reason = ReasonAccessKeyDisabled
 		return result, nil
 	}
 
-	keysByGroup := make(map[uint][]state.KeyRuntimeView)
-	for _, key := range keys {
-		if _, exists := snapshot.GroupCatalog[key.GroupID]; !exists {
+	credentialsByGroup := make(map[uint][]CredentialRuntimeView)
+	for _, credential := range credentials {
+		if _, exists := snapshot.GroupCatalog[credential.GroupID]; !exists {
 			return Inspection{}, fmt.Errorf(
-				"%w: Registry key %d group %d missing from catalog",
+				"%w: registry credential %d group %d missing from catalog",
 				ErrInconsistentSnapshot,
-				key.ID,
-				key.GroupID,
+				credential.ID,
+				credential.GroupID,
 			)
 		}
-		cloned := key
-		cloned.WeightManual = cloneWeight(key.WeightManual)
-		keysByGroup[key.GroupID] = append(keysByGroup[key.GroupID], cloned)
+		cloned := credential
+		cloned.WeightManual = cloneWeight(credential.WeightManual)
+		credentialsByGroup[credential.GroupID] = append(credentialsByGroup[credential.GroupID], cloned)
 	}
-	for groupID := range keysByGroup {
-		sort.Slice(keysByGroup[groupID], func(i, j int) bool {
-			return keysByGroup[groupID][i].ID < keysByGroup[groupID][j].ID
+	for groupID := range credentialsByGroup {
+		sort.Slice(credentialsByGroup[groupID], func(i, j int) bool {
+			return credentialsByGroup[groupID][i].ID < credentialsByGroup[groupID][j].ID
 		})
 	}
 
 	decisions, staticReason, err := evaluateTargets(
 		snapshot,
-		snapshot.RouteCatalog,
-		snapshot.ProtocolRouteCatalog,
-		query,
+		snapshot.ExecutionRouteCatalog,
+		normalized,
 	)
 	if err != nil {
 		return Inspection{}, err
@@ -290,32 +320,40 @@ func Inspect(
 	for _, decision := range decisions {
 		groupResult := GroupInspection{
 			GroupID: decision.group.ID, GroupName: decision.group.Name,
-			UpstreamModelID: cloneString(decision.target.UpstreamModelID),
-			WeightManual:    cloneWeight(decision.group.WeightManual),
-			Included:        decision.included, Reason: decision.reason,
-			Keys: []KeyInspection{},
+			ChannelID:           decision.target.ResolvedTarget.ChannelID,
+			RouteMode:           decision.target.Mode,
+			CapabilitySupported: decision.capabilityOK,
+			UpstreamModelID:     optionalModel(decision.target.UpstreamModelID),
+			WeightManual:        cloneWeight(decision.group.WeightManual),
+			Included:            decision.included, Reason: decision.reason,
+			Credentials: []CredentialInspection{},
 		}
 		if !decision.included {
 			result.Groups = append(result.Groups, groupResult)
 			continue
 		}
-		groupKeys := keysByGroup[decision.group.ID]
+		groupCredentials := credentialsByGroup[decision.group.ID]
 		groupWeightZero := decision.group.WeightManual != nil &&
 			*decision.group.WeightManual == 0
-		for _, key := range groupKeys {
-			keyResult := inspectKey(decision.group, key, now)
-			if keyResult.Available && keyResult.EffectiveWeight > 0 {
+		for _, credential := range groupCredentials {
+			credentialResult := inspectCredential(
+				decision.group,
+				credential,
+				normalized.allowedCredentialIDs,
+				now,
+			)
+			if credentialResult.Available && credentialResult.EffectiveWeight > 0 {
 				groupResult.Routable = true
 			}
-			groupResult.Keys = append(groupResult.Keys, keyResult)
+			groupResult.Credentials = append(groupResult.Credentials, credentialResult)
 		}
 		switch {
 		case groupWeightZero:
 			groupResult.Reason = ReasonGroupWeightZero
-		case len(groupKeys) == 0:
-			groupResult.Reason = ReasonNoKeys
+		case len(groupCredentials) == 0:
+			groupResult.Reason = ReasonNoCredentials
 		case !groupResult.Routable:
-			groupResult.Reason = ReasonNoAvailableKey
+			groupResult.Reason = ReasonNoAvailableCredential
 		}
 		if groupResult.Routable {
 			result.Routable = true
@@ -328,7 +366,7 @@ func Inspect(
 	if staticReason != "" {
 		result.Reason = staticReason
 	} else {
-		result.Reason = ReasonNoAvailableKey
+		result.Reason = ReasonNoAvailableCredential
 	}
 	return result, nil
 }

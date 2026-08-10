@@ -96,7 +96,7 @@ func TestAppRestoresCheckpointAfterRuntimeRecovery(t *testing.T) {
 func TestAppLogsCheckpointRestoreFailureOnce(t *testing.T) {
 	dataDir := t.TempDir()
 	path := filepath.Join(dataDir, runtimeStateCheckpointFileName)
-	if err := os.WriteFile(path, []byte(`{"keys":[`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"credentials":[`), 0o600); err != nil {
 		t.Fatalf("write malformed checkpoint fixture: %v", err)
 	}
 
@@ -184,9 +184,9 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 	dataDir := t.TempDir()
 	path := filepath.Join(dataDir, runtimeStateCheckpointFileName)
 
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 10, Status: state.KeyStatusActive, WeightAuto: 37,
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 37,
 		EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)
@@ -205,12 +205,12 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 		t.Fatalf("checkpoint file stat error = %v", err)
 	}
 
-	loadedRegistry := state.NewKeyRegistry()
-	if err := loadedRegistry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 10, Status: state.KeyStatusActive, WeightAuto: 1,
+	loadedRegistry := state.NewCredentialRegistry()
+	if err := loadedRegistry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 1,
 		EncryptedValue: "cipher-one",
 	}, {
-		ID: 2, GroupID: 20, Status: state.KeyStatusActive, WeightAuto: 2,
+		ID: 2, GroupID: 20, Version: 1, IdentityGeneration: 2, Fingerprint: "test-2", Status: state.CredentialStatusActive, WeightAuto: 2,
 		EncryptedValue: "cipher-two",
 	}}); err != nil {
 		t.Fatalf("replace loaded registry: %v", err)
@@ -239,7 +239,7 @@ func TestFileRuntimeStateCheckpointReturnsErrorWhenDeleteFails(t *testing.T) {
 	dataDir := t.TempDir()
 	path := filepath.Join(dataDir, runtimeStateCheckpointFileName)
 	raw, err := json.Marshal(runtimeStateCheckpointDocument{
-		Keys: []state.KeyRuntimeCheckpoint{{ID: 1, GroupID: 10, WeightAuto: 37}},
+		Credentials: []state.CredentialRuntimeCheckpoint{{ID: 1, GroupID: 10, WeightAuto: 37}},
 	})
 	if err != nil {
 		t.Fatalf("marshal checkpoint fixture: %v", err)
@@ -248,9 +248,9 @@ func TestFileRuntimeStateCheckpointReturnsErrorWhenDeleteFails(t *testing.T) {
 		t.Fatalf("write checkpoint fixture: %v", err)
 	}
 
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 10, Status: state.KeyStatusActive, WeightAuto: 1,
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 1,
 		EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)
@@ -271,12 +271,12 @@ func TestFileRuntimeStateCheckpointReturnsErrorWhenDeleteFails(t *testing.T) {
 func TestFileRuntimeStateCheckpointConsumesMalformedFileAndReturnsError(t *testing.T) {
 	dataDir := t.TempDir()
 	path := filepath.Join(dataDir, runtimeStateCheckpointFileName)
-	if err := os.WriteFile(path, []byte(`{"keys":[`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"credentials":[`), 0o600); err != nil {
 		t.Fatalf("write malformed checkpoint fixture: %v", err)
 	}
-	registry := state.NewKeyRegistry()
-	if err := registry.Replace([]state.KeyEntry{{
-		ID: 1, GroupID: 10, Status: state.KeyStatusActive, WeightAuto: 1,
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 1,
 		EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)

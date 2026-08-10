@@ -11,9 +11,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -31,10 +32,10 @@ func (s *Service) DiscoverGroupModels(
 }
 
 type groupDiscoverySnapshotRows struct {
-	found    bool
-	group    models.Group
-	keys     []models.UpstreamKey
-	settings []models.SystemSetting
+	found       bool
+	group       models.Group
+	credentials []models.Credential
+	settings    []models.SystemSetting
 }
 
 func (s *Service) buildGroupDiscoveryTarget(
@@ -78,14 +79,14 @@ func (s *Service) readGroupDiscoverySnapshot(
 		rows.found = true
 		rows.group = cloneGroupRows(groups)[0]
 
-		var keys []models.UpstreamKey
+		var credentials []models.Credential
 		if err := tx.
-			Where("group_id = ? AND status = ?", groupID, models.UpstreamKeyStatusActive).
+			Where("group_id = ? AND status = ?", groupID, models.CredentialStatusActive).
 			Order("id ASC").
-			Find(&keys).Error; err != nil {
+			Find(&credentials).Error; err != nil {
 			return err
 		}
-		rows.keys = cloneUpstreamKeyRows(keys)
+		rows.credentials = cloneDiscoveryCredentialRows(credentials)
 
 		var settings []models.SystemSetting
 		if err := tx.
@@ -108,10 +109,11 @@ func (s *Service) readGroupDiscoverySnapshot(
 	return rows, nil
 }
 
-func cloneUpstreamKeyRows(rows []models.UpstreamKey) []models.UpstreamKey {
-	cloned := make([]models.UpstreamKey, len(rows))
+func cloneDiscoveryCredentialRows(rows []models.Credential) []models.Credential {
+	cloned := make([]models.Credential, len(rows))
 	for index := range rows {
 		cloned[index] = rows[index]
+		cloned[index].Group = nil
 		if rows[index].WeightManual != nil {
 			value := *rows[index].WeightManual
 			cloned[index].WeightManual = &value
@@ -126,21 +128,27 @@ func (s *Service) mapGroupDiscoveryTarget(
 	if !rows.found {
 		return discoveryTarget{}, app_errors.ErrResourceNotFound
 	}
-	if len(rows.keys) == 0 {
-		return discoveryTarget{}, app_errors.ErrNoActiveUpstreamKey
+	if len(rows.credentials) == 0 {
+		return discoveryTarget{}, app_errors.ErrNoActiveCredential
 	}
 
-	var protocols []protocol.Protocol
-	if err := decodeGroupDiscoveryJSON(rows.group.Protocols, &protocols); err != nil {
-		return discoveryTarget{}, fmt.Errorf("decode persisted discovery protocols: %w", app_errors.ErrInternalServer)
+	if s == nil || s.channelRegistry == nil {
+		return discoveryTarget{}, app_errors.ErrInternalServer
 	}
-	groupConfig := rows.group.Config
-	if len(bytes.TrimSpace(groupConfig)) == 0 {
-		groupConfig = models.JSON(`{}`)
+	resolvedTarget, err := s.channelRegistry.Resolve(
+		channel.ID(rows.group.ChannelID),
+		json.RawMessage(rows.group.Params),
+	)
+	if err != nil {
+		return discoveryTarget{}, fmt.Errorf("resolve persisted discovery channel: %w", app_errors.ErrInternalServer)
+	}
+	overrides := rows.group.Overrides
+	if len(bytes.TrimSpace(overrides)) == 0 {
+		overrides = models.JSON(`{}`)
 	}
 	settings := make(config.Settings)
-	if err := decodeGroupDiscoveryJSON(groupConfig, &settings); err != nil {
-		return discoveryTarget{}, fmt.Errorf("decode persisted discovery config: %w", app_errors.ErrInternalServer)
+	if err := decodeGroupDiscoveryJSON(overrides, &settings); err != nil {
+		return discoveryTarget{}, fmt.Errorf("decode persisted discovery overrides: %w", app_errors.ErrInternalServer)
 	}
 
 	systemSettings, err := stateloader.MapSystemSettings(rows.settings)
@@ -148,11 +156,11 @@ func (s *Service) mapGroupDiscoveryTarget(
 		return discoveryTarget{}, fmt.Errorf("load persisted discovery settings: %w", app_errors.ErrInternalServer)
 	}
 	snapshot, err := state.Compile(state.CompileInput{
-		SystemSettings: systemSettings,
+		SystemSettings: systemSettings, ChannelRegistry: s.channelRegistry,
 		Groups: []state.GroupConfig{{
-			ID: rows.group.ID, Name: rows.group.Name, UpstreamURL: rows.group.UpstreamURL,
-			ProviderID: cloneString(rows.group.ProviderID),
-			Protocols:  protocols, Settings: settings, Enabled: true,
+			ID: rows.group.ID, Name: rows.group.Name,
+			ChannelID: channel.ID(rows.group.ChannelID), Params: append(json.RawMessage(nil), rows.group.Params...),
+			Settings: settings, Enabled: true,
 		}},
 	})
 	if err != nil {
@@ -163,18 +171,27 @@ func (s *Service) mapGroupDiscoveryTarget(
 		return discoveryTarget{}, fmt.Errorf("compiled persisted discovery Group is missing: %w", app_errors.ErrInternalServer)
 	}
 
-	plaintextKeys := make([]string, 0, len(rows.keys))
-	for _, keyRow := range rows.keys {
-		plaintext, err := s.encryption.Decrypt(keyRow.KeyValue)
+	discoveryCredentials := make([]discoveryCredential, 0, len(rows.credentials))
+	for _, credentialRow := range rows.credentials {
+		canonical, apiKey, err := s.decodeCredential(rows.group, credentialRow)
 		if err != nil {
-			return discoveryTarget{}, fmt.Errorf("decrypt persisted discovery key: %w", app_errors.ErrInternalServer)
+			return discoveryTarget{}, err
 		}
-		plaintextKeys = append(plaintextKeys, plaintext)
+		discoveryCredentials = append(discoveryCredentials, discoveryCredential{
+			snapshot: execution.NewCredentialSnapshot(
+				credentialRow.ID,
+				groupCollectionCredentialVersion(credentialRow.UpdatedAtMS),
+				groupCollectionCredentialIdentity(credentialRow.Fingerprint),
+				canonical,
+			),
+			apiKey: apiKey,
+		})
 	}
 	return discoveryTarget{
-		baseURL: rows.group.UpstreamURL, protocols: protocols,
-		keys: plaintextKeys, headerRules: compiledGroup.HeaderRules,
-		providerID: cloneString(rows.group.ProviderID),
+		channelID:      channel.ID(rows.group.ChannelID),
+		resolvedTarget: resolvedTarget, credentials: discoveryCredentials,
+		headerRules: compiledGroup.HeaderRules, timeouts: compiledGroup.Timeouts,
+		catalogProviderID: resolvedTarget.CatalogProviderID,
 	}, nil
 }
 

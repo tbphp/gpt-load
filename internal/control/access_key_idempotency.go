@@ -95,7 +95,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
-			input, err := stateloader.BuildCompileInput(ctx, tx)
+			input, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}

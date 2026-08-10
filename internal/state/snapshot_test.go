@@ -5,83 +5,76 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 )
 
 func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
-	input := CompileInput{Groups: []GroupConfig{
-		{
-			ID: 1, Name: "one", UpstreamURL: "https://one.example.com",
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models: []ModelConfig{
-				{ID: "provider-a", Alias: "public"},
-				{ID: "provider-a", Alias: "secondary"},
-				{ID: "plain"},
+	t.Parallel()
+
+	input := CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{
+			{
+				ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []ModelConfig{
+					{ID: "provider-a", Alias: "public"},
+					{ID: "provider-a", Alias: "secondary"},
+					{ID: "plain"},
+				},
+				Enabled: true,
 			},
-			Enabled: true,
+			{
+				ID: 2, Name: "two", ChannelID: channel.OpenAICompatible,
+				Params:  json.RawMessage(`{"base_url":"https://proxy.example/v1"}`),
+				Models:  []ModelConfig{{ID: "provider-b", Alias: "public"}},
+				Enabled: true,
+			},
 		},
-		{
-			ID: 2, Name: "two", UpstreamURL: "https://two.example.com",
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:    []ModelConfig{{ID: "provider-b", Alias: "public"}}, Enabled: true,
-		},
-	}}
+	}
 
 	snapshot, err := Compile(input)
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	wantPublic := []RouteTarget{
-		{GroupID: 1, UpstreamModelID: "provider-a"},
-		{GroupID: 2, UpstreamModelID: "provider-b"},
+	index := snapshot.ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]
+	public := index["public"]
+	if len(public) != 2 || public[0].UpstreamModelID != "provider-a" || public[1].UpstreamModelID != "provider-b" {
+		t.Fatalf("public targets = %#v", public)
 	}
-	if got := snapshot.Candidates[protocol.OpenAICompletions]["public"]; !reflect.DeepEqual(got, wantPublic) {
-		t.Fatalf("public targets = %#v, want %#v", got, wantPublic)
-	}
-	if got := snapshot.Candidates[protocol.OpenAICompletions]["secondary"]; len(got) != 1 || got[0].UpstreamModelID != "provider-a" {
+	if got := index["secondary"]; len(got) != 1 || got[0].UpstreamModelID != "provider-a" {
 		t.Fatalf("secondary targets = %#v", got)
 	}
-	if got := snapshot.Candidates[protocol.OpenAICompletions]["plain"]; len(got) != 1 || got[0].UpstreamModelID != "plain" {
+	if got := index["plain"]; len(got) != 1 || got[0].UpstreamModelID != "plain" {
 		t.Fatalf("plain targets = %#v", got)
 	}
-	if _, exists := snapshot.Candidates[protocol.OpenAICompletions]["provider-a"]; exists {
+	if _, exists := index["provider-a"]; exists {
 		t.Fatal("aliased upstream id entered external index")
 	}
 }
 
 func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.T) {
+	t.Parallel()
+
 	disabledWeight := 20
 	input := CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []GroupConfig{
 			{
-				ID: 2, Name: "disabled", UpstreamURL: "https://disabled.example",
-				Protocols:    []protocol.Protocol{protocol.OpenAICompletions},
-				Models:       []ModelConfig{{ID: "provider-disabled", Alias: "public"}},
-				WeightManual: &disabledWeight, Enabled: false,
+				ID: 2, Name: "disabled", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []ModelConfig{{ID: "provider-disabled", Alias: "public"}}, WeightManual: &disabledWeight,
 			},
 			{
-				ID: 1, Name: "active", UpstreamURL: "https://active.example",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []ModelConfig{{ID: "provider-active", Alias: "public"}},
-				Enabled:   true,
+				ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []ModelConfig{{ID: "provider-active", Alias: "public"}}, Enabled: true,
 			},
 		},
 		AccessKeys: []AccessKeyConfig{
-			{
-				ID: 11, Name: "active-client", KeyHash: "active-hash",
-				Status:   AccessKeyStatusActive,
-				Filters:  FilterSet{Groups: map[uint]struct{}{1: {}}},
-				RPMLimit: 10,
-			},
-			{
-				ID: 12, Name: "disabled-client", KeyHash: "disabled-hash",
-				Status:   AccessKeyStatusDisabled,
-				Filters:  FilterSet{Models: map[string]struct{}{"public": {}}},
-				RPMLimit: 20,
-			},
+			{ID: 11, Name: "active-client", KeyHash: "active-hash", Status: AccessKeyStatusActive, Filters: FilterSet{Groups: map[uint]struct{}{1: {}}}, RPMLimit: 10},
+			{ID: 12, Name: "disabled-client", KeyHash: "disabled-hash", Status: AccessKeyStatusDisabled, Filters: FilterSet{Models: map[string]struct{}{"public": {}}}, RPMLimit: 20},
 		},
 	}
 
@@ -92,913 +85,129 @@ func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.
 	if len(snapshot.Groups) != 1 || snapshot.Groups[1].Name != "active" {
 		t.Fatalf("active Groups = %#v", snapshot.Groups)
 	}
-	if got := snapshot.Candidates[protocol.OpenAICompletions]["public"]; !reflect.DeepEqual(got, []RouteTarget{{
-		GroupID: 1, UpstreamModelID: "provider-active",
-	}}) {
-		t.Fatalf("active Candidates = %#v", got)
+	active := snapshot.ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]["public"]
+	if len(active) != 1 || active[0].GroupID != 1 {
+		t.Fatalf("active candidates = %#v", active)
 	}
-	wantRoutes := []RouteTarget{
-		{GroupID: 1, UpstreamModelID: "provider-active"},
-		{GroupID: 2, UpstreamModelID: "provider-disabled"},
+	routes := snapshot.ExecutionRouteCatalog[protocol.OpenAICompletions][execution.OperationChatCompletion]["public"]
+	if len(routes) != 2 || routes[0].GroupID != 1 || routes[1].GroupID != 2 {
+		t.Fatalf("route catalog = %#v", routes)
 	}
-	if got := snapshot.RouteCatalog[protocol.OpenAICompletions]["public"]; !reflect.DeepEqual(got, wantRoutes) {
-		t.Fatalf("RouteCatalog = %#v, want %#v", got, wantRoutes)
+	if got := snapshot.GroupCatalog[2]; got.Enabled || got.WeightManual == nil || *got.WeightManual != 20 {
+		t.Fatalf("disabled group catalog = %#v", got)
 	}
-	if got := snapshot.GroupCatalog[2]; got.ID != 2 || got.Name != "disabled" ||
-		got.Enabled || got.WeightManual == nil || *got.WeightManual != 20 {
-		t.Fatalf("disabled GroupCatalog entry = %#v", got)
+	if _, ok := snapshot.AccessKeysByHash["disabled-hash"]; ok {
+		t.Fatal("disabled access key entered active hash index")
 	}
-	if len(snapshot.AccessKeysByHash) != 1 ||
-		snapshot.AccessKeysByHash["active-hash"].Status != AccessKeyStatusActive {
-		t.Fatalf("active AccessKeysByHash = %#v", snapshot.AccessKeysByHash)
-	}
-	if _, exists := snapshot.AccessKeysByHash["disabled-hash"]; exists {
-		t.Fatal("disabled key entered AccessKeysByHash")
-	}
-	if got := snapshot.AccessKeysByID[12]; got.ID != 12 ||
-		got.Status != AccessKeyStatusDisabled || got.RPMLimit != 20 {
-		t.Fatalf("disabled AccessKeysByID entry = %#v", got)
+	if got := snapshot.AccessKeysByID[12]; got.Status != AccessKeyStatusDisabled || got.RPMLimit != 20 {
+		t.Fatalf("disabled access key catalog = %#v", got)
 	}
 }
 
-func TestCompileBuildsProtocolOnlyRuntimeAndCatalogIndexes(t *testing.T) {
+func TestCompileCarriesSettingsAndValidationModel(t *testing.T) {
 	t.Parallel()
 
-	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{
-		{
-			ID: 3, Name: "disabled responses",
-			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
-			Enabled:   false,
-		},
-		{
-			ID: 2, Name: "active both",
-			Protocols: []protocol.Protocol{
-				protocol.OpenAICompletions,
-				protocol.OpenAIResponses,
-			},
-			Models:  []ModelConfig{{ID: "provider", Alias: "public"}},
-			Enabled: true,
-		},
-		{
-			ID: 1, Name: "active responses without models",
-			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
-			Enabled:   true,
-		},
-	}})
+	snapshot, err := Compile(CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		SystemSettings:  config.Settings{"connect_timeout": json.Number("20")},
+		Groups: []GroupConfig{{
+			ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			ValidationModel: "  probe-model  ",
+			Models:          []ModelConfig{{ID: "real-model", Alias: "public-model"}},
+			Settings:        config.Settings{"request_timeout": json.Number("30")}, Enabled: true,
+		}},
+	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-
-	if got, want := snapshot.ProtocolCandidates[protocol.OpenAIResponses], []uint{1, 2}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("Responses ProtocolCandidates = %#v, want %#v", got, want)
-	}
-	if got, want := snapshot.ProtocolRouteCatalog[protocol.OpenAIResponses], []uint{1, 2, 3}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("Responses ProtocolRouteCatalog = %#v, want %#v", got, want)
-	}
-	if got, want := snapshot.ProtocolCandidates[protocol.OpenAICompletions], []uint{2}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("Chat ProtocolCandidates = %#v, want %#v", got, want)
+	view := snapshot.Groups[1]
+	if view.ValidationModel != "probe-model" || view.Timeouts.Connect.Seconds() != 20 || view.Timeouts.Request.Seconds() != 30 {
+		t.Fatalf("group runtime view = %#v", view)
 	}
 }
 
-func TestCompileCarriesValidationModelWithoutChangingCandidates(t *testing.T) {
-	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{{
-		ID:              1,
-		Name:            "one",
-		UpstreamURL:     "https://one.example.com",
-		ValidationModel: "probe-model",
-		Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
-		Models:          []ModelConfig{{ID: "real-model", Alias: "public-model"}},
-		Enabled:         true,
-	}}})
+func TestCompileOwnsInputData(t *testing.T) {
+	t.Parallel()
+
+	weight := 25
+	filters := FilterSet{
+		Groups:    map[uint]struct{}{1: {}},
+		Protocols: map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}},
+		Models:    map[string]struct{}{"public": {}},
+	}
+	input := CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{{
+			ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			Models: []ModelConfig{{ID: "upstream", Alias: "public"}}, WeightManual: &weight, Enabled: true,
+		}},
+		AccessKeys: []AccessKeyConfig{{ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive, Filters: filters}},
+	}
+	snapshot, err := Compile(input)
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if got := snapshot.Groups[1].ValidationModel; got != "probe-model" {
-		t.Fatalf("ValidationModel = %q, want probe-model", got)
+	input.Groups[0].Models[0] = ModelConfig{ID: "changed"}
+	weight = 99
+	filters.Groups[2] = struct{}{}
+	filters.Protocols[protocol.Gemini] = struct{}{}
+	filters.Models["changed"] = struct{}{}
+
+	view := snapshot.Groups[1]
+	if !reflect.DeepEqual(view.Models, []ModelConfig{{ID: "upstream", Alias: "public"}}) || view.WeightManual == nil || *view.WeightManual != 25 {
+		t.Fatalf("group view changed with input = %#v", view)
 	}
-	if got := snapshot.Candidates[protocol.OpenAICompletions]["public-model"][0].UpstreamModelID; got != "real-model" {
-		t.Fatalf("candidate upstream model = %q, want real-model", got)
+	gotFilters := snapshot.AccessKeysByID[1].Filters
+	if _, ok := gotFilters.Groups[2]; ok {
+		t.Fatal("group filter retained caller mutation")
+	}
+	if _, ok := gotFilters.Protocols[protocol.Gemini]; ok {
+		t.Fatal("protocol filter retained caller mutation")
+	}
+	if _, ok := gotFilters.Models["changed"]; ok {
+		t.Fatal("model filter retained caller mutation")
 	}
 }
 
-func TestCompileRejectsDuplicateExternalModelWithinGroup(t *testing.T) {
-	tests := []struct {
-		name   string
-		models []ModelConfig
-	}{
-		{name: "two ids share alias", models: []ModelConfig{{ID: "a", Alias: "public"}, {ID: "b", Alias: "public"}}},
-		{name: "alias collides with plain id", models: []ModelConfig{{ID: "a"}, {ID: "b", Alias: "a"}}},
-		{name: "duplicate entry", models: []ModelConfig{{ID: "a"}, {ID: "a"}}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := Compile(CompileInput{Groups: []GroupConfig{{
-				ID: 1, Name: "group", UpstreamURL: "https://example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: test.models, Enabled: true,
-			}}})
-			if err == nil || !strings.Contains(err.Error(), "duplicate external model") {
-				t.Fatalf("Compile() error = %v", err)
-			}
-		})
-	}
-}
+func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
+	t.Parallel()
 
-func TestCompileValidatesDisabledCatalogEntries(t *testing.T) {
-	invalidWeight := -1
 	tests := []struct {
 		name    string
 		input   CompileInput
 		wantErr string
 	}{
 		{
-			name: "disabled group zero id",
-			input: CompileInput{Groups: []GroupConfig{{
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []ModelConfig{{ID: "model"}}, Enabled: false,
+			name: "duplicate external model",
+			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{
+				ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "a"}, {ID: "b", Alias: "a"}}, Enabled: true,
 			}}},
-			wantErr: "group id is required",
+			wantErr: "duplicate external model",
 		},
 		{
-			name: "disabled group invalid protocol",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID: 1, Protocols: []protocol.Protocol{"invalid"},
-				Models: []ModelConfig{{ID: "model"}}, Enabled: false,
-			}}},
-			wantErr: "invalid protocol",
+			name: "duplicate group id",
+			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{
+				{ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)},
+				{ID: 1, ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`)},
+			}},
+			wantErr: "duplicate group id",
 		},
 		{
-			name: "disabled group invalid weight",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID: 1, Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:       []ModelConfig{{ID: "model"}},
-				WeightManual: &invalidWeight, Enabled: false,
-			}}},
-			wantErr: "manual weight",
-		},
-		{
-			name: "disabled access key zero id",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				KeyHash: "disabled-hash", Status: AccessKeyStatusDisabled,
-			}}},
-			wantErr: "access key id is required",
-		},
-		{
-			name: "disabled access key empty hash",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				ID: 1, Status: AccessKeyStatusDisabled,
-			}}},
-			wantErr: "key hash is required",
-		},
-		{
-			name: "disabled access key invalid filter",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				ID: 1, KeyHash: "disabled-hash", Status: AccessKeyStatusDisabled,
-				Filters: FilterSet{Protocols: map[protocol.Protocol]struct{}{"invalid": {}}},
-			}}},
-			wantErr: "invalid protocol",
+			name: "duplicate access key hash",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{
+				{ID: 1, KeyHash: "same", Status: AccessKeyStatusActive},
+				{ID: 2, KeyHash: "same", Status: AccessKeyStatusActive},
+			}},
+			wantErr: "duplicate access key hash",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := Compile(test.input)
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("Compile() error = %v, want substring %q", err, test.wantErr)
 			}
 		})
-	}
-}
-
-func TestCompileRejectsLegacyProtocolValuesWithObjectIdentity(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		input      CompileInput
-		wantObject string
-		wantValue  string
-	}{
-		{
-			name: "group legacy openai",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID: 41, Protocols: []protocol.Protocol{"openai"}, Enabled: true,
-			}}},
-			wantObject: "group 41",
-			wantValue:  `"openai"`,
-		},
-		{
-			name: "access key legacy openai response",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				ID: 52, KeyHash: "legacy", Status: AccessKeyStatusActive,
-				Filters: FilterSet{Protocols: map[protocol.Protocol]struct{}{
-					"openai-response": {},
-				}},
-			}}},
-			wantObject: "access key 52",
-			wantValue:  `"openai-response"`,
-		},
-		{
-			name: "group replaced openai completions",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID: 63, Protocols: []protocol.Protocol{"openai-chat-completions"}, Enabled: true,
-			}}},
-			wantObject: "group 63",
-			wantValue:  `"openai-chat-completions"`,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			_, err := Compile(test.input)
-			if err == nil {
-				t.Fatal("Compile() error = nil")
-			}
-			if !strings.Contains(err.Error(), test.wantObject) ||
-				!strings.Contains(err.Error(), test.wantValue) {
-				t.Fatalf(
-					"Compile() error = %q, want object %q and value %q",
-					err,
-					test.wantObject,
-					test.wantValue,
-				)
-			}
-		})
-	}
-}
-
-func TestCompileRejectsDuplicateCatalogIDs(t *testing.T) {
-	validGroup := func(id uint, enabled bool) GroupConfig {
-		return GroupConfig{
-			ID: id, Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models: []ModelConfig{{ID: "model"}}, Enabled: enabled,
-		}
-	}
-	if _, err := Compile(CompileInput{Groups: []GroupConfig{
-		validGroup(1, true), validGroup(1, false),
-	}}); err == nil || !strings.Contains(err.Error(), "duplicate group id") {
-		t.Fatalf("duplicate Group catalog error = %v", err)
-	}
-	if _, err := Compile(CompileInput{AccessKeys: []AccessKeyConfig{
-		{ID: 1, KeyHash: "one", Status: AccessKeyStatusActive},
-		{ID: 1, KeyHash: "two", Status: AccessKeyStatusDisabled},
-	}}); err == nil || !strings.Contains(err.Error(), "duplicate access key id") {
-		t.Fatalf("duplicate AccessKey catalog error = %v", err)
-	}
-}
-
-func TestCompileRejectsDuplicateCatalogHashes(t *testing.T) {
-	_, err := Compile(CompileInput{AccessKeys: []AccessKeyConfig{
-		{ID: 1, KeyHash: "duplicate", Status: AccessKeyStatusActive},
-		{ID: 2, KeyHash: "duplicate", Status: AccessKeyStatusDisabled},
-	}})
-	if err == nil || !strings.Contains(err.Error(), "duplicate access key hash") {
-		t.Fatalf("duplicate AccessKey catalog hash error = %v", err)
-	}
-}
-
-func TestCompileManagementCatalogsOwnCopies(t *testing.T) {
-	groupWeight := 20
-	filterGroups := map[uint]struct{}{1: {}}
-	input := CompileInput{
-		Groups: []GroupConfig{{
-			ID: 1, Name: "group", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:       []ModelConfig{{ID: "provider", Alias: "public"}},
-			WeightManual: &groupWeight, Enabled: false,
-		}},
-		AccessKeys: []AccessKeyConfig{{
-			ID: 2, Name: "client", KeyHash: "hash", Status: AccessKeyStatusDisabled,
-			Filters: FilterSet{Groups: filterGroups},
-		}},
-	}
-	snapshot, err := Compile(input)
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-	groupWeight = 99
-	delete(filterGroups, 1)
-	input.Groups[0].Models[0] = ModelConfig{ID: "changed", Alias: "changed"}
-	if got := snapshot.GroupCatalog[1].WeightManual; got == nil || *got != 20 {
-		t.Fatalf("GroupCatalog weight = %v, want 20", got)
-	}
-	if got := snapshot.RouteCatalog[protocol.OpenAICompletions]["public"]; len(got) != 1 ||
-		got[0].UpstreamModelID != "provider" {
-		t.Fatalf("RouteCatalog after caller mutation = %#v", got)
-	}
-	if _, ok := snapshot.AccessKeysByID[2].Filters.Groups[1]; !ok {
-		t.Fatal("AccessKeysByID filters changed with caller map")
-	}
-}
-
-func TestCompileMergesTimeoutsAndHeaderRules(t *testing.T) {
-	systemSettings := config.Settings{
-		"connect_timeout":    10.0,
-		"first_byte_timeout": 90.0,
-		"header_rules": map[string]any{
-			"set":    map[string]any{"X-System": "system"},
-			"remove": []any{"X-System-Remove"},
-		},
-	}
-	groupSettings := config.Settings{
-		"connect_timeout":     20.0,
-		"request_timeout":     500.0,
-		"stream_idle_timeout": 250.0,
-		"header_rules": map[string]any{
-			"set":    map[string]any{"X-Group": "${API_KEY}"},
-			"remove": []any{"X-Group-Remove"},
-		},
-	}
-
-	snapshot, err := Compile(runtimeSettingsInput(systemSettings, groupSettings))
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-
-	wantSettings := RuntimeSettings{
-		ConnectTimeout:    10 * time.Second,
-		FirstByteTimeout:  90 * time.Second,
-		RequestTimeout:    600 * time.Second,
-		StreamIdleTimeout: 300 * time.Second,
-		HeaderRules: HeaderRules{
-			Set:    map[string]string{"X-System": "system"},
-			Remove: []string{"X-System-Remove"},
-		},
-		InjectUsageOptions:       true,
-		RequestLogRetentionDays:  7,
-		ModelsDevAutoSyncEnabled: true,
-	}
-	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
-		t.Errorf("ConfigSnapshot.Settings = %#v, want %#v", snapshot.Settings, wantSettings)
-	}
-
-	group := snapshot.Groups[1]
-	wantTimeouts := TimeoutConfig{
-		Connect:    20 * time.Second,
-		FirstByte:  90 * time.Second,
-		Request:    500 * time.Second,
-		StreamIdle: 250 * time.Second,
-	}
-	if group.Timeouts != wantTimeouts {
-		t.Errorf("GroupView.Timeouts = %#v, want %#v", group.Timeouts, wantTimeouts)
-	}
-	wantRules := HeaderRules{
-		Set:    map[string]string{"X-Group": "${API_KEY}"},
-		Remove: []string{"X-Group-Remove"},
-	}
-	if !reflect.DeepEqual(group.HeaderRules, wantRules) {
-		t.Errorf("GroupView.HeaderRules = %#v, want %#v", group.HeaderRules, wantRules)
-	}
-}
-
-func TestCompileUsesDefaultRuntimeSettings(t *testing.T) {
-	snapshot, err := Compile(runtimeSettingsInput(nil, nil))
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-
-	wantSettings := RuntimeSettings{
-		ConnectTimeout:           15 * time.Second,
-		FirstByteTimeout:         120 * time.Second,
-		RequestTimeout:           600 * time.Second,
-		StreamIdleTimeout:        300 * time.Second,
-		HeaderRules:              HeaderRules{Set: map[string]string{}},
-		InjectUsageOptions:       true,
-		RequestLogRetentionDays:  7,
-		ModelsDevAutoSyncEnabled: true,
-	}
-	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
-		t.Errorf("ConfigSnapshot.Settings = %#v, want %#v", snapshot.Settings, wantSettings)
-	}
-
-	group := snapshot.Groups[1]
-	wantTimeouts := TimeoutConfig{
-		Connect:    15 * time.Second,
-		FirstByte:  120 * time.Second,
-		Request:    600 * time.Second,
-		StreamIdle: 300 * time.Second,
-	}
-	if group.Timeouts != wantTimeouts {
-		t.Errorf("GroupView.Timeouts = %#v, want %#v", group.Timeouts, wantTimeouts)
-	}
-	wantRules := HeaderRules{Set: map[string]string{}}
-	if !reflect.DeepEqual(group.HeaderRules, wantRules) {
-		t.Errorf("GroupView.HeaderRules = %#v, want %#v", group.HeaderRules, wantRules)
-	}
-}
-
-func TestCompileFreezesInjectUsageOptionsInGroupView(t *testing.T) {
-	groupSettings := config.Settings{SettingInjectUsageOptions: false}
-	snapshot, err := Compile(runtimeSettingsInput(nil, groupSettings))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.Groups[1].InjectUsageOptions {
-		t.Fatalf("GroupView.InjectUsageOptions = true, want false")
-	}
-	groupSettings[SettingInjectUsageOptions] = true
-	if snapshot.Groups[1].InjectUsageOptions {
-		t.Fatal("published GroupView changed with source config")
-	}
-}
-
-func TestCompileDeepClonesGroupProviderID(t *testing.T) {
-	providerID := "openai"
-	input := CompileInput{Groups: []GroupConfig{{
-		ID:          1,
-		Name:        "provider-group",
-		ProviderID:  &providerID,
-		UpstreamURL: "https://api.openai.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Models:      []ModelConfig{{ID: "gpt-4o"}},
-		Enabled:     true,
-	}}}
-
-	snapshot, err := Compile(input)
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-	providerID = "mutated-source"
-	*input.Groups[0].ProviderID = "mutated-input"
-
-	view := snapshot.Groups[1]
-	if view.ProviderID == nil || *view.ProviderID != "openai" {
-		t.Fatalf("GroupView.ProviderID = %v, want independent openai", view.ProviderID)
-	}
-}
-
-func TestCompileRejectsInvalidProviderIDForZeroModelAndDisabledGroups(t *testing.T) {
-	invalidProviderID := "OpenAI"
-	for _, test := range []struct {
-		name    string
-		enabled bool
-	}{
-		{name: "enabled zero-model Group", enabled: true},
-		{name: "disabled zero-model Group", enabled: false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := Compile(CompileInput{Groups: []GroupConfig{{
-				ID:          1,
-				Name:        "corrupt-provider",
-				ProviderID:  &invalidProviderID,
-				UpstreamURL: "https://corrupt-provider.example/v1",
-				Protocols:   []protocol.Protocol{protocol.OpenAIResponses},
-				Models:      []ModelConfig{},
-				Enabled:     test.enabled,
-			}}})
-			if err == nil {
-				t.Fatal("Compile() error = nil, want invalid provider_id rejection")
-			}
-		})
-	}
-}
-
-func TestCompileCanonicalizesHeaderRuleNames(t *testing.T) {
-	snapshot, err := Compile(runtimeSettingsInput(nil, config.Settings{
-		"header_rules": map[string]any{
-			"set":    map[string]any{"x-custom-key": "value"},
-			"remove": []any{"x-remove-me"},
-		},
-	}))
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-
-	want := HeaderRules{
-		Set:    map[string]string{"X-Custom-Key": "value"},
-		Remove: []string{"X-Remove-Me"},
-	}
-	if got := snapshot.Groups[1].HeaderRules; !reflect.DeepEqual(got, want) {
-		t.Fatalf("GroupView.HeaderRules = %#v, want %#v", got, want)
-	}
-}
-
-func TestCompileAcceptsJSONNumberWholeSecondTimeouts(t *testing.T) {
-	tests := []struct {
-		literal string
-		want    time.Duration
-	}{
-		{literal: "20.0", want: 20 * time.Second},
-		{literal: "2e1", want: 20 * time.Second},
-		{literal: "9223372036.0", want: 9223372036 * time.Second},
-	}
-	for _, test := range tests {
-		t.Run(test.literal, func(t *testing.T) {
-			snapshot, err := Compile(runtimeSettingsInput(nil, config.Settings{
-				"connect_timeout": json.Number(test.literal),
-			}))
-			if err != nil {
-				t.Fatalf("Compile() error = %v", err)
-			}
-			if got := snapshot.Groups[1].Timeouts.Connect; got != test.want {
-				t.Fatalf("Connect timeout = %s, want %s", got, test.want)
-			}
-		})
-	}
-}
-
-func TestCompileRejectsMalformedRuntimeSettings(t *testing.T) {
-	tests := []struct {
-		name          string
-		groupSettings config.Settings
-		wantErr       string
-	}{
-		{
-			name:          "zero timeout",
-			groupSettings: config.Settings{"connect_timeout": 0},
-			wantErr:       "connect_timeout must be a positive whole number",
-		},
-		{
-			name:          "negative timeout",
-			groupSettings: config.Settings{"first_byte_timeout": int64(-1)},
-			wantErr:       "first_byte_timeout must be a positive whole number",
-		},
-		{
-			name:          "fractional timeout",
-			groupSettings: config.Settings{"request_timeout": 1.5},
-			wantErr:       "request_timeout must be a positive whole number",
-		},
-		{
-			name:          "precise fractional JSON timeout",
-			groupSettings: config.Settings{"request_timeout": json.Number("20.0000000000000001")},
-			wantErr:       "request_timeout must be a positive whole number",
-		},
-		{
-			name:          "precise fractional JSON timeout at limit",
-			groupSettings: config.Settings{"request_timeout": json.Number("9223372036.0000001")},
-			wantErr:       "request_timeout must be a positive whole number",
-		},
-		{
-			name:          "overflow timeout",
-			groupSettings: config.Settings{"stream_idle_timeout": json.Number("9223372037")},
-			wantErr:       "stream_idle_timeout must be a positive whole number",
-		},
-		{
-			name:          "non-object header rules",
-			groupSettings: config.Settings{"header_rules": []any{}},
-			wantErr:       "header_rules must be an object",
-		},
-		{
-			name: "non-object header set",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"set": []any{},
-			}},
-			wantErr: "header_rules.set must be an object",
-		},
-		{
-			name: "non-string header set value",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"set": map[string]any{"X-Invalid": 1.0},
-			}},
-			wantErr: "header_rules.set.X-Invalid must be a string",
-		},
-		{
-			name: "empty header set name",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"set": map[string]any{"": "value"},
-			}},
-			wantErr: "header_rules.set contains invalid header name \"\"",
-		},
-		{
-			name: "header set name with space",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"set": map[string]any{"Bad Header": "value"},
-			}},
-			wantErr: "header_rules.set contains invalid header name \"Bad Header\"",
-		},
-		{
-			name: "header set value with newline",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"set": map[string]any{"X-Credential": "prefix\r\nInjected: value"},
-			}},
-			wantErr: "header_rules.set.X-Credential contains invalid header value",
-		},
-		{
-			name: "case-insensitive duplicate header set",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"set": map[string]any{
-					"Authorization": "Bearer ${API_KEY}",
-					"authorization": "Token ${API_KEY}",
-				},
-			}},
-			wantErr: "header_rules.set contains duplicate header \"Authorization\"",
-		},
-		{
-			name: "non-array header remove",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"remove": "X-Invalid",
-			}},
-			wantErr: "header_rules.remove must be an array",
-		},
-		{
-			name: "non-string header remove entry",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"remove": []any{"X-Valid", 1.0},
-			}},
-			wantErr: "header_rules.remove[1] must be a string",
-		},
-		{
-			name: "invalid header remove name",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"remove": []any{"Bad Header"},
-			}},
-			wantErr: "header_rules.remove[0] contains invalid header name \"Bad Header\"",
-		},
-		{
-			name: "unknown header rules field",
-			groupSettings: config.Settings{"header_rules": map[string]any{
-				"append": map[string]any{"X-Invalid": "value"},
-			}},
-			wantErr: "unknown header_rules field \"append\"",
-		},
-		{
-			name:          "unknown group setting",
-			groupSettings: config.Settings{"retry_count": 3.0},
-			wantErr:       "unknown group setting \"retry_count\"",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := Compile(runtimeSettingsInput(nil, tt.groupSettings))
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("Compile() error = %v, want error containing %q", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestCompileRuntimeSettingsOwnsIndependentCopies(t *testing.T) {
-	set := map[string]any{"X-Original": "original"}
-	remove := []any{"X-Original-Remove"}
-	headerRules := map[string]any{"set": set, "remove": remove}
-	groupSettings := config.Settings{"header_rules": headerRules}
-
-	snapshot, err := Compile(runtimeSettingsInput(nil, groupSettings))
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-
-	set["X-Original"] = "mutated"
-	set["X-Added"] = "added"
-	remove[0] = "X-Mutated-Remove"
-	headerRules["set"] = map[string]any{"X-Replaced": "replaced"}
-	headerRules["remove"] = []any{"X-Replaced-Remove"}
-	groupSettings["header_rules"] = map[string]any{}
-
-	wantRules := HeaderRules{
-		Set:    map[string]string{"X-Original": "original"},
-		Remove: []string{"X-Original-Remove"},
-	}
-	if got := snapshot.Groups[1].HeaderRules; !reflect.DeepEqual(got, wantRules) {
-		t.Errorf("GroupView.HeaderRules = %#v after input mutation, want %#v", got, wantRules)
-	}
-}
-
-func runtimeSettingsInput(systemSettings, groupSettings config.Settings) CompileInput {
-	return CompileInput{
-		SystemSettings: systemSettings,
-		Groups: []GroupConfig{{
-			ID:        1,
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-			Models:    []ModelConfig{{ID: "model"}},
-			Settings:  groupSettings,
-			Enabled:   true,
-		}},
-	}
-}
-
-func TestCompileRejectsInvalidCandidateConfiguration(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   CompileInput
-		wantErr string
-	}{
-		{
-			name: "zero group id",
-			input: CompileInput{Groups: []GroupConfig{{
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []ModelConfig{{ID: "model"}},
-				Enabled:   true,
-			}}},
-			wantErr: "group id is required",
-		},
-		{
-			name: "duplicate enabled group id",
-			input: CompileInput{Groups: []GroupConfig{
-				{
-					ID:        1,
-					Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-					Models:    []ModelConfig{{ID: "model-one"}},
-					Enabled:   true,
-				},
-				{
-					ID:        1,
-					Protocols: []protocol.Protocol{protocol.Anthropic},
-					Models:    []ModelConfig{{ID: "model-two"}},
-					Enabled:   true,
-				},
-			}},
-			wantErr: "duplicate group id",
-		},
-		{
-			name: "empty protocol list",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID:      1,
-				Models:  []ModelConfig{{ID: "model"}},
-				Enabled: true,
-			}}},
-			wantErr: "protocols are required",
-		},
-		{
-			name: "unknown protocol",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID:        1,
-				Protocols: []protocol.Protocol{"unknown"},
-				Models:    []ModelConfig{{ID: "model"}},
-				Enabled:   true,
-			}}},
-			wantErr: "invalid protocol",
-		},
-		{
-			name: "duplicate protocol",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID:        1,
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAICompletions},
-				Models:    []ModelConfig{{ID: "model"}},
-				Enabled:   true,
-			}}},
-			wantErr: "duplicate protocol",
-		},
-		{
-			name: "whitespace model id",
-			input: CompileInput{Groups: []GroupConfig{{
-				ID:        1,
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
-				Models:    []ModelConfig{{ID: " \t"}},
-				Enabled:   true,
-			}}},
-			wantErr: "model id is required",
-		},
-		{
-			name: "active access key without hash",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				ID:     10,
-				Status: AccessKeyStatusActive,
-			}}},
-			wantErr: "key hash is required",
-		},
-		{
-			name: "invalid access key status",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				ID:      10,
-				KeyHash: "hash",
-				Status:  AccessKeyStatus("invalid"),
-			}}},
-			wantErr: "invalid status",
-		},
-		{
-			name: "duplicate active access key hash",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{
-				{ID: 10, KeyHash: "duplicate", Status: AccessKeyStatusActive},
-				{ID: 11, KeyHash: "duplicate", Status: AccessKeyStatusActive},
-			}},
-			wantErr: "duplicate access key hash",
-		},
-		{
-			name: "invalid filter protocol",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				ID:      10,
-				KeyHash: "hash",
-				Status:  AccessKeyStatusActive,
-				Filters: FilterSet{Protocols: map[protocol.Protocol]struct{}{"invalid": {}}},
-			}}},
-			wantErr: "invalid protocol",
-		},
-		{
-			name: "blank filter model",
-			input: CompileInput{AccessKeys: []AccessKeyConfig{{
-				ID:      10,
-				KeyHash: "hash",
-				Status:  AccessKeyStatusActive,
-				Filters: FilterSet{Models: map[string]struct{}{" ": {}}},
-			}}},
-			wantErr: "filter model is required",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := Compile(tt.input)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("Compile() error = %v, want error containing %q", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestCompileAllowsDanglingFilterGroupIDs(t *testing.T) {
-	input := CompileInput{AccessKeys: []AccessKeyConfig{{
-		ID:      10,
-		KeyHash: "hash",
-		Status:  AccessKeyStatusActive,
-		Filters: FilterSet{Groups: map[uint]struct{}{999: {}}},
-	}}}
-
-	snapshot, err := Compile(input)
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-	accessKey, ok := snapshot.AccessKeysByHash["hash"]
-	if !ok {
-		t.Fatal("active access key missing")
-	}
-	if _, ok := accessKey.Filters.Groups[999]; !ok {
-		t.Fatal("dangling group filter id was not preserved")
-	}
-}
-
-func TestCompileOwnsIndependentCopiesOfInput(t *testing.T) {
-	protocols := []protocol.Protocol{protocol.OpenAICompletions}
-	models := []ModelConfig{{ID: "model-real", Alias: "model-alias"}}
-	filterGroups := map[uint]struct{}{1: {}}
-	filterProtocols := map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}}
-	filterModels := map[string]struct{}{"model-real": {}}
-	input := CompileInput{
-		Groups: []GroupConfig{{
-			ID:        1,
-			Protocols: protocols,
-			Models:    models,
-			Enabled:   true,
-		}},
-		AccessKeys: []AccessKeyConfig{{
-			ID:      10,
-			KeyHash: "hash",
-			Status:  AccessKeyStatusActive,
-			Filters: FilterSet{
-				Groups:    filterGroups,
-				Protocols: filterProtocols,
-				Models:    filterModels,
-			},
-		}},
-	}
-
-	snapshot, err := Compile(input)
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
-	}
-
-	protocols[0] = protocol.Anthropic
-	models[0] = ModelConfig{ID: "changed", Alias: "changed"}
-	delete(filterGroups, 1)
-	filterGroups[2] = struct{}{}
-	delete(filterProtocols, protocol.OpenAICompletions)
-	filterProtocols[protocol.Gemini] = struct{}{}
-	delete(filterModels, "model-real")
-	filterModels["changed"] = struct{}{}
-
-	group := snapshot.Groups[1]
-	if got := group.Protocols[0]; got != protocol.OpenAICompletions {
-		t.Errorf("GroupView.Protocols[0] = %q, want %q", got, protocol.OpenAICompletions)
-	}
-	if got := group.Models[0]; got != (ModelConfig{ID: "model-real", Alias: "model-alias"}) {
-		t.Errorf("GroupView.Models[0] = %#v, want original model", got)
-	}
-	filters := snapshot.AccessKeysByHash["hash"].Filters
-	if _, ok := filters.Groups[1]; !ok {
-		t.Error("AccessKeyView.Filters.Groups lost original group")
-	}
-	if _, ok := filters.Groups[2]; ok {
-		t.Error("AccessKeyView.Filters.Groups contains caller mutation")
-	}
-	if _, ok := filters.Protocols[protocol.OpenAICompletions]; !ok {
-		t.Error("AccessKeyView.Filters.Protocols lost original protocol")
-	}
-	if _, ok := filters.Protocols[protocol.Gemini]; ok {
-		t.Error("AccessKeyView.Filters.Protocols contains caller mutation")
-	}
-	if _, ok := filters.Models["model-real"]; !ok {
-		t.Error("AccessKeyView.Filters.Models lost original model")
-	}
-	if _, ok := filters.Models["changed"]; ok {
-		t.Error("AccessKeyView.Filters.Models contains caller mutation")
-	}
-}
-
-func TestCompileCarriesRPMLimitAndValidatesDisabledKeys(t *testing.T) {
-	input := CompileInput{AccessKeys: []AccessKeyConfig{{
-		ID: 1, Name: "client", KeyHash: "hash", Status: AccessKeyStatusActive,
-		RPMLimit: 12,
-	}}}
-	snapshot, err := Compile(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := snapshot.AccessKeysByHash["hash"].RPMLimit; got != 12 {
-		t.Fatalf("RPMLimit = %d, want 12", got)
-	}
-
-	input.AccessKeys[0].Status = AccessKeyStatusDisabled
-	input.AccessKeys[0].RPMLimit = -1
-	if _, err := Compile(input); err == nil {
-		t.Fatal("Compile() accepted negative rpm_limit on disabled key")
 	}
 }

@@ -2,14 +2,15 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"unicode"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -29,17 +30,13 @@ func normalizeValidationModel(raw string) (string, error) {
 }
 
 func mapGroupRowToState(group models.Group) (state.GroupConfig, error) {
-	var protocols []protocol.Protocol
-	if err := decodeGroupDiscoveryJSON(group.Protocols, &protocols); err != nil {
-		return state.GroupConfig{}, err
-	}
 	var storedModels []GroupModel
 	if err := decodeGroupDiscoveryJSON(group.Models, &storedModels); err != nil {
 		return state.GroupConfig{}, err
 	}
 	settings := make(config.Settings)
-	if len(group.Config) > 0 {
-		if err := decodeGroupDiscoveryJSON(group.Config, &settings); err != nil {
+	if len(group.Overrides) > 0 {
+		if err := decodeGroupDiscoveryJSON(group.Overrides, &settings); err != nil {
 			return state.GroupConfig{}, err
 		}
 	}
@@ -51,16 +48,25 @@ func mapGroupRowToState(group models.Group) (state.GroupConfig, error) {
 	if group.ValidationModel != nil {
 		validationModel = *group.ValidationModel
 	}
-	return state.GroupConfig{
-		ID: group.ID, Name: group.Name, UpstreamURL: group.UpstreamURL,
-		ProviderID:      cloneString(group.ProviderID),
+	result := state.GroupConfig{
+		ID:              group.ID,
+		Name:            group.Name,
+		ChannelID:       channel.ID(group.ChannelID),
+		Params:          append(json.RawMessage(nil), group.Params...),
 		ValidationModel: validationModel,
-		Protocols:       protocols, Models: runtimeModels, Settings: settings,
-		WeightManual: cloneInt(group.WeightManual), Enabled: group.Enabled,
-	}, nil
+		Models:          runtimeModels,
+		Settings:        settings,
+		WeightManual:    cloneInt(group.WeightManual), Enabled: group.Enabled,
+	}
+	return result, nil
 }
 
-func validateGroupRowCandidate(ctx context.Context, tx *gorm.DB, group models.Group) error {
+func validateGroupRowCandidate(
+	ctx context.Context,
+	tx *gorm.DB,
+	group models.Group,
+	registry *channel.Registry,
+) error {
 	candidate, err := mapGroupRowToState(group)
 	if err != nil {
 		return err
@@ -70,8 +76,9 @@ func validateGroupRowCandidate(ctx context.Context, tx *gorm.DB, group models.Gr
 		return err
 	}
 	_, err = state.Compile(state.CompileInput{
-		SystemSettings: systemSettings,
-		Groups:         []state.GroupConfig{candidate},
+		SystemSettings:  systemSettings,
+		ChannelRegistry: registry,
+		Groups:          []state.GroupConfig{candidate},
 	})
 	return err
 }

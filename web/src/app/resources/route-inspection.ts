@@ -20,17 +20,19 @@ export type RouteInspectReasonCode =
   | 'protocol_filtered'
   | 'model_filtered'
   | 'model_required_by_filter'
+  | 'capability_unsupported'
   | 'no_route_target'
   | 'group_disabled'
   | 'group_filtered'
   | 'no_available_group'
-  | 'no_keys'
+  | 'no_credentials'
   | 'group_weight_zero'
-  | 'key_disabled'
-  | 'key_blacklisted'
-  | 'key_cooldown'
-  | 'key_weight_zero'
-  | 'no_available_key'
+  | 'credential_disabled'
+  | 'credential_blacklisted'
+  | 'credential_cooldown'
+  | 'credential_weight_zero'
+  | 'credential_not_allowed'
+  | 'no_available_credential'
 
 export interface RouteInspectRequest {
   protocol: AccessProtocol
@@ -38,8 +40,8 @@ export interface RouteInspectRequest {
   access_key_id: number
 }
 
-export interface RouteInspectKeyDto {
-  key_id: number
+export interface RouteInspectCredentialDto {
+  credential_id: number
   available: boolean
   reason_code: RouteInspectReasonCode | null
   weight_manual: number | null
@@ -56,7 +58,7 @@ export interface RouteInspectGroupDto {
   included: boolean
   routable: boolean
   reason_code: RouteInspectReasonCode | null
-  keys: RouteInspectKeyDto[]
+  credentials: RouteInspectCredentialDto[]
 }
 
 export interface RouteInspectResponseDto {
@@ -80,17 +82,19 @@ const reasonCodes = [
   'protocol_filtered',
   'model_filtered',
   'model_required_by_filter',
+  'capability_unsupported',
   'no_route_target',
   'group_disabled',
   'group_filtered',
   'no_available_group',
-  'no_keys',
+  'no_credentials',
   'group_weight_zero',
-  'key_disabled',
-  'key_blacklisted',
-  'key_cooldown',
-  'key_weight_zero',
-  'no_available_key',
+  'credential_disabled',
+  'credential_blacklisted',
+  'credential_cooldown',
+  'credential_weight_zero',
+  'credential_not_allowed',
+  'no_available_credential',
 ] as const
 
 function invalidResponse(): never {
@@ -115,10 +119,10 @@ function projectNullableWeight(value: unknown): number | null {
   return value === null ? null : projectSafeInteger(value, { minimum: 0, maximum: 100 })
 }
 
-function projectRouteKey(value: unknown): RouteInspectKeyDto {
+function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, [
-    'key_id',
+    'credential_id',
     'available',
     'reason_code',
     'weight_manual',
@@ -127,7 +131,7 @@ function projectRouteKey(value: unknown): RouteInspectKeyDto {
     'cooldown_until_ms',
   ])
   return {
-    key_id: projectSafeInteger(record.key_id, { minimum: 1 }),
+    credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     available: projectBoolean(record.available),
     reason_code: projectReason(record.reason_code),
     weight_manual: projectNullableWeight(record.weight_manual),
@@ -147,7 +151,7 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
     'included',
     'routable',
     'reason_code',
-    'keys',
+    'credentials',
   ])
   return {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
@@ -157,7 +161,7 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
     included: projectBoolean(record.included),
     routable: projectBoolean(record.routable),
     reason_code: projectReason(record.reason_code),
-    keys: projectArray(record.keys, projectRouteKey),
+    credentials: projectArray(record.credentials, projectRouteCredential),
   }
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -20,13 +21,14 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 	available := createGroupCollectionGroup(t, fixture, "summary-available", true, nil)
 	unavailable := createGroupCollectionGroup(t, fixture, "summary-unavailable", true, nil)
 	disabled := createGroupCollectionGroup(t, fixture, "summary-disabled", false, nil)
+	setGroupCollectionChannel(t, fixture, unavailable, channel.Anthropic, models.JSON(`{}`))
 	setGroupCollectionRoute(t, fixture, available, `["openai-responses"]`, `[]`)
 	setGroupCollectionRoute(t, fixture, unavailable, `["openai-completions"]`, `[]`)
 	setGroupCollectionRoute(t, fixture, disabled, `["openai-responses"]`, `[]`)
-	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{
-		createGroupCollectionKey(t, fixture, available.ID, models.UpstreamKeyStatusActive, nil),
-		createGroupCollectionKey(t, fixture, unavailable.ID, models.UpstreamKeyStatusActive, nil),
-		createGroupCollectionKey(t, fixture, disabled.ID, models.UpstreamKeyStatusActive, nil),
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{
+		createGroupCollectionKey(t, fixture, available.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, unavailable.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, disabled.ID, models.CredentialStatusActive, nil),
 	})
 
 	for _, test := range []struct {
@@ -44,7 +46,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 			if err != nil {
 				t.Fatalf("GetGroupSummary() error = %v", err)
 			}
-			if got.ID != test.groupID || got.ServiceStatus != test.wantStatus || got.KeyCount != test.wantKeys {
+			if got.ID != test.groupID || got.ServiceStatus != test.wantStatus || got.CredentialCount != test.wantKeys {
 				t.Fatalf("GetGroupSummary() = %#v", got)
 			}
 
@@ -57,8 +59,8 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 				t.Fatal(err)
 			}
 			wantFields := map[string]struct{}{
-				"id": {}, "name": {}, "provider_id": {}, "service_status": {}, "upstream_url": {},
-				"protocols": {}, "key_count": {}, "model_count": {},
+				"id": {}, "name": {}, "channel_id": {}, "params": {}, "service_status": {},
+				"credential_count": {}, "model_count": {},
 			}
 			for name := range fields {
 				if _, exists := wantFields[name]; !exists {
@@ -79,16 +81,17 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 func TestGroupDetailStatusRequiresAHealthyKeyAndRouteCapability(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "detail-zero-model-completions", true, nil)
+	setGroupCollectionChannel(t, fixture, group, channel.Anthropic, models.JSON(`{}`))
 	setGroupCollectionRoute(t, fixture, group, `["openai-completions"]`, `[]`)
-	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{
-		createGroupCollectionKey(t, fixture, group.ID, models.UpstreamKeyStatusActive, nil),
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{
+		createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil),
 	})
 
 	got, err := fixture.service.GetGroupSummary(t.Context(), group.ID)
 	if err != nil {
 		t.Fatalf("GetGroupSummary() error = %v", err)
 	}
-	if got.ServiceStatus != GroupCollectionStatusUnavailable || got.KeyCount != 1 || got.ModelCount != 0 {
+	if got.ServiceStatus != GroupCollectionStatusUnavailable || got.CredentialCount != 1 || got.ModelCount != 0 {
 		t.Fatalf("GetGroupSummary() = %#v, want unavailable with one key and zero models", got)
 	}
 }

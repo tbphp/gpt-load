@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
@@ -16,22 +18,22 @@ func TestLoaderMapsSchedulingWeights(t *testing.T) {
 	db := openMigratedDatabase(t)
 	groupWeight := 25
 	group := models.Group{
-		Name: "weighted", UpstreamURL: "https://weighted.example.com",
-		Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(`[{"id":"gpt-weighted"}]`),
-		Config: models.JSON(`{}`), Enabled: true, WeightManual: &groupWeight,
+		Name: "weighted", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models:    models.JSON(`[{"id":"gpt-weighted"}]`),
+		Overrides: models.JSON(`{}`), Enabled: true, WeightManual: &groupWeight,
 	}
 	mustCreate(t, db, &group)
 	keyWeight := 30
-	keys := []models.UpstreamKey{
-		{GroupID: group.ID, KeyValue: "cipher-manual", KeyHash: "hash-manual", Status: models.UpstreamKeyStatusActive, WeightManual: &keyWeight},
-		{GroupID: group.ID, KeyValue: "cipher-default", KeyHash: "hash-default", Status: models.UpstreamKeyStatusActive},
+	credentials := []models.Credential{
+		{GroupID: group.ID, Data: "cipher-manual", Fingerprint: "fingerprint-manual", Status: models.CredentialStatusActive, WeightManual: &keyWeight},
+		{GroupID: group.ID, Data: "cipher-default", Fingerprint: "fingerprint-default", Status: models.CredentialStatusActive},
 	}
-	for index := range keys {
-		mustCreate(t, db, &keys[index])
+	for index := range credentials {
+		mustCreate(t, db, &credentials[index])
 	}
 
 	manager := state.NewManager()
-	registry := state.NewKeyRegistry()
+	registry := state.NewCredentialRegistry()
 	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -40,19 +42,19 @@ func TestLoaderMapsSchedulingWeights(t *testing.T) {
 		t.Fatalf("GroupView.WeightManual = %v, want %d", view.WeightManual, groupWeight)
 	}
 
-	candidates := registry.CollectCandidates([]uint{group.ID}, nil, time.Time{})
+	candidates := registry.CollectCredentialCandidates([]uint{group.ID}, nil, time.Time{})
 	if len(candidates) != 2 {
-		t.Fatalf("CollectCandidates() = %#v, want two keys", candidates)
+		t.Fatalf("CollectCandidates() = %#v, want two credentials", candidates)
 	}
 	if candidates[0].WeightManual == nil || *candidates[0].WeightManual != keyWeight {
 		t.Fatalf("first WeightManual = %v, want %d", candidates[0].WeightManual, keyWeight)
 	}
 	for _, candidate := range candidates {
 		if candidate.WeightAuto != state.DefaultWeight {
-			t.Errorf("key %d WeightAuto = %d, want %d", candidate.ID, candidate.WeightAuto, state.DefaultWeight)
+			t.Errorf("credential %d WeightAuto = %d, want %d", candidate.ID, candidate.WeightAuto, state.DefaultWeight)
 		}
 	}
-	if got := manager.Current().Candidates[protocol.OpenAICompletions]["gpt-weighted"]; len(got) != 1 {
+	if got := manager.Current().ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]["gpt-weighted"]; len(got) != 1 {
 		t.Fatalf("route candidates = %#v, want one group", got)
 	}
 }
@@ -62,19 +64,19 @@ func TestLoaderPreservesManualWeightBoundaries(t *testing.T) {
 		t.Run(fmt.Sprintf("weight_%d", weight), func(t *testing.T) {
 			db := openMigratedDatabase(t)
 			group := models.Group{
-				Name: "boundary", UpstreamURL: "https://boundary.example.com",
-				Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(`[{"id":"gpt-boundary"}]`),
-				Config: models.JSON(`{}`), Enabled: true, WeightManual: &weight,
+				Name: "boundary", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+				Models:    models.JSON(`[{"id":"gpt-boundary"}]`),
+				Overrides: models.JSON(`{}`), Enabled: true, WeightManual: &weight,
 			}
 			mustCreate(t, db, &group)
-			key := models.UpstreamKey{
-				GroupID: group.ID, KeyValue: "cipher", KeyHash: "hash",
-				Status: models.UpstreamKeyStatusActive, WeightManual: &weight,
+			credential := models.Credential{
+				GroupID: group.ID, Data: "cipher", Fingerprint: "fingerprint",
+				Status: models.CredentialStatusActive, WeightManual: &weight,
 			}
-			mustCreate(t, db, &key)
+			mustCreate(t, db, &credential)
 
 			manager := state.NewManager()
-			registry := state.NewKeyRegistry()
+			registry := state.NewCredentialRegistry()
 			if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
@@ -83,7 +85,7 @@ func TestLoaderPreservesManualWeightBoundaries(t *testing.T) {
 				t.Fatalf("GroupView.WeightManual = %v, want explicit %d", view.WeightManual, weight)
 			}
 
-			candidates := registry.CollectCandidates([]uint{group.ID}, nil, time.Time{})
+			candidates := registry.CollectCredentialCandidates([]uint{group.ID}, nil, time.Time{})
 			if len(candidates) != 1 || candidates[0].WeightManual == nil || *candidates[0].WeightManual != weight {
 				t.Fatalf("CollectCandidates() = %#v, want explicit manual weight %d", candidates, weight)
 			}

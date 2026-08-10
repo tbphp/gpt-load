@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
@@ -40,6 +41,7 @@ type requestOutcome struct {
 }
 
 type frozenAttemptPricing struct {
+	channelID     string
 	groupID       uint
 	upstreamModel string
 	table         *pricing.Table
@@ -52,6 +54,7 @@ type requestRecorder struct {
 	startedAt        time.Time
 	accessKeyID      uint
 	protocol         protocol.Protocol
+	operation        execution.Operation
 	clientModel      string
 	stream           bool
 	firstResponseMs  *int64
@@ -159,6 +162,12 @@ func (recorder *requestRecorder) setClientModel(model string) {
 	}
 }
 
+func (recorder *requestRecorder) setOperation(operation execution.Operation) {
+	if recorder != nil {
+		recorder.operation = operation
+	}
+}
+
 func (recorder *requestRecorder) setStream(stream bool) {
 	if recorder != nil {
 		recorder.stream = stream
@@ -213,7 +222,7 @@ func (recorder *requestRecorder) beforeForward() time.Time {
 
 func (recorder *requestRecorder) recordAttempt(
 	selection scheduler.Selection,
-	apiKey string,
+	credentialSecrets []string,
 	result UpstreamResult,
 	decision health.Result,
 	startedAt time.Time,
@@ -227,8 +236,9 @@ func (recorder *requestRecorder) recordAttempt(
 		rules = selection.Group.HeaderRules
 	}
 	summarySecrets := resolvedErrorSummarySecretValues(
-		apiKey,
+		"",
 		rules,
+		credentialSecrets...,
 	)
 	return recorder.appendAttempt(
 		selection,
@@ -244,7 +254,7 @@ func (recorder *requestRecorder) recordAttempt(
 
 func (recorder *requestRecorder) recordStreamAttempt(
 	selection scheduler.Selection,
-	apiKey string,
+	credentialSecrets []string,
 	result UpstreamResult,
 	startedAt time.Time,
 	completedAt time.Time,
@@ -258,8 +268,9 @@ func (recorder *requestRecorder) recordStreamAttempt(
 		rules = selection.Group.HeaderRules
 	}
 	summarySecrets := resolvedErrorSummarySecretValues(
-		apiKey,
+		"",
 		rules,
+		credentialSecrets...,
 	)
 	return recorder.appendAttempt(
 		selection,
@@ -295,18 +306,24 @@ func (recorder *requestRecorder) appendAttempt(
 		duration = 0
 	}
 	attempt := telemetry.Attempt{
-		Sequence:        len(recorder.attempts) + 1,
-		GroupID:         selection.GroupID,
-		GroupName:       selection.Group.Name,
-		KeyID:           selection.KeyID,
-		UpstreamModel:   optionalModelValue(selection.UpstreamModelID),
-		StatusCode:      result.StatusCode,
-		DurationMs:      duration.Milliseconds(),
-		FailureCategory: category,
-		Action:          action,
-		ErrorCode:       errorCode,
-		ErrorSummary:    errorSummary,
-		Committed:       result.Committed,
+		Sequence:          len(recorder.attempts) + 1,
+		GroupID:           selection.GroupID,
+		GroupName:         selection.Group.Name,
+		ChannelID:         selection.ChannelID,
+		CredentialID:      selection.CredentialID,
+		Operation:         recorder.operation,
+		RouteMode:         selection.RouteMode,
+		UpstreamModel:     optionalModelValue(selection.UpstreamModelID),
+		UpstreamRequestID: result.UpstreamRequestID,
+		DispatchState:     result.DispatchState,
+		ResponseStarted:   result.ResponseStarted,
+		StatusCode:        result.StatusCode,
+		DurationMs:        duration.Milliseconds(),
+		FailureCategory:   category,
+		Action:            action,
+		ErrorCode:         errorCode,
+		ErrorSummary:      errorSummary,
+		Committed:         result.Committed,
 	}
 	if attempt.ErrorCode != "" && attempt.ErrorSummary == "" {
 		attempt.ErrorSummary = fixedErrorSummary(attempt.ErrorCode)
@@ -444,7 +461,7 @@ func (recorder *requestRecorder) bindUsage(
 		return
 	}
 	attempt := recorder.attempts[attemptIndex]
-	if attempt.GroupID == 0 || attempt.KeyID == 0 || attempt.Sequence < 1 {
+	if attempt.GroupID == 0 || attempt.ChannelID == "" || attempt.CredentialID == 0 || attempt.Sequence < 1 {
 		return
 	}
 	if !applicable || !recorder.usageApplicable {
@@ -462,7 +479,8 @@ func (recorder *requestRecorder) bindUsage(
 	recorder.usage = telemetry.UsageObservation{
 		Result:          result,
 		GroupID:         attempt.GroupID,
-		KeyID:           attempt.KeyID,
+		ChannelID:       attempt.ChannelID,
+		CredentialID:    attempt.CredentialID,
 		AttemptSequence: attempt.Sequence,
 		Pricing:         pricingObservation,
 	}
@@ -485,7 +503,10 @@ func quoteFrozenAttempt(
 	if frozen.table == nil || frozen.upstreamModel == "" {
 		return observation
 	}
-	quote, receipt := frozen.table.QuoteWithReceipt(pricing.Identity{ModelID: frozen.upstreamModel}, result)
+	quote, receipt := frozen.table.QuoteWithReceipt(pricing.Identity{
+		ChannelID: frozen.channelID,
+		ModelID:   frozen.upstreamModel,
+	}, result)
 	observation.CostState = string(quote.State)
 	observation.PricingCompleteness = string(quote.Completeness)
 	observation.EstimatedCostNanoUSD = int64(quote.EstimatedCostNanoUSD)
@@ -579,10 +600,10 @@ func telemetryAction(value health.Action) telemetry.Action {
 	switch value {
 	case health.ActionRetry:
 		return telemetry.ActionRetry
-	case health.ActionCooldownKey:
-		return telemetry.ActionCooldownKey
-	case health.ActionFailKey:
-		return telemetry.ActionFailKey
+	case health.ActionCooldownCredential:
+		return telemetry.ActionCooldownCredential
+	case health.ActionFailCredential:
+		return telemetry.ActionFailCredential
 	case health.ActionSkipGroup:
 		return telemetry.ActionSkipGroup
 	default:

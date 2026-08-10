@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -23,7 +26,7 @@ const (
 	GroupCollectionStatusDisabled    GroupCollectionStatus = "disabled"
 )
 
-type GroupCollectionKeyCounts struct {
+type GroupCollectionCredentialCounts struct {
 	Total       int64 `json:"total"`
 	Available   int64 `json:"available"`
 	Cooldown    int64 `json:"cooldown"`
@@ -32,14 +35,13 @@ type GroupCollectionKeyCounts struct {
 }
 
 type GroupCollectionItem struct {
-	ID          uint                     `json:"id"`
-	Name        string                   `json:"name"`
-	ProviderID  *string                  `json:"provider_id"`
-	Status      GroupCollectionStatus    `json:"status"`
-	UpstreamURL string                   `json:"upstream_url"`
-	Protocols   []protocol.Protocol      `json:"protocols"`
-	ModelCount  int64                    `json:"model_count"`
-	KeyCounts   GroupCollectionKeyCounts `json:"key_counts"`
+	ID               uint                            `json:"id"`
+	Name             string                          `json:"name"`
+	ChannelID        channel.ID                      `json:"channel_id"`
+	Params           json.RawMessage                 `json:"params"`
+	Status           GroupCollectionStatus           `json:"status"`
+	ModelCount       int64                           `json:"model_count"`
+	CredentialCounts GroupCollectionCredentialCounts `json:"credential_counts"`
 }
 
 type groupCollectionRecord struct {
@@ -48,30 +50,26 @@ type groupCollectionRecord struct {
 }
 
 type groupCollectionRows struct {
-	groups []models.Group
-	keys   []models.UpstreamKey
+	groups      []models.Group
+	credentials []models.Credential
 }
 
 func cloneGroupRows(rows []models.Group) []models.Group {
 	cloned := make([]models.Group, len(rows))
 	for index := range rows {
 		cloned[index] = rows[index]
-		cloned[index].Protocols = append(models.JSON(nil), rows[index].Protocols...)
+		cloned[index].Params = append(models.JSON(nil), rows[index].Params...)
 		cloned[index].Models = append(models.JSON(nil), rows[index].Models...)
-		cloned[index].Config = append(models.JSON(nil), rows[index].Config...)
+		cloned[index].Overrides = append(models.JSON(nil), rows[index].Overrides...)
 		if rows[index].WeightManual != nil {
 			value := *rows[index].WeightManual
 			cloned[index].WeightManual = &value
-		}
-		if rows[index].ProviderID != nil {
-			value := *rows[index].ProviderID
-			cloned[index].ProviderID = &value
 		}
 		if rows[index].ValidationModel != nil {
 			value := *rows[index].ValidationModel
 			cloned[index].ValidationModel = &value
 		}
-		cloned[index].UpstreamKeys = nil
+		cloned[index].Credentials = nil
 	}
 	return cloned
 }
@@ -109,7 +107,7 @@ func (s *Service) captureGroupCollectionRecords(
 	if err != nil {
 		return 0, nil, app_errors.ParseDBError(err)
 	}
-	records, err := mapGroupCollectionRecords(snapshot, runtimeKeys, rows, observedAt)
+	records, err := mapGroupCollectionRecords(snapshot, runtimeKeys, rows, observedAt, s.channelRegistry)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return 0, nil, parentErr
 	}
@@ -128,14 +126,14 @@ func (s *Service) readGroupCollectionRows(
 		if err := tx.Order("id ASC").Find(&groups).Error; err != nil {
 			return err
 		}
-		var keys []models.UpstreamKey
-		if err := tx.Model(&models.UpstreamKey{}).
-			Select("id", "group_id", "status", "weight_manual").
-			Order("group_id ASC, id ASC").Find(&keys).Error; err != nil {
+		rows.groups = cloneGroupRows(groups)
+		var credentials []models.Credential
+		if err := tx.Model(&models.Credential{}).
+			Select("id", "group_id", "fingerprint", "status", "weight_manual", "updated_at_ms").
+			Order("group_id ASC, id ASC").Find(&credentials).Error; err != nil {
 			return err
 		}
-		rows.groups = cloneGroupRows(groups)
-		rows.keys = cloneUpstreamKeyRows(keys)
+		rows.credentials = cloneCredentialRows(credentials)
 		return nil
 	})
 	return rows, err
@@ -143,9 +141,10 @@ func (s *Service) readGroupCollectionRows(
 
 func mapGroupCollectionRecords(
 	snapshot *state.ConfigSnapshot,
-	runtimeKeys []state.KeyRuntimeView,
+	runtimeKeys []state.CredentialRuntimeView,
 	rows groupCollectionRows,
 	observedAt time.Time,
+	registries ...*channel.Registry,
 ) ([]groupCollectionRecord, error) {
 	if snapshot == nil {
 		return nil, groupCollectionDataError("runtime snapshot is nil")
@@ -195,7 +194,7 @@ func mapGroupCollectionRecords(
 		}
 	}
 
-	runtimeByID := make(map[uint]state.KeyRuntimeView, len(runtimeKeys))
+	runtimeByID := make(map[uint]state.CredentialRuntimeView, len(runtimeKeys))
 	for _, key := range runtimeKeys {
 		if key.ID == 0 {
 			return nil, groupCollectionDataError("runtime key has zero id")
@@ -205,68 +204,81 @@ func mapGroupCollectionRecords(
 		}
 		runtimeByID[key.ID] = key
 	}
-	persistedByID := make(map[uint]models.UpstreamKey, len(rows.keys))
-	keysByGroup := make(map[uint][]models.UpstreamKey)
-	for _, key := range rows.keys {
-		if key.ID == 0 {
-			return nil, groupCollectionDataError("persisted key has zero id")
+	var registry *channel.Registry
+	for _, candidate := range registries {
+		if candidate != nil {
+			registry = candidate
+			break
 		}
-		if _, duplicate := persistedByID[key.ID]; duplicate {
-			return nil, groupCollectionDataError("duplicate persisted key %d", key.ID)
-		}
-		if _, exists := persistedGroups[key.GroupID]; !exists {
-			return nil, groupCollectionDataError(
-				"persisted key %d references missing group %d",
-				key.ID,
-				key.GroupID,
-			)
-		}
-		persistedByID[key.ID] = key
-		keysByGroup[key.GroupID] = append(keysByGroup[key.GroupID], key)
 	}
-	if len(persistedByID) != len(runtimeByID) {
-		return nil, groupCollectionDataError("persisted and runtime key sets differ")
-	}
-	for keyID, persistedKey := range persistedByID {
-		runtimeKey, exists := runtimeByID[keyID]
+	credentialsByGroup := make(map[uint][]models.Credential)
+	persistedCredentialByID := make(map[uint]models.Credential, len(rows.credentials))
+	for _, credential := range rows.credentials {
+		if credential.ID == 0 {
+			return nil, groupCollectionDataError("persisted credential has zero id")
+		}
+		if _, duplicate := persistedCredentialByID[credential.ID]; duplicate {
+			return nil, groupCollectionDataError("duplicate persisted credential %d", credential.ID)
+		}
+		_, exists := persistedGroups[credential.GroupID]
 		if !exists {
 			return nil, groupCollectionDataError(
-				"persisted key %d is missing from runtime registry",
-				keyID,
+				"persisted credential %d references missing group %d",
+				credential.ID,
+				credential.GroupID,
 			)
 		}
-		status, err := groupCollectionRuntimeKeyStatus(persistedKey.Status)
+		persistedCredentialByID[credential.ID] = credential
+		credentialsByGroup[credential.GroupID] = append(credentialsByGroup[credential.GroupID], credential)
+	}
+	if len(persistedCredentialByID) != len(runtimeByID) {
+		return nil, groupCollectionDataError("persisted and runtime credential sets differ")
+	}
+	for credentialID, persistedCredential := range persistedCredentialByID {
+		runtimeCredential, exists := runtimeByID[credentialID]
+		if !exists {
+			return nil, groupCollectionDataError(
+				"persisted credential %d is missing from runtime registry",
+				credentialID,
+			)
+		}
+		status, err := groupCollectionRuntimeCredentialStatus(persistedCredential.Status)
 		if err != nil {
 			return nil, err
 		}
-		if runtimeKey.ID != persistedKey.ID ||
-			runtimeKey.GroupID != persistedKey.GroupID ||
-			runtimeKey.Status != status ||
-			!equalGroupCollectionWeight(runtimeKey.WeightManual, persistedKey.WeightManual) {
+		if runtimeCredential.ID != persistedCredential.ID ||
+			runtimeCredential.GroupID != persistedCredential.GroupID ||
+			runtimeCredential.Status != status ||
+			runtimeCredential.Version != groupCollectionCredentialVersion(persistedCredential.UpdatedAtMS) ||
+			runtimeCredential.IdentityGeneration != groupCollectionCredentialIdentity(persistedCredential.Fingerprint) ||
+			!equalGroupCollectionWeight(runtimeCredential.WeightManual, persistedCredential.WeightManual) {
 			return nil, groupCollectionDataError(
-				"persisted key %d differs from runtime registry",
-				keyID,
+				"persisted credential %d differs from runtime registry",
+				credentialID,
 			)
 		}
 	}
-
 	records := make([]groupCollectionRecord, 0, len(rows.groups))
 	for _, group := range rows.groups {
-		var protocols []protocol.Protocol
-		if err := json.Unmarshal(group.Protocols, &protocols); err != nil {
-			return nil, groupCollectionDataError(
-				"decode group %d protocols: %v",
-				group.ID,
-				err,
-			)
+		supportsModelOptionalRequests := false
+		channelID := channel.ID(group.ChannelID)
+		if registry == nil {
+			return nil, groupCollectionDataError("channel registry is nil")
 		}
-		if err := validateGroupCollectionProtocols(protocols); err != nil {
-			return nil, groupCollectionDataError(
-				"validate group %d protocols: %v",
-				group.ID,
-				err,
-			)
+		validated, err := registry.ValidateParams(channelID, json.RawMessage(group.Params))
+		if err != nil {
+			return nil, groupCollectionDataError("validate group %d params: %v", group.ID, err)
 		}
+		params := validated.CanonicalJSON()
+		resolvedTarget, err := registry.Resolve(channelID, params)
+		if err != nil {
+			return nil, groupCollectionDataError("resolve group %d channel: %v", group.ID, err)
+		}
+		supportsModelOptionalRequests = resolvedTarget.Supports(
+			protocol.OpenAIResponses,
+			execution.OperationResponsesRetrieve,
+			execution.FeatureSet{},
+		)
 		var groupModels []GroupModel
 		if err := json.Unmarshal(group.Models, &groupModels); err != nil {
 			return nil, groupCollectionDataError(
@@ -286,26 +298,63 @@ func mapGroupCollectionRecords(
 		catalog := snapshot.GroupCatalog[group.ID]
 		record := groupCollectionRecord{
 			GroupCollectionItem: GroupCollectionItem{
-				ID: group.ID, Name: group.Name, UpstreamURL: group.UpstreamURL,
-				ProviderID: cloneString(group.ProviderID),
-				Protocols:  append([]protocol.Protocol(nil), protocols...),
+				ID: group.ID, Name: group.Name, ChannelID: channelID,
+				Params:     append(json.RawMessage(nil), params...),
 				ModelCount: int64(len(groupModels)),
 			},
 			CreatedAtMS: group.CreatedAtMS,
 		}
-		for _, persistedKey := range keysByGroup[group.ID] {
-			bucket := classifyHealthKey(catalog, runtimeByID[persistedKey.ID], observedAt)
-			addGroupCollectionKeyCount(&record.KeyCounts, bucket)
+		for _, persistedCredential := range credentialsByGroup[group.ID] {
+			bucket := classifyHealthKey(catalog, runtimeByID[persistedCredential.ID], observedAt)
+			addGroupCollectionCredentialCount(&record.CredentialCounts, bucket)
 		}
 		record.Status = groupCollectionStatus(
 			catalog,
-			record.KeyCounts,
-			record.Protocols,
+			record.CredentialCounts,
+			supportsModelOptionalRequests,
 			record.ModelCount,
 		)
 		records = append(records, record)
 	}
 	return records, nil
+}
+
+func cloneCredentialRows(rows []models.Credential) []models.Credential {
+	cloned := make([]models.Credential, len(rows))
+	for index := range rows {
+		cloned[index] = rows[index]
+		cloned[index].Group = nil
+		cloned[index].Data = ""
+		cloned[index].WeightManual = cloneInt(rows[index].WeightManual)
+	}
+	return cloned
+}
+
+func groupCollectionRuntimeCredentialStatus(status models.CredentialStatus) (state.CredentialStatus, error) {
+	switch status {
+	case models.CredentialStatusActive:
+		return state.CredentialStatusActive, nil
+	case models.CredentialStatusDisabled:
+		return state.CredentialStatusDisabled, nil
+	default:
+		return "", groupCollectionDataError("invalid persisted credential status %q", status)
+	}
+}
+
+func groupCollectionCredentialVersion(updatedAtMS int64) uint64 {
+	if updatedAtMS < 1 {
+		return 1
+	}
+	return uint64(updatedAtMS)
+}
+
+func groupCollectionCredentialIdentity(fingerprint string) uint64 {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(fingerprint))
+	if value := hasher.Sum64(); value != 0 {
+		return value
+	}
+	return 1
 }
 
 func groupCollectionDataError(format string, args ...any) error {
@@ -317,36 +366,6 @@ func equalGroupCollectionWeight(left, right *int) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
-}
-
-func groupCollectionRuntimeKeyStatus(
-	status models.UpstreamKeyStatus,
-) (state.KeyStatus, error) {
-	switch status {
-	case models.UpstreamKeyStatusActive:
-		return state.KeyStatusActive, nil
-	case models.UpstreamKeyStatusDisabled:
-		return state.KeyStatusDisabled, nil
-	default:
-		return "", groupCollectionDataError("invalid persisted key status %q", status)
-	}
-}
-
-func validateGroupCollectionProtocols(values []protocol.Protocol) error {
-	if len(values) == 0 {
-		return fmt.Errorf("protocols are required")
-	}
-	seen := make(map[protocol.Protocol]struct{}, len(values))
-	for _, value := range values {
-		if !value.Valid() {
-			return fmt.Errorf("invalid protocol %q", value)
-		}
-		if _, duplicate := seen[value]; duplicate {
-			return fmt.Errorf("duplicate protocol %q", value)
-		}
-		seen[value] = struct{}{}
-	}
-	return nil
 }
 
 func validateGroupCollectionModels(values []GroupModel) error {
@@ -368,7 +387,7 @@ func validateGroupCollectionModels(values []GroupModel) error {
 	return nil
 }
 
-func addGroupCollectionKeyCount(counts *GroupCollectionKeyCounts, bucket healthBucket) {
+func addGroupCollectionCredentialCount(counts *GroupCollectionCredentialCounts, bucket healthBucket) {
 	counts.Total++
 	switch bucket {
 	case healthBucketAvailable:
@@ -384,8 +403,8 @@ func addGroupCollectionKeyCount(counts *GroupCollectionKeyCounts, bucket healthB
 
 func groupCollectionStatus(
 	group state.GroupCatalogView,
-	counts GroupCollectionKeyCounts,
-	protocols []protocol.Protocol,
+	counts GroupCollectionCredentialCounts,
+	supportsModelOptionalRequests bool,
 	modelCount int64,
 ) GroupCollectionStatus {
 	if !group.Enabled || (group.WeightManual != nil && *group.WeightManual == 0) {
@@ -397,10 +416,8 @@ func groupCollectionStatus(
 	if modelCount > 0 {
 		return GroupCollectionStatusAvailable
 	}
-	for _, value := range protocols {
-		if value.SupportsModelOptionalRequests() {
-			return GroupCollectionStatusAvailable
-		}
+	if supportsModelOptionalRequests {
+		return GroupCollectionStatusAvailable
 	}
 	return GroupCollectionStatusUnavailable
 }

@@ -8,6 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
@@ -148,15 +150,19 @@ func applyNullableRange[T int | int64](
 }
 
 func applyAttemptFilters(query *gorm.DB, input ListQuery) *gorm.DB {
-	conditions := make([]string, 0, 6)
-	arguments := make([]any, 0, 6)
+	conditions := make([]string, 0, 8)
+	arguments := make([]any, 0, 8)
 	if input.GroupID != nil {
 		conditions = append(conditions, "attempt.group_id = ?")
 		arguments = append(arguments, *input.GroupID)
 	}
-	if input.UpstreamKeyID != nil {
-		conditions = append(conditions, "attempt.key_id = ?")
-		arguments = append(arguments, *input.UpstreamKeyID)
+	if input.ChannelID != "" {
+		conditions = append(conditions, "attempt.channel_id = ?")
+		arguments = append(arguments, input.ChannelID)
+	}
+	if input.CredentialID != nil {
+		conditions = append(conditions, "attempt.credential_id = ?")
+		arguments = append(arguments, *input.CredentialID)
 	}
 	if input.UpstreamModel != "" {
 		conditions = append(conditions, "attempt.upstream_model = ?")
@@ -233,22 +239,35 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 			if err := pricing.ValidateReceipt(decoded); err != nil {
 				return nil, fmt.Errorf("decode request log pricing receipt: %w", err)
 			}
+			if decoded.SchemaVersion == 3 && decoded.Rule != (pricing.ReceiptRule{
+				ChannelID: row.ChannelID,
+				ModelID:   row.UpstreamModel,
+			}) {
+				return nil, fmt.Errorf("decode request log pricing receipt: v3 identity does not match attempt")
+			}
 			receipt = &decoded
 		}
 		attempts = append(attempts, Attempt{
-			Sequence:        row.Sequence,
-			GroupID:         row.GroupID,
-			GroupName:       row.GroupName,
-			KeyID:           row.KeyID,
-			UpstreamModel:   row.UpstreamModel,
-			StatusCode:      row.StatusCode,
-			DurationMs:      row.DurationMs,
-			FailureCategory: telemetry.FailureCategory(row.FailureCategory),
-			Action:          telemetry.Action(row.Action),
-			WillRetry:       row.WillRetry,
-			ErrorCode:       row.ErrorCode,
-			ErrorSummary:    row.ErrorSummary,
-			PricingReceipt:  receipt,
+			Sequence:          row.Sequence,
+			GroupID:           row.GroupID,
+			GroupName:         row.GroupName,
+			ChannelID:         channel.ID(row.ChannelID),
+			CredentialID:      row.CredentialID,
+			Operation:         execution.Operation(row.Operation),
+			RouteMode:         channel.RouteMode(row.RouteMode),
+			UpstreamModel:     row.UpstreamModel,
+			UpstreamRequestID: row.UpstreamRequestID,
+			DispatchState:     execution.DispatchState(row.DispatchState),
+			ResponseStarted:   row.ResponseStarted,
+			StatusCode:        row.StatusCode,
+			DurationMs:        row.DurationMs,
+			FailureCategory:   telemetry.FailureCategory(row.FailureCategory),
+			Action:            telemetry.Action(row.Action),
+			WillRetry:         row.WillRetry,
+			ErrorCode:         row.ErrorCode,
+			ErrorSummary:      row.ErrorSummary,
+			Committed:         row.Committed,
+			PricingReceipt:    receipt,
 		})
 	}
 	return attempts, nil
@@ -288,6 +307,8 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			},
 			Attempts:                nil,
 			GroupID:                 row.GroupID,
+			ChannelID:               channel.ID(row.ChannelID),
+			CredentialID:            row.CredentialID,
 			UsageState:              usage.State(row.UsageState),
 			CostState:               pricing.CostState(row.CostState),
 			PricingCompleteness:     pricing.Completeness(row.PricingCompleteness),

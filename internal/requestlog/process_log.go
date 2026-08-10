@@ -27,7 +27,7 @@ func projectProcessLog(
 	if err != nil {
 		return logrus.InfoLevel, nil, false
 	}
-	groupID, keyID := attributedAttempt(event)
+	groupID, channelID, credentialID := attributedAttempt(event)
 
 	level := logrus.WarnLevel
 	if event.Status == telemetry.RequestStatusSuccess ||
@@ -54,8 +54,11 @@ func projectProcessLog(
 	if groupID > 0 {
 		fields["group"] = groupID
 	}
-	if keyID > 0 {
-		fields["kid"] = keyID
+	if channelID != "" {
+		fields["channel"] = channelID
+	}
+	if credentialID > 0 {
+		fields["credential"] = credentialID
 	}
 	if attemptCount := len(event.Attempts); attemptCount != 1 {
 		fields["attempts"] = attemptCount
@@ -113,15 +116,17 @@ func processInputTokens(row models.RequestLog) (int64, bool) {
 	return total, true
 }
 
-func attributedAttempt(event telemetry.RequestEvent) (uint, uint) {
+func attributedAttempt(event telemetry.RequestEvent) (uint, string, uint) {
+	usageCredentialID := event.Usage.CredentialID
 	for _, attempt := range event.Attempts {
 		if attempt.Sequence == event.Usage.AttemptSequence &&
 			attempt.GroupID == event.Usage.GroupID &&
-			attempt.KeyID == event.Usage.KeyID {
-			return attempt.GroupID, attempt.KeyID
+			attempt.ChannelID == event.Usage.ChannelID &&
+			attempt.CredentialID == usageCredentialID {
+			return attempt.GroupID, string(attempt.ChannelID), usageCredentialID
 		}
 	}
-	return 0, 0
+	return 0, "", 0
 }
 
 func (service *Service) logCompletedRequest(

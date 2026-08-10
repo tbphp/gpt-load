@@ -259,7 +259,8 @@ func validateRecoverableOperation(operation *models.ControlOperation) error {
 
 func operationGroupID(operation *models.ControlOperation) (uint, error) {
 	kind := operationKind(operation.OperationKind)
-	if kind != operationKindGroupCreate && kind != operationKindGroupKeyImport {
+	if kind != operationKindGroupCreate &&
+		kind != operationKindCredentialImport {
 		return 0, fmt.Errorf("operation %q has no group registry stage", kind)
 	}
 	return parseResourceIdentity(operation.ResourceIdentity, "group")
@@ -270,7 +271,7 @@ func validateOperationResourceIdentity(kind operationKind, identity string) erro
 	case operationKindAccessKeyCreate:
 		_, err := parseResourceIdentity(identity, "access-key")
 		return err
-	case operationKindGroupCreate, operationKindGroupKeyImport:
+	case operationKindGroupCreate, operationKindCredentialImport:
 		_, err := parseResourceIdentity(identity, "group")
 		return err
 	default:

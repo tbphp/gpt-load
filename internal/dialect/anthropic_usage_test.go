@@ -2,7 +2,6 @@ package dialect
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 )
 
 func TestUsageAnthropicCanonicalFixtures(t *testing.T) {
-	extractor, ok := any(NewAnthropic(http.DefaultClient)).(UsageExtractor)
+	extractor, ok := any(NewAnthropic()).(UsageExtractor)
 	if !ok {
 		t.Fatal("Anthropic does not expose UsageExtractor capability")
 	}
@@ -43,7 +42,7 @@ func TestUsageAnthropicCanonicalFixtures(t *testing.T) {
 }
 
 func TestUsageAnthropicCacheCreationMapping(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	tests := []struct {
 		name        string
 		body        string
@@ -112,7 +111,7 @@ func TestUsageAnthropicCacheCreationMapping(t *testing.T) {
 }
 
 func TestUsageAnthropicInvalidCacheCreationDoesNotFallback(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	for _, cacheCreation := range []string{`[]`, `"unsupported"`} {
 		result, err := extractor.ExtractUsage([]byte(`{"usage":{"input_tokens":80,"output_tokens":30,"cache_creation":` + cacheCreation + `,"cache_creation_input_tokens":12}}`))
 		if err != nil {
@@ -129,7 +128,7 @@ func TestUsageAnthropicInvalidCacheCreationDoesNotFallback(t *testing.T) {
 }
 
 func TestUsageAnthropicDetailReconciliationRequiresUsableComponents(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	tests := []struct {
 		name        string
 		value       string
@@ -175,7 +174,7 @@ func TestUsageAnthropicDetailReconciliationRequiresUsableComponents(t *testing.T
 }
 
 func TestUsageAnthropicStrictNumbersAndRequiredFields(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	tests := []struct {
 		name        string
 		body        string
@@ -262,7 +261,7 @@ func TestUsageAnthropicStrictNumbersAndRequiredFields(t *testing.T) {
 }
 
 func TestUsageAnthropicRequiredPresenceControlsState(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	tests := []struct {
 		name        string
 		body        string
@@ -313,7 +312,7 @@ func TestUsageAnthropicStreamCompletesOnlyAtMessageStop(t *testing.T) {
 	start := `{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":7},"output_tokens":0}}}`
 	delta := `{"type":"message_delta","usage":{"output_tokens":30}}`
 
-	partial := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	partial := NewAnthropic().NewUsageStreamExtractor()
 	for _, event := range []string{start, delta} {
 		if err := partial.Observe([]byte(event)); err != nil {
 			t.Fatal(err)
@@ -326,7 +325,7 @@ func TestUsageAnthropicStreamCompletesOnlyAtMessageStop(t *testing.T) {
 	}
 	requireUsageDiagnostics(t, partialResult.Diagnostics)
 
-	complete := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	complete := NewAnthropic().NewUsageStreamExtractor()
 	for _, event := range []string{start, delta, `{"type":"message_stop"}`} {
 		if err := complete.Observe([]byte(event)); err != nil {
 			t.Fatal(err)
@@ -340,7 +339,7 @@ func TestUsageAnthropicStreamCompletesOnlyAtMessageStop(t *testing.T) {
 }
 
 func TestUsageAnthropicStreamMergesCumulativeDeltaFields(t *testing.T) {
-	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewAnthropic().NewUsageStreamExtractor()
 	for _, event := range []string{
 		`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":7},"output_tokens":0}}}`,
 		`{"type":"message_delta","usage":{"output_tokens":10}}`,
@@ -360,7 +359,7 @@ func TestUsageAnthropicStreamMergesCumulativeDeltaFields(t *testing.T) {
 	}
 	requireUsageDiagnostics(t, result.Diagnostics)
 
-	fallback := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	fallback := NewAnthropic().NewUsageStreamExtractor()
 	for _, event := range []string{
 		`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation_input_tokens":12}}}`,
 		`{"type":"message_stop"}`,
@@ -425,7 +424,7 @@ func TestUsageAnthropicStreamReconcilesAggregateAfterCumulativeMerge(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+			stream := NewAnthropic().NewUsageStreamExtractor()
 			for _, event := range tt.events {
 				if err := stream.Observe([]byte(event)); err != nil {
 					t.Fatal(err)
@@ -442,7 +441,7 @@ func TestUsageAnthropicStreamReconcilesAggregateAfterCumulativeMerge(t *testing.
 
 func TestUsageAnthropicStreamRejectsOutOfOrderAndRegressingCumulatives(t *testing.T) {
 	t.Run("delta and stop without valid start", func(t *testing.T) {
-		stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+		stream := NewAnthropic().NewUsageStreamExtractor()
 		for _, event := range []string{
 			`{"type":"message_delta","usage":{"output_tokens":30}}`,
 			`{"type":"message_stop"}`,
@@ -459,7 +458,7 @@ func TestUsageAnthropicStreamRejectsOutOfOrderAndRegressingCumulatives(t *testin
 	})
 
 	t.Run("last good cumulatives survive invalid events", func(t *testing.T) {
-		stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+		stream := NewAnthropic().NewUsageStreamExtractor()
 		for _, event := range []string{
 			`{"type":"message_start","message":{"usage":{"input_tokens":80,"output_tokens":0}}}`,
 			`{"type":"message_delta","usage":{"output_tokens":10,"cache_read_input_tokens":4}}`,
@@ -490,7 +489,7 @@ func TestUsageAnthropicStreamRejectsOutOfOrderAndRegressingCumulatives(t *testin
 }
 
 func TestUsageAnthropicStreamStartStopWithoutDelta(t *testing.T) {
-	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewAnthropic().NewUsageStreamExtractor()
 	for _, event := range []string{
 		`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"output_tokens":0}}}`,
 		`{"type":"message_stop"}`,
@@ -508,7 +507,7 @@ func TestUsageAnthropicStreamStartStopWithoutDelta(t *testing.T) {
 }
 
 func TestUsageAnthropicStreamEOFRemainsPartial(t *testing.T) {
-	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewAnthropic().NewUsageStreamExtractor()
 	for _, event := range []string{
 		`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
 		`{"type":"message_delta","usage":{"output_tokens":30}}`,
@@ -526,7 +525,7 @@ func TestUsageAnthropicStreamEOFRemainsPartial(t *testing.T) {
 }
 
 func TestUsageAnthropicServerToolDetailKeepsKnownTokenPriceComplete(t *testing.T) {
-	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewAnthropic().NewUsageStreamExtractor()
 	observeUsageJSONL(t, stream, readUsageFixture(t, "anthropic", "server-tool.jsonl"))
 	result, finalized := stream.Finalize()
 	if !finalized || result.State != usage.StateComplete ||
@@ -535,7 +534,7 @@ func TestUsageAnthropicServerToolDetailKeepsKnownTokenPriceComplete(t *testing.T
 	}
 	requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticUnsupportedBillableDetail)
 
-	identity := pricing.Identity{ModelID: "claude-test"}
+	identity := pricing.Identity{ChannelID: "anthropic", ModelID: "claude-test"}
 	table, err := pricing.NewTable([]pricing.Rule{{
 		Identity: identity,
 		Prices: pricing.Prices{
@@ -554,7 +553,7 @@ func TestUsageAnthropicServerToolDetailKeepsKnownTokenPriceComplete(t *testing.T
 }
 
 func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
-	identity := pricing.Identity{ModelID: "claude-test"}
+	identity := pricing.Identity{ChannelID: "anthropic", ModelID: "claude-test"}
 	table, err := pricing.NewTable([]pricing.Rule{{
 		Identity: identity,
 		Prices: pricing.Prices{
@@ -589,7 +588,7 @@ func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
 				`{"usage":{"input_tokens":80,"output_tokens":30,"server_tool_use":{"web_search_requests":%d}}}`,
 				tt.count,
 			)
-			result, extractErr := NewAnthropic(http.DefaultClient).ExtractUsage([]byte(body))
+			result, extractErr := NewAnthropic().ExtractUsage([]byte(body))
 			if extractErr != nil {
 				t.Fatal(extractErr)
 			}
@@ -607,7 +606,7 @@ func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
 }
 
 func TestUsageAnthropicStreamPatchState(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	tests := []struct {
 		name        string
 		steps       []string
@@ -687,7 +686,7 @@ func TestUsageAnthropicStreamPatchState(t *testing.T) {
 }
 
 func TestUsageAnthropicStreamPresenceAndInvalidStartHandling(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	tests := []struct {
 		name        string
 		steps       []string
@@ -767,7 +766,7 @@ func TestUsageAnthropicStreamPresenceAndInvalidStartHandling(t *testing.T) {
 }
 
 func TestUsageAnthropicMalformedPayloadPreservesStateAndDoesNotLeak(t *testing.T) {
-	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	stream := NewAnthropic().NewUsageStreamExtractor()
 	if err := stream.Observe([]byte(`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -791,7 +790,7 @@ func TestUsageAnthropicMalformedPayloadPreservesStateAndDoesNotLeak(t *testing.T
 }
 
 func TestUsageAnthropicInvalidUsageObjectIsDiagnosed(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	result, err := extractor.ExtractUsage([]byte(`{"usage":[]}`))
 	if err != nil || result.State != usage.StateMissing || result.Tokens != (usage.Tokens{}) {
 		t.Fatalf("invalid non-stream usage = %#v, %v", result, err)
@@ -810,7 +809,7 @@ func TestUsageAnthropicInvalidUsageObjectIsDiagnosed(t *testing.T) {
 }
 
 func TestUsageAnthropicMalformedBodiesReturnSanitizedErrors(t *testing.T) {
-	extractor := NewAnthropic(http.DefaultClient)
+	extractor := NewAnthropic()
 	for _, body := range [][]byte{
 		[]byte(`[]`),
 		[]byte(`{"usage":{"input_tokens":80,"output_tokens":30}} {}`),

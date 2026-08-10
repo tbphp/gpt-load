@@ -8,14 +8,14 @@ import {
 } from '@/app/route-query'
 
 export type ImportMode = 'new' | 'existing'
-export type ImportPanel = 'providers' | 'discovery'
+export type ImportPanel = 'channels' | 'discovery'
 export type ImportDiscoveryFilter = 'unadded' | 'all'
 
 export interface ImportRouteState {
   mode: ImportMode
   groupID?: number
   panel?: ImportPanel
-  providerSearch?: string
+  channelSearch?: string
   modelSearch?: string
   discoverySearch?: string
   discoveryFilter: ImportDiscoveryFilter
@@ -37,11 +37,11 @@ export function parseImportRouteQuery(query: LocationQuery): ImportRouteState {
   }
 
   const rawPanel = scalarRouteQuery(query.panel)
-  const panel = rawPanel === 'providers' || rawPanel === 'discovery' ? rawPanel : undefined
+  const panel = rawPanel === 'channels' || rawPanel === 'discovery' ? rawPanel : undefined
   return {
     mode,
     panel,
-    providerSearch: normalizeCollectionSearch(scalarRouteQuery(query.provider_q)),
+    channelSearch: normalizeCollectionSearch(scalarRouteQuery(query.channel_q)),
     modelSearch: normalizeCollectionSearch(scalarRouteQuery(query.model_q)),
     discoverySearch:
       panel === 'discovery'
@@ -61,9 +61,9 @@ export function serializeImportRouteQuery(state: ImportRouteState): LocationQuer
     return query
   }
 
-  const providerSearch = normalizeCollectionSearch(state.providerSearch)
+  const channelSearch = normalizeCollectionSearch(state.channelSearch)
   const modelSearch = normalizeCollectionSearch(state.modelSearch)
-  if (providerSearch !== undefined) query.provider_q = providerSearch
+  if (channelSearch !== undefined) query.channel_q = channelSearch
   if (modelSearch !== undefined) query.model_q = modelSearch
   if (state.panel !== undefined) query.panel = state.panel
   if (state.panel === 'discovery') {

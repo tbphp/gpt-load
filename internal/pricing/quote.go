@@ -67,11 +67,14 @@ func (table *Table) QuoteWithReceipt(
 		{code: "output", tokens: result.Tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
 	}
 	receipt := &Receipt{
-		SchemaVersion:          2,
-		Method:                 ReceiptMethodUnitRateSum,
-		MethodVersion:          1,
-		Currency:               "USD",
-		Rule:                   ReceiptRule{ModelID: identity.ModelID},
+		SchemaVersion: 3,
+		Method:        ReceiptMethodUnitRateSum,
+		MethodVersion: 1,
+		Currency:      "USD",
+		Rule: ReceiptRule{
+			ChannelID: identity.ChannelID,
+			ModelID:   identity.ModelID,
+		},
 		ContextThresholdTokens: selectedThreshold,
 		LineItems:              make([]ReceiptLine, 0, len(components)+1),
 	}

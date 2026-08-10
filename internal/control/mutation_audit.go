@@ -75,13 +75,13 @@ func groupMutationLocator(c *gin.Context) string {
 	return "group:" + mutationID(c.Param("group_id"))
 }
 
-func groupKeyMutationLocator(c *gin.Context) string {
+func groupCredentialMutationLocator(c *gin.Context) string {
 	return "group:" + mutationID(c.Param("group_id")) +
-		"/key:" + mutationID(c.Param("key_id"))
+		"/credential:" + mutationID(c.Param("credential_id"))
 }
 
-func groupKeysMutationLocator(c *gin.Context) string {
-	return "group:" + mutationID(c.Param("group_id")) + "/keys"
+func groupCredentialsMutationLocator(c *gin.Context) string {
+	return "group:" + mutationID(c.Param("group_id")) + "/credentials"
 }
 
 func accessKeyMutationLocator(c *gin.Context) string {

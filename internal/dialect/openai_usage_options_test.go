@@ -41,7 +41,7 @@ func TestOpenAIInjectStreamUsage(t *testing.T) {
 			}
 			original := cloneParsedRequestForTest(request)
 
-			derived, err := NewOpenAI(http.DefaultClient).InjectStreamUsage(request)
+			derived, err := NewOpenAI().InjectStreamUsage(request)
 			if err != nil {
 				t.Fatalf("InjectStreamUsage() error = %v", err)
 			}
@@ -72,7 +72,7 @@ func TestOpenAIInjectStreamUsageRejectsInvalidStreamOptions(t *testing.T) {
 		`{"stream_options":[]}`,
 	} {
 		request := &ParsedRequest{Body: []byte(body)}
-		if _, err := NewOpenAI(http.DefaultClient).InjectStreamUsage(request); err == nil {
+		if _, err := NewOpenAI().InjectStreamUsage(request); err == nil {
 			t.Fatalf("InjectStreamUsage(%s) error = nil", body)
 		}
 	}
@@ -80,11 +80,11 @@ func TestOpenAIInjectStreamUsageRejectsInvalidStreamOptions(t *testing.T) {
 
 func TestOpenAIInjectStreamUsageIsSemanticallyIdempotent(t *testing.T) {
 	request := &ParsedRequest{Body: []byte(`{"model":"gpt-4o","stream_options":{"future":"keep"}}`)}
-	first, err := NewOpenAI(http.DefaultClient).InjectStreamUsage(request)
+	first, err := NewOpenAI().InjectStreamUsage(request)
 	if err != nil {
 		t.Fatalf("first InjectStreamUsage() error = %v", err)
 	}
-	second, err := NewOpenAI(http.DefaultClient).InjectStreamUsage(first)
+	second, err := NewOpenAI().InjectStreamUsage(first)
 	if err != nil {
 		t.Fatalf("second InjectStreamUsage() error = %v", err)
 	}
@@ -99,10 +99,10 @@ func TestOnlyOpenAIImplementsStreamUsageInjector(t *testing.T) {
 		value any
 		want  bool
 	}{
-		{name: "OpenAI", value: NewOpenAI(http.DefaultClient), want: true},
-		{name: "OpenAI Responses", value: NewOpenAIResponses(http.DefaultClient), want: false},
-		{name: "Anthropic", value: NewAnthropic(http.DefaultClient), want: false},
-		{name: "Gemini", value: NewGemini(http.DefaultClient), want: false},
+		{name: "OpenAI", value: NewOpenAI(), want: true},
+		{name: "OpenAI Responses", value: NewOpenAIResponses(), want: false},
+		{name: "Anthropic", value: NewAnthropic(), want: false},
+		{name: "Gemini", value: NewGemini(), want: false},
 		{name: "dialect only", value: &usageDialectOnly{}, want: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

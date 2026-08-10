@@ -1,4 +1,4 @@
-import type { GroupProtocol } from '@/api/control/types'
+import type { ChannelParamsDto } from '@/api/control/types'
 import type { GroupModelUpdateDto } from '@/app/resources/groups'
 import type { ModelCandidate } from '@/app/resources/providers'
 import { normalizedModels, type ModelDraftValue } from '@/features/models/model-draft'
@@ -9,18 +9,17 @@ export interface ModelDraftItem extends ModelDraftValue {
 
 export interface ImportDraft {
   mode: 'new'
-  provider_id: string | null
+  channel_id: string
+  params: ChannelParamsDto
   name: string
-  upstream_url: string
-  protocols: GroupProtocol[]
-  keys: string
+  credentials: string
   models: ModelDraftItem[]
 }
 
 export interface ExistingGroupImportDraft {
   mode: 'existing'
   group_id: number | null
-  keys: string
+  credentials: string
 }
 
 export type ImportRecoveryDraft = ImportDraft | ExistingGroupImportDraft

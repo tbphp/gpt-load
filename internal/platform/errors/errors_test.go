@@ -29,10 +29,10 @@ func TestParseDBErrorUsesDatabaseIndependentGORMErrors(t *testing.T) {
 	}
 }
 
-func TestUpstreamURLChangeConfirmationRequiredContract(t *testing.T) {
-	err := ErrUpstreamURLChangeConfirmationRequired
-	if err.HTTPStatus != http.StatusConflict || err.Code != "UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED" {
-		t.Fatalf("ErrUpstreamURLChangeConfirmationRequired = %#v", err)
+func TestChannelTargetConflictContract(t *testing.T) {
+	err := ErrChannelTargetConflict
+	if err.HTTPStatus != http.StatusConflict || err.Code != "CHANNEL_TARGET_CONFLICT" {
+		t.Fatalf("ErrChannelTargetConflict = %#v", err)
 	}
 }
 
@@ -64,11 +64,11 @@ func TestParseDBErrorRecognizesNativeMySQLAndPostgreSQLUniqueConstraints(t *test
 
 func TestNewAPIErrorWithDataDoesNotMutateBase(t *testing.T) {
 	data := map[string]any{"id": 12}
-	got := NewAPIErrorWithData(ErrUpstreamURLConflict, data)
-	if got == ErrUpstreamURLConflict || got.Data == nil {
+	got := NewAPIErrorWithData(ErrChannelTargetConflict, data)
+	if got == ErrChannelTargetConflict || got.Data == nil {
 		t.Fatalf("NewAPIErrorWithData() = %#v", got)
 	}
-	if ErrUpstreamURLConflict.Data != nil {
-		t.Fatalf("base Data = %#v, want nil", ErrUpstreamURLConflict.Data)
+	if ErrChannelTargetConflict.Data != nil {
+		t.Fatalf("base Data = %#v, want nil", ErrChannelTargetConflict.Data)
 	}
 }

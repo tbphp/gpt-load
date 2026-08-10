@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,13 +19,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
-	platformhttp "gpt-load/internal/platform/httpclient"
-	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
@@ -132,237 +131,6 @@ func TestReadSnapshotCancellationTakesPrecedenceAndReleasesConnection(t *testing
 	}
 }
 
-func TestWriteKeyConfigCommitsDatabaseThenAppliesRegistryWithoutPublishing(t *testing.T) {
-	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-write-key-config")
-	var row models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	beforeSnapshot := fixture.manager.Current()
-	weight := 75
-	callbackRan := false
-
-	err := fixture.service.writeKeyConfig(
-		t.Context(),
-		groupID,
-		row.ID,
-		func(tx *gorm.DB) error {
-			return tx.Model(&models.UpstreamKey{}).
-				Where("id = ? AND group_id = ?", row.ID, groupID).
-				Updates(map[string]any{
-					"status":        models.UpstreamKeyStatusDisabled,
-					"weight_manual": weight,
-				}).Error
-		},
-		func() error {
-			callbackRan = true
-			if fixture.service.writeMu.TryLock() {
-				fixture.service.writeMu.Unlock()
-				return errors.New("writeMu was not held through Registry convergence")
-			}
-			var committed models.UpstreamKey
-			if err := fixture.db.First(&committed, row.ID).Error; err != nil {
-				return err
-			}
-			if committed.Status != models.UpstreamKeyStatusDisabled ||
-				committed.WeightManual == nil || *committed.WeightManual != weight {
-				return fmt.Errorf("callback observed uncommitted row: %#v", committed)
-			}
-			return fixture.registry.UpdateKeyConfig(
-				row.ID,
-				state.KeyStatusDisabled,
-				&weight,
-			)
-		},
-	)
-	if err != nil {
-		t.Fatalf("writeKeyConfig() error = %v", err)
-	}
-	if !callbackRan {
-		t.Fatal("afterCommit callback did not run")
-	}
-	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("writeKeyConfig published Snapshot")
-	}
-	view := fixture.registry.Snapshot()[0]
-	if view.Status != state.KeyStatusDisabled ||
-		view.WeightManual == nil || *view.WeightManual != weight {
-		t.Fatalf("Registry view = %#v", view)
-	}
-}
-
-func TestWriteKeyConfigCommitFailureDoesNotApplyRegistry(t *testing.T) {
-	fixture, dsn := newFileServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-key-commit-failure")
-	var row models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	beforeSnapshot := fixture.manager.Current()
-	beforeRegistry := fixture.registry.Snapshot()
-	release := holdRollbackJournalReadLock(t, fixture.db, dsn)
-
-	callbackRan := false
-	err := fixture.service.writeKeyConfig(
-		t.Context(),
-		groupID,
-		row.ID,
-		func(tx *gorm.DB) error {
-			return tx.Model(&models.UpstreamKey{}).
-				Where("id = ?", row.ID).
-				Update("status", models.UpstreamKeyStatusDisabled).Error
-		},
-		func() error {
-			callbackRan = true
-			return nil
-		},
-	)
-	if err == nil {
-		t.Fatal("writeKeyConfig() error = nil")
-	}
-	if callbackRan {
-		t.Fatal("afterCommit callback ran after failed COMMIT")
-	}
-	if fixture.manager.Current() != beforeSnapshot ||
-		!reflect.DeepEqual(fixture.registry.Snapshot(), beforeRegistry) {
-		t.Fatal("failed COMMIT changed runtime")
-	}
-	release()
-}
-
-func TestWriteKeyConfigAfterCommitFailureIsTypedAndKeepsSnapshot(t *testing.T) {
-	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-key-post-commit")
-	var row models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	beforeSnapshot := fixture.manager.Current()
-	const secretCause = "known-secret-must-not-be-logged"
-	err := fixture.service.writeKeyConfig(
-		t.Context(),
-		groupID,
-		row.ID,
-		func(tx *gorm.DB) error {
-			return tx.Model(&models.UpstreamKey{}).
-				Where("id = ?", row.ID).
-				Update("status", models.UpstreamKeyStatusDisabled).Error
-		},
-		func() error { return errors.New(secretCause) },
-	)
-	if !errors.Is(err, app_errors.ErrInternalServer) {
-		t.Fatalf("error = %v", err)
-	}
-	var operationErr *controlOperationError
-	if !errors.As(err, &operationErr) ||
-		operationErr.stage != stageApplyCommittedRegistryMutation ||
-		operationErr.groupID != groupID || operationErr.keyID != row.ID ||
-		operationErr.mismatchKind != "" {
-		t.Fatalf("operation error = %#v", operationErr)
-	}
-	if strings.Contains(err.Error(), secretCause) {
-		t.Fatalf("operation error leaked callback cause: %v", err)
-	}
-	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("post-commit failure published Snapshot")
-	}
-	var committed models.UpstreamKey
-	if err := fixture.db.First(&committed, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if committed.Status != models.UpstreamKeyStatusDisabled {
-		t.Fatalf("committed status = %q, want disabled", committed.Status)
-	}
-}
-
-func TestWriteKeyConfigPostCommitCancellationDoesNotSkipRegistryCallback(t *testing.T) {
-	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-key-cancel-after-commit")
-	var row models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	beforeSnapshot := fixture.manager.Current()
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	callbackRan := false
-
-	err := fixture.service.writeKeyConfig(
-		ctx,
-		groupID,
-		row.ID,
-		func(tx *gorm.DB) error {
-			return tx.Model(&models.UpstreamKey{}).
-				Where("id = ?", row.ID).
-				Update("status", models.UpstreamKeyStatusDisabled).Error
-		},
-		func() error {
-			callbackRan = true
-			cancel()
-			if !errors.Is(ctx.Err(), context.Canceled) {
-				return fmt.Errorf("context error = %v, want canceled", ctx.Err())
-			}
-			return fixture.registry.UpdateKeyConfig(row.ID, state.KeyStatusDisabled, nil)
-		},
-	)
-	if err != nil {
-		t.Fatalf("writeKeyConfig() error = %v", err)
-	}
-	if !callbackRan {
-		t.Fatal("afterCommit callback did not run")
-	}
-	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("post-commit cancellation published Snapshot")
-	}
-	view := fixture.registry.Snapshot()[0]
-	if view.Status != state.KeyStatusDisabled {
-		t.Fatalf("Registry status = %q, want disabled", view.Status)
-	}
-	var committed models.UpstreamKey
-	if err := fixture.db.First(&committed, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if committed.Status != models.UpstreamKeyStatusDisabled {
-		t.Fatalf("committed status = %q, want disabled", committed.Status)
-	}
-}
-
-func TestWriteKeyConfigDoesNotCompileOrPublishUnrelatedConfiguration(t *testing.T) {
-	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "sk-key-no-compile")
-	var row models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.db.Model(&models.Group{}).
-		Where("id = ?", groupID).
-		Update("protocols", models.JSON(`[]`)).Error; err != nil {
-		t.Fatal(err)
-	}
-	beforeSnapshot := fixture.manager.Current()
-
-	err := fixture.service.writeKeyConfig(
-		t.Context(),
-		groupID,
-		row.ID,
-		func(tx *gorm.DB) error {
-			return tx.Model(&models.UpstreamKey{}).
-				Where("id = ?", row.ID).
-				Update("status", models.UpstreamKeyStatusDisabled).Error
-		},
-		func() error {
-			return fixture.registry.UpdateKeyConfig(row.ID, state.KeyStatusDisabled, nil)
-		},
-	)
-	if err != nil {
-		t.Fatalf("writeKeyConfig() error = %v", err)
-	}
-	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("writeKeyConfig published Snapshot")
-	}
-}
-
 func TestWriteConfigDiscardsConnectionAfterCommitBusy(t *testing.T) {
 	fixture, dsn := newFileServiceFixture(t)
 	beforeRevision := fixture.manager.Current().Revision
@@ -416,9 +184,8 @@ func TestWriteConfigRollsBackWhenCompileRejectsCandidate(t *testing.T) {
 
 	_, err := fixture.service.writeConfig(context.Background(), func(tx *gorm.DB) error {
 		return tx.Create(&models.Group{
-			Name: "invalid", UpstreamURL: "https://invalid.example",
-			Protocols: models.JSON(`[]`),
-			Models:    models.JSON(`[]`), Config: models.JSON(`{}`), Enabled: true,
+			Name: "invalid", ChannelID: "unknown", Params: models.JSON(`{}`),
+			Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true,
 		}).Error
 	}, nil)
 	if err == nil {
@@ -434,17 +201,17 @@ func TestWriteConfigAppliesRuntimeBeforePublishingSnapshot(t *testing.T) {
 	fixture := newServiceFixture(t)
 	beforeSnapshot := fixture.manager.Current()
 	group := validControlGroup("registry-before-snapshot")
-	var key models.UpstreamKey
+	var credential models.Credential
 
 	snapshot, err := fixture.service.writeConfig(t.Context(), func(tx *gorm.DB) error {
 		if err := tx.Create(group).Error; err != nil {
 			return err
 		}
-		key = models.UpstreamKey{
-			GroupID: group.ID, KeyValue: "ciphertext-runtime-order",
-			KeyHash: "hash-runtime-order", Status: models.UpstreamKeyStatusActive,
+		credential = models.Credential{
+			GroupID: group.ID, Data: "ciphertext-runtime-order",
+			Fingerprint: "hash-runtime-order", Status: models.CredentialStatusActive,
 		}
-		return tx.Create(&key).Error
+		return tx.Create(&credential).Error
 	}, func() error {
 		if fixture.service.writeMu.TryLock() {
 			fixture.service.writeMu.Unlock()
@@ -453,9 +220,12 @@ func TestWriteConfigAppliesRuntimeBeforePublishingSnapshot(t *testing.T) {
 		if fixture.manager.Current() != beforeSnapshot {
 			return fmt.Errorf("Snapshot published before Registry update")
 		}
-		return fixture.registry.ApplyImport(group.ID, []state.KeyEntry{{
-			ID: key.ID, GroupID: group.ID, Status: state.KeyStatusActive,
-			EncryptedValue: key.KeyValue,
+		return fixture.registry.ApplyCredentialImport(group.ID, []state.CredentialEntry{{
+			ID: credential.ID, GroupID: group.ID,
+			Version:            groupCollectionCredentialVersion(credential.UpdatedAtMS),
+			IdentityGeneration: groupCollectionCredentialIdentity(credential.Fingerprint),
+			Fingerprint:        credential.Fingerprint, Status: state.CredentialStatusActive,
+			EncryptedValue: credential.Data,
 		}})
 	})
 	if err != nil {
@@ -467,7 +237,7 @@ func TestWriteConfigAppliesRuntimeBeforePublishingSnapshot(t *testing.T) {
 	if _, ok := snapshot.Groups[group.ID]; !ok {
 		t.Fatalf("Snapshot missing Group %d", group.ID)
 	}
-	if got, ok := fixture.registry.EncryptedValue(key.ID); !ok || got != key.KeyValue {
+	if got, ok := fixture.registry.EncryptedCredentialData(credential.ID); !ok || got != credential.Data {
 		t.Fatalf("Registry key = %q, %t", got, ok)
 	}
 }
@@ -495,12 +265,12 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 	}))
 	defer upstream.Close()
 
-	dialects := dialect.NewSet(dialect.NewOpenAI(http.DefaultClient))
+	dialects := dialect.NewSet(dialect.NewOpenAI())
 	handler := gateway.NewHandler(
 		fixture.manager,
 		fixture.registry,
 		fixture.encryption,
-		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
+		gateway.NewExecutionForwarder(controlHTTPExecutor{}),
 		dialects,
 		health.NewStatsStore(),
 		health.NewMutationCoordinator(),
@@ -523,13 +293,15 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 	}
 
 	group := validControlGroup("atomic-runtime-publication")
-	group.UpstreamURL = upstream.URL + "/v1"
+	group.ChannelID = string(channel.OpenAICompatible)
+	group.Params = models.JSON(`{"base_url":"` + upstream.URL + `/v1"}`)
 	const providerKey = "sk-atomic-runtime-publication"
-	ciphertext, err := fixture.encryption.Encrypt(providerKey)
+	credentialData := `{"api_key":"` + providerKey + `"}`
+	ciphertext, err := fixture.encryption.Encrypt(credentialData)
 	if err != nil {
 		t.Fatalf("Encrypt(provider key) error = %v", err)
 	}
-	var key models.UpstreamKey
+	var credential models.Credential
 	runtimeApplied := make(chan struct{})
 	allowPublish := make(chan struct{})
 	var releaseOnce sync.Once
@@ -546,16 +318,17 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 			if createErr := tx.Create(group).Error; createErr != nil {
 				return createErr
 			}
-			key = models.UpstreamKey{
-				GroupID: group.ID, KeyValue: ciphertext,
-				KeyHash: fixture.encryption.Hash(providerKey), Status: models.UpstreamKeyStatusActive,
+			credential = models.Credential{
+				GroupID: group.ID, Data: ciphertext,
+				Fingerprint: fixture.encryption.Hash(credentialData), Status: models.CredentialStatusActive,
 			}
-			return tx.Create(&key).Error
+			return tx.Create(&credential).Error
 		}, func() error {
-			if applyErr := fixture.registry.ApplyImport(group.ID, []state.KeyEntry{{
-				ID: key.ID, GroupID: group.ID, Status: state.KeyStatusActive,
-				EncryptedValue: key.KeyValue,
-			}}); applyErr != nil {
+			entries, buildErr := stateloader.BuildGroupCredentialEntries(t.Context(), fixture.db, group.ID)
+			if buildErr != nil {
+				return buildErr
+			}
+			if applyErr := fixture.registry.ApplyCredentialImport(group.ID, entries); applyErr != nil {
 				return applyErr
 			}
 			close(runtimeApplied)
@@ -647,7 +420,7 @@ func TestWriteConfigRuntimeFailureKeepsOldSnapshot(t *testing.T) {
 	for _, required := range []string{
 		`"stage":"apply_committed_registry_mutation"`,
 		`"group_id":91`,
-		`"key_id":7`,
+		`"credential_id":7`,
 	} {
 		if !strings.Contains(logText, required) {
 			t.Fatalf("log output missing %q: %s", required, logText)
@@ -703,12 +476,12 @@ func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	requests := []GroupCreateRequest{
-		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-shared-a", ConfirmSameUpstreamURL: true},
-		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-shared-b", ConfirmSameUpstreamURL: true},
-		{UpstreamURL: "https://one.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-one"},
-		{UpstreamURL: "https://two.example.com/v1", Protocols: []protocol.Protocol{protocol.Gemini}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-two"},
-		{UpstreamURL: "https://three.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-three"},
-		{UpstreamURL: "https://four.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-four"},
+		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://shared.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-shared-a", ConfirmSameTarget: true},
+		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://shared.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-shared-b", ConfirmSameTarget: true},
+		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://one.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-one"},
+		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://two.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-two"},
+		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://three.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-three"},
+		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://four.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-four"},
 	}
 
 	start := make(chan struct{})
@@ -751,9 +524,9 @@ func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 }
 
 func validControlGroup(name string) *models.Group {
+	baseURL := "https://" + name + ".example/v1"
 	return &models.Group{
-		Name: name, UpstreamURL: "https://" + name + ".example/v1",
-		Protocols: models.JSON(`["openai-completions"]`),
-		Models:    models.JSON(`[{"id":"gpt-4o"}]`), Config: models.JSON(`{}`), Enabled: true,
+		Name: name, ChannelID: "openai_compatible", Params: models.JSON(`{"base_url":"` + baseURL + `"}`),
+		Models: models.JSON(`[{"id":"gpt-4o"}]`), Overrides: models.JSON(`{}`), Enabled: true,
 	}
 }

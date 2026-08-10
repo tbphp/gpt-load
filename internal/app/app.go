@@ -35,6 +35,7 @@ type App struct {
 	startupBootstrap  StartupBootstrap
 	startupRecovery   StartupRecovery
 	requestLogs       RequestLogRuntime
+	executionRuntime  ExecutionRuntime
 	listen            func(network, address string) (net.Listener, error)
 
 	mu            sync.Mutex
@@ -71,6 +72,12 @@ type RequestLogRuntime interface {
 	Stop(context.Context) error
 }
 
+// ExecutionRuntime owns provider-execution resources that must outlive all
+// in-flight data-plane handlers and be released before process exit.
+type ExecutionRuntime interface {
+	Shutdown()
+}
+
 // AppParams defines dependencies injected into App.
 type AppParams struct {
 	dig.In
@@ -85,6 +92,7 @@ type AppParams struct {
 	Lifecycle         *httplifecycle.Coordinator `optional:"true"`
 	ControlRuntime    ControlRuntime
 	RequestLogs       RequestLogRuntime
+	ExecutionRuntime  ExecutionRuntime `optional:"true"`
 }
 
 // NewEngine creates the process HTTP engine and global middleware.
@@ -125,6 +133,7 @@ func NewApp(params AppParams) *App {
 		startupBootstrap:  params.StartupBootstrap,
 		startupRecovery:   params.StartupRecovery,
 		requestLogs:       params.RequestLogs,
+		executionRuntime:  params.ExecutionRuntime,
 		listen:            net.Listen,
 		serveErrors:       make(chan error, 1),
 	}
@@ -256,6 +265,7 @@ func (a *App) Stop(ctx context.Context) error {
 	cancelRuntime := a.runtimeCancel
 	runtimeDone := a.runtimeDone
 	requestLogs := a.requestLogs
+	executionRuntime := a.executionRuntime
 	runtimeCheckpoint := a.runtimeCheckpoint
 	lifecycle := a.lifecycle
 	a.mu.Unlock()
@@ -334,6 +344,10 @@ func (a *App) Stop(ctx context.Context) error {
 		} else {
 			logrus.WithField("event", "shutdown.request_log_drain").Info("request log runtime drained")
 		}
+	}
+	if executionRuntime != nil {
+		executionRuntime.Shutdown()
+		logrus.WithField("event", "shutdown.execution_runtime").Info("execution runtime stopped")
 	}
 	if a.db != nil {
 		sqlDB, err := a.db.DB()

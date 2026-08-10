@@ -30,8 +30,10 @@ func TestCreateAccessKeyGeneratesEncryptedSKGLToken(t *testing.T) {
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 		0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 	})
-	if err := fixture.registry.ApplyImport(77, []state.KeyEntry{{
-		ID: 88, GroupID: 77, Status: state.KeyStatusActive, EncryptedValue: "existing-upstream-cipher",
+	if err := fixture.registry.ApplyCredentialImport(77, []state.CredentialEntry{{
+		ID: 88, GroupID: 77, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "existing-upstream", Status: state.CredentialStatusActive,
+		EncryptedValue: "existing-upstream-cipher",
 	}}); err != nil {
 		t.Fatalf("seed Registry: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestCreateAccessKeyGeneratesEncryptedSKGLToken(t *testing.T) {
 	if _, ok := fixture.manager.Current().AccessKeysByHash[row.KeyHash]; !ok {
 		t.Fatalf("published snapshot lacks hash %q", row.KeyHash)
 	}
-	if got, ok := fixture.registry.EncryptedValue(88); !ok || got != "existing-upstream-cipher" {
+	if got, ok := fixture.registry.EncryptedCredentialData(88); !ok || got != "existing-upstream-cipher" {
 		t.Fatalf("Registry value = %q, %t, want unchanged", got, ok)
 	}
 	if count, ok := fixture.registry.IncrFailure(88); !ok || count != 2 {
@@ -383,8 +385,9 @@ func TestUpdateAccessKeyStatusAndDeletePublishWithoutMutatingRegistry(t *testing
 		t.Fatalf("CreateAccessKey() error = %v", err)
 	}
 	row := loadAccessKeyRow(t, fixture.db, created.ID)
-	if err := fixture.registry.ApplyImport(77, []state.KeyEntry{{
-		ID: 88, GroupID: 77, Status: state.KeyStatusActive, EncryptedValue: "registry-cipher",
+	if err := fixture.registry.ApplyCredentialImport(77, []state.CredentialEntry{{
+		ID: 88, GroupID: 77, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "registry", Status: state.CredentialStatusActive, EncryptedValue: "registry-cipher",
 	}}); err != nil {
 		t.Fatalf("seed Registry: %v", err)
 	}
@@ -445,7 +448,7 @@ func TestUpdateAccessKeyStatusAndDeletePublishWithoutMutatingRegistry(t *testing
 	if got := fixture.manager.Current().Revision; got != before {
 		t.Fatalf("revision after missing mutations = %d, want %d", got, before)
 	}
-	if value, ok := fixture.registry.EncryptedValue(88); !ok || value != "registry-cipher" {
+	if value, ok := fixture.registry.EncryptedCredentialData(88); !ok || value != "registry-cipher" {
 		t.Fatalf("Registry value = %q, %t, want unchanged", value, ok)
 	}
 	if failures, ok := fixture.registry.IncrFailure(88); !ok || failures != 2 {

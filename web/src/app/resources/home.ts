@@ -31,8 +31,8 @@ export interface HomeBaseDto {
   version: string
   inventory: {
     group_count: number
-    upstream_key_count: number
-    available_upstream_key_count: number
+    credential_count: number
+    available_credential_count: number
     model_count: number
   }
   access_keys: Array<{
@@ -120,8 +120,8 @@ const homeBaseFields = [
 ] as const
 const inventoryFields = [
   'group_count',
-  'upstream_key_count',
-  'available_upstream_key_count',
+  'credential_count',
+  'available_credential_count',
   'model_count',
 ] as const
 const accessKeyFields = ['id', 'name', 'masked_key', 'protocols'] as const
@@ -181,13 +181,13 @@ function projectHomeInventory(value: unknown): HomeBaseDto['inventory'] {
   assertNoSecretLikeFields(record, inventoryFields)
   const result = {
     group_count: projectSafeInteger(record.group_count, { minimum: 0 }),
-    upstream_key_count: projectSafeInteger(record.upstream_key_count, { minimum: 0 }),
-    available_upstream_key_count: projectSafeInteger(record.available_upstream_key_count, {
+    credential_count: projectSafeInteger(record.credential_count, { minimum: 0 }),
+    available_credential_count: projectSafeInteger(record.available_credential_count, {
       minimum: 0,
     }),
     model_count: projectSafeInteger(record.model_count, { minimum: 0 }),
   }
-  if (result.available_upstream_key_count > result.upstream_key_count) invalidResponse()
+  if (result.available_credential_count > result.credential_count) invalidResponse()
   return result
 }
 

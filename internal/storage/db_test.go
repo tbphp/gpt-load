@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,70 +18,56 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-func TestAutoMigrateKeepsUpstreamRuntimeFailuresOutOfDatabase(t *testing.T) {
-	t.Parallel()
-
-	db := openMigratedDatabase(t)
-	type columnInfo struct {
-		Name         string
-		DefaultValue *string `gorm:"column:dflt_value"`
-	}
-	var columns []columnInfo
-	if err := db.Raw("PRAGMA table_info('upstream_keys')").Scan(&columns).Error; err != nil {
-		t.Fatalf("inspect upstream_keys columns: %v", err)
-	}
-
-	var statusDefault string
-	for _, column := range columns {
-		if column.Name == "failure_count" {
-			t.Fatal("upstream_keys contains failure_count; runtime failure state must not be persisted")
-		}
-		if column.Name == "status" && column.DefaultValue != nil {
-			statusDefault = strings.Trim(*column.DefaultValue, "'\"")
-		}
-	}
-	if statusDefault != string(models.UpstreamKeyStatusActive) {
-		t.Fatalf("upstream_keys status default = %q, want %q", statusDefault, models.UpstreamKeyStatusActive)
-	}
-}
-
-func TestUpstreamKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
+func TestCredentialStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	t.Parallel()
 
 	db := openMigratedDatabase(t)
 	group := models.Group{
-		Name:        "status-parent",
-		UpstreamURL: "https://status.example.com",
-		Protocols:   models.JSON(`["openai-completions"]`),
-		Models:      models.JSON(`[]`),
+		Name: "credential-status-parent", ChannelID: "openai_compatible",
+		Params: models.JSON(`{"base_url":"https://credential-status.example.com"}`), Models: models.JSON(`[]`),
 	}
 	if err := db.Create(&group).Error; err != nil {
 		t.Fatalf("create parent group: %v", err)
 	}
-
-	for index, status := range []models.UpstreamKeyStatus{
-		models.UpstreamKeyStatusActive,
-		models.UpstreamKeyStatusDisabled,
+	for index, status := range []models.CredentialStatus{
+		models.CredentialStatusActive,
+		models.CredentialStatusDisabled,
 	} {
-		key := models.UpstreamKey{
-			GroupID:  group.ID,
-			KeyValue: "ciphertext",
-			KeyHash:  "allowed-status-" + string(rune('a'+index)),
-			Status:   status,
+		credential := models.Credential{
+			GroupID: group.ID, Data: "encrypted-data",
+			Fingerprint: "allowed-credential-status-" + string(rune('a'+index)),
+			Status:      status,
 		}
-		if err := db.Create(&key).Error; err != nil {
-			t.Fatalf("create upstream key with status %q: %v", status, err)
+		if err := db.Create(&credential).Error; err != nil {
+			t.Fatalf("create credential with status %q: %v", status, err)
 		}
 	}
-
-	invalid := models.UpstreamKey{
-		GroupID:  group.ID,
-		KeyValue: "ciphertext",
-		KeyHash:  "invalid-status",
-		Status:   models.UpstreamKeyStatus("blacklisted"),
+	invalid := models.Credential{
+		GroupID: group.ID, Data: "encrypted-data", Fingerprint: "invalid-credential-status",
+		Status: models.CredentialStatus("blacklisted"),
 	}
 	if err := db.Create(&invalid).Error; err == nil {
-		t.Fatal("create upstream key with runtime-only blacklisted status error = nil, want constraint error")
+		t.Fatal("create credential with runtime-only blacklisted status error = nil, want constraint error")
+	}
+}
+
+func TestGroupNormalizesMissingChannelParamsToEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	group := models.Group{
+		Name: "normalized-channel-params", ChannelID: "staged-channel",
+		Models: models.JSON(`[]`),
+	}
+	if err := db.Create(&group).Error; err != nil {
+		t.Fatalf("create group without explicit channel params: %v", err)
+	}
+	var params string
+	if err := db.Table("groups").Select("params").Where("id = ?", group.ID).Scan(&params).Error; err != nil {
+		t.Fatalf("load normalized channel params: %v", err)
+	}
+	if params != `{}` {
+		t.Fatalf("normalized channel params = %q, want {}", params)
 	}
 }
 
@@ -151,7 +138,10 @@ func TestAutoMigrateCreatesReviewedIndexesAndPrimaryKeys(t *testing.T) {
 		}
 	}
 
-	for _, table := range []string{"upstream_keys", "access_keys"} {
+	if db.Migrator().HasTable("upstream_keys") {
+		t.Fatal("retired upstream_keys table exists")
+	}
+	for _, table := range []string{"credentials", "access_keys"} {
 		var indexes []pragmaIndex
 		if err := db.Raw("PRAGMA index_list('" + table + "')").Scan(&indexes).Error; err != nil {
 			t.Fatalf("inspect %s indexes: %v", table, err)
@@ -600,7 +590,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 
 	wantTables := []string{
 		"groups",
-		"upstream_keys",
+		"credentials",
 		"access_keys",
 		"request_logs",
 		"usage_aggregation_journal",
@@ -621,14 +611,16 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if len(migrationIDs) != 5 || migrationIDs[0] != "0001_initial_v2" ||
-		migrationIDs[1] != "0002_request_log_reasoning" || migrationIDs[2] != "0003_global_model_prices" ||
-		migrationIDs[3] != "0004_mysql_model_price_identity" ||
-		migrationIDs[4] != "0005_request_log_model_consistency" {
-		t.Fatalf(
-			"schema_migrations IDs = %v, want [0001_initial_v2 0002_request_log_reasoning 0003_global_model_prices 0004_mysql_model_price_identity 0005_request_log_model_consistency]",
-			migrationIDs,
-		)
+	wantMigrationIDs := []string{
+		"0001_initial_v2",
+		"0002_request_log_reasoning",
+		"0003_global_model_prices",
+		"0004_mysql_model_price_identity",
+		"0005_request_log_model_consistency",
+		"0006_channel_execution",
+	}
+	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
+		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)
 	}
 
 	if err := storage.AutoMigrate(db); err != nil {
@@ -638,8 +630,8 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if count != 5 {
-		t.Fatalf("schema_migrations row count after a second migration = %d, want 5", count)
+	if count != int64(len(wantMigrationIDs)) {
+		t.Fatalf("schema_migrations row count after a second migration = %d, want %d", count, len(wantMigrationIDs))
 	}
 }
 
@@ -784,17 +776,17 @@ func TestAutoMigrateOmitsGroupSignature(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateAllowsDuplicateUpstreamURLs(t *testing.T) {
+func TestAutoMigrateAllowsDuplicateChannelTargets(t *testing.T) {
 	t.Parallel()
 
 	db := openMigratedDatabase(t)
 	first := models.Group{
-		Name:        "group-one",
-		UpstreamURL: "https://same.example.com/v1",
-		Protocols:   models.JSON(`["openai-completions"]`),
-		Models:      models.JSON(`[]`),
-		Config:      models.JSON(`{}`),
-		Enabled:     true,
+		Name:      "group-one",
+		ChannelID: "openai_compatible",
+		Params:    models.JSON(`{"base_url":"https://same.example.com/v1"}`),
+		Models:    models.JSON(`[]`),
+		Overrides: models.JSON(`{}`),
+		Enabled:   true,
 	}
 	second := first
 	second.Name = "group-two"
@@ -802,7 +794,7 @@ func TestAutoMigrateAllowsDuplicateUpstreamURLs(t *testing.T) {
 		t.Fatalf("create first group: %v", err)
 	}
 	if err := db.Create(&second).Error; err != nil {
-		t.Fatalf("create group with duplicate upstream URL: %v", err)
+		t.Fatalf("create group with duplicate channel target: %v", err)
 	}
 }
 
@@ -849,40 +841,52 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 
 	t.Run("group name", func(t *testing.T) {
 		first := models.Group{
-			Name:        "group-one",
-			UpstreamURL: "https://one.example.com",
-			Protocols:   models.JSON(`["openai-completions"]`),
-			Models:      models.JSON(`[]`),
-			Config:      models.JSON(`{}`),
+			Name:      "group-one",
+			ChannelID: "openai_compatible",
+			Params:    models.JSON(`{"base_url":"https://one.example.com"}`),
+			Models:    models.JSON(`[]`),
+			Overrides: models.JSON(`{}`),
 		}
 		second := first
 		second.ID = 0
-		second.UpstreamURL = "https://two.example.com"
+		second.Params = models.JSON(`{"base_url":"https://two.example.com"}`)
 
 		assertDuplicateRejected(t, db.Create(&first).Error, db.Create(&second).Error)
 	})
 
-	t.Run("upstream key group and hash", func(t *testing.T) {
+	t.Run("credential group and fingerprint", func(t *testing.T) {
 		group := models.Group{
-			Name:        "upstream-key-parent",
-			UpstreamURL: "https://keys.example.com",
-			Protocols:   models.JSON(`["openai-completions"]`),
-			Models:      models.JSON(`[]`),
+			Name:      "credential-parent",
+			ChannelID: "openai_compatible",
+			Params:    models.JSON(`{"base_url":"https://credentials.example.com"}`),
+			Models:    models.JSON(`[]`),
 		}
 		if err := db.Create(&group).Error; err != nil {
-			t.Fatalf("create parent group: %v", err)
+			t.Fatalf("create credential parent group: %v", err)
 		}
-
-		first := models.UpstreamKey{
-			GroupID:  group.ID,
-			KeyValue: "ciphertext-one",
-			KeyHash:  "same-key-hash",
+		first := models.Credential{
+			GroupID: group.ID, Data: "encrypted-one", Fingerprint: "same-fingerprint",
 		}
 		second := first
 		second.ID = 0
-		second.KeyValue = "ciphertext-two"
-
+		second.Data = "encrypted-two"
 		assertDuplicateRejected(t, db.Create(&first).Error, db.Create(&second).Error)
+	})
+
+	t.Run("model price channel and model", func(t *testing.T) {
+		first := models.ModelPrice{ChannelID: "openai", ModelID: "same-model"}
+		duplicate := first
+		otherChannel := first
+		otherChannel.ChannelID = "anthropic"
+		if err := db.Create(&first).Error; err != nil {
+			t.Fatalf("create model price: %v", err)
+		}
+		if err := db.Create(&otherChannel).Error; err != nil {
+			t.Fatalf("create same model for another channel: %v", err)
+		}
+		if err := db.Create(&duplicate).Error; err == nil {
+			t.Fatal("create duplicate channel/model price error = nil, want unique constraint error")
+		}
 	})
 
 	t.Run("access key hash", func(t *testing.T) {
@@ -916,11 +920,10 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 	})
 }
 
-func TestAutoMigrateCreatesUpstreamKeyForeignKeyWithCascade(t *testing.T) {
+func TestAutoMigrateCreatesCredentialForeignKeyWithCascade(t *testing.T) {
 	t.Parallel()
 
 	db := openMigratedDatabase(t)
-
 	type foreignKey struct {
 		Table    string
 		From     string
@@ -928,47 +931,45 @@ func TestAutoMigrateCreatesUpstreamKeyForeignKeyWithCascade(t *testing.T) {
 		OnDelete string `gorm:"column:on_delete"`
 	}
 	var foreignKeys []foreignKey
-	if err := db.Raw("PRAGMA foreign_key_list('upstream_keys')").Scan(&foreignKeys).Error; err != nil {
-		t.Fatalf("inspect upstream_keys foreign keys: %v", err)
+	if err := db.Raw("PRAGMA foreign_key_list('credentials')").Scan(&foreignKeys).Error; err != nil {
+		t.Fatalf("inspect credentials foreign keys: %v", err)
 	}
-
 	var groupForeignKey *foreignKey
-	for i := range foreignKeys {
-		if foreignKeys[i].Table == "groups" && foreignKeys[i].From == "group_id" && foreignKeys[i].To == "id" {
-			groupForeignKey = &foreignKeys[i]
+	for index := range foreignKeys {
+		candidate := &foreignKeys[index]
+		if candidate.Table == "groups" && candidate.From == "group_id" && candidate.To == "id" {
+			groupForeignKey = candidate
 			break
 		}
 	}
-	if groupForeignKey == nil {
-		t.Fatalf("upstream_keys foreign keys = %+v, want group_id -> groups.id", foreignKeys)
-	}
-	if groupForeignKey.OnDelete != "CASCADE" {
-		t.Fatalf("upstream_keys group foreign key ON DELETE = %q, want CASCADE", groupForeignKey.OnDelete)
+	if groupForeignKey == nil || groupForeignKey.OnDelete != "CASCADE" {
+		t.Fatalf("credentials foreign keys = %+v, want cascading group_id -> groups.id", foreignKeys)
 	}
 
 	group := models.Group{
-		Name:        "cascade-parent",
-		UpstreamURL: "https://cascade.example.com",
-		Protocols:   models.JSON(`["openai-completions"]`),
-		Models:      models.JSON(`[]`),
+		Name:      "credential-cascade-parent",
+		ChannelID: "openai_compatible",
+		Params:    models.JSON(`{"base_url":"https://credential-cascade.example.com"}`),
+		Models:    models.JSON(`[]`),
 	}
 	if err := db.Create(&group).Error; err != nil {
-		t.Fatalf("create parent group: %v", err)
+		t.Fatalf("create credential parent group: %v", err)
 	}
-	key := models.UpstreamKey{GroupID: group.ID, KeyValue: "ciphertext", KeyHash: "cascade-key-hash"}
-	if err := db.Create(&key).Error; err != nil {
-		t.Fatalf("create upstream key: %v", err)
+	credential := models.Credential{
+		GroupID: group.ID, Data: "encrypted-data", Fingerprint: "cascade-fingerprint",
+	}
+	if err := db.Create(&credential).Error; err != nil {
+		t.Fatalf("create credential: %v", err)
 	}
 	if err := db.Delete(&group).Error; err != nil {
-		t.Fatalf("delete parent group: %v", err)
+		t.Fatalf("delete credential parent group: %v", err)
 	}
-
-	var keyCount int64
-	if err := db.Model(&models.UpstreamKey{}).Where("id = ?", key.ID).Count(&keyCount).Error; err != nil {
-		t.Fatalf("count child key: %v", err)
+	var count int64
+	if err := db.Model(&models.Credential{}).Where("id = ?", credential.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count credential after deleting group: %v", err)
 	}
-	if keyCount != 0 {
-		t.Fatalf("upstream key count after deleting group = %d, want 0", keyCount)
+	if count != 0 {
+		t.Fatalf("credential count after deleting group = %d, want 0", count)
 	}
 }
 

@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,11 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"gpt-load/internal/dialect"
-	platformhttp "gpt-load/internal/platform/httpclient"
-	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/ratelimit"
-	"gpt-load/internal/state"
 )
 
 func TestHandlerGeneratesCanonicalRequestIDAndRejectsSpoofing(t *testing.T) {
@@ -122,34 +117,5 @@ func TestHandlerRequestIDGenerationFailurePreservesDataPlaneAndSkipsEmit(t *test
 	}
 	if _, exists := entry["plane"]; exists {
 		t.Fatalf("request ID warning contains redundant plane field: %#v", entry)
-	}
-}
-
-func TestNewUpstreamRequestRemovesReservedRequestIDAfterHeaderRules(t *testing.T) {
-	openAI := dialect.NewOpenAI(http.DefaultClient)
-	input := ForwardInput{
-		Dialect: openAI,
-		Group: state.GroupView{
-			UpstreamURL: "https://upstream.example.com",
-			HeaderRules: state.HeaderRules{
-				Set: map[string]string{requestIDHeader: "group-spoof-${API_KEY}"},
-			},
-		},
-		APIKey: "opaque-provider-secret",
-		Request: &dialect.ParsedRequest{
-			Method: http.MethodPost,
-			Path:   "/v1/chat/completions",
-			Header: http.Header{requestIDHeader: {"client-spoof"}},
-			Body:   []byte(`{"model":"gpt-4o"}`),
-		},
-	}
-
-	request, _, replay, err := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).newUpstreamRequest(context.Background(), input, false)
-	if err != nil {
-		t.Fatalf("newUpstreamRequest() error = %v", err)
-	}
-	t.Cleanup(replay.release)
-	if got := request.Header.Values(requestIDHeader); len(got) != 0 {
-		t.Fatalf("upstream %s = %#v, want reserved header removed", requestIDHeader, got)
 	}
 }

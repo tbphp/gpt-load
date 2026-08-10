@@ -7,33 +7,32 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
 
 func TestVisibleModelIDs(t *testing.T) {
 	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
 			{
-				ID: 1, Name: "first", UpstreamURL: "https://first.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic, protocol.Gemini},
+				ID: 1, Name: "first", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{
 					{ID: "zeta"}, {ID: "shared", Alias: "first-alias"}, {ID: "alpha"},
 				},
 				Enabled: true,
 			},
 			{
-				ID: 2, Name: "second", UpstreamURL: "https://second.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
+				ID: 2, Name: "second", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{
 					{ID: "shared", Alias: "second-alias"}, {ID: "beta"},
 				},
 				Enabled: true,
 			},
 			{
-				ID: 3, Name: "disabled", UpstreamURL: "https://disabled.example.com",
-				Protocols: []protocol.Protocol{protocol.Gemini},
-				Models:    []state.ModelConfig{{ID: "hidden"}}, Enabled: false,
+				ID: 3, Name: "disabled", ChannelID: channel.Gemini, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "hidden"}}, Enabled: false,
 			},
 		},
 	})
@@ -55,8 +54,8 @@ func TestVisibleModelIDs(t *testing.T) {
 		{name: "group filter keeps any matching target", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{2: {}}}}, value: protocol.OpenAICompletions, want: []string{"beta", "second-alias"}},
 		{name: "joint filters", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}}, Models: map[string]struct{}{"beta": {}, "second-alias": {}, "shared": {}}, Groups: map[uint]struct{}{2: {}}}}, value: protocol.Anthropic, want: []string{"beta", "second-alias"}},
 		{name: "dangling group filter", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{99: {}}}}, value: protocol.OpenAICompletions, want: []string{}},
-		{name: "disabled group model absent", snapshot: snapshot, value: protocol.Gemini, want: []string{"alpha", "first-alias", "zeta"}},
-		{name: "missing protocol", snapshot: snapshot, value: protocol.OpenAIResponses, want: []string{}},
+		{name: "disabled group model absent", snapshot: snapshot, value: protocol.Gemini, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
+		{name: "responses uses channel capabilities", snapshot: snapshot, value: protocol.OpenAIResponses, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
 		{name: "nil snapshot", snapshot: nil, value: protocol.OpenAICompletions, want: []string{}},
 	}
 	for _, test := range tests {
@@ -72,10 +71,9 @@ func TestVisibleModelIDs(t *testing.T) {
 func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 	t.Parallel()
 
-	snapshot, err := state.Compile(state.CompileInput{Groups: []state.GroupConfig{
+	snapshot, err := state.Compile(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{
 		{
-			ID:        1,
-			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+			ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{
 				{ID: "chat-only"},
 				{ID: "shared"},
@@ -83,8 +81,7 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 			Enabled: true,
 		},
 		{
-			ID:        2,
-			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+			ID: 2, ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{
 				{ID: "responses-only"},
 				{ID: "shared"},
@@ -92,11 +89,7 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 			Enabled: true,
 		},
 		{
-			ID: 3,
-			Protocols: []protocol.Protocol{
-				protocol.OpenAICompletions,
-				protocol.OpenAIResponses,
-			},
+			ID: 3, ChannelID: channel.Gemini, Params: json.RawMessage(`{}`),
 			Models:  []state.ModelConfig{{ID: "both"}},
 			Enabled: true,
 		},
@@ -121,7 +114,7 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 					protocol.OpenAIResponses: {},
 				},
 			}},
-			want: []string{"both", "responses-only", "shared"},
+			want: []string{"both", "chat-only", "responses-only", "shared"},
 		},
 		{
 			name: "chat protocol filter",
@@ -130,7 +123,7 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 					protocol.OpenAICompletions: {},
 				},
 			}},
-			want: []string{"both", "chat-only", "shared"},
+			want: []string{"both", "chat-only", "responses-only", "shared"},
 		},
 	}
 
@@ -202,16 +195,15 @@ func TestMarshalModelList(t *testing.T) {
 
 func TestBuildVisibleModelListBoundsFinalAnthropicJSONAcrossGroups(t *testing.T) {
 	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
 			{
-				ID: 1, Name: "first", UpstreamURL: "https://first.example.com",
-				Protocols: []protocol.Protocol{protocol.Anthropic},
-				Models:    []state.ModelConfig{{ID: "zeta"}}, Enabled: true,
+				ID: 1, Name: "first", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "zeta"}}, Enabled: true,
 			},
 			{
-				ID: 2, Name: "second", UpstreamURL: "https://second.example.com",
-				Protocols: []protocol.Protocol{protocol.Anthropic},
-				Models:    []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
+				ID: 2, Name: "second", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
 			},
 		},
 	})

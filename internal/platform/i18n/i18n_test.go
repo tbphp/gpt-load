@@ -51,7 +51,7 @@ func TestRequestTooLargeTranslations(t *testing.T) {
 	}
 }
 
-func TestUpstreamURLChangeConfirmationTranslations(t *testing.T) {
+func TestChannelTargetConflictTranslations(t *testing.T) {
 	if err := Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -60,9 +60,9 @@ func TestUpstreamURLChangeConfirmationTranslations(t *testing.T) {
 		language string
 		message  string
 	}{
-		{language: "zh-CN", message: "修改上游地址需要明确确认"},
-		{language: "en-US", message: "Changing the upstream URL requires explicit confirmation"},
-		{language: "ja-JP", message: "アップストリームURLの変更には明示的な確認が必要です"},
+		{language: "zh-CN", message: "已有分组使用相同渠道目标"},
+		{language: "en-US", message: "An existing group already uses this channel target"},
+		{language: "ja-JP", message: "同じチャネル接続先を使用するグループが既に存在します"},
 	} {
 		t.Run(test.language, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
@@ -71,7 +71,7 @@ func TestUpstreamURLChangeConfirmationTranslations(t *testing.T) {
 			context.Request.Header.Set("Accept-Language", test.language)
 			Middleware()(context)
 
-			if got := Message(context, "group.upstream_url_change_confirmation_required"); got != test.message {
+			if got := Message(context, "group.channel_target_conflict"); got != test.message {
 				t.Fatalf("Message() = %q, want %q", got, test.message)
 			}
 		})

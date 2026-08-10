@@ -26,7 +26,7 @@ type priceReferenceSnapshot struct {
 	references map[pricing.Identity]referencedPrice
 }
 
-// reconcileReferencedPrices materializes every exact Group/model identity that
+// reconcileReferencedPrices materializes every exact channel/model identity that
 // is currently referenced. Existing rows are immutable under ordinary Group
 // writes; catalog refresh and broad cleanup are owned by the sync workflow.
 func reconcileReferencedPrices(tx *gorm.DB, snapshot *catalog.Snapshot) error {
@@ -41,7 +41,10 @@ func reconcileReferencedPrices(tx *gorm.DB, snapshot *catalog.Snapshot) error {
 	}
 	existingIdentities := make(map[pricing.Identity]struct{}, len(existing))
 	for _, row := range existing {
-		identity := pricing.Identity{ModelID: row.ModelID}
+		identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+		if err != nil {
+			return fmt.Errorf("validate persisted price identity: %w", app_errors.ErrInternalServer)
+		}
 		if _, duplicate := existingIdentities[identity]; duplicate {
 			return fmt.Errorf("duplicate persisted price identity: %w", app_errors.ErrInternalServer)
 		}
@@ -55,6 +58,9 @@ func reconcileReferencedPrices(tx *gorm.DB, snapshot *catalog.Snapshot) error {
 		}
 	}
 	sort.Slice(ordered, func(left, right int) bool {
+		if ordered[left].ChannelID != ordered[right].ChannelID {
+			return ordered[left].ChannelID < ordered[right].ChannelID
+		}
 		return ordered[left].ModelID < ordered[right].ModelID
 	})
 	for _, identity := range ordered {
@@ -89,17 +95,12 @@ func loadPriceReferenceSnapshot(tx *gorm.DB) (priceReferenceSnapshot, error) {
 func buildPriceReferenceSnapshot(groups []models.Group) (priceReferenceSnapshot, error) {
 	references := make(map[pricing.Identity]referencedPrice)
 	for _, group := range groups {
-		if group.ProviderID != nil {
-			if _, err := pricing.ProviderScopeKey(*group.ProviderID); err != nil {
-				return priceReferenceSnapshot{}, fmt.Errorf("validate persisted Group provider identity: %w", app_errors.ErrInternalServer)
-			}
-		}
 		var groupModels []GroupModel
 		if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
 			return priceReferenceSnapshot{}, fmt.Errorf("decode group price references: %w", app_errors.ErrInternalServer)
 		}
 		for _, model := range groupModels {
-			identity, err := PriceIdentityForModel(model.ID)
+			identity, err := PriceIdentityForChannelModel(group.ChannelID, model.ID)
 			if err != nil {
 				return priceReferenceSnapshot{}, fmt.Errorf("validate group price reference: %w", app_errors.ErrInternalServer)
 			}
@@ -120,14 +121,15 @@ func newReconciledModelPrice(
 	snapshot *catalog.Snapshot,
 ) (models.ModelPrice, error) {
 	row := models.ModelPrice{
-		ModelID:  reference.identity.ModelID,
-		IsManual: false,
+		ChannelID: reference.identity.ChannelID,
+		ModelID:   reference.identity.ModelID,
+		IsManual:  false,
 	}
-	cost, _, ok := resolveAutomaticPrice(snapshot, reference.identity.ModelID)
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, reference.identity)
 	if !ok {
 		return row, nil
 	}
-	desired, err := automaticCatalogValues(cost)
+	desired, err := automaticCatalogValues(match.cost)
 	if err != nil {
 		return models.ModelPrice{}, err
 	}

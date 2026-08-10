@@ -3,10 +3,11 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
 import { enabledDataProtocols } from '@/api/control/protocols'
-import type { GroupProtocol } from '@/api/control/types'
+import type { ChannelParamsDto, GroupProtocol } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { projectModelPrice, type ModelPriceDto } from '@/app/resources/model-prices'
+import { projectChannelID } from '@/app/resources/channels'
 
 import {
   assertNoSecretLikeFields,
@@ -67,9 +68,10 @@ export interface ModelCatalogMetadataDto {
 export interface ModelRouteGroupDto {
   id: number
   name: string
-  provider_id: string | null
+  channel_id: string
+  params: ChannelParamsDto
   enabled: boolean
-  protocols: GroupProtocol[]
+  client_protocols: GroupProtocol[]
 }
 
 export type ModelCatalogReferenceSource = 'actual_provider' | 'reference_provider'
@@ -160,7 +162,7 @@ const upstreamDetailFields = [
 ] as const
 const associationFields = ['client_model', 'alias_applied', 'group'] as const
 const catalogReferenceFields = ['source', 'provider_id', 'provider_name', 'model'] as const
-const groupFields = ['id', 'name', 'provider_id', 'enabled', 'protocols'] as const
+const groupFields = ['id', 'name', 'channel_id', 'params', 'enabled', 'client_protocols'] as const
 const catalogModelFields = [
   'id',
   'name',
@@ -221,6 +223,16 @@ function projectProtocols(value: unknown): GroupProtocol[] {
   const protocols = projectArray(value, (protocol) => projectEnum(protocol, enabledDataProtocols))
   if (new Set(protocols).size !== protocols.length) invalidResponse()
   return protocols
+}
+
+function projectChannelParams(value: unknown): ChannelParamsDto {
+  const record = projectRecord(value)
+  const result: ChannelParamsDto = {}
+  for (const [key, param] of Object.entries(record)) {
+    if (!/^[a-z][a-z0-9_]*$/u.test(key)) invalidResponse()
+    result[key] = projectString(param, { allowEmpty: true })
+  }
+  return result
 }
 
 function projectNullableBoolean(value: unknown): boolean | null {
@@ -286,9 +298,10 @@ function projectRouteGroup(value: unknown): ModelRouteGroupDto {
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectIdentityString(record.name),
-    provider_id: record.provider_id === null ? null : projectIdentityString(record.provider_id),
+    channel_id: projectChannelID(record.channel_id),
+    params: projectChannelParams(record.params),
     enabled: projectBoolean(record.enabled),
-    protocols: projectProtocols(record.protocols),
+    client_protocols: projectProtocols(record.client_protocols),
   }
 }
 
@@ -318,6 +331,8 @@ function projectUpstreamPrice(
     price.model_id !== upstreamModelID ||
     routeGroups.length === 0 ||
     affectedGroups.length === 0 ||
+    routeGroups.some(({ channel_id }) => channel_id !== price.channel_id) ||
+    affectedGroups.some(({ channel_id }) => channel_id !== price.channel_id) ||
     new Set(routeGroups.map(({ id }) => id)).size !== routeGroups.length ||
     affectedGroupIDs.size !== affectedGroups.length ||
     routeGroups.some(({ id }) => !affectedGroupIDs.has(id)) ||
@@ -369,6 +384,7 @@ export function projectUpstreamModelDetail(value: unknown): UpstreamModelDetailD
   const groupCount = projectSafeInteger(record.group_count, { minimum: 0 })
   if (
     price.model_id !== modelID ||
+    associations.some(({ group }) => group.channel_id !== price.channel_id) ||
     clientModelCount !== new Set(associations.map(({ client_model }) => client_model)).size ||
     groupCount !== new Set(associations.map(({ group }) => group.id)).size ||
     price.reference_count !== associations.length ||
@@ -397,7 +413,7 @@ function projectClientModel(value: unknown): ClientModelDto {
   )
   if (
     upstreamModels.length === 0 ||
-    new Set(upstreamModels.map(({ model_id }) => model_id)).size !== upstreamModels.length
+    new Set(upstreamModels.map(({ price }) => price.id)).size !== upstreamModels.length
   ) {
     invalidResponse()
   }

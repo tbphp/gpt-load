@@ -2,6 +2,7 @@
 package container
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -12,8 +13,11 @@ import (
 
 	"gpt-load/internal/app"
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
+	bifrostexecutor "gpt-load/internal/execution/bifrost"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
@@ -54,7 +58,8 @@ func BuildContainer() (*dig.Container, error) {
 		app.NewEngineWithLifecycle,
 		webui.NewServer,
 		state.NewManager,
-		state.NewKeyRegistry,
+		state.NewCredentialRegistry,
+		channel.NewRegistry,
 		control.NewPriceRuntime,
 		control.NewCatalogBootstrap,
 		func(bootstrap *control.CatalogBootstrap) *catalog.Runtime { return bootstrap.Runtime },
@@ -94,7 +99,7 @@ func BuildContainer() (*dig.Container, error) {
 		},
 		func(
 			cfg *config.Config,
-			registry *state.KeyRegistry,
+			registry *state.CredentialRegistry,
 			stats *health.StatsStore,
 		) app.RuntimeStateCheckpoint {
 			return app.NewFileRuntimeStateCheckpoint(cfg.DataDir, registry, stats)
@@ -133,8 +138,13 @@ func BuildContainer() (*dig.Container, error) {
 		) dialect.Set {
 			return dialect.NewSet(openAI, openAIResponses, anthropic, gemini)
 		},
-		gateway.NewForwarder,
-		func(forwarder *gateway.Forwarder) gateway.AttemptForwarder { return forwarder },
+		func() (*bifrostexecutor.Runtime, error) {
+			return bifrostexecutor.NewRuntime(context.Background())
+		},
+		func(runtime *bifrostexecutor.Runtime) execution.Executor { return runtime },
+		func(runtime *bifrostexecutor.Runtime) app.ExecutionRuntime { return runtime },
+		gateway.NewExecutionForwarder,
+		func(forwarder *gateway.ExecutionForwarder) gateway.AttemptForwarder { return forwarder },
 		gateway.NewHandlerWithLifecycle,
 		control.NewService,
 		control.NewCatalogSyncCoordinator,
@@ -142,8 +152,13 @@ func BuildContainer() (*dig.Container, error) {
 		func(service *control.Service) app.StartupRecovery { return service },
 		control.NewServer,
 		newHTTPRegistry,
-		func(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) app.RuntimeStateLoader {
-			return stateloader.New(db, manager, registry)
+		func(
+			db *gorm.DB,
+			manager *state.Manager,
+			registry *state.CredentialRegistry,
+			channelRegistry *channel.Registry,
+		) app.RuntimeStateLoader {
+			return stateloader.New(db, manager, registry, channelRegistry)
 		},
 		app.NewApp,
 	}

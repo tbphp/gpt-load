@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -23,7 +22,7 @@ import (
 func TestControlRoutesRequireAuthenticationForGroupCreateAndModelDiscovery(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			t.Fatal("ListModels called without valid management authentication")
@@ -82,7 +81,7 @@ func TestControlRoutesRequireAuthenticationForGroupCreateAndModelDiscovery(t *te
 func TestCreateAndImportEndpointsRequireCanonicalIdempotencyKeyBeforeMutation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForKeyImport(t, fixture, "seed-idempotency-header")
+	groupID := createGroupWithCredentials(t, fixture, "seed-idempotency-header")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	tests := []struct {
@@ -98,12 +97,12 @@ func TestCreateAndImportEndpointsRequireCanonicalIdempotencyKeyBeforeMutation(t 
 		{
 			name: "Group create",
 			path: "/api/groups",
-			body: `{"upstream_url":"https://header.example.com","protocols":["openai-completions"],"keys":"K"}`,
+			body: `{"channel_id":"openai","params":{},"models":[],"credentials":"K"}`,
 		},
 		{
-			name: "Group key import",
-			path: "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/keys/import",
-			body: `{"keys":"K"}`,
+			name: "Group credential import",
+			path: "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/credentials/import",
+			body: `{"credentials":"K"}`,
 		},
 	}
 	for _, test := range tests {
@@ -231,10 +230,10 @@ func TestAccessKeyCreateReplayOptionsAndRevealWireContracts(t *testing.T) {
 }
 
 type createImportRowCounts struct {
-	groups     int64
-	upstream   int64
-	access     int64
-	operations int64
+	groups      int64
+	credentials int64
+	access      int64
+	operations  int64
 }
 
 func countCreateImportRows(
@@ -245,7 +244,7 @@ func countCreateImportRows(
 	var result createImportRowCounts
 	for model, target := range map[any]*int64{
 		&models.Group{}:            &result.groups,
-		&models.UpstreamKey{}:      &result.upstream,
+		&models.Credential{}:       &result.credentials,
 		&models.AccessKey{}:        &result.access,
 		&models.ControlOperation{}: &result.operations,
 	} {

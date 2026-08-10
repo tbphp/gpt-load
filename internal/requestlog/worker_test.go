@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -1095,7 +1096,7 @@ func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *
 	event.UpstreamReportedModel = "gpt-4o"
 	event.Attempts[0].UpstreamModel = "gpt-4o"
 	event.Usage = telemetry.UsageObservation{
-		GroupID: 14, KeyID: 8, AttemptSequence: 1,
+		GroupID: 14, ChannelID: channel.OpenAI, CredentialID: 8, AttemptSequence: 1,
 		Result: usage.Result{
 			State:  usage.StateComplete,
 			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},

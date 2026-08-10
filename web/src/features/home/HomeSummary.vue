@@ -117,11 +117,11 @@ function selectRange(value: string): void {
         <span class="home-summary__separator" aria-hidden="true"> · </span>
         <span class="home-summary__fact">
           <strong>
-            {{ formatInteger(base.inventory.available_upstream_key_count, locale) }}/{{
-              formatInteger(base.inventory.upstream_key_count, locale)
+            {{ formatInteger(base.inventory.available_credential_count, locale) }}/{{
+              formatInteger(base.inventory.credential_count, locale)
             }}
           </strong>
-          <span>{{ t('home.ledger.factAvailableKeys') }}</span>
+          <span>{{ t('home.ledger.factAvailableCredentials') }}</span>
         </span>
         <span class="home-summary__separator" aria-hidden="true"> · </span>
         <span class="home-summary__fact">

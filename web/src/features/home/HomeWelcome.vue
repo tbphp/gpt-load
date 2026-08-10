@@ -21,7 +21,7 @@ const router = useRouter()
         @click="router.push(importLocation())"
       >
         <KeyRound :size="16" aria-hidden="true" />
-        {{ t('home.ledger.importKeys') }}
+        {{ t('home.ledger.importCredentials') }}
       </AppButton>
     </header>
 

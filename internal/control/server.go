@@ -206,150 +206,146 @@ func (s *Server) handleDeleteGroup(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", nil)
 }
 
-func (s *Server) handleListGroupKeys(c *gin.Context) {
-	id, ok := groupID(c, "list_group_keys")
+func (s *Server) handleListGroupCredentials(c *gin.Context) {
+	id, ok := groupID(c, "list_group_credentials")
 	if !ok {
 		return
 	}
-	query, apiErr := parseGroupKeyCollectionQuery(c.Request.URL.RawQuery)
+	query, apiErr := parseCredentialCollectionQuery(c.Request.URL.RawQuery)
 	if apiErr != nil {
-		writeServiceError(c, "list_group_keys", apiErr)
+		writeServiceError(c, "list_group_credentials", apiErr)
 		return
 	}
-	result, err := s.service.ListGroupKeys(c.Request.Context(), id, query)
+	result, err := s.service.ListGroupCredentials(c.Request.Context(), id, query)
 	if err != nil {
-		writeServiceError(c, "list_group_keys", err)
+		writeServiceError(c, "list_group_credentials", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleRevealGroupKey(c *gin.Context) {
-	groupID, ok := groupID(c, "reveal_group_key")
+func (s *Server) handleRevealGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "reveal_group_credential")
 	if !ok {
 		return
 	}
-	keyID, ok := keyID(c, "reveal_group_key")
+	credentialID, ok := credentialID(c, "reveal_group_credential")
 	if !ok {
 		return
 	}
-	result, err := s.service.RevealGroupKey(c.Request.Context(), groupID, keyID)
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "reveal_group_credential", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.RevealGroupCredential(c.Request.Context(), groupID, credentialID)
 	if err != nil {
-		writeServiceError(c, "reveal_group_key", err)
+		writeServiceError(c, "reveal_group_credential", err)
 		return
 	}
 	setSecretResponseHeaders(c)
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleUpdateGroupKey(c *gin.Context) {
-	groupID, ok := groupID(c, "update_group_key")
+func (s *Server) handleUpdateGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "update_group_credential")
 	if !ok {
 		return
 	}
-	keyID, ok := keyID(c, "update_group_key")
+	credentialID, ok := credentialID(c, "update_group_credential")
 	if !ok {
 		return
 	}
-	var request UpstreamKeyUpdateRequest
+	var request CredentialUpdateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "update_group_key", mapControlJSONError(err))
+		writeServiceError(c, "update_group_credential", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.UpdateGroupKey(
-		c.Request.Context(),
-		groupID,
-		keyID,
-		request,
-	)
+	result, err := s.service.UpdateGroupCredential(c.Request.Context(), groupID, credentialID, request)
 	if err != nil {
-		writeServiceError(c, "update_group_key", err)
+		writeServiceError(c, "update_group_credential", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleDeleteGroupKey(c *gin.Context) {
-	groupID, ok := groupID(c, "delete_group_key")
+func (s *Server) handleDeleteGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "delete_group_credential")
 	if !ok {
 		return
 	}
-	keyID, ok := keyID(c, "delete_group_key")
+	credentialID, ok := credentialID(c, "delete_group_credential")
 	if !ok {
 		return
 	}
-	if err := s.service.DeleteGroupKey(
-		c.Request.Context(),
-		groupID,
-		keyID,
-	); err != nil {
-		writeServiceError(c, "delete_group_key", err)
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "delete_group_credential", mapControlJSONError(err))
+		return
+	}
+	if err := s.service.DeleteGroupCredential(c.Request.Context(), groupID, credentialID); err != nil {
+		writeServiceError(c, "delete_group_credential", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", nil)
 }
 
-func (s *Server) handleRestoreGroupKey(c *gin.Context) {
-	groupID, ok := groupID(c, "restore_group_key")
+func (s *Server) handleRestoreGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "restore_group_credential")
 	if !ok {
 		return
 	}
-	keyID, ok := keyID(c, "restore_group_key")
+	credentialID, ok := credentialID(c, "restore_group_credential")
 	if !ok {
 		return
 	}
 	if err := bindOptionalEmptyJSONObject(c); err != nil {
-		writeServiceError(c, "restore_group_key", mapControlJSONError(err))
+		writeServiceError(c, "restore_group_credential", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.RestoreGroupKey(c.Request.Context(), groupID, keyID)
+	result, err := s.service.RestoreGroupCredential(c.Request.Context(), groupID, credentialID)
 	if err != nil {
-		writeServiceError(c, "restore_group_key", err)
+		writeServiceError(c, "restore_group_credential", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleBatchGroupKeys(c *gin.Context) {
-	groupID, ok := groupID(c, "batch_group_keys")
+func (s *Server) handleBatchGroupCredentials(c *gin.Context) {
+	groupID, ok := groupID(c, "batch_group_credentials")
 	if !ok {
 		return
 	}
-	var request GroupKeyBatchRequest
+	var request CredentialBatchRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "batch_group_keys", mapControlJSONError(err))
+		writeServiceError(c, "batch_group_credentials", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.BatchGroupKeys(c.Request.Context(), groupID, request)
+	result, err := s.service.BatchGroupCredentials(c.Request.Context(), groupID, request)
 	if err != nil {
-		writeServiceError(c, "batch_group_keys", err)
+		writeServiceError(c, "batch_group_credentials", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleImportGroupKeys(c *gin.Context) {
-	id, ok := groupID(c, "import_group_keys")
+func (s *Server) handleImportGroupCredentials(c *gin.Context) {
+	id, ok := groupID(c, "import_group_credentials")
 	if !ok {
 		return
 	}
-	idempotencyKey, ok := requiredIdempotencyKey(c, "import_group_keys")
+	idempotencyKey, ok := requiredIdempotencyKey(c, "import_group_credentials")
 	if !ok {
 		return
 	}
-	var request GroupKeyImportRequest
+	var request CredentialImportRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "import_group_keys", mapControlJSONError(err))
+		writeServiceError(c, "import_group_credentials", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.ImportGroupKeysIdempotent(
-		c.Request.Context(),
-		idempotencyKey,
-		id,
-		request,
+	result, err := s.service.ImportGroupCredentialsIdempotent(
+		c.Request.Context(), idempotencyKey, id, request,
 	)
 	if err != nil {
-		writeServiceError(c, "import_group_keys", err)
+		writeServiceError(c, "import_group_credentials", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
@@ -589,8 +585,8 @@ func groupID(c *gin.Context, operation string) (uint, bool) {
 	return uint(parsed), true
 }
 
-func keyID(c *gin.Context, operation string) (uint, bool) {
-	parsed, err := strconv.ParseUint(c.Param("key_id"), 10, strconv.IntSize)
+func credentialID(c *gin.Context, operation string) (uint, bool) {
+	parsed, err := strconv.ParseUint(c.Param("credential_id"), 10, strconv.IntSize)
 	if err != nil || parsed == 0 {
 		writeServiceError(c, operation, app_errors.ErrBadRequest)
 		return 0, false
@@ -672,30 +668,28 @@ func serviceErrorMessageID(
 			if resourceErr.resource == "group" {
 				return "group.not_found"
 			}
-			return "key.not_found"
+			return "credential.not_found"
 		}
 		switch operation {
 		case "list_groups", "get_group_summary", "get_group_settings", "get_group_models",
 			"update_group_settings", "delete_group",
-			"update_group_models", "import_group_keys",
-			"discover_group_models", "list_group_keys":
+			"update_group_models", "import_group_credentials",
+			"discover_group_models", "list_group_credentials":
 			return "group.not_found"
 		default:
-			return "key.not_found"
+			return "credential.not_found"
 		}
-	case app_errors.ErrNoActiveUpstreamKey.Code:
-		return "group.no_active_upstream_key"
+	case app_errors.ErrNoActiveCredential.Code:
+		return "group.no_active_credential"
 	case app_errors.ErrDuplicateResource.Code:
 		if operation == "create_group" || operation == "update_group_settings" {
 			return "group.name_exists"
 		}
 		return "bad_request"
-	case app_errors.ErrUpstreamURLChangeConfirmationRequired.Code:
-		return "group.upstream_url_change_confirmation_required"
 	case app_errors.ErrGroupInUse.Code:
 		return "group.in_use"
-	case app_errors.ErrUpstreamURLConflict.Code:
-		return "group.upstream_url_conflict"
+	case app_errors.ErrChannelTargetConflict.Code:
+		return "group.channel_target_conflict"
 	case app_errors.ErrModelNameConflict.Code:
 		return "group.model_name_conflict"
 	case app_errors.ErrBadGateway.Code:
@@ -722,8 +716,8 @@ func logServiceError(operation string, err error, code string) {
 		if operationErr.groupID != 0 {
 			fields["group_id"] = operationErr.groupID
 		}
-		if operationErr.keyID != 0 {
-			fields["key_id"] = operationErr.keyID
+		if operationErr.credentialID != 0 {
+			fields["credential_id"] = operationErr.credentialID
 		}
 	}
 	utils.LogPlaneBestEffort(

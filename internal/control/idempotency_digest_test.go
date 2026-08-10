@@ -24,8 +24,8 @@ func TestIdempotencyDigestFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("glob fixtures: %v", err)
 	}
-	if len(paths) != 5 {
-		t.Fatalf("fixture count = %d, want 5", len(paths))
+	if len(paths) != 3 {
+		t.Fatalf("fixture count = %d, want 3", len(paths))
 	}
 	digests := make(map[string]string, len(paths))
 	for _, path := range paths {
@@ -70,7 +70,6 @@ func TestIdempotencyDigestFixtures(t *testing.T) {
 	}
 	for _, pair := range [][2]string{
 		{"group-create-k", "group-create-k-twice"},
-		{"group-key-import-k", "group-key-import-k-twice"},
 	} {
 		if digests[pair[0]] == digests[pair[1]] {
 			t.Fatalf("%s and %s digests are equal", pair[0], pair[1])
@@ -132,25 +131,25 @@ func TestNormalizeIdempotencyKeyLinesPreservesSortedMultiplicity(t *testing.T) {
 		t.Fatalf("two = %#v, want [K K]", two)
 	}
 
-	oneBody, err := canonicalIdempotencyBody(map[string]any{"keys": one})
+	oneBody, err := canonicalIdempotencyBody(map[string]any{"credentials": one})
 	if err != nil {
 		t.Fatalf("canonicalIdempotencyBody(one) error = %v", err)
 	}
-	twoBody, err := canonicalIdempotencyBody(map[string]any{"keys": two})
+	twoBody, err := canonicalIdempotencyBody(map[string]any{"credentials": two})
 	if err != nil {
 		t.Fatalf("canonicalIdempotencyBody(two) error = %v", err)
 	}
 	oneDigest, err := buildIdempotencyDigest(idempotencyDigestInput{
-		Version: 1, Method: "POST", OperationKind: operationKindGroupKeyImport,
-		PathTemplate: "/api/groups/:group_id/keys/import", ResourceLocator: "group:7",
+		Version: 1, Method: "POST", OperationKind: operationKindCredentialImport,
+		PathTemplate: "/api/groups/:group_id/credentials/import", ResourceLocator: "group:7",
 		AuthScopeID: "control-admin-v1", CanonicalBody: oneBody,
 	})
 	if err != nil {
 		t.Fatalf("buildIdempotencyDigest(one) error = %v", err)
 	}
 	twoDigest, err := buildIdempotencyDigest(idempotencyDigestInput{
-		Version: 1, Method: "POST", OperationKind: operationKindGroupKeyImport,
-		PathTemplate: "/api/groups/:group_id/keys/import", ResourceLocator: "group:7",
+		Version: 1, Method: "POST", OperationKind: operationKindCredentialImport,
+		PathTemplate: "/api/groups/:group_id/credentials/import", ResourceLocator: "group:7",
 		AuthScopeID: "control-admin-v1", CanonicalBody: twoBody,
 	})
 	if err != nil {

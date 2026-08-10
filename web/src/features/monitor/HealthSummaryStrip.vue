@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { KeyCounts } from '@/app/resources/health'
+import type { HealthCredentialCountsDto } from '@/app/resources/health'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import type { StatusTone } from '@/components/ui/status-presenter'
 
@@ -21,22 +21,30 @@ interface HealthOverviewItem {
 }
 
 const props = defineProps<{
-  counts: KeyCounts
+  counts: HealthCredentialCountsDto
   earliestCooldown: CooldownRecovery | null
 }>()
 
 const { n, t } = useI18n()
 const items = computed<HealthOverviewItem[]>(() => [
   {
+    key: 'credentials',
+    label: t('monitor.health.overview.credentials'),
+    value: n(props.counts.credentials),
+    detail: t('monitor.health.overview.credentialsDescription'),
+    tooltip: undefined,
+    tone: 'neutral',
+  },
+  {
     key: 'available',
     label: t('monitor.health.overview.available'),
     value: n(props.counts.available),
-    detail: t('monitor.health.overview.total', { total: n(props.counts.total) }),
+    detail: t('monitor.health.overview.availableDescription'),
     tooltip: undefined,
     tone:
       props.counts.available > 0
         ? 'success'
-        : props.counts.total === 0 || props.counts.disabled === props.counts.total
+        : props.counts.credentials === 0
           ? 'neutral'
           : 'danger',
   },
@@ -63,14 +71,6 @@ const items = computed<HealthOverviewItem[]>(() => [
         : t('monitor.health.overview.blacklistedClear'),
     tooltip: undefined,
     tone: props.counts.blacklisted > 0 ? 'danger' : 'neutral',
-  },
-  {
-    key: 'disabled',
-    label: t('monitor.health.overview.disabled'),
-    value: n(props.counts.disabled),
-    detail: t('monitor.health.overview.disabledDescription'),
-    tooltip: undefined,
-    tone: 'neutral',
   },
 ])
 </script>
