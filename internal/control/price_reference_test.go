@@ -42,17 +42,20 @@ func TestResolveAutomaticPriceForIdentityUsesOfficialChannelCatalogProvider(t *t
 	}
 }
 
-func TestResolveAutomaticPriceForIdentityDoesNotFallbackForOfficialChannel(t *testing.T) {
+func TestResolveAutomaticPriceForIdentityFallsBackWhenChannelCatalogProviderMisses(t *testing.T) {
+	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
-			"shared": {ID: "shared", Cost: &catalog.ModelCost{}},
+			"custom-model": {ID: "custom-model", Cost: openAICost},
 		}},
 	}}
 
-	if match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
-		ChannelID: string(channel.Anthropic), ModelID: "shared",
-	}); ok {
-		t.Fatalf("official channel unexpectedly fell back: %#v", match)
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Anthropic), ModelID: "custom-model",
+	})
+	if !ok || match.cost != openAICost || match.providerID != "openai" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("official channel fallback = %#v, %t", match, ok)
 	}
 }
 

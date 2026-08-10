@@ -158,7 +158,7 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 	if !reflect.DeepEqual(provider.Models, []ModelCandidate{
 		{
 			ID: "shared-model", Name: "Anthropic model", Sources: []string{"live", "catalog"},
-			PricingStatus: PricingStatusPending,
+			PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
 		},
 	}) {
 		t.Fatalf("provider draft candidates = %#v", provider.Models)

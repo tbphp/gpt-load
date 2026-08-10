@@ -59,10 +59,9 @@ func resolveCatalogModelForIdentity(
 	}
 	if exactProviderID != "" {
 		model, ok := lookup(exactProviderID)
-		if !ok {
-			return catalog.Model{}, "", "", false
+		if ok {
+			return model, exactProviderID, ModelPriceMatchSourceChannelCatalogProvider, true
 		}
-		return model, exactProviderID, ModelPriceMatchSourceChannelCatalogProvider, true
 	}
 	for _, providerID := range catalogProviderLookupOrder(snapshot) {
 		model, ok := lookup(providerID)

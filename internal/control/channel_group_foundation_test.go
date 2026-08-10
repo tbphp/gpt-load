@@ -49,7 +49,8 @@ func TestServiceUsesInjectedChannelRegistryAndListsSafeDescriptors(t *testing.T)
 	}
 	common, err := fixture.service.ListChannels(context.Background(), "deep seek")
 	if err != nil || common.Total != 1 || len(common.Items) != 1 ||
-		common.Items[0].ID != channel.DeepSeek || len(common.Items[0].ParamFields) != 0 {
+		common.Items[0].ID != channel.DeepSeek || len(common.Items[0].ParamFields) != 1 ||
+		common.Items[0].ParamFields[0].Key != "base_url" || common.Items[0].ParamFields[0].Required {
 		t.Fatalf("ListChannels(deep seek) = %#v, %v", common, err)
 	}
 	commonJSON, err := json.Marshal(common)
