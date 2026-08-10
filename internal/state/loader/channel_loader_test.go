@@ -9,11 +9,92 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
+
+func TestValidatedLoaderRejectsWrongEncryptionKeyBeforePublishing(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	group := models.Group{
+		Name: "validated-startup", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true,
+	}
+	mustCreate(t, db, &group)
+	correct, err := encryption.NewService("correct-master-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := `{"api_key":"startup-secret"}`
+	ciphertext, err := correct.Encrypt(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, db, &models.Credential{
+		GroupID: group.ID, Data: ciphertext, Fingerprint: correct.Hash(canonical),
+		Status: models.CredentialStatusActive,
+	})
+	wrong, err := encryption.NewService("wrong-master-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := state.NewManager()
+	registry := state.NewCredentialRegistry()
+	err = loader.NewWithCredentialValidation(
+		db, manager, registry, channel.NewRegistry(), wrong,
+	).Load(t.Context())
+	if err == nil {
+		t.Fatal("Load() error = nil, want credential decryption failure")
+	}
+	if manager.Current() != nil || len(registry.Snapshot()) != 0 {
+		t.Fatal("invalid credentials were published before startup validation")
+	}
+	if strings.Contains(err.Error(), "startup-secret") || strings.Contains(err.Error(), ciphertext) {
+		t.Fatalf("Load() error leaked credential material: %v", err)
+	}
+}
+
+func TestValidatedLoaderRejectsInvalidStoredCredentialShape(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	group := models.Group{
+		Name: "invalid-shape", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true,
+	}
+	mustCreate(t, db, &group)
+	service, err := encryption.NewService("shape-master-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := `{"token":"must-not-leak"}`
+	ciphertext, err := service.Encrypt(invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, db, &models.Credential{
+		GroupID: group.ID, Data: ciphertext, Fingerprint: service.Hash(invalid),
+		Status: models.CredentialStatusActive,
+	})
+	manager := state.NewManager()
+	registry := state.NewCredentialRegistry()
+	err = loader.NewWithCredentialValidation(
+		db, manager, registry, channel.NewRegistry(), service,
+	).Load(t.Context())
+	if err == nil {
+		t.Fatal("Load() error = nil, want stored credential schema failure")
+	}
+	if manager.Current() != nil || len(registry.Snapshot()) != 0 {
+		t.Fatal("invalid credential shape was published")
+	}
+	if strings.Contains(err.Error(), "must-not-leak") || strings.Contains(err.Error(), ciphertext) {
+		t.Fatalf("Load() error leaked credential material: %v", err)
+	}
+}
 
 func TestBuildCompileInputMapsChannelAndCredentialMetadata(t *testing.T) {
 	t.Parallel()
@@ -95,6 +176,57 @@ func TestBuildGroupCredentialEntriesUsesStableCredentialIdentity(t *testing.T) {
 	if entries[1].Version != 99 || entries[1].IdentityGeneration == entries[0].IdentityGeneration ||
 		entries[1].Status != state.CredentialStatusDisabled || entries[1].WeightManual == nil || *entries[1].WeightManual != weight {
 		t.Fatalf("second entry identity = %#v", entries[1])
+	}
+}
+
+func TestBuildGroupCredentialEntriesChangesIdentityWhenExecutionTargetChanges(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	group := models.Group{
+		Name: "target-identity", ChannelID: string(channel.OpenAICompatible),
+		Params: models.JSON(`{"base_url":"https://old.example/v1"}`),
+		Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true,
+	}
+	mustCreate(t, db, &group)
+	credential := models.Credential{
+		GroupID: group.ID, Data: "cipher", Fingerprint: "same-fingerprint",
+		Status: models.CredentialStatusActive,
+	}
+	mustCreate(t, db, &credential)
+
+	before, err := loader.BuildGroupCredentialEntries(t.Context(), db, group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.Group{}).Where("id = ?", group.ID).
+		Update("params", models.JSON(`{"base_url":"https://new.example/v1"}`)).Error; err != nil {
+		t.Fatal(err)
+	}
+	after, err := loader.BuildGroupCredentialEntries(t.Context(), db, group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || len(after) != 1 ||
+		before[0].IdentityGeneration == after[0].IdentityGeneration {
+		t.Fatalf("identity generation before=%#v after=%#v", before, after)
+	}
+
+	registry := state.NewCredentialRegistry()
+	before[0].Blacklisted = true
+	before[0].FailureCount = 3
+	if err := registry.ReplaceCredentials(before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.ReconcileGroup(group.ID, after); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := registry.SnapshotGroupCredentialEntriesExact(group.ID, []uint{after[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Blacklisted || entries[0].FailureCount != 0 {
+		t.Fatalf("target change retained old health state: %#v", entries)
 	}
 }
 

@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -140,6 +142,29 @@ func TestCloudCredentialImportAcceptsOneStrictJSONObjectPerLine(t *testing.T) {
 				t.Fatalf("stored credential = %s, want %s", plaintext, test.want)
 			}
 		})
+	}
+}
+
+func TestCredentialValidationReturnsSafeFieldDiagnostic(t *testing.T) {
+	fixture := newServiceFixture(t)
+	const secret = "sensitive-client-id"
+	_, err := fixture.service.normalizeCredentials(
+		channel.AzureOpenAI,
+		`{"client_id":"`+secret+`"}`,
+	)
+	var apiErr *app_errors.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrValidation.Code {
+		t.Fatalf("normalizeCredentials() error = %#v, want validation API error", err)
+	}
+	encoded, marshalErr := json.Marshal(apiErr.Data)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if got, want := string(encoded), `{"entry":1,"field":"credential","reason_code":"incomplete_auth_method"}`; got != want {
+		t.Fatalf("validation data = %s, want %s", got, want)
+	}
+	if strings.Contains(string(encoded), secret) {
+		t.Fatalf("validation data leaked credential value: %s", encoded)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -250,7 +250,10 @@ func mapGroupCollectionRecords(
 			runtimeCredential.GroupID != persistedCredential.GroupID ||
 			runtimeCredential.Status != status ||
 			runtimeCredential.Version != groupCollectionCredentialVersion(persistedCredential.UpdatedAtMS) ||
-			runtimeCredential.IdentityGeneration != groupCollectionCredentialIdentity(persistedCredential.Fingerprint) ||
+			runtimeCredential.IdentityGeneration != groupCollectionCredentialIdentity(
+				persistedCredential.Fingerprint,
+				persistedGroups[persistedCredential.GroupID],
+			) ||
 			!equalGroupCollectionWeight(runtimeCredential.WeightManual, persistedCredential.WeightManual) {
 			return nil, groupCollectionDataError(
 				"persisted credential %d differs from runtime registry",
@@ -348,13 +351,12 @@ func groupCollectionCredentialVersion(updatedAtMS int64) uint64 {
 	return uint64(updatedAtMS)
 }
 
-func groupCollectionCredentialIdentity(fingerprint string) uint64 {
-	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(fingerprint))
-	if value := hasher.Sum64(); value != 0 {
-		return value
-	}
-	return 1
+func groupCollectionCredentialIdentity(fingerprint string, group models.Group) uint64 {
+	return stateloader.CredentialIdentityGeneration(
+		fingerprint,
+		group.ChannelID,
+		json.RawMessage(group.Params),
+	)
 }
 
 func groupCollectionDataError(format string, args ...any) error {

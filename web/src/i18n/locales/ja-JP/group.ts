@@ -184,6 +184,8 @@ export default {
         description: '名前、チャネルパラメータ、有効状態は Group 全体に適用されます。',
         channel: 'チャネル',
         channelHelp: 'チャネルは Group 作成時に確定し、後から変更できません。',
+        channelCatalogUnavailable:
+          'チャネル一覧を読み込めないため、チャネルパラメータをロックしました。他の設定は編集できます。',
         name: '名前',
         nameError: 'Group 名を入力してください。',
         upstreamUrl: 'アップストリーム URL',

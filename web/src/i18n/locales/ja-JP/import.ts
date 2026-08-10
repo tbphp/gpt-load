@@ -101,6 +101,17 @@ export default {
       channelCredentialNotice:
         'ここにはチャネルの API キーを入力します — クライアント認証情報はアクセスキーページで作成してください',
       result: '認証情報を {added} 件追加し、重複 {duplicated} 件をスキップしました',
+      validation: '認証情報 {entry} のフィールド {field} が無効です: {reason}',
+      validationReasons: {
+        unknown_field: 'このチャネルではサポートされていないフィールドです',
+        required: '必須フィールドです',
+        invalid_type: 'フィールドの型が正しくありません',
+        invalid_json: 'JSON 形式が正しくありません',
+        missing_required_field: '必須フィールドが不足しています',
+        conflicting_auth_methods: '複数の認証方式を混在させることはできません',
+        incomplete_auth_method: '認証フィールドが不足しています',
+        invalid_value: 'フィールド値が要件を満たしていません',
+      },
     },
     models: {
       title: 'モデルとエイリアス',

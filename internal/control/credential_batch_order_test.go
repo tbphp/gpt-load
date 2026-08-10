@@ -1,0 +1,98 @@
+package control
+
+import (
+	"errors"
+	"testing"
+
+	"gorm.io/gorm"
+
+	"gpt-load/internal/state"
+	"gpt-load/internal/storage/models"
+)
+
+func TestBatchEnableDoesNotExposeCredentialsBeforeDatabaseCommit(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "first-secret\nsecond-secret")
+
+	var rows []models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	ids := []uint{rows[0].ID, rows[1].ID}
+	if _, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, CredentialBatchRequest{
+		Action: CredentialBatchDisable, CredentialIDs: ids,
+	}); err != nil {
+		t.Fatalf("disable credentials: %v", err)
+	}
+
+	forced := errors.New("forced credential update failure")
+	observedActive := false
+	const callbackName = "test:observe_batch_enable_before_commit"
+	if err := fixture.db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Table != "credentials" {
+			return
+		}
+		for _, view := range fixture.registry.Snapshot() {
+			if (view.ID == ids[0] || view.ID == ids[1]) && view.Status == state.CredentialStatusActive {
+				observedActive = true
+			}
+		}
+		tx.AddError(forced)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fixture.db.Callback().Update().Remove(callbackName) })
+
+	_, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, CredentialBatchRequest{
+		Action: CredentialBatchEnable, CredentialIDs: ids,
+	})
+	if err == nil {
+		t.Fatal("BatchGroupCredentials() error = nil, want database failure")
+	}
+	if observedActive {
+		t.Fatal("credentials became routable before their database transaction committed")
+	}
+	for _, view := range fixture.registry.Snapshot() {
+		if (view.ID == ids[0] || view.ID == ids[1]) && view.Status != state.CredentialStatusDisabled {
+			t.Fatalf("credential %d runtime status = %q, want disabled", view.ID, view.Status)
+		}
+	}
+}
+
+func TestBatchEnableRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "runtime-recovery-secret")
+	var row models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, CredentialBatchRequest{
+		Action: CredentialBatchDisable, CredentialIDs: []uint{row.ID},
+	}); err != nil {
+		t.Fatalf("disable credential: %v", err)
+	}
+	fixture.service.applyBatchRegistryMutation = func(uint, []uint, CredentialBatchAction) error {
+		return errors.New("forced runtime activation failure")
+	}
+	fixture.service.restoreBatchRegistryEntries = func(uint, []state.CredentialEntry) error {
+		return errors.New("forced exact restore failure")
+	}
+
+	_, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, CredentialBatchRequest{
+		Action: CredentialBatchEnable, CredentialIDs: []uint{row.ID},
+	})
+	if err == nil {
+		t.Fatal("BatchGroupCredentials() error = nil, want runtime publication failure")
+	}
+	var stored models.Credential
+	if err := fixture.db.Take(&stored, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != models.CredentialStatusActive {
+		t.Fatalf("stored credential status = %q, want active", stored.Status)
+	}
+	view, exists := findRuntimeCredential(fixture.registry.Snapshot(), row.ID)
+	if !exists || view.Status != state.CredentialStatusActive {
+		t.Fatalf("runtime credential = %#v, exists=%t; want committed active state", view, exists)
+	}
+}

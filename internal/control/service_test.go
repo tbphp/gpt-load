@@ -223,7 +223,7 @@ func TestWriteConfigAppliesRuntimeBeforePublishingSnapshot(t *testing.T) {
 		return fixture.registry.ApplyCredentialImport(group.ID, []state.CredentialEntry{{
 			ID: credential.ID, GroupID: group.ID,
 			Version:            groupCollectionCredentialVersion(credential.UpdatedAtMS),
-			IdentityGeneration: groupCollectionCredentialIdentity(credential.Fingerprint),
+			IdentityGeneration: groupCollectionCredentialIdentity(credential.Fingerprint, *group),
 			Fingerprint:        credential.Fingerprint, Status: state.CredentialStatusActive,
 			EncryptedValue: credential.Data,
 		}})
@@ -382,7 +382,7 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 	}
 }
 
-func TestWriteConfigRuntimeFailureKeepsOldSnapshot(t *testing.T) {
+func TestWriteConfigRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	beforeSnapshot := fixture.manager.Current()
 	const secretCause = "forced Registry publication failure"
@@ -429,10 +429,45 @@ func TestWriteConfigRuntimeFailureKeepsOldSnapshot(t *testing.T) {
 	if strings.Contains(logText, secretCause) {
 		t.Fatalf("log output leaked secret cause: %s", logText)
 	}
-	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("runtime failure published Snapshot")
-	}
 	assertGroupCount(t, fixture.db, 1)
+	afterSnapshot := fixture.manager.Current()
+	if afterSnapshot == beforeSnapshot || afterSnapshot.Revision != beforeSnapshot.Revision+1 {
+		t.Fatalf("recovered snapshot revision = %d, want %d", afterSnapshot.Revision, beforeSnapshot.Revision+1)
+	}
+	if len(afterSnapshot.Groups) != 1 {
+		t.Fatalf("recovered snapshot groups = %#v, want committed database truth", afterSnapshot.Groups)
+	}
+	want, compileErr := state.Compile(mustBuildCompileInput(t, fixture.db))
+	if compileErr != nil {
+		t.Fatal(compileErr)
+	}
+	want.Revision = afterSnapshot.Revision
+	if !reflect.DeepEqual(afterSnapshot, want) {
+		t.Fatalf("recovered snapshot differs from database\ngot=%#v\nwant=%#v", afterSnapshot, want)
+	}
+}
+
+func TestWriteConfigSnapshotFailureReloadsCommittedDatabaseTruth(t *testing.T) {
+	fixture := newServiceFixture(t)
+	beforeRevision := fixture.manager.Current().Revision
+	fixture.service.publishSnapshot = func(state.CompileInput) (*state.ConfigSnapshot, error) {
+		return nil, errors.New("forced snapshot publication failure")
+	}
+
+	_, err := fixture.service.writeConfig(t.Context(), func(tx *gorm.DB) error {
+		return tx.Create(validControlGroup("snapshot-recovery")).Error
+	}, nil)
+	if err == nil {
+		t.Fatal("writeConfig() error = nil")
+	}
+	var operationErr *controlOperationError
+	if !errors.As(err, &operationErr) || operationErr.stage != stagePublishCommittedSnapshot {
+		t.Fatalf("writeConfig() operation error = %#v", operationErr)
+	}
+	after := fixture.manager.Current()
+	if after == nil || after.Revision != beforeRevision+1 || len(after.Groups) != 1 {
+		t.Fatalf("recovered snapshot = %#v, want committed database truth", after)
+	}
 }
 
 func TestWriteConfigSerializesConcurrentDatabaseAndSnapshotPublication(t *testing.T) {

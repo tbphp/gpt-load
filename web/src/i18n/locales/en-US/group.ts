@@ -185,6 +185,8 @@ export default {
         description: 'Name, channel parameters, and enabled status affect the entire Group.',
         channel: 'Channel',
         channelHelp: 'The channel is fixed when the Group is created.',
+        channelCatalogUnavailable:
+          'The channel directory is unavailable. Channel parameters are locked; other settings remain editable.',
         name: 'Name',
         nameError: 'Enter a Group name.',
         upstreamUrl: 'Upstream URL',

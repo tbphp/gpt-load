@@ -101,6 +101,17 @@ export default {
       channelCredentialNotice:
         'These are channel API keys; create client credentials on the Access Keys page',
       result: 'Added {added} credentials and skipped {duplicated} duplicates',
+      validation: 'Credential {entry}, field {field}: {reason}',
+      validationReasons: {
+        unknown_field: 'the field is not supported by this channel',
+        required: 'this field is required',
+        invalid_type: 'the field has an invalid type',
+        invalid_json: 'the JSON format is invalid',
+        missing_required_field: 'a required field is missing',
+        conflicting_auth_methods: 'authentication methods cannot be mixed',
+        incomplete_auth_method: 'the authentication fields are incomplete',
+        invalid_value: 'the field value is invalid',
+      },
     },
     models: {
       title: 'Models and aliases',

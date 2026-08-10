@@ -94,6 +94,10 @@ func createGroupCollectionKey(
 	if err := fixture.db.Create(&row).Error; err != nil {
 		t.Fatalf("create credential for group %d: %v", groupID, err)
 	}
+	var group models.Group
+	if err := fixture.db.Where("id = ?", groupID).Take(&group).Error; err != nil {
+		t.Fatalf("load group %d: %v", groupID, err)
+	}
 	runtimeStatus := state.CredentialStatusActive
 	if status == models.CredentialStatusDisabled {
 		runtimeStatus = state.CredentialStatusDisabled
@@ -101,7 +105,7 @@ func createGroupCollectionKey(
 	return state.CredentialEntry{
 		ID: row.ID, GroupID: groupID, Status: runtimeStatus, WeightManual: weight,
 		Version:            groupCollectionCredentialVersion(row.UpdatedAtMS),
-		IdentityGeneration: groupCollectionCredentialIdentity(row.Fingerprint),
+		IdentityGeneration: groupCollectionCredentialIdentity(row.Fingerprint, group),
 		Fingerprint:        row.Fingerprint,
 		EncryptedValue:     row.Data,
 	}

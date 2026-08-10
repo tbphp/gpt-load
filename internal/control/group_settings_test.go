@@ -9,10 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -145,6 +147,51 @@ func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *tes
 	}
 	if got := fixture.manager.Current().Revision; got != beforeRevision+1 {
 		t.Fatalf("snapshot revision = %d, want %d", got, beforeRevision+1)
+	}
+}
+
+func TestUpdateGroupTargetResetsCredentialHealthIdentity(t *testing.T) {
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://health-old.example/v1"}`),
+		Models:    optionalGroupModels{Set: true}, Credentials: "sk-target-health",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	before, exists := findRuntimeCredential(fixture.registry.Snapshot(), credential.ID)
+	if !exists || !fixture.registry.SetBlacklisted(credential.ID) {
+		t.Fatal("credential runtime state is unavailable")
+	}
+	now := time.Now().UTC()
+	fixture.stats.RecordFailure(
+		credential.ID,
+		health.FailureCategoryUpstreamHostError,
+		http.StatusBadGateway,
+		now,
+	)
+
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
+		Params: optionalField[json.RawMessage]{
+			Set: true, Value: json.RawMessage(`{"base_url":"https://health-new.example/v1"}`),
+		},
+	}); err != nil {
+		t.Fatalf("UpdateGroupSettings() error = %v", err)
+	}
+	after, exists := findRuntimeCredential(fixture.registry.Snapshot(), credential.ID)
+	if !exists {
+		t.Fatal("credential disappeared after target update")
+	}
+	if after.IdentityGeneration == before.IdentityGeneration || after.Blacklisted || after.FailureCount != 0 {
+		t.Fatalf("credential health identity before=%#v after=%#v", before, after)
+	}
+	if got := fixture.stats.Snapshot(credential.ID, now); got != (health.CredentialStats{}) {
+		t.Fatalf("credential stats after target update = %#v, want zero", got)
 	}
 }
 

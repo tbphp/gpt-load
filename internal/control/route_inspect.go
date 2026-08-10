@@ -16,9 +16,11 @@ import (
 )
 
 type routeInspectRequest struct {
-	Protocol      protocol.Protocol `json:"protocol"`
-	ExternalModel *string           `json:"external_model"`
-	AccessKeyID   uint              `json:"access_key_id"`
+	Protocol         protocol.Protocol   `json:"protocol"`
+	Operation        execution.Operation `json:"operation"`
+	RequiredFeatures []execution.Feature `json:"required_features"`
+	ExternalModel    *string             `json:"external_model"`
+	AccessKeyID      uint                `json:"access_key_id"`
 }
 
 type routeInspectAccessKeyResponse struct {
@@ -74,13 +76,64 @@ func optionalReason(value scheduler.ReasonCode) *scheduler.ReasonCode {
 
 func validateRouteInspectRequest(request routeInspectRequest) error {
 	if !request.Protocol.DataPlaneEnabled() ||
-		request.AccessKeyID == 0 {
+		request.AccessKeyID == 0 ||
+		!request.Operation.Valid() ||
+		request.RequiredFeatures == nil ||
+		!routeInspectOperationMatchesProtocol(request.Protocol, request.Operation) {
 		return app_errors.ErrValidation
+	}
+	seenFeatures := make(map[execution.Feature]struct{}, len(request.RequiredFeatures))
+	for _, feature := range request.RequiredFeatures {
+		if !feature.Valid() {
+			return app_errors.ErrValidation
+		}
+		if _, duplicate := seenFeatures[feature]; duplicate {
+			return app_errors.ErrValidation
+		}
+		seenFeatures[feature] = struct{}{}
 	}
 	if request.ExternalModel != nil && !validUsageModel(*request.ExternalModel) {
 		return app_errors.ErrValidation
 	}
+	if routeInspectOperationRequiresModel(request.Operation) != (request.ExternalModel != nil) &&
+		request.Operation != execution.OperationResponsesPassthrough {
+		return app_errors.ErrValidation
+	}
 	return nil
+}
+
+func routeInspectOperationMatchesProtocol(
+	clientProtocol protocol.Protocol,
+	operation execution.Operation,
+) bool {
+	if clientProtocol != protocol.OpenAIResponses {
+		return operation == execution.OperationChatCompletion
+	}
+	switch operation {
+	case execution.OperationResponsesCreate,
+		execution.OperationResponsesRetrieve,
+		execution.OperationResponsesDelete,
+		execution.OperationResponsesCancel,
+		execution.OperationResponsesInputItems,
+		execution.OperationResponsesCompact,
+		execution.OperationResponsesInputTokens,
+		execution.OperationResponsesPassthrough:
+		return true
+	default:
+		return false
+	}
+}
+
+func routeInspectOperationRequiresModel(operation execution.Operation) bool {
+	switch operation {
+	case execution.OperationChatCompletion,
+		execution.OperationResponsesCreate,
+		execution.OperationResponsesCompact,
+		execution.OperationResponsesInputTokens:
+		return true
+	default:
+		return false
+	}
 }
 
 func (service *Service) InspectRoute(
@@ -97,14 +150,19 @@ func (service *Service) InspectRoute(
 	if !exists {
 		return routeInspectResponse{}, app_errors.ErrResourceNotFound
 	}
+	requiredFeatures, err := execution.NewFeatureSet(request.RequiredFeatures...)
+	if err != nil {
+		return routeInspectResponse{}, app_errors.ErrValidation
+	}
 	explanation, err := scheduler.Inspect(
 		observation.snapshot,
 		observation.keys,
 		scheduler.Query{
-			ClientProtocol: request.Protocol,
-			Operation:      routeInspectOperation(request.Protocol, request.ExternalModel),
-			ExternalModel:  cloneRouteModel(request.ExternalModel),
-			AccessKey:      accessKey,
+			ClientProtocol:   request.Protocol,
+			Operation:        request.Operation,
+			RequiredFeatures: requiredFeatures,
+			ExternalModel:    cloneRouteModel(request.ExternalModel),
+			AccessKey:        accessKey,
 		},
 		observation.observedAt,
 	)
@@ -123,19 +181,6 @@ func (service *Service) InspectRoute(
 		accessKey,
 		explanation,
 	)
-}
-
-func routeInspectOperation(
-	clientProtocol protocol.Protocol,
-	externalModel *string,
-) execution.Operation {
-	if clientProtocol == protocol.OpenAIResponses {
-		if externalModel == nil {
-			return execution.OperationResponsesRetrieve
-		}
-		return execution.OperationResponsesCreate
-	}
-	return execution.OperationChatCompletion
 }
 
 func mapRouteInspectResponse(

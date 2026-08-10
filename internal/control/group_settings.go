@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -201,6 +203,8 @@ func (s *Service) UpdateGroupSettings(
 	}
 
 	var committed models.Group
+	var targetEntries []state.CredentialEntry
+	targetChanged := false
 	snapshot, err := s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
@@ -216,6 +220,7 @@ func (s *Service) UpdateGroupSettings(
 			updates["name"] = group.Name
 		}
 		if normalized.paramsSet {
+			previousParams := append([]byte(nil), group.Params...)
 			params, validateErr := s.channelRegistry.ValidateParams(
 				channel.ID(group.ChannelID), normalized.params,
 			)
@@ -223,6 +228,7 @@ func (s *Service) UpdateGroupSettings(
 				return app_errors.ErrValidation
 			}
 			group.Params = models.JSON(params.CanonicalJSON())
+			targetChanged = !bytes.Equal(bytes.TrimSpace(previousParams), bytes.TrimSpace(group.Params))
 			updates["params"] = append(models.JSON(nil), group.Params...)
 		}
 		if normalized.validationModelSet {
@@ -252,9 +258,26 @@ func (s *Service) UpdateGroupSettings(
 				return app_errors.ParseDBError(err)
 			}
 		}
+		if targetChanged {
+			targetEntries, err = stateloader.BuildGroupCredentialEntries(ctx, tx, groupID)
+			if err != nil {
+				return err
+			}
+		}
 		committed = group
 		return nil
-	}, nil)
+	}, func() error {
+		if !targetChanged {
+			return nil
+		}
+		if s.stats != nil {
+			for _, entry := range targetEntries {
+				s.stats.Reset(entry.ID)
+			}
+		}
+		_, err := s.reconcileRegistryGroup(groupID, targetEntries)
+		return err
+	})
 	if err != nil {
 		return GroupSettingsResponse{}, withControlOperationContext(err, groupID, 0)
 	}

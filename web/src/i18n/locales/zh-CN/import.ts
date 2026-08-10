@@ -92,6 +92,17 @@ export default {
       tooMany: '最多可提交 1,000 个非空密钥',
       channelCredentialNotice: '这里导入的是渠道 API 密钥；客户端凭证请在“访问密钥”页面创建',
       result: '新增 {added} 条凭据，跳过 {duplicated} 条重复凭据',
+      validation: '第 {entry} 条凭据的字段 {field} 无效：{reason}',
+      validationReasons: {
+        unknown_field: '字段不受当前渠道支持',
+        required: '此字段必填',
+        invalid_type: '字段类型不正确',
+        invalid_json: 'JSON 格式不正确',
+        missing_required_field: '缺少必要字段',
+        conflicting_auth_methods: '不能混用多种认证方式',
+        incomplete_auth_method: '认证字段不完整',
+        invalid_value: '字段值不符合要求',
+      },
     },
     models: {
       title: '模型与别名',

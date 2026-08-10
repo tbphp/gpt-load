@@ -61,7 +61,7 @@ func openExistingSecureFile(path string) (*os.File, error) {
 	handle, err := windows.CreateFile(
 		pathPtr,
 		windows.GENERIC_READ|windows.WRITE_DAC,
-		windows.FILE_SHARE_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		nil,
 		windows.OPEN_EXISTING,
 		windows.FILE_FLAG_OPEN_REPARSE_POINT,

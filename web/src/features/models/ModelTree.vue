@@ -31,7 +31,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
         :aria-label="t('models.tree.label')"
       >
         <div class="model-tree__row model-tree__row--head" role="row">
-          <span v-if="!readOnly" class="model-tree__cell" role="columnheader">
+          <span class="model-tree__cell" role="columnheader">
             {{ t('models.tree.modelColumn') }}
           </span>
           <span
@@ -45,7 +45,7 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
           <span class="model-tree__cell model-tree__cell--status" role="columnheader">
             {{ t('models.tree.statusColumn') }}
           </span>
-          <span class="model-tree__cell" role="columnheader">
+          <span v-if="!readOnly" class="model-tree__cell" role="columnheader">
             <span class="sr-only">{{ t('models.tree.actionColumn') }}</span>
           </span>
         </div>

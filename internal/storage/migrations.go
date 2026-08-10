@@ -13,7 +13,10 @@ import (
 	"gpt-load/internal/platform/dbtx"
 )
 
-const migrationLedgerTable = "schema_migrations"
+const (
+	migrationLedgerTable = "schema_migrations"
+	initialV2MigrationID = "0001_final_v2"
+)
 
 const (
 	migrationLockName    = "gpt-load:schema-migrations:v2"
@@ -35,7 +38,7 @@ type migration struct {
 
 var migrations = []migration{
 	{
-		ID: "0001_final_v2",
+		ID: initialV2MigrationID,
 		Up: createInitialV2Tables,
 	},
 }
@@ -99,12 +102,21 @@ func applyMigrationsLocked(db *gorm.DB, useMigrationTransactions bool) error {
 	if err := db.Table(migrationLedgerTable).Order("id ASC").Pluck("id", &applied).Error; err != nil {
 		return fmt.Errorf("read schema_migrations: %w", err)
 	}
+	resumeMarker := false
+	if len(applied) > 0 {
+		lastIndex := len(applied) - 1
+		if lastIndex < len(migrations) &&
+			applied[lastIndex] == migrationResumeMarker(migrations[lastIndex].ID) {
+			resumeMarker = true
+			applied = applied[:lastIndex]
+		}
+	}
 	for index, id := range applied {
 		if index >= len(migrations) || migrations[index].ID != id {
 			return fmt.Errorf("schema_migrations contains unknown or non-contiguous migration %q", id)
 		}
 	}
-	if len(applied) == 0 {
+	if len(applied) == 0 && !resumeMarker {
 		tables, err := db.Migrator().GetTables()
 		if err != nil {
 			return fmt.Errorf("list database tables before baseline migration: %w", err)
@@ -126,9 +138,17 @@ func applyMigrationsLocked(db *gorm.DB, useMigrationTransactions bool) error {
 }
 
 func applyMigration(db *gorm.DB, entry migration, useMigrationTransactions bool) error {
+	if strings.EqualFold(db.Dialector.Name(), "mysql") && entry.ID == initialV2MigrationID {
+		return applyMySQLInitialV2Migration(db, entry)
+	}
 	apply := func(tx *gorm.DB) error {
 		if err := entry.Up(tx); err != nil {
 			return fmt.Errorf("apply migration %s: %w", entry.ID, err)
+		}
+		if entry.ID == initialV2MigrationID {
+			if err := validateInitialV2Schema(tx); err != nil {
+				return fmt.Errorf("validate migration %s: %w", entry.ID, err)
+			}
 		}
 		if err := tx.Create(&schemaMigration{ID: entry.ID}).Error; err != nil {
 			return fmt.Errorf("record migration %s: %w", entry.ID, err)
@@ -147,6 +167,44 @@ func applyMigration(db *gorm.DB, entry migration, useMigrationTransactions bool)
 		return err
 	}
 	return nil
+}
+
+func applyMySQLInitialV2Migration(db *gorm.DB, entry migration) error {
+	marker := migrationResumeMarker(entry.ID)
+	var markerCount int64
+	if err := db.Model(&schemaMigration{}).Where("id = ?", marker).Count(&markerCount).Error; err != nil {
+		return fmt.Errorf("inspect MySQL migration %s marker: %w", entry.ID, err)
+	}
+	if markerCount > 1 {
+		return fmt.Errorf("apply MySQL migration %s: invalid resume marker count", entry.ID)
+	}
+	if markerCount == 0 {
+		if err := db.Create(&schemaMigration{ID: marker}).Error; err != nil {
+			return fmt.Errorf("record MySQL migration %s resume marker: %w", entry.ID, err)
+		}
+	} else if err := validateRecoverableInitialV2Schema(db); err != nil {
+		return fmt.Errorf("apply MySQL migration %s: unsafe interrupted baseline: %w", entry.ID, err)
+	}
+
+	if err := entry.Up(db); err != nil {
+		return fmt.Errorf("apply migration %s: %w", entry.ID, err)
+	}
+	if err := validateInitialV2Schema(db); err != nil {
+		return fmt.Errorf("validate migration %s: %w", entry.ID, err)
+	}
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&schemaMigration{}, "id = ?", marker).Error; err != nil {
+			return err
+		}
+		return tx.Create(&schemaMigration{ID: entry.ID}).Error
+	}); err != nil {
+		return fmt.Errorf("finalize MySQL migration %s: %w", entry.ID, err)
+	}
+	return nil
+}
+
+func migrationResumeMarker(id string) string {
+	return id + "#building"
 }
 
 func acquireMigrationLock(db *gorm.DB) error {

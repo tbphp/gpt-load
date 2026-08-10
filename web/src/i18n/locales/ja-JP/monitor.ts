@@ -376,9 +376,10 @@ export default {
     },
     inspector: {
       title: 'ルート検査',
-      description: 'プロトコル、モデル、AccessKey から候補 Group と認証情報を静的に確認します。',
+      description:
+        'プロトコル、操作、必要機能、モデル、AccessKey から候補 Group と認証情報を確認します。',
       boundary:
-        '実際の method、body、機能フィールドは解析しません。読み取り専用で、上流送信や Token 消費はありません。',
+        '実際のリクエストに必要な操作と機能を選択してください。読み取り専用で、上流送信や Token 消費はありません。',
       protocols: {
         'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
@@ -389,10 +390,31 @@ export default {
         native: 'ネイティブ',
         converted: '変換',
       },
+      operations: {
+        chat_completion: 'チャット補完',
+        responses_create: 'Response を作成',
+        responses_retrieve: 'Response を取得',
+        responses_delete: 'Response を削除',
+        responses_cancel: 'Response をキャンセル',
+        responses_input_items: '入力項目を取得',
+        responses_compact: 'Response を圧縮',
+        responses_input_tokens: '入力 Token を計算',
+        responses_passthrough: 'Responses 拡張操作',
+      },
+      features: {
+        streaming: 'ストリーミング',
+        tools: 'ツール呼び出し',
+        reasoning: '推論',
+        multimodal: 'マルチモーダル',
+        structured_output: '構造化出力',
+        native_resource_semantics: 'ネイティブリソースセマンティクス',
+      },
       form: {
         title: '模擬リクエスト条件',
         label: 'ルート検査の入力',
         protocol: 'プロトコル',
+        operation: '操作',
+        features: '必要な機能（複数選択可）',
         model: 'クライアントモデル',
         optional: '任意',
         modelPlaceholder: 'クライアントモデルを入力',
@@ -412,7 +434,8 @@ export default {
       },
       errors: {
         protocol: '有効なプロトコルを選択してください。',
-        model: '前後に空白のないモデル名を入力してください。',
+        operation: 'プロトコルに対応する操作を選択してください。',
+        model: '必要な操作では有効なモデルを入力し、リソース操作では空にしてください。',
         accessKey: '存在する AccessKey を選び直してください。',
         missingDeepLinkAccessKey:
           'リンクで指定された AccessKey #{id} は存在しません。選び直してください。',

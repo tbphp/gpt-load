@@ -468,6 +468,18 @@ func sdkErrorDispatchState(bifrostError *schemas.BifrostError, responseStarted b
 	if errors.As(underlying, &operationError) && strings.EqualFold(operationError.Op, "dial") {
 		return execution.DispatchNotSent
 	}
+	message := underlying.Error()
+	for _, marker := range []string{
+		"connection to unspecified IP ",
+		"connection to link-local IP ",
+		"connection to private IP ",
+		"blocked connection to non-public address ",
+		"no usable address resolved for ",
+	} {
+		if strings.Contains(message, marker) {
+			return execution.DispatchNotSent
+		}
+	}
 	return execution.DispatchMaybeSent
 }
 

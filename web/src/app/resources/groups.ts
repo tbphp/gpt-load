@@ -175,8 +175,39 @@ export interface CredentialImportResult {
   credentials_duplicated: number
 }
 
+const credentialValidationReasonCodes = [
+  'unknown_field',
+  'required',
+  'invalid_type',
+  'invalid_json',
+  'missing_required_field',
+  'conflicting_auth_methods',
+  'incomplete_auth_method',
+  'invalid_value',
+] as const
+
+export interface CredentialValidationData {
+  entry: number
+  field: string
+  reason_code: (typeof credentialValidationReasonCodes)[number]
+}
+
 export interface SameTargetConflictData {
   groups: Array<{ id: number; name: string }>
+}
+
+export function readCredentialValidationData(value: unknown): CredentialValidationData | null {
+  try {
+    const record = projectRecord(value)
+    assertNoSecretLikeFields(record, ['entry', 'field', 'reason_code'])
+    return {
+      entry: projectSafeInteger(record.entry, { minimum: 1, maximum: 1_000 }),
+      field: projectNonBlankString(record.field),
+      reason_code: projectEnum(record.reason_code, credentialValidationReasonCodes),
+    }
+  } catch {
+    return null
+  }
 }
 
 function projectNonBlankString(value: unknown): string {

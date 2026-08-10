@@ -180,6 +180,7 @@ export default {
         description: '名称、渠道参数与启用状态影响整个分组。',
         channel: '渠道',
         channelHelp: '渠道由创建分组时确定，后续不可切换。',
+        channelCatalogUnavailable: '无法加载渠道目录，渠道参数已锁定；其他设置仍可编辑。',
         name: '分组名称',
         nameError: '请输入 Group 名称。',
         upstreamUrl: '上游地址',

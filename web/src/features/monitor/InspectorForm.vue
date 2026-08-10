@@ -11,7 +11,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 
-type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
+type InspectorField = 'protocol' | 'operation' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
 interface SelectOption {
   value: string
@@ -20,9 +20,15 @@ interface SelectOption {
 
 const props = defineProps<{
   protocol: string
+  operation: string
+  features: string[]
   model: string
   accessKeyId: string
   protocolOptions: SelectOption[]
+  operationOptions: SelectOption[]
+  featureOptions: SelectOption[]
+  modelRequired: boolean
+  modelAllowed: boolean
   accessKeyOptions: SelectOption[]
   errors: InspectorErrors
   optionsPending: boolean
@@ -32,6 +38,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   'update:protocol': [value: string]
+  'update:operation': [value: string]
+  'update:features': [value: string[]]
   'update:model': [value: string]
   'update:accessKeyId': [value: string]
   submit: []
@@ -43,6 +51,13 @@ const hasValidationError = computed(() => Object.keys(props.errors).length > 0)
 function error(field: InspectorField): string | undefined {
   const key = props.errors[field]
   return key ? t(key) : undefined
+}
+
+function setFeature(value: string, checked: boolean): void {
+  const next = new Set(props.features)
+  if (checked) next.add(value)
+  else next.delete(value)
+  emit('update:features', [...next].sort())
 }
 </script>
 
@@ -90,6 +105,27 @@ function error(field: InspectorField): string | undefined {
         </FormField>
 
         <FormField
+          id="inspector-operation"
+          size="compact"
+          :label="t('monitor.inspector.form.operation')"
+          :error="error('operation')"
+          required
+        >
+          <template #default="{ describedBy }">
+            <AppSelect
+              id="inspector-operation"
+              :model-value="operation"
+              :label="t('monitor.inspector.form.operation')"
+              :options="operationOptions"
+              :aria-describedby="describedBy"
+              :aria-invalid="error('operation') ? 'true' : undefined"
+              size="compact"
+              @update:model-value="emit('update:operation', $event)"
+            />
+          </template>
+        </FormField>
+
+        <FormField
           id="inspector-protocol"
           size="compact"
           :label="t('monitor.inspector.form.protocol')"
@@ -114,8 +150,9 @@ function error(field: InspectorField): string | undefined {
           id="inspector-model"
           size="compact"
           :label="t('monitor.inspector.form.model')"
-          :label-suffix="t('monitor.inspector.form.optional')"
+          :label-suffix="modelRequired ? undefined : t('monitor.inspector.form.optional')"
           :error="error('externalModel')"
+          :required="modelRequired"
         >
           <template #default="{ describedBy }">
             <input
@@ -126,10 +163,23 @@ function error(field: InspectorField): string | undefined {
               :placeholder="t('monitor.inspector.form.modelPlaceholder')"
               :aria-describedby="describedBy"
               :aria-invalid="error('externalModel') ? 'true' : undefined"
+              :disabled="!modelAllowed"
               @input="emit('update:model', ($event.target as HTMLInputElement).value)"
             />
           </template>
         </FormField>
+
+        <fieldset class="inspector-features">
+          <legend>{{ t('monitor.inspector.form.features') }}</legend>
+          <label v-for="option in featureOptions" :key="option.value">
+            <input
+              type="checkbox"
+              :checked="features.includes(option.value)"
+              @change="setFeature(option.value, ($event.target as HTMLInputElement).checked)"
+            />
+            <span>{{ option.label }}</span>
+          </label>
+        </fieldset>
 
         <AppButton
           class="inspector-form__submit"
@@ -201,6 +251,37 @@ function error(field: InspectorField): string | undefined {
   margin-top: var(--space-1);
 }
 
+.inspector-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.inspector-features legend {
+  width: 100%;
+  margin-bottom: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+.inspector-features label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.inspector-features input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
 .inspector-inline-error {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--color-danger) 34%, var(--color-border-subtle));
@@ -233,6 +314,10 @@ function error(field: InspectorField): string | undefined {
   }
 
   .inspector-form-panel__body > :deep(.inline-feedback) {
+    grid-column: 1 / -1;
+  }
+
+  .inspector-features {
     grid-column: 1 / -1;
   }
 }

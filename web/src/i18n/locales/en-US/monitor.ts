@@ -377,9 +377,9 @@ export default {
     inspector: {
       title: 'Route inspector',
       description:
-        'Statically inspect candidate Groups and credentials by protocol, model, and AccessKey.',
+        'Inspect candidate Groups and credentials by protocol, operation, capabilities, model, and AccessKey.',
       boundary:
-        'Method, body, and feature fields are not parsed. Read-only; no upstream request or token usage.',
+        'Select the operation and capabilities required by the real request. Read-only; no upstream request or token usage.',
       protocols: {
         'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
@@ -390,10 +390,31 @@ export default {
         native: 'Native',
         converted: 'Converted',
       },
+      operations: {
+        chat_completion: 'Chat completion',
+        responses_create: 'Create Response',
+        responses_retrieve: 'Retrieve Response',
+        responses_delete: 'Delete Response',
+        responses_cancel: 'Cancel Response',
+        responses_input_items: 'List input items',
+        responses_compact: 'Compact Response',
+        responses_input_tokens: 'Count input tokens',
+        responses_passthrough: 'Responses extension operation',
+      },
+      features: {
+        streaming: 'Streaming',
+        tools: 'Tools',
+        reasoning: 'Reasoning',
+        multimodal: 'Multimodal',
+        structured_output: 'Structured output',
+        native_resource_semantics: 'Native resource semantics',
+      },
       form: {
         title: 'Simulated request',
         label: 'Route inspector inputs',
         protocol: 'Protocol',
+        operation: 'Operation',
+        features: 'Required capabilities',
         model: 'Client model',
         optional: 'Optional',
         modelPlaceholder: 'Enter a client model',
@@ -413,7 +434,8 @@ export default {
       },
       errors: {
         protocol: 'Select a valid protocol.',
-        model: 'Enter a model without leading or trailing whitespace.',
+        operation: 'Select an operation supported by the protocol.',
+        model: 'Enter a valid model when required; resource operations do not accept one.',
         accessKey: 'Reselect an existing AccessKey.',
         missingDeepLinkAccessKey:
           'The linked AccessKey #{id} no longer exists. Reselect an AccessKey.',

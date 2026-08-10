@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -58,6 +59,12 @@ type credentialCandidate struct {
 type normalizedCredentials struct {
 	candidates     []credentialCandidate
 	duplicateLines int
+}
+
+type credentialValidationData struct {
+	Entry      int    `json:"entry"`
+	Field      string `json:"field"`
+	ReasonCode string `json:"reason_code"`
 }
 
 type optionalGroupModels struct {
@@ -270,7 +277,11 @@ func (s *Service) normalizeCredentials(
 		}
 		credential, err := s.channelRegistry.ValidateCredential(channelID, encoded)
 		if err != nil {
-			return normalizedCredentials{}, app_errors.ErrValidation
+			return normalizedCredentials{}, s.credentialValidationError(
+				channelID,
+				nonEmptyLines,
+				err,
+			)
 		}
 		canonical := credential.CanonicalJSON()
 		fingerprint := s.encryption.Hash(string(canonical))
@@ -287,6 +298,68 @@ func (s *Service) normalizeCredentials(
 		return normalizedCredentials{}, app_errors.ErrValidation
 	}
 	return result, nil
+}
+
+func (s *Service) credentialValidationError(
+	channelID channel.ID,
+	entry int,
+	err error,
+) error {
+	var validationErr *channel.ValidationError
+	if !errors.As(err, &validationErr) {
+		return app_errors.ErrValidation
+	}
+	return app_errors.NewAPIErrorWithData(
+		app_errors.ErrValidation,
+		credentialValidationData{
+			Entry:      entry,
+			Field:      s.safeCredentialValidationField(channelID, validationErr.Field),
+			ReasonCode: credentialValidationReasonCode(validationErr.Reason),
+		},
+	)
+}
+
+func (s *Service) safeCredentialValidationField(channelID channel.ID, field string) string {
+	if field == "credential" || s == nil || s.channelRegistry == nil {
+		return "credential"
+	}
+	key, ok := strings.CutPrefix(field, "credential.")
+	if !ok || key == "" {
+		return "credential"
+	}
+	descriptor, ok := s.channelRegistry.Get(channelID)
+	if !ok {
+		return "credential"
+	}
+	for _, candidate := range descriptor.CredentialFields {
+		if candidate.Key == key {
+			return field
+		}
+	}
+	return "credential"
+}
+
+func credentialValidationReasonCode(reason string) string {
+	switch {
+	case strings.Contains(reason, "unknown field"):
+		return "unknown_field"
+	case reason == "required":
+		return "required"
+	case reason == "must be a string":
+		return "invalid_type"
+	case strings.Contains(reason, "valid JSON object"):
+		return "invalid_json"
+	case strings.Contains(reason, "must contain"):
+		return "missing_required_field"
+	case strings.Contains(reason, "must use either"):
+		return "conflicting_auth_methods"
+	case strings.Contains(reason, "requires") ||
+		strings.Contains(reason, "provided together") ||
+		strings.Contains(reason, "required for"):
+		return "incomplete_auth_method"
+	default:
+		return "invalid_value"
+	}
 }
 
 func credentialInputEntries(_ channel.ID, raw string) []string {

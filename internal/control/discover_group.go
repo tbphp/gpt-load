@@ -181,7 +181,7 @@ func (s *Service) mapGroupDiscoveryTarget(
 			snapshot: execution.NewCredentialSnapshot(
 				credentialRow.ID,
 				groupCollectionCredentialVersion(credentialRow.UpdatedAtMS),
-				groupCollectionCredentialIdentity(credentialRow.Fingerprint),
+				groupCollectionCredentialIdentity(credentialRow.Fingerprint, rows.group),
 				canonical,
 			),
 			apiKey: apiKey,

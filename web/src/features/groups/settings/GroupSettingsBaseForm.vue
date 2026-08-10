@@ -17,6 +17,7 @@ const props = defineProps<{
   weightManual: number | null
   enabled: boolean
   pending: boolean
+  paramsDisabled?: boolean
   nameError: string
   paramErrors: Record<string, string>
 }>()
@@ -88,7 +89,7 @@ function setWeightMode(value: string): void {
           class="group-settings__mono"
           :type="field.input_kind === 'url' ? 'url' : 'text'"
           :value="params[field.key] ?? ''"
-          :disabled="pending"
+          :disabled="pending || paramsDisabled"
           :required="field.required"
           :aria-invalid="paramErrors[field.key] ? 'true' : undefined"
           @input="emit('update:param', field.key, ($event.target as HTMLInputElement).value)"

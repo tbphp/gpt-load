@@ -83,16 +83,10 @@ const selectedChannel = computed(() =>
   channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.value?.channel_id),
 )
 const channelName = computed(() => selectedChannel.value?.name ?? draft.value?.channel_id ?? '')
-const channelParamFields = computed<ChannelFieldDto[]>(() => {
-  if (selectedChannel.value) return selectedChannel.value.param_fields
-  return Object.keys(draft.value?.params ?? {}).map((key) => ({
-    key,
-    label: key === 'base_url' ? t('group.settings.base.upstreamUrl') : key,
-    input_kind: key === 'base_url' ? 'url' : 'text',
-    required: true,
-    sensitive: false,
-  }))
-})
+const channelParamFields = computed<ChannelFieldDto[]>(
+  () => selectedChannel.value?.param_fields ?? [],
+)
+const channelParamsDisabled = computed(() => selectedChannel.value === undefined)
 let controller: AbortController | undefined
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
@@ -351,6 +345,12 @@ onBeforeUnmount(() => {
     />
     <template v-else-if="saved && draft">
       <InlineFeedback v-if="error" tone="danger">{{ error }}</InlineFeedback>
+      <InlineFeedback v-if="channelParamsDisabled" tone="danger">
+        {{ t('group.settings.base.channelCatalogUnavailable') }}
+        <AppButton variant="secondary" size="sm" @click="channelsQuery.refetch()">
+          {{ t('common.retry') }}
+        </AppButton>
+      </InlineFeedback>
       <div class="group-settings__layout">
         <SectionNav
           :model-value="section"
@@ -372,6 +372,7 @@ onBeforeUnmount(() => {
             :weight-manual="draft.weight_manual"
             :enabled="draft.enabled"
             :pending="mutationPending"
+            :params-disabled="channelParamsDisabled"
             :name-error="nameError"
             :param-errors="paramErrors"
             @update:param="updateParam"
@@ -391,6 +392,7 @@ onBeforeUnmount(() => {
             :weight-manual="draft.weight_manual"
             :enabled="draft.enabled"
             :pending="mutationPending"
+            :params-disabled="channelParamsDisabled"
             :name-error="nameError"
             :param-errors="paramErrors"
             @update:param="updateParam"

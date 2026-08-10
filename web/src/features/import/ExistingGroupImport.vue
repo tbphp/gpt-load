@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { InvalidResponseError } from '@/api/errors'
+import { ApiError, InvalidResponseError } from '@/api/errors'
 import { useStableLoading } from '@/app/loading-state'
 import { useToast } from '@/app/toast'
 import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
-import { groupOptionsQueryOptions, importGroupCredentials } from '@/app/resources/groups'
+import {
+  groupOptionsQueryOptions,
+  importGroupCredentials,
+  readCredentialValidationData,
+  type CredentialValidationData,
+} from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -38,6 +43,7 @@ const { t } = useI18n()
 const toast = useToast()
 const completed = ref(false)
 const errorKey = ref('')
+const credentialValidation = ref<CredentialValidationData | null>(null)
 const submissionError = ref<HTMLElement>()
 const importOperationOwner = useImportOperationOwner()
 const operation = importOperationOwner.importCredentials
@@ -134,6 +140,17 @@ const actionSummary = computed(() =>
     ? t('import.existing.actionSummary', { name: selectedGroup.value.name })
     : t('import.existing.actionSelectTarget'),
 )
+const submissionErrorMessage = computed(() =>
+  credentialValidation.value
+    ? t('import.credentials.validation', {
+        entry: credentialValidation.value.entry,
+        field: credentialValidation.value.field,
+        reason: t(`import.credentials.validationReasons.${credentialValidation.value.reason_code}`),
+      })
+    : errorKey.value
+      ? t(errorKey.value)
+      : '',
+)
 
 const unsavedChanges = useUnsavedChanges(dirty, {
   blocked: pending,
@@ -191,6 +208,7 @@ async function executeImportOperation(): Promise<void> {
   const current = operation.operation.value
   if (!current) return
   errorKey.value = ''
+  credentialValidation.value = null
   const outcome = await operation.execute(async (stableOperation, signal) => {
     const imported = await importGroupCredentials(
       api,
@@ -227,8 +245,12 @@ async function executeImportOperation(): Promise<void> {
   }
   if (!componentActive) return
   if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
+    const cause = operation.lastError.value
+    if (cause instanceof ApiError && cause.code === 'VALIDATION_FAILED') {
+      credentialValidation.value = readCredentialValidationData(cause.data)
+    }
     operation.reset()
-    errorKey.value = 'import.existing.importFailed'
+    if (!credentialValidation.value) errorKey.value = 'import.existing.importFailed'
     await nextTick()
     submissionError.value?.focus()
   }
@@ -238,8 +260,13 @@ async function abandonOperation(): Promise<void> {
   if (pending.value || !payloadLocked.value) return
   if (!(await unsavedChanges.confirmDiscard()) || pending.value) return
   operation.reset()
+  credentialValidation.value = null
   errorKey.value = ''
 }
+
+watch(credentials, () => {
+  credentialValidation.value = null
+})
 
 onBeforeUnmount(() => {
   componentActive = false
@@ -368,8 +395,13 @@ onBeforeUnmount(() => {
       </AppButton>
     </div>
 
-    <div v-if="errorKey" ref="submissionError" class="existing-import__error" tabindex="-1">
-      <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
+    <div
+      v-if="submissionErrorMessage"
+      ref="submissionError"
+      class="existing-import__error"
+      tabindex="-1"
+    >
+      <InlineFeedback tone="danger">{{ submissionErrorMessage }}</InlineFeedback>
     </div>
 
     <footer class="existing-import__actions">

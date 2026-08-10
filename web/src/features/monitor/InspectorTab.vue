@@ -13,8 +13,11 @@ import { RequestCancelledError } from '@/api/errors'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import {
   inspectRoute,
+  routeInspectFeatures,
   type RouteInspectCredentialDto,
+  type RouteInspectFeature,
   type RouteInspectGroupDto,
+  type RouteInspectOperation,
   type RouteInspectReasonCode,
   type RouteInspectRequest,
   type RouteInspectResponseDto,
@@ -41,7 +44,7 @@ import {
   type InspectorMonitorState,
 } from './monitor-route'
 
-type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
+type InspectorField = 'protocol' | 'operation' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
 type StatusTone = 'success' | 'warning' | 'danger' | 'neutral'
 
@@ -64,6 +67,16 @@ const knownReasons = new Set<RouteInspectReasonCode>([
   'credential_not_allowed',
   'no_available_credential',
 ])
+const responsesOperations: readonly RouteInspectOperation[] = [
+  'responses_create',
+  'responses_retrieve',
+  'responses_delete',
+  'responses_cancel',
+  'responses_input_items',
+  'responses_compact',
+  'responses_input_tokens',
+  'responses_passthrough',
+]
 
 const client = useApiClient()
 const route = useRoute()
@@ -71,6 +84,10 @@ const router = useRouter()
 const { locale, t } = useI18n()
 const routeState = computed(() => parseInspectorMonitorState(route.query))
 const draftProtocol = ref(readProtocol(routeState.value.protocol))
+const draftOperation = ref(
+  readOperation(routeState.value.operation) ?? defaultOperation(draftProtocol.value),
+)
+const draftFeatures = ref<RouteInspectFeature[]>([...routeState.value.requiredFeatures])
 const draftModel = ref(readText(routeState.value.externalModel))
 const draftAccessKeyID = ref(readPositiveID(routeState.value.accessKeyID))
 const fieldErrors = ref<InspectorErrors>({})
@@ -96,6 +113,21 @@ const protocolOptions = computed(() =>
     label: t(`monitor.inspector.protocols.${value}`),
   })),
 )
+const availableOperations = computed(() => operationsForProtocol(draftProtocol.value))
+const operationOptions = computed(() =>
+  availableOperations.value.map((value) => ({
+    value,
+    label: t(`monitor.inspector.operations.${value}`),
+  })),
+)
+const featureOptions = computed(() =>
+  routeInspectFeatures.map((value) => ({
+    value,
+    label: t(`monitor.inspector.features.${value}`),
+  })),
+)
+const modelRequired = computed(() => operationRequiresModel(draftOperation.value))
+const modelAllowed = computed(() => operationAllowsModel(draftOperation.value))
 const missingAccessKeyOption = computed(
   () =>
     accessKeyOptionsQuery.isSuccess.value &&
@@ -129,6 +161,8 @@ const inputChanged = computed(() => {
   if (!previous) return false
   return (
     draftProtocol.value !== previous.protocol ||
+    draftOperation.value !== previous.operation ||
+    draftFeatures.value.join(',') !== previous.required_features.join(',') ||
     draftModel.value !== (previous.external_model ?? '') ||
     draftAccessKeyID.value !== String(previous.access_key_id)
   )
@@ -168,6 +202,37 @@ function readProtocol(raw: unknown): AccessProtocol | '' {
     : ''
 }
 
+function operationsForProtocol(value: AccessProtocol | ''): readonly RouteInspectOperation[] {
+  if (value === 'openai-responses') return responsesOperations
+  if (enabledDataProtocols.some((protocol) => protocol === value)) return ['chat_completion']
+  return []
+}
+
+function defaultOperation(value: AccessProtocol | ''): RouteInspectOperation | '' {
+  return operationsForProtocol(value)[0] ?? ''
+}
+
+function readOperation(raw: unknown): RouteInspectOperation | undefined {
+  return typeof raw === 'string' && responsesOperations.includes(raw as RouteInspectOperation)
+    ? (raw as RouteInspectOperation)
+    : raw === 'chat_completion'
+      ? raw
+      : undefined
+}
+
+function operationRequiresModel(value: string): boolean {
+  return (
+    value === 'chat_completion' ||
+    value === 'responses_create' ||
+    value === 'responses_compact' ||
+    value === 'responses_input_tokens'
+  )
+}
+
+function operationAllowsModel(value: string): boolean {
+  return operationRequiresModel(value) || value === 'responses_passthrough'
+}
+
 function readText(raw: unknown): string {
   return normalizeMonitorText(raw) ?? ''
 }
@@ -182,16 +247,22 @@ watch(
   () =>
     [
       routeState.value.protocol,
+      routeState.value.operation,
+      routeState.value.requiredFeatures.join(','),
       routeState.value.externalModel,
       routeState.value.accessKeyID,
       routeState.value.run,
     ] as const,
-  ([rawProtocol, rawModel, rawAccessKeyID, run]) => {
+  ([rawProtocol, rawOperation, rawFeatures, rawModel, rawAccessKeyID, run]) => {
     const protocol = readProtocol(rawProtocol)
+    const operation = readOperation(rawOperation) ?? defaultOperation(protocol)
+    const features = rawFeatures === '' ? [] : [...routeState.value.requiredFeatures]
     const model = readText(rawModel)
     const accessKeyID = readPositiveID(rawAccessKeyID)
     const fieldsChanged =
       protocol !== draftProtocol.value ||
+      operation !== draftOperation.value ||
+      features.join(',') !== draftFeatures.value.join(',') ||
       model !== draftModel.value ||
       accessKeyID !== draftAccessKeyID.value
     if (!fieldsChanged && run) return
@@ -200,6 +271,8 @@ watch(
     controller?.abort()
     controller = undefined
     draftProtocol.value = protocol
+    draftOperation.value = operation
+    draftFeatures.value = features
     draftModel.value = model
     draftAccessKeyID.value = accessKeyID
     fieldErrors.value = {}
@@ -216,7 +289,14 @@ function validatedRequest(): RouteInspectRequest | undefined {
   if (!enabledDataProtocols.some((protocol) => protocol === draftProtocol.value)) {
     errors.protocol = 'monitor.inspector.errors.protocol'
   }
-  if (draftModel.value !== '' && !isValidMonitorText(draftModel.value)) {
+  if (!availableOperations.value.includes(draftOperation.value as RouteInspectOperation)) {
+    errors.operation = 'monitor.inspector.errors.operation'
+  }
+  if (
+    (modelRequired.value && draftModel.value === '') ||
+    (!modelAllowed.value && draftModel.value !== '') ||
+    (draftModel.value !== '' && !isValidMonitorText(draftModel.value))
+  ) {
     errors.externalModel = 'monitor.inspector.errors.model'
   }
 
@@ -234,6 +314,8 @@ function validatedRequest(): RouteInspectRequest | undefined {
 
   const request: RouteInspectRequest = {
     protocol: draftProtocol.value as AccessProtocol,
+    operation: draftOperation.value as RouteInspectOperation,
+    required_features: [...draftFeatures.value].sort(),
     access_key_id: accessKeyID,
   }
   if (draftModel.value !== '') request.external_model = draftModel.value
@@ -242,6 +324,19 @@ function validatedRequest(): RouteInspectRequest | undefined {
 
 function setDraftProtocol(value: string): void {
   draftProtocol.value = value as AccessProtocol | ''
+  if (
+    !operationsForProtocol(draftProtocol.value).includes(
+      draftOperation.value as RouteInspectOperation,
+    )
+  ) {
+    draftOperation.value = defaultOperation(draftProtocol.value)
+  }
+  if (!operationAllowsModel(draftOperation.value)) draftModel.value = ''
+}
+
+function setDraftOperation(value: string): void {
+  draftOperation.value = value as RouteInspectOperation | ''
+  if (!operationAllowsModel(draftOperation.value)) draftModel.value = ''
 }
 
 async function inspect(): Promise<void> {
@@ -250,6 +345,8 @@ async function inspect(): Promise<void> {
 
   const nextState: InspectorMonitorState = {
     protocol: request.protocol,
+    operation: request.operation,
+    requiredFeatures: request.required_features,
     externalModel: request.external_model ?? undefined,
     accessKeyID: String(request.access_key_id),
     run: true,
@@ -259,6 +356,8 @@ async function inspect(): Promise<void> {
   if (
     current.run &&
     current.protocol === nextState.protocol &&
+    current.operation === nextState.operation &&
+    current.requiredFeatures.join(',') === nextState.requiredFeatures.join(',') &&
     current.externalModel === nextState.externalModel &&
     current.accessKeyID === nextState.accessKeyID
   ) {
@@ -308,6 +407,8 @@ watch(
   [
     () => routeState.value.run,
     () => routeState.value.protocol,
+    () => routeState.value.operation,
+    () => routeState.value.requiredFeatures.join(','),
     () => routeState.value.externalModel,
     () => routeState.value.accessKeyID,
     () => accessKeyOptionsQuery.data.value,
@@ -319,6 +420,8 @@ watch(
     if (
       pending.value &&
       submitted.value?.protocol === request.protocol &&
+      submitted.value.operation === request.operation &&
+      submitted.value.required_features.join(',') === request.required_features.join(',') &&
       submitted.value.access_key_id === request.access_key_id &&
       submitted.value.external_model === request.external_model
     ) {
@@ -327,6 +430,8 @@ watch(
     if (
       observation.value !== undefined &&
       submitted.value?.protocol === request.protocol &&
+      submitted.value.operation === request.operation &&
+      submitted.value.required_features.join(',') === request.required_features.join(',') &&
       submitted.value.access_key_id === request.access_key_id &&
       submitted.value.external_model === request.external_model
     ) {
@@ -452,9 +557,15 @@ onBeforeUnmount(() => {
   <div class="inspector-tab">
     <InspectorForm
       :protocol="draftProtocol"
+      :operation="draftOperation"
+      :features="draftFeatures"
       :model="draftModel"
       :access-key-id="draftAccessKeyID"
       :protocol-options="protocolOptions"
+      :operation-options="operationOptions"
+      :feature-options="featureOptions"
+      :model-required="modelRequired"
+      :model-allowed="modelAllowed"
       :access-key-options="accessKeyOptions"
       :errors="fieldErrors"
       :options-pending="accessKeyOptionsQuery.isPending.value"
@@ -462,6 +573,8 @@ onBeforeUnmount(() => {
       :missing-access-key="missingAccessKeyOption"
       :submit-pending="pending"
       @update:protocol="setDraftProtocol"
+      @update:operation="setDraftOperation"
+      @update:features="draftFeatures = $event as RouteInspectFeature[]"
       @update:model="draftModel = $event"
       @update:access-key-id="draftAccessKeyID = $event"
       @submit="inspect"

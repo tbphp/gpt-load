@@ -20,6 +20,8 @@ import {
   discoverModels,
   importGroupCredentials,
   isSameTargetConflictData,
+  readCredentialValidationData,
+  type CredentialValidationData,
   type GroupCreateRequest,
   type ModelDiscoveryRequest,
   type SameTargetConflictData,
@@ -124,8 +126,14 @@ const channelsQuery = useQuery(channelsQueryOptions(api, channelSearchQuery))
 const allChannelsQuery = useQuery(channelsQueryOptions(api, ''))
 const allChannels = computed(() => allChannelsQuery.data.value?.items ?? [])
 const featuredChannels = computed(() => allChannels.value.slice(0, 3))
+const selectedChannelCache = ref<ChannelDto | null>(null)
 const selectedChannel = computed<ChannelDto | null>(
-  () => allChannels.value.find(({ channel_id }) => channel_id === draft.channel_id) ?? null,
+  () =>
+    allChannels.value.find(({ channel_id }) => channel_id === draft.channel_id) ??
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.channel_id) ??
+    (selectedChannelCache.value?.channel_id === draft.channel_id
+      ? selectedChannelCache.value
+      : null),
 )
 const channelCatalogLoading = computed(
   () => channelsQuery.isFetching.value || allChannelsQuery.isFetching.value,
@@ -139,6 +147,7 @@ const modelEditor = ref<{
   focusFirstInvalid: () => Promise<void>
 }>()
 const errorKey = ref('')
+const credentialValidation = ref<CredentialValidationData | null>(null)
 const submissionError = ref<HTMLElement>()
 const conflict = ref<SameTargetConflictData | null>(
   sameTargetConflict(createOperation.lastError.value),
@@ -222,7 +231,19 @@ const modelValidationSummary = computed(() =>
     .join(' · '),
 )
 const submissionErrorMessage = computed(
-  () => modelValidationSummary.value || (errorKey.value ? t(errorKey.value) : ''),
+  () =>
+    modelValidationSummary.value ||
+    (credentialValidation.value
+      ? t('import.credentials.validation', {
+          entry: credentialValidation.value.entry,
+          field: credentialValidation.value.field,
+          reason: t(
+            `import.credentials.validationReasons.${credentialValidation.value.reason_code}`,
+          ),
+        })
+      : errorKey.value
+        ? t(errorKey.value)
+        : ''),
 )
 const canDiscover = computed(
   () =>
@@ -403,7 +424,7 @@ function retryChannels(): void {
     channelSearchQuery.value = normalizedInput
     return
   }
-  void channelsQuery.refetch()
+  void Promise.all([channelsQuery.refetch(), allChannelsQuery.refetch()])
 }
 
 watch(
@@ -443,6 +464,7 @@ function initialChannelParams(channel: ChannelDto): Record<string, string> {
 function selectChannel(channel: ChannelDto): void {
   if (payloadLocked.value) return
   cancelDefaultChannel()
+  selectedChannelCache.value = channel
   draft.channel_id = channel.channel_id
   draft.params = initialChannelParams(channel)
   setPanel(undefined)
@@ -607,6 +629,7 @@ async function finishSuccess(
 }
 
 async function reportSubmissionError(key: string): Promise<void> {
+  credentialValidation.value = null
   errorKey.value = key
   await nextTick()
   submissionError.value?.focus()
@@ -625,6 +648,7 @@ async function submitCreate(): Promise<void> {
 async function executeCreateOperation(): Promise<void> {
   if (!createOperation.operation.value) return
   errorKey.value = ''
+  credentialValidation.value = null
   const outcome = await createOperation.execute((operation, signal) =>
     createGroup(api, operation.payload.request, operation.idempotencyKey, signal),
   )
@@ -650,6 +674,16 @@ async function executeCreateOperation(): Promise<void> {
     const conflicts = readModelNameConflicts(cause.data)
     if (conflicts.length) {
       serverModelConflicts.value = conflicts
+      createOperation.reset()
+      await nextTick()
+      submissionError.value?.focus()
+      return
+    }
+  }
+  if (cause instanceof ApiError && cause.code === 'VALIDATION_FAILED') {
+    const validation = readCredentialValidationData(cause.data)
+    if (validation) {
+      credentialValidation.value = validation
       createOperation.reset()
       await nextTick()
       submissionError.value?.focus()
@@ -720,6 +754,17 @@ async function executeAppendOperation(): Promise<void> {
     return
   }
   if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
+  const cause = appendOperation.lastError.value
+  if (cause instanceof ApiError && cause.code === 'VALIDATION_FAILED') {
+    const validation = readCredentialValidationData(cause.data)
+    if (validation) {
+      credentialValidation.value = validation
+      appendOperation.reset()
+      await nextTick()
+      submissionError.value?.focus()
+      return
+    }
+  }
   appendOperation.reset()
   await reportSubmissionError('import.appendFailed')
 }
@@ -736,6 +781,7 @@ async function abandonOperation(): Promise<void> {
   appendOperation.reset()
   conflict.value = null
   serverModelConflicts.value = []
+  credentialValidation.value = null
   errorKey.value = ''
 }
 
@@ -744,8 +790,16 @@ function returnToEdit(): void {
   createOperation.reset()
   appendOperation.reset()
   conflict.value = null
+  credentialValidation.value = null
   errorKey.value = ''
 }
+
+watch(
+  () => draft.credentials,
+  () => {
+    credentialValidation.value = null
+  },
+)
 
 function updateConflictDialog(open: boolean): void {
   if (!open && conflict.value !== null) returnToEdit()

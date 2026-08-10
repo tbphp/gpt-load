@@ -132,6 +132,7 @@ func (s *Service) UpdateGroupCredential(
 		return CredentialItemResponse{}, err
 	}
 	var committed models.Credential
+	var committedGroup models.Group
 	err = s.writeCredentialConfig(ctx, groupID, credentialID, func(tx *gorm.DB) error {
 		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
@@ -140,6 +141,7 @@ func (s *Service) UpdateGroupCredential(
 		if group.ChannelID == "" {
 			return app_errors.ErrValidation
 		}
+		committedGroup = group
 		if err := tx.Where("id = ? AND group_id = ?", credentialID, groupID).Take(&committed).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return credentialNotFoundError()
@@ -147,7 +149,7 @@ func (s *Service) UpdateGroupCredential(
 			return app_errors.ParseDBError(err)
 		}
 		view, exists := findRuntimeCredential(s.registry.Snapshot(), credentialID)
-		if err := validateCredentialRuntimeRow(groupID, committed, view, exists); err != nil {
+		if err := validateCredentialRuntimeRow(group, committed, view, exists); err != nil {
 			return err
 		}
 		updatedAtMS, err := nextCredentialUpdatedAtMS(s.now(), committed.UpdatedAtMS)
@@ -181,7 +183,10 @@ func (s *Service) UpdateGroupCredential(
 			entry.Status = state.CredentialStatus(committed.Status)
 			entry.WeightManual = cloneInt(committed.WeightManual)
 			entry.Version = groupCollectionCredentialVersion(committed.UpdatedAtMS)
-			entry.IdentityGeneration = groupCollectionCredentialIdentity(committed.Fingerprint)
+			entry.IdentityGeneration = groupCollectionCredentialIdentity(
+				committed.Fingerprint,
+				committedGroup,
+			)
 			entry.Fingerprint = committed.Fingerprint
 			entry.EncryptedValue = committed.Data
 			applyErr = s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
@@ -219,7 +224,7 @@ func (s *Service) DeleteGroupCredential(ctx context.Context, groupID, credential
 			return app_errors.ParseDBError(err)
 		}
 		view, exists := findRuntimeCredential(s.registry.Snapshot(), credentialID)
-		if err := validateCredentialRuntimeRow(groupID, row, view, exists); err != nil {
+		if err := validateCredentialRuntimeRow(group, row, view, exists); err != nil {
 			return err
 		}
 		if err := tx.Delete(&row).Error; err != nil {
@@ -269,7 +274,7 @@ func (s *Service) RestoreGroupCredential(
 		return CredentialItemResponse{}, app_errors.ParseDBError(err)
 	}
 	view, exists := findRuntimeCredential(s.registry.Snapshot(), credentialID)
-	if err := validateCredentialRuntimeRow(groupID, row, view, exists); err != nil {
+	if err := validateCredentialRuntimeRow(group, row, view, exists); err != nil {
 		return CredentialItemResponse{}, err
 	}
 	groupView := state.GroupCatalogView{ID: group.ID, Name: group.Name, Enabled: group.Enabled,
@@ -315,11 +320,12 @@ func (s *Service) RestoreGroupCredential(
 }
 
 func validateCredentialRuntimeRow(
-	groupID uint,
+	group models.Group,
 	row models.Credential,
 	view state.CredentialRuntimeView,
 	exists bool,
 ) error {
+	groupID := group.ID
 	if !exists {
 		return dbRegistryMismatch(mismatchMissingRegistry, groupID, row.ID)
 	}
@@ -333,7 +339,7 @@ func validateCredentialRuntimeRow(
 		return dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
 	}
 	if view.Version != groupCollectionCredentialVersion(row.UpdatedAtMS) ||
-		view.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint) {
+		view.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint, group) {
 		return dbRegistryMismatch(mismatchIdentity, groupID, row.ID)
 	}
 	return nil
@@ -435,7 +441,7 @@ func (s *Service) BatchGroupCredentials(
 			return CredentialBatchResponse{}, credentialNotFoundError()
 		}
 		view, exists := viewByID[row.ID]
-		if err := validateCredentialRuntimeRow(groupID, row, view, exists); err != nil {
+		if err := validateCredentialRuntimeRow(group, row, view, exists); err != nil {
 			return CredentialBatchResponse{}, err
 		}
 		rowByID[row.ID] = row
@@ -472,8 +478,65 @@ func (s *Service) BatchGroupCredentials(
 			}
 			desired[index].Version = uint64(nowMS)
 		}
+		persist := func() error {
+			return s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+				query := tx.Where("group_id = ? AND id IN ?", groupID, ids)
+				var result *gorm.DB
+				switch request.Action {
+				case CredentialBatchEnable:
+					result = query.Model(&models.Credential{}).Updates(map[string]any{
+						"status": models.CredentialStatusActive, "updated_at_ms": nowMS,
+					})
+				case CredentialBatchDisable:
+					result = query.Model(&models.Credential{}).Updates(map[string]any{
+						"status": models.CredentialStatusDisabled, "updated_at_ms": nowMS,
+					})
+				case CredentialBatchDelete:
+					result = query.Delete(&models.Credential{})
+				}
+				if result.Error != nil {
+					return app_errors.ParseDBError(result.Error)
+				}
+				if result.RowsAffected != int64(len(ids)) {
+					return fmt.Errorf("batch credential rows affected = %d, want %d: %w", result.RowsAffected, len(ids), app_errors.ErrDatabase)
+				}
+				return nil
+			})
+		}
 		if s.applyBatchRegistryMutation == nil {
 			mutationErr = app_errors.ErrInternalServer
+			return
+		}
+		if request.Action == CredentialBatchEnable {
+			// Enabling expands data-plane authority. Persist it before making
+			// the credentials routable; disable/delete intentionally keep the
+			// safer runtime-first ordering below.
+			if mutationErr = persist(); mutationErr != nil {
+				return
+			}
+			if applyErr := s.applyBatchRegistryMutation(groupID, ids, request.Action); applyErr != nil {
+				operationErr := withControlOperationContext(
+					newControlOperationError(stageApplyCommittedRegistryMutation),
+					groupID,
+					0,
+				)
+				mutationErr = joinCommittedRuntimeRecovery(
+					errors.Join(operationErr, applyErr),
+					s.recoverCommittedCredentialRegistry(ctx),
+				)
+				return
+			}
+			if restoreErr := s.registry.RestoreGroupCredentialEntriesExact(groupID, desired); restoreErr != nil {
+				operationErr := withControlOperationContext(
+					newControlOperationError(stageApplyCommittedRegistryMutation),
+					groupID,
+					0,
+				)
+				mutationErr = joinCommittedRuntimeRecovery(
+					errors.Join(operationErr, restoreErr),
+					s.recoverCommittedCredentialRegistry(ctx),
+				)
+			}
 			return
 		}
 		if applyErr := s.applyBatchRegistryMutation(groupID, ids, request.Action); applyErr != nil {
@@ -486,29 +549,7 @@ func (s *Service) BatchGroupCredentials(
 				return
 			}
 		}
-		mutationErr = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-			query := tx.Where("group_id = ? AND id IN ?", groupID, ids)
-			var result *gorm.DB
-			switch request.Action {
-			case CredentialBatchEnable:
-				result = query.Model(&models.Credential{}).Updates(map[string]any{
-					"status": models.CredentialStatusActive, "updated_at_ms": nowMS,
-				})
-			case CredentialBatchDisable:
-				result = query.Model(&models.Credential{}).Updates(map[string]any{
-					"status": models.CredentialStatusDisabled, "updated_at_ms": nowMS,
-				})
-			case CredentialBatchDelete:
-				result = query.Delete(&models.Credential{})
-			}
-			if result.Error != nil {
-				return app_errors.ParseDBError(result.Error)
-			}
-			if result.RowsAffected != int64(len(ids)) {
-				return fmt.Errorf("batch credential rows affected = %d, want %d: %w", result.RowsAffected, len(ids), app_errors.ErrDatabase)
-			}
-			return nil
-		})
+		mutationErr = persist()
 		if mutationErr != nil {
 			mutationErr = compensateCredentialBatchRegistry(s, groupID, before, mutationErr)
 			return

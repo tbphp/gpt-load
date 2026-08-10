@@ -3,6 +3,12 @@ import type { LocationQueryRaw } from 'vue-router'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { UsageFilters } from '@/app/resources/usage'
 import type { RequestLogFilters } from '@/app/resources/request-logs'
+import {
+  routeInspectFeatures,
+  routeInspectOperations,
+  type RouteInspectFeature,
+  type RouteInspectOperation,
+} from '@/app/resources/route-inspection'
 import { defaultTimeRange } from '@/lib/time'
 
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
@@ -43,6 +49,8 @@ export interface LogsMonitorState {
 
 export interface InspectorMonitorState {
   protocol?: string
+  operation?: RouteInspectOperation
+  requiredFeatures: RouteInspectFeature[]
   externalModel?: string
   accessKeyID?: string
   run: boolean
@@ -201,14 +209,22 @@ export function sameMonitorQuery(left: LocationQueryRaw, right: LocationQueryRaw
 
 export function parseInspectorMonitorState(query: Record<string, unknown>): InspectorMonitorState {
   const protocol = scalarEnum(query.protocol, enabledDataProtocols)
+  const operation = scalarEnum(query.operation, routeInspectOperations)
+  const requiredFeatures = scalarEnumList(query.features, routeInspectFeatures)
   const externalModel = scalarText(query.external_model)
   const accessKeyID = scalarPositiveID(query.access_key_id)
 
   return {
     protocol,
+    operation,
+    requiredFeatures,
     externalModel,
     accessKeyID,
-    run: query.run === '1' && protocol !== undefined && accessKeyID !== undefined,
+    run:
+      query.run === '1' &&
+      protocol !== undefined &&
+      operation !== undefined &&
+      accessKeyID !== undefined,
     expandedGroupIDs: parsePositiveIDList(query.expanded_groups),
   }
 }
@@ -217,9 +233,16 @@ export function inspectorMonitorQuery(state: InspectorMonitorState): LocationQue
   const normalized: LocationQueryRaw = { tab: 'inspector' }
 
   if (state.protocol !== undefined) normalized.protocol = state.protocol
+  if (state.operation !== undefined) normalized.operation = state.operation
+  if (state.requiredFeatures.length > 0) normalized.features = state.requiredFeatures.join(',')
   if (state.externalModel !== undefined) normalized.external_model = state.externalModel
   if (state.accessKeyID !== undefined) normalized.access_key_id = state.accessKeyID
-  if (state.run && state.protocol !== undefined && state.accessKeyID !== undefined) {
+  if (
+    state.run &&
+    state.protocol !== undefined &&
+    state.operation !== undefined &&
+    state.accessKeyID !== undefined
+  ) {
     normalized.run = '1'
   }
   const expandedGroups = serializePositiveIDList(state.expandedGroupIDs)
@@ -265,6 +288,19 @@ function scalarPositiveID(raw: unknown): string | undefined {
 
 function scalarEnum<T extends string>(raw: unknown, values: readonly T[]): T | undefined {
   return typeof raw === 'string' && values.includes(raw as T) ? (raw as T) : undefined
+}
+
+function scalarEnumList<T extends string>(raw: unknown, values: readonly T[]): T[] {
+  if (raw === undefined) return []
+  if (typeof raw !== 'string' || raw === '') return []
+  const entries = raw.split(',')
+  if (
+    entries.some((entry) => !values.includes(entry as T)) ||
+    new Set(entries).size !== entries.length
+  ) {
+    return []
+  }
+  return entries.sort() as T[]
 }
 
 function scalarUUIDv4(raw: unknown): string | undefined {

@@ -245,7 +245,7 @@ func validateCredentialCapture(capture credentialCapture) (credentialObservation
 			return credentialObservation{}, dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
 		}
 		if view.Version != groupCollectionCredentialVersion(row.UpdatedAtMS) ||
-			view.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint) {
+			view.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint, capture.group) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchIdentity, groupID, row.ID)
 		}
 		persisted[row.ID] = struct{}{}

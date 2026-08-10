@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -166,12 +167,20 @@ func (s *Service) writeGroupConfig(
 	s.priceRuntime.Publish(publication.PriceTable)
 	if afterCommitBeforePublish != nil {
 		if err := afterCommitBeforePublish(); err != nil {
-			return nil, newControlOperationError(stageApplyCommittedRegistryMutation)
+			operationErr := newControlOperationError(stageApplyCommittedRegistryMutation)
+			return nil, joinCommittedRuntimeRecovery(
+				operationErr,
+				s.recoverCommittedRuntime(ctx, true),
+			)
 		}
 	}
 	snapshot, err := s.publishSnapshot(publication.ConfigInput)
 	if err != nil {
-		return nil, newControlOperationError(stagePublishCommittedSnapshot)
+		operationErr := newControlOperationError(stagePublishCommittedSnapshot)
+		return nil, joinCommittedRuntimeRecovery(
+			operationErr,
+			s.recoverCommittedRuntime(ctx, true),
+		)
 	}
 	return snapshot, nil
 }
@@ -208,12 +217,20 @@ func (s *Service) writeConfig(
 
 	if afterCommitBeforePublish != nil {
 		if err := afterCommitBeforePublish(); err != nil {
-			return nil, newControlOperationError(stageApplyCommittedRegistryMutation)
+			operationErr := newControlOperationError(stageApplyCommittedRegistryMutation)
+			return nil, joinCommittedRuntimeRecovery(
+				operationErr,
+				s.recoverCommittedRuntime(ctx, false),
+			)
 		}
 	}
-	snapshot, err := s.manager.Publish(input)
+	snapshot, err := s.publishSnapshot(input)
 	if err != nil {
-		return nil, newControlOperationError(stagePublishCommittedSnapshot)
+		operationErr := newControlOperationError(stagePublishCommittedSnapshot)
+		return nil, joinCommittedRuntimeRecovery(
+			operationErr,
+			s.recoverCommittedRuntime(ctx, false),
+		)
 	}
 	return snapshot, nil
 }
@@ -236,14 +253,65 @@ func (s *Service) writeCredentialConfig(
 	}
 	if afterCommit != nil {
 		if err := afterCommit(); err != nil {
-			return withControlOperationContext(
+			operationErr := withControlOperationContext(
 				newControlOperationError(stageApplyCommittedRegistryMutation),
 				groupID,
 				credentialID,
 			)
+			return joinCommittedRuntimeRecovery(
+				operationErr,
+				s.recoverCommittedCredentialRegistry(ctx),
+			)
 		}
 	}
 	return nil
+}
+
+func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices bool) error {
+	input, err := stateloader.BuildCompileInput(ctx, s.db, s.channelRegistry)
+	if err != nil {
+		return fmt.Errorf("reload committed configuration: %w", err)
+	}
+	if _, err := state.Compile(input); err != nil {
+		return fmt.Errorf("compile committed configuration: %w", err)
+	}
+	entries, err := stateloader.BuildCredentialEntries(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("reload committed credentials: %w", err)
+	}
+	var priceTable *pricing.Table
+	if includePrices {
+		priceTable, err = loadPriceTable(ctx, s.db)
+		if err != nil {
+			return fmt.Errorf("reload committed prices: %w", err)
+		}
+		s.priceRuntime.Publish(priceTable)
+	}
+	if err := s.registry.ReplaceCredentials(entries); err != nil {
+		return fmt.Errorf("replace committed credentials: %w", err)
+	}
+	if _, err := s.manager.Publish(input); err != nil {
+		return fmt.Errorf("publish committed configuration: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) recoverCommittedCredentialRegistry(ctx context.Context) error {
+	entries, err := stateloader.BuildCredentialEntries(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("reload committed credentials: %w", err)
+	}
+	if err := s.registry.ReplaceCredentials(entries); err != nil {
+		return fmt.Errorf("replace committed credentials: %w", err)
+	}
+	return nil
+}
+
+func joinCommittedRuntimeRecovery(operationErr, recoveryErr error) error {
+	if recoveryErr == nil {
+		return operationErr
+	}
+	return errors.Join(operationErr, recoveryErr)
 }
 
 func (s *Service) withControlTransaction(

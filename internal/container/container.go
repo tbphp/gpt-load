@@ -157,8 +157,15 @@ func BuildContainer() (*dig.Container, error) {
 			manager *state.Manager,
 			registry *state.CredentialRegistry,
 			channelRegistry *channel.Registry,
+			encryptionService encryption.Service,
 		) app.RuntimeStateLoader {
-			return stateloader.New(db, manager, registry, channelRegistry)
+			return stateloader.NewWithCredentialValidation(
+				db,
+				manager,
+				registry,
+				channelRegistry,
+				encryptionService,
+			)
 		},
 		app.NewApp,
 	}

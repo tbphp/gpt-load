@@ -2,6 +2,7 @@ package bifrost
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -65,6 +66,16 @@ func TestSDKTransportErrorDispatchEvidence(t *testing.T) {
 		{
 			name: "dial refused never dispatched",
 			err:  &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED},
+			want: execution.DispatchNotSent,
+		},
+		{
+			name: "link local policy rejection never dispatched",
+			err:  errors.New("connection to link-local IP 169.254.169.254 is not allowed"),
+			want: execution.DispatchNotSent,
+		},
+		{
+			name: "unspecified address policy rejection never dispatched",
+			err:  errors.New("connection to unspecified IP 0.0.0.0 is not allowed"),
 			want: execution.DispatchNotSent,
 		},
 		{

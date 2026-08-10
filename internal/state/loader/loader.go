@@ -4,6 +4,7 @@ package loader
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -28,6 +30,21 @@ type Loader struct {
 	manager         *state.Manager
 	registry        *state.CredentialRegistry
 	channelRegistry *channel.Registry
+	encryption      encryption.Service
+}
+
+// NewWithCredentialValidation creates the production loader that verifies
+// encrypted credentials before publishing any runtime state.
+func NewWithCredentialValidation(
+	db *gorm.DB,
+	manager *state.Manager,
+	registry *state.CredentialRegistry,
+	channelRegistry *channel.Registry,
+	encryptionService encryption.Service,
+) *Loader {
+	loader := New(db, manager, registry, channelRegistry)
+	loader.encryption = encryptionService
+	return loader
 }
 
 type compileRows struct {
@@ -91,6 +108,9 @@ func (l *Loader) Load(ctx context.Context) error {
 	if err := state.ValidateCredentialEntries(entries); err != nil {
 		return fmt.Errorf("validate credentials: %w", err)
 	}
+	if err := l.validatePersistedCredentials(input, entries); err != nil {
+		return err
+	}
 	snapshot, err := l.manager.Publish(input)
 	if err != nil {
 		return fmt.Errorf("publish config snapshot: %w", err)
@@ -106,6 +126,43 @@ func (l *Loader) Load(ctx context.Context) error {
 		"event":       "startup.credential_registry_load",
 		"credentials": len(entries),
 	}).Info("credential registry loaded")
+	return nil
+}
+
+func (l *Loader) validatePersistedCredentials(
+	input state.CompileInput,
+	entries []state.CredentialEntry,
+) error {
+	if l.encryption == nil {
+		return nil
+	}
+	targets := make(map[uint]channel.ID, len(input.Groups))
+	for _, group := range input.Groups {
+		targets[group.ID] = group.ChannelID
+	}
+	for _, entry := range entries {
+		channelID, exists := targets[entry.GroupID]
+		if !exists {
+			return fmt.Errorf("validate credential %d for group %d: execution target is missing", entry.ID, entry.GroupID)
+		}
+		plaintext, err := l.encryption.Decrypt(entry.EncryptedValue)
+		if err != nil {
+			return fmt.Errorf("validate credential %d for group %d: decrypt failed", entry.ID, entry.GroupID)
+		}
+		raw := []byte(plaintext)
+		plaintext = ""
+		credential, err := l.channelRegistry.ValidateCredential(channelID, raw)
+		clear(raw)
+		if err != nil {
+			return fmt.Errorf("validate credential %d for group %d: stored shape is invalid", entry.ID, entry.GroupID)
+		}
+		canonical := credential.CanonicalJSON()
+		fingerprint := l.encryption.Hash(string(canonical))
+		clear(canonical)
+		if subtle.ConstantTimeCompare([]byte(fingerprint), []byte(entry.Fingerprint)) != 1 {
+			return fmt.Errorf("validate credential %d for group %d: fingerprint mismatch", entry.ID, entry.GroupID)
+		}
+	}
 	return nil
 }
 
@@ -158,7 +215,7 @@ func BuildCompileInput(
 		return state.CompileInput{}, err
 	}
 	input.ChannelRegistry = selectChannelRegistry(registries)
-	input.Credentials = mapCredentialConfigs(rows.credentials)
+	input.Credentials = mapCredentialConfigs(rows.credentials, rows.groups)
 	input.AccessKeys, err = mapAccessKeys(rows.accessKeys)
 	if err != nil {
 		return state.CompileInput{}, err
@@ -176,10 +233,10 @@ func BuildGroupCredentialEntries(
 	if groupID == 0 {
 		return nil, fmt.Errorf("group id is required")
 	}
-	var group struct{ ID uint }
+	var group models.Group
 	if err := db.WithContext(ctx).
 		Model(&models.Group{}).
-		Select("id").
+		Select("id", "channel_id", "params").
 		Where("id = ?", groupID).
 		Take(&group).Error; err != nil {
 		return nil, fmt.Errorf("query group %d: %w", groupID, err)
@@ -191,15 +248,48 @@ func BuildGroupCredentialEntries(
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("query group %d credentials: %w", groupID, err)
 	}
-	entries := mapCredentials(rows)
+	entries := mapCredentials(rows, []models.Group{group})
 	if err := state.ValidateCredentialEntries(entries); err != nil {
 		return nil, fmt.Errorf("validate group %d credentials: %w", groupID, err)
 	}
 	return entries, nil
 }
 
+// BuildCredentialEntries maps all persisted credential rows into the exact
+// runtime registry representation. It is used to converge runtime state after
+// a committed control-plane write could not publish its incremental update.
+func BuildCredentialEntries(ctx context.Context, db *gorm.DB) ([]state.CredentialEntry, error) {
+	var groups []models.Group
+	if err := db.WithContext(ctx).
+		Model(&models.Group{}).
+		Select("id", "channel_id", "params").
+		Order("id ASC").
+		Find(&groups).Error; err != nil {
+		return nil, fmt.Errorf("query credential targets: %w", err)
+	}
+	rows, err := queryCredentials(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	entries := mapCredentials(rows, groups)
+	if err := state.ValidateCredentialEntries(entries); err != nil {
+		return nil, fmt.Errorf("validate credentials: %w", err)
+	}
+	return entries, nil
+}
+
 func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.CredentialEntry, error) {
-	input, err := BuildCompileInput(ctx, l.db, l.channelRegistry)
+	rows, err := queryCompileRows(ctx, l.db)
+	if err != nil {
+		return state.CompileInput{}, nil, err
+	}
+	input, err := mapSystemAndGroups(rows)
+	if err != nil {
+		return state.CompileInput{}, nil, err
+	}
+	input.ChannelRegistry = l.channelRegistry
+	input.Credentials = mapCredentialConfigs(rows.credentials, rows.groups)
+	input.AccessKeys, err = mapAccessKeys(rows.accessKeys)
 	if err != nil {
 		return state.CompileInput{}, nil, err
 	}
@@ -207,7 +297,7 @@ func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.Credenti
 	if err != nil {
 		return state.CompileInput{}, nil, err
 	}
-	return input, mapCredentials(credentials), nil
+	return input, mapCredentials(credentials, rows.groups), nil
 }
 
 func selectChannelRegistry(registries []*channel.Registry) *channel.Registry {
@@ -357,28 +447,43 @@ func mapAccessKeys(rows []models.AccessKey) ([]state.AccessKeyConfig, error) {
 	return result, nil
 }
 
-func mapCredentialConfigs(rows []models.Credential) []state.CredentialConfig {
+func mapCredentialConfigs(
+	rows []models.Credential,
+	groups []models.Group,
+) []state.CredentialConfig {
+	targets := credentialTargets(groups)
 	result := make([]state.CredentialConfig, 0, len(rows))
 	for _, row := range rows {
+		target := targets[row.GroupID]
 		result = append(result, state.CredentialConfig{
 			ID: row.ID, GroupID: row.GroupID, WeightManual: cloneWeight(row.WeightManual),
-			Status:             state.CredentialStatus(row.Status),
-			Version:            credentialVersion(row.UpdatedAtMS),
-			IdentityGeneration: credentialIdentityGeneration(row.Fingerprint),
-			Fingerprint:        row.Fingerprint,
+			Status:  state.CredentialStatus(row.Status),
+			Version: credentialVersion(row.UpdatedAtMS),
+			IdentityGeneration: CredentialIdentityGeneration(
+				row.Fingerprint,
+				target.channelID,
+				target.params,
+			),
+			Fingerprint: row.Fingerprint,
 		})
 	}
 	return result
 }
 
-func mapCredentials(rows []models.Credential) []state.CredentialEntry {
+func mapCredentials(rows []models.Credential, groups []models.Group) []state.CredentialEntry {
+	targets := credentialTargets(groups)
 	result := make([]state.CredentialEntry, 0, len(rows))
 	for _, row := range rows {
+		target := targets[row.GroupID]
 		result = append(result, state.CredentialEntry{
 			ID: row.ID, GroupID: row.GroupID,
-			Version:            credentialVersion(row.UpdatedAtMS),
-			IdentityGeneration: credentialIdentityGeneration(row.Fingerprint),
-			Fingerprint:        row.Fingerprint, WeightManual: cloneWeight(row.WeightManual),
+			Version: credentialVersion(row.UpdatedAtMS),
+			IdentityGeneration: CredentialIdentityGeneration(
+				row.Fingerprint,
+				target.channelID,
+				target.params,
+			),
+			Fingerprint: row.Fingerprint, WeightManual: cloneWeight(row.WeightManual),
 			WeightAuto: state.DefaultWeight,
 			Status:     state.CredentialStatus(row.Status), EncryptedValue: row.Data,
 		})
@@ -393,9 +498,35 @@ func credentialVersion(updatedAtMS int64) uint64 {
 	return uint64(updatedAtMS)
 }
 
-func credentialIdentityGeneration(fingerprint string) uint64 {
+type credentialTarget struct {
+	channelID string
+	params    json.RawMessage
+}
+
+func credentialTargets(groups []models.Group) map[uint]credentialTarget {
+	targets := make(map[uint]credentialTarget, len(groups))
+	for _, group := range groups {
+		targets[group.ID] = credentialTarget{
+			channelID: group.ChannelID,
+			params:    append(json.RawMessage(nil), bytes.TrimSpace(group.Params)...),
+		}
+	}
+	return targets
+}
+
+// CredentialIdentityGeneration binds durable credential data to its execution
+// target so target changes cannot inherit stale runtime health or checkpoints.
+func CredentialIdentityGeneration(
+	fingerprint string,
+	channelID string,
+	params json.RawMessage,
+) uint64 {
 	hasher := fnv.New64a()
 	_, _ = hasher.Write([]byte(fingerprint))
+	_, _ = hasher.Write([]byte{0})
+	_, _ = hasher.Write([]byte(channelID))
+	_, _ = hasher.Write([]byte{0})
+	_, _ = hasher.Write(bytes.TrimSpace(params))
 	generation := hasher.Sum64()
 	if generation == 0 {
 		return 1

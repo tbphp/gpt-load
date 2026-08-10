@@ -36,6 +36,8 @@ export type RouteInspectReasonCode =
 
 export interface RouteInspectRequest {
   protocol: AccessProtocol
+  operation: RouteInspectOperation
+  required_features: RouteInspectFeature[]
   external_model?: string | null
   access_key_id: number
 }
@@ -103,7 +105,7 @@ export interface RouteInspectResponseDto {
 }
 
 const accessKeyStatuses = ['active', 'disabled'] as const
-const operations = [
+export const routeInspectOperations = [
   'chat_completion',
   'responses_create',
   'responses_retrieve',
@@ -116,7 +118,7 @@ const operations = [
   'list_models',
   'probe',
 ] as const
-const features = [
+export const routeInspectFeatures = [
   'streaming',
   'tools',
   'reasoning',
@@ -247,9 +249,9 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
     observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
-    operation: projectEnum(record.operation, operations),
+    operation: projectEnum(record.operation, routeInspectOperations),
     required_features: projectArray(record.required_features, (feature) =>
-      projectEnum(feature, features),
+      projectEnum(feature, routeInspectFeatures),
     ),
     external_model: projectNullableNonBlankString(record.external_model),
     access_key: projectAccessKey(record.access_key),

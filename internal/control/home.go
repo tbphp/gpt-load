@@ -48,6 +48,8 @@ type homeResponse struct {
 type homeCredentialRow struct {
 	ID          uint
 	GroupID     uint
+	ChannelID   string
+	Params      models.JSON
 	Fingerprint string
 	Status      models.CredentialStatus
 	UpdatedAtMS int64
@@ -236,8 +238,12 @@ func (s *Service) readHomeRows(
 			return fmt.Errorf("count home groups: %w", err)
 		}
 		if err := tx.Model(&models.Credential{}).
-			Select("id", "group_id", "fingerprint", "status", "updated_at_ms").
-			Order("id ASC").
+			Select(
+				"credentials.id", "credentials.group_id", "groups.channel_id", "groups.params",
+				"credentials.fingerprint", "credentials.status", "credentials.updated_at_ms",
+			).
+			Joins("JOIN groups ON groups.id = credentials.group_id").
+			Order("credentials.id ASC").
 			Find(&result.credentials).Error; err != nil {
 			return fmt.Errorf("query home credentials: %w", err)
 		}
@@ -437,7 +443,12 @@ func countAvailableHomeCredentialsInGroups(
 		}
 		if credential.Status != status ||
 			credential.Version != groupCollectionCredentialVersion(row.UpdatedAtMS) ||
-			credential.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint) {
+			credential.IdentityGeneration != groupCollectionCredentialIdentity(
+				row.Fingerprint,
+				models.Group{
+					ID: row.GroupID, ChannelID: row.ChannelID, Params: row.Params,
+				},
+			) {
 			return 0, fmt.Errorf(
 				"count available home credential %d: runtime identity mismatch: %w",
 				row.ID,
