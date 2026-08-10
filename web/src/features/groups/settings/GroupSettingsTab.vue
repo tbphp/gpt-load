@@ -230,9 +230,12 @@ function setHeaderRulesExpanded(event: Event): void {
   }
 }
 
-function updateParam(key: string, value: string): void {
+function updateParam(key: string, value: string | null): void {
   if (!draft.value) return
-  draft.value = { ...draft.value, params: { ...draft.value.params, [key]: value } }
+  const params = { ...draft.value.params }
+  if (value === null) delete params[key]
+  else params[key] = value
+  draft.value = { ...draft.value, params }
 }
 
 function setTimeoutOverride(key: GroupTimeoutKey, enabled: boolean): void {

@@ -284,12 +284,7 @@ func (r *Registry) Resolve(id ID, raw json.RawMessage) (ResolvedTarget, error) {
 	if err != nil {
 		return ResolvedTarget{}, err
 	}
-	targetConfig := json.RawMessage(`{}`)
-	if len(definition.fixedTargetConfig) > 0 {
-		targetConfig = append(json.RawMessage(nil), definition.fixedTargetConfig...)
-	} else if len(definition.params) > 0 {
-		targetConfig = params.CanonicalJSON()
-	}
+	targetConfig := resolvedTargetConfig(definition, params)
 	capabilities := cloneCapabilityMatrix(definition.capabilities)
 	modes := cloneRouteModes(definition.modes)
 	if definition.providerKind == ProviderOpenAICompatible && !openAIPassthroughEligible(targetConfig) {
@@ -324,13 +319,33 @@ func (r *Registry) ResolveExecutionTarget(id ID, raw json.RawMessage) (ResolvedT
 	if !ok {
 		return ResolvedTarget{}, &ValidationError{Field: "channel_id", Reason: "unknown channel"}
 	}
-	if len(definition.fixedTargetConfig) > 0 {
-		if !bytes.Equal(bytes.TrimSpace(raw), definition.fixedTargetConfig) {
-			return ResolvedTarget{}, &ValidationError{Field: "target_config", Reason: "does not match channel preset"}
-		}
+	if len(definition.fixedTargetConfig) > 0 && bytes.Equal(bytes.TrimSpace(raw), definition.fixedTargetConfig) {
 		return r.Resolve(id, nil)
 	}
+	if len(definition.fixedTargetConfig) > 0 {
+		params, err := r.ValidateParams(id, raw)
+		if err != nil {
+			return ResolvedTarget{}, err
+		}
+		if _, overridden := params.Value("base_url"); !overridden {
+			return ResolvedTarget{}, &ValidationError{Field: "target_config", Reason: "does not match channel preset"}
+		}
+		return r.Resolve(id, params.CanonicalJSON())
+	}
 	return r.Resolve(id, raw)
+}
+
+func resolvedTargetConfig(definition definition, params Params) json.RawMessage {
+	if len(definition.fixedTargetConfig) > 0 {
+		if baseURL, overridden := params.Value("base_url"); overridden {
+			return canonicalJSON(map[string]string{"base_url": baseURL})
+		}
+		return append(json.RawMessage(nil), definition.fixedTargetConfig...)
+	}
+	if len(definition.params) > 0 {
+		return params.CanonicalJSON()
+	}
+	return json.RawMessage(`{}`)
 }
 
 // ValidationError describes one invalid field without embedding its value.
@@ -646,6 +661,18 @@ func normalizeBaseURL(value string) (string, error) {
 	parsed.RawPath = strings.TrimRight(parsed.RawPath, "/")
 	parsed.ForceQuery = false
 	return parsed.String(), nil
+}
+
+func normalizeOpenAIBaseURL(value string) (string, error) {
+	normalized, err := normalizeBaseURL(value)
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(normalized)
+	if err != nil || !strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/v1") {
+		return "", errors.New("must include the complete /v1 API prefix")
+	}
+	return normalized, nil
 }
 
 func containsCredentialQuery(rawQuery string) bool {

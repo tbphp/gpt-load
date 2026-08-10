@@ -65,7 +65,10 @@ export default {
       name: 'Group 名',
       namePlaceholder: '空欄の場合はチャネルの既定名を使用します',
       url: 'アップストリームのベース URL',
-      urlDescription: '末尾のスラッシュを正規化し、保存時に URL の競合を確認します',
+      urlDescription: 'https://api.example.com/v1 のように完全な API プレフィックスを入力します',
+      customUrl: 'カスタム上流 URL',
+      customUrlDescription:
+        '既定ではチャネル設定または SDK 公式アドレスを使用します。プロキシまたはプライベート配置時のみ有効にしてください',
       urlError: '有効な HTTP または HTTPS のアップストリーム URL を入力してください',
       paramRequired: '{name} を入力してください',
     },
@@ -82,10 +85,10 @@ export default {
         'このチャネルで利用可能: {fields}。使用する認証方式の項目だけ入力してください',
       placeholders: {
         azure:
-          '{"api_key":"..."} または {"client_id":"...","client_secret":"...","tenant_id":"..."}',
-        bedrock: '{"api_key":"..."} または {"access_key":"...","secret_key":"..."}',
+          '{\'{"api_key":"..."}\'} または {\'{"client_id":"...","client_secret":"...","tenant_id":"..."}\'}',
+        bedrock: '{\'{"api_key":"..."}\'} または {\'{"access_key":"...","secret_key":"..."}\'}',
         vertex:
-          'Google Cloud サービスアカウント JSON を貼り付けるか、{"service_account_json":"..."} を使用',
+          'Google Cloud サービスアカウント JSON を貼り付けるか、{\'{"service_account_json":"..."}\'} を使用',
       },
       storageNotice:
         '平文は URL、ログ、通知に入りません — ログイン中断時は現在のセッションに最大 15 分だけ保持されます',

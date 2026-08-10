@@ -318,9 +318,9 @@ func TestRuntimeRejectsInvalidAttemptBeforeDispatch(t *testing.T) {
 		mutate func(*execution.AttemptSpec)
 	}{
 		{name: "unsupported channel", mutate: func(spec *execution.AttemptSpec) { spec.ChannelID = "other" }},
-		{name: "official config has field", mutate: func(spec *execution.AttemptSpec) {
+		{name: "official target has unknown field", mutate: func(spec *execution.AttemptSpec) {
 			spec.ChannelID = string(channel.OpenAI)
-			spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `"}`)
+			spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/v1","other":"value"}`)
 		}},
 		{name: "official target missing", mutate: func(spec *execution.AttemptSpec) {
 			spec.ChannelID = string(channel.OpenAI)
@@ -376,6 +376,31 @@ func TestRuntimeAcceptsCanonicalOfficialTargetWithoutChangingCredential(t *testi
 	}
 	if prepared.provider != "openai" || prepared.directKey.Value.GetValue() != testAPIKey {
 		t.Fatalf("prepared provider/key mismatch: provider=%q key_matches=%t", prepared.provider, prepared.directKey.Value.GetValue() == testAPIKey)
+	}
+}
+
+func TestRuntimeUsesExplicitOfficialOpenAIBaseURLOverride(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.URL.Path != "/v1/chat/completions" {
+			t.Errorf("path = %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer "+testAPIKey {
+			t.Errorf("authorization = %q", request.Header.Get("Authorization"))
+		}
+		writeSuccess(writer, "ok")
+	}))
+	defer server.Close()
+
+	spec := compatibleSpec(server.URL)
+	spec.ChannelID = string(channel.OpenAI)
+	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/v1"}`)
+	spec = freezeTestAttempt(spec)
+	spec.ClientModel = spec.UpstreamModel
+	result := newTestRuntime(t).Execute(context.Background(), spec)
+	if err := result.Validate(); err != nil || result.Error != nil || calls.Load() != 1 {
+		t.Fatalf("result/calls = %+v/%d, err=%v", result, calls.Load(), err)
 	}
 }
 

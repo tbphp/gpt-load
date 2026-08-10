@@ -116,6 +116,7 @@ const operationDraft =
 const draft = reactive<ImportDraft>(
   cloneDraft(operationDraft ?? props.initialDraft ?? defaultDraft),
 )
+const baseUrlOverrideEnabled = ref(Boolean(draft.params.base_url?.trim()))
 let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
 const discoveryCandidates = ref<ModelCandidate[]>([])
 const channelSearchInput = ref(routeState.value.channelSearch ?? '')
@@ -200,7 +201,7 @@ const paramErrors = computed<Record<string, string>>(() => {
   if (!channel) return errors
   for (const field of channel.param_fields) {
     const value = draft.params[field.key]?.trim() ?? ''
-    if (field.required && !value) {
+    if ((field.required || (field.key === 'base_url' && baseUrlOverrideEnabled.value)) && !value) {
       errors[field.key] = t('import.connection.paramRequired', { name: field.label })
       continue
     }
@@ -458,7 +459,9 @@ watch(
 )
 
 function initialChannelParams(channel: ChannelDto): Record<string, string> {
-  return Object.fromEntries(channel.param_fields.map(({ key }) => [key, '']))
+  return Object.fromEntries(
+    channel.param_fields.filter(({ required }) => required).map(({ key }) => [key, '']),
+  )
 }
 
 function selectChannel(channel: ChannelDto): void {
@@ -467,12 +470,26 @@ function selectChannel(channel: ChannelDto): void {
   selectedChannelCache.value = channel
   draft.channel_id = channel.channel_id
   draft.params = initialChannelParams(channel)
+  baseUrlOverrideEnabled.value = false
   setPanel(undefined)
 }
 
 function setChannelParam(key: string, value: string): void {
   cancelDefaultChannel()
-  draft.params = { ...draft.params, [key]: value }
+  const params = { ...draft.params }
+  if (key === 'base_url' && !value.trim()) delete params.base_url
+  else params[key] = value
+  if (key === 'base_url' && value.trim()) baseUrlOverrideEnabled.value = true
+  draft.params = params
+}
+
+function setBaseURLOverride(enabled: boolean): void {
+  cancelDefaultChannel()
+  baseUrlOverrideEnabled.value = enabled
+  if (enabled) return
+  const params = { ...draft.params }
+  delete params.base_url
+  draft.params = params
 }
 
 function createManualRow(): ModelDraftItem {
@@ -858,9 +875,11 @@ onBeforeUnmount(() => {
       :name="draft.name"
       :params="draft.params"
       :param-errors="paramErrors"
+      :base-url-override-enabled="baseUrlOverrideEnabled"
       :disabled="payloadLocked"
       @update:name="draft.name = $event"
       @update:param="setChannelParam"
+      @update:base-url-override="setBaseURLOverride"
     />
 
     <CredentialTextarea

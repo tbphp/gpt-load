@@ -54,7 +54,7 @@ const initialLoadingVisible = useStableLoading(initialLoadingActive)
 const refreshing = computed(() => props.loading && hasAnyResults.value)
 
 function channelMeta(channel: ChannelDto): string {
-  if (channel.param_fields.some(({ key }) => key === 'base_url')) {
+  if (channel.param_fields.some(({ key, required }) => key === 'base_url' && required)) {
     return t('import.presets.baseUrlRequired')
   }
   return t('import.presets.channelReady')

@@ -192,6 +192,8 @@ export default {
         upstreamUrl: 'Upstream URL',
         upstreamUrlError: 'Enter a valid HTTP or HTTPS Base URL.',
         urlWarning: 'Changing the Base URL changes where future Group requests are sent.',
+        customUrl: 'Custom upstream URL',
+        customUrlHelp: 'Uses the channel preset or SDK official address by default.',
         paramRequired: 'Enter {field}.',
         validationModel: 'Validation model (optional)',
         weight: 'Manual Group weight',

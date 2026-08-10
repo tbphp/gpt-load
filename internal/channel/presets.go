@@ -24,6 +24,18 @@ func builtinDefinitions() []definition {
 		},
 		normalize: normalizeBaseURL,
 	}}
+	baseURLOverrideParams := objectSchema{{
+		descriptor: FieldDescriptor{
+			Key: "base_url", Label: "Base URL", InputKind: InputURL,
+		},
+		normalize: normalizeBaseURL,
+	}}
+	openAIBaseURLOverrideParams := objectSchema{{
+		descriptor: FieldDescriptor{
+			Key: "base_url", Label: "Base URL", InputKind: InputURL,
+		},
+		normalize: normalizeOpenAIBaseURL,
+	}}
 	azureParams := objectSchema{{
 		descriptor: FieldDescriptor{Key: "endpoint", Label: "Azure endpoint", InputKind: InputURL, Required: true},
 		normalize:  normalizeBaseURL,
@@ -87,7 +99,7 @@ func builtinDefinitions() []definition {
 	return []definition{
 		newDefinition(
 			OpenAI, "OpenAI", "OA", "OpenAI official API", []string{"gpt"},
-			nil, apiKeySchema, "openai", ProviderOpenAI, false,
+			openAIBaseURLOverrideParams, apiKeySchema, "openai", ProviderOpenAI, false,
 			map[protocol.Protocol]bool{
 				protocol.OpenAICompletions: true,
 				protocol.OpenAIResponses:   true,
@@ -96,12 +108,12 @@ func builtinDefinitions() []definition {
 		),
 		newDefinition(
 			Anthropic, "Anthropic", "AN", "Anthropic official API", []string{"claude"},
-			nil, apiKeySchema, "anthropic", ProviderAnthropic, false,
+			baseURLOverrideParams, apiKeySchema, "anthropic", ProviderAnthropic, false,
 			map[protocol.Protocol]bool{protocol.Anthropic: true}, false,
 		),
 		newDefinition(
 			Gemini, "Google Gemini", "GE", "Google Gemini official API", []string{"google"},
-			nil, apiKeySchema, "google", ProviderGemini, false,
+			baseURLOverrideParams, apiKeySchema, "google", ProviderGemini, false,
 			map[protocol.Protocol]bool{protocol.Gemini: true}, false,
 		),
 		azureDefinition,
@@ -265,7 +277,10 @@ func newFixedCompatibleDefinition(
 		mark,
 		"Managed API preset",
 		searchTerms,
-		nil,
+		objectSchema{{
+			descriptor: FieldDescriptor{Key: "base_url", Label: "Base URL", InputKind: InputURL},
+			normalize:  normalizeBaseURL,
+		}},
 		credentials,
 		catalogProviderID,
 		ProviderOpenAICompatible,

@@ -67,7 +67,10 @@ export default {
       name: 'Group name',
       namePlaceholder: 'Leave blank to use the channel default',
       url: 'Upstream base URL',
-      urlDescription: 'Trailing slashes are normalized and URL conflicts are checked on save',
+      urlDescription: 'Enter the complete API prefix, for example https://api.example.com/v1',
+      customUrl: 'Custom upstream URL',
+      customUrlDescription:
+        'Uses the channel preset or SDK official address by default; enable only for a proxy or private deployment',
       urlError: 'Enter a valid HTTP or HTTPS upstream URL',
       paramRequired: 'Enter {name}',
     },
@@ -82,10 +85,11 @@ export default {
       structuredLabel: 'Credential content',
       structuredHint: 'This channel supports: {fields}. Fill only one authentication method',
       placeholders: {
-        azure: '{"api_key":"..."} or {"client_id":"...","client_secret":"...","tenant_id":"..."}',
-        bedrock: '{"api_key":"..."} or {"access_key":"...","secret_key":"..."}',
+        azure:
+          '{\'{"api_key":"..."}\'} or {\'{"client_id":"...","client_secret":"...","tenant_id":"..."}\'}',
+        bedrock: '{\'{"api_key":"..."}\'} or {\'{"access_key":"...","secret_key":"..."}\'}',
         vertex:
-          'Paste a Google Cloud service-account JSON object, or use {"service_account_json":"..."}',
+          'Paste a Google Cloud service-account JSON object, or use {\'{"service_account_json":"..."}\'}',
       },
       storageNotice:
         'Plaintext is never put in URLs, logs, or notifications; a login interruption keeps it in this session for at most 15 minutes',

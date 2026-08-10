@@ -61,7 +61,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	first[0].ClientProtocols[0] = protocol.Protocol("mutated")
 	first[0].ParamFields = append(first[0].ParamFields, FieldDescriptor{Key: "mutated"})
 	second := registry.List()
-	if second[0].ClientProtocols[0] == protocol.Protocol("mutated") || len(second[0].ParamFields) != 0 {
+	if second[0].ClientProtocols[0] == protocol.Protocol("mutated") || len(second[0].ParamFields) != 1 {
 		t.Fatal("mutating List() output changed registry state")
 	}
 }
@@ -72,8 +72,11 @@ func TestRegistryPublicDescriptorsContainSchemasButNoInternalOrSecretValues(t *t
 	if !ok {
 		t.Fatal("Get(openai) missing")
 	}
-	if len(official.ParamFields) != 0 || len(official.CredentialFields) != 1 {
+	if len(official.ParamFields) != 1 || len(official.CredentialFields) != 1 {
 		t.Fatalf("openai schemas = params %#v credentials %#v", official.ParamFields, official.CredentialFields)
+	}
+	if field := official.ParamFields[0]; field.Key != "base_url" || field.InputKind != InputURL || field.Required || field.Sensitive {
+		t.Fatalf("openai base URL override field = %#v", field)
 	}
 	credentialField := official.CredentialFields[0]
 	if credentialField.Key != "api_key" || credentialField.InputKind != InputSecret || !credentialField.Required || !credentialField.Sensitive {
@@ -283,7 +286,8 @@ func TestRegistryStrictlyValidatesAndCanonicalizesParams(t *testing.T) {
 		{name: "unsafe URL", id: OpenAICompatible, raw: `{"base_url":"https://user:secret@example.com"}`},
 		{name: "query credential", id: OpenAICompatible, raw: `{"base_url":"https://example.com/v1?api_key=secret"}`},
 		{name: "encoded query credential", id: OpenAICompatible, raw: `{"base_url":"https://example.com/v1?api%5Fkey=secret"}`},
-		{name: "official unknown", id: OpenAI, raw: `{"base_url":"https://example.com"}`},
+		{name: "OpenAI override without v1 prefix", id: OpenAI, raw: `{"base_url":"https://example.com"}`},
+		{name: "official unknown", id: OpenAI, raw: `{"base_url":"https://example.com","extra":"value"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -473,8 +477,11 @@ func TestCuratedChannelResolvesCodeOwnedTargetAndCatalogMapping(t *testing.T) {
 		t.Fatalf("DeepSeek converted Anthropic mode = %q, %t", mode, ok)
 	}
 	descriptor, ok := registry.Get(DeepSeek)
-	if !ok || len(descriptor.ParamFields) != 0 || len(descriptor.CredentialFields) != 1 {
+	if !ok || len(descriptor.ParamFields) != 1 || len(descriptor.CredentialFields) != 1 {
 		t.Fatalf("Get(deepseek) = %#v, %t", descriptor, ok)
+	}
+	if field := descriptor.ParamFields[0]; field.Key != "base_url" || field.Required || field.InputKind != InputURL {
+		t.Fatalf("DeepSeek base URL override field = %#v", field)
 	}
 	encoded, err := json.Marshal(descriptor)
 	if err != nil {
@@ -490,11 +497,37 @@ func TestCuratedChannelResolvesCodeOwnedTargetAndCatalogMapping(t *testing.T) {
 	for _, tampered := range []json.RawMessage{
 		nil,
 		json.RawMessage(`{}`),
-		json.RawMessage(`{"base_url":"https://attacker.example/v1"}`),
+		json.RawMessage(`{"base_url":"https://attacker.example/v1","extra":"value"}`),
 	} {
 		if _, err := registry.ResolveExecutionTarget(DeepSeek, tampered); err == nil {
 			t.Fatalf("ResolveExecutionTarget(deepseek, %s) error = nil", tampered)
 		}
+	}
+	override, err := registry.Resolve(DeepSeek, json.RawMessage(`{"base_url":"https://mirror.example/v1/"}`))
+	if err != nil || string(override.TargetConfig) != `{"base_url":"https://mirror.example/v1"}` {
+		t.Fatalf("Resolve(deepseek override) = %#v, %v", override, err)
+	}
+	if _, err := registry.ResolveExecutionTarget(DeepSeek, override.TargetConfig); err != nil {
+		t.Fatalf("ResolveExecutionTarget(deepseek override) error = %v", err)
+	}
+}
+
+func TestOfficialChannelsUseSDKDefaultUnlessBaseURLIsExplicitlyOverridden(t *testing.T) {
+	registry := NewRegistry()
+	for _, channelID := range []ID{OpenAI, Anthropic, Gemini} {
+		t.Run(string(channelID), func(t *testing.T) {
+			defaultTarget, err := registry.Resolve(channelID, nil)
+			if err != nil || string(defaultTarget.TargetConfig) != `{}` {
+				t.Fatalf("Resolve(%s, default) = %#v, %v", channelID, defaultTarget, err)
+			}
+			override, err := registry.Resolve(channelID, json.RawMessage(`{"base_url":"https://mirror.example/v1/"}`))
+			if err != nil || string(override.TargetConfig) != `{"base_url":"https://mirror.example/v1"}` {
+				t.Fatalf("Resolve(%s, override) = %#v, %v", channelID, override, err)
+			}
+			if _, err := registry.ResolveExecutionTarget(channelID, override.TargetConfig); err != nil {
+				t.Fatalf("ResolveExecutionTarget(%s, override) error = %v", channelID, err)
+			}
+		})
 	}
 }
 

@@ -191,6 +191,8 @@ export default {
         upstreamUrl: 'アップストリーム URL',
         upstreamUrlError: '有効な HTTP または HTTPS の Base URL を入力してください。',
         urlWarning: 'Base URL を変更すると、今後の Group リクエストの送信先が変わります。',
+        customUrl: 'カスタム上流 URL',
+        customUrlHelp: '既定ではチャネル設定または SDK 公式アドレスを使用します。',
         paramRequired: '{field} を入力してください。',
         validationModel: '検証モデル（任意）',
         weight: 'Group 手動ウェイト',

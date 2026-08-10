@@ -338,12 +338,28 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	targetBaseQuery := ""
 	nativePassthroughEligible := true
 	switch providerKind {
-	case channel.ProviderOpenAI:
-		provider = schemas.OpenAI
-	case channel.ProviderAnthropic:
-		provider = schemas.Anthropic
-	case channel.ProviderGemini:
-		provider = schemas.Gemini
+	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini:
+		baseProvider := schemas.OpenAI
+		switch providerKind {
+		case channel.ProviderAnthropic:
+			baseProvider = schemas.Anthropic
+		case channel.ProviderGemini:
+			baseProvider = schemas.Gemini
+		}
+		provider = baseProvider
+		rawBaseURL, configuredBaseURL, configuredQuery, configured, targetErr := configuredTargetBaseURL(spec.TargetConfig)
+		if targetErr != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel target")
+			return preparedAttempt{}, &failure
+		}
+		if configured {
+			targetBaseURL, targetBaseQuery = configuredBaseURL, configuredQuery
+			provider = customProviderKey(baseProvider, rawBaseURL)
+			r.account.setConfig(provider, providerConfig(targetBaseURL, true, baseProvider, r.allowPrivate))
+			if baseProvider == schemas.OpenAI {
+				nativePassthroughEligible = strings.HasSuffix(targetBaseURL, "/v1")
+			}
+		}
 	case channel.ProviderAzureOpenAI:
 		provider = schemas.Azure
 	case channel.ProviderAWSBedrock:
@@ -351,13 +367,6 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	case channel.ProviderGoogleVertex:
 		provider = schemas.Vertex
 	case channel.ProviderOpenAICompatible, channel.ProviderAnthropicCompatible, channel.ProviderGeminiCompatible:
-		var target struct {
-			BaseURL string `json:"base_url"`
-		}
-		if err := json.Unmarshal(spec.TargetConfig, &target); err != nil || target.BaseURL == "" {
-			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
-			return preparedAttempt{}, &failure
-		}
 		baseProvider := schemas.OpenAI
 		switch providerKind {
 		case channel.ProviderAnthropicCompatible:
@@ -365,13 +374,13 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		case channel.ProviderGeminiCompatible:
 			baseProvider = schemas.Gemini
 		}
-		var targetErr error
-		targetBaseURL, targetBaseQuery, targetErr = splitCompatibleBaseURL(target.BaseURL)
-		if targetErr != nil {
+		rawBaseURL, configuredBaseURL, configuredQuery, configured, targetErr := configuredTargetBaseURL(spec.TargetConfig)
+		if targetErr != nil || !configured {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
 		}
-		provider = customProviderKey(baseProvider, target.BaseURL)
+		targetBaseURL, targetBaseQuery = configuredBaseURL, configuredQuery
+		provider = customProviderKey(baseProvider, rawBaseURL)
 		r.account.setConfig(provider, providerConfig(targetBaseURL, true, baseProvider, r.allowPrivate))
 		// Core v1.7.7 hardcodes /v1 for OpenAI passthrough. A complete
 		// compatible prefix with any other suffix must keep the typed path so
@@ -962,6 +971,23 @@ func splitCompatibleBaseURL(value string) (string, string, error) {
 	parsed.RawQuery = ""
 	parsed.ForceQuery = false
 	return parsed.String(), query, nil
+}
+
+func configuredTargetBaseURL(targetConfig json.RawMessage) (rawBaseURL, baseURL, rawQuery string, configured bool, err error) {
+	var target struct {
+		BaseURL string `json:"base_url"`
+	}
+	if json.Unmarshal(targetConfig, &target) != nil {
+		return "", "", "", false, fmt.Errorf("invalid target config")
+	}
+	if target.BaseURL == "" {
+		return "", "", "", false, nil
+	}
+	baseURL, rawQuery, err = splitCompatibleBaseURL(target.BaseURL)
+	if err != nil {
+		return "", "", "", false, err
+	}
+	return target.BaseURL, baseURL, rawQuery, true, nil
 }
 
 func mergeRawQueries(baseQuery, requestQuery string) string {

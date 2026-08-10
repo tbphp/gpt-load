@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 
 import type { ChannelDto } from '@/app/resources/channels'
+import AppSwitch from '@/components/ui/AppSwitch.vue'
 import FormField from '@/components/ui/FormField.vue'
 
 const props = defineProps<{
@@ -9,16 +10,22 @@ const props = defineProps<{
   name: string
   params: Record<string, string>
   paramErrors: Readonly<Record<string, string>>
+  baseUrlOverrideEnabled: boolean
   disabled?: boolean
 }>()
 const emit = defineEmits<{
   'update:name': [value: string]
   'update:param': [key: string, value: string]
+  'update:base-url-override': [enabled: boolean]
 }>()
 const { t } = useI18n()
 
 function fieldError(key: string): string {
   return props.paramErrors[key] ?? ''
+}
+
+function isOptionalBaseURL(key: string, required: boolean): boolean {
+  return key === 'base_url' && !required
 }
 </script>
 
@@ -48,33 +55,55 @@ function fieldError(key: string): string {
         </template>
       </FormField>
 
-      <FormField
-        v-for="param in channel?.param_fields ?? []"
-        :id="`import-channel-param-${param.key}`"
-        :key="param.key"
-        :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
-        :description="param.key === 'base_url' ? t('import.connection.urlDescription') : undefined"
-        :error="fieldError(param.key)"
-        :required="param.required"
-        :required-text="t('import.required')"
-        size="compact"
-      >
-        <template #default="field">
-          <input
-            :id="`import-channel-param-${param.key}`"
-            class="import-connection__url"
-            :value="params[param.key] ?? ''"
-            :type="param.input_kind === 'url' ? 'url' : 'text'"
-            :disabled="disabled"
-            :aria-invalid="field.invalid || undefined"
-            :aria-describedby="field.describedBy"
-            autocomplete="off"
-            autocapitalize="none"
-            spellcheck="false"
-            @input="emit('update:param', param.key, ($event.target as HTMLInputElement).value)"
-          />
-        </template>
-      </FormField>
+      <template v-for="param in channel?.param_fields ?? []" :key="param.key">
+        <FormField
+          v-if="isOptionalBaseURL(param.key, param.required)"
+          id="import-channel-base-url-override"
+          :label="t('import.connection.customUrl')"
+          :description="t('import.connection.customUrlDescription')"
+          size="compact"
+        >
+          <template #default>
+            <div class="import-connection__switch-row">
+              <AppSwitch
+                :model-value="baseUrlOverrideEnabled"
+                :disabled="disabled"
+                :label="t('import.connection.customUrl')"
+                @update:model-value="emit('update:base-url-override', $event)"
+              />
+            </div>
+          </template>
+        </FormField>
+
+        <FormField
+          v-if="!isOptionalBaseURL(param.key, param.required) || baseUrlOverrideEnabled"
+          :id="`import-channel-param-${param.key}`"
+          :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
+          :description="
+            param.key === 'base_url' ? t('import.connection.urlDescription') : undefined
+          "
+          :error="fieldError(param.key)"
+          :required="param.required || (param.key === 'base_url' && baseUrlOverrideEnabled)"
+          :required-text="t('import.required')"
+          size="compact"
+        >
+          <template #default="field">
+            <input
+              :id="`import-channel-param-${param.key}`"
+              class="import-connection__url"
+              :value="params[param.key] ?? ''"
+              :type="param.input_kind === 'url' ? 'url' : 'text'"
+              :disabled="disabled"
+              :aria-invalid="field.invalid || undefined"
+              :aria-describedby="field.describedBy"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              @input="emit('update:param', param.key, ($event.target as HTMLInputElement).value)"
+            />
+          </template>
+        </FormField>
+      </template>
     </div>
   </section>
 </template>
@@ -106,6 +135,12 @@ function fieldError(key: string): string {
 
 .import-connection__url {
   font-family: var(--font-mono);
+}
+
+.import-connection__switch-row {
+  display: flex;
+  min-height: var(--control-xs);
+  align-items: center;
 }
 
 @media (max-width: 860px) {

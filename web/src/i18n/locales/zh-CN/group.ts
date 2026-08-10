@@ -186,6 +186,8 @@ export default {
         upstreamUrl: '上游地址',
         upstreamUrlError: '请输入有效的 HTTP 或 HTTPS Base URL。',
         urlWarning: '修改 Base URL 会影响此分组后续请求的发送位置。',
+        customUrl: '自定义上游地址',
+        customUrlHelp: '默认使用渠道预设或 SDK 官方地址。',
         paramRequired: '请输入{field}。',
         validationModel: '验活模型（可选）',
         weight: '分组权重',
