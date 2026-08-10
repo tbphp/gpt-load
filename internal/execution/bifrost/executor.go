@@ -56,7 +56,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) ex
 	if preflightError != nil {
 		return *preflightError
 	}
-	if prepared.mode == channel.RouteNative {
+	if prepared.passthrough != nil {
 		return r.executeNative(parent, spec, prepared)
 	}
 	if prepared.responsesRequest != nil {
@@ -140,7 +140,7 @@ func (r *Runtime) ExecuteStream(
 	if preflightError != nil {
 		return streamFromAttemptFailure(*preflightError)
 	}
-	if prepared.mode == channel.RouteNative {
+	if prepared.passthrough != nil {
 		return r.executeNativeStream(parent, spec, prepared, sink)
 	}
 	if prepared.responsesRequest != nil {
@@ -321,6 +321,16 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "execution target does not match channel")
 		return preparedAttempt{}, &failure
 	}
+	if r.fixedConfig == nil {
+		failure := notSentUnaryFailure(execution.ErrorKindInternal, "provider runtime config is unavailable")
+		return preparedAttempt{}, &failure
+	}
+	effective, effectiveErr := buildEffectiveProviderConfig(resolved, r.allowPrivate)
+	if effectiveErr != nil || effective.fingerprint != r.fixedConfig.fingerprint ||
+		!bytes.Equal(effective.canonical, r.fixedConfig.canonical) {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "execution target does not match provider runtime")
+		return preparedAttempt{}, &failure
+	}
 	mode := channel.RouteMode(spec.RouteMode)
 	declaredMode, ok := resolved.Mode(spec.ClientProtocol, spec.Operation)
 	if !ok || declaredMode != mode || !resolved.Supports(spec.ClientProtocol, spec.Operation, spec.RequiredFeatures) {
@@ -333,64 +343,10 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "Responses passthrough requires an OpenAI provider")
 		return preparedAttempt{}, &failure
 	}
-	var provider schemas.ModelProvider
+	provider := r.fixedConfig.provider
 	targetBaseURL := ""
-	targetBaseQuery := ""
-	nativePassthroughEligible := true
-	switch providerKind {
-	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini:
-		baseProvider := schemas.OpenAI
-		switch providerKind {
-		case channel.ProviderAnthropic:
-			baseProvider = schemas.Anthropic
-		case channel.ProviderGemini:
-			baseProvider = schemas.Gemini
-		}
-		provider = baseProvider
-		rawBaseURL, configuredBaseURL, configuredQuery, configured, targetErr := configuredTargetBaseURL(spec.TargetConfig)
-		if targetErr != nil {
-			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel target")
-			return preparedAttempt{}, &failure
-		}
-		if configured {
-			targetBaseURL, targetBaseQuery = configuredBaseURL, configuredQuery
-			provider = customProviderKey(baseProvider, rawBaseURL)
-			r.account.setConfig(provider, providerConfig(targetBaseURL, true, baseProvider, r.allowPrivate))
-			if baseProvider == schemas.OpenAI {
-				nativePassthroughEligible = strings.HasSuffix(targetBaseURL, "/v1")
-			}
-		}
-	case channel.ProviderAzureOpenAI:
-		provider = schemas.Azure
-	case channel.ProviderAWSBedrock:
-		provider = schemas.Bedrock
-	case channel.ProviderGoogleVertex:
-		provider = schemas.Vertex
-	case channel.ProviderOpenAICompatible, channel.ProviderAnthropicCompatible, channel.ProviderGeminiCompatible:
-		baseProvider := schemas.OpenAI
-		switch providerKind {
-		case channel.ProviderAnthropicCompatible:
-			baseProvider = schemas.Anthropic
-		case channel.ProviderGeminiCompatible:
-			baseProvider = schemas.Gemini
-		}
-		rawBaseURL, configuredBaseURL, configuredQuery, configured, targetErr := configuredTargetBaseURL(spec.TargetConfig)
-		if targetErr != nil || !configured {
-			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
-			return preparedAttempt{}, &failure
-		}
-		targetBaseURL, targetBaseQuery = configuredBaseURL, configuredQuery
-		provider = customProviderKey(baseProvider, rawBaseURL)
-		r.account.setConfig(provider, providerConfig(targetBaseURL, true, baseProvider, r.allowPrivate))
-		// Core v1.7.7 hardcodes /v1 for OpenAI passthrough. A complete
-		// compatible prefix with any other suffix must keep the typed path so
-		// RequestPathOverrides can address the configured endpoint exactly.
-		if baseProvider == schemas.OpenAI {
-			nativePassthroughEligible = strings.HasSuffix(targetBaseURL, "/v1")
-		}
-	default:
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported channel")
-		return preparedAttempt{}, &failure
+	if r.fixedConfig.custom {
+		targetBaseURL = r.fixedConfig.targetBaseURL
 	}
 	if mode == channel.RouteNative &&
 		(spec.Operation == execution.OperationListModels || spec.Operation == execution.OperationProbe) &&
@@ -398,13 +354,8 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "native route does not match the client protocol")
 		return preparedAttempt{}, &failure
 	}
-	if mode == channel.RouteNative && !nativePassthroughEligible {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "native route is unavailable for the configured endpoint")
-		return preparedAttempt{}, &failure
-	}
-	safeQuery := mergeRawQueries(targetBaseQuery, safeAttemptQuery(spec))
-	if providerKind == channel.ProviderGemini ||
-		providerKind == channel.ProviderGeminiCompatible {
+	safeQuery := safeAttemptQuery(spec)
+	if providerKind == channel.ProviderGemini {
 		safeQuery = removeRawQueryValue(safeQuery, "alt")
 		if stream {
 			safeQuery = setRawQueryValue(safeQuery, "alt", "sse")
@@ -421,7 +372,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid credential")
 		return preparedAttempt{}, &failure
 	}
-	if mode == channel.RouteNative {
+	if mode == channel.RouteNative && providerSupportsPassthrough(providerKind, targetBaseURL) {
 		body, err := sanitizeNativeRequestBody(spec, stream)
 		if err != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request body")
@@ -519,14 +470,30 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}, nil
 }
 
+func providerSupportsPassthrough(providerKind channel.ProviderKind, baseURL string) bool {
+	switch providerKind {
+	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini:
+		return true
+	case channel.ProviderOpenAICompatible:
+		// Bifrost v1.7.7's OpenAI passthrough always inserts /v1. A compatible
+		// full API prefix with another suffix must use the typed custom path,
+		// without changing the frozen route mode or channel capability.
+		return strings.HasSuffix(baseURL, "/v1")
+	default:
+		return false
+	}
+}
+
 func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtocol protocol.Protocol) bool {
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses
-	case channel.ProviderAnthropic, channel.ProviderAnthropicCompatible:
+	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic
-	case channel.ProviderGemini, channel.ProviderGeminiCompatible:
+	case channel.ProviderGemini:
 		return clientProtocol == protocol.Gemini
+	case channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
+		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses
 	default:
 		return false
 	}
@@ -632,13 +599,7 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 		return spec.Path, nil
 	case channel.ProviderAnthropic:
 		return spec.Path, nil
-	case channel.ProviderAnthropicCompatible:
-		path, ok := strings.CutPrefix(spec.Path, "/v1")
-		if !ok || path == "" {
-			return "", fmt.Errorf("invalid Anthropic path")
-		}
-		return path, nil
-	case channel.ProviderGemini, channel.ProviderGeminiCompatible:
+	case channel.ProviderGemini:
 		path, ok := strings.CutPrefix(spec.Path, "/v1beta")
 		if !ok || path == "" {
 			return "", fmt.Errorf("invalid Gemini path")
@@ -698,7 +659,8 @@ func directKeyForAttempt(
 	apiKey, _ := credential.Value("api_key")
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini,
-		channel.ProviderOpenAICompatible, channel.ProviderAnthropicCompatible, channel.ProviderGeminiCompatible:
+		channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI,
+		channel.ProviderOpenAICompatible:
 		if apiKey == "" {
 			return schemas.Key{}, nil, fmt.Errorf("api_key is required")
 		}
@@ -957,47 +919,6 @@ func resolveTypedTargetURL(baseURL, resourcePath, rawQuery string) (string, erro
 		parsed.RawQuery = rawQuery
 	}
 	return parsed.String(), nil
-}
-
-func splitCompatibleBaseURL(value string) (string, string, error) {
-	parsed, err := url.Parse(value)
-	if err != nil || parsed == nil || !parsed.IsAbs() || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
-		return "", "", fmt.Errorf("invalid target URL")
-	}
-	query := safeRawUpstreamQuery(parsed.RawQuery)
-	if query != parsed.RawQuery {
-		return "", "", fmt.Errorf("unsafe target query")
-	}
-	parsed.RawQuery = ""
-	parsed.ForceQuery = false
-	return parsed.String(), query, nil
-}
-
-func configuredTargetBaseURL(targetConfig json.RawMessage) (rawBaseURL, baseURL, rawQuery string, configured bool, err error) {
-	var target struct {
-		BaseURL string `json:"base_url"`
-	}
-	if json.Unmarshal(targetConfig, &target) != nil {
-		return "", "", "", false, fmt.Errorf("invalid target config")
-	}
-	if target.BaseURL == "" {
-		return "", "", "", false, nil
-	}
-	baseURL, rawQuery, err = splitCompatibleBaseURL(target.BaseURL)
-	if err != nil {
-		return "", "", "", false, err
-	}
-	return target.BaseURL, baseURL, rawQuery, true, nil
-}
-
-func mergeRawQueries(baseQuery, requestQuery string) string {
-	if baseQuery == "" {
-		return requestQuery
-	}
-	if requestQuery == "" {
-		return baseQuery
-	}
-	return baseQuery + "&" + requestQuery
 }
 
 func setTypedRequestURL(ctx *schemas.BifrostContext, requestURL string) {

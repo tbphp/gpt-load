@@ -266,8 +266,8 @@ func TestCreateChannelGroupUsesChannelAndCanonicalParamsForSimilarity(t *testing
 
 	otherChannel, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name:        stringPointer("same URL other channel"),
-		ChannelID:   channel.AnthropicCompatible,
-		Params:      json.RawMessage(`{"base_url":"https://same.example/v1"}`),
+		ChannelID:   channel.Anthropic,
+		Params:      json.RawMessage(`{"base_url":"https://same.example"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Credentials: "third",
 	})

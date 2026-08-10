@@ -2,12 +2,47 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"gpt-load/internal/channel"
 )
+
+func TestManagerReconcilesInfrastructureBeforePublishingSnapshot(t *testing.T) {
+	reconciler := &recordingSnapshotReconciler{}
+	manager := NewManager()
+	manager.SetSnapshotReconciler(reconciler)
+
+	first, err := manager.Publish(managerCompileInput(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconciler.calls != 1 || reconciler.last != first {
+		t.Fatalf("reconciler = calls %d snapshot %p, want 1/%p", reconciler.calls, reconciler.last, first)
+	}
+
+	reconciler.err = errors.New("reconcile failed")
+	if _, err := manager.Publish(managerCompileInput(2)); !errors.Is(err, reconciler.err) {
+		t.Fatalf("Publish() error = %v, want reconcile failure", err)
+	}
+	if current := manager.Current(); current != first {
+		t.Fatalf("failed reconcile published snapshot %p, want old %p", current, first)
+	}
+}
+
+type recordingSnapshotReconciler struct {
+	calls int
+	last  *ConfigSnapshot
+	err   error
+}
+
+func (reconciler *recordingSnapshotReconciler) ReconcileConfigSnapshot(snapshot *ConfigSnapshot) error {
+	reconciler.calls++
+	reconciler.last = snapshot
+	return reconciler.err
+}
 
 func TestManagerPublishStartsAtRevisionOne(t *testing.T) {
 	manager := NewManager()

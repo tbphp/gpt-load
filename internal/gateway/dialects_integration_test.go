@@ -47,6 +47,9 @@ func testUpstreamBaseURL(raw string, selected protocol.Protocol) string {
 		return raw
 	}
 	prefix := "/v1"
+	if selected == protocol.Anthropic {
+		return parsed.String()
+	}
 	if selected == protocol.Gemini {
 		prefix = "/v1beta"
 	}
@@ -1112,7 +1115,7 @@ func TestGeminiGatewayNonStreamAuthAndQuery(t *testing.T) {
 			engine, _ := newDialectGatewayEngine(t, protocol.Gemini, "gemini-2.5-pro",
 				dialect.NewSet(dialect.NewGemini()),
 				dialectGatewayGroup{
-					id: 1, name: "gemini", upstreamURL: upstream.URL + "?tenant=base&alt=proto",
+					id: 1, name: "gemini", upstreamURL: upstream.URL,
 					apiKeys: []string{"gemini-upstream-key"},
 				},
 			)
@@ -1138,7 +1141,7 @@ func TestGeminiGatewayNonStreamAuthAndQuery(t *testing.T) {
 				got.Headers.Get("X-Goog-Api-Key") != "gemini-upstream-key" ||
 				got.Headers.Get("Authorization") != "" ||
 				query.Get("key") != "" || query.Get("alt") != "" ||
-				query.Get("tenant") != "base" || query.Get("trace") != "true" ||
+				query.Get("tenant") != "" || query.Get("trace") != "true" ||
 				string(got.Body) != test.body {
 				t.Fatalf("upstream request = %#v query=%v", got, query)
 			}
@@ -1177,7 +1180,7 @@ func TestGeminiGatewayStream(t *testing.T) {
 	engine, _ := newDialectGatewayEngine(t, protocol.Gemini, "gemini-2.5-pro",
 		dialect.NewSet(dialect.NewGemini()),
 		dialectGatewayGroup{
-			id: 1, name: "gemini-stream", upstreamURL: upstream.URL + "?tenant=base&alt=json",
+			id: 1, name: "gemini-stream", upstreamURL: upstream.URL,
 			apiKeys:     []string{"gemini-stream-key"},
 			headerRules: state.HeaderRules{Set: map[string]string{"Accept-Encoding": "gzip"}},
 		},
@@ -1201,7 +1204,7 @@ func TestGeminiGatewayStream(t *testing.T) {
 	if got := query["alt"]; len(got) != 1 || got[0] != "sse" {
 		t.Fatalf("alt = %#v", got)
 	}
-	if query.Get("key") != "" || query.Get("trace") != "true" || query.Get("tenant") != "base" ||
+	if query.Get("key") != "" || query.Get("trace") != "true" || query.Get("tenant") != "" ||
 		requests[0].Headers.Get("Accept-Encoding") != "identity" ||
 		requests[0].Headers.Get("X-Goog-Api-Key") != "gemini-stream-key" {
 		t.Fatalf("upstream request = %#v query=%v", requests[0], query)

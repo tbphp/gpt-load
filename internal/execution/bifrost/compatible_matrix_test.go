@@ -16,7 +16,7 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-func TestCompatibleAnthropicAndGeminiNativeUnaryStream(t *testing.T) {
+func TestAnthropicAndGeminiCustomBaseURLUseNativeUnaryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -33,14 +33,14 @@ func TestCompatibleAnthropicAndGeminiNativeUnaryStream(t *testing.T) {
 		streamQuery string
 	}{
 		{
-			name: "Anthropic", channelID: channel.AnthropicCompatible, prefix: "/tenant/v1",
+			name: "Anthropic", channelID: channel.Anthropic, prefix: "/tenant",
 			unaryPath: "/tenant/v1/messages", streamPath: "/tenant/v1/messages", credential: "X-Api-Key",
 			unaryBody: anthropicResponsesConvertedFixture, streamBody: anthropicResponsesStreamFixture,
 			unarySpec:  func() execution.AttemptSpec { return anthropicSpec(false) },
 			streamSpec: func() execution.AttemptSpec { return anthropicSpec(true) },
 		},
 		{
-			name: "Gemini", channelID: channel.GeminiCompatible, prefix: "/tenant/v1beta",
+			name: "Gemini", channelID: channel.Gemini, prefix: "/tenant/v1beta",
 			unaryPath:  "/tenant/v1beta/models/upstream-gemini:generateContent",
 			streamPath: "/tenant/v1beta/models/upstream-gemini:streamGenerateContent", credential: "X-Goog-Api-Key",
 			unaryBody: geminiResponsesConvertedFixture, streamBody: geminiResponsesStreamFixture, streamQuery: "sse",
@@ -74,7 +74,7 @@ func TestCompatibleAnthropicAndGeminiNativeUnaryStream(t *testing.T) {
 			}))
 			defer server.Close()
 
-			runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true})
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 			target, _ := json.Marshal(map[string]string{"base_url": server.URL + test.prefix})
 			unarySpec := test.unarySpec()
 			unarySpec.ChannelID = string(test.channelID)
@@ -134,7 +134,7 @@ func TestCompatibleOpenAIResponsesCreateConvertsToChatAndRejectsLifecycle(t *tes
 	}))
 	defer server.Close()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 	target, _ := json.Marshal(map[string]string{"base_url": server.URL + "/tenant/v1"})
 	create := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
 	create.ChannelID = string(channel.OpenAICompatible)
@@ -181,8 +181,8 @@ func TestCompatibleListModelsAndProbeUseConfiguredPrefix(t *testing.T) {
 		probeBody  []byte
 	}{
 		{name: "OpenAI", channelID: channel.OpenAICompatible, protocol: protocol.OpenAICompletions, baseSuffix: "/custom/v1", modelsPath: "/custom/v1/models", probePath: "/custom/v1/chat/completions", probeBody: []byte(`{"model":"client","messages":[{"role":"user","content":"ping"}]}`)},
-		{name: "Anthropic", channelID: channel.AnthropicCompatible, protocol: protocol.Anthropic, baseSuffix: "/custom/v1", modelsPath: "/custom/v1/models", probePath: "/custom/v1/messages", probeBody: []byte(`{"model":"client","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)},
-		{name: "Gemini", channelID: channel.GeminiCompatible, protocol: protocol.Gemini, baseSuffix: "/custom/v1beta", modelsPath: "/custom/v1beta/models", probePath: "/custom/v1beta/models/probe-upstream:generateContent", probeBody: []byte(`{"contents":[{"parts":[{"text":"ping"}]}]}`)},
+		{name: "Anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, baseSuffix: "/custom", modelsPath: "/custom/v1/models", probePath: "/custom/v1/messages", probeBody: []byte(`{"model":"client","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)},
+		{name: "Gemini", channelID: channel.Gemini, protocol: protocol.Gemini, baseSuffix: "/custom/v1beta", modelsPath: "/custom/v1beta/models", probePath: "/custom/v1beta/models/probe-upstream:generateContent", probeBody: []byte(`{"contents":[{"parts":[{"text":"ping"}]}]}`)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -207,7 +207,7 @@ func TestCompatibleListModelsAndProbeUseConfiguredPrefix(t *testing.T) {
 			}))
 			defer server.Close()
 
-			runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true})
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 			target, _ := json.Marshal(map[string]string{"base_url": server.URL + test.baseSuffix})
 			modelsPath := "/v1/models"
 			if test.protocol == protocol.Gemini {
@@ -258,7 +258,7 @@ func TestOpenAICompatibleNonV1PrefixKeepsListModelsAndProbeFunctional(t *testing
 	}))
 	defer server.Close()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 	target, _ := json.Marshal(map[string]string{"base_url": server.URL + "/vendor/api/v4"})
 	models := utilitySpec(channel.OpenAICompatible, protocol.OpenAICompletions, execution.OperationListModels, http.MethodGet, "/v1/models", nil)
 	models.TargetConfig = target
@@ -292,7 +292,7 @@ func TestOpenAICompatibleConvertedResponsesUsesChatCompletions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 	target, _ := json.Marshal(map[string]string{"base_url": server.URL + "/vendor/api/v4"})
 	spec := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
 	spec.ChannelID = string(channel.OpenAICompatible)
@@ -321,7 +321,7 @@ func TestListModelsConvertsProviderResultToClientProtocol(t *testing.T) {
 		_, _ = io.WriteString(writer, `{"object":"list","data":[{"id":"model-1","object":"model","created":1,"owned_by":"vendor"}]}`)
 	}))
 	defer server.Close()
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
 	spec := utilitySpec(channel.OpenAI, protocol.Anthropic, execution.OperationListModels, http.MethodGet, "/v1/models", nil)
 	result := runtime.Execute(context.Background(), spec)
 	if err := result.Validate(); err != nil || result.Error != nil {

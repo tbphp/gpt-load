@@ -56,7 +56,6 @@ func BuildContainer() (*dig.Container, error) {
 		httplifecycle.NewCoordinator,
 		app.NewEngineWithLifecycle,
 		webui.NewServer,
-		state.NewManager,
 		state.NewCredentialRegistry,
 		channel.NewRegistry,
 		control.NewPriceRuntime,
@@ -137,11 +136,16 @@ func BuildContainer() (*dig.Container, error) {
 		) dialect.Set {
 			return dialect.NewSet(openAI, openAIResponses, anthropic, gemini)
 		},
-		func(registry *channel.Registry) (*bifrostexecutor.Runtime, error) {
+		func(registry *channel.Registry) (*bifrostexecutor.RuntimeManager, error) {
 			return bifrostexecutor.NewManagedRuntime(registry)
 		},
-		func(runtime *bifrostexecutor.Runtime) execution.Executor { return runtime },
-		func(runtime *bifrostexecutor.Runtime) app.ExecutionRuntime { return runtime },
+		func(runtime *bifrostexecutor.RuntimeManager) *state.Manager {
+			manager := state.NewManager()
+			manager.SetSnapshotReconciler(providerRuntimeSnapshotReconciler{runtime: runtime})
+			return manager
+		},
+		func(runtime *bifrostexecutor.RuntimeManager) execution.Executor { return runtime },
+		func(runtime *bifrostexecutor.RuntimeManager) app.ExecutionRuntime { return runtime },
 		gateway.NewExecutionForwarder,
 		func(forwarder *gateway.ExecutionForwarder) gateway.AttemptForwarder { return forwarder },
 		gateway.NewHandlerWithLifecycle,
@@ -183,6 +187,24 @@ func BuildContainer() (*dig.Container, error) {
 		return nil, fmt.Errorf("register HTTP routes: %w", err)
 	}
 	return dependencyContainer, nil
+}
+
+type providerRuntimeSnapshotReconciler struct {
+	runtime *bifrostexecutor.RuntimeManager
+}
+
+func (reconciler providerRuntimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {
+	if reconciler.runtime == nil {
+		return fmt.Errorf("reconcile provider runtimes: runtime manager is unavailable")
+	}
+	targets := make([]channel.ResolvedTarget, 0)
+	if snapshot != nil {
+		targets = make([]channel.ResolvedTarget, 0, len(snapshot.Groups))
+		for _, group := range snapshot.Groups {
+			targets = append(targets, group.ResolvedTarget)
+		}
+	}
+	return reconciler.runtime.Reconcile(targets)
 }
 
 func newHTTPRegistry(

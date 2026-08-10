@@ -110,8 +110,8 @@ func TestRuntimeUnaryUsesSelectedCredentialModelAndEndpoint(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("calls = %d, want 1", calls.Load())
 	}
-	if runtime.account.keyPoolCalls.Load() != 0 {
-		t.Fatalf("key-pool calls = %d, want 0", runtime.account.keyPoolCalls.Load())
+	if runtime.keyPoolCalls() != 0 {
+		t.Fatalf("key-pool calls = %d, want 0", runtime.keyPoolCalls())
 	}
 	assertNoPrivateLeak(t, result, testAPIKey, "gptload-custom-")
 }
@@ -126,7 +126,7 @@ func TestRuntimeBoundsUnaryResponsesBeforeMaterialization(t *testing.T) {
 		}))
 		defer server.Close()
 
-		runtime := newProtocolTestRuntime(t, runtimeOptions{
+		runtime := newProtocolTestRuntime(t, testRuntimeOptions{
 			allowPrivateNetwork:       true,
 			maxUnaryResponseBodyBytes: limit,
 		})
@@ -156,7 +156,7 @@ func TestRuntimeBoundsUnaryResponsesBeforeMaterialization(t *testing.T) {
 		}))
 		defer server.Close()
 
-		runtime := newProtocolTestRuntime(t, runtimeOptions{
+		runtime := newProtocolTestRuntime(t, testRuntimeOptions{
 			allowPrivateNetwork:       true,
 			maxUnaryResponseBodyBytes: limit,
 		})
@@ -177,7 +177,7 @@ func TestRuntimeBoundsUnaryResponsesBeforeMaterialization(t *testing.T) {
 		}))
 		defer server.Close()
 
-		runtime := newProtocolTestRuntime(t, runtimeOptions{
+		runtime := newProtocolTestRuntime(t, testRuntimeOptions{
 			allowPrivateNetwork:       true,
 			maxUnaryResponseBodyBytes: limit,
 		})
@@ -395,7 +395,7 @@ func TestRuntimeUsesExplicitOfficialOpenAIBaseURLOverride(t *testing.T) {
 
 	spec := compatibleSpec(server.URL)
 	spec.ChannelID = string(channel.OpenAI)
-	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/v1"}`)
+	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `"}`)
 	spec = freezeTestAttempt(spec)
 	spec.ClientModel = spec.UpstreamModel
 	result := newTestRuntime(t).Execute(context.Background(), spec)
@@ -752,43 +752,6 @@ func TestRuntimePreservesRawQueryBytesForNativeAndTypedCompatibleTargets(t *test
 	}
 }
 
-func TestRuntimeMergesCompatibleBaseAndRequestQueries(t *testing.T) {
-	t.Parallel()
-
-	for _, test := range []struct {
-		name       string
-		basePrefix string
-	}{
-		{name: "native passthrough", basePrefix: "/v1"},
-		{name: "typed fallback", basePrefix: "/tenant/openai"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			const want = "api-version=2025-01-01&tenant=base&trace=%2F&trace=%2f"
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				if request.URL.RawQuery != want {
-					t.Errorf("RawQuery = %q, want %q", request.URL.RawQuery, want)
-				}
-				writeSuccess(writer, "merged-query")
-			}))
-			defer server.Close()
-
-			runtime := newTestRuntime(t)
-			spec := compatibleSpec(server.URL)
-			spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + test.basePrefix + `?api-version=2025-01-01&tenant=base"}`)
-			spec = freezeTestAttempt(spec)
-			spec.Query = nil
-			spec.RawQuery = "trace=%2F&api_key=injected&trace=%2f"
-			result := runtime.Execute(context.Background(), spec)
-			if err := result.Validate(); err != nil {
-				t.Fatalf("result validation: %v; result=%+v", err, result)
-			}
-			if result.Error != nil {
-				t.Fatalf("result = %+v", result)
-			}
-		})
-	}
-}
-
 func TestRuntimeStreamStopsWithoutDoneOnSinkFailure(t *testing.T) {
 	t.Parallel()
 
@@ -1073,15 +1036,12 @@ func TestRuntimeShutdownIsIdempotentAndClosesExecution(t *testing.T) {
 }
 
 func TestManagedRuntimeRequiresExplicitStart(t *testing.T) {
-	runtime, err := newManagedRuntime(
+	runtime, err := newRuntimeManager(
 		runtimeOptions{allowPrivateNetwork: true},
 		channel.NewRegistry(),
 	)
 	if err != nil {
-		t.Fatalf("newManagedRuntime() error = %v", err)
-	}
-	if runtime.core != nil {
-		t.Fatal("managed runtime initialized Bifrost before Start")
+		t.Fatalf("newRuntimeManager() error = %v", err)
 	}
 	beforeStart := runtime.Execute(context.Background(), execution.AttemptSpec{})
 	if beforeStart.DispatchState != execution.DispatchNotSent ||
@@ -1093,8 +1053,11 @@ func TestManagedRuntimeRequiresExplicitStart(t *testing.T) {
 	if err := runtime.Start(context.Background()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if runtime.core == nil {
-		t.Fatal("Start() did not initialize Bifrost")
+	runtime.pool.mu.Lock()
+	entryCount := len(runtime.pool.entries)
+	runtime.pool.mu.Unlock()
+	if entryCount != 0 {
+		t.Fatalf("Start() created %d provider runtimes, want lazy initialization", entryCount)
 	}
 	if err := runtime.Start(context.Background()); err != nil {
 		t.Fatalf("second Start() error = %v, want idempotent success", err)
@@ -1145,14 +1108,9 @@ func mustTestFeatures(t *testing.T, features ...execution.Feature) execution.Fea
 	return set
 }
 
-func newTestRuntime(t *testing.T) *Runtime {
+func newTestRuntime(t *testing.T) *testRuntime {
 	t.Helper()
-	runtime, err := newRuntime(context.Background(), runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-	t.Cleanup(runtime.Shutdown)
-	return runtime
+	return newRuntimeForTest(t, testRuntimeOptions{allowPrivateNetwork: true})
 }
 
 func compatibleSpec(baseURL string) execution.AttemptSpec {

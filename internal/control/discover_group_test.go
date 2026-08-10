@@ -477,8 +477,8 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 	groupWriteDone := make(chan error, 1)
 	go func() {
 		_, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-			ChannelID:   channel.AnthropicCompatible,
-			Params:      []byte(`{"base_url":"https://concurrent-group-write.example.com/v1"}`),
+			ChannelID:   channel.Anthropic,
+			Params:      []byte(`{"base_url":"https://concurrent-group-write.example.com"}`),
 			Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 			Credentials: "concurrent-group-key",
 		})

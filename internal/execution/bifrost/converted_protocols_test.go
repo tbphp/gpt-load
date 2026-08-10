@@ -30,7 +30,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 		upstreamBody   string
 		modelInPath    bool
 		assertClient   func(*testing.T, map[string]any)
-		runtime        func(*testing.T, string) *Runtime
+		runtime        func(*testing.T, string) *testRuntime
 	}{
 		{
 			name:           "Anthropic client to OpenAI",
@@ -47,8 +47,8 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 					t.Errorf("Anthropic response = %#v", body)
 				}
 			},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
 		},
 		{
@@ -67,8 +67,8 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 					t.Errorf("Anthropic response = %#v", body)
 				}
 			},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 			},
 		},
 		{
@@ -87,8 +87,8 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 					t.Errorf("Gemini response = %#v", body)
 				}
 			},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
 		},
 		{
@@ -107,8 +107,8 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 					t.Errorf("Gemini response = %#v", body)
 				}
 			},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 			},
 		},
 		{
@@ -126,8 +126,8 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 					t.Errorf("OpenAI Responses response = %#v", body)
 				}
 			},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 			},
 		},
 		{
@@ -146,8 +146,8 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 					t.Errorf("OpenAI Responses response = %#v", body)
 				}
 			},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 			},
 		},
 	}
@@ -205,6 +205,75 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 	}
 }
 
+func TestNativeOpenAIStyleTypedTargetsPreserveSafeQuery(t *testing.T) {
+	const rawQuery = "trace=%2F&cursor=next"
+	for _, test := range []struct {
+		name       string
+		provider   channel.ProviderKind
+		responses  bool
+		stream     bool
+		wantTarget string
+	}{
+		{name: "deepseek chat", provider: channel.ProviderDeepSeek, wantTarget: "/chat/completions?" + rawQuery},
+		{name: "deepseek responses stream", provider: channel.ProviderDeepSeek, responses: true, stream: true, wantTarget: "/chat/completions?" + rawQuery},
+		{name: "openrouter chat stream", provider: channel.ProviderOpenRouter, stream: true, wantTarget: "/v1/chat/completions?" + rawQuery},
+		{name: "openrouter responses", provider: channel.ProviderOpenRouter, responses: true, wantTarget: "/v1/responses?" + rawQuery},
+		{name: "groq chat", provider: channel.ProviderGroq, wantTarget: "/v1/chat/completions?" + rawQuery},
+		{name: "groq responses", provider: channel.ProviderGroq, responses: true, wantTarget: "/v1/chat/completions?" + rawQuery},
+		{name: "xai chat", provider: channel.ProviderXAI, wantTarget: "/v1/chat/completions?" + rawQuery},
+		{name: "xai responses stream", provider: channel.ProviderXAI, responses: true, stream: true, wantTarget: "/v1/responses?" + rawQuery},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			target, err := convertedTypedTarget(test.provider, "", "model", test.responses, test.stream, rawQuery)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if target != test.wantTarget {
+				t.Fatalf("target = %q, want %q", target, test.wantTarget)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		provider  channel.ProviderKind
+		responses bool
+	}{
+		{name: "groq chat stream", provider: channel.ProviderGroq},
+		{name: "groq responses stream", provider: channel.ProviderGroq, responses: true},
+		{name: "xai chat stream", provider: channel.ProviderXAI},
+	} {
+		t.Run(test.name+" rejects unsupported query", func(t *testing.T) {
+			if _, err := convertedTypedTarget(test.provider, "", "model", test.responses, true, rawQuery); err == nil {
+				t.Fatal("convertedTypedTarget() error = nil")
+			}
+		})
+	}
+}
+
+func TestNativeOpenAIStyleListModelsTargetsPreserveSafeQuery(t *testing.T) {
+	const rawQuery = "cursor=%2F&limit=10"
+	for _, test := range []struct {
+		provider channel.ProviderKind
+		want     string
+	}{
+		{provider: channel.ProviderDeepSeek, want: "/models?" + rawQuery},
+		{provider: channel.ProviderOpenRouter, want: "/v1/models?" + rawQuery},
+		{provider: channel.ProviderGroq, want: "/v1/models?" + rawQuery},
+		{provider: channel.ProviderXAI, want: "/v1/models?" + rawQuery},
+	} {
+		t.Run(string(test.provider), func(t *testing.T) {
+			target, err := convertedListModelsTarget(test.provider, "", rawQuery)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if target != test.want {
+				t.Fatalf("target = %q, want %q", target, test.want)
+			}
+		})
+	}
+}
+
 func TestConvertedOpenAIChatUnaryUsesSelectedProvider(t *testing.T) {
 	t.Parallel()
 
@@ -215,20 +284,20 @@ func TestConvertedOpenAIChatUnaryUsesSelectedProvider(t *testing.T) {
 		credentialName string
 		upstreamBody   string
 		modelInPath    bool
-		runtime        func(*testing.T, string) *Runtime
+		runtime        func(*testing.T, string) *testRuntime
 	}{
 		{
 			name: "Anthropic", channelID: channel.Anthropic, upstreamPath: "/v1/messages",
 			credentialName: "X-Api-Key", upstreamBody: anthropicResponsesConvertedFixture,
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 			},
 		},
 		{
 			name: "Gemini", channelID: channel.Gemini, upstreamPath: "/v1beta/models/upstream-model:generateContent",
 			credentialName: "X-Goog-Api-Key", upstreamBody: geminiResponsesConvertedFixture, modelInPath: true,
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 			},
 		},
 	}
@@ -295,7 +364,7 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 		upstreamModel  string
 		streamInBody   bool
 		wantFragments  []string
-		runtime        func(*testing.T, string) *Runtime
+		runtime        func(*testing.T, string) *testRuntime
 	}{
 		{
 			name: "Anthropic client from OpenAI stream", channelID: channel.OpenAI,
@@ -305,8 +374,8 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			upstreamModel: "gpt-upstream",
 			streamInBody:  true,
 			wantFragments: []string{"event: message_start", `"type":"message_start"`, "hello", "event: message_stop"},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
 		},
 		{
@@ -317,8 +386,8 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			upstreamModel: "gpt-upstream",
 			streamInBody:  true,
 			wantFragments: []string{"data: ", "hello", "usageMetadata"},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
 		},
 		{
@@ -329,8 +398,8 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			upstreamModel: "claude-upstream",
 			streamInBody:  true,
 			wantFragments: []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 			},
 		},
 		{
@@ -340,8 +409,8 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			upstreamPath: "/v1beta/models/upstream-model:streamGenerateContent", credentialName: "X-Goog-Api-Key", upstreamStream: geminiResponsesStreamFixture,
 			upstreamModel: "gemini-upstream",
 			wantFragments: []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 			},
 		},
 	}
@@ -421,20 +490,20 @@ func TestConvertedOpenAIChatStreamUsesSelectedProvider(t *testing.T) {
 		credentialName string
 		upstreamStream string
 		upstreamModel  string
-		runtime        func(*testing.T, string) *Runtime
+		runtime        func(*testing.T, string) *testRuntime
 	}{
 		{
 			name: "Anthropic", channelID: channel.Anthropic, upstreamPath: "/v1/messages",
 			credentialName: "X-Api-Key", upstreamStream: anthropicResponsesStreamFixture, upstreamModel: "claude-upstream",
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 			},
 		},
 		{
 			name: "Gemini", channelID: channel.Gemini, upstreamPath: "/v1beta/models/upstream-model:streamGenerateContent",
 			credentialName: "X-Goog-Api-Key", upstreamStream: geminiResponsesStreamFixture, upstreamModel: "gemini-upstream",
-			runtime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
+			runtime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 			},
 		},
 	}
@@ -498,7 +567,7 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 		}))
 		defer server.Close()
 
-		runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
+		runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
 		spec := convertedSpec(
 			channel.OpenAI,
 			protocol.Anthropic,
@@ -536,7 +605,7 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 		}))
 		defer server.Close()
 
-		runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
+		runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
 		spec := convertedSpec(
 			channel.OpenAI,
 			protocol.Anthropic,

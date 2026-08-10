@@ -218,9 +218,9 @@ func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 		t.Fatalf("Next() error = %v", err)
 	}
 	if selection.GroupID != 9 || selection.ChannelID != channel.OpenRouter ||
-		selection.RouteMode != channel.RouteConverted || selection.UpstreamModelID == nil ||
+		selection.RouteMode != channel.RouteNative || selection.UpstreamModelID == nil ||
 		*selection.UpstreamModelID != "openai/gpt-5.6-luna" {
-		t.Fatalf("Selection = %#v, want converted OpenRouter target", selection)
+		t.Fatalf("Selection = %#v, want native OpenRouter target", selection)
 	}
 }
 

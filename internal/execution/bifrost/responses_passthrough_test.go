@@ -26,7 +26,7 @@ func TestOpenAIResponsesUnknownNamespaceUsesExplicitNativePassthrough(t *testing
 		status     int
 		response   string
 		target     func(string) json.RawMessage
-		newRuntime func(*testing.T, string) *Runtime
+		newRuntime func(*testing.T, string) *testRuntime
 	}{
 		{
 			name: "official vendor extension", channelID: channel.OpenAI,
@@ -35,8 +35,8 @@ func TestOpenAIResponsesUnknownNamespaceUsesExplicitNativePassthrough(t *testing
 			status:   http.StatusMultiStatus,
 			response: `{"object":"vendor.result","vendor":{"precise":1.2300}}`,
 			target:   func(string) json.RawMessage { return json.RawMessage(`{}`) },
-			newRuntime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+			newRuntime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
 		},
 		{
@@ -44,8 +44,8 @@ func TestOpenAIResponsesUnknownNamespaceUsesExplicitNativePassthrough(t *testing
 			method: http.MethodHead, path: "/v1/responses/resp_123/vendor_state",
 			status: http.StatusNoContent,
 			target: func(string) json.RawMessage { return json.RawMessage(`{}`) },
-			newRuntime: func(t *testing.T, base string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+			newRuntime: func(t *testing.T, base string) *testRuntime {
+				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
 		},
 	}
@@ -105,7 +105,7 @@ func TestOpenAIResponsesUnknownNamespaceUsesExplicitNativePassthrough(t *testing
 func TestResponsesPassthroughFailsClosedForNonOpenAIProvider(t *testing.T) {
 	t.Parallel()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 	spec := convertedSpec(channel.Anthropic, protocol.OpenAIResponses, execution.OperationResponsesPassthrough, "/v1/responses/vendor_extension", []byte(`{"vendor":true}`))
 	spec.ClientModel = ""
 	spec.UpstreamModel = ""
@@ -128,7 +128,7 @@ func TestGenericOpenAICompatibleDoesNotAdvertiseUnknownResponsesPassthrough(t *t
 	spec.TargetConfig, _ = json.Marshal(map[string]string{"base_url": server.URL + "/v1"})
 	spec.TargetKind = string(channel.ProviderOpenAICompatible)
 	spec.RouteMode = execution.RouteNative
-	result := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true}).Execute(context.Background(), spec)
+	result := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true}).Execute(context.Background(), spec)
 	if calls.Load() != 0 || result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Kind != execution.ErrorKindInvalidRequest {
 		t.Fatalf("calls/result = %d/%+v", calls.Load(), result)
 	}

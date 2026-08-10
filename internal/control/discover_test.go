@@ -40,7 +40,7 @@ func TestDiscoverModelsUsesSystemDefaultsAndNormalizesSuccessfulResult(t *testin
 				rules state.HeaderRules,
 			) ([]string, error) {
 				calls = append(calls, string(value)+":"+apiKey)
-				if baseURL != "https://api.example.com/v1?fixed=1" {
+				if baseURL != "https://api.example.com/v1" {
 					t.Fatalf("base URL = %q, want normalized draft URL", baseURL)
 				}
 				wantRules := state.HeaderRules{
@@ -64,7 +64,7 @@ func TestDiscoverModelsUsesSystemDefaultsAndNormalizesSuccessfulResult(t *testin
 	)
 	result, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
 		ChannelID:   channel.OpenAICompatible,
-		Params:      json.RawMessage(`{"base_url":" HTTPS://API.Example.COM/v1/?fixed=1 "}`),
+		Params:      json.RawMessage(`{"base_url":" HTTPS://API.Example.COM/v1/ "}`),
 		Credentials: " key-a \nkey-a\n\n key-b \nkey-b",
 	})
 	if err != nil {
@@ -358,7 +358,7 @@ func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
 	discoveryDone := make(chan error, 1)
 	go func() {
 		_, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-			ChannelID:   channel.AnthropicCompatible,
+			ChannelID:   channel.Anthropic,
 			Params:      json.RawMessage(`{"base_url":"https://discover.example.com"}`),
 			Credentials: "sk-discovery",
 		})

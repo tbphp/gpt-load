@@ -260,17 +260,12 @@ func TestOfficialOpenAIResponsesUtilityOperationsPreserveNativeSemantics(t *test
 	}
 }
 
-func newOfficialOpenAITestRuntime(t *testing.T, baseURL string) *Runtime {
+func newOfficialOpenAITestRuntime(t *testing.T, baseURL string) *testRuntime {
 	t.Helper()
-	runtime, err := newRuntime(context.Background(), runtimeOptions{
+	return newRuntimeForTest(t, testRuntimeOptions{
 		allowPrivateNetwork: true,
 		openAIBaseURL:       baseURL,
-	}, channel.NewRegistry())
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-	t.Cleanup(runtime.Shutdown)
-	return runtime
+	})
 }
 
 func openAIResponsesSpec(operation execution.Operation, method, path string) execution.AttemptSpec {

@@ -304,9 +304,9 @@ func groupCollectionQueryRecord(
 	for _, selectedProtocol := range protocols {
 		switch selectedProtocol {
 		case protocol.Anthropic:
-			channelID = channel.AnthropicCompatible
+			channelID = channel.Anthropic
 		case protocol.Gemini:
-			channelID = channel.GeminiCompatible
+			channelID = channel.Gemini
 		}
 	}
 	params, err := json.Marshal(map[string]string{"base_url": upstreamURL})

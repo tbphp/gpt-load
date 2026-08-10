@@ -232,12 +232,9 @@ func convertedTypedTarget(
 		if providerKind == channel.ProviderOpenAI {
 			resourcePath = "/v1" + resourcePath
 		}
-	case channel.ProviderAnthropic, channel.ProviderAnthropicCompatible:
-		resourcePath = "/messages"
-		if providerKind == channel.ProviderAnthropic {
-			resourcePath = "/v1" + resourcePath
-		}
-	case channel.ProviderGemini, channel.ProviderGeminiCompatible:
+	case channel.ProviderAnthropic:
+		resourcePath = "/v1/messages"
+	case channel.ProviderGemini:
 		action := "generateContent"
 		if stream {
 			action = "streamGenerateContent"
@@ -245,6 +242,25 @@ func convertedTypedTarget(
 		resourcePath = "/models/" + url.PathEscape(model) + ":" + action
 		if stream {
 			rawQuery = setRawQueryValue(rawQuery, "alt", "sse")
+		}
+	case channel.ProviderDeepSeek:
+		resourcePath = "/chat/completions"
+	case channel.ProviderOpenRouter:
+		resourcePath = "/v1/chat/completions"
+		if responses {
+			resourcePath = "/v1/responses"
+		}
+	case channel.ProviderGroq:
+		if stream && rawQuery != "" {
+			return "", fmt.Errorf("provider streaming query is not supported")
+		}
+		resourcePath = "/v1/chat/completions"
+	case channel.ProviderXAI:
+		resourcePath = "/v1/chat/completions"
+		if responses {
+			resourcePath = "/v1/responses"
+		} else if stream && rawQuery != "" {
+			return "", fmt.Errorf("provider streaming query is not supported")
 		}
 	case channel.ProviderAzureOpenAI, channel.ProviderAWSBedrock, channel.ProviderGoogleVertex:
 		if rawQuery != "" {
@@ -254,7 +270,7 @@ func convertedTypedTarget(
 	default:
 		return "", fmt.Errorf("unsupported provider kind")
 	}
-	if baseURL != "" && providerKind != channel.ProviderGeminiCompatible {
+	if baseURL != "" {
 		return resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
 	}
 	return appendTypedQuery(resourcePath, rawQuery), nil
@@ -267,13 +283,15 @@ func convertedListModelsTarget(providerKind channel.ProviderKind, baseURL string
 		resourcePath = "/v1/models"
 	case channel.ProviderGemini:
 		resourcePath = "/models"
-	case channel.ProviderOpenAICompatible, channel.ProviderAnthropicCompatible:
+	case channel.ProviderDeepSeek:
+		resourcePath = "/models"
+	case channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
+		resourcePath = "/v1/models"
+	case channel.ProviderOpenAICompatible:
 		if baseURL == "" {
 			return "", fmt.Errorf("compatible target is required")
 		}
 		return resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
-	case channel.ProviderGeminiCompatible:
-		resourcePath = "/models"
 	case channel.ProviderAzureOpenAI, channel.ProviderAWSBedrock, channel.ProviderGoogleVertex:
 		if rawQuery != "" {
 			return "", fmt.Errorf("provider-specific query is not supported")

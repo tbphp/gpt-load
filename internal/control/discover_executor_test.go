@@ -122,6 +122,37 @@ func encodeDiscoveryModelsForTest(value protocol.Protocol, models []string) []by
 	return body
 }
 
+func TestNativeOpenAIStyleProvidersUseOpenAIUtilityRequestShape(t *testing.T) {
+	for _, providerKind := range []channel.ProviderKind{
+		channel.ProviderDeepSeek,
+		channel.ProviderOpenRouter,
+		channel.ProviderGroq,
+		channel.ProviderXAI,
+	} {
+		t.Run(string(providerKind), func(t *testing.T) {
+			clientProtocol, method, path, body, err := utilityRequestShape(
+				providerKind,
+				execution.OperationListModels,
+				"",
+			)
+			if err != nil || clientProtocol != protocol.OpenAICompletions ||
+				method != http.MethodGet || path != "/v1/models" || body != nil {
+				t.Fatalf("ListModels shape = %q %q %q %s, err=%v", clientProtocol, method, path, body, err)
+			}
+
+			clientProtocol, method, path, body, err = utilityRequestShape(
+				providerKind,
+				execution.OperationProbe,
+				"model-one",
+			)
+			if err != nil || clientProtocol != protocol.OpenAICompletions ||
+				method != http.MethodPost || path != "/v1/chat/completions" || len(body) == 0 {
+				t.Fatalf("Probe shape = %q %q %q %s, err=%v", clientProtocol, method, path, body, err)
+			}
+		})
+	}
+}
+
 func discoveryTargetForTest(
 	t *testing.T,
 	channelID channel.ID,
@@ -256,7 +287,7 @@ func TestExecuteModelDiscoverySharesOneTotalTimeout(t *testing.T) {
 		},
 	}
 	service := &Service{executor: newRecordingDiscoveryExecutor(recorder), modelDiscoveryTimeout: time.Second}
-	target := discoveryTargetForTest(t, channel.AnthropicCompatible, "https://api.example.com",
+	target := discoveryTargetForTest(t, channel.Anthropic, "https://api.example.com",
 		[]string{"key-a", "key-b"}, state.HeaderRules{})
 	_, err := service.executeModelDiscovery(context.Background(), target)
 	if !errors.Is(err, app_errors.ErrBadGateway) {
@@ -280,7 +311,7 @@ func TestExecuteModelDiscoveryReturnsParentCancellation(t *testing.T) {
 		},
 	}
 	service := &Service{executor: newRecordingDiscoveryExecutor(recorder), modelDiscoveryTimeout: time.Second}
-	target := discoveryTargetForTest(t, channel.GeminiCompatible, "https://api.example.com",
+	target := discoveryTargetForTest(t, channel.Gemini, "https://api.example.com",
 		[]string{"key-a", "key-b"}, state.HeaderRules{})
 	_, err := service.executeModelDiscovery(ctx, target)
 	if err != context.Canceled || calls != 1 {
@@ -306,7 +337,7 @@ func TestExecuteModelDiscoveryRejectsInvalidTargetBeforeDispatch(t *testing.T) {
 		}(),
 		"mismatched target": func() discoveryTarget {
 			value := discoveryTargetForTest(t, channel.OpenAICompatible, "https://api.example.com", []string{"key"}, state.HeaderRules{})
-			value.channelID = channel.AnthropicCompatible
+			value.channelID = channel.Anthropic
 			return value
 		}(),
 	} {

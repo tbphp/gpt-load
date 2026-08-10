@@ -24,9 +24,9 @@ func testChannelConfig(
 	case protocol.OpenAICompletions, protocol.OpenAIResponses:
 		channelID = channel.OpenAICompatible
 	case protocol.Anthropic:
-		channelID = channel.AnthropicCompatible
+		channelID = channel.Anthropic
 	case protocol.Gemini:
-		channelID = channel.GeminiCompatible
+		channelID = channel.Gemini
 	default:
 		t.Fatalf("unsupported test protocol %q", selectedProtocol)
 	}

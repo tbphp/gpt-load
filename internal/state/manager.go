@@ -7,12 +7,30 @@ import (
 )
 
 type Manager struct {
-	publishMu sync.Mutex
-	current   atomic.Pointer[ConfigSnapshot]
+	publishMu  sync.Mutex
+	current    atomic.Pointer[ConfigSnapshot]
+	reconciler SnapshotReconciler
+}
+
+// SnapshotReconciler synchronizes infrastructure resources derived from a
+// compiled configuration before it becomes visible to the data plane.
+type SnapshotReconciler interface {
+	ReconcileConfigSnapshot(*ConfigSnapshot) error
 }
 
 func NewManager() *Manager {
 	return &Manager{}
+}
+
+// SetSnapshotReconciler installs the process-owned runtime reconciler during
+// dependency assembly, before the first snapshot publication.
+func (m *Manager) SetSnapshotReconciler(reconciler SnapshotReconciler) {
+	if m == nil {
+		return
+	}
+	m.publishMu.Lock()
+	m.reconciler = reconciler
+	m.publishMu.Unlock()
 }
 
 func (m *Manager) Current() *ConfigSnapshot {
@@ -38,7 +56,14 @@ func (m *Manager) Publish(input CompileInput) (*ConfigSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return m.publishCompiled(next, nil), nil
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	if m.reconciler != nil {
+		if err := m.reconciler.ReconcileConfigSnapshot(next); err != nil {
+			return nil, err
+		}
+	}
+	return m.publishCompiledLocked(next), nil
 }
 
 // Matches reports whether input compiles to the currently published runtime
@@ -65,6 +90,10 @@ func (m *Manager) publishCompiled(next *ConfigSnapshot, beforeLock func()) *Conf
 	}
 	m.publishMu.Lock()
 	defer m.publishMu.Unlock()
+	return m.publishCompiledLocked(next)
+}
+
+func (m *Manager) publishCompiledLocked(next *ConfigSnapshot) *ConfigSnapshot {
 	next.Revision = 1
 	if current := m.current.Load(); current != nil {
 		next.Revision = current.Revision + 1

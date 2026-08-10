@@ -1870,7 +1870,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 			code    string
 		}{
 			{payload: `{"channel_id":"openai_compatible","params":{"base_url":"/relative"},"credentials":"secret-key"}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
-			{payload: `{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com?token=query-secret"},"credentials":"secret-key"}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
+			{payload: `{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com?token=query-secret"},"credentials":"secret-key"}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, test.payload)
 			if recorder.Code != test.status || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
@@ -1900,7 +1900,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 			{language: "zh-CN", message: "上游服务错误"},
 		} {
 			recorder := serveDiscoveryRequestWithLanguage(t, engine, authKey,
-				`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com?token=query-secret"},`+
+				`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},`+
 					`"credentials":"secret-key"}`,
 				test.language,
 			)
@@ -1964,10 +1964,9 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 	initControlI18n(t)
 	const (
-		authSecret  = "distinctive-auth-secret"
-		keySecret   = "distinctive-upstream-key"
-		querySecret = "distinctive-query-secret"
-		bodySecret  = "distinctive-upstream-body"
+		authSecret = "distinctive-auth-secret"
+		keySecret  = "distinctive-upstream-key"
+		bodySecret = "distinctive-upstream-body"
 	)
 	fixture := newServiceFixture(t)
 	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
@@ -1985,7 +1984,7 @@ func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 	t.Cleanup(func() { logrus.SetOutput(previousOutput) })
 
 	recorder := serveDiscoveryRequest(t, engine, authSecret,
-		`{"channel_id":"anthropic_compatible","params":{"base_url":"https://api.example.com?token=`+querySecret+`"},`+
+		`{"channel_id":"openai_compatible","params":{"base_url":"https://api.example.com"},`+
 			`"credentials":"`+keySecret+`"}`,
 	)
 	if recorder.Code != http.StatusBadGateway {
@@ -2000,7 +1999,7 @@ func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 	if strings.Contains(logText, "protocol=") {
 		t.Fatalf("logs retain submitted protocol metadata: %s", logText)
 	}
-	for _, forbidden := range []string{authSecret, keySecret, querySecret, bodySecret, "provider error", "Authorization"} {
+	for _, forbidden := range []string{authSecret, keySecret, bodySecret, "provider error", "Authorization"} {
 		if strings.Contains(logText, forbidden) {
 			t.Fatalf("logs expose %q: %s", forbidden, logText)
 		}

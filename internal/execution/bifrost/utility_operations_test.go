@@ -24,17 +24,17 @@ func TestOfficialNativeListModelsPreservesWireResponse(t *testing.T) {
 		path         string
 		body         string
 		credential   string
-		runtime      func(*testing.T, string) *Runtime
+		runtime      func(*testing.T, string) *testRuntime
 		wantUpstream string
 	}{
-		{name: "openai", channelID: channel.OpenAI, protocol: protocol.OpenAICompletions, path: "/v1/models", body: `{"object":"list","data":[{"id":"gpt-test","object":"model"}],"vendor":{"precise":1.2300}}`, credential: "Authorization", wantUpstream: "/v1/models", runtime: func(t *testing.T, base string) *Runtime {
-			return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+		{name: "openai", channelID: channel.OpenAI, protocol: protocol.OpenAICompletions, path: "/v1/models", body: `{"object":"list","data":[{"id":"gpt-test","object":"model"}],"vendor":{"precise":1.2300}}`, credential: "Authorization", wantUpstream: "/v1/models", runtime: func(t *testing.T, base string) *testRuntime {
+			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 		}},
-		{name: "anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, path: "/v1/models", body: `{"data":[{"id":"claude-test","type":"model"}],"has_more":false,"vendor":{"precise":1.2300}}`, credential: "X-Api-Key", wantUpstream: "/v1/models", runtime: func(t *testing.T, base string) *Runtime {
-			return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+		{name: "anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, path: "/v1/models", body: `{"data":[{"id":"claude-test","type":"model"}],"has_more":false,"vendor":{"precise":1.2300}}`, credential: "X-Api-Key", wantUpstream: "/v1/models", runtime: func(t *testing.T, base string) *testRuntime {
+			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 		}},
-		{name: "gemini", channelID: channel.Gemini, protocol: protocol.Gemini, path: "/v1beta/models", body: `{"models":[{"name":"models/gemini-test"}],"vendor":{"precise":1.2300}}`, credential: "X-Goog-Api-Key", wantUpstream: "/v1beta/models", runtime: func(t *testing.T, base string) *Runtime {
-			return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
+		{name: "gemini", channelID: channel.Gemini, protocol: protocol.Gemini, path: "/v1beta/models", body: `{"models":[{"name":"models/gemini-test"}],"vendor":{"precise":1.2300}}`, credential: "X-Goog-Api-Key", wantUpstream: "/v1beta/models", runtime: func(t *testing.T, base string) *testRuntime {
+			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 		}},
 	}
 	for _, test := range tests {
@@ -84,25 +84,25 @@ func TestOfficialNativeProbeUsesSelectedModelAndProtocolTarget(t *testing.T) {
 		protocol  protocol.Protocol
 		path      string
 		body      []byte
-		runtime   func(*testing.T, string) *Runtime
+		runtime   func(*testing.T, string) *testRuntime
 		assert    func(*testing.T, *http.Request, map[string]any)
 	}{
-		{name: "openai", channelID: channel.OpenAI, protocol: protocol.OpenAICompletions, path: "/v1/chat/completions", body: []byte(`{"model":"client","messages":[{"role":"user","content":"ping"}]}`), runtime: func(t *testing.T, base string) *Runtime {
-			return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
+		{name: "openai", channelID: channel.OpenAI, protocol: protocol.OpenAICompletions, path: "/v1/chat/completions", body: []byte(`{"model":"client","messages":[{"role":"user","content":"ping"}]}`), runtime: func(t *testing.T, base string) *testRuntime {
+			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 		}, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
 			if request.URL.Path != "/v1/chat/completions" || payload["model"] != "probe-upstream" || payload["stream"] != false {
 				t.Errorf("OpenAI probe = %s %#v", request.URL.Path, payload)
 			}
 		}},
-		{name: "anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, path: "/v1/messages", body: []byte(`{"model":"client","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`), runtime: func(t *testing.T, base string) *Runtime {
-			return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+		{name: "anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, path: "/v1/messages", body: []byte(`{"model":"client","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`), runtime: func(t *testing.T, base string) *testRuntime {
+			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 		}, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
 			if request.URL.Path != "/v1/messages" || payload["model"] != "probe-upstream" || payload["stream"] != false {
 				t.Errorf("Anthropic probe = %s %#v", request.URL.Path, payload)
 			}
 		}},
-		{name: "gemini", channelID: channel.Gemini, protocol: protocol.Gemini, path: "/v1beta/models/client:generateContent", body: []byte(`{"contents":[{"parts":[{"text":"ping"}]}]}`), runtime: func(t *testing.T, base string) *Runtime {
-			return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
+		{name: "gemini", channelID: channel.Gemini, protocol: protocol.Gemini, path: "/v1beta/models/client:generateContent", body: []byte(`{"contents":[{"parts":[{"text":"ping"}]}]}`), runtime: func(t *testing.T, base string) *testRuntime {
+			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 		}, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
 			if request.URL.Path != "/v1beta/models/probe-upstream:generateContent" {
 				t.Errorf("Gemini probe path = %s", request.URL.Path)

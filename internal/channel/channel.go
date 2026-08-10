@@ -18,24 +18,22 @@ import (
 type ID string
 
 const (
-	OpenAI              ID = "openai"
-	Anthropic           ID = "anthropic"
-	Gemini              ID = "gemini"
-	AzureOpenAI         ID = "azure_openai"
-	AWSBedrock          ID = "aws_bedrock"
-	GoogleVertex        ID = "google_vertex"
-	OpenAICompatible    ID = "openai_compatible"
-	AnthropicCompatible ID = "anthropic_compatible"
-	GeminiCompatible    ID = "gemini_compatible"
-	DeepSeek            ID = "deepseek"
-	MoonshotAI          ID = "moonshotai"
-	SiliconFlow         ID = "siliconflow"
-	ZhipuAI             ID = "zhipuai"
-	Alibaba             ID = "alibaba"
-	Volcengine          ID = "volcengine"
-	OpenRouter          ID = "openrouter"
-	Groq                ID = "groq"
-	XAI                 ID = "xai"
+	OpenAI           ID = "openai"
+	Anthropic        ID = "anthropic"
+	Gemini           ID = "gemini"
+	AzureOpenAI      ID = "azure_openai"
+	AWSBedrock       ID = "aws_bedrock"
+	GoogleVertex     ID = "google_vertex"
+	OpenAICompatible ID = "openai_compatible"
+	DeepSeek         ID = "deepseek"
+	MoonshotAI       ID = "moonshotai"
+	SiliconFlow      ID = "siliconflow"
+	ZhipuAI          ID = "zhipuai"
+	Alibaba          ID = "alibaba"
+	Volcengine       ID = "volcengine"
+	OpenRouter       ID = "openrouter"
+	Groq             ID = "groq"
+	XAI              ID = "xai"
 )
 
 // InputKind describes how a field is collected without exposing its value.
@@ -111,15 +109,17 @@ const (
 type ProviderKind string
 
 const (
-	ProviderOpenAI              ProviderKind = "openai"
-	ProviderAnthropic           ProviderKind = "anthropic"
-	ProviderGemini              ProviderKind = "gemini"
-	ProviderOpenAICompatible    ProviderKind = "openai_compatible"
-	ProviderAnthropicCompatible ProviderKind = "anthropic_compatible"
-	ProviderGeminiCompatible    ProviderKind = "gemini_compatible"
-	ProviderAzureOpenAI         ProviderKind = "azure_openai"
-	ProviderAWSBedrock          ProviderKind = "aws_bedrock"
-	ProviderGoogleVertex        ProviderKind = "google_vertex"
+	ProviderOpenAI           ProviderKind = "openai"
+	ProviderAnthropic        ProviderKind = "anthropic"
+	ProviderGemini           ProviderKind = "gemini"
+	ProviderOpenAICompatible ProviderKind = "openai_compatible"
+	ProviderAzureOpenAI      ProviderKind = "azure_openai"
+	ProviderAWSBedrock       ProviderKind = "aws_bedrock"
+	ProviderGoogleVertex     ProviderKind = "google_vertex"
+	ProviderDeepSeek         ProviderKind = "deepseek"
+	ProviderOpenRouter       ProviderKind = "openrouter"
+	ProviderGroq             ProviderKind = "groq"
+	ProviderXAI              ProviderKind = "xai"
 )
 
 // Valid reports whether the provider kind is recognized.
@@ -129,11 +129,13 @@ func (k ProviderKind) Valid() bool {
 		ProviderAnthropic,
 		ProviderGemini,
 		ProviderOpenAICompatible,
-		ProviderAnthropicCompatible,
-		ProviderGeminiCompatible,
 		ProviderAzureOpenAI,
 		ProviderAWSBedrock,
-		ProviderGoogleVertex:
+		ProviderGoogleVertex,
+		ProviderDeepSeek,
+		ProviderOpenRouter,
+		ProviderGroq,
+		ProviderXAI:
 		return true
 	default:
 		return false
@@ -285,30 +287,14 @@ func (r *Registry) Resolve(id ID, raw json.RawMessage) (ResolvedTarget, error) {
 		return ResolvedTarget{}, err
 	}
 	targetConfig := resolvedTargetConfig(definition, params)
-	capabilities := cloneCapabilityMatrix(definition.capabilities)
-	modes := cloneRouteModes(definition.modes)
-	if definition.providerKind == ProviderOpenAICompatible && !openAIPassthroughEligible(targetConfig) {
-		capabilities, modes = buildRouteMatrix(nil, false)
-	}
 	return ResolvedTarget{
 		ChannelID:         id,
 		ProviderKind:      definition.providerKind,
 		TargetConfig:      append(json.RawMessage(nil), targetConfig...),
 		CatalogProviderID: definition.catalogProviderID,
-		capabilities:      capabilities,
-		modes:             modes,
+		capabilities:      cloneCapabilityMatrix(definition.capabilities),
+		modes:             cloneRouteModes(definition.modes),
 	}, nil
-}
-
-func openAIPassthroughEligible(targetConfig json.RawMessage) bool {
-	var target struct {
-		BaseURL string `json:"base_url"`
-	}
-	if json.Unmarshal(targetConfig, &target) != nil || target.BaseURL == "" {
-		return false
-	}
-	parsed, err := url.Parse(target.BaseURL)
-	return err == nil && strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/v1")
 }
 
 // ResolveExecutionTarget validates a frozen runtime target produced by Resolve.
@@ -653,44 +639,20 @@ func normalizeBaseURL(value string) (string, error) {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return "", errors.New("must be an absolute HTTP(S) URL without credentials or fragment")
 	}
-	if containsCredentialQuery(parsed.RawQuery) {
-		return "", errors.New("must not contain credential query parameters")
+	if parsed.RawQuery != "" || parsed.ForceQuery {
+		return "", errors.New("must not contain query parameters")
 	}
 	parsed.Host = strings.ToLower(parsed.Host)
+	if (parsed.Scheme == "https" && parsed.Port() == "443") ||
+		(parsed.Scheme == "http" && parsed.Port() == "80") {
+		hostname := parsed.Hostname()
+		if strings.Contains(hostname, ":") {
+			hostname = "[" + hostname + "]"
+		}
+		parsed.Host = hostname
+	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	parsed.RawPath = strings.TrimRight(parsed.RawPath, "/")
 	parsed.ForceQuery = false
 	return parsed.String(), nil
-}
-
-func normalizeOpenAIBaseURL(value string) (string, error) {
-	normalized, err := normalizeBaseURL(value)
-	if err != nil {
-		return "", err
-	}
-	parsed, err := url.Parse(normalized)
-	if err != nil || !strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/v1") {
-		return "", errors.New("must include the complete /v1 API prefix")
-	}
-	return normalized, nil
-}
-
-func containsCredentialQuery(rawQuery string) bool {
-	for _, segment := range strings.Split(rawQuery, "&") {
-		key := segment
-		if separator := strings.IndexByte(key, '='); separator >= 0 {
-			key = key[:separator]
-		}
-		decoded, err := url.QueryUnescape(key)
-		if err != nil {
-			return true
-		}
-		normalized := strings.ReplaceAll(strings.ToLower(decoded), "-", "_")
-		switch normalized {
-		case "authorization", "proxy_authorization", "api_key", "apikey", "x_api_key",
-			"x_goog_api_key", "key", "access_token", "provider", "fallback", "fallbacks":
-			return true
-		}
-	}
-	return false
 }

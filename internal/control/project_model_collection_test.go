@@ -23,7 +23,7 @@ func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) 
 		Models: models.JSON(`[{"id":"upstream-x","alias":"client-a"},{"id":"upstream-x","alias":"client-b"}]`), Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "disabled", ChannelID: string(channel.AnthropicCompatible), Params: models.JSON(`{"base_url":"https://disabled.example/v1"}`),
+		Name: "disabled", ChannelID: string(channel.Anthropic), Params: models.JSON(`{"base_url":"https://disabled.example"}`),
 		Models: models.JSON(`[{"id":"upstream-x","alias":"client-a"}]`), Overrides: models.JSON(`{}`), Enabled: false,
 	})
 	mustEnsureInitialPrices(t, fixture)
@@ -89,7 +89,7 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 		Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	allowedAnthropic := createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "allowed-anthropic", ChannelID: string(channel.AnthropicCompatible), Params: models.JSON(`{"base_url":"https://anthropic.example"}`),
+		Name: "allowed-anthropic", ChannelID: string(channel.Anthropic), Params: models.JSON(`{"base_url":"https://anthropic.example"}`),
 		Models: models.JSON(`[
 			{"id":"private-client-b","alias":"client-b"},
 			{"id":"upstream-shared","alias":"shared"}
@@ -97,7 +97,7 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 		Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "private-gemini", ChannelID: string(channel.GeminiCompatible), Params: models.JSON(`{"base_url":"https://gemini.example"}`),
+		Name: "private-gemini", ChannelID: string(channel.Gemini), Params: models.JSON(`{"base_url":"https://gemini.example/v1beta"}`),
 		Models:    models.JSON(`[{"id":"private-gemini-model","alias":"gemini-private"}]`),
 		Overrides: models.JSON(`{}`), Enabled: true,
 	})

@@ -54,7 +54,7 @@ func TestOfficialAnthropicMessagesNativeUnary(t *testing.T) {
 	}))
 	defer server.Close()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: server.URL})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: server.URL})
 	spec := anthropicSpec(false)
 	spec.ClientModel = spec.UpstreamModel
 	result := runtime.Execute(context.Background(), spec)
@@ -93,7 +93,7 @@ func TestOfficialAnthropicMessagesNativeStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, anthropicBaseURL: server.URL})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: server.URL})
 	spec := anthropicSpec(true)
 	spec.ClientModel = spec.UpstreamModel
 	var events []execution.StreamEvent
@@ -140,7 +140,7 @@ func TestOfficialGeminiGenerateNativeUnary(t *testing.T) {
 	}))
 	defer server.Close()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: server.URL + "/v1beta"})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: server.URL + "/v1beta"})
 	spec := geminiSpec(false)
 	spec.ClientModel = spec.UpstreamModel
 	result := runtime.Execute(context.Background(), spec)
@@ -169,7 +169,7 @@ func TestOfficialGeminiGenerateNativeStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	runtime := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true, geminiBaseURL: server.URL + "/v1beta"})
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: server.URL + "/v1beta"})
 	spec := geminiSpec(true)
 	spec.ClientModel = spec.UpstreamModel
 	spec.Query.Set("alt", "sse")
@@ -209,14 +209,9 @@ func geminiSpec(stream bool) execution.AttemptSpec {
 	}))
 }
 
-func newProtocolTestRuntime(t *testing.T, options runtimeOptions) *Runtime {
+func newProtocolTestRuntime(t *testing.T, options testRuntimeOptions) *testRuntime {
 	t.Helper()
-	runtime, err := newRuntime(context.Background(), options, channel.NewRegistry())
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-	t.Cleanup(runtime.Shutdown)
-	return runtime
+	return newRuntimeForTest(t, options)
 }
 
 func assertRawStream(t *testing.T, result execution.StreamResult, events []execution.StreamEvent, raw string, want usage.Tokens) {

@@ -29,16 +29,14 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		Groq,
 		XAI,
 		OpenAICompatible,
-		AnthropicCompatible,
-		GeminiCompatible,
 	}
 	if got := descriptorIDs(registry.List()); !reflect.DeepEqual(got, wantIDs) {
 		t.Fatalf("List() IDs = %v, want %v", got, wantIDs)
 	}
-	if got := descriptorIDs(registry.Search("GeMiNi")); !reflect.DeepEqual(got, []ID{Gemini, GeminiCompatible}) {
+	if got := descriptorIDs(registry.Search("GeMiNi")); !reflect.DeepEqual(got, []ID{Gemini}) {
 		t.Fatalf("Search(gemini) IDs = %v", got)
 	}
-	if got := descriptorIDs(registry.Search("compatible")); !reflect.DeepEqual(got, []ID{OpenAICompatible, AnthropicCompatible, GeminiCompatible}) {
+	if got := descriptorIDs(registry.Search("compatible")); !reflect.DeepEqual(got, []ID{OpenAICompatible}) {
 		t.Fatalf("Search(compatible) IDs = %v", got)
 	}
 	if got := registry.Search("does-not-exist"); len(got) != 0 {
@@ -106,7 +104,7 @@ func TestRegistryReturnsExactCatalogProviderMappingWithoutResolvingParams(t *tes
 	for id, want := range map[ID]string{
 		OpenAI: "openai", Anthropic: "anthropic", Gemini: "google",
 		ID("azure_openai"): "azure", ID("aws_bedrock"): "amazon-bedrock", ID("google_vertex"): "google-vertex",
-		OpenAICompatible: "", AnthropicCompatible: "", GeminiCompatible: "",
+		OpenAICompatible: "",
 	} {
 		got, ok := registry.CatalogProviderID(id)
 		if !ok || got != want {
@@ -265,14 +263,6 @@ func TestRegistryStrictlyValidatesAndCanonicalizesParams(t *testing.T) {
 		t.Fatalf("canonical params = %s", got)
 	}
 
-	withQuery, err := registry.ValidateParams(OpenAICompatible, json.RawMessage(`{"base_url":" HTTPS://Example.COM/v1/?api-version=2025-01-01&tenant=one "}`))
-	if err != nil {
-		t.Fatalf("ValidateParams(compatible query) error = %v", err)
-	}
-	if got, ok := withQuery.Value("base_url"); !ok || got != "https://example.com/v1?api-version=2025-01-01&tenant=one" {
-		t.Fatalf("query base_url = %q, %t", got, ok)
-	}
-
 	tests := []struct {
 		name string
 		id   ID
@@ -286,7 +276,7 @@ func TestRegistryStrictlyValidatesAndCanonicalizesParams(t *testing.T) {
 		{name: "unsafe URL", id: OpenAICompatible, raw: `{"base_url":"https://user:secret@example.com"}`},
 		{name: "query credential", id: OpenAICompatible, raw: `{"base_url":"https://example.com/v1?api_key=secret"}`},
 		{name: "encoded query credential", id: OpenAICompatible, raw: `{"base_url":"https://example.com/v1?api%5Fkey=secret"}`},
-		{name: "OpenAI override without v1 prefix", id: OpenAI, raw: `{"base_url":"https://example.com"}`},
+		{name: "ordinary query", id: OpenAICompatible, raw: `{"base_url":"https://example.com/v1?tenant=one"}`},
 		{name: "official unknown", id: OpenAI, raw: `{"base_url":"https://example.com","extra":"value"}`},
 	}
 	for _, test := range tests {
@@ -398,28 +388,6 @@ func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t 
 	if err != nil || gemini.ProviderKind != ProviderGemini || gemini.CatalogProviderID != "google" {
 		t.Fatalf("Resolve(gemini) = %#v, %v", gemini, err)
 	}
-	compatible, err := registry.Resolve(GeminiCompatible, json.RawMessage(`{"base_url":"https://proxy.example/v1/"}`))
-	if err != nil {
-		t.Fatalf("Resolve(gemini compatible) error = %v", err)
-	}
-	if compatible.ProviderKind != ProviderGeminiCompatible || compatible.CatalogProviderID != "" ||
-		string(compatible.TargetConfig) != `{"base_url":"https://proxy.example/v1"}` {
-		t.Fatalf("compatible target = %#v", compatible)
-	}
-	encodedTarget, err := json.Marshal(compatible)
-	if err != nil {
-		t.Fatalf("json.Marshal(compatible target) error = %v", err)
-	}
-	if strings.Contains(string(encodedTarget), "base_url") || strings.Contains(string(encodedTarget), "proxy.example") {
-		t.Fatalf("resolved target JSON leaked internal config: %s", encodedTarget)
-	}
-	if mode, ok := compatible.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteConverted {
-		t.Fatalf("Gemini-compatible Responses create mode = %q, %t", mode, ok)
-	}
-	if compatible.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {
-		t.Fatal("Gemini-compatible target unexpectedly supports Responses lifecycle")
-	}
-
 	openAICompatible, err := registry.Resolve(OpenAICompatible, json.RawMessage(`{"base_url":"https://proxy.example/v1"}`))
 	if err != nil {
 		t.Fatalf("Resolve(openai compatible) error = %v", err)
@@ -442,11 +410,11 @@ func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t 
 	if err != nil {
 		t.Fatalf("Resolve(non-v1 OpenAI compatible) error = %v", err)
 	}
-	if mode, ok := openAICompatibleNonV1.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteConverted {
+	if mode, ok := openAICompatibleNonV1.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteNative {
 		t.Fatalf("non-v1 OpenAI-compatible completions mode = %q, %t", mode, ok)
 	}
-	if openAICompatibleNonV1.Supports(protocol.OpenAICompletions, execution.OperationChatCompletion, featureSet(t, execution.FeatureTools)) {
-		t.Fatal("typed non-v1 OpenAI-compatible route unexpectedly advertises tools")
+	if !openAICompatibleNonV1.Supports(protocol.OpenAICompletions, execution.OperationChatCompletion, featureSet(t, execution.FeatureTools)) {
+		t.Fatal("OpenAI-compatible native Chat route should support tools")
 	}
 
 	capabilities := openAI.Capabilities(protocol.OpenAIResponses)
@@ -465,9 +433,8 @@ func TestCuratedChannelResolvesCodeOwnedTargetAndCatalogMapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve(deepseek) error = %v", err)
 	}
-	if target.ChannelID != DeepSeek || target.ProviderKind != ProviderOpenAICompatible ||
-		target.CatalogProviderID != "deepseek" ||
-		string(target.TargetConfig) != `{"base_url":"https://api.deepseek.com/v1"}` {
+	if target.ChannelID != DeepSeek || target.ProviderKind != ProviderDeepSeek ||
+		target.CatalogProviderID != "deepseek" || string(target.TargetConfig) != `{}` {
 		t.Fatalf("Resolve(deepseek) = %#v", target)
 	}
 	if mode, ok := target.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteNative {
@@ -488,15 +455,13 @@ func TestCuratedChannelResolvesCodeOwnedTargetAndCatalogMapping(t *testing.T) {
 		t.Fatalf("json.Marshal(deepseek descriptor) error = %v", err)
 	}
 	if strings.Contains(string(encoded), "api.deepseek.com") {
-		t.Fatalf("public descriptor leaked fixed target: %s", encoded)
+		t.Fatalf("public descriptor leaked SDK default target: %s", encoded)
 	}
 	validated, err := registry.ResolveExecutionTarget(DeepSeek, target.TargetConfig)
-	if err != nil || validated.ProviderKind != ProviderOpenAICompatible {
+	if err != nil || validated.ProviderKind != ProviderDeepSeek {
 		t.Fatalf("ResolveExecutionTarget(deepseek) = %#v, %v", validated, err)
 	}
 	for _, tampered := range []json.RawMessage{
-		nil,
-		json.RawMessage(`{}`),
 		json.RawMessage(`{"base_url":"https://attacker.example/v1","extra":"value"}`),
 	} {
 		if _, err := registry.ResolveExecutionTarget(DeepSeek, tampered); err == nil {
@@ -514,24 +479,32 @@ func TestCuratedChannelResolvesCodeOwnedTargetAndCatalogMapping(t *testing.T) {
 
 func TestOfficialChannelsUseSDKDefaultUnlessBaseURLIsExplicitlyOverridden(t *testing.T) {
 	registry := NewRegistry()
-	for _, channelID := range []ID{OpenAI, Anthropic, Gemini} {
-		t.Run(string(channelID), func(t *testing.T) {
-			defaultTarget, err := registry.Resolve(channelID, nil)
+	tests := []struct {
+		channelID ID
+		baseURL   string
+	}{
+		{channelID: OpenAI, baseURL: "https://mirror.example"},
+		{channelID: Anthropic, baseURL: "https://mirror.example"},
+		{channelID: Gemini, baseURL: "https://mirror.example/v1beta"},
+	}
+	for _, test := range tests {
+		t.Run(string(test.channelID), func(t *testing.T) {
+			defaultTarget, err := registry.Resolve(test.channelID, nil)
 			if err != nil || string(defaultTarget.TargetConfig) != `{}` {
-				t.Fatalf("Resolve(%s, default) = %#v, %v", channelID, defaultTarget, err)
+				t.Fatalf("Resolve(%s, default) = %#v, %v", test.channelID, defaultTarget, err)
 			}
-			override, err := registry.Resolve(channelID, json.RawMessage(`{"base_url":"https://mirror.example/v1/"}`))
-			if err != nil || string(override.TargetConfig) != `{"base_url":"https://mirror.example/v1"}` {
-				t.Fatalf("Resolve(%s, override) = %#v, %v", channelID, override, err)
+			override, err := registry.Resolve(test.channelID, json.RawMessage(`{"base_url":"`+test.baseURL+`"}`))
+			if err != nil || string(override.TargetConfig) != `{"base_url":"`+test.baseURL+`"}` {
+				t.Fatalf("Resolve(%s, override) = %#v, %v", test.channelID, override, err)
 			}
-			if _, err := registry.ResolveExecutionTarget(channelID, override.TargetConfig); err != nil {
-				t.Fatalf("ResolveExecutionTarget(%s, override) error = %v", channelID, err)
+			if _, err := registry.ResolveExecutionTarget(test.channelID, override.TargetConfig); err != nil {
+				t.Fatalf("ResolveExecutionTarget(%s, override) error = %v", test.channelID, err)
 			}
 		})
 	}
 }
 
-func TestOpenRouterUsesNativeChatAndConvertedResponsesWithoutLifecycle(t *testing.T) {
+func TestOpenRouterUsesNativeChatAndResponsesWithoutLifecycle(t *testing.T) {
 	target, err := NewRegistry().Resolve(OpenRouter, nil)
 	if err != nil {
 		t.Fatalf("Resolve(openrouter) error = %v", err)
@@ -539,7 +512,7 @@ func TestOpenRouterUsesNativeChatAndConvertedResponsesWithoutLifecycle(t *testin
 	if mode, ok := target.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteNative {
 		t.Fatalf("OpenRouter chat mode = %q, %t", mode, ok)
 	}
-	if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteConverted {
+	if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteNative {
 		t.Fatalf("OpenRouter Responses create mode = %q, %t", mode, ok)
 	}
 	if target.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {

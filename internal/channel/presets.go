@@ -30,12 +30,6 @@ func builtinDefinitions() []definition {
 		},
 		normalize: normalizeBaseURL,
 	}}
-	openAIBaseURLOverrideParams := objectSchema{{
-		descriptor: FieldDescriptor{
-			Key: "base_url", Label: "Base URL", InputKind: InputURL,
-		},
-		normalize: normalizeOpenAIBaseURL,
-	}}
 	azureParams := objectSchema{{
 		descriptor: FieldDescriptor{Key: "endpoint", Label: "Azure endpoint", InputKind: InputURL, Required: true},
 		normalize:  normalizeBaseURL,
@@ -99,7 +93,7 @@ func builtinDefinitions() []definition {
 	return []definition{
 		newDefinition(
 			OpenAI, "OpenAI", "OA", "OpenAI official API", []string{"gpt"},
-			openAIBaseURLOverrideParams, apiKeySchema, "openai", ProviderOpenAI, false,
+			baseURLOverrideParams, apiKeySchema, "openai", ProviderOpenAI, false,
 			map[protocol.Protocol]bool{
 				protocol.OpenAICompletions: true,
 				protocol.OpenAIResponses:   true,
@@ -119,9 +113,9 @@ func builtinDefinitions() []definition {
 		azureDefinition,
 		bedrockDefinition,
 		vertexDefinition,
-		newFixedCompatibleDefinition(
+		newNativeOpenAIChannelDefinition(
 			DeepSeek, "DeepSeek", "DS", []string{"deep seek"},
-			"https://api.deepseek.com/v1", "deepseek", apiKeySchema,
+			"deepseek", ProviderDeepSeek, apiKeySchema, false,
 		),
 		newFixedCompatibleDefinition(
 			MoonshotAI, "Moonshot AI", "MS", []string{"kimi", "moonshot"},
@@ -143,33 +137,23 @@ func builtinDefinitions() []definition {
 			Volcengine, "Volcengine Ark", "VE", []string{"doubao", "ark"},
 			"https://ark.cn-beijing.volces.com/api/v3", "volcengine", apiKeySchema,
 		),
-		newFixedCompatibleDefinition(
+		newNativeOpenAIChannelDefinition(
 			OpenRouter, "OpenRouter", "OR", []string{"router"},
-			"https://openrouter.ai/api/v1", "openrouter", apiKeySchema,
+			"openrouter", ProviderOpenRouter, apiKeySchema, true,
 		),
-		newFixedCompatibleDefinition(
+		newNativeOpenAIChannelDefinition(
 			Groq, "Groq", "GQ", []string{"groqcloud"},
-			"https://api.groq.com/openai/v1", "groq", apiKeySchema,
+			"groq", ProviderGroq, apiKeySchema, false,
 		),
-		newFixedCompatibleDefinition(
+		newNativeOpenAIChannelDefinition(
 			XAI, "xAI", "XA", []string{"grok"},
-			"https://api.x.ai/v1", "xai", apiKeySchema,
+			"xai", ProviderXAI, apiKeySchema, true,
 		),
 		newDefinition(
 			OpenAICompatible, "OpenAI Compatible", "OC", "Custom OpenAI-compatible API", []string{"custom", "proxy", "gateway"},
 			compatibleParams, apiKeySchema, "", ProviderOpenAICompatible, true,
 			map[protocol.Protocol]bool{protocol.OpenAICompletions: true},
 			false,
-		),
-		newDefinition(
-			AnthropicCompatible, "Anthropic Compatible", "AC", "Custom Anthropic-compatible API", []string{"custom", "proxy", "gateway", "claude"},
-			compatibleParams, apiKeySchema, "", ProviderAnthropicCompatible, true,
-			map[protocol.Protocol]bool{protocol.Anthropic: true}, false,
-		),
-		newDefinition(
-			GeminiCompatible, "Gemini Compatible", "GC", "Custom Gemini-compatible API", []string{"custom", "proxy", "gateway", "google"},
-			compatibleParams, apiKeySchema, "", ProviderGeminiCompatible, true,
-			map[protocol.Protocol]bool{protocol.Gemini: true}, false,
 		),
 	}
 }
@@ -290,6 +274,39 @@ func newFixedCompatibleDefinition(
 	)
 	definition.fixedTargetConfig = canonicalJSON(map[string]string{"base_url": baseURL})
 	return definition
+}
+
+func newNativeOpenAIChannelDefinition(
+	id ID,
+	name string,
+	mark string,
+	searchTerms []string,
+	catalogProviderID string,
+	providerKind ProviderKind,
+	credentials objectSchema,
+	nativeResponses bool,
+) definition {
+	nativeProtocols := map[protocol.Protocol]bool{protocol.OpenAICompletions: true}
+	if nativeResponses {
+		nativeProtocols[protocol.OpenAIResponses] = true
+	}
+	return newDefinition(
+		id,
+		name,
+		mark,
+		"Managed API preset",
+		searchTerms,
+		objectSchema{{
+			descriptor: FieldDescriptor{Key: "base_url", Label: "Base URL", InputKind: InputURL},
+			normalize:  normalizeBaseURL,
+		}},
+		credentials,
+		catalogProviderID,
+		providerKind,
+		false,
+		nativeProtocols,
+		false,
+	)
 }
 
 func newDefinition(

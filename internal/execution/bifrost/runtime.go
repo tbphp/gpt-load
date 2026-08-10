@@ -37,40 +37,64 @@ type Runtime struct {
 	shutdownOnce              sync.Once
 	shutdownDone              chan struct{}
 	closed                    atomic.Bool
+	fixedConfig               *effectiveProviderConfig
+	logger                    schemas.Logger
 }
 
-type runtimeOptions struct {
-	allowPrivateNetwork       bool
-	openAIBaseURL             string
-	anthropicBaseURL          string
-	geminiBaseURL             string
-	maxUnaryResponseBodyBytes int64
-}
-
-// NewRuntime initializes one production runtime. Administrators may configure private-network
-// compatible endpoints; Bifrost still rejects link-local and otherwise unsafe destinations.
-func NewRuntime(ctx context.Context, registry *channel.Registry) (*Runtime, error) {
-	return newRuntime(ctx, runtimeOptions{allowPrivateNetwork: true}, registry)
-}
-
-// NewManagedRuntime creates an unstarted production runtime. The application
-// lifecycle must call Start before accepting requests.
-func NewManagedRuntime(registry *channel.Registry) (*Runtime, error) {
-	return newManagedRuntime(runtimeOptions{allowPrivateNetwork: true}, registry)
-}
-
-func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.Registry) (*Runtime, error) {
-	runtime, err := newManagedRuntime(options, registry)
+func newConfiguredRuntime(
+	ctx context.Context,
+	options runtimeOptions,
+	registry *channel.Registry,
+	config effectiveProviderConfig,
+) (*Runtime, error) {
+	runtime, err := newRuntimeShell(options, registry)
 	if err != nil {
 		return nil, err
 	}
+	runtime.account = newDirectAccount()
+	runtime.account.setConfig(config.provider, cloneProviderConfig(config.providerConfig))
+	cloned := cloneEffectiveProviderConfig(config)
+	runtime.fixedConfig = &cloned
 	if err := runtime.Start(ctx); err != nil {
 		return nil, err
 	}
 	return runtime, nil
 }
 
-func newManagedRuntime(options runtimeOptions, registry *channel.Registry) (*Runtime, error) {
+type runtimeOptions struct {
+	allowPrivateNetwork       bool
+	maxUnaryResponseBodyBytes int64
+	logger                    schemas.Logger
+}
+
+func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
+	if options.logger == nil {
+		options.logger = core.NewNoOpLogger()
+	}
+	return options
+}
+
+// NewRuntime initializes the production runtime manager. Individual Bifrost
+// cores are created lazily for effective provider configurations.
+func NewRuntime(ctx context.Context, registry *channel.Registry) (*RuntimeManager, error) {
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, registry)
+	if err != nil {
+		return nil, err
+	}
+	if err := manager.Start(ctx); err != nil {
+		return nil, err
+	}
+	return manager, nil
+}
+
+// NewManagedRuntime creates an unstarted production runtime manager. The
+// application lifecycle must call Start before accepting requests.
+func NewManagedRuntime(registry *channel.Registry) (*RuntimeManager, error) {
+	return newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, registry)
+}
+
+func newRuntimeShell(options runtimeOptions, registry *channel.Registry) (*Runtime, error) {
+	options = normalizeRuntimeOptions(options)
 	if registry == nil {
 		return nil, fmt.Errorf("initialize execution runtime: channel registry is required")
 	}
@@ -78,13 +102,6 @@ func newManagedRuntime(options runtimeOptions, registry *channel.Registry) (*Run
 	if maxUnaryResponseBodyBytes <= 0 {
 		maxUnaryResponseBodyBytes = defaultMaxUnaryResponseBodyBytes
 	}
-	account := newDirectAccount()
-	account.setConfig(schemas.OpenAI, providerConfig(options.openAIBaseURL, false, schemas.OpenAI, options.allowPrivateNetwork))
-	account.setConfig(schemas.Anthropic, providerConfig(options.anthropicBaseURL, false, schemas.Anthropic, options.allowPrivateNetwork))
-	account.setConfig(schemas.Gemini, providerConfig(options.geminiBaseURL, false, schemas.Gemini, options.allowPrivateNetwork))
-	account.setConfig(schemas.Azure, providerConfig("", false, schemas.Azure, options.allowPrivateNetwork))
-	account.setConfig(schemas.Bedrock, providerConfig("", false, schemas.Bedrock, options.allowPrivateNetwork))
-	account.setConfig(schemas.Vertex, providerConfig("", false, schemas.Vertex, options.allowPrivateNetwork))
 	features, err := execution.NewFeatureSet(
 		execution.FeatureStreaming,
 		execution.FeatureTools,
@@ -143,12 +160,13 @@ func newManagedRuntime(options runtimeOptions, registry *channel.Registry) (*Run
 		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
 	}
 	return &Runtime{
-		account:                   account,
+		account:                   newDirectAccount(),
 		registry:                  registry,
 		capabilities:              capabilities,
 		allowPrivate:              options.allowPrivateNetwork,
 		maxUnaryResponseBodyBytes: maxUnaryResponseBodyBytes,
 		shutdownDone:              make(chan struct{}),
+		logger:                    options.logger,
 	}, nil
 }
 
@@ -174,7 +192,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 		Account:         r.account,
 		LLMPlugins:      []schemas.LLMPlugin{},
 		MCPPlugins:      []schemas.MCPPlugin{},
-		Logger:          core.NewNoOpLogger(),
+		Logger:          r.logger,
 		InitialPoolSize: 64,
 	})
 	if err != nil {
