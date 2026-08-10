@@ -72,18 +72,13 @@ async function confirmDelete(): Promise<void> {
   references.value = []
   controller = new AbortController()
   const activeController = controller
+  let completed = false
   try {
     await deleteGroup(client, props.groupId, activeController.signal)
     emit('deleted')
     clearGroupResourceCaches(queryClient, props.groupId)
     await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.delete)
-    try {
-      const failure = await router.replace(groupsLocation())
-      if (isNavigationFailure(failure))
-        window.location.assign(router.resolve(groupsLocation()).href)
-    } catch {
-      window.location.assign(router.resolve(groupsLocation()).href)
-    }
+    completed = true
   } catch (error: unknown) {
     if (error instanceof RequestCancelledError) return
     if (
@@ -99,6 +94,15 @@ async function confirmDelete(): Promise<void> {
     if (controller === activeController) controller = undefined
     pending.value = false
     emit('update:pending', false)
+  }
+  if (!completed) return
+  open.value = false
+  typedName.value = ''
+  try {
+    const failure = await router.replace(groupsLocation())
+    if (isNavigationFailure(failure)) window.location.assign(router.resolve(groupsLocation()).href)
+  } catch {
+    window.location.assign(router.resolve(groupsLocation()).href)
   }
 }
 

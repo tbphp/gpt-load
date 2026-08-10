@@ -275,6 +275,8 @@ async function setOpen(open: boolean): Promise<void> {
 }
 
 function handleDeleted(name: string): void {
+  clearLocalState()
+  emit('update:editOperation', null)
   emit('deleted', name)
 }
 
@@ -395,6 +397,8 @@ async function save(): Promise<void> {
   const activeController = controller
   const activeOperationID = operationID.value
   let savedName = ''
+  let savedKind: 'created' | 'updated' | null = null
+  let createdAccessKey: AccessKeyDto | null = null
   try {
     if (currentBase) {
       const saved = await updateAccessKey(
@@ -431,6 +435,7 @@ async function save(): Promise<void> {
         return
       }
       savedName = saved.name
+      createdAccessKey = saved
       createPayload.value = null
       createOperationRetained.value = false
       emit('update:createOperation', null)
@@ -439,7 +444,11 @@ async function save(): Promise<void> {
       queryClient,
       mutationInvalidationPlans.accessKey[currentBase ? 'update' : 'create'],
     )
-    emit('saved', currentBase ? 'updated' : 'created', savedName)
+    if (createdAccessKey) {
+      base.value = createdAccessKey
+      draft.value = createAccessKeyDraft(createdAccessKey)
+    }
+    savedKind = currentBase ? 'updated' : 'created'
   } catch (error: unknown) {
     if (controller !== activeController || !props.open || operationID.value !== activeOperationID) {
       return
@@ -493,6 +502,7 @@ async function save(): Promise<void> {
       pending.value = false
     }
   }
+  if (savedKind) emit('saved', savedKind, savedName)
 }
 
 async function reconcileEdit(): Promise<void> {
@@ -504,6 +514,7 @@ async function reconcileEdit(): Promise<void> {
   controller?.abort()
   controller = new AbortController()
   const activeController = controller
+  let confirmedName: string | null = null
   try {
     const latest = await findAccessKeyForReconciliation(
       client,
@@ -541,10 +552,8 @@ async function reconcileEdit(): Promise<void> {
         mutationInvalidationPlans.accessKey.reconcileConfirmed,
         () => controller === activeController && props.open,
       )
-      if (controller === activeController && props.open) emit('saved', 'updated', latest.name)
-      return
-    }
-    if (
+      if (controller === activeController && props.open) confirmedName = latest.name
+    } else if (
       Object.keys(buildAccessKeyUpdatePatch(attempt.base, createAccessKeyDraft(latest))).length ===
       0
     ) {
@@ -556,14 +565,15 @@ async function reconcileEdit(): Promise<void> {
       failed.value = true
       editNotApplied.value = true
       return
+    } else {
+      const operation: PendingAccessKeyEditOperation = {
+        ...attempt,
+        state: 'indeterminate',
+      }
+      editReconciliation.value = operation
+      emit('update:editOperation', operation)
+      mutationState.value = operation.state
     }
-    const operation: PendingAccessKeyEditOperation = {
-      ...attempt,
-      state: 'indeterminate',
-    }
-    editReconciliation.value = operation
-    emit('update:editOperation', operation)
-    mutationState.value = operation.state
   } catch (error: unknown) {
     if (
       controller === activeController &&
@@ -584,6 +594,7 @@ async function reconcileEdit(): Promise<void> {
       pending.value = false
     }
   }
+  if (confirmedName && props.open) emit('saved', 'updated', confirmedName)
 }
 
 onBeforeUnmount(clearLocalState)
