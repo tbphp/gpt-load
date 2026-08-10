@@ -61,6 +61,128 @@ type streamEventObserver struct {
 	usage               *streamUsageCapture
 }
 
+// sseEventObservationBuffer frames arbitrary executor data chunks without
+// changing their wire bytes. A terminal boundary returned by push belongs to
+// the supplied chunk, so callers may mark it forwarded only after that chunk
+// has been written and flushed successfully.
+type sseEventObservationBuffer struct {
+	pending         []byte
+	pendingTerminal bool
+	scanner         sseRewriteBoundaryScanner
+	observe         func(dialect.StreamEvent, bool) (bool, error)
+}
+
+func newSSEEventObservationBuffer(
+	observe func(dialect.StreamEvent, bool) (bool, error),
+) *sseEventObservationBuffer {
+	return &sseEventObservationBuffer{observe: observe}
+}
+
+func (buffer *sseEventObservationBuffer) push(chunk []byte) (bool, error) {
+	if buffer == nil || buffer.observe == nil {
+		return false, fmt.Errorf("SSE observation callback is required")
+	}
+	buffer.pending = append(buffer.pending, chunk...)
+	terminal := false
+	for {
+		waitingTerminal := buffer.pendingTerminal
+		optionalLF, overflow := buffer.scanner.ConsumeOptionalLineFeed(
+			buffer.pending,
+			false,
+		)
+		if overflow {
+			return false, errSSEEventTooLarge
+		}
+		if waitingTerminal && !buffer.scanner.optionalLineFeed {
+			buffer.pendingTerminal = false
+			terminal = true
+		}
+		if optionalLF > 0 {
+			buffer.discard(optionalLF)
+			continue
+		}
+
+		eventEnd, complete := buffer.scanner.Find(buffer.pending)
+		if !complete {
+			if len(buffer.pending) > maxSSEEventBytes {
+				return false, errSSEEventTooLarge
+			}
+			return terminal, nil
+		}
+		if eventEnd > maxSSEEventBytes {
+			return false, errSSEEventTooLarge
+		}
+
+		terminalEvent, err := buffer.observeEvent(buffer.pending[:eventEnd])
+		if err != nil {
+			return false, err
+		}
+		buffer.discard(eventEnd)
+		buffer.scanner.AfterEvent(eventEnd, eventEnd)
+		if terminalEvent && buffer.scanner.optionalLineFeed {
+			buffer.pendingTerminal = true
+		} else {
+			terminal = terminal || terminalEvent
+		}
+	}
+}
+
+func (buffer *sseEventObservationBuffer) observeEvent(event []byte) (bool, error) {
+	lines := splitSSEEventLines(event)
+	dataValues := make([][]byte, 0, len(lines))
+	var eventName []byte
+	for index := range lines {
+		if name, ok := parseSSEEventName(lines[index].content); ok {
+			eventName = name
+		}
+		if lines[index].isData {
+			dataValues = append(dataValues, lines[index].data)
+		}
+	}
+	if len(dataValues) == 0 {
+		return false, nil
+	}
+	payload := bytes.Join(dataValues, []byte{'\n'})
+	if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+		return false, nil
+	}
+	return buffer.observe(
+		dialect.StreamEvent{Name: string(eventName), Payload: payload},
+		bytes.Equal(eventName, []byte("error")) || isSSEErrorPayload(payload),
+	)
+}
+
+func (buffer *sseEventObservationBuffer) finish() error {
+	if buffer == nil {
+		return fmt.Errorf("SSE observation buffer is required")
+	}
+	optionalLF, overflow := buffer.scanner.ConsumeOptionalLineFeed(
+		buffer.pending,
+		true,
+	)
+	if overflow {
+		return errSSEEventTooLarge
+	}
+	if optionalLF > 0 {
+		buffer.discard(optionalLF)
+	}
+	if buffer.pendingTerminal && !buffer.scanner.optionalLineFeed {
+		buffer.pendingTerminal = false
+	}
+	if len(buffer.pending) > 0 {
+		return errSSEEventIncomplete
+	}
+	buffer.scanner.Reset()
+	return nil
+}
+
+func (buffer *sseEventObservationBuffer) discard(count int) {
+	buffer.pending = buffer.pending[count:]
+	if len(buffer.pending) == 0 {
+		buffer.pending = nil
+	}
+}
+
 func newStreamEventObserver(
 	selected dialect.Dialect,
 	capture *streamUsageCapture,

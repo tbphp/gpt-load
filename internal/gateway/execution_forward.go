@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
@@ -20,12 +21,14 @@ import (
 type ExecutionForwarder struct {
 	executor       execution.Executor
 	representation *responseProcessor
+	usageCapture   *usageCaptureBoundary
 	writeTimeout   time.Duration
 }
 
 func NewExecutionForwarder(executor execution.Executor) *ExecutionForwarder {
 	return &ExecutionForwarder{
 		executor: executor, representation: &responseProcessor{redactor: redact.New()},
+		usageCapture: newUsageCaptureBoundary(),
 		writeTimeout: downstreamWriteTimeout,
 	}
 }
@@ -58,6 +61,43 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	}
 	controller := newStreamWriteController(downstream, writeTimeout)
 	defer func() { _ = controller.clear() }()
+	usageCapture := forwarder.usageCapture
+	if usageCapture == nil {
+		usageCapture = newUsageCaptureBoundary()
+	}
+	streamEvents := newStreamEventObserver(
+		input.Dialect,
+		usageCapture.newStreamForRequest(input.Dialect, input.ObserveUsage),
+	)
+	redactor := redact.New()
+	if forwarder.representation != nil && forwarder.representation.redactor != nil {
+		redactor = forwarder.representation.redactor
+	}
+	summarySecrets := resolvedErrorSummarySecretValues(
+		input.APIKey,
+		input.Group.HeaderRules,
+		input.CredentialSecrets...,
+	)
+	streamBuffer := newSSEEventObservationBuffer(func(
+		event dialect.StreamEvent,
+		genericProviderError bool,
+	) (bool, error) {
+		wasTerminal := streamEvents.sawTerminal
+		providerError, err := streamEvents.classify(event, genericProviderError)
+		if err != nil {
+			return false, err
+		}
+		streamEvents.observeUsageEvent(event)
+		if providerError {
+			streamEvents.observeError(summarizeErrorBody(
+				redactor,
+				event.Payload,
+				fixedErrorSummary("upstream_sse_error"),
+				summarySecrets...,
+			))
+		}
+		return !wasTerminal && streamEvents.sawTerminal, nil
+	})
 
 	var (
 		ready         *execution.StreamEvent
@@ -102,6 +142,11 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				errorBody = appendExecutionErrorBody(errorBody, event.Data)
 				return nil
 			}
+			terminalInChunk, err := streamBuffer.push(event.Data)
+			if err != nil {
+				downstreamErr = executionStreamProtocolFailure(err)
+				return downstreamErr
+			}
 			if !committed {
 				committed = true
 				if err := commitStream(controller, ready.StatusCode, ready.Header, event.Data); err != nil {
@@ -113,6 +158,9 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				if input.OnFirstResponse != nil {
 					input.OnFirstResponse()
+				}
+				if terminalInChunk {
+					streamEvents.markTerminalForwarded()
 				}
 				return nil
 			}
@@ -138,6 +186,9 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				return downstreamErr
 			}
+			if terminalInChunk {
+				streamEvents.markTerminalForwarded()
+			}
 			return nil
 		default:
 			downstreamErr = fmt.Errorf("%w: unsupported execution stream event", ErrUpstreamProtocol)
@@ -146,7 +197,16 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	}
 
 	terminal := forwarder.executor.ExecuteStream(ctx, spec, sink)
+	if downstreamErr == nil && terminal.Error == nil {
+		if err := streamBuffer.finish(); err != nil {
+			downstreamErr = executionStreamProtocolFailure(err)
+		} else if err := streamEvents.validateEOF(); err != nil {
+			downstreamErr = err
+		}
+	}
+	capturedUsage := streamEvents.finalizeUsage()
 	result := upstreamFromExecutionStreamResult(ctx, input, terminal, streamUsage)
+	result.Usage = preferCapturedStreamUsage(result.Usage, capturedUsage)
 	result.Committed = committed
 	if len(errorBody) > 0 {
 		result.Body = append([]byte(nil), errorBody...)
@@ -156,7 +216,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		result.Err = downstreamErr
 	}
 	if committed {
-		result.Stream = executionStreamObservation(ctx, terminal, downstreamErr)
+		result.Stream = executionStreamObservation(ctx, terminal, downstreamErr, streamEvents)
 	} else if ready != nil {
 		result.StatusCode = ready.StatusCode
 		result.Header = ready.Header.Clone()
@@ -473,23 +533,59 @@ func appendExecutionErrorBody(current, chunk []byte) []byte {
 	return append(current, chunk...)
 }
 
+func executionStreamProtocolFailure(cause error) error {
+	if cause == nil {
+		cause = fmt.Errorf("invalid upstream SSE stream")
+	}
+	return &streamFailure{
+		kind: streamFailureProtocol,
+		err:  fmt.Errorf("%w: %v", ErrUpstreamProtocol, cause),
+	}
+}
+
+func preferCapturedStreamUsage(
+	current usage.Result,
+	captured usage.Result,
+) usage.Result {
+	switch captured.State {
+	case usage.StateComplete:
+		if current.State != usage.StateComplete {
+			return captured
+		}
+	case usage.StatePartial:
+		if current.State == usage.StateMissing || current.State == "" {
+			return captured
+		}
+	case usage.StateMissing:
+		if current.State == "" {
+			return captured
+		}
+	}
+	return current
+}
+
 func executionStreamObservation(
 	ctx context.Context,
 	terminal execution.StreamResult,
 	downstreamErr error,
+	streamEvents *streamEventObserver,
 ) StreamObservation {
 	if downstreamErr != nil {
-		return prioritizeStreamObservation(ctx, downstreamErr, StreamObservation{})
+		return observeStreamTermination(ctx, downstreamErr, streamEvents)
 	}
 	if terminal.Error == nil {
-		return StreamObservation{EndReason: StreamEndCleanEOF}
+		return streamEvents.endObservation()
 	}
 	switch terminal.Error.Kind {
 	case execution.ErrorKindCanceled:
-		return streamTerminalObservation(StreamEndClientCanceled)
+		return observeStreamTermination(ctx, context.Canceled, streamEvents)
 	case execution.ErrorKindTimeout:
 		return streamTerminalObservation(StreamEndIdleTimeout)
 	case execution.ErrorKindProvider, execution.ErrorKindHTTP:
+		observation := streamEvents.endObservation()
+		if observation.EndReason == StreamEndSSEError {
+			return observation
+		}
 		return StreamObservation{
 			EndReason:    StreamEndSSEError,
 			ErrorSummary: terminal.Error.Summary,

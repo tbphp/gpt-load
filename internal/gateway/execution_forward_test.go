@@ -205,6 +205,268 @@ func TestExecutionForwarderCommitsSuccessfulStreamOnlyOnFirstData(t *testing.T) 
 	}
 }
 
+func TestExecutionForwarderClassifiesOpenAIResponsesStreamLifecycle(t *testing.T) {
+	t.Parallel()
+
+	const (
+		deltaEvent = "event: response.output_text.delta\n" +
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n"
+		completedEvent = "event: response.completed\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":8,\"input_tokens_details\":{\"cached_tokens\":3},\"output_tokens\":2,\"total_tokens\":10}}}\n\n"
+		incompleteEvent = "event: response.incomplete\n" +
+			"data: {\"type\":\"response.incomplete\",\"response\":{\"usage\":{\"input_tokens\":8,\"input_tokens_details\":{\"cached_tokens\":3},\"output_tokens\":2,\"total_tokens\":10}}}\n\n"
+		failedEvent = "event: response.failed\n" +
+			"data: {\"type\":\"response.failed\",\"error\":{\"message\":\"capacity exhausted\"},\"response\":{}}\n\n"
+	)
+	completedCRLF := strings.ReplaceAll(completedEvent, "\n", "\r\n")
+	completedCRLFPrefix := completedCRLF[:len(completedCRLF)-1]
+
+	tests := []struct {
+		name           string
+		chunks         []string
+		cancel         bool
+		terminalError  *execution.ErrorEvidence
+		wantEnd        StreamEndReason
+		wantSummary    string
+		wantUsageState usage.State
+		wantTokens     usage.Tokens
+	}{
+		{
+			name: "completed terminal remains successful after client cancellation",
+			chunks: []string{
+				deltaEvent,
+				completedEvent[:len(completedEvent)-7],
+				completedEvent[len(completedEvent)-7:],
+			},
+			cancel: true,
+			terminalError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "request context canceled",
+			},
+			wantEnd:        StreamEndCleanEOF,
+			wantUsageState: usage.StateComplete,
+			wantTokens: usage.Tokens{
+				UncachedInput: 5, CacheRead: 3, Output: 2,
+			},
+		},
+		{
+			name:   "split terminal CRLF remains canceled before final line feed is forwarded",
+			chunks: []string{completedCRLFPrefix},
+			cancel: true,
+			terminalError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "request context canceled",
+			},
+			wantEnd:        StreamEndClientCanceled,
+			wantSummary:    fixedErrorSummary("client_canceled"),
+			wantUsageState: usage.StateComplete,
+			wantTokens: usage.Tokens{
+				UncachedInput: 5, CacheRead: 3, Output: 2,
+			},
+		},
+		{
+			name:   "split terminal CRLF succeeds after final line feed is forwarded",
+			chunks: []string{completedCRLFPrefix, "\n"},
+			cancel: true,
+			terminalError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "request context canceled",
+			},
+			wantEnd:        StreamEndCleanEOF,
+			wantUsageState: usage.StateComplete,
+			wantTokens: usage.Tokens{
+				UncachedInput: 5, CacheRead: 3, Output: 2,
+			},
+		},
+		{
+			name:   "client cancellation before terminal remains canceled",
+			chunks: []string{deltaEvent},
+			cancel: true,
+			terminalError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "request context canceled",
+			},
+			wantEnd:        StreamEndClientCanceled,
+			wantSummary:    fixedErrorSummary("client_canceled"),
+			wantUsageState: usage.StateMissing,
+		},
+		{
+			name:           "clean transport EOF without required terminal is protocol error",
+			chunks:         []string{deltaEvent},
+			wantEnd:        StreamEndUpstreamProtocolError,
+			wantSummary:    fixedErrorSummary("upstream_protocol_error"),
+			wantUsageState: usage.StateMissing,
+		},
+		{
+			name:   "incomplete terminal remains incomplete after client cancellation",
+			chunks: []string{incompleteEvent},
+			cancel: true,
+			terminalError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "request context canceled",
+			},
+			wantEnd:        StreamEndProviderIncomplete,
+			wantSummary:    fixedErrorSummary("upstream_response_incomplete"),
+			wantUsageState: usage.StateComplete,
+			wantTokens: usage.Tokens{
+				UncachedInput: 5, CacheRead: 3, Output: 2,
+			},
+		},
+		{
+			name:   "failed terminal remains provider error after client cancellation",
+			chunks: []string{failedEvent},
+			cancel: true,
+			terminalError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "request context canceled",
+			},
+			wantEnd:        StreamEndSSEError,
+			wantSummary:    "capacity exhausted",
+			wantUsageState: usage.StateMissing,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requestContext, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				for index, chunk := range test.chunks {
+					if err := sink(execution.StreamEvent{
+						Sequence: uint64(index + 2), Kind: execution.StreamEventData,
+						Data: []byte(chunk),
+					}); err != nil {
+						t.Fatalf("data sink %d: %v", index+1, err)
+					}
+				}
+				if test.cancel {
+					cancel()
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+					Error:      test.terminalError,
+				}
+			}}
+
+			input := responsesExecutionForwardInput()
+			recorder := httptest.NewRecorder()
+			result := NewExecutionForwarder(executor).ForwardStream(requestContext, input, recorder)
+			if !result.Committed || result.Stream.EndReason != test.wantEnd ||
+				result.Stream.ErrorSummary != test.wantSummary || result.Usage.State != test.wantUsageState ||
+				result.Usage.Tokens != test.wantTokens {
+				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+			if got := recorder.Body.String(); got != strings.Join(test.chunks, "") {
+				t.Fatalf("response body = %q, want %q", got, strings.Join(test.chunks, ""))
+			}
+		})
+	}
+}
+
+func TestExecutionForwarderRejectsOpenAIResponsesDataAfterTerminal(t *testing.T) {
+	t.Parallel()
+
+	const completedEvent = "event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{}}\n\n"
+	const extraEvent = "event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"late\"}\n\n"
+	var extraErr error
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		if err := sink(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+			Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}); err != nil {
+			t.Fatalf("ready sink: %v", err)
+		}
+		if err := sink(execution.StreamEvent{
+			Sequence: 2, Kind: execution.StreamEventData, Data: []byte(completedEvent),
+		}); err != nil {
+			t.Fatalf("terminal sink: %v", err)
+		}
+		extraErr = sink(execution.StreamEvent{
+			Sequence: 3, Kind: execution.StreamEventData, Data: []byte(extraEvent),
+		})
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Error: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "stream sink stopped",
+			},
+		}
+	}}
+
+	recorder := httptest.NewRecorder()
+	result := NewExecutionForwarder(executor).ForwardStream(
+		context.Background(), responsesExecutionForwardInput(), recorder,
+	)
+	if !errors.Is(extraErr, ErrUpstreamProtocol) ||
+		result.Stream.EndReason != StreamEndUpstreamProtocolError ||
+		result.Stream.ErrorSummary != fixedErrorSummary("upstream_protocol_error") {
+		t.Fatalf("extra error/result = %v / %#v", extraErr, result)
+	}
+	if got := recorder.Body.String(); got != completedEvent {
+		t.Fatalf("response body = %q, want terminal only %q", got, completedEvent)
+	}
+}
+
+func TestExecutionForwarderRequiresSuccessfulFlushBeforeAcceptingResponsesTerminal(t *testing.T) {
+	t.Parallel()
+
+	const completedEvent = "event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{}}\n\n"
+	flushErr := errors.New("downstream flush failed")
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		if err := sink(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+			Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}); err != nil {
+			t.Fatalf("ready sink: %v", err)
+		}
+		if err := sink(execution.StreamEvent{
+			Sequence: 2, Kind: execution.StreamEventData, Data: []byte(completedEvent),
+		}); !errors.Is(err, flushErr) {
+			t.Fatalf("terminal sink error = %v, want %v", err, flushErr)
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Error: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindCanceled, Summary: "stream sink stopped",
+			},
+		}
+	}}
+
+	writer := &executionFlushFailureWriter{
+		header: make(http.Header),
+		err:    flushErr,
+	}
+	result := NewExecutionForwarder(executor).ForwardStream(
+		context.Background(), responsesExecutionForwardInput(), writer,
+	)
+	if !result.Committed || !errors.Is(result.Err, flushErr) ||
+		result.Stream.EndReason != StreamEndDownstreamWriteFailure {
+		t.Fatalf("ForwardStream() = %#v", result)
+	}
+}
+
 func TestExecutionForwarderBuffersRejectedStreamWithoutCommitting(t *testing.T) {
 	t.Parallel()
 
@@ -287,6 +549,18 @@ func (writer *failingExecutionResponseWriter) Write([]byte) (int, error) {
 }
 func (*failingExecutionResponseWriter) FlushError() error { return nil }
 
+type executionFlushFailureWriter struct {
+	header http.Header
+	err    error
+}
+
+func (writer *executionFlushFailureWriter) Header() http.Header { return writer.header }
+func (*executionFlushFailureWriter) WriteHeader(int)            {}
+func (*executionFlushFailureWriter) Write(body []byte) (int, error) {
+	return len(body), nil
+}
+func (writer *executionFlushFailureWriter) FlushError() error { return writer.err }
+
 func executionForwardInput() ForwardInput {
 	return ForwardInput{
 		Dialect:          dialect.NewOpenAI(),
@@ -328,6 +602,18 @@ func executionForwardInput() ForwardInput {
 			},
 		},
 	}
+}
+
+func responsesExecutionForwardInput() ForwardInput {
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIResponses()
+	input.ObserveUsage = true
+	input.ClientProtocol = protocol.OpenAIResponses
+	input.Operation = execution.OperationResponsesCreate
+	input.Request.Path = "/v1/responses"
+	input.Request.RawQuery = ""
+	input.Request.Body = []byte(`{"model":"public","stream":true}`)
+	return input
 }
 
 func gatewayFeatureSet(features ...execution.Feature) execution.FeatureSet {
