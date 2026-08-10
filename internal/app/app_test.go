@@ -60,11 +60,34 @@ type requestLogRuntimeFake struct {
 }
 
 type executionRuntimeFake struct {
+	startFunc     func(context.Context) error
+	shutdownFunc  func()
+	startCalls    atomic.Int32
 	shutdownCalls atomic.Int32
+	shutdownOnce  sync.Once
+	shutdownDone  chan struct{}
 }
 
-func (fake *executionRuntimeFake) Shutdown() {
-	fake.shutdownCalls.Add(1)
+func (fake *executionRuntimeFake) Start(ctx context.Context) error {
+	fake.startCalls.Add(1)
+	if fake.startFunc == nil {
+		return nil
+	}
+	return fake.startFunc(ctx)
+}
+
+func (fake *executionRuntimeFake) BeginShutdown() <-chan struct{} {
+	fake.shutdownOnce.Do(func() {
+		fake.shutdownCalls.Add(1)
+		fake.shutdownDone = make(chan struct{})
+		go func() {
+			if fake.shutdownFunc != nil {
+				fake.shutdownFunc()
+			}
+			close(fake.shutdownDone)
+		}()
+	})
+	return fake.shutdownDone
 }
 
 func TestAppStopShutsDownExecutionRuntime(t *testing.T) {
@@ -78,6 +101,160 @@ func TestAppStopShutsDownExecutionRuntime(t *testing.T) {
 	if got := runtime.shutdownCalls.Load(); got != 1 {
 		t.Fatalf("Shutdown() calls = %d, want 1", got)
 	}
+}
+
+func TestAppStartsExecutionRuntimeBeforeListen(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+
+	var order []string
+	executionRuntime := &executionRuntimeFake{
+		startFunc: func(context.Context) error {
+			order = append(order, "execution")
+			return nil
+		},
+	}
+	listenErr := errors.New("stop after lifecycle order check")
+	application := NewApp(AppParams{
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			order = append(order, "runtime")
+			return nil
+		}),
+		RuntimeCheckpoint: runtimeCheckpointFake{
+			restore: func(context.Context) error {
+				order = append(order, "checkpoint")
+				return nil
+			},
+		},
+		ControlRuntime:   newControlRuntimeFake(nil, false),
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
+		ExecutionRuntime: executionRuntime,
+	})
+	application.listen = func(string, string) (net.Listener, error) {
+		order = append(order, "listen")
+		return nil, listenErr
+	}
+	cleanupApp(t, application)
+
+	if err := application.Start(); !errors.Is(err, listenErr) {
+		t.Fatalf("Start() error = %v, want listen error", err)
+	}
+	if want := []string{"runtime", "checkpoint", "execution", "listen"}; !slices.Equal(order, want) {
+		t.Fatalf("startup order = %#v, want %#v", order, want)
+	}
+	if got := executionRuntime.startCalls.Load(); got != 1 {
+		t.Fatalf("ExecutionRuntime.Start() calls = %d, want 1", got)
+	}
+}
+
+func TestAppExecutionRuntimeStartFailureStopsBeforeListen(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+
+	startErr := errors.New("execution runtime failed")
+	executionRuntime := &executionRuntimeFake{
+		startFunc: func(context.Context) error { return startErr },
+	}
+	application := NewApp(AppParams{
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   newControlRuntimeFake(nil, false),
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
+		ExecutionRuntime: executionRuntime,
+	})
+	listenCalled := false
+	application.listen = func(string, string) (net.Listener, error) {
+		listenCalled = true
+		return nil, errors.New("unexpected listen")
+	}
+	cleanupApp(t, application)
+
+	err = application.Start()
+	if !errors.Is(err, startErr) || !strings.Contains(err.Error(), "start execution runtime") {
+		t.Fatalf("Start() error = %v, want wrapped execution runtime error", err)
+	}
+	if listenCalled {
+		t.Fatal("Start() listened after execution runtime startup failed")
+	}
+}
+
+func TestAppStopDoesNotWaitForBlockedExecutionRuntime(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	executionRuntime := &executionRuntimeFake{
+		shutdownFunc: func() { <-release },
+	}
+	application := NewApp(AppParams{ExecutionRuntime: executionRuntime})
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+
+	stopResult := make(chan error, 1)
+	go func() { stopResult <- application.Stop(context.Background()) }()
+
+	select {
+	case err := <-stopResult:
+		if err != nil {
+			t.Fatalf("Stop() error = %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		releaseOnce.Do(func() { close(release) })
+		<-stopResult
+		t.Fatal("Stop() waited for blocked execution runtime shutdown")
+	}
+}
+
+func TestAppStopDrainsRequestLogsWithoutWaitingForExecutionRuntime(t *testing.T) {
+	shutdownStarted := make(chan struct{})
+	releaseShutdown := make(chan struct{})
+	requestLogsStopped := make(chan struct{})
+	var releaseOnce sync.Once
+	executionRuntime := &executionRuntimeFake{
+		shutdownFunc: func() {
+			close(shutdownStarted)
+			<-releaseShutdown
+		},
+	}
+	requestLogs := newRequestLogRuntimeFake(nil, func(context.Context) error {
+		close(requestLogsStopped)
+		return nil
+	})
+	application := NewApp(AppParams{
+		ExecutionRuntime: executionRuntime,
+		RequestLogs:      requestLogs,
+	})
+	t.Cleanup(func() { releaseOnce.Do(func() { close(releaseShutdown) }) })
+
+	stopResult := make(chan error, 1)
+	go func() { stopResult <- application.Stop(context.Background()) }()
+	select {
+	case <-shutdownStarted:
+	case <-time.After(time.Second):
+		t.Fatal("execution runtime shutdown did not start")
+	}
+	select {
+	case <-requestLogsStopped:
+	case <-time.After(time.Second):
+		t.Fatal("request logs were not drained while execution runtime shutdown was blocked")
+	}
+	select {
+	case err := <-stopResult:
+		if err != nil {
+			t.Fatalf("Stop() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop() waited for execution runtime after request logs drained")
+	}
+	releaseOnce.Do(func() { close(releaseShutdown) })
 }
 
 func newRequestLogRuntimeFake(

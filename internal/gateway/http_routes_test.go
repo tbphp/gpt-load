@@ -70,9 +70,9 @@ func TestHTTPModuleCancelsInFlightDataPlaneHandlerOnShutdown(t *testing.T) {
 		t.Fatal("data-plane handler was not entered")
 	}
 
-	coordinator.BeginDataShutdown()
-	if got := <-cause; got != httplifecycle.ErrDataPlaneShutdown {
-		t.Fatalf("request context cause = %v, want %v", got, httplifecycle.ErrDataPlaneShutdown)
+	coordinator.BeginShutdown()
+	if got := <-cause; got != httplifecycle.ErrServerShutdown {
+		t.Fatalf("request context cause = %v, want %v", got, httplifecycle.ErrServerShutdown)
 	}
 	if err := <-result; err != nil {
 		t.Fatalf("data-plane request error = %v", err)

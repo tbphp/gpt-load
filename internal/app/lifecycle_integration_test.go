@@ -79,3 +79,78 @@ func TestAppStopWaitsForTrackedControlHandler(t *testing.T) {
 		t.Fatalf("Stop() error = %v", err)
 	}
 }
+
+func TestAppStopCancelsTrackedControlHandlerAndStartsExecutionShutdown(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	lifecycle := httplifecycle.NewCoordinator()
+	engine, err := NewEngineWithLifecycle(lifecycle)
+	if err != nil {
+		t.Fatalf("NewEngineWithLifecycle() error = %v", err)
+	}
+	entered := make(chan struct{})
+	canceled := make(chan struct{})
+	shutdown := make(chan struct{})
+	var canceledOnce sync.Once
+	var shutdownOnce sync.Once
+	engine.GET("/blocking", func(c *gin.Context) {
+		close(entered)
+		<-c.Request.Context().Done()
+		canceledOnce.Do(func() { close(canceled) })
+		c.Status(http.StatusNoContent)
+	})
+	executionRuntime := &executionRuntimeFake{
+		shutdownFunc: func() { shutdownOnce.Do(func() { close(shutdown) }) },
+	}
+	application := NewApp(AppParams{
+		Engine:           engine,
+		Config:           testConfig(t),
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   newControlRuntimeFake(nil, false),
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
+		Lifecycle:        lifecycle,
+		ExecutionRuntime: executionRuntime,
+	})
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	requestDone := make(chan error, 1)
+	go func() {
+		response, requestErr := http.Get("http://" + application.Address() + "/blocking")
+		if requestErr == nil {
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusNoContent {
+				requestErr = errors.New("unexpected blocking response status")
+			}
+		}
+		requestDone <- requestErr
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("blocking handler was not entered")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- application.Stop(context.Background()) }()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("management handler context was not canceled during shutdown")
+	}
+	select {
+	case <-shutdown:
+	case <-time.After(time.Second):
+		t.Fatal("execution runtime shutdown did not start promptly")
+	}
+	if err := <-requestDone; err != nil {
+		t.Fatalf("blocking request error = %v", err)
+	}
+	if err := <-stopDone; err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}

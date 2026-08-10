@@ -33,7 +33,9 @@ type Runtime struct {
 	capabilities              execution.CapabilitySet
 	allowPrivate              bool
 	maxUnaryResponseBodyBytes int64
+	stateMu                   sync.Mutex
 	shutdownOnce              sync.Once
+	shutdownDone              chan struct{}
 	closed                    atomic.Bool
 }
 
@@ -51,7 +53,24 @@ func NewRuntime(ctx context.Context, registry *channel.Registry) (*Runtime, erro
 	return newRuntime(ctx, runtimeOptions{allowPrivateNetwork: true}, registry)
 }
 
+// NewManagedRuntime creates an unstarted production runtime. The application
+// lifecycle must call Start before accepting requests.
+func NewManagedRuntime(registry *channel.Registry) (*Runtime, error) {
+	return newManagedRuntime(runtimeOptions{allowPrivateNetwork: true}, registry)
+}
+
 func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.Registry) (*Runtime, error) {
+	runtime, err := newManagedRuntime(options, registry)
+	if err != nil {
+		return nil, err
+	}
+	if err := runtime.Start(ctx); err != nil {
+		return nil, err
+	}
+	return runtime, nil
+}
+
+func newManagedRuntime(options runtimeOptions, registry *channel.Registry) (*Runtime, error) {
 	if registry == nil {
 		return nil, fmt.Errorf("initialize execution runtime: channel registry is required")
 	}
@@ -66,17 +85,6 @@ func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.R
 	account.setConfig(schemas.Azure, providerConfig("", false, schemas.Azure, options.allowPrivateNetwork))
 	account.setConfig(schemas.Bedrock, providerConfig("", false, schemas.Bedrock, options.allowPrivateNetwork))
 	account.setConfig(schemas.Vertex, providerConfig("", false, schemas.Vertex, options.allowPrivateNetwork))
-
-	bifrostCore, err := core.Init(ctx, schemas.BifrostConfig{
-		Account:         account,
-		LLMPlugins:      []schemas.LLMPlugin{},
-		MCPPlugins:      []schemas.MCPPlugin{},
-		Logger:          core.NewNoOpLogger(),
-		InitialPoolSize: 64,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("initialize execution runtime: %w", err)
-	}
 	features, err := execution.NewFeatureSet(
 		execution.FeatureStreaming,
 		execution.FeatureTools,
@@ -85,12 +93,10 @@ func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.R
 		execution.FeatureStructuredOutput,
 	)
 	if err != nil {
-		bifrostCore.Shutdown()
 		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
 	}
 	resourceFeatures, err := execution.NewFeatureSet(execution.FeatureNativeResourceSemantics)
 	if err != nil {
-		bifrostCore.Shutdown()
 		return nil, fmt.Errorf("initialize resource capabilities: %w", err)
 	}
 	responsesFeatures, err := execution.NewFeatureSet(
@@ -102,7 +108,6 @@ func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.R
 		execution.FeatureNativeResourceSemantics,
 	)
 	if err != nil {
-		bifrostCore.Shutdown()
 		return nil, fmt.Errorf("initialize responses capabilities: %w", err)
 	}
 	passthroughFeatures, err := execution.NewFeatureSet(
@@ -110,7 +115,6 @@ func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.R
 		execution.FeatureNativeResourceSemantics,
 	)
 	if err != nil {
-		bifrostCore.Shutdown()
 		return nil, fmt.Errorf("initialize passthrough capabilities: %w", err)
 	}
 	responsesUtilityFeatures, err := execution.NewFeatureSet(
@@ -120,7 +124,6 @@ func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.R
 		execution.FeatureStructuredOutput,
 	)
 	if err != nil {
-		bifrostCore.Shutdown()
 		return nil, fmt.Errorf("initialize Responses utility capabilities: %w", err)
 	}
 	capabilities, err := execution.NewCapabilitySet(
@@ -137,17 +140,48 @@ func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.R
 		execution.Capability{Operation: execution.OperationProbe},
 	)
 	if err != nil {
-		bifrostCore.Shutdown()
 		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
 	}
 	return &Runtime{
-		core:                      bifrostCore,
 		account:                   account,
 		registry:                  registry,
 		capabilities:              capabilities,
 		allowPrivate:              options.allowPrivateNetwork,
 		maxUnaryResponseBodyBytes: maxUnaryResponseBodyBytes,
+		shutdownDone:              make(chan struct{}),
 	}, nil
+}
+
+// Start initializes Bifrost after the application has restored its runtime
+// state and before the HTTP listener accepts requests. It is idempotent after
+// a successful start and cannot restart a stopped runtime.
+func (r *Runtime) Start(ctx context.Context) error {
+	if r == nil {
+		return errors.New("start execution runtime: runtime is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	if r.closed.Load() {
+		return errors.New("start execution runtime: runtime is shut down")
+	}
+	if r.core != nil {
+		return nil
+	}
+	bifrostCore, err := core.Init(ctx, schemas.BifrostConfig{
+		Account:         r.account,
+		LLMPlugins:      []schemas.LLMPlugin{},
+		MCPPlugins:      []schemas.MCPPlugin{},
+		Logger:          core.NewNoOpLogger(),
+		InitialPoolSize: 64,
+	})
+	if err != nil {
+		return fmt.Errorf("initialize execution runtime: %w", err)
+	}
+	r.core = bifrostCore
+	return nil
 }
 
 // Capabilities returns an independent capability snapshot.
@@ -158,17 +192,35 @@ func (r *Runtime) Capabilities() execution.CapabilitySet {
 	return r.capabilities.Clone()
 }
 
-// Shutdown releases the shared SDK runtime. It is safe to call more than once.
-func (r *Runtime) Shutdown() {
+// BeginShutdown rejects new execution and starts releasing the shared SDK
+// runtime without waiting for provider workers that may be blocked in the SDK.
+func (r *Runtime) BeginShutdown() <-chan struct{} {
 	if r == nil {
-		return
+		done := make(chan struct{})
+		close(done)
+		return done
 	}
 	r.shutdownOnce.Do(func() {
+		r.stateMu.Lock()
 		r.closed.Store(true)
-		if r.core != nil {
-			r.core.Shutdown()
+		bifrostCore := r.core
+		r.stateMu.Unlock()
+		if bifrostCore == nil {
+			close(r.shutdownDone)
+			return
 		}
+		go func() {
+			bifrostCore.Shutdown()
+			close(r.shutdownDone)
+		}()
 	})
+	return r.shutdownDone
+}
+
+// Shutdown releases the shared SDK runtime and waits for completion. Direct
+// runtime owners may use it outside the process-level bounded shutdown path.
+func (r *Runtime) Shutdown() {
+	<-r.BeginShutdown()
 }
 
 func providerConfig(baseURL string, custom bool, baseProvider schemas.ModelProvider, allowPrivateNetwork bool) *schemas.ProviderConfig {

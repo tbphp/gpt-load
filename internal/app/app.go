@@ -72,10 +72,11 @@ type RequestLogRuntime interface {
 	Stop(context.Context) error
 }
 
-// ExecutionRuntime owns provider-execution resources that must outlive all
-// in-flight data-plane handlers and be released before process exit.
+// ExecutionRuntime owns provider-execution resources and starts a non-blocking
+// shutdown so SDK workers cannot consume the process shutdown deadline.
 type ExecutionRuntime interface {
-	Shutdown()
+	Start(context.Context) error
+	BeginShutdown() <-chan struct{}
 }
 
 // AppParams defines dependencies injected into App.
@@ -178,6 +179,12 @@ func (a *App) Start() error {
 			logrus.WithField("event", "startup.checkpoint_restore").Info("runtime state checkpoint checked")
 		}
 	}
+	if a.executionRuntime != nil {
+		if err := a.executionRuntime.Start(context.Background()); err != nil {
+			return a.startupFailure("execution_runtime", fmt.Errorf("start execution runtime: %w", err))
+		}
+		logrus.WithField("event", "startup.execution_runtime_start").Info("execution runtime started")
+	}
 
 	address := net.JoinHostPort(a.config.Server.Host, strconv.Itoa(a.config.Server.Port))
 	listener, err := a.listen("tcp", address)
@@ -253,7 +260,7 @@ func (a *App) Address() string {
 	return a.listener.Addr().String()
 }
 
-// Stop gracefully shuts down HTTP and closes infrastructure resources.
+// Stop cancels active work, drains local state, and closes infrastructure.
 func (a *App) Stop(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -272,11 +279,15 @@ func (a *App) Stop(ctx context.Context) error {
 
 	var errs []error
 	if lifecycle != nil {
-		lifecycle.BeginDataShutdown()
-		logrus.WithField("event", "shutdown.data_plane_cancel").Info("data-plane requests canceled")
+		lifecycle.BeginShutdown()
+		logrus.WithField("event", "shutdown.http_requests_cancel").Info("active HTTP requests canceled")
 	}
 	if cancelRuntime != nil {
 		cancelRuntime()
+	}
+	var executionShutdownDone <-chan struct{}
+	if executionRuntime != nil {
+		executionShutdownDone = executionRuntime.BeginShutdown()
 	}
 	if server != nil {
 		if err := server.Shutdown(ctx); err != nil {
@@ -345,9 +356,16 @@ func (a *App) Stop(ctx context.Context) error {
 			logrus.WithField("event", "shutdown.request_log_drain").Info("request log runtime drained")
 		}
 	}
-	if executionRuntime != nil {
-		executionRuntime.Shutdown()
-		logrus.WithField("event", "shutdown.execution_runtime").Info("execution runtime stopped")
+	if executionShutdownDone != nil {
+		select {
+		case <-executionShutdownDone:
+			logrus.WithField("event", "shutdown.execution_runtime").Info("execution runtime stopped")
+		default:
+			logrus.WithFields(logrus.Fields{
+				"event":   "shutdown.execution_runtime",
+				"outcome": "detached",
+			}).Warn("execution runtime is still stopping; process exit will release remaining connections")
+		}
 	}
 	if a.db != nil {
 		sqlDB, err := a.db.DB()

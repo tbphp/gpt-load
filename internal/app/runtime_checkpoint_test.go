@@ -155,6 +155,7 @@ func TestAppSavesCheckpointBeforeRequestLogsAndUsesIndependentContext(t *testing
 		order = append(order, "request-logs")
 		return nil
 	})
+	controlRuntime := newControlRuntimeFake(nil, true)
 	application := NewApp(AppParams{
 		Engine:            mustNewEngine(t),
 		Config:            testConfig(t),
@@ -162,10 +163,11 @@ func TestAppSavesCheckpointBeforeRequestLogsAndUsesIndependentContext(t *testing
 		StartupBootstrap:  startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:      runtimeStateLoaderFunc(func(context.Context) error { return nil }),
 		RuntimeCheckpoint: checkpoint,
-		ControlRuntime:    newControlRuntimeFake(nil, false),
+		ControlRuntime:    controlRuntime,
 		RequestLogs:       requestLogs,
 	})
 	cleanupApp(t, application)
+	t.Cleanup(controlRuntime.Release)
 
 	if err := application.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)

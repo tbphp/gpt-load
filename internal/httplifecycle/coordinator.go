@@ -1,5 +1,5 @@
-// Package httplifecycle coordinates HTTP handler draining with data-plane
-// cancellation during process shutdown.
+// Package httplifecycle coordinates HTTP request cancellation and handler
+// draining during process shutdown.
 package httplifecycle
 
 import (
@@ -11,16 +11,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var ErrDataPlaneShutdown = errors.New("data plane request canceled for shutdown")
+var ErrServerShutdown = errors.New("request canceled for server shutdown")
 
 // Coordinator tracks all HTTP handlers and keeps cancellation handles for
-// data-plane handlers. It is intentionally process-local and single-instance.
+// process-wide shutdown. It is intentionally process-local and single-instance.
 type Coordinator struct {
 	mu       sync.Mutex
 	closing  bool
 	active   int
 	zero     chan struct{}
 	dataStop map[*http.Request]context.CancelCauseFunc
+	allStop  map[*http.Request]context.CancelCauseFunc
 }
 
 func NewCoordinator() *Coordinator {
@@ -29,6 +30,7 @@ func NewCoordinator() *Coordinator {
 	return &Coordinator{
 		zero:     zero,
 		dataStop: make(map[*http.Request]context.CancelCauseFunc),
+		allStop:  make(map[*http.Request]context.CancelCauseFunc),
 	}
 }
 
@@ -36,11 +38,36 @@ func NewCoordinator() *Coordinator {
 // including system, control, data, and embedded web UI requests.
 func (coordinator *Coordinator) TrackAll() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if coordinator == nil || !coordinator.enter() {
+		if coordinator == nil {
+			c.Next()
+			return
+		}
+		if c.Request == nil {
 			c.AbortWithStatus(http.StatusServiceUnavailable)
 			return
 		}
-		defer coordinator.leave()
+		request := c.Request
+		ctx, cancel := context.WithCancelCause(request.Context())
+
+		coordinator.mu.Lock()
+		if coordinator.closing {
+			coordinator.mu.Unlock()
+			cancel(ErrServerShutdown)
+			c.AbortWithStatus(http.StatusServiceUnavailable)
+			return
+		}
+		coordinator.addActiveLocked()
+		coordinator.allStop[request] = cancel
+		coordinator.mu.Unlock()
+		c.Request = request.WithContext(ctx)
+
+		defer func() {
+			cancel(nil)
+			coordinator.mu.Lock()
+			delete(coordinator.allStop, request)
+			coordinator.leaveLocked()
+			coordinator.mu.Unlock()
+		}()
 		c.Next()
 	}
 }
@@ -68,7 +95,7 @@ func (coordinator *Coordinator) BindData(request *http.Request) (
 	coordinator.mu.Lock()
 	if coordinator.closing {
 		coordinator.mu.Unlock()
-		cancel(ErrDataPlaneShutdown)
+		cancel(ErrServerShutdown)
 		return ctx, func() {}, false
 	}
 	coordinator.addActiveLocked()
@@ -94,9 +121,8 @@ func (coordinator *Coordinator) BindData(request *http.Request) (
 	return ctx, release, true
 }
 
-// BeginDataShutdown rejects new data-plane requests and cancels every data
-// request already registered with the coordinator.
-func (coordinator *Coordinator) BeginDataShutdown() {
+// BeginShutdown rejects new handlers and cancels every active HTTP request.
+func (coordinator *Coordinator) BeginShutdown() {
 	if coordinator == nil {
 		return
 	}
@@ -106,13 +132,20 @@ func (coordinator *Coordinator) BeginDataShutdown() {
 		return
 	}
 	coordinator.closing = true
-	stops := make([]context.CancelCauseFunc, 0, len(coordinator.dataStop))
+	stops := make(
+		[]context.CancelCauseFunc,
+		0,
+		len(coordinator.dataStop)+len(coordinator.allStop),
+	)
 	for _, cancel := range coordinator.dataStop {
+		stops = append(stops, cancel)
+	}
+	for _, cancel := range coordinator.allStop {
 		stops = append(stops, cancel)
 	}
 	coordinator.mu.Unlock()
 	for _, cancel := range stops {
-		cancel(ErrDataPlaneShutdown)
+		cancel(ErrServerShutdown)
 	}
 }
 
@@ -134,22 +167,6 @@ func (coordinator *Coordinator) Wait(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func (coordinator *Coordinator) enter() bool {
-	coordinator.mu.Lock()
-	defer coordinator.mu.Unlock()
-	if coordinator.closing {
-		return false
-	}
-	coordinator.addActiveLocked()
-	return true
-}
-
-func (coordinator *Coordinator) leave() {
-	coordinator.mu.Lock()
-	coordinator.leaveLocked()
-	coordinator.mu.Unlock()
 }
 
 func (coordinator *Coordinator) addActiveLocked() {

@@ -2,7 +2,6 @@
 package container
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -139,7 +138,7 @@ func BuildContainer() (*dig.Container, error) {
 			return dialect.NewSet(openAI, openAIResponses, anthropic, gemini)
 		},
 		func(registry *channel.Registry) (*bifrostexecutor.Runtime, error) {
-			return bifrostexecutor.NewRuntime(context.Background(), registry)
+			return bifrostexecutor.NewManagedRuntime(registry)
 		},
 		func(runtime *bifrostexecutor.Runtime) execution.Executor { return runtime },
 		func(runtime *bifrostexecutor.Runtime) app.ExecutionRuntime { return runtime },

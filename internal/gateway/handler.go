@@ -356,7 +356,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
-			recorder.completeCanceled(0, -1)
+			recorder.completeCanceled(ginContext.Request.Context(), 0, -1)
 			return
 		}
 		if errors.Is(err, errRequestTooLarge) {
@@ -382,7 +382,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	metadata, err := selectedDialect.InspectRequest(parsed)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
-			recorder.completeCanceled(0, -1)
+			recorder.completeCanceled(ginContext.Request.Context(), 0, -1)
 			return
 		}
 		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
@@ -397,7 +397,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	if ginContext.Request.Context().Err() != nil {
-		recorder.completeCanceled(0, -1)
+		recorder.completeCanceled(ginContext.Request.Context(), 0, -1)
 		return
 	}
 	query := scheduler.Query{
@@ -481,7 +481,7 @@ func (handler *Handler) completeWriteTerminal(
 		if ginContext.Writer != nil && ginContext.Writer.Written() {
 			status = ginContext.Writer.Status()
 		}
-		recorder.completeCanceled(status, -1)
+		recorder.completeCanceled(ginContext.Request.Context(), status, -1)
 		return
 	}
 	recorder.completeDownstreamWrite(selectedStatus)
@@ -559,7 +559,7 @@ func (handler *Handler) executeAttempts(
 	attempts := 0
 	for attempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
-			recorder.completeCanceled(0, lastAttemptIndex)
+			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
 		}
 		selection, err := iterator.Next()
@@ -673,7 +673,7 @@ func (handler *Handler) executeAttempts(
 					attemptStarted,
 					attemptCompleted,
 				)
-				recorder.completeCanceled(0, recordedAttempt)
+				recorder.completeCanceled(ginContext.Request.Context(), 0, recordedAttempt)
 			}
 			return
 		}
@@ -729,7 +729,7 @@ func (handler *Handler) executeAttempts(
 			return
 		}
 		if errors.Is(result.Err, context.Canceled) {
-			recorder.completeCanceled(0, recordedAttempt)
+			recorder.completeCanceled(ginContext.Request.Context(), 0, recordedAttempt)
 			return
 		}
 		if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {

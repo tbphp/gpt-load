@@ -40,6 +40,7 @@ const (
 	StreamEndIdleTimeout
 	StreamEndDownstreamWriteFailure
 	StreamEndClientCanceled
+	StreamEndServerShutdown
 	StreamEndProviderIncomplete
 )
 
@@ -352,6 +353,9 @@ func prioritizeStreamObservation(
 	err error,
 	observation StreamObservation,
 ) StreamObservation {
+	if isServerShutdown(ctx) {
+		return streamTerminalObservation(StreamEndServerShutdown)
+	}
 	if (ctx != nil && ctx.Err() != nil) || errors.Is(err, context.Canceled) {
 		return streamTerminalObservation(StreamEndClientCanceled)
 	}
@@ -404,7 +408,7 @@ func categoryForStream(reason StreamEndReason) telemetry.FailureCategory {
 	switch reason {
 	case StreamEndCleanEOF, StreamEndProviderIncomplete:
 		return telemetry.FailureCategoryOK
-	case StreamEndClientCanceled:
+	case StreamEndClientCanceled, StreamEndServerShutdown:
 		return telemetry.FailureCategoryDownstreamCancel
 	default:
 		return telemetry.FailureCategoryAmbiguous
@@ -427,6 +431,8 @@ func streamErrorCode(reason StreamEndReason) string {
 		return "downstream_write_failed"
 	case StreamEndClientCanceled:
 		return "client_canceled"
+	case StreamEndServerShutdown:
+		return "server_shutdown"
 	case StreamEndProviderIncomplete:
 		return "upstream_response_incomplete"
 	default:

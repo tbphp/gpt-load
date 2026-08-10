@@ -1072,6 +1072,40 @@ func TestRuntimeShutdownIsIdempotentAndClosesExecution(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimeRequiresExplicitStart(t *testing.T) {
+	runtime, err := newManagedRuntime(
+		runtimeOptions{allowPrivateNetwork: true},
+		channel.NewRegistry(),
+	)
+	if err != nil {
+		t.Fatalf("newManagedRuntime() error = %v", err)
+	}
+	if runtime.core != nil {
+		t.Fatal("managed runtime initialized Bifrost before Start")
+	}
+	beforeStart := runtime.Execute(context.Background(), execution.AttemptSpec{})
+	if beforeStart.DispatchState != execution.DispatchNotSent ||
+		beforeStart.Error == nil ||
+		beforeStart.Error.Kind != execution.ErrorKindInternal {
+		t.Fatalf("Execute() before Start = %+v", beforeStart)
+	}
+
+	if err := runtime.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if runtime.core == nil {
+		t.Fatal("Start() did not initialize Bifrost")
+	}
+	if err := runtime.Start(context.Background()); err != nil {
+		t.Fatalf("second Start() error = %v, want idempotent success", err)
+	}
+
+	runtime.Shutdown()
+	if err := runtime.Start(context.Background()); err == nil {
+		t.Fatal("Start() succeeded after Shutdown")
+	}
+}
+
 func TestRuntimeCapabilities(t *testing.T) {
 	t.Parallel()
 

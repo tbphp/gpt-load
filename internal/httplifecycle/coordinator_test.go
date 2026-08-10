@@ -18,9 +18,9 @@ func TestCoordinatorCancelsDataPlaneRequestsAndWaitsForAllHandlers(t *testing.T)
 		t.Fatal("BindData() rejected an active request")
 	}
 
-	coordinator.BeginDataShutdown()
-	if !errors.Is(context.Cause(ctx), ErrDataPlaneShutdown) {
-		t.Fatalf("data request context cause = %v, want %v", context.Cause(ctx), ErrDataPlaneShutdown)
+	coordinator.BeginShutdown()
+	if !errors.Is(context.Cause(ctx), ErrServerShutdown) {
+		t.Fatalf("data request context cause = %v, want %v", context.Cause(ctx), ErrServerShutdown)
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
@@ -42,11 +42,53 @@ func TestCoordinatorTrackMiddlewareRejectsNewRequestsAfterShutdown(t *testing.T)
 	engine := gin.New()
 	engine.Use(coordinator.TrackAll())
 	engine.GET("/health", func(c *gin.Context) { c.Status(204) })
-	coordinator.BeginDataShutdown()
+	coordinator.BeginShutdown()
 
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequest("GET", "/health", nil))
 	if recorder.Code != 503 {
 		t.Fatalf("request status = %d, want 503", recorder.Code)
+	}
+}
+
+func TestCoordinatorBeginShutdownCancelsTrackedControlRequest(t *testing.T) {
+	coordinator := NewCoordinator()
+	engine := gin.New()
+	engine.Use(coordinator.TrackAll())
+	entered := make(chan struct{})
+	canceled := make(chan error, 1)
+	engine.GET("/api/blocking", func(c *gin.Context) {
+		close(entered)
+		<-c.Request.Context().Done()
+		canceled <- context.Cause(c.Request.Context())
+	})
+
+	done := make(chan struct{})
+	go func() {
+		engine.ServeHTTP(
+			httptest.NewRecorder(),
+			httptest.NewRequest("GET", "/api/blocking", nil),
+		)
+		close(done)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("tracked control request was not entered")
+	}
+
+	coordinator.BeginShutdown()
+	select {
+	case cause := <-canceled:
+		if !errors.Is(cause, ErrServerShutdown) {
+			t.Fatalf("control request context cause = %v, want %v", cause, ErrServerShutdown)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tracked control request was not canceled")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("tracked control request did not return after cancellation")
 	}
 }

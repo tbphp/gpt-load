@@ -385,7 +385,7 @@ func (recorder *requestRecorder) completeStream(
 		outcome.status = telemetry.RequestStatusSuccess
 	case StreamEndSSEError:
 		outcome.status = telemetry.RequestStatusError
-	case StreamEndClientCanceled:
+	case StreamEndClientCanceled, StreamEndServerShutdown:
 		outcome.status = telemetry.RequestStatusCanceled
 	default:
 		outcome.status = telemetry.RequestStatusIncomplete
@@ -533,17 +533,24 @@ func (recorder *requestRecorder) completeTransport(
 	recorder.bindUsage(attemptIndex, usage.Result{}, false)
 }
 
-func (recorder *requestRecorder) completeCanceled(status int, attemptIndex int) {
+func (recorder *requestRecorder) completeCanceled(
+	ctx context.Context,
+	status int,
+	attemptIndex int,
+) {
 	if recorder == nil {
 		return
 	}
+	code := cancellationErrorCode(ctx)
 	upstreamModel := recorder.outcome.upstreamModel
 	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) {
 		upstreamModel = recorder.attempts[attemptIndex].UpstreamModel
+		recorder.attempts[attemptIndex].ErrorCode = code
+		recorder.attempts[attemptIndex].ErrorSummary = fixedErrorSummary(code)
 	}
 	recorder.outcome = requestOutcome{
 		status: telemetry.RequestStatusCanceled, statusCode: status,
-		errorCode: "client_canceled", errorSummary: fixedErrorSummary("client_canceled"),
+		errorCode: code, errorSummary: fixedErrorSummary(code),
 		upstreamModel: upstreamModel,
 	}
 	recorder.bindUsage(attemptIndex, usage.Result{}, false)
@@ -674,6 +681,8 @@ func fixedErrorSummary(code string) string {
 		return "The request failed due to an internal error."
 	case "client_canceled":
 		return "The client canceled the request."
+	case "server_shutdown":
+		return "The server canceled the request during shutdown."
 	default:
 		return "Upstream request failed."
 	}

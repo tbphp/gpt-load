@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
@@ -2292,6 +2293,133 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 	}
 	if got := stats.Snapshot(1, time.Now()); got != (health.CredentialStats{}) {
 		t.Fatalf("StatsStore side effects = %#v", got)
+	}
+}
+
+func TestHandlerRecordsServerShutdownInsteadOfClientCancellation(t *testing.T) {
+	coordinator := httplifecycle.NewCoordinator()
+	forwarder := &scriptedForwarder{
+		results: []UpstreamResult{{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"ok":true}`),
+		}},
+	}
+	forwarder.onCall = func(int) { coordinator.BeginShutdown() }
+	stats := health.NewStatsStore()
+	handler, _, registry := newHandlerForTestWithStats(
+		t, forwarder, stats, "sk-one",
+	)
+	handler.lifecycle = coordinator
+	runtimeRegistry := &recordingRuntimeRegistry{CredentialRegistry: registry}
+	handler.registry = runtimeRegistry
+	handler.limiter = &recordingAccessKeyRPMLimiter{}
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
+	handler.requestNow = newSteppingRequestClock()
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want one canceled event", events)
+	}
+	event := events[0]
+	if event.Status != telemetry.RequestStatusCanceled ||
+		event.StatusCode != 0 ||
+		event.ErrorCode != "server_shutdown" ||
+		event.ErrorSummary != fixedErrorSummary("server_shutdown") ||
+		len(event.Attempts) != 1 {
+		t.Fatalf("event = %#v, want server-shutdown cancellation", event)
+	}
+	attempt := event.Attempts[0]
+	if attempt.FailureCategory != telemetry.FailureCategoryDownstreamCancel ||
+		attempt.Action != telemetry.ActionTerminate ||
+		attempt.WillRetry {
+		t.Fatalf("attempt = %#v, want read-only downstream_cancel/terminate", attempt)
+	}
+	if runtimeRegistry.cooldownCalls != 0 ||
+		runtimeRegistry.incrFailureCalls != 0 ||
+		runtimeRegistry.blacklistCalls != 0 ||
+		runtimeRegistry.clearCalls != 0 {
+		t.Fatalf("Registry side effects = %#v", runtimeRegistry)
+	}
+	if got := stats.Snapshot(1, time.Now()); got != (health.CredentialStats{}) {
+		t.Fatalf("StatsStore side effects = %#v, want zero", got)
+	}
+}
+
+func TestHandlerRecordsStreamServerShutdownInsteadOfClientCancellation(t *testing.T) {
+	coordinator := httplifecycle.NewCoordinator()
+	forwarder := &scriptedForwarder{
+		streamResults: []UpstreamResult{{
+			StatusCode:     http.StatusOK,
+			RequestWritten: true,
+			Committed:      true,
+			Err:            context.Canceled,
+		}},
+	}
+	forwarder.onStreamCall = func(_ int, writer http.ResponseWriter) {
+		writer.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(writer, `data: {"type":"response.output_text.delta"}`+"\n\n")
+		coordinator.BeginShutdown()
+	}
+	stats := health.NewStatsStore()
+	handler, _, registry := newHandlerForTestWithStats(
+		t, forwarder, stats, "sk-one",
+	)
+	handler.lifecycle = coordinator
+	runtimeRegistry := &recordingRuntimeRegistry{CredentialRegistry: registry}
+	handler.registry = runtimeRegistry
+	handler.limiter = &recordingAccessKeyRPMLimiter{}
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
+	handler.requestNow = newSteppingRequestClock()
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if len(events) != 1 || len(events[0].Attempts) != 1 {
+		t.Fatalf("events = %#v, want one stream cancellation with one attempt", events)
+	}
+	event := events[0]
+	attempt := event.Attempts[0]
+	if event.Status != telemetry.RequestStatusCanceled ||
+		event.StatusCode != http.StatusOK ||
+		event.ErrorCode != "server_shutdown" ||
+		event.ErrorSummary != fixedErrorSummary("server_shutdown") ||
+		attempt.ErrorCode != "server_shutdown" ||
+		attempt.FailureCategory != telemetry.FailureCategoryDownstreamCancel ||
+		attempt.Action != telemetry.ActionTerminate ||
+		attempt.WillRetry {
+		t.Fatalf("stream event/attempt = %#v/%#v", event, attempt)
+	}
+	if runtimeRegistry.cooldownCalls != 0 ||
+		runtimeRegistry.incrFailureCalls != 0 ||
+		runtimeRegistry.blacklistCalls != 0 {
+		t.Fatalf("Registry failure side effects = %#v", runtimeRegistry)
+	}
+	if got := stats.Snapshot(1, time.Now()); got != (health.CredentialStats{}) {
+		t.Fatalf("StatsStore side effects = %#v, want zero", got)
 	}
 }
 
