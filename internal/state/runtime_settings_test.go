@@ -17,7 +17,6 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := RuntimeSettings{
-		ConnectTimeout:           15 * time.Second,
 		FirstByteTimeout:         120 * time.Second,
 		RequestTimeout:           600 * time.Second,
 		StreamIdleTimeout:        300 * time.Second,
@@ -70,6 +69,15 @@ func TestCompileRejectsInvalidGlobalSettingsWithoutGroups(t *testing.T) {
 		if _, err := Compile(CompileInput{SystemSettings: input}); err == nil {
 			t.Fatalf("Compile(%#v) error = nil", input)
 		}
+	}
+}
+
+func TestConnectTimeoutIsNotAPublicRuntimeSetting(t *testing.T) {
+	if IsRuntimeSettingKey("connect_timeout") {
+		t.Fatal("connect_timeout remains a public runtime setting")
+	}
+	if err := ValidateRuntimeSetting("connect_timeout", json.Number("15")); err == nil {
+		t.Fatal("connect_timeout was accepted even though the SDK cannot enforce it")
 	}
 }
 
@@ -178,44 +186,33 @@ func TestValidateRuntimeSettingRejectsDuplicateHeaderRuleIdentities(t *testing.T
 	}
 }
 
-func TestParseHeaderRulesRequiresAPIKeyTemplateForCredentials(t *testing.T) {
+func TestParseHeaderRulesRejectsSDKOwnedCredentialHeaders(t *testing.T) {
 	for _, name := range []string{
 		"Authorization",
 		"Api-Key",
 		"x-api-key",
 		"X-Goog-Api-Key",
 	} {
-		err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
-			"set": map[string]any{name: "secret-canary"},
-		})
-		if err == nil {
-			t.Errorf("parseHeaderRules accepted literal credential %q", name)
+		for _, value := range []string{"secret-canary", "Bearer ${API_KEY}"} {
+			err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+				"set": map[string]any{name: value},
+			})
+			if err == nil {
+				t.Errorf("parseHeaderRules accepted SDK-owned credential header %q", name)
+			}
 		}
-
-		err = ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
-			"set": map[string]any{name: "Bearer ${API_KEY}"},
-		})
-		if err != nil {
-			t.Errorf("parseHeaderRules rejected template credential %q: %v", name, err)
+		if err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+			"remove": []any{name},
+		}); err == nil {
+			t.Errorf("parseHeaderRules accepted removal of SDK-owned credential header %q", name)
 		}
 	}
 
 	err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
-		"remove": []any{
-			"Authorization",
-			"Api-Key",
-			"X-Api-Key",
-			"X-Goog-Api-Key",
-		},
-	})
-	if err != nil {
-		t.Errorf("parseHeaderRules rejected credential removals: %v", err)
-	}
-
-	err = ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
 		"set": map[string]any{
-			"Accept":   "application/json",
-			"X-Custom": "ordinary",
+			"Accept":        "application/json",
+			"X-Custom":      "ordinary",
+			"X-Custom-Auth": "Token ${API_KEY}",
 		},
 	})
 	if err != nil {
@@ -225,7 +222,6 @@ func TestParseHeaderRulesRequiresAPIKeyTemplateForCredentials(t *testing.T) {
 
 func TestResolveRuntimeSettingsAppliesSystemOverrides(t *testing.T) {
 	got, err := ResolveRuntimeSettings(config.Settings{
-		SettingConnectTimeout:    json.Number("20"),
 		SettingFirstByteTimeout:  json.Number("180"),
 		SettingRequestTimeout:    json.Number("900"),
 		SettingStreamIdleTimeout: json.Number("45"),
@@ -238,8 +234,7 @@ func TestResolveRuntimeSettingsAppliesSystemOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ConnectTimeout != 20*time.Second ||
-		got.FirstByteTimeout != 180*time.Second ||
+	if got.FirstByteTimeout != 180*time.Second ||
 		got.RequestTimeout != 900*time.Second ||
 		got.StreamIdleTimeout != 45*time.Second ||
 		got.RequestLogRetentionDays != 30 {
@@ -308,7 +303,6 @@ func TestValidateRuntimeSettingAcceptsSupportedWholeNumberTypes(t *testing.T) {
 
 func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 	for _, key := range []string{
-		SettingConnectTimeout,
 		SettingFirstByteTimeout,
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,

@@ -62,6 +62,20 @@ func (o Operation) Valid() bool {
 	}
 }
 
+// RouteMode records the already-selected wire strategy for one attempt.
+// Executors must execute this decision or reject it; they must not reroute it.
+type RouteMode string
+
+const (
+	RouteNative    RouteMode = "native"
+	RouteConverted RouteMode = "converted"
+)
+
+// Valid reports whether the route mode is recognized.
+func (m RouteMode) Valid() bool {
+	return m == RouteNative || m == RouteConverted
+}
+
 // Feature identifies an optional execution capability.
 type Feature string
 
@@ -289,7 +303,6 @@ func (c CredentialSnapshot) MarshalJSON() ([]byte, error) {
 
 // AttemptTimeouts contains per-attempt timeout overrides. Zero inherits the caller default.
 type AttemptTimeouts struct {
-	Connect    time.Duration `json:"connect,omitempty"`
 	FirstByte  time.Duration `json:"first_byte,omitempty"`
 	Request    time.Duration `json:"request,omitempty"`
 	StreamIdle time.Duration `json:"stream_idle,omitempty"`
@@ -299,17 +312,20 @@ type AttemptTimeouts struct {
 // NewAttemptSpec or Clone must be used at ownership boundaries because Query,
 // Header, Body, TargetConfig, and Credential contain reference-backed values.
 type AttemptSpec struct {
-	RequestID      string            `json:"request_id"`
-	AttemptID      string            `json:"attempt_id"`
-	Sequence       uint32            `json:"sequence"`
-	ChannelID      string            `json:"channel_id"`
-	ClientProtocol protocol.Protocol `json:"client_protocol"`
-	Operation      Operation         `json:"operation"`
-	ClientModel    string            `json:"client_model,omitempty"`
-	UpstreamModel  string            `json:"upstream_model,omitempty"`
-	Method         string            `json:"method"`
-	Path           string            `json:"path"`
-	Query          url.Values        `json:"query,omitempty"`
+	RequestID        string            `json:"request_id"`
+	AttemptID        string            `json:"attempt_id"`
+	Sequence         uint32            `json:"sequence"`
+	ChannelID        string            `json:"channel_id"`
+	TargetKind       string            `json:"target_kind"`
+	RouteMode        RouteMode         `json:"route_mode"`
+	ClientProtocol   protocol.Protocol `json:"client_protocol"`
+	Operation        Operation         `json:"operation"`
+	RequiredFeatures FeatureSet        `json:"-"`
+	ClientModel      string            `json:"client_model,omitempty"`
+	UpstreamModel    string            `json:"upstream_model,omitempty"`
+	Method           string            `json:"method"`
+	Path             string            `json:"path"`
+	Query            url.Values        `json:"query,omitempty"`
 	// RawQuery preserves the original query bytes when exact forwarding matters.
 	// It is mutually exclusive with Query and intentionally is not URL-decoded.
 	RawQuery string      `json:"raw_query,omitempty"`
@@ -332,6 +348,7 @@ func NewAttemptSpec(spec AttemptSpec) AttemptSpec {
 // Clone returns an independent attempt specification.
 func (s AttemptSpec) Clone() AttemptSpec {
 	clone := s
+	clone.RequiredFeatures = s.RequiredFeatures.Clone()
 	clone.Query = cloneValues(s.Query)
 	clone.Header = cloneHeader(s.Header)
 	clone.Body = cloneBytes(s.Body)
@@ -385,10 +402,33 @@ func (k ErrorKind) Valid() bool {
 	}
 }
 
+// FailureHint is a provider-neutral classification hint. GPT-Load remains the
+// owner of health and retry decisions.
+type FailureHint string
+
+const (
+	FailureHintInvalidCredential FailureHint = "invalid_credential"
+	FailureHintRateLimited       FailureHint = "rate_limited"
+	FailureHintModelUnavailable  FailureHint = "model_unavailable"
+	FailureHintHostError         FailureHint = "host_error"
+)
+
+// Valid reports whether the optional hint is recognized.
+func (h FailureHint) Valid() bool {
+	switch h {
+	case "", FailureHintInvalidCredential, FailureHintRateLimited,
+		FailureHintModelUnavailable, FailureHintHostError:
+		return true
+	default:
+		return false
+	}
+}
+
 // ErrorEvidence contains provider-neutral evidence for an unsuccessful attempt.
 // Summary must be bounded and sanitized; raw upstream error messages are not retained.
 type ErrorEvidence struct {
 	Kind       ErrorKind     `json:"kind"`
+	Hint       FailureHint   `json:"hint,omitempty"`
 	StatusCode int           `json:"status_code,omitempty"`
 	Type       string        `json:"type,omitempty"`
 	Code       string        `json:"code,omitempty"`

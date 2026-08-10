@@ -54,8 +54,7 @@ export default {
     runtime: {
       title: '请求与转发',
       description: '显式值覆盖内置默认；恢复默认后由当前版本决定有效值。所有时间单位均为秒。',
-      connect_timeout: '连接超时',
-      first_byte_timeout: '首字节超时',
+      first_byte_timeout: '原生响应 / 流式首事件超时',
       request_timeout: '请求总时长',
       stream_idle_timeout: '流空闲超时',
       inject_usage_options: '为流式响应注入 usage 选项',

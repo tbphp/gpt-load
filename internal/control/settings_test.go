@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -31,7 +32,7 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	if got.Revision != fixture.manager.Current().Revision || len(got.Overrides) != 0 {
 		t.Fatalf("GetSettings() = %#v", got)
 	}
-	if got.Values.ConnectTimeout != 15 || got.Values.FirstByteTimeout != 120 ||
+	if got.Values.FirstByteTimeout != 120 ||
 		got.Values.RequestTimeout != 600 || got.Values.StreamIdleTimeout != 300 ||
 		got.Values.RequestLogRetentionDays != 7 || !got.Values.InjectUsageOptions {
 		t.Fatalf("values = %#v", got.Values)
@@ -208,7 +209,7 @@ func TestGetSettingsFiltersAndSortsPublicRuntimeOverrides(t *testing.T) {
 	_, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{
 			state.SettingRequestTimeout:    json.RawMessage("900"),
-			state.SettingConnectTimeout:    json.RawMessage("20"),
+			state.SettingFirstByteTimeout:  json.RawMessage("20"),
 			state.SettingStreamIdleTimeout: json.RawMessage("45"),
 		},
 	})
@@ -229,14 +230,14 @@ func TestGetSettingsFiltersAndSortsPublicRuntimeOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantOverrides := []string{
-		state.SettingConnectTimeout,
+		state.SettingFirstByteTimeout,
 		state.SettingRequestTimeout,
 		state.SettingStreamIdleTimeout,
 	}
 	if !reflect.DeepEqual(got.Overrides, wantOverrides) {
 		t.Fatalf("overrides = %#v, want %#v", got.Overrides, wantOverrides)
 	}
-	if got.Values.ConnectTimeout != 20 || got.Values.RequestTimeout != 900 ||
+	if got.Values.FirstByteTimeout != 20 || got.Values.RequestTimeout != 900 ||
 		got.Values.StreamIdleTimeout != 45 {
 		t.Fatalf("values = %#v", got.Values)
 	}
@@ -377,7 +378,7 @@ func TestUpdateSettingsCanonicalizesValuesAndReturnsEffectiveHeaderRules(t *test
 	}
 }
 
-func TestUpdateSettingsPersistsCredentialTemplateWithoutLiteralSecret(t *testing.T) {
+func TestUpdateSettingsRejectsSDKOwnedCredentialHeaders(t *testing.T) {
 	initControlI18n(t)
 	const (
 		authKey       = "settings-template-test-auth"
@@ -387,48 +388,39 @@ func TestUpdateSettingsPersistsCredentialTemplateWithoutLiteralSecret(t *testing
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
 
-	accepted := serveSettingsRequest(
-		t,
-		engine,
-		http.MethodPut,
-		authKey,
-		`{"settings":{"header_rules":{"set":{"Authorization":"Bearer ${API_KEY}"}}}}`,
-	)
-	if accepted.Code != http.StatusOK {
-		t.Fatalf("template response = %d %s, want 200", accepted.Code, accepted.Body.String())
-	}
-	var persisted models.SystemSetting
-	if err := fixture.db.First(&persisted, "key = ?", state.SettingHeaderRules).Error; err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(persisted.Value, `${API_KEY}`) ||
-		strings.Contains(persisted.Value, providerToken) {
-		t.Fatalf("persisted HeaderRules = %q, want template without provider token", persisted.Value)
-	}
 	beforeSnapshot := fixture.manager.Current()
-	beforeValue := persisted.Value
-
-	rejected := serveSettingsRequest(
+	for _, value := range []string{"Bearer ${API_KEY}", "Bearer " + providerToken} {
+		rejected := serveSettingsRequest(
+			t,
+			engine,
+			http.MethodPut,
+			authKey,
+			`{"settings":{"header_rules":{"set":{"Authorization":`+strconv.Quote(value)+`}}}}`,
+		)
+		if rejected.Code != http.StatusBadRequest ||
+			!strings.Contains(rejected.Body.String(), `"code":"VALIDATION_FAILED"`) {
+			t.Fatalf("credential header response = %d %s, want 400 validation", rejected.Code, rejected.Body.String())
+		}
+	}
+	if removed := serveSettingsRequest(
 		t,
 		engine,
 		http.MethodPut,
 		authKey,
-		`{"settings":{"header_rules":{"set":{"Authorization":"Bearer `+providerToken+`"}}}}`,
-	)
-	if rejected.Code != http.StatusBadRequest ||
-		!strings.Contains(rejected.Body.String(), `"code":"VALIDATION_FAILED"`) {
-		t.Fatalf("literal response = %d %s, want 400 validation", rejected.Code, rejected.Body.String())
+		`{"settings":{"header_rules":{"remove":["Authorization"]}}}`,
+	); removed.Code != http.StatusBadRequest {
+		t.Fatalf("credential removal response = %d %s, want 400", removed.Code, removed.Body.String())
 	}
 	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("rejected literal credential published a new Snapshot revision")
+		t.Fatal("rejected credential HeaderRules published a new Snapshot revision")
 	}
+
 	var rows []models.SystemSetting
 	if err := fixture.db.Where("key = ?", state.SettingHeaderRules).Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Value != beforeValue ||
-		strings.Contains(rows[0].Value, providerToken) {
-		t.Fatalf("rejected literal credential changed persisted rows: %#v", rows)
+	if len(rows) != 0 {
+		t.Fatalf("rejected credential HeaderRules changed persisted rows: %#v", rows)
 	}
 }
 
@@ -490,8 +482,8 @@ func TestUpdateSettingsRollsBackAllRowsWithoutPublishing(t *testing.T) {
 
 	_, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{
-			state.SettingConnectTimeout: json.RawMessage("25"),
-			state.SettingRequestTimeout: json.RawMessage("900"),
+			state.SettingStreamIdleTimeout: json.RawMessage("25"),
+			state.SettingRequestTimeout:    json.RawMessage("900"),
 		},
 	})
 	if !errors.Is(err, app_errors.ErrDatabase) {
@@ -577,7 +569,7 @@ func TestConcurrentSettingsUpdatesPublishDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	updates := []SettingsUpdateRequest{
-		{Settings: map[string]json.RawMessage{state.SettingConnectTimeout: json.RawMessage("21")}},
+		{Settings: map[string]json.RawMessage{state.SettingFirstByteTimeout: json.RawMessage("21")}},
 		{Settings: map[string]json.RawMessage{state.SettingRequestTimeout: json.RawMessage("901")}},
 	}
 	start := make(chan struct{})
@@ -605,11 +597,11 @@ func TestConcurrentSettingsUpdatesPublishDatabaseTruth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Revision != before+2 || got.Values.ConnectTimeout != 21 ||
+	if got.Revision != before+2 || got.Values.FirstByteTimeout != 21 ||
 		got.Values.RequestTimeout != 901 {
 		t.Fatalf("settings = %#v", got)
 	}
-	wantOverrides := []string{state.SettingConnectTimeout, state.SettingRequestTimeout}
+	wantOverrides := []string{state.SettingFirstByteTimeout, state.SettingRequestTimeout}
 	if !reflect.DeepEqual(got.Overrides, wantOverrides) {
 		t.Fatalf("overrides = %#v, want %#v", got.Overrides, wantOverrides)
 	}

@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { InvalidResponseError } from '@/api/errors'
 import { useStableLoading } from '@/app/loading-state'
+import { useToast } from '@/app/toast'
 import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
 import { groupOptionsQueryOptions, importGroupCredentials } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
@@ -34,6 +35,7 @@ const recovery = useImportRecovery()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const toast = useToast()
 const completed = ref(false)
 const errorKey = ref('')
 const submissionError = ref<HTMLElement>()
@@ -122,6 +124,7 @@ const canSubmit = computed(
     !payloadLocked.value &&
     !pending.value &&
     selectedGroup.value !== null &&
+    selectedChannel.value !== null &&
     credentialAnalysis.value.nonEmptyCount > 0 &&
     !credentialAnalysis.value.tooManyCredentials,
 )
@@ -211,6 +214,14 @@ async function executeImportOperation(): Promise<void> {
       mutationInvalidationPlans.group.importCredentials(targetID),
     )
     if (!componentActive) return
+    toast.show({
+      message: t('import.credentials.result', {
+        added: outcome.value.credentials_added,
+        duplicated: outcome.value.credentials_duplicated,
+      }),
+      tone: outcome.value.credentials_added === 0 ? 'warning' : 'success',
+      duration: 4_000,
+    })
     await router.push(groupDetailLocation(targetID))
     return
   }
@@ -346,6 +357,16 @@ onBeforeUnmount(() => {
       :show-credential-notice="false"
       :rows="8"
     />
+
+    <div
+      v-if="selectedGroup && channelsQuery.isError.value && !channelsQuery.data.value"
+      class="existing-import__query-error"
+    >
+      <InlineFeedback tone="danger">{{ t('import.presets.loadFailed') }}</InlineFeedback>
+      <AppButton variant="secondary" size="compact" @click="channelsQuery.refetch()">
+        {{ t('common.retry') }}
+      </AppButton>
+    </div>
 
     <div v-if="errorKey" ref="submissionError" class="existing-import__error" tabindex="-1">
       <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>

@@ -41,7 +41,7 @@ GPT-Load 是一个用 Go 构建的自托管多渠道 AI 网关。它通过单个
 > [!WARNING]
 > 2.0 当前是**发布前本地候选**。M3/M4 候选代码及本地验证留存证据已经存在，但正式出口和发布仍未完成；目前没有证据表明 `v2.0.0` tag、GitHub Release、公开二进制或公开容器镜像已经可用。checkout 或分支状态不能作为发布证据。
 
-2.0 是与 1.x 数据不兼容的 greenfield rewrite。已有 2.x 数据库支持原地向前迁移；升级前必须停机，并把数据库与匹配的 encryption key 一起备份。`main` 继续承载 1.4.x 维护线。发布契约预留显式的 `2`、`2.0`、`v2.0.0` 容器 tag，且不会自动移动 `latest`；这些名称本身不代表镜像已经发布。
+2.0 是与 1.x 及早期预发布 2.x 数据均不兼容的 greenfield rewrite。预发布开发阶段必须使用空的独立数据库和匹配的新 encryption key。`main` 继续承载 1.4.x 维护线。发布契约预留显式的 `2`、`2.0`、`v2.0.0` 容器 tag，且不会自动移动 `latest`；这些名称本身不代表镜像已经发布。
 
 ## 2.0 能力
 
@@ -62,7 +62,7 @@ M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式�
 - AccessKey 的客户端协议筛选使用 `openai-completions`、`openai-responses`、`anthropic`、`gemini`。Group 只保存一个 `channel_id`；代码中的渠道预设统一决定 Provider 行为、客户端协议、凭据结构、模型发现与 Models.dev 映射。
 - OpenAI Responses 资源路由暂时没有 Credential 亲和。使用 `previous_response_id` 或 `conversation` 的有状态多轮，以及后续 retrieve/delete/cancel/input-items 请求，只有在单 Credential 或上游跨 Credential 共享资源存储时才可靠；否则可能由被选中的上游返回资源不存在。
 - 渠道凭据必须静态加密，不允许明文回退；2.0.0 不支持主密钥轮换，`migrate-keys` 仍是明确失败的延后命令。
-- 不支持 1.x 数据自动迁移或反向同步；已有 2.x schema 按 migration ledger 向前迁移。
+- 不支持从 1.x 或早期预发布 2.x schema 自动迁移或反向同步。当前基线只初始化空数据库；后续结构变更从该基线继续追加迁移。
 - 不提供在线账单对账、在线备份 API 或备份 CLI。Models.dev 同步只提供估算元数据，不是服务商账单或发票。
 
 ## 快速开始
@@ -219,7 +219,7 @@ Usage/Cost 质量边界：
 | `LOG_LEVEL` | `info` | 应用日志级别 |
 | `LOG_FORMAT` | `text` | 日志格式：`text` 或 `json` |
 
-完整的进程配置说明见 [`.env.example`](.env.example)。连接、首字节、请求、流式空闲超时和 RequestLog 保留期属于运行设置，由管理 UI/API 管理，不是额外环境变量。
+完整的进程配置说明见 [`.env.example`](.env.example)。原生响应/流式首事件、请求总时长、流式空闲超时和 RequestLog 保留期属于运行设置，由管理 UI/API 管理，不是额外环境变量。SDK 不提供响应开始信号的转换型非流式请求只使用请求总时长。
 
 `DATABASE_DSN` 使用统一 URL 约定，不增加数据库类型变量或按数据库拆分的应用配置。示例：
 

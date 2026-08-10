@@ -30,10 +30,8 @@ func (r *Runtime) executeListModels(
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
 	defer callCancel()
-	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
-	defer preResponse.stop()
 
-	bifrostContext := newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan listModelsSDKResult, 1)
 	go func() {
@@ -44,15 +42,17 @@ func (r *Runtime) executeListModels(
 	var outcome listModelsSDKResult
 	select {
 	case outcome = <-outcomeChannel:
-		if preResponse.expired() || requestContext.Err() != nil {
-			return unaryContextFailure(requestContext, preResponse.expired())
+		if requestContext.Err() != nil {
+			return unaryContextFailure(requestContext, false)
 		}
 	case <-callContext.Done():
-		return unaryContextFailure(requestContext, preResponse.expired())
+		return unaryContextFailure(requestContext, false)
 	}
-	preResponse.stop()
 	if outcome.err != nil {
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+	}
+	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
+		return *failure
 	}
 	if outcome.response == nil {
 		return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned no model list")

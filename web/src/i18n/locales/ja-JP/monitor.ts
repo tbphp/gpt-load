@@ -376,14 +376,18 @@ export default {
     },
     inspector: {
       title: 'ルート検査',
-      description: '現在のランタイムに対する入力の候補 Group と認証情報を説明します。',
+      description: 'プロトコル、モデル、AccessKey から候補 Group と認証情報を静的に確認します。',
       boundary:
-        '現在のランタイムのみを参照します。読み取り専用で、アップストリームへリクエストを送信せず、Token も消費しません。',
+        '実際の method、body、機能フィールドは解析しません。読み取り専用で、上流送信や Token 消費はありません。',
       protocols: {
         'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
         anthropic: 'Anthropic',
         gemini: 'Gemini',
+      },
+      routeModes: {
+        native: 'ネイティブ',
+        converted: '変換',
       },
       form: {
         title: '模擬リクエスト条件',
@@ -446,13 +450,15 @@ export default {
       groups: {
         title: '候補 Group',
         description:
-          '現在の候補 Group で利用可能な認証情報の有効ウェイト合計から算出し、固定のトラフィック比率を示すものではありません。',
+          'ネイティブルートを優先し、シェアは現在競合しているルート階層内だけで計算します。',
         count: '{count} 件',
         tableLabel: '候補 Group のルート説明',
         completeEmpty:
           '候補 Group は返されませんでした。これは空状態ではなく、この入力に対する完全な現在ランタイムの説明です。',
         included: '候補に含まれる',
         excluded: '候補から除外',
+        standby: '待機階層',
+        standbyShare: '現在は競合対象外',
         availableTotal: '利用可能 / 合計',
         currentTotal: '現在の合計',
         shareLabel: '{name} の有効ウェイト比率は {share}',

@@ -612,12 +612,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
 	wantMigrationIDs := []string{
-		"0001_initial_v2",
-		"0002_request_log_reasoning",
-		"0003_global_model_prices",
-		"0004_mysql_model_price_identity",
-		"0005_request_log_model_consistency",
-		"0006_channel_execution",
+		"0001_final_v2",
 	}
 	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
 		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)
@@ -632,6 +627,76 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	}
 	if count != int64(len(wantMigrationIDs)) {
 		t.Fatalf("schema_migrations row count after a second migration = %d, want %d", count, len(wantMigrationIDs))
+	}
+}
+
+func TestAutoMigrateRejectsRetiredV2MigrationLedger(t *testing.T) {
+	t.Parallel()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	if err := db.Exec(`CREATE TABLE schema_migrations (
+		id varchar(255) PRIMARY KEY NOT NULL
+	)`).Error; err != nil {
+		t.Fatalf("create legacy migration ledger: %v", err)
+	}
+	if err := db.Exec("INSERT INTO schema_migrations(id) VALUES (?)", "0001_initial_v2").Error; err != nil {
+		t.Fatalf("seed legacy migration ledger: %v", err)
+	}
+
+	err = storage.AutoMigrate(db)
+	if err == nil || !strings.Contains(err.Error(), "unknown or non-contiguous migration") {
+		t.Fatalf("AutoMigrate() error = %v, want retired v2 ledger rejection", err)
+	}
+	if db.Migrator().HasTable("groups") {
+		t.Fatal("AutoMigrate() modified a retired v2 database")
+	}
+}
+
+func TestAutoMigrateRejectsEmptyLedgerBesideExistingApplicationTables(t *testing.T) {
+	t.Parallel()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	if err := db.Exec(`CREATE TABLE schema_migrations (
+		id varchar(255) PRIMARY KEY NOT NULL
+	)`).Error; err != nil {
+		t.Fatalf("create empty migration ledger: %v", err)
+	}
+	if err := db.Exec("CREATE TABLE legacy_data (id INTEGER PRIMARY KEY)").Error; err != nil {
+		t.Fatalf("create legacy table: %v", err)
+	}
+
+	err = storage.AutoMigrate(db)
+	if err == nil || !strings.Contains(err.Error(), "empty migration ledger beside existing tables") {
+		t.Fatalf("AutoMigrate() error = %v, want existing table rejection", err)
+	}
+	if db.Migrator().HasTable("groups") {
+		t.Fatal("AutoMigrate() modified a database containing pre-existing tables")
 	}
 }
 

@@ -8,13 +8,7 @@ export interface HeaderRuleInput {
 }
 
 export interface HeaderRuleValidationError {
-  code:
-    | 'required'
-    | 'invalid_name'
-    | 'duplicate_name'
-    | 'forbidden_set_name'
-    | 'credential_template_required'
-    | 'invalid_value'
+  code: 'required' | 'invalid_name' | 'duplicate_name' | 'forbidden_set_name' | 'invalid_value'
   rowKey: number
 }
 
@@ -56,19 +50,15 @@ export function validateHeaderRuleRows(
       errors.push({ code: 'duplicate_name', rowKey: row.rowKey })
       continue
     }
-    if (row.action === 'remove') continue
-
     const normalizedName = asciiLower(row.name)
-    if (isForbiddenSetName(normalizedName)) {
+    if (credentialNames.has(normalizedName) || isForbiddenSetName(normalizedName)) {
       errors.push({ code: 'forbidden_set_name', rowKey: row.rowKey })
       continue
     }
+    if (row.action === 'remove') continue
     if (!isHTTPHeaderValue(row.value)) {
       errors.push({ code: 'invalid_value', rowKey: row.rowKey })
       continue
-    }
-    if (credentialNames.has(normalizedName) && !row.value.includes('${API_KEY}')) {
-      errors.push({ code: 'credential_template_required', rowKey: row.rowKey })
     }
   }
 

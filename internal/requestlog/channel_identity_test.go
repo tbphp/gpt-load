@@ -205,7 +205,7 @@ func TestQueryUsageFiltersAndProjectsChannelCredential(t *testing.T) {
 	}
 }
 
-func TestAccessScopedUsageBreakdownNeverMergesChannelsOrCredentials(t *testing.T) {
+func TestAccessScopedUsageBreakdownCollapsesHiddenRoutesByModel(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	start := time.Date(2026, time.August, 9, 2, 30, 0, 0, time.UTC).Truncate(time.Hour)
 	rows := []models.UsageStat{
@@ -233,13 +233,14 @@ func TestAccessScopedUsageBreakdownNeverMergesChannelsOrCredentials(t *testing.T
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if report.BreakdownCount != 3 || len(report.Breakdown) != 3 {
+	if report.BreakdownCount != 1 || len(report.Breakdown) != 1 {
 		t.Fatalf("access-scoped breakdown = %#v", report)
 	}
-	for _, breakdown := range report.Breakdown {
-		if breakdown.ChannelID == "" || breakdown.CredentialID == 0 {
-			t.Fatalf("breakdown lost exact identity: %#v", breakdown)
-		}
+	breakdown := report.Breakdown[0]
+	if breakdown.ChannelID != "" || breakdown.CredentialID != 0 ||
+		breakdown.GroupID != 0 || breakdown.Model != "shared-model" ||
+		breakdown.RequestCount != 10 {
+		t.Fatalf("access-scoped breakdown exposes or fragments routes: %#v", breakdown)
 	}
 }
 

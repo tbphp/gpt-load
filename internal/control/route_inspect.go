@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
@@ -37,20 +38,25 @@ type routeInspectCredentialResponse struct {
 }
 
 type routeInspectGroupResponse struct {
-	GroupID       uint                             `json:"group_id"`
-	GroupName     string                           `json:"group_name"`
-	UpstreamModel *string                          `json:"upstream_model"`
-	WeightManual  *int                             `json:"weight_manual"`
-	Included      bool                             `json:"included"`
-	Routable      bool                             `json:"routable"`
-	ReasonCode    *scheduler.ReasonCode            `json:"reason_code"`
-	Credentials   []routeInspectCredentialResponse `json:"credentials"`
+	GroupID             uint                             `json:"group_id"`
+	GroupName           string                           `json:"group_name"`
+	ChannelID           channel.ID                       `json:"channel_id"`
+	RouteMode           execution.RouteMode              `json:"route_mode"`
+	CapabilitySupported bool                             `json:"capability_supported"`
+	UpstreamModel       *string                          `json:"upstream_model"`
+	WeightManual        *int                             `json:"weight_manual"`
+	Included            bool                             `json:"included"`
+	Routable            bool                             `json:"routable"`
+	ReasonCode          *scheduler.ReasonCode            `json:"reason_code"`
+	Credentials         []routeInspectCredentialResponse `json:"credentials"`
 }
 
 type routeInspectResponse struct {
 	ObservedAtMS     int64                         `json:"observed_at_ms"`
 	SnapshotRevision uint64                        `json:"snapshot_revision"`
 	Protocol         protocol.Protocol             `json:"protocol"`
+	Operation        execution.Operation           `json:"operation"`
+	RequiredFeatures []execution.Feature           `json:"required_features"`
 	ExternalModel    *string                       `json:"external_model"`
 	AccessKey        routeInspectAccessKeyResponse `json:"access_key"`
 	Routable         bool                          `json:"routable"`
@@ -146,6 +152,8 @@ func mapRouteInspectResponse(
 		ObservedAtMS:     observedAtMS,
 		SnapshotRevision: observation.snapshot.Revision,
 		Protocol:         request.Protocol,
+		Operation:        explanation.Operation,
+		RequiredFeatures: append([]execution.Feature{}, explanation.RequiredFeatures...),
 		ExternalModel:    cloneRouteModel(request.ExternalModel),
 		AccessKey: routeInspectAccessKeyResponse{
 			ID: accessKey.ID, Name: accessKey.Name, Status: accessKey.Status,
@@ -156,14 +164,17 @@ func mapRouteInspectResponse(
 	}
 	for _, group := range explanation.Groups {
 		groupResponse := routeInspectGroupResponse{
-			GroupID:       group.GroupID,
-			GroupName:     group.GroupName,
-			UpstreamModel: cloneRouteModel(group.UpstreamModelID),
-			WeightManual:  cloneInt(group.WeightManual),
-			Included:      group.Included,
-			Routable:      group.Routable,
-			ReasonCode:    optionalReason(group.Reason),
-			Credentials:   []routeInspectCredentialResponse{},
+			GroupID:             group.GroupID,
+			GroupName:           group.GroupName,
+			ChannelID:           group.ChannelID,
+			RouteMode:           group.RouteMode,
+			CapabilitySupported: group.CapabilitySupported,
+			UpstreamModel:       cloneRouteModel(group.UpstreamModelID),
+			WeightManual:        cloneInt(group.WeightManual),
+			Included:            group.Included,
+			Routable:            group.Routable,
+			ReasonCode:          optionalReason(group.Reason),
+			Credentials:         []routeInspectCredentialResponse{},
 		}
 		for _, credential := range group.Credentials {
 			cooldownUntilMS, err := optionalSafeEpochMilliseconds(credential.CooldownUntil)

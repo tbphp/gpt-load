@@ -8,9 +8,9 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-// createInitialV2Tables builds the initial schema from the same GORM models
-// used by the application. Keeping the schema source in the models avoids a
-// second, dialect-specific SQL definition for each supported database.
+// createInitialV2Tables builds the final pre-release v2 baseline from the same
+// GORM models used by the application. The baseline intentionally accepts only
+// an empty database; future schema changes must append a new migration.
 func createInitialV2Tables(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&models.Group{},
@@ -26,6 +26,15 @@ func createInitialV2Tables(db *gorm.DB) error {
 		&models.ControlOperation{},
 	); err != nil {
 		return fmt.Errorf("create initial v2 schema: %w", err)
+	}
+	if db.Dialector.Name() == "mysql" {
+		// MySQL's database default is commonly case-insensitive. Model IDs are
+		// wire identities, so preserve exact casing within the composite key.
+		if err := db.Exec(
+			"ALTER TABLE model_prices MODIFY model_id varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL",
+		).Error; err != nil {
+			return fmt.Errorf("configure exact MySQL model price identity: %w", err)
+		}
 	}
 	return nil
 }

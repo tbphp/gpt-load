@@ -85,9 +85,8 @@ func TestCompileIndexesNativeResponsesResourceOperationsWithoutModels(t *testing
 		execution.OperationResponsesInputItems,
 	} {
 		got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][operation][NoModelRouteKey]
-		if len(got) != 2 || got[0].GroupID != 1 || got[1].GroupID != 2 ||
-			got[0].Mode != channel.RouteNative || got[1].Mode != channel.RouteNative {
-			t.Errorf("resource candidates for %q = %#v, want native OpenAI and OpenAI-compatible", operation, got)
+		if len(got) != 1 || got[0].GroupID != 1 || got[0].Mode != channel.RouteNative {
+			t.Errorf("resource candidates for %q = %#v, want native OpenAI only", operation, got)
 		}
 	}
 	if got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesCreate]; len(got) != 0 {
@@ -114,19 +113,17 @@ func TestCompileIndexesAllNativeResponsesExtensions(t *testing.T) {
 		execution.OperationResponsesInputTokens,
 	} {
 		got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][operation]["public"]
-		if len(got) != 2 || got[0].UpstreamModelID != "official-upstream" ||
-			got[1].UpstreamModelID != "compatible-upstream" {
+		if len(got) != 1 || got[0].UpstreamModelID != "official-upstream" {
 			t.Errorf("model candidates for %q = %#v", operation, got)
 		}
 	}
 
 	noModel := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesPassthrough][NoModelRouteKey]
-	if len(noModel) != 2 || noModel[0].GroupID != 1 || noModel[1].GroupID != 2 {
+	if len(noModel) != 1 || noModel[0].GroupID != 1 {
 		t.Fatalf("model-less passthrough candidates = %#v", noModel)
 	}
 	withModel := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesPassthrough]["public"]
-	if len(withModel) != 2 || withModel[0].UpstreamModelID != "official-upstream" ||
-		withModel[1].UpstreamModelID != "compatible-upstream" {
+	if len(withModel) != 1 || withModel[0].UpstreamModelID != "official-upstream" {
 		t.Fatalf("model passthrough candidates = %#v", withModel)
 	}
 }

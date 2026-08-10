@@ -191,6 +191,11 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		logValidationFailure(ref, string(target.protocol), "request")
 		return
 	}
+	routeMode, supported := group.ResolvedTarget.Mode(target.protocol, execution.OperationProbe)
+	if !supported {
+		logValidationFailure(ref, string(target.protocol), "request")
+		return
+	}
 	requestID, err := newOperationID(cryptorand.Reader)
 	if err != nil {
 		logValidationFailure(ref, string(target.protocol), "request_identity")
@@ -211,7 +216,8 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 	}
 	spec := execution.NewAttemptSpec(execution.AttemptSpec{
 		RequestID: requestID, AttemptID: attemptID, Sequence: 1,
-		ChannelID: string(group.ChannelID), ClientProtocol: target.protocol,
+		ChannelID: string(group.ChannelID), TargetKind: string(group.ResolvedTarget.ProviderKind),
+		RouteMode: execution.RouteMode(routeMode), ClientProtocol: target.protocol,
 		Operation: execution.OperationProbe, ClientModel: target.model, UpstreamModel: target.model,
 		Method: method, Path: path, Header: applyControlHeaderRules(group.HeaderRules, apiKey), Body: body,
 		TargetConfig: group.ResolvedTarget.TargetConfig,

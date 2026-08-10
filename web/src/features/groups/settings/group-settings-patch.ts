@@ -5,8 +5,7 @@ import type {
   HeaderRulesDto,
 } from '@/app/resources/groups'
 
-export type GroupTimeoutKey =
-  'connect_timeout' | 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
+export type GroupTimeoutKey = 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
 
 export interface GroupSettingsDraft {
   channel_id: string
@@ -19,7 +18,6 @@ export interface GroupSettingsDraft {
 }
 
 export const groupTimeoutKeys: readonly GroupTimeoutKey[] = [
-  'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',

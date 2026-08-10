@@ -436,6 +436,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		metadata.Stream,
 		metadata.ObserveUsage,
 		metadata.Operation,
+		metadata.RequiredFeatures,
 		recorder,
 	)
 }
@@ -542,6 +543,7 @@ func (handler *Handler) executeAttempts(
 	stream bool,
 	observeUsage bool,
 	operation execution.Operation,
+	requiredFeatures execution.FeatureSet,
 	recorder *requestRecorder,
 ) {
 	type deferredAttempt struct {
@@ -599,15 +601,18 @@ func (handler *Handler) executeAttempts(
 			Dialect: selectedDialect, ObserveUsage: observeUsage,
 			Group: selection.Group, APIKey: normalizedCredential.apiKey,
 			CredentialSecrets: normalizedCredential.secrets, Request: parsed,
-			ExternalModel:   externalModel,
-			UpstreamModelID: optionalModelValue(selection.UpstreamModelID),
-			RequestID:       executionRequestID,
-			AttemptID:       executionRequestID + ":" + strconv.Itoa(attempts),
-			AttemptSequence: uint32(attempts),
-			ClientProtocol:  selectedDialect.Protocol(),
-			Operation:       operation,
-			ChannelID:       string(selection.ChannelID),
-			TargetConfig:    selection.ResolvedTarget.TargetConfig,
+			ExternalModel:    externalModel,
+			UpstreamModelID:  optionalModelValue(selection.UpstreamModelID),
+			RequestID:        executionRequestID,
+			AttemptID:        executionRequestID + ":" + strconv.Itoa(attempts),
+			AttemptSequence:  uint32(attempts),
+			ClientProtocol:   selectedDialect.Protocol(),
+			Operation:        operation,
+			ChannelID:        string(selection.ChannelID),
+			TargetKind:       string(selection.ResolvedTarget.ProviderKind),
+			RouteMode:        execution.RouteMode(selection.RouteMode),
+			RequiredFeatures: requiredFeatures,
+			TargetConfig:     selection.ResolvedTarget.TargetConfig,
 			Credential: execution.NewCredentialSnapshot(
 				selection.CredentialID,
 				ref.Version,
@@ -688,7 +693,7 @@ func (handler *Handler) executeAttempts(
 			iterator.SkipGroup(selection.GroupID)
 		}
 		if result.ProviderErrorBeforeCommit {
-			if decision.ShouldRetry() {
+			if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {
 				lastProviderError = &deferredAttempt{
 					result:        result,
 					decision:      decision,
@@ -712,7 +717,7 @@ func (handler *Handler) executeAttempts(
 			lastResponse = &deferredAttempt{
 				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID), attemptIndex: recordedAttempt,
 			}
-			if decision.ShouldRetry() {
+			if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
@@ -727,7 +732,7 @@ func (handler *Handler) executeAttempts(
 			recorder.completeCanceled(0, recordedAttempt)
 			return
 		}
-		if decision.ShouldRetry() {
+		if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {
 			lastTransport = &deferredAttempt{
 				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID), attemptIndex: recordedAttempt,
 			}
@@ -783,6 +788,44 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 	handler.completeReason(ginContext, recorder, reasonNoCandidate)
+}
+
+func shouldRetryAcrossCandidates(
+	operation execution.Operation,
+	method string,
+	result UpstreamResult,
+	decision health.Result,
+) bool {
+	if !decision.ShouldRetry() || result.Committed {
+		return false
+	}
+	if result.DispatchState == execution.DispatchNotSent {
+		return true
+	}
+	if result.DispatchState != execution.DispatchMaybeSent {
+		return false
+	}
+	switch result.StatusCode {
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests:
+		return true
+	}
+	if decision.Category == health.FailureCategoryInvalidKey ||
+		decision.Category == health.FailureCategoryRateLimited ||
+		decision.Category == health.FailureCategoryModelUnavailable {
+		return true
+	}
+	if method == http.MethodGet || method == http.MethodHead {
+		return true
+	}
+	switch operation {
+	case execution.OperationResponsesRetrieve,
+		execution.OperationResponsesInputItems,
+		execution.OperationResponsesInputTokens,
+		execution.OperationListModels:
+		return true
+	default:
+		return false
+	}
 }
 
 func initializeDebugHeaders(headers http.Header) {

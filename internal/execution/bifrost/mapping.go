@@ -3,7 +3,9 @@ package bifrost
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -257,6 +259,7 @@ func passthroughHTTPError(status int, headers http.Header, body []byte, secrets 
 	requestID := upstreamRequestID(headers)
 	return &execution.ErrorEvidence{
 		Kind:       execution.ErrorKindHTTP,
+		Hint:       failureHintFromHTTP(status, body),
 		StatusCode: status,
 		Type:       typeValue,
 		Code:       codeValue,
@@ -265,6 +268,58 @@ func passthroughHTTPError(status int, headers http.Header, body []byte, secrets 
 		RetryAfter: retryAfter(headers),
 		Header:     evidenceHeaders(headers),
 	}
+}
+
+func failureHintFromHTTP(status int, body []byte) execution.FailureHint {
+	var payload struct {
+		Error struct {
+			Type    json.RawMessage `json:"type"`
+			Code    json.RawMessage `json:"code"`
+			Status  json.RawMessage `json:"status"`
+			Message string          `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &payload)
+	return neutralFailureHint(
+		status,
+		evidenceScalar(payload.Error.Type),
+		evidenceScalar(payload.Error.Code),
+		evidenceScalar(payload.Error.Status),
+		payload.Error.Message,
+	)
+}
+
+func neutralFailureHint(status int, values ...string) execution.FailureHint {
+	markers := strings.ToLower(strings.Join(values, " "))
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusPaymentRequired ||
+		status == http.StatusForbidden || containsAnyMarker(markers,
+		"invalid_api_key", "api_key_invalid", "authentication_error",
+		"authentication failed", "permission_denied", "unauthorized",
+		"invalid credential", "api key not valid"):
+		return execution.FailureHintInvalidCredential
+	case status == http.StatusTooManyRequests || containsAnyMarker(markers,
+		"rate_limit", "rate limit", "too_many_requests", "quota_exceeded",
+		"resource_exhausted", "throttl"):
+		return execution.FailureHintRateLimited
+	case containsAnyMarker(markers,
+		"model_not_found", "model not found", "model_not_available",
+		"model unavailable", "deployment_not_found", "unsupported_model"):
+		return execution.FailureHintModelUnavailable
+	case status >= http.StatusInternalServerError && status <= 599:
+		return execution.FailureHintHostError
+	default:
+		return ""
+	}
+}
+
+func containsAnyMarker(value string, markers ...string) bool {
+	for _, marker := range markers {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func openAIErrorTypeCode(body []byte) (string, string) {
@@ -356,7 +411,7 @@ func unaryErrorResult(bifrostError *schemas.BifrostError, bifrostContext *schema
 	headers := responseHeaders(nil, bifrostContext, false)
 	evidence, started, status := errorEvidence(bifrostError, bifrostContext, secrets, false, 0, headers)
 	result := execution.AttemptResult{
-		DispatchState:     execution.DispatchMaybeSent,
+		DispatchState:     sdkErrorDispatchState(bifrostError, started),
 		ResponseStarted:   started,
 		StatusCode:        status,
 		Header:            nil,
@@ -386,7 +441,7 @@ func streamErrorResult(
 	}
 	evidence, started, status := errorEvidence(bifrostError, bifrostContext, secrets, alreadyStarted, initialStatus, headers)
 	result := execution.StreamResult{
-		DispatchState: execution.DispatchMaybeSent,
+		DispatchState: sdkErrorDispatchState(bifrostError, alreadyStarted || started),
 		Model:         model,
 		Usage:         cloneUsage(usageEvidence),
 		Error:         evidence,
@@ -398,6 +453,22 @@ func streamErrorResult(
 		result.UpstreamRequestID = upstreamRequestID(headers)
 	}
 	return result
+}
+
+func sdkErrorDispatchState(bifrostError *schemas.BifrostError, responseStarted bool) execution.DispatchState {
+	if responseStarted || bifrostError == nil || bifrostError.Error == nil || bifrostError.Error.Error == nil {
+		return execution.DispatchMaybeSent
+	}
+	underlying := bifrostError.Error.Error
+	var dnsError *net.DNSError
+	if errors.As(underlying, &dnsError) {
+		return execution.DispatchNotSent
+	}
+	var operationError *net.OpError
+	if errors.As(underlying, &operationError) && strings.EqualFold(operationError.Op, "dial") {
+		return execution.DispatchNotSent
+	}
+	return execution.DispatchMaybeSent
 }
 
 func errorEvidence(
@@ -418,8 +489,12 @@ func errorEvidence(
 	}
 	typeValue := errorType(bifrostError)
 	codeValue := ""
+	messageValue := ""
 	if bifrostError.Error != nil && bifrostError.Error.Code != nil {
 		codeValue = *bifrostError.Error.Code
+	}
+	if bifrostError.Error != nil {
+		messageValue = bifrostError.Error.Message
 	}
 	typeValue = sanitizeEvidenceValue(typeValue, secrets)
 	codeValue = sanitizeEvidenceValue(codeValue, secrets)
@@ -446,6 +521,7 @@ func errorEvidence(
 	}
 	evidence := &execution.ErrorEvidence{
 		Kind:       kind,
+		Hint:       neutralFailureHint(status, typeValue, codeValue, messageValue),
 		StatusCode: evidenceStatus,
 		Type:       typeValue,
 		Code:       codeValue,

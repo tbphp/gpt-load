@@ -41,7 +41,7 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 > [!WARNING]
 > 2.0 is a **pre-release local candidate**. M3/M4 candidate code and retained local verification evidence exist, but release exit and publication are not complete. No `v2.0.0` tag, GitHub Release, public binary, or public container image has been verified as available. A checkout or branch is not release evidence.
 
-2.0 is a greenfield rewrite whose data is incompatible with 1.x. Existing 2.x databases migrate forward in place; stop the service and back up the database with its matching encryption key before upgrading. `main` remains the 1.4.x maintenance line. The release contract reserves explicit `2`, `2.0`, and `v2.0.0` container tags and does not move `latest` automatically; these names do not imply that images have been published.
+2.0 is a greenfield rewrite whose data is incompatible with 1.x and earlier pre-release 2.x builds. During pre-release development, use an empty dedicated database with a matching new encryption key. `main` remains the 1.4.x maintenance line. The release contract reserves explicit `2`, `2.0`, and `v2.0.0` container tags and does not move `latest` automatically; these names do not imply that images have been published.
 
 ## 2.0 capabilities
 
@@ -62,7 +62,7 @@ The M3 control-plane UI and M4 usage/pricing scope are present in the local cand
 - Client protocol filters use `openai-completions`, `openai-responses`, `anthropic`, or `gemini`. A Group stores one `channel_id`; the code-owned channel preset determines provider behavior, accepted client protocols, credential schema, discovery, and Models.dev mapping.
 - OpenAI Responses resource routing has no Key affinity. Stateful turns using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one upstream Key or an upstream that shares resource storage across Keys. Otherwise the selected upstream may return a resource-not-found error.
 - Channel credentials must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
-- There is no automatic 1.x migration or reverse synchronization. Existing 2.x schemas migrate forward through the migration ledger.
+- There is no automatic migration or reverse synchronization from 1.x or earlier pre-release 2.x schemas. The current baseline initializes an empty database; future schema changes will append migrations from this baseline.
 - There is no online billing reconciliation, online backup API, or backup CLI. Models.dev synchronization supplies estimation metadata only; it is not a provider bill or invoice.
 
 ## Quick start
@@ -220,7 +220,7 @@ Usage/Cost quality boundaries:
 | `LOG_LEVEL` | `info` | Application log level |
 | `LOG_FORMAT` | `text` | Log format: `text` or `json` |
 
-See [`.env.example`](.env.example) for the complete process configuration. Connect, first-byte, request, and stream-idle timeouts plus RequestLog retention are runtime settings managed through the admin UI/API, not additional environment variables.
+See [`.env.example`](.env.example) for the complete process configuration. Native-response/stream-first-event, total-request, and stream-idle timeouts plus RequestLog retention are runtime settings managed through the admin UI/API, not additional environment variables. Buffered converted unary calls use the total-request timeout because the SDK does not expose a response-start signal.
 
 `DATABASE_DSN` uses one common URL contract; do not add a separate database type variable or engine-specific application settings. Examples:
 

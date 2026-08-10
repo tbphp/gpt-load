@@ -346,6 +346,8 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	if got.ObservedAtMS != now.UnixMilli() ||
 		got.SnapshotRevision != fixture.manager.Current().Revision ||
 		got.Protocol != protocol.OpenAICompletions ||
+		got.Operation != execution.OperationChatCompletion ||
+		len(got.RequiredFeatures) != 0 ||
 		routeModelValue(got.ExternalModel) != "public-model" ||
 		got.AccessKey != (routeInspectAccessKeyResponse{
 			ID: 10, Name: "production", Status: state.AccessKeyStatusActive,
@@ -359,6 +361,9 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	}
 	primary := got.Groups[0]
 	if primary.GroupName != "primary" ||
+		primary.ChannelID != channel.OpenAI ||
+		primary.RouteMode != execution.RouteNative ||
+		!primary.CapabilitySupported ||
 		routeModelValue(primary.UpstreamModel) != "provider-model" ||
 		primary.WeightManual != nil || !primary.Included ||
 		!primary.Routable || primary.ReasonCode != nil ||

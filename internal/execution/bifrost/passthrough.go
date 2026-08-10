@@ -18,11 +18,6 @@ import (
 
 const maxStreamErrorEvidenceBytes = 64 << 10
 
-type passthroughUnarySDKResult struct {
-	response *schemas.BifrostPassthroughResponse
-	err      *schemas.BifrostError
-}
-
 type passthroughStreamSDKResult struct {
 	stream chan *schemas.BifrostStreamChunk
 	err    *schemas.BifrostError
@@ -251,6 +246,9 @@ func (r *Runtime) executeNative(
 	spec execution.AttemptSpec,
 	prepared preparedAttempt,
 ) execution.AttemptResult {
+	if spec.Method == http.MethodHead {
+		return r.executeNativeHead(parent, spec, prepared)
+	}
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
@@ -258,14 +256,18 @@ func (r *Runtime) executeNative(
 	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
 	defer preResponse.stop()
 
-	bifrostContext := newSDKContext(callContext, spec, prepared.directKey)
-	outcomeChannel := make(chan passthroughUnarySDKResult, 1)
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	cancelCall := func() {
+		callCancel()
+		bifrostContext.Cancel()
+	}
+	outcomeChannel := make(chan passthroughStreamSDKResult, 1)
 	go func() {
-		response, bifrostError := r.core.Passthrough(bifrostContext, prepared.provider, prepared.passthrough)
-		outcomeChannel <- passthroughUnarySDKResult{response: response, err: bifrostError}
+		stream, bifrostError := r.core.PassthroughStream(bifrostContext, prepared.provider, prepared.passthrough)
+		outcomeChannel <- passthroughStreamSDKResult{stream: stream, err: bifrostError}
 	}()
 
-	var outcome passthroughUnarySDKResult
+	var outcome passthroughStreamSDKResult
 	select {
 	case outcome = <-outcomeChannel:
 		if preResponse.expired() || requestContext.Err() != nil {
@@ -274,29 +276,82 @@ func (r *Runtime) executeNative(
 	case <-callContext.Done():
 		return unaryContextFailure(requestContext, preResponse.expired())
 	}
-	preResponse.stop()
-
 	if outcome.err != nil {
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
 	}
-	if outcome.response == nil {
-		return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned no response")
+	if outcome.stream == nil {
+		return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned no response stream")
 	}
-	status := outcome.response.StatusCode
-	if !validUpstreamStatus(status) {
-		return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned an invalid status")
+
+	responseObserved := false
+	status := 0
+	var headers http.Header
+	requestID := ""
+	var body bytes.Buffer
+	var usageEvidence *execution.UsageEvidence
+	for {
+		select {
+		case <-callContext.Done():
+			return unaryContextFailure(requestContext, preResponse.expired())
+		case chunk, open := <-outcome.stream:
+			if !open {
+				if !responseObserved {
+					return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned an empty response stream")
+				}
+				goto complete
+			}
+			if chunk == nil || chunk.BifrostError != nil {
+				cancelCall()
+				if chunk != nil && chunk.BifrostError != nil {
+					return unaryErrorResult(chunk.BifrostError, bifrostContext, prepared.secrets)
+				}
+				return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned an invalid response chunk")
+			}
+			response := chunk.BifrostPassthroughResponse
+			if response == nil || !validUpstreamStatus(response.StatusCode) {
+				cancelCall()
+				return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned an invalid response")
+			}
+			if !responseObserved {
+				responseObserved = true
+				preResponse.stop()
+				status = response.StatusCode
+				headers = responseHeaders(response.Headers, bifrostContext, false)
+				requestID = upstreamRequestID(headers)
+			} else if response.StatusCode != status {
+				cancelCall()
+				return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "execution runtime changed response status")
+			}
+			limit := r.maxUnaryResponseBodyBytes
+			if status < http.StatusOK || status >= http.StatusMultipleChoices {
+				limit = min(limit, int64(maxStreamErrorEvidenceBytes))
+			}
+			if int64(len(response.Body)) > limit-int64(body.Len()) {
+				cancelCall()
+				return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "upstream response exceeds size limit")
+			}
+			_, _ = body.Write(response.Body)
+			if response.PassthroughUsage != nil {
+				chunkUsage, err := usageEvidenceFromPassthrough(response.PassthroughUsage)
+				if err != nil {
+					cancelCall()
+					return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "normalize upstream usage")
+				}
+				usageEvidence = cloneUsage(chunkUsage)
+			}
+		}
 	}
-	headers := responseHeaders(outcome.response.Headers, bifrostContext, false)
-	requestID := upstreamRequestID(headers)
-	body := append([]byte(nil), outcome.response.Body...)
-	model := openAIResponseModel(body, spec.UpstreamModel)
-	usageEvidence, err := usageEvidenceFromPassthrough(outcome.response.PassthroughUsage)
-	if err != nil {
-		return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "normalize upstream usage")
+
+complete:
+	bodyBytes := bytes.Clone(body.Bytes())
+	if headers.Get("Content-Encoding") == "" && looksLikeEncodedResponse(bodyBytes) {
+		return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "encoded upstream response cannot be safely forwarded")
 	}
+	model := openAIResponseModel(bodyBytes, spec.UpstreamModel)
 	if status >= http.StatusOK && status < http.StatusMultipleChoices {
-		if needsClientModelAlias(spec) {
-			body, err = rewriteClientResponseModel(spec.ClientProtocol, body, spec.ClientModel)
+		if needsClientModelAlias(spec) && headers.Get("Content-Encoding") == "" {
+			var err error
+			bodyBytes, err = rewriteClientResponseModel(spec.ClientProtocol, bodyBytes, spec.ClientModel)
 			if err != nil {
 				return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "rewrite native response model")
 			}
@@ -306,23 +361,85 @@ func (r *Runtime) executeNative(
 			ResponseStarted:   true,
 			StatusCode:        status,
 			Header:            headers,
-			Body:              body,
+			Body:              bodyBytes,
 			Model:             model,
 			UpstreamRequestID: requestID,
 			Usage:             usageEvidence,
 		}
 	}
-	evidence := passthroughHTTPError(status, headers, body, prepared.secrets)
+	evidence := passthroughHTTPError(status, headers, bodyBytes, prepared.secrets)
 	return execution.AttemptResult{
 		DispatchState:     execution.DispatchMaybeSent,
 		ResponseStarted:   true,
 		StatusCode:        status,
 		Header:            headers,
-		Body:              redactSecrets(body, prepared.secrets),
+		Body:              redactSecrets(bodyBytes, prepared.secrets),
 		Model:             model,
 		UpstreamRequestID: requestID,
 		Error:             evidence,
 	}
+}
+
+func (r *Runtime) executeNativeHead(
+	parent context.Context,
+	spec execution.AttemptSpec,
+	prepared preparedAttempt,
+) execution.AttemptResult {
+	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
+	defer requestCancel()
+	callContext, callCancel := context.WithCancel(requestContext)
+	defer callCancel()
+	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
+	defer preResponse.stop()
+
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	outcomeChannel := make(chan struct {
+		response *schemas.BifrostPassthroughResponse
+		err      *schemas.BifrostError
+	}, 1)
+	go func() {
+		response, bifrostError := r.core.Passthrough(bifrostContext, prepared.provider, prepared.passthrough)
+		outcomeChannel <- struct {
+			response *schemas.BifrostPassthroughResponse
+			err      *schemas.BifrostError
+		}{response: response, err: bifrostError}
+	}()
+
+	select {
+	case outcome := <-outcomeChannel:
+		if preResponse.expired() || requestContext.Err() != nil {
+			return unaryContextFailure(requestContext, preResponse.expired())
+		}
+		preResponse.stop()
+		if outcome.err != nil {
+			return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+		}
+		if outcome.response == nil || !validUpstreamStatus(outcome.response.StatusCode) {
+			return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned an invalid response")
+		}
+		headers := responseHeaders(outcome.response.Headers, bifrostContext, false)
+		if len(outcome.response.Body) > 0 {
+			return startedUnaryFailure(outcome.response.StatusCode, headers, execution.ErrorKindInternal, "HEAD response contained an unexpected body")
+		}
+		result := execution.AttemptResult{
+			DispatchState:     execution.DispatchMaybeSent,
+			ResponseStarted:   true,
+			StatusCode:        outcome.response.StatusCode,
+			Header:            headers,
+			UpstreamRequestID: upstreamRequestID(headers),
+		}
+		if outcome.response.StatusCode < http.StatusOK || outcome.response.StatusCode >= http.StatusMultipleChoices {
+			result.Error = passthroughHTTPError(outcome.response.StatusCode, headers, nil, prepared.secrets)
+		}
+		return result
+	case <-callContext.Done():
+		return unaryContextFailure(requestContext, preResponse.expired())
+	}
+}
+
+func looksLikeEncodedResponse(body []byte) bool {
+	return len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b ||
+		len(body) >= 4 && body[0] == 0x28 && body[1] == 0xb5 && body[2] == 0x2f && body[3] == 0xfd
 }
 
 func (r *Runtime) executeNativeStream(
@@ -334,7 +451,7 @@ func (r *Runtime) executeNativeStream(
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
-	bifrostContext := newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
 	cancelCall := func() {
 		callCancel()
 		bifrostContext.Cancel()

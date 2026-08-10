@@ -22,6 +22,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/contentcoding"
@@ -2970,6 +2971,75 @@ func TestHandlerDoesNotClearFailureAfterDownstreamCancellation(t *testing.T) {
 	}
 }
 
+func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
+	retry := health.Result{Category: health.FailureCategoryUpstreamHostError, Action: health.ActionSkipGroup}
+	authRetry := health.Result{Category: health.FailureCategoryInvalidKey, Action: health.ActionFailCredential}
+	tests := []struct {
+		name      string
+		operation execution.Operation
+		method    string
+		result    UpstreamResult
+		decision  health.Result
+		want      bool
+	}{
+		{
+			name: "chat 500 may have executed", operation: execution.OperationChatCompletion,
+			method:   http.MethodPost,
+			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
+			decision: retry,
+		},
+		{
+			name: "chat DNS failure was not sent", operation: execution.OperationChatCompletion,
+			method:   http.MethodPost,
+			result:   UpstreamResult{DispatchState: execution.DispatchNotSent},
+			decision: retry, want: true,
+		},
+		{
+			name: "explicit credential rejection", operation: execution.OperationResponsesCreate,
+			method:   http.MethodPost,
+			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusUnauthorized},
+			decision: authRetry, want: true,
+		},
+		{
+			name: "retrieve is read only", operation: execution.OperationResponsesRetrieve,
+			method:   http.MethodGet,
+			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
+			decision: retry, want: true,
+		},
+		{
+			name: "delete is a mutation", operation: execution.OperationResponsesDelete,
+			method:   http.MethodDelete,
+			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
+			decision: retry,
+		},
+		{
+			name: "GET passthrough is read only", operation: execution.OperationResponsesPassthrough,
+			method:   http.MethodGet,
+			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
+			decision: retry, want: true,
+		},
+		{
+			name: "POST passthrough may mutate", operation: execution.OperationResponsesPassthrough,
+			method:   http.MethodPost,
+			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
+			decision: retry,
+		},
+		{
+			name: "downstream commit is terminal", operation: execution.OperationResponsesRetrieve,
+			method:   http.MethodGet,
+			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError, Committed: true},
+			decision: retry,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldRetryAcrossCandidates(test.operation, test.method, test.result, test.decision); got != test.want {
+				t.Fatalf("shouldRetryAcrossCandidates() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestHandlerLeavesKeyRegistryUnchangedForNonKeyActions(t *testing.T) {
 	for _, action := range []health.Action{
 		health.ActionRetry,
@@ -3236,8 +3306,8 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 
 	engine.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusInternalServerError || attempts.Load() != maxAttempts {
-		t.Fatalf("response/attempts = %d/%d, want 500/%d", recorder.Code, attempts.Load(), maxAttempts)
+	if recorder.Code != http.StatusInternalServerError || attempts.Load() != 1 {
+		t.Fatalf("response/attempts = %d/%d, want 500/1", recorder.Code, attempts.Load())
 	}
 	if strings.Contains(recorder.Body.String(), upstreamModel) ||
 		!strings.Contains(recorder.Body.String(), externalModel) {

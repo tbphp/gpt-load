@@ -254,8 +254,7 @@ func queryUsageSeries(scope *gorm.DB, bucketWidthMS int64) ([]UsageSeriesPoint, 
 func queryUsageBreakdownCount(scope *gorm.DB, collapseByModel bool) (int64, error) {
 	var grouped *gorm.DB
 	if collapseByModel {
-		grouped = scope.Select("channel_id, credential_id, model").
-			Group("channel_id, credential_id, model")
+		grouped = scope.Select("model").Group("model")
 	} else {
 		grouped = scope.Select("channel_id, group_id, credential_id, model").
 			Group("channel_id, group_id, credential_id, model")
@@ -281,8 +280,8 @@ func queryUsageBreakdown(
 	var rows []usageBreakdownRow
 	var query *gorm.DB
 	if collapseByModel {
-		query = scope.Select("0 AS group_id, channel_id, credential_id, model, " + usageAggregateSelect).
-			Group("channel_id, credential_id, model")
+		query = scope.Select("0 AS group_id, '' AS channel_id, 0 AS credential_id, model, " + usageAggregateSelect).
+			Group("model")
 	} else {
 		query = scope.Select("group_id, channel_id, credential_id, model, " + usageAggregateSelect).
 			Group("channel_id, group_id, credential_id, model")

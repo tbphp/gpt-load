@@ -141,10 +141,14 @@ func TestOfficialNativeProbeUsesSelectedModelAndProtocolTarget(t *testing.T) {
 }
 
 func utilitySpec(channelID channel.ID, clientProtocol protocol.Protocol, operation execution.Operation, method, path string, body []byte) execution.AttemptSpec {
-	return execution.NewAttemptSpec(execution.AttemptSpec{
+	spec := execution.NewAttemptSpec(execution.AttemptSpec{
 		RequestID: "utility-request", AttemptID: "utility-attempt", Sequence: 1,
 		ChannelID: string(channelID), ClientProtocol: clientProtocol, Operation: operation,
 		Method: method, Path: path, Query: make(map[string][]string), Header: http.Header{"Authorization": {"Bearer client"}}, Body: body,
 		TargetConfig: json.RawMessage(`{}`), Credential: execution.NewCredentialSnapshot(10, 1, 1, []byte(`{"api_key":"`+testAPIKey+`"}`)),
 	})
+	if _, err := channel.NewRegistry().ResolveExecutionTarget(channelID, spec.TargetConfig); err == nil {
+		return freezeTestAttempt(spec)
+	}
+	return spec
 }

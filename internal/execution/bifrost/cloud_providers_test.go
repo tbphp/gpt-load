@@ -45,6 +45,7 @@ func TestAzureAPIKeyUsesSelectedDirectCredentialAndNormalizesResult(t *testing.T
 	spec.ChannelID = "azure_openai"
 	spec.TargetConfig = json.RawMessage(`{"endpoint":"` + server.URL + `"}`)
 	spec.Credential = execution.NewCredentialSnapshot(31, 1, 1, []byte(`{"api_key":"`+azureKey+`"}`))
+	spec = freezeTestAttempt(spec)
 	result := runtime.Execute(context.Background(), spec)
 
 	if err := result.Validate(); err != nil {
@@ -74,6 +75,7 @@ func TestAzureErrorDoesNotExposeStructuredCredentialSecrets(t *testing.T) {
 	spec.ChannelID = "azure_openai"
 	spec.TargetConfig = json.RawMessage(`{"endpoint":"` + server.URL + `"}`)
 	spec.Credential = execution.NewCredentialSnapshot(32, 1, 1, []byte(`{"api_key":"`+azureKey+`"}`))
+	spec = freezeTestAttempt(spec)
 	result := runtime.Execute(context.Background(), spec)
 
 	if err := result.Validate(); err != nil {

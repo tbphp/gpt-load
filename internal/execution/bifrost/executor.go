@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -69,10 +70,8 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) ex
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
 	defer callCancel()
-	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
-	defer preResponse.stop()
 
-	bifrostContext := newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan unarySDKResult, 1)
 	go func() {
@@ -83,16 +82,18 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) ex
 	var outcome unarySDKResult
 	select {
 	case outcome = <-outcomeChannel:
-		if preResponse.expired() || requestContext.Err() != nil {
-			return unaryContextFailure(requestContext, preResponse.expired())
+		if requestContext.Err() != nil {
+			return unaryContextFailure(requestContext, false)
 		}
 	case <-callContext.Done():
-		return unaryContextFailure(requestContext, preResponse.expired())
+		return unaryContextFailure(requestContext, false)
 	}
-	preResponse.stop()
 
 	if outcome.err != nil {
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+	}
+	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
+		return *failure
 	}
 	if outcome.response == nil {
 		return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned no response")
@@ -153,7 +154,7 @@ func (r *Runtime) ExecuteStream(
 	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
 	defer preResponse.stop()
 
-	bifrostContext := newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan streamSDKResult, 1)
 	go func() {
@@ -302,6 +303,11 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 
 	channelID := channel.ID(spec.ChannelID)
+	providerKind := channel.ProviderKind(spec.TargetKind)
+	if !providerKind.Valid() {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported execution target")
+		return preparedAttempt{}, &failure
+	}
 	if len(bytes.TrimSpace(spec.TargetConfig)) == 0 {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "channel target is required")
 		return preparedAttempt{}, &failure
@@ -311,14 +317,19 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel target: "+safeValidationReason(err))
 		return preparedAttempt{}, &failure
 	}
-	mode, ok := resolved.Mode(spec.ClientProtocol, spec.Operation)
-	if !ok {
+	if resolved.ProviderKind != providerKind {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "execution target does not match channel")
+		return preparedAttempt{}, &failure
+	}
+	mode := channel.RouteMode(spec.RouteMode)
+	declaredMode, ok := resolved.Mode(spec.ClientProtocol, spec.Operation)
+	if !ok || declaredMode != mode || !resolved.Supports(spec.ClientProtocol, spec.Operation, spec.RequiredFeatures) {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "channel does not support the requested route")
 		return preparedAttempt{}, &failure
 	}
 	if spec.Operation == execution.OperationResponsesPassthrough &&
-		resolved.ProviderKind != channel.ProviderOpenAI &&
-		resolved.ProviderKind != channel.ProviderOpenAICompatible {
+		providerKind != channel.ProviderOpenAI &&
+		providerKind != channel.ProviderOpenAICompatible {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "Responses passthrough requires an OpenAI provider")
 		return preparedAttempt{}, &failure
 	}
@@ -326,7 +337,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	targetBaseURL := ""
 	targetBaseQuery := ""
 	nativePassthroughEligible := true
-	switch resolved.ProviderKind {
+	switch providerKind {
 	case channel.ProviderOpenAI:
 		provider = schemas.OpenAI
 	case channel.ProviderAnthropic:
@@ -343,12 +354,12 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		var target struct {
 			BaseURL string `json:"base_url"`
 		}
-		if err := json.Unmarshal(resolved.TargetConfig, &target); err != nil || target.BaseURL == "" {
+		if err := json.Unmarshal(spec.TargetConfig, &target); err != nil || target.BaseURL == "" {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
 		}
 		baseProvider := schemas.OpenAI
-		switch resolved.ProviderKind {
+		switch providerKind {
 		case channel.ProviderAnthropicCompatible:
 			baseProvider = schemas.Anthropic
 		case channel.ProviderGeminiCompatible:
@@ -374,15 +385,17 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 	if mode == channel.RouteNative &&
 		(spec.Operation == execution.OperationListModels || spec.Operation == execution.OperationProbe) &&
-		!providerKindNativeForClient(resolved.ProviderKind, spec.ClientProtocol) {
-		mode = channel.RouteConverted
+		!providerKindNativeForClient(providerKind, spec.ClientProtocol) {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "native route does not match the client protocol")
+		return preparedAttempt{}, &failure
 	}
 	if mode == channel.RouteNative && !nativePassthroughEligible {
-		mode = channel.RouteConverted
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "native route is unavailable for the configured endpoint")
+		return preparedAttempt{}, &failure
 	}
 	safeQuery := mergeRawQueries(targetBaseQuery, safeAttemptQuery(spec))
-	if resolved.ProviderKind == channel.ProviderGemini ||
-		resolved.ProviderKind == channel.ProviderGeminiCompatible {
+	if providerKind == channel.ProviderGemini ||
+		providerKind == channel.ProviderGeminiCompatible {
 		safeQuery = removeRawQueryValue(safeQuery, "alt")
 		if stream {
 			safeQuery = setRawQueryValue(safeQuery, "alt", "sse")
@@ -394,7 +407,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid credential: "+safeValidationReason(err))
 		return preparedAttempt{}, &failure
 	}
-	directKey, secrets, err := directKeyForAttempt(spec, resolved, credential)
+	directKey, secrets, err := directKeyForAttempt(spec, providerKind, spec.TargetConfig, credential)
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid credential")
 		return preparedAttempt{}, &failure
@@ -405,7 +418,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request body")
 			return preparedAttempt{}, &failure
 		}
-		passthroughPath, err := nativePassthroughPath(spec, resolved.ProviderKind)
+		passthroughPath, err := nativePassthroughPath(spec, providerKind)
 		if err != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request path")
 			return preparedAttempt{}, &failure
@@ -427,7 +440,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}, nil
 	}
 	if spec.Operation == execution.OperationListModels {
-		typedURL, targetErr := convertedListModelsTarget(resolved.ProviderKind, targetBaseURL, safeQuery)
+		typedURL, targetErr := convertedListModelsTarget(providerKind, targetBaseURL, safeQuery)
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
@@ -449,7 +462,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, conversionErr.Error())
 			return preparedAttempt{}, &failure
 		}
-		typedURL, targetErr := convertedTypedTarget(resolved.ProviderKind, targetBaseURL, spec.UpstreamModel, true, stream, safeQuery)
+		typedURL, targetErr := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, true, stream, safeQuery)
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
@@ -486,7 +499,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		delete(request.Params.ExtraParams, "fallback")
 		delete(request.Params.ExtraParams, "fallbacks")
 	}
-	typedURL, err := convertedTypedTarget(resolved.ProviderKind, targetBaseURL, spec.UpstreamModel, false, stream, safeQuery)
+	typedURL, err := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, false, stream, safeQuery)
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 		return preparedAttempt{}, &failure
@@ -662,7 +675,8 @@ func customProviderKey(baseProvider schemas.ModelProvider, baseURL string) schem
 
 func directKeyForAttempt(
 	spec execution.AttemptSpec,
-	resolved channel.ResolvedTarget,
+	providerKind channel.ProviderKind,
+	targetConfig json.RawMessage,
 	credential channel.Credential,
 ) (schemas.Key, []string, error) {
 	key := schemas.Key{
@@ -673,7 +687,7 @@ func directKeyForAttempt(
 	}
 	secrets := credentialSecrets(credential)
 	apiKey, _ := credential.Value("api_key")
-	switch resolved.ProviderKind {
+	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini,
 		channel.ProviderOpenAICompatible, channel.ProviderAnthropicCompatible, channel.ProviderGeminiCompatible:
 		if apiKey == "" {
@@ -684,7 +698,7 @@ func directKeyForAttempt(
 		var target struct {
 			Endpoint string `json:"endpoint"`
 		}
-		if json.Unmarshal(resolved.TargetConfig, &target) != nil || target.Endpoint == "" {
+		if json.Unmarshal(targetConfig, &target) != nil || target.Endpoint == "" {
 			return schemas.Key{}, nil, fmt.Errorf("azure endpoint is required")
 		}
 		key.AzureKeyConfig = &schemas.AzureKeyConfig{Endpoint: plainSecret(target.Endpoint)}
@@ -705,7 +719,7 @@ func directKeyForAttempt(
 		var target struct {
 			Region string `json:"region"`
 		}
-		if json.Unmarshal(resolved.TargetConfig, &target) != nil || target.Region == "" {
+		if json.Unmarshal(targetConfig, &target) != nil || target.Region == "" {
 			return schemas.Key{}, nil, fmt.Errorf("Bedrock region is required")
 		}
 		config := &schemas.BedrockKeyConfig{Region: plainSecretPtr(target.Region)}
@@ -730,7 +744,7 @@ func directKeyForAttempt(
 			ProjectNumber string `json:"project_number"`
 			Location      string `json:"location"`
 		}
-		if json.Unmarshal(resolved.TargetConfig, &target) != nil || target.ProjectID == "" || target.Location == "" {
+		if json.Unmarshal(targetConfig, &target) != nil || target.ProjectID == "" || target.Location == "" {
 			return schemas.Key{}, nil, fmt.Errorf("Vertex project and location are required")
 		}
 		serviceAccount, ok := credential.Value("service_account_json")
@@ -804,10 +818,11 @@ func credentialSecrets(credential channel.Credential) []string {
 	return result
 }
 
-func newSDKContext(parent context.Context, spec execution.AttemptSpec, directKey schemas.Key) *schemas.BifrostContext {
+func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSpec, directKey schemas.Key) *schemas.BifrostContext {
 	bifrostContext := schemas.NewBifrostContext(parent, schemas.NoDeadline)
 	bifrostContext.SetValue(schemas.BifrostContextKeyRequestID, spec.RequestID)
 	bifrostContext.SetValue(schemas.BifrostContextKeyDirectKey, directKey)
+	bifrostContext.SetValue(schemas.BifrostContextKeyLargeResponseThreshold, r.maxUnaryResponseBodyBytes)
 	if spec.Timeouts.StreamIdle > 0 {
 		bifrostContext.SetValue(schemas.BifrostContextKeyStreamIdleTimeout, spec.Timeouts.StreamIdle)
 	}
@@ -815,6 +830,27 @@ func newSDKContext(parent context.Context, spec execution.AttemptSpec, directKey
 		bifrostContext.SetValue(schemas.BifrostContextKeyExtraHeaders, headers)
 	}
 	return bifrostContext
+}
+
+func largeUnaryResponseFailure(bifrostContext *schemas.BifrostContext) *execution.AttemptResult {
+	if bifrostContext == nil {
+		return nil
+	}
+	large, _ := bifrostContext.Value(schemas.BifrostContextKeyLargeResponseMode).(bool)
+	if !large {
+		return nil
+	}
+	if reader, ok := bifrostContext.Value(schemas.BifrostContextKeyLargeResponseReader).(io.Closer); ok && reader != nil {
+		_ = reader.Close()
+	}
+	headers := responseHeaders(nil, bifrostContext, false)
+	result := startedUnaryFailure(
+		http.StatusOK,
+		headers,
+		execution.ErrorKindInternal,
+		"upstream response exceeds size limit",
+	)
+	return &result
 }
 
 func safeRequestHeaders(source http.Header) map[string][]string {
@@ -982,9 +1018,9 @@ func startPreResponseGate(cancel context.CancelFunc, timeouts execution.AttemptT
 		return gate
 	}
 	// Core exposes neither an independent dial hook nor transport configuration
-	// per attempt. Applying Connect here would incorrectly turn it into a whole
-	// response budget. Request remains the total budget; FirstByte is the only
-	// safe pre-response approximation (and covers the buffered unary call).
+	// per attempt. This gate is therefore used only where the adapter can observe
+	// a native response or complete client stream frame. Buffered converted unary
+	// calls are bounded by Request instead of mislabeling body time as first byte.
 	gate.timer = time.AfterFunc(budget, func() {
 		select {
 		case <-gate.stopOne:

@@ -21,6 +21,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 	available := createGroupCollectionGroup(t, fixture, "summary-available", true, nil)
 	unavailable := createGroupCollectionGroup(t, fixture, "summary-unavailable", true, nil)
 	disabled := createGroupCollectionGroup(t, fixture, "summary-disabled", false, nil)
+	setGroupCollectionChannel(t, fixture, available, channel.OpenAI, models.JSON(`{}`))
 	setGroupCollectionChannel(t, fixture, unavailable, channel.Anthropic, models.JSON(`{}`))
 	setGroupCollectionRoute(t, fixture, available, `["openai-responses"]`, `[]`)
 	setGroupCollectionRoute(t, fixture, unavailable, `["openai-completions"]`, `[]`)

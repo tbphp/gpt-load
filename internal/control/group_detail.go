@@ -15,7 +15,6 @@ import (
 )
 
 type GroupEffectiveConfigResponse struct {
-	ConnectTimeout     int64               `json:"connect_timeout"`
 	FirstByteTimeout   int64               `json:"first_byte_timeout"`
 	RequestTimeout     int64               `json:"request_timeout"`
 	StreamIdleTimeout  int64               `json:"stream_idle_timeout"`
@@ -72,7 +71,6 @@ func effectiveGroupConfig(
 		set[name] = value
 	}
 	return GroupEffectiveConfigResponse{
-		ConnectTimeout:    durationSeconds(resolved.Timeouts.Connect),
 		FirstByteTimeout:  durationSeconds(resolved.Timeouts.FirstByte),
 		RequestTimeout:    durationSeconds(resolved.Timeouts.Request),
 		StreamIdleTimeout: durationSeconds(resolved.Timeouts.StreamIdle),

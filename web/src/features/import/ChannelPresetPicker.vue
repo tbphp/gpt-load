@@ -47,8 +47,8 @@ function choose(channel: ChannelDto): void {
 }
 
 function channelDescription(channel: ChannelDto): string {
-  return channel.param_fields.some(({ key }) => key === 'base_url')
-    ? t('import.presets.baseUrlRequired')
+  return channel.param_fields.some(({ required }) => required)
+    ? t('import.presets.configurationRequired')
     : t('import.presets.channelReady')
 }
 

@@ -40,6 +40,27 @@ export interface RouteInspectRequest {
   access_key_id: number
 }
 
+export type RouteInspectOperation =
+  | 'chat_completion'
+  | 'responses_create'
+  | 'responses_retrieve'
+  | 'responses_delete'
+  | 'responses_cancel'
+  | 'responses_input_items'
+  | 'responses_compact'
+  | 'responses_input_tokens'
+  | 'responses_passthrough'
+  | 'list_models'
+  | 'probe'
+export type RouteInspectFeature =
+  | 'streaming'
+  | 'tools'
+  | 'reasoning'
+  | 'multimodal'
+  | 'structured_output'
+  | 'native_resource_semantics'
+export type RouteInspectMode = 'native' | 'converted'
+
 export interface RouteInspectCredentialDto {
   credential_id: number
   available: boolean
@@ -53,6 +74,9 @@ export interface RouteInspectCredentialDto {
 export interface RouteInspectGroupDto {
   group_id: number
   group_name: string
+  channel_id: string
+  route_mode: RouteInspectMode
+  capability_supported: boolean
   upstream_model: string | null
   weight_manual: number | null
   included: boolean
@@ -65,6 +89,8 @@ export interface RouteInspectResponseDto {
   observed_at_ms: number
   snapshot_revision: number
   protocol: AccessProtocol
+  operation: RouteInspectOperation
+  required_features: RouteInspectFeature[]
   external_model: string | null
   access_key: {
     id: number
@@ -77,6 +103,28 @@ export interface RouteInspectResponseDto {
 }
 
 const accessKeyStatuses = ['active', 'disabled'] as const
+const operations = [
+  'chat_completion',
+  'responses_create',
+  'responses_retrieve',
+  'responses_delete',
+  'responses_cancel',
+  'responses_input_items',
+  'responses_compact',
+  'responses_input_tokens',
+  'responses_passthrough',
+  'list_models',
+  'probe',
+] as const
+const features = [
+  'streaming',
+  'tools',
+  'reasoning',
+  'multimodal',
+  'structured_output',
+  'native_resource_semantics',
+] as const
+const routeModes = ['native', 'converted'] as const
 const reasonCodes = [
   'access_key_disabled',
   'protocol_filtered',
@@ -146,6 +194,9 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
   assertNoSecretLikeFields(record, [
     'group_id',
     'group_name',
+    'channel_id',
+    'route_mode',
+    'capability_supported',
     'upstream_model',
     'weight_manual',
     'included',
@@ -156,6 +207,9 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
   return {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
+    channel_id: projectNonBlankString(record.channel_id),
+    route_mode: projectEnum(record.route_mode, routeModes),
+    capability_supported: projectBoolean(record.capability_supported),
     upstream_model: projectNullableNonBlankString(record.upstream_model),
     weight_manual: projectNullableWeight(record.weight_manual),
     included: projectBoolean(record.included),
@@ -181,6 +235,8 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
     'observed_at_ms',
     'snapshot_revision',
     'protocol',
+    'operation',
+    'required_features',
     'external_model',
     'access_key',
     'routable',
@@ -191,6 +247,10 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
     observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
+    operation: projectEnum(record.operation, operations),
+    required_features: projectArray(record.required_features, (feature) =>
+      projectEnum(feature, features),
+    ),
     external_model: projectNullableNonBlankString(record.external_model),
     access_key: projectAccessKey(record.access_key),
     routable: projectBoolean(record.routable),

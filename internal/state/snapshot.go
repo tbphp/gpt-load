@@ -96,7 +96,6 @@ const NoModelRouteKey = ""
 type ExecutionCandidateIndex map[protocol.Protocol]map[execution.Operation]map[string][]RouteTarget
 
 type TimeoutConfig struct {
-	Connect    time.Duration
 	FirstByte  time.Duration
 	Request    time.Duration
 	StreamIdle time.Duration

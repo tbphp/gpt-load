@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/usage"
 )
 
@@ -206,11 +208,98 @@ func (forwarder *ExecutionForwarder) prepareBufferedResult(
 		result.ClassificationBody = prepared.inspectable
 		return result
 	}
+	if result.ExecutionError != nil &&
+		(input.RouteMode == execution.RouteConverted || len(result.Body) == 0) {
+		result.Body = encodeClientErrorBody(input.ClientProtocol, result.StatusCode, *result.ExecutionError)
+		result.Header = result.Header.Clone()
+		if result.Header == nil {
+			result.Header = make(http.Header)
+		}
+		deleteHeaderField(result.Header, "Content-Encoding")
+		deleteHeaderField(result.Header, "Content-Length")
+		invalidateRewrittenBodyHeaders(result.Header)
+		result.Header.Set("Content-Type", "application/json")
+	}
 	prepared := representation.prepareErrorRepresentation(input, result.Header, result.Body, secrets)
 	result.Header = prepared.headers
 	result.Body = prepared.downstream
 	result.ClassificationBody = prepared.classification
 	return result
+}
+
+func encodeClientErrorBody(
+	clientProtocol protocol.Protocol,
+	status int,
+	evidence execution.ErrorEvidence,
+) []byte {
+	message := strings.TrimSpace(evidence.Summary)
+	if message == "" {
+		message = "upstream request failed"
+	}
+	typeValue := strings.TrimSpace(evidence.Type)
+	if typeValue == "" {
+		switch evidence.Hint {
+		case execution.FailureHintInvalidCredential:
+			typeValue = "authentication_error"
+		case execution.FailureHintRateLimited:
+			typeValue = "rate_limit_error"
+		case execution.FailureHintModelUnavailable:
+			typeValue = "model_not_found"
+		default:
+			typeValue = "api_error"
+		}
+	}
+	codeValue := strings.TrimSpace(evidence.Code)
+
+	var value any
+	switch clientProtocol {
+	case protocol.Anthropic:
+		payload := struct {
+			Type  string `json:"type"`
+			Error struct {
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}{Type: "error"}
+		payload.Error.Type = typeValue
+		payload.Error.Message = message
+		value = payload
+	case protocol.Gemini:
+		if status < 100 || status > 599 {
+			status = http.StatusBadGateway
+		}
+		if codeValue == "" {
+			codeValue = strings.ToUpper(typeValue)
+		}
+		payload := struct {
+			Error struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+				Status  string `json:"status"`
+			} `json:"error"`
+		}{}
+		payload.Error.Code = status
+		payload.Error.Message = message
+		payload.Error.Status = codeValue
+		value = payload
+	default:
+		payload := struct {
+			Error struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    string `json:"code,omitempty"`
+			} `json:"error"`
+		}{}
+		payload.Error.Message = message
+		payload.Error.Type = typeValue
+		payload.Error.Code = codeValue
+		value = payload
+	}
+	body, err := json.Marshal(value)
+	if err != nil {
+		return []byte(`{"error":{"message":"upstream request failed","type":"api_error"}}`)
+	}
+	return body
 }
 
 func executionRepresentationFailure(result UpstreamResult, err error) UpstreamResult {
@@ -234,23 +323,25 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 	sanitizeUpstreamRequestHeaders(headers)
 	headers.Set("Accept-Encoding", "identity")
 	spec := execution.NewAttemptSpec(execution.AttemptSpec{
-		RequestID:      input.RequestID,
-		AttemptID:      input.AttemptID,
-		Sequence:       input.AttemptSequence,
-		ChannelID:      input.ChannelID,
-		ClientProtocol: input.ClientProtocol,
-		Operation:      input.Operation,
-		ClientModel:    input.ExternalModel,
-		UpstreamModel:  input.UpstreamModelID,
-		Method:         input.Request.Method,
-		Path:           input.Request.Path,
-		RawQuery:       input.Request.RawQuery,
-		Header:         headers,
-		Body:           input.Request.Body,
-		IncludeUsage:   input.ObserveUsage && input.Group.InjectUsageOptions,
-		TargetConfig:   input.TargetConfig,
+		RequestID:        input.RequestID,
+		AttemptID:        input.AttemptID,
+		Sequence:         input.AttemptSequence,
+		ChannelID:        input.ChannelID,
+		TargetKind:       input.TargetKind,
+		RouteMode:        input.RouteMode,
+		ClientProtocol:   input.ClientProtocol,
+		Operation:        input.Operation,
+		RequiredFeatures: input.RequiredFeatures,
+		ClientModel:      input.ExternalModel,
+		UpstreamModel:    input.UpstreamModelID,
+		Method:           input.Request.Method,
+		Path:             input.Request.Path,
+		RawQuery:         input.Request.RawQuery,
+		Header:           headers,
+		Body:             input.Request.Body,
+		IncludeUsage:     input.ObserveUsage && input.Group.InjectUsageOptions,
+		TargetConfig:     input.TargetConfig,
 		Timeouts: execution.AttemptTimeouts{
-			Connect:    input.Group.Timeouts.Connect,
 			FirstByte:  input.Group.Timeouts.FirstByte,
 			Request:    input.Group.Timeouts.Request,
 			StreamIdle: input.Group.Timeouts.StreamIdle,

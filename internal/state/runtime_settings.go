@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	SettingConnectTimeout           = "connect_timeout"
 	SettingFirstByteTimeout         = "first_byte_timeout"
 	SettingRequestTimeout           = "request_timeout"
 	SettingStreamIdleTimeout        = "stream_idle_timeout"
@@ -31,7 +30,6 @@ const (
 )
 
 type RuntimeSettings struct {
-	ConnectTimeout           time.Duration
 	FirstByteTimeout         time.Duration
 	RequestTimeout           time.Duration
 	StreamIdleTimeout        time.Duration
@@ -49,7 +47,6 @@ type ResolvedGroupSettings struct {
 
 func DefaultRuntimeSettings() RuntimeSettings {
 	return RuntimeSettings{
-		ConnectTimeout:           15 * time.Second,
 		FirstByteTimeout:         120 * time.Second,
 		RequestTimeout:           600 * time.Second,
 		StreamIdleTimeout:        300 * time.Second,
@@ -62,8 +59,7 @@ func DefaultRuntimeSettings() RuntimeSettings {
 
 func IsRuntimeSettingKey(key string) bool {
 	switch key {
-	case SettingConnectTimeout,
-		SettingFirstByteTimeout,
+	case SettingFirstByteTimeout,
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
@@ -80,12 +76,6 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 	resolved := DefaultRuntimeSettings()
 	for key, value := range settings {
 		switch key {
-		case SettingConnectTimeout:
-			seconds, err := positiveWholeSeconds(key, value)
-			if err != nil {
-				return RuntimeSettings{}, err
-			}
-			resolved.ConnectTimeout = time.Duration(seconds) * time.Second
 		case SettingFirstByteTimeout:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
@@ -146,7 +136,6 @@ func ResolveGroupRuntimeSettings(
 ) (ResolvedGroupSettings, error) {
 	resolved := ResolvedGroupSettings{
 		Timeouts: TimeoutConfig{
-			Connect:    base.ConnectTimeout,
 			FirstByte:  base.FirstByteTimeout,
 			Request:    base.RequestTimeout,
 			StreamIdle: base.StreamIdleTimeout,
@@ -156,12 +145,6 @@ func ResolveGroupRuntimeSettings(
 	}
 	for key, value := range settings {
 		switch key {
-		case SettingConnectTimeout:
-			seconds, err := positiveWholeSeconds(key, value)
-			if err != nil {
-				return ResolvedGroupSettings{}, err
-			}
-			resolved.Timeouts.Connect = time.Duration(seconds) * time.Second
 		case SettingFirstByteTimeout:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
@@ -201,8 +184,7 @@ func ResolveGroupRuntimeSettings(
 
 func ValidateRuntimeSetting(key string, value any) error {
 	switch key {
-	case SettingConnectTimeout,
-		SettingFirstByteTimeout,
+	case SettingFirstByteTimeout,
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout:
 		_, err := positiveWholeSeconds(key, value)
@@ -318,7 +300,8 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
 			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
-			if httpheader.IsForbiddenRequestRuleName(canonicalName) {
+			if httpheader.IsForbiddenRequestRuleName(canonicalName) ||
+				httpheader.IsCredentialName(canonicalName) {
 				return HeaderRules{}, fmt.Errorf(
 					"header_rules.set cannot set forbidden header %q",
 					canonicalName,
@@ -338,13 +321,6 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 			}
 			if !validHTTPHeaderValue(text) {
 				return HeaderRules{}, fmt.Errorf("header_rules.set.%s contains invalid header value", name)
-			}
-			if httpheader.IsCredentialName(canonicalName) &&
-				!strings.Contains(text, "${API_KEY}") {
-				return HeaderRules{}, fmt.Errorf(
-					"header_rules.set.%s credential value must contain ${API_KEY}",
-					name,
-				)
 			}
 			rules.Set[canonicalName] = text
 		}
@@ -368,7 +344,8 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 				)
 			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
-			if httpheader.IsForbiddenRequestRuleName(canonicalName) {
+			if httpheader.IsForbiddenRequestRuleName(canonicalName) ||
+				httpheader.IsCredentialName(canonicalName) {
 				return HeaderRules{}, fmt.Errorf(
 					"header_rules.remove cannot remove forbidden header %q",
 					canonicalName,

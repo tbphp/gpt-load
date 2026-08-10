@@ -109,7 +109,7 @@ func TestCompileCarriesSettingsAndValidationModel(t *testing.T) {
 
 	snapshot, err := Compile(CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		SystemSettings:  config.Settings{"connect_timeout": json.Number("20")},
+		SystemSettings:  config.Settings{"first_byte_timeout": json.Number("20")},
 		Groups: []GroupConfig{{
 			ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			ValidationModel: "  probe-model  ",
@@ -121,7 +121,7 @@ func TestCompileCarriesSettingsAndValidationModel(t *testing.T) {
 		t.Fatalf("Compile() error = %v", err)
 	}
 	view := snapshot.Groups[1]
-	if view.ValidationModel != "probe-model" || view.Timeouts.Connect.Seconds() != 20 || view.Timeouts.Request.Seconds() != 30 {
+	if view.ValidationModel != "probe-model" || view.Timeouts.FirstByte.Seconds() != 20 || view.Timeouts.Request.Seconds() != 30 {
 		t.Fatalf("group runtime view = %#v", view)
 	}
 }

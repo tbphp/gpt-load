@@ -23,7 +23,6 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 	fixture := newServiceFixture(t)
 	group := validControlGroup("settings-read")
 	group.Overrides = models.JSON(`{
-		"connect_timeout":20,
 		"first_byte_timeout":180,
 		"request_timeout":480,
 		"stream_idle_timeout":270,
@@ -47,7 +46,6 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		t.Fatalf("persisted settings = %#v", got)
 	}
 	for _, key := range []string{
-		state.SettingConnectTimeout,
 		state.SettingFirstByteTimeout,
 		state.SettingRequestTimeout,
 		state.SettingStreamIdleTimeout,
@@ -58,7 +56,7 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 			t.Fatalf("overrides missing %q: %#v", key, got.Overrides)
 		}
 	}
-	if got.Effective.ConnectTimeout != 20 || got.Effective.FirstByteTimeout != 180 ||
+	if got.Effective.FirstByteTimeout != 180 ||
 		got.Effective.RequestTimeout != 480 || got.Effective.StreamIdleTimeout != 270 ||
 		got.Effective.InjectUsageOptions ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Set, map[string]string{"X-Group": "value"}) ||

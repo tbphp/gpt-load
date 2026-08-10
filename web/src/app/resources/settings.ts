@@ -16,7 +16,6 @@ import {
 } from './projector'
 
 export const runtimeSettingKeys = [
-  'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
@@ -36,7 +35,6 @@ export type TimeoutSettingKey = Exclude<
 >
 
 export interface SettingsValues {
-  connect_timeout: number
   first_byte_timeout: number
   request_timeout: number
   stream_idle_timeout: number
@@ -53,7 +51,6 @@ export interface SettingsDto {
 }
 
 export type SettingsPatch = Partial<{
-  connect_timeout: number | null
   first_byte_timeout: number | null
   request_timeout: number | null
   stream_idle_timeout: number | null
@@ -119,7 +116,6 @@ export function projectSettings(value: unknown): SettingsDto {
 
   return {
     values: {
-      connect_timeout: projectSafeInteger(values.connect_timeout, { minimum: 1 }),
       first_byte_timeout: projectSafeInteger(values.first_byte_timeout, { minimum: 1 }),
       request_timeout: projectSafeInteger(values.request_timeout, { minimum: 1 }),
       stream_idle_timeout: projectSafeInteger(values.stream_idle_timeout, { minimum: 1 }),

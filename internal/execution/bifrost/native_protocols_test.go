@@ -182,7 +182,7 @@ func TestOfficialGeminiGenerateNativeStream(t *testing.T) {
 }
 
 func anthropicSpec(stream bool) execution.AttemptSpec {
-	return execution.NewAttemptSpec(execution.AttemptSpec{
+	return freezeTestAttempt(execution.NewAttemptSpec(execution.AttemptSpec{
 		RequestID: "anthropic-request", AttemptID: "anthropic-attempt", Sequence: 1,
 		ChannelID: string(channel.Anthropic), ClientProtocol: protocol.Anthropic,
 		Operation: execution.OperationChatCompletion, ClientModel: "client-claude", UpstreamModel: "upstream-claude",
@@ -190,7 +190,7 @@ func anthropicSpec(stream bool) execution.AttemptSpec {
 		Header:       http.Header{"Authorization": {"Bearer client"}, "X-Api-Key": {"client"}, "X-Test-Header": {"forward-me"}},
 		Body:         []byte(`{"model":"client-claude","stream":true,"provider":"injected","fallbacks":["other"],"authorization":"body","api_key":"body","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"vendor_extension":{"precise":1.2300}}`),
 		TargetConfig: json.RawMessage(`{}`), Credential: execution.NewCredentialSnapshot(8, 1, 1, []byte(`{"api_key":"`+testAPIKey+`"}`)),
-	})
+	}))
 }
 
 func geminiSpec(stream bool) execution.AttemptSpec {
@@ -198,7 +198,7 @@ func geminiSpec(stream bool) execution.AttemptSpec {
 	if stream {
 		action = "streamGenerateContent"
 	}
-	return execution.NewAttemptSpec(execution.AttemptSpec{
+	return freezeTestAttempt(execution.NewAttemptSpec(execution.AttemptSpec{
 		RequestID: "gemini-request", AttemptID: "gemini-attempt", Sequence: 1,
 		ChannelID: string(channel.Gemini), ClientProtocol: protocol.Gemini,
 		Operation: execution.OperationChatCompletion, ClientModel: "client-gemini", UpstreamModel: "upstream-gemini",
@@ -206,12 +206,12 @@ func geminiSpec(stream bool) execution.AttemptSpec {
 		Header:       http.Header{"Authorization": {"Bearer client"}, "X-Goog-Api-Key": {"client"}, "X-Test-Header": {"forward-me"}},
 		Body:         []byte(`{"model":"client-gemini","stream":true,"provider":"injected","fallbacks":["other"],"api_key":"body","contents":[{"role":"user","parts":[{"text":"hello"}]}],"vendor_extension":{"precise":1.2300}}`),
 		TargetConfig: json.RawMessage(`{}`), Credential: execution.NewCredentialSnapshot(9, 1, 1, []byte(`{"api_key":"`+testAPIKey+`"}`)),
-	})
+	}))
 }
 
 func newProtocolTestRuntime(t *testing.T, options runtimeOptions) *Runtime {
 	t.Helper()
-	runtime, err := newRuntime(context.Background(), options)
+	runtime, err := newRuntime(context.Background(), options, channel.NewRegistry())
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}

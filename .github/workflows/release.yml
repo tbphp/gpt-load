@@ -173,9 +173,7 @@ jobs:
       - name: Run external database contract
         env:
           GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
-          GPT_LOAD_DATABASE_MIGRATION_TEST_DSN: ${{ matrix.dsn }}
         run: |
-          go test -v -count=1 ./internal/storage -run '^TestExternalDatabaseChannelExecutionMigration$'
           go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternalDatabase(ConcurrentMigrations|Lifecycle|ModelPriceIdentityUsesExactComparison|ReadSnapshotUsesRepeatableRead|GroupPriceReconciliation|RequestLogLifecycle)$'
 
   build-binaries:
@@ -817,8 +815,8 @@ jobs:
           body: |
             GPT-Load 2.x is a greenfield rewrite and is not data-compatible with 1.x.
             Do not open a 1.x database with this release; rebuild configuration and cut over manually.
-            Existing 2.x databases migrate forward in place; stop the service and back up the
-            database together with its matching encryption key before upgrading.
+            Earlier pre-release 2.x databases are not supported. Start this release with an empty
+            dedicated database and a matching new encryption key.
 
             This release provides OpenAI, Anthropic, and Gemini client protocol gateways backed
             by channel presets for official, compatible, Azure OpenAI, AWS Bedrock, and Google

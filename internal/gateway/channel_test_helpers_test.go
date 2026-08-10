@@ -70,7 +70,7 @@ func testCredentialEntry(
 
 func newTestExecutionForwarder(t *testing.T) AttemptForwarder {
 	t.Helper()
-	runtime, err := bifrostexecutor.NewRuntime(context.Background())
+	runtime, err := bifrostexecutor.NewRuntime(context.Background(), channel.NewRegistry())
 	if err != nil {
 		t.Fatalf("initialize execution runtime: %v", err)
 	}

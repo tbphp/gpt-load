@@ -420,19 +420,29 @@ func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t 
 	if err != nil {
 		t.Fatalf("Resolve(openai compatible) error = %v", err)
 	}
-	if mode, ok := openAICompatible.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteNative {
+	if mode, ok := openAICompatible.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteConverted {
 		t.Fatalf("OpenAI-compatible Responses create mode = %q, %t", mode, ok)
 	}
-	if !openAICompatible.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, featureSet(t, execution.FeatureNativeResourceSemantics)) {
-		t.Fatal("OpenAI-compatible target should preserve native Responses lifecycle")
+	if openAICompatible.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, featureSet(t, execution.FeatureNativeResourceSemantics)) {
+		t.Fatal("generic OpenAI-compatible target must not advertise Responses lifecycle")
 	}
 	for _, operation := range []execution.Operation{
 		execution.OperationResponsesCompact,
 		execution.OperationResponsesInputTokens,
 	} {
-		if !openAICompatible.Supports(protocol.OpenAIResponses, operation, execution.FeatureSet{}) {
-			t.Fatalf("OpenAI-compatible target should preserve native %q", operation)
+		if openAICompatible.Supports(protocol.OpenAIResponses, operation, execution.FeatureSet{}) {
+			t.Fatalf("generic OpenAI-compatible target unexpectedly supports %q", operation)
 		}
+	}
+	openAICompatibleNonV1, err := registry.Resolve(OpenAICompatible, json.RawMessage(`{"base_url":"https://proxy.example/vendor/v4"}`))
+	if err != nil {
+		t.Fatalf("Resolve(non-v1 OpenAI compatible) error = %v", err)
+	}
+	if mode, ok := openAICompatibleNonV1.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteConverted {
+		t.Fatalf("non-v1 OpenAI-compatible completions mode = %q, %t", mode, ok)
+	}
+	if openAICompatibleNonV1.Supports(protocol.OpenAICompletions, execution.OperationChatCompletion, featureSet(t, execution.FeatureTools)) {
+		t.Fatal("typed non-v1 OpenAI-compatible route unexpectedly advertises tools")
 	}
 
 	capabilities := openAI.Capabilities(protocol.OpenAIResponses)
@@ -485,6 +495,22 @@ func TestCuratedChannelResolvesCodeOwnedTargetAndCatalogMapping(t *testing.T) {
 		if _, err := registry.ResolveExecutionTarget(DeepSeek, tampered); err == nil {
 			t.Fatalf("ResolveExecutionTarget(deepseek, %s) error = nil", tampered)
 		}
+	}
+}
+
+func TestOpenRouterUsesNativeChatAndConvertedResponsesWithoutLifecycle(t *testing.T) {
+	target, err := NewRegistry().Resolve(OpenRouter, nil)
+	if err != nil {
+		t.Fatalf("Resolve(openrouter) error = %v", err)
+	}
+	if mode, ok := target.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteNative {
+		t.Fatalf("OpenRouter chat mode = %q, %t", mode, ok)
+	}
+	if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteConverted {
+		t.Fatalf("OpenRouter Responses create mode = %q, %t", mode, ok)
+	}
+	if target.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {
+		t.Fatal("OpenRouter unexpectedly advertises Responses lifecycle")
 	}
 }
 

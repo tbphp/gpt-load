@@ -264,15 +264,9 @@ func (s *Service) normalizeCredentials(
 		if nonEmptyLines > maxCredentialLines {
 			return normalizedCredentials{}, app_errors.ErrValidation
 		}
-		var encoded json.RawMessage
-		if strings.HasPrefix(plaintext, "{") {
-			encoded = json.RawMessage(plaintext)
-		} else {
-			marshaled, err := json.Marshal(map[string]string{"api_key": plaintext})
-			if err != nil {
-				return normalizedCredentials{}, app_errors.ErrInternalServer
-			}
-			encoded = marshaled
+		encoded, err := encodeCredentialEntry(channelID, plaintext)
+		if err != nil {
+			return normalizedCredentials{}, err
 		}
 		credential, err := s.channelRegistry.ValidateCredential(channelID, encoded)
 		if err != nil {
@@ -295,31 +289,42 @@ func (s *Service) normalizeCredentials(
 	return result, nil
 }
 
-func credentialInputEntries(channelID channel.ID, raw string) []string {
+func credentialInputEntries(_ channel.ID, raw string) []string {
 	trimmed := strings.TrimSpace(raw)
 	if !strings.HasPrefix(trimmed, "{") || !json.Valid([]byte(trimmed)) {
 		return strings.Split(raw, "\n")
 	}
-	if channelID != channel.GoogleVertex {
-		return []string{trimmed}
-	}
+	return []string{trimmed}
+}
 
+func encodeCredentialEntry(channelID channel.ID, plaintext string) (json.RawMessage, error) {
+	if !strings.HasPrefix(plaintext, "{") {
+		encoded, err := json.Marshal(map[string]string{"api_key": plaintext})
+		if err != nil {
+			return nil, app_errors.ErrInternalServer
+		}
+		return encoded, nil
+	}
+	encoded := json.RawMessage(plaintext)
+	if channelID != channel.GoogleVertex {
+		return encoded, nil
+	}
 	var object map[string]json.RawMessage
-	if json.Unmarshal([]byte(trimmed), &object) != nil {
-		return []string{trimmed}
+	if json.Unmarshal(encoded, &object) != nil {
+		return encoded, nil
 	}
 	if _, wrapped := object["service_account_json"]; wrapped {
-		return []string{trimmed}
+		return encoded, nil
 	}
 	var credentialType string
 	if json.Unmarshal(object["type"], &credentialType) != nil || credentialType != "service_account" {
-		return []string{trimmed}
+		return encoded, nil
 	}
-	encoded, err := json.Marshal(map[string]string{"service_account_json": trimmed})
+	wrapped, err := json.Marshal(map[string]string{"service_account_json": plaintext})
 	if err != nil {
-		return []string{trimmed}
+		return nil, app_errors.ErrInternalServer
 	}
-	return []string{string(encoded)}
+	return wrapped, nil
 }
 
 func (s *Service) persistCredentials(

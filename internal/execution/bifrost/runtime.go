@@ -17,38 +17,48 @@ import (
 )
 
 const (
-	providerConcurrency = 32
-	providerBufferSize  = 256
-	providerTimeoutSecs = 300
+	providerConcurrency              = 32
+	providerBufferSize               = 256
+	providerTimeoutSecs              = 300
+	defaultMaxUnaryResponseBodyBytes = int64(32 << 20)
 )
 
 var errKeyPoolDisabled = errors.New("Bifrost key pool is disabled; DirectKey is required")
 
 // Runtime owns one long-lived Bifrost Core and executes attempts with explicit credentials.
 type Runtime struct {
-	core         *core.Bifrost
-	account      *directAccount
-	registry     *channel.Registry
-	capabilities execution.CapabilitySet
-	allowPrivate bool
-	shutdownOnce sync.Once
-	closed       atomic.Bool
+	core                      *core.Bifrost
+	account                   *directAccount
+	registry                  *channel.Registry
+	capabilities              execution.CapabilitySet
+	allowPrivate              bool
+	maxUnaryResponseBodyBytes int64
+	shutdownOnce              sync.Once
+	closed                    atomic.Bool
 }
 
 type runtimeOptions struct {
-	allowPrivateNetwork bool
-	openAIBaseURL       string
-	anthropicBaseURL    string
-	geminiBaseURL       string
+	allowPrivateNetwork       bool
+	openAIBaseURL             string
+	anthropicBaseURL          string
+	geminiBaseURL             string
+	maxUnaryResponseBodyBytes int64
 }
 
 // NewRuntime initializes one production runtime. Administrators may configure private-network
 // compatible endpoints; Bifrost still rejects link-local and otherwise unsafe destinations.
-func NewRuntime(ctx context.Context) (*Runtime, error) {
-	return newRuntime(ctx, runtimeOptions{allowPrivateNetwork: true})
+func NewRuntime(ctx context.Context, registry *channel.Registry) (*Runtime, error) {
+	return newRuntime(ctx, runtimeOptions{allowPrivateNetwork: true}, registry)
 }
 
-func newRuntime(ctx context.Context, options runtimeOptions) (*Runtime, error) {
+func newRuntime(ctx context.Context, options runtimeOptions, registry *channel.Registry) (*Runtime, error) {
+	if registry == nil {
+		return nil, fmt.Errorf("initialize execution runtime: channel registry is required")
+	}
+	maxUnaryResponseBodyBytes := options.maxUnaryResponseBodyBytes
+	if maxUnaryResponseBodyBytes <= 0 {
+		maxUnaryResponseBodyBytes = defaultMaxUnaryResponseBodyBytes
+	}
 	account := newDirectAccount()
 	account.setConfig(schemas.OpenAI, providerConfig(options.openAIBaseURL, false, schemas.OpenAI, options.allowPrivateNetwork))
 	account.setConfig(schemas.Anthropic, providerConfig(options.anthropicBaseURL, false, schemas.Anthropic, options.allowPrivateNetwork))
@@ -131,11 +141,12 @@ func newRuntime(ctx context.Context, options runtimeOptions) (*Runtime, error) {
 		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
 	}
 	return &Runtime{
-		core:         bifrostCore,
-		account:      account,
-		registry:     channel.NewRegistry(),
-		capabilities: capabilities,
-		allowPrivate: options.allowPrivateNetwork,
+		core:                      bifrostCore,
+		account:                   account,
+		registry:                  registry,
+		capabilities:              capabilities,
+		allowPrivate:              options.allowPrivateNetwork,
+		maxUnaryResponseBodyBytes: maxUnaryResponseBodyBytes,
 	}, nil
 }
 

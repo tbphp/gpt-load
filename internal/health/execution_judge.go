@@ -81,6 +81,16 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 	}
 	markers := ""
 	if attempt.Evidence != nil {
+		switch attempt.Evidence.Hint {
+		case execution.FailureHintInvalidCredential:
+			return FailureCategoryInvalidKey
+		case execution.FailureHintRateLimited:
+			return FailureCategoryRateLimited
+		case execution.FailureHintModelUnavailable:
+			return FailureCategoryModelUnavailable
+		case execution.FailureHintHostError:
+			return FailureCategoryUpstreamHostError
+		}
 		markers = strings.ToLower(strings.Join([]string{
 			attempt.Evidence.Type,
 			attempt.Evidence.Code,

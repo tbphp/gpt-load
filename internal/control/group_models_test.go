@@ -302,8 +302,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		settings.Overrides[state.SettingInjectUsageOptions] != false {
 		t.Fatalf("preserved sparse config = %#v", settings.Overrides)
 	}
-	if settings.Effective.ConnectTimeout != 15 ||
-		settings.Effective.FirstByteTimeout != 120 ||
+	if settings.Effective.FirstByteTimeout != 120 ||
 		settings.Effective.RequestTimeout != 701 ||
 		settings.Effective.StreamIdleTimeout != 45 ||
 		settings.Effective.InjectUsageOptions ||

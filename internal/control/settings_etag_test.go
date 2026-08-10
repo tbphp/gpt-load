@@ -29,7 +29,6 @@ func TestSettingsWireETagMatchesCheckedInFixture(t *testing.T) {
 
 	representation, err := newSettingsWireRepresentation("Success", SettingsDTO{
 		Values: SettingsValuesResponse{
-			ConnectTimeout:    15,
 			FirstByteTimeout:  120,
 			RequestTimeout:    600,
 			StreamIdleTimeout: 300,
@@ -96,7 +95,7 @@ func TestSettingsDTOCanonicalizesHeaderRulesAndOverrides(t *testing.T) {
 				Remove: []string{"x-old", "X-OLD", "a-remove"},
 			},
 		},
-		Overrides: []string{"request_timeout", "connect_timeout", "request_timeout"},
+		Overrides: []string{"request_timeout", "first_byte_timeout", "request_timeout"},
 	})
 	if got := strings.Join(dto.Values.HeaderRules.Remove, ","); got != "A-Remove,X-Old" {
 		t.Fatalf("remove = %q", got)
@@ -106,7 +105,7 @@ func TestSettingsDTOCanonicalizesHeaderRulesAndOverrides(t *testing.T) {
 		dto.Values.HeaderRules.Set["A-Test"] != "first" {
 		t.Fatalf("set = %#v", dto.Values.HeaderRules.Set)
 	}
-	if got := strings.Join(dto.Overrides, ","); got != "connect_timeout,request_timeout" {
+	if got := strings.Join(dto.Overrides, ","); got != "first_byte_timeout,request_timeout" {
 		t.Fatalf("overrides = %q", got)
 	}
 }

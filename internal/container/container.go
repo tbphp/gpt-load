@@ -138,8 +138,8 @@ func BuildContainer() (*dig.Container, error) {
 		) dialect.Set {
 			return dialect.NewSet(openAI, openAIResponses, anthropic, gemini)
 		},
-		func() (*bifrostexecutor.Runtime, error) {
-			return bifrostexecutor.NewRuntime(context.Background())
+		func(registry *channel.Registry) (*bifrostexecutor.Runtime, error) {
+			return bifrostexecutor.NewRuntime(context.Background(), registry)
 		},
 		func(runtime *bifrostexecutor.Runtime) execution.Executor { return runtime },
 		func(runtime *bifrostexecutor.Runtime) app.ExecutionRuntime { return runtime },

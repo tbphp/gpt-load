@@ -265,7 +265,7 @@ func newOfficialOpenAITestRuntime(t *testing.T, baseURL string) *Runtime {
 	runtime, err := newRuntime(context.Background(), runtimeOptions{
 		allowPrivateNetwork: true,
 		openAIBaseURL:       baseURL,
-	})
+	}, channel.NewRegistry())
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -274,7 +274,7 @@ func newOfficialOpenAITestRuntime(t *testing.T, baseURL string) *Runtime {
 }
 
 func openAIResponsesSpec(operation execution.Operation, method, path string) execution.AttemptSpec {
-	return execution.NewAttemptSpec(execution.AttemptSpec{
+	return freezeTestAttempt(execution.NewAttemptSpec(execution.AttemptSpec{
 		RequestID:      "responses-request",
 		AttemptID:      "responses-attempt",
 		Sequence:       1,
@@ -294,5 +294,5 @@ func openAIResponsesSpec(operation execution.Operation, method, path string) exe
 		Body:         []byte(`{"model":"client-model","stream":true,"provider":"injected","fallbacks":["other/model"],"authorization":"body-injected","api_key":"body-injected","input":"hello","vendor_extension":{"precise":1.2300}}`),
 		TargetConfig: json.RawMessage(`{}`),
 		Credential:   execution.NewCredentialSnapshot(7, 3, 2, []byte(`{"api_key":"`+testAPIKey+`"}`)),
-	})
+	}))
 }

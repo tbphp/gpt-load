@@ -8,7 +8,7 @@ const props = defineProps<{
   channel: ChannelDto | null
   name: string
   params: Record<string, string>
-  paramsError: string
+  paramErrors: Readonly<Record<string, string>>
   disabled?: boolean
 }>()
 const emit = defineEmits<{
@@ -18,7 +18,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 function fieldError(key: string): string {
-  return key === 'base_url' ? props.paramsError : ''
+  return props.paramErrors[key] ?? ''
 }
 </script>
 

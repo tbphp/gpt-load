@@ -202,8 +202,7 @@ export default {
       runtime: {
         title: 'Runtime overrides',
         description: 'Inherited values follow global settings. Group overrides remain sparse.',
-        connect_timeout: 'Connect timeout',
-        first_byte_timeout: 'First-byte timeout',
+        first_byte_timeout: 'Native response / stream first-event timeout',
         request_timeout: 'Request timeout',
         stream_idle_timeout: 'Stream-idle timeout',
         effective: '{value} seconds',

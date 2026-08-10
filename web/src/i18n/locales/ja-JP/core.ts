@@ -53,7 +53,6 @@ export default {
         invalid_name: '有効な HTTP ヘッダートークンを使用してください。',
         duplicate_name: 'ヘッダー名は大文字小文字を区別せず、重複できません。',
         forbidden_set_name: 'このヘッダー名は設定できません。',
-        credential_template_required: '認証情報ヘッダーの値には ${API_KEY} を含めてください。',
         invalid_value: 'ヘッダー値に制御文字は使用できません。',
       },
     },

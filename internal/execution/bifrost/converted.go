@@ -99,10 +99,8 @@ func (r *Runtime) executeConvertedResponses(
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
 	defer callCancel()
-	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
-	defer preResponse.stop()
 
-	bifrostContext := newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesUnarySDKResult, 1)
 	go func() {
@@ -113,16 +111,18 @@ func (r *Runtime) executeConvertedResponses(
 	var outcome responsesUnarySDKResult
 	select {
 	case outcome = <-outcomeChannel:
-		if preResponse.expired() || requestContext.Err() != nil {
-			return unaryContextFailure(requestContext, preResponse.expired())
+		if requestContext.Err() != nil {
+			return unaryContextFailure(requestContext, false)
 		}
 	case <-callContext.Done():
-		return unaryContextFailure(requestContext, preResponse.expired())
+		return unaryContextFailure(requestContext, false)
 	}
-	preResponse.stop()
 
 	if outcome.err != nil {
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+	}
+	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
+		return *failure
 	}
 	if outcome.response == nil {
 		return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned no response")
@@ -332,7 +332,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
 	defer preResponse.stop()
 
-	bifrostContext := newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesStreamSDKResult, 1)
 	go func() {

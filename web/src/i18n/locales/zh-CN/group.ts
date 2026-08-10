@@ -197,8 +197,7 @@ export default {
       runtime: {
         title: '运行时覆盖',
         description: '每行只表达来源、当前值与一个切换动作。',
-        connect_timeout: '连接超时',
-        first_byte_timeout: '首字节超时',
+        first_byte_timeout: '原生响应 / 流式首事件超时',
         request_timeout: '请求超时',
         stream_idle_timeout: '流空闲超时',
         effective: '{value} 秒',

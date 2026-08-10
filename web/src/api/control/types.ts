@@ -72,7 +72,6 @@ export interface HeaderRulesDto {
 }
 
 export interface GroupRuntimeConfigDto {
-  connect_timeout?: number
   first_byte_timeout?: number
   request_timeout?: number
   stream_idle_timeout?: number
@@ -81,7 +80,6 @@ export interface GroupRuntimeConfigDto {
 }
 
 export interface GroupEffectiveConfigDto {
-  connect_timeout: number
   first_byte_timeout: number
   request_timeout: number
   stream_idle_timeout: number

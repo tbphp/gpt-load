@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,7 +50,10 @@ func TestExecutionForwarderBuildsFrozenAttemptAndMapsUnaryResult(t *testing.T) {
 		spec execution.AttemptSpec,
 	) execution.AttemptResult {
 		if spec.RequestID != "request-1" || spec.AttemptID != "attempt-1" || spec.Sequence != 2 ||
-			spec.ChannelID != "openai" || spec.ClientProtocol != protocol.OpenAICompletions ||
+			spec.ChannelID != "openai" || spec.TargetKind != "openai" ||
+			spec.RouteMode != execution.RouteNative ||
+			!spec.RequiredFeatures.Has(execution.FeatureTools) ||
+			spec.ClientProtocol != protocol.OpenAICompletions ||
 			spec.Operation != execution.OperationChatCompletion || spec.ClientModel != "public" ||
 			spec.UpstreamModel != "upstream" || spec.Method != http.MethodPost ||
 			spec.Path != "/v1/chat/completions" || spec.RawQuery != "trace=kept" ||
@@ -106,6 +110,52 @@ func TestExecutionForwarderKeepsHTTPFailureAsUncommittedResponse(t *testing.T) {
 	result.ExecutionError.Summary = "changed"
 	if evidence.Summary != "upstream rejected request" {
 		t.Fatal("Forward() retained executor-owned error evidence")
+	}
+}
+
+func TestExecutionForwarderProjectsConvertedErrorsToClientProtocol(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		protocol protocol.Protocol
+		dialect  dialect.Dialect
+		contains []string
+	}{
+		{name: "OpenAI", protocol: protocol.OpenAIResponses, dialect: dialect.NewOpenAI(), contains: []string{`"error"`, `"type":"rate_limit_error"`}},
+		{name: "Anthropic", protocol: protocol.Anthropic, dialect: dialect.NewAnthropic(), contains: []string{`"type":"error"`, `"type":"rate_limit_error"`}},
+		{name: "Gemini", protocol: protocol.Gemini, dialect: dialect.NewGemini(), contains: []string{`"code":429`, `"status":"RESOURCE_EXHAUSTED"`}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+				return execution.AttemptResult{
+					DispatchState:   execution.DispatchMaybeSent,
+					ResponseStarted: true,
+					StatusCode:      http.StatusTooManyRequests,
+					Header:          http.Header{"Content-Type": {"application/json"}},
+					Body:            []byte(`{"error":{"message":"provider-shaped"}}`),
+					Error: &execution.ErrorEvidence{
+						Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRateLimited,
+						StatusCode: http.StatusTooManyRequests, Type: "rate_limit_error",
+						Code: "RESOURCE_EXHAUSTED", Summary: "upstream returned HTTP 429",
+					},
+				}
+			}}
+			input := executionForwardInput()
+			input.ClientProtocol = test.protocol
+			input.Dialect = test.dialect
+			input.RouteMode = execution.RouteConverted
+			result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+			for _, want := range test.contains {
+				if !strings.Contains(string(result.Body), want) {
+					t.Fatalf("converted %s error body = %s, want %q", test.name, result.Body, want)
+				}
+			}
+			if result.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("content type = %q", result.Header.Get("Content-Type"))
+			}
+		})
 	}
 }
 
@@ -239,15 +289,18 @@ func (*failingExecutionResponseWriter) FlushError() error { return nil }
 
 func executionForwardInput() ForwardInput {
 	return ForwardInput{
-		Dialect:         dialect.NewOpenAI(),
-		RequestID:       "request-1",
-		AttemptID:       "attempt-1",
-		AttemptSequence: 2,
-		ClientProtocol:  protocol.OpenAICompletions,
-		Operation:       execution.OperationChatCompletion,
-		ChannelID:       "openai",
-		TargetConfig:    []byte(`{}`),
-		APIKey:          "secret",
+		Dialect:          dialect.NewOpenAI(),
+		RequestID:        "request-1",
+		AttemptID:        "attempt-1",
+		AttemptSequence:  2,
+		ClientProtocol:   protocol.OpenAICompletions,
+		Operation:        execution.OperationChatCompletion,
+		ChannelID:        "openai",
+		TargetKind:       "openai",
+		RouteMode:        execution.RouteNative,
+		RequiredFeatures: gatewayFeatureSet(execution.FeatureTools),
+		TargetConfig:     []byte(`{}`),
+		APIKey:           "secret",
 		Credential: execution.NewCredentialSnapshot(
 			7, 2, 3, []byte(`{"api_key":"secret"}`),
 		),
@@ -266,8 +319,8 @@ func executionForwardInput() ForwardInput {
 		UpstreamModelID: "upstream",
 		Group: state.GroupView{
 			Timeouts: state.TimeoutConfig{
-				Connect: time.Second, FirstByte: time.Second,
-				Request: time.Second, StreamIdle: time.Second,
+				FirstByte: time.Second,
+				Request:   time.Second, StreamIdle: time.Second,
 			},
 			HeaderRules: state.HeaderRules{
 				Set:    map[string]string{"X-Template": "Bearer ${API_KEY}"},
@@ -275,4 +328,12 @@ func executionForwardInput() ForwardInput {
 			},
 		},
 	}
+}
+
+func gatewayFeatureSet(features ...execution.Feature) execution.FeatureSet {
+	set, err := execution.NewFeatureSet(features...)
+	if err != nil {
+		panic(err)
+	}
+	return set
 }

@@ -35,14 +35,9 @@ type migration struct {
 
 var migrations = []migration{
 	{
-		ID: "0001_initial_v2",
+		ID: "0001_final_v2",
 		Up: createInitialV2Tables,
 	},
-	{ID: "0002_request_log_reasoning", Up: retainLegacyMigrationPosition},
-	{ID: "0003_global_model_prices", Up: retainLegacyMigrationPosition},
-	{ID: "0004_mysql_model_price_identity", Up: retainLegacyMigrationPosition},
-	{ID: "0005_request_log_model_consistency", Up: retainLegacyMigrationPosition},
-	{ID: "0006_channel_execution", Up: migrateChannelExecution},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -107,6 +102,18 @@ func applyMigrationsLocked(db *gorm.DB, useMigrationTransactions bool) error {
 	for index, id := range applied {
 		if index >= len(migrations) || migrations[index].ID != id {
 			return fmt.Errorf("schema_migrations contains unknown or non-contiguous migration %q", id)
+		}
+	}
+	if len(applied) == 0 {
+		tables, err := db.Migrator().GetTables()
+		if err != nil {
+			return fmt.Errorf("list database tables before baseline migration: %w", err)
+		}
+		for _, table := range tables {
+			if strings.EqualFold(table, migrationLedgerTable) || isDatabaseSystemTable(db, table) {
+				continue
+			}
+			return fmt.Errorf("initialize database schema: empty migration ledger beside existing tables")
 		}
 	}
 

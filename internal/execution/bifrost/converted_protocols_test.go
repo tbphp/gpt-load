@@ -186,7 +186,11 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			if err := result.Validate(); err != nil {
 				t.Fatalf("result validation: %v; result=%+v", err, result)
 			}
-			if result.Error != nil || result.StatusCode != http.StatusOK || result.UpstreamRequestID != "converted-request" {
+			// Gemini's bounded-response path in Bifrost v1.7.7 does not expose
+			// provider response headers for small responses.
+			requestIDMissingOnlyForGemini := test.channelID == channel.Gemini && result.UpstreamRequestID == ""
+			if result.Error != nil || result.StatusCode != http.StatusOK ||
+				(result.UpstreamRequestID != "converted-request" && !requestIDMissingOnlyForGemini) {
 				t.Fatalf("result = %+v, body=%s", result, result.Body)
 			}
 			var clientBody map[string]any
@@ -559,7 +563,7 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 }
 
 func convertedSpec(channelID channel.ID, clientProtocol protocol.Protocol, operation execution.Operation, path string, body []byte) execution.AttemptSpec {
-	return execution.NewAttemptSpec(execution.AttemptSpec{
+	spec := execution.NewAttemptSpec(execution.AttemptSpec{
 		RequestID: "converted-request", AttemptID: "converted-attempt", Sequence: 1,
 		ChannelID: string(channelID), ClientProtocol: clientProtocol, Operation: operation,
 		ClientModel: "client-model", UpstreamModel: "upstream-model",
@@ -568,6 +572,10 @@ func convertedSpec(channelID channel.ID, clientProtocol protocol.Protocol, opera
 		Body:   body, TargetConfig: json.RawMessage(`{}`),
 		Credential: execution.NewCredentialSnapshot(12, 1, 1, []byte(`{"api_key":"`+testAPIKey+`"}`)),
 	})
+	if _, err := channel.NewRegistry().ResolveExecutionTarget(channelID, spec.TargetConfig); err == nil {
+		return freezeTestAttempt(spec)
+	}
+	return spec
 }
 
 const openAIResponsesConvertedFixture = `{"id":"resp_1","object":"response","created_at":123,"status":"completed","model":"gpt-upstream","output":[{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"hello","annotations":[]}]}],"usage":{"input_tokens":4,"input_tokens_details":{"cached_tokens":1},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":6}}`

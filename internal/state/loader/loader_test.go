@@ -186,8 +186,7 @@ func TestLoaderPublishesDefaultsFromEmptyDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := manager.Current().Settings
-	if got.ConnectTimeout != 15*time.Second ||
-		got.FirstByteTimeout != 120*time.Second ||
+	if got.FirstByteTimeout != 120*time.Second ||
 		got.RequestTimeout != 600*time.Second ||
 		got.StreamIdleTimeout != 300*time.Second ||
 		got.RequestLogRetentionDays != 7 {
@@ -293,7 +292,7 @@ func TestBuildCompileInputReadsUncommittedTransactionState(t *testing.T) {
 
 func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	db := openMigratedDatabase(t)
-	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})
+	mustCreate(t, db, &models.SystemSetting{Key: "first_byte_timeout", Value: "20"})
 	group := createRuntimeGroup(t, db, "owned", protocol.OpenAICompletions, "gpt-owned")
 	if err := db.Model(&group).Update("overrides", models.JSON(`{"request_timeout":30}`)).Error; err != nil {
 		t.Fatalf("update group overrides: %v", err)
@@ -308,7 +307,7 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first BuildCompileInput() error = %v", err)
 	}
-	first.SystemSettings["connect_timeout"] = 99
+	first.SystemSettings["first_byte_timeout"] = 99
 	first.Groups[0].Params[0] = '['
 	first.Groups[0].Settings["request_timeout"] = 99
 	first.AccessKeys[0].Filters.Groups[999] = struct{}{}
@@ -318,8 +317,8 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second BuildCompileInput() error = %v", err)
 	}
-	if got := fmt.Sprint(second.SystemSettings["connect_timeout"]); got != "20" {
-		t.Fatalf("connect_timeout = %q, want 20", got)
+	if got := fmt.Sprint(second.SystemSettings["first_byte_timeout"]); got != "20" {
+		t.Fatalf("first_byte_timeout = %q, want 20", got)
 	}
 	if second.Groups[0].ChannelID != channel.OpenAI || string(second.Groups[0].Params) != `{}` {
 		t.Fatalf("channel group = %#v, want OpenAI with canonical params", second.Groups[0])
@@ -337,7 +336,7 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 
 func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	db := openMigratedDatabase(t)
-	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})
+	mustCreate(t, db, &models.SystemSetting{Key: "first_byte_timeout", Value: "20"})
 	mustCreate(t, db, &models.SystemSetting{
 		Key:   "header_rules",
 		Value: `{"set":{"X-System":"system"},"remove":["X-System-Remove"]}`,
@@ -383,8 +382,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 		t.Fatal("Current() = nil, want snapshot")
 	}
 	wantSettings := state.RuntimeSettings{
-		ConnectTimeout:    20 * time.Second,
-		FirstByteTimeout:  120 * time.Second,
+		FirstByteTimeout:  20 * time.Second,
 		RequestTimeout:    600 * time.Second,
 		StreamIdleTimeout: 300 * time.Second,
 		HeaderRules: state.HeaderRules{
@@ -415,8 +413,8 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	if len(view.Models) != 3 || view.Models[0].Alias != "Primary" || view.Models[1].Alias != "Secondary" {
 		t.Errorf("group models = %#v, want all aliases retained", view.Models)
 	}
-	if view.Timeouts.Connect != 20*time.Second || view.Timeouts.Request != 30*time.Second {
-		t.Errorf("group timeouts = %#v, want connect 20s and request 30s", view.Timeouts)
+	if view.Timeouts.FirstByte != 20*time.Second || view.Timeouts.Request != 30*time.Second {
+		t.Errorf("group timeouts = %#v, want first byte 20s and request 30s", view.Timeouts)
 	}
 	if len(view.HeaderRules.Set) != 1 || view.HeaderRules.Set["X-Group"] != "group" {
 		t.Errorf("group header set rules = %#v, want whole group override", view.HeaderRules.Set)

@@ -64,7 +64,7 @@ func TestHandlerStreamsFakeUpstreamAndRetriesBeforeCommit(t *testing.T) {
 
 	t.Run("retryable response then valid fixture", func(t *testing.T) {
 		upstream := fakeupstream.New(
-			fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+			fakeupstream.Step{Status: http.StatusTooManyRequests, Fixture: "openai/429.json"},
 			fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/stream.sse", Stream: true},
 		)
 		defer upstream.Close()
@@ -130,7 +130,7 @@ func TestHandlerStreamRetryUsesEachGroupsInjectUsageSetting(t *testing.T) {
 	first := false
 	second := true
 	upstream := fakeupstream.New(
-		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+		fakeupstream.Step{Status: http.StatusTooManyRequests, Fixture: "openai/429.json"},
 		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/stream.sse", Stream: true},
 	)
 	defer upstream.Close()

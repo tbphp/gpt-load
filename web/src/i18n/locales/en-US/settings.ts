@@ -59,8 +59,7 @@ export default {
       title: 'Request and forwarding',
       description:
         'Explicit values override built-in defaults. Restoring a default uses the current version; all timeouts are in seconds.',
-      connect_timeout: 'Connect timeout',
-      first_byte_timeout: 'First-byte timeout',
+      first_byte_timeout: 'Native response / stream first-event timeout',
       request_timeout: 'Total request timeout',
       stream_idle_timeout: 'Stream idle timeout',
       inject_usage_options: 'Inject usage options for streaming responses',

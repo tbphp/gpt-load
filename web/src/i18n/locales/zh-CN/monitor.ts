@@ -360,13 +360,17 @@ export default {
     },
     inspector: {
       title: '路由检查',
-      description: '按当前运行时快照解释指定请求的候选 Group 与凭据。',
-      boundary: '仅查看当前运行时。只读；不会发送上游请求，也不会消耗 Token。',
+      description: '按协议、模型与 AccessKey 静态检查当前候选 Group 与凭据。',
+      boundary: '不解析真实 method、body 或能力字段；只读，不会发送上游请求或消耗 Token。',
       protocols: {
         'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
         anthropic: 'Anthropic',
         gemini: 'Gemini',
+      },
+      routeModes: {
+        native: '原生',
+        converted: '转换',
       },
       form: {
         title: '模拟请求条件',
@@ -426,12 +430,14 @@ export default {
       },
       groups: {
         title: '候选 Group',
-        description: '份额按当前候选 Group 中可用凭据的有效权重合计计算，不代表固定流量比例。',
+        description: '原生优先；份额只在当前实际参与竞争的路由层级内计算。',
         count: '{count} 个',
         tableLabel: '候选 Group 路由解释',
         completeEmpty: '未返回候选 Group；这是该输入的完整当前运行时解释，并非空态。',
         included: '已纳入候选',
         excluded: '未纳入候选',
+        standby: '后备层级',
+        standbyShare: '当前不参与竞争',
         availableTotal: '可用 / 总数',
         currentTotal: '当前合计',
         shareLabel: '{name} 的有效权重占比为 {share}',

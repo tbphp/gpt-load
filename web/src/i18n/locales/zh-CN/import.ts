@@ -19,6 +19,7 @@ export default {
       catalogMore: '更多渠道',
       channelReady: '已预设连接信息',
       baseUrlRequired: '需要填写 Base URL',
+      configurationRequired: '需要填写连接信息',
       channelRequired: '请选择渠道',
     },
     mode: {
@@ -90,6 +91,7 @@ export default {
       accessKeyWarning: '{count} 行看起来像 GPT-Load AccessKey，请确认后继续',
       tooMany: '最多可提交 1,000 个非空密钥',
       channelCredentialNotice: '这里导入的是渠道 API 密钥；客户端凭证请在“访问密钥”页面创建',
+      result: '新增 {added} 条凭据，跳过 {duplicated} 条重复凭据',
     },
     models: {
       title: '模型与别名',

@@ -408,18 +408,6 @@ export async function batchCredentials(
   }
 }
 
-export async function deleteCredential(
-  client: ApiClient,
-  groupId: number,
-  credentialId: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  await client.request(`/api/groups/${groupId}/credentials/${credentialId}`, {
-    method: 'DELETE',
-    signal,
-  })
-}
-
 function queryFilters(queryKey: QueryKey): CredentialCollectionFilters | undefined {
   const filters = queryKey[5]
   if (typeof filters !== 'object' || filters === null || Array.isArray(filters)) return undefined

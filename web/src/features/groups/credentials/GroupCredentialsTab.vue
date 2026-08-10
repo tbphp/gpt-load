@@ -365,7 +365,7 @@ async function reconcileBatch(
 ): Promise<void> {
   try {
     await cacheCredentialBatch(queryClient, props.groupId, action, result)
-    if (action !== 'delete') await refetchActiveCredentialPage()
+    await refetchActiveCredentialPage()
     synchronizeGroupSummary(result.summary)
   } catch {
     feedback.value = t('group.credentials.reconcileFailed')

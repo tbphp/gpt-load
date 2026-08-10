@@ -24,7 +24,6 @@ export interface SettingsFieldIdentity {
 }
 
 const requestForwardingKeys: RuntimeSettingKey[] = [
-  'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
@@ -271,7 +270,6 @@ export function validateSettingsSection(draft: SettingsDraft, section: SettingsS
     )
   }
   const timeouts: TimeoutSettingKey[] = [
-    'connect_timeout',
     'first_byte_timeout',
     'request_timeout',
     'stream_idle_timeout',

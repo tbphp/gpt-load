@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"gpt-load/internal/channel"
@@ -78,6 +79,7 @@ func TestCompatibleAnthropicAndGeminiNativeUnaryStream(t *testing.T) {
 			unarySpec := test.unarySpec()
 			unarySpec.ChannelID = string(test.channelID)
 			unarySpec.TargetConfig = target
+			unarySpec = freezeTestAttempt(unarySpec)
 			unarySpec.ClientModel = unarySpec.UpstreamModel
 			unary := runtime.Execute(context.Background(), unarySpec)
 			if err := unary.Validate(); err != nil || unary.Error != nil || string(unary.Body) != test.unaryBody || unary.Usage == nil {
@@ -87,6 +89,7 @@ func TestCompatibleAnthropicAndGeminiNativeUnaryStream(t *testing.T) {
 			streamSpec := test.streamSpec()
 			streamSpec.ChannelID = string(test.channelID)
 			streamSpec.TargetConfig = target
+			streamSpec = freezeTestAttempt(streamSpec)
 			streamSpec.ClientModel = streamSpec.UpstreamModel
 			if test.streamQuery != "" {
 				streamSpec.Query.Set("alt", test.streamQuery)
@@ -105,20 +108,18 @@ func TestCompatibleAnthropicAndGeminiNativeUnaryStream(t *testing.T) {
 	}
 }
 
-func TestCompatibleOpenAIResponsesCreateStreamAndLifecycle(t *testing.T) {
+func TestCompatibleOpenAIResponsesCreateConvertsToChatAndRejectsLifecycle(t *testing.T) {
 	t.Parallel()
 
-	const unaryResponse = `{"id":"resp_1","object":"response","status":"completed","model":"served","output":[],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}`
-	const streamResponse = "event: response.completed\n" +
-		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"served\",\"usage\":{\"input_tokens\":5,\"output_tokens\":2,\"total_tokens\":7}}}\n\n"
+	const unaryResponse = `{"id":"chat_1","object":"chat.completion","created":1,"model":"served","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}`
+	const streamResponse = "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"served\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"served\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\n" +
+		"data: [DONE]\n\n"
+	var calls atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !strings.HasPrefix(request.URL.Path, "/tenant/v1/responses") || request.Header.Get("Authorization") != "Bearer "+testAPIKey {
+		calls.Add(1)
+		if request.URL.Path != "/tenant/v1/chat/completions" || request.Header.Get("Authorization") != "Bearer "+testAPIKey {
 			t.Errorf("request = %s %#v", request.URL.Path, request.Header)
-		}
-		if request.Method == http.MethodGet {
-			writer.WriteHeader(http.StatusPartialContent)
-			_, _ = io.WriteString(writer, `{"id":"resp_1","status":"completed"}`)
-			return
 		}
 		body, _ := io.ReadAll(request.Body)
 		var payload map[string]any
@@ -138,9 +139,10 @@ func TestCompatibleOpenAIResponsesCreateStreamAndLifecycle(t *testing.T) {
 	create := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
 	create.ChannelID = string(channel.OpenAICompatible)
 	create.TargetConfig = target
+	create = freezeTestAttempt(create)
 	create.ClientModel = create.UpstreamModel
 	unary := runtime.Execute(context.Background(), create)
-	if err := unary.Validate(); err != nil || unary.Error != nil || string(unary.Body) != unaryResponse {
+	if err := unary.Validate(); err != nil || unary.Error != nil || !bytes.Contains(unary.Body, []byte(`"object":"response"`)) {
 		t.Fatalf("unary = %+v err=%v body=%s", unary, err, unary.Body)
 	}
 	var data bytes.Buffer
@@ -150,7 +152,7 @@ func TestCompatibleOpenAIResponsesCreateStreamAndLifecycle(t *testing.T) {
 		}
 		return nil
 	})
-	if err := stream.Validate(); err != nil || stream.Error != nil || data.String() != streamResponse {
+	if err := stream.Validate(); err != nil || stream.Error != nil || !strings.Contains(data.String(), "response.completed") {
 		t.Fatalf("stream = %+v err=%v data=%s", stream, err, data.String())
 	}
 	retrieve := openAIResponsesSpec(execution.OperationResponsesRetrieve, http.MethodGet, "/v1/responses/resp_1")
@@ -158,8 +160,11 @@ func TestCompatibleOpenAIResponsesCreateStreamAndLifecycle(t *testing.T) {
 	retrieve.TargetConfig = target
 	retrieve.ClientModel, retrieve.UpstreamModel, retrieve.Body = "", "", nil
 	lifecycle := runtime.Execute(context.Background(), retrieve)
-	if err := lifecycle.Validate(); err != nil || lifecycle.StatusCode != http.StatusPartialContent || lifecycle.Error != nil {
+	if err := lifecycle.Validate(); err != nil || lifecycle.DispatchState != execution.DispatchNotSent || lifecycle.Error == nil {
 		t.Fatalf("lifecycle = %+v err=%v", lifecycle, err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("upstream calls = %d, want unary and stream only", calls.Load())
 	}
 }
 
@@ -210,6 +215,7 @@ func TestCompatibleListModelsAndProbeUseConfiguredPrefix(t *testing.T) {
 			}
 			models := utilitySpec(test.channelID, test.protocol, execution.OperationListModels, http.MethodGet, modelsPath, nil)
 			models.TargetConfig = target
+			models = freezeTestAttempt(models)
 			models.Query.Set("page", "next")
 			modelsResult := runtime.Execute(context.Background(), models)
 			if err := modelsResult.Validate(); err != nil || modelsResult.Error != nil {
@@ -225,6 +231,7 @@ func TestCompatibleListModelsAndProbeUseConfiguredPrefix(t *testing.T) {
 			}
 			probe := utilitySpec(test.channelID, test.protocol, execution.OperationProbe, http.MethodPost, probeClientPath, test.probeBody)
 			probe.TargetConfig = target
+			probe = freezeTestAttempt(probe)
 			probe.ClientModel, probe.UpstreamModel = "probe-client", "probe-upstream"
 			probeResult := runtime.Execute(context.Background(), probe)
 			if err := probeResult.Validate(); err != nil || probeResult.Error != nil {
@@ -255,6 +262,7 @@ func TestOpenAICompatibleNonV1PrefixKeepsListModelsAndProbeFunctional(t *testing
 	target, _ := json.Marshal(map[string]string{"base_url": server.URL + "/vendor/api/v4"})
 	models := utilitySpec(channel.OpenAICompatible, protocol.OpenAICompletions, execution.OperationListModels, http.MethodGet, "/v1/models", nil)
 	models.TargetConfig = target
+	models = freezeTestAttempt(models)
 	modelsResult := runtime.Execute(context.Background(), models)
 	if err := modelsResult.Validate(); err != nil || modelsResult.Error != nil || !bytes.Contains(modelsResult.Body, []byte(`"model-1"`)) {
 		t.Fatalf("models = %+v err=%v body=%s", modelsResult, err, modelsResult.Body)
@@ -262,6 +270,7 @@ func TestOpenAICompatibleNonV1PrefixKeepsListModelsAndProbeFunctional(t *testing
 
 	probe := utilitySpec(channel.OpenAICompatible, protocol.OpenAICompletions, execution.OperationProbe, http.MethodPost, "/v1/chat/completions", []byte(`{"model":"client","messages":[{"role":"user","content":"ping"}]}`))
 	probe.TargetConfig = target
+	probe = freezeTestAttempt(probe)
 	probe.ClientModel, probe.UpstreamModel = "probe-client", "probe-upstream"
 	probeResult := runtime.Execute(context.Background(), probe)
 	if err := probeResult.Validate(); err != nil || probeResult.Error != nil || !bytes.Contains(probeResult.Body, []byte(`"chat_1"`)) {
@@ -288,6 +297,7 @@ func TestOpenAICompatibleConvertedResponsesUsesChatCompletions(t *testing.T) {
 	spec := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
 	spec.ChannelID = string(channel.OpenAICompatible)
 	spec.TargetConfig = target
+	spec = freezeTestAttempt(spec)
 	spec.ClientModel = "client-model"
 	spec.UpstreamModel = "upstream-model"
 	spec.Body = []byte(`{"model":"client-model","input":"hello","store":false}`)

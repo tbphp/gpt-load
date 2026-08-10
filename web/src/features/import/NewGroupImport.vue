@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { ApiError, InvalidResponseError, RequestCancelledError } from '@/api/errors'
+import { useToast } from '@/app/toast'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { constrainCollectionSearch } from '@/app/route-query'
 import {
@@ -71,6 +72,7 @@ const recovery = useImportRecovery()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const toast = useToast()
 const importOperationOwner = useImportOperationOwner()
 const createOperation = importOperationOwner.createGroup
 const appendOperation = importOperationOwner.importCredentials
@@ -97,7 +99,7 @@ function cloneDraft(source: ImportDraft): ImportDraft {
 
 function sameTargetConflict(cause: unknown): SameTargetConflictData | null {
   return cause instanceof ApiError &&
-    cause.code === 'UPSTREAM_URL_CONFLICT' &&
+    cause.code === 'CHANNEL_TARGET_CONFLICT' &&
     isSameTargetConflictData(cause.data)
     ? cause.data
     : null
@@ -183,18 +185,27 @@ let discoveryPanelRun = false
 let componentActive = true
 
 const credentialAnalysis = computed(() => analyzeCredentials(draft.credentials, draft.channel_id))
-const paramsError = computed(() => {
+const paramErrors = computed<Record<string, string>>(() => {
+  const errors: Record<string, string> = {}
   const channel = selectedChannel.value
-  if (!channel) return t('import.presets.channelRequired')
+  if (!channel) return errors
   for (const field of channel.param_fields) {
     const value = draft.params[field.key]?.trim() ?? ''
-    if (field.required && !value) return t('import.connection.paramRequired', { name: field.label })
+    if (field.required && !value) {
+      errors[field.key] = t('import.connection.paramRequired', { name: field.label })
+      continue
+    }
     if (field.input_kind === 'url' && value && !isValidUpstreamBaseURL(value)) {
-      return t('import.connection.urlError')
+      errors[field.key] = t('import.connection.urlError')
     }
   }
-  return ''
+  return errors
 })
+const paramsError = computed(() =>
+  selectedChannel.value === null
+    ? t('import.presets.channelRequired')
+    : (Object.values(paramErrors.value)[0] ?? ''),
+)
 const modelConflicts = computed(() =>
   serverModelConflicts.value.length
     ? serverModelConflicts.value
@@ -568,7 +579,12 @@ function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
   }
 }
 
-async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promise<void> {
+async function finishSuccess(
+  groupID: number,
+  kind: 'create' | 'append',
+  added: number,
+  duplicated: number,
+): Promise<void> {
   completed.value = true
   draft.credentials = ''
   recovery.clear()
@@ -582,6 +598,11 @@ async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promis
       : mutationInvalidationPlans.group.importCredentials(groupID),
   )
   if (!componentActive) return
+  toast.show({
+    message: t('import.credentials.result', { added, duplicated }),
+    tone: added === 0 ? 'warning' : 'success',
+    duration: 4_000,
+  })
   await router.push(groupDetailLocation(groupID))
 }
 
@@ -610,7 +631,12 @@ async function executeCreateOperation(): Promise<void> {
   if (!outcome) return
   if (outcome.kind === 'confirmed') {
     const targetID = outcome.value.group_id
-    await finishSuccess(targetID, 'create')
+    await finishSuccess(
+      targetID,
+      'create',
+      outcome.value.credentials_added,
+      outcome.value.credentials_duplicated,
+    )
     return
   }
   if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
@@ -685,7 +711,12 @@ async function executeAppendOperation(): Promise<void> {
   if (!outcome) return
   if (outcome.kind === 'confirmed') {
     const targetID = outcome.value.group_id
-    await finishSuccess(targetID, 'append')
+    await finishSuccess(
+      targetID,
+      'append',
+      outcome.value.credentials_added,
+      outcome.value.credentials_duplicated,
+    )
     return
   }
   if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
@@ -772,7 +803,7 @@ onBeforeUnmount(() => {
       :channel="selectedChannel"
       :name="draft.name"
       :params="draft.params"
-      :params-error="paramsError"
+      :param-errors="paramErrors"
       :disabled="payloadLocked"
       @update:name="draft.name = $event"
       @update:param="setChannelParam"

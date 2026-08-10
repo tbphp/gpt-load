@@ -146,11 +146,8 @@ func builtinDefinitions() []definition {
 		newDefinition(
 			OpenAICompatible, "OpenAI Compatible", "OC", "Custom OpenAI-compatible API", []string{"custom", "proxy", "gateway"},
 			compatibleParams, apiKeySchema, "", ProviderOpenAICompatible, true,
-			map[protocol.Protocol]bool{
-				protocol.OpenAICompletions: true,
-				protocol.OpenAIResponses:   true,
-			},
-			true,
+			map[protocol.Protocol]bool{protocol.OpenAICompletions: true},
+			false,
 		),
 		newDefinition(
 			AnthropicCompatible, "Anthropic Compatible", "AC", "Custom Anthropic-compatible API", []string{"custom", "proxy", "gateway", "claude"},
@@ -361,8 +358,8 @@ func buildRouteMatrix(
 		}
 		operationModes := map[execution.Operation]RouteMode{
 			operation:                     mode,
-			execution.OperationListModels: RouteNative,
-			execution.OperationProbe:      RouteNative,
+			execution.OperationListModels: mode,
+			execution.OperationProbe:      mode,
 		}
 		if clientProtocol == protocol.OpenAIResponses && native && responsesLifecycle {
 			nativeFeatures := mustFeatureSet(

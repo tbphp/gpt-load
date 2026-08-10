@@ -36,6 +36,14 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 	if Operation("unknown").Valid() {
 		t.Fatal("expected unknown operation to be invalid")
 	}
+	for _, mode := range []RouteMode{RouteNative, RouteConverted} {
+		if !mode.Valid() {
+			t.Fatalf("expected route mode %q to be valid", mode)
+		}
+	}
+	if RouteMode("fallback").Valid() {
+		t.Fatal("expected unknown route mode to be invalid")
+	}
 	for _, feature := range []Feature{
 		FeatureStreaming,
 		FeatureTools,
@@ -209,6 +217,7 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	clone.Query.Set("api-version", "clone")
 	clone.Body[0] = 'Z'
 	clone.TargetConfig[0] = 'Q'
+	clone.RequiredFeatures.features[FeatureReasoning] = struct{}{}
 	clone.Credential.data[0] = 'Q'
 	if owned.Header.Get("X-Test") != "original" || owned.Query.Get("api-version") != "2026-01-01" {
 		t.Fatal("mutating clone changed original maps")
@@ -218,6 +227,9 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	}
 	if string(owned.TargetConfig) != `{"base_url":"https://upstream.example"}` {
 		t.Fatal("mutating clone changed original raw messages")
+	}
+	if owned.RequiredFeatures.Has(FeatureReasoning) {
+		t.Fatal("mutating clone changed original required features")
 	}
 
 	encoded, err := json.Marshal(owned)
@@ -347,13 +359,17 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		{name: "attempt id", mutate: func(s *AttemptSpec) { s.AttemptID = "" }, field: "attempt_id"},
 		{name: "sequence", mutate: func(s *AttemptSpec) { s.Sequence = 0 }, field: "sequence"},
 		{name: "channel", mutate: func(s *AttemptSpec) { s.ChannelID = "" }, field: "channel_id"},
+		{name: "target kind", mutate: func(s *AttemptSpec) { s.TargetKind = "" }, field: "target_kind"},
+		{name: "route mode", mutate: func(s *AttemptSpec) { s.RouteMode = RouteMode("fallback") }, field: "route_mode"},
+		{name: "required features", mutate: func(s *AttemptSpec) {
+			s.RequiredFeatures.features[Feature("unknown")] = struct{}{}
+		}, field: "required_features"},
 		{name: "protocol", mutate: func(s *AttemptSpec) { s.ClientProtocol = protocol.Protocol("unknown") }, field: "client_protocol"},
 		{name: "operation", mutate: func(s *AttemptSpec) { s.Operation = Operation("unknown") }, field: "operation"},
 		{name: "model", mutate: func(s *AttemptSpec) { s.UpstreamModel = "" }, field: "upstream_model"},
 		{name: "method", mutate: func(s *AttemptSpec) { s.Method = "" }, field: "method"},
 		{name: "path", mutate: func(s *AttemptSpec) { s.Path = "https://upstream.example/v1/chat/completions" }, field: "path"},
 		{name: "header", mutate: func(s *AttemptSpec) { s.Header.Set("X-Test", "bad\nvalue") }, field: "header"},
-		{name: "connect timeout", mutate: func(s *AttemptSpec) { s.Timeouts.Connect = -time.Second }, field: "timeouts.connect"},
 		{name: "first byte timeout", mutate: func(s *AttemptSpec) { s.Timeouts.FirstByte = -time.Second }, field: "timeouts.first_byte"},
 		{name: "timeout", mutate: func(s *AttemptSpec) { s.Timeouts.Request = -time.Second }, field: "timeouts.request"},
 		{name: "stream idle timeout", mutate: func(s *AttemptSpec) { s.Timeouts.StreamIdle = -time.Second }, field: "timeouts.stream_idle"},
@@ -456,6 +472,7 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	}
 	safeEvidence := ErrorEvidence{
 		Kind:    ErrorKindHTTP,
+		Hint:    FailureHintInvalidCredential,
 		Summary: "safe summary",
 		Header:  http.Header{"Retry-After": {"1"}},
 	}
@@ -465,6 +482,9 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	}
 	if strings.Contains(string(encodedEvidence), "Retry-After") {
 		t.Fatalf("error evidence JSON exposed headers: %s", encodedEvidence)
+	}
+	if err := (ErrorEvidence{Kind: ErrorKindHTTP, Hint: FailureHint("unknown"), Summary: "safe"}).Validate(); err == nil {
+		t.Fatal("expected unknown failure hint to be rejected")
 	}
 }
 
@@ -510,18 +530,22 @@ func validAttemptSpec(credentialData []byte) AttemptSpec {
 		AttemptID:      "attempt-1",
 		Sequence:       1,
 		ChannelID:      "openai",
+		TargetKind:     "openai",
+		RouteMode:      RouteNative,
 		ClientProtocol: protocol.OpenAICompletions,
 		Operation:      OperationChatCompletion,
-		ClientModel:    "client-model",
-		UpstreamModel:  "upstream-model",
-		Method:         http.MethodPost,
-		Path:           "/v1/chat/completions",
-		Query:          url.Values{"api-version": {"2026-01-01"}},
-		Header:         http.Header{"X-Test": {"original"}},
-		Body:           []byte(`{"model":"client-model"}`),
-		TargetConfig:   json.RawMessage(`{"base_url":"https://upstream.example"}`),
+		RequiredFeatures: FeatureSet{features: map[Feature]struct{}{
+			FeatureStreaming: {},
+		}},
+		ClientModel:   "client-model",
+		UpstreamModel: "upstream-model",
+		Method:        http.MethodPost,
+		Path:          "/v1/chat/completions",
+		Query:         url.Values{"api-version": {"2026-01-01"}},
+		Header:        http.Header{"X-Test": {"original"}},
+		Body:          []byte(`{"model":"client-model"}`),
+		TargetConfig:  json.RawMessage(`{"base_url":"https://upstream.example"}`),
 		Timeouts: AttemptTimeouts{
-			Connect:    5 * time.Second,
 			FirstByte:  10 * time.Second,
 			Request:    30 * time.Second,
 			StreamIdle: 15 * time.Second,

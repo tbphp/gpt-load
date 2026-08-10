@@ -28,9 +28,6 @@ func (c CredentialSnapshot) Validate() error {
 
 // Validate validates the timeout values.
 func (t AttemptTimeouts) Validate() error {
-	if t.Connect < 0 {
-		return validationError("timeouts.connect", "must not be negative")
-	}
 	if t.FirstByte < 0 {
 		return validationError("timeouts.first_byte", "must not be negative")
 	}
@@ -57,11 +54,20 @@ func (s AttemptSpec) Validate() error {
 	if strings.TrimSpace(s.ChannelID) == "" {
 		return validationError("channel_id", "must not be empty")
 	}
+	if strings.TrimSpace(s.TargetKind) == "" || len(s.TargetKind) > 64 || containsControl(s.TargetKind) {
+		return validationError("target_kind", "must be a safe non-empty identifier")
+	}
+	if !s.RouteMode.Valid() {
+		return validationError("route_mode", "unsupported value")
+	}
 	if !s.ClientProtocol.Valid() {
 		return validationError("client_protocol", "unsupported value")
 	}
 	if !s.Operation.Valid() {
 		return validationError("operation", "unsupported value")
+	}
+	if err := s.RequiredFeatures.Validate(); err != nil {
+		return validationError("required_features", "contains an unsupported value")
 	}
 	if operationRequiresModel(s.Operation) {
 		if strings.TrimSpace(s.ClientModel) == "" {
@@ -104,6 +110,9 @@ func (s AttemptSpec) Validate() error {
 func (e ErrorEvidence) Validate() error {
 	if !e.Kind.Valid() {
 		return validationError("error.kind", "unsupported value")
+	}
+	if !e.Hint.Valid() {
+		return validationError("error.hint", "unsupported value")
 	}
 	if !validOptionalHTTPStatus(e.StatusCode) {
 		return validationError("error.status_code", "must be zero or a valid HTTP status")

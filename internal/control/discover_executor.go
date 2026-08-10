@@ -56,6 +56,10 @@ func (s *Service) executeModelDiscovery(
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
+	routeMode, supported := target.resolvedTarget.Mode(clientProtocol, execution.OperationListModels)
+	if !supported {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
 
 	discoveryCtx, cancel := context.WithTimeout(ctx, s.modelDiscoveryTimeout)
 	defer cancel()
@@ -70,7 +74,8 @@ func (s *Service) executeModelDiscovery(
 		}
 		spec := execution.NewAttemptSpec(execution.AttemptSpec{
 			RequestID: requestID, AttemptID: attemptID, Sequence: uint32(index + 1),
-			ChannelID: string(target.channelID), ClientProtocol: clientProtocol,
+			ChannelID: string(target.channelID), TargetKind: string(target.resolvedTarget.ProviderKind),
+			RouteMode: execution.RouteMode(routeMode), ClientProtocol: clientProtocol,
 			Operation: execution.OperationListModels, Method: method, Path: path,
 			Header: applyControlHeaderRules(target.headerRules, credential.apiKey), Body: body,
 			TargetConfig: target.resolvedTarget.TargetConfig,
@@ -113,8 +118,8 @@ func (s *Service) newExecutionID() (string, error) {
 
 func executionTimeouts(value state.TimeoutConfig) execution.AttemptTimeouts {
 	return execution.AttemptTimeouts{
-		Connect: value.Connect, FirstByte: value.FirstByte,
-		Request: value.Request, StreamIdle: value.StreamIdle,
+		FirstByte: value.FirstByte,
+		Request:   value.Request, StreamIdle: value.StreamIdle,
 	}
 }
 

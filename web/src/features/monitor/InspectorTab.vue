@@ -93,7 +93,7 @@ const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const protocolOptions = computed(() =>
   enabledDataProtocols.map((value) => ({
     value,
-    label: value,
+    label: t(`monitor.inspector.protocols.${value}`),
   })),
 )
 const missingAccessKeyOption = computed(
@@ -139,11 +139,27 @@ const includedGroups = computed(() =>
 const excludedGroups = computed(() =>
   (observation.value?.groups ?? []).filter((group) => !group.included),
 )
+const activeRouteMode = computed<'native' | 'converted' | null>(() => {
+  if (includedGroups.value.some((group) => group.routable && group.route_mode === 'native')) {
+    return 'native'
+  }
+  if (includedGroups.value.some((group) => group.routable && group.route_mode === 'converted')) {
+    return 'converted'
+  }
+  return null
+})
+const activeTierGroups = computed(() =>
+  activeRouteMode.value === null
+    ? []
+    : includedGroups.value.filter(
+        (group) => group.routable && group.route_mode === activeRouteMode.value,
+      ),
+)
 const availableCredentialCount = computed(() =>
-  includedGroups.value.reduce((total, group) => total + groupAvailableCredentialCount(group), 0),
+  activeTierGroups.value.reduce((total, group) => total + groupAvailableCredentialCount(group), 0),
 )
 const totalEffectiveWeight = computed(() =>
-  includedGroups.value.reduce((total, group) => total + groupEffectiveWeight(group), 0),
+  activeTierGroups.value.reduce((total, group) => total + groupEffectiveWeight(group), 0),
 )
 
 function readProtocol(raw: unknown): AccessProtocol | '' {
@@ -333,6 +349,10 @@ function modelLabel(value: string | null): string {
   return value ?? t('monitor.inspector.result.modelNotSpecified')
 }
 
+function protocolLabel(value: AccessProtocol): string {
+  return t(`monitor.inspector.protocols.${value}`)
+}
+
 function formattedInteger(value: number): string {
   return formatInteger(value, locale.value)
 }
@@ -346,7 +366,15 @@ function accessKeyStatusTone(status: 'active' | 'disabled'): 'success' | 'neutra
 }
 
 function groupTone(group: RouteInspectGroupDto): StatusTone {
-  return group.routable ? 'success' : 'danger'
+  if (!group.routable) return 'danger'
+  return group.route_mode === activeRouteMode.value ? 'success' : 'neutral'
+}
+
+function groupStatusLabel(group: RouteInspectGroupDto): string {
+  if (!group.routable) return t('monitor.inspector.result.notRoutable')
+  return group.route_mode === activeRouteMode.value
+    ? t('monitor.inspector.result.routable')
+    : t('monitor.inspector.groups.standby')
 }
 
 function credentialTone(credential: RouteInspectCredentialDto): StatusTone {
@@ -374,12 +402,14 @@ function groupEffectiveWeight(group: RouteInspectGroupDto): number {
 }
 
 function groupShare(group: RouteInspectGroupDto): number {
+  if (group.route_mode !== activeRouteMode.value) return 0
   const total = totalEffectiveWeight.value
   if (total <= 0) return 0
   return Math.round((groupEffectiveWeight(group) / total) * 1_000) / 10
 }
 
 function groupShareLabel(group: RouteInspectGroupDto): string {
+  if (group.route_mode !== activeRouteMode.value) return t('monitor.inspector.groups.standbyShare')
   return formatPercent(groupEffectiveWeight(group), totalEffectiveWeight.value, locale.value)
 }
 
@@ -561,8 +591,12 @@ onBeforeUnmount(() => {
             </div>
             <div class="route-fact">
               <dt>{{ t('monitor.inspector.result.protocol') }}</dt>
-              <OverflowTooltip as="dd" class="route-fact__mono" :content="observation.protocol">
-                {{ observation.protocol }}
+              <OverflowTooltip
+                as="dd"
+                class="route-fact__mono"
+                :content="`${protocolLabel(observation.protocol)} · ${observation.operation}`"
+              >
+                {{ protocolLabel(observation.protocol) }} · {{ observation.operation }}
               </OverflowTooltip>
             </div>
             <div class="route-fact">
@@ -648,9 +682,11 @@ onBeforeUnmount(() => {
                   </OverflowTooltip>
                   <OverflowTooltip
                     as="small"
-                    :content="`#${group.group_id} · ${modelLabel(group.upstream_model)}`"
+                    :content="`#${group.group_id} · ${group.channel_id} · ${group.route_mode} · ${modelLabel(group.upstream_model)}`"
                   >
-                    #{{ group.group_id }} · {{ modelLabel(group.upstream_model) }}
+                    #{{ group.group_id }} · {{ group.channel_id }} ·
+                    {{ t(`monitor.inspector.routeModes.${group.route_mode}`) }} ·
+                    {{ modelLabel(group.upstream_model) }}
                   </OverflowTooltip>
                 </div>
                 <div class="route-candidate__status" role="cell">
@@ -658,11 +694,7 @@ onBeforeUnmount(() => {
                     t('monitor.inspector.groups.columns.status')
                   }}</span>
                   <StatusBadge :tone="groupTone(group)" size="compact">
-                    {{
-                      group.routable
-                        ? t('monitor.inspector.result.routable')
-                        : t('monitor.inspector.result.notRoutable')
-                    }}
+                    {{ groupStatusLabel(group) }}
                   </StatusBadge>
                 </div>
                 <div class="route-candidate__measure" role="cell">
@@ -890,9 +922,11 @@ onBeforeUnmount(() => {
                 </OverflowTooltip>
                 <OverflowTooltip
                   as="small"
-                  :content="`#${group.group_id} · ${modelLabel(group.upstream_model)}`"
+                  :content="`#${group.group_id} · ${group.channel_id} · ${group.route_mode} · ${modelLabel(group.upstream_model)}`"
                 >
-                  #{{ group.group_id }} · {{ modelLabel(group.upstream_model) }}
+                  #{{ group.group_id }} · {{ group.channel_id }} ·
+                  {{ t(`monitor.inspector.routeModes.${group.route_mode}`) }} ·
+                  {{ modelLabel(group.upstream_model) }}
                 </OverflowTooltip>
               </div>
               <div class="ledger-record-list__cell" role="cell">

@@ -377,14 +377,18 @@ export default {
     inspector: {
       title: 'Route inspector',
       description:
-        'Explain candidate Groups and credentials for an input against the current runtime.',
+        'Statically inspect candidate Groups and credentials by protocol, model, and AccessKey.',
       boundary:
-        'Current runtime only. Read-only. No upstream request is sent. No tokens are consumed.',
+        'Method, body, and feature fields are not parsed. Read-only; no upstream request or token usage.',
       protocols: {
         'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
         anthropic: 'Anthropic',
         gemini: 'Gemini',
+      },
+      routeModes: {
+        native: 'Native',
+        converted: 'Converted',
       },
       form: {
         title: 'Simulated request',
@@ -449,13 +453,15 @@ export default {
       groups: {
         title: 'Candidate Groups',
         description:
-          'Shares use the effective-weight total of available credentials in current candidate Groups and are not fixed traffic ratios.',
+          'Native routes take priority. Shares are calculated only within the route tier currently competing.',
         count: '{count}',
         tableLabel: 'Candidate Group route explanation',
         completeEmpty:
           'No candidate Groups were returned. This is a complete current-runtime explanation for this input, not an empty state.',
         included: 'Included as candidate',
         excluded: 'Excluded from candidates',
+        standby: 'Standby tier',
+        standbyShare: 'Not currently competing',
         availableTotal: 'Available / total',
         currentTotal: 'Current total',
         shareLabel: '{name} has {share} of the effective weight',

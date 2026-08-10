@@ -76,7 +76,6 @@ const groupOptionFields = ['id', 'name', 'channel_id', 'params', 'enabled', 'mod
 const credentialCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
 const groupCollectionStatuses = ['available', 'unavailable', 'disabled'] as const
 const runtimeSettingFields = [
-  'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
@@ -90,7 +89,6 @@ export interface HeaderRulesDto {
 }
 
 export interface GroupRuntimeConfigDto {
-  connect_timeout?: number
   first_byte_timeout?: number
   request_timeout?: number
   stream_idle_timeout?: number
@@ -99,7 +97,6 @@ export interface GroupRuntimeConfigDto {
 }
 
 export interface GroupEffectiveConfigDto {
-  connect_timeout: number
   first_byte_timeout: number
   request_timeout: number
   stream_idle_timeout: number
@@ -223,12 +220,7 @@ function projectRuntimeConfig(
   assertNoSecretLikeFields(record, runtimeSettingFields)
   const result: GroupRuntimeConfigDto = {}
 
-  for (const field of [
-    'connect_timeout',
-    'first_byte_timeout',
-    'request_timeout',
-    'stream_idle_timeout',
-  ] as const) {
+  for (const field of ['first_byte_timeout', 'request_timeout', 'stream_idle_timeout'] as const) {
     if (complete || Object.prototype.hasOwnProperty.call(record, field)) {
       result[field] = projectSafeInteger(record[field], { minimum: 1 })
     }

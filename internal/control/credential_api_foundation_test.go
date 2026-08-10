@@ -176,6 +176,25 @@ func TestVertexCredentialImportAcceptsPastedServiceAccountJSON(t *testing.T) {
 	}
 }
 
+func TestVertexCredentialImportAcceptsOneRawServiceAccountPerLine(t *testing.T) {
+	fixture := newServiceFixture(t)
+	credentials := strings.Join([]string{
+		`{"type":"service_account","project_id":"project-one","client_email":"first@example.iam.gserviceaccount.com","private_key":"first-secret"}`,
+		`{"type":"service_account","project_id":"project-one","client_email":"second@example.iam.gserviceaccount.com","private_key":"second-secret"}`,
+	}, "\n")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("vertex credential batch"), ChannelID: channel.GoogleVertex,
+		Params: json.RawMessage(`{"location":"us-central1","project_id":"project-one"}`),
+		Models: optionalGroupModels{Set: true}, Credentials: credentials,
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	if created.CredentialsAdded != 2 || created.CredentialsDuplicated != 0 {
+		t.Fatalf("create result = %#v", created)
+	}
+}
+
 func TestGroupCredentialMutationsPreserveRuntimeIdentityAndHealthContracts(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{

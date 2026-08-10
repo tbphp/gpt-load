@@ -40,20 +40,6 @@ func TestOpenAIResponsesUnknownNamespaceUsesExplicitNativePassthrough(t *testing
 			},
 		},
 		{
-			name: "compatible complete v1 prefix", channelID: channel.OpenAICompatible,
-			method: http.MethodPatch, path: "/v1/responses/vendor_extension",
-			body:     []byte(`{"model":"client-model","vendor":{"precise":1.2300}}`),
-			status:   http.StatusOK,
-			response: `{"object":"vendor.result"}`,
-			target: func(base string) json.RawMessage {
-				encoded, _ := json.Marshal(map[string]string{"base_url": base + "/v1"})
-				return encoded
-			},
-			newRuntime: func(t *testing.T, _ string) *Runtime {
-				return newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true})
-			},
-		},
-		{
 			name: "model optional head resource", channelID: channel.OpenAI,
 			method: http.MethodHead, path: "/v1/responses/resp_123/vendor_state",
 			status: http.StatusNoContent,
@@ -99,6 +85,7 @@ func TestOpenAIResponsesUnknownNamespaceUsesExplicitNativePassthrough(t *testing
 			spec := convertedSpec(test.channelID, protocol.OpenAIResponses, execution.OperationResponsesPassthrough, test.path, test.body)
 			spec.Method = test.method
 			spec.TargetConfig = test.target(server.URL)
+			spec = freezeTestAttempt(spec)
 			spec.Query.Set("vendor", "kept")
 			if len(test.body) == 0 {
 				spec.ClientModel = ""
@@ -125,5 +112,24 @@ func TestResponsesPassthroughFailsClosedForNonOpenAIProvider(t *testing.T) {
 	result := runtime.Execute(context.Background(), spec)
 	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil || result.Error.Kind != execution.ErrorKindInvalidRequest {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestGenericOpenAICompatibleDoesNotAdvertiseUnknownResponsesPassthrough(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+
+	spec := convertedSpec(channel.OpenAICompatible, protocol.OpenAIResponses, execution.OperationResponsesPassthrough, "/v1/responses/vendor_extension", []byte(`{"vendor":true}`))
+	spec.TargetConfig, _ = json.Marshal(map[string]string{"base_url": server.URL + "/v1"})
+	spec.TargetKind = string(channel.ProviderOpenAICompatible)
+	spec.RouteMode = execution.RouteNative
+	result := newProtocolTestRuntime(t, runtimeOptions{allowPrivateNetwork: true}).Execute(context.Background(), spec)
+	if calls.Load() != 0 || result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Kind != execution.ErrorKindInvalidRequest {
+		t.Fatalf("calls/result = %d/%+v", calls.Load(), result)
 	}
 }

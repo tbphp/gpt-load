@@ -103,9 +103,7 @@ jobs:
       - name: Run external database contract
         env:
           GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
-          GPT_LOAD_DATABASE_MIGRATION_TEST_DSN: ${{ matrix.dsn }}
         run: |
-          go test -v -count=1 ./internal/storage -run '^TestExternalDatabaseChannelExecutionMigration$'
           go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternalDatabase(ConcurrentMigrations|Lifecycle|ModelPriceIdentityUsesExactComparison|ReadSnapshotUsesRepeatableRead|GroupPriceReconciliation|RequestLogLifecycle)$'
 
   windows-encryption-acl:

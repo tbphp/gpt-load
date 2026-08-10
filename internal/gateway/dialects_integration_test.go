@@ -20,6 +20,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
@@ -32,6 +33,8 @@ type dialectGatewayGroup struct {
 	id          uint
 	name        string
 	upstreamURL string
+	channelID   channel.ID
+	params      json.RawMessage
 	apiKeys     []string
 	models      []state.ModelConfig
 	headerRules state.HeaderRules
@@ -62,6 +65,24 @@ func newDialectGatewayEngine(
 	dialects dialect.Set,
 	groups ...dialectGatewayGroup,
 ) (*gin.Engine, *state.CredentialRegistry) {
+	return newDialectGatewayEngineWithForwarder(
+		t,
+		selectedProtocol,
+		model,
+		dialects,
+		newTestExecutionForwarder(t),
+		groups...,
+	)
+}
+
+func newDialectGatewayEngineWithForwarder(
+	t *testing.T,
+	selectedProtocol protocol.Protocol,
+	model string,
+	dialects dialect.Set,
+	forwarder AttemptForwarder,
+	groups ...dialectGatewayGroup,
+) (*gin.Engine, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	keyService, err := encryption.NewService("dialect-gateway-test-master-key")
@@ -78,8 +99,11 @@ func newDialectGatewayEngine(
 		if len(models) == 0 {
 			models = []state.ModelConfig{{ID: model}}
 		}
-		baseURL := testUpstreamBaseURL(group.upstreamURL, selectedProtocol)
-		channelID, params := testChannelConfig(t, selectedProtocol, baseURL)
+		channelID, params := group.channelID, group.params
+		if channelID == "" {
+			baseURL := testUpstreamBaseURL(group.upstreamURL, selectedProtocol)
+			channelID, params = testChannelConfig(t, selectedProtocol, baseURL)
+		}
 		configs = append(configs, state.GroupConfig{
 			ID: group.id, Name: group.name, ChannelID: channelID, Params: params,
 			Models: models, Enabled: true,
@@ -120,7 +144,7 @@ func newDialectGatewayEngine(
 		manager,
 		registry,
 		keyService,
-		newTestExecutionForwarder(t),
+		forwarder,
 		dialects,
 		health.NewStatsStore(),
 		health.NewMutationCoordinator(),
@@ -160,7 +184,7 @@ func TestGatewayDecodesSupportedClientContentCodings(t *testing.T) {
 		{
 			name: "Responses create", protocol: protocol.OpenAIResponses,
 			dialects: dialect.NewSet(dialect.NewOpenAIResponses()),
-			path:     "/v1/responses", plaintext: []byte(`{"model":"public-model","input":"ping"}`),
+			path:     "/v1/responses", plaintext: []byte(`{"model":"public-model","input":"ping","store":false}`),
 		},
 	}
 	encodings := []contentcoding.Encoding{
@@ -175,27 +199,21 @@ func TestGatewayDecodesSupportedClientContentCodings(t *testing.T) {
 		t.Run(route.name, func(t *testing.T) {
 			for _, encoding := range encodings {
 				t.Run(string(encoding), func(t *testing.T) {
-					var receivedBody []byte
-					var receivedHeader http.Header
-					upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-						receivedHeader = request.Header.Clone()
-						var err error
-						receivedBody, err = io.ReadAll(request.Body)
-						if err != nil {
-							t.Errorf("ReadAll(upstream body) error = %v", err)
-						}
-						writer.Header().Set("Content-Type", "application/json")
-						_, _ = writer.Write([]byte(`{"ok":true}`))
-					}))
-					defer upstream.Close()
-
-					engine, _ := newDialectGatewayEngine(
+					forwarder := &scriptedForwarder{results: []UpstreamResult{{
+						StatusCode:     http.StatusOK,
+						Header:         http.Header{"Content-Type": {"application/json"}},
+						Body:           []byte(`{"ok":true}`),
+						RequestWritten: true,
+						DispatchState:  execution.DispatchMaybeSent,
+					}}}
+					engine, _ := newDialectGatewayEngineWithForwarder(
 						t,
 						route.protocol,
 						"public-model",
 						route.dialects,
+						forwarder,
 						dialectGatewayGroup{
-							id: 1, name: route.name, upstreamURL: upstream.URL,
+							id: 1, name: route.name, upstreamURL: "https://provider.example/v1",
 							apiKeys: []string{"sk-provider"},
 						},
 					)
@@ -214,11 +232,11 @@ func TestGatewayDecodesSupportedClientContentCodings(t *testing.T) {
 					if recorder.Code != http.StatusOK {
 						t.Fatalf("response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
 					}
-					if !bytes.Equal(receivedBody, route.plaintext) {
-						t.Fatalf("upstream body = %s, want plaintext %s", receivedBody, route.plaintext)
+					if len(forwarder.inputs) != 1 || !bytes.Equal(forwarder.inputs[0].Request.Body, route.plaintext) {
+						t.Fatalf("forwarded inputs = %#v, want plaintext %s", forwarder.inputs, route.plaintext)
 					}
-					if got := receivedHeader.Get("Content-Encoding"); got != "" {
-						t.Fatalf("upstream Content-Encoding = %q, want absent", got)
+					if got := forwarder.inputs[0].Request.Header.Get("Content-Encoding"); got != "" {
+						t.Fatalf("forwarded Content-Encoding = %q, want absent", got)
 					}
 				})
 			}
@@ -227,38 +245,6 @@ func TestGatewayDecodesSupportedClientContentCodings(t *testing.T) {
 }
 
 func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocally(t *testing.T) {
-	var (
-		mu       sync.Mutex
-		received []*http.Request
-	)
-	upstream := httptest.NewServer(http.HandlerFunc(func(
-		writer http.ResponseWriter,
-		request *http.Request,
-	) {
-		mu.Lock()
-		received = append(received, request.Clone(request.Context()))
-		mu.Unlock()
-		writer.Header().Set("Content-Type", "application/json")
-		if request.URL.Path == "/v1/responses/resp_missing" {
-			writer.WriteHeader(http.StatusNotFound)
-			_, _ = writer.Write([]byte(`{"error":{"message":"resource missing"}}`))
-			return
-		}
-		_, _ = writer.Write([]byte(`{"id":"resp_123","object":"response"}`))
-	}))
-	defer upstream.Close()
-
-	engine, _ := newDialectGatewayEngine(
-		t,
-		protocol.OpenAIResponses,
-		"public-model",
-		dialect.NewSet(dialect.NewOpenAIResponses()),
-		dialectGatewayGroup{
-			id: 1, name: "responses", upstreamURL: upstream.URL,
-			apiKeys: []string{"sk-responses"},
-		},
-	)
-
 	tests := []struct {
 		name            string
 		method          string
@@ -341,6 +327,32 @@ func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocall
 			wantContentType: "application/json",
 		},
 	}
+	results := make([]UpstreamResult, 0, len(tests))
+	for _, test := range tests {
+		body := []byte(`{"id":"resp_123","object":"response"}`)
+		if test.status == http.StatusNotFound {
+			body = []byte(`{"error":{"message":"resource missing"}}`)
+		}
+		results = append(results, UpstreamResult{
+			StatusCode:     test.status,
+			Header:         http.Header{"Content-Type": {"application/json"}},
+			Body:           body,
+			RequestWritten: true,
+			DispatchState:  execution.DispatchMaybeSent,
+		})
+	}
+	forwarder := &scriptedForwarder{results: results}
+	engine, _ := newDialectGatewayEngineWithForwarder(
+		t,
+		protocol.OpenAIResponses,
+		"public-model",
+		dialect.NewSet(dialect.NewOpenAIResponses()),
+		forwarder,
+		dialectGatewayGroup{
+			id: 1, name: "responses", channelID: channel.OpenAI, params: json.RawMessage(`{}`),
+			apiKeys: []string{"sk-responses"},
+		},
+	)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(
@@ -435,16 +447,17 @@ func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocall
 		})
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if len(received) != len(tests) {
-		t.Fatalf("upstream requests = %d, want %d", len(received), len(tests))
+	if len(forwarder.inputs) != len(tests) {
+		t.Fatalf("forwarded requests = %d, want %d", len(forwarder.inputs), len(tests))
 	}
-	for index, request := range received {
-		if request.Method != tests[index].method ||
-			request.URL.RequestURI() != tests[index].target ||
-			request.Header.Get("Authorization") != "Bearer sk-responses" {
-			t.Fatalf("upstream request %d = %s %s headers=%v", index, request.Method, request.URL.RequestURI(), request.Header)
+	for index, input := range forwarder.inputs {
+		requestURI := input.Request.Path
+		if input.Request.RawQuery != "" {
+			requestURI += "?" + input.Request.RawQuery
+		}
+		if input.Request.Method != tests[index].method || requestURI != tests[index].target ||
+			input.APIKey != "sk-responses" {
+			t.Fatalf("forwarded request %d = %s %s api_key=%q", index, input.Request.Method, requestURI, input.APIKey)
 		}
 	}
 }
@@ -589,7 +602,7 @@ func TestGatewayRewritesEachAttemptFromOriginal(t *testing.T) {
 	}
 }
 
-func TestHandlerHostFailureSkipsGroupForCurrentRequestOnly(t *testing.T) {
+func TestHandlerHostFailureDoesNotReplayGenerationAcrossGroups(t *testing.T) {
 	primary := fakeupstream.New(
 		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
 		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
@@ -616,7 +629,7 @@ func TestHandlerHostFailureSkipsGroupForCurrentRequestOnly(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "2" {
+		if recorder.Code != http.StatusInternalServerError || recorder.Header().Get(debugHeaderAttempts) != "1" {
 			t.Fatalf("response = %d attempts=%s body=%s",
 				recorder.Code, recorder.Header().Get(debugHeaderAttempts), recorder.Body.String())
 		}
@@ -624,8 +637,8 @@ func TestHandlerHostFailureSkipsGroupForCurrentRequestOnly(t *testing.T) {
 	if got := len(primary.Requests()); got != 2 {
 		t.Fatalf("primary requests = %d, want one per downstream request", got)
 	}
-	if got := len(backup.Requests()); got != 2 {
-		t.Fatalf("backup requests = %d, want one per downstream request", got)
+	if got := len(backup.Requests()); got != 0 {
+		t.Fatalf("backup requests = %d, want none for ambiguous generation failures", got)
 	}
 }
 
@@ -674,8 +687,8 @@ func TestForwarderRewritesAliasedNonStreamingResponses(t *testing.T) {
 		{
 			name: "OpenAI Responses", value: protocol.OpenAIResponses,
 			dialects: dialect.NewSet(dialect.NewOpenAIResponses()),
-			path:     "/v1/responses", requestBody: `{"model":"public-model","input":"ping"}`,
-			upstreamResponse: `{"id":"resp-1","object":"response","model":"provider-response"}`,
+			path:     "/v1/responses", requestBody: `{"model":"public-model","input":"ping","store":false}`,
+			upstreamResponse: `{"id":"chatcmpl-1","object":"chat.completion","created":123,"model":"provider-response","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`,
 			responseField:    "model",
 		},
 		{

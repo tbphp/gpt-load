@@ -98,17 +98,13 @@ func (c Credential) CanonicalJSON() json.RawMessage { return canonicalJSON(c.val
 // MarshalJSON prevents accidental serialization of credential names or values.
 func (c Credential) MarshalJSON() ([]byte, error) { return []byte(`{}`), nil }
 
-// RouteMode identifies whether an operation uses the channel's native wire
-// contract or requires protocol conversion.
-type RouteMode string
+// RouteMode is the neutral execution route decision exposed by a channel.
+type RouteMode = execution.RouteMode
 
 const (
-	RouteNative    RouteMode = "native"
-	RouteConverted RouteMode = "converted"
+	RouteNative    = execution.RouteNative
+	RouteConverted = execution.RouteConverted
 )
-
-// Valid reports whether mode is recognized.
-func (m RouteMode) Valid() bool { return m == RouteNative || m == RouteConverted }
 
 // ProviderKind identifies the upstream API family selected by a code-owned
 // channel preset. It is runtime metadata, not a persisted SDK identifier.
@@ -294,14 +290,30 @@ func (r *Registry) Resolve(id ID, raw json.RawMessage) (ResolvedTarget, error) {
 	} else if len(definition.params) > 0 {
 		targetConfig = params.CanonicalJSON()
 	}
+	capabilities := cloneCapabilityMatrix(definition.capabilities)
+	modes := cloneRouteModes(definition.modes)
+	if definition.providerKind == ProviderOpenAICompatible && !openAIPassthroughEligible(targetConfig) {
+		capabilities, modes = buildRouteMatrix(nil, false)
+	}
 	return ResolvedTarget{
 		ChannelID:         id,
 		ProviderKind:      definition.providerKind,
 		TargetConfig:      append(json.RawMessage(nil), targetConfig...),
 		CatalogProviderID: definition.catalogProviderID,
-		capabilities:      cloneCapabilityMatrix(definition.capabilities),
-		modes:             cloneRouteModes(definition.modes),
+		capabilities:      capabilities,
+		modes:             modes,
 	}, nil
+}
+
+func openAIPassthroughEligible(targetConfig json.RawMessage) bool {
+	var target struct {
+		BaseURL string `json:"base_url"`
+	}
+	if json.Unmarshal(targetConfig, &target) != nil || target.BaseURL == "" {
+		return false
+	}
+	parsed, err := url.Parse(target.BaseURL)
+	return err == nil && strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/v1")
 }
 
 // ResolveExecutionTarget validates a frozen runtime target produced by Resolve.

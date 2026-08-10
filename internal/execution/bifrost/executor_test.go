@@ -2,6 +2,7 @@ package bifrost
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,10 +35,13 @@ func TestRuntimeUnaryUsesSelectedCredentialModelAndEndpoint(t *testing.T) {
 		if got := request.Header.Get("Authorization"); got != "Bearer "+testAPIKey {
 			t.Errorf("authorization = %q", got)
 		}
-		for _, name := range []string{"Proxy-Authorization", "Api-Key", "X-Api-Key", "X-Goog-Api-Key", "Connection", "Proxy-Connection"} {
+		for _, name := range []string{"Proxy-Authorization", "Api-Key", "X-Api-Key", "X-Goog-Api-Key", "Proxy-Connection"} {
 			if value := request.Header.Get(name); value != "" {
 				t.Errorf("sensitive/transport header %s reached upstream: %q", name, value)
 			}
+		}
+		if value := request.Header.Get("Connection"); value != "close" {
+			t.Errorf("SDK-owned Connection header = %q, want close", value)
 		}
 		if got := request.Header.Get("X-Test-Header"); got != "forward-me" {
 			t.Errorf("safe business header = %q", got)
@@ -112,6 +116,82 @@ func TestRuntimeUnaryUsesSelectedCredentialModelAndEndpoint(t *testing.T) {
 	assertNoPrivateLeak(t, result, testAPIKey, "gptload-custom-")
 }
 
+func TestRuntimeBoundsUnaryResponsesBeforeMaterialization(t *testing.T) {
+	const limit = int64(256)
+
+	t.Run("native identity response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write(bytes.Repeat([]byte("x"), int(limit+1)))
+		}))
+		defer server.Close()
+
+		runtime := newProtocolTestRuntime(t, runtimeOptions{
+			allowPrivateNetwork:       true,
+			maxUnaryResponseBodyBytes: limit,
+		})
+		spec := compatibleSpec(server.URL)
+		spec.ClientModel = spec.UpstreamModel
+		result := runtime.Execute(context.Background(), spec)
+		if result.Error == nil || result.Error.Kind != execution.ErrorKindInternal ||
+			result.Error.Summary != "upstream response exceeds size limit" {
+			t.Fatalf("oversized native result = %+v", result)
+		}
+	})
+
+	t.Run("native compressed response fails closed without materialization", func(t *testing.T) {
+		var compressed bytes.Buffer
+		writer := gzip.NewWriter(&compressed)
+		_, _ = writer.Write([]byte(`{"model":"upstream-model","padding":"` + strings.Repeat("x", 4096) + `"}`))
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if int64(compressed.Len()) >= limit {
+			t.Fatalf("compressed fixture = %d bytes, want below %d", compressed.Len(), limit)
+		}
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "application/json")
+			response.Header().Set("Content-Encoding", "gzip")
+			_, _ = response.Write(compressed.Bytes())
+		}))
+		defer server.Close()
+
+		runtime := newProtocolTestRuntime(t, runtimeOptions{
+			allowPrivateNetwork:       true,
+			maxUnaryResponseBodyBytes: limit,
+		})
+		spec := compatibleSpec(server.URL)
+		spec.ClientModel = spec.UpstreamModel
+		result := runtime.Execute(context.Background(), spec)
+		if result.Error == nil || result.Error.Kind != execution.ErrorKindInternal ||
+			result.Error.Summary != "encoded upstream response cannot be safely forwarded" ||
+			len(result.Body) != 0 {
+			t.Fatalf("compressed native result = %+v body=%d", result, len(result.Body))
+		}
+	})
+
+	t.Run("converted response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":"`+strings.Repeat("x", 1024)+`"},"finish_reason":"stop"}]}`)
+		}))
+		defer server.Close()
+
+		runtime := newProtocolTestRuntime(t, runtimeOptions{
+			allowPrivateNetwork:       true,
+			maxUnaryResponseBodyBytes: limit,
+		})
+		spec := compatibleSpec(server.URL)
+		spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `"}`)
+		spec = freezeTestAttempt(spec)
+		result := runtime.Execute(context.Background(), spec)
+		if result.Error == nil || result.Error.Kind != execution.ErrorKindInternal ||
+			result.Error.Summary != "upstream response exceeds size limit" {
+			t.Fatalf("oversized converted result = %+v", result)
+		}
+	})
+}
+
 func TestNativePassthroughRewritesModelAliasInUnaryAndStreamResponses(t *testing.T) {
 	t.Parallel()
 
@@ -172,7 +252,7 @@ func TestProductionRuntimeAllowsConfiguredPrivateCompatibleEndpoint(t *testing.T
 
 	server := responseServer(t, "private-endpoint")
 	defer server.Close()
-	runtime, err := NewRuntime(context.Background())
+	runtime, err := NewRuntime(context.Background(), channel.NewRegistry())
 	if err != nil {
 		t.Fatalf("new production runtime: %v", err)
 	}
@@ -289,6 +369,7 @@ func TestRuntimeAcceptsCanonicalOfficialTargetWithoutChangingCredential(t *testi
 	spec := compatibleSpec("https://unused.example")
 	spec.ChannelID = string(channel.OpenAI)
 	spec.TargetConfig = json.RawMessage(`{}`)
+	spec = freezeTestAttempt(spec)
 	prepared, failure := runtime.prepare(spec, false)
 	if failure != nil {
 		t.Fatalf("official preflight failed: %+v", failure)
@@ -341,6 +422,7 @@ func TestRuntimePreparesStructuredCloudCredentialsForSelectedProvider(t *testing
 			spec.ChannelID = test.channelID
 			spec.TargetConfig = json.RawMessage(test.targetConfig)
 			spec.Credential = execution.NewCredentialSnapshot(23, 5, 7, []byte(test.credential))
+			spec = freezeTestAttempt(spec)
 			prepared, failure := runtime.prepare(spec, false)
 			if failure != nil {
 				t.Fatalf("prepare() failure = %+v", failure)
@@ -414,6 +496,7 @@ func TestRuntimeKeepsExactNonV1CompatiblePrefixViaTypedFallback(t *testing.T) {
 	runtime := newTestRuntime(t)
 	spec := compatibleSpec(server.URL)
 	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant/openai"}`)
+	spec = freezeTestAttempt(spec)
 	result := runtime.Execute(context.Background(), spec)
 	if err := result.Validate(); err != nil {
 		t.Fatalf("result validation: %v; result=%+v", err, result)
@@ -568,6 +651,7 @@ func TestRuntimePreservesSafeQueryForNativeAndTypedCompatibleTargets(t *testing.
 			runtime := newTestRuntime(t)
 			spec := compatibleSpec(server.URL)
 			spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + test.basePrefix + `"}`)
+			spec = freezeTestAttempt(spec)
 			spec.Query.Set("trace", "keep")
 			spec.Query.Set("provider", "injected")
 			spec.Query.Set("fallbacks", "injected")
@@ -629,6 +713,7 @@ func TestRuntimePreservesRawQueryBytesForNativeAndTypedCompatibleTargets(t *test
 			runtime := newTestRuntime(t)
 			spec := compatibleSpec(server.URL)
 			spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + test.basePrefix + `"}`)
+			spec = freezeTestAttempt(spec)
 			spec.Query = nil
 			spec.RawQuery = raw
 			result := runtime.Execute(context.Background(), spec)
@@ -665,6 +750,7 @@ func TestRuntimeMergesCompatibleBaseAndRequestQueries(t *testing.T) {
 			runtime := newTestRuntime(t)
 			spec := compatibleSpec(server.URL)
 			spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + test.basePrefix + `?api-version=2025-01-01&tenant=base"}`)
+			spec = freezeTestAttempt(spec)
 			spec.Query = nil
 			spec.RawQuery = "trace=%2F&api_key=injected&trace=%2f"
 			result := runtime.Execute(context.Background(), spec)
@@ -789,50 +875,25 @@ func TestRuntimeFirstByteAndStreamIdleTimeouts(t *testing.T) {
 		}
 	})
 
-	t.Run("unary connect budget does not replace first-byte budget", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			time.Sleep(150 * time.Millisecond)
-			writeSuccess(writer, "late")
-		}))
-		defer server.Close()
-		runtime := newTestRuntime(t)
-		spec := compatibleSpec(server.URL)
-		spec.Timeouts.Connect = 20 * time.Millisecond
-		spec.Timeouts.FirstByte = 500 * time.Millisecond
-		spec.Timeouts.Request = time.Second
-		result := runtime.Execute(context.Background(), spec)
-		if result.Error != nil || !result.ResponseStarted || result.StatusCode != http.StatusOK {
-			t.Fatalf("unexpected connect-gate result: %+v", result)
-		}
-		if err := result.Validate(); err != nil {
-			t.Fatalf("result validation: %v", err)
-		}
-	})
-
-	t.Run("stream connect budget does not replace first-byte budget", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	t.Run("converted unary uses the total request budget", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path != "/tenant/chat/completions" {
+				t.Errorf("path = %q", request.URL.Path)
+			}
 			time.Sleep(80 * time.Millisecond)
-			writer.Header().Set("Content-Type", "text/event-stream")
-			writer.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(writer, "data: [DONE]\n\n")
-			writer.(http.Flusher).Flush()
+			writeSuccess(writer, "converted")
 		}))
 		defer server.Close()
+
 		runtime := newTestRuntime(t)
 		spec := compatibleSpec(server.URL)
-		spec.Timeouts.Connect = 20 * time.Millisecond
-		spec.Timeouts.FirstByte = 500 * time.Millisecond
+		spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant"}`)
+		spec.Timeouts.FirstByte = 20 * time.Millisecond
 		spec.Timeouts.Request = time.Second
-		var events []execution.StreamEvent
-		result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
-			events = append(events, event.Clone())
-			return nil
-		})
-		if result.Error != nil || !result.ResponseStarted || result.StatusCode != http.StatusOK {
-			t.Fatalf("unexpected connect-gate result: %+v", result)
-		}
-		if len(events) < 2 || events[0].Kind != execution.StreamEventReady {
-			t.Fatalf("events = %+v", events)
+		spec = freezeTestAttempt(spec)
+		result := runtime.Execute(context.Background(), spec)
+		if result.Error != nil || result.StatusCode != http.StatusOK {
+			t.Fatalf("converted unary result = %+v", result)
 		}
 		if err := result.Validate(); err != nil {
 			t.Fatalf("result validation: %v", err)
@@ -905,6 +966,75 @@ func TestRuntimeFirstByteAndStreamIdleTimeouts(t *testing.T) {
 	})
 }
 
+func TestConvertedStreamRequiresFirstClientFrame(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty Responses stream fails before start", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "text/event-stream")
+			writer.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		runtime := newTestRuntime(t)
+		spec := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
+		spec.ChannelID = string(channel.OpenAICompatible)
+		spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/v1"}`)
+		spec = freezeTestAttempt(spec)
+		var events []execution.StreamEvent
+		result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+			events = append(events, event.Clone())
+			return nil
+		})
+
+		if result.Error == nil || result.ResponseStarted || len(events) != 0 {
+			t.Fatalf("empty converted stream = %+v events=%+v", result, events)
+		}
+		if err := result.Validate(); err != nil {
+			t.Fatalf("result validation: %v", err)
+		}
+	})
+
+	t.Run("first-byte timeout waits for a complete converted frame", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path != "/tenant/chat/completions" {
+				t.Errorf("path = %q", request.URL.Path)
+			}
+			writer.Header().Set("Content-Type", "text/event-stream")
+			writer.WriteHeader(http.StatusOK)
+			writer.(http.Flusher).Flush()
+			time.Sleep(100 * time.Millisecond)
+			_, _ = io.WriteString(writer, "data: {\"id\":\"chatcmpl-late\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"served\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"late\"},\"finish_reason\":null}]}\n\n")
+			writer.(http.Flusher).Flush()
+		}))
+		defer server.Close()
+
+		runtime := newTestRuntime(t)
+		spec := compatibleSpec(server.URL)
+		spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant"}`)
+		spec.Timeouts.FirstByte = 20 * time.Millisecond
+		spec.Timeouts.Request = time.Second
+		spec = freezeTestAttempt(spec)
+		var events []execution.StreamEvent
+		started := time.Now()
+		result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+			events = append(events, event.Clone())
+			return nil
+		})
+
+		if elapsed := time.Since(started); elapsed > 90*time.Millisecond {
+			t.Fatalf("first-frame timeout returned after %s", elapsed)
+		}
+		if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout ||
+			result.ResponseStarted || len(events) != 0 {
+			t.Fatalf("converted first-frame result = %+v events=%+v", result, events)
+		}
+		if err := result.Validate(); err != nil {
+			t.Fatalf("result validation: %v", err)
+		}
+	})
+}
+
 func TestRuntimeShutdownIsIdempotentAndClosesExecution(t *testing.T) {
 	t.Parallel()
 
@@ -958,7 +1088,7 @@ func mustTestFeatures(t *testing.T, features ...execution.Feature) execution.Fea
 
 func newTestRuntime(t *testing.T) *Runtime {
 	t.Helper()
-	runtime, err := newRuntime(context.Background(), runtimeOptions{allowPrivateNetwork: true})
+	runtime, err := newRuntime(context.Background(), runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -968,7 +1098,7 @@ func newTestRuntime(t *testing.T) *Runtime {
 
 func compatibleSpec(baseURL string) execution.AttemptSpec {
 	baseURL = strings.TrimRight(baseURL, "/") + "/v1"
-	return execution.NewAttemptSpec(execution.AttemptSpec{
+	return freezeTestAttempt(execution.NewAttemptSpec(execution.AttemptSpec{
 		RequestID:      "request-1",
 		AttemptID:      "attempt-1",
 		Sequence:       1,
@@ -993,13 +1123,26 @@ func compatibleSpec(baseURL string) execution.AttemptSpec {
 		Body:         []byte(`{"model":"injected-model","provider":"injected-provider","fallbacks":["other/model"],"authorization":"body-injected","api_key":"body-injected","x-api-key":"body-injected","messages":[{"role":"user","content":"hello"}],"vendor_extension":{"precise":1.2300,"nested":{"keep":"yes"}}}`),
 		TargetConfig: json.RawMessage(`{"base_url":"` + baseURL + `"}`),
 		Timeouts: execution.AttemptTimeouts{
-			Connect:    time.Second,
 			FirstByte:  time.Second,
 			Request:    2 * time.Second,
 			StreamIdle: time.Second,
 		},
 		Credential: execution.NewCredentialSnapshot(7, 3, 2, []byte(`{"api_key":"`+testAPIKey+`"}`)),
-	})
+	}))
+}
+
+func freezeTestAttempt(spec execution.AttemptSpec) execution.AttemptSpec {
+	resolved, err := channel.NewRegistry().ResolveExecutionTarget(channel.ID(spec.ChannelID), spec.TargetConfig)
+	if err != nil {
+		panic("resolve test execution target: " + err.Error())
+	}
+	mode, ok := resolved.Mode(spec.ClientProtocol, spec.Operation)
+	if !ok {
+		mode = channel.RouteNative
+	}
+	spec.TargetKind = string(resolved.ProviderKind)
+	spec.RouteMode = execution.RouteMode(mode)
+	return execution.NewAttemptSpec(spec)
 }
 
 func responseServer(t *testing.T, requestID string) *httptest.Server {

@@ -35,14 +35,17 @@ type ForwardInput struct {
 	OnStreamReady     func()
 	OnFirstResponse   func()
 
-	RequestID       string
-	AttemptID       string
-	AttemptSequence uint32
-	ClientProtocol  protocol.Protocol
-	Operation       execution.Operation
-	ChannelID       string
-	TargetConfig    json.RawMessage
-	Credential      execution.CredentialSnapshot
+	RequestID        string
+	AttemptID        string
+	AttemptSequence  uint32
+	ClientProtocol   protocol.Protocol
+	Operation        execution.Operation
+	ChannelID        string
+	TargetKind       string
+	RouteMode        execution.RouteMode
+	RequiredFeatures execution.FeatureSet
+	TargetConfig     json.RawMessage
+	Credential       execution.CredentialSnapshot
 }
 
 // UpstreamResult is the gateway's stable view of one logical execution

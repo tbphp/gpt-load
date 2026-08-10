@@ -174,8 +174,8 @@ func TestCandidateGroupIDsForQuerySupportsModelLessResourceOperation(t *testing.
 		ExternalModel:    nil,
 		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	})
-	if !slices.Equal(got, []uint{7, 8}) {
-		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want model-less Responses groups [7 8]", got)
+	if !slices.Equal(got, []uint{7}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want native Responses group [7]", got)
 	}
 }
 

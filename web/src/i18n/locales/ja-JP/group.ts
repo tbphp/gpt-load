@@ -201,8 +201,7 @@ export default {
       runtime: {
         title: 'ランタイム上書き',
         description: '継承値はグローバル設定に従い、Group 上書きは疎なまま保持されます。',
-        connect_timeout: '接続タイムアウト',
-        first_byte_timeout: '最初のバイトのタイムアウト',
+        first_byte_timeout: 'ネイティブ応答 / ストリーム初回イベントのタイムアウト',
         request_timeout: 'リクエストタイムアウト',
         stream_idle_timeout: 'ストリームアイドルタイムアウト',
         effective: '{value} 秒',

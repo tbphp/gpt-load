@@ -19,6 +19,7 @@ export default {
       catalogMore: 'More channels',
       channelReady: 'Connection details are preset',
       baseUrlRequired: 'Base URL required',
+      configurationRequired: 'Connection details required',
       channelRequired: 'Select a channel',
     },
     mode: {
@@ -99,6 +100,7 @@ export default {
       tooMany: 'At most 1,000 non-empty keys can be submitted',
       channelCredentialNotice:
         'These are channel API keys; create client credentials on the Access Keys page',
+      result: 'Added {added} credentials and skipped {duplicated} duplicates',
     },
     models: {
       title: 'Models and aliases',

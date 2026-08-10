@@ -19,6 +19,7 @@ export default {
       catalogMore: 'その他のチャネル',
       channelReady: '接続情報は設定済みです',
       baseUrlRequired: 'Base URL の入力が必要です',
+      configurationRequired: '接続情報の入力が必要です',
       channelRequired: 'チャネルを選択してください',
     },
     mode: {
@@ -99,6 +100,7 @@ export default {
       tooMany: '空でないキーは最大 1,000 件です',
       channelCredentialNotice:
         'ここにはチャネルの API キーを入力します — クライアント認証情報はアクセスキーページで作成してください',
+      result: '認証情報を {added} 件追加し、重複 {duplicated} 件をスキップしました',
     },
     models: {
       title: 'モデルとエイリアス',

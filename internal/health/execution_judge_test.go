@@ -125,6 +125,20 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryInvalidKey, Action: ActionFailCredential},
 		},
 		{
+			name: "provider hint identifies credential failure under HTTP 400",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusBadRequest,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintInvalidCredential,
+					StatusCode: http.StatusBadRequest,
+					Summary:    "upstream rejected request",
+				},
+			},
+			want: Result{Category: FailureCategoryInvalidKey, Action: ActionFailCredential},
+		},
+		{
 			name: "model not found cools credential",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,

@@ -35,7 +35,6 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const timeoutKeys: TimeoutSettingKey[] = [
-  'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',

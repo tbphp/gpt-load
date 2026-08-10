@@ -192,17 +192,11 @@ function setValue(row: RuleRow, event: Event): void {
 
 function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
   const error = validationErrorsByRow.value.get(row.key)
-  if (
-    !error ||
-    (field === 'value' &&
-      error.code !== 'credential_template_required' &&
-      error.code !== 'invalid_value')
-  ) {
+  if (!error || (field === 'value' && error.code !== 'invalid_value')) {
     return undefined
   }
   if (field === 'value') return t(`common.headerRules.errors.${error.code}`)
-  if (error.code === 'credential_template_required' || error.code === 'invalid_value')
-    return undefined
+  if (error.code === 'invalid_value') return undefined
   return t(`common.headerRules.errors.${error.code}`)
 }
 </script>

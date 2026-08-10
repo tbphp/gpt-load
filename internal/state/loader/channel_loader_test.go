@@ -57,7 +57,7 @@ func TestBuildCompileInputMapsChannelAndCredentialMetadata(t *testing.T) {
 		t.Fatalf("Compile() error = %v", err)
 	}
 	targets := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesCreate]["public-model"]
-	if len(targets) != 1 || targets[0].GroupID != group.ID || targets[0].Mode != channel.RouteNative ||
+	if len(targets) != 1 || targets[0].GroupID != group.ID || targets[0].Mode != channel.RouteConverted ||
 		targets[0].UpstreamModelID != "upstream-model" {
 		t.Fatalf("Responses candidates = %#v", targets)
 	}
