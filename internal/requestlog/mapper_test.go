@@ -195,16 +195,17 @@ func TestMapEventRejectsPreEpochCompletion(t *testing.T) {
 
 func TestMapEventDefensivelyRedactsAndBoundsSummaries(t *testing.T) {
 	const secret = "sk-this-is-a-secret-value"
-	unsafeSummary := string([]byte{0xff}) + "\r\n\t " + secret + "   " + strings.Repeat("界", 500)
+	unsafeSummary := string([]byte{0xff}) + "\r\n\t " + secret + "   " + strings.Repeat("界", 2_000)
 	event := testEvent("redact")
 	event.ErrorSummary = unsafeSummary
 	event.Attempts[0].ErrorSummary = unsafeSummary
 	row := mustMapEvent(t, redact.New(), event)
-	if len(row.ErrorSummary) > maxSummaryBytes || !utf8.ValidString(row.ErrorSummary) ||
+	if len(row.ErrorSummary) <= 1024 || len(row.ErrorSummary) > maxSummaryBytes || !utf8.ValidString(row.ErrorSummary) ||
 		strings.Contains(row.ErrorSummary, secret) || !strings.HasSuffix(row.ErrorSummary, truncatedMarker) {
 		t.Fatalf("request summary was not sanitized: %q", row.ErrorSummary)
 	}
-	if len(row.AttemptRows) != 1 || strings.Contains(row.AttemptRows[0].ErrorSummary, secret) ||
+	if len(row.AttemptRows) != 1 || len(row.AttemptRows[0].ErrorSummary) <= 1024 ||
+		strings.Contains(row.AttemptRows[0].ErrorSummary, secret) ||
 		!strings.HasSuffix(row.AttemptRows[0].ErrorSummary, truncatedMarker) {
 		t.Fatalf("attempt summary was not sanitized: %+v", row.AttemptRows)
 	}

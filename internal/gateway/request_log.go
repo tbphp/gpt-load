@@ -1,11 +1,9 @@
 package gateway
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -25,7 +23,7 @@ import (
 )
 
 const (
-	maxRequestLogSummaryBytes = 1024
+	maxRequestLogSummaryBytes = 4096
 	requestLogTruncatedMarker = "...[truncated]"
 )
 
@@ -438,11 +436,15 @@ func (recorder *requestRecorder) completeProviderError(
 	if recorder == nil {
 		return
 	}
+	summary := reasonUpstreamProtocol.Message
+	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) && recorder.attempts[attemptIndex].ErrorSummary != "" {
+		summary = recorder.attempts[attemptIndex].ErrorSummary
+	}
 	recorder.outcome = requestOutcome{
 		status:        telemetry.RequestStatusError,
 		statusCode:    reasonUpstreamProtocol.Status,
 		errorCode:     reasonUpstreamProtocol.Code,
-		errorSummary:  reasonUpstreamProtocol.Message,
+		errorSummary:  summary,
 		upstreamModel: upstreamModel,
 	}
 	recorder.bindUsage(
@@ -526,9 +528,13 @@ func (recorder *requestRecorder) completeTransport(
 	if recorder == nil {
 		return
 	}
+	summary := value.Message
+	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) && recorder.attempts[attemptIndex].ErrorSummary != "" {
+		summary = recorder.attempts[attemptIndex].ErrorSummary
+	}
 	recorder.outcome = requestOutcome{
 		status: telemetry.RequestStatusError, statusCode: value.Status,
-		errorCode: value.Code, errorSummary: value.Message, upstreamModel: upstreamModel,
+		errorCode: value.Code, errorSummary: summary, upstreamModel: upstreamModel,
 	}
 	recorder.bindUsage(attemptIndex, usage.Result{}, false)
 }
@@ -771,31 +777,5 @@ func normalizeErrorSummaryWhitespace(value string) string {
 }
 
 func allowedErrorSummary(body []byte) string {
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.UseNumber()
-	var payload map[string]any
-	if err := decoder.Decode(&payload); err != nil {
-		return ""
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return ""
-	}
-	if nested, ok := payload["error"].(map[string]any); ok {
-		if value, ok := nested["message"].(string); ok && value != "" {
-			return value
-		}
-		if value, ok := nested["detail"].(string); ok && value != "" {
-			return value
-		}
-	}
-	if value, ok := payload["message"].(string); ok && value != "" {
-		return value
-	}
-	if value, ok := payload["detail"].(string); ok && value != "" {
-		return value
-	}
-	if value, ok := payload["error"].(string); ok && value != "" {
-		return value
-	}
-	return ""
+	return redact.ExtractErrorMessage(body)
 }

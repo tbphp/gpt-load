@@ -52,6 +52,21 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 	}
 }
 
+func TestPassthroughHTTPErrorRetainsSanitizedErrorMessage(t *testing.T) {
+	const secret = "provider-secret-value"
+	evidence := passthroughHTTPError(
+		http.StatusServiceUnavailable,
+		nil,
+		[]byte("auth_unavailable: no auth available (providers=codex, model=gpt-5.6-sol), token="+secret),
+		[]string{secret},
+	)
+
+	const want = "auth_unavailable: no auth available (providers=codex, model=gpt-5.6-sol), token=[REDACTED]"
+	if evidence.Summary != want {
+		t.Fatalf("summary = %q, want %q", evidence.Summary, want)
+	}
+}
+
 func TestSDKTransportErrorDispatchEvidence(t *testing.T) {
 	tests := []struct {
 		name string

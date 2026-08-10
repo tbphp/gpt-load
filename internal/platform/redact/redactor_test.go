@@ -16,16 +16,58 @@ func TestRedactorStringCoversCredentialShapes(t *testing.T) {
 		{name: "AccessKey", input: `token=gl-0123456789abcdef0123456789abcdef`},
 		{name: "JSON field", input: `{"api_key":"custom-secret-value"}`},
 		{name: "query field", input: `url?key=custom-secret-value&model=gpt-4o`},
+		{name: "full URL query", input: `request failed at https://upstream.example/v1/responses?access_token=custom-secret-value&model=gpt-4o`},
 		{name: "authorization", input: `Authorization: Bearer custom-secret-value`},
+		{name: "cookie", input: `Cookie: session=custom-secret-value`},
+		{name: "bare bearer", input: `provider returned Bearer custom-secret-value`},
+		{name: "client secret", input: `client_secret=custom-secret-value`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := redactor.String(tt.input)
-			if got == tt.input || !strings.Contains(got, Placeholder) {
+			if got == tt.input || !strings.Contains(got, Placeholder) ||
+				strings.Contains(got, "custom-secret-value") {
 				t.Fatalf("String() = %q, want redacted placeholder", got)
 			}
 		})
+	}
+}
+
+func TestExtractErrorMessageUsesOnlySafeMessageShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+		want string
+	}{
+		{
+			name: "nested JSON message",
+			body: []byte(`{"error":{"message":"invalid credentials"}}`),
+			want: "invalid credentials",
+		},
+		{
+			name: "plain text message",
+			body: []byte(`auth_unavailable: no auth available`),
+			want: "auth_unavailable: no auth available",
+		},
+		{name: "unknown JSON", body: []byte(`{"debug":{"message":"do not retain"}}`)},
+		{name: "HTML", body: []byte(`<html><body>do not retain</body></html>`)},
+		{name: "binary", body: []byte("do not\x00retain")},
+		{name: "JSON escaped control", body: []byte(`{"message":"do not\u0000retain"}`)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ExtractErrorMessage(test.body); got != test.want {
+				t.Fatalf("ExtractErrorMessage() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRedactorDoesNotTreatAuthenticationTextAsCredentials(t *testing.T) {
+	input := "Basic authentication failed"
+	if got := New().String(input); got != input {
+		t.Fatalf("String() = %q, want %q", got, input)
 	}
 }
 

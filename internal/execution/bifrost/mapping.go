@@ -17,6 +17,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	platformheader "gpt-load/internal/platform/httpheader"
+	platformredact "gpt-load/internal/platform/redact"
 )
 
 type openAIChatResponse struct {
@@ -263,7 +264,7 @@ func passthroughHTTPError(status int, headers http.Header, body []byte, secrets 
 		StatusCode: status,
 		Type:       typeValue,
 		Code:       codeValue,
-		Summary:    errorSummary(execution.ErrorKindHTTP, status),
+		Summary:    errorMessageSummary(body, errorSummary(execution.ErrorKindHTTP, status), secrets),
 		RequestID:  requestID,
 		RetryAfter: retryAfter(headers),
 		Header:     evidenceHeaders(headers),
@@ -531,13 +532,14 @@ func errorEvidence(
 	if alreadyStarted && status != initialStatus {
 		evidenceStatus = 0
 	}
+	summary := errorSummary(kind, errorSummaryStatus(status, resultStatus))
 	evidence := &execution.ErrorEvidence{
 		Kind:       kind,
 		Hint:       neutralFailureHint(status, typeValue, codeValue, messageValue),
 		StatusCode: evidenceStatus,
 		Type:       typeValue,
 		Code:       codeValue,
-		Summary:    errorSummary(kind, errorSummaryStatus(status, resultStatus)),
+		Summary:    errorMessageSummary([]byte(messageValue), summary, secrets),
 		RequestID:  requestID,
 		RetryAfter: retryAfter(headers),
 		Header:     evidenceHeaders(headers),
@@ -610,6 +612,36 @@ func errorSummary(kind execution.ErrorKind, status int) string {
 	default:
 		return "execution adapter failed"
 	}
+}
+
+const errorEvidenceTruncatedMarker = "...[truncated]"
+
+func errorMessageSummary(body []byte, fallback string, secrets []string) string {
+	summary := platformredact.ExtractErrorMessage(body)
+	if summary == "" {
+		summary = fallback
+	}
+	summary = strings.ToValidUTF8(summary, "\uFFFD")
+	redactor := platformredact.New()
+	summary = redactor.String(summary, secrets...)
+	summary = strings.Join(strings.Fields(summary), " ")
+	summary = redactor.String(summary, secrets...)
+	if summary == "" {
+		summary = fallback
+	}
+	return truncateErrorEvidenceSummary(summary)
+}
+
+func truncateErrorEvidenceSummary(summary string) string {
+	if utf8.RuneCountInString(summary) <= execution.MaxErrorSummaryLength {
+		return summary
+	}
+	marker := []rune(errorEvidenceTruncatedMarker)
+	limit := execution.MaxErrorSummaryLength - len(marker)
+	if limit <= 0 {
+		return string(marker[:execution.MaxErrorSummaryLength])
+	}
+	return string([]rune(summary)[:limit]) + errorEvidenceTruncatedMarker
 }
 
 func sanitizeEvidenceValue(value string, secrets []string) string {

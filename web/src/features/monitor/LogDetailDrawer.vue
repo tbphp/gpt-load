@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -10,6 +10,7 @@ import {
   type RequestLogAttemptDto,
   type RequestLogPricingLineDto,
 } from '@/app/resources/request-logs'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -41,6 +42,17 @@ const { locale, t } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
 const initialLoading = useStableLoading(() => props.open && query.isPending.value)
 const log = computed(() => query.data.value)
+const errorMessageExpanded = ref(false)
+const expandedAttemptErrorMessages = ref<Set<number>>(new Set())
+const mainErrorMessage = computed(() => {
+  const value = log.value
+  if (!value) return ''
+  if (value.error_summary.trim() !== '') return value.error_summary
+  return (
+    [...value.attempts].reverse().find((attempt) => attempt.error_summary.trim() !== '')
+      ?.error_summary ?? ''
+  )
+})
 const usageDisplayState = computed(() =>
   log.value ? requestLogUsageDisplayState(log.value) : 'not_applicable',
 )
@@ -117,6 +129,23 @@ const costAmountLabel = computed(() => {
   return t('monitor.logs.cost.not_applicable')
 })
 
+watch(
+  () => props.requestId,
+  () => {
+    errorMessageExpanded.value = false
+    expandedAttemptErrorMessages.value = new Set()
+  },
+)
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return
+    errorMessageExpanded.value = false
+    expandedAttemptErrorMessages.value = new Set()
+  },
+)
+
 function statusTone(status: string): 'success' | 'danger' | 'warning' | 'neutral' {
   if (status === 'success') return 'success'
   if (status === 'error') return 'danger'
@@ -155,6 +184,37 @@ function groupLabel(): string {
     .reverse()
     .find(({ group_id }) => group_id === groupID)
   return attempt ? `${attempt.group_name} · #${groupID}` : `#${groupID}`
+}
+
+function errorMessageNeedsDisclosure(message: string): boolean {
+  return message.length > 240
+}
+
+function normalizedErrorMessage(message: string): string {
+  return message.replace(/\s+/g, ' ').trim()
+}
+
+function attemptErrorMessage(attempt: RequestLogAttemptDto): string {
+  const message = attempt.error_summary
+  if (message.trim() === '') return ''
+  if (normalizedErrorMessage(message) === normalizedErrorMessage(mainErrorMessage.value)) return ''
+  const firstMatchingAttempt = log.value?.attempts.find(
+    (candidate) =>
+      normalizedErrorMessage(candidate.error_summary) === normalizedErrorMessage(message),
+  )
+  if (firstMatchingAttempt && firstMatchingAttempt.sequence !== attempt.sequence) return ''
+  return message
+}
+
+function isAttemptErrorMessageExpanded(sequence: number): boolean {
+  return expandedAttemptErrorMessages.value.has(sequence)
+}
+
+function toggleAttemptErrorMessage(sequence: number): void {
+  const next = new Set(expandedAttemptErrorMessages.value)
+  if (next.has(sequence)) next.delete(sequence)
+  else next.add(sequence)
+  expandedAttemptErrorMessages.value = next
 }
 </script>
 
@@ -233,17 +293,33 @@ function groupLabel(): string {
             <dt>{{ t('monitor.logs.drawer.outputRate') }}</dt>
             <dd>{{ formatLogOutputRate(log, locale) }}</dd>
           </div>
-          <div v-if="log.error_code">
-            <dt>{{ t('monitor.logs.drawer.errorCode') }}</dt>
-            <dd>
-              <code>{{ log.error_code }}</code>
-            </dd>
-          </div>
-          <div v-if="log.error_summary" class="log-detail__wide">
-            <dt>{{ t('monitor.logs.drawer.errorSummary') }}</dt>
-            <dd>{{ log.error_summary }}</dd>
-          </div>
         </dl>
+        <div v-if="mainErrorMessage" class="log-error-message">
+          <p class="log-error-message__label">{{ t('monitor.logs.drawer.errorSummary') }}</p>
+          <p
+            class="log-error-message__content"
+            :class="{
+              'log-error-message__content--collapsed':
+                !errorMessageExpanded && errorMessageNeedsDisclosure(mainErrorMessage),
+            }"
+          >
+            {{ mainErrorMessage }}
+          </p>
+          <AppButton
+            v-if="errorMessageNeedsDisclosure(mainErrorMessage)"
+            class="log-error-message__toggle"
+            variant="link"
+            size="inline"
+            :aria-expanded="errorMessageExpanded"
+            @click="errorMessageExpanded = !errorMessageExpanded"
+          >
+            {{
+              errorMessageExpanded
+                ? t('monitor.logs.drawer.collapseErrorMessage')
+                : t('monitor.logs.drawer.expandErrorMessage')
+            }}
+          </AppButton>
+        </div>
       </section>
 
       <section class="log-detail__section">
@@ -463,17 +539,37 @@ function groupLabel(): string {
               <dt>{{ t('monitor.logs.drawer.willRetry') }}</dt>
               <dd>{{ attempt.will_retry ? t('monitor.logs.yes') : t('monitor.logs.no') }}</dd>
             </div>
-            <div v-if="attempt.error_code">
-              <dt>{{ t('monitor.logs.drawer.errorCode') }}</dt>
-              <dd>
-                <code>{{ attempt.error_code }}</code>
-              </dd>
-            </div>
-            <div v-if="attempt.error_summary" class="log-detail__wide">
-              <dt>{{ t('monitor.logs.drawer.errorSummary') }}</dt>
-              <dd>{{ attempt.error_summary }}</dd>
-            </div>
           </dl>
+          <div
+            v-if="attemptErrorMessage(attempt)"
+            class="log-error-message log-error-message--attempt"
+          >
+            <p class="log-error-message__label">{{ t('monitor.logs.drawer.errorSummary') }}</p>
+            <p
+              class="log-error-message__content"
+              :class="{
+                'log-error-message__content--collapsed':
+                  !isAttemptErrorMessageExpanded(attempt.sequence) &&
+                  errorMessageNeedsDisclosure(attemptErrorMessage(attempt)),
+              }"
+            >
+              {{ attemptErrorMessage(attempt) }}
+            </p>
+            <AppButton
+              v-if="errorMessageNeedsDisclosure(attemptErrorMessage(attempt))"
+              class="log-error-message__toggle"
+              variant="link"
+              size="inline"
+              :aria-expanded="isAttemptErrorMessageExpanded(attempt.sequence)"
+              @click="toggleAttemptErrorMessage(attempt.sequence)"
+            >
+              {{
+                isAttemptErrorMessageExpanded(attempt.sequence)
+                  ? t('monitor.logs.drawer.collapseErrorMessage')
+                  : t('monitor.logs.drawer.expandErrorMessage')
+              }}
+            </AppButton>
+          </div>
         </article>
       </section>
     </div>
@@ -562,6 +658,42 @@ function groupLabel(): string {
   grid-column: 1 / -1;
 }
 
+.log-error-message {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+  border-left: 2px solid var(--color-danger);
+  background: var(--color-danger-bg);
+  padding: 10px 12px;
+}
+
+.log-error-message__label {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.log-error-message__content {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.log-error-message__content--collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.log-error-message__toggle {
+  justify-self: start;
+  margin-top: 2px;
+}
+
 .log-detail__formula {
   display: grid;
   gap: 4px;
@@ -575,6 +707,17 @@ function groupLabel(): string {
 
 .log-attempt {
   padding: 13px 0;
+}
+
+.log-error-message--attempt {
+  margin-top: 12px;
+  border-left-color: var(--color-border-control);
+  background: transparent;
+  padding: 10px 0 0 12px;
+}
+
+.log-error-message--attempt .log-error-message__content--collapsed {
+  -webkit-line-clamp: 1;
 }
 
 .log-attempt > header {

@@ -3,7 +3,6 @@ package redact
 import (
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -140,15 +139,5 @@ func (h *Hook) redactReflectedCollection(value any, depth int) any {
 		return Placeholder
 	default:
 		return value
-	}
-}
-
-func sensitiveFieldName(name string) bool {
-	normalized := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(name))
-	switch normalized {
-	case "authorization", "apikey", "xapikey", "xgoogapikey", "accesskey", "key", "token":
-		return true
-	default:
-		return false
 	}
 }

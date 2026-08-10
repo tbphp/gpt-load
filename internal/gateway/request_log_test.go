@@ -823,7 +823,7 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 		event.Status != telemetry.RequestStatusError ||
 		event.StatusCode != http.StatusBadGateway ||
 		event.ErrorCode != reasonUpstreamProtocol.Code ||
-		event.ErrorSummary != reasonUpstreamProtocol.Message ||
+		event.ErrorSummary != fixedErrorSummary("upstream_sse_error") ||
 		event.Usage.Result != (usage.Result{
 			State: usage.StateComplete,
 			Tokens: usage.Tokens{
@@ -2777,7 +2777,7 @@ func TestRequestRecorderPreservesProviderErrorFixedSummaryWithOrdinaryHeaderRule
 	}
 }
 
-func TestRequestLogSummaryUsesOnlyAllowedJSONPathsAndUTF8Limit(t *testing.T) {
+func TestRequestLogSummaryRetainsSafeErrorMessagesAndUTF8Limit(t *testing.T) {
 	redactor := redact.New()
 	const fallback = "Upstream request failed."
 	tests := []struct {
@@ -2804,7 +2804,8 @@ func TestRequestLogSummaryUsesOnlyAllowedJSONPathsAndUTF8Limit(t *testing.T) {
 			want: fallback,
 		},
 		{name: "non-string allowed path", body: `{"error":{"message":{"secret":"x"}}}`, want: fallback},
-		{name: "non JSON", body: `raw upstream body`, want: fallback},
+		{name: "plain text", body: `auth_unavailable: no auth available`, want: "auth_unavailable: no auth available"},
+		{name: "HTML", body: `<html><body>upstream failure</body></html>`, want: fallback},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -2814,17 +2815,74 @@ func TestRequestLogSummaryUsesOnlyAllowedJSONPathsAndUTF8Limit(t *testing.T) {
 		})
 	}
 
-	long := strings.Repeat("界", 400)
+	long := strings.Repeat("界", 2_000)
 	summary := summarizeErrorBody(
 		redactor,
 		[]byte(`{"message":"`+long+`"}`),
 		fallback,
 	)
-	if len(summary) > 1024 || !utf8.ValidString(summary) ||
+	if len(summary) <= 1024 || len(summary) > maxRequestLogSummaryBytes || !utf8.ValidString(summary) ||
 		!strings.HasSuffix(summary, "...[truncated]") {
 		t.Fatalf(
 			"summary bytes/UTF-8/suffix = %d/%t/%q",
 			len(summary), utf8.ValidString(summary), summary,
 		)
+	}
+}
+
+func TestRequestRecorderTerminalErrorsUseSanitizedAttemptSummary(t *testing.T) {
+	selection := scheduler.Selection{
+		GroupID: 1, ChannelID: channel.OpenAI, CredentialID: 1,
+		RouteMode: channel.RouteNative,
+		Group:     state.GroupView{ID: 1, Name: "OpenAI", ChannelID: channel.OpenAI},
+	}
+	const rawSummary = "auth_unavailable: no auth available (token=upstream-secret)"
+	const wantSummary = "auth_unavailable: no auth available (token=[REDACTED])"
+
+	for _, test := range []struct {
+		name     string
+		complete func(*requestRecorder, UpstreamResult, string, int)
+	}{
+		{
+			name: "provider error",
+			complete: func(recorder *requestRecorder, result UpstreamResult, model string, attempt int) {
+				recorder.completeProviderError(result, model, attempt)
+			},
+		},
+		{
+			name: "transport error",
+			complete: func(recorder *requestRecorder, result UpstreamResult, model string, attempt int) {
+				recorder.completeTransport(reasonUpstreamConnect, model, attempt)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &recordingRequestLogSink{}
+			recorder := newRequestRecorder(
+				sink,
+				"req-terminal-attempt-summary",
+				time.Unix(100, 0),
+				1,
+				protocol.OpenAICompletions,
+				func() time.Time { return time.Unix(102, 0) },
+			)
+			result := UpstreamResult{StatusCode: http.StatusServiceUnavailable, ErrorSummary: rawSummary}
+			attempt := recorder.recordAttempt(
+				selection,
+				nil,
+				result,
+				health.Result{Category: health.FailureCategoryUpstreamHostError, Action: health.ActionSkipGroup},
+				time.Unix(100, 0),
+				time.Unix(101, 0),
+			)
+			test.complete(recorder, result, "gpt-5.6-sol", attempt)
+			recorder.emit()
+
+			events := sink.snapshot()
+			if len(events) != 1 || events[0].ErrorSummary != wantSummary ||
+				len(events[0].Attempts) != 1 || events[0].Attempts[0].ErrorSummary != wantSummary {
+				t.Fatalf("event = %#v, want sanitized attempt summary %q", events, wantSummary)
+			}
+		})
 	}
 }

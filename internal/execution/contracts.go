@@ -370,8 +370,8 @@ func (s DispatchState) Valid() bool {
 	return s == DispatchNotSent || s == DispatchMaybeSent
 }
 
-// MaxErrorSummaryLength bounds sanitized error summaries retained by the contract.
-const MaxErrorSummaryLength = 512
+// MaxErrorSummaryLength bounds sanitized error messages retained by the contract.
+const MaxErrorSummaryLength = 4096
 
 // ErrorKind is the stable category used for retry and health decisions.
 type ErrorKind string
@@ -425,7 +425,8 @@ func (h FailureHint) Valid() bool {
 }
 
 // ErrorEvidence contains provider-neutral evidence for an unsuccessful attempt.
-// Summary must be bounded and sanitized; raw upstream error messages are not retained.
+// Summary may retain a bounded, sanitized upstream error message; raw error
+// bodies are never retained.
 type ErrorEvidence struct {
 	Kind       ErrorKind     `json:"kind"`
 	Hint       FailureHint   `json:"hint,omitempty"`

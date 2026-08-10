@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	maxSummaryBytes = 1024
+	maxSummaryBytes = 4096
 	maxModelBytes   = 255
 	truncatedMarker = "...[truncated]"
 )

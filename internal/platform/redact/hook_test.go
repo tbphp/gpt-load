@@ -52,6 +52,28 @@ func TestHookRedactsMessageAndNestedFields(t *testing.T) {
 	}
 }
 
+func TestHookRedactsExpandedSensitiveFieldNames(t *testing.T) {
+	entry := logrus.NewEntry(logrus.New())
+	entry.Data = logrus.Fields{
+		"password":      "password-value",
+		"client_secret": "client-secret-value",
+		"nested": map[string]any{
+			"refresh_token": "refresh-token-value",
+		},
+	}
+
+	if err := NewHook(New()).Fire(entry); err != nil {
+		t.Fatalf("Fire() error = %v", err)
+	}
+	if entry.Data["password"] != Placeholder || entry.Data["client_secret"] != Placeholder {
+		t.Fatalf("top-level sensitive fields = %#v", entry.Data)
+	}
+	nested := entry.Data["nested"].(map[string]any)
+	if nested["refresh_token"] != Placeholder {
+		t.Fatalf("nested sensitive fields = %#v", nested)
+	}
+}
+
 func TestHookCopiesCollectionsAndRedactsSupportedFieldTypes(t *testing.T) {
 	const secret = "sk-proj-hook-copy-secret-123456789"
 	body := []byte("token=" + secret)
