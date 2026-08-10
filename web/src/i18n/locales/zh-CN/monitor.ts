@@ -682,6 +682,15 @@ export default {
       no: '否',
       attemptCount: '{count} 次尝试',
       credentialRef: '凭据 #{id}',
+      protocolConversion: {
+        label: '协议转换：{client} 到 {upstream}',
+        tooltip: '客户端协议：{client}\n上游协议：{upstream}',
+      },
+      routeIdentity: {
+        group: 'Group：{name}（G{id}）',
+        channel: '渠道：{name}（{id}）',
+        credential: '凭据：K{id}',
+      },
       details: '查看详情',
       failureCategory: {
         ok: '正常',
@@ -741,6 +750,7 @@ export default {
         outputRate: '输出速率',
         attemptCount: '尝试次数',
         route: '请求与最终路由',
+        routeIdentity: '最终路由标识',
         affinity: '亲和命中',
         errorCode: '错误码',
         errorSummary: '错误消息',
@@ -828,7 +838,7 @@ export default {
         streamError: '流错误',
         errorWithCode: '错误 {code}',
       },
-      modelMapping: '客户端模型 {client} → 上游模型 {upstream}',
+      modelMapping: '客户端模型：{client}\n上游模型：{upstream}',
       modelMappingLabel: '查看模型映射',
       modelConsistency: {
         notObserved: '未观察到',

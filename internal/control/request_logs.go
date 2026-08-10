@@ -136,6 +136,7 @@ type requestLogItemResponse struct {
 	GroupID                 *uint                        `json:"group_id"`
 	ChannelID               *channel.ID                  `json:"channel_id"`
 	CredentialID            *uint                        `json:"credential_id"`
+	RouteMode               *channel.RouteMode           `json:"route_mode"`
 	UsageState              usage.State                  `json:"usage_state"`
 	CostState               pricing.CostState            `json:"cost_state"`
 	PricingCompleteness     pricing.Completeness         `json:"pricing_completeness"`
@@ -820,6 +821,10 @@ func mapRequestLogItemResponse(
 	if !ok {
 		return requestLogItemResponse{}, fmt.Errorf("map request log input tokens: overflow")
 	}
+	routeMode, err := nullableRequestLogRouteMode(record.RouteMode)
+	if err != nil {
+		return requestLogItemResponse{}, fmt.Errorf("map request log final route mode: %w", err)
+	}
 	return requestLogItemResponse{
 		RequestID:     record.RequestID,
 		CompletedAtMS: record.CompletedAtMS,
@@ -846,6 +851,7 @@ func mapRequestLogItemResponse(
 		GroupID:                 usageCost.groupID,
 		ChannelID:               usageCost.channelID,
 		CredentialID:            usageCost.credentialID,
+		RouteMode:               routeMode,
 		UsageState:              record.UsageState,
 		CostState:               record.CostState,
 		PricingCompleteness:     record.PricingCompleteness,

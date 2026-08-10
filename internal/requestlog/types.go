@@ -129,6 +129,7 @@ type Record struct {
 	GroupID                 uint
 	ChannelID               channel.ID
 	CredentialID            uint
+	RouteMode               channel.RouteMode
 	UsageState              usage.State
 	CostState               pricing.CostState
 	PricingCompleteness     pricing.Completeness

@@ -280,6 +280,10 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					StatusCode:            200,
 					DurationMs:            1234,
 					AffinityHit:           true,
+					GroupID:               12,
+					ChannelID:             channel.OpenAI,
+					CredentialID:          99,
+					RouteMode:             channel.RouteNative,
 					UsageState:            usage.StateNotApplicable,
 					CostState:             pricing.CostStateNotApplicable,
 					PricingCompleteness:   pricing.CompletenessNotApplicable,
@@ -340,7 +344,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		t.Fatalf("list item unexpectedly exposes attempts: %#v", envelope.Data.Items[0])
 	}
 	if envelope.Data.Items[0]["upstream_reported_model"] != "reported-model" ||
-		envelope.Data.Items[0]["model_consistency"] != string(telemetry.ModelConsistencyMismatch) {
+		envelope.Data.Items[0]["model_consistency"] != string(telemetry.ModelConsistencyMismatch) ||
+		envelope.Data.Items[0]["route_mode"] != string(channel.RouteNative) {
 		t.Fatalf("list item model observation = %#v", envelope.Data.Items[0])
 	}
 	for _, forbidden := range []string{"headers", "body", "url"} {

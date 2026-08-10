@@ -15,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { protocolLabelKey } from '@/api/control/protocols'
 import { useCollectionLoading } from '@/app/loading-state'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import { listChannels } from '@/app/resources/channels'
@@ -63,6 +64,8 @@ import {
   requestLogUsageDisplayState,
 } from './log-format'
 import LogDetailDrawer from './LogDetailDrawer.vue'
+import LogProtocolConversion from './LogProtocolConversion.vue'
+import LogRouteIdentity from './LogRouteIdentity.vue'
 import LogsFilterForm from './LogsFilterForm.vue'
 import {
   logsMonitorQuery,
@@ -101,6 +104,14 @@ const channelsQuery = useQuery({
 })
 const accessKeyOptionsQuery = useQuery(
   accessKeyOptionsQueryOptions(client, () => !isAccessKey.value),
+)
+const groupNames = computed<Record<number, string>>(() =>
+  Object.fromEntries((groupsQuery.data.value ?? []).map((group) => [group.id, group.name])),
+)
+const channelNames = computed<Record<string, string>>(() =>
+  Object.fromEntries(
+    (channelsQuery.data.value?.items ?? []).map((channel) => [channel.channel_id, channel.name]),
+  ),
 )
 const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
 const logs = computed(() => logsQuery.data.value?.items ?? [])
@@ -455,24 +466,18 @@ function accessKeyLabel(log: RequestLogItemDto): string {
   return log.access_key.name ?? `#${log.access_key.id}`
 }
 
-function groupLabel(log: RequestLogItemDto): string {
-  if (log.group_id === null) return '—'
+function groupName(log: RequestLogItemDto): string | null {
+  if (log.group_id === null) return null
   const group = groupsQuery.data.value?.find(({ id }) => id === log.group_id)
-  return group?.name ?? `Group #${log.group_id}`
+  return group?.name ?? null
 }
 
-function finalRouteLabel(log: RequestLogItemDto): string {
-  const parts = [groupLabel(log)]
-  if (log.channel_id !== null) {
-    const channel = channelsQuery.data.value?.items.find(
-      ({ channel_id }) => channel_id === log.channel_id,
-    )
-    parts.push(channel?.name ?? log.channel_id)
-  }
-  if (log.credential_id !== null) {
-    parts.push(t('monitor.logs.credentialRef', { id: log.credential_id }))
-  }
-  return parts.join(' · ')
+function channelName(log: RequestLogItemDto): string | null {
+  if (log.channel_id === null) return null
+  return (
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === log.channel_id)?.name ??
+    null
+  )
 }
 
 function responseLabel(log: RequestLogItemDto): string {
@@ -685,9 +690,13 @@ function costLabel(log: RequestLogItemDto): string {
             <OverflowTooltip as="span" :content="accessKeyLabel(log)">
               {{ accessKeyLabel(log) }}
             </OverflowTooltip>
-            <OverflowTooltip as="small" :content="finalRouteLabel(log)">
-              {{ finalRouteLabel(log) }}
-            </OverflowTooltip>
+            <LogRouteIdentity
+              :group-id="log.group_id"
+              :group-name="groupName(log)"
+              :channel-id="log.channel_id"
+              :channel-name="channelName(log)"
+              :credential-id="log.credential_id"
+            />
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -743,9 +752,16 @@ function costLabel(log: RequestLogItemDto): string {
                 </button>
               </AppTooltip>
             </span>
-            <OverflowTooltip as="small" :content="log.protocol">
-              {{ log.protocol }}
-            </OverflowTooltip>
+            <span class="logs-list__protocol-line">
+              <OverflowTooltip as="small" :content="t(protocolLabelKey(log.protocol))">
+                {{ t(protocolLabelKey(log.protocol)) }}
+              </OverflowTooltip>
+              <LogProtocolConversion
+                :mode="log.route_mode"
+                :client-protocol="log.protocol"
+                :upstream-protocol="channelName(log) ?? log.channel_id"
+              />
+            </span>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -904,6 +920,8 @@ function costLabel(log: RequestLogItemDto): string {
       :open="Boolean(selectedRequestID)"
       :request-id="selectedRequestID"
       :self-scoped="isAccessKey"
+      :group-names="groupNames"
+      :channel-names="channelNames"
       @update:open="setDetailOpen(undefined, $event)"
     />
   </div>
@@ -969,6 +987,17 @@ function costLabel(log: RequestLogItemDto): string {
   display: flex;
   align-items: center;
   gap: 0;
+}
+
+.logs-list__protocol-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.logs-list__protocol-line > :first-child {
+  min-width: 0;
 }
 
 .logs-list__tokens {

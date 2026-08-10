@@ -703,6 +703,15 @@ export default {
       no: 'いいえ',
       attemptCount: '{count} 回の試行',
       credentialRef: 'クレデンシャル #{id}',
+      protocolConversion: {
+        label: 'プロトコル変換：{client} から {upstream}',
+        tooltip: 'クライアントプロトコル：{client}\nアップストリームプロトコル：{upstream}',
+      },
+      routeIdentity: {
+        group: 'Group：{name}（G{id}）',
+        channel: 'チャネル：{name}（{id}）',
+        credential: 'クレデンシャル：K{id}',
+      },
       details: '詳細を表示',
       failureCategory: {
         ok: '正常',
@@ -762,6 +771,7 @@ export default {
         outputRate: '出力速度',
         attemptCount: '試行回数',
         route: 'リクエストと最終ルート',
+        routeIdentity: '最終ルート識別子',
         affinity: 'アフィニティ一致',
         errorCode: 'エラーコード',
         errorSummary: 'エラーメッセージ',
@@ -851,7 +861,7 @@ export default {
         streamError: 'ストリームエラー',
         errorWithCode: 'エラー {code}',
       },
-      modelMapping: 'クライアントモデル {client} → アップストリームモデル {upstream}',
+      modelMapping: 'クライアントモデル：{client}\nアップストリームモデル：{upstream}',
       modelMappingLabel: 'モデルマッピングを表示',
       modelConsistency: {
         notObserved: '未観測',

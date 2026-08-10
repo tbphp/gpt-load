@@ -122,6 +122,9 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if err := service.loadAccessKeyRefs(ctx, records); err != nil {
 		return Page{}, err
 	}
+	if err := service.loadFinalRouteModes(ctx, records); err != nil {
+		return Page{}, err
+	}
 
 	page := Page{Items: records}
 	if hasNext {
@@ -218,6 +221,7 @@ func (service *Service) Get(ctx context.Context, requestID string) (Record, erro
 			return err
 		}
 		records[0].Attempts = attempts
+		records[0].RouteMode = finalRouteMode(records[0], attempts)
 		record = records[0]
 		return nil
 	})
@@ -387,6 +391,66 @@ func validateRequestLogUsageCost(row models.RequestLog) error {
 
 func (service *Service) loadAccessKeyRefs(ctx context.Context, records []Record) error {
 	return loadAccessKeyRefs(ctx, service.db, records)
+}
+
+func (service *Service) loadFinalRouteModes(ctx context.Context, records []Record) error {
+	if len(records) == 0 {
+		return nil
+	}
+	requestIDs := make([]string, 0, len(records))
+	recordIndexes := make(map[string]int, len(records))
+	for index, record := range records {
+		requestIDs = append(requestIDs, record.RequestID)
+		recordIndexes[record.RequestID] = index
+	}
+
+	var attempts []models.RequestLogAttempt
+	if err := service.db.WithContext(ctx).
+		Select("request_id", "sequence", "group_id", "channel_id", "credential_id", "route_mode").
+		Where("request_id IN ?", requestIDs).
+		Order("request_id ASC").
+		Order("sequence DESC").
+		Find(&attempts).Error; err != nil {
+		return fmt.Errorf("query request log final route modes: %w", err)
+	}
+	resolved := make(map[string]struct{}, len(records))
+	for _, attempt := range attempts {
+		index, ok := recordIndexes[attempt.RequestID]
+		if !ok {
+			continue
+		}
+		if _, ok := resolved[attempt.RequestID]; ok {
+			continue
+		}
+		record := records[index]
+		if record.GroupID != attempt.GroupID ||
+			record.ChannelID != channel.ID(attempt.ChannelID) ||
+			record.CredentialID != attempt.CredentialID {
+			continue
+		}
+		resolved[attempt.RequestID] = struct{}{}
+		mode := channel.RouteMode(attempt.RouteMode)
+		if mode == "" {
+			continue
+		}
+		if !mode.Valid() {
+			return fmt.Errorf("query request log final route modes: invalid route mode")
+		}
+		records[index].RouteMode = mode
+	}
+	return nil
+}
+
+func finalRouteMode(record Record, attempts []Attempt) channel.RouteMode {
+	for index := len(attempts) - 1; index >= 0; index-- {
+		attempt := attempts[index]
+		if attempt.GroupID == record.GroupID &&
+			attempt.ChannelID == record.ChannelID &&
+			attempt.CredentialID == record.CredentialID {
+			return attempt.RouteMode
+		}
+	}
+	return ""
 }
 
 func loadAccessKeyRefs(ctx context.Context, db *gorm.DB, records []Record) error {

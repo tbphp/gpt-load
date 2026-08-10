@@ -470,6 +470,38 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 		if got, want := requestIDs(page.Items), []string{event.RequestID}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("List(GroupID=%d) IDs = %v, want %v", groupID, got, want)
 		}
+		if page.Items[0].RouteMode != channel.RouteNative {
+			t.Fatalf("List(GroupID=%d) final route mode = %q, want %q", groupID, page.Items[0].RouteMode, channel.RouteNative)
+		}
+	}
+}
+
+func TestServiceListDoesNotInferMissingFinalRouteModeFromEarlierAttempt(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	row := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000215",
+		time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC),
+		71,
+		"client-model",
+		[]Attempt{
+			{Sequence: 1, GroupID: 12, ChannelID: channel.OpenAI, CredentialID: 1, RouteMode: channel.RouteConverted},
+			{Sequence: 2, GroupID: 12, ChannelID: channel.OpenAI, CredentialID: 1},
+		},
+	)
+	row.GroupID = 12
+	row.ChannelID = string(channel.OpenAI)
+	row.CredentialID = 1
+	createRequestLogQueryRow(t, db, row)
+
+	page, err := newRequestLogTestService(db).List(context.Background(), ListQuery{Limit: 50})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("List() items = %#v, want one item", page.Items)
+	}
+	if page.Items[0].RouteMode != "" {
+		t.Fatalf("List() final route mode = %q, want empty", page.Items[0].RouteMode)
 	}
 }
 

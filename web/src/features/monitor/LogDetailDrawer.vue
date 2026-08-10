@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { protocolLabelKey } from '@/api/control/protocols'
 import { useStableLoading } from '@/app/loading-state'
 import {
   requestLogDetailQueryOptions,
@@ -30,11 +31,15 @@ import {
   requestLogCostDisplayState,
   requestLogUsageDisplayState,
 } from './log-format'
+import LogProtocolConversion from './LogProtocolConversion.vue'
+import LogRouteIdentity from './LogRouteIdentity.vue'
 
 const props = defineProps<{
   open: boolean
   requestId: string | undefined
   selfScoped?: boolean
+  groupNames?: Record<number, string>
+  channelNames?: Record<string, string>
 }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
 const client = useApiClient()
@@ -177,13 +182,21 @@ function accessKeyLabel(): string {
   return key.name ? `${key.name} · #${key.id}` : `#${key.id}`
 }
 
-function groupLabel(): string {
+function finalGroupName(): string | null {
   const groupID = log.value?.group_id
-  if (groupID === null || groupID === undefined) return '—'
-  const attempt = [...(log.value?.attempts ?? [])]
-    .reverse()
-    .find(({ group_id }) => group_id === groupID)
-  return attempt ? `${attempt.group_name} · #${groupID}` : `#${groupID}`
+  if (groupID === null || groupID === undefined) return null
+  return (
+    [...(log.value?.attempts ?? [])].reverse().find(({ group_id }) => group_id === groupID)
+      ?.group_name ??
+    props.groupNames?.[groupID] ??
+    null
+  )
+}
+
+function finalChannelName(): string | null {
+  const channelID = log.value?.channel_id
+  if (!channelID) return null
+  return props.channelNames?.[channelID] ?? null
 }
 
 function errorMessageNeedsDisclosure(message: string): boolean {
@@ -331,7 +344,14 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.protocol') }}</dt>
-            <dd>{{ log.protocol }}</dd>
+            <dd class="log-detail__protocol">
+              <span>{{ t(protocolLabelKey(log.protocol)) }}</span>
+              <LogProtocolConversion
+                :mode="log.route_mode"
+                :client-protocol="log.protocol"
+                :upstream-protocol="finalChannelName() ?? log.channel_id"
+              />
+            </dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.clientModel') }}</dt>
@@ -345,19 +365,17 @@ function toggleAttemptErrorMessage(sequence: number): void {
               <code>{{ log.upstream_model ?? '—' }}</code>
             </dd>
           </div>
-          <div v-if="!selfScoped">
-            <dt>{{ t('monitor.logs.drawer.group') }}</dt>
-            <dd>{{ groupLabel() }}</dd>
-          </div>
-          <div v-if="!selfScoped">
-            <dt>{{ t('monitor.logs.drawer.channel') }}</dt>
+          <div v-if="!selfScoped" class="log-detail__wide">
+            <dt>{{ t('monitor.logs.drawer.routeIdentity') }}</dt>
             <dd>
-              <code>{{ log.channel_id ?? '—' }}</code>
+              <LogRouteIdentity
+                :group-id="log.group_id"
+                :group-name="finalGroupName()"
+                :channel-id="log.channel_id"
+                :channel-name="finalChannelName()"
+                :credential-id="log.credential_id"
+              />
             </dd>
-          </div>
-          <div v-if="!selfScoped">
-            <dt>{{ t('monitor.logs.drawer.credential') }}</dt>
-            <dd>{{ log.credential_id === null ? '—' : `#${log.credential_id}` }}</dd>
           </div>
           <template v-if="log.reasoning">
             <div v-if="log.reasoning.mode">
@@ -469,19 +487,28 @@ function toggleAttemptErrorMessage(sequence: number): void {
             </StatusBadge>
           </header>
           <dl class="log-detail__grid">
-            <div>
-              <dt>{{ t('monitor.logs.drawer.group') }}</dt>
-              <dd>{{ attempt.group_name }} · #{{ attempt.group_id }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.channel') }}</dt>
-              <dd>
-                <code>{{ attempt.channel_id ?? '—' }}</code>
+            <div class="log-detail__wide">
+              <dt>{{ t('monitor.logs.drawer.routeIdentity') }}</dt>
+              <dd class="log-detail__route-identity">
+                <LogRouteIdentity
+                  :group-id="attempt.group_id"
+                  :group-name="attempt.group_name"
+                  :channel-id="attempt.channel_id"
+                  :channel-name="
+                    attempt.channel_id ? (channelNames?.[attempt.channel_id] ?? null) : null
+                  "
+                  :credential-id="attempt.credential_id"
+                />
+                <LogProtocolConversion
+                  :mode="attempt.route_mode"
+                  :client-protocol="log.protocol"
+                  :upstream-protocol="
+                    attempt.channel_id
+                      ? (channelNames?.[attempt.channel_id] ?? attempt.channel_id)
+                      : null
+                  "
+                />
               </dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.credential') }}</dt>
-              <dd>{{ attempt.credential_id === null ? '—' : `#${attempt.credential_id}` }}</dd>
             </div>
             <div>
               <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
@@ -493,12 +520,6 @@ function toggleAttemptErrorMessage(sequence: number): void {
               <dt>{{ t('monitor.logs.drawer.operation') }}</dt>
               <dd>
                 <code>{{ attempt.operation ?? '—' }}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.routeMode') }}</dt>
-              <dd>
-                <code>{{ attempt.route_mode ?? '—' }}</code>
               </dd>
             </div>
             <div>
@@ -652,6 +673,24 @@ function toggleAttemptErrorMessage(sequence: number): void {
   color: var(--color-text);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+
+.log-detail__protocol {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.log-detail__route-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.log-detail__route-identity > :first-child {
+  min-width: 0;
 }
 
 .log-detail__wide {

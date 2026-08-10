@@ -159,6 +159,7 @@ export interface RequestLogItemDto {
   group_id: number | null
   channel_id: string | null
   credential_id: number | null
+  route_mode: RequestLogRouteMode | null
   usage_state: RequestLogUsageState
   cost_state: RequestLogCostState
   pricing_completeness: RequestLogPricingCompleteness
@@ -249,6 +250,7 @@ const itemFields = [
   'group_id',
   'channel_id',
   'credential_id',
+  'route_mode',
   'usage_state',
   'cost_state',
   'pricing_completeness',
@@ -519,6 +521,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
       record.credential_id === null
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
+    route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     ...projectUsageCost(record),
   }
 }

@@ -704,6 +704,15 @@ export default {
       no: 'No',
       attemptCount: '{count} attempts',
       credentialRef: 'Credential #{id}',
+      protocolConversion: {
+        label: 'Protocol conversion: {client} to {upstream}',
+        tooltip: 'Client protocol: {client}\nUpstream protocol: {upstream}',
+      },
+      routeIdentity: {
+        group: 'Group: {name} (G{id})',
+        channel: 'Channel: {name} ({id})',
+        credential: 'Credential: K{id}',
+      },
       details: 'View details',
       failureCategory: {
         ok: 'OK',
@@ -763,6 +772,7 @@ export default {
         outputRate: 'Output rate',
         attemptCount: 'Attempts',
         route: 'Request and final route',
+        routeIdentity: 'Final route identity',
         affinity: 'Affinity hit',
         errorCode: 'Error code',
         errorSummary: 'Error message',
@@ -853,7 +863,7 @@ export default {
         streamError: 'Stream error',
         errorWithCode: 'Error {code}',
       },
-      modelMapping: 'Client model {client} → upstream model {upstream}',
+      modelMapping: 'Client model: {client}\nUpstream model: {upstream}',
       modelMappingLabel: 'View model mapping',
       modelConsistency: {
         notObserved: 'Not observed',
