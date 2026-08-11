@@ -585,16 +585,37 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 }
 
 func (r *CredentialRegistry) SetCooldown(credentialID uint, until time.Time) bool {
+	exists, _ := r.SetCooldownWithChange(credentialID, until)
+	return exists
+}
+
+func (r *CredentialRegistry) SetCooldownWithChange(credentialID uint, until time.Time) (bool, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entryLocked(credentialID)
 	if !ok {
-		return false
+		return false, false
 	}
-	if until.After(entry.CooldownUntil) {
-		entry.CooldownUntil = until
+	if !until.After(entry.CooldownUntil) {
+		return true, false
 	}
-	return true
+	entry.CooldownUntil = until
+	return true, true
+}
+
+func (r *CredentialRegistry) SetBlacklistedWithChange(credentialID uint) (bool, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return false, false
+	}
+	if entry.Blacklisted {
+		return true, false
+	}
+	entry.Blacklisted = true
+	entry.FailureGeneration++
+	return true, true
 }
 
 func (r *CredentialRegistry) SetAutoWeight(credentialID uint, weight int) bool {
@@ -630,17 +651,8 @@ func (r *CredentialRegistry) RestoreRuntimeState(credentialID uint, weight int) 
 }
 
 func (r *CredentialRegistry) SetBlacklisted(credentialID uint) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(credentialID)
-	if !ok {
-		return false
-	}
-	if !entry.Blacklisted {
-		entry.Blacklisted = true
-		entry.FailureGeneration++
-	}
-	return true
+	exists, _ := r.SetBlacklistedWithChange(credentialID)
+	return exists
 }
 
 func (r *CredentialRegistry) IncrFailure(credentialID uint) (int, bool) {

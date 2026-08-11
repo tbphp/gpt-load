@@ -20,6 +20,58 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+func TestRestoreGroupCredentialLogsRuntimeRecovery(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("restore log"), ChannelID: channel.OpenAI,
+		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true}, Credentials: "restore-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !fixture.registry.SetBlacklisted(credential.ID) {
+		t.Fatal("SetBlacklisted() = false")
+	}
+
+	var logs bytes.Buffer
+	server := NewServer(&config.Config{AuthKey: "restore-log-auth"}, fixture.service)
+	server.logger = newControlJSONLogger(&logs)
+	engine := gin.New()
+	server.RegisterRoutes(engine)
+	response := serveCredentialRequest(
+		t,
+		engine,
+		http.MethodPost,
+		fmt.Sprintf("/api/groups/%d/credentials/%d/restore", created.GroupID, credential.ID),
+		"{}",
+		"restore-log-auth",
+		"",
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("restore response = %d %s", response.Code, response.Body.String())
+	}
+
+	events := controlEventsNamed(decodeControlJSONLogs(t, logs.Bytes()), "mutation")
+	if len(events) != 1 {
+		t.Fatalf("mutation events = %#v, want one", events)
+	}
+	event := events[0]
+	if event["operation"] != "group_credential_restore" ||
+		event["resource_type"] != "group_credential" ||
+		event["resource_locator"] != fmt.Sprintf("group:%d/credential:%d", created.GroupID, credential.ID) ||
+		event["outcome"] != "succeeded" ||
+		event["status_code"] != float64(http.StatusOK) ||
+		event["level"] != "info" ||
+		event["msg"] != "[CONTROL] Mutation completed" {
+		t.Fatalf("restore mutation event = %#v", event)
+	}
+}
+
 func TestCredentialRoutesReplaceLegacyGroupKeyRoutes(t *testing.T) {
 	fixture := newServiceFixture(t)
 	module := NewServer(&config.Config{AuthKey: "credential-auth"}, fixture.service).HTTPModule()

@@ -272,6 +272,10 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 	})
 	if !recovered && ctx.Err() == nil {
 		logValidationFailure(ref, string(target.protocol), "conditional_recover")
+		return
+	}
+	if recovered {
+		logValidationRecovery(ref, string(target.protocol))
 	}
 }
 
@@ -378,6 +382,21 @@ func writeValidationSignaturePart(hasher hash.Hash, value []byte) {
 
 func normalizeValidationHeaderName(name string) string {
 	return strings.ToLower(textproto.CanonicalMIMEHeaderKey(name))
+}
+
+func logValidationRecovery(ref state.CredentialRef, protocol string) {
+	utils.LogPlaneBestEffort(
+		logrus.StandardLogger(),
+		logrus.InfoLevel,
+		utils.LogPlaneControl,
+		logrus.Fields{
+			"event":         "credential_recovered",
+			"credential_id": ref.ID,
+			"group_id":      ref.GroupID,
+			"protocol":      protocol,
+		},
+		"Credential recovered",
+	)
 }
 
 func logValidationFailure(ref state.CredentialRef, protocol, stage string) {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/utils"
 )
 
@@ -34,6 +35,46 @@ func (handler *Handler) logDataPlaneAuthFailed(request *http.Request) {
 			"total":   total,
 		},
 		"Authentication failed",
+	)
+}
+
+func (handler *Handler) logCredentialCooldown(
+	credentialID uint,
+	category health.FailureCategory,
+	statusCode int,
+) {
+	utils.LogPlaneBestEffort(
+		handler.logger,
+		logrus.WarnLevel,
+		utils.LogPlaneData,
+		logrus.Fields{
+			"event":         "credential_cooldown",
+			"credential_id": credentialID,
+			"category":      category.String(),
+			"status_code":   statusCode,
+		},
+		"Credential entered cooldown",
+	)
+}
+
+func (handler *Handler) logCredentialBlacklisted(
+	credentialID uint,
+	failures int,
+	category health.FailureCategory,
+	statusCode int,
+) {
+	utils.LogPlaneBestEffort(
+		handler.logger,
+		logrus.WarnLevel,
+		utils.LogPlaneData,
+		logrus.Fields{
+			"event":         "credential_blacklisted",
+			"credential_id": credentialID,
+			"failures":      failures,
+			"category":      category.String(),
+			"status_code":   statusCode,
+		},
+		"Credential blacklisted",
 	)
 }
 

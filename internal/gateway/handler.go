@@ -75,9 +75,9 @@ type runtimeCredentialRegistry interface {
 	scheduler.CredentialSource
 	CaptureActiveCredentialRefs(groupIDs []uint) []state.CredentialRef
 	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
-	SetCooldown(credentialID uint, until time.Time) bool
+	SetCooldownWithChange(credentialID uint, until time.Time) (exists bool, changed bool)
 	IncrFailure(credentialID uint) (int, bool)
-	SetBlacklisted(credentialID uint) bool
+	SetBlacklistedWithChange(credentialID uint) (exists bool, changed bool)
 	ClearFailure(credentialID uint) bool
 }
 
@@ -216,8 +216,13 @@ func (handler *Handler) applyCredentialAction(
 			if decision.UseFixed {
 				until = attemptNow.Add(fixedCooldown)
 			}
-			if handler.registry.SetCooldown(credentialID, until) {
-				handler.stats.RecordProblem(credentialID, decision.Category, statusCode, attemptNow)
+			exists, changed := handler.registry.SetCooldownWithChange(credentialID, until)
+			if !exists {
+				return
+			}
+			handler.stats.RecordProblem(credentialID, decision.Category, statusCode, attemptNow)
+			if changed {
+				handler.logCredentialCooldown(credentialID, decision.Category, statusCode)
 			}
 		}
 		if handler.mutations == nil {
@@ -231,11 +236,18 @@ func (handler *Handler) applyCredentialAction(
 			if !ok {
 				return
 			}
-			if count >= blacklistFailureThreshold &&
-				!handler.registry.SetBlacklisted(credentialID) {
-				return
+			becameBlacklisted := false
+			if count >= blacklistFailureThreshold {
+				var exists bool
+				exists, becameBlacklisted = handler.registry.SetBlacklistedWithChange(credentialID)
+				if !exists {
+					return
+				}
 			}
 			handler.stats.RecordFailure(credentialID, decision.Category, statusCode, attemptNow)
+			if becameBlacklisted {
+				handler.logCredentialBlacklisted(credentialID, count, decision.Category, statusCode)
+			}
 		})
 	}
 }

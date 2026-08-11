@@ -388,6 +388,47 @@ func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.
 	}
 }
 
+func TestValidationWorkerLogsSuccessfulRecovery(t *testing.T) {
+	var logs bytes.Buffer
+	logger := logrus.StandardLogger()
+	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.GetLevel()
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.InfoLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup(
+			[]protocol.Protocol{protocol.OpenAICompletions}, "model", nil,
+		)}),
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
+		&validationProbeRecorder{},
+	)
+
+	worker.Validate(context.Background())
+
+	var entry map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &entry); err != nil {
+		t.Fatalf("decode recovery log: %v; output=%q", err, logs.String())
+	}
+	if entry["event"] != "credential_recovered" ||
+		entry["credential_id"] != float64(7) ||
+		entry["group_id"] != float64(1) ||
+		entry["protocol"] != string(protocol.OpenAICompletions) ||
+		entry["level"] != "info" ||
+		entry["msg"] != "[CONTROL] Credential recovered" {
+		t.Fatalf("recovery log = %#v", entry)
+	}
+	if output := logs.String(); strings.Contains(output, "cipher-secret") ||
+		strings.Contains(output, "plain-cipher-secret") {
+		t.Fatalf("recovery log leaked credential material: %q", output)
+	}
+}
+
 func TestValidationWorkerRecoverIfMatchFailsDoesNotResetStats(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(

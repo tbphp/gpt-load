@@ -328,6 +328,16 @@ func (registry *recordingRuntimeRegistry) SetCooldown(credentialID uint, until t
 	return registry.CredentialRegistry.SetCooldown(credentialID, until)
 }
 
+func (registry *recordingRuntimeRegistry) SetCooldownWithChange(
+	credentialID uint,
+	until time.Time,
+) (bool, bool) {
+	registry.cooldownCredentialID = credentialID
+	registry.cooldownUntil = until
+	registry.cooldownCalls++
+	return registry.CredentialRegistry.SetCooldownWithChange(credentialID, until)
+}
+
 func (registry *recordingRuntimeRegistry) IncrFailure(credentialID uint) (int, bool) {
 	registry.incrFailureCalls++
 	count, ok := registry.CredentialRegistry.IncrFailure(credentialID)
@@ -338,6 +348,11 @@ func (registry *recordingRuntimeRegistry) IncrFailure(credentialID uint) (int, b
 func (registry *recordingRuntimeRegistry) SetBlacklisted(credentialID uint) bool {
 	registry.blacklistCalls++
 	return registry.CredentialRegistry.SetBlacklisted(credentialID)
+}
+
+func (registry *recordingRuntimeRegistry) SetBlacklistedWithChange(credentialID uint) (bool, bool) {
+	registry.blacklistCalls++
+	return registry.CredentialRegistry.SetBlacklistedWithChange(credentialID)
 }
 
 func (registry *recordingRuntimeRegistry) ClearFailure(credentialID uint) bool {
@@ -383,6 +398,63 @@ func TestHandlerCoordinatesSuccessMutation(t *testing.T) {
 	}
 	close(coordinator.releaseExit)
 	receiveTestSignal(t, done, "success mutation completion")
+}
+
+func TestHandlerLogsCredentialStateChanges(t *testing.T) {
+	now := time.Date(2026, time.August, 11, 18, 0, 0, 0, time.UTC)
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "test-1", Status: state.CredentialStatusActive,
+		EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	handler := &Handler{
+		registry:  registry,
+		stats:     health.NewStatsStore(),
+		mutations: health.NewMutationCoordinator(),
+		logger:    newGatewayJSONLogger(&logs),
+	}
+	cooldown := health.Result{
+		Category:      health.FailureCategoryRateLimited,
+		Action:        health.ActionCooldownCredential,
+		CooldownUntil: now.Add(time.Minute),
+	}
+
+	handler.applyCredentialAction(1, cooldown, http.StatusTooManyRequests, now)
+	handler.applyCredentialAction(1, cooldown, http.StatusTooManyRequests, now)
+	for range blacklistFailureThreshold + 1 {
+		handler.applyCredentialAction(1, health.Result{
+			Category: health.FailureCategoryInvalidKey,
+			Action:   health.ActionFailCredential,
+		}, http.StatusUnauthorized, now)
+	}
+
+	events := decodeGatewayJSONLogs(t, logs.Bytes())
+	if got := gatewayEventsNamed(events, "credential_cooldown"); len(got) != 1 {
+		t.Fatalf("credential_cooldown events = %#v, want one", got)
+	} else if event := got[0]; event["credential_id"] != float64(1) ||
+		event["category"] != "rate_limited" ||
+		event["status_code"] != float64(http.StatusTooManyRequests) ||
+		event["level"] != "warning" ||
+		event["msg"] != "[DATA] Credential entered cooldown" {
+		t.Fatalf("credential_cooldown event = %#v", event)
+	}
+	if got := gatewayEventsNamed(events, "credential_blacklisted"); len(got) != 1 {
+		t.Fatalf("credential_blacklisted events = %#v, want one", got)
+	} else if event := got[0]; event["credential_id"] != float64(1) ||
+		event["failures"] != float64(blacklistFailureThreshold) ||
+		event["category"] != "invalid_key" ||
+		event["status_code"] != float64(http.StatusUnauthorized) ||
+		event["level"] != "warning" ||
+		event["msg"] != "[DATA] Credential blacklisted" {
+		t.Fatalf("credential_blacklisted event = %#v", event)
+	}
+	if len(events) != 2 {
+		t.Fatalf("credential state events = %#v, want only two", events)
+	}
 }
 
 func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
@@ -1427,11 +1499,19 @@ func (panicRuntimeRegistry) SetCooldown(uint, time.Time) bool {
 	panic("model endpoint set cooldown")
 }
 
+func (panicRuntimeRegistry) SetCooldownWithChange(uint, time.Time) (bool, bool) {
+	panic("model endpoint set cooldown")
+}
+
 func (panicRuntimeRegistry) IncrFailure(uint) (int, bool) {
 	panic("model endpoint incremented failure")
 }
 
 func (panicRuntimeRegistry) SetBlacklisted(uint) bool {
+	panic("model endpoint set blacklist")
+}
+
+func (panicRuntimeRegistry) SetBlacklistedWithChange(uint) (bool, bool) {
 	panic("model endpoint set blacklist")
 }
 
