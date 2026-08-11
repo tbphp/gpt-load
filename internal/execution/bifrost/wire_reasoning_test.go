@@ -9,6 +9,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/reasoning"
 )
 
@@ -90,35 +91,36 @@ func TestTakeAppliedReasoningAlwaysClearsRawRequest(t *testing.T) {
 	}
 }
 
-func TestEnableAppliedReasoningWireCaptureRequiresConvertedReasoning(t *testing.T) {
+func TestEnableConvertedWireCaptureRequiresBoundedConvertedRequest(t *testing.T) {
 	t.Parallel()
+	client := parametertrace.ProjectJSON([]byte(`{"messages":[{"role":"user","content":"secret"}]}`))
 
 	native := schemas.NewBifrostContext(t.Context(), schemas.NoDeadline)
 	defer native.Cancel()
-	enableAppliedReasoningWireCapture(native, preparedAttempt{
+	enableConvertedWireCapture(native, preparedAttempt{
 		mode:    channel.RouteNative,
 		request: &schemas.BifrostChatRequest{Params: &schemas.ChatParameters{Reasoning: &schemas.ChatReasoning{}}},
-	})
+	}, &client)
 	if _, exists := native.Value(schemas.BifrostContextKeySendBackRawRequest).(bool); exists {
 		t.Fatal("native request enabled raw capture")
 	}
 
 	withoutReasoning := schemas.NewBifrostContext(t.Context(), schemas.NoDeadline)
 	defer withoutReasoning.Cancel()
-	enableAppliedReasoningWireCapture(withoutReasoning, preparedAttempt{
+	enableConvertedWireCapture(withoutReasoning, preparedAttempt{
 		mode:    channel.RouteConverted,
 		request: &schemas.BifrostChatRequest{Params: &schemas.ChatParameters{}},
-	})
-	if _, exists := withoutReasoning.Value(schemas.BifrostContextKeySendBackRawRequest).(bool); exists {
-		t.Fatal("converted request without reasoning enabled raw capture")
+	}, &client)
+	if value, _ := withoutReasoning.Value(schemas.BifrostContextKeySendBackRawRequest).(bool); !value {
+		t.Fatal("bounded converted request did not enable raw capture")
 	}
 
 	converted := schemas.NewBifrostContext(t.Context(), schemas.NoDeadline)
 	defer converted.Cancel()
-	enableAppliedReasoningWireCapture(converted, preparedAttempt{
+	enableConvertedWireCapture(converted, preparedAttempt{
 		mode:    channel.RouteConverted,
 		request: &schemas.BifrostChatRequest{Params: &schemas.ChatParameters{Reasoning: &schemas.ChatReasoning{}}},
-	})
+	}, &client)
 	for _, key := range []schemas.BifrostContextKey{
 		schemas.BifrostContextKeyAllowPerRequestRawOverride,
 		schemas.BifrostContextKeySendBackRawRequest,
@@ -129,5 +131,39 @@ func TestEnableAppliedReasoningWireCaptureRequiresConvertedReasoning(t *testing.
 	}
 	if value, ok := converted.Value(schemas.BifrostContextKeySendBackRawResponse).(bool); !ok || value {
 		t.Fatalf("raw response override = %#v", converted.Value(schemas.BifrostContextKeySendBackRawResponse))
+	}
+
+	oversize := parametertrace.Snapshot{
+		SchemaVersion: parametertrace.SchemaVersion,
+		State:         parametertrace.CaptureSkippedOversize,
+		Entries:       []parametertrace.Entry{},
+	}
+	skipped := schemas.NewBifrostContext(t.Context(), schemas.NoDeadline)
+	defer skipped.Cancel()
+	enableConvertedWireCapture(skipped, preparedAttempt{mode: channel.RouteConverted}, &oversize)
+	if _, exists := skipped.Value(schemas.BifrostContextKeySendBackRawRequest).(bool); exists {
+		t.Fatal("oversize request enabled raw capture")
+	}
+}
+
+func TestTakeWireObservationClearsRawAndComparesSafeParameters(t *testing.T) {
+	client := parametertrace.ProjectJSON([]byte(`{"thinking":{"type":"enabled","budget_tokens":4096},"messages":[{"role":"user","content":"secret prompt"}]}`))
+	raw := any(json.RawMessage(`{"reasoning_effort":"high","messages":[{"role":"user","content":"secret prompt"}]}`))
+	reasoningConfig, trace := takeWireObservation(&raw, &client)
+	if raw != nil {
+		t.Fatalf("raw request was retained: %#v", raw)
+	}
+	if !reflect.DeepEqual(reasoningConfig, &reasoning.Config{Effort: "high"}) {
+		t.Fatalf("reasoning = %#v", reasoningConfig)
+	}
+	if trace == nil || trace.State != parametertrace.CaptureCaptured || len(trace.Changes) == 0 {
+		t.Fatalf("trace = %#v", trace)
+	}
+	encoded, err := json.Marshal(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "secret prompt") {
+		t.Fatalf("trace leaked prompt: %s", encoded)
 	}
 }

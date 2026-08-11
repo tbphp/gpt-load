@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	platformheader "gpt-load/internal/platform/httpheader"
@@ -403,7 +404,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	query := scheduler.Query{
 		ClientProtocol:   selectedRoute.Protocol,
 		Operation:        metadata.Operation,
-		RequiredFeatures: metadata.RequiredFeatures,
+		RouteRequirement: metadata.RouteRequirement,
 		ExternalModel:    metadata.Model,
 		AccessKey:        accessKey,
 	}
@@ -417,6 +418,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	recorder.setOperation(metadata.Operation)
 	recorder.setStream(metadata.Stream)
 	recorder.setReasoning(metadata.Reasoning)
+	clientParameters := parametertrace.ProjectJSON(body)
+	recorder.setClientParameters(clientParameters)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
 	recorder.setUsageDiagnostics(metadata.UsageDiagnostics)
 
@@ -436,7 +439,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		metadata.Stream,
 		metadata.ObserveUsage,
 		metadata.Operation,
-		metadata.RequiredFeatures,
+		metadata.RouteRequirement,
+		clientParameters,
 		recorder,
 	)
 }
@@ -543,7 +547,8 @@ func (handler *Handler) executeAttempts(
 	stream bool,
 	observeUsage bool,
 	operation execution.Operation,
-	requiredFeatures execution.FeatureSet,
+	routeRequirement execution.RouteRequirement,
+	clientParameters parametertrace.Snapshot,
 	recorder *requestRecorder,
 ) {
 	type deferredAttempt struct {
@@ -554,6 +559,7 @@ func (handler *Handler) executeAttempts(
 	}
 	var lastResponse *deferredAttempt
 	var lastTransport *deferredAttempt
+	var lastConversion *deferredAttempt
 	var lastProviderError *deferredAttempt
 	lastAttemptIndex := -1
 	attempts := 0
@@ -608,10 +614,10 @@ func (handler *Handler) executeAttempts(
 			AttemptSequence:  uint32(attempts),
 			ClientProtocol:   selectedDialect.Protocol(),
 			Operation:        operation,
+			RouteRequirement: routeRequirement,
 			ChannelID:        string(selection.ChannelID),
 			TargetKind:       string(selection.ResolvedTarget.ProviderKind),
 			RouteMode:        execution.RouteMode(selection.RouteMode),
-			RequiredFeatures: requiredFeatures,
 			TargetConfig:     selection.ResolvedTarget.TargetConfig,
 			Credential: execution.NewCredentialSnapshot(
 				selection.CredentialID,
@@ -619,6 +625,7 @@ func (handler *Handler) executeAttempts(
 				ref.IdentityGeneration,
 				normalizedCredential.payload,
 			),
+			ClientParameters: cloneParameterSnapshot(&clientParameters),
 			OnStreamReady: func() {
 				handler.recordCredentialSuccess(selectedCredentialID, handler.now())
 			},
@@ -733,8 +740,13 @@ func (handler *Handler) executeAttempts(
 			return
 		}
 		if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {
-			lastTransport = &deferredAttempt{
+			deferred := &deferredAttempt{
 				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID), attemptIndex: recordedAttempt,
+			}
+			if isConversionUnsupportedResult(result) {
+				lastConversion = deferred
+			} else {
+				lastTransport = deferred
 			}
 			recorder.retryIfAnotherForward(recordedAttempt)
 			continue
@@ -778,6 +790,14 @@ func (handler *Handler) executeAttempts(
 	if lastTransport != nil {
 		value := transportReason(lastTransport.result)
 		recorder.completeTransport(value, lastTransport.upstreamModel, lastTransport.attemptIndex)
+		if err := handler.writeReason(ginContext, value); err != nil {
+			handler.completeWriteTerminal(ginContext, recorder, value.Status)
+		}
+		return
+	}
+	if lastConversion != nil {
+		value := reasonProtocolConversionUnsupported
+		recorder.completeTransport(value, lastConversion.upstreamModel, lastConversion.attemptIndex)
 		if err := handler.writeReason(ginContext, value); err != nil {
 			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}
@@ -840,6 +860,11 @@ func updateDebugHeaders(headers http.Header, group string, attempts int) {
 
 func transportReason(result UpstreamResult) reason {
 	switch {
+	case isConversionUnsupportedResult(result):
+		return reasonProtocolConversionUnsupported
+	case result.DispatchState == execution.DispatchNotSent && result.ExecutionError != nil &&
+		result.ExecutionError.Kind == execution.ErrorKindInvalidRequest:
+		return reasonInvalidProtocolRequest
 	case errors.Is(result.Err, ErrUpstreamProtocol):
 		return reasonUpstreamProtocol
 	case isTimeoutError(result.Err):
@@ -847,6 +872,11 @@ func transportReason(result UpstreamResult) reason {
 	default:
 		return reasonUpstreamConnect
 	}
+}
+
+func isConversionUnsupportedResult(result UpstreamResult) bool {
+	return result.DispatchState == execution.DispatchNotSent && result.ExecutionError != nil &&
+		result.ExecutionError.Kind == execution.ErrorKindConversionUnsupported
 }
 
 func (handler *Handler) writeUpstreamResponse(ginContext *gin.Context, result UpstreamResult) error {

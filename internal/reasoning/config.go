@@ -21,16 +21,3 @@ func (config Config) Clone() Config {
 func (config Config) Present() bool {
 	return config.Mode != "" || config.Effort != "" || config.BudgetTokens != nil
 }
-
-// RequiresCapability reports whether the request asks the upstream to perform
-// reasoning. An explicit "none" setting is a valid opt-out and must not make
-// routing require a reasoning-capable target.
-func (config Config) RequiresCapability() bool {
-	if config.BudgetTokens != nil {
-		return true
-	}
-	if config.Mode != "" && config.Mode != "none" {
-		return true
-	}
-	return config.Effort != "" && config.Effort != "none"
-}

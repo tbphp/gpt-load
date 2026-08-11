@@ -66,8 +66,8 @@ func (s AttemptSpec) Validate() error {
 	if !s.Operation.Valid() {
 		return validationError("operation", "unsupported value")
 	}
-	if err := s.RequiredFeatures.Validate(); err != nil {
-		return validationError("required_features", "contains an unsupported value")
+	if !s.RouteRequirement.Valid() {
+		return validationError("route_requirement", "unsupported value")
 	}
 	if operationRequiresModel(s.Operation) {
 		if strings.TrimSpace(s.ClientModel) == "" {
@@ -105,6 +105,11 @@ func (s AttemptSpec) Validate() error {
 	}
 	if len(s.TargetConfig) > 0 && !json.Valid(s.TargetConfig) {
 		return validationError("target_config", "must contain valid JSON")
+	}
+	if s.ClientParameters != nil {
+		if err := s.ClientParameters.Validate(); err != nil {
+			return validationError("client_parameters", "must contain a valid safe projection")
+		}
 	}
 	if err := s.Timeouts.Validate(); err != nil {
 		return err
@@ -171,6 +176,11 @@ func (r AttemptResult) Validate() error {
 	if !r.ResponseStarted && len(r.Body) > 0 {
 		return validationError("body", "requires response_started")
 	}
+	if r.ConversionTrace != nil {
+		if err := r.ConversionTrace.Validate(); err != nil {
+			return validationError("conversion_trace", "must contain a valid safe projection")
+		}
+	}
 	return nil
 }
 
@@ -228,14 +238,22 @@ func (r StreamResult) Validate() error {
 	if r.UpstreamAPI != "" && !r.UpstreamAPI.Valid() {
 		return validationError("upstream_api", "unsupported value")
 	}
-	return validateResultMetadata(
+	if err := validateResultMetadata(
 		r.DispatchState,
 		r.ResponseStarted,
 		r.StatusCode,
 		r.Header,
 		r.UpstreamRequestID,
 		r.Error,
-	)
+	); err != nil {
+		return err
+	}
+	if r.ConversionTrace != nil {
+		if err := r.ConversionTrace.Validate(); err != nil {
+			return validationError("conversion_trace", "must contain a valid safe projection")
+		}
+	}
+	return nil
 }
 
 func validateResultMetadata(

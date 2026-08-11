@@ -166,16 +166,105 @@ func TestCandidateGroupIDsForQuerySupportsModelLessResourceOperation(t *testing.
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	required := schedulerFeatureSet(t, execution.FeatureNativeResourceSemantics)
 	got := CandidateGroupIDsForQuery(snapshot, Query{
 		ClientProtocol:   protocol.OpenAIResponses,
 		Operation:        execution.OperationResponsesRetrieve,
-		RequiredFeatures: required,
+		RouteRequirement: execution.RouteRequirementNative,
 		ExternalModel:    nil,
 		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	})
 	if !slices.Equal(got, []uint{7}) {
 		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want native Responses group [7]", got)
+	}
+}
+
+func TestRouteRequirementKeepsStatefulResponsesOnNativeTargets(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{
+				ID: 7, Name: "official", ChannelID: channel.OpenAI,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "gpt-native", Alias: "gpt"}},
+			},
+			{
+				ID: 8, Name: "compatible", ChannelID: channel.OpenAICompatible,
+				Params: json.RawMessage(`{"base_url":"https://compatible.example/v1"}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "gpt-converted", Alias: "gpt"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	nativeQuery := Query{
+		ClientProtocol:   protocol.OpenAIResponses,
+		Operation:        execution.OperationResponsesCreate,
+		RouteRequirement: execution.RouteRequirementNative,
+		ExternalModel:    modelPointer("gpt"),
+		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}
+	if got := CandidateGroupIDsForQuery(snapshot, nativeQuery); !slices.Equal(got, []uint{7}) {
+		t.Fatalf("native CandidateGroupIDsForQuery() = %#v, want [7]", got)
+	}
+
+	inspection, err := Inspect(snapshot, []CredentialRuntimeView{
+		{ID: 71, GroupID: 7, Status: state.CredentialStatusActive},
+		{ID: 81, GroupID: 8, Status: state.CredentialStatusActive},
+	}, nativeQuery, time.Unix(100, 0))
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	if inspection.RouteRequirement != execution.RouteRequirementNative || len(inspection.Groups) != 2 {
+		t.Fatalf("Inspection = %#v", inspection)
+	}
+	if !inspection.Groups[0].RouteRequirementSatisfied || inspection.Groups[0].RouteMode != channel.RouteNative {
+		t.Fatalf("native group = %#v", inspection.Groups[0])
+	}
+	if inspection.Groups[1].RouteRequirementSatisfied || inspection.Groups[1].Reason != ReasonNativeRouteRequired {
+		t.Fatalf("converted group = %#v", inspection.Groups[1])
+	}
+}
+
+func TestStatefulResponsesCreateRequiresLifecycleTargetEvenWhenWireIsNative(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{
+				ID: 7, Name: "openai", ChannelID: channel.OpenAI,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "gpt-openai", Alias: "gpt"}},
+			},
+			{
+				ID: 8, Name: "openrouter", ChannelID: channel.OpenRouter,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "openai/gpt", Alias: "gpt"}},
+			},
+			{
+				ID: 9, Name: "xai", ChannelID: channel.XAI,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "grok", Alias: "gpt"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	got := CandidateGroupIDsForQuery(snapshot, Query{
+		ClientProtocol:   protocol.OpenAIResponses,
+		Operation:        execution.OperationResponsesCreate,
+		RouteRequirement: execution.RouteRequirementNative,
+		ExternalModel:    modelPointer("gpt"),
+		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	})
+	if !slices.Equal(got, []uint{7}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want lifecycle-capable OpenAI group [7]", got)
 	}
 }
 
@@ -202,15 +291,15 @@ func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InspectRequest() error = %v", err)
 	}
-	if metadata.RequiredFeatures.Has(execution.FeatureReasoning) {
-		t.Fatal("reasoning effort none must not require reasoning capability")
+	if metadata.RouteRequirement != execution.RouteRequirementAny {
+		t.Fatalf("RouteRequirement = %q, want any", metadata.RouteRequirement)
 	}
 	selection, err := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{
 		ID: 91, GroupID: 9,
 	}}}, Query{
 		ClientProtocol:   protocol.OpenAIResponses,
 		Operation:        metadata.Operation,
-		RequiredFeatures: metadata.RequiredFeatures,
+		RouteRequirement: metadata.RouteRequirement,
 		ExternalModel:    modelPointer("gpt-5.6-luna"),
 		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}, rand.New(zeroRandSource{})).Next()
@@ -224,36 +313,74 @@ func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 	}
 }
 
-func TestCandidateGroupIDsForQueryRejectsUnsupportedCapability(t *testing.T) {
+func TestCandidateGroupIDsForQueryRoutesAnthropicThinkingToOpenAICompatible(t *testing.T) {
 	t.Parallel()
 
-	got := CandidateGroupIDsForQuery(channelSchedulerSnapshot(t), Query{
-		ClientProtocol:   protocol.OpenAICompletions,
-		Operation:        execution.OperationChatCompletion,
-		RequiredFeatures: schedulerFeatureSet(t, execution.FeatureReasoning),
-		ExternalModel:    modelPointer("converted-only"),
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 10, Name: "compatible", ChannelID: channel.OpenAICompatible,
+			Params: json.RawMessage(`{"base_url":"https://compatible.example/v1"}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "reasoning-model", Alias: "claude-sonnet"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	metadata, err := dialect.NewAnthropic().InspectRequest(&dialect.ParsedRequest{
+		Method: http.MethodPost,
+		Path:   "/v1/messages",
+		Body: []byte(`{
+			"model":"claude-sonnet",
+			"thinking":{"type":"enabled","budget_tokens":4096},
+			"messages":[{"role":"user","content":"hello"}]
+		}`),
+	})
+	if err != nil {
+		t.Fatalf("InspectRequest() error = %v", err)
+	}
+	if metadata.RouteRequirement != execution.RouteRequirementAny {
+		t.Fatalf("Anthropic thinking RouteRequirement = %q, want any", metadata.RouteRequirement)
+	}
+
+	got := CandidateGroupIDsForQuery(snapshot, Query{
+		ClientProtocol:   protocol.Anthropic,
+		Operation:        metadata.Operation,
+		RouteRequirement: metadata.RouteRequirement,
+		ExternalModel:    modelPointer("claude-sonnet"),
 		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	})
-	if len(got) != 0 {
-		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want empty for unsupported capability", got)
+	if !slices.Equal(got, []uint{10}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want converted OpenAI-compatible group [10]", got)
 	}
 }
 
-func TestCapabilityUnsupportedIsStableAndInspectionIsNeutral(t *testing.T) {
+func TestCandidateGroupIDsForQueryDoesNotApplyOrdinaryCapabilityGate(t *testing.T) {
+	t.Parallel()
+
+	got := CandidateGroupIDsForQuery(channelSchedulerSnapshot(t), Query{
+		ClientProtocol: protocol.OpenAICompletions,
+		Operation:      execution.OperationChatCompletion,
+		ExternalModel:  modelPointer("converted-only"),
+		AccessKey:      state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	})
+	if !slices.Equal(got, []uint{1}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want converted group [1]", got)
+	}
+}
+
+func TestOperationUnsupportedIsStableAndInspectionIsNeutral(t *testing.T) {
 	t.Parallel()
 
 	snapshot := channelSchedulerSnapshot(t)
-	required := schedulerFeatureSet(t, execution.FeatureReasoning)
 	query := Query{
-		ClientProtocol:   protocol.OpenAICompletions,
-		Operation:        execution.OperationChatCompletion,
-		RequiredFeatures: required,
-		ExternalModel:    modelPointer("converted-only"),
-		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
+		ClientProtocol: protocol.Anthropic,
+		Operation:      execution.OperationResponsesRetrieve,
+		AccessKey:      state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}
 	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}}}, query, rand.New(zeroRandSource{}))
-	if iterator.StaticReason() != ReasonCapabilityUnsupported {
-		t.Fatalf("StaticReason() = %q, want %q", iterator.StaticReason(), ReasonCapabilityUnsupported)
+	if iterator.StaticReason() != ReasonOperationUnsupported {
+		t.Fatalf("StaticReason() = %q, want %q", iterator.StaticReason(), ReasonOperationUnsupported)
 	}
 	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
 		t.Fatalf("Next() error = %v, want ErrExhausted", err)
@@ -265,15 +392,10 @@ func TestCapabilityUnsupportedIsStableAndInspectionIsNeutral(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Inspect() error = %v", err)
 	}
-	if inspection.Routable || inspection.Reason != ReasonCapabilityUnsupported ||
-		inspection.ClientProtocol != protocol.OpenAICompletions || inspection.Operation != execution.OperationChatCompletion ||
-		len(inspection.RequiredFeatures) != 1 || inspection.RequiredFeatures[0] != execution.FeatureReasoning || len(inspection.Groups) != 1 {
+	if inspection.Routable || inspection.Reason != ReasonOperationUnsupported ||
+		inspection.ClientProtocol != protocol.Anthropic || inspection.Operation != execution.OperationResponsesRetrieve ||
+		len(inspection.Groups) != 0 {
 		t.Fatalf("Inspection = %#v", inspection)
-	}
-	group := inspection.Groups[0]
-	if group.ChannelID != channel.Anthropic || group.RouteMode != channel.RouteConverted || group.CapabilitySupported ||
-		group.Reason != ReasonCapabilityUnsupported || len(group.Credentials) != 0 {
-		t.Fatalf("GroupInspection = %#v", group)
 	}
 	encoded, err := json.Marshal(inspection)
 	if err != nil {
@@ -342,13 +464,4 @@ func channelSchedulerSnapshot(t *testing.T) *state.ConfigSnapshot {
 		t.Fatalf("Compile() error = %v", err)
 	}
 	return snapshot
-}
-
-func schedulerFeatureSet(t *testing.T, features ...execution.Feature) execution.FeatureSet {
-	t.Helper()
-	set, err := execution.NewFeatureSet(features...)
-	if err != nil {
-		t.Fatalf("NewFeatureSet() error = %v", err)
-	}
-	return set
 }

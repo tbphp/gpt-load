@@ -70,7 +70,7 @@ func TestNativeProviderChannelsResolveWithoutCompatibleFallback(t *testing.T) {
 			if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != test.responsesMode {
 				t.Fatalf("Responses mode = %q, %t, want %q", mode, ok, test.responsesMode)
 			}
-			if target.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {
+			if _, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesRetrieve); ok {
 				t.Fatal("target unexpectedly supports Responses lifecycle")
 			}
 		})

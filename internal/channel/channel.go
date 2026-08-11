@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"sort"
 	"strings"
 
 	"gpt-load/internal/execution"
@@ -149,24 +150,7 @@ type ResolvedTarget struct {
 	TargetConfig      json.RawMessage `json:"-"`
 	CatalogProviderID string          `json:"-"`
 
-	capabilities map[protocol.Protocol]execution.CapabilitySet
-	modes        map[protocol.Protocol]map[execution.Operation]RouteMode
-}
-
-// Supports reports whether one client protocol can execute the operation with
-// every required feature through this target.
-func (t ResolvedTarget) Supports(
-	clientProtocol protocol.Protocol,
-	operation execution.Operation,
-	required execution.FeatureSet,
-) bool {
-	capabilities, ok := t.capabilities[clientProtocol]
-	return ok && capabilities.Supports(operation, required)
-}
-
-// Capabilities returns an independent capability set for one client protocol.
-func (t ResolvedTarget) Capabilities(clientProtocol protocol.Protocol) execution.CapabilitySet {
-	return t.capabilities[clientProtocol].Clone()
+	modes map[protocol.Protocol]map[execution.Operation]RouteMode
 }
 
 // Mode returns how an operation reaches this channel.
@@ -180,6 +164,34 @@ func (t ResolvedTarget) Mode(
 	}
 	mode, ok := byOperation[operation]
 	return mode, ok
+}
+
+// Operations returns the stable operation set declared for a client protocol.
+func (t ResolvedTarget) Operations(clientProtocol protocol.Protocol) []execution.Operation {
+	byOperation := t.modes[clientProtocol]
+	operations := make([]execution.Operation, 0, len(byOperation))
+	for operation := range byOperation {
+		operations = append(operations, operation)
+	}
+	sort.Slice(operations, func(i, j int) bool { return operations[i] < operations[j] })
+	return operations
+}
+
+// SupportsResponsesLifecycle reports whether stored Responses resources can
+// be retrieved and managed through this target.
+func (t ResolvedTarget) SupportsResponsesLifecycle() bool {
+	for _, operation := range []execution.Operation{
+		execution.OperationResponsesRetrieve,
+		execution.OperationResponsesDelete,
+		execution.OperationResponsesCancel,
+		execution.OperationResponsesInputItems,
+	} {
+		mode, ok := t.Mode(protocol.OpenAIResponses, operation)
+		if !ok || mode != RouteNative {
+			return false
+		}
+	}
+	return true
 }
 
 // Registry is an immutable code-owned channel directory.
@@ -292,7 +304,6 @@ func (r *Registry) Resolve(id ID, raw json.RawMessage) (ResolvedTarget, error) {
 		ProviderKind:      definition.providerKind,
 		TargetConfig:      append(json.RawMessage(nil), targetConfig...),
 		CatalogProviderID: definition.catalogProviderID,
-		capabilities:      cloneCapabilityMatrix(definition.capabilities),
 		modes:             cloneRouteModes(definition.modes),
 	}, nil
 }
@@ -405,7 +416,6 @@ type definition struct {
 	providerKind       ProviderKind
 	compatible         bool
 	fixedTargetConfig  json.RawMessage
-	capabilities       map[protocol.Protocol]execution.CapabilitySet
 	modes              map[protocol.Protocol]map[execution.Operation]RouteMode
 }
 
@@ -432,7 +442,6 @@ func newRegistry(definitions []definition) (*Registry, error) {
 		}
 		definition.descriptor = cloneDescriptor(definition.descriptor)
 		definition.searchTerms = append([]string(nil), definition.searchTerms...)
-		definition.capabilities = cloneCapabilityMatrix(definition.capabilities)
 		definition.modes = cloneRouteModes(definition.modes)
 		definition.fixedTargetConfig = append(json.RawMessage(nil), definition.fixedTargetConfig...)
 		registry.byID[id] = definition
@@ -468,26 +477,19 @@ func validateDefinition(definition definition) error {
 			seen[key] = struct{}{}
 		}
 	}
-	if len(definition.capabilities) == 0 {
+	if len(definition.modes) == 0 {
 		return fmt.Errorf("channel %q has no client protocols", id)
 	}
-	for clientProtocol, capabilities := range definition.capabilities {
+	for clientProtocol, modes := range definition.modes {
 		if !clientProtocol.Valid() {
 			return fmt.Errorf("channel %q has invalid client protocol %q", id, clientProtocol)
 		}
-		if err := capabilities.Validate(); err != nil {
-			return fmt.Errorf("channel %q capabilities: %w", id, err)
+		if len(modes) == 0 {
+			return fmt.Errorf("channel %q has no operations for %q", id, clientProtocol)
 		}
-		modes := definition.modes[clientProtocol]
-		for _, operation := range capabilities.Operations() {
-			mode, exists := modes[operation]
-			if !exists || !mode.Valid() {
+		for operation, mode := range modes {
+			if !operation.Valid() || !mode.Valid() {
 				return fmt.Errorf("channel %q has no valid route mode for %q/%q", id, clientProtocol, operation)
-			}
-		}
-		for operation := range modes {
-			if !capabilities.Has(operation) {
-				return fmt.Errorf("channel %q has route mode for unsupported %q/%q", id, clientProtocol, operation)
 			}
 		}
 	}
@@ -507,14 +509,6 @@ func cloneDescriptor(source Descriptor) Descriptor {
 	source.CredentialFields = append([]FieldDescriptor{}, source.CredentialFields...)
 	source.ClientProtocols = append([]protocol.Protocol{}, source.ClientProtocols...)
 	return source
-}
-
-func cloneCapabilityMatrix(source map[protocol.Protocol]execution.CapabilitySet) map[protocol.Protocol]execution.CapabilitySet {
-	clone := make(map[protocol.Protocol]execution.CapabilitySet, len(source))
-	for clientProtocol, capabilities := range source {
-		clone[clientProtocol] = capabilities.Clone()
-	}
-	return clone
 }
 
 func cloneRouteModes(source map[protocol.Protocol]map[execution.Operation]RouteMode) map[protocol.Protocol]map[execution.Operation]RouteMode {

@@ -1267,10 +1267,6 @@ type validationTestExecutor struct {
 	probes *validationProbeRecorder
 }
 
-func (*validationTestExecutor) Capabilities() execution.CapabilitySet {
-	return execution.CapabilitySet{}
-}
-
 func (executor *validationTestExecutor) Execute(
 	ctx context.Context,
 	spec execution.AttemptSpec,

@@ -15,6 +15,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -29,6 +30,25 @@ type responsesStreamSDKResult struct {
 	err    *schemas.BifrostError
 }
 
+type targetConversionError struct {
+	summary string
+}
+
+func (err *targetConversionError) Error() string {
+	if err == nil {
+		return "target conversion is not supported"
+	}
+	return err.summary
+}
+
+func (*targetConversionError) ConversionCode() string {
+	return execution.ErrorCodeTargetConversionNotSupported
+}
+
+func unsupportedTargetConversion(summary string) error {
+	return &targetConversionError{summary: summary}
+}
+
 func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas.ModelProvider) (*schemas.BifrostResponsesRequest, error) {
 	conversionContext := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
 	defer conversionContext.Cancel()
@@ -37,7 +57,7 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 	switch spec.ClientProtocol {
 	case protocol.OpenAIResponses:
 		if spec.Operation != execution.OperationResponsesCreate {
-			return nil, fmt.Errorf("converted Responses operation is not supported")
+			return nil, unsupportedTargetConversion("converted Responses operation is not supported")
 		}
 		var wire openai.OpenAIResponsesRequest
 		if err := json.Unmarshal(spec.Body, &wire); err != nil {
@@ -46,7 +66,7 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		request = wire.ToBifrostResponsesRequest(conversionContext)
 	case protocol.Anthropic:
 		if spec.Operation != execution.OperationChatCompletion {
-			return nil, fmt.Errorf("converted Anthropic operation is not supported")
+			return nil, unsupportedTargetConversion("converted Anthropic operation is not supported")
 		}
 		var wire anthropic.AnthropicMessageRequest
 		if err := json.Unmarshal(spec.Body, &wire); err != nil {
@@ -55,7 +75,7 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		request = wire.ToBifrostResponsesRequest(conversionContext)
 	case protocol.Gemini:
 		if spec.Operation != execution.OperationChatCompletion {
-			return nil, fmt.Errorf("converted Gemini operation is not supported")
+			return nil, unsupportedTargetConversion("converted Gemini operation is not supported")
 		}
 		var wire gemini.GeminiGenerationRequest
 		if err := json.Unmarshal(spec.Body, &wire); err != nil {
@@ -64,7 +84,7 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		wire.Model = spec.ClientModel
 		request = wire.ToBifrostResponsesRequest(conversionContext)
 	default:
-		return nil, fmt.Errorf("converted protocol is not supported")
+		return nil, unsupportedTargetConversion("converted protocol is not supported")
 	}
 	if request == nil || len(request.Input) == 0 {
 		return nil, fmt.Errorf("converted request input is required")
@@ -96,9 +116,12 @@ func (r *Runtime) executeConvertedResponses(
 	spec execution.AttemptSpec,
 	prepared preparedAttempt,
 ) (result execution.AttemptResult) {
+	clientParameters := conversionClientParameters(&spec)
 	var appliedReasoning *reasoning.Config
+	var conversionTrace *parametertrace.Trace
 	defer func() {
 		result.AppliedReasoning = appliedReasoning
+		result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 	}()
 
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
@@ -107,7 +130,7 @@ func (r *Runtime) executeConvertedResponses(
 	defer callCancel()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
-	enableAppliedReasoningWireCapture(bifrostContext, prepared)
+	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesUnarySDKResult, 1)
 	go func() {
@@ -126,11 +149,11 @@ func (r *Runtime) executeConvertedResponses(
 	}
 
 	if outcome.err != nil {
-		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
-		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		return convertedUnaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
 	}
 	if outcome.response != nil {
-		appliedReasoning = takeAppliedReasoning(&outcome.response.ExtraFields.RawRequest)
+		captureWireObservation(&outcome.response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
 	}
 	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
 		return *failure
@@ -354,9 +377,12 @@ func (r *Runtime) executeConvertedResponsesStream(
 	prepared preparedAttempt,
 	sink execution.StreamSink,
 ) (result execution.StreamResult) {
+	clientParameters := conversionClientParameters(&spec)
 	var appliedReasoning *reasoning.Config
+	var conversionTrace *parametertrace.Trace
 	defer func() {
 		result.AppliedReasoning = appliedReasoning
+		result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 	}()
 
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
@@ -367,7 +393,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	defer preResponse.stop()
 
 	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
-	enableAppliedReasoningWireCapture(bifrostContext, prepared)
+	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesStreamSDKResult, 1)
 	go func() {
@@ -386,8 +412,8 @@ func (r *Runtime) executeConvertedResponsesStream(
 	}
 	preResponse.stop()
 	if outcome.err != nil {
-		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
-		return streamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
+		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		return convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
 	}
 	if outcome.stream == nil {
 		return attemptedStreamFailure(execution.ErrorKindInternal, "execution runtime returned no stream")
@@ -440,18 +466,14 @@ func (r *Runtime) executeConvertedResponsesStream(
 			if chunk == nil || chunk.BifrostResponsesStreamResponse == nil {
 				callCancel()
 				if chunk != nil && chunk.BifrostError != nil {
-					if captured := takeAppliedReasoning(&chunk.BifrostError.ExtraFields.RawRequest); captured != nil {
-						appliedReasoning = captured
-					}
+					captureWireObservation(&chunk.BifrostError.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
 					return streamErrorResult(chunk.BifrostError, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 				}
 				return streamErrorResult(nil, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
 
 			response := chunk.BifrostResponsesStreamResponse
-			if captured := takeAppliedReasoning(&response.ExtraFields.RawRequest); captured != nil {
-				appliedReasoning = captured
-			}
+			captureWireObservation(&response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
 			var chunkUsage *execution.UsageEvidence
 			if response.Response != nil {
 				if response.Response.Model != "" {

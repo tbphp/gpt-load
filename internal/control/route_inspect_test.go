@@ -120,7 +120,7 @@ func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
 		},
 		{
 			name:     "invalid protocol",
-			body:     `{"protocol":"invalid","operation":"chat_completion","required_features":[],"external_model":"model","access_key_id":1}`,
+			body:     `{"protocol":"invalid","operation":"chat_completion","route_requirement":"any","external_model":"model","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
@@ -135,47 +135,57 @@ func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
 		},
 		{
 			name:     "missing operation",
-			body:     `{"protocol":"openai-completions","required_features":[],"external_model":"model","access_key_id":1}`,
+			body:     `{"protocol":"openai-completions","route_requirement":"any","external_model":"model","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
-			name:     "missing required features",
+			name:     "missing route requirement",
 			body:     `{"protocol":"openai-completions","operation":"chat_completion","external_model":"model","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
 			name:     "invalid operation",
-			body:     `{"protocol":"openai-completions","operation":"unknown","required_features":[],"external_model":"model","access_key_id":1}`,
+			body:     `{"protocol":"openai-completions","operation":"unknown","route_requirement":"any","external_model":"model","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
-			name:     "invalid feature",
-			body:     `{"protocol":"openai-completions","operation":"chat_completion","required_features":["unknown"],"external_model":"model","access_key_id":1}`,
+			name:     "legacy required features field",
+			body:     `{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","required_features":[],"external_model":"model","access_key_id":1}`,
+			wantCode: app_errors.ErrInvalidJSON.Code,
+		},
+		{
+			name:     "invalid route requirement",
+			body:     `{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"converted","external_model":"model","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
-			name:     "duplicate feature",
-			body:     `{"protocol":"openai-completions","operation":"chat_completion","required_features":["tools","tools"],"external_model":"model","access_key_id":1}`,
-			wantCode: app_errors.ErrValidation.Code,
+			name:     "route requirement wrong type",
+			body:     `{"protocol":"openai-completions","operation":"chat_completion","route_requirement":true,"external_model":"model","access_key_id":1}`,
+			wantCode: app_errors.ErrInvalidJSON.Code,
 		},
 		{
 			name:     "operation protocol mismatch",
-			body:     `{"protocol":"anthropic","operation":"responses_create","required_features":[],"external_model":"model","access_key_id":1}`,
+			body:     `{"protocol":"anthropic","operation":"responses_create","route_requirement":"any","external_model":"model","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
 			name:     "model required by operation",
-			body:     `{"protocol":"openai-responses","operation":"responses_create","required_features":[],"access_key_id":1}`,
+			body:     `{"protocol":"openai-responses","operation":"responses_create","route_requirement":"native","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
 			name:     "model forbidden by lifecycle operation",
-			body:     `{"protocol":"openai-responses","operation":"responses_retrieve","required_features":[],"external_model":"model","access_key_id":1}`,
+			body:     `{"protocol":"openai-responses","operation":"responses_retrieve","route_requirement":"native","external_model":"model","access_key_id":1}`,
+			wantCode: app_errors.ErrValidation.Code,
+		},
+		{
+			name:     "resource operation requires native route",
+			body:     `{"protocol":"openai-responses","operation":"responses_retrieve","route_requirement":"any","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
 			name:     "empty model",
-			body:     `{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"","access_key_id":1}`,
+			body:     `{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
@@ -267,8 +277,8 @@ func TestRouteInspectSupportsResponsesWithoutModel(t *testing.T) {
 	).RegisterRoutes(engine)
 
 	for _, body := range []string{
-		`{"protocol":"openai-responses","operation":"responses_retrieve","required_features":["native_resource_semantics"],"access_key_id":10}`,
-		`{"protocol":"openai-responses","operation":"responses_retrieve","required_features":["native_resource_semantics"],"external_model":null,"access_key_id":10}`,
+		`{"protocol":"openai-responses","operation":"responses_retrieve","route_requirement":"native","access_key_id":10}`,
+		`{"protocol":"openai-responses","operation":"responses_retrieve","route_requirement":"native","external_model":null,"access_key_id":10}`,
 	} {
 		recorder := performRouteInspectRequest(
 			engine,
@@ -315,7 +325,7 @@ func TestRouteInspectWithoutModelReturnsSharedFilterReason(t *testing.T) {
 	result, err := fixture.service.InspectRoute(routeInspectRequest{
 		Protocol:         protocol.OpenAIResponses,
 		Operation:        execution.OperationResponsesRetrieve,
-		RequiredFeatures: []execution.Feature{execution.FeatureNativeResourceSemantics},
+		RouteRequirement: execution.RouteRequirementNative,
 		AccessKeyID:      10,
 	})
 	if err != nil {
@@ -326,6 +336,66 @@ func TestRouteInspectWithoutModelReturnsSharedFilterReason(t *testing.T) {
 		*result.ReasonCode != scheduler.ReasonModelRequiredByFilter ||
 		len(result.Groups) != 0 {
 		t.Fatalf("model-filter response = %#v", result)
+	}
+}
+
+func TestRouteInspectRouteRequirementExcludesOnlyConvertedTargets(t *testing.T) {
+	t.Parallel()
+
+	fixture := newServiceFixture(t)
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		Groups: []state.GroupConfig{
+			{
+				ID: 1, Name: "native", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "native-model", Alias: "public-model"}}, Enabled: true,
+			},
+			{
+				ID: 2, Name: "converted", ChannelID: channel.OpenAICompatible,
+				Params: json.RawMessage(`{"base_url":"https://compatible.example/v1"}`),
+				Models: []state.ModelConfig{{ID: "converted-model", Alias: "public-model"}}, Enabled: true,
+			},
+		},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 10, Name: "client", KeyHash: "hash", Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
+		{ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "native", Status: state.CredentialStatusActive, EncryptedValue: "native"},
+		{ID: 21, GroupID: 2, Version: 1, IdentityGeneration: 21, Fingerprint: "converted", Status: state.CredentialStatusActive, EncryptedValue: "converted"},
+	}); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+
+	request := routeInspectRequest{
+		Protocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate,
+		RouteRequirement: execution.RouteRequirementAny,
+		ExternalModel:    stringPointer("public-model"), AccessKeyID: 10,
+	}
+	anyResult, err := fixture.service.InspectRoute(request)
+	if err != nil {
+		t.Fatalf("InspectRoute(any) error = %v", err)
+	}
+	if !anyResult.Routable || anyResult.RouteRequirement != execution.RouteRequirementAny ||
+		len(anyResult.Groups) != 2 || !anyResult.Groups[0].RouteRequirementSatisfied ||
+		!anyResult.Groups[1].RouteRequirementSatisfied || !anyResult.Groups[1].Included {
+		t.Fatalf("any result = %#v", anyResult)
+	}
+
+	request.RouteRequirement = execution.RouteRequirementNative
+	nativeResult, err := fixture.service.InspectRoute(request)
+	if err != nil {
+		t.Fatalf("InspectRoute(native) error = %v", err)
+	}
+	if !nativeResult.Routable || nativeResult.RouteRequirement != execution.RouteRequirementNative ||
+		len(nativeResult.Groups) != 2 || !nativeResult.Groups[0].RouteRequirementSatisfied ||
+		!nativeResult.Groups[0].Included || nativeResult.Groups[1].RouteRequirementSatisfied ||
+		nativeResult.Groups[1].Included || nativeResult.Groups[1].ReasonCode == nil ||
+		*nativeResult.Groups[1].ReasonCode != scheduler.ReasonNativeRouteRequired ||
+		len(nativeResult.Groups[1].Credentials) != 0 {
+		t.Fatalf("native result = %#v", nativeResult)
 	}
 }
 
@@ -382,14 +452,14 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	recorder := performRouteInspectRequest(
 		engine,
 		"test-auth-key",
-		`{"protocol":"openai-completions","operation":"chat_completion","required_features":["tools"],"external_model":"public-model","access_key_id":10}`,
+		`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"public-model","access_key_id":10}`,
 	)
 	got := decodeRouteInspectSuccess(t, recorder)
 	if got.ObservedAtMS != now.UnixMilli() ||
 		got.SnapshotRevision != fixture.manager.Current().Revision ||
 		got.Protocol != protocol.OpenAICompletions ||
 		got.Operation != execution.OperationChatCompletion ||
-		!reflect.DeepEqual(got.RequiredFeatures, []execution.Feature{execution.FeatureTools}) ||
+		got.RouteRequirement != execution.RouteRequirementAny ||
 		routeModelValue(got.ExternalModel) != "public-model" ||
 		got.AccessKey != (routeInspectAccessKeyResponse{
 			ID: 10, Name: "production", Status: state.AccessKeyStatusActive,
@@ -405,7 +475,7 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	if primary.GroupName != "primary" ||
 		primary.ChannelID != channel.OpenAI ||
 		primary.RouteMode != execution.RouteNative ||
-		!primary.CapabilitySupported ||
+		!primary.RouteRequirementSatisfied ||
 		routeModelValue(primary.UpstreamModel) != "provider-model" ||
 		primary.WeightManual != nil || !primary.Included ||
 		!primary.Routable || primary.ReasonCode != nil ||
@@ -528,7 +598,7 @@ func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
 			recorder := performRouteInspectRequest(
 				engine,
 				"test-auth-key",
-				`{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"public-model","access_key_id":10}`,
+				`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"public-model","access_key_id":10}`,
 			)
 			got := decodeRouteInspectSuccess(t, recorder)
 			if got.ObservedAtMS != now.UnixMilli() ||
@@ -589,7 +659,7 @@ func TestRouteInspectEndpointReturnsNoRouteTargetExplanation(t *testing.T) {
 	recorder := performRouteInspectRequest(
 		engine,
 		"test-auth-key",
-		`{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"missing-model","access_key_id":10}`,
+		`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"missing-model","access_key_id":10}`,
 	)
 	got := decodeRouteInspectSuccess(t, recorder)
 	if got.ObservedAtMS != now.UnixMilli() ||
@@ -655,7 +725,7 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 	recorder := performRouteInspectRequest(
 		engine,
 		"test-auth-key",
-		`{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"public-model","access_key_id":10}`,
+		`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"public-model","access_key_id":10}`,
 	)
 	got := decodeRouteInspectSuccess(t, recorder)
 	if got.ObservedAtMS != now.UnixMilli() ||
@@ -734,7 +804,7 @@ func TestRouteInspectReturnsDisabledAccessKeyAsExplanation(t *testing.T) {
 	}
 	result, err := fixture.service.InspectRoute(routeInspectRequest{
 		Protocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion,
-		RequiredFeatures: []execution.Feature{}, ExternalModel: stringPointer("model"), AccessKeyID: 12,
+		RouteRequirement: execution.RouteRequirementAny, ExternalModel: stringPointer("model"), AccessKeyID: 12,
 	})
 	if err != nil {
 		t.Fatalf("InspectRoute() error = %v", err)
@@ -749,7 +819,7 @@ func TestRouteInspectReturnsDisabledAccessKeyAsExplanation(t *testing.T) {
 	recorder := performRouteInspectRequest(
 		engine,
 		"test-auth-key",
-		`{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"model","access_key_id":12}`,
+		`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"model","access_key_id":12}`,
 	)
 	if recorder.Code != http.StatusOK ||
 		!strings.Contains(recorder.Body.String(), `"reason_code":"access_key_disabled"`) ||
@@ -763,7 +833,7 @@ func TestRouteInspectMissingAccessKeyReturnsNotFound(t *testing.T) {
 	fixture := newServiceFixture(t)
 	_, err := fixture.service.InspectRoute(routeInspectRequest{
 		Protocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion,
-		RequiredFeatures: []execution.Feature{}, ExternalModel: stringPointer("model"), AccessKeyID: 404,
+		RouteRequirement: execution.RouteRequirementAny, ExternalModel: stringPointer("model"), AccessKeyID: 404,
 	})
 	if !errors.Is(err, app_errors.ErrResourceNotFound) {
 		t.Fatalf("InspectRoute() error = %v, want NOT_FOUND", err)
@@ -773,7 +843,7 @@ func TestRouteInspectMissingAccessKeyReturnsNotFound(t *testing.T) {
 	recorder := performRouteInspectRequest(
 		engine,
 		"test-auth-key",
-		`{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"model","access_key_id":404}`,
+		`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"model","access_key_id":404}`,
 	)
 	var envelope struct {
 		Code string `json:"code"`
@@ -854,7 +924,7 @@ func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {
 
 	if _, err := fixture.service.InspectRoute(routeInspectRequest{
 		Protocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion,
-		RequiredFeatures: []execution.Feature{}, ExternalModel: stringPointer("model"), AccessKeyID: 1,
+		RouteRequirement: execution.RouteRequirementAny, ExternalModel: stringPointer("model"), AccessKeyID: 1,
 	}); err != nil {
 		t.Fatalf("InspectRoute() error = %v", err)
 	}
@@ -886,7 +956,7 @@ func TestRouteInspectEndpointRequiresManagementAuthentication(t *testing.T) {
 	recorder := performRouteInspectRequest(
 		engine,
 		"",
-		`{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"model","access_key_id":1}`,
+		`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"model","access_key_id":1}`,
 	)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("response = %d %s, want 401", recorder.Code, recorder.Body.String())
@@ -920,7 +990,7 @@ func TestRouteInspectCatalogMismatchReturnsInternalServerError(t *testing.T) {
 	recorder := performRouteInspectRequest(
 		engine,
 		"test-auth-key",
-		`{"protocol":"openai-completions","operation":"chat_completion","required_features":[],"external_model":"model","access_key_id":1}`,
+		`{"protocol":"openai-completions","operation":"chat_completion","route_requirement":"any","external_model":"model","access_key_id":1}`,
 	)
 	var envelope struct {
 		Code string `json:"code"`

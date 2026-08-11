@@ -277,10 +277,9 @@ func mapGroupCollectionRecords(
 		if err != nil {
 			return nil, groupCollectionDataError("resolve group %d channel: %v", group.ID, err)
 		}
-		supportsModelOptionalRequests = resolvedTarget.Supports(
+		_, supportsModelOptionalRequests = resolvedTarget.Mode(
 			protocol.OpenAIResponses,
 			execution.OperationResponsesRetrieve,
-			execution.FeatureSet{},
 		)
 		var groupModels []GroupModel
 		if err := json.Unmarshal(group.Models, &groupModels); err != nil {

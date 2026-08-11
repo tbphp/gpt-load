@@ -12,6 +12,7 @@ import (
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -57,6 +58,7 @@ type requestRecorder struct {
 	stream           bool
 	firstResponseMs  *int64
 	reasoning        reasoning.Config
+	clientParameters *parametertrace.Snapshot
 	usageApplicable  bool
 	usageDiagnostics usage.Diagnostics
 	attempts         []telemetry.Attempt
@@ -134,6 +136,7 @@ func (recorder *requestRecorder) emit() {
 		DurationMs:            duration.Milliseconds(),
 		AffinityHit:           false,
 		Reasoning:             recorder.reasoning,
+		ClientParameters:      cloneParameterSnapshot(recorder.clientParameters),
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
@@ -182,6 +185,14 @@ func (recorder *requestRecorder) setReasoning(config reasoning.Config) {
 		config.BudgetTokens = &budget
 	}
 	recorder.reasoning = config
+}
+
+func (recorder *requestRecorder) setClientParameters(value parametertrace.Snapshot) {
+	if recorder == nil {
+		return
+	}
+	clone := parametertrace.CloneSnapshot(value)
+	recorder.clientParameters = &clone
 }
 
 func (recorder *requestRecorder) recordFirstResponse() {
@@ -325,6 +336,7 @@ func (recorder *requestRecorder) appendAttempt(
 		ErrorCode:         errorCode,
 		ErrorSummary:      errorSummary,
 		Committed:         result.Committed,
+		ConversionTrace:   cloneConversionTrace(result.ConversionTrace),
 	}
 	if attempt.ErrorCode != "" && attempt.ErrorSummary == "" {
 		attempt.ErrorSummary = fixedErrorSummary(attempt.ErrorCode)
@@ -605,6 +617,8 @@ func telemetryFailureCategory(value health.FailureCategory) telemetry.FailureCat
 		return telemetry.FailureCategoryUpstreamHost
 	case health.FailureCategoryClientError:
 		return telemetry.FailureCategoryClientError
+	case health.FailureCategoryConversionUnsupported:
+		return telemetry.FailureCategoryConversionUnsupported
 	case health.FailureCategoryDownstreamCancel:
 		return telemetry.FailureCategoryDownstreamCancel
 	default:
@@ -653,6 +667,8 @@ func upstreamErrorCode(result UpstreamResult, category health.FailureCategory) s
 		return "upstream_host_error"
 	case health.FailureCategoryClientError:
 		return "upstream_client_error"
+	case health.FailureCategoryConversionUnsupported:
+		return "protocol_conversion_unsupported"
 	case health.FailureCategoryDownstreamCancel:
 		return "client_canceled"
 	default:
@@ -678,6 +694,8 @@ func fixedErrorSummary(code string) string {
 		return "Upstream request timed out."
 	case "upstream_protocol_error":
 		return "Upstream returned an unsupported response."
+	case "protocol_conversion_unsupported":
+		return "No upstream target could preserve or convert the request."
 	case "upstream_sse_error":
 		return "Upstream stream reported an error."
 	case "upstream_stream_terminated":

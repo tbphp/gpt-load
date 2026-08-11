@@ -16,11 +16,11 @@ import (
 )
 
 type routeInspectRequest struct {
-	Protocol         protocol.Protocol   `json:"protocol"`
-	Operation        execution.Operation `json:"operation"`
-	RequiredFeatures []execution.Feature `json:"required_features"`
-	ExternalModel    *string             `json:"external_model"`
-	AccessKeyID      uint                `json:"access_key_id"`
+	Protocol         protocol.Protocol          `json:"protocol"`
+	Operation        execution.Operation        `json:"operation"`
+	RouteRequirement execution.RouteRequirement `json:"route_requirement"`
+	ExternalModel    *string                    `json:"external_model"`
+	AccessKeyID      uint                       `json:"access_key_id"`
 }
 
 type routeInspectAccessKeyResponse struct {
@@ -40,17 +40,17 @@ type routeInspectCredentialResponse struct {
 }
 
 type routeInspectGroupResponse struct {
-	GroupID             uint                             `json:"group_id"`
-	GroupName           string                           `json:"group_name"`
-	ChannelID           channel.ID                       `json:"channel_id"`
-	RouteMode           execution.RouteMode              `json:"route_mode"`
-	CapabilitySupported bool                             `json:"capability_supported"`
-	UpstreamModel       *string                          `json:"upstream_model"`
-	WeightManual        *int                             `json:"weight_manual"`
-	Included            bool                             `json:"included"`
-	Routable            bool                             `json:"routable"`
-	ReasonCode          *scheduler.ReasonCode            `json:"reason_code"`
-	Credentials         []routeInspectCredentialResponse `json:"credentials"`
+	GroupID                   uint                             `json:"group_id"`
+	GroupName                 string                           `json:"group_name"`
+	ChannelID                 channel.ID                       `json:"channel_id"`
+	RouteMode                 execution.RouteMode              `json:"route_mode"`
+	RouteRequirementSatisfied bool                             `json:"route_requirement_satisfied"`
+	UpstreamModel             *string                          `json:"upstream_model"`
+	WeightManual              *int                             `json:"weight_manual"`
+	Included                  bool                             `json:"included"`
+	Routable                  bool                             `json:"routable"`
+	ReasonCode                *scheduler.ReasonCode            `json:"reason_code"`
+	Credentials               []routeInspectCredentialResponse `json:"credentials"`
 }
 
 type routeInspectResponse struct {
@@ -58,7 +58,7 @@ type routeInspectResponse struct {
 	SnapshotRevision uint64                        `json:"snapshot_revision"`
 	Protocol         protocol.Protocol             `json:"protocol"`
 	Operation        execution.Operation           `json:"operation"`
-	RequiredFeatures []execution.Feature           `json:"required_features"`
+	RouteRequirement execution.RouteRequirement    `json:"route_requirement"`
 	ExternalModel    *string                       `json:"external_model"`
 	AccessKey        routeInspectAccessKeyResponse `json:"access_key"`
 	Routable         bool                          `json:"routable"`
@@ -78,19 +78,14 @@ func validateRouteInspectRequest(request routeInspectRequest) error {
 	if !request.Protocol.DataPlaneEnabled() ||
 		request.AccessKeyID == 0 ||
 		!request.Operation.Valid() ||
-		request.RequiredFeatures == nil ||
+		(request.RouteRequirement != execution.RouteRequirementAny &&
+			request.RouteRequirement != execution.RouteRequirementNative) ||
 		!routeInspectOperationMatchesProtocol(request.Protocol, request.Operation) {
 		return app_errors.ErrValidation
 	}
-	seenFeatures := make(map[execution.Feature]struct{}, len(request.RequiredFeatures))
-	for _, feature := range request.RequiredFeatures {
-		if !feature.Valid() {
-			return app_errors.ErrValidation
-		}
-		if _, duplicate := seenFeatures[feature]; duplicate {
-			return app_errors.ErrValidation
-		}
-		seenFeatures[feature] = struct{}{}
+	if routeInspectOperationRequiresNativeRoute(request.Operation) &&
+		request.RouteRequirement != execution.RouteRequirementNative {
+		return app_errors.ErrValidation
 	}
 	if request.ExternalModel != nil && !validUsageModel(*request.ExternalModel) {
 		return app_errors.ErrValidation
@@ -100,6 +95,19 @@ func validateRouteInspectRequest(request routeInspectRequest) error {
 		return app_errors.ErrValidation
 	}
 	return nil
+}
+
+func routeInspectOperationRequiresNativeRoute(operation execution.Operation) bool {
+	switch operation {
+	case execution.OperationResponsesRetrieve,
+		execution.OperationResponsesDelete,
+		execution.OperationResponsesCancel,
+		execution.OperationResponsesInputItems,
+		execution.OperationResponsesPassthrough:
+		return true
+	default:
+		return false
+	}
 }
 
 func routeInspectOperationMatchesProtocol(
@@ -150,17 +158,13 @@ func (service *Service) InspectRoute(
 	if !exists {
 		return routeInspectResponse{}, app_errors.ErrResourceNotFound
 	}
-	requiredFeatures, err := execution.NewFeatureSet(request.RequiredFeatures...)
-	if err != nil {
-		return routeInspectResponse{}, app_errors.ErrValidation
-	}
 	explanation, err := scheduler.Inspect(
 		observation.snapshot,
 		observation.keys,
 		scheduler.Query{
 			ClientProtocol:   request.Protocol,
 			Operation:        request.Operation,
-			RequiredFeatures: requiredFeatures,
+			RouteRequirement: request.RouteRequirement,
 			ExternalModel:    cloneRouteModel(request.ExternalModel),
 			AccessKey:        accessKey,
 		},
@@ -198,7 +202,7 @@ func mapRouteInspectResponse(
 		SnapshotRevision: observation.snapshot.Revision,
 		Protocol:         request.Protocol,
 		Operation:        explanation.Operation,
-		RequiredFeatures: append([]execution.Feature{}, explanation.RequiredFeatures...),
+		RouteRequirement: explanation.RouteRequirement,
 		ExternalModel:    cloneRouteModel(request.ExternalModel),
 		AccessKey: routeInspectAccessKeyResponse{
 			ID: accessKey.ID, Name: accessKey.Name, Status: accessKey.Status,
@@ -209,17 +213,17 @@ func mapRouteInspectResponse(
 	}
 	for _, group := range explanation.Groups {
 		groupResponse := routeInspectGroupResponse{
-			GroupID:             group.GroupID,
-			GroupName:           group.GroupName,
-			ChannelID:           group.ChannelID,
-			RouteMode:           group.RouteMode,
-			CapabilitySupported: group.CapabilitySupported,
-			UpstreamModel:       cloneRouteModel(group.UpstreamModelID),
-			WeightManual:        cloneInt(group.WeightManual),
-			Included:            group.Included,
-			Routable:            group.Routable,
-			ReasonCode:          optionalReason(group.Reason),
-			Credentials:         []routeInspectCredentialResponse{},
+			GroupID:                   group.GroupID,
+			GroupName:                 group.GroupName,
+			ChannelID:                 group.ChannelID,
+			RouteMode:                 group.RouteMode,
+			RouteRequirementSatisfied: group.RouteRequirementSatisfied,
+			UpstreamModel:             cloneRouteModel(group.UpstreamModelID),
+			WeightManual:              cloneInt(group.WeightManual),
+			Included:                  group.Included,
+			Routable:                  group.Routable,
+			ReasonCode:                optionalReason(group.Reason),
+			Credentials:               []routeInspectCredentialResponse{},
 		}
 		for _, credential := range group.Credentials {
 			cooldownUntilMS, err := optionalSafeEpochMilliseconds(credential.CooldownUntil)

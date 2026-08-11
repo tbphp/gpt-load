@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/contentcoding"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
@@ -41,12 +42,13 @@ type ForwardInput struct {
 	AttemptSequence  uint32
 	ClientProtocol   protocol.Protocol
 	Operation        execution.Operation
+	RouteRequirement execution.RouteRequirement
 	ChannelID        string
 	TargetKind       string
 	RouteMode        execution.RouteMode
-	RequiredFeatures execution.FeatureSet
 	TargetConfig     json.RawMessage
 	Credential       execution.CredentialSnapshot
+	ClientParameters *parametertrace.Snapshot
 }
 
 // UpstreamResult is the gateway's stable view of one logical execution
@@ -72,6 +74,15 @@ type UpstreamResult struct {
 	AppliedReasoning          reasoning.Config
 	UpstreamRequestID         string
 	ExecutionError            *execution.ErrorEvidence
+	ConversionTrace           *parametertrace.Trace
+}
+
+func cloneConversionTrace(value *parametertrace.Trace) *parametertrace.Trace {
+	if value == nil {
+		return nil
+	}
+	clone := parametertrace.CloneTrace(*value)
+	return &clone
 }
 
 func (result UpstreamResult) HasResponse() bool {

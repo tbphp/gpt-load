@@ -10,6 +10,7 @@ const (
 	FailureCategoryInvalidKey
 	FailureCategoryUpstreamHostError
 	FailureCategoryClientError
+	FailureCategoryConversionUnsupported
 	FailureCategoryDownstreamCancel
 )
 
@@ -27,6 +28,8 @@ func (category FailureCategory) String() string {
 		return "upstream_host_error"
 	case FailureCategoryClientError:
 		return "client_error"
+	case FailureCategoryConversionUnsupported:
+		return "conversion_unsupported"
 	case FailureCategoryDownstreamCancel:
 		return "downstream_cancel"
 	default:

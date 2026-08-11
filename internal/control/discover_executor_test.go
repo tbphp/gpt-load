@@ -50,10 +50,6 @@ func newRecordingDiscoveryExecutor(values ...*recordingDiscoveryExecutorTarget) 
 	return &recordingDiscoveryExecutor{byProtocol: byProtocol}
 }
 
-func (*recordingDiscoveryExecutor) Capabilities() execution.CapabilitySet {
-	return execution.CapabilitySet{}
-}
-
 func (executor *recordingDiscoveryExecutor) Execute(
 	ctx context.Context,
 	spec execution.AttemptSpec,
@@ -338,10 +334,6 @@ func TestExecuteModelDiscoveryRejectsRepeatedPaginationCursor(t *testing.T) {
 
 type scriptedDiscoveryExecutor struct {
 	execute func(context.Context, execution.AttemptSpec) execution.AttemptResult
-}
-
-func (scriptedDiscoveryExecutor) Capabilities() execution.CapabilitySet {
-	return execution.CapabilitySet{}
 }
 
 func (executor scriptedDiscoveryExecutor) Execute(ctx context.Context, spec execution.AttemptSpec) execution.AttemptResult {

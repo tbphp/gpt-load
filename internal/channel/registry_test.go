@@ -235,7 +235,7 @@ func TestCloudTargetsCarryOnlyNeutralPresetMetadata(t *testing.T) {
 			if mode, ok := target.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteConverted {
 				t.Fatalf("OpenAI chat mode = %q, %t", mode, ok)
 			}
-			if target.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {
+			if _, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesRetrieve); ok {
 				t.Fatal("cloud converted target unexpectedly exposes native Responses lifecycle")
 			}
 		})
@@ -329,7 +329,7 @@ func TestRegistryStrictlyValidatesCredentialsWithoutLeakingSecrets(t *testing.T)
 	}
 }
 
-func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t *testing.T) {
+func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificRouteModes(t *testing.T) {
 	registry := NewRegistry()
 	openAI, err := registry.Resolve(OpenAI, nil)
 	if err != nil {
@@ -339,23 +339,17 @@ func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t 
 		openAI.CatalogProviderID != "openai" || string(openAI.TargetConfig) != `{}` {
 		t.Fatalf("openai target = %#v", openAI)
 	}
-	if !openAI.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, featureSet(t, execution.FeatureNativeResourceSemantics)) {
-		t.Fatal("openai target should support native Responses retrieval")
+	if mode, ok := openAI.Mode(protocol.OpenAIResponses, execution.OperationResponsesRetrieve); !ok || mode != RouteNative {
+		t.Fatalf("openai Responses retrieval mode = %q, %t", mode, ok)
 	}
 	for _, operation := range []execution.Operation{
 		execution.OperationResponsesCompact,
 		execution.OperationResponsesInputTokens,
 		execution.OperationResponsesPassthrough,
 	} {
-		if !openAI.Supports(protocol.OpenAIResponses, operation, execution.FeatureSet{}) {
-			t.Fatalf("openai target should support native %q", operation)
-		}
 		if mode, ok := openAI.Mode(protocol.OpenAIResponses, operation); !ok || mode != RouteNative {
 			t.Fatalf("openai %q mode = %q, %t", operation, mode, ok)
 		}
-	}
-	if !openAI.Supports(protocol.OpenAICompletions, execution.OperationChatCompletion, featureSet(t, execution.FeatureReasoning)) {
-		t.Fatal("openai native completions should support reasoning")
 	}
 	if mode, ok := openAI.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteNative {
 		t.Fatalf("openai completions mode = %q, %t", mode, ok)
@@ -368,20 +362,14 @@ func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t 
 	if anthropic.ProviderKind != ProviderAnthropic || anthropic.CatalogProviderID != "anthropic" {
 		t.Fatalf("anthropic catalog provider = %q", anthropic.CatalogProviderID)
 	}
-	if anthropic.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {
+	if _, ok := anthropic.Mode(protocol.OpenAIResponses, execution.OperationResponsesRetrieve); ok {
 		t.Fatal("anthropic target unexpectedly supports native Responses retrieval")
-	}
-	if anthropic.Supports(protocol.OpenAICompletions, execution.OperationChatCompletion, featureSet(t, execution.FeatureReasoning)) {
-		t.Fatal("converted OpenAI-to-Anthropic route unexpectedly advertises reasoning")
-	}
-	if !anthropic.Supports(protocol.OpenAICompletions, execution.OperationChatCompletion, featureSet(t, execution.FeatureStreaming)) {
-		t.Fatal("converted OpenAI-to-Anthropic route should support streaming")
 	}
 	if mode, ok := anthropic.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteConverted {
 		t.Fatalf("converted OpenAI-to-Anthropic mode = %q, %t", mode, ok)
 	}
-	if !anthropic.Supports(protocol.Anthropic, execution.OperationChatCompletion, featureSet(t, execution.FeatureReasoning)) {
-		t.Fatal("native Anthropic route should support reasoning")
+	if mode, ok := anthropic.Mode(protocol.Anthropic, execution.OperationChatCompletion); !ok || mode != RouteNative {
+		t.Fatalf("native Anthropic mode = %q, %t", mode, ok)
 	}
 
 	gemini, err := registry.Resolve(Gemini, nil)
@@ -395,14 +383,14 @@ func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t 
 	if mode, ok := openAICompatible.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteConverted {
 		t.Fatalf("OpenAI-compatible Responses create mode = %q, %t", mode, ok)
 	}
-	if openAICompatible.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, featureSet(t, execution.FeatureNativeResourceSemantics)) {
+	if _, ok := openAICompatible.Mode(protocol.OpenAIResponses, execution.OperationResponsesRetrieve); ok {
 		t.Fatal("generic OpenAI-compatible target must not advertise Responses lifecycle")
 	}
 	for _, operation := range []execution.Operation{
 		execution.OperationResponsesCompact,
 		execution.OperationResponsesInputTokens,
 	} {
-		if openAICompatible.Supports(protocol.OpenAIResponses, operation, execution.FeatureSet{}) {
+		if _, ok := openAICompatible.Mode(protocol.OpenAIResponses, operation); ok {
 			t.Fatalf("generic OpenAI-compatible target unexpectedly supports %q", operation)
 		}
 	}
@@ -413,17 +401,13 @@ func TestResolvedTargetsUseExactCatalogMappingAndProtocolSpecificCapabilities(t 
 	if mode, ok := openAICompatibleNonV1.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteNative {
 		t.Fatalf("non-v1 OpenAI-compatible completions mode = %q, %t", mode, ok)
 	}
-	if !openAICompatibleNonV1.Supports(protocol.OpenAICompletions, execution.OperationChatCompletion, featureSet(t, execution.FeatureTools)) {
-		t.Fatal("OpenAI-compatible native Chat route should support tools")
+	operations := openAI.Operations(protocol.OpenAIResponses)
+	if !containsOperation(operations, execution.OperationResponsesRetrieve) {
+		t.Fatal("Operations() omitted native operation")
 	}
-
-	capabilities := openAI.Capabilities(protocol.OpenAIResponses)
-	if !capabilities.Has(execution.OperationResponsesRetrieve) {
-		t.Fatal("Capabilities() omitted native operation")
-	}
-	capabilities = execution.CapabilitySet{}
-	if !openAI.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {
-		t.Fatal("mutating returned capability value changed target")
+	operations[0] = execution.Operation("mutated")
+	if !containsOperation(openAI.Operations(protocol.OpenAIResponses), execution.OperationResponsesRetrieve) {
+		t.Fatal("mutating returned operations changed target")
 	}
 }
 
@@ -515,7 +499,7 @@ func TestOpenRouterUsesNativeChatAndResponsesWithoutLifecycle(t *testing.T) {
 	if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteNative {
 		t.Fatalf("OpenRouter Responses create mode = %q, %t", mode, ok)
 	}
-	if target.Supports(protocol.OpenAIResponses, execution.OperationResponsesRetrieve, execution.FeatureSet{}) {
+	if _, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesRetrieve); ok {
 		t.Fatal("OpenRouter unexpectedly advertises Responses lifecycle")
 	}
 }
@@ -528,11 +512,11 @@ func descriptorIDs(descriptors []Descriptor) []ID {
 	return ids
 }
 
-func featureSet(t *testing.T, features ...execution.Feature) execution.FeatureSet {
-	t.Helper()
-	set, err := execution.NewFeatureSet(features...)
-	if err != nil {
-		t.Fatalf("NewFeatureSet() error = %v", err)
+func containsOperation(operations []execution.Operation, want execution.Operation) bool {
+	for _, operation := range operations {
+		if operation == want {
+			return true
+		}
 	}
-	return set
+	return false
 }

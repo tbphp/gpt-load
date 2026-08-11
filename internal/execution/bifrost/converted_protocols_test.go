@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -253,6 +254,7 @@ func TestConvertedAttemptReportsAppliedReasoning(t *testing.T) {
 		result.AppliedReasoning.Effort == "high" {
 		t.Fatalf("result retained canonical reasoning instead of wire values: %#v", result.AppliedReasoning)
 	}
+	assertMappedReasoningTrace(t, result.ConversionTrace)
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal result: %v", err)
@@ -300,6 +302,7 @@ func TestConvertedAttemptReportsWireReasoningOnProviderError(t *testing.T) {
 	if !reflect.DeepEqual(result.AppliedReasoning, want) {
 		t.Fatalf("result applied reasoning = %#v, wire reasoning = %#v", result.AppliedReasoning, want)
 	}
+	assertMappedReasoningTrace(t, result.ConversionTrace)
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal result: %v", err)
@@ -632,6 +635,20 @@ func inspectAnthropicWireReasoning(t *testing.T, body []byte) *reasoning.Config 
 		result.Effort = wire.OutputConfig.Effort
 	}
 	return result
+}
+
+func assertMappedReasoningTrace(t *testing.T, trace *parametertrace.Trace) {
+	t.Helper()
+	if trace == nil || (trace.State != parametertrace.CaptureCaptured && trace.State != parametertrace.CapturePartial) {
+		t.Fatalf("conversion trace = %#v", trace)
+	}
+	for _, change := range trace.Changes {
+		if change.Disposition == parametertrace.DispositionMapped &&
+			(strings.HasPrefix(change.SourcePath, "reasoning.") || strings.HasPrefix(change.TargetPath, "reasoning.")) {
+			return
+		}
+	}
+	t.Fatalf("conversion trace has no reasoning mapping: %#v", trace)
 }
 
 func TestConvertedOpenAIChatStreamUsesSelectedProvider(t *testing.T) {

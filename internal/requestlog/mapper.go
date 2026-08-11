@@ -7,6 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
@@ -41,11 +42,40 @@ func mapEvent(
 	if err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event pricing receipt: %w", err)
 	}
+	clientParameters, err := encodeParameterSnapshot(redactor, event.ClientParameters)
+	if err != nil {
+		return models.RequestLog{}, fmt.Errorf("map request event client parameters: %w", err)
+	}
+	conversionTraceCount := 0
+	for _, attempt := range event.Attempts {
+		if attempt.ConversionTrace != nil {
+			conversionTraceCount++
+		}
+	}
+	remainingConversionBytes := parametertrace.MaxEventBytes - len(clientParameters) - 512
+	if remainingConversionBytes < 0 {
+		remainingConversionBytes = 0
+	}
 	attempts := make([]models.RequestLogAttempt, 0, len(event.Attempts))
 	for _, attempt := range event.Attempts {
 		attemptReceipt := models.JSON(nil)
 		if attempt.Sequence == event.Usage.AttemptSequence {
 			attemptReceipt = receipt
+		}
+		traceBudget := remainingConversionBytes
+		if conversionTraceCount > 0 {
+			traceBudget /= conversionTraceCount
+		}
+		conversionTrace, err := encodeConversionTrace(redactor, attempt.ConversionTrace, traceBudget)
+		if err != nil {
+			return models.RequestLog{}, fmt.Errorf("map request attempt conversion trace: %w", err)
+		}
+		remainingConversionBytes -= len(conversionTrace)
+		if remainingConversionBytes < 0 {
+			remainingConversionBytes = 0
+		}
+		if attempt.ConversionTrace != nil {
+			conversionTraceCount--
 		}
 		attempts = append(attempts, models.RequestLogAttempt{
 			RequestID:             event.RequestID,
@@ -74,6 +104,7 @@ func mapEvent(
 			ErrorSummary:          sanitizeSummary(redactor, attempt.ErrorSummary),
 			Committed:             attempt.Committed,
 			PricingReceipt:        attemptReceipt,
+			ConversionTrace:       conversionTrace,
 		})
 	}
 
@@ -105,6 +136,7 @@ func mapEvent(
 		ReasoningMode:           event.Reasoning.Mode,
 		ReasoningEffort:         event.Reasoning.Effort,
 		ReasoningBudgetTokens:   event.Reasoning.BudgetTokens,
+		ClientParameters:        clientParameters,
 		UncachedInputTokens:     result.Tokens.UncachedInput,
 		OutputTokens:            result.Tokens.Output,
 		CacheReadTokens:         result.Tokens.CacheRead,
@@ -117,6 +149,53 @@ func mapEvent(
 		PricingCompleteness:     pricingObservation.PricingCompleteness,
 		AttemptRows:             attempts,
 	}, nil
+}
+
+func encodeParameterSnapshot(
+	redactor *redact.Redactor,
+	value *parametertrace.Snapshot,
+) (models.JSON, error) {
+	if value == nil {
+		return nil, nil
+	}
+	clone := parametertrace.CloneSnapshot(*value)
+	for index := range clone.Entries {
+		clone.Entries[index].Value = redactor.String(clone.Entries[index].Value)
+	}
+	if err := clone.Validate(); err != nil {
+		return nil, err
+	}
+	encoded, err := parametertrace.MarshalSnapshot(clone)
+	return models.JSON(encoded), err
+}
+
+func encodeConversionTrace(
+	redactor *redact.Redactor,
+	value *parametertrace.Trace,
+	maxBytes int,
+) (models.JSON, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if maxBytes <= 0 {
+		return nil, nil
+	}
+	clone := parametertrace.CloneTrace(*value)
+	for index := range clone.Target.Entries {
+		clone.Target.Entries[index].Value = redactor.String(clone.Target.Entries[index].Value)
+	}
+	clone = parametertrace.BoundTrace(clone, maxBytes)
+	if err := clone.Validate(); err != nil {
+		return nil, err
+	}
+	encoded, err := parametertrace.MarshalTrace(clone)
+	if err == nil && len(encoded) > maxBytes {
+		// A valid trace has a non-zero structural floor. When the remaining
+		// request-event budget cannot hold it, omit this attempt's optional
+		// diagnostic instead of violating the global bound.
+		return nil, nil
+	}
+	return models.JSON(encoded), err
 }
 
 func normalizeModelObservation(event telemetry.RequestEvent) telemetry.RequestEvent {

@@ -52,6 +52,8 @@ func JudgeExecution(attempt ExecutionAttempt) Result {
 		switch attempt.Evidence.Kind {
 		case execution.ErrorKindTransport, execution.ErrorKindTimeout:
 			return Result{Category: FailureCategoryUpstreamHostError, Action: ActionSkipGroup}
+		case execution.ErrorKindConversionUnsupported:
+			return Result{Category: FailureCategoryConversionUnsupported, Action: ActionSkipGroup}
 		case execution.ErrorKindInvalidRequest:
 			return Result{Category: FailureCategoryClientError, Action: ActionTerminate}
 		default:
@@ -81,6 +83,9 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 	}
 	markers := ""
 	if attempt.Evidence != nil {
+		if structuredUnsupportedModelClientError(statusCode, attempt.Evidence) {
+			return FailureCategoryClientError
+		}
 		switch attempt.Evidence.Hint {
 		case execution.FailureHintInvalidCredential:
 			return FailureCategoryInvalidKey
@@ -122,6 +127,19 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 	}
 }
 
+func structuredUnsupportedModelClientError(statusCode int, evidence *execution.ErrorEvidence) bool {
+	if evidence == nil || statusCode < http.StatusBadRequest || statusCode >= http.StatusInternalServerError {
+		return false
+	}
+	for _, value := range []string{evidence.Type, evidence.Code} {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "unsupported_model" || normalized == "unsupported-model" {
+			return true
+		}
+	}
+	return false
+}
+
 func resultForExecutionCategory(category FailureCategory, attempt ExecutionAttempt) Result {
 	switch category {
 	case FailureCategoryRateLimited:
@@ -149,6 +167,8 @@ func resultForExecutionCategory(category FailureCategory, attempt ExecutionAttem
 	case FailureCategoryInvalidKey:
 		return Result{Category: category, Action: ActionFailCredential}
 	case FailureCategoryUpstreamHostError:
+		return Result{Category: category, Action: ActionSkipGroup}
+	case FailureCategoryConversionUnsupported:
 		return Result{Category: category, Action: ActionSkipGroup}
 	default:
 		return Result{Category: category, Action: ActionTerminate}

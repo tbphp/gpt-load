@@ -323,7 +323,7 @@ func newDefinition(
 	nativeProtocols map[protocol.Protocol]bool,
 	responsesLifecycle bool,
 ) definition {
-	capabilities, modes := buildRouteMatrix(nativeProtocols, responsesLifecycle)
+	modes := buildRouteMatrix(nativeProtocols, responsesLifecycle)
 	return definition{
 		descriptor: Descriptor{
 			ID:               id,
@@ -332,7 +332,7 @@ func newDefinition(
 			Description:      description,
 			ParamFields:      params.descriptors(),
 			CredentialFields: credentials.descriptors(),
-			ClientProtocols:  orderedProtocols(capabilities),
+			ClientProtocols:  orderedProtocols(modes),
 		},
 		searchTerms:       append([]string(nil), searchTerms...),
 		params:            append(objectSchema(nil), params...),
@@ -340,7 +340,6 @@ func newDefinition(
 		catalogProviderID: catalogProviderID,
 		providerKind:      providerKind,
 		compatible:        compatible,
-		capabilities:      capabilities,
 		modes:             modes,
 	}
 }
@@ -348,113 +347,50 @@ func newDefinition(
 func buildRouteMatrix(
 	nativeProtocols map[protocol.Protocol]bool,
 	responsesLifecycle bool,
-) (
-	map[protocol.Protocol]execution.CapabilitySet,
-	map[protocol.Protocol]map[execution.Operation]RouteMode,
-) {
-	capabilities := make(map[protocol.Protocol]execution.CapabilitySet)
+) map[protocol.Protocol]map[execution.Operation]RouteMode {
 	modes := make(map[protocol.Protocol]map[execution.Operation]RouteMode)
 	for _, clientProtocol := range protocol.DataPlaneProtocols() {
 		native := nativeProtocols[clientProtocol]
 		mode := RouteConverted
-		features := mustFeatureSet(execution.FeatureStreaming)
 		if native {
 			mode = RouteNative
-			features = mustFeatureSet(
-				execution.FeatureStreaming,
-				execution.FeatureTools,
-				execution.FeatureReasoning,
-				execution.FeatureMultimodal,
-				execution.FeatureStructuredOutput,
-			)
 		}
 		operation := execution.OperationChatCompletion
 		if clientProtocol == protocol.OpenAIResponses {
 			operation = execution.OperationResponsesCreate
-			if native && responsesLifecycle {
-				features = mustFeatureSet(
-					execution.FeatureStreaming,
-					execution.FeatureTools,
-					execution.FeatureReasoning,
-					execution.FeatureMultimodal,
-					execution.FeatureStructuredOutput,
-					execution.FeatureNativeResourceSemantics,
-				)
-			}
 		}
 
-		items := []execution.Capability{
-			{Operation: operation, Features: features},
-			{Operation: execution.OperationListModels},
-			{Operation: execution.OperationProbe},
-		}
 		operationModes := map[execution.Operation]RouteMode{
 			operation:                     mode,
 			execution.OperationListModels: mode,
 			execution.OperationProbe:      mode,
 		}
 		if clientProtocol == protocol.OpenAIResponses && native && responsesLifecycle {
-			nativeFeatures := mustFeatureSet(
-				execution.FeatureTools,
-				execution.FeatureReasoning,
-				execution.FeatureMultimodal,
-				execution.FeatureStructuredOutput,
-			)
 			for _, nativeOperation := range []execution.Operation{
 				execution.OperationResponsesCompact,
 				execution.OperationResponsesInputTokens,
 			} {
-				items = append(items, execution.Capability{
-					Operation: nativeOperation,
-					Features:  nativeFeatures,
-				})
 				operationModes[nativeOperation] = RouteNative
 			}
-			resourceFeatures := mustFeatureSet(execution.FeatureNativeResourceSemantics)
 			for _, resourceOperation := range []execution.Operation{
 				execution.OperationResponsesRetrieve,
 				execution.OperationResponsesDelete,
 				execution.OperationResponsesCancel,
 				execution.OperationResponsesInputItems,
 			} {
-				items = append(items, execution.Capability{Operation: resourceOperation, Features: resourceFeatures})
 				operationModes[resourceOperation] = RouteNative
 			}
-			items = append(items, execution.Capability{
-				Operation: execution.OperationResponsesPassthrough,
-				Features: mustFeatureSet(
-					execution.FeatureStreaming,
-					execution.FeatureNativeResourceSemantics,
-				),
-			})
 			operationModes[execution.OperationResponsesPassthrough] = RouteNative
 		}
-		capabilities[clientProtocol] = mustCapabilitySet(items...)
 		modes[clientProtocol] = operationModes
 	}
-	return capabilities, modes
+	return modes
 }
 
-func mustFeatureSet(features ...execution.Feature) execution.FeatureSet {
-	set, err := execution.NewFeatureSet(features...)
-	if err != nil {
-		panic(fmt.Sprintf("build channel feature set: %v", err))
-	}
-	return set
-}
-
-func mustCapabilitySet(capabilities ...execution.Capability) execution.CapabilitySet {
-	set, err := execution.NewCapabilitySet(capabilities...)
-	if err != nil {
-		panic(fmt.Sprintf("build channel capability set: %v", err))
-	}
-	return set
-}
-
-func orderedProtocols(capabilities map[protocol.Protocol]execution.CapabilitySet) []protocol.Protocol {
-	ordered := make([]protocol.Protocol, 0, len(capabilities))
+func orderedProtocols(modes map[protocol.Protocol]map[execution.Operation]RouteMode) []protocol.Protocol {
+	ordered := make([]protocol.Protocol, 0, len(modes))
 	for _, clientProtocol := range protocol.DataPlaneProtocols() {
-		if _, ok := capabilities[clientProtocol]; ok {
+		if _, ok := modes[clientProtocol]; ok {
 			ordered = append(ordered, clientProtocol)
 		}
 	}

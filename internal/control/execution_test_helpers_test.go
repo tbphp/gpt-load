@@ -19,10 +19,6 @@ type controlHTTPExecutor struct {
 	client *http.Client
 }
 
-func (controlHTTPExecutor) Capabilities() execution.CapabilitySet {
-	return execution.CapabilitySet{}
-}
-
 func (executor controlHTTPExecutor) Execute(
 	ctx context.Context,
 	spec execution.AttemptSpec,

@@ -110,7 +110,9 @@ func TestResponsesPassthroughFailsClosedForNonOpenAIProvider(t *testing.T) {
 	spec.ClientModel = ""
 	spec.UpstreamModel = ""
 	result := runtime.Execute(context.Background(), spec)
-	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil || result.Error.Kind != execution.ErrorKindInvalidRequest {
+	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindConversionUnsupported ||
+		result.Error.Code != execution.ErrorCodeTargetConversionNotSupported {
 		t.Fatalf("result = %+v", result)
 	}
 }
@@ -129,7 +131,9 @@ func TestGenericOpenAICompatibleDoesNotAdvertiseUnknownResponsesPassthrough(t *t
 	spec.TargetKind = string(channel.ProviderOpenAICompatible)
 	spec.RouteMode = execution.RouteNative
 	result := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true}).Execute(context.Background(), spec)
-	if calls.Load() != 0 || result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Kind != execution.ErrorKindInvalidRequest {
+	if calls.Load() != 0 || result.DispatchState != execution.DispatchNotSent || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindConversionUnsupported ||
+		result.Error.Code != execution.ErrorCodeTargetConversionNotSupported {
 		t.Fatalf("calls/result = %d/%+v", calls.Load(), result)
 	}
 }

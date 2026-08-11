@@ -30,7 +30,6 @@ type Runtime struct {
 	core                      *core.Bifrost
 	account                   *directAccount
 	registry                  *channel.Registry
-	capabilities              execution.CapabilitySet
 	allowPrivate              bool
 	maxUnaryResponseBodyBytes int64
 	stateMu                   sync.Mutex
@@ -102,67 +101,9 @@ func newRuntimeShell(options runtimeOptions, registry *channel.Registry) (*Runti
 	if maxUnaryResponseBodyBytes <= 0 {
 		maxUnaryResponseBodyBytes = defaultMaxUnaryResponseBodyBytes
 	}
-	features, err := execution.NewFeatureSet(
-		execution.FeatureStreaming,
-		execution.FeatureTools,
-		execution.FeatureReasoning,
-		execution.FeatureMultimodal,
-		execution.FeatureStructuredOutput,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
-	}
-	resourceFeatures, err := execution.NewFeatureSet(execution.FeatureNativeResourceSemantics)
-	if err != nil {
-		return nil, fmt.Errorf("initialize resource capabilities: %w", err)
-	}
-	responsesFeatures, err := execution.NewFeatureSet(
-		execution.FeatureStreaming,
-		execution.FeatureTools,
-		execution.FeatureReasoning,
-		execution.FeatureMultimodal,
-		execution.FeatureStructuredOutput,
-		execution.FeatureNativeResourceSemantics,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize responses capabilities: %w", err)
-	}
-	passthroughFeatures, err := execution.NewFeatureSet(
-		execution.FeatureStreaming,
-		execution.FeatureNativeResourceSemantics,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize passthrough capabilities: %w", err)
-	}
-	responsesUtilityFeatures, err := execution.NewFeatureSet(
-		execution.FeatureTools,
-		execution.FeatureReasoning,
-		execution.FeatureMultimodal,
-		execution.FeatureStructuredOutput,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize Responses utility capabilities: %w", err)
-	}
-	capabilities, err := execution.NewCapabilitySet(
-		execution.Capability{Operation: execution.OperationChatCompletion, Features: features},
-		execution.Capability{Operation: execution.OperationResponsesCreate, Features: responsesFeatures},
-		execution.Capability{Operation: execution.OperationResponsesRetrieve, Features: resourceFeatures},
-		execution.Capability{Operation: execution.OperationResponsesDelete, Features: resourceFeatures},
-		execution.Capability{Operation: execution.OperationResponsesCancel, Features: resourceFeatures},
-		execution.Capability{Operation: execution.OperationResponsesInputItems, Features: resourceFeatures},
-		execution.Capability{Operation: execution.OperationResponsesCompact, Features: responsesUtilityFeatures},
-		execution.Capability{Operation: execution.OperationResponsesInputTokens, Features: responsesUtilityFeatures},
-		execution.Capability{Operation: execution.OperationResponsesPassthrough, Features: passthroughFeatures},
-		execution.Capability{Operation: execution.OperationListModels},
-		execution.Capability{Operation: execution.OperationProbe},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize execution capabilities: %w", err)
-	}
 	return &Runtime{
 		account:                   newDirectAccount(),
 		registry:                  registry,
-		capabilities:              capabilities,
 		allowPrivate:              options.allowPrivateNetwork,
 		maxUnaryResponseBodyBytes: maxUnaryResponseBodyBytes,
 		shutdownDone:              make(chan struct{}),
@@ -200,14 +141,6 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	r.core = bifrostCore
 	return nil
-}
-
-// Capabilities returns an independent capability snapshot.
-func (r *Runtime) Capabilities() execution.CapabilitySet {
-	if r == nil {
-		return execution.CapabilitySet{}
-	}
-	return r.capabilities.Clone()
 }
 
 // BeginShutdown rejects new execution and starts releasing the shared SDK

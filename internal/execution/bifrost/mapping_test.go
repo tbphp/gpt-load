@@ -13,6 +13,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
 )
 
 func TestSDKStreamIdleTimeoutIsClassifiedAsTimeout(t *testing.T) {
@@ -30,6 +31,10 @@ func TestSDKStreamIdleTimeoutIsClassifiedAsTimeout(t *testing.T) {
 	if got := unaryErrorResult(bifrostError, nil, nil).Error.Kind; got != execution.ErrorKindInternal {
 		t.Fatalf("non-streaming error kind = %q, want %q", got, execution.ErrorKindInternal)
 	}
+}
+
+type conversionCodedError interface {
+	ConversionCode() string
 }
 
 func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
@@ -168,5 +173,57 @@ func TestSDKTransportErrorAfterStreamStartIsAlwaysMaybeSent(t *testing.T) {
 	)
 	if result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestConvertedSDKPreflightFailureIsAGroupScopedConversionFailure(t *testing.T) {
+	t.Parallel()
+
+	errorType := "invalid_request_error"
+	bifrostError := &schemas.BifrostError{
+		IsBifrostError: true,
+		Error: &schemas.ErrorField{
+			Type:    &errorType,
+			Message: "cannot marshal target request",
+		},
+	}
+	context := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
+	unary := convertedUnaryErrorResult(bifrostError, context, nil)
+	if unary.DispatchState != execution.DispatchNotSent || unary.ResponseStarted || unary.Error == nil ||
+		unary.Error.Kind != execution.ErrorKindConversionUnsupported ||
+		unary.Error.Code != execution.ErrorCodeTargetSerializationFailed {
+		t.Fatalf("converted unary result = %+v", unary)
+	}
+
+	stream := convertedStreamErrorResult(bifrostError, context, nil, false, 0, nil, "", nil)
+	if stream.DispatchState != execution.DispatchNotSent || stream.ResponseStarted || stream.Error == nil ||
+		stream.Error.Kind != execution.ErrorKindConversionUnsupported ||
+		stream.Error.Code != execution.ErrorCodeTargetSerializationFailed {
+		t.Fatalf("converted stream result = %+v", stream)
+	}
+}
+
+func TestBuildConvertedRequestDistinguishesMalformedInputFromUnsupportedTargetConversion(t *testing.T) {
+	t.Parallel()
+
+	_, unsupportedErr := buildConvertedResponsesRequest(execution.AttemptSpec{
+		ClientProtocol: protocol.Anthropic,
+		Operation:      execution.OperationResponsesCreate,
+		Body:           []byte(`{"model":"claude","messages":[]}`),
+	}, schemas.OpenAI)
+	var classified conversionCodedError
+	if !errors.As(unsupportedErr, &classified) ||
+		classified.ConversionCode() != execution.ErrorCodeTargetConversionNotSupported {
+		t.Fatalf("unsupported error = %T %v", unsupportedErr, unsupportedErr)
+	}
+
+	_, malformedErr := buildConvertedResponsesRequest(execution.AttemptSpec{
+		ClientProtocol: protocol.Anthropic,
+		Operation:      execution.OperationChatCompletion,
+		Body:           []byte(`{"model":`),
+	}, schemas.OpenAI)
+	classified = nil
+	if malformedErr == nil || errors.As(malformedErr, &classified) {
+		t.Fatalf("malformed error = %T %v, want unclassified client error", malformedErr, malformedErr)
 	}
 }

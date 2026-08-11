@@ -428,6 +428,19 @@ func unaryErrorResult(bifrostError *schemas.BifrostError, bifrostContext *schema
 	return result
 }
 
+func convertedUnaryErrorResult(
+	bifrostError *schemas.BifrostError,
+	bifrostContext *schemas.BifrostContext,
+	secrets []string,
+) execution.AttemptResult {
+	result := unaryErrorResult(bifrostError, bifrostContext, secrets)
+	if convertedSDKPreflightFailure(bifrostError, result.ResponseStarted) {
+		result.DispatchState = execution.DispatchNotSent
+		result.Error = convertedSerializationEvidence()
+	}
+	return result
+}
+
 func streamErrorResult(
 	bifrostError *schemas.BifrostError,
 	bifrostContext *schemas.BifrostContext,
@@ -455,6 +468,46 @@ func streamErrorResult(
 		result.UpstreamRequestID = upstreamRequestID(headers)
 	}
 	return result
+}
+
+func convertedStreamErrorResult(
+	bifrostError *schemas.BifrostError,
+	bifrostContext *schemas.BifrostContext,
+	secrets []string,
+	alreadyStarted bool,
+	initialStatus int,
+	headers http.Header,
+	model string,
+	usageEvidence *execution.UsageEvidence,
+) execution.StreamResult {
+	result := streamErrorResult(
+		bifrostError,
+		bifrostContext,
+		secrets,
+		alreadyStarted,
+		initialStatus,
+		headers,
+		model,
+		usageEvidence,
+	)
+	if !alreadyStarted && convertedSDKPreflightFailure(bifrostError, result.ResponseStarted) {
+		result.DispatchState = execution.DispatchNotSent
+		result.Error = convertedSerializationEvidence()
+	}
+	return result
+}
+
+func convertedSDKPreflightFailure(bifrostError *schemas.BifrostError, responseStarted bool) bool {
+	return !responseStarted && bifrostError != nil && bifrostError.IsBifrostError &&
+		strings.EqualFold(strings.TrimSpace(errorType(bifrostError)), "invalid_request_error")
+}
+
+func convertedSerializationEvidence() *execution.ErrorEvidence {
+	return &execution.ErrorEvidence{
+		Kind:    execution.ErrorKindConversionUnsupported,
+		Code:    execution.ErrorCodeTargetSerializationFailed,
+		Summary: "target request serialization failed",
+	}
 }
 
 func sdkErrorDispatchState(bifrostError *schemas.BifrostError, responseStarted bool) execution.DispatchState {
@@ -615,6 +668,8 @@ func errorSummary(kind execution.ErrorKind, status int) string {
 		return "upstream provider failed"
 	case execution.ErrorKindInvalidRequest:
 		return "upstream rejected the request"
+	case execution.ErrorKindConversionUnsupported:
+		return "target protocol conversion is not supported"
 	default:
 		return "execution adapter failed"
 	}
@@ -739,6 +794,17 @@ func notSentUnaryFailure(kind execution.ErrorKind, summary string) execution.Att
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchNotSent,
 		Error:         &execution.ErrorEvidence{Kind: kind, Summary: summary},
+	}
+}
+
+func notSentConversionFailure(code, summary string) execution.AttemptResult {
+	return execution.AttemptResult{
+		DispatchState: execution.DispatchNotSent,
+		Error: &execution.ErrorEvidence{
+			Kind:    execution.ErrorKindConversionUnsupported,
+			Code:    code,
+			Summary: summary,
+		},
 	}
 }
 

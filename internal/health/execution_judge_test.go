@@ -199,6 +199,33 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
 		},
 		{
+			name: "local conversion failure skips group without credential health mutation",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchNotSent,
+				Evidence: &execution.ErrorEvidence{
+					Kind:    execution.ErrorKind("conversion_unsupported"),
+					Code:    "target_conversion_not_supported",
+					Summary: "target conversion is not supported",
+				},
+			},
+			want: Result{Category: FailureCategoryConversionUnsupported, Action: ActionSkipGroup},
+		},
+		{
+			name: "structured unsupported model 400 is a client error",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusBadRequest,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintModelUnavailable,
+					StatusCode: http.StatusBadRequest,
+					Code:       "unsupported_model",
+					Summary:    "request capability is unavailable",
+				},
+			},
+			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
+		},
+		{
 			name: "clean success terminates",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,

@@ -60,10 +60,6 @@ func (runtime *testRuntime) ExecuteStream(
 	return runtime.manager.ExecuteStream(ctx, runtime.withBaseURL(spec), sink)
 }
 
-func (runtime *testRuntime) Capabilities() execution.CapabilitySet {
-	return runtime.manager.Capabilities()
-}
-
 func (runtime *testRuntime) Shutdown() {
 	runtime.manager.Shutdown()
 }

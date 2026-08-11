@@ -35,6 +35,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"DurationMs",
 			"AffinityHit",
 			"Reasoning",
+			"ClientParameters",
 			"Attempts",
 			"Usage",
 		},
@@ -60,6 +61,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"ErrorCode",
 			"ErrorSummary",
 			"Committed",
+			"ConversionTrace",
 		},
 		reflect.TypeOf(PricingObservation{}): {
 			"UpstreamModel",

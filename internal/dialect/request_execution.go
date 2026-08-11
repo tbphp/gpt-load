@@ -4,28 +4,24 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
-	"gpt-load/internal/reasoning"
 )
 
 func chatExecutionMetadata(
 	clientProtocol protocol.Protocol,
 	body []byte,
-	stream bool,
-	reasoningConfig reasoning.Config,
-) (execution.Operation, execution.FeatureSet) {
-	return execution.OperationChatCompletion,
-		inspectRequiredFeatures(clientProtocol, body, stream, reasoningConfig.RequiresCapability(), false)
+) (execution.Operation, execution.RouteRequirement) {
+	nativeResource := chatRequiresNativeRoute(clientProtocol, body)
+	return execution.OperationChatCompletion, routeRequirement(nativeResource)
 }
 
 func responsesExecutionMetadata(
 	request *ParsedRequest,
-	stream bool,
-	reasoningConfig reasoning.Config,
-) (execution.Operation, execution.FeatureSet) {
+) (execution.Operation, execution.RouteRequirement) {
 	operation := responsesOperation(request)
 	nativeResource := operation == execution.OperationResponsesRetrieve ||
 		operation == execution.OperationResponsesDelete ||
@@ -33,15 +29,16 @@ func responsesExecutionMetadata(
 		operation == execution.OperationResponsesInputItems ||
 		operation == execution.OperationResponsesPassthrough
 	if operation == execution.OperationResponsesCreate {
-		nativeResource = responsesCreateStoresResource(request.Body)
+		nativeResource = responsesCreateRequiresNativeRoute(request.Body)
 	}
-	return operation, inspectRequiredFeatures(
-		protocol.OpenAIResponses,
-		request.Body,
-		stream,
-		reasoningConfig.RequiresCapability(),
-		nativeResource,
-	)
+	return operation, routeRequirement(nativeResource)
+}
+
+func routeRequirement(native bool) execution.RouteRequirement {
+	if native {
+		return execution.RouteRequirementNative
+	}
+	return execution.RouteRequirementAny
 }
 
 func responsesOperation(request *ParsedRequest) execution.Operation {
@@ -76,146 +73,6 @@ func responsesOperation(request *ParsedRequest) execution.Operation {
 	}
 }
 
-func inspectRequiredFeatures(
-	clientProtocol protocol.Protocol,
-	body []byte,
-	stream bool,
-	reasoningPresent bool,
-	nativeResource bool,
-) execution.FeatureSet {
-	features := make([]execution.Feature, 0, 6)
-	if stream {
-		features = append(features, execution.FeatureStreaming)
-	}
-
-	root, ok := decodeExecutionFeatureObject(body)
-	if ok {
-		historyTools, historyReasoning := inspectProtocolHistory(root, clientProtocol)
-		if historyTools || hasMeaningfulField(root, "tools") ||
-			hasMeaningfulField(root, "tool_choice") ||
-			hasMeaningfulField(root, "toolChoice") {
-			features = append(features, execution.FeatureTools)
-		}
-		if historyReasoning {
-			reasoningPresent = true
-		}
-		if containsMultimodalValue(root) {
-			features = append(features, execution.FeatureMultimodal)
-		}
-		if containsStructuredOutput(root) {
-			features = append(features, execution.FeatureStructuredOutput)
-		}
-	}
-	if reasoningPresent {
-		features = append(features, execution.FeatureReasoning)
-	}
-	if nativeResource {
-		features = append(features, execution.FeatureNativeResourceSemantics)
-	}
-	result, err := execution.NewFeatureSet(features...)
-	if err != nil {
-		return execution.FeatureSet{}
-	}
-	return result
-}
-
-func inspectProtocolHistory(root map[string]any, clientProtocol protocol.Protocol) (bool, bool) {
-	switch clientProtocol {
-	case protocol.OpenAICompletions:
-		return inspectOpenAIChatHistory(root)
-	case protocol.OpenAIResponses:
-		return inspectOpenAIResponsesHistory(root)
-	case protocol.Anthropic:
-		return inspectAnthropicHistory(root)
-	case protocol.Gemini:
-		return inspectGeminiHistory(root)
-	default:
-		return false, false
-	}
-}
-
-func inspectOpenAIChatHistory(root map[string]any) (bool, bool) {
-	messages, _ := root["messages"].([]any)
-	tools := false
-	reasoning := false
-	for _, value := range messages {
-		message, _ := value.(map[string]any)
-		role, _ := message["role"].(string)
-		if role == "tool" || hasMeaningfulField(message, "tool_calls") ||
-			hasMeaningfulField(message, "function_call") {
-			tools = true
-		}
-		if hasMeaningfulField(message, "reasoning_content") ||
-			hasMeaningfulField(message, "reasoning_details") {
-			reasoning = true
-		}
-	}
-	return tools, reasoning
-}
-
-func inspectOpenAIResponsesHistory(root map[string]any) (bool, bool) {
-	items, _ := root["input"].([]any)
-	tools := false
-	reasoning := false
-	for _, value := range items {
-		item, _ := value.(map[string]any)
-		itemType, _ := item["type"].(string)
-		switch normalizeFeatureName(itemType) {
-		case "functioncall", "functioncalloutput":
-			tools = true
-		case "reasoning":
-			reasoning = true
-		}
-		if hasMeaningfulField(item, "encrypted_content") {
-			reasoning = true
-		}
-	}
-	return tools, reasoning
-}
-
-func inspectAnthropicHistory(root map[string]any) (bool, bool) {
-	messages, _ := root["messages"].([]any)
-	tools := false
-	reasoning := false
-	for _, value := range messages {
-		message, _ := value.(map[string]any)
-		content, _ := message["content"].([]any)
-		for _, blockValue := range content {
-			block, _ := blockValue.(map[string]any)
-			blockType, _ := block["type"].(string)
-			switch normalizeFeatureName(blockType) {
-			case "tooluse", "toolresult":
-				tools = true
-			case "thinking", "redactedthinking":
-				reasoning = true
-			}
-		}
-	}
-	return tools, reasoning
-}
-
-func inspectGeminiHistory(root map[string]any) (bool, bool) {
-	contents, _ := root["contents"].([]any)
-	tools := false
-	reasoning := false
-	for _, value := range contents {
-		content, _ := value.(map[string]any)
-		parts, _ := content["parts"].([]any)
-		for _, partValue := range parts {
-			part, _ := partValue.(map[string]any)
-			if hasMeaningfulField(part, "functionCall") ||
-				hasMeaningfulField(part, "functionResponse") {
-				tools = true
-			}
-			thought, _ := part["thought"].(bool)
-			if thought || hasMeaningfulField(part, "thoughtSignature") {
-				reasoning = true
-			}
-		}
-	}
-	return tools, reasoning
-}
-
 func decodeExecutionFeatureObject(body []byte) (map[string]any, bool) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, false
@@ -246,89 +103,7 @@ func hasMeaningfulField(object map[string]any, field string) bool {
 	}
 }
 
-func containsMultimodalValue(value any) bool {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			normalizedKey := normalizeFeatureName(key)
-			if normalizedKey == "inlinedata" ||
-				normalizedKey == "filedata" ||
-				normalizedKey == "imageurl" {
-				return true
-			}
-			if normalizedKey == "type" {
-				if text, ok := child.(string); ok && multimodalType(text) {
-					return true
-				}
-			}
-			if normalizedKey == "modalities" && containsNonTextModality(child) {
-				return true
-			}
-			if containsMultimodalValue(child) {
-				return true
-			}
-		}
-	case []any:
-		for _, child := range typed {
-			if containsMultimodalValue(child) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func multimodalType(value string) bool {
-	switch normalizeFeatureName(value) {
-	case "image", "imageurl", "inputimage", "inputaudio", "file", "inputfile", "document":
-		return true
-	default:
-		return false
-	}
-}
-
-func containsNonTextModality(value any) bool {
-	items, ok := value.([]any)
-	if !ok {
-		return false
-	}
-	for _, item := range items {
-		text, ok := item.(string)
-		if ok && !strings.EqualFold(strings.TrimSpace(text), "text") {
-			return true
-		}
-	}
-	return false
-}
-
-func containsStructuredOutput(root map[string]any) bool {
-	if hasMeaningfulField(root, "response_format") {
-		return true
-	}
-	for _, parentName := range []string{
-		"text",
-		"output_config",
-		"outputConfig",
-		"generation_config",
-		"generationConfig",
-	} {
-		parent, ok := root[parentName].(map[string]any)
-		if !ok {
-			continue
-		}
-		for key, value := range parent {
-			switch normalizeFeatureName(key) {
-			case "format", "responseschema", "responsejsonschema", "responsemimetype":
-				if value != nil {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func responsesCreateStoresResource(body []byte) bool {
+func responsesCreateRequiresNativeRoute(body []byte) bool {
 	root, ok := decodeExecutionFeatureObject(body)
 	if !ok {
 		return true
@@ -337,12 +112,240 @@ func responsesCreateStoresResource(body []byte) bool {
 		hasMeaningfulField(root, "conversation") {
 		return true
 	}
+	if background, ok := root["background"].(bool); ok && background {
+		return true
+	}
+	if responsesInputReferencesProviderResource(root["input"]) ||
+		responsesToolsReferenceProviderResource(root["tools"]) {
+		return true
+	}
 	value, exists := root["store"]
 	if !exists || value == nil {
 		return true
 	}
 	store, ok := value.(bool)
 	return !ok || store
+}
+
+func chatRequiresNativeRoute(clientProtocol protocol.Protocol, body []byte) bool {
+	root, ok := decodeExecutionFeatureObject(body)
+	if !ok {
+		return false
+	}
+	switch clientProtocol {
+	case protocol.OpenAICompletions:
+		return openAIChatMessagesReferenceProviderResource(root["messages"])
+	case protocol.Gemini:
+		return hasMeaningfulField(root, "cachedContent") ||
+			hasMeaningfulField(root, "cached_content") ||
+			geminiContentsReferenceProviderResource(root["contents"])
+	case protocol.Anthropic:
+		return hasMeaningfulField(root, "container") ||
+			anthropicMessagesReferenceProviderResource(root["messages"])
+	default:
+		return false
+	}
+}
+
+func openAIChatMessagesReferenceProviderResource(value any) bool {
+	messages, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range messages {
+		message, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		blocks, _ := message["content"].([]any)
+		for _, value := range blocks {
+			block, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			blockType, _ := block["type"].(string)
+			file, _ := block["file"].(map[string]any)
+			if normalizeFeatureName(blockType) == "file" && hasMeaningfulField(file, "file_id") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func geminiContentsReferenceProviderResource(value any) bool {
+	contents, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range contents {
+		content, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		parts, _ := content["parts"].([]any)
+		for _, value := range parts {
+			part, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			fileData := objectField(part, "fileData", "file_data")
+			fileURI, _ := stringField(fileData, "fileUri", "file_uri")
+			if geminiProviderResourceURI(fileURI) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func objectField(object map[string]any, names ...string) map[string]any {
+	for _, name := range names {
+		if value, ok := object[name].(map[string]any); ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func stringField(object map[string]any, names ...string) (string, bool) {
+	for _, name := range names {
+		if value, ok := object[name].(string); ok {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func geminiProviderResourceURI(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	parsed, err := url.Parse(value)
+	if err == nil {
+		if strings.EqualFold(parsed.Scheme, "gs") {
+			return true
+		}
+		if strings.EqualFold(parsed.Hostname(), "generativelanguage.googleapis.com") &&
+			strings.Contains(strings.ToLower(parsed.Path), "/files/") {
+			return true
+		}
+	}
+	relative := strings.TrimPrefix(strings.TrimSpace(value), "/")
+	return strings.HasPrefix(strings.ToLower(relative), "files/") ||
+		strings.HasPrefix(strings.ToLower(relative), "v1beta/files/")
+}
+
+func responsesInputReferencesProviderResource(value any) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range items {
+		item, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		itemType, _ := item["type"].(string)
+		switch normalizeFeatureName(itemType) {
+		case "itemreference":
+			if hasMeaningfulField(item, "id") {
+				return true
+			}
+		case "codeinterpretercall", "computer_call", "computercall", "computercalloutput":
+			if hasMeaningfulField(item, "container_id") {
+				return true
+			}
+		}
+		if responsesContentReferencesProviderResource(item["content"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func responsesContentReferencesProviderResource(value any) bool {
+	blocks, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range blocks {
+		block, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		blockType, _ := block["type"].(string)
+		switch normalizeFeatureName(blockType) {
+		case "inputfile", "inputimage":
+			if hasMeaningfulField(block, "file_id") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func responsesToolsReferenceProviderResource(value any) bool {
+	tools, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range tools {
+		tool, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		toolType, _ := tool["type"].(string)
+		switch normalizeFeatureName(toolType) {
+		case "filesearch":
+			if hasMeaningfulField(tool, "vector_store_ids") {
+				return true
+			}
+		case "codeinterpreter":
+			if hasMeaningfulField(tool, "container") || hasMeaningfulField(tool, "container_id") {
+				return true
+			}
+		case "imagegeneration":
+			mask, _ := tool["input_image_mask"].(map[string]any)
+			if hasMeaningfulField(mask, "file_id") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func anthropicMessagesReferenceProviderResource(value any) bool {
+	messages, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range messages {
+		message, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		blocks, _ := message["content"].([]any)
+		for _, value := range blocks {
+			block, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			blockType, _ := block["type"].(string)
+			if normalizeFeatureName(blockType) == "containerupload" &&
+				hasMeaningfulField(block, "file_id") {
+				return true
+			}
+			source, _ := block["source"].(map[string]any)
+			sourceType, _ := source["type"].(string)
+			if normalizeFeatureName(sourceType) == "file" &&
+				hasMeaningfulField(source, "file_id") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func normalizeFeatureName(value string) string {

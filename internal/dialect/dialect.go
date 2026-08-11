@@ -21,7 +21,7 @@ type RequestMetadata struct {
 	Model            *string
 	Stream           bool
 	Operation        execution.Operation
-	RequiredFeatures execution.FeatureSet
+	RouteRequirement execution.RouteRequirement
 	ObserveUsage     bool
 	UsageDiagnostics usage.Diagnostics
 	Reasoning        reasoning.Config

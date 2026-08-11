@@ -20,6 +20,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -55,15 +56,22 @@ type streamSDKResult struct {
 
 // Execute executes one non-streaming attempt.
 func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
+	clientParameters := conversionClientParameters(&spec)
 	prepared, preflightError := r.prepare(spec, false)
 	if preflightError != nil {
-		return *preflightError
+		failure := *preflightError
+		failure.ConversionTrace = preflightConversionTrace(spec, failure, clientParameters)
+		return failure
 	}
 	var appliedReasoning *reasoning.Config
+	var conversionTrace *parametertrace.Trace
 	upstreamAPI := preparedUpstreamAPI(prepared, spec)
 	defer func() {
 		if result.AppliedReasoning == nil {
 			result.AppliedReasoning = appliedReasoning
+		}
+		if result.ConversionTrace == nil && prepared.mode == channel.RouteConverted {
+			result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 		}
 		result.UpstreamAPI = upstreamAPI
 	}()
@@ -83,7 +91,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 	defer callCancel()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
-	enableAppliedReasoningWireCapture(bifrostContext, prepared)
+	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan unarySDKResult, 1)
 	go func() {
@@ -102,11 +110,14 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 	}
 
 	if outcome.err != nil {
-		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
+		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		if prepared.mode == channel.RouteConverted {
+			return convertedUnaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+		}
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
 	}
 	if outcome.response != nil {
-		appliedReasoning = takeAppliedReasoning(&outcome.response.ExtraFields.RawRequest)
+		captureWireObservation(&outcome.response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
 	}
 	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
 		return *failure
@@ -152,15 +163,22 @@ func (r *Runtime) ExecuteStream(
 	if sink == nil {
 		return notSentStreamFailure(execution.ErrorKindInvalidRequest, "stream sink is required")
 	}
+	clientParameters := conversionClientParameters(&spec)
 	prepared, preflightError := r.prepare(spec, true)
 	if preflightError != nil {
-		return streamFromAttemptFailure(*preflightError)
+		failure := streamFromAttemptFailure(*preflightError)
+		failure.ConversionTrace = preflightConversionTrace(spec, *preflightError, clientParameters)
+		return failure
 	}
 	var appliedReasoning *reasoning.Config
+	var conversionTrace *parametertrace.Trace
 	upstreamAPI := preparedUpstreamAPI(prepared, spec)
 	defer func() {
 		if result.AppliedReasoning == nil {
 			result.AppliedReasoning = appliedReasoning
+		}
+		if result.ConversionTrace == nil && prepared.mode == channel.RouteConverted {
+			result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 		}
 		result.UpstreamAPI = upstreamAPI
 	}()
@@ -179,7 +197,7 @@ func (r *Runtime) ExecuteStream(
 	defer preResponse.stop()
 
 	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
-	enableAppliedReasoningWireCapture(bifrostContext, prepared)
+	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan streamSDKResult, 1)
 	go func() {
@@ -198,7 +216,10 @@ func (r *Runtime) ExecuteStream(
 	}
 	preResponse.stop()
 	if outcome.err != nil {
-		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
+		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		if prepared.mode == channel.RouteConverted {
+			return convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
+		}
 		return streamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
 	}
 	if outcome.stream == nil {
@@ -263,9 +284,7 @@ func (r *Runtime) ExecuteStream(
 				return streamErrorResult(nil, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
 			if chunk.BifrostError != nil {
-				if captured := takeAppliedReasoning(&chunk.BifrostError.ExtraFields.RawRequest); captured != nil {
-					appliedReasoning = captured
-				}
+				captureWireObservation(&chunk.BifrostError.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
 				callCancel()
 				return streamErrorResult(chunk.BifrostError, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
@@ -275,9 +294,7 @@ func (r *Runtime) ExecuteStream(
 			}
 
 			response := chunk.BifrostChatResponse
-			if captured := takeAppliedReasoning(&response.ExtraFields.RawRequest); captured != nil {
-				appliedReasoning = captured
-			}
+			captureWireObservation(&response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
 			if response.Model != "" {
 				model = response.Model
 			}
@@ -403,14 +420,36 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 	mode := channel.RouteMode(spec.RouteMode)
 	declaredMode, ok := resolved.Mode(spec.ClientProtocol, spec.Operation)
-	if !ok || declaredMode != mode || !resolved.Supports(spec.ClientProtocol, spec.Operation, spec.RequiredFeatures) {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "channel does not support the requested route")
+	if !ok || declaredMode != mode {
+		failure := notSentConversionFailure(
+			execution.ErrorCodeTargetConversionNotSupported,
+			"channel does not support the requested route",
+		)
+		return preparedAttempt{}, &failure
+	}
+	if !spec.RouteRequirement.Allows(execution.RouteMode(mode)) {
+		failure := notSentConversionFailure(
+			execution.ErrorCodeCriticalSemanticLoss,
+			"converted route cannot preserve provider resource semantics",
+		)
+		return preparedAttempt{}, &failure
+	}
+	if spec.Operation == execution.OperationResponsesCreate &&
+		spec.RouteRequirement.Normalize() == execution.RouteRequirementNative &&
+		!resolved.SupportsResponsesLifecycle() {
+		failure := notSentConversionFailure(
+			execution.ErrorCodeCriticalSemanticLoss,
+			"target does not support Responses resource lifecycle",
+		)
 		return preparedAttempt{}, &failure
 	}
 	if spec.Operation == execution.OperationResponsesPassthrough &&
 		providerKind != channel.ProviderOpenAI &&
 		providerKind != channel.ProviderOpenAICompatible {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "Responses passthrough requires an OpenAI provider")
+		failure := notSentConversionFailure(
+			execution.ErrorCodeTargetConversionNotSupported,
+			"Responses passthrough requires an OpenAI provider",
+		)
 		return preparedAttempt{}, &failure
 	}
 	provider := r.fixedConfig.provider
@@ -420,7 +459,10 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 	if mode == channel.RouteNative && spec.Operation == execution.OperationListModels &&
 		!providerKindNativeForClient(providerKind, spec.ClientProtocol) {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "native route does not match the client protocol")
+		failure := notSentConversionFailure(
+			execution.ErrorCodeTargetConversionNotSupported,
+			"native route does not match the client protocol",
+		)
 		return preparedAttempt{}, &failure
 	}
 	safeQuery := safeAttemptQuery(spec)
@@ -513,6 +555,11 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if spec.ClientProtocol != protocol.OpenAICompletions || spec.Operation != execution.OperationChatCompletion {
 		request, conversionErr := buildConvertedResponsesRequest(spec, provider)
 		if conversionErr != nil {
+			var classified interface{ ConversionCode() string }
+			if errors.As(conversionErr, &classified) {
+				failure := notSentConversionFailure(classified.ConversionCode(), conversionErr.Error())
+				return preparedAttempt{}, &failure
+			}
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, conversionErr.Error())
 			return preparedAttempt{}, &failure
 		}
@@ -654,11 +701,11 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		case execution.OperationResponsesRetrieve:
 			return spec.Method == http.MethodGet && validResponsesResourcePath(spec.Path, "")
 		case execution.OperationResponsesDelete:
-			return spec.Method == http.MethodDelete && validResponsesResourcePath(spec.Path, "")
+			return !stream && spec.Method == http.MethodDelete && validResponsesResourcePath(spec.Path, "")
 		case execution.OperationResponsesCancel:
-			return spec.Method == http.MethodPost && validResponsesResourcePath(spec.Path, "cancel")
+			return !stream && spec.Method == http.MethodPost && validResponsesResourcePath(spec.Path, "cancel")
 		case execution.OperationResponsesInputItems:
-			return spec.Method == http.MethodGet && validResponsesResourcePath(spec.Path, "input_items")
+			return !stream && spec.Method == http.MethodGet && validResponsesResourcePath(spec.Path, "input_items")
 		case execution.OperationResponsesCompact:
 			return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/responses/compact"
 		case execution.OperationResponsesInputTokens:

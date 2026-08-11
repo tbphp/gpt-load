@@ -69,6 +69,7 @@ export const requestLogFailureCategories = [
   'invalid_key',
   'upstream_host_error',
   'client_error',
+  'conversion_unsupported',
   'downstream_cancel',
   'ambiguous',
 ] as const

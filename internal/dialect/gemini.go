@@ -39,11 +39,9 @@ func (d *Gemini) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 		ObserveUsage: true,
 		Reasoning:    inspectGeminiReasoning(req.Body),
 	}
-	metadata.Operation, metadata.RequiredFeatures = chatExecutionMetadata(
+	metadata.Operation, metadata.RouteRequirement = chatExecutionMetadata(
 		d.Protocol(),
 		req.Body,
-		metadata.Stream,
-		metadata.Reasoning,
 	)
 	return metadata, nil
 }

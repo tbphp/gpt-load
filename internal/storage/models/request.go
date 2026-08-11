@@ -26,6 +26,7 @@ type RequestLog struct {
 	ReasoningMode           string              `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningEffort         string              `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningBudgetTokens   *int64              `gorm:"column:reasoning_budget_tokens"`
+	ClientParameters        JSON                `gorm:"column:client_parameters_json;type:json"`
 	UncachedInputTokens     int64               `gorm:"column:uncached_input_tokens;not null;default:0;check:chk_request_log_uncached_input,uncached_input_tokens >= 0"`
 	OutputTokens            int64               `gorm:"not null;default:0;check:chk_request_log_output,output_tokens >= 0"`
 	CacheReadTokens         int64               `gorm:"not null;default:0;check:chk_request_log_cache_read,cache_read_tokens >= 0"`
@@ -62,13 +63,14 @@ type RequestLogAttempt struct {
 	ReasoningBudgetTokens *int64      `gorm:"column:reasoning_budget_tokens"`
 	StatusCode            int         `gorm:"not null;index:idx_request_log_attempts_status_completed_request,priority:1"`
 	DurationMs            int64       `gorm:"not null;check:chk_request_log_attempt_duration,duration_ms >= 0"`
-	FailureCategory       string      `gorm:"type:varchar(32);not null;check:chk_request_log_attempt_failure_category,failure_category IN ('ok','rate_limited','model_unavailable','invalid_key','upstream_host_error','client_error','downstream_cancel','ambiguous');index:idx_request_log_attempts_failure_completed_request,priority:1"`
+	FailureCategory       string      `gorm:"type:varchar(32);not null;check:chk_request_log_attempt_failure_category,failure_category IN ('ok','rate_limited','model_unavailable','invalid_key','upstream_host_error','client_error','conversion_unsupported','downstream_cancel','ambiguous');index:idx_request_log_attempts_failure_completed_request,priority:1"`
 	Action                string      `gorm:"type:varchar(32);not null;check:chk_request_log_attempt_action,action IN ('terminate','retry','cooldown_credential','fail_credential','skip_group')"`
 	WillRetry             bool        `gorm:"not null;default:false"`
 	ErrorCode             string      `gorm:"type:varchar(64);not null;default:'';index:idx_request_log_attempts_error_completed_request,priority:1"`
 	ErrorSummary          string      `gorm:"type:text;not null"`
 	Committed             bool        `gorm:"not null;default:false"`
 	PricingReceipt        JSON        `gorm:"type:json"`
+	ConversionTrace       JSON        `gorm:"column:conversion_trace_json;type:json"`
 	RequestLog            *RequestLog `gorm:"foreignKey:RequestID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 

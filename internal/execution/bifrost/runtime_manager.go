@@ -145,10 +145,9 @@ type runtimeManager struct {
 // RuntimeManager owns lazily-created Bifrost cores keyed by canonical provider
 // construction config.
 type RuntimeManager struct {
-	registry     *channel.Registry
-	options      runtimeOptions
-	pool         *runtimeManager
-	capabilities execution.CapabilitySet
+	registry *channel.Registry
+	options  runtimeOptions
+	pool     *runtimeManager
 
 	mu      sync.Mutex
 	started bool
@@ -159,14 +158,12 @@ type RuntimeManager struct {
 
 func newRuntimeManager(options runtimeOptions, registry *channel.Registry) (*RuntimeManager, error) {
 	options = normalizeRuntimeOptions(options)
-	template, err := newRuntimeShell(options, registry)
-	if err != nil {
+	if _, err := newRuntimeShell(options, registry); err != nil {
 		return nil, err
 	}
 	manager := &RuntimeManager{
-		registry:     registry,
-		options:      options,
-		capabilities: template.capabilities.Clone(),
+		registry: registry,
+		options:  options,
 	}
 	manager.pool = newRuntimeManagerPool(func(_ context.Context, config effectiveProviderConfig) (managedProviderRuntime, error) {
 		manager.mu.Lock()
@@ -403,14 +400,6 @@ func (manager *RuntimeManager) Start(ctx context.Context) error {
 	manager.rootCtx, manager.cancel = context.WithCancel(ctx)
 	manager.started = true
 	return nil
-}
-
-// Capabilities returns an independent adapter capability snapshot.
-func (manager *RuntimeManager) Capabilities() execution.CapabilitySet {
-	if manager == nil {
-		return execution.CapabilitySet{}
-	}
-	return manager.capabilities.Clone()
 }
 
 // Execute acquires exactly one runtime lease for the frozen attempt target.

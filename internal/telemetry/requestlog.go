@@ -5,6 +5,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -31,14 +32,15 @@ const (
 type FailureCategory string
 
 const (
-	FailureCategoryOK               FailureCategory = "ok"
-	FailureCategoryRateLimited      FailureCategory = "rate_limited"
-	FailureCategoryModelUnavailable FailureCategory = "model_unavailable"
-	FailureCategoryInvalidKey       FailureCategory = "invalid_key"
-	FailureCategoryUpstreamHost     FailureCategory = "upstream_host_error"
-	FailureCategoryClientError      FailureCategory = "client_error"
-	FailureCategoryDownstreamCancel FailureCategory = "downstream_cancel"
-	FailureCategoryAmbiguous        FailureCategory = "ambiguous"
+	FailureCategoryOK                    FailureCategory = "ok"
+	FailureCategoryRateLimited           FailureCategory = "rate_limited"
+	FailureCategoryModelUnavailable      FailureCategory = "model_unavailable"
+	FailureCategoryInvalidKey            FailureCategory = "invalid_key"
+	FailureCategoryUpstreamHost          FailureCategory = "upstream_host_error"
+	FailureCategoryClientError           FailureCategory = "client_error"
+	FailureCategoryConversionUnsupported FailureCategory = "conversion_unsupported"
+	FailureCategoryDownstreamCancel      FailureCategory = "downstream_cancel"
+	FailureCategoryAmbiguous             FailureCategory = "ambiguous"
 )
 
 type Action string
@@ -73,6 +75,7 @@ type Attempt struct {
 	ErrorCode         string
 	ErrorSummary      string
 	Committed         bool
+	ConversionTrace   *parametertrace.Trace
 }
 
 // PricingObservation is the frozen, dependency-neutral quote selected by the
@@ -113,6 +116,7 @@ type RequestEvent struct {
 	DurationMs            int64
 	AffinityHit           bool
 	Reasoning             reasoning.Config
+	ClientParameters      *parametertrace.Snapshot
 	Attempts              []Attempt
 	Usage                 UsageObservation
 }

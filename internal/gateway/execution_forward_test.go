@@ -24,10 +24,6 @@ type fakeExecutionExecutor struct {
 	stream func(context.Context, execution.AttemptSpec, execution.StreamSink) execution.StreamResult
 }
 
-func (fakeExecutionExecutor) Capabilities() execution.CapabilitySet {
-	return execution.CapabilitySet{}
-}
-
 func (value fakeExecutionExecutor) Execute(
 	ctx context.Context,
 	spec execution.AttemptSpec,
@@ -54,7 +50,7 @@ func TestExecutionForwarderBuildsFrozenAttemptAndMapsUnaryResult(t *testing.T) {
 		if spec.RequestID != "request-1" || spec.AttemptID != "attempt-1" || spec.Sequence != 2 ||
 			spec.ChannelID != "openai" || spec.TargetKind != "openai" ||
 			spec.RouteMode != execution.RouteNative ||
-			!spec.RequiredFeatures.Has(execution.FeatureTools) ||
+			spec.RouteRequirement != execution.RouteRequirementNative ||
 			spec.ClientProtocol != protocol.OpenAICompletions ||
 			spec.Operation != execution.OperationChatCompletion || spec.ClientModel != "public" ||
 			spec.UpstreamModel != "upstream" || spec.Method != http.MethodPost ||
@@ -774,7 +770,7 @@ func executionForwardInput() ForwardInput {
 		ChannelID:        "openai",
 		TargetKind:       "openai",
 		RouteMode:        execution.RouteNative,
-		RequiredFeatures: gatewayFeatureSet(execution.FeatureTools),
+		RouteRequirement: execution.RouteRequirementNative,
 		TargetConfig:     []byte(`{}`),
 		APIKey:           "secret",
 		Credential: execution.NewCredentialSnapshot(
@@ -816,12 +812,4 @@ func responsesExecutionForwardInput() ForwardInput {
 	input.Request.RawQuery = ""
 	input.Request.Body = []byte(`{"model":"public","stream":true}`)
 	return input
-}
-
-func gatewayFeatureSet(features ...execution.Feature) execution.FeatureSet {
-	set, err := execution.NewFeatureSet(features...)
-	if err != nil {
-		panic(err)
-	}
-	return set
 }

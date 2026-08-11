@@ -21,7 +21,8 @@ const (
 	ReasonProtocolFiltered      ReasonCode = "protocol_filtered"
 	ReasonModelFiltered         ReasonCode = "model_filtered"
 	ReasonModelRequiredByFilter ReasonCode = "model_required_by_filter"
-	ReasonCapabilityUnsupported ReasonCode = "capability_unsupported"
+	ReasonOperationUnsupported  ReasonCode = "operation_unsupported"
+	ReasonNativeRouteRequired   ReasonCode = "native_route_required"
 	ReasonNoRouteTarget         ReasonCode = "no_route_target"
 	ReasonGroupDisabled         ReasonCode = "group_disabled"
 	ReasonGroupFiltered         ReasonCode = "group_filtered"
@@ -39,7 +40,7 @@ const (
 type Inspection struct {
 	ClientProtocol   protocol.Protocol
 	Operation        execution.Operation
-	RequiredFeatures []execution.Feature
+	RouteRequirement execution.RouteRequirement
 	ExternalModel    *string
 	Routable         bool
 	Reason           ReasonCode
@@ -47,17 +48,17 @@ type Inspection struct {
 }
 
 type GroupInspection struct {
-	GroupID             uint
-	GroupName           string
-	ChannelID           channel.ID
-	RouteMode           channel.RouteMode
-	CapabilitySupported bool
-	UpstreamModelID     *string
-	WeightManual        *int
-	Included            bool
-	Routable            bool
-	Reason              ReasonCode
-	Credentials         []CredentialInspection
+	GroupID                   uint
+	GroupName                 string
+	ChannelID                 channel.ID
+	RouteMode                 channel.RouteMode
+	RouteRequirementSatisfied bool
+	UpstreamModelID           *string
+	WeightManual              *int
+	Included                  bool
+	Routable                  bool
+	Reason                    ReasonCode
+	Credentials               []CredentialInspection
 }
 
 type CredentialInspection struct {
@@ -74,11 +75,11 @@ type CredentialInspection struct {
 type CredentialRuntimeView = state.CredentialRuntimeView
 
 type targetDecision struct {
-	target       state.RouteTarget
-	group        state.GroupCatalogView
-	capabilityOK bool
-	included     bool
-	reason       ReasonCode
+	target        state.RouteTarget
+	group         state.GroupCatalogView
+	requirementOK bool
+	included      bool
+	reason        ReasonCode
 }
 
 func cloneWeight(weight *int) *int {
@@ -113,8 +114,8 @@ func evaluateTargets(
 			return []targetDecision{}, ReasonModelFiltered, nil
 		}
 	}
-	if !query.clientProtocol.Valid() || !query.operation.Valid() || query.requiredFeatures.Validate() != nil {
-		return []targetDecision{}, ReasonCapabilityUnsupported, nil
+	if !query.clientProtocol.Valid() || !query.operation.Valid() || !query.routeRequirement.Valid() {
+		return []targetDecision{}, ReasonOperationUnsupported, nil
 	}
 	byOperation := index[query.clientProtocol]
 	if len(byOperation) == 0 {
@@ -122,7 +123,7 @@ func evaluateTargets(
 	}
 	byModel, operationSupported := byOperation[query.operation]
 	if !operationSupported {
-		return []targetDecision{}, ReasonCapabilityUnsupported, nil
+		return []targetDecision{}, ReasonOperationUnsupported, nil
 	}
 	modelKey := state.NoModelRouteKey
 	if query.externalModel != nil {
@@ -149,14 +150,10 @@ func evaluateTargets(
 				route.GroupID,
 			)
 		}
-		capabilityOK := route.ResolvedTarget.Supports(
-			query.clientProtocol,
-			query.operation,
-			query.requiredFeatures,
-		)
+		requirementOK := routeRequirementSatisfied(query, route)
 		decision := targetDecision{
 			target: cloneRouteTarget(route), group: group,
-			capabilityOK: capabilityOK, included: true,
+			requirementOK: requirementOK, included: true,
 		}
 		groupFiltered := false
 		if len(query.accessKey.Filters.Groups) > 0 {
@@ -164,15 +161,15 @@ func evaluateTargets(
 			groupFiltered = !allowed
 		}
 		switch {
+		case !requirementOK:
+			decision.included = false
+			decision.reason = ReasonNativeRouteRequired
 		case !group.Enabled:
 			decision.included = false
 			decision.reason = ReasonGroupDisabled
 		case groupFiltered:
 			decision.included = false
 			decision.reason = ReasonGroupFiltered
-		case !capabilityOK:
-			decision.included = false
-			decision.reason = ReasonCapabilityUnsupported
 		}
 		if decision.included {
 			included++
@@ -189,6 +186,17 @@ func evaluateTargets(
 		}
 	}
 	return decisions, reason, nil
+}
+
+func routeRequirementSatisfied(query normalizedQuery, route state.RouteTarget) bool {
+	if !query.routeRequirement.Allows(execution.RouteMode(route.Mode)) {
+		return false
+	}
+	if query.operation != execution.OperationResponsesCreate ||
+		query.routeRequirement.Normalize() != execution.RouteRequirementNative {
+		return true
+	}
+	return route.ResolvedTarget.SupportsResponsesLifecycle()
 }
 
 func accessKeyAllowsGroup(accessKey state.AccessKeyView, groupID uint) bool {
@@ -277,7 +285,7 @@ func Inspect(
 	result := Inspection{
 		ClientProtocol:   normalized.clientProtocol,
 		Operation:        normalized.operation,
-		RequiredFeatures: normalized.requiredFeatures.Features(),
+		RouteRequirement: normalized.routeRequirement,
 		ExternalModel:    cloneString(normalized.externalModel),
 		Groups:           []GroupInspection{},
 	}
@@ -320,12 +328,12 @@ func Inspect(
 	for _, decision := range decisions {
 		groupResult := GroupInspection{
 			GroupID: decision.group.ID, GroupName: decision.group.Name,
-			ChannelID:           decision.target.ResolvedTarget.ChannelID,
-			RouteMode:           decision.target.Mode,
-			CapabilitySupported: decision.capabilityOK,
-			UpstreamModelID:     optionalModel(decision.target.UpstreamModelID),
-			WeightManual:        cloneWeight(decision.group.WeightManual),
-			Included:            decision.included, Reason: decision.reason,
+			ChannelID:                 decision.target.ResolvedTarget.ChannelID,
+			RouteMode:                 decision.target.Mode,
+			RouteRequirementSatisfied: decision.requirementOK,
+			UpstreamModelID:           optionalModel(decision.target.UpstreamModelID),
+			WeightManual:              cloneWeight(decision.group.WeightManual),
+			Included:                  decision.included, Reason: decision.reason,
 			Credentials: []CredentialInspection{},
 		}
 		if !decision.included {

@@ -59,11 +59,7 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 		metadata.UsageDiagnostics = openAIRequestPricingDiagnostics(req.Body)
 		metadata.Reasoning = inspectOpenAIResponsesReasoning(req.Body)
 	}
-	metadata.Operation, metadata.RequiredFeatures = responsesExecutionMetadata(
-		req,
-		metadata.Stream,
-		metadata.Reasoning,
-	)
+	metadata.Operation, metadata.RouteRequirement = responsesExecutionMetadata(req)
 	return metadata, nil
 }
 

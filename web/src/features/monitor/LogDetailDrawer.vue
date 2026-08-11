@@ -487,6 +487,8 @@ function toggleAttemptErrorMessage(sequence: number): void {
               :upstream-model="log.upstream_model"
               :client-reasoning="log.reasoning"
               :upstream-reasoning="finalAttempt?.reasoning ?? null"
+              :client-parameters="log.client_parameters"
+              :conversion-trace="finalAttempt?.conversion_trace ?? null"
             />
           </div>
         </dl>
@@ -636,6 +638,8 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 :upstream-model="attempt.upstream_model"
                 :client-reasoning="log.reasoning"
                 :upstream-reasoning="attempt.reasoning"
+                :client-parameters="log.client_parameters"
+                :conversion-trace="attempt.conversion_trace"
               />
             </div>
             <div v-if="showAttemptOperation(attempt)">

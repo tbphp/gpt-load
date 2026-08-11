@@ -21,7 +21,7 @@ type CredentialSource interface {
 type Query struct {
 	ClientProtocol       protocol.Protocol
 	Operation            execution.Operation
-	RequiredFeatures     execution.FeatureSet
+	RouteRequirement     execution.RouteRequirement
 	ExternalModel        *string
 	AccessKey            state.AccessKeyView
 	AllowedCredentialIDs map[uint]struct{}
@@ -62,7 +62,7 @@ type Iterator struct {
 type normalizedQuery struct {
 	clientProtocol       protocol.Protocol
 	operation            execution.Operation
-	requiredFeatures     execution.FeatureSet
+	routeRequirement     execution.RouteRequirement
 	externalModel        *string
 	accessKey            state.AccessKeyView
 	allowedCredentialIDs map[uint]struct{}
@@ -270,7 +270,7 @@ func normalizeQuery(query Query) normalizedQuery {
 	return normalizedQuery{
 		clientProtocol:       clientProtocol,
 		operation:            operation,
-		requiredFeatures:     query.RequiredFeatures.Clone(),
+		routeRequirement:     query.RouteRequirement.Normalize(),
 		externalModel:        cloneString(query.ExternalModel),
 		accessKey:            query.AccessKey,
 		allowedCredentialIDs: cloneAllowedCredentialIDs(query),

@@ -20,7 +20,8 @@ export type RouteInspectReasonCode =
   | 'protocol_filtered'
   | 'model_filtered'
   | 'model_required_by_filter'
-  | 'capability_unsupported'
+  | 'operation_unsupported'
+  | 'native_route_required'
   | 'no_route_target'
   | 'group_disabled'
   | 'group_filtered'
@@ -37,7 +38,7 @@ export type RouteInspectReasonCode =
 export interface RouteInspectRequest {
   protocol: AccessProtocol
   operation: RouteInspectOperation
-  required_features: RouteInspectFeature[]
+  route_requirement: RouteInspectRequirement
   external_model?: string | null
   access_key_id: number
 }
@@ -52,15 +53,7 @@ export type RouteInspectOperation =
   | 'responses_compact'
   | 'responses_input_tokens'
   | 'responses_passthrough'
-  | 'list_models'
-  | 'probe'
-export type RouteInspectFeature =
-  | 'streaming'
-  | 'tools'
-  | 'reasoning'
-  | 'multimodal'
-  | 'structured_output'
-  | 'native_resource_semantics'
+export type RouteInspectRequirement = 'any' | 'native'
 export type RouteInspectMode = 'native' | 'converted'
 
 export interface RouteInspectCredentialDto {
@@ -78,7 +71,7 @@ export interface RouteInspectGroupDto {
   group_name: string
   channel_id: string
   route_mode: RouteInspectMode
-  capability_supported: boolean
+  route_requirement_satisfied: boolean
   upstream_model: string | null
   weight_manual: number | null
   included: boolean
@@ -92,7 +85,7 @@ export interface RouteInspectResponseDto {
   snapshot_revision: number
   protocol: AccessProtocol
   operation: RouteInspectOperation
-  required_features: RouteInspectFeature[]
+  route_requirement: RouteInspectRequirement
   external_model: string | null
   access_key: {
     id: number
@@ -115,24 +108,16 @@ export const routeInspectOperations = [
   'responses_compact',
   'responses_input_tokens',
   'responses_passthrough',
-  'list_models',
-  'probe',
 ] as const
-export const routeInspectFeatures = [
-  'streaming',
-  'tools',
-  'reasoning',
-  'multimodal',
-  'structured_output',
-  'native_resource_semantics',
-] as const
+export const routeInspectRequirements = ['any', 'native'] as const
 const routeModes = ['native', 'converted'] as const
 const reasonCodes = [
   'access_key_disabled',
   'protocol_filtered',
   'model_filtered',
   'model_required_by_filter',
-  'capability_unsupported',
+  'operation_unsupported',
+  'native_route_required',
   'no_route_target',
   'group_disabled',
   'group_filtered',
@@ -198,7 +183,7 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
     'group_name',
     'channel_id',
     'route_mode',
-    'capability_supported',
+    'route_requirement_satisfied',
     'upstream_model',
     'weight_manual',
     'included',
@@ -211,7 +196,7 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
     group_name: projectNonBlankString(record.group_name),
     channel_id: projectNonBlankString(record.channel_id),
     route_mode: projectEnum(record.route_mode, routeModes),
-    capability_supported: projectBoolean(record.capability_supported),
+    route_requirement_satisfied: projectBoolean(record.route_requirement_satisfied),
     upstream_model: projectNullableNonBlankString(record.upstream_model),
     weight_manual: projectNullableWeight(record.weight_manual),
     included: projectBoolean(record.included),
@@ -238,7 +223,7 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
     'snapshot_revision',
     'protocol',
     'operation',
-    'required_features',
+    'route_requirement',
     'external_model',
     'access_key',
     'routable',
@@ -250,9 +235,7 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
     operation: projectEnum(record.operation, routeInspectOperations),
-    required_features: projectArray(record.required_features, (feature) =>
-      projectEnum(feature, routeInspectFeatures),
-    ),
+    route_requirement: projectEnum(record.route_requirement, routeInspectRequirements),
     external_model: projectNullableNonBlankString(record.external_model),
     access_key: projectAccessKey(record.access_key),
     routable: projectBoolean(record.routable),

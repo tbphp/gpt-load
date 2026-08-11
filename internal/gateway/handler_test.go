@@ -2778,6 +2778,126 @@ func TestHandlerUsesClassifierForNonStreamingNonSuccess(t *testing.T) {
 	})
 }
 
+func TestHandlerRetriesAnotherGroupAfterLocalConversionFailure(t *testing.T) {
+	t.Parallel()
+
+	conversionFailure := UpstreamResult{
+		Err:           fmt.Errorf("%w: target conversion failed", ErrUpstreamProtocol),
+		DispatchState: execution.DispatchNotSent,
+		ExecutionError: &execution.ErrorEvidence{
+			Kind:    execution.ErrorKind("conversion_unsupported"),
+			Code:    "target_conversion_not_supported",
+			Summary: "target conversion is not supported",
+		},
+		ErrorSummary: "target conversion is not supported",
+	}
+
+	t.Run("falls back to another group without mutating credential health", func(t *testing.T) {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{
+			conversionFailure,
+			{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
+		}}
+		engine, registry := newConvertedFallbackHandlerTestRuntime(t, forwarder)
+		before := registry.Snapshot()
+		request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(
+			`{"model":"claude-client","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`,
+		))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK || recorder.Body.String() != `{"ok":true}` || len(forwarder.inputs) != 2 {
+			t.Fatalf("response/attempts = %d %s / %d, want 200 and two groups", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+		}
+		if forwarder.inputs[0].Group.ID == forwarder.inputs[1].Group.ID {
+			t.Fatalf("attempts stayed in group %d", forwarder.inputs[0].Group.ID)
+		}
+		if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
+			t.Fatalf("credential health changed: before=%#v after=%#v", before, after)
+		}
+	})
+
+	t.Run("returns stable 422 after every target rejects conversion", func(t *testing.T) {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{conversionFailure, conversionFailure}}
+		engine, registry := newConvertedFallbackHandlerTestRuntime(t, forwarder)
+		before := registry.Snapshot()
+		request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(
+			`{"model":"claude-client","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`,
+		))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+
+		var body struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if recorder.Code != http.StatusUnprocessableEntity || body.Code != "protocol_conversion_unsupported" || len(forwarder.inputs) != 2 {
+			t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+		}
+		if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
+			t.Fatalf("credential health changed: before=%#v after=%#v", before, after)
+		}
+	})
+
+	t.Run("malformed client request remains 400 and is not retried", func(t *testing.T) {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{{
+			Err:           fmt.Errorf("%w: invalid request", ErrUpstreamProtocol),
+			DispatchState: execution.DispatchNotSent,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind:    execution.ErrorKindInvalidRequest,
+				Summary: "invalid Anthropic request body",
+			},
+		}}}
+		engine, _ := newConvertedFallbackHandlerTestRuntime(t, forwarder)
+		request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(
+			`{"model":"claude-client","messages":[{"role":"user","content":"hello"}]}`,
+		))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest ||
+			!strings.Contains(recorder.Body.String(), `"code":"invalid_protocol_request"`) ||
+			len(forwarder.inputs) != 1 {
+			t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+		}
+	})
+
+	t.Run("upstream unsupported model 400 is passed through once", func(t *testing.T) {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{{
+			StatusCode:      http.StatusBadRequest,
+			Header:          http.Header{"Content-Type": {"application/json"}},
+			Body:            []byte(`{"error":{"code":"unsupported_model"}}`),
+			RequestWritten:  true,
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind:       execution.ErrorKindHTTP,
+				Hint:       execution.FailureHintModelUnavailable,
+				StatusCode: http.StatusBadRequest,
+				Code:       "unsupported_model",
+				Summary:    "request capability is unavailable",
+			},
+		}}}
+		engine, registry := newConvertedFallbackHandlerTestRuntime(t, forwarder)
+		before := registry.Snapshot()
+		request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(
+			`{"model":"claude-client","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`,
+		))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest || recorder.Body.String() != `{"error":{"code":"unsupported_model"}}` || len(forwarder.inputs) != 1 {
+			t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+		}
+		if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
+			t.Fatalf("credential health changed: before=%#v after=%#v", before, after)
+		}
+	})
+}
+
 func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 	attemptNow := time.Date(2026, time.July, 21, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -3002,6 +3122,19 @@ func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
 			method:   http.MethodPost,
 			result:   UpstreamResult{DispatchState: execution.DispatchNotSent},
 			decision: retry, want: true,
+		},
+		{
+			name: "local conversion failure was not sent", operation: execution.OperationChatCompletion,
+			method: http.MethodPost,
+			result: UpstreamResult{
+				DispatchState: execution.DispatchNotSent,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:    execution.ErrorKind("conversion_unsupported"),
+					Summary: "target conversion is not supported",
+				},
+			},
+			decision: health.Result{Category: health.FailureCategoryConversionUnsupported, Action: health.ActionSkipGroup},
+			want:     true,
 		},
 		{
 			name: "explicit credential rejection", operation: execution.OperationResponsesCreate,
@@ -3897,4 +4030,72 @@ func newHandlerForTestWithStats(
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	return handler, manager, registry
+}
+
+func newConvertedFallbackHandlerTestRuntime(
+	t *testing.T,
+	forwarder AttemptForwarder,
+) (*gin.Engine, *state.CredentialRegistry) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	keyService, err := encryption.NewService("handler-conversion-fallback-test-key")
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	channelRegistry := channel.NewRegistry()
+	manager := state.NewManager()
+	groups := []state.GroupConfig{
+		{
+			ID: 1, Name: "compatible-one", ChannelID: channel.OpenAICompatible,
+			Params: json.RawMessage(`{"base_url":"https://one.example/v1"}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "upstream-one", Alias: "claude-client"}},
+		},
+		{
+			ID: 2, Name: "compatible-two", ChannelID: channel.OpenAICompatible,
+			Params: json.RawMessage(`{"base_url":"https://two.example/v1"}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "upstream-two", Alias: "claude-client"}},
+		},
+	}
+	credentials := []state.CredentialConfig{
+		{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-one"},
+		{ID: 2, GroupID: 2, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-two"},
+	}
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channelRegistry,
+		Groups:          groups,
+		Credentials:     credentials,
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"), Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	registry := state.NewCredentialRegistry()
+	entries := make([]state.CredentialEntry, 0, len(credentials))
+	for _, credential := range credentials {
+		plaintext := fmt.Sprintf(`{"api_key":"sk-%d"}`, credential.ID)
+		encrypted, err := keyService.Encrypt(plaintext)
+		if err != nil {
+			t.Fatalf("Encrypt() error = %v", err)
+		}
+		entries = append(entries, state.CredentialEntry{
+			ID: credential.ID, GroupID: credential.GroupID, Status: credential.Status,
+			Version: credential.Version, IdentityGeneration: credential.IdentityGeneration,
+			Fingerprint: credential.Fingerprint, EncryptedValue: encrypted,
+		})
+	}
+	if err := registry.ReplaceCredentials(entries); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+	handler := NewHandler(
+		manager, registry, keyService, forwarder, dialect.NewSet(dialect.NewAnthropic()),
+		health.NewStatsStore(), health.NewMutationCoordinator(),
+		nil, nil, nil,
+	)
+	handler.channels = channelRegistry
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	return engine, registry
 }

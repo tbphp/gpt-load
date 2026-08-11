@@ -244,8 +244,7 @@ func appendExecutionTargets(
 		return fmt.Errorf("compile group %d channel: unknown channel %q", group.ID, group.ChannelID)
 	}
 	for _, clientProtocol := range descriptor.ClientProtocols {
-		capabilities := target.Capabilities(clientProtocol)
-		for _, operation := range capabilities.Operations() {
+		for _, operation := range target.Operations(clientProtocol) {
 			if operation == execution.OperationListModels || operation == execution.OperationProbe {
 				continue
 			}

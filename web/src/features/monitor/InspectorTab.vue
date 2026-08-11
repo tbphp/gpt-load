@@ -13,13 +13,13 @@ import { RequestCancelledError } from '@/api/errors'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import {
   inspectRoute,
-  routeInspectFeatures,
+  routeInspectRequirements,
   type RouteInspectCredentialDto,
-  type RouteInspectFeature,
   type RouteInspectGroupDto,
   type RouteInspectOperation,
   type RouteInspectReasonCode,
   type RouteInspectRequest,
+  type RouteInspectRequirement,
   type RouteInspectResponseDto,
 } from '@/app/resources/route-inspection'
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
@@ -53,7 +53,8 @@ const knownReasons = new Set<RouteInspectReasonCode>([
   'protocol_filtered',
   'model_filtered',
   'model_required_by_filter',
-  'capability_unsupported',
+  'operation_unsupported',
+  'native_route_required',
   'no_route_target',
   'group_disabled',
   'group_filtered',
@@ -77,6 +78,13 @@ const responsesOperations: readonly RouteInspectOperation[] = [
   'responses_input_tokens',
   'responses_passthrough',
 ]
+const nativeRouteOperations = new Set<RouteInspectOperation>([
+  'responses_retrieve',
+  'responses_delete',
+  'responses_cancel',
+  'responses_input_items',
+  'responses_passthrough',
+])
 
 const client = useApiClient()
 const route = useRoute()
@@ -87,7 +95,10 @@ const draftProtocol = ref(readProtocol(routeState.value.protocol))
 const draftOperation = ref(
   readOperation(routeState.value.operation) ?? defaultOperation(draftProtocol.value),
 )
-const draftFeatures = ref<RouteInspectFeature[]>([...routeState.value.requiredFeatures])
+const draftRouteRequirement = ref<RouteInspectRequirement>(
+  readRouteRequirement(routeState.value.routeRequirement) ??
+    defaultRouteRequirement(draftOperation.value),
+)
 const draftModel = ref(readText(routeState.value.externalModel))
 const draftAccessKeyID = ref(readPositiveID(routeState.value.accessKeyID))
 const fieldErrors = ref<InspectorErrors>({})
@@ -120,11 +131,17 @@ const operationOptions = computed(() =>
     label: t(`monitor.inspector.operations.${value}`),
   })),
 )
-const featureOptions = computed(() =>
-  routeInspectFeatures.map((value) => ({
-    value,
-    label: t(`monitor.inspector.features.${value}`),
-  })),
+const routeRequirementOptions = computed(() =>
+  routeInspectRequirements
+    .filter(
+      (value) =>
+        value === 'native' ||
+        !nativeRouteOperations.has(draftOperation.value as RouteInspectOperation),
+    )
+    .map((value) => ({
+      value,
+      label: t(`monitor.inspector.routeRequirements.${value}`),
+    })),
 )
 const modelRequired = computed(() => operationRequiresModel(draftOperation.value))
 const modelAllowed = computed(() => operationAllowsModel(draftOperation.value))
@@ -162,7 +179,7 @@ const inputChanged = computed(() => {
   return (
     draftProtocol.value !== previous.protocol ||
     draftOperation.value !== previous.operation ||
-    draftFeatures.value.join(',') !== previous.required_features.join(',') ||
+    draftRouteRequirement.value !== previous.route_requirement ||
     draftModel.value !== (previous.external_model ?? '') ||
     draftAccessKeyID.value !== String(previous.access_key_id)
   )
@@ -212,6 +229,20 @@ function defaultOperation(value: AccessProtocol | ''): RouteInspectOperation | '
   return operationsForProtocol(value)[0] ?? ''
 }
 
+function defaultRouteRequirement(operation: RouteInspectOperation | ''): RouteInspectRequirement {
+  return operation === 'responses_create' ||
+    nativeRouteOperations.has(operation as RouteInspectOperation)
+    ? 'native'
+    : 'any'
+}
+
+function readRouteRequirement(raw: unknown): RouteInspectRequirement | undefined {
+  return typeof raw === 'string' &&
+    routeInspectRequirements.includes(raw as RouteInspectRequirement)
+    ? (raw as RouteInspectRequirement)
+    : undefined
+}
+
 function readOperation(raw: unknown): RouteInspectOperation | undefined {
   return typeof raw === 'string' && responsesOperations.includes(raw as RouteInspectOperation)
     ? (raw as RouteInspectOperation)
@@ -248,21 +279,22 @@ watch(
     [
       routeState.value.protocol,
       routeState.value.operation,
-      routeState.value.requiredFeatures.join(','),
+      routeState.value.routeRequirement,
       routeState.value.externalModel,
       routeState.value.accessKeyID,
       routeState.value.run,
     ] as const,
-  ([rawProtocol, rawOperation, rawFeatures, rawModel, rawAccessKeyID, run]) => {
+  ([rawProtocol, rawOperation, rawRouteRequirement, rawModel, rawAccessKeyID, run]) => {
     const protocol = readProtocol(rawProtocol)
     const operation = readOperation(rawOperation) ?? defaultOperation(protocol)
-    const features = rawFeatures === '' ? [] : [...routeState.value.requiredFeatures]
+    const routeRequirement =
+      readRouteRequirement(rawRouteRequirement) ?? defaultRouteRequirement(operation)
     const model = readText(rawModel)
     const accessKeyID = readPositiveID(rawAccessKeyID)
     const fieldsChanged =
       protocol !== draftProtocol.value ||
       operation !== draftOperation.value ||
-      features.join(',') !== draftFeatures.value.join(',') ||
+      routeRequirement !== draftRouteRequirement.value ||
       model !== draftModel.value ||
       accessKeyID !== draftAccessKeyID.value
     if (!fieldsChanged && run) return
@@ -272,7 +304,7 @@ watch(
     controller = undefined
     draftProtocol.value = protocol
     draftOperation.value = operation
-    draftFeatures.value = features
+    draftRouteRequirement.value = routeRequirement
     draftModel.value = model
     draftAccessKeyID.value = accessKeyID
     fieldErrors.value = {}
@@ -315,7 +347,7 @@ function validatedRequest(): RouteInspectRequest | undefined {
   const request: RouteInspectRequest = {
     protocol: draftProtocol.value as AccessProtocol,
     operation: draftOperation.value as RouteInspectOperation,
-    required_features: [...draftFeatures.value].sort(),
+    route_requirement: draftRouteRequirement.value,
     access_key_id: accessKeyID,
   }
   if (draftModel.value !== '') request.external_model = draftModel.value
@@ -331,11 +363,13 @@ function setDraftProtocol(value: string): void {
   ) {
     draftOperation.value = defaultOperation(draftProtocol.value)
   }
+  draftRouteRequirement.value = defaultRouteRequirement(draftOperation.value)
   if (!operationAllowsModel(draftOperation.value)) draftModel.value = ''
 }
 
 function setDraftOperation(value: string): void {
   draftOperation.value = value as RouteInspectOperation | ''
+  draftRouteRequirement.value = defaultRouteRequirement(draftOperation.value)
   if (!operationAllowsModel(draftOperation.value)) draftModel.value = ''
 }
 
@@ -346,7 +380,7 @@ async function inspect(): Promise<void> {
   const nextState: InspectorMonitorState = {
     protocol: request.protocol,
     operation: request.operation,
-    requiredFeatures: request.required_features,
+    routeRequirement: request.route_requirement,
     externalModel: request.external_model ?? undefined,
     accessKeyID: String(request.access_key_id),
     run: true,
@@ -357,7 +391,7 @@ async function inspect(): Promise<void> {
     current.run &&
     current.protocol === nextState.protocol &&
     current.operation === nextState.operation &&
-    current.requiredFeatures.join(',') === nextState.requiredFeatures.join(',') &&
+    current.routeRequirement === nextState.routeRequirement &&
     current.externalModel === nextState.externalModel &&
     current.accessKeyID === nextState.accessKeyID
   ) {
@@ -408,7 +442,7 @@ watch(
     () => routeState.value.run,
     () => routeState.value.protocol,
     () => routeState.value.operation,
-    () => routeState.value.requiredFeatures.join(','),
+    () => routeState.value.routeRequirement,
     () => routeState.value.externalModel,
     () => routeState.value.accessKeyID,
     () => accessKeyOptionsQuery.data.value,
@@ -421,7 +455,7 @@ watch(
       pending.value &&
       submitted.value?.protocol === request.protocol &&
       submitted.value.operation === request.operation &&
-      submitted.value.required_features.join(',') === request.required_features.join(',') &&
+      submitted.value.route_requirement === request.route_requirement &&
       submitted.value.access_key_id === request.access_key_id &&
       submitted.value.external_model === request.external_model
     ) {
@@ -431,7 +465,7 @@ watch(
       observation.value !== undefined &&
       submitted.value?.protocol === request.protocol &&
       submitted.value.operation === request.operation &&
-      submitted.value.required_features.join(',') === request.required_features.join(',') &&
+      submitted.value.route_requirement === request.route_requirement &&
       submitted.value.access_key_id === request.access_key_id &&
       submitted.value.external_model === request.external_model
     ) {
@@ -558,12 +592,12 @@ onBeforeUnmount(() => {
     <InspectorForm
       :protocol="draftProtocol"
       :operation="draftOperation"
-      :features="draftFeatures"
+      :route-requirement="draftRouteRequirement"
       :model="draftModel"
       :access-key-id="draftAccessKeyID"
       :protocol-options="protocolOptions"
       :operation-options="operationOptions"
-      :feature-options="featureOptions"
+      :route-requirement-options="routeRequirementOptions"
       :model-required="modelRequired"
       :model-allowed="modelAllowed"
       :access-key-options="accessKeyOptions"
@@ -574,7 +608,7 @@ onBeforeUnmount(() => {
       :submit-pending="pending"
       @update:protocol="setDraftProtocol"
       @update:operation="setDraftOperation"
-      @update:features="draftFeatures = $event as RouteInspectFeature[]"
+      @update:route-requirement="draftRouteRequirement = $event as RouteInspectRequirement"
       @update:model="draftModel = $event"
       @update:access-key-id="draftAccessKeyID = $event"
       @submit="inspect"

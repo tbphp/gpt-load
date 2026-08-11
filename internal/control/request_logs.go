@@ -16,6 +16,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/parametertrace"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/pricing"
@@ -84,6 +85,7 @@ type requestLogAttemptResponse struct {
 	ErrorSummary      string                            `json:"error_summary"`
 	Committed         bool                              `json:"committed"`
 	PricingReceipt    *requestLogPricingReceiptResponse `json:"pricing_receipt"`
+	ConversionTrace   *parametertrace.Trace             `json:"conversion_trace"`
 }
 
 type requestLogPricingIdentityResponse struct {
@@ -156,7 +158,8 @@ type requestLogItemResponse struct {
 
 type requestLogDetailResponse struct {
 	requestLogItemResponse
-	Attempts []requestLogAttemptResponse `json:"attempts"`
+	ClientParameters *parametertrace.Snapshot    `json:"client_parameters"`
+	Attempts         []requestLogAttemptResponse `json:"attempts"`
 }
 
 type requestLogListResponse struct {
@@ -308,6 +311,7 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.CredentialID = 0
 	record.RouteMode = ""
 	record.UpstreamAPI = ""
+	record.ClientParameters = nil
 	record.Attempts = []requestlog.Attempt{}
 	return record
 }
@@ -481,6 +485,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 			telemetry.FailureCategoryInvalidKey,
 			telemetry.FailureCategoryUpstreamHost,
 			telemetry.FailureCategoryClientError,
+			telemetry.FailureCategoryConversionUnsupported,
 			telemetry.FailureCategoryDownstreamCancel,
 			telemetry.FailureCategoryAmbiguous:
 			query.FailureCategory = category
@@ -927,6 +932,10 @@ func checkedRequestLogInputTokens(record requestlog.Record) (int64, bool) {
 }
 
 func mapRequestLogDetailResponse(record requestlog.Record) (requestLogDetailResponse, error) {
+	clientParameters, err := mapRequestLogParameterSnapshot(record.ClientParameters)
+	if err != nil {
+		return requestLogDetailResponse{}, fmt.Errorf("map request log client parameters: %w", err)
+	}
 	usageCost, err := mapRequestLogUsageCost(record)
 	if err != nil {
 		return requestLogDetailResponse{}, err
@@ -943,7 +952,11 @@ func mapRequestLogDetailResponse(record requestlog.Record) (requestLogDetailResp
 		}
 		attempts = append(attempts, mapped)
 	}
-	return requestLogDetailResponse{requestLogItemResponse: item, Attempts: attempts}, nil
+	return requestLogDetailResponse{
+		requestLogItemResponse: item,
+		ClientParameters:       clientParameters,
+		Attempts:               attempts,
+	}, nil
 }
 
 func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse, error) {
@@ -975,6 +988,10 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 	if err != nil {
 		return requestLogAttemptResponse{}, err
 	}
+	conversionTrace, err := mapRequestLogConversionTrace(attempt.ConversionTrace)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log conversion trace: %w", err)
+	}
 	return requestLogAttemptResponse{
 		Sequence:          attempt.Sequence,
 		GroupID:           attempt.GroupID,
@@ -998,7 +1015,30 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 		ErrorSummary:      attempt.ErrorSummary,
 		Committed:         attempt.Committed,
 		PricingReceipt:    receipt,
+		ConversionTrace:   conversionTrace,
 	}, nil
+}
+
+func mapRequestLogParameterSnapshot(value *parametertrace.Snapshot) (*parametertrace.Snapshot, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	clone := parametertrace.CloneSnapshot(*value)
+	return &clone, nil
+}
+
+func mapRequestLogConversionTrace(value *parametertrace.Trace) (*parametertrace.Trace, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	clone := parametertrace.CloneTrace(*value)
+	return &clone, nil
 }
 
 func requestLogAttemptAction(action telemetry.Action) string {

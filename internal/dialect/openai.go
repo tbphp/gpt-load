@@ -30,11 +30,9 @@ func (d *OpenAI) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 	metadata.ObserveUsage = true
 	metadata.UsageDiagnostics = openAIRequestPricingDiagnostics(req.Body)
 	metadata.Reasoning = inspectOpenAICompletionsReasoning(req.Body)
-	metadata.Operation, metadata.RequiredFeatures = chatExecutionMetadata(
+	metadata.Operation, metadata.RouteRequirement = chatExecutionMetadata(
 		d.Protocol(),
 		req.Body,
-		metadata.Stream,
-		metadata.Reasoning,
 	)
 	return metadata, nil
 }

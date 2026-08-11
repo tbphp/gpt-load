@@ -73,7 +73,7 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
 	for _, name := range []string{
 		"stream", "first_response_ms", "attempt_count",
 		"upstream_reported_model", "model_consistency",
-		"operation",
+		"operation", "client_parameters_json",
 	} {
 		if _, ok := requestColumns[name]; !ok {
 			t.Errorf("request_logs.%s is missing", name)
@@ -87,6 +87,7 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
 		"channel_id", "credential_id", "operation", "route_mode", "upstream_model",
 		"upstream_request_id", "dispatch_state", "response_started", "upstream_api",
 		"reasoning_mode", "reasoning_effort", "reasoning_budget_tokens",
+		"conversion_trace_json",
 		"status_code", "duration_ms",
 		"failure_category", "action", "will_retry", "error_code", "error_summary",
 		"committed", "pricing_receipt",

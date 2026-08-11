@@ -19,6 +19,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/usage"
 )
@@ -388,9 +389,116 @@ func TestRuntimeRejectsInvalidAttemptBeforeDispatch(t *testing.T) {
 			if err := result.Validate(); err != nil {
 				t.Fatalf("result validation: %v", err)
 			}
+			if result.ConversionTrace != nil &&
+				result.ConversionTrace.State == parametertrace.CapturePreflightBlocked {
+				t.Fatalf("invalid request was mislabeled as conversion preflight block: %#v", result.ConversionTrace)
+			}
 			assertNoPrivateLeak(t, result, testAPIKey)
 		})
 	}
+	if calls.Load() != 0 {
+		t.Fatalf("upstream calls = %d, want 0", calls.Load())
+	}
+}
+
+func TestRuntimeRejectsNativeRequirementOnConvertedRouteBeforeDispatch(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+
+	runtime := newTestRuntime(t)
+	spec := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
+	spec.ChannelID = string(channel.OpenAICompatible)
+	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/v1"}`)
+	spec = freezeTestAttempt(spec)
+	if spec.RouteMode != execution.RouteConverted {
+		t.Fatalf("fixture route mode = %q, want converted", spec.RouteMode)
+	}
+	spec.RouteRequirement = execution.RouteRequirementNative
+
+	result := runtime.Execute(context.Background(), spec)
+	if result.DispatchState != execution.DispatchNotSent || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKind("conversion_unsupported") ||
+		result.Error.Code != "critical_semantic_loss" {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.ConversionTrace == nil ||
+		result.ConversionTrace.State != parametertrace.CapturePreflightBlocked {
+		t.Fatalf("preflight conversion trace = %#v", result.ConversionTrace)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("upstream calls = %d, want 0", calls.Load())
+	}
+}
+
+func TestRuntimeRejectsStatefulResponsesOnNativeTargetWithoutLifecycle(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+
+	spec := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
+	spec.ChannelID = string(channel.OpenRouter)
+	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `"}`)
+	spec = freezeTestAttempt(spec)
+	spec.RouteRequirement = execution.RouteRequirementNative
+
+	result := newTestRuntime(t).Execute(context.Background(), spec)
+	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindConversionUnsupported ||
+		result.Error.Code != execution.ErrorCodeCriticalSemanticLoss {
+		t.Fatalf("result = %+v", result)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("upstream calls = %d, want 0", calls.Load())
+	}
+}
+
+func TestConvertedOpenAIChatSDKPreflightFailureIsRetryable(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+		allowPrivateNetwork: true,
+		anthropicBaseURL:    server.URL,
+	})
+	spec := convertedSpec(
+		channel.Anthropic,
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"/v1/chat/completions",
+		[]byte(`{"model":"client-model","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high","max_completion_tokens":512}`),
+	)
+
+	assertFailure := func(t *testing.T, dispatch execution.DispatchState, started bool, evidence *execution.ErrorEvidence) {
+		t.Helper()
+		if dispatch != execution.DispatchNotSent || started || evidence == nil ||
+			evidence.Kind != execution.ErrorKindConversionUnsupported ||
+			evidence.Code != execution.ErrorCodeTargetSerializationFailed {
+			t.Fatalf("converted preflight result = dispatch=%q started=%t error=%#v", dispatch, started, evidence)
+		}
+	}
+
+	t.Run("unary", func(t *testing.T) {
+		result := runtime.Execute(context.Background(), spec)
+		assertFailure(t, result.DispatchState, result.ResponseStarted, result.Error)
+	})
+	t.Run("stream", func(t *testing.T) {
+		result := runtime.ExecuteStream(context.Background(), spec, func(execution.StreamEvent) error { return nil })
+		assertFailure(t, result.DispatchState, result.ResponseStarted, result.Error)
+	})
 	if calls.Load() != 0 {
 		t.Fatalf("upstream calls = %d, want 0", calls.Load())
 	}
@@ -1103,43 +1211,30 @@ func TestManagedRuntimeRequiresExplicitStart(t *testing.T) {
 	}
 }
 
-func TestRuntimeCapabilities(t *testing.T) {
+func TestSupportedRequestShapeRejectsStreamingForNonStreamingResponsesOperations(t *testing.T) {
 	t.Parallel()
 
-	runtime := newTestRuntime(t)
-	required, err := execution.NewFeatureSet(execution.FeatureStreaming, execution.FeatureTools)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name      string
+		operation execution.Operation
+		method    string
+		path      string
+	}{
+		{name: "delete", operation: execution.OperationResponsesDelete, method: http.MethodDelete, path: "/v1/responses/resp_123"},
+		{name: "cancel", operation: execution.OperationResponsesCancel, method: http.MethodPost, path: "/v1/responses/resp_123/cancel"},
+		{name: "input items", operation: execution.OperationResponsesInputItems, method: http.MethodGet, path: "/v1/responses/resp_123/input_items"},
 	}
-	if !runtime.Capabilities().Supports(execution.OperationChatCompletion, required) {
-		t.Fatal("chat streaming/tools capability missing")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := openAIResponsesSpec(test.operation, test.method, test.path)
+			if supportedRequestShape(spec, true) {
+				t.Fatal("supportedRequestShape(stream=true) = true, want false")
+			}
+			if !supportedRequestShape(spec, false) {
+				t.Fatal("supportedRequestShape(stream=false) = false, want true")
+			}
+		})
 	}
-	if !runtime.Capabilities().Supports(execution.OperationResponsesCreate, required) {
-		t.Fatal("Responses streaming/tools capability missing")
-	}
-	resourceFeatures, err := execution.NewFeatureSet(execution.FeatureNativeResourceSemantics)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !runtime.Capabilities().Supports(execution.OperationResponsesRetrieve, resourceFeatures) {
-		t.Fatal("Responses resource capability missing")
-	}
-	if !runtime.Capabilities().Supports(execution.OperationResponsesCompact, mustTestFeatures(t, execution.FeatureTools)) {
-		t.Fatal("Responses compact tools capability missing")
-	}
-	if runtime.Capabilities().Supports(execution.OperationResponsesCompact, mustTestFeatures(t, execution.FeatureStreaming)) ||
-		runtime.Capabilities().Supports(execution.OperationResponsesInputTokens, resourceFeatures) {
-		t.Fatal("non-streaming Responses utility capability was overstated")
-	}
-}
-
-func mustTestFeatures(t *testing.T, features ...execution.Feature) execution.FeatureSet {
-	t.Helper()
-	set, err := execution.NewFeatureSet(features...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return set
 }
 
 func newTestRuntime(t *testing.T) *testRuntime {

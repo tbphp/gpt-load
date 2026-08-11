@@ -53,6 +53,37 @@ export type RequestLogOperation =
 export type RequestLogRouteMode = 'native' | 'converted'
 export type RequestLogDispatchState = 'not_sent' | 'maybe_sent'
 export type RequestLogUpstreamAPI = UpstreamAPIValue
+export type RequestLogFailureCategory = FailureCategory | 'conversion_unsupported'
+export type ParameterCaptureState =
+  'captured' | 'partial' | 'unavailable' | 'skipped_oversize' | 'preflight_blocked'
+export type ParameterValueKind = 'boolean' | 'number' | 'enum' | 'summary'
+export type ParameterDisposition = 'preserved' | 'mapped' | 'normalized' | 'dropped' | 'added'
+
+export interface RequestParameterEntryDto {
+  path: string
+  kind: ParameterValueKind
+  value: string
+}
+
+export interface RequestParameterSnapshotDto {
+  schema_version: 1
+  state: ParameterCaptureState
+  entries: RequestParameterEntryDto[]
+  truncated: boolean
+}
+
+export interface RequestParameterChangeDto {
+  disposition: ParameterDisposition
+  source_path: string | null
+  target_path: string | null
+}
+
+export interface RequestConversionTraceDto {
+  schema_version: 1
+  state: ParameterCaptureState
+  target: RequestParameterSnapshotDto
+  changes: RequestParameterChangeDto[]
+}
 
 export type { FailureCategory } from '@/api/control/types'
 
@@ -76,7 +107,7 @@ export interface RequestLogFilters {
   pricing_completeness?: RequestLogPricingCompleteness
   cache_present?: boolean
   attempt_status_code?: number
-  failure_category?: FailureCategory
+  failure_category?: RequestLogFailureCategory
   error_code?: string
   retry_state?: RequestLogRetryState
   retry_count_min?: number
@@ -129,13 +160,14 @@ export interface RequestLogAttemptDto {
   reasoning: RequestLogReasoningDto | null
   status_code: number
   duration_ms: number
-  failure_category: FailureCategory
+  failure_category: RequestLogFailureCategory
   action: RequestLogAction
   will_retry: boolean
   error_code: string
   error_summary: string
   committed: boolean
   pricing_receipt: RequestLogPricingReceiptDto | null
+  conversion_trace: RequestConversionTraceDto | null
 }
 
 export interface RequestLogReasoningDto {
@@ -182,6 +214,7 @@ export interface RequestLogItemDto {
 }
 
 export interface RequestLogDetailDto extends RequestLogItemDto {
+  client_parameters: RequestParameterSnapshotDto | null
   attempts: RequestLogAttemptDto[]
 }
 
@@ -200,6 +233,7 @@ const failureCategories = [
   'invalid_key',
   'upstream_host_error',
   'client_error',
+  'conversion_unsupported',
   'downstream_cancel',
   'ambiguous',
 ] as const
@@ -224,6 +258,15 @@ const operations = [
   'probe',
 ] as const
 const routeModes = ['native', 'converted'] as const
+const parameterCaptureStates = [
+  'captured',
+  'partial',
+  'unavailable',
+  'skipped_oversize',
+  'preflight_blocked',
+] as const
+const parameterValueKinds = ['boolean', 'number', 'enum', 'summary'] as const
+const parameterDispositions = ['preserved', 'mapped', 'normalized', 'dropped', 'added'] as const
 const dispatchStates = ['not_sent', 'maybe_sent'] as const
 const usageStates = ['complete', 'partial', 'missing', 'not_applicable'] as const
 const costStates = ['priced', 'unpriced', 'not_applicable'] as const
@@ -409,6 +452,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'error_summary',
     'committed',
     'pricing_receipt',
+    'conversion_trace',
   ])
   return {
     sequence: projectSafeInteger(record.sequence, { minimum: 1 }),
@@ -438,6 +482,70 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     error_summary: projectString(record.error_summary, { allowEmpty: true }),
     committed: projectBoolean(record.committed),
     pricing_receipt: projectPricingReceipt(record.pricing_receipt),
+    conversion_trace: projectConversionTrace(record.conversion_trace),
+  }
+}
+
+function projectParameterSnapshot(value: unknown): RequestParameterSnapshotDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['schema_version', 'state', 'entries', 'truncated'])
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 1 }) as 1
+  const state = projectEnum(record.state, parameterCaptureStates)
+  const truncated = projectBoolean(record.truncated)
+  const entries = projectArray(record.entries, (entryValue): RequestParameterEntryDto => {
+    const entry = projectRecord(entryValue)
+    assertNoSecretLikeFields(entry, ['path', 'kind', 'value'])
+    const path = projectString(entry.path)
+    const value = projectString(entry.value)
+    if (!/^[a-z0-9_.]{1,128}$/u.test(path) || value.length === 0 || value.length > 256) {
+      invalidResponse()
+    }
+    return { path, kind: projectEnum(entry.kind, parameterValueKinds), value }
+  })
+  if (
+    entries.length > 128 ||
+    (state === 'captured' && truncated) ||
+    (state === 'partial' && !truncated) ||
+    ((state === 'unavailable' || state === 'skipped_oversize' || state === 'preflight_blocked') &&
+      (entries.length !== 0 || truncated))
+  ) {
+    invalidResponse()
+  }
+  for (let index = 1; index < entries.length; index += 1) {
+    if (entries[index - 1].path >= entries[index].path) invalidResponse()
+  }
+  return { schema_version: schemaVersion, state, entries, truncated }
+}
+
+function projectConversionTrace(value: unknown): RequestConversionTraceDto | null {
+  if (value === null) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['schema_version', 'state', 'target', 'changes'])
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 1 }) as 1
+  const changes = projectArray(record.changes, (changeValue): RequestParameterChangeDto => {
+    const change = projectRecord(changeValue)
+    assertNoSecretLikeFields(change, ['disposition', 'source_path', 'target_path'])
+    const disposition = projectEnum(change.disposition, parameterDispositions)
+    const sourcePath = change.source_path === undefined ? null : projectString(change.source_path)
+    const targetPath = change.target_path === undefined ? null : projectString(change.target_path)
+    if (
+      (sourcePath !== null && !/^[a-z0-9_.]{1,128}$/u.test(sourcePath)) ||
+      (targetPath !== null && !/^[a-z0-9_.]{1,128}$/u.test(targetPath)) ||
+      (disposition === 'dropped' && (sourcePath === null || targetPath !== null)) ||
+      (disposition === 'added' && (sourcePath !== null || targetPath === null)) ||
+      ((disposition === 'preserved' || disposition === 'mapped' || disposition === 'normalized') &&
+        (sourcePath === null || targetPath === null))
+    ) {
+      invalidResponse()
+    }
+    return { disposition, source_path: sourcePath, target_path: targetPath }
+  })
+  if (changes.length > 128) invalidResponse()
+  return {
+    schema_version: schemaVersion,
+    state: projectEnum(record.state, parameterCaptureStates),
+    target: projectParameterSnapshot(record.target),
+    changes,
   }
 }
 
@@ -553,8 +661,13 @@ export function projectRequestLogItem(value: unknown): RequestLogItemDto {
 
 export function projectRequestLogDetail(value: unknown): RequestLogDetailDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, [...itemFields, 'attempts'])
-  return { ...projectItemRecord(record), attempts: projectArray(record.attempts, projectAttempt) }
+  assertNoSecretLikeFields(record, [...itemFields, 'client_parameters', 'attempts'])
+  return {
+    ...projectItemRecord(record),
+    client_parameters:
+      record.client_parameters === null ? null : projectParameterSnapshot(record.client_parameters),
+    attempts: projectArray(record.attempts, projectAttempt),
+  }
 }
 
 export function projectRequestLogPage(value: unknown): RequestLogPageDto {

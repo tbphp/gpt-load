@@ -747,10 +747,6 @@ func (*fakeManagedRuntime) ExecuteStream(context.Context, execution.AttemptSpec,
 	return execution.StreamResult{}
 }
 
-func (*fakeManagedRuntime) Capabilities() execution.CapabilitySet {
-	return execution.CapabilitySet{}
-}
-
 func (runtime *fakeManagedRuntime) BeginShutdown() <-chan struct{} {
 	runtime.once.Do(func() {
 		runtime.shutdowns.Add(1)
