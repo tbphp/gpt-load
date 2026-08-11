@@ -58,7 +58,7 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 	}
 }
 
-func TestBranchCIContainsStaticGoAndBackendGates(t *testing.T) {
+func TestBranchCIContainsStaticGoAndRaceEnabledBackendGates(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	testJob := workflowJobBlock(t, content, "test")
 	workflowGoFormattingScript(t, content, "test")
@@ -69,7 +69,7 @@ func TestBranchCIContainsStaticGoAndBackendGates(t *testing.T) {
 		{name: "Check module graph", run: "go mod tidy -diff"},
 		{name: "Audit Go dependencies", run: "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./..."},
 		{name: "Run Go vet", run: "go vet ./..."},
-		{name: "Run backend tests", run: "go test -count=1 . ./internal/..."},
+		{name: "Run race-enabled tests", run: "go test -race -count=1 . ./internal/..."},
 		{name: "Check repository invariants", run: "git diff --check"},
 	} {
 		assertWorkflowGateStep(t, testJob, test.name, test.run)
@@ -83,8 +83,8 @@ func TestBranchCIContainsStaticGoAndBackendGates(t *testing.T) {
 	assertWorkflowGateStep(
 		t,
 		releaseJob,
-		"Run backend tests",
-		"go test -count=1 . ./internal/...",
+		"Run race-enabled tests",
+		"go test -race -count=1 . ./internal/...",
 	)
 }
 
