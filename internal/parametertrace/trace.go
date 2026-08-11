@@ -194,14 +194,16 @@ func PreflightBlocked() Trace {
 
 func CloneSnapshot(value Snapshot) Snapshot {
 	clone := value
-	clone.Entries = append([]Entry(nil), value.Entries...)
+	clone.Entries = make([]Entry, len(value.Entries))
+	copy(clone.Entries, value.Entries)
 	return clone
 }
 
 func CloneTrace(value Trace) Trace {
 	clone := value
 	clone.Target = CloneSnapshot(value.Target)
-	clone.Changes = append([]Change(nil), value.Changes...)
+	clone.Changes = make([]Change, len(value.Changes))
+	copy(clone.Changes, value.Changes)
 	return clone
 }
 

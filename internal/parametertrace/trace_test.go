@@ -246,6 +246,46 @@ func TestProjectJSONSkipsOversizeAndBoundsComplexInput(t *testing.T) {
 	}
 }
 
+func TestClonePreservesEmptySlicesForJSONArrays(t *testing.T) {
+	snapshot := Snapshot{
+		SchemaVersion: SchemaVersion,
+		State:         CaptureSkippedOversize,
+		Entries:       []Entry{},
+	}
+	clonedSnapshot := CloneSnapshot(snapshot)
+	if clonedSnapshot.Entries == nil {
+		t.Fatal("CloneSnapshot() turned empty entries into nil")
+	}
+	storedNullSnapshot := CloneSnapshot(Snapshot{
+		SchemaVersion: SchemaVersion,
+		State:         CaptureSkippedOversize,
+	})
+	if storedNullSnapshot.Entries == nil {
+		t.Fatal("CloneSnapshot() did not normalize nil entries")
+	}
+	encodedSnapshot, err := MarshalSnapshot(storedNullSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encodedSnapshot), `"entries":[]`) {
+		t.Fatalf("snapshot JSON = %s, want empty entries array", encodedSnapshot)
+	}
+
+	trace := PreflightBlocked()
+	clonedTrace := CloneTrace(trace)
+	if clonedTrace.Target.Entries == nil || clonedTrace.Changes == nil {
+		t.Fatal("CloneTrace() turned empty slices into nil")
+	}
+	encodedTrace, err := MarshalTrace(clonedTrace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encodedTrace), `"entries":[]`) ||
+		!strings.Contains(string(encodedTrace), `"changes":[]`) {
+		t.Fatalf("trace JSON = %s, want empty arrays", encodedTrace)
+	}
+}
+
 func TestBoundTraceFitsRequestEventBudget(t *testing.T) {
 	entries := make([]Entry, 0, 80)
 	changes := make([]Change, 0, 80)
