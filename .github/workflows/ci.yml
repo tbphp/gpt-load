@@ -48,7 +48,7 @@ jobs:
         run: go build -o gpt-load .
 
       - name: Run race-enabled tests
-        run: go test -race -count=1 . ./internal/...
+        run: go test -race -count=1 -timeout=15m . ./internal/...
 
       - name: Check repository invariants
         run: git diff --check

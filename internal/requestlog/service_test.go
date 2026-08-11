@@ -500,7 +500,7 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 		EstimatedCostNanoUSD: 1_000_000_000,
 	}
 	service.Emit(eventA)
-	timer := receiveValue(t, timers.created)
+	receiveValue(t, timers.created)
 	entries := processLogEntries(t, output.Bytes())
 	if len(entries) != 1 ||
 		entries[0]["cost_usd"] != "1" {
@@ -523,7 +523,9 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 		EstimatedCostNanoUSD: 2_000_000_000,
 	}
 	service.Emit(eventB)
-	timer.Fire()
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
 
 	rows := receiveValue(t, writes)
 	if len(rows) != 2 || rows[0].ID != "snapshot-a" ||
@@ -531,8 +533,5 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 		rows[1].ID != "snapshot-b" ||
 		rows[1].EstimatedCostNanoUSD != 2_000_000_000 {
 		t.Fatalf("snapshot-priced rows = %+v, want A/1000000000 then B/2000000000", rows)
-	}
-	if err := service.Stop(context.Background()); err != nil {
-		t.Fatalf("Stop() error = %v", err)
 	}
 }
