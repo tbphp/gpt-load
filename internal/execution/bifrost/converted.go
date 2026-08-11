@@ -366,7 +366,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
 	defer preResponse.stop()
 
-	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
 	enableAppliedReasoningWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesStreamSDKResult, 1)

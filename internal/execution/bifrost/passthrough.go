@@ -439,7 +439,7 @@ func (r *Runtime) executeNativeStream(
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
-	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
 	cancelCall := func() {
 		callCancel()
 		bifrostContext.Cancel()

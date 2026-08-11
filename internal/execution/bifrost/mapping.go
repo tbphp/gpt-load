@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	providerUtils "github.com/maximhq/bifrost/core/providers/utils"
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/dialect"
@@ -410,7 +411,7 @@ func retryAfter(headers http.Header) time.Duration {
 
 func unaryErrorResult(bifrostError *schemas.BifrostError, bifrostContext *schemas.BifrostContext, secrets []string) execution.AttemptResult {
 	headers := responseHeaders(nil, bifrostContext, false)
-	evidence, started, status := errorEvidence(bifrostError, bifrostContext, secrets, false, 0, headers)
+	evidence, started, status := errorEvidence(bifrostError, bifrostContext, secrets, false, 0, headers, false)
 	result := execution.AttemptResult{
 		DispatchState:     sdkErrorDispatchState(bifrostError, started),
 		ResponseStarted:   started,
@@ -440,7 +441,7 @@ func streamErrorResult(
 	if headers == nil {
 		headers = responseHeaders(nil, bifrostContext, true)
 	}
-	evidence, started, status := errorEvidence(bifrostError, bifrostContext, secrets, alreadyStarted, initialStatus, headers)
+	evidence, started, status := errorEvidence(bifrostError, bifrostContext, secrets, alreadyStarted, initialStatus, headers, true)
 	result := execution.StreamResult{
 		DispatchState: sdkErrorDispatchState(bifrostError, alreadyStarted || started),
 		Model:         model,
@@ -491,6 +492,7 @@ func errorEvidence(
 	alreadyStarted bool,
 	initialStatus int,
 	headers http.Header,
+	stream bool,
 ) (*execution.ErrorEvidence, bool, int) {
 	if bifrostError == nil {
 		evidence := &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Summary: "execution runtime returned an invalid response"}
@@ -523,7 +525,7 @@ func errorEvidence(
 	} else if !started {
 		resultStatus = 0
 	}
-	kind := classifyError(bifrostError, typeValue, started)
+	kind := classifyError(bifrostError, typeValue, started, stream)
 	requestID := ""
 	if started {
 		requestID = upstreamRequestID(headers)
@@ -573,7 +575,11 @@ func errorType(bifrostError *schemas.BifrostError) string {
 	return ""
 }
 
-func classifyError(bifrostError *schemas.BifrostError, typeValue string, started bool) execution.ErrorKind {
+func classifyError(bifrostError *schemas.BifrostError, typeValue string, started bool, stream bool) execution.ErrorKind {
+	if stream && bifrostError != nil && bifrostError.Error != nil &&
+		errors.Is(bifrostError.Error.Error, providerUtils.ErrStreamIdleTimeout) {
+		return execution.ErrorKindTimeout
+	}
 	switch typeValue {
 	case schemas.RequestTimedOut:
 		return execution.ErrorKindTimeout

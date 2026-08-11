@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,8 +25,9 @@ import (
 )
 
 const (
-	openAIChatPath       = "/v1/chat/completions"
-	defaultRequestBudget = 5 * time.Minute
+	openAIChatPath             = "/v1/chat/completions"
+	defaultRequestBudget       = 5 * time.Minute
+	streamingSDKIdleGuardGrace = time.Second
 )
 
 type preparedAttempt struct {
@@ -176,7 +178,7 @@ func (r *Runtime) ExecuteStream(
 	preResponse := startPreResponseGate(callCancel, spec.Timeouts)
 	defer preResponse.stop()
 
-	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
 	enableAppliedReasoningWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan streamSDKResult, 1)
@@ -916,6 +918,26 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 		bifrostContext.SetValue(schemas.BifrostContextKeyExtraHeaders, headers)
 	}
 	return bifrostContext
+}
+
+func (r *Runtime) newStreamingSDKContext(parent context.Context, spec execution.AttemptSpec, directKey schemas.Key) *schemas.BifrostContext {
+	bifrostContext := r.newSDKContext(parent, spec, directKey)
+	if spec.Timeouts.StreamIdle > 0 {
+		// GPT-Load owns the user-facing chunk deadline; Bifrost remains a later raw-read backstop.
+		bifrostContext.SetValue(
+			schemas.BifrostContextKeyStreamIdleTimeout,
+			streamingSDKIdleGuard(spec.Timeouts.StreamIdle),
+		)
+	}
+	return bifrostContext
+}
+
+func streamingSDKIdleGuard(configured time.Duration) time.Duration {
+	maximum := time.Duration(math.MaxInt64)
+	if configured > maximum-streamingSDKIdleGuardGrace {
+		return maximum
+	}
+	return configured + streamingSDKIdleGuardGrace
 }
 
 func largeUnaryResponseFailure(bifrostContext *schemas.BifrostContext) *execution.AttemptResult {

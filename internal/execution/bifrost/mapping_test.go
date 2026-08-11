@@ -9,10 +9,28 @@ import (
 	"syscall"
 	"testing"
 
+	providerUtils "github.com/maximhq/bifrost/core/providers/utils"
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/execution"
 )
+
+func TestSDKStreamIdleTimeoutIsClassifiedAsTimeout(t *testing.T) {
+	bifrostError := &schemas.BifrostError{
+		IsBifrostError: true,
+		Error: &schemas.ErrorField{
+			Message: "Error reading stream: " + providerUtils.ErrStreamIdleTimeout.Error(),
+			Error:   providerUtils.ErrStreamIdleTimeout,
+		},
+	}
+
+	if got := classifyError(bifrostError, "", true, true); got != execution.ErrorKindTimeout {
+		t.Fatalf("error kind = %q, want %q", got, execution.ErrorKindTimeout)
+	}
+	if got := unaryErrorResult(bifrostError, nil, nil).Error.Kind; got != execution.ErrorKindInternal {
+		t.Fatalf("non-streaming error kind = %q, want %q", got, execution.ErrorKindInternal)
+	}
+}
 
 func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 	tests := []struct {

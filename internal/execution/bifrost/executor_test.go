@@ -7,12 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -21,6 +24,37 @@ import (
 )
 
 const testAPIKey = "sk-test-do-not-leak"
+
+func TestStreamingSDKContextUsesLaterIdleGuard(t *testing.T) {
+	runtime := &Runtime{}
+	maximum := time.Duration(math.MaxInt64)
+	tests := []struct {
+		name       string
+		configured time.Duration
+		want       time.Duration
+		wantSet    bool
+	}{
+		{name: "adds guard window", configured: 20 * time.Millisecond, want: time.Second + 20*time.Millisecond, wantSet: true},
+		{name: "saturates near duration limit", configured: maximum - 500*time.Millisecond, want: maximum, wantSet: true},
+		{name: "leaves disabled timeout unset", configured: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := execution.AttemptSpec{Timeouts: execution.AttemptTimeouts{StreamIdle: test.configured}}
+			ctx := runtime.newStreamingSDKContext(context.Background(), spec, schemas.Key{})
+			got, ok := ctx.Value(schemas.BifrostContextKeyStreamIdleTimeout).(time.Duration)
+			if ok != test.wantSet || got != test.want {
+				t.Fatalf("SDK stream idle timeout = %s, set=%t; want %s, set=%t", got, ok, test.want, test.wantSet)
+			}
+		})
+	}
+
+	spec := execution.AttemptSpec{Timeouts: execution.AttemptTimeouts{StreamIdle: 20 * time.Millisecond}}
+	ctx := runtime.newSDKContext(context.Background(), spec, schemas.Key{})
+	if got := ctx.Value(schemas.BifrostContextKeyStreamIdleTimeout); got != 20*time.Millisecond {
+		t.Fatalf("non-streaming SDK timeout = %v, want configured timeout", got)
+	}
+}
 
 func TestRuntimeUnaryUsesSelectedCredentialModelAndEndpoint(t *testing.T) {
 	t.Parallel()
