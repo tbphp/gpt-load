@@ -108,8 +108,8 @@ jobs:
       - name: Build backend
         run: go build -trimpath -o gpt-load .
 
-      - name: Run backend tests
-        run: go test -count=1 . ./internal/...
+      - name: Run race-enabled tests
+        run: go test -race -count=1 . ./internal/...
 
       - name: Check repository invariants
         run: git diff --check
