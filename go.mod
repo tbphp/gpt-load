@@ -116,3 +116,6 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.54.0 // indirect
 )
+
+// Temporary stream lifecycle fix: https://github.com/valyala/fasthttp/pull/2353
+replace github.com/valyala/fasthttp => github.com/tbphp/fasthttp v1.71.1-0.20260811052014-9e2f0ae954f2
