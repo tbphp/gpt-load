@@ -9,12 +9,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
 	encodedMaterialBytes  = 64
 	temporaryFileAttempts = 10
 )
+
+var loadOrCreateHexMu sync.Mutex
 
 type Result struct {
 	Value   string
@@ -23,6 +26,9 @@ type Result struct {
 }
 
 func LoadOrCreateHex(dataDir, fileName string) (Result, error) {
+	loadOrCreateHexMu.Lock()
+	defer loadOrCreateHexMu.Unlock()
+
 	return loadOrCreateHex(dataDir, fileName, syncParentDirectory)
 }
 
