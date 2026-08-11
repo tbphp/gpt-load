@@ -822,7 +822,9 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 		}}}); publishErr != nil {
 			t.Fatalf("Publish() error = %v", publishErr)
 		}
-		ciphertext, encryptErr := keyService.Encrypt("container-shared-secret")
+		ciphertext, encryptErr := keyService.Encrypt(
+			`{"api_key":"container-shared-secret"}`,
+		)
 		if encryptErr != nil {
 			t.Fatalf("Encrypt() error = %v", encryptErr)
 		}

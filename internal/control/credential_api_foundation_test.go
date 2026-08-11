@@ -394,16 +394,12 @@ func TestCredentialHTTPUsesCanonicalWireAndRejectsLegacyFields(t *testing.T) {
 	}
 }
 
-func TestNormalizeStoredCredentialAcceptsLegacyAPIKeyAndCanonicalObjects(t *testing.T) {
+func TestNormalizeStoredCredentialRequiresCanonicalObject(t *testing.T) {
 	t.Parallel()
 
 	registry := channel.NewRegistry()
-	legacy, err := normalizeStoredCredential(registry, channel.OpenAI, "  sk-legacy  ")
-	if err != nil {
-		t.Fatalf("normalizeStoredCredential(legacy) error = %v", err)
-	}
-	if got := string(legacy.CanonicalJSON()); got != `{"api_key":"sk-legacy"}` {
-		t.Fatalf("legacy canonical credential = %s", got)
+	if _, err := normalizeStoredCredential(registry, channel.OpenAI, "  sk-legacy  "); err == nil {
+		t.Fatal("normalizeStoredCredential(legacy) error = nil")
 	}
 
 	typed, err := normalizeStoredCredential(

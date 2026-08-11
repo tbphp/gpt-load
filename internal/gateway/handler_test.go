@@ -699,7 +699,9 @@ func (forwarder *streamReadyBlockingForwarder) ForwardStream(
 	input ForwardInput,
 	_ http.ResponseWriter,
 ) UpstreamResult {
-	input.OnStreamReady()
+	if input.OnStreamReady != nil {
+		input.OnStreamReady()
+	}
 	close(forwarder.ready)
 	<-forwarder.release
 	return forwarder.result
@@ -862,12 +864,18 @@ func TestHandlerRecordsStreamSuccessAtReadyTime(t *testing.T) {
 		result UpstreamResult
 	}{
 		{
-			name:   "committed success records before forward returns",
-			result: UpstreamResult{StatusCode: http.StatusOK, Committed: true, RequestWritten: true},
+			name: "committed success records before forward returns",
+			result: UpstreamResult{
+				StatusCode: http.StatusOK, Committed: true, RequestWritten: true,
+				Stream: StreamObservation{EndReason: StreamEndCleanEOF},
+			},
 		},
 		{
-			name:   "pump failure after ready keeps success",
-			result: UpstreamResult{Err: errors.New("stream pump failed"), Committed: true, RequestWritten: true},
+			name: "pump failure after ready keeps success",
+			result: UpstreamResult{
+				Err: errors.New("stream pump failed"), Committed: true, RequestWritten: true,
+				Stream: StreamObservation{EndReason: StreamEndUpstreamTerminated},
+			},
 		},
 	}
 
@@ -2302,11 +2310,12 @@ func TestHandlerUsesStreamingForwarder(t *testing.T) {
 	}
 }
 
-func TestHandlerStreamReadyClearsFailureBeforeCommittedReturn(t *testing.T) {
+func TestHandlerSuccessfulStreamClearsFailureAfterCommittedReturn(t *testing.T) {
 	forwarder := &scriptedForwarder{
 		invokeStreamReady: true,
 		streamResults: []UpstreamResult{{
 			StatusCode: http.StatusOK, RequestWritten: true, Committed: true,
+			Stream: StreamObservation{EndReason: StreamEndCleanEOF},
 		}},
 	}
 	engine, _, registry := newHandlerTestRuntime(t, forwarder, "sk-one")
@@ -3506,17 +3515,11 @@ func TestHandlerFreezesKeyIdentityAfterInspectingBody(t *testing.T) {
 			handler.encryption = recordingEncryption
 			engine := gin.New()
 			bindGatewayRoutesForTest(t, engine, handler)
-			currentCiphertext, err := keyService.Encrypt(test.currentPlain)
-			if err != nil {
-				t.Fatalf("Encrypt(current key) error = %v", err)
-			}
+			currentCiphertext := encryptTestCredentialValue(t, keyService, test.currentPlain)
 			if test.seedStatus != "" {
 				seedCiphertext := currentCiphertext
 				if test.seedPlain != test.currentPlain {
-					seedCiphertext, err = keyService.Encrypt(test.seedPlain)
-					if err != nil {
-						t.Fatalf("Encrypt(seed key) error = %v", err)
-					}
+					seedCiphertext = encryptTestCredentialValue(t, keyService, test.seedPlain)
 				}
 				if replaceErr := registry.ReplaceCredentials([]state.CredentialEntry{{
 					ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: test.seedStatus,
@@ -3667,11 +3670,7 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 			}
 			encrypt := func(plaintext string) string {
 				t.Helper()
-				encrypted, encryptErr := keyService.Encrypt(plaintext)
-				if encryptErr != nil {
-					t.Fatalf("Encrypt(%q) error = %v", plaintext, encryptErr)
-				}
-				return encrypted
+				return encryptTestCredentialValue(t, keyService, plaintext)
 			}
 			recoverableCiphertext := encrypt("sk-recoverable")
 			if err := registry.ReplaceCredentials([]state.CredentialEntry{

@@ -69,7 +69,9 @@ func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
 				_, _ = io.Copy(io.Discard, request.Body)
 				writer.Header().Set("Content-Type", "text/event-stream")
 				writer.Header().Set("Content-Encoding", "gzip")
-				_, _ = writer.Write([]byte("data: forbidden\n\n"))
+				_, _ = writer.Write([]byte(
+					"data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"forbidden\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+				))
 			}))
 		}
 		first := compressedServer()
@@ -84,7 +86,8 @@ func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
 		recorder := performStreamingRequest(engine)
 
 		assertNoPlaintextSecrets(t, recorder, logs.String(), firstSecret, secondSecret)
-		if recorder.Code != http.StatusOK || recorder.Body.String() != "data: forbidden\n\n" {
+		const expected = "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"forbidden\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+		if recorder.Code != http.StatusOK || recorder.Body.String() != expected {
 			t.Fatalf("normalized response = %d %s", recorder.Code, recorder.Body.String())
 		}
 	})
@@ -399,7 +402,9 @@ func TestForwardStripsCookiesAndCredentialHeadersOnEveryPath(t *testing.T) {
 				writer.Header().Set("X-Safe", "kept")
 				writer.WriteHeader(test.status)
 				if test.stream && test.status == http.StatusOK {
-					_, _ = writer.Write([]byte("data: ok\n\n"))
+					_, _ = writer.Write([]byte(
+						"data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+					))
 					return
 				}
 				_, _ = writer.Write([]byte(`{"ok":true}`))

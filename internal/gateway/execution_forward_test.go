@@ -12,6 +12,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/state"
@@ -208,7 +209,7 @@ func TestExecutionForwarderCommitsSuccessfulStreamOnlyOnFirstData(t *testing.T) 
 		if readyObserved || firstResponseObserved {
 			t.Fatal("ready metadata committed downstream before first data")
 		}
-		if err := sink(execution.StreamEvent{Sequence: 2, Kind: execution.StreamEventData, Data: []byte("data: one\n\n")}); err != nil {
+		if err := sink(execution.StreamEvent{Sequence: 2, Kind: execution.StreamEventData, Data: []byte("data: {\"id\":\"chat_1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"one\"},\"finish_reason\":null}]}\n\n")}); err != nil {
 			t.Fatalf("data sink: %v", err)
 		}
 		if !readyObserved || !firstResponseObserved {
@@ -229,7 +230,7 @@ func TestExecutionForwarderCommitsSuccessfulStreamOnlyOnFirstData(t *testing.T) 
 	recorder := httptest.NewRecorder()
 	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
 	if result.Err != nil || !result.Committed || result.Stream.EndReason != StreamEndCleanEOF ||
-		recorder.Code != http.StatusOK || recorder.Body.String() != "data: one\n\ndata: [DONE]\n\n" {
+		recorder.Code != http.StatusOK || recorder.Body.String() != "data: {\"id\":\"chat_1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"one\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n" {
 		t.Fatalf("ForwardStream() result=%#v response=%d %q", result, recorder.Code, recorder.Body.String())
 	}
 }
@@ -259,6 +260,7 @@ func TestExecutionForwarderClassifiesOpenAIResponsesStreamLifecycle(t *testing.T
 		wantSummary    string
 		wantUsageState usage.State
 		wantTokens     usage.Tokens
+		providerError  bool
 	}{
 		{
 			name: "completed terminal remains successful after client cancellation",
@@ -343,9 +345,9 @@ func TestExecutionForwarderClassifiesOpenAIResponsesStreamLifecycle(t *testing.T
 			terminalError: &execution.ErrorEvidence{
 				Kind: execution.ErrorKindCanceled, Summary: "request context canceled",
 			},
-			wantEnd:        StreamEndSSEError,
 			wantSummary:    "capacity exhausted",
 			wantUsageState: usage.StateMissing,
+			providerError:  true,
 		},
 	}
 
@@ -388,13 +390,184 @@ func TestExecutionForwarderClassifiesOpenAIResponsesStreamLifecycle(t *testing.T
 			input := responsesExecutionForwardInput()
 			recorder := httptest.NewRecorder()
 			result := NewExecutionForwarder(executor).ForwardStream(requestContext, input, recorder)
-			if !result.Committed || result.Stream.EndReason != test.wantEnd ||
-				result.Stream.ErrorSummary != test.wantSummary || result.Usage.State != test.wantUsageState ||
-				result.Usage.Tokens != test.wantTokens {
-				t.Fatalf("ForwardStream() result = %#v", result)
+			if test.providerError {
+				if result.Committed || !result.ProviderErrorBeforeCommit ||
+					result.ErrorSummary != test.wantSummary || recorder.Body.Len() != 0 {
+					t.Fatalf("ForwardStream() result = %#v, body=%q", result, recorder.Body.String())
+				}
+			} else {
+				if !result.Committed || result.Stream.EndReason != test.wantEnd ||
+					result.Stream.ErrorSummary != test.wantSummary || result.Usage.State != test.wantUsageState ||
+					result.Usage.Tokens != test.wantTokens {
+					t.Fatalf("ForwardStream() result = %#v", result)
+				}
+				if got := recorder.Body.String(); got != strings.Join(test.chunks, "") {
+					t.Fatalf("response body = %q, want %q", got, strings.Join(test.chunks, ""))
+				}
 			}
-			if got := recorder.Body.String(); got != strings.Join(test.chunks, "") {
-				t.Fatalf("response body = %q, want %q", got, strings.Join(test.chunks, ""))
+		})
+	}
+}
+
+func TestExecutionForwarderDoesNotReportStreamReadyForFirstProviderError(t *testing.T) {
+	t.Parallel()
+
+	const failedEvent = "event: response.failed\n" +
+		"data: {\"type\":\"response.failed\",\"error\":{\"message\":\"capacity exhausted\"},\"response\":{}}\n\n"
+	readyObserved := false
+	firstResponseObserved := false
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		if err := sink(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady,
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		}); err != nil {
+			t.Fatalf("ready sink: %v", err)
+		}
+		if err := sink(execution.StreamEvent{
+			Sequence: 2, Kind: execution.StreamEventData, Data: []byte(failedEvent),
+		}); err != nil {
+			t.Fatalf("data sink: %v", err)
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIResponses()
+	input.OnStreamReady = func() { readyObserved = true }
+	input.OnFirstResponse = func() { firstResponseObserved = true }
+	recorder := httptest.NewRecorder()
+
+	result := NewExecutionForwarder(executor).ForwardStream(
+		context.Background(), input, recorder,
+	)
+	if result.Err != nil || result.Committed || !result.ProviderErrorBeforeCommit {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	if readyObserved {
+		t.Fatal("provider error was reported as a ready successful stream")
+	}
+	if !firstResponseObserved {
+		t.Fatal("provider error must still count as the first upstream response")
+	}
+}
+
+func TestExecutionForwarderPreservesFirstProviderErrorEvidence(t *testing.T) {
+	t.Parallel()
+
+	const failedEvent = "event: error\n" +
+		"data: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"code\":\"rate_limit\",\"message\":\"Please try again later\"}}\n\n"
+	header := http.Header{
+		"Content-Type": {"text/event-stream"},
+		"Retry-After":  {"3"},
+	}
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		if err := sink(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady,
+			StatusCode: http.StatusOK, Header: header,
+		}); err != nil {
+			t.Fatalf("ready sink: %v", err)
+		}
+		if err := sink(execution.StreamEvent{
+			Sequence: 2, Kind: execution.StreamEventData, Data: []byte(failedEvent),
+		}); err != nil {
+			t.Fatalf("data sink: %v", err)
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: header,
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIResponses()
+	result := NewExecutionForwarder(executor).ForwardStream(
+		context.Background(), input, httptest.NewRecorder(),
+	)
+
+	if result.Committed || !result.ProviderErrorBeforeCommit || result.ExecutionError == nil {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	if result.ExecutionError.Type != "rate_limit_error" ||
+		result.ExecutionError.Code != "rate_limit" ||
+		result.ExecutionError.Hint != execution.FailureHintRateLimited {
+		t.Fatalf("error evidence = %#v", result.ExecutionError)
+	}
+	now := time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC)
+	decision := judgeUpstreamResult(result, now)
+	if decision.Category != health.FailureCategoryRateLimited ||
+		decision.Action != health.ActionCooldownCredential ||
+		!decision.CooldownUntil.Equal(now.Add(3*time.Second)) {
+		t.Fatalf("health decision = %#v", decision)
+	}
+}
+
+func TestExecutionForwarderRejectsStreamingEOFWithoutProtocolTerminal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		dialect dialect.Dialect
+		data    string
+	}{
+		{
+			name: "OpenAI Chat", dialect: dialect.NewOpenAI(),
+			data: "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+		},
+		{
+			name: "Anthropic", dialect: dialect.NewAnthropic(),
+			data: "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n",
+		},
+		{
+			name: "Gemini", dialect: dialect.NewGemini(),
+			data: "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}],\"role\":\"model\"},\"index\":0}]}\n\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				if err := sink(execution.StreamEvent{
+					Sequence: 2, Kind: execution.StreamEventData, Data: []byte(test.data),
+				}); err != nil {
+					t.Fatalf("data sink: %v", err)
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+			input := executionForwardInput()
+			input.Dialect = test.dialect
+			result := NewExecutionForwarder(executor).ForwardStream(
+				context.Background(), input, httptest.NewRecorder(),
+			)
+			if !result.Committed || result.Err == nil ||
+				result.Stream.EndReason != StreamEndUpstreamProtocolError {
+				t.Fatalf("ForwardStream() result = %#v", result)
 			}
 		})
 	}
@@ -548,7 +721,7 @@ func TestExecutionForwarderDoesNotRetryOrCommitAfterDownstreamFailure(t *testing
 			Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
 			Header: make(http.Header),
 		})
-		if err := sink(execution.StreamEvent{Sequence: 2, Kind: execution.StreamEventData, Data: []byte("data: one\n\n")}); err == nil {
+		if err := sink(execution.StreamEvent{Sequence: 2, Kind: execution.StreamEventData, Data: []byte("data: {\"id\":\"chat_1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"one\"},\"finish_reason\":null}]}\n\n")}); err == nil {
 			t.Fatal("data sink unexpectedly succeeded")
 		}
 		return execution.StreamResult{

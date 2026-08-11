@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -702,6 +703,84 @@ func TestConvertedOpenAIChatStreamUsesSelectedProvider(t *testing.T) {
 				t.Fatalf("result/data/usage = %+v/%s/%d", result, data.String(), usageEvents)
 			}
 		})
+	}
+}
+
+func TestConvertedOpenAIChatStreamWaitsForFirstClientFrame(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.WriteHeader(http.StatusOK)
+		writer.(http.Flusher).Flush()
+		time.Sleep(100 * time.Millisecond)
+		_, _ = io.WriteString(writer, geminiResponsesStreamFixture)
+	}))
+	defer server.Close()
+
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+		allowPrivateNetwork: true,
+		geminiBaseURL:       server.URL + "/v1beta",
+	})
+	spec := convertedSpec(
+		channel.Gemini,
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"/v1/chat/completions",
+		[]byte(`{"model":"client-model","stream":true,"messages":[{"role":"user","content":"hello"}]}`),
+	)
+	spec.Timeouts.FirstByte = 20 * time.Millisecond
+	spec.Timeouts.Request = time.Second
+	var events []execution.StreamEvent
+	started := time.Now()
+	result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+
+	if elapsed := time.Since(started); elapsed > 90*time.Millisecond {
+		t.Fatalf("first-frame timeout returned after %s", elapsed)
+	}
+	if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout ||
+		result.ResponseStarted || len(events) != 0 {
+		t.Fatalf("result/events = %+v/%+v", result, events)
+	}
+}
+
+func TestConvertedOpenAIChatStreamRejectsMissingProviderTerminal(t *testing.T) {
+	t.Parallel()
+
+	const truncatedGeminiStream = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}],\"role\":\"model\"},\"index\":0}],\"modelVersion\":\"gemini-upstream\",\"responseId\":\"resp_1\"}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, truncatedGeminiStream)
+	}))
+	defer server.Close()
+
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+		allowPrivateNetwork: true,
+		geminiBaseURL:       server.URL + "/v1beta",
+	})
+	spec := convertedSpec(
+		channel.Gemini,
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"/v1/chat/completions",
+		[]byte(`{"model":"client-model","stream":true,"messages":[{"role":"user","content":"hello"}]}`),
+	)
+	var data bytes.Buffer
+	result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+		if event.Kind == execution.StreamEventData {
+			data.Write(event.Data)
+		}
+		return nil
+	})
+
+	if result.Error == nil || result.Error.Kind != execution.ErrorKindTransport || !result.ResponseStarted {
+		t.Fatalf("truncated result = %+v; data=%s", result, data.String())
+	}
+	if !strings.Contains(data.String(), "hello") || strings.Contains(data.String(), "[DONE]") {
+		t.Fatalf("truncated data = %s", data.String())
 	}
 }
 

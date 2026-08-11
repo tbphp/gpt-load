@@ -7,16 +7,18 @@ import (
 	"strings"
 
 	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
 
 func chatExecutionMetadata(
+	clientProtocol protocol.Protocol,
 	body []byte,
 	stream bool,
 	reasoningConfig reasoning.Config,
 ) (execution.Operation, execution.FeatureSet) {
 	return execution.OperationChatCompletion,
-		inspectRequiredFeatures(body, stream, reasoningConfig.RequiresCapability(), false)
+		inspectRequiredFeatures(clientProtocol, body, stream, reasoningConfig.RequiresCapability(), false)
 }
 
 func responsesExecutionMetadata(
@@ -34,6 +36,7 @@ func responsesExecutionMetadata(
 		nativeResource = responsesCreateStoresResource(request.Body)
 	}
 	return operation, inspectRequiredFeatures(
+		protocol.OpenAIResponses,
 		request.Body,
 		stream,
 		reasoningConfig.RequiresCapability(),
@@ -74,6 +77,7 @@ func responsesOperation(request *ParsedRequest) execution.Operation {
 }
 
 func inspectRequiredFeatures(
+	clientProtocol protocol.Protocol,
 	body []byte,
 	stream bool,
 	reasoningPresent bool,
@@ -83,16 +87,17 @@ func inspectRequiredFeatures(
 	if stream {
 		features = append(features, execution.FeatureStreaming)
 	}
-	if reasoningPresent {
-		features = append(features, execution.FeatureReasoning)
-	}
 
 	root, ok := decodeExecutionFeatureObject(body)
 	if ok {
-		if hasMeaningfulField(root, "tools") ||
+		historyTools, historyReasoning := inspectProtocolHistory(root, clientProtocol)
+		if historyTools || hasMeaningfulField(root, "tools") ||
 			hasMeaningfulField(root, "tool_choice") ||
 			hasMeaningfulField(root, "toolChoice") {
 			features = append(features, execution.FeatureTools)
+		}
+		if historyReasoning {
+			reasoningPresent = true
 		}
 		if containsMultimodalValue(root) {
 			features = append(features, execution.FeatureMultimodal)
@@ -100,6 +105,9 @@ func inspectRequiredFeatures(
 		if containsStructuredOutput(root) {
 			features = append(features, execution.FeatureStructuredOutput)
 		}
+	}
+	if reasoningPresent {
+		features = append(features, execution.FeatureReasoning)
 	}
 	if nativeResource {
 		features = append(features, execution.FeatureNativeResourceSemantics)
@@ -109,6 +117,103 @@ func inspectRequiredFeatures(
 		return execution.FeatureSet{}
 	}
 	return result
+}
+
+func inspectProtocolHistory(root map[string]any, clientProtocol protocol.Protocol) (bool, bool) {
+	switch clientProtocol {
+	case protocol.OpenAICompletions:
+		return inspectOpenAIChatHistory(root)
+	case protocol.OpenAIResponses:
+		return inspectOpenAIResponsesHistory(root)
+	case protocol.Anthropic:
+		return inspectAnthropicHistory(root)
+	case protocol.Gemini:
+		return inspectGeminiHistory(root)
+	default:
+		return false, false
+	}
+}
+
+func inspectOpenAIChatHistory(root map[string]any) (bool, bool) {
+	messages, _ := root["messages"].([]any)
+	tools := false
+	reasoning := false
+	for _, value := range messages {
+		message, _ := value.(map[string]any)
+		role, _ := message["role"].(string)
+		if role == "tool" || hasMeaningfulField(message, "tool_calls") ||
+			hasMeaningfulField(message, "function_call") {
+			tools = true
+		}
+		if hasMeaningfulField(message, "reasoning_content") ||
+			hasMeaningfulField(message, "reasoning_details") {
+			reasoning = true
+		}
+	}
+	return tools, reasoning
+}
+
+func inspectOpenAIResponsesHistory(root map[string]any) (bool, bool) {
+	items, _ := root["input"].([]any)
+	tools := false
+	reasoning := false
+	for _, value := range items {
+		item, _ := value.(map[string]any)
+		itemType, _ := item["type"].(string)
+		switch normalizeFeatureName(itemType) {
+		case "functioncall", "functioncalloutput":
+			tools = true
+		case "reasoning":
+			reasoning = true
+		}
+		if hasMeaningfulField(item, "encrypted_content") {
+			reasoning = true
+		}
+	}
+	return tools, reasoning
+}
+
+func inspectAnthropicHistory(root map[string]any) (bool, bool) {
+	messages, _ := root["messages"].([]any)
+	tools := false
+	reasoning := false
+	for _, value := range messages {
+		message, _ := value.(map[string]any)
+		content, _ := message["content"].([]any)
+		for _, blockValue := range content {
+			block, _ := blockValue.(map[string]any)
+			blockType, _ := block["type"].(string)
+			switch normalizeFeatureName(blockType) {
+			case "tooluse", "toolresult":
+				tools = true
+			case "thinking", "redactedthinking":
+				reasoning = true
+			}
+		}
+	}
+	return tools, reasoning
+}
+
+func inspectGeminiHistory(root map[string]any) (bool, bool) {
+	contents, _ := root["contents"].([]any)
+	tools := false
+	reasoning := false
+	for _, value := range contents {
+		content, _ := value.(map[string]any)
+		parts, _ := content["parts"].([]any)
+		for _, partValue := range parts {
+			part, _ := partValue.(map[string]any)
+			if hasMeaningfulField(part, "functionCall") ||
+				hasMeaningfulField(part, "functionResponse") {
+				tools = true
+			}
+			thought, _ := part["thought"].(bool)
+			if thought || hasMeaningfulField(part, "thoughtSignature") {
+				reasoning = true
+			}
+		}
+	}
+	return tools, reasoning
 }
 
 func decodeExecutionFeatureObject(body []byte) (map[string]any, bool) {
@@ -226,6 +331,10 @@ func containsStructuredOutput(root map[string]any) bool {
 func responsesCreateStoresResource(body []byte) bool {
 	root, ok := decodeExecutionFeatureObject(body)
 	if !ok {
+		return true
+	}
+	if hasMeaningfulField(root, "previous_response_id") ||
+		hasMeaningfulField(root, "conversation") {
 		return true
 	}
 	value, exists := root["store"]

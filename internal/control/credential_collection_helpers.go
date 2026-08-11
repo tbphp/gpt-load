@@ -15,10 +15,8 @@ import (
 	"gpt-load/internal/state"
 )
 
-// normalizeStoredCredential accepts both the canonical object format and the
-// legacy encrypted API-key string used before channel credentials existed.
-// Invalid object-shaped data fails closed instead of being reinterpreted as a
-// raw key.
+// normalizeStoredCredential validates the single canonical object format used
+// for encrypted channel credentials.
 func normalizeStoredCredential(
 	registry *channel.Registry,
 	channelID channel.ID,
@@ -31,14 +29,7 @@ func normalizeStoredCredential(
 	if trimmed == "" {
 		return channel.Credential{}, fmt.Errorf("credential is empty")
 	}
-	if strings.HasPrefix(trimmed, "{") {
-		return registry.ValidateCredential(channelID, json.RawMessage(trimmed))
-	}
-	encoded, err := json.Marshal(map[string]string{"api_key": trimmed})
-	if err != nil {
-		return channel.Credential{}, fmt.Errorf("encode legacy credential: %w", err)
-	}
-	return registry.ValidateCredential(channelID, encoded)
+	return registry.ValidateCredential(channelID, json.RawMessage(trimmed))
 }
 
 const (

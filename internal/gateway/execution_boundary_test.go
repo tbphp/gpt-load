@@ -11,37 +11,22 @@ import (
 	"gpt-load/internal/health"
 )
 
-func TestNormalizeChannelCredentialAcceptsLegacyAndTypedStorage(t *testing.T) {
+func TestNormalizeChannelCredentialRequiresCanonicalStoredObject(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range []struct {
-		name        string
-		decrypted   string
-		wantAPIKey  string
-		wantPayload string
-	}{
-		{
-			name: "legacy raw key", decrypted: "  sk-legacy  ",
-			wantAPIKey: "sk-legacy", wantPayload: `{"api_key":"sk-legacy"}`,
-		},
-		{
-			name: "typed credential", decrypted: ` {"api_key":"sk-typed"} `,
-			wantAPIKey: "sk-typed", wantPayload: `{"api_key":"sk-typed"}`,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			credential, err := normalizeChannelCredential(channel.NewRegistry(), channel.OpenAI, test.decrypted)
-			if err != nil {
-				t.Fatalf("normalizeChannelCredential() error = %v", err)
-			}
-			if credential.apiKey != test.wantAPIKey || string(credential.payload) != test.wantPayload {
-				t.Fatalf("normalizeChannelCredential() = %q %s", credential.apiKey, credential.payload)
-			}
-		})
+	credential, err := normalizeChannelCredential(
+		channel.NewRegistry(),
+		channel.OpenAI,
+		` {"api_key":"sk-typed"} `,
+	)
+	if err != nil {
+		t.Fatalf("normalizeChannelCredential() error = %v", err)
+	}
+	if credential.apiKey != "sk-typed" || string(credential.payload) != `{"api_key":"sk-typed"}` {
+		t.Fatalf("normalizeChannelCredential() = %q %s", credential.apiKey, credential.payload)
 	}
 
-	for _, invalid := range []string{"", " ", `[]`, `{}`, `{"api_key":""}`} {
+	for _, invalid := range []string{"", " ", "sk-legacy", `"sk-legacy"`, `[]`, `{}`, `{"api_key":""}`} {
 		if credential, err := normalizeChannelCredential(channel.NewRegistry(), channel.OpenAI, invalid); err == nil {
 			t.Fatalf("normalizeChannelCredential(%q) = %#v, nil", invalid, credential)
 		}

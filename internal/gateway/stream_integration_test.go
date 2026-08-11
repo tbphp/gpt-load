@@ -247,6 +247,10 @@ func TestHandlerTreatsSDKNormalizedCompressedStreamAsSingleAttempt(t *testing.T)
 }
 
 func TestHandlerStreamsProgressively(t *testing.T) {
+	const (
+		first  = "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n"
+		second = "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+	)
 	firstEventSent := make(chan struct{})
 	releaseSecondEvent := make(chan struct{})
 	var releaseOnce sync.Once
@@ -254,12 +258,12 @@ func TestHandlerStreamsProgressively(t *testing.T) {
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
-		_, _ = writer.Write([]byte("data: first\n\n"))
+		_, _ = writer.Write([]byte(first))
 		writer.(http.Flusher).Flush()
 		close(firstEventSent)
 		select {
 		case <-releaseSecondEvent:
-			_, _ = writer.Write([]byte("data: second\n\n"))
+			_, _ = writer.Write([]byte(second))
 			writer.(http.Flusher).Flush()
 		case <-request.Context().Done():
 		}
@@ -298,7 +302,7 @@ func TestHandlerStreamsProgressively(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read first event boundary: %v", err)
 	}
-	if line+blank != "data: first\n\n" {
+	if line+blank != first {
 		t.Fatalf("first progressive event = %q", line+blank)
 	}
 
@@ -307,7 +311,7 @@ func TestHandlerStreamsProgressively(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read remaining stream: %v", err)
 	}
-	if string(rest) != "data: second\n\n" {
+	if string(rest) != second {
 		t.Fatalf("remaining stream = %q", rest)
 	}
 }
@@ -318,8 +322,8 @@ func TestAliasedStreamRemainsProgressive(t *testing.T) {
 	var releaseOnce sync.Once
 	t.Cleanup(func() { releaseOnce.Do(func() { close(releaseSecondEvent) }) })
 
-	first := "data: {\"model\":\"provider-model\",\"value\":1}\n\n"
-	second := "data: {\"value\":2}\n\n"
+	first := "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"model\":\"provider-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n"
+	second := "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"model\":\"provider-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		setRepresentationMetadata(writer.Header())
@@ -378,8 +382,10 @@ func TestAliasedStreamRemainsProgressive(t *testing.T) {
 
 	releaseOnce.Do(func() { close(releaseSecondEvent) })
 	rest, err := io.ReadAll(reader)
-	if err != nil || string(rest) != second {
-		t.Fatalf("remaining stream = %q, %v, want %q", rest, err, second)
+	if err != nil || !strings.Contains(string(rest), `"model":"public-model"`) ||
+		strings.Contains(string(rest), `"model":"provider-model"`) ||
+		!strings.HasSuffix(string(rest), "data: [DONE]\n\n") {
+		t.Fatalf("remaining stream = %q, %v", rest, err)
 	}
 }
 
@@ -453,7 +459,7 @@ func TestHandlerStreamIdleAndDisconnectNeverRetry(t *testing.T) {
 			idle: 35 * time.Millisecond,
 			handler: func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("Content-Type", "text/event-stream")
-				_, _ = writer.Write([]byte("data: first\n\n"))
+				_, _ = writer.Write([]byte("data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n"))
 				writer.(http.Flusher).Flush()
 				// Bifrost Core v1.7.7 can finish the logical stream without
 				// synchronously closing the underlying fasthttp connection.
@@ -464,7 +470,7 @@ func TestHandlerStreamIdleAndDisconnectNeverRetry(t *testing.T) {
 				case <-time.After(200 * time.Millisecond):
 				}
 			},
-			want: "data: first\n\n",
+			want: "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n",
 		},
 		{
 			name: "abrupt EOF after commit",
@@ -479,18 +485,22 @@ func TestHandlerStreamIdleAndDisconnectNeverRetry(t *testing.T) {
 					return
 				}
 				defer connection.Close()
-				payload := "data: first\n\n"
+				payload := "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n"
 				_, _ = fmt.Fprintf(buffered, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n%x\r\n%s\r\n", len(payload), payload)
 				_ = buffered.Flush()
 			},
-			want: "data: first\n\n",
+			want: "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n",
 		},
 		{
 			name: "activity resets idle deadline",
 			idle: 120 * time.Millisecond,
 			handler: func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("Content-Type", "text/event-stream")
-				for _, event := range []string{"data: one\n\n", "data: two\n\n", "data: three\n\n"} {
+				for _, event := range []string{
+					"data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"one\"},\"finish_reason\":null}]}\n\n",
+					"data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"two\"},\"finish_reason\":null}]}\n\n",
+					"data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+				} {
 					_, _ = writer.Write([]byte(event))
 					writer.(http.Flusher).Flush()
 					select {
@@ -500,7 +510,7 @@ func TestHandlerStreamIdleAndDisconnectNeverRetry(t *testing.T) {
 					}
 				}
 			},
-			want: "data: one\n\ndata: two\n\ndata: three\n\n",
+			want: "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"one\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"two\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
 		},
 	}
 

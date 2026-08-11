@@ -105,6 +105,75 @@ func TestInspectRequestIdentifiesExecutionOperationAndFeatures(t *testing.T) {
 			operation:  execution.OperationResponsesCreate,
 			noFeatures: []execution.Feature{execution.FeatureReasoning, execution.FeatureNativeResourceSemantics},
 		},
+		{
+			name:    "OpenAI Chat tool history",
+			dialect: NewOpenAI(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Body: []byte(`{
+				"model":"gpt-4o",
+				"messages":[
+					{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
+					{"role":"tool","tool_call_id":"call_1","content":"ok"}
+				]
+			}`)},
+			operation: execution.OperationChatCompletion,
+			features:  []execution.Feature{execution.FeatureTools},
+		},
+		{
+			name:    "Anthropic tool and reasoning history",
+			dialect: NewAnthropic(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1/messages", Body: []byte(`{
+				"model":"claude-sonnet-4",
+				"messages":[{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"tool_1","content":"ok"},
+					{"type":"redacted_thinking","data":"opaque"}
+				]}]
+			}`)},
+			operation: execution.OperationChatCompletion,
+			features:  []execution.Feature{execution.FeatureTools, execution.FeatureReasoning},
+		},
+		{
+			name:    "Gemini function history",
+			dialect: NewGemini(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1beta/models/gemini-2.5-pro:generateContent", Body: []byte(`{
+				"contents":[{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"result":"ok"}}}]}]
+			}`)},
+			operation: execution.OperationChatCompletion,
+			features:  []execution.Feature{execution.FeatureTools},
+		},
+		{
+			name:    "Responses tool and reasoning history",
+			dialect: NewOpenAIResponses(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{
+				"model":"gpt-5","store":false,
+				"input":[
+					{"type":"reasoning","encrypted_content":"opaque"},
+					{"type":"function_call_output","call_id":"call_1","output":"ok"}
+				]
+			}`)},
+			operation: execution.OperationResponsesCreate,
+			features:  []execution.Feature{execution.FeatureTools, execution.FeatureReasoning},
+			noFeatures: []execution.Feature{
+				execution.FeatureNativeResourceSemantics,
+			},
+		},
+		{
+			name:    "Responses previous response requires native semantics",
+			dialect: NewOpenAIResponses(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{
+				"model":"gpt-5","store":false,"previous_response_id":"resp_123"
+			}`)},
+			operation: execution.OperationResponsesCreate,
+			features:  []execution.Feature{execution.FeatureNativeResourceSemantics},
+		},
+		{
+			name:    "Responses conversation requires native semantics",
+			dialect: NewOpenAIResponses(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{
+				"model":"gpt-5","store":false,"conversation":"conv_123"
+			}`)},
+			operation: execution.OperationResponsesCreate,
+			features:  []execution.Feature{execution.FeatureNativeResourceSemantics},
+		},
 	}
 
 	for _, test := range tests {

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gpt-load/internal/catalog"
@@ -18,6 +20,12 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+)
+
+const (
+	maxModelDiscoveryPages  = 20
+	maxModelDiscoveryModels = 20_000
+	modelDiscoveryPageSize  = 1000
 )
 
 type discoveryCredential struct {
@@ -67,40 +75,63 @@ func (s *Service) executeModelDiscovery(
 	if err != nil {
 		return ModelDiscoveryResult{}, fmt.Errorf("create discovery request identity: %w", app_errors.ErrInternalServer)
 	}
-	for index, credential := range target.credentials {
-		attemptID, identityErr := s.newExecutionID()
-		if identityErr != nil {
-			return ModelDiscoveryResult{}, fmt.Errorf("create discovery attempt identity: %w", app_errors.ErrInternalServer)
+	var sequence uint32
+	for _, credential := range target.credentials {
+		models := make([]string, 0)
+		rawQuery := modelDiscoveryInitialQuery(clientProtocol)
+		seenCursors := make(map[string]struct{})
+		for pageNumber := 0; pageNumber < maxModelDiscoveryPages; pageNumber++ {
+			attemptID, identityErr := s.newExecutionID()
+			if identityErr != nil {
+				return ModelDiscoveryResult{}, fmt.Errorf("create discovery attempt identity: %w", app_errors.ErrInternalServer)
+			}
+			sequence++
+			spec := execution.NewAttemptSpec(execution.AttemptSpec{
+				RequestID: requestID, AttemptID: attemptID, Sequence: sequence,
+				ChannelID: string(target.channelID), TargetKind: string(target.resolvedTarget.ProviderKind),
+				RouteMode: execution.RouteMode(routeMode), ClientProtocol: clientProtocol,
+				Operation: execution.OperationListModels, Method: method, Path: path,
+				RawQuery: rawQuery,
+				Header:   applyControlHeaderRules(target.headerRules, credential.apiKey), Body: body,
+				TargetConfig: target.resolvedTarget.TargetConfig,
+				Timeouts:     executionTimeouts(target.timeouts),
+				Credential:   credential.snapshot,
+			})
+			if validationErr := spec.Validate(); validationErr != nil {
+				return ModelDiscoveryResult{}, fmt.Errorf("build discovery attempt: %w", app_errors.ErrInternalServer)
+			}
+			result := s.executor.Execute(discoveryCtx, spec)
+			if parentErr := ctx.Err(); parentErr != nil {
+				return ModelDiscoveryResult{}, parentErr
+			}
+			if errors.Is(discoveryCtx.Err(), context.DeadlineExceeded) {
+				return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
+			}
+			if result.Validate() != nil || result.Error != nil ||
+				result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
+				break
+			}
+			discoveredPage, parseErr := parseDiscoveredModelsPage(clientProtocol, result.Body)
+			if parseErr != nil {
+				break
+			}
+			models = append(models, discoveredPage.models...)
+			if len(models) > maxModelDiscoveryModels {
+				break
+			}
+			if discoveredPage.nextRawQuery == "" {
+				return s.mergeDiscoveredModels(
+					discoveryCtx,
+					normalizeDiscoveredModels(models),
+					target,
+				)
+			}
+			if _, repeated := seenCursors[discoveredPage.nextRawQuery]; repeated {
+				break
+			}
+			seenCursors[discoveredPage.nextRawQuery] = struct{}{}
+			rawQuery = discoveredPage.nextRawQuery
 		}
-		spec := execution.NewAttemptSpec(execution.AttemptSpec{
-			RequestID: requestID, AttemptID: attemptID, Sequence: uint32(index + 1),
-			ChannelID: string(target.channelID), TargetKind: string(target.resolvedTarget.ProviderKind),
-			RouteMode: execution.RouteMode(routeMode), ClientProtocol: clientProtocol,
-			Operation: execution.OperationListModels, Method: method, Path: path,
-			Header: applyControlHeaderRules(target.headerRules, credential.apiKey), Body: body,
-			TargetConfig: target.resolvedTarget.TargetConfig,
-			Timeouts:     executionTimeouts(target.timeouts),
-			Credential:   credential.snapshot,
-		})
-		if validationErr := spec.Validate(); validationErr != nil {
-			return ModelDiscoveryResult{}, fmt.Errorf("build discovery attempt: %w", app_errors.ErrInternalServer)
-		}
-		result := s.executor.Execute(discoveryCtx, spec)
-		if parentErr := ctx.Err(); parentErr != nil {
-			return ModelDiscoveryResult{}, parentErr
-		}
-		if errors.Is(discoveryCtx.Err(), context.DeadlineExceeded) {
-			return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
-		}
-		if result.Validate() != nil || result.Error != nil ||
-			result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
-			continue
-		}
-		models, parseErr := parseDiscoveredModels(clientProtocol, result.Body)
-		if parseErr != nil {
-			continue
-		}
-		return s.mergeDiscoveredModels(discoveryCtx, normalizeDiscoveredModels(models), target)
 	}
 	if parentErr := ctx.Err(); parentErr != nil {
 		return ModelDiscoveryResult{}, parentErr
@@ -177,39 +208,114 @@ func utilityRequestShape(
 	return "", "", "", nil, app_errors.ErrValidation
 }
 
-func parseDiscoveredModels(clientProtocol protocol.Protocol, body []byte) ([]string, error) {
+type discoveredModelsPage struct {
+	models       []string
+	nextRawQuery string
+}
+
+func parseDiscoveredModelsPage(
+	clientProtocol protocol.Protocol,
+	body []byte,
+) (discoveredModelsPage, error) {
 	switch clientProtocol {
-	case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic:
+	case protocol.OpenAICompletions, protocol.OpenAIResponses:
 		var payload struct {
 			Data []struct {
 				ID string `json:"id"`
 			} `json:"data"`
 		}
 		if err := decodeSingleJSON(body, &payload); err != nil {
-			return nil, err
+			return discoveredModelsPage{}, err
 		}
 		models := make([]string, 0, len(payload.Data))
 		for _, item := range payload.Data {
 			models = append(models, item.ID)
 		}
-		return models, nil
+		return discoveredModelsPage{models: models}, nil
+	case protocol.Anthropic:
+		var payload struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+			HasMore bool   `json:"has_more"`
+			LastID  string `json:"last_id"`
+		}
+		if err := decodeSingleJSON(body, &payload); err != nil {
+			return discoveredModelsPage{}, err
+		}
+		models := make([]string, 0, len(payload.Data))
+		for _, item := range payload.Data {
+			models = append(models, item.ID)
+		}
+		query, err := nextModelDiscoveryQuery(
+			clientProtocol,
+			payload.HasMore,
+			"after_id",
+			payload.LastID,
+		)
+		if err != nil {
+			return discoveredModelsPage{}, err
+		}
+		return discoveredModelsPage{models: models, nextRawQuery: query}, nil
 	case protocol.Gemini:
 		var payload struct {
 			Models []struct {
 				Name string `json:"name"`
 			} `json:"models"`
+			NextPageToken string `json:"nextPageToken"`
 		}
 		if err := decodeSingleJSON(body, &payload); err != nil {
-			return nil, err
+			return discoveredModelsPage{}, err
 		}
 		models := make([]string, 0, len(payload.Models))
 		for _, item := range payload.Models {
 			models = append(models, strings.TrimPrefix(item.Name, "models/"))
 		}
-		return models, nil
+		query, err := nextModelDiscoveryQuery(
+			clientProtocol,
+			payload.NextPageToken != "",
+			"pageToken",
+			payload.NextPageToken,
+		)
+		if err != nil {
+			return discoveredModelsPage{}, err
+		}
+		return discoveredModelsPage{models: models, nextRawQuery: query}, nil
 	default:
-		return nil, app_errors.ErrValidation
+		return discoveredModelsPage{}, app_errors.ErrValidation
 	}
+}
+
+func modelDiscoveryInitialQuery(clientProtocol protocol.Protocol) string {
+	values := make(url.Values, 1)
+	switch clientProtocol {
+	case protocol.Anthropic:
+		values.Set("limit", strconv.Itoa(modelDiscoveryPageSize))
+	case protocol.Gemini:
+		values.Set("pageSize", strconv.Itoa(modelDiscoveryPageSize))
+	}
+	return values.Encode()
+}
+
+func nextModelDiscoveryQuery(
+	clientProtocol protocol.Protocol,
+	hasMore bool,
+	key string,
+	cursor string,
+) (string, error) {
+	if !hasMore {
+		return "", nil
+	}
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return "", fmt.Errorf("model list pagination cursor is missing")
+	}
+	values, err := url.ParseQuery(modelDiscoveryInitialQuery(clientProtocol))
+	if err != nil {
+		return "", fmt.Errorf("build model list pagination query")
+	}
+	values.Set(key, cursor)
+	return values.Encode(), nil
 }
 
 func decodeSingleJSON(body []byte, target any) error {

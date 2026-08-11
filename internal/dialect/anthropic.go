@@ -30,6 +30,7 @@ func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) 
 	metadata.ObserveUsage = true
 	metadata.Reasoning = inspectAnthropicReasoning(req.Body)
 	metadata.Operation, metadata.RequiredFeatures = chatExecutionMetadata(
+		d.Protocol(),
 		req.Body,
 		metadata.Stream,
 		metadata.Reasoning,

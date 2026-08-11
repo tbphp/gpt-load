@@ -53,19 +53,25 @@ func testCredentialEntry(
 	apiKey string,
 ) state.CredentialEntry {
 	t.Helper()
-	payload, err := json.Marshal(map[string]string{"api_key": apiKey})
-	if err != nil {
-		t.Fatalf("encode credential %d: %v", id, err)
-	}
-	encrypted, err := service.Encrypt(string(payload))
-	if err != nil {
-		t.Fatalf("encrypt credential %d: %v", id, err)
-	}
+	encrypted := encryptTestCredentialValue(t, service, apiKey)
 	return state.CredentialEntry{
 		ID: id, GroupID: groupID, Status: state.CredentialStatusActive,
 		Version: 1, IdentityGeneration: uint64(id),
 		Fingerprint: "test-credential-" + strconv.FormatUint(uint64(id), 10), EncryptedValue: encrypted,
 	}
+}
+
+func encryptTestCredentialValue(t *testing.T, service encryption.Service, apiKey string) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{"api_key": apiKey})
+	if err != nil {
+		t.Fatalf("encode test credential: %v", err)
+	}
+	encrypted, err := service.Encrypt(string(payload))
+	if err != nil {
+		t.Fatalf("encrypt test credential: %v", err)
+	}
+	return encrypted
 }
 
 func newTestExecutionForwarder(t *testing.T) AttemptForwarder {

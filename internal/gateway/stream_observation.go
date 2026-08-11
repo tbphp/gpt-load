@@ -59,6 +59,7 @@ type streamEventObserver struct {
 	firstProviderError  bool
 	sawErrorEvent       bool
 	firstSummary        string
+	firstErrorPayload   []byte
 	usage               *streamUsageCapture
 }
 
@@ -144,7 +145,7 @@ func (buffer *sseEventObservationBuffer) observeEvent(event []byte) (bool, error
 		return false, nil
 	}
 	payload := bytes.Join(dataValues, []byte{'\n'})
-	if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+	if len(payload) == 0 {
 		return false, nil
 	}
 	return buffer.observe(
@@ -229,6 +230,9 @@ func (observer *streamEventObserver) classify(
 		return genericProviderError, nil
 	}
 	if observer.sawTerminal {
+		if bytes.Equal(bytes.TrimSpace(event.Payload), []byte("[DONE]")) {
+			return false, nil
+		}
 		return false, fmt.Errorf(
 			"%w: SSE data event received after terminal event",
 			ErrUpstreamProtocol,
@@ -267,13 +271,18 @@ func (observer *streamEventObserver) classify(
 	return providerError, nil
 }
 
-func (observer *streamEventObserver) observeError(summary string) {
+func (observer *streamEventObserver) firstEventWasProviderError() bool {
+	return observer != nil && observer.firstProviderError
+}
+
+func (observer *streamEventObserver) observeError(payload []byte, summary string) {
 	if observer == nil {
 		return
 	}
 	observer.sawErrorEvent = true
 	if observer.firstSummary == "" {
 		observer.firstSummary = summary
+		observer.firstErrorPayload = bytes.Clone(payload)
 	}
 }
 

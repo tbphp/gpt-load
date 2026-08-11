@@ -234,6 +234,9 @@ func (r *Runtime) ExecuteStream(
 		case chunk, open := <-outcome.stream:
 			idleTimer.pause()
 			if !open {
+				if !sdkStreamEndedNormally(bifrostContext) {
+					return terminatedStreamFailure(headers, requestID, model, usageEvidence)
+				}
 				sequence++
 				if err := sink(execution.StreamEvent{
 					Sequence: sequence,
@@ -1180,4 +1183,34 @@ func contextFailure(ctx context.Context, preResponseExpired bool) (execution.Err
 		return execution.ErrorKindTimeout, "upstream request timed out"
 	}
 	return execution.ErrorKindCanceled, "upstream request canceled"
+}
+
+func sdkStreamEndedNormally(ctx *schemas.BifrostContext) bool {
+	if ctx == nil {
+		return false
+	}
+	ended, _ := ctx.Value(schemas.BifrostContextKeyStreamEndIndicator).(bool)
+	return ended
+}
+
+func terminatedStreamFailure(
+	headers http.Header,
+	requestID string,
+	model string,
+	usageEvidence *execution.UsageEvidence,
+) execution.StreamResult {
+	return execution.StreamResult{
+		DispatchState:     execution.DispatchMaybeSent,
+		ResponseStarted:   true,
+		StatusCode:        http.StatusOK,
+		Header:            headers.Clone(),
+		Model:             model,
+		UpstreamRequestID: requestID,
+		Usage:             cloneUsage(usageEvidence),
+		Error: &execution.ErrorEvidence{
+			Kind:      execution.ErrorKindTransport,
+			Summary:   "upstream stream terminated before completion",
+			RequestID: requestID,
+		},
+	}
 }

@@ -645,14 +645,14 @@ func (handler *Handler) executeAttempts(
 		}
 		requestCanceled := ginContext.Request.Context().Err() != nil
 		if result.Committed {
+			if stream && result.Stream.EndReason == StreamEndNone {
+				result.Stream = prioritizeStreamObservation(
+					ginContext.Request.Context(),
+					result.Err,
+					result.Stream,
+				)
+			}
 			if recorder != nil {
-				if result.Stream.EndReason == StreamEndNone {
-					result.Stream = prioritizeStreamObservation(
-						ginContext.Request.Context(),
-						result.Err,
-						result.Stream,
-					)
-				}
 				recordedAttempt := recorder.recordStreamAttempt(
 					selection, normalizedCredential.secrets, result, attemptStarted, attemptCompleted,
 				)

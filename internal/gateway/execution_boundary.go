@@ -33,13 +33,6 @@ func normalizeChannelCredential(
 		return normalizedCredential{}, fmt.Errorf("credential is empty")
 	}
 	raw := []byte(trimmed)
-	if !json.Valid(raw) {
-		encoded, err := json.Marshal(map[string]string{"api_key": trimmed})
-		if err != nil {
-			return normalizedCredential{}, fmt.Errorf("encode legacy credential")
-		}
-		raw = encoded
-	}
 	validated, err := registry.ValidateCredential(channelID, raw)
 	if err != nil {
 		return normalizedCredential{}, fmt.Errorf("validate credential: %w", err)

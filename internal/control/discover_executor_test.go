@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -221,6 +222,119 @@ func TestExecuteModelDiscoveryUsesNeutralExecutor(t *testing.T) {
 	}
 	if got := result.Models; len(got) != 1 || got[0].ID != "gpt-test" {
 		t.Fatalf("models = %#v", got)
+	}
+}
+
+func TestExecuteModelDiscoveryPaginatesProviderModelLists(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		channelID   channel.ID
+		firstBody   string
+		secondBody  string
+		cursorKey   string
+		cursor      string
+		pageSizeKey string
+	}{
+		{
+			name: "Anthropic", channelID: channel.Anthropic,
+			firstBody:  `{"data":[{"id":"model-a"},{"id":"model-shared"}],"has_more":true,"last_id":"cursor-a"}`,
+			secondBody: `{"data":[{"id":"model-shared"},{"id":"model-b"}],"has_more":false}`,
+			cursorKey:  "after_id", cursor: "cursor-a", pageSizeKey: "limit",
+		},
+		{
+			name: "Gemini", channelID: channel.Gemini,
+			firstBody:  `{"models":[{"name":"models/model-a"},{"name":"models/model-shared"}],"nextPageToken":"cursor+/b"}`,
+			secondBody: `{"models":[{"name":"models/model-shared"},{"name":"models/model-b"}]}`,
+			cursorKey:  "pageToken", cursor: "cursor+/b", pageSizeKey: "pageSize",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			calls := 0
+			executor := scriptedDiscoveryExecutor{execute: func(
+				_ context.Context,
+				spec execution.AttemptSpec,
+			) execution.AttemptResult {
+				calls++
+				values, err := url.ParseQuery(spec.RawQuery)
+				if err != nil {
+					t.Fatalf("parse page query: %v", err)
+				}
+				body := test.firstBody
+				if calls == 1 {
+					if values.Get(test.pageSizeKey) != "1000" || len(values) != 1 {
+						t.Fatalf("first page query = %q", spec.RawQuery)
+					}
+				} else {
+					if calls != 2 || values.Get(test.cursorKey) != test.cursor ||
+						values.Get(test.pageSizeKey) != "1000" || len(values) != 2 {
+						t.Fatalf("next page query = %q", spec.RawQuery)
+					}
+					body = test.secondBody
+				}
+				return execution.AttemptResult{
+					DispatchState:   execution.DispatchMaybeSent,
+					ResponseStarted: true,
+					StatusCode:      http.StatusOK,
+					Header:          http.Header{},
+					Body:            []byte(body),
+				}
+			}}
+			service := &Service{executor: executor, modelDiscoveryTimeout: time.Second}
+			target := discoveryTargetForTest(
+				t, test.channelID, "https://provider.example", []string{"secret-key"}, state.HeaderRules{},
+			)
+
+			result, err := service.executeModelDiscovery(context.Background(), target)
+			if err != nil {
+				t.Fatalf("executeModelDiscovery() error = %v", err)
+			}
+			if calls != 2 {
+				t.Fatalf("model list calls = %d, want 2", calls)
+			}
+			got := make([]string, 0, len(result.Models))
+			for _, model := range result.Models {
+				got = append(got, model.ID)
+			}
+			want := []string{"model-a", "model-shared", "model-b"}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("models = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestExecuteModelDiscoveryRejectsRepeatedPaginationCursor(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	executor := scriptedDiscoveryExecutor{execute: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+	) execution.AttemptResult {
+		calls++
+		return execution.AttemptResult{
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			StatusCode:      http.StatusOK,
+			Header:          http.Header{},
+			Body:            []byte(`{"data":[{"id":"model-a"}],"has_more":true,"last_id":"same-cursor"}`),
+		}
+	}}
+	service := &Service{executor: executor, modelDiscoveryTimeout: time.Second}
+	target := discoveryTargetForTest(
+		t, channel.Anthropic, "https://provider.example", []string{"secret-key"}, state.HeaderRules{},
+	)
+
+	if _, err := service.executeModelDiscovery(context.Background(), target); err == nil {
+		t.Fatal("executeModelDiscovery() error = nil, want repeated cursor failure")
+	}
+	if calls != 2 {
+		t.Fatalf("model list calls = %d, want 2", calls)
 	}
 }
 

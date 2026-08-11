@@ -424,6 +424,9 @@ func (r *Runtime) executeConvertedResponsesStream(
 		case chunk, open := <-outcome.stream:
 			idleTimer.pause()
 			if !open {
+				if !sdkStreamEndedNormally(bifrostContext) {
+					return terminatedStreamFailure(headers, requestID, model, usageEvidence)
+				}
 				return execution.StreamResult{
 					DispatchState:     execution.DispatchMaybeSent,
 					ResponseStarted:   true,

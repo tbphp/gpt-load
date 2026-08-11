@@ -26,7 +26,16 @@ func healthNow() time.Time {
 
 func encryptHealthKey(t *testing.T, fixture serviceFixture, plaintext string) string {
 	t.Helper()
-	ciphertext, err := fixture.encryption.Encrypt(plaintext)
+	credential := plaintext
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(plaintext), &object); err != nil || object == nil {
+		encoded, marshalErr := json.Marshal(map[string]string{"api_key": plaintext})
+		if marshalErr != nil {
+			t.Fatalf("Marshal credential error = %v", marshalErr)
+		}
+		credential = string(encoded)
+	}
+	ciphertext, err := fixture.encryption.Encrypt(credential)
 	if err != nil {
 		t.Fatalf("Encrypt() error = %v", err)
 	}

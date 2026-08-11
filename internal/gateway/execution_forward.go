@@ -89,12 +89,15 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		}
 		streamEvents.observeUsageEvent(event)
 		if providerError {
-			streamEvents.observeError(summarizeErrorBody(
-				redactor,
+			streamEvents.observeError(
 				event.Payload,
-				fixedErrorSummary("upstream_sse_error"),
-				summarySecrets...,
-			))
+				summarizeErrorBody(
+					redactor,
+					event.Payload,
+					fixedErrorSummary("upstream_sse_error"),
+					summarySecrets...,
+				),
+			)
 		}
 		return !wasTerminal && streamEvents.sawTerminal, nil
 	})
@@ -102,6 +105,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	var (
 		ready         *execution.StreamEvent
 		committed     bool
+		firstResponse bool
 		downstreamErr error
 		errorBody     []byte
 		streamUsage   *execution.UsageEvidence
@@ -148,6 +152,16 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				return downstreamErr
 			}
 			if !committed {
+				if !firstResponse {
+					firstResponse = true
+					if input.OnFirstResponse != nil {
+						input.OnFirstResponse()
+					}
+				}
+				if streamEvents.firstEventWasProviderError() {
+					errorBody = appendExecutionErrorBody(errorBody, event.Data)
+					return nil
+				}
 				committed = true
 				if err := commitStream(controller, ready.StatusCode, ready.Header, event.Data); err != nil {
 					downstreamErr = err
@@ -155,9 +169,6 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				if input.OnStreamReady != nil {
 					input.OnStreamReady()
-				}
-				if input.OnFirstResponse != nil {
-					input.OnFirstResponse()
 				}
 				if terminalInChunk {
 					streamEvents.markTerminalForwarded()
@@ -223,10 +234,173 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		result.ResponseStarted = true
 		result.UpstreamRequestID = ready.UpstreamRequestID
 	}
-	if !committed && result.HasResponse() {
+	if !committed && streamEvents.firstEventWasProviderError() {
+		summary := streamEvents.firstSummary
+		if summary == "" {
+			summary = fixedErrorSummary("upstream_sse_error")
+		}
+		result.ProviderErrorBeforeCommit = true
+		result.ErrorSummary = summary
+		result.ExecutionError = firstStreamErrorEvidence(
+			streamEvents.firstErrorPayload,
+			result.ExecutionError,
+			result.StatusCode,
+			result.UpstreamRequestID,
+			summary,
+			redactor,
+			summarySecrets,
+		)
+	}
+	if !committed && result.HasResponse() && !result.ProviderErrorBeforeCommit {
 		result = forwarder.prepareBufferedResult(input, result)
 	}
 	return result
+}
+
+func firstStreamErrorEvidence(
+	payload []byte,
+	existing *execution.ErrorEvidence,
+	statusCode int,
+	requestID string,
+	summary string,
+	redactor *redact.Redactor,
+	knownSecrets []string,
+) *execution.ErrorEvidence {
+	evidence := execution.ErrorEvidence{
+		Kind:       execution.ErrorKindProvider,
+		StatusCode: statusCode,
+		Summary:    summary,
+		RequestID:  requestID,
+	}
+	if existing != nil {
+		evidence = existing.Clone()
+		evidence.Kind = execution.ErrorKindProvider
+		if evidence.StatusCode == 0 {
+			evidence.StatusCode = statusCode
+		}
+		if evidence.Summary == "" {
+			evidence.Summary = summary
+		}
+		if evidence.RequestID == "" {
+			evidence.RequestID = requestID
+		}
+	}
+
+	type errorObject struct {
+		Type    string          `json:"type"`
+		Code    json.RawMessage `json:"code"`
+		Status  string          `json:"status"`
+		Message string          `json:"message"`
+	}
+	var envelope struct {
+		Type     string          `json:"type"`
+		Code     json.RawMessage `json:"code"`
+		Error    errorObject     `json:"error"`
+		Response struct {
+			Error errorObject `json:"error"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(payload, &envelope) != nil {
+		return &evidence
+	}
+	providerError := envelope.Error
+	if providerError.Type == "" && len(providerError.Code) == 0 &&
+		providerError.Status == "" && providerError.Message == "" {
+		providerError = envelope.Response.Error
+	}
+	typeValue := providerError.Type
+	if typeValue == "" && !strings.EqualFold(envelope.Type, "error") {
+		typeValue = envelope.Type
+	}
+	codeValue := streamErrorEvidenceScalar(providerError.Code)
+	if codeValue == "" {
+		codeValue = streamErrorEvidenceScalar(envelope.Code)
+	}
+	if codeValue == "" {
+		codeValue = providerError.Status
+	}
+	typeValue = sanitizeStreamErrorEvidenceValue(redactor, typeValue, knownSecrets)
+	codeValue = sanitizeStreamErrorEvidenceValue(redactor, codeValue, knownSecrets)
+	statusValue := sanitizeStreamErrorEvidenceValue(redactor, providerError.Status, knownSecrets)
+	if evidence.Type == "" {
+		evidence.Type = typeValue
+	}
+	if evidence.Code == "" {
+		evidence.Code = codeValue
+	}
+	if evidence.Hint == "" {
+		evidence.Hint = streamErrorFailureHint(
+			statusCode,
+			typeValue,
+			codeValue,
+			statusValue,
+			evidence.Summary,
+		)
+	}
+	return &evidence
+}
+
+func streamErrorEvidenceScalar(value json.RawMessage) string {
+	value = json.RawMessage(strings.TrimSpace(string(value)))
+	if len(value) == 0 || string(value) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(value, &text) == nil {
+		return text
+	}
+	var number json.Number
+	if json.Unmarshal(value, &number) == nil {
+		return number.String()
+	}
+	return ""
+}
+
+func sanitizeStreamErrorEvidenceValue(
+	redactor *redact.Redactor,
+	value string,
+	knownSecrets []string,
+) string {
+	value = sanitizeErrorSummary(redactor, value, knownSecrets...)
+	const maxEvidenceRunes = 128
+	runes := []rune(value)
+	if len(runes) > maxEvidenceRunes {
+		return string(runes[:maxEvidenceRunes])
+	}
+	return value
+}
+
+func streamErrorFailureHint(statusCode int, values ...string) execution.FailureHint {
+	markers := strings.ToLower(strings.Join(values, " "))
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusPaymentRequired ||
+		statusCode == http.StatusForbidden || containsStreamErrorMarker(markers,
+		"invalid_api_key", "api_key_invalid", "authentication_error",
+		"authentication failed", "permission_denied", "unauthorized",
+		"invalid credential", "api key not valid"):
+		return execution.FailureHintInvalidCredential
+	case statusCode == http.StatusTooManyRequests || containsStreamErrorMarker(markers,
+		"rate_limit", "rate limit", "too_many_requests", "quota_exceeded",
+		"resource_exhausted", "throttl"):
+		return execution.FailureHintRateLimited
+	case containsStreamErrorMarker(markers,
+		"model_not_found", "model not found", "model_not_available",
+		"model unavailable", "deployment_not_found", "unsupported_model"):
+		return execution.FailureHintModelUnavailable
+	case statusCode >= http.StatusInternalServerError && statusCode <= 599:
+		return execution.FailureHintHostError
+	default:
+		return ""
+	}
+}
+
+func containsStreamErrorMarker(value string, markers ...string) bool {
+	for _, marker := range markers {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (forwarder *ExecutionForwarder) prepareBufferedResult(
