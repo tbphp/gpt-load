@@ -59,6 +59,10 @@ export default {
       actionColumn: 'Details',
       open: 'View details and pricing for upstream model {model}',
       upstreamCount: '{count} upstreams',
+      protocolRestricted: 'Protocol restricted',
+      protocolRestrictedHelp: 'This AccessKey can use only these protocols:\n{protocols}',
+      pricingIdentityHelp:
+        'Pricing identity\nChannel: {channel} ({channelId})\nUpstream model: {model}',
       tierCount: '{count} tiers',
       noPrice: '—',
       copy: 'Copy client model {model}',
@@ -76,11 +80,15 @@ export default {
       specs: 'Specifications',
       loading: 'Loading…',
       loadFailed: 'Unable to load upstream model details',
-      sharedWarning: 'Linked to {count} client models; saving applies to all',
+      sharedImpact:
+        'This pricing identity has {references} model references across {clients} client models and {groups} Groups; saving applies to all of them.',
       relationships: 'Relationships',
-      clientModels: 'Client models',
-      groups: 'Groups',
-      channel: 'Channel',
+      relationshipsHelp: '{count} references, each shown with its client model and Group',
+      pricingChannel: 'Pricing channel',
+      upstreamModel: 'Upstream model',
+      group: 'Group',
+      aliasMapping: 'Client model {client} maps to upstream model {upstream}',
+      directMapping: 'Client model {model} directly uses the same upstream model name',
       updatedAt: 'Updated',
       copyModel: 'Copy upstream model {model}',
       copySucceeded: 'Copied',
@@ -89,7 +97,7 @@ export default {
     detail: {
       groupDisabled: 'Disabled',
       catalogReference: {
-        actual_provider: 'Models.dev · {provider}',
+        actual_provider: 'Models.dev exact provider · {provider}',
         reference_provider: 'Models.dev reference provider · {provider}',
       },
       specs: {
@@ -104,6 +112,18 @@ export default {
         tool_call: 'Tool calls',
         structured_output: 'Structured output',
         temperature: 'Temperature',
+      },
+      modalities: {
+        audio: 'Audio',
+        image: 'Image',
+        pdf: 'PDF',
+        text: 'Text',
+        video: 'Video',
+      },
+      status: {
+        alpha: 'Alpha',
+        beta: 'Beta',
+        deprecated: 'Deprecated',
       },
       openWeights: 'Open weights',
     },

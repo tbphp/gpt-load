@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 )
 
 type responsesUnarySDKResult struct {
@@ -94,13 +95,19 @@ func (r *Runtime) executeConvertedResponses(
 	parent context.Context,
 	spec execution.AttemptSpec,
 	prepared preparedAttempt,
-) execution.AttemptResult {
+) (result execution.AttemptResult) {
+	var appliedReasoning *reasoning.Config
+	defer func() {
+		result.AppliedReasoning = appliedReasoning
+	}()
+
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
 	defer callCancel()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	enableAppliedReasoningWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesUnarySDKResult, 1)
 	go func() {
@@ -119,7 +126,11 @@ func (r *Runtime) executeConvertedResponses(
 	}
 
 	if outcome.err != nil {
+		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+	}
+	if outcome.response != nil {
+		appliedReasoning = takeAppliedReasoning(&outcome.response.ExtraFields.RawRequest)
 	}
 	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
 		return *failure
@@ -342,7 +353,12 @@ func (r *Runtime) executeConvertedResponsesStream(
 	spec execution.AttemptSpec,
 	prepared preparedAttempt,
 	sink execution.StreamSink,
-) execution.StreamResult {
+) (result execution.StreamResult) {
+	var appliedReasoning *reasoning.Config
+	defer func() {
+		result.AppliedReasoning = appliedReasoning
+	}()
+
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
 	defer requestCancel()
 	callContext, callCancel := context.WithCancel(requestContext)
@@ -351,6 +367,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	defer preResponse.stop()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	enableAppliedReasoningWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesStreamSDKResult, 1)
 	go func() {
@@ -369,6 +386,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	}
 	preResponse.stop()
 	if outcome.err != nil {
+		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
 		return streamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
 	}
 	if outcome.stream == nil {
@@ -419,12 +437,18 @@ func (r *Runtime) executeConvertedResponsesStream(
 			if chunk == nil || chunk.BifrostResponsesStreamResponse == nil {
 				callCancel()
 				if chunk != nil && chunk.BifrostError != nil {
+					if captured := takeAppliedReasoning(&chunk.BifrostError.ExtraFields.RawRequest); captured != nil {
+						appliedReasoning = captured
+					}
 					return streamErrorResult(chunk.BifrostError, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 				}
 				return streamErrorResult(nil, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
 
 			response := chunk.BifrostResponsesStreamResponse
+			if captured := takeAppliedReasoning(&response.ExtraFields.RawRequest); captured != nil {
+				appliedReasoning = captured
+			}
 			var chunkUsage *execution.UsageEvidence
 			if response.Response != nil {
 				if response.Response.Model != "" {

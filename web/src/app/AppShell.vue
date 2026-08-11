@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound } from '@lucide/vue'
+import { Check, KeyRound, LockKeyhole } from '@lucide/vue'
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
@@ -109,6 +109,15 @@ watch(
         <span>{{ t('common.appName') }}</span>
       </RouterLink>
 
+      <span
+        v-if="isAccessKey"
+        class="access-scope-badge"
+        :title="t('shell.accessKeyReadOnlyDescription')"
+      >
+        <LockKeyhole :size="13" aria-hidden="true" />
+        <span>{{ t('shell.accessKeyReadOnly') }}</span>
+      </span>
+
       <nav class="desktop-nav" :aria-label="t('shell.primaryNavigation')">
         <RouterLink
           v-for="item in navigation"
@@ -136,11 +145,30 @@ watch(
           compact
           show-sign-out
           :locale="currentLocale"
+          :trigger-label="t('shell.menu')"
           :theme="theme.theme.value"
           @update:locale="setLocale"
           @update:theme="theme.setTheme"
           @sign-out="logout"
-        />
+        >
+          <template #mobile-navigation="{ close }">
+            <nav class="mobile-nav" :aria-label="t('shell.primaryNavigation')">
+              <p class="mobile-nav__label">{{ t('shell.primaryNavigation') }}</p>
+              <RouterLink
+                v-for="item in navigation"
+                :key="item.key"
+                class="mobile-nav__link"
+                :class="{ 'mobile-nav__link--active': isPrimaryActive(item.key) }"
+                :to="item.to"
+                :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
+                @click="close"
+              >
+                <span>{{ item.label }}</span>
+                <Check v-if="isPrimaryActive(item.key)" :size="15" aria-hidden="true" />
+              </RouterLink>
+            </nav>
+          </template>
+        </PreferencesControl>
       </div>
     </header>
 
@@ -174,6 +202,21 @@ watch(
   font-size: var(--title-section);
   font-weight: 400;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.access-scope-badge {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  padding: 3px 7px;
+  font-size: var(--text-label-xs);
+  font-weight: 560;
+  line-height: 1.2;
   white-space: nowrap;
 }
 .desktop-nav {
@@ -230,8 +273,51 @@ watch(
 .app-content {
   min-height: calc(100vh - var(--topbar-height));
 }
+.mobile-nav {
+  display: grid;
+  gap: var(--space-1);
+}
+.mobile-nav__label {
+  margin: 0;
+  color: var(--color-text-faint);
+  padding: 0 2px 2px;
+  font-size: var(--text-label-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mobile-nav__link {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  padding: 0 10px;
+  font-size: var(--text-sm);
+  transition:
+    color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.mobile-nav__link:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.mobile-nav__link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+.mobile-nav__link--active {
+  border-color: var(--color-border-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-weight: 560;
+}
 @media (max-width: 860px) {
   .app-topbar {
+    gap: var(--space-2);
     padding-inline: var(--space-4);
   }
   .desktop-nav {

@@ -4,6 +4,7 @@ export default {
       pending: 'Pending',
       configured: 'Configured',
       unpriced: 'Marked unpriced',
+      partial: 'Partially priced',
     },
     fields: {
       input: 'Input',
@@ -12,8 +13,14 @@ export default {
       cache_write: 'Cache write',
     },
     method: {
-      auto_sync: 'Upstream pricing',
-      user_set: 'Manual pricing',
+      auto_sync: 'Catalog sync',
+      reference_price: 'Reference price',
+      user_set: 'Manual price',
+    },
+    source: {
+      channel_catalog_provider: 'Price from Models.dev · {provider}',
+      provider_priority_fallback:
+        'No exact catalog price for this channel; using Models.dev · {provider} as reference',
     },
     matrix: {
       heading: 'Price',

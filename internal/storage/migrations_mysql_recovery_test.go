@@ -33,7 +33,7 @@ func TestApplyMySQLMigrationRecoversEveryInitialV2DDLBoundary(t *testing.T) {
 			if err := applyMySQLInitialV2Migration(db, migrations[0]); err != nil {
 				t.Fatalf("resume boundary %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, db)
+			assertInternalMigrationComplete(t, db, []string{migrations[0].ID})
 		})
 	}
 }
@@ -166,7 +166,11 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted)
+			wantMigrationIDs := make([]string, 0, len(migrations))
+			for _, value := range migrations {
+				wantMigrationIDs = append(wantMigrationIDs, value.ID)
+			}
+			assertInternalMigrationComplete(t, restarted, wantMigrationIDs)
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
@@ -190,7 +194,7 @@ func openInternalMigrationTestDatabase(t *testing.T) *gorm.DB {
 	return db
 }
 
-func assertInternalMigrationComplete(t *testing.T, db *gorm.DB) {
+func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string) {
 	t.Helper()
 	for _, table := range initialV2TableNames() {
 		if !db.Migrator().HasTable(table) {
@@ -201,8 +205,13 @@ func assertInternalMigrationComplete(t *testing.T, db *gorm.DB) {
 	if err := db.Table(migrationLedgerTable).Order("id").Pluck("id", &ids).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 1 || ids[0] != migrations[0].ID {
-		t.Fatalf("migration IDs = %v", ids)
+	if len(ids) != len(wantIDs) {
+		t.Fatalf("migration IDs = %v, want %v", ids, wantIDs)
+	}
+	for index := range wantIDs {
+		if ids[index] != wantIDs[index] {
+			t.Fatalf("migration IDs = %v, want %v", ids, wantIDs)
+		}
 	}
 }
 

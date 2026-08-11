@@ -45,11 +45,28 @@ func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) 
 		len(upstream.RouteGroups) != 1 || len(upstream.AffectedGroups) != 1 {
 		t.Fatalf("OpenAI-compatible upstream overview = %#v", upstream)
 	}
+	for _, group := range append(upstream.RouteGroups, upstream.AffectedGroups...) {
+		if got := string(group.Params); got != `{"base_url":"https://enabled.example/v1"}` {
+			t.Fatalf("admin route Group params = %s", got)
+		}
+	}
+	encodedPrice, err := json.Marshal(upstream.Price)
+	if err != nil {
+		t.Fatalf("encode upstream price: %v", err)
+	}
+	var priceWire map[string]any
+	if err := json.Unmarshal(encodedPrice, &priceWire); err != nil {
+		t.Fatalf("decode upstream price: %v", err)
+	}
+	if priceWire["channel_name"] != "OpenAI Compatible" {
+		t.Fatalf("upstream price channel name = %#v", priceWire["channel_name"])
+	}
 	detail, err := fixture.service.GetUpstreamModelDetail(t.Context(), upstream.Price.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if detail.ModelID != "upstream-x" || detail.Price.ChannelID != "openai_compatible" ||
+		detail.Price.ChannelName != "OpenAI Compatible" ||
 		detail.ClientModelCount != 2 || detail.GroupCount != 1 || len(detail.Associations) != 2 {
 		t.Fatalf("upstream detail = %#v", detail)
 	}
@@ -88,12 +105,18 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 		]`),
 		Overrides: models.JSON(`{}`), Enabled: true,
 	})
-	allowedAnthropic := createPriceTestGroup(t, fixture.db, models.Group{
-		Name: "allowed-anthropic", ChannelID: string(channel.Anthropic), Params: models.JSON(`{"base_url":"https://anthropic.example"}`),
+	allowedAzure := createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "allowed-azure", ChannelID: string(channel.AzureOpenAI), Params: models.JSON(`{"endpoint":"https://azure.example"}`),
 		Models: models.JSON(`[
 			{"id":"private-client-b","alias":"client-b"},
 			{"id":"upstream-shared","alias":"shared"}
 		]`),
+		Overrides: models.JSON(`{}`), Enabled: true,
+	})
+	allowedVertex := createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "allowed-vertex", ChannelID: string(channel.GoogleVertex),
+		Params:    models.JSON(`{"project_id":"project-sentinel","location":"us-central1"}`),
+		Models:    models.JSON(`[{"id":"upstream-shared","alias":"shared"}]`),
 		Overrides: models.JSON(`{}`), Enabled: true,
 	})
 	createPriceTestGroup(t, fixture.db, models.Group{
@@ -113,7 +136,7 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 		Name: "model viewer",
 		Filters: &AccessKeyFilters{
-			Groups: []uint{allowedOpenAI.ID, allowedAnthropic.ID},
+			Groups: []uint{allowedOpenAI.ID, allowedAzure.ID, allowedVertex.ID},
 			Protocols: []protocol.Protocol{
 				protocol.OpenAICompletions,
 				protocol.Anthropic,
@@ -144,23 +167,31 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 		t.Fatalf("decode AccessKey models: %v", err)
 	}
 	if envelope.Data.Summary.ClientModelCount != 2 ||
-		envelope.Data.Summary.UpstreamModelCount != 3 ||
-		envelope.Data.Summary.PriceCount != 3 ||
+		envelope.Data.Summary.UpstreamModelCount != 4 ||
+		envelope.Data.Summary.PriceCount != 4 ||
 		len(envelope.Data.Items) != 2 ||
 		envelope.Data.Items[0].ClientModel != "client-a" ||
 		envelope.Data.Items[1].ClientModel != "shared" {
 		t.Fatalf("AccessKey model response = %#v", envelope.Data)
 	}
 	shared := envelope.Data.Items[1]
-	if len(shared.Protocols) != 2 || len(shared.UpstreamModels) != 2 {
+	if len(shared.Protocols) != 2 || len(shared.UpstreamModels) != 3 {
 		t.Fatalf("AccessKey shared model = %#v", shared)
 	}
 	for _, upstream := range shared.UpstreamModels {
 		if len(upstream.RouteGroups) != 1 || len(upstream.AffectedGroups) != 1 {
 			t.Fatalf("channel-scoped shared upstream = %#v", upstream)
 		}
+		for _, group := range append(upstream.RouteGroups, upstream.AffectedGroups...) {
+			if got := string(group.Params); got != `{}` {
+				t.Fatalf("AccessKey route Group params = %s, want empty object", got)
+			}
+		}
 	}
 	for _, privateValue := range []string{
+		"base_url", "https://openai.example/v1",
+		"endpoint", "https://azure.example",
+		"project_id", "project-sentinel", "location", "us-central1",
 		"client-hidden", "client-b", "gemini-private", "private-gemini",
 		"private-disabled", "private-hidden", "private-client-b",
 		"private-gemini-model", "private-disabled-model",
@@ -171,27 +202,57 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 	}
 }
 
-func TestProjectModelCatalogReferenceUsesTheRecordedPriceProvider(t *testing.T) {
-	matchedProviderID := "anthropic"
+func TestProjectModelCatalogReferenceUsesTheRecordedPriceProviderAndSource(t *testing.T) {
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
-			"shared": {ID: "shared", Name: "OpenAI metadata without a price"},
+			"shared": {
+				ID: "shared", Name: "OpenAI metadata",
+				Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+			},
 		}},
 		"anthropic": {ID: "anthropic", Models: map[string]catalog.Model{
 			"shared": {
-				ID: "shared", Name: "Anthropic priced model",
-				Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				ID: "shared", Name: "Anthropic priced metadata",
+				Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
 			},
 		}},
 	}}
 
-	reference := projectModelCatalogReference(
-		ModelPriceDTO{MatchedProviderID: &matchedProviderID},
-		pricing.Identity{ChannelID: string(channel.OpenAICompatible), ModelID: "shared"},
-		snapshot,
-	)
-	if reference == nil || reference.ProviderID != "anthropic" ||
-		reference.Model.Name != "Anthropic priced model" {
-		t.Fatalf("catalog reference = %#v", reference)
+	tests := []struct {
+		name          string
+		channelID     channel.ID
+		providerID    string
+		matchSource   ModelPriceMatchSource
+		wantSource    string
+		wantModelName string
+	}{
+		{
+			name: "channel catalog provider", channelID: channel.OpenAI,
+			providerID: "openai", matchSource: ModelPriceMatchSourceChannelCatalogProvider,
+			wantSource: "actual_provider", wantModelName: "OpenAI metadata",
+		},
+		{
+			name: "priority fallback", channelID: channel.OpenAICompatible,
+			providerID: "openai", matchSource: ModelPriceMatchSourceProviderPriorityFallback,
+			wantSource: "reference_provider", wantModelName: "OpenAI metadata",
+		},
+		{
+			name: "recorded provider wins over catalog priority", channelID: channel.OpenAICompatible,
+			providerID: "anthropic", matchSource: ModelPriceMatchSourceProviderPriorityFallback,
+			wantSource: "reference_provider", wantModelName: "Anthropic priced metadata",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reference := projectModelCatalogReference(
+				ModelPriceDTO{MatchedProviderID: &test.providerID, MatchSource: &test.matchSource},
+				pricing.Identity{ChannelID: string(test.channelID), ModelID: "shared"},
+				snapshot,
+			)
+			if reference == nil || reference.ProviderID != test.providerID ||
+				reference.Source != test.wantSource || reference.Model.Name != test.wantModelName {
+				t.Fatalf("catalog reference = %#v", reference)
+			}
+		})
 	}
 }

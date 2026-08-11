@@ -17,6 +17,8 @@ interface CatalogSpec {
 }
 
 const metadata = computed(() => props.reference.model)
+const knownModalities = new Set(['audio', 'image', 'pdf', 'text', 'video'])
+const knownStatuses = new Set(['alpha', 'beta', 'deprecated'])
 
 const sourceLabel = computed(() =>
   t(`models.detail.catalogReference.${props.reference.source}`, {
@@ -56,14 +58,24 @@ const capabilities = computed(() =>
     .concat(metadata.value.open_weights === true ? [t('models.detail.openWeights')] : []),
 )
 
-/** 目录标注的生命周期状态（如 deprecated），此前没有出口，放到规格行尾。 */
-const catalogStatus = computed(() => metadata.value.status)
+/** 已知 Models.dev 枚举本地化；新值保留原文，避免目录扩展导致信息丢失。 */
+const catalogStatus = computed(() => {
+  const status = metadata.value.status
+  if (!status || !knownStatuses.has(status)) return status
+  return t(`models.detail.status.${status}`)
+})
+
+function modalityLabel(modality: string): string {
+  return knownModalities.has(modality) ? t(`models.detail.modalities.${modality}`) : modality
+}
 
 function formatModalities(): string {
   const { input, output } = metadata.value.modalities
   if (input.length === 0 && output.length === 0) return ''
-  const arrow = output.length > 0 ? `→ ${output.join(' / ')}` : ''
-  return `${input.join(' / ')} ${arrow}`.trim()
+  const inputLabel = input.map(modalityLabel).join(' / ')
+  const outputLabel = output.map(modalityLabel).join(' / ')
+  const arrow = outputLabel ? `→ ${outputLabel}` : ''
+  return `${inputLabel} ${arrow}`.trim()
 }
 </script>
 

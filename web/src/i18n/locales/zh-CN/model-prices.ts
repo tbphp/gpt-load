@@ -4,6 +4,7 @@ export default {
       pending: '待定价',
       configured: '已定价',
       unpriced: '已标记未定价',
+      partial: '部分定价',
     },
     fields: {
       input: '输入',
@@ -12,8 +13,13 @@ export default {
       cache_write: '缓存写入',
     },
     method: {
-      auto_sync: '上游定价',
-      user_set: '手动定价',
+      auto_sync: '目录同步',
+      reference_price: '参考价格',
+      user_set: '手动价格',
+    },
+    source: {
+      channel_catalog_provider: '价格来自 Models.dev · {provider}',
+      provider_priority_fallback: '该渠道无精确目录价格，参考 Models.dev · {provider}',
     },
     matrix: {
       heading: '价格',

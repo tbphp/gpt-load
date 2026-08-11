@@ -187,10 +187,20 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 	}
 
 	event := testEvent("deep-copy")
+	firstResponseMs := int64(7)
+	requestReasoningBudget := int64(2048)
+	attemptReasoningBudget := int64(4096)
+	event.Stream = true
+	event.FirstResponseMs = &firstResponseMs
+	event.Reasoning.BudgetTokens = &requestReasoningBudget
+	event.Attempts[0].Reasoning.BudgetTokens = &attemptReasoningBudget
 	service.Emit(event)
 	timer := receiveValue(t, timers.created)
 	event.RequestID = "mutated-request"
 	event.Attempts[0].GroupName = "mutated-group"
+	firstResponseMs = 8
+	requestReasoningBudget = 1024
+	attemptReasoningBudget = 512
 	timer.Fire()
 
 	rows := receiveValue(t, writes)
@@ -199,6 +209,12 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 	}
 	if len(rows[0].AttemptRows) != 1 || rows[0].AttemptRows[0].GroupName != "primary" {
 		t.Fatalf("written attempts = %+v, want original deep copy", rows[0].AttemptRows)
+	}
+	if rows[0].FirstResponseMs == nil || *rows[0].FirstResponseMs != 7 ||
+		rows[0].ReasoningBudgetTokens == nil || *rows[0].ReasoningBudgetTokens != 2048 ||
+		rows[0].AttemptRows[0].ReasoningBudgetTokens == nil ||
+		*rows[0].AttemptRows[0].ReasoningBudgetTokens != 4096 {
+		t.Fatalf("written pointer observations = %+v, want original values", rows[0])
 	}
 
 	if err := service.Stop(context.Background()); err != nil {

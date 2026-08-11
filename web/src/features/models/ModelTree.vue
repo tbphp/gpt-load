@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ChevronRight } from '@lucide/vue'
+import { ChevronRight, CircleHelp } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { enabledDataProtocols, protocolLabelKey } from '@/api/control/protocols'
+import type { GroupProtocol } from '@/api/control/types'
 import type { ClientModelDto, ModelUpstreamDto } from '@/app/resources/models'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { modelPriceFields } from '@/features/model-prices/model-price-form'
@@ -19,6 +22,24 @@ const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
 const { t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
+
+function hasProtocolRestriction(protocols: GroupProtocol[]): boolean {
+  return props.readOnly === true && protocols.length < enabledDataProtocols.length
+}
+
+function protocolRestrictionTooltip(protocols: GroupProtocol[]): string {
+  return t('models.tree.protocolRestrictedHelp', {
+    protocols: protocols.map((protocol) => t(protocolLabelKey(protocol))).join('\n'),
+  })
+}
+
+function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
+  return t('models.tree.pricingIdentityHelp', {
+    channel: upstream.price.channel_name,
+    channelId: upstream.price.channel_id,
+    model: upstream.model_id,
+  })
+}
 </script>
 
 <template>
@@ -64,15 +85,23 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
                   :failure-label="t('models.tree.copyFailed')"
                 />
               </span>
-              <span class="model-tree__protocols">
-                <span
-                  v-for="protocol in row.model.protocols"
-                  :key="protocol"
-                  class="model-tree__protocol"
-                >
-                  {{ protocol }}
-                </span>
+              <span class="model-tree__tag">
+                {{ t('models.tree.upstreamCount', { count: row.upstreams.length }) }}
               </span>
+              <AppTooltip
+                v-if="hasProtocolRestriction(row.model.protocols)"
+                :content="protocolRestrictionTooltip(row.model.protocols)"
+                align="start"
+              >
+                <button
+                  type="button"
+                  class="model-tree__protocol-restriction"
+                  :aria-label="protocolRestrictionTooltip(row.model.protocols)"
+                >
+                  <CircleHelp :size="13" aria-hidden="true" />
+                  {{ t('models.tree.protocolRestricted') }}
+                </button>
+              </AppTooltip>
             </div>
           </div>
 
@@ -106,7 +135,15 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
                   :failure-label="t('models.tree.copyFailed')"
                 />
               </span>
-              <code class="model-tree__channel">{{ entry.upstream.price.channel_id }}</code>
+              <AppTooltip :content="pricingIdentityTooltip(entry.upstream)" align="start">
+                <span
+                  class="model-tree__channel"
+                  tabindex="0"
+                  :aria-label="pricingIdentityTooltip(entry.upstream)"
+                >
+                  {{ entry.upstream.price.channel_name }}
+                </span>
+              </AppTooltip>
               <span v-if="entry.tierCount > 0" class="model-tree__tag">
                 {{ t('models.tree.tierCount', { count: entry.tierCount }) }}
               </span>
@@ -130,7 +167,10 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
             </div>
 
             <div class="model-tree__cell model-tree__cell--status" role="cell">
-              <ModelPriceStatusBadge :price="entry.upstream.price" />
+              <ModelPriceStatusBadge
+                :price="entry.upstream.price"
+                :provider-name="entry.upstream.catalog_reference?.provider_name"
+              />
             </div>
 
             <div v-if="!readOnly" class="model-tree__cell model-tree__cell--action" role="cell">
@@ -274,21 +314,6 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   gap: var(--space-0-5);
 }
 
-.model-tree__protocols {
-  display: inline-flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
-}
-
-.model-tree__protocol + .model-tree__protocol::before {
-  margin: 0 4px;
-  opacity: 0.55;
-  content: '·';
-}
-
 .model-tree__tag {
   border-radius: var(--radius-tag);
   background: var(--color-tag);
@@ -298,13 +323,43 @@ const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel
   white-space: nowrap;
 }
 
+.model-tree__protocol-restriction {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-tag);
+  background: var(--color-warning-bg);
+  cursor: help;
+  padding: 1px 6px;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--text-label-xs);
+}
+
+.model-tree__protocol-restriction svg {
+  color: var(--color-warning);
+}
+
 .model-tree__channel {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
   border-radius: var(--radius-tag);
   background: var(--color-tag);
   padding: 1px 6px;
   color: var(--color-text-faint);
-  font-family: var(--font-mono);
   font-size: var(--text-label-xs);
+  outline: none;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.model-tree__channel:focus-visible,
+.model-tree__protocol-restriction:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
 }
 
 .model-tree__row--upstream {

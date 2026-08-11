@@ -80,6 +80,22 @@ const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
 const logPageSizes = [20, 50, 100] as const
+const knownReasoningValues = new Set([
+  'none',
+  'disabled',
+  'off',
+  'enabled',
+  'auto',
+  'adaptive',
+  'pro',
+  'standard',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+])
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
 const appliedFilters = computed(() => {
   const filters = parseAppliedLogFilters(route.query)
@@ -529,6 +545,10 @@ function modelConsistencyLabel(log: RequestLogItemDto): string {
   )
 }
 
+function localizedReasoningValue(value: string): string {
+  return knownReasoningValues.has(value) ? t(`monitor.logs.reasoningValue.${value}`) : value
+}
+
 function reasoningLabel(log: RequestLogItemDto): string {
   if (log.reasoning === null) return ''
   if (
@@ -537,10 +557,16 @@ function reasoningLabel(log: RequestLogItemDto): string {
     (log.reasoning.budget_tokens !== null &&
       reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'disabled')
   ) {
-    return t('monitor.logs.reasoning.disabled')
+    return t('monitor.logs.reasoning.compact', {
+      value: t('monitor.logs.reasoningValue.disabled'),
+    })
   }
+  const value = formatLogReasoning(log, locale.value, t('monitor.logs.reasoningValue.auto'))
+    .split('/')
+    .map(localizedReasoningValue)
+    .join('/')
   return t('monitor.logs.reasoning.compact', {
-    value: formatLogReasoning(log, locale.value, t('monitor.logs.reasoning.dynamic')),
+    value,
   })
 }
 
@@ -759,7 +785,7 @@ function costLabel(log: RequestLogItemDto): string {
               <LogProtocolConversion
                 :mode="log.route_mode"
                 :client-protocol="log.protocol"
-                :upstream-protocol="channelName(log) ?? log.channel_id"
+                :upstream-api="log.upstream_api"
               />
             </span>
           </div>

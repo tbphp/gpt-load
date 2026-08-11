@@ -146,6 +146,9 @@ func (e ErrorEvidence) Validate() error {
 
 // Validate validates a terminal attempt result.
 func (r AttemptResult) Validate() error {
+	if r.UpstreamAPI != "" && !r.UpstreamAPI.Valid() {
+		return validationError("upstream_api", "unsupported value")
+	}
 	if err := validateResultMetadata(
 		r.DispatchState,
 		r.ResponseStarted,
@@ -216,6 +219,9 @@ func (e StreamEvent) Validate() error {
 
 // Validate validates a terminal streaming result.
 func (r StreamResult) Validate() error {
+	if r.UpstreamAPI != "" && !r.UpstreamAPI.Valid() {
+		return validationError("upstream_api", "unsupported value")
+	}
 	return validateResultMetadata(
 		r.DispatchState,
 		r.ResponseStarted,

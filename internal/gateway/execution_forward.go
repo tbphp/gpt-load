@@ -364,7 +364,13 @@ func encodeClientErrorBody(
 
 func executionRepresentationFailure(result UpstreamResult, err error) UpstreamResult {
 	return UpstreamResult{
-		Err: err, RequestWritten: result.RequestWritten, DispatchState: result.DispatchState,
+		Err:               err,
+		RequestWritten:    result.RequestWritten,
+		DispatchState:     result.DispatchState,
+		ResponseStarted:   result.ResponseStarted,
+		UpstreamAPI:       result.UpstreamAPI,
+		AppliedReasoning:  result.AppliedReasoning.Clone(),
+		UpstreamRequestID: result.UpstreamRequestID,
 	}
 }
 
@@ -422,6 +428,10 @@ func upstreamFromExecutionResult(
 	upstream := baseExecutionResult(input, result.DispatchState, result.ResponseStarted,
 		result.StatusCode, result.Header, result.Model, result.UpstreamRequestID,
 		result.Usage, result.Error)
+	if result.AppliedReasoning != nil {
+		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
+	}
+	upstream.UpstreamAPI = result.UpstreamAPI
 	upstream.Body = append([]byte(nil), result.Body...)
 	upstream.ClassificationBody = append([]byte(nil), result.Body...)
 	if !result.ResponseStarted && result.Error != nil {
@@ -443,6 +453,10 @@ func upstreamFromExecutionStreamResult(
 	upstream := baseExecutionResult(input, result.DispatchState, result.ResponseStarted,
 		result.StatusCode, result.Header, result.Model, result.UpstreamRequestID,
 		usageEvidence, result.Error)
+	if result.AppliedReasoning != nil {
+		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
+	}
+	upstream.UpstreamAPI = result.UpstreamAPI
 	if !result.ResponseStarted && result.Error != nil {
 		upstream.Err = executionFailureError(ctx, result.Error)
 	}

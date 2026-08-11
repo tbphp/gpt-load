@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 )
 
 const (
@@ -51,11 +52,19 @@ type streamSDKResult struct {
 }
 
 // Execute executes one non-streaming attempt.
-func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) execution.AttemptResult {
+func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
 	prepared, preflightError := r.prepare(spec, false)
 	if preflightError != nil {
 		return *preflightError
 	}
+	var appliedReasoning *reasoning.Config
+	upstreamAPI := preparedUpstreamAPI(prepared, spec)
+	defer func() {
+		if result.AppliedReasoning == nil {
+			result.AppliedReasoning = appliedReasoning
+		}
+		result.UpstreamAPI = upstreamAPI
+	}()
 	if prepared.passthrough != nil {
 		return r.executeNative(parent, spec, prepared)
 	}
@@ -72,6 +81,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) ex
 	defer callCancel()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	enableAppliedReasoningWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan unarySDKResult, 1)
 	go func() {
@@ -90,7 +100,11 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) ex
 	}
 
 	if outcome.err != nil {
+		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+	}
+	if outcome.response != nil {
+		appliedReasoning = takeAppliedReasoning(&outcome.response.ExtraFields.RawRequest)
 	}
 	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
 		return *failure
@@ -132,7 +146,7 @@ func (r *Runtime) ExecuteStream(
 	parent context.Context,
 	spec execution.AttemptSpec,
 	sink execution.StreamSink,
-) execution.StreamResult {
+) (result execution.StreamResult) {
 	if sink == nil {
 		return notSentStreamFailure(execution.ErrorKindInvalidRequest, "stream sink is required")
 	}
@@ -140,6 +154,14 @@ func (r *Runtime) ExecuteStream(
 	if preflightError != nil {
 		return streamFromAttemptFailure(*preflightError)
 	}
+	var appliedReasoning *reasoning.Config
+	upstreamAPI := preparedUpstreamAPI(prepared, spec)
+	defer func() {
+		if result.AppliedReasoning == nil {
+			result.AppliedReasoning = appliedReasoning
+		}
+		result.UpstreamAPI = upstreamAPI
+	}()
 	if prepared.passthrough != nil {
 		return r.executeNativeStream(parent, spec, prepared, sink)
 	}
@@ -155,6 +177,7 @@ func (r *Runtime) ExecuteStream(
 	defer preResponse.stop()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	enableAppliedReasoningWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan streamSDKResult, 1)
 	go func() {
@@ -173,6 +196,7 @@ func (r *Runtime) ExecuteStream(
 	}
 	preResponse.stop()
 	if outcome.err != nil {
+		appliedReasoning = takeAppliedReasoning(&outcome.err.ExtraFields.RawRequest)
 		return streamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
 	}
 	if outcome.stream == nil {
@@ -234,6 +258,9 @@ func (r *Runtime) ExecuteStream(
 				return streamErrorResult(nil, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
 			if chunk.BifrostError != nil {
+				if captured := takeAppliedReasoning(&chunk.BifrostError.ExtraFields.RawRequest); captured != nil {
+					appliedReasoning = captured
+				}
 				callCancel()
 				return streamErrorResult(chunk.BifrostError, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
@@ -243,6 +270,9 @@ func (r *Runtime) ExecuteStream(
 			}
 
 			response := chunk.BifrostChatResponse
+			if captured := takeAppliedReasoning(&response.ExtraFields.RawRequest); captured != nil {
+				appliedReasoning = captured
+			}
 			if response.Model != "" {
 				model = response.Model
 			}
@@ -282,6 +312,41 @@ func (r *Runtime) ExecuteStream(
 			idleTimer.resume()
 		}
 	}
+}
+
+func preparedUpstreamAPI(prepared preparedAttempt, spec execution.AttemptSpec) execution.UpstreamAPI {
+	providerKind := channel.ProviderKind(spec.TargetKind)
+	switch providerKind {
+	case channel.ProviderAzureOpenAI:
+		return execution.UpstreamAPIAzureOpenAI
+	case channel.ProviderAWSBedrock:
+		return execution.UpstreamAPIAWSBedrock
+	case channel.ProviderGoogleVertex:
+		return execution.UpstreamAPIGoogleVertex
+	case channel.ProviderAnthropic:
+		if spec.Operation == execution.OperationListModels {
+			return execution.UpstreamAPIAnthropicModels
+		}
+		return execution.UpstreamAPIAnthropicMessages
+	case channel.ProviderGemini:
+		if spec.Operation == execution.OperationListModels {
+			return execution.UpstreamAPIGeminiModels
+		}
+		return execution.UpstreamAPIGeminiGenerateContent
+	}
+	if spec.Operation == execution.OperationListModels {
+		return execution.UpstreamAPIOpenAIModels
+	}
+	if prepared.passthrough != nil && spec.ClientProtocol == protocol.OpenAIResponses {
+		return execution.UpstreamAPIOpenAIResponses
+	}
+	if prepared.responsesRequest != nil {
+		target, err := url.Parse(prepared.typedURL)
+		if err == nil && strings.HasSuffix(strings.TrimRight(target.Path, "/"), "/responses") {
+			return execution.UpstreamAPIOpenAIResponses
+		}
+	}
+	return execution.UpstreamAPIOpenAIChatCompletions
 }
 
 func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAttempt, *execution.AttemptResult) {

@@ -7,12 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 )
 
 func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
@@ -28,6 +30,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 		upstreamPath   string
 		credentialName string
 		upstreamBody   string
+		upstreamAPI    execution.UpstreamAPI
 		modelInPath    bool
 		assertClient   func(*testing.T, map[string]any)
 		runtime        func(*testing.T, string) *testRuntime
@@ -42,6 +45,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			upstreamPath:   "/v1/responses",
 			credentialName: "Authorization",
 			upstreamBody:   openAIResponsesConvertedFixture,
+			upstreamAPI:    execution.UpstreamAPIOpenAIResponses,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["type"] != "message" || body["role"] != "assistant" || body["model"] != "client-model" {
 					t.Errorf("Anthropic response = %#v", body)
@@ -61,6 +65,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			upstreamPath:   "/v1beta/models/upstream-model:generateContent",
 			credentialName: "X-Goog-Api-Key",
 			upstreamBody:   geminiResponsesConvertedFixture,
+			upstreamAPI:    execution.UpstreamAPIGeminiGenerateContent,
 			modelInPath:    true,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["type"] != "message" || body["role"] != "assistant" || body["model"] != "client-model" {
@@ -81,6 +86,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			upstreamPath:   "/v1/responses",
 			credentialName: "Authorization",
 			upstreamBody:   openAIResponsesConvertedFixture,
+			upstreamAPI:    execution.UpstreamAPIOpenAIResponses,
 			assertClient: func(t *testing.T, body map[string]any) {
 				candidates, _ := body["candidates"].([]any)
 				if len(candidates) != 1 || body["modelVersion"] != "client-model" {
@@ -101,6 +107,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			upstreamPath:   "/v1/messages",
 			credentialName: "X-Api-Key",
 			upstreamBody:   anthropicResponsesConvertedFixture,
+			upstreamAPI:    execution.UpstreamAPIAnthropicMessages,
 			assertClient: func(t *testing.T, body map[string]any) {
 				candidates, _ := body["candidates"].([]any)
 				if len(candidates) != 1 || body["modelVersion"] != "client-model" {
@@ -121,6 +128,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			upstreamPath:   "/v1/messages",
 			credentialName: "X-Api-Key",
 			upstreamBody:   anthropicResponsesConvertedFixture,
+			upstreamAPI:    execution.UpstreamAPIAnthropicMessages,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["object"] != "response" || body["model"] != "client-model" {
 					t.Errorf("OpenAI Responses response = %#v", body)
@@ -140,6 +148,7 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			upstreamPath:   "/v1beta/models/upstream-model:generateContent",
 			credentialName: "X-Goog-Api-Key",
 			upstreamBody:   geminiResponsesConvertedFixture,
+			upstreamAPI:    execution.UpstreamAPIGeminiGenerateContent,
 			modelInPath:    true,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["object"] != "response" || body["model"] != "client-model" {
@@ -193,6 +202,9 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 				(result.UpstreamRequestID != "converted-request" && !requestIDMissingOnlyForGemini) {
 				t.Fatalf("result = %+v, body=%s", result, result.Body)
 			}
+			if result.UpstreamAPI != test.upstreamAPI {
+				t.Fatalf("result upstream API = %q, want %q", result.UpstreamAPI, test.upstreamAPI)
+			}
 			var clientBody map[string]any
 			if err := json.Unmarshal(result.Body, &clientBody); err != nil {
 				t.Fatalf("decode client response: %v; body=%s", err, result.Body)
@@ -202,6 +214,97 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 				t.Fatal("normalized usage is missing")
 			}
 		})
+	}
+}
+
+func TestConvertedAttemptReportsAppliedReasoning(t *testing.T) {
+	t.Parallel()
+
+	wireBody := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		wireBody <- body
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, anthropicResponsesConvertedFixture)
+	}))
+	defer server.Close()
+
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+		allowPrivateNetwork: true,
+		anthropicBaseURL:    server.URL,
+	})
+	spec := convertedSpec(
+		channel.Anthropic,
+		protocol.OpenAIResponses,
+		execution.OperationResponsesCreate,
+		"/v1/responses",
+		[]byte(`{"model":"client-model","input":"hello","max_output_tokens":4096,"reasoning":{"mode":"pro","effort":"high"}}`),
+	)
+	result := runtime.Execute(context.Background(), spec)
+	if result.Error != nil || result.StatusCode != http.StatusOK {
+		t.Fatalf("result = %+v, error = %+v", result, result.Error)
+	}
+	want := inspectAnthropicWireReasoning(t, <-wireBody)
+	if !reflect.DeepEqual(result.AppliedReasoning, want) {
+		t.Fatalf("result applied reasoning = %#v, wire reasoning = %#v", result.AppliedReasoning, want)
+	}
+	if result.AppliedReasoning == nil || result.AppliedReasoning.Mode == "pro" ||
+		result.AppliedReasoning.Effort == "high" {
+		t.Fatalf("result retained canonical reasoning instead of wire values: %#v", result.AppliedReasoning)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	for _, fragment := range []string{
+		`"applied_reasoning":{`,
+		`"mode":"enabled"`,
+		`"budget_tokens":`,
+	} {
+		if !bytes.Contains(raw, []byte(fragment)) {
+			t.Fatalf("result JSON = %s, want %s", raw, fragment)
+		}
+	}
+}
+
+func TestConvertedAttemptReportsWireReasoningOnProviderError(t *testing.T) {
+	t.Parallel()
+
+	wireBody := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		wireBody <- body
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(writer, `{"type":"error","error":{"type":"rate_limit_error","message":"retry later"}}`)
+	}))
+	defer server.Close()
+
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+		allowPrivateNetwork: true,
+		anthropicBaseURL:    server.URL,
+	})
+	spec := convertedSpec(
+		channel.Anthropic,
+		protocol.OpenAIResponses,
+		execution.OperationResponsesCreate,
+		"/v1/responses",
+		[]byte(`{"model":"client-model","input":"secret prompt","max_output_tokens":4096,"reasoning":{"mode":"pro","effort":"high"}}`),
+	)
+	result := runtime.Execute(context.Background(), spec)
+	if result.Error == nil || result.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("result = %+v, error = %+v", result, result.Error)
+	}
+	want := inspectAnthropicWireReasoning(t, <-wireBody)
+	if !reflect.DeepEqual(result.AppliedReasoning, want) {
+		t.Fatalf("result applied reasoning = %#v, wire reasoning = %#v", result.AppliedReasoning, want)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if bytes.Contains(raw, []byte("raw_request")) || bytes.Contains(raw, []byte("secret prompt")) {
+		t.Fatalf("result leaked raw request: %s", raw)
 	}
 }
 
@@ -362,7 +465,9 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 		credentialName string
 		upstreamStream string
 		upstreamModel  string
+		upstreamAPI    execution.UpstreamAPI
 		streamInBody   bool
+		wantReasoning  bool
 		wantFragments  []string
 		runtime        func(*testing.T, string) *testRuntime
 	}{
@@ -372,6 +477,7 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			clientPath: "/v1/messages", clientBody: []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
 			upstreamPath: "/v1/responses", credentialName: "Authorization", upstreamStream: openAIResponsesStreamFixture,
 			upstreamModel: "gpt-upstream",
+			upstreamAPI:   execution.UpstreamAPIOpenAIResponses,
 			streamInBody:  true,
 			wantFragments: []string{"event: message_start", `"type":"message_start"`, "hello", "event: message_stop"},
 			runtime: func(t *testing.T, base string) *testRuntime {
@@ -384,6 +490,7 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			clientPath: "/v1beta/models/client-model:streamGenerateContent", clientBody: []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
 			upstreamPath: "/v1/responses", credentialName: "Authorization", upstreamStream: openAIResponsesStreamFixture,
 			upstreamModel: "gpt-upstream",
+			upstreamAPI:   execution.UpstreamAPIOpenAIResponses,
 			streamInBody:  true,
 			wantFragments: []string{"data: ", "hello", "usageMetadata"},
 			runtime: func(t *testing.T, base string) *testRuntime {
@@ -393,10 +500,12 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 		{
 			name: "OpenAI Responses client from Anthropic stream", channelID: channel.Anthropic,
 			clientProtocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate,
-			clientPath: "/v1/responses", clientBody: []byte(`{"model":"client-model","input":"hello","max_output_tokens":16}`),
+			clientPath: "/v1/responses", clientBody: []byte(`{"model":"client-model","input":"hello","max_output_tokens":4096,"reasoning":{"mode":"pro","effort":"high"}}`),
 			upstreamPath: "/v1/messages", credentialName: "X-Api-Key", upstreamStream: anthropicResponsesStreamFixture,
 			upstreamModel: "claude-upstream",
+			upstreamAPI:   execution.UpstreamAPIAnthropicMessages,
 			streamInBody:  true,
+			wantReasoning: true,
 			wantFragments: []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
 			runtime: func(t *testing.T, base string) *testRuntime {
 				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
@@ -408,6 +517,7 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			clientPath: "/v1/responses", clientBody: []byte(`{"model":"client-model","input":"hello","max_output_tokens":16}`),
 			upstreamPath: "/v1beta/models/upstream-model:streamGenerateContent", credentialName: "X-Goog-Api-Key", upstreamStream: geminiResponsesStreamFixture,
 			upstreamModel: "gemini-upstream",
+			upstreamAPI:   execution.UpstreamAPIGeminiGenerateContent,
 			wantFragments: []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
 			runtime: func(t *testing.T, base string) *testRuntime {
 				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
@@ -417,6 +527,7 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			wireBody := make(chan []byte, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				if request.URL.Path != test.upstreamPath || request.URL.Query().Get("trace") != "kept" {
 					t.Errorf("target = %s?%s", request.URL.Path, request.URL.RawQuery)
@@ -429,6 +540,7 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 					t.Errorf("credential = %q", request.Header.Get(test.credentialName))
 				}
 				body, _ := io.ReadAll(request.Body)
+				wireBody <- body
 				var payload map[string]any
 				if err := json.Unmarshal(body, &payload); err != nil || (test.streamInBody && payload["stream"] != true) {
 					t.Errorf("stream request = %s err=%v", body, err)
@@ -468,6 +580,16 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			if result.Error != nil || ready != 1 || usageEvents == 0 || result.Usage == nil {
 				t.Fatalf("result/events = %+v ready=%d usage=%d data=%s", result, ready, usageEvents, data.String())
 			}
+			if result.UpstreamAPI != test.upstreamAPI {
+				t.Fatalf("result upstream API = %q, want %q", result.UpstreamAPI, test.upstreamAPI)
+			}
+			upstreamWireBody := <-wireBody
+			if test.wantReasoning {
+				want := inspectAnthropicWireReasoning(t, upstreamWireBody)
+				if !reflect.DeepEqual(result.AppliedReasoning, want) {
+					t.Fatalf("result applied reasoning = %#v, wire reasoning = %#v", result.AppliedReasoning, want)
+				}
+			}
 			for _, fragment := range test.wantFragments {
 				if !strings.Contains(data.String(), fragment) {
 					t.Errorf("stream missing %q: %s", fragment, data.String())
@@ -476,8 +598,39 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			if !strings.Contains(data.String(), `"client-model"`) || strings.Contains(data.String(), `"`+test.upstreamModel+`"`) {
 				t.Errorf("client model alias was not applied: %s", data.String())
 			}
+			if strings.Contains(data.String(), "raw_request") {
+				t.Errorf("stream leaked raw request: %s", data.String())
+			}
 		})
 	}
+}
+
+func inspectAnthropicWireReasoning(t *testing.T, body []byte) *reasoning.Config {
+	t.Helper()
+	var wire struct {
+		Thinking *struct {
+			Type         string `json:"type"`
+			BudgetTokens *int64 `json:"budget_tokens"`
+		} `json:"thinking"`
+		OutputConfig *struct {
+			Effort string `json:"effort"`
+		} `json:"output_config"`
+	}
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatalf("decode Anthropic wire request: %v; body=%s", err, body)
+	}
+	if wire.Thinking == nil && wire.OutputConfig == nil {
+		return nil
+	}
+	result := &reasoning.Config{}
+	if wire.Thinking != nil {
+		result.Mode = wire.Thinking.Type
+		result.BudgetTokens = wire.Thinking.BudgetTokens
+	}
+	if wire.OutputConfig != nil {
+		result.Effort = wire.OutputConfig.Effort
+	}
+	return result
 }
 
 func TestConvertedOpenAIChatStreamUsesSelectedProvider(t *testing.T) {

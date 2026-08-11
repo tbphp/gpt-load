@@ -47,6 +47,7 @@ export interface ModelPriceContextTierDto {
 export interface ModelPriceDto {
   id: number
   channel_id: string
+  channel_name: string
   model_id: string
   prices: ModelPriceSlotsDto
   pricing_status: ModelPriceStatus
@@ -107,6 +108,7 @@ const paginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as 
 const itemFields = [
   'id',
   'channel_id',
+  'channel_name',
   'model_id',
   'prices',
   'pricing_status',
@@ -133,6 +135,12 @@ function invalidResponse(): never {
 function projectIdentityString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0 || /\p{Cc}/u.test(result)) invalidResponse()
+  return result
+}
+
+function projectDisplayString(value: unknown): string {
+  const result = projectString(value)
+  if (result !== result.trim() || /\p{Cc}/u.test(result)) invalidResponse()
   return result
 }
 
@@ -182,6 +190,7 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
   const result: ModelPriceDto = {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     channel_id: projectChannelID(record.channel_id),
+    channel_name: projectDisplayString(record.channel_name),
     model_id: projectIdentityString(record.model_id),
     prices: projectPrices(record.prices),
     pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),

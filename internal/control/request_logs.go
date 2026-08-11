@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
@@ -72,6 +73,8 @@ type requestLogAttemptResponse struct {
 	UpstreamRequestID *string                           `json:"upstream_request_id"`
 	DispatchState     *execution.DispatchState          `json:"dispatch_state"`
 	ResponseStarted   bool                              `json:"response_started"`
+	UpstreamAPI       *execution.UpstreamAPI            `json:"upstream_api"`
+	Reasoning         *requestLogReasoningResponse      `json:"reasoning"`
 	StatusCode        int                               `json:"status_code"`
 	DurationMs        int64                             `json:"duration_ms"`
 	FailureCategory   telemetry.FailureCategory         `json:"failure_category"`
@@ -119,6 +122,8 @@ type requestLogItemResponse struct {
 	CompletedAtMS           int64                        `json:"completed_at_ms"`
 	AccessKey               requestLogAccessKeyResponse  `json:"access_key"`
 	Protocol                string                       `json:"protocol"`
+	Operation               *execution.Operation         `json:"operation"`
+	UpstreamAPI             *execution.UpstreamAPI       `json:"upstream_api"`
 	ClientModel             *string                      `json:"client_model"`
 	UpstreamModel           *string                      `json:"upstream_model"`
 	UpstreamReportedModel   *string                      `json:"upstream_reported_model"`
@@ -301,6 +306,8 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.GroupID = 0
 	record.ChannelID = ""
 	record.CredentialID = 0
+	record.RouteMode = ""
+	record.UpstreamAPI = ""
 	record.Attempts = []requestlog.Attempt{}
 	return record
 }
@@ -825,6 +832,14 @@ func mapRequestLogItemResponse(
 	if err != nil {
 		return requestLogItemResponse{}, fmt.Errorf("map request log final route mode: %w", err)
 	}
+	operation, err := nullableRequestLogOperation(record.Operation)
+	if err != nil {
+		return requestLogItemResponse{}, fmt.Errorf("map request log operation: %w", err)
+	}
+	upstreamAPI, err := nullableRequestLogUpstreamAPI(record.UpstreamAPI)
+	if err != nil {
+		return requestLogItemResponse{}, fmt.Errorf("map request log upstream API: %w", err)
+	}
 	return requestLogItemResponse{
 		RequestID:     record.RequestID,
 		CompletedAtMS: record.CompletedAtMS,
@@ -834,6 +849,8 @@ func mapRequestLogItemResponse(
 			Deleted: record.AccessKey.Deleted,
 		},
 		Protocol:                string(record.Protocol),
+		Operation:               operation,
+		UpstreamAPI:             upstreamAPI,
 		ClientModel:             nullableRequestLogModel(record.ClientModel),
 		UpstreamModel:           nullableRequestLogModel(record.UpstreamModel),
 		UpstreamReportedModel:   nullableRequestLogModel(record.UpstreamReportedModel),
@@ -866,15 +883,19 @@ func mapRequestLogItemResponse(
 }
 
 func mapRequestLogReasoning(record requestlog.Record) *requestLogReasoningResponse {
-	if !record.Reasoning.Present() {
+	return mapRequestLogReasoningConfig(record.Reasoning)
+}
+
+func mapRequestLogReasoningConfig(config reasoning.Config) *requestLogReasoningResponse {
+	if !config.Present() {
 		return nil
 	}
 	result := &requestLogReasoningResponse{
-		Mode:   nullableRequestLogReasoningValue(record.Reasoning.Mode),
-		Effort: nullableRequestLogReasoningValue(record.Reasoning.Effort),
+		Mode:   nullableRequestLogReasoningValue(config.Mode),
+		Effort: nullableRequestLogReasoningValue(config.Effort),
 	}
-	if record.Reasoning.BudgetTokens != nil {
-		value := strconv.FormatInt(*record.Reasoning.BudgetTokens, 10)
+	if config.BudgetTokens != nil {
+		value := strconv.FormatInt(*config.BudgetTokens, 10)
 		result.BudgetTokens = &value
 	}
 	return result
@@ -946,6 +967,10 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 	if err != nil {
 		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
 	}
+	upstreamAPI, err := nullableRequestLogUpstreamAPI(attempt.UpstreamAPI)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
 	receipt, err := mapRequestLogPricingReceipt(attempt.PricingReceipt)
 	if err != nil {
 		return requestLogAttemptResponse{}, err
@@ -962,6 +987,8 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 		UpstreamRequestID: nullableRequestLogModel(attempt.UpstreamRequestID),
 		DispatchState:     dispatchState,
 		ResponseStarted:   attempt.ResponseStarted,
+		UpstreamAPI:       upstreamAPI,
+		Reasoning:         mapRequestLogReasoningConfig(attempt.Reasoning),
 		StatusCode:        attempt.StatusCode,
 		DurationMs:        attempt.DurationMs,
 		FailureCategory:   attempt.FailureCategory,
@@ -1068,6 +1095,16 @@ func nullableRequestLogOperation(value execution.Operation) (*execution.Operatio
 	}
 	if !value.Valid() {
 		return nil, fmt.Errorf("invalid operation")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogUpstreamAPI(value execution.UpstreamAPI) (*execution.UpstreamAPI, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid upstream API")
 	}
 	return &value, nil
 }

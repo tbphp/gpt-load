@@ -68,7 +68,8 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	}
 	item, ok := items[0].(map[string]any)
 	if !ok || item["id"] != float64(row.ID) ||
-		item["channel_id"] != string(channel.OpenAICompatible) || item["model_id"] != "gpt-wire" {
+		item["channel_id"] != string(channel.OpenAICompatible) ||
+		item["channel_name"] != "OpenAI Compatible" || item["model_id"] != "gpt-wire" {
 		t.Fatalf("list item identity = %#v", items[0])
 	}
 	prices, ok := item["prices"].(map[string]any)
@@ -107,7 +108,8 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 	if !ok || updatedPrices["input"] != "0" || updatedPrices["output"] != nil {
 		t.Fatalf("updated price wire = %#v", updated["prices"])
 	}
-	if updated["method"] != "user_set" || updated["id"] != float64(row.ID) {
+	if updated["method"] != "user_set" || updated["id"] != float64(row.ID) ||
+		updated["channel_name"] != "OpenAI Compatible" {
 		t.Fatalf("updated ownership wire = %#v", updated)
 	}
 	if matchedProviderID, exists := updated["matched_provider_id"]; !exists || matchedProviderID != nil {

@@ -17,6 +17,7 @@ import (
 	"gpt-load/internal/platform/contentcoding"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -67,6 +68,8 @@ type UpstreamResult struct {
 	Usage                     usage.Result
 	DispatchState             execution.DispatchState
 	ResponseStarted           bool
+	UpstreamAPI               execution.UpstreamAPI
+	AppliedReasoning          reasoning.Config
 	UpstreamRequestID         string
 	ExecutionError            *execution.ErrorEvidence
 }

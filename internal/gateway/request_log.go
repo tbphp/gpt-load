@@ -134,6 +134,7 @@ func (recorder *requestRecorder) emit() {
 		DurationMs:            duration.Milliseconds(),
 		AffinityHit:           false,
 		Reasoning:             recorder.reasoning,
+		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
 	})
@@ -315,6 +316,8 @@ func (recorder *requestRecorder) appendAttempt(
 		UpstreamRequestID: result.UpstreamRequestID,
 		DispatchState:     result.DispatchState,
 		ResponseStarted:   result.ResponseStarted,
+		UpstreamAPI:       result.UpstreamAPI,
+		Reasoning:         result.AppliedReasoning.Clone(),
 		StatusCode:        result.StatusCode,
 		DurationMs:        duration.Milliseconds(),
 		FailureCategory:   category,

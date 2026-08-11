@@ -272,6 +272,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 						ID: 41, Name: &currentName,
 					},
 					Protocol:              protocol.OpenAICompletions,
+					Operation:             execution.OperationChatCompletion,
+					UpstreamAPI:           execution.UpstreamAPIOpenAIChatCompletions,
 					ClientModel:           "client-model",
 					UpstreamModel:         "upstream-model",
 					UpstreamReportedModel: "reported-model",
@@ -345,7 +347,9 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	}
 	if envelope.Data.Items[0]["upstream_reported_model"] != "reported-model" ||
 		envelope.Data.Items[0]["model_consistency"] != string(telemetry.ModelConsistencyMismatch) ||
-		envelope.Data.Items[0]["route_mode"] != string(channel.RouteNative) {
+		envelope.Data.Items[0]["route_mode"] != string(channel.RouteNative) ||
+		envelope.Data.Items[0]["operation"] != string(execution.OperationChatCompletion) ||
+		envelope.Data.Items[0]["upstream_api"] != string(execution.UpstreamAPIOpenAIChatCompletions) {
 		t.Fatalf("list item model observation = %#v", envelope.Data.Items[0])
 	}
 	for _, forbidden := range []string{"headers", "body", "url"} {
@@ -398,6 +402,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 
 func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testing.T) {
 	requestID := "00000000-0000-4000-8000-000000000611"
+	reasoningBudget := int64(4096)
 	rate := int64(1_000_000_000)
 	amount := int64(1_000_000)
 	receipt := &pricing.Receipt{
@@ -427,6 +432,8 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 			ChannelID:            channel.OpenAI,
 			CredentialID:         99,
 			Protocol:             protocol.OpenAICompletions,
+			Operation:            execution.OperationChatCompletion,
+			UpstreamAPI:          execution.UpstreamAPIOpenAIChatCompletions,
 			Status:               telemetry.RequestStatusSuccess,
 			StatusCode:           http.StatusOK,
 			AttemptCount:         1,
@@ -447,12 +454,16 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 				UpstreamRequestID: "upstream-request-1",
 				DispatchState:     execution.DispatchMaybeSent,
 				ResponseStarted:   true,
-				StatusCode:        http.StatusOK,
-				DurationMs:        1200,
-				FailureCategory:   telemetry.FailureCategoryOK,
-				Action:            telemetry.ActionTerminate,
-				Committed:         true,
-				PricingReceipt:    receipt,
+				UpstreamAPI:       execution.UpstreamAPIOpenAIChatCompletions,
+				Reasoning: reasoning.Config{
+					Effort: "high", BudgetTokens: &reasoningBudget,
+				},
+				StatusCode:      http.StatusOK,
+				DurationMs:      1200,
+				FailureCategory: telemetry.FailureCategoryOK,
+				Action:          telemetry.ActionTerminate,
+				Committed:       true,
+				PricingReceipt:  receipt,
 			}},
 		},
 	}}
@@ -467,6 +478,8 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	var envelope struct {
 		Data struct {
 			RequestID    string `json:"request_id"`
+			Operation    string `json:"operation"`
+			UpstreamAPI  string `json:"upstream_api"`
 			ChannelID    string `json:"channel_id"`
 			CredentialID uint   `json:"credential_id"`
 			Attempts     []struct {
@@ -477,8 +490,13 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 				UpstreamRequestID string `json:"upstream_request_id"`
 				DispatchState     string `json:"dispatch_state"`
 				ResponseStarted   bool   `json:"response_started"`
-				Committed         bool   `json:"committed"`
-				PricingReceipt    struct {
+				UpstreamAPI       string `json:"upstream_api"`
+				Reasoning         struct {
+					Effort       string `json:"effort"`
+					BudgetTokens string `json:"budget_tokens"`
+				} `json:"reasoning"`
+				Committed      bool `json:"committed"`
+				PricingReceipt struct {
 					Method       string `json:"method"`
 					TotalNanoUSD string `json:"total_nano_usd"`
 					Rule         struct {
@@ -497,6 +515,8 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		t.Fatalf("decode response: %v", err)
 	}
 	if envelope.Data.RequestID != requestID || envelope.Data.ChannelID != string(channel.OpenAI) ||
+		envelope.Data.Operation != string(execution.OperationChatCompletion) ||
+		envelope.Data.UpstreamAPI != string(execution.UpstreamAPIOpenAIChatCompletions) ||
 		envelope.Data.CredentialID != 99 || len(envelope.Data.Attempts) != 1 ||
 		envelope.Data.Attempts[0].ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Attempts[0].CredentialID != 99 ||
@@ -504,6 +524,9 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		envelope.Data.Attempts[0].RouteMode != string(channel.RouteNative) ||
 		envelope.Data.Attempts[0].UpstreamRequestID != "upstream-request-1" ||
 		envelope.Data.Attempts[0].DispatchState != string(execution.DispatchMaybeSent) ||
+		envelope.Data.Attempts[0].UpstreamAPI != string(execution.UpstreamAPIOpenAIChatCompletions) ||
+		envelope.Data.Attempts[0].Reasoning.Effort != "high" ||
+		envelope.Data.Attempts[0].Reasoning.BudgetTokens != "4096" ||
 		!envelope.Data.Attempts[0].ResponseStarted || !envelope.Data.Attempts[0].Committed ||
 		envelope.Data.Attempts[0].PricingReceipt.Method != pricing.ReceiptMethodUnitRateSum ||
 		envelope.Data.Attempts[0].PricingReceipt.Rule.ChannelID != string(channel.OpenAI) ||
@@ -699,6 +722,36 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 	}
 }
 
+func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
+	result, err := mapRequestLogDetailResponse(requestlog.Record{
+		RequestID:           "00000000-0000-4000-8000-000000000504",
+		Protocol:            protocol.OpenAIResponses,
+		ModelConsistency:    telemetry.ModelConsistencyNotApplicable,
+		Status:              telemetry.RequestStatusError,
+		UsageState:          usage.StateNotApplicable,
+		CostState:           pricing.CostStateNotApplicable,
+		PricingCompleteness: pricing.CompletenessNotApplicable,
+		Attempts: []requestlog.Attempt{{
+			Sequence:        1,
+			GroupID:         1,
+			GroupName:       "group",
+			FailureCategory: telemetry.FailureCategoryClientError,
+			Action:          telemetry.ActionTerminate,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("mapRequestLogDetailResponse() error = %v", err)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	if !strings.Contains(string(raw), `"attempts":[{"sequence":1`) ||
+		!strings.Contains(string(raw), `"reasoning":null`) {
+		t.Fatalf("response = %s, want null attempt reasoning", raw)
+	}
+}
+
 func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 	base := requestlog.Record{
 		UsageState: usage.StateComplete, CostState: pricing.CostStatePriced,
@@ -866,6 +919,8 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		CompletedAtMS:         time.Date(2026, time.August, 8, 19, 0, 0, 0, time.UTC).UnixMilli(),
 		AccessKey:             requestlog.AccessKeyRef{ID: current.ID, Name: &current.Name},
 		Protocol:              protocol.OpenAICompletions,
+		Operation:             execution.OperationChatCompletion,
+		UpstreamAPI:           execution.UpstreamAPIAnthropicMessages,
 		ClientModel:           "client-model",
 		UpstreamModel:         "private-upstream-model",
 		UpstreamReportedModel: "private-reported-model",
@@ -878,6 +933,7 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		GroupID:               99,
 		ChannelID:             channel.OpenAI,
 		CredentialID:          101,
+		RouteMode:             channel.RouteConverted,
 		UsageState:            usage.StateComplete,
 		CostState:             pricing.CostStatePriced,
 		PricingCompleteness:   pricing.CompletenessComplete,
@@ -984,6 +1040,8 @@ func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
 		"group_id":                "null",
 		"channel_id":              "null",
 		"credential_id":           "null",
+		"route_mode":              "null",
+		"upstream_api":            "null",
 		"attempt_count":           "0",
 	} {
 		if string(item[field]) != want {

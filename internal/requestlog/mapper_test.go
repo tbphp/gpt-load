@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -19,12 +20,18 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	event := testEvent("00000000-0000-4000-8000-000000000101")
 	event.CompletedAt = time.Date(2026, time.July, 24, 20, 30, 0, 123, time.FixedZone("test", 8*60*60))
 	event.Protocol = protocol.OpenAICompletions
+	event.Operation = execution.OperationChatCompletion
 	event.ClientModel = "client-alias"
 	reasoningBudget := int64(8192)
 	event.Reasoning = reasoning.Config{
 		Mode:         "adaptive",
 		Effort:       "high",
 		BudgetTokens: &reasoningBudget,
+	}
+	attemptBudget := int64(4096)
+	event.Attempts[0].UpstreamAPI = execution.UpstreamAPIOpenAIChatCompletions
+	event.Attempts[0].Reasoning = reasoning.Config{
+		Effort: "high", BudgetTokens: &attemptBudget,
 	}
 	event.Usage.Result = usage.Result{
 		State: usage.StatePartial,
@@ -59,6 +66,13 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 		row.ReasoningBudgetTokens == nil || *row.ReasoningBudgetTokens != reasoningBudget {
 		t.Fatalf("persisted reasoning = %+v", row)
 	}
+	if row.Operation != string(execution.OperationChatCompletion) || len(row.AttemptRows) != 1 ||
+		row.AttemptRows[0].UpstreamAPI != string(execution.UpstreamAPIOpenAIChatCompletions) ||
+		row.AttemptRows[0].ReasoningEffort != "high" ||
+		row.AttemptRows[0].ReasoningBudgetTokens == nil ||
+		*row.AttemptRows[0].ReasoningBudgetTokens != attemptBudget {
+		t.Fatalf("persisted execution observation = %+v / %+v", row, row.AttemptRows)
+	}
 	if row.UncachedInputTokens != 1 || row.CacheReadTokens != 2 || row.CacheWrite5MTokens != 3 ||
 		row.CacheWrite1HTokens != 4 || row.CacheWriteUnknownTokens != 5 || row.OutputTokens != 6 {
 		t.Fatalf("persisted token dimensions = %+v", row)
@@ -71,6 +85,14 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	if len(row.AttemptRows) != 1 || row.AttemptRows[0].GroupID != 7 ||
 		row.AttemptRows[0].CredentialID != 8 {
 		t.Fatalf("attempts = %+v", row.AttemptRows)
+	}
+}
+
+func TestMapEventRejectsInvalidAttemptUpstreamAPI(t *testing.T) {
+	event := testEvent("invalid-upstream-api")
+	event.Attempts[0].UpstreamAPI = execution.UpstreamAPI("private-sdk-name")
+	if _, err := mapEvent(redact.New(), event); err == nil {
+		t.Fatal("mapEvent() accepted an invalid upstream API")
 	}
 }
 

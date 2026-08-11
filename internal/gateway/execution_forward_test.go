@@ -13,6 +13,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -110,6 +111,34 @@ func TestExecutionForwarderKeepsHTTPFailureAsUncommittedResponse(t *testing.T) {
 	result.ExecutionError.Summary = "changed"
 	if evidence.Summary != "upstream rejected request" {
 		t.Fatal("Forward() retained executor-owned error evidence")
+	}
+}
+
+func TestExecutionForwarderKeepsExecutionObservationOnRepresentationFailure(t *testing.T) {
+	t.Parallel()
+
+	budget := int64(4096)
+	executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState:     execution.DispatchMaybeSent,
+			ResponseStarted:   true,
+			UpstreamAPI:       execution.UpstreamAPIAnthropicMessages,
+			AppliedReasoning:  &reasoning.Config{Mode: "enabled", BudgetTokens: &budget},
+			StatusCode:        http.StatusOK,
+			Header:            http.Header{"Content-Encoding": {"unsupported"}},
+			Body:              []byte(`{"ok":true}`),
+			UpstreamRequestID: "upstream-observation",
+		}
+	}}
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), executionForwardInput())
+	if !errors.Is(result.Err, ErrUpstreamProtocol) ||
+		result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
+		result.UpstreamAPI != execution.UpstreamAPIAnthropicMessages ||
+		result.UpstreamRequestID != "upstream-observation" ||
+		result.AppliedReasoning.Mode != "enabled" || result.AppliedReasoning.BudgetTokens == nil ||
+		*result.AppliedReasoning.BudgetTokens != budget {
+		t.Fatalf("Forward() representation failure = %#v", result)
 	}
 }
 

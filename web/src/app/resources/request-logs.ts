@@ -2,7 +2,11 @@ import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
-import { enabledDataProtocols } from '@/api/control/protocols'
+import {
+  enabledDataProtocols,
+  knownUpstreamAPIs,
+  type UpstreamAPIValue,
+} from '@/api/control/protocols'
 import type { AccessProtocol, FailureCategory } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -48,6 +52,7 @@ export type RequestLogOperation =
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
 export type RequestLogDispatchState = 'not_sent' | 'maybe_sent'
+export type RequestLogUpstreamAPI = UpstreamAPIValue
 
 export type { FailureCategory } from '@/api/control/types'
 
@@ -120,6 +125,8 @@ export interface RequestLogAttemptDto {
   upstream_request_id: string | null
   dispatch_state: RequestLogDispatchState | null
   response_started: boolean
+  upstream_api: RequestLogUpstreamAPI | null
+  reasoning: RequestLogReasoningDto | null
   status_code: number
   duration_ms: number
   failure_category: FailureCategory
@@ -142,6 +149,8 @@ export interface RequestLogItemDto {
   completed_at_ms: number
   access_key: { id: number; name: string | null; deleted: boolean }
   protocol: AccessProtocol
+  operation: RequestLogOperation | null
+  upstream_api: RequestLogUpstreamAPI | null
   client_model: string | null
   upstream_model: string | null
   upstream_reported_model: string | null
@@ -233,6 +242,8 @@ const itemFields = [
   'completed_at_ms',
   'access_key',
   'protocol',
+  'operation',
+  'upstream_api',
   'client_model',
   'upstream_model',
   'upstream_reported_model',
@@ -387,6 +398,8 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'upstream_request_id',
     'dispatch_state',
     'response_started',
+    'upstream_api',
+    'reasoning',
     'status_code',
     'duration_ms',
     'failure_category',
@@ -413,6 +426,9 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     dispatch_state:
       record.dispatch_state === null ? null : projectEnum(record.dispatch_state, dispatchStates),
     response_started: projectBoolean(record.response_started),
+    upstream_api:
+      record.upstream_api === null ? null : projectEnum(record.upstream_api, knownUpstreamAPIs),
+    reasoning: projectReasoning(record.reasoning),
     status_code: projectStatusCode(record.status_code),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),
     failure_category: projectEnum(record.failure_category, failureCategories),
@@ -498,6 +514,9 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     completed_at_ms: projectEpochMilliseconds(record.completed_at_ms),
     access_key: projectAccessKey(record.access_key),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
+    operation: record.operation === null ? null : projectEnum(record.operation, operations),
+    upstream_api:
+      record.upstream_api === null ? null : projectEnum(record.upstream_api, knownUpstreamAPIs),
     client_model: projectNullableModel(record.client_model),
     upstream_model: upstreamModel,
     upstream_reported_model: upstreamReportedModel,

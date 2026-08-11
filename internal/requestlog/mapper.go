@@ -48,28 +48,32 @@ func mapEvent(
 			attemptReceipt = receipt
 		}
 		attempts = append(attempts, models.RequestLogAttempt{
-			RequestID:         event.RequestID,
-			Sequence:          attempt.Sequence,
-			CompletedAtMS:     completedAtMS,
-			GroupID:           attempt.GroupID,
-			GroupName:         redactIdentityValue(redactor, attempt.GroupName),
-			ChannelID:         string(attempt.ChannelID),
-			CredentialID:      attempt.CredentialID,
-			Operation:         string(attempt.Operation),
-			RouteMode:         string(attempt.RouteMode),
-			UpstreamModel:     redactIdentityValue(redactor, projectModel(attempt.UpstreamModel)),
-			UpstreamRequestID: redactIdentityValue(redactor, projectModel(attempt.UpstreamRequestID)),
-			DispatchState:     string(attempt.DispatchState),
-			ResponseStarted:   attempt.ResponseStarted,
-			StatusCode:        attempt.StatusCode,
-			DurationMs:        attempt.DurationMs,
-			FailureCategory:   string(attempt.FailureCategory),
-			Action:            string(attempt.Action),
-			WillRetry:         attempt.WillRetry,
-			ErrorCode:         attempt.ErrorCode,
-			ErrorSummary:      sanitizeSummary(redactor, attempt.ErrorSummary),
-			Committed:         attempt.Committed,
-			PricingReceipt:    attemptReceipt,
+			RequestID:             event.RequestID,
+			Sequence:              attempt.Sequence,
+			CompletedAtMS:         completedAtMS,
+			GroupID:               attempt.GroupID,
+			GroupName:             redactIdentityValue(redactor, attempt.GroupName),
+			ChannelID:             string(attempt.ChannelID),
+			CredentialID:          attempt.CredentialID,
+			Operation:             string(attempt.Operation),
+			RouteMode:             string(attempt.RouteMode),
+			UpstreamModel:         redactIdentityValue(redactor, projectModel(attempt.UpstreamModel)),
+			UpstreamRequestID:     redactIdentityValue(redactor, projectModel(attempt.UpstreamRequestID)),
+			DispatchState:         string(attempt.DispatchState),
+			ResponseStarted:       attempt.ResponseStarted,
+			UpstreamAPI:           string(attempt.UpstreamAPI),
+			ReasoningMode:         attempt.Reasoning.Mode,
+			ReasoningEffort:       attempt.Reasoning.Effort,
+			ReasoningBudgetTokens: attempt.Reasoning.BudgetTokens,
+			StatusCode:            attempt.StatusCode,
+			DurationMs:            attempt.DurationMs,
+			FailureCategory:       string(attempt.FailureCategory),
+			Action:                string(attempt.Action),
+			WillRetry:             attempt.WillRetry,
+			ErrorCode:             attempt.ErrorCode,
+			ErrorSummary:          sanitizeSummary(redactor, attempt.ErrorSummary),
+			Committed:             attempt.Committed,
+			PricingReceipt:        attemptReceipt,
 		})
 	}
 
@@ -84,6 +88,7 @@ func mapEvent(
 		ChannelID:               string(event.Usage.ChannelID),
 		CredentialID:            event.Usage.CredentialID,
 		Protocol:                string(event.Protocol),
+		Operation:               string(event.Operation),
 		ClientModel:             redactIdentityValue(redactor, projectModel(event.ClientModel)),
 		UpstreamModel:           redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
 		UpstreamReportedModel:   redactIdentityValue(redactor, projectModel(event.UpstreamReportedModel)),
@@ -291,6 +296,9 @@ func validatedAttemptObservation(attempt telemetry.Attempt) (uint, error) {
 		(!validChannelID(string(attempt.ChannelID)) || !attempt.Operation.Valid() ||
 			!attempt.RouteMode.Valid() || !attempt.DispatchState.Valid()) {
 		return 0, fmt.Errorf("invalid attempt %d execution observation", attempt.Sequence)
+	}
+	if attempt.UpstreamAPI != "" && !attempt.UpstreamAPI.Valid() {
+		return 0, fmt.Errorf("invalid attempt %d upstream API", attempt.Sequence)
 	}
 	return credentialID, nil
 }

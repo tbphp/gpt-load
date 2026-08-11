@@ -63,6 +63,8 @@ type Attempt struct {
 	UpstreamRequestID string
 	DispatchState     execution.DispatchState
 	ResponseStarted   bool
+	UpstreamAPI       execution.UpstreamAPI
+	Reasoning         reasoning.Config
 	StatusCode        int
 	DurationMs        int64
 	FailureCategory   FailureCategory
@@ -97,6 +99,7 @@ type RequestEvent struct {
 	CompletedAt           time.Time
 	AccessKeyID           uint
 	Protocol              protocol.Protocol
+	Operation             execution.Operation
 	ClientModel           string
 	UpstreamModel         string
 	UpstreamReportedModel string

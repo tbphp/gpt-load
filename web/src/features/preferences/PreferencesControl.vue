@@ -15,10 +15,12 @@ const props = withDefaults(
     theme: AppTheme
     compact?: boolean
     showSignOut?: boolean
+    triggerLabel?: string
   }>(),
   {
     compact: false,
     showSignOut: false,
+    triggerLabel: '',
   },
 )
 
@@ -57,8 +59,12 @@ function updateTheme(event: Event): void {
 }
 
 function signOut(): void {
-  open.value = false
+  close()
   emit('sign-out')
+}
+
+function close(): void {
+  open.value = false
 }
 </script>
 
@@ -72,7 +78,7 @@ function signOut(): void {
     <template #trigger>
       <IconButton
         class="preferences-trigger"
-        :label="t('shell.preferences')"
+        :label="triggerLabel || t('shell.preferences')"
         :pressed="open"
         variant="surface"
         size="compact"
@@ -81,6 +87,13 @@ function signOut(): void {
       </IconButton>
     </template>
     <div class="preferences-panel">
+      <div v-if="$slots['mobile-navigation']" class="preferences-panel__mobile-navigation">
+        <slot name="mobile-navigation" :close="close" />
+      </div>
+      <div
+        v-if="$slots['mobile-navigation']"
+        class="preferences-panel__mobile-navigation-divider"
+      ></div>
       <div class="preferences-panel__group">
         <span class="preferences-panel__label">{{ t('shell.theme') }}</span>
         <div class="preferences-panel__segments" role="group" :aria-label="t('shell.theme')">
@@ -239,6 +252,11 @@ function signOut(): void {
   background: var(--color-border-subtle);
 }
 
+.preferences-panel__mobile-navigation,
+.preferences-panel__mobile-navigation-divider {
+  display: none;
+}
+
 .preferences-panel__action {
   display: flex;
   width: 100%;
@@ -273,7 +291,19 @@ function signOut(): void {
   }
 
   .app-popover__content.app-popover__content--preferences {
-    min-width: 244px;
+    width: min(280px, calc(100vw - 24px));
+    min-width: min(244px, calc(100vw - 24px));
+  }
+
+  .preferences-panel__mobile-navigation {
+    display: block;
+  }
+
+  .preferences-panel__mobile-navigation-divider {
+    display: block;
+    height: 1px;
+    margin: 0 -10px;
+    background: var(--color-border-subtle);
   }
 
   .preferences-panel label,

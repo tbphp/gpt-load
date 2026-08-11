@@ -4,6 +4,7 @@ export default {
       pending: '価格待ち',
       configured: '設定済み',
       unpriced: '価格なしに設定済み',
+      partial: '一部のみ価格設定',
     },
     fields: {
       input: '入力',
@@ -12,8 +13,14 @@ export default {
       cache_write: 'キャッシュ書き込み',
     },
     method: {
-      auto_sync: '上流価格',
+      auto_sync: 'カタログ同期',
+      reference_price: '参照価格',
       user_set: '手動価格',
+    },
+    source: {
+      channel_catalog_provider: 'Models.dev · {provider} の価格',
+      provider_priority_fallback:
+        'このチャネルに完全一致するカタログ価格がないため、Models.dev · {provider} を参照',
     },
     matrix: {
       heading: '価格',

@@ -205,7 +205,12 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 	if err != nil {
 		return ProjectModelListResponse{}, err
 	}
-	groupRecords, groupDTOs, err := projectModelGroups(groups, s.channelRegistry, protocolOverrides)
+	groupRecords, groupDTOs, err := projectModelGroups(
+		groups,
+		s.channelRegistry,
+		protocolOverrides,
+		query.AccessKeyID == nil,
+	)
 	if err != nil {
 		return ProjectModelListResponse{}, err
 	}
@@ -454,7 +459,7 @@ func (s *Service) GetUpstreamModelDetail(ctx context.Context, priceID uint) (Ups
 	if err != nil {
 		return UpstreamModelDetailDTO{}, err
 	}
-	groupRecords, _, err := projectModelGroups(groups, s.channelRegistry, nil)
+	groupRecords, _, err := projectModelGroups(groups, s.channelRegistry, nil, true)
 	if err != nil {
 		return UpstreamModelDetailDTO{}, err
 	}
@@ -505,6 +510,7 @@ func projectModelGroups(
 	groups []models.Group,
 	registry *channel.Registry,
 	protocolOverrides map[uint][]protocol.Protocol,
+	includeParams bool,
 ) ([]projectModelGroupRecord, map[uint]ProjectModelGroupDTO, error) {
 	records := make([]projectModelGroupRecord, 0, len(groups))
 	dtos := make(map[uint]ProjectModelGroupDTO, len(groups))
@@ -531,9 +537,14 @@ func projectModelGroups(
 		if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
 			return nil, nil, fmt.Errorf("decode group %d models: %w", group.ID, app_errors.ErrInternalServer)
 		}
+		// AccessKey 模型页只需要可见关系；保留 params 对象形状，但不投影运营侧连接信息。
+		projectedParams := json.RawMessage(`{}`)
+		if includeParams {
+			projectedParams = params.CanonicalJSON()
+		}
 		dto := ProjectModelGroupDTO{
 			ID: group.ID, Name: group.Name, ChannelID: channel.ID(group.ChannelID),
-			Params: params.CanonicalJSON(), Enabled: group.Enabled,
+			Params: projectedParams, Enabled: group.Enabled,
 			ClientProtocols: append([]protocol.Protocol(nil), protocols...),
 		}
 		dtos[group.ID] = dto
@@ -647,6 +658,7 @@ func projectModelCatalogReference(
 	}
 	var model catalog.Model
 	providerID := ""
+	matchSource := ModelPriceMatchSourceProviderPriorityFallback
 	if price.MatchedProviderID != nil {
 		providerID = *price.MatchedProviderID
 		provider, exists := snapshot.Providers[providerID]
@@ -654,6 +666,11 @@ func projectModelCatalogReference(
 			model, exists = provider.Models[identity.ModelID]
 			if !exists {
 				providerID = ""
+			} else if price.MatchSource != nil {
+				matchSource = *price.MatchSource
+			} else if exactProviderID, known := modelPriceChannelRegistry.CatalogProviderID(channel.ID(identity.ChannelID)); known &&
+				exactProviderID != "" && exactProviderID == providerID {
+				matchSource = ModelPriceMatchSourceChannelCatalogProvider
 			}
 		} else {
 			providerID = ""
@@ -661,7 +678,7 @@ func projectModelCatalogReference(
 	}
 	if providerID == "" {
 		var ok bool
-		model, providerID, _, ok = resolveCatalogModelForIdentity(snapshot, identity, false)
+		model, providerID, matchSource, ok = resolveCatalogModelForIdentity(snapshot, identity, false)
 		if !ok {
 			return nil
 		}
@@ -671,8 +688,12 @@ func projectModelCatalogReference(
 	if providerName == "" {
 		providerName = providerID
 	}
+	source := "reference_provider"
+	if matchSource == ModelPriceMatchSourceChannelCatalogProvider {
+		source = "actual_provider"
+	}
 	return &ProjectModelCatalogReferenceDTO{
-		Source: "reference_provider", ProviderID: providerID, ProviderName: providerName,
+		Source: source, ProviderID: providerID, ProviderName: providerName,
 		Model: projectModelCatalogModel(model),
 	}
 }

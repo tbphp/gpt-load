@@ -64,6 +64,9 @@ func TestOfficialAnthropicMessagesNativeUnary(t *testing.T) {
 	if string(result.Body) != responseBody || result.UpstreamRequestID != "anthropic-unary" {
 		t.Fatalf("result/body = %+v/%s", result, result.Body)
 	}
+	if result.UpstreamAPI != execution.UpstreamAPIAnthropicMessages {
+		t.Fatalf("upstream API = %q, want %q", result.UpstreamAPI, execution.UpstreamAPIAnthropicMessages)
+	}
 	assertUsage(t, result.Usage, usage.Tokens{UncachedInput: 6, CacheRead: 4, Output: 3})
 }
 
@@ -101,6 +104,9 @@ func TestOfficialAnthropicMessagesNativeStream(t *testing.T) {
 		events = append(events, event.Clone())
 		return nil
 	})
+	if result.UpstreamAPI != execution.UpstreamAPIAnthropicMessages {
+		t.Fatalf("upstream API = %q, want %q", result.UpstreamAPI, execution.UpstreamAPIAnthropicMessages)
+	}
 	assertRawStream(t, result, events, rawStream, usage.Tokens{UncachedInput: 6, CacheRead: 4, Output: 3})
 }
 
@@ -150,6 +156,9 @@ func TestOfficialGeminiGenerateNativeUnary(t *testing.T) {
 	if string(result.Body) != responseBody || result.UpstreamRequestID != "gemini-unary" {
 		t.Fatalf("result/body = %+v/%s", result, result.Body)
 	}
+	if result.UpstreamAPI != execution.UpstreamAPIGeminiGenerateContent {
+		t.Fatalf("upstream API = %q, want %q", result.UpstreamAPI, execution.UpstreamAPIGeminiGenerateContent)
+	}
 	assertUsage(t, result.Usage, usage.Tokens{UncachedInput: 6, CacheRead: 4, Output: 3})
 }
 
@@ -178,6 +187,9 @@ func TestOfficialGeminiGenerateNativeStream(t *testing.T) {
 		events = append(events, event.Clone())
 		return nil
 	})
+	if result.UpstreamAPI != execution.UpstreamAPIGeminiGenerateContent {
+		t.Fatalf("upstream API = %q, want %q", result.UpstreamAPI, execution.UpstreamAPIGeminiGenerateContent)
+	}
 	assertRawStream(t, result, events, rawStream, usage.Tokens{UncachedInput: 6, CacheRead: 4, Output: 3})
 }
 

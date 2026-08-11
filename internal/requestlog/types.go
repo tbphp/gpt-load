@@ -39,6 +39,8 @@ type Attempt struct {
 	UpstreamRequestID string                    `json:"upstream_request_id"`
 	DispatchState     execution.DispatchState   `json:"dispatch_state"`
 	ResponseStarted   bool                      `json:"response_started"`
+	UpstreamAPI       execution.UpstreamAPI     `json:"upstream_api"`
+	Reasoning         reasoning.Config          `json:"reasoning"`
 	StatusCode        int                       `json:"status_code"`
 	DurationMs        int64                     `json:"duration_ms"`
 	FailureCategory   telemetry.FailureCategory `json:"failure_category"`
@@ -111,6 +113,8 @@ type Record struct {
 	CompletedAtMS           int64
 	AccessKey               AccessKeyRef
 	Protocol                protocol.Protocol
+	Operation               execution.Operation
+	UpstreamAPI             execution.UpstreamAPI
 	ClientModel             string
 	UpstreamModel           string
 	UpstreamReportedModel   string

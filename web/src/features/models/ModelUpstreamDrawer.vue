@@ -45,6 +45,7 @@ const detail = computed(() => detailQuery.data.value)
 const placeholderPrice: UpstreamModelDetailDto['price'] = {
   id: 0,
   channel_id: '',
+  channel_name: '',
   model_id: '',
   prices: { input: null, output: null, cache_read: null, cache_write: null },
   pricing_status: 'pending',
@@ -63,16 +64,6 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
 const price = computed(() => detail.value?.price ?? placeholderPrice)
 const editor = useModelPriceEditor(toRef(price))
 const resetting = ref(false)
-
-/** 客户端模型与分组分开列出：前者只是影响面，后者可以跳转。 */
-const clientModels = computed(() => {
-  return [...new Set((detail.value?.associations ?? []).map(({ client_model }) => client_model))]
-})
-const groups = computed(() => {
-  const seen = new Map<number, UpstreamModelDetailDto['associations'][number]['group']>()
-  for (const { group } of detail.value?.associations ?? []) seen.set(group.id, group)
-  return [...seen.values()]
-})
 
 async function requestClose(): Promise<void> {
   if (!(await editor.confirmDiscardSwitch())) return
@@ -138,18 +129,40 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
     />
     <div v-else-if="detail" class="upstream-drawer">
       <div class="upstream-drawer__meta">
-        <ModelPriceStatusBadge :price="price" />
-        <span class="upstream-drawer__channel">
-          {{ t('models.drawer.channel') }} <code>{{ price.channel_id }}</code>
-        </span>
+        <ModelPriceStatusBadge
+          :price="price"
+          :provider-name="detail.catalog_reference?.provider_name"
+        />
         <span v-if="price.updated_at_ms > 0" class="upstream-drawer__faint">
           {{ t('models.drawer.updatedAt') }}
           <AppDateTime :instant="price.updated_at_ms" :locale="locale" />
         </span>
       </div>
 
-      <InlineFeedback v-if="detail.client_model_count > 1" appearance="ledger" tone="warning">
-        {{ t('models.drawer.sharedWarning', { count: detail.client_model_count }) }}
+      <dl class="upstream-drawer__identity">
+        <div>
+          <dt>{{ t('models.drawer.pricingChannel') }}</dt>
+          <dd>
+            <span>{{ price.channel_name }}</span>
+            <code>{{ price.channel_id }}</code>
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t('models.drawer.upstreamModel') }}</dt>
+          <dd>
+            <code>{{ detail.model_id }}</code>
+          </dd>
+        </div>
+      </dl>
+
+      <InlineFeedback v-if="price.reference_count > 1" appearance="ledger" tone="warning">
+        {{
+          t('models.drawer.sharedImpact', {
+            references: price.reference_count,
+            clients: detail.client_model_count,
+            groups: detail.group_count,
+          })
+        }}
       </InlineFeedback>
 
       <section class="upstream-drawer__section">
@@ -178,32 +191,42 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
 
       <section class="upstream-drawer__section">
         <h3>{{ t('models.drawer.relationships') }}</h3>
-
-        <div class="upstream-drawer__relation">
-          <span class="upstream-drawer__eyebrow">
-            {{ t('models.drawer.clientModels') }}
-          </span>
-          <!-- 客户端模型不可跳转：用中性 code 样式，与下面的分组链接明确区分。 -->
-          <ul class="upstream-drawer__clients">
-            <li v-for="entry in clientModels" :key="entry">
-              <code>{{ entry }}</code>
-            </li>
-          </ul>
-        </div>
-
-        <div class="upstream-drawer__relation">
-          <span class="upstream-drawer__eyebrow">
-            {{ t('models.drawer.groups') }}
-          </span>
-          <ul class="upstream-drawer__groups">
-            <li v-for="group in groups" :key="group.id">
-              <RouterLink :to="groupDetailLocation(group.id)">{{ group.name }}</RouterLink>
-              <span v-if="!group.enabled" class="upstream-drawer__tag">
+        <p class="upstream-drawer__faint">
+          {{ t('models.drawer.relationshipsHelp', { count: price.reference_count }) }}
+        </p>
+        <ul class="upstream-drawer__associations">
+          <li
+            v-for="association in detail.associations"
+            :key="`${association.client_model}:${association.group.id}`"
+          >
+            <span
+              class="upstream-drawer__mapping"
+              :aria-label="
+                association.alias_applied
+                  ? t('models.drawer.aliasMapping', {
+                      client: association.client_model,
+                      upstream: detail.model_id,
+                    })
+                  : t('models.drawer.directMapping', { model: association.client_model })
+              "
+            >
+              <code>{{ association.client_model }}</code>
+              <template v-if="association.alias_applied">
+                <span aria-hidden="true">→</span>
+                <code>{{ detail.model_id }}</code>
+              </template>
+            </span>
+            <span class="upstream-drawer__group">
+              <span class="upstream-drawer__eyebrow">{{ t('models.drawer.group') }}</span>
+              <RouterLink :to="groupDetailLocation(association.group.id)">
+                {{ association.group.name }}
+              </RouterLink>
+              <span v-if="!association.group.enabled" class="upstream-drawer__tag">
                 {{ t('models.detail.groupDisabled') }}
               </span>
-            </li>
-          </ul>
-        </div>
+            </span>
+          </li>
+        </ul>
       </section>
     </div>
 
@@ -248,7 +271,7 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   padding-block: var(--space-3-5);
 }
 
-/* 概要条：状态、定价方式、最近更新时间一行收口。 */
+/* 概要条只承载价格状态和时间；计价身份在下方独立展开，避免混淆渠道名与 ID。 */
 .upstream-drawer__meta {
   display: flex;
   align-items: center;
@@ -262,13 +285,45 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   font-size: var(--text-meta);
 }
 
-.upstream-drawer__faint {
+.upstream-drawer__identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.upstream-drawer__identity > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  border-left: 2px solid var(--color-border-control);
+  padding-left: var(--space-2);
+}
+
+.upstream-drawer__identity dt {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
 
-.upstream-drawer__channel code {
+.upstream-drawer__identity dd {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+.upstream-drawer__identity code {
   color: var(--color-text);
+  font-size: var(--text-label-xs);
+  overflow-wrap: anywhere;
+}
+
+.upstream-drawer__faint {
+  color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
 
@@ -295,45 +350,50 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   letter-spacing: 0.03em;
 }
 
-.upstream-drawer__relation {
+.upstream-drawer__associations {
   display: grid;
   min-width: 0;
-  gap: var(--space-1-75);
-}
-
-.upstream-drawer__clients,
-.upstream-drawer__groups {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-1-75) var(--space-2);
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.upstream-drawer__clients li,
-.upstream-drawer__groups li {
+.upstream-drawer__associations li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto);
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  padding: var(--space-2);
+}
+
+.upstream-drawer__mapping,
+.upstream-drawer__group {
   display: inline-flex;
   min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-1);
 }
 
-/* 只读影响面：无边框中性底，读起来是标签而不是可点项。 */
-.upstream-drawer__clients code {
-  border-radius: var(--radius-tag);
-  background: var(--color-tag);
-  padding: 2px 7px;
+.upstream-drawer__mapping {
   color: var(--color-text-muted);
+}
+
+.upstream-drawer__mapping code {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 
-/* 分组可跳转：链接色加下划线，与上面的只读标签区分开。 */
-.upstream-drawer__groups a {
+.upstream-drawer__group {
+  justify-content: flex-end;
+}
+
+.upstream-drawer__group a {
   border-bottom: 1px solid currentcolor;
   color: var(--color-action);
   font-size: var(--text-meta);
@@ -351,5 +411,19 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+@media (max-width: 620px) {
+  .upstream-drawer__identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upstream-drawer__associations li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upstream-drawer__group {
+    justify-content: flex-start;
+  }
 }
 </style>

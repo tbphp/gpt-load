@@ -22,6 +22,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/platform/encryption"
@@ -1237,6 +1238,55 @@ func TestRequestRecorderEmitsClientReasoningConfiguration(t *testing.T) {
 	events := sink.snapshot()
 	if len(events) != 1 || !reflect.DeepEqual(events[0].Reasoning, want) {
 		t.Fatalf("events = %#v, want reasoning %#v", events, want)
+	}
+}
+
+func TestRequestRecorderEmitsOperationAndAppliedAttemptObservation(t *testing.T) {
+	budget := int64(4096)
+	startedAt := time.Date(2026, time.August, 10, 10, 0, 0, 0, time.UTC)
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"00000000-0000-4000-8000-000000000208",
+		startedAt,
+		1,
+		protocol.OpenAIResponses,
+		func() time.Time { return startedAt.Add(time.Second) },
+	)
+	recorder.setOperation(execution.OperationResponsesCreate)
+	selection := requestLogSelection(7, 8, "converted")
+	selection.RouteMode = channel.RouteConverted
+	recorder.appendAttempt(
+		selection,
+		UpstreamResult{
+			UpstreamAPI: execution.UpstreamAPIAnthropicMessages,
+			AppliedReasoning: reasoning.Config{
+				Mode: "enabled", BudgetTokens: &budget,
+			},
+		},
+		telemetry.FailureCategoryOK,
+		telemetry.ActionTerminate,
+		"",
+		"",
+		startedAt,
+		startedAt.Add(500*time.Millisecond),
+	)
+	recorder.outcome = requestOutcome{
+		status: telemetry.RequestStatusSuccess, statusCode: http.StatusOK,
+	}
+	budget = 1
+	recorder.emit()
+
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Operation != execution.OperationResponsesCreate ||
+		len(events[0].Attempts) != 1 {
+		t.Fatalf("events = %#v, want one responses_create attempt", events)
+	}
+	attempt := events[0].Attempts[0]
+	if attempt.UpstreamAPI != execution.UpstreamAPIAnthropicMessages ||
+		attempt.Reasoning.Mode != "enabled" || attempt.Reasoning.BudgetTokens == nil ||
+		*attempt.Reasoning.BudgetTokens != 4096 {
+		t.Fatalf("attempt observation = %#v", attempt)
 	}
 }
 

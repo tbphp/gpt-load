@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
 )
 
@@ -43,6 +44,25 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 	}
 	if RouteMode("fallback").Valid() {
 		t.Fatal("expected unknown route mode to be invalid")
+	}
+	for _, upstreamAPI := range []UpstreamAPI{
+		UpstreamAPIOpenAIChatCompletions,
+		UpstreamAPIOpenAIResponses,
+		UpstreamAPIAnthropicMessages,
+		UpstreamAPIGeminiGenerateContent,
+		UpstreamAPIOpenAIModels,
+		UpstreamAPIAnthropicModels,
+		UpstreamAPIGeminiModels,
+		UpstreamAPIAzureOpenAI,
+		UpstreamAPIAWSBedrock,
+		UpstreamAPIGoogleVertex,
+	} {
+		if !upstreamAPI.Valid() {
+			t.Fatalf("expected upstream API %q to be valid", upstreamAPI)
+		}
+	}
+	if UpstreamAPI("unknown").Valid() {
+		t.Fatal("expected unknown upstream API to be invalid")
 	}
 	for _, feature := range []Feature{
 		FeatureStreaming,
@@ -284,11 +304,14 @@ func TestAttemptSpecRawQueryPreservesOpaqueBytesAndRejectsUnsafeShapes(t *testin
 }
 
 func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
+	reasoningBudget := int64(4096)
 	result := AttemptResult{
-		DispatchState: DispatchMaybeSent,
-		StatusCode:    http.StatusOK,
-		Header:        http.Header{"X-Request-Id": {"request-1"}},
-		Body:          []byte("response"),
+		DispatchState:    DispatchMaybeSent,
+		UpstreamAPI:      UpstreamAPIAnthropicMessages,
+		AppliedReasoning: &reasoning.Config{Mode: "enabled", BudgetTokens: &reasoningBudget},
+		StatusCode:       http.StatusOK,
+		Header:           http.Header{"X-Request-Id": {"request-1"}},
+		Body:             []byte("response"),
 		Usage: &UsageEvidence{
 			Normalized: usage.Result{State: usage.StateComplete},
 			Raw:        []byte(`{"input_tokens":1}`),
@@ -306,11 +329,16 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	clone.Body[0] = 'X'
 	clone.Usage.Raw[0] = 'Y'
 	clone.Error.Header.Set("Retry-After", "2")
+	*clone.AppliedReasoning.BudgetTokens = 2048
 	if result.Header.Get("X-Request-ID") != "request-1" || string(result.Body) != "response" {
 		t.Fatal("mutating attempt result clone changed original response data")
 	}
 	if string(result.Usage.Raw) != `{"input_tokens":1}` || result.Error.Header.Get("Retry-After") != "1" {
 		t.Fatal("mutating attempt result clone changed original evidence")
+	}
+	if result.AppliedReasoning == nil || result.AppliedReasoning.BudgetTokens == nil ||
+		*result.AppliedReasoning.BudgetTokens != reasoningBudget {
+		t.Fatal("mutating attempt result clone changed original reasoning")
 	}
 
 	event := StreamEvent{
@@ -329,6 +357,8 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	streamResult := StreamResult{
 		DispatchState:     DispatchMaybeSent,
 		ResponseStarted:   true,
+		UpstreamAPI:       UpstreamAPIOpenAIResponses,
+		AppliedReasoning:  &reasoning.Config{Effort: "high", BudgetTokens: &reasoningBudget},
 		StatusCode:        http.StatusOK,
 		Header:            http.Header{"X-Request-Id": {"request-1"}},
 		UpstreamRequestID: "upstream-1",
@@ -339,8 +369,13 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	streamClone.Header.Set("X-Request-ID", "changed")
 	streamClone.Usage.Raw[0] = 'X'
 	streamClone.Error.Header.Set("Retry-After", "2")
+	*streamClone.AppliedReasoning.BudgetTokens = 1024
 	if streamResult.Header.Get("X-Request-ID") != "request-1" || string(streamResult.Usage.Raw) != "usage" || streamResult.Error.Header.Get("Retry-After") != "1" {
 		t.Fatal("mutating stream result clone changed original")
+	}
+	if streamResult.AppliedReasoning == nil || streamResult.AppliedReasoning.BudgetTokens == nil ||
+		*streamResult.AppliedReasoning.BudgetTokens != reasoningBudget {
+		t.Fatal("mutating stream result clone changed original reasoning")
 	}
 }
 
@@ -439,6 +474,12 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	}
 	if err := (AttemptResult{DispatchState: DispatchState("unknown")}).Validate(); err == nil {
 		t.Fatal("expected invalid result dispatch state to be rejected")
+	}
+	if err := (AttemptResult{DispatchState: DispatchNotSent, UpstreamAPI: UpstreamAPI("unknown")}).Validate(); err == nil {
+		t.Fatal("expected invalid result upstream API to be rejected")
+	}
+	if err := (StreamResult{DispatchState: DispatchNotSent, UpstreamAPI: UpstreamAPI("unknown")}).Validate(); err == nil {
+		t.Fatal("expected invalid stream result upstream API to be rejected")
 	}
 	invalidResults := []AttemptResult{
 		{DispatchState: DispatchMaybeSent, StatusCode: http.StatusOK},

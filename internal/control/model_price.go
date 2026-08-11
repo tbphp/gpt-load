@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -25,6 +27,7 @@ type PriceSlotsDTO struct {
 type ModelPriceDTO struct {
 	ID                  uint                       `json:"id"`
 	ChannelID           string                     `json:"channel_id"`
+	ChannelName         string                     `json:"channel_name"`
 	ModelID             string                     `json:"model_id"`
 	Prices              PriceSlotsDTO              `json:"prices"`
 	PricingStatus       PricingStatus              `json:"pricing_status"`
@@ -479,6 +482,10 @@ func projectModelPriceRow(
 		return modelPriceListRecord{}, fmt.Errorf("validate persisted model price: %w", app_errors.ErrInternalServer)
 	}
 	identity := rule.Identity
+	descriptor, ok := modelPriceChannelRegistry.Get(channel.ID(identity.ChannelID))
+	if !ok || strings.TrimSpace(descriptor.Name) == "" {
+		return modelPriceListRecord{}, fmt.Errorf("resolve model price channel: %w", app_errors.ErrInternalServer)
+	}
 	reference := references.references[identity]
 	status := resolvePricingStatus(&row)
 	prices := PriceSlotsDTO{
@@ -504,7 +511,7 @@ func projectModelPriceRow(
 		}
 	}
 	dto := ModelPriceDTO{
-		ID: row.ID, ChannelID: row.ChannelID, ModelID: row.ModelID,
+		ID: row.ID, ChannelID: row.ChannelID, ChannelName: descriptor.Name, ModelID: row.ModelID,
 		Prices:              prices,
 		PricingStatus:       status,
 		Method:              modelPriceMethod(row, configured, matchedAutomaticPrice),

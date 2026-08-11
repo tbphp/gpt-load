@@ -122,7 +122,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if err := service.loadAccessKeyRefs(ctx, records); err != nil {
 		return Page{}, err
 	}
-	if err := service.loadFinalRouteModes(ctx, records); err != nil {
+	if err := service.loadFinalExecutionObservations(ctx, records); err != nil {
 		return Page{}, err
 	}
 
@@ -222,6 +222,7 @@ func (service *Service) Get(ctx context.Context, requestID string) (Record, erro
 		}
 		records[0].Attempts = attempts
 		records[0].RouteMode = finalRouteMode(records[0], attempts)
+		records[0].UpstreamAPI = finalUpstreamAPI(records[0], attempts)
 		record = records[0]
 		return nil
 	})
@@ -263,15 +264,21 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 			UpstreamRequestID: row.UpstreamRequestID,
 			DispatchState:     execution.DispatchState(row.DispatchState),
 			ResponseStarted:   row.ResponseStarted,
-			StatusCode:        row.StatusCode,
-			DurationMs:        row.DurationMs,
-			FailureCategory:   telemetry.FailureCategory(row.FailureCategory),
-			Action:            telemetry.Action(row.Action),
-			WillRetry:         row.WillRetry,
-			ErrorCode:         row.ErrorCode,
-			ErrorSummary:      row.ErrorSummary,
-			Committed:         row.Committed,
-			PricingReceipt:    receipt,
+			UpstreamAPI:       execution.UpstreamAPI(row.UpstreamAPI),
+			Reasoning: reasoning.Config{
+				Mode:         row.ReasoningMode,
+				Effort:       row.ReasoningEffort,
+				BudgetTokens: row.ReasoningBudgetTokens,
+			},
+			StatusCode:      row.StatusCode,
+			DurationMs:      row.DurationMs,
+			FailureCategory: telemetry.FailureCategory(row.FailureCategory),
+			Action:          telemetry.Action(row.Action),
+			WillRetry:       row.WillRetry,
+			ErrorCode:       row.ErrorCode,
+			ErrorSummary:    row.ErrorSummary,
+			Committed:       row.Committed,
+			PricingReceipt:  receipt,
 		})
 	}
 	return attempts, nil
@@ -291,6 +298,7 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			CompletedAtMS:         row.CompletedAtMS,
 			AccessKey:             AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
 			Protocol:              protocol.Protocol(row.Protocol),
+			Operation:             execution.Operation(row.Operation),
 			ClientModel:           row.ClientModel,
 			UpstreamModel:         row.UpstreamModel,
 			UpstreamReportedModel: row.UpstreamReportedModel,
@@ -393,7 +401,10 @@ func (service *Service) loadAccessKeyRefs(ctx context.Context, records []Record)
 	return loadAccessKeyRefs(ctx, service.db, records)
 }
 
-func (service *Service) loadFinalRouteModes(ctx context.Context, records []Record) error {
+func (service *Service) loadFinalExecutionObservations(
+	ctx context.Context,
+	records []Record,
+) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -406,12 +417,12 @@ func (service *Service) loadFinalRouteModes(ctx context.Context, records []Recor
 
 	var attempts []models.RequestLogAttempt
 	if err := service.db.WithContext(ctx).
-		Select("request_id", "sequence", "group_id", "channel_id", "credential_id", "route_mode").
+		Select("request_id", "sequence", "group_id", "channel_id", "credential_id", "route_mode", "upstream_api").
 		Where("request_id IN ?", requestIDs).
 		Order("request_id ASC").
 		Order("sequence DESC").
 		Find(&attempts).Error; err != nil {
-		return fmt.Errorf("query request log final route modes: %w", err)
+		return fmt.Errorf("query request log final execution observations: %w", err)
 	}
 	resolved := make(map[string]struct{}, len(records))
 	for _, attempt := range attempts {
@@ -430,13 +441,15 @@ func (service *Service) loadFinalRouteModes(ctx context.Context, records []Recor
 		}
 		resolved[attempt.RequestID] = struct{}{}
 		mode := channel.RouteMode(attempt.RouteMode)
-		if mode == "" {
-			continue
-		}
-		if !mode.Valid() {
-			return fmt.Errorf("query request log final route modes: invalid route mode")
+		if mode != "" && !mode.Valid() {
+			return fmt.Errorf("query request log final execution observations: invalid route mode")
 		}
 		records[index].RouteMode = mode
+		upstreamAPI := execution.UpstreamAPI(attempt.UpstreamAPI)
+		if upstreamAPI != "" && !upstreamAPI.Valid() {
+			return fmt.Errorf("query request log final execution observations: invalid upstream API")
+		}
+		records[index].UpstreamAPI = upstreamAPI
 	}
 	return nil
 }
@@ -448,6 +461,18 @@ func finalRouteMode(record Record, attempts []Attempt) channel.RouteMode {
 			attempt.ChannelID == record.ChannelID &&
 			attempt.CredentialID == record.CredentialID {
 			return attempt.RouteMode
+		}
+	}
+	return ""
+}
+
+func finalUpstreamAPI(record Record, attempts []Attempt) execution.UpstreamAPI {
+	for index := len(attempts) - 1; index >= 0; index-- {
+		attempt := attempts[index]
+		if attempt.GroupID == record.GroupID &&
+			attempt.ChannelID == record.ChannelID &&
+			attempt.CredentialID == record.CredentialID {
+			return attempt.UpstreamAPI
 		}
 	}
 	return ""

@@ -282,7 +282,7 @@ func TestOpenAICompatibleConvertedResponsesUsesChatCompletions(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPost || request.URL.Path != "/vendor/api/v4/chat/completions" {
+		if request.Method != http.MethodPost || request.URL.Path != "/responses-relay/vendor/api/v4/chat/completions" {
 			t.Errorf("request = %s %s", request.Method, request.URL.Path)
 			writer.WriteHeader(http.StatusNotFound)
 			return
@@ -293,7 +293,7 @@ func TestOpenAICompatibleConvertedResponsesUsesChatCompletions(t *testing.T) {
 	defer server.Close()
 
 	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
-	target, _ := json.Marshal(map[string]string{"base_url": server.URL + "/vendor/api/v4"})
+	target, _ := json.Marshal(map[string]string{"base_url": server.URL + "/responses-relay/vendor/api/v4"})
 	spec := openAIResponsesSpec(execution.OperationResponsesCreate, http.MethodPost, "/v1/responses")
 	spec.ChannelID = string(channel.OpenAICompatible)
 	spec.TargetConfig = target
@@ -307,6 +307,9 @@ func TestOpenAICompatibleConvertedResponsesUsesChatCompletions(t *testing.T) {
 	}
 	if !bytes.Contains(result.Body, []byte(`"object":"response"`)) {
 		t.Fatalf("converted Responses body = %s", result.Body)
+	}
+	if result.UpstreamAPI != execution.UpstreamAPIOpenAIChatCompletions {
+		t.Fatalf("upstream API = %q, want Chat Completions", result.UpstreamAPI)
 	}
 }
 
