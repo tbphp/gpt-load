@@ -141,7 +141,17 @@ func rejectExistingDatabaseWithoutMigrationLedger(target sqliteTarget) error {
 	if err != nil {
 		return fmt.Errorf("resolve SQLite database path before migration: %w", err)
 	}
-	readOnlyDSN := (&url.URL{Scheme: "file", Path: absolutePath}).String() + "?mode=ro&immutable=1"
+	uriPath := filepath.ToSlash(absolutePath)
+	if runtime.GOOS == "windows" && len(uriPath) >= 2 && uriPath[1] == ':' {
+		// A Windows drive path must be an absolute file-URI path. Without
+		// the leading slash, net/url treats the drive letter as the URI host.
+		uriPath = "/" + uriPath
+	}
+	readOnlyDSN := (&url.URL{
+		Scheme:   "file",
+		Path:     uriPath,
+		RawQuery: "mode=ro&immutable=1",
+	}).String()
 	db, err := gorm.Open(sqlite.Open(readOnlyDSN), &gorm.Config{Logger: databaseLogger})
 	if err != nil {
 		return fmt.Errorf("inspect existing SQLite database before migration: %w", err)
