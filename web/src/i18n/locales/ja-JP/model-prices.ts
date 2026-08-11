@@ -4,7 +4,6 @@ export default {
       pending: '価格待ち',
       configured: '設定済み',
       unpriced: '価格なしに設定済み',
-      partial: '一部のみ価格設定',
     },
     fields: {
       input: '入力',

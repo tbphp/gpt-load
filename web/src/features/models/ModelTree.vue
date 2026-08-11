@@ -3,7 +3,7 @@ import { ChevronRight, CircleHelp } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { enabledDataProtocols, protocolLabelKey } from '@/api/control/protocols'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
 import type { ClientModelDto, ModelUpstreamDto } from '@/app/resources/models'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
@@ -29,7 +29,7 @@ function hasProtocolRestriction(protocols: GroupProtocol[]): boolean {
 
 function protocolRestrictionTooltip(protocols: GroupProtocol[]): string {
   return t('models.tree.protocolRestrictedHelp', {
-    protocols: protocols.map((protocol) => t(protocolLabelKey(protocol))).join('\n'),
+    protocols: protocols.join('\n'),
   })
 }
 

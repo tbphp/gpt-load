@@ -41,7 +41,7 @@ const { t } = useI18n()
 const protocolMultiSelectOptions = computed<SearchableMultiSelectOption[]>(() =>
   props.protocolOptions.map((protocol) => ({
     value: protocol,
-    label: t(`common.protocols.${protocol}`),
+    label: protocol,
   })),
 )
 

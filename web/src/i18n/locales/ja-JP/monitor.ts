@@ -264,12 +264,6 @@ export default {
         cacheWriteUnknown: 'キャッシュ書き込み',
         output: '出力',
       },
-      cost: {
-        unknown: '不明',
-        knownPlusUnknown: '{cost} + 不明',
-        knownPlusUnknownShort: '判明分 + 不明分',
-        known: '判明分の推定',
-      },
       quality: {
         title: '使用量と永続化の品質',
         description: '不完全な使用量を単一の指標で隠さないよう、各件数を分けて表示します。',
@@ -380,12 +374,6 @@ export default {
         'プロトコル、操作、必要機能、モデル、AccessKey から候補 Group と認証情報を確認します。',
       boundary:
         '実際のリクエストに必要な操作と機能を選択してください。読み取り専用で、上流送信や Token 消費はありません。',
-      protocols: {
-        'openai-completions': 'OpenAI Completions',
-        'openai-responses': 'OpenAI Responses',
-        anthropic: 'Anthropic',
-        gemini: 'Gemini',
-      },
       routeModes: {
         native: 'ネイティブ',
         converted: '変換',
@@ -760,28 +748,11 @@ export default {
         maybe_sent: '送信済みの可能性あり、レスポンスは未開始',
         response_started: 'アップストリームレスポンス受信済み',
       },
-      reasoningValue: {
-        none: 'オフ',
-        disabled: 'オフ',
-        off: 'オフ',
-        enabled: 'オン',
-        auto: '自動',
-        adaptive: '適応',
-        pro: 'Pro',
-        standard: '標準',
-        minimal: '最小',
-        low: '低',
-        medium: '中',
-        high: '高',
-        xhigh: '非常に高い',
-        max: '最大',
-      },
       usage: {
         missing: '使用量なし',
         not_applicable: '該当なし',
       },
       cost: {
-        knownSubtotal: '既知 {cost} + 不明',
         unpriced: 'コスト不明',
         not_applicable: '該当なし',
       },
@@ -868,7 +839,6 @@ export default {
           },
           costState: {
             priced: '推定コストあり',
-            partialPriced: '報告済みトークンからの推定コスト',
             unpriced: '推定コスト不明',
             not_applicable: 'コストは該当なし',
           },

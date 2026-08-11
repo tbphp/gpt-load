@@ -15,15 +15,6 @@ function formattedEstimatedCost(): string {
   return formatEstimatedCost(props.summary.estimated_cost_nano_usd, locale.value)
 }
 
-function hasUnknownCost(): boolean {
-  return (
-    props.summary.usage_missing_count > 0 ||
-    props.summary.partial_count > 0 ||
-    props.summary.unpriced_request_count > 0 ||
-    props.summary.pricing_partial_count > 0
-  )
-}
-
 function inputTokens(): number {
   return (
     props.summary.uncached_input_tokens +
@@ -77,13 +68,6 @@ function inputTokens(): number {
     <article class="usage-kpi usage-kpi--cost">
       <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
       <strong>{{ formattedEstimatedCost() }}</strong>
-      <small :class="{ 'usage-kpi__quality': hasUnknownCost() }">
-        {{
-          hasUnknownCost()
-            ? t('monitor.usage.cost.knownPlusUnknownShort')
-            : t('monitor.usage.cost.known')
-        }}
-      </small>
     </article>
   </section>
 </template>
@@ -183,10 +167,6 @@ function inputTokens(): number {
 .usage-kpi__separator,
 .usage-kpi__rate {
   color: var(--color-text-faint);
-}
-
-.usage-kpi__quality {
-  color: var(--color-warning) !important;
 }
 
 @media (max-width: 900px) {

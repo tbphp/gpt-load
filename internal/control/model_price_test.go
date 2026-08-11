@@ -60,7 +60,7 @@ func TestChannelModelPriceIsSharedAcrossGroupsAndAliases(t *testing.T) {
 	}
 }
 
-func TestProjectModelPriceRowMarksIncompleteTierPartial(t *testing.T) {
+func TestProjectModelPriceRowDoesNotExposeSlotCompleteness(t *testing.T) {
 	value := int64(1)
 	record, err := projectModelPriceRow(models.ModelPrice{
 		ID: 1, ChannelID: string(channel.OpenAICompatible), ModelID: "tiered", InputPriceNanoUSDPerMillionTokens: &value,
@@ -69,8 +69,16 @@ func TestProjectModelPriceRowMarksIncompleteTierPartial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !record.dto.Partial {
-		t.Fatal("incomplete tier was not marked partial")
+	encoded, err := json.Marshal(record.dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := wire["partial"]; exists {
+		t.Fatalf("model price response exposed slot completeness: %s", encoded)
 	}
 }
 

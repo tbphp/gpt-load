@@ -29,24 +29,6 @@ export default {
       cancel: '編集を続ける',
       confirm: '変更を破棄',
     },
-    protocols: {
-      'openai-completions': 'OpenAI Completions',
-      'openai-responses': 'OpenAI Responses',
-      anthropic: 'Anthropic',
-      gemini: 'Gemini',
-    },
-    upstreamApis: {
-      'openai-chat-completions': 'OpenAI Chat Completions API',
-      'openai-responses': 'OpenAI Responses API',
-      'anthropic-messages': 'Anthropic Messages API',
-      'gemini-generate-content': 'Gemini GenerateContent API',
-      'openai-models': 'OpenAI Models API',
-      'anthropic-models': 'Anthropic Models API',
-      'gemini-models': 'Gemini Models API',
-      'azure-openai': 'Azure OpenAI API',
-      'aws-bedrock': 'AWS Bedrock API',
-      'google-vertex': 'Google Vertex AI API',
-    },
     headerRules: {
       title: 'HeaderRules',
       description: 'アップストリーム要求ヘッダーを設定または削除します。',
@@ -273,10 +255,6 @@ export default {
           '既知の制限：disableFastLink が有効な場合、NextChat はこの設定を黙って無視します',
         protocolUnavailable:
           'このアクセスキーでは {client} に必要な {protocol} が有効ではありません',
-        requiredProtocols: {
-          'openai-completions': 'OpenAI Completions',
-          anthropic: 'Anthropic',
-        },
         clients: {
           label: 'クライアント',
           nextchat: 'NextChat',

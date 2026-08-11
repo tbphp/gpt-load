@@ -29,24 +29,6 @@ export default {
       cancel: '继续编辑',
       confirm: '放弃修改',
     },
-    protocols: {
-      'openai-completions': 'OpenAI Completions',
-      'openai-responses': 'OpenAI Responses',
-      anthropic: 'Anthropic',
-      gemini: 'Gemini',
-    },
-    upstreamApis: {
-      'openai-chat-completions': 'OpenAI Chat Completions API',
-      'openai-responses': 'OpenAI Responses API',
-      'anthropic-messages': 'Anthropic Messages API',
-      'gemini-generate-content': 'Gemini GenerateContent API',
-      'openai-models': 'OpenAI Models API',
-      'anthropic-models': 'Anthropic Models API',
-      'gemini-models': 'Gemini Models API',
-      'azure-openai': 'Azure OpenAI API',
-      'aws-bedrock': 'AWS Bedrock API',
-      'google-vertex': 'Google Vertex AI API',
-    },
     headerRules: {
       title: 'HeaderRules',
       description: '设置或移除上游请求 Header。',
@@ -265,10 +247,6 @@ export default {
         nextChatConfirmDescription: '当前浏览器会将网关地址和访问密钥发送给 NextChat',
         disableFastLink: '已知限制：启用 disableFastLink 时，NextChat 会静默忽略此设置',
         protocolUnavailable: '此访问密钥未开通 {client} 所需的 {protocol}',
-        requiredProtocols: {
-          'openai-completions': 'OpenAI Completions',
-          anthropic: 'Anthropic',
-        },
         clients: {
           label: '客户端',
           nextchat: 'NextChat',

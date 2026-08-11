@@ -38,7 +38,6 @@ type ModelPriceDTO struct {
 	ReferenceCount      int                        `json:"reference_count"`
 	ReferenceGroupCount int                        `json:"reference_group_count"`
 	ContextTiers        []ModelPriceContextTierDTO `json:"context_tiers"`
-	Partial             bool                       `json:"partial"`
 	UpdatedAtMS         int64                      `json:"updated_at_ms"`
 	CanReset            bool                       `json:"can_reset"`
 	CanDelete           bool                       `json:"can_delete"`
@@ -521,7 +520,6 @@ func projectModelPriceRow(
 		ReferenceCount:      reference.referenceCount,
 		ReferenceGroupCount: reference.referenceGroupCount(),
 		ContextTiers:        projectContextPriceTiers(rule.ContextTiers),
-		Partial:             modelPriceRulePartial(row, rule),
 		UpdatedAtMS:         row.UpdatedAtMS,
 		CanReset:            row.IsManual,
 		CanDelete:           row.IsManual && reference.referenceCount == 0,
@@ -547,52 +545,6 @@ func modelPriceMethod(
 		method = "user_marked_unpriced"
 	}
 	return &method
-}
-
-func modelPriceConfiguredSlotCount(row models.ModelPrice) int {
-	count := 0
-	for _, value := range []*int64{
-		row.InputPriceNanoUSDPerMillionTokens,
-		row.OutputPriceNanoUSDPerMillionTokens,
-		row.CacheReadPriceNanoUSDPerMillionTokens,
-		row.CacheWritePriceNanoUSDPerMillionTokens,
-	} {
-		if value != nil {
-			count++
-		}
-	}
-	return count
-}
-
-// modelPriceRulePartial reports whether any reachable input range lacks a
-// complete four-slot price. Context tiers replace the base prices, so their
-// completeness must be evaluated independently rather than inferred from the
-// base row alone.
-func modelPriceRulePartial(row models.ModelPrice, rule pricing.Rule) bool {
-	baseSlots := modelPriceConfiguredSlotCount(row)
-	if baseSlots > 0 && baseSlots < 4 {
-		return true
-	}
-	if baseSlots == 0 && len(rule.ContextTiers) > 0 && rule.ContextTiers[0].InputThresholdTokens > 0 {
-		return true
-	}
-	for _, tier := range rule.ContextTiers {
-		configured := 0
-		for _, value := range []pricing.Price{
-			tier.Prices.Input,
-			tier.Prices.Output,
-			tier.Prices.CacheRead,
-			tier.Prices.CacheWrite,
-		} {
-			if value.Set {
-				configured++
-			}
-		}
-		if configured > 0 && configured < 4 {
-			return true
-		}
-	}
-	return false
 }
 
 func modelPriceWireDecimal(value *int64) *string {

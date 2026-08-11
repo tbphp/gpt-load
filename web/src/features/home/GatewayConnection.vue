@@ -426,9 +426,7 @@ onBeforeUnmount(() => {
               {{
                 t('home.ledger.connection.protocolUnavailable', {
                   client: selectedClientLabel(activeClient),
-                  protocol: t(
-                    `home.ledger.connection.requiredProtocols.${currentClient.requiredProtocol}`,
-                  ),
+                  protocol: currentClient.requiredProtocol,
                 })
               }}
             </InlineFeedback>

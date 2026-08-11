@@ -58,7 +58,6 @@ export interface ModelPriceDto {
   reference_count: number
   reference_group_count: number
   context_tiers: ModelPriceContextTierDto[]
-  partial: boolean
   updated_at_ms: number
   can_reset: boolean
   can_delete: boolean
@@ -119,7 +118,6 @@ const itemFields = [
   'reference_count',
   'reference_group_count',
   'context_tiers',
-  'partial',
   'updated_at_ms',
   'can_reset',
   'can_delete',
@@ -210,7 +208,6 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     reference_count: projectSafeInteger(record.reference_count, { minimum: 0 }),
     reference_group_count: projectSafeInteger(record.reference_group_count, { minimum: 0 }),
     context_tiers: projectContextTiers(record.context_tiers),
-    partial: projectBoolean(record.partial),
     updated_at_ms: projectEpochMilliseconds(record.updated_at_ms),
     can_reset: projectBoolean(record.can_reset),
     can_delete: projectBoolean(record.can_delete),

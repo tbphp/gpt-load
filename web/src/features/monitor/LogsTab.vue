@@ -15,7 +15,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { protocolLabelKey } from '@/api/control/protocols'
 import { useCollectionLoading } from '@/app/loading-state'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import { listChannels } from '@/app/resources/channels'
@@ -80,22 +79,6 @@ const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
 const logPageSizes = [20, 50, 100] as const
-const knownReasoningValues = new Set([
-  'none',
-  'disabled',
-  'off',
-  'enabled',
-  'auto',
-  'adaptive',
-  'pro',
-  'standard',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-])
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
 const appliedFilters = computed(() => {
   const filters = parseAppliedLogFilters(route.query)
@@ -545,10 +528,6 @@ function modelConsistencyLabel(log: RequestLogItemDto): string {
   )
 }
 
-function localizedReasoningValue(value: string): string {
-  return knownReasoningValues.has(value) ? t(`monitor.logs.reasoningValue.${value}`) : value
-}
-
 function reasoningLabel(log: RequestLogItemDto): string {
   if (log.reasoning === null) return ''
   if (
@@ -558,13 +537,10 @@ function reasoningLabel(log: RequestLogItemDto): string {
       reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'disabled')
   ) {
     return t('monitor.logs.reasoning.compact', {
-      value: t('monitor.logs.reasoningValue.disabled'),
+      value: 'disabled',
     })
   }
-  const value = formatLogReasoning(log, locale.value, t('monitor.logs.reasoningValue.auto'))
-    .split('/')
-    .map(localizedReasoningValue)
-    .join('/')
+  const value = formatLogReasoning(log, locale.value)
   return t('monitor.logs.reasoning.compact', {
     value,
   })
@@ -596,7 +572,7 @@ function timingPrimary(log: RequestLogItemDto): string {
 
 function costLabel(log: RequestLogItemDto): string {
   const state = requestLogCostDisplayState(log)
-  if (state === 'complete' || state === 'partial') {
+  if (state === 'complete') {
     return formatEstimatedCost(log.estimated_cost_nano_usd, locale.value)
   }
   return '—'
@@ -779,8 +755,8 @@ function costLabel(log: RequestLogItemDto): string {
               </AppTooltip>
             </span>
             <span class="logs-list__protocol-line">
-              <OverflowTooltip as="small" :content="t(protocolLabelKey(log.protocol))">
-                {{ t(protocolLabelKey(log.protocol)) }}
+              <OverflowTooltip as="small" :content="log.protocol">
+                {{ log.protocol }}
               </OverflowTooltip>
               <LogProtocolConversion
                 :mode="log.route_mode"

@@ -64,7 +64,7 @@ export default {
       stream_idle_timeout: 'Stream idle timeout',
       inject_usage_options: 'Inject usage options for streaming responses',
       injectUsageHelp:
-        'Applies only to capable OpenAI Completions streaming requests so the final usage can be returned.',
+        'Applies only to capable openai-completions streaming requests so the final usage can be returned.',
       models_dev_auto_sync_enabled: 'Automatically sync the Models.dev catalog and prices',
       modelsDevAutoSyncHelp:
         'When enabled, the catalog and automatic prices sync on schedule. Manual sync remains available on Models.',

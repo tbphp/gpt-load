@@ -51,7 +51,7 @@ const presentations = computed(() =>
       allModels: t('accessKeys.allModels'),
       unlimited: t('accessKeys.unlimited'),
     },
-    protocolLabel: (protocol) => t(`common.protocols.${protocol}`),
+    protocolLabel: (protocol) => protocol,
   }),
 )
 function source(id: number): AccessKeyCollectionItemDto {

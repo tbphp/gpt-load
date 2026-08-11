@@ -228,7 +228,7 @@ export default {
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
         inject_usage_options: 'Inject usage options',
-        injectUsageHelp: 'This override is available only for OpenAI Completions',
+        injectUsageHelp: 'This override is available only for openai-completions',
       },
       delete: {
         sectionDescription:

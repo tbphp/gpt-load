@@ -3,7 +3,6 @@ import { ArrowRightLeft } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { protocolLabelKey, upstreamAPILabelKey } from '@/api/control/protocols'
 import type { AccessProtocol } from '@/api/control/types'
 import type { RequestLogRouteMode, RequestLogUpstreamAPI } from '@/app/resources/request-logs'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
@@ -15,11 +14,9 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
-const clientProtocolLabel = computed(() => t(protocolLabelKey(props.clientProtocol)))
+const clientProtocolLabel = computed(() => props.clientProtocol)
 const upstreamAPILabel = computed(() =>
-  props.upstreamApi === null
-    ? t('monitor.logs.protocolConversion.notRecorded')
-    : t(upstreamAPILabelKey(props.upstreamApi)),
+  props.upstreamApi === null ? t('monitor.logs.protocolConversion.notRecorded') : props.upstreamApi,
 )
 const tooltip = computed(() => {
   if (props.upstreamApi === null) {

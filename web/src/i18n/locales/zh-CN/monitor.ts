@@ -256,12 +256,6 @@ export default {
         cacheWriteUnknown: '缓存写入',
         output: '输出',
       },
-      cost: {
-        unknown: '未知',
-        knownPlusUnknown: '{cost} + 未知',
-        knownPlusUnknownShort: '已知 + 未知部分',
-        known: '已知估算',
-      },
       quality: {
         title: '用量与持久化质量',
         description: '各项计数分开呈现，避免单一分数掩盖不完整用量。',
@@ -362,12 +356,6 @@ export default {
       title: '路由检查',
       description: '按协议、操作、能力、模型与 AccessKey 检查当前候选 Group 与凭据。',
       boundary: '请按真实请求选择操作和所需能力；只读，不会发送上游请求或消耗 Token。',
-      protocols: {
-        'openai-completions': 'OpenAI Completions',
-        'openai-responses': 'OpenAI Responses',
-        anthropic: 'Anthropic',
-        gemini: 'Gemini',
-      },
       routeModes: {
         native: '原生',
         converted: '转换',
@@ -738,28 +726,11 @@ export default {
         maybe_sent: '可能已发送，尚未开始响应',
         response_started: '已收到上游响应',
       },
-      reasoningValue: {
-        none: '关闭',
-        disabled: '关闭',
-        off: '关闭',
-        enabled: '开启',
-        auto: '自动',
-        adaptive: '自适应',
-        pro: 'Pro',
-        standard: '标准',
-        minimal: '最低',
-        low: '低',
-        medium: '中',
-        high: '高',
-        xhigh: '极高',
-        max: '最高',
-      },
       usage: {
         missing: '用量缺失',
         not_applicable: '不适用',
       },
       cost: {
-        knownSubtotal: '已知 {cost} + 未知',
         unpriced: '成本未知',
         not_applicable: '不适用',
       },
@@ -845,7 +816,6 @@ export default {
           },
           costState: {
             priced: '可计算预估成本',
-            partialPriced: '按已报告 Token 计算预估成本',
             unpriced: '预估成本未知',
             not_applicable: '成本不适用',
           },

@@ -1,7 +1,7 @@
 import type { RequestLogItemDto } from '@/app/resources/request-logs'
 
 export type RequestLogUsageDisplayState = 'reported' | 'missing' | 'not_applicable'
-export type RequestLogCostDisplayState = 'complete' | 'partial' | 'unpriced' | 'not_applicable'
+export type RequestLogCostDisplayState = 'complete' | 'unpriced' | 'not_applicable'
 
 export function requestLogUsageDisplayState(log: RequestLogItemDto): RequestLogUsageDisplayState {
   if (log.usage_state === 'missing') return 'missing'
@@ -12,9 +12,7 @@ export function requestLogUsageDisplayState(log: RequestLogItemDto): RequestLogU
 export function requestLogCostDisplayState(log: RequestLogItemDto): RequestLogCostDisplayState {
   if (log.cost_state === 'not_applicable') return 'not_applicable'
   if (log.cost_state === 'unpriced') return 'unpriced'
-  return log.usage_state === 'partial' || log.pricing_completeness === 'partial'
-    ? 'partial'
-    : 'complete'
+  return 'complete'
 }
 
 export function formatLogDuration(milliseconds: number): string {
@@ -43,11 +41,7 @@ export function formatLogTokenCount(value: string, locale: string): string {
   }
 }
 
-export function formatLogReasoning(
-  log: RequestLogItemDto,
-  locale: string,
-  dynamicLabel = 'auto',
-): string {
+export function formatLogReasoning(log: RequestLogItemDto, locale: string): string {
   const value = log.reasoning
   if (value === null) return ''
   const details: string[] = []
@@ -60,7 +54,7 @@ export function formatLogReasoning(
   if (value.effort !== null) details.push(value.effort)
   if (value.budget_tokens !== null && value.budget_tokens !== '0') {
     if (value.budget_tokens === '-1') {
-      if (value.effort === null) details.push(dynamicLabel)
+      if (value.effort === null) details.push('auto')
     } else {
       details.push(formatReasoningBudgetCompact(value.budget_tokens, locale))
     }

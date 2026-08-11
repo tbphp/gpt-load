@@ -64,7 +64,7 @@ export default {
       stream_idle_timeout: 'ストリームアイドルタイムアウト',
       inject_usage_options: 'ストリーミング応答へ usage オプションを注入',
       injectUsageHelp:
-        '最終 usage を取得するため、この機能をサポートする OpenAI Completions のストリーミング要求でのみ有効です。',
+        '最終 usage を取得するため、この機能をサポートする openai-completions のストリーミング要求でのみ有効です。',
       models_dev_auto_sync_enabled: 'Models.dev カタログと価格を自動同期',
       modelsDevAutoSyncHelp:
         '有効にするとカタログと自動価格を定期同期します。Models 画面からの手動同期は引き続き利用できます。',

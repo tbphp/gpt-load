@@ -3,7 +3,6 @@ import { ArrowRight } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { protocolLabelKey, upstreamAPILabelKey } from '@/api/control/protocols'
 import type { AccessProtocol } from '@/api/control/types'
 import type { RequestLogReasoningDto, RequestLogUpstreamAPI } from '@/app/resources/request-logs'
 
@@ -19,35 +18,12 @@ const props = defineProps<{
 }>()
 
 const { locale, t } = useI18n()
-const knownReasoningValues = new Set([
-  'none',
-  'disabled',
-  'off',
-  'enabled',
-  'auto',
-  'adaptive',
-  'pro',
-  'standard',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-])
-
-const clientProtocolLabel = computed(() => t(protocolLabelKey(props.clientProtocol)))
+const clientProtocolLabel = computed(() => props.clientProtocol)
 const upstreamAPILabel = computed(() =>
-  props.upstreamApi === null
-    ? t('monitor.logs.protocolConversion.notRecorded')
-    : t(upstreamAPILabelKey(props.upstreamApi)),
+  props.upstreamApi === null ? t('monitor.logs.protocolConversion.notRecorded') : props.upstreamApi,
 )
 const clientReasoningLabel = computed(() => formatReasoning(props.clientReasoning, false))
 const upstreamReasoningLabel = computed(() => formatReasoning(props.upstreamReasoning, true))
-
-function localizedReasoningValue(value: string): string {
-  return knownReasoningValues.has(value) ? t(`monitor.logs.reasoningValue.${value}`) : value
-}
 
 function formatReasoning(value: RequestLogReasoningDto | null, upstream: boolean): string {
   if (value === null) {
@@ -58,14 +34,14 @@ function formatReasoning(value: RequestLogReasoningDto | null, upstream: boolean
     )
   }
   const details: string[] = []
-  if (value.mode !== null) details.push(localizedReasoningValue(value.mode))
-  if (value.effort !== null) details.push(localizedReasoningValue(value.effort))
+  if (value.mode !== null) details.push(value.mode)
+  if (value.effort !== null) details.push(value.effort)
   if (value.budget_tokens !== null) {
     const semantic = reasoningBudgetSemantic(value.budget_tokens)
     if (semantic === 'dynamic') {
-      details.push(t('monitor.logs.reasoningValue.auto'))
+      details.push('auto')
     } else if (semantic === 'disabled') {
-      details.push(t('monitor.logs.reasoningValue.disabled'))
+      details.push('disabled')
     } else {
       details.push(
         t('monitor.logs.drawer.reasoningBudgetValue', {

@@ -22,9 +22,7 @@ const rpm = computed(() =>
 const protocols = computed(() =>
   props.accessKey.filters.protocols.length === 0
     ? t('home.ledger.currentAccessKey.allProtocols')
-    : props.accessKey.filters.protocols
-        .map((protocol) => t(`common.protocols.${protocol}`))
-        .join(', '),
+    : props.accessKey.filters.protocols.join(', '),
 )
 const groups = computed(() =>
   props.accessKey.filters.groups.length === 0

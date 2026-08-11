@@ -4,7 +4,6 @@ export default {
       pending: 'Pending',
       configured: 'Configured',
       unpriced: 'Marked unpriced',
-      partial: 'Partially priced',
     },
     fields: {
       input: 'Input',

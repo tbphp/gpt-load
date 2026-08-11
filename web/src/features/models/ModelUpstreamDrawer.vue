@@ -56,7 +56,6 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
   reference_count: 0,
   reference_group_count: 0,
   context_tiers: [],
-  partial: false,
   updated_at_ms: 0,
   can_reset: false,
   can_delete: false,

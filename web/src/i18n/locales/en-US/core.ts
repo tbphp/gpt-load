@@ -30,24 +30,6 @@ export default {
       cancel: 'Continue editing',
       confirm: 'Discard changes',
     },
-    protocols: {
-      'openai-completions': 'OpenAI Completions',
-      'openai-responses': 'OpenAI Responses',
-      anthropic: 'Anthropic',
-      gemini: 'Gemini',
-    },
-    upstreamApis: {
-      'openai-chat-completions': 'OpenAI Chat Completions API',
-      'openai-responses': 'OpenAI Responses API',
-      'anthropic-messages': 'Anthropic Messages API',
-      'gemini-generate-content': 'Gemini GenerateContent API',
-      'openai-models': 'OpenAI Models API',
-      'anthropic-models': 'Anthropic Models API',
-      'gemini-models': 'Gemini Models API',
-      'azure-openai': 'Azure OpenAI API',
-      'aws-bedrock': 'AWS Bedrock API',
-      'google-vertex': 'Google Vertex AI API',
-    },
     headerRules: {
       title: 'Header rules',
       description: 'Set or remove upstream request headers.',
@@ -275,10 +257,6 @@ export default {
         disableFastLink:
           'Known limitation: NextChat silently ignores this setting when disableFastLink is enabled',
         protocolUnavailable: '{client} requires {protocol} for this AccessKey',
-        requiredProtocols: {
-          'openai-completions': 'OpenAI Completions',
-          anthropic: 'Anthropic',
-        },
         clients: {
           label: 'Client',
           nextchat: 'NextChat',

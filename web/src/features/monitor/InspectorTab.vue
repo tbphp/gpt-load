@@ -110,7 +110,7 @@ const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const protocolOptions = computed(() =>
   enabledDataProtocols.map((value) => ({
     value,
-    label: t(`monitor.inspector.protocols.${value}`),
+    label: value,
   })),
 )
 const availableOperations = computed(() => operationsForProtocol(draftProtocol.value))
@@ -455,7 +455,7 @@ function modelLabel(value: string | null): string {
 }
 
 function protocolLabel(value: AccessProtocol): string {
-  return t(`monitor.inspector.protocols.${value}`)
+  return value
 }
 
 function formattedInteger(value: number): string {

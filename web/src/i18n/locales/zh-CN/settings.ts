@@ -58,7 +58,7 @@ export default {
       request_timeout: '请求总时长',
       stream_idle_timeout: '流空闲超时',
       inject_usage_options: '为流式响应注入 usage 选项',
-      injectUsageHelp: '只在支持该能力的 OpenAI Completions 流式请求中生效，用于获取最终 usage。',
+      injectUsageHelp: '只在支持该能力的 openai-completions 流式请求中生效，用于获取最终 usage。',
       models_dev_auto_sync_enabled: '自动同步 Models.dev 目录与价格',
       modelsDevAutoSyncHelp: '启用后按计划同步目录和自动价格；关闭后仍可在模型页手动同步。',
       environmentSource: '环境变量锁定',

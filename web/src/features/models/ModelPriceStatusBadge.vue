@@ -8,10 +8,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import type { StatusIcon, StatusTone } from '@/components/ui/status-presenter'
 
 const props = defineProps<{
-  price: Pick<
-    ModelPriceDto,
-    'method' | 'pricing_status' | 'matched_provider_id' | 'match_source' | 'partial'
-  >
+  price: Pick<ModelPriceDto, 'method' | 'pricing_status' | 'matched_provider_id' | 'match_source'>
   providerName?: string
 }>()
 const { t } = useI18n()
@@ -46,9 +43,6 @@ const sourceDetail = computed(() => {
     <span class="model-price-status" :tabindex="sourceDetail === null ? undefined : 0">
       <StatusBadge :tone="presentation.tone" :icon="presentation.icon" size="compact">
         {{ presentation.label }}
-      </StatusBadge>
-      <StatusBadge v-if="price.partial" tone="warning" icon="alert" size="compact">
-        {{ t('modelPrices.status.partial') }}
       </StatusBadge>
     </span>
   </AppTooltip>

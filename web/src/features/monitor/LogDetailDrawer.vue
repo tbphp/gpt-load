@@ -4,13 +4,11 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { protocolLabelKey, upstreamAPILabelKey } from '@/api/control/protocols'
 import { useStableLoading } from '@/app/loading-state'
 import {
   requestLogDetailQueryOptions,
   type RequestLogAttemptDto,
   type RequestLogPricingLineDto,
-  type RequestLogReasoningDto,
 } from '@/app/resources/request-logs'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
@@ -48,22 +46,6 @@ const { locale, t } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
 const initialLoading = useStableLoading(() => props.open && query.isPending.value)
 const log = computed(() => query.data.value)
-const knownReasoningValues = new Set([
-  'none',
-  'disabled',
-  'off',
-  'enabled',
-  'auto',
-  'adaptive',
-  'pro',
-  'standard',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-])
 const errorMessageExpanded = ref(false)
 const expandedAttemptErrorMessages = ref<Set<number>>(new Set())
 const finalAttempt = computed(() => {
@@ -161,7 +143,6 @@ const usageStateLabel = computed(() => {
 const costStateLabel = computed(() => {
   const state = costDisplayState.value
   if (state === 'complete') return t('monitor.logs.drawer.usage.costState.priced')
-  if (state === 'partial') return t('monitor.logs.drawer.usage.costState.partialPriced')
   return t(`monitor.logs.drawer.usage.costState.${state}`)
 })
 
@@ -170,11 +151,6 @@ const costAmountLabel = computed(() => {
   const state = costDisplayState.value
   if (state === 'complete') {
     return formatEstimatedCost(log.value.estimated_cost_nano_usd, locale.value)
-  }
-  if (state === 'partial') {
-    return t('monitor.logs.cost.knownSubtotal', {
-      cost: formatEstimatedCost(log.value.estimated_cost_nano_usd, locale.value),
-    })
   }
   if (state === 'unpriced') return t('monitor.logs.cost.unpriced')
   return t('monitor.logs.cost.not_applicable')
@@ -216,23 +192,7 @@ function operationLabel(operation: RequestLogAttemptDto['operation']): string {
 
 function upstreamAPILabel(upstreamAPI: RequestLogAttemptDto['upstream_api']): string {
   if (upstreamAPI === null) return t('monitor.logs.protocolConversion.notRecorded')
-  return t(upstreamAPILabelKey(upstreamAPI))
-}
-
-function localizedReasoningValue(value: string): string {
-  return knownReasoningValues.has(value) ? t(`monitor.logs.reasoningValue.${value}`) : value
-}
-
-function reasoningModeLabel(reasoning: RequestLogReasoningDto): string {
-  return reasoning.mode === null
-    ? t('monitor.logs.drawer.reasoningNotSpecified')
-    : localizedReasoningValue(reasoning.mode)
-}
-
-function reasoningEffortLabel(reasoning: RequestLogReasoningDto): string {
-  return reasoning.effort === null
-    ? t('monitor.logs.drawer.reasoningNotSpecified')
-    : localizedReasoningValue(reasoning.effort)
+  return upstreamAPI
 }
 
 function isFinalAttempt(attempt: RequestLogAttemptDto): boolean {
@@ -441,7 +401,9 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.protocol') }}</dt>
-            <dd>{{ t(protocolLabelKey(log.protocol)) }}</dd>
+            <dd>
+              <code>{{ log.protocol }}</code>
+            </dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.operation') }}</dt>
@@ -456,19 +418,23 @@ function toggleAttemptErrorMessage(sequence: number): void {
           <template v-if="log.reasoning">
             <div v-if="log.reasoning.mode">
               <dt>{{ t('monitor.logs.drawer.reasoningMode') }}</dt>
-              <dd>{{ reasoningModeLabel(log.reasoning) }}</dd>
+              <dd>
+                <code>{{ log.reasoning.mode }}</code>
+              </dd>
             </div>
             <div v-if="log.reasoning.effort">
               <dt>{{ t('monitor.logs.drawer.reasoningEffort') }}</dt>
-              <dd>{{ reasoningEffortLabel(log.reasoning) }}</dd>
+              <dd>
+                <code>{{ log.reasoning.effort }}</code>
+              </dd>
             </div>
             <div v-if="log.reasoning.budget_tokens !== null">
               <dt>{{ t('monitor.logs.drawer.reasoningBudget') }}</dt>
               <dd v-if="reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'dynamic'">
-                {{ t('monitor.logs.reasoningValue.auto') }}
+                <code>auto</code>
               </dd>
               <dd v-else-if="reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'disabled'">
-                {{ t('monitor.logs.reasoningValue.disabled') }}
+                <code>disabled</code>
               </dd>
               <dd v-else>
                 {{

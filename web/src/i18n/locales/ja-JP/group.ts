@@ -228,7 +228,7 @@ export default {
         headerReplacementWarning:
           'この Group 上書きはグローバル HeaderRules 全体を置き換えます。今後のグローバル変更はマージされません。',
         inject_usage_options: '使用量オプションを注入',
-        injectUsageHelp: 'この上書きは OpenAI Completions でのみ利用できます',
+        injectUsageHelp: 'この上書きは openai-completions でのみ利用できます',
       },
       delete: {
         sectionDescription:

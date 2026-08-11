@@ -264,12 +264,6 @@ export default {
         cacheWriteUnknown: 'Cache write',
         output: 'Output',
       },
-      cost: {
-        unknown: 'Unknown',
-        knownPlusUnknown: '{cost} + unknown',
-        knownPlusUnknownShort: 'Known + unknown portion',
-        known: 'Known estimate',
-      },
       quality: {
         title: 'Usage and persistence quality',
         description: 'Counts remain separate so incomplete usage is not hidden by a single score.',
@@ -380,12 +374,6 @@ export default {
         'Inspect candidate Groups and credentials by protocol, operation, capabilities, model, and AccessKey.',
       boundary:
         'Select the operation and capabilities required by the real request. Read-only; no upstream request or token usage.',
-      protocols: {
-        'openai-completions': 'OpenAI Completions',
-        'openai-responses': 'OpenAI Responses',
-        anthropic: 'Anthropic',
-        gemini: 'Gemini',
-      },
       routeModes: {
         native: 'Native',
         converted: 'Converted',
@@ -761,28 +749,11 @@ export default {
         maybe_sent: 'May have been sent; response has not started',
         response_started: 'Upstream response received',
       },
-      reasoningValue: {
-        none: 'Off',
-        disabled: 'Off',
-        off: 'Off',
-        enabled: 'On',
-        auto: 'Auto',
-        adaptive: 'Adaptive',
-        pro: 'Pro',
-        standard: 'Standard',
-        minimal: 'Minimal',
-        low: 'Low',
-        medium: 'Medium',
-        high: 'High',
-        xhigh: 'Extra high',
-        max: 'Maximum',
-      },
       usage: {
         missing: 'Usage missing',
         not_applicable: 'Not applicable',
       },
       cost: {
-        knownSubtotal: 'Known {cost} + unknown',
         unpriced: 'Cost unknown',
         not_applicable: 'Not applicable',
       },
@@ -869,7 +840,6 @@ export default {
           },
           costState: {
             priced: 'Estimated cost available',
-            partialPriced: 'Estimated cost from reported tokens',
             unpriced: 'Estimated cost unknown',
             not_applicable: 'Cost not applicable',
           },

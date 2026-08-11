@@ -4,7 +4,6 @@ export default {
       pending: '待定价',
       configured: '已定价',
       unpriced: '已标记未定价',
-      partial: '部分定价',
     },
     fields: {
       input: '输入',
