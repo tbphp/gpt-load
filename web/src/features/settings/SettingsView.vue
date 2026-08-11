@@ -104,7 +104,12 @@ const valid = computed(
     controllerValid.value &&
     (!draft.value?.overrides.has('header_rules') || headerRulesValid.value),
 )
-const timeoutKeys = ['first_byte_timeout', 'request_timeout', 'stream_idle_timeout'] as const
+const timeoutKeys = [
+  'first_byte_timeout',
+  'request_timeout',
+  'stream_idle_timeout',
+  'validation_interval',
+] as const
 const changedKeys = computed(() => {
   const changed = runtimeSettingKeys.filter((key) =>
     Object.prototype.hasOwnProperty.call(patch.value, key),

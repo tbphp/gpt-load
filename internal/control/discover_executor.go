@@ -184,26 +184,6 @@ func utilityRequestShape(
 		case channel.ProviderGemini:
 			return protocol.Gemini, http.MethodGet, "/v1beta/models", nil, nil
 		}
-	case execution.OperationProbe:
-		model = strings.TrimSpace(model)
-		if model == "" {
-			return "", "", "", nil, app_errors.ErrValidation
-		}
-		switch providerKind {
-		case channel.ProviderOpenAI, channel.ProviderOpenAICompatible,
-			channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
-			return protocol.OpenAICompletions, http.MethodPost, "/v1/chat/completions",
-				[]byte(`{"model":"probe","messages":[{"role":"user","content":"ping"}],"max_tokens":1}`), nil
-		case channel.ProviderAzureOpenAI, channel.ProviderAWSBedrock, channel.ProviderGoogleVertex:
-			return protocol.OpenAICompletions, http.MethodPost, "/v1/chat/completions",
-				[]byte(`{"model":"probe","messages":[{"role":"user","content":"ping"}],"max_tokens":1}`), nil
-		case channel.ProviderAnthropic:
-			return protocol.Anthropic, http.MethodPost, "/v1/messages",
-				[]byte(`{"model":"probe","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`), nil
-		case channel.ProviderGemini:
-			return protocol.Gemini, http.MethodPost, "/v1beta/models/probe:generateContent",
-				[]byte(`{"contents":[{"parts":[{"text":"ping"}]}],"generationConfig":{"maxOutputTokens":1}}`), nil
-		}
 	}
 	return "", "", "", nil, app_errors.ErrValidation
 }

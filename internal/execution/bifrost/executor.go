@@ -416,8 +416,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if r.fixedConfig.custom {
 		targetBaseURL = r.fixedConfig.targetBaseURL
 	}
-	if mode == channel.RouteNative &&
-		(spec.Operation == execution.OperationListModels || spec.Operation == execution.OperationProbe) &&
+	if mode == channel.RouteNative && spec.Operation == execution.OperationListModels &&
 		!providerKindNativeForClient(providerKind, spec.ClientProtocol) {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "native route does not match the client protocol")
 		return preparedAttempt{}, &failure
@@ -439,6 +438,32 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid credential")
 		return preparedAttempt{}, &failure
+	}
+	if spec.Operation == execution.OperationProbe {
+		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
+		responses := spec.ClientProtocol == protocol.OpenAIResponses
+		typedURL, targetErr := convertedTypedTarget(
+			providerKind,
+			targetBaseURL,
+			spec.UpstreamModel,
+			responses,
+			false,
+			"",
+		)
+		if targetErr != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel probe target")
+			return preparedAttempt{}, &failure
+		}
+		prepared := preparedAttempt{
+			provider: provider, mode: mode, typedURL: typedURL,
+			clientProtocol: spec.ClientProtocol, directKey: directKey, secrets: secrets,
+		}
+		if responses {
+			prepared.responsesRequest = request.ToResponsesRequest()
+		} else {
+			prepared.request = request
+		}
+		return prepared, nil
 	}
 	if mode == channel.RouteNative && providerSupportsPassthrough(providerKind, targetBaseURL) {
 		body, err := sanitizeNativeRequestBody(spec, stream)
@@ -483,8 +508,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			secrets:           secrets,
 		}, nil
 	}
-	if spec.ClientProtocol != protocol.OpenAICompletions ||
-		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationProbe) {
+	if spec.ClientProtocol != protocol.OpenAICompletions || spec.Operation != execution.OperationChatCompletion {
 		request, conversionErr := buildConvertedResponsesRequest(spec, provider)
 		if conversionErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, conversionErr.Error())
@@ -538,6 +562,30 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}, nil
 }
 
+func newProbeRequest(
+	provider schemas.ModelProvider,
+	providerKind channel.ProviderKind,
+	model string,
+) *schemas.BifrostChatRequest {
+	content := "ping"
+	params := &schemas.ChatParameters{MaxCompletionTokens: schemas.Ptr(1)}
+	if providerKind == channel.ProviderOpenAICompatible {
+		params.MaxCompletionTokens = nil
+		params.ExtraParams = map[string]any{"max_tokens": 1}
+	}
+	return &schemas.BifrostChatRequest{
+		Provider: provider,
+		Model:    model,
+		Input: []schemas.ChatMessage{{
+			Role: schemas.ChatMessageRoleUser,
+			Content: &schemas.ChatMessageContent{
+				ContentStr: &content,
+			},
+		}},
+		Params: params,
+	}
+}
+
 func providerSupportsPassthrough(providerKind channel.ProviderKind, baseURL string) bool {
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini:
@@ -582,18 +630,13 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		}
 	}
 	if spec.Operation == execution.OperationProbe {
-		if stream || spec.Method != http.MethodPost || strings.TrimSpace(spec.UpstreamModel) == "" {
+		if stream || strings.TrimSpace(spec.UpstreamModel) == "" || spec.Method != "" ||
+			spec.Path != "" || len(spec.Query) != 0 || spec.RawQuery != "" || len(spec.Body) != 0 {
 			return false
 		}
 		switch spec.ClientProtocol {
-		case protocol.OpenAICompletions:
-			return spec.Path == openAIChatPath
-		case protocol.OpenAIResponses:
-			return spec.Path == "/v1/responses"
-		case protocol.Anthropic:
-			return spec.Path == "/v1/messages"
-		case protocol.Gemini:
-			return validGeminiGeneratePath(spec.Path, "generateContent")
+		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini:
+			return true
 		default:
 			return false
 		}
@@ -862,6 +905,10 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 	bifrostContext.SetValue(schemas.BifrostContextKeyRequestID, spec.RequestID)
 	bifrostContext.SetValue(schemas.BifrostContextKeyDirectKey, directKey)
 	bifrostContext.SetValue(schemas.BifrostContextKeyLargeResponseThreshold, r.maxUnaryResponseBodyBytes)
+	if spec.Operation == execution.OperationProbe &&
+		channel.ProviderKind(spec.TargetKind) == channel.ProviderOpenAICompatible {
+		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
+	}
 	if spec.Timeouts.StreamIdle > 0 {
 		bifrostContext.SetValue(schemas.BifrostContextKeyStreamIdleTimeout, spec.Timeouts.StreamIdle)
 	}

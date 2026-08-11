@@ -186,11 +186,6 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		return
 	}
 	apiKey, _ := credential.Value("api_key")
-	method, path, body, err := validationRequestShape(group, target)
-	if err != nil {
-		logValidationFailure(ref, string(target.protocol), "request")
-		return
-	}
 	routeMode, supported := group.ResolvedTarget.Mode(target.protocol, execution.OperationProbe)
 	if !supported {
 		logValidationFailure(ref, string(target.protocol), "request")
@@ -219,7 +214,7 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		ChannelID: string(group.ChannelID), TargetKind: string(group.ResolvedTarget.ProviderKind),
 		RouteMode: execution.RouteMode(routeMode), ClientProtocol: target.protocol,
 		Operation: execution.OperationProbe, ClientModel: target.model, UpstreamModel: target.model,
-		Method: method, Path: path, Header: applyControlHeaderRules(group.HeaderRules, apiKey), Body: body,
+		Header:       applyControlHeaderRules(group.HeaderRules, apiKey),
 		TargetConfig: group.ResolvedTarget.TargetConfig,
 		Timeouts:     executionTimeouts(group.Timeouts),
 		Credential: execution.NewCredentialSnapshot(
@@ -292,12 +287,8 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	if probeModel == "" {
 		return groupValidationTarget{}, false
 	}
-	selectedProtocol, _, _, _, err := utilityRequestShape(
-		group.ResolvedTarget.ProviderKind,
-		execution.OperationProbe,
-		probeModel,
-	)
-	if err != nil {
+	selectedProtocol, ok := validationProtocol(group.ResolvedTarget)
+	if !ok {
 		return groupValidationTarget{}, false
 	}
 	return groupValidationTarget{
@@ -307,16 +298,18 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	}, true
 }
 
-func validationRequestShape(
-	group state.GroupView,
-	target groupValidationTarget,
-) (string, string, []byte, error) {
-	_, method, path, body, err := utilityRequestShape(
-		group.ResolvedTarget.ProviderKind,
-		execution.OperationProbe,
-		target.model,
-	)
-	return method, path, body, err
+func validationProtocol(target channel.ResolvedTarget) (protocol.Protocol, bool) {
+	for _, clientProtocol := range protocol.DataPlaneProtocols() {
+		if mode, ok := target.Mode(clientProtocol, execution.OperationProbe); ok && mode == channel.RouteNative {
+			return clientProtocol, true
+		}
+	}
+	for _, clientProtocol := range protocol.DataPlaneProtocols() {
+		if _, ok := target.Mode(clientProtocol, execution.OperationProbe); ok {
+			return clientProtocol, true
+		}
+	}
+	return "", false
 }
 
 func computeGroupValidationSignature(

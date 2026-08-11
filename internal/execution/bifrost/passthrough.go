@@ -53,7 +53,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 	case spec.Operation == execution.OperationListModels:
 		return nil, nil
 	case (spec.ClientProtocol == protocol.OpenAICompletions || spec.ClientProtocol == protocol.Anthropic) &&
-		(spec.Operation == execution.OperationChatCompletion || spec.Operation == execution.OperationProbe):
+		spec.Operation == execution.OperationChatCompletion:
 		body, err := sanitizeNativeChatBody(spec.Body, spec.UpstreamModel, stream)
 		if err != nil {
 			return nil, err
@@ -64,20 +64,8 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 				return nil, err
 			}
 		}
-		if spec.Operation != execution.OperationProbe {
-			return body, nil
-		}
-		object, err := decodeNativeJSONObject(body)
-		if err != nil {
-			return nil, err
-		}
-		if _, exists := object["stream"]; !exists {
-			object["stream"] = json.RawMessage("false")
-			return encodeNativeJSONObject(object)
-		}
 		return body, nil
-	case spec.ClientProtocol == protocol.Gemini &&
-		(spec.Operation == execution.OperationChatCompletion || spec.Operation == execution.OperationProbe):
+	case spec.ClientProtocol == protocol.Gemini && spec.Operation == execution.OperationChatCompletion:
 		object, err := decodeNativeJSONObject(spec.Body)
 		if err != nil {
 			// Preserve malformed/opaque provider payloads for the upstream to
@@ -90,7 +78,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		}
 		return encodeNativeJSONObject(object)
 	case spec.ClientProtocol == protocol.OpenAIResponses &&
-		(spec.Operation == execution.OperationResponsesCreate || spec.Operation == execution.OperationProbe):
+		spec.Operation == execution.OperationResponsesCreate:
 		object, err := decodeNativeJSONObject(spec.Body)
 		if err != nil {
 			return nil, err

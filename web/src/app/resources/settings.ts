@@ -21,6 +21,7 @@ export const runtimeSettingKeys = [
   'stream_idle_timeout',
   'header_rules',
   'inject_usage_options',
+  'validation_interval',
   'request_log_retention_days',
   'models_dev_auto_sync_enabled',
 ] as const
@@ -40,6 +41,7 @@ export interface SettingsValues {
   stream_idle_timeout: number
   header_rules: HeaderRulesDto
   inject_usage_options: boolean
+  validation_interval: number
   request_log_retention_days: number
   models_dev_auto_sync_enabled: boolean
 }
@@ -56,6 +58,7 @@ export type SettingsPatch = Partial<{
   stream_idle_timeout: number | null
   header_rules: HeaderRulesDto | null
   inject_usage_options: boolean | null
+  validation_interval: number | null
   request_log_retention_days: number | null
   models_dev_auto_sync_enabled: boolean | null
 }>
@@ -121,6 +124,7 @@ export function projectSettings(value: unknown): SettingsDto {
       stream_idle_timeout: projectSafeInteger(values.stream_idle_timeout, { minimum: 1 }),
       header_rules: projectHeaderRules(values.header_rules),
       inject_usage_options: projectBoolean(values.inject_usage_options),
+      validation_interval: projectSafeInteger(values.validation_interval, { minimum: 1 }),
       request_log_retention_days: projectSafeInteger(values.request_log_retention_days, {
         minimum: 1,
         maximum: 365,

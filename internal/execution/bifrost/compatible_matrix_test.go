@@ -178,11 +178,11 @@ func TestCompatibleListModelsAndProbeUseConfiguredPrefix(t *testing.T) {
 		baseSuffix string
 		modelsPath string
 		probePath  string
-		probeBody  []byte
+		probeReply string
 	}{
-		{name: "OpenAI", channelID: channel.OpenAICompatible, protocol: protocol.OpenAICompletions, baseSuffix: "/custom/v1", modelsPath: "/custom/v1/models", probePath: "/custom/v1/chat/completions", probeBody: []byte(`{"model":"client","messages":[{"role":"user","content":"ping"}]}`)},
-		{name: "Anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, baseSuffix: "/custom", modelsPath: "/custom/v1/models", probePath: "/custom/v1/messages", probeBody: []byte(`{"model":"client","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)},
-		{name: "Gemini", channelID: channel.Gemini, protocol: protocol.Gemini, baseSuffix: "/custom/v1beta", modelsPath: "/custom/v1beta/models", probePath: "/custom/v1beta/models/probe-upstream:generateContent", probeBody: []byte(`{"contents":[{"parts":[{"text":"ping"}]}]}`)},
+		{name: "OpenAI", channelID: channel.OpenAICompatible, protocol: protocol.OpenAICompletions, baseSuffix: "/custom/v1", modelsPath: "/custom/v1/models", probePath: "/custom/v1/chat/completions", probeReply: `{"id":"chat_1","object":"chat.completion","created":1,"model":"probe-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}]}`},
+		{name: "Anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, baseSuffix: "/custom", modelsPath: "/custom/v1/models", probePath: "/custom/v1/messages", probeReply: `{"id":"msg_1","type":"message","role":"assistant","model":"probe-upstream","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`},
+		{name: "Gemini", channelID: channel.Gemini, protocol: protocol.Gemini, baseSuffix: "/custom/v1beta", modelsPath: "/custom/v1beta/models", probePath: "/custom/v1beta/models/probe-upstream:generateContent", probeReply: `{"candidates":[{"content":{"role":"model","parts":[{"text":"pong"}]},"finishReason":"STOP"}],"modelVersion":"probe-upstream"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -199,7 +199,7 @@ func TestCompatibleListModelsAndProbeUseConfiguredPrefix(t *testing.T) {
 						t.Errorf("probe method = %s", request.Method)
 					}
 					writer.Header().Set("Content-Type", "application/json")
-					_, _ = io.WriteString(writer, `{"ok":true}`)
+					_, _ = io.WriteString(writer, test.probeReply)
 				default:
 					t.Errorf("unexpected path = %s", request.URL.Path)
 					writer.WriteHeader(http.StatusNotFound)
@@ -222,14 +222,7 @@ func TestCompatibleListModelsAndProbeUseConfiguredPrefix(t *testing.T) {
 				t.Fatalf("models = %+v err=%v", modelsResult, err)
 			}
 
-			probeClientPath := "/v1/chat/completions"
-			if test.protocol == protocol.Anthropic {
-				probeClientPath = "/v1/messages"
-			}
-			if test.protocol == protocol.Gemini {
-				probeClientPath = "/v1beta/models/client:generateContent"
-			}
-			probe := utilitySpec(test.channelID, test.protocol, execution.OperationProbe, http.MethodPost, probeClientPath, test.probeBody)
+			probe := utilitySpec(test.channelID, test.protocol, execution.OperationProbe, "", "", nil)
 			probe.TargetConfig = target
 			probe = freezeTestAttempt(probe)
 			probe.ClientModel, probe.UpstreamModel = "probe-client", "probe-upstream"
@@ -250,6 +243,13 @@ func TestOpenAICompatibleNonV1PrefixKeepsListModelsAndProbeFunctional(t *testing
 		case "/vendor/api/v4/models":
 			_, _ = io.WriteString(writer, `{"object":"list","data":[{"id":"model-1","object":"model","created":1,"owned_by":"vendor"}]}`)
 		case "/vendor/api/v4/chat/completions":
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Errorf("read probe body: %v", err)
+			} else if !bytes.Contains(body, []byte(`"max_tokens": 1`)) ||
+				bytes.Contains(body, []byte(`"max_completion_tokens"`)) {
+				t.Errorf("compatible probe token limit = %s, want legacy max_tokens only", body)
+			}
 			_, _ = io.WriteString(writer, `{"id":"chat_1","object":"chat.completion","created":1,"model":"served","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 		default:
 			t.Errorf("path = %s", request.URL.Path)
@@ -268,7 +268,7 @@ func TestOpenAICompatibleNonV1PrefixKeepsListModelsAndProbeFunctional(t *testing
 		t.Fatalf("models = %+v err=%v body=%s", modelsResult, err, modelsResult.Body)
 	}
 
-	probe := utilitySpec(channel.OpenAICompatible, protocol.OpenAICompletions, execution.OperationProbe, http.MethodPost, "/v1/chat/completions", []byte(`{"model":"client","messages":[{"role":"user","content":"ping"}]}`))
+	probe := utilitySpec(channel.OpenAICompatible, protocol.OpenAICompletions, execution.OperationProbe, "", "", nil)
 	probe.TargetConfig = target
 	probe = freezeTestAttempt(probe)
 	probe.ClientModel, probe.UpstreamModel = "probe-client", "probe-upstream"

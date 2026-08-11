@@ -58,10 +58,11 @@ export default {
     runtime: {
       title: 'リクエストと転送',
       description:
-        '明示値は組み込み既定値を上書きします。既定値の復元後は現在のバージョンが有効値を決めます。すべての時間単位は秒です。',
+        '明示値は組み込み既定値を上書きします。既定値の復元後は現在のバージョンが有効値を決めます。すべての時間設定は秒単位です。',
       first_byte_timeout: 'ネイティブ応答 / ストリーム初回イベントのタイムアウト',
       request_timeout: 'リクエスト全体のタイムアウト',
       stream_idle_timeout: 'ストリームアイドルタイムアウト',
+      validation_interval: '認証情報の検証間隔',
       inject_usage_options: 'ストリーミング応答へ usage オプションを注入',
       injectUsageHelp:
         '最終 usage を取得するため、この機能をサポートする openai-completions のストリーミング要求でのみ有効です。',

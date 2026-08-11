@@ -390,6 +390,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 			Remove: []string{"X-System-Remove"},
 		},
 		InjectUsageOptions:       true,
+		ValidationInterval:       10 * time.Minute,
 		RequestLogRetentionDays:  7,
 		ModelsDevAutoSyncEnabled: true,
 	}

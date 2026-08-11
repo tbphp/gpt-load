@@ -141,14 +141,12 @@ func TestNativeOpenAIStyleProvidersUseOpenAIUtilityRequestShape(t *testing.T) {
 				t.Fatalf("ListModels shape = %q %q %q %s, err=%v", clientProtocol, method, path, body, err)
 			}
 
-			clientProtocol, method, path, body, err = utilityRequestShape(
+			if _, _, _, _, err := utilityRequestShape(
 				providerKind,
 				execution.OperationProbe,
 				"model-one",
-			)
-			if err != nil || clientProtocol != protocol.OpenAICompletions ||
-				method != http.MethodPost || path != "/v1/chat/completions" || len(body) == 0 {
-				t.Fatalf("Probe shape = %q %q %q %s, err=%v", clientProtocol, method, path, body, err)
+			); err == nil {
+				t.Fatal("utilityRequestShape still owns provider Probe wire shape")
 			}
 		})
 	}

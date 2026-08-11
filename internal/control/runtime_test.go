@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -342,6 +344,97 @@ func TestRuntimeCreatesAutoWeightAndJitteredValidationTickers(t *testing.T) {
 	stopRuntime(t, cancel, done)
 	awaitSignal(t, autoTicker.stopped)
 	awaitSignal(t, validationTicker.stopped)
+}
+
+func TestRuntimeValidationJitterDoesNotOverflow(t *testing.T) {
+	autoTicker := newFakeRuntimeTicker()
+	validationTicker := newFakeRuntimeTicker()
+	created := make(chan time.Duration, 2)
+	runtime := newTestRuntime(
+		newFakeAutoWeightRegistry(1),
+		health.NewStatsStore(),
+		newFakeValidationSweep(false),
+		autoTicker,
+		validationTicker,
+		created,
+		time.Now,
+	)
+	runtime.validationInterval = time.Duration(1<<63 - 1)
+	runtime.validationJitter = func() time.Duration { return maxValidationJitter }
+	runtime.newTicker = func(interval time.Duration) runtimeTicker {
+		created <- interval
+		if interval == runtime.autoWeightInterval {
+			return autoTicker
+		}
+		return validationTicker
+	}
+
+	cancel, done := startRuntime(t, runtime)
+	if interval := awaitValue(t, created); interval != 30*time.Second {
+		t.Fatalf("auto-weight ticker interval = %v, want 30s", interval)
+	}
+	if interval := awaitValue(t, created); interval != time.Duration(1<<63-1) {
+		t.Fatalf("validation ticker interval = %v, want capped maximum duration", interval)
+	}
+	stopRuntime(t, cancel, done)
+	awaitSignal(t, autoTicker.stopped)
+	awaitSignal(t, validationTicker.stopped)
+}
+
+func TestRuntimeReschedulesValidationWhenPublishedIntervalChanges(t *testing.T) {
+	manager := state.NewManager()
+	if _, err := manager.Publish(state.CompileInput{}); err != nil {
+		t.Fatal(err)
+	}
+	autoTicker := newFakeRuntimeTicker()
+	defaultTicker := newFakeRuntimeTicker()
+	overriddenTicker := newFakeRuntimeTicker()
+	created := make(chan time.Duration, 3)
+	runtime := newTestRuntime(
+		newFakeAutoWeightRegistry(1),
+		health.NewStatsStore(),
+		newFakeValidationSweep(false),
+		autoTicker,
+		defaultTicker,
+		created,
+		time.Now,
+	)
+	runtime.manager = manager
+	runtime.newTicker = func(interval time.Duration) runtimeTicker {
+		created <- interval
+		switch interval {
+		case 30 * time.Second:
+			return autoTicker
+		case 12 * time.Minute:
+			return defaultTicker
+		case 22 * time.Minute:
+			return overriddenTicker
+		default:
+			testingPanic("unexpected ticker interval", interval)
+			return nil
+		}
+	}
+
+	cancel, done := startRuntime(t, runtime)
+	if interval := awaitValue(t, created); interval != 30*time.Second {
+		t.Fatalf("auto-weight ticker interval = %v, want 30s", interval)
+	}
+	if interval := awaitValue(t, created); interval != 12*time.Minute {
+		t.Fatalf("default validation ticker interval = %v, want 12m", interval)
+	}
+	if _, err := manager.Publish(state.CompileInput{SystemSettings: config.Settings{
+		state.SettingValidationInterval: json.Number("1200"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if interval := awaitValue(t, created); interval != 22*time.Minute {
+		t.Fatalf("updated validation ticker interval = %v, want 22m", interval)
+	}
+	awaitSignal(t, defaultTicker.stopped)
+
+	stopRuntime(t, cancel, done)
+	awaitSignal(t, autoTicker.stopped)
+	awaitSignal(t, overriddenTicker.stopped)
 }
 
 func TestRuntimeWaitsForTickBeforeRecompute(t *testing.T) {

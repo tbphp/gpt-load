@@ -51,6 +51,45 @@ func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *
 	}
 }
 
+func TestValidationProtocolUsesFirstNativePresetProtocolThenConfiguredFallback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		channelID channel.ID
+		params    json.RawMessage
+		want      protocol.Protocol
+		wantMode  channel.RouteMode
+	}{
+		{name: "OpenAI", channelID: channel.OpenAI, params: json.RawMessage(`{}`), want: protocol.OpenAICompletions, wantMode: channel.RouteNative},
+		{name: "Anthropic", channelID: channel.Anthropic, params: json.RawMessage(`{}`), want: protocol.Anthropic, wantMode: channel.RouteNative},
+		{name: "Gemini", channelID: channel.Gemini, params: json.RawMessage(`{}`), want: protocol.Gemini, wantMode: channel.RouteNative},
+		{name: "OpenRouter", channelID: channel.OpenRouter, params: json.RawMessage(`{}`), want: protocol.OpenAICompletions, wantMode: channel.RouteNative},
+		{name: "OpenAI compatible", channelID: channel.OpenAICompatible, params: json.RawMessage(`{"base_url":"https://upstream.example/v1"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteNative},
+		{name: "Azure", channelID: channel.AzureOpenAI, params: json.RawMessage(`{"endpoint":"https://example.openai.azure.com"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteConverted},
+		{name: "Bedrock", channelID: channel.AWSBedrock, params: json.RawMessage(`{"region":"us-east-1"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteConverted},
+		{name: "Vertex", channelID: channel.GoogleVertex, params: json.RawMessage(`{"project_id":"project","location":"us-central1"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteConverted},
+	}
+
+	registry := channel.NewRegistry()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolved, err := registry.Resolve(test.channelID, test.params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := validationProtocol(resolved)
+			if !ok || got != test.want {
+				t.Fatalf("validationProtocol() = %q/%t, want %q/true", got, ok, test.want)
+			}
+			mode, exists := resolved.Mode(got, execution.OperationProbe)
+			if !exists || mode != test.wantMode {
+				t.Fatalf("probe mode = %q/%t, want %q/true", mode, exists, test.wantMode)
+			}
+		})
+	}
+}
+
 func TestValidationWorkerFallsBackToFirstRealModelID(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
@@ -135,6 +174,10 @@ func TestValidationWorkerProbesStructuredCloudCredential(t *testing.T) {
 		observed.ClientProtocol != protocol.OpenAICompletions ||
 		observed.UpstreamModel != "anthropic.claude-test" {
 		t.Fatalf("attempt = %#v", observed)
+	}
+	if observed.Method != "" || observed.Path != "" || observed.RawQuery != "" ||
+		len(observed.Query) != 0 || len(observed.Body) != 0 {
+		t.Fatalf("probe attempt contains provider wire shape: %#v", observed)
 	}
 	if got, want := worker.recorder.events(), []string{
 		fmt.Sprintf("registry.weight:7:%d", state.DefaultWeight), "registry.recover:7", "stats.reset:7",

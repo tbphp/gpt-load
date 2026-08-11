@@ -58,10 +58,11 @@ export default {
     runtime: {
       title: 'Request and forwarding',
       description:
-        'Explicit values override built-in defaults. Restoring a default uses the current version; all timeouts are in seconds.',
+        'Explicit values override built-in defaults. Restoring a default uses the current version; all time values are in seconds.',
       first_byte_timeout: 'Native response / stream first-event timeout',
       request_timeout: 'Total request timeout',
       stream_idle_timeout: 'Stream idle timeout',
+      validation_interval: 'Credential validation interval',
       inject_usage_options: 'Inject usage options for streaming responses',
       injectUsageHelp:
         'Applies only to capable openai-completions streaming requests so the final usage can be returned.',

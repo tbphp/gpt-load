@@ -10,6 +10,7 @@ type Manager struct {
 	publishMu  sync.Mutex
 	current    atomic.Pointer[ConfigSnapshot]
 	reconciler SnapshotReconciler
+	updates    chan struct{}
 }
 
 // SnapshotReconciler synchronizes infrastructure resources derived from a
@@ -19,7 +20,7 @@ type SnapshotReconciler interface {
 }
 
 func NewManager() *Manager {
-	return &Manager{}
+	return &Manager{updates: make(chan struct{})}
 }
 
 // SetSnapshotReconciler installs the process-owned runtime reconciler during
@@ -35,6 +36,21 @@ func (m *Manager) SetSnapshotReconciler(reconciler SnapshotReconciler) {
 
 func (m *Manager) Current() *ConfigSnapshot {
 	return m.current.Load()
+}
+
+// CurrentWithUpdates returns a snapshot and a channel closed by the next
+// successful publication. The pair is captured under the publication lock so
+// consumers cannot miss a change between reading the snapshot and subscribing.
+func (m *Manager) CurrentWithUpdates() (*ConfigSnapshot, <-chan struct{}) {
+	if m == nil {
+		return nil, nil
+	}
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	if m.updates == nil {
+		m.updates = make(chan struct{})
+	}
+	return m.current.Load(), m.updates
 }
 
 // WithCurrentSnapshot runs a short callback while publication is blocked.
@@ -99,5 +115,9 @@ func (m *Manager) publishCompiledLocked(next *ConfigSnapshot) *ConfigSnapshot {
 		next.Revision = current.Revision + 1
 	}
 	m.current.Store(next)
+	if m.updates != nil {
+		close(m.updates)
+	}
+	m.updates = make(chan struct{})
 	return next
 }

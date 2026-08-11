@@ -29,6 +29,7 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
   'stream_idle_timeout',
   'header_rules',
   'inject_usage_options',
+  'validation_interval',
 ]
 const logsMaintenanceKeys: RuntimeSettingKey[] = ['request_log_retention_days']
 const modelPriceKeys: RuntimeSettingKey[] = ['models_dev_auto_sync_enabled']
@@ -273,6 +274,7 @@ export function validateSettingsSection(draft: SettingsDraft, section: SettingsS
     'first_byte_timeout',
     'request_timeout',
     'stream_idle_timeout',
+    'validation_interval',
   ]
   return timeouts.every((key) => !draft.overrides.has(key) || isValidTimeout(draft.values[key]))
 }

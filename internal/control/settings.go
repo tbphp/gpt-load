@@ -31,6 +31,7 @@ type SettingsValuesResponse struct {
 	StreamIdleTimeout        int64               `json:"stream_idle_timeout"`
 	HeaderRules              HeaderRulesResponse `json:"header_rules"`
 	InjectUsageOptions       bool                `json:"inject_usage_options"`
+	ValidationInterval       int64               `json:"validation_interval"`
 	RequestLogRetentionDays  int                 `json:"request_log_retention_days"`
 	ModelsDevAutoSyncEnabled bool                `json:"models_dev_auto_sync_enabled"`
 }
@@ -364,6 +365,7 @@ func mapSettingsResponse(
 				Remove: remove,
 			},
 			InjectUsageOptions:       settings.InjectUsageOptions,
+			ValidationInterval:       durationSeconds(settings.ValidationInterval),
 			RequestLogRetentionDays:  settings.RequestLogRetentionDays,
 			ModelsDevAutoSyncEnabled: modelsDevAutoSyncEnabled,
 		},

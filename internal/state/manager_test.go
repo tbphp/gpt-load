@@ -84,6 +84,39 @@ func TestManagerPublishPreservesOldSnapshotReference(t *testing.T) {
 	}
 }
 
+func TestManagerCurrentWithUpdatesSignalsOnlySuccessfulPublication(t *testing.T) {
+	manager := NewManager()
+	current, updates := manager.CurrentWithUpdates()
+	if current != nil || updates == nil {
+		t.Fatalf("initial CurrentWithUpdates() = %p/%v", current, updates)
+	}
+
+	first, err := manager.Publish(managerCompileInput(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-updates:
+	default:
+		t.Fatal("successful publication did not signal update")
+	}
+
+	current, nextUpdates := manager.CurrentWithUpdates()
+	if current != first || nextUpdates == nil || nextUpdates == updates {
+		t.Fatalf("next CurrentWithUpdates() = %p/%v", current, nextUpdates)
+	}
+	invalid := managerCompileInput(2)
+	invalid.Groups[0].ChannelID = channel.ID("invalid")
+	if _, err := manager.Publish(invalid); err == nil {
+		t.Fatal("invalid Publish() error = nil")
+	}
+	select {
+	case <-nextUpdates:
+		t.Fatal("failed publication signaled an update")
+	default:
+	}
+}
+
 func TestManagerPublishFailureKeepsCurrentSnapshot(t *testing.T) {
 	manager := NewManager()
 	first, err := manager.Publish(managerCompileInput(1))

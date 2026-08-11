@@ -19,6 +19,7 @@ const (
 	SettingStreamIdleTimeout        = "stream_idle_timeout"
 	SettingHeaderRules              = "header_rules"
 	SettingInjectUsageOptions       = "inject_usage_options"
+	SettingValidationInterval       = "validation_interval"
 	SettingRequestLogRetentionDays  = "request_log_retention_days"
 	SettingModelsDevAutoSyncEnabled = "models_dev_auto_sync_enabled"
 )
@@ -35,6 +36,7 @@ type RuntimeSettings struct {
 	StreamIdleTimeout        time.Duration
 	HeaderRules              HeaderRules
 	InjectUsageOptions       bool
+	ValidationInterval       time.Duration
 	RequestLogRetentionDays  int
 	ModelsDevAutoSyncEnabled bool
 }
@@ -52,6 +54,7 @@ func DefaultRuntimeSettings() RuntimeSettings {
 		StreamIdleTimeout:        300 * time.Second,
 		HeaderRules:              HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
+		ValidationInterval:       10 * time.Minute,
 		RequestLogRetentionDays:  defaultRequestLogRetentionDays,
 		ModelsDevAutoSyncEnabled: true,
 	}
@@ -64,6 +67,7 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
 		SettingInjectUsageOptions,
+		SettingValidationInterval,
 		SettingRequestLogRetentionDays,
 		SettingModelsDevAutoSyncEnabled:
 		return true
@@ -106,6 +110,12 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.InjectUsageOptions = value
+		case SettingValidationInterval:
+			seconds, err := positiveWholeSeconds(key, value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.ValidationInterval = time.Duration(seconds) * time.Second
 		case SettingRequestLogRetentionDays:
 			days, err := wholeNumberInRange(
 				key,
@@ -186,7 +196,8 @@ func ValidateRuntimeSetting(key string, value any) error {
 	switch key {
 	case SettingFirstByteTimeout,
 		SettingRequestTimeout,
-		SettingStreamIdleTimeout:
+		SettingStreamIdleTimeout,
+		SettingValidationInterval:
 		_, err := positiveWholeSeconds(key, value)
 		return err
 	case SettingHeaderRules:

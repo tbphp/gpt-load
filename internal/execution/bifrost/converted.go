@@ -45,7 +45,7 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		}
 		request = wire.ToBifrostResponsesRequest(conversionContext)
 	case protocol.Anthropic:
-		if spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationProbe {
+		if spec.Operation != execution.OperationChatCompletion {
 			return nil, fmt.Errorf("converted Anthropic operation is not supported")
 		}
 		var wire anthropic.AnthropicMessageRequest
@@ -54,7 +54,7 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		}
 		request = wire.ToBifrostResponsesRequest(conversionContext)
 	case protocol.Gemini:
-		if spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationProbe {
+		if spec.Operation != execution.OperationChatCompletion {
 			return nil, fmt.Errorf("converted Gemini operation is not supported")
 		}
 		var wire gemini.GeminiGenerationRequest

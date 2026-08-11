@@ -77,22 +77,28 @@ func (s AttemptSpec) Validate() error {
 			return validationError("upstream_model", "must not be empty for this operation")
 		}
 	}
-	if !validHTTPToken(s.Method) {
-		return validationError("method", "must be a valid HTTP method")
-	}
-	if err := validateRequestPath(s.Path); err != nil {
-		return validationError("path", "must be an absolute request path without query or fragment")
-	}
-	if s.RawQuery != "" {
-		if len(s.Query) != 0 {
-			return validationError("raw_query", "must not be combined with query")
+	if s.Operation == OperationProbe {
+		if s.Method != "" || s.Path != "" || len(s.Query) != 0 || s.RawQuery != "" || len(s.Body) != 0 {
+			return validationError("probe", "must not contain provider wire fields")
 		}
-		if strings.Contains(s.RawQuery, "#") || containsControl(s.RawQuery) {
-			return validationError("raw_query", "contains a fragment or control characters")
+	} else {
+		if !validHTTPToken(s.Method) {
+			return validationError("method", "must be a valid HTTP method")
 		}
-	}
-	if err := validateValues(s.Query); err != nil {
-		return validationError("query", "contains invalid control characters")
+		if err := validateRequestPath(s.Path); err != nil {
+			return validationError("path", "must be an absolute request path without query or fragment")
+		}
+		if s.RawQuery != "" {
+			if len(s.Query) != 0 {
+				return validationError("raw_query", "must not be combined with query")
+			}
+			if strings.Contains(s.RawQuery, "#") || containsControl(s.RawQuery) {
+				return validationError("raw_query", "contains a fragment or control characters")
+			}
+		}
+		if err := validateValues(s.Query); err != nil {
+			return validationError("query", "contains invalid control characters")
+		}
 	}
 	if err := validateHeader(s.Header); err != nil {
 		return validationError("header", "contains an invalid name or value")
@@ -288,7 +294,8 @@ func operationRequiresModel(operation Operation) bool {
 	return operation == OperationChatCompletion ||
 		operation == OperationResponsesCreate ||
 		operation == OperationResponsesCompact ||
-		operation == OperationResponsesInputTokens
+		operation == OperationResponsesInputTokens ||
+		operation == OperationProbe
 }
 
 func validateRequestPath(path string) error {

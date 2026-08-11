@@ -82,30 +82,42 @@ func TestOfficialNativeProbeUsesSelectedModelAndProtocolTarget(t *testing.T) {
 		name      string
 		channelID channel.ID
 		protocol  protocol.Protocol
-		path      string
-		body      []byte
 		runtime   func(*testing.T, string) *testRuntime
+		response  string
 		assert    func(*testing.T, *http.Request, map[string]any)
 	}{
-		{name: "openai", channelID: channel.OpenAI, protocol: protocol.OpenAICompletions, path: "/v1/chat/completions", body: []byte(`{"model":"client","messages":[{"role":"user","content":"ping"}]}`), runtime: func(t *testing.T, base string) *testRuntime {
+		{name: "openai", channelID: channel.OpenAI, protocol: protocol.OpenAICompletions, runtime: func(t *testing.T, base string) *testRuntime {
 			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
-		}, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
-			if request.URL.Path != "/v1/chat/completions" || payload["model"] != "probe-upstream" || payload["stream"] != false {
+		}, response: `{"id":"chat_1","object":"chat.completion","created":1,"model":"probe-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
+			if request.URL.Path != "/v1/chat/completions" || payload["model"] != "probe-upstream" {
 				t.Errorf("OpenAI probe = %s %#v", request.URL.Path, payload)
 			}
-		}},
-		{name: "anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, path: "/v1/messages", body: []byte(`{"model":"client","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`), runtime: func(t *testing.T, base string) *testRuntime {
-			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
-		}, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
-			if request.URL.Path != "/v1/messages" || payload["model"] != "probe-upstream" || payload["stream"] != false {
-				t.Errorf("Anthropic probe = %s %#v", request.URL.Path, payload)
+			if stream, exists := payload["stream"]; exists && stream != false {
+				t.Errorf("OpenAI probe stream = %#v", stream)
 			}
 		}},
-		{name: "gemini", channelID: channel.Gemini, protocol: protocol.Gemini, path: "/v1beta/models/client:generateContent", body: []byte(`{"contents":[{"parts":[{"text":"ping"}]}]}`), runtime: func(t *testing.T, base string) *testRuntime {
+		{name: "anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, runtime: func(t *testing.T, base string) *testRuntime {
+			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
+		}, response: `{"id":"msg_1","type":"message","role":"assistant","model":"probe-upstream","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
+			if request.URL.Path != "/v1/messages" || payload["model"] != "probe-upstream" {
+				t.Errorf("Anthropic probe = %s %#v", request.URL.Path, payload)
+			}
+			if stream, exists := payload["stream"]; exists && stream != false {
+				t.Errorf("Anthropic probe stream = %#v", stream)
+			}
+			if payload["max_tokens"] != float64(1) {
+				t.Errorf("Anthropic max_tokens = %#v", payload["max_tokens"])
+			}
+		}},
+		{name: "gemini", channelID: channel.Gemini, protocol: protocol.Gemini, runtime: func(t *testing.T, base string) *testRuntime {
 			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
-		}, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
+		}, response: `{"candidates":[{"content":{"role":"model","parts":[{"text":"pong"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2},"modelVersion":"probe-upstream"}`, assert: func(t *testing.T, request *http.Request, payload map[string]any) {
 			if request.URL.Path != "/v1beta/models/probe-upstream:generateContent" {
 				t.Errorf("Gemini probe path = %s", request.URL.Path)
+			}
+			generationConfig, _ := payload["generationConfig"].(map[string]any)
+			if generationConfig["maxOutputTokens"] != float64(1) {
+				t.Errorf("Gemini generationConfig = %#v", generationConfig)
 			}
 		}},
 	}
@@ -121,12 +133,12 @@ func TestOfficialNativeProbeUsesSelectedModelAndProtocolTarget(t *testing.T) {
 				}
 				test.assert(t, request, payload)
 				writer.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(writer, `{"ok":true}`)
+				_, _ = io.WriteString(writer, test.response)
 			}))
 			defer server.Close()
 
 			runtime := test.runtime(t, server.URL)
-			spec := utilitySpec(test.channelID, test.protocol, execution.OperationProbe, http.MethodPost, test.path, test.body)
+			spec := utilitySpec(test.channelID, test.protocol, execution.OperationProbe, "", "", nil)
 			spec.ClientModel = "probe-client"
 			spec.UpstreamModel = "probe-upstream"
 			result := runtime.Execute(context.Background(), spec)

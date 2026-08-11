@@ -303,6 +303,34 @@ func TestAttemptSpecRawQueryPreservesOpaqueBytesAndRejectsUnsafeShapes(t *testin
 	}
 }
 
+func TestProbeAttemptIsSemanticAndDoesNotCarryProviderWireShape(t *testing.T) {
+	spec := validAttemptSpec([]byte(`{"api_key":"sk-secret-value"}`))
+	spec.Operation = OperationProbe
+	spec.RequiredFeatures = FeatureSet{}
+	spec.Method = ""
+	spec.Path = ""
+	spec.Query = nil
+	spec.RawQuery = ""
+	spec.Body = nil
+
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("semantic Probe Validate() error = %v", err)
+	}
+
+	for _, mutate := range []func(*AttemptSpec){
+		func(value *AttemptSpec) { value.Method = http.MethodPost },
+		func(value *AttemptSpec) { value.Path = "/v1/chat/completions" },
+		func(value *AttemptSpec) { value.RawQuery = "alt=sse" },
+		func(value *AttemptSpec) { value.Body = []byte(`{"model":"probe"}`) },
+	} {
+		invalid := spec.Clone()
+		mutate(&invalid)
+		if err := invalid.Validate(); err == nil {
+			t.Fatalf("Probe accepted provider wire fields: %#v", invalid)
+		}
+	}
+}
+
 func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	reasoningBudget := int64(4096)
 	result := AttemptResult{
@@ -439,7 +467,6 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		OperationResponsesInputItems,
 		OperationResponsesPassthrough,
 		OperationListModels,
-		OperationProbe,
 	} {
 		modelOptional := spec.Clone()
 		modelOptional.Operation = operation
@@ -457,10 +484,16 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	if err := responsesCreate.Validate(); err == nil {
 		t.Fatal("expected responses create without a model to be rejected")
 	}
-	for _, operation := range []Operation{OperationResponsesCompact, OperationResponsesInputTokens} {
+	for _, operation := range []Operation{OperationResponsesCompact, OperationResponsesInputTokens, OperationProbe} {
 		modelRequired := spec.Clone()
 		modelRequired.Operation = operation
 		modelRequired.UpstreamModel = ""
+		if operation == OperationProbe {
+			modelRequired.Method = ""
+			modelRequired.Path = ""
+			modelRequired.Query = nil
+			modelRequired.Body = nil
+		}
 		if err := modelRequired.Validate(); err == nil {
 			t.Fatalf("expected %q without a model to be rejected", operation)
 		}

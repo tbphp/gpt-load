@@ -37,6 +37,7 @@ func TestSettingsWireETagMatchesCheckedInFixture(t *testing.T) {
 				Remove: []string{},
 			},
 			InjectUsageOptions:      true,
+			ValidationInterval:      600,
 			RequestLogRetentionDays: 7,
 		},
 		Overrides: []string{},

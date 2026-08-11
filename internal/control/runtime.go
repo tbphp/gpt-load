@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	autoWeightInterval  = 30 * time.Second
-	validationInterval  = 30 * time.Minute
-	maxValidationJitter = 3 * time.Minute
-	retentionInterval   = time.Hour
+	autoWeightInterval        = 30 * time.Second
+	defaultValidationInterval = 10 * time.Minute
+	maxValidationJitter       = 3 * time.Minute
+	retentionInterval         = time.Hour
 )
 
 type autoWeightRegistry interface {
@@ -68,6 +68,7 @@ type Runtime struct {
 	requestLogCleaner  RequestLogCleaner
 	operationRecovery  operationRecoveryRuntime
 	catalogSync        catalogSyncRuntime
+	manager            *state.Manager
 	autoWeightInterval time.Duration
 	validationInterval time.Duration
 	validationJitter   func() time.Duration
@@ -94,8 +95,9 @@ func NewRuntime(
 		requestLogCleaner:  requestLogCleaner,
 		operationRecovery:  operationRecovery,
 		catalogSync:        catalogSync,
+		manager:            manager,
 		autoWeightInterval: autoWeightInterval,
-		validationInterval: validationInterval,
+		validationInterval: defaultValidationInterval,
 		validationJitter: func() time.Duration {
 			return time.Duration(rand.Int64N(int64(maxValidationJitter) + 1))
 		},
@@ -118,7 +120,11 @@ func NewRuntime(
 
 func (runtime *Runtime) Run(ctx context.Context) {
 	autoTicker := runtime.newTicker(runtime.autoWeightInterval)
-	validationTicker := runtime.newTicker(runtime.validationInterval + runtime.validationJitter())
+	currentValidationInterval, validationUpdates := runtime.currentValidationSchedule()
+	validationTicker := runtime.newTicker(validationTickerInterval(
+		currentValidationInterval,
+		runtime.validationJitter(),
+	))
 
 	var wait sync.WaitGroup
 	wait.Add(2)
@@ -128,7 +134,7 @@ func (runtime *Runtime) Run(ctx context.Context) {
 	}()
 	go func() {
 		defer wait.Done()
-		runtime.runValidation(ctx, validationTicker)
+		runtime.runValidation(ctx, validationTicker, currentValidationInterval, validationUpdates)
 	}()
 	if runtime.requestLogCleaner != nil {
 		retentionTicker := runtime.newTicker(retentionInterval)
@@ -170,12 +176,26 @@ func (runtime *Runtime) runAutoWeight(ctx context.Context, ticker runtimeTicker)
 	}
 }
 
-func (runtime *Runtime) runValidation(ctx context.Context, ticker runtimeTicker) {
-	defer ticker.Stop()
+func (runtime *Runtime) runValidation(
+	ctx context.Context,
+	ticker runtimeTicker,
+	interval time.Duration,
+	updates <-chan struct{},
+) {
+	defer func() { ticker.Stop() }()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-updates:
+			nextInterval, nextUpdates := runtime.currentValidationSchedule()
+			updates = nextUpdates
+			if nextInterval == interval {
+				continue
+			}
+			ticker.Stop()
+			interval = nextInterval
+			ticker = runtime.newTicker(validationTickerInterval(interval, runtime.validationJitter()))
 		case <-ticker.C():
 			if ctx.Err() != nil {
 				return
@@ -185,6 +205,32 @@ func (runtime *Runtime) runValidation(ctx context.Context, ticker runtimeTicker)
 			}
 		}
 	}
+}
+
+func validationTickerInterval(interval, jitter time.Duration) time.Duration {
+	const maxDuration = time.Duration(1<<63 - 1)
+	if jitter <= 0 {
+		return interval
+	}
+	if interval > maxDuration-jitter {
+		return maxDuration
+	}
+	return interval + jitter
+}
+
+func (runtime *Runtime) currentValidationSchedule() (time.Duration, <-chan struct{}) {
+	interval := runtime.validationInterval
+	if interval <= 0 {
+		interval = defaultValidationInterval
+	}
+	if runtime.manager == nil {
+		return interval, nil
+	}
+	snapshot, updates := runtime.manager.CurrentWithUpdates()
+	if snapshot != nil && snapshot.Settings.ValidationInterval > 0 {
+		interval = snapshot.Settings.ValidationInterval
+	}
+	return interval, updates
 }
 
 func (runtime *Runtime) runRetention(ctx context.Context, ticker runtimeTicker) {

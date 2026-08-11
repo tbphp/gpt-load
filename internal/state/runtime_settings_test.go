@@ -22,6 +22,7 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		StreamIdleTimeout:        300 * time.Second,
 		HeaderRules:              HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
+		ValidationInterval:       10 * time.Minute,
 		RequestLogRetentionDays:  7,
 		ModelsDevAutoSyncEnabled: true,
 	}
@@ -56,6 +57,35 @@ func TestModelsDevAutoSyncSettingDefaultsTrueAndIsSystemOnly(t *testing.T) {
 		config.Settings{SettingModelsDevAutoSyncEnabled: false},
 	); err == nil {
 		t.Fatal("Group override accepted system-only models_dev_auto_sync_enabled")
+	}
+}
+
+func TestValidationIntervalDefaultsToTenMinutesAndIsSystemOnly(t *testing.T) {
+	defaults, err := ResolveRuntimeSettings(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.ValidationInterval != 10*time.Minute {
+		t.Fatalf("ValidationInterval = %v, want 10m", defaults.ValidationInterval)
+	}
+
+	overridden, err := ResolveRuntimeSettings(config.Settings{
+		SettingValidationInterval: json.Number("900"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overridden.ValidationInterval != 15*time.Minute {
+		t.Fatalf("ValidationInterval = %v, want 15m", overridden.ValidationInterval)
+	}
+	if !IsRuntimeSettingKey(SettingValidationInterval) {
+		t.Fatal("validation_interval is not a public runtime setting")
+	}
+	if _, err := ResolveGroupRuntimeSettings(
+		defaults,
+		config.Settings{SettingValidationInterval: json.Number("900")},
+	); err == nil {
+		t.Fatal("Group override accepted system-only validation_interval")
 	}
 }
 
@@ -222,9 +252,10 @@ func TestParseHeaderRulesRejectsSDKOwnedCredentialHeaders(t *testing.T) {
 
 func TestResolveRuntimeSettingsAppliesSystemOverrides(t *testing.T) {
 	got, err := ResolveRuntimeSettings(config.Settings{
-		SettingFirstByteTimeout:  json.Number("180"),
-		SettingRequestTimeout:    json.Number("900"),
-		SettingStreamIdleTimeout: json.Number("45"),
+		SettingFirstByteTimeout:   json.Number("180"),
+		SettingRequestTimeout:     json.Number("900"),
+		SettingStreamIdleTimeout:  json.Number("45"),
+		SettingValidationInterval: json.Number("900"),
 		SettingHeaderRules: map[string]any{
 			"set":    map[string]any{"x-test": "value"},
 			"remove": []any{"x-old"},
@@ -237,6 +268,7 @@ func TestResolveRuntimeSettingsAppliesSystemOverrides(t *testing.T) {
 	if got.FirstByteTimeout != 180*time.Second ||
 		got.RequestTimeout != 900*time.Second ||
 		got.StreamIdleTimeout != 45*time.Second ||
+		got.ValidationInterval != 15*time.Minute ||
 		got.RequestLogRetentionDays != 30 {
 		t.Fatalf("settings = %#v", got)
 	}
@@ -308,6 +340,7 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
 		SettingInjectUsageOptions,
+		SettingValidationInterval,
 		SettingRequestLogRetentionDays,
 	} {
 		if !IsRuntimeSettingKey(key) {

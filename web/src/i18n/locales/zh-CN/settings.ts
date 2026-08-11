@@ -53,10 +53,11 @@ export default {
     },
     runtime: {
       title: '请求与转发',
-      description: '显式值覆盖内置默认；恢复默认后由当前版本决定有效值。所有时间单位均为秒。',
+      description: '显式值覆盖内置默认；恢复默认后由当前版本决定有效值。所有时间设置均以秒为单位。',
       first_byte_timeout: '原生响应 / 流式首事件超时',
       request_timeout: '请求总时长',
       stream_idle_timeout: '流空闲超时',
+      validation_interval: '检测间隔',
       inject_usage_options: '为流式响应注入 usage 选项',
       injectUsageHelp: '只在支持该能力的 openai-completions 流式请求中生效，用于获取最终 usage。',
       models_dev_auto_sync_enabled: '自动同步 Models.dev 目录与价格',

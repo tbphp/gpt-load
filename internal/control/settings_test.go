@@ -34,6 +34,7 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	}
 	if got.Values.FirstByteTimeout != 120 ||
 		got.Values.RequestTimeout != 600 || got.Values.StreamIdleTimeout != 300 ||
+		got.Values.ValidationInterval != 600 ||
 		got.Values.RequestLogRetentionDays != 7 || !got.Values.InjectUsageOptions {
 		t.Fatalf("values = %#v", got.Values)
 	}
@@ -48,6 +49,35 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	}
 	if !got.Values.ModelsDevAutoSyncEnabled || got.ReadOnly == nil || len(got.ReadOnly) != 0 {
 		t.Fatalf("Models.dev settings = %#v/%#v, want true and no read-only keys", got.Values, got.ReadOnly)
+	}
+}
+
+func TestUpdateSettingsChangesAndResetsValidationInterval(t *testing.T) {
+	fixture := newServiceFixture(t)
+	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingValidationInterval: json.RawMessage("900"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Values.ValidationInterval != 900 ||
+		fixture.manager.Current().Settings.ValidationInterval != 15*time.Minute ||
+		!reflect.DeepEqual(updated.Overrides, []string{state.SettingValidationInterval}) {
+		t.Fatalf("updated validation interval = %#v", updated)
+	}
+
+	reset, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingValidationInterval: json.RawMessage("null"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reset.Values.ValidationInterval != 600 || len(reset.Overrides) != 0 {
+		t.Fatalf("reset validation interval = %#v", reset)
 	}
 }
 

@@ -38,6 +38,7 @@ const timeoutKeys: TimeoutSettingKey[] = [
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
+  'validation_interval',
 ]
 function cloneDraft(): SettingsDraft {
   return createSettingsDraft({
