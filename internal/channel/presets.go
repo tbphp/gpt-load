@@ -53,20 +53,10 @@ func builtinDefinitions() []definition {
 		secretField("external_id", "AWS external ID"),
 		secretField("session_name", "AWS role session name"),
 	}
-	vertexParams := objectSchema{
-		{
-			descriptor: FieldDescriptor{Key: "project_id", Label: "Google Cloud project ID", InputKind: InputText, Required: true},
-			normalize:  normalizeCloudIdentifier,
-		},
-		{
-			descriptor: FieldDescriptor{Key: "location", Label: "Vertex location", InputKind: InputText, Required: true},
-			normalize:  normalizeCloudIdentifier,
-		},
-		{
-			descriptor: FieldDescriptor{Key: "project_number", Label: "Google Cloud project number", InputKind: InputText},
-			normalize:  normalizeCloudIdentifier,
-		},
-	}
+	vertexParams := objectSchema{{
+		descriptor: FieldDescriptor{Key: "location", Label: "Vertex location", InputKind: InputText},
+		normalize:  normalizeCloudIdentifier,
+	}}
 	vertexCredentials := objectSchema{{
 		descriptor: FieldDescriptor{
 			Key: "service_account_json", Label: "Service account JSON", InputKind: InputSecret,
@@ -89,6 +79,7 @@ func builtinDefinitions() []definition {
 		GoogleVertex, "Google Vertex AI", "VX", "Google Cloud Vertex AI", []string{"google", "gcp", "vertex"},
 		vertexParams, vertexCredentials, "google-vertex", ProviderGoogleVertex, false, nil, false,
 	)
+	vertexDefinition.validateParams = normalizeVertexParams
 
 	return []definition{
 		newDefinition(
@@ -222,6 +213,34 @@ func normalizeCloudIdentifier(value string) (string, error) {
 		}
 	}
 	return value, nil
+}
+
+func normalizeVertexParams(raw json.RawMessage) (map[string]string, error) {
+	object, err := decodeStrictObject(raw)
+	if err != nil {
+		return nil, &ValidationError{Field: "params", Reason: err.Error()}
+	}
+	values := map[string]string{"location": "global"}
+	for key, rawValue := range object {
+		if key != "location" && key != "project_id" && key != "project_number" {
+			return nil, &ValidationError{Field: "params." + key, Reason: "unknown field"}
+		}
+		var value string
+		if err := json.Unmarshal(rawValue, &value); err != nil {
+			return nil, &ValidationError{Field: "params." + key, Reason: "must be a string"}
+		}
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		normalized, err := normalizeCloudIdentifier(value)
+		if err != nil {
+			return nil, &ValidationError{Field: "params." + key, Reason: err.Error()}
+		}
+		if key == "location" {
+			values[key] = normalized
+		}
+	}
+	return values, nil
 }
 
 func normalizeServiceAccountJSON(value string) (string, error) {

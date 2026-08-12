@@ -64,6 +64,38 @@ func TestCompileBuildsOperationAwareChannelCandidates(t *testing.T) {
 	}
 }
 
+func TestCompileSelectsNativeVertexGeminiModePerModel(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := Compile(CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{{
+			ID: 9, Name: "vertex", ChannelID: channel.GoogleVertex,
+			Params: json.RawMessage(`{}`),
+			Models: []ModelConfig{
+				{ID: "gemini-2.5-pro", Alias: "gemini-public"},
+				{ID: "claude-sonnet-4", Alias: "claude-public"},
+			},
+			Enabled: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	geminiTarget := snapshot.ExecutionCandidates[protocol.Gemini][execution.OperationChatCompletion]["gemini-public"]
+	if len(geminiTarget) != 1 || geminiTarget[0].Mode != channel.RouteNative {
+		t.Fatalf("Vertex Gemini candidates = %#v, want native", geminiTarget)
+	}
+	claudeTarget := snapshot.ExecutionCandidates[protocol.Gemini][execution.OperationChatCompletion]["claude-public"]
+	if len(claudeTarget) != 1 || claudeTarget[0].Mode != channel.RouteConverted {
+		t.Fatalf("Vertex Claude candidates = %#v, want converted", claudeTarget)
+	}
+	if got := string(snapshot.Groups[9].Params); got != `{"location":"global"}` {
+		t.Fatalf("Vertex group params = %s, want default global location", got)
+	}
+}
+
 func TestCompileIndexesNativeResponsesResourceOperationsWithoutModels(t *testing.T) {
 	t.Parallel()
 

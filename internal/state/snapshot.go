@@ -272,9 +272,13 @@ func appendExecutionTargets(
 				execution.OperationResponsesCompact,
 				execution.OperationResponsesInputTokens:
 				for _, model := range group.Models {
+					modelMode, supported := target.ModeForModel(clientProtocol, operation, model.ID)
+					if !supported {
+						return fmt.Errorf("compile group %d channel has no route mode for %q/%q model %q", group.ID, clientProtocol, operation, model.ID)
+					}
 					appendExecutionTarget(index, clientProtocol, operation, externalModelName(model), RouteTarget{
 						GroupID: group.ID, UpstreamModelID: strings.TrimSpace(model.ID),
-						Mode: mode, ResolvedTarget: cloneResolvedTarget(target),
+						Mode: modelMode, ResolvedTarget: cloneResolvedTarget(target),
 					})
 				}
 			default:

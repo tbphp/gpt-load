@@ -186,7 +186,11 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		return
 	}
 	apiKey, _ := credential.Value("api_key")
-	routeMode, supported := group.ResolvedTarget.Mode(target.protocol, execution.OperationProbe)
+	routeMode, supported := group.ResolvedTarget.ModeForModel(
+		target.protocol,
+		execution.OperationProbe,
+		target.model,
+	)
 	if !supported {
 		logValidationFailure(ref, string(target.protocol), "request")
 		return
@@ -291,7 +295,7 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	if probeModel == "" {
 		return groupValidationTarget{}, false
 	}
-	selectedProtocol, ok := validationProtocol(group.ResolvedTarget)
+	selectedProtocol, ok := validationProtocol(group.ResolvedTarget, probeModel)
 	if !ok {
 		return groupValidationTarget{}, false
 	}
@@ -302,14 +306,14 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	}, true
 }
 
-func validationProtocol(target channel.ResolvedTarget) (protocol.Protocol, bool) {
+func validationProtocol(target channel.ResolvedTarget, model string) (protocol.Protocol, bool) {
 	for _, clientProtocol := range protocol.DataPlaneProtocols() {
-		if mode, ok := target.Mode(clientProtocol, execution.OperationProbe); ok && mode == channel.RouteNative {
+		if mode, ok := target.ModeForModel(clientProtocol, execution.OperationProbe, model); ok && mode == channel.RouteNative {
 			return clientProtocol, true
 		}
 	}
 	for _, clientProtocol := range protocol.DataPlaneProtocols() {
-		if _, ok := target.Mode(clientProtocol, execution.OperationProbe); ok {
+		if _, ok := target.ModeForModel(clientProtocol, execution.OperationProbe, model); ok {
 			return clientProtocol, true
 		}
 	}

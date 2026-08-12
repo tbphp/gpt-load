@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -569,8 +570,8 @@ func TestRuntimePreparesStructuredCloudCredentialsForSelectedProvider(t *testing
 		},
 		{
 			name: "Vertex service account", channelID: "google_vertex",
-			targetConfig: `{"location":"us-central1","project_id":"project-one"}`,
-			credential:   `{"service_account_json":"{\"type\":\"service_account\",\"project_id\":\"project-one\",\"client_email\":\"svc@example.iam.gserviceaccount.com\",\"private_key\":\"secret\"}"}`, wantProvider: "vertex",
+			targetConfig: `{"location":"us-central1"}`,
+			credential:   `{"service_account_json":"{\"type\":\"service_account\",\"project_id\":\"credential-project\",\"client_email\":\"svc@example.iam.gserviceaccount.com\",\"private_key\":\"secret\"}"}`, wantProvider: "vertex",
 		},
 	}
 	runtime := newTestRuntime(t)
@@ -612,9 +613,87 @@ func TestRuntimePreparesStructuredCloudCredentialsForSelectedProvider(t *testing
 				}
 			case "Vertex service account":
 				config := prepared.directKey.VertexKeyConfig
-				if config == nil || config.ProjectID.GetValue() != "project-one" || config.Region.GetValue() != "us-central1" || !strings.Contains(config.AuthCredentials.GetValue(), `"private_key":"secret"`) {
+				if config == nil || config.ProjectID.GetValue() != "credential-project" || config.Region.GetValue() != "us-central1" || !strings.Contains(config.AuthCredentials.GetValue(), `"private_key":"secret"`) {
 					t.Fatalf("Vertex key = %#v", prepared.directKey)
 				}
+			}
+		})
+	}
+}
+
+func TestRuntimePreparesNativeVertexGeminiFromSelectedCredentialProject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		model      string
+		stream     bool
+		path       string
+		wantPath   string
+		wantQuery  string
+		projectID  string
+		location   string
+		targetJSON string
+	}{
+		{
+			name: "publisher model defaults global", model: "gemini-2.5-pro",
+			path: "/v1beta/models/public:generateContent", wantPath: "/publishers/google/models/gemini-2.5-pro:generateContent",
+			wantQuery: "trace=keep", projectID: "project-one", location: "global", targetJSON: `{}`,
+		},
+		{
+			name: "publisher stream uses selected region", model: "google/gemma-3-27b-it", stream: true,
+			path: "/v1beta/models/public:streamGenerateContent", wantPath: "/publishers/google/models/gemma-3-27b-it:streamGenerateContent",
+			wantQuery: "trace=keep&alt=sse", projectID: "project-two", location: "us-central1", targetJSON: `{"location":"us-central1"}`,
+		},
+		{
+			name: "numeric endpoint", model: "123456789",
+			path: "/v1beta/models/public:generateContent", wantPath: "/endpoints/123456789:generateContent",
+			wantQuery: "trace=keep", projectID: "project-three", location: "global", targetJSON: `{}`,
+		},
+	}
+
+	runtime := newTestRuntime(t)
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			serviceAccount, err := json.Marshal(map[string]string{
+				"type": "service_account", "project_id": test.projectID,
+				"client_email": "svc@example.iam.gserviceaccount.com", "private_key": "secret",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			credentialJSON, err := json.Marshal(map[string]string{"service_account_json": string(serviceAccount)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec := freezeTestAttempt(execution.NewAttemptSpec(execution.AttemptSpec{
+				RequestID: "request-vertex", AttemptID: fmt.Sprintf("attempt-%d", index+1), Sequence: uint32(index + 1),
+				ChannelID: string(channel.GoogleVertex), ClientProtocol: protocol.Gemini,
+				Operation: execution.OperationChatCompletion, ClientModel: "public", UpstreamModel: test.model,
+				Method: http.MethodPost, Path: test.path,
+				RawQuery: "alt=json&trace=keep", Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body:         []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+				TargetConfig: json.RawMessage(test.targetJSON),
+				Timeouts:     execution.AttemptTimeouts{FirstByte: time.Second, Request: 2 * time.Second, StreamIdle: time.Second},
+				Credential:   execution.NewCredentialSnapshot(uint(index+1), 1, 1, credentialJSON),
+			}))
+
+			prepared, failure := runtime.prepare(spec, test.stream)
+			if failure != nil {
+				t.Fatalf("prepare() failure = %+v, evidence=%+v", failure, failure.Error)
+			}
+			if prepared.mode != channel.RouteNative || prepared.passthrough == nil {
+				t.Fatalf("prepared Vertex route = %#v, want native passthrough", prepared)
+			}
+			if prepared.passthrough.Path != test.wantPath || prepared.passthrough.RawQuery != test.wantQuery {
+				t.Fatalf("Vertex target = %q?%s, want %q?%s", prepared.passthrough.Path, prepared.passthrough.RawQuery, test.wantPath, test.wantQuery)
+			}
+			if prepared.passthrough.SafeHeaders["Content-Type"] != "application/json" {
+				t.Fatalf("Vertex content type = %#v", prepared.passthrough.SafeHeaders)
+			}
+			config := prepared.directKey.VertexKeyConfig
+			if config == nil || config.ProjectID.GetValue() != test.projectID || config.Region.GetValue() != test.location {
+				t.Fatalf("Vertex key config = %#v", config)
 			}
 		})
 	}
@@ -1273,7 +1352,7 @@ func freezeTestAttempt(spec execution.AttemptSpec) execution.AttemptSpec {
 	if err != nil {
 		panic("resolve test execution target: " + err.Error())
 	}
-	mode, ok := resolved.Mode(spec.ClientProtocol, spec.Operation)
+	mode, ok := resolved.ModeForModel(spec.ClientProtocol, spec.Operation, spec.UpstreamModel)
 	if !ok {
 		mode = channel.RouteNative
 	}

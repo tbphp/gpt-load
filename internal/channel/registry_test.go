@@ -191,9 +191,9 @@ func TestRegistryValidatesCloudChannelParamsAndStructuredCredentials(t *testing.
 		},
 		{
 			name: "Vertex service account", channelID: ID("google_vertex"),
-			params:         `{"project_id":" project-one ","location":" us-central1 "}`,
+			params:         `{"location":" us-central1 "}`,
 			credential:     `{"service_account_json":" {\"type\":\"service_account\",\"project_id\":\"project-one\",\"client_email\":\"svc@example.iam.gserviceaccount.com\",\"private_key\":\"secret\"} "}`,
-			wantParams:     `{"location":"us-central1","project_id":"project-one"}`,
+			wantParams:     `{"location":"us-central1"}`,
 			wantCredential: `{"service_account_json":"{\"client_email\":\"svc@example.iam.gserviceaccount.com\",\"private_key\":\"secret\",\"project_id\":\"project-one\",\"type\":\"service_account\"}"}`,
 			invalidCredentials: []string{
 				`{}`,
@@ -237,7 +237,7 @@ func TestCloudTargetsCarryOnlyNeutralPresetMetadata(t *testing.T) {
 	}{
 		{ID("azure_openai"), `{"endpoint":"https://resource.openai.azure.com"}`, ProviderKind("azure_openai"), "azure"},
 		{ID("aws_bedrock"), `{"region":"us-east-1"}`, ProviderKind("aws_bedrock"), "amazon-bedrock"},
-		{ID("google_vertex"), `{"location":"us-central1","project_id":"project-one"}`, ProviderKind("google_vertex"), "google-vertex"},
+		{ID("google_vertex"), `{"location":"us-central1"}`, ProviderKind("google_vertex"), "google-vertex"},
 	}
 	for _, test := range tests {
 		t.Run(string(test.channelID), func(t *testing.T) {
@@ -255,6 +255,49 @@ func TestCloudTargetsCarryOnlyNeutralPresetMetadata(t *testing.T) {
 				t.Fatal("cloud converted target unexpectedly exposes native Responses lifecycle")
 			}
 		})
+	}
+}
+
+func TestVertexUsesCredentialProjectAndDefaultsLocation(t *testing.T) {
+	registry := NewRegistry()
+
+	params, err := registry.ValidateParams(GoogleVertex, nil)
+	if err != nil {
+		t.Fatalf("ValidateParams(default Vertex) error = %v", err)
+	}
+	if got := string(params.CanonicalJSON()); got != `{"location":"global"}` {
+		t.Fatalf("default Vertex params = %s, want global location", got)
+	}
+	emptyLocation, err := registry.ValidateParams(GoogleVertex, json.RawMessage(`{"location":""}`))
+	if err != nil || string(emptyLocation.CanonicalJSON()) != `{"location":"global"}` {
+		t.Fatalf("empty Vertex location = %s, %v, want global", emptyLocation.CanonicalJSON(), err)
+	}
+
+	legacy, err := registry.ValidateParams(
+		GoogleVertex,
+		json.RawMessage(`{"project_id":"legacy-project","project_number":"123456","location":"us-central1"}`),
+	)
+	if err != nil {
+		t.Fatalf("ValidateParams(legacy Vertex) error = %v", err)
+	}
+	if got := string(legacy.CanonicalJSON()); got != `{"location":"us-central1"}` {
+		t.Fatalf("legacy Vertex params = %s, want only location", got)
+	}
+
+	descriptor, ok := registry.Get(GoogleVertex)
+	if !ok || len(descriptor.ParamFields) != 1 || descriptor.ParamFields[0].Key != "location" || descriptor.ParamFields[0].Required {
+		t.Fatalf("Vertex descriptor params = %#v, %t", descriptor.ParamFields, ok)
+	}
+
+	target, err := registry.Resolve(GoogleVertex, nil)
+	if err != nil {
+		t.Fatalf("Resolve(default Vertex) error = %v", err)
+	}
+	if mode, ok := target.ModeForModel(protocol.Gemini, execution.OperationChatCompletion, "gemini-2.5-pro"); !ok || mode != RouteNative {
+		t.Fatalf("Vertex Gemini mode = %q, %t, want native", mode, ok)
+	}
+	if mode, ok := target.ModeForModel(protocol.Gemini, execution.OperationChatCompletion, "claude-sonnet-4"); !ok || mode != RouteConverted {
+		t.Fatalf("Vertex Claude-through-Gemini mode = %q, %t, want converted", mode, ok)
 	}
 }
 

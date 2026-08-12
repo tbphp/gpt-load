@@ -68,7 +68,7 @@ func TestValidationProtocolUsesFirstNativePresetProtocolThenConfiguredFallback(t
 		{name: "OpenAI compatible", channelID: channel.OpenAICompatible, params: json.RawMessage(`{"base_url":"https://upstream.example/v1"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteNative},
 		{name: "Azure", channelID: channel.AzureOpenAI, params: json.RawMessage(`{"endpoint":"https://example.openai.azure.com"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteConverted},
 		{name: "Bedrock", channelID: channel.AWSBedrock, params: json.RawMessage(`{"region":"us-east-1"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteConverted},
-		{name: "Vertex", channelID: channel.GoogleVertex, params: json.RawMessage(`{"project_id":"project","location":"us-central1"}`), want: protocol.OpenAICompletions, wantMode: channel.RouteConverted},
+		{name: "Vertex", channelID: channel.GoogleVertex, params: json.RawMessage(`{"location":"us-central1"}`), want: protocol.Gemini, wantMode: channel.RouteNative},
 	}
 
 	registry := channel.NewRegistry()
@@ -78,11 +78,11 @@ func TestValidationProtocolUsesFirstNativePresetProtocolThenConfiguredFallback(t
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, ok := validationProtocol(resolved)
+			got, ok := validationProtocol(resolved, "gemini-2.5-pro")
 			if !ok || got != test.want {
 				t.Fatalf("validationProtocol() = %q/%t, want %q/true", got, ok, test.want)
 			}
-			mode, exists := resolved.Mode(got, execution.OperationProbe)
+			mode, exists := resolved.ModeForModel(got, execution.OperationProbe, "gemini-2.5-pro")
 			if !exists || mode != test.wantMode {
 				t.Fatalf("probe mode = %q/%t, want %q/true", mode, exists, test.wantMode)
 			}
@@ -183,6 +183,43 @@ func TestValidationWorkerProbesStructuredCloudCredential(t *testing.T) {
 		fmt.Sprintf("registry.weight:7:%d", state.DefaultWeight), "registry.recover:7", "stats.reset:7",
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recovery events = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidationWorkerUsesNativeGeminiProbeForVertexModel(t *testing.T) {
+	group := validationGroup(nil, "gemini-2.5-pro", nil)
+	setValidationChannel(&group, channel.GoogleVertex, json.RawMessage(`{}`))
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{1: group}),
+		[]state.CredentialRef{{
+			ID: 8, GroupID: 1, Version: 1, IdentityGeneration: 1,
+			Fingerprint: "vertex-fingerprint", EncryptedValue: "vertex-cipher",
+		}},
+		&validationProbeRecorder{},
+	)
+	worker.decryptor = fixedValidationDecryptor{
+		plaintext: `{"service_account_json":"{\"type\":\"service_account\",\"project_id\":\"project-one\",\"client_email\":\"svc@example.iam.gserviceaccount.com\",\"private_key\":\"secret\"}"}`,
+	}
+	var observed execution.AttemptSpec
+	worker.executor = scriptedDiscoveryExecutor{execute: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+	) execution.AttemptResult {
+		observed = spec.Clone()
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{},
+		}
+	}}
+
+	worker.Validate(context.Background())
+
+	if observed.ChannelID != string(channel.GoogleVertex) ||
+		observed.ClientProtocol != protocol.Gemini ||
+		observed.RouteMode != execution.RouteNative ||
+		observed.UpstreamModel != "gemini-2.5-pro" ||
+		string(observed.TargetConfig) != `{"location":"global"}` {
+		t.Fatalf("Vertex probe attempt = %#v", observed)
 	}
 }
 

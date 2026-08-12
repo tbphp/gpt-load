@@ -404,7 +404,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{}, &failure
 	}
 	mode := channel.RouteMode(spec.RouteMode)
-	declaredMode, ok := resolved.Mode(spec.ClientProtocol, spec.Operation)
+	declaredMode, ok := resolved.ModeForModel(spec.ClientProtocol, spec.Operation, spec.UpstreamModel)
 	if !ok || declaredMode != mode {
 		failure := notSentConversionFailure(
 			execution.ErrorCodeTargetConversionNotSupported,
@@ -451,7 +451,8 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{}, &failure
 	}
 	safeQuery := safeAttemptQuery(spec)
-	if providerKind == channel.ProviderGemini {
+	if mode == channel.RouteNative && spec.ClientProtocol == protocol.Gemini &&
+		(providerKind == channel.ProviderGemini || providerKind == channel.ProviderGoogleVertex) {
 		safeQuery = removeRawQueryValue(safeQuery, "alt")
 		if stream {
 			safeQuery = setRawQueryValue(safeQuery, "alt", "sse")
@@ -469,6 +470,29 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{}, &failure
 	}
 	if spec.Operation == execution.OperationProbe {
+		if mode == channel.RouteNative && providerKind == channel.ProviderGoogleVertex {
+			passthroughPath, pathErr := vertexNativeGeminiPath(spec.UpstreamModel, "generateContent")
+			if pathErr != nil {
+				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel probe target")
+				return preparedAttempt{}, &failure
+			}
+			return preparedAttempt{
+				provider: provider,
+				mode:     mode,
+				passthrough: &schemas.BifrostPassthroughRequest{
+					Provider: provider,
+					Model:    spec.UpstreamModel,
+					Method:   http.MethodPost,
+					Path:     passthroughPath,
+					Body:     []byte(`{"contents":[{"role":"user","parts":[{"text":"ping"}]}],"generationConfig":{"maxOutputTokens":1}}`),
+					SafeHeaders: map[string]string{
+						"Content-Type": "application/json",
+					},
+				},
+				directKey: directKey,
+				secrets:   secrets,
+			}, nil
+		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
 		responses := spec.ClientProtocol == protocol.OpenAIResponses
 		typedURL, targetErr := convertedTypedTarget(
@@ -505,6 +529,15 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request path")
 			return preparedAttempt{}, &failure
 		}
+		passthroughHeaders := safePassthroughHeaders(spec.Header)
+		if providerKind == channel.ProviderGoogleVertex {
+			if passthroughHeaders == nil {
+				passthroughHeaders = make(map[string]string, 1)
+			}
+			if passthroughHeaders["Content-Type"] == "" {
+				passthroughHeaders["Content-Type"] = "application/json"
+			}
+		}
 		return preparedAttempt{
 			provider: provider,
 			mode:     mode,
@@ -515,7 +548,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				Path:        passthroughPath,
 				RawQuery:    safeQuery,
 				Body:        body,
-				SafeHeaders: safePassthroughHeaders(spec.Header),
+				SafeHeaders: passthroughHeaders,
 			},
 			directKey: directKey,
 			secrets:   secrets,
@@ -622,7 +655,7 @@ func newProbeRequest(
 
 func providerSupportsPassthrough(providerKind channel.ProviderKind, baseURL string) bool {
 	switch providerKind {
-	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini:
+	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderGoogleVertex:
 		return true
 	case channel.ProviderOpenAICompatible:
 		// Bifrost v1.7.7's OpenAI passthrough always inserts /v1. A compatible
@@ -641,6 +674,8 @@ func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtoc
 	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic
 	case channel.ProviderGemini:
+		return clientProtocol == protocol.Gemini
+	case channel.ProviderGoogleVertex:
 		return clientProtocol == protocol.Gemini
 	case channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses
@@ -762,9 +797,38 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 			return "", fmt.Errorf("invalid Gemini model path")
 		}
 		return path[:modelStart+len(marker)] + url.PathEscape(spec.UpstreamModel) + path[colon:], nil
+	case channel.ProviderGoogleVertex:
+		colon := strings.LastIndex(spec.Path, ":")
+		if colon < 0 || colon == len(spec.Path)-1 {
+			return "", fmt.Errorf("invalid Vertex Gemini path")
+		}
+		return vertexNativeGeminiPath(spec.UpstreamModel, spec.Path[colon+1:])
 	default:
 		return "", fmt.Errorf("unsupported native channel")
 	}
+}
+
+func vertexNativeGeminiPath(model, action string) (string, error) {
+	model, ok := channel.NormalizeVertexGeminiModel(model)
+	if !ok || (action != "generateContent" && action != "streamGenerateContent") {
+		return "", fmt.Errorf("invalid Vertex Gemini target")
+	}
+	if allDigitsASCII(model) {
+		return "/endpoints/" + url.PathEscape(model) + ":" + action, nil
+	}
+	return "/publishers/google/models/" + url.PathEscape(model) + ":" + action, nil
+}
+
+func allDigitsASCII(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] < '0' || value[index] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validResponsesResourcePath(path, action string) bool {
@@ -856,20 +920,27 @@ func directKeyForAttempt(
 		key.BedrockKeyConfig = config
 	case channel.ProviderGoogleVertex:
 		var target struct {
-			ProjectID     string `json:"project_id"`
-			ProjectNumber string `json:"project_number"`
-			Location      string `json:"location"`
+			Location string `json:"location"`
 		}
-		if json.Unmarshal(targetConfig, &target) != nil || target.ProjectID == "" || target.Location == "" {
-			return schemas.Key{}, nil, fmt.Errorf("Vertex project and location are required")
+		if json.Unmarshal(targetConfig, &target) != nil {
+			return schemas.Key{}, nil, fmt.Errorf("Vertex location is invalid")
+		}
+		if target.Location == "" {
+			target.Location = "global"
 		}
 		serviceAccount, ok := credential.Value("service_account_json")
 		if !ok || serviceAccount == "" {
 			return schemas.Key{}, nil, fmt.Errorf("Vertex service account is required")
 		}
+		var account struct {
+			ProjectID string `json:"project_id"`
+		}
+		if json.Unmarshal([]byte(serviceAccount), &account) != nil || strings.TrimSpace(account.ProjectID) == "" {
+			return schemas.Key{}, nil, fmt.Errorf("Vertex service account project is required")
+		}
+		account.ProjectID = strings.TrimSpace(account.ProjectID)
 		key.VertexKeyConfig = &schemas.VertexKeyConfig{
-			ProjectID:       plainSecret(target.ProjectID),
-			ProjectNumber:   plainSecret(target.ProjectNumber),
+			ProjectID:       plainSecret(account.ProjectID),
 			Region:          plainSecret(target.Location),
 			AuthCredentials: plainSecret(serviceAccount),
 		}

@@ -166,6 +166,50 @@ func (t ResolvedTarget) Mode(
 	return mode, ok
 }
 
+// ModeForModel returns the route mode after applying model-specific channel behavior.
+func (t ResolvedTarget) ModeForModel(
+	clientProtocol protocol.Protocol,
+	operation execution.Operation,
+	upstreamModel string,
+) (RouteMode, bool) {
+	mode, ok := t.Mode(clientProtocol, operation)
+	if !ok {
+		return "", false
+	}
+	if t.ProviderKind == ProviderGoogleVertex && clientProtocol == protocol.Gemini &&
+		(operation == execution.OperationChatCompletion || operation == execution.OperationProbe) {
+		if _, native := NormalizeVertexGeminiModel(upstreamModel); native {
+			return RouteNative, true
+		}
+	}
+	return mode, true
+}
+
+// NormalizeVertexGeminiModel returns the Vertex resource ID for a Gemini,
+// Gemma, or numeric custom endpoint that can preserve the native Gemini wire format.
+func NormalizeVertexGeminiModel(model string) (string, bool) {
+	model = strings.TrimSpace(model)
+	lower := strings.ToLower(model)
+	for _, prefix := range []string{"publishers/google/models/", "google/"} {
+		if strings.HasPrefix(lower, prefix) {
+			model = model[len(prefix):]
+			lower = strings.ToLower(model)
+			break
+		}
+	}
+	if model == "" || strings.ContainsAny(model, "/\\:?#") {
+		return "", false
+	}
+	allDigits := true
+	for index := 0; index < len(model); index++ {
+		if model[index] < '0' || model[index] > '9' {
+			allDigits = false
+			break
+		}
+	}
+	return model, allDigits || strings.Contains(lower, "gemini") || strings.Contains(lower, "gemma")
+}
+
 // Operations returns the stable operation set declared for a client protocol.
 func (t ResolvedTarget) Operations(clientProtocol protocol.Protocol) []execution.Operation {
 	byOperation := t.modes[clientProtocol]
@@ -273,7 +317,13 @@ func (r *Registry) ValidateParams(id ID, raw json.RawMessage) (Params, error) {
 	if !ok {
 		return Params{}, &ValidationError{Field: "channel_id", Reason: "unknown channel"}
 	}
-	values, err := definition.params.validate("params", raw)
+	var values map[string]string
+	var err error
+	if definition.validateParams != nil {
+		values, err = definition.validateParams(raw)
+	} else {
+		values, err = definition.params.validate("params", raw)
+	}
 	if err != nil {
 		return Params{}, err
 	}
@@ -420,6 +470,7 @@ type definition struct {
 	descriptor         Descriptor
 	searchTerms        []string
 	params             objectSchema
+	validateParams     func(json.RawMessage) (map[string]string, error)
 	credentials        objectSchema
 	validateCredential func(map[string]string) error
 	catalogProviderID  string
