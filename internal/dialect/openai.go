@@ -28,6 +28,7 @@ func (d *OpenAI) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
 	metadata.ObserveUsage = true
+	metadata.AffinityPrefix = inspectPromptAffinityPrefix(d.Protocol(), req.Body)
 	metadata.UsageDiagnostics = openAIRequestPricingDiagnostics(req.Body)
 	metadata.Reasoning = inspectOpenAICompletionsReasoning(req.Body)
 	metadata.Operation, metadata.RouteRequirement = chatExecutionMetadata(

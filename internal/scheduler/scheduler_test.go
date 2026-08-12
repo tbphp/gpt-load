@@ -481,6 +481,59 @@ func TestIteratorUsesDefaultWeights(t *testing.T) {
 	}
 }
 
+func TestIteratorPrefersEligibleCredentialThenResumesWeightedCandidates(t *testing.T) {
+	t.Parallel()
+
+	iterator := New(
+		schedulerSnapshot(),
+		fakeCredentialSource{keys: []state.CredentialMeta{
+			{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
+			{ID: 12, GroupID: 1, WeightAuto: state.DefaultWeight},
+		}},
+		Query{
+			ClientProtocol:        protocol.OpenAICompletions,
+			Operation:             execution.OperationChatCompletion,
+			ExternalModel:         modelPointer("gpt-4o"),
+			PreferredCredentialID: 12,
+		},
+		rand.New(zeroRandSource{}),
+	)
+
+	first, err := iterator.Next()
+	if err != nil || first.CredentialID != 12 {
+		t.Fatalf("first Next() = (%#v, %v), want preferred credential 12", first, err)
+	}
+	second, err := iterator.Next()
+	if err != nil || second.CredentialID != 11 {
+		t.Fatalf("second Next() = (%#v, %v), want remaining weighted credential 11", second, err)
+	}
+}
+
+func TestIteratorIgnoresIneligiblePreferredCredential(t *testing.T) {
+	t.Parallel()
+
+	zero := 0
+	iterator := New(
+		schedulerSnapshot(),
+		fakeCredentialSource{keys: []state.CredentialMeta{
+			{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
+			{ID: 12, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
+		}},
+		Query{
+			ClientProtocol:        protocol.OpenAICompletions,
+			Operation:             execution.OperationChatCompletion,
+			ExternalModel:         modelPointer("gpt-4o"),
+			PreferredCredentialID: 12,
+		},
+		rand.New(zeroRandSource{}),
+	)
+
+	selection, err := iterator.Next()
+	if err != nil || selection.CredentialID != 11 {
+		t.Fatalf("Next() = (%#v, %v), want eligible weighted credential 11", selection, err)
+	}
+}
+
 func TestIteratorReadsRegistryChangesBetweenNextCalls(t *testing.T) {
 	registry := state.NewCredentialRegistry()
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{

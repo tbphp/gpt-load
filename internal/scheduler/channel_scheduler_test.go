@@ -63,6 +63,29 @@ func TestIteratorExhaustsNativeTierBeforeConvertedTier(t *testing.T) {
 	}
 }
 
+func TestIteratorDoesNotLetConvertedPreferenceBypassNativeTier(t *testing.T) {
+	t.Parallel()
+
+	iterator := New(channelSchedulerSnapshot(t), fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
+		{ID: 21, GroupID: 2, WeightAuto: state.DefaultWeight},
+	}}, Query{
+		ClientProtocol:        protocol.OpenAICompletions,
+		Operation:             execution.OperationChatCompletion,
+		ExternalModel:         modelPointer("public"),
+		PreferredCredentialID: 11,
+	}, rand.New(zeroRandSource{}))
+
+	first, err := iterator.Next()
+	if err != nil || first.CredentialID != 21 || first.RouteMode != channel.RouteNative {
+		t.Fatalf("first Next() = (%#v, %v), want native credential 21", first, err)
+	}
+	second, err := iterator.Next()
+	if err != nil || second.CredentialID != 11 || second.RouteMode != channel.RouteConverted {
+		t.Fatalf("second Next() = (%#v, %v), want preferred converted credential 11", second, err)
+	}
+}
+
 func TestIteratorSkipGroupAndAllowedCredentialIDsApplyAcrossRouteTiers(t *testing.T) {
 	t.Parallel()
 

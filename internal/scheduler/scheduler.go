@@ -19,12 +19,13 @@ type CredentialSource interface {
 }
 
 type Query struct {
-	ClientProtocol       protocol.Protocol
-	Operation            execution.Operation
-	RouteRequirement     execution.RouteRequirement
-	ExternalModel        *string
-	AccessKey            state.AccessKeyView
-	AllowedCredentialIDs map[uint]struct{}
+	ClientProtocol        protocol.Protocol
+	Operation             execution.Operation
+	RouteRequirement      execution.RouteRequirement
+	ExternalModel         *string
+	AccessKey             state.AccessKeyView
+	AllowedCredentialIDs  map[uint]struct{}
+	PreferredCredentialID uint
 }
 
 type Selection struct {
@@ -48,15 +49,16 @@ type weightedCredential struct {
 }
 
 type Iterator struct {
-	credentials          CredentialSource
-	random               *rand.Rand
-	targetsByMode        map[channel.RouteMode]map[uint]candidateTarget
-	groupIDsByMode       map[channel.RouteMode][]uint
-	allowedCredentialIDs map[uint]struct{}
-	tried                map[uint]struct{}
-	skippedGroups        map[uint]struct{}
-	staticReason         ReasonCode
-	now                  func() time.Time
+	credentials           CredentialSource
+	random                *rand.Rand
+	targetsByMode         map[channel.RouteMode]map[uint]candidateTarget
+	groupIDsByMode        map[channel.RouteMode][]uint
+	allowedCredentialIDs  map[uint]struct{}
+	preferredCredentialID uint
+	tried                 map[uint]struct{}
+	skippedGroups         map[uint]struct{}
+	staticReason          ReasonCode
+	now                   func() time.Time
 }
 
 type normalizedQuery struct {
@@ -103,14 +105,15 @@ func newWithClock(
 	now func() time.Time,
 ) *Iterator {
 	iterator := &Iterator{
-		credentials:          credentials,
-		random:               random,
-		targetsByMode:        make(map[channel.RouteMode]map[uint]candidateTarget),
-		groupIDsByMode:       make(map[channel.RouteMode][]uint),
-		allowedCredentialIDs: cloneAllowedCredentialIDs(query),
-		tried:                make(map[uint]struct{}),
-		skippedGroups:        make(map[uint]struct{}),
-		now:                  now,
+		credentials:           credentials,
+		random:                random,
+		targetsByMode:         make(map[channel.RouteMode]map[uint]candidateTarget),
+		groupIDsByMode:        make(map[channel.RouteMode][]uint),
+		allowedCredentialIDs:  cloneAllowedCredentialIDs(query),
+		preferredCredentialID: query.PreferredCredentialID,
+		tried:                 make(map[uint]struct{}),
+		skippedGroups:         make(map[uint]struct{}),
+		now:                   now,
 	}
 	targets, staticReason := filterTargetsWithReason(snapshot, query)
 	iterator.staticReason = staticReason
@@ -205,20 +208,41 @@ func (iterator *Iterator) Next() (Selection, error) {
 			continue
 		}
 
-		ticket := iterator.random.Int63n(total)
-		selected := weighted[len(weighted)-1].meta
-		for _, candidate := range weighted {
-			if ticket < candidate.weight {
-				selected = candidate.meta
-				break
+		selected, preferred := preferredCredential(
+			weighted,
+			iterator.preferredCredentialID,
+		)
+		if !preferred {
+			ticket := iterator.random.Int63n(total)
+			selected = weighted[len(weighted)-1].meta
+			for _, candidate := range weighted {
+				if ticket < candidate.weight {
+					selected = candidate.meta
+					break
+				}
+				ticket -= candidate.weight
 			}
-			ticket -= candidate.weight
 		}
 		iterator.tried[selected.ID] = struct{}{}
 		target := iterator.targetsByMode[mode][selected.GroupID]
 		return newSelection(selected, target), nil
 	}
 	return Selection{}, ErrExhausted
+}
+
+func preferredCredential(
+	weighted []weightedCredential,
+	credentialID uint,
+) (state.CredentialMeta, bool) {
+	if credentialID == 0 {
+		return state.CredentialMeta{}, false
+	}
+	for _, candidate := range weighted {
+		if candidate.meta.ID == credentialID {
+			return candidate.meta, true
+		}
+	}
+	return state.CredentialMeta{}, false
 }
 
 func filterTargetsWithReason(

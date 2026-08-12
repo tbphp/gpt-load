@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/affinity"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -103,6 +104,7 @@ type Handler struct {
 	authFailureEvents   *utils.RateLimitedEventCounter
 	routeNotFoundEvents *utils.RateLimitedEventCounter
 	lifecycle           *httplifecycle.Coordinator
+	affinityCache       *affinity.Cache
 }
 
 func (handler *Handler) freezeAttemptPricing(
@@ -143,6 +145,7 @@ func NewHandler(
 		manager: manager, channels: channel.NewRegistry(), registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
+		affinityCache:  affinity.NewCache(),
 		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
 		newRequestID:   newRequestID,
 		requestNow:     time.Now,
@@ -440,6 +443,14 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		allowedCredentialIDs[credentialID] = struct{}{}
 	}
 	query.AllowedCredentialIDs = allowedCredentialIDs
+	requestAffinity := handler.resolveRequestAffinity(
+		accessKey.ID,
+		selectedRoute.Protocol,
+		model,
+		metadata.AffinityPrefix,
+		allowedCredentialRefs,
+	)
+	query.PreferredCredentialID = requestAffinity.preferredCredentialID
 	iterator := scheduler.New(snapshot, handler.registry, query, handler.newRandom())
 	handler.executeAttempts(
 		ginContext,
@@ -453,6 +464,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		metadata.Operation,
 		metadata.RouteRequirement,
 		clientParameters,
+		requestAffinity,
 		recorder,
 	)
 }
@@ -561,6 +573,7 @@ func (handler *Handler) executeAttempts(
 	operation execution.Operation,
 	routeRequirement execution.RouteRequirement,
 	clientParameters parametertrace.Snapshot,
+	requestAffinity requestAffinity,
 	recorder *requestRecorder,
 ) {
 	type deferredAttempt struct {
@@ -609,6 +622,10 @@ func (handler *Handler) executeAttempts(
 		}
 
 		attempts++
+		if attempts == 1 && requestAffinity.preferredCredentialID != 0 &&
+			selection.CredentialID == requestAffinity.preferredCredentialID {
+			recorder.setAffinityHit(true)
+		}
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
 		selectedCredentialID := selection.CredentialID
 		executionRequestID := "untracked"
@@ -677,6 +694,9 @@ func (handler *Handler) executeAttempts(
 				)
 				recorder.completeStream(result, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 			}
+			if stream && result.Stream.EndReason == StreamEndCleanEOF {
+				handler.recordAffinitySuccess(requestAffinity, selection, ref)
+			}
 			return
 		}
 		if requestCanceled {
@@ -744,6 +764,9 @@ func (handler *Handler) executeAttempts(
 			if err := handler.writeUpstreamResponse(ginContext, result); err != nil {
 				handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
 				return
+			}
+			if result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
+				handler.recordAffinitySuccess(requestAffinity, selection, ref)
 			}
 			return
 		}

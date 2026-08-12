@@ -20,6 +20,7 @@ type ParsedRequest struct {
 type RequestMetadata struct {
 	Model            *string
 	Stream           bool
+	AffinityPrefix   []byte
 	Operation        execution.Operation
 	RouteRequirement execution.RouteRequirement
 	ObserveUsage     bool

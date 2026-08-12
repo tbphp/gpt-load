@@ -34,10 +34,11 @@ func (d *Gemini) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 		return RequestMetadata{}, err
 	}
 	metadata := RequestMetadata{
-		Model:        &model,
-		Stream:       stream,
-		ObserveUsage: true,
-		Reasoning:    inspectGeminiReasoning(req.Body),
+		Model:          &model,
+		Stream:         stream,
+		AffinityPrefix: inspectPromptAffinityPrefix(d.Protocol(), req.Body),
+		ObserveUsage:   true,
+		Reasoning:      inspectGeminiReasoning(req.Body),
 	}
 	metadata.Operation, metadata.RouteRequirement = chatExecutionMetadata(
 		d.Protocol(),

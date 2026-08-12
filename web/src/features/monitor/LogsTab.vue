@@ -7,6 +7,7 @@ import {
   CircleHelp,
   Info,
   Layers,
+  Magnet,
   Search,
   TriangleAlert,
 } from '@lucide/vue'
@@ -770,18 +771,29 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.response')"
           >
-            <AppTooltip v-if="responseTooltip(log)" :content="responseTooltip(log)">
-              <span
-                ><StatusBadge :tone="statusTone(log.status)" size="compact">{{
-                  responseLabel(log)
-                }}</StatusBadge></span
-              >
-            </AppTooltip>
-            <OverflowTooltip v-else as="span" :content="responseLabel(log)">
-              <StatusBadge :tone="statusTone(log.status)" size="compact">
-                {{ responseLabel(log) }}
-              </StatusBadge>
-            </OverflowTooltip>
+            <div class="logs-list__response-primary">
+              <AppTooltip v-if="responseTooltip(log)" :content="responseTooltip(log)">
+                <span
+                  ><StatusBadge :tone="statusTone(log.status)" size="compact">{{
+                    responseLabel(log)
+                  }}</StatusBadge></span
+                >
+              </AppTooltip>
+              <OverflowTooltip v-else as="span" :content="responseLabel(log)">
+                <StatusBadge :tone="statusTone(log.status)" size="compact">
+                  {{ responseLabel(log) }}
+                </StatusBadge>
+              </OverflowTooltip>
+              <AppTooltip v-if="log.affinity_hit" :content="t('monitor.logs.drawer.affinity')">
+                <span
+                  class="logs-list__hint logs-list__affinity"
+                  tabindex="0"
+                  :aria-label="t('monitor.logs.drawer.affinity')"
+                >
+                  <Magnet :size="13" aria-hidden="true" />
+                </span>
+              </AppTooltip>
+            </div>
             <OverflowTooltip
               v-if="log.attempt_count > 1"
               as="small"
@@ -985,6 +997,13 @@ function costLabel(log: RequestLogItemDto): string {
   min-width: 0;
 }
 
+.logs-list__response-primary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
 .logs-list__inline {
   display: flex;
   align-items: center;
@@ -1064,6 +1083,12 @@ function costLabel(log: RequestLogItemDto): string {
 .logs-list__hint:hover {
   background: var(--color-surface-sunken);
   color: var(--color-text);
+}
+
+.logs-list__affinity {
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
 }
 
 .logs-list__model-consistency--mismatch,

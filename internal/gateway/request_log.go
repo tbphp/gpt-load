@@ -61,6 +61,7 @@ type requestRecorder struct {
 	clientParameters *parametertrace.Snapshot
 	usageApplicable  bool
 	usageDiagnostics usage.Diagnostics
+	affinityHit      bool
 	attempts         []telemetry.Attempt
 	attemptPricing   []frozenAttemptPricing
 	pendingPricing   frozenAttemptPricing
@@ -134,13 +135,19 @@ func (recorder *requestRecorder) emit() {
 		Stream:                recorder.stream,
 		FirstResponseMs:       recorder.firstResponseMs,
 		DurationMs:            duration.Milliseconds(),
-		AffinityHit:           false,
+		AffinityHit:           recorder.affinityHit,
 		Reasoning:             recorder.reasoning,
 		ClientParameters:      cloneParameterSnapshot(recorder.clientParameters),
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
 	})
+}
+
+func (recorder *requestRecorder) setAffinityHit(hit bool) {
+	if recorder != nil && hit {
+		recorder.affinityHit = true
+	}
 }
 
 func requestOutcomeModelConsistency(
