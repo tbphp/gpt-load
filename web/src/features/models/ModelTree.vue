@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
 import type { ClientModelDto, ModelUpstreamDto } from '@/app/resources/models'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -22,6 +23,29 @@ const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
 const { t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
+
+const channelIconNames: Readonly<Record<string, string>> = {
+  alibaba: 'alibabacloud',
+  anthropic: 'anthropic',
+  aws_bedrock: 'bedrock',
+  azure_openai: 'azure',
+  deepseek: 'deepseek',
+  gemini: 'gemini',
+  google_vertex: 'vertexai',
+  groq: 'groq',
+  moonshotai: 'moonshot',
+  openai: 'openai',
+  openai_compatible: 'compatible',
+  openrouter: 'openrouter',
+  siliconflow: 'siliconcloud',
+  volcengine: 'volcengine',
+  xai: 'xai',
+  zhipuai: 'zhipu',
+}
+
+function channelIconName(channelID: string): string {
+  return channelIconNames[channelID] ?? channelID
+}
 
 function hasProtocolRestriction(protocols: GroupProtocol[]): boolean {
   return props.readOnly === true && protocols.length < enabledDataProtocols.length
@@ -114,6 +138,18 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
           >
             <div class="model-tree__cell model-tree__upstream" role="cell">
               <span class="model-tree__ident">
+                <AppTooltip :content="pricingIdentityTooltip(entry.upstream)" align="start">
+                  <span
+                    class="model-tree__channel-icon"
+                    tabindex="0"
+                    :aria-label="pricingIdentityTooltip(entry.upstream)"
+                  >
+                    <ChannelIcon
+                      :icon="channelIconName(entry.upstream.price.channel_id)"
+                      :mark="entry.upstream.price.channel_name.slice(0, 2).toUpperCase()"
+                    />
+                  </span>
+                </AppTooltip>
                 <button
                   v-if="!readOnly"
                   type="button"
@@ -135,15 +171,6 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
                   :failure-label="t('models.tree.copyFailed')"
                 />
               </span>
-              <AppTooltip :content="pricingIdentityTooltip(entry.upstream)" align="start">
-                <span
-                  class="model-tree__channel"
-                  tabindex="0"
-                  :aria-label="pricingIdentityTooltip(entry.upstream)"
-                >
-                  {{ entry.upstream.price.channel_name }}
-                </span>
-              </AppTooltip>
               <span v-if="entry.tierCount > 0" class="model-tree__tag">
                 {{ t('models.tree.tierCount', { count: entry.tierCount }) }}
               </span>
@@ -341,22 +368,21 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   color: var(--color-warning);
 }
 
-.model-tree__channel {
-  display: inline-block;
-  max-width: 180px;
-  overflow: hidden;
+.model-tree__channel-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-tag);
-  background: var(--color-tag);
-  padding: 1px 6px;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+  color: var(--color-text-muted);
+  cursor: help;
+  font-size: 16px;
   outline: none;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-  white-space: nowrap;
 }
 
-.model-tree__channel:focus-visible,
+.model-tree__channel-icon:focus-visible,
 .model-tree__protocol-restriction:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 1px;
