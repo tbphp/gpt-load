@@ -17,9 +17,11 @@ import (
 )
 
 const (
-	providerConcurrency              = 32
-	providerBufferSize               = 256
-	providerTimeoutSecs              = 300
+	providerConcurrency = 32
+	providerBufferSize  = 256
+	// Keep the SDK transport timeout at the largest whole-second value that
+	// fits time.Duration so each attempt context remains the effective owner.
+	providerTimeoutSecs              = 9_223_372_036
 	defaultMaxUnaryResponseBodyBytes = int64(32 << 20)
 )
 

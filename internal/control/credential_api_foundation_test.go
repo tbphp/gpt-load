@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -164,7 +165,7 @@ func TestCloudCredentialImportAcceptsOneStrictJSONObjectPerLine(t *testing.T) {
 		},
 		{
 			name: "Vertex service account", channelID: channel.GoogleVertex,
-			params:      `{"location":"us-central1","project_id":"project-one"}`,
+			params:      `{"location":"us-central1"}`,
 			credentials: `{"service_account_json":"{\"type\":\"service_account\",\"project_id\":\"project-one\",\"client_email\":\"svc@example.iam.gserviceaccount.com\",\"private_key\":\"private-secret\"}"}`,
 			want:        `{"service_account_json":"{\"client_email\":\"svc@example.iam.gserviceaccount.com\",\"private_key\":\"private-secret\",\"project_id\":\"project-one\",\"type\":\"service_account\"}"}`,
 		},
@@ -230,7 +231,7 @@ func TestVertexCredentialImportAcceptsPastedServiceAccountJSON(t *testing.T) {
 }`
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name: stringPointer("vertex pasted credential"), ChannelID: channel.GoogleVertex,
-		Params: json.RawMessage(`{"location":"us-central1","project_id":"project-one"}`),
+		Params: json.RawMessage(`{"location":"us-central1"}`),
 		Models: optionalGroupModels{Set: true}, Credentials: raw,
 	})
 	if err != nil {
@@ -261,7 +262,7 @@ func TestVertexCredentialImportAcceptsOneRawServiceAccountPerLine(t *testing.T) 
 	}, "\n")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name: stringPointer("vertex credential batch"), ChannelID: channel.GoogleVertex,
-		Params: json.RawMessage(`{"location":"us-central1","project_id":"project-one"}`),
+		Params: json.RawMessage(`{"location":"us-central1"}`),
 		Models: optionalGroupModels{Set: true}, Credentials: credentials,
 	})
 	if err != nil {
@@ -274,6 +275,8 @@ func TestVertexCredentialImportAcceptsOneRawServiceAccountPerLine(t *testing.T) 
 
 func TestGroupCredentialMutationsPreserveRuntimeIdentityAndHealthContracts(t *testing.T) {
 	fixture := newServiceFixture(t)
+	runtime := &recordingCredentialRuntimeExecutor{}
+	fixture.service.executor = runtime
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name: stringPointer("credential mutations"), ChannelID: channel.OpenAI,
 		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true},
@@ -368,6 +371,9 @@ func TestGroupCredentialMutationsPreserveRuntimeIdentityAndHealthContracts(t *te
 	}
 	if got := fixture.stats.Snapshot(rows[1].ID, fixture.service.now()); got.Success != 0 {
 		t.Fatalf("deleted credential stats = %#v", got)
+	}
+	if got := runtime.retiredCredentialIDs(); !reflect.DeepEqual(got, []uint{rows[1].ID}) {
+		t.Fatalf("retired credential runtimes = %#v, want [%d]", got, rows[1].ID)
 	}
 }
 

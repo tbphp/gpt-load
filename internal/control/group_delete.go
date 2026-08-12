@@ -100,6 +100,7 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 			if _, exists := s.registry.EncryptedCredentialData(credentialID); exists {
 				return fmt.Errorf("deleted Registry credential %d remains", credentialID)
 			}
+			s.retireCredentialRuntime(credentialID)
 		}
 		return nil
 	})

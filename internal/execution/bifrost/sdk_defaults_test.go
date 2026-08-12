@@ -3,9 +3,19 @@ package bifrost
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"gpt-load/internal/channel"
 )
+
+func TestSDKProviderTimeoutDoesNotPreemptAcceptedRequestTimeouts(t *testing.T) {
+	config := providerConfig("https://api.openai.com", false, "openai", false)
+	got := config.NetworkConfig.DefaultRequestTimeoutInSeconds
+	want := int64((1<<63)-1) / int64(time.Second)
+	if int64(got) != want {
+		t.Fatalf("SDK provider timeout = %d seconds, want backstop %d", got, want)
+	}
+}
 
 func TestSDKDefaultBaseURLComesFromProviderInitialization(t *testing.T) {
 	tests := []struct {

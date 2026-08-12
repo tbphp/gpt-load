@@ -2,6 +2,7 @@ package control
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"gorm.io/gorm"
@@ -94,5 +95,26 @@ func TestBatchEnableRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
 	view, exists := findRuntimeCredential(fixture.registry.Snapshot(), row.ID)
 	if !exists || view.Status != state.CredentialStatusActive {
 		t.Fatalf("runtime credential = %#v, exists=%t; want committed active state", view, exists)
+	}
+}
+
+func TestBatchDeleteRetiresCommittedCredentialRuntimes(t *testing.T) {
+	fixture := newServiceFixture(t)
+	runtime := &recordingCredentialRuntimeExecutor{}
+	fixture.service.executor = runtime
+	groupID := createGroupWithCredentials(t, fixture, "first-secret\nsecond-secret")
+
+	var rows []models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	ids := []uint{rows[0].ID, rows[1].ID}
+	if _, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, CredentialBatchRequest{
+		Action: CredentialBatchDelete, CredentialIDs: ids,
+	}); err != nil {
+		t.Fatalf("BatchGroupCredentials() error = %v", err)
+	}
+	if got := runtime.retiredCredentialIDs(); !reflect.DeepEqual(got, ids) {
+		t.Fatalf("retired credential runtimes = %#v, want %#v", got, ids)
 	}
 }

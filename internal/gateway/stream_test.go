@@ -65,6 +65,17 @@ func TestBufferFirstSSEEventReturnsProviderErrorMetadata(t *testing.T) {
 	}
 }
 
+func TestBufferFirstSSEEventAcceptsTwoMiBEventAcrossChunks(t *testing.T) {
+	input := "data: " + strings.Repeat("x", 2<<20) + "\n\n"
+	event, err := bufferFirstSSEEvent(&chunkedSSEBody{data: []byte(input), maxRead: 8191})
+	if err != nil {
+		t.Fatalf("bufferFirstSSEEvent() error = %v", err)
+	}
+	if string(event.Prefix) != input || len(event.Payload) != 2<<20 {
+		t.Fatalf("first event prefix/payload lengths = %d/%d", len(event.Prefix), len(event.Payload))
+	}
+}
+
 func TestBufferFirstSSEEventReturnsBareCRBoundaryWithoutAnotherRead(t *testing.T) {
 	const first = "data: first\r\r"
 	reader := newFirstChunkThenBarrierReader(first)

@@ -55,6 +55,74 @@ func TestEffectiveProviderConfigUsesSDKProviderAndCanonicalDefaultBaseURL(t *tes
 	}
 }
 
+func TestRuntimeManagerPartitionsAzureEntraByCredentialIdentity(t *testing.T) {
+	registry := channel.NewRegistry()
+	target, err := registry.Resolve(
+		channel.AzureOpenAI,
+		json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := newRuntimeManager(runtimeOptions{}, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+
+	spec := execution.AttemptSpec{
+		ChannelID:    string(channel.AzureOpenAI),
+		TargetKind:   string(target.ProviderKind),
+		TargetConfig: target.TargetConfig,
+	}
+	spec.Credential = execution.NewCredentialSnapshot(
+		1,
+		10,
+		100,
+		[]byte(`{"client_id":"client","client_secret":"secret-one","tenant_id":"tenant"}`),
+	)
+	first, failure := manager.configForAttempt(spec)
+	if failure != nil {
+		t.Fatalf("first config failure = %+v", failure)
+	}
+	spec.Credential = execution.NewCredentialSnapshot(
+		2,
+		20,
+		200,
+		[]byte(`{"client_id":"client","client_secret":"secret-two","tenant_id":"tenant"}`),
+	)
+	second, failure := manager.configForAttempt(spec)
+	if failure != nil {
+		t.Fatalf("second config failure = %+v", failure)
+	}
+	if first.fingerprint == second.fingerprint || bytes.Equal(first.canonical, second.canonical) {
+		t.Fatal("distinct Entra credential identities shared one provider runtime config")
+	}
+	for _, secret := range []string{"secret-one", "secret-two"} {
+		if bytes.Contains(first.canonical, []byte(secret)) || bytes.Contains(second.canonical, []byte(secret)) {
+			t.Fatalf("provider runtime config contains credential secret %q", secret)
+		}
+	}
+
+	spec.Credential = execution.NewCredentialSnapshot(3, 30, 300, []byte(`{"api_key":"azure-key-one"}`))
+	apiKeyFirst, failure := manager.configForAttempt(spec)
+	if failure != nil {
+		t.Fatalf("first API-key config failure = %+v", failure)
+	}
+	spec.Credential = execution.NewCredentialSnapshot(4, 40, 400, []byte(`{"api_key":"azure-key-two"}`))
+	apiKeySecond, failure := manager.configForAttempt(spec)
+	if failure != nil {
+		t.Fatalf("second API-key config failure = %+v", failure)
+	}
+	if apiKeyFirst.fingerprint != apiKeySecond.fingerprint ||
+		!bytes.Equal(apiKeyFirst.canonical, apiKeySecond.canonical) {
+		t.Fatal("Azure API keys unexpectedly partitioned provider runtimes")
+	}
+}
+
 func TestRuntimeManagerReusesOneRuntimePerEffectiveConfig(t *testing.T) {
 	registry := channel.NewRegistry()
 	config := effectiveConfigForTest(t, registry, channel.DeepSeek, json.RawMessage(`{"base_url":"https://one.example/v1"}`))
@@ -222,6 +290,40 @@ func TestRuntimeManagerRetiresOnlyAfterLastLeaseAndRejectsAfterShutdown(t *testi
 	if _, err := manager.acquire(context.Background(), config); err == nil {
 		t.Fatal("acquire after shutdown error = nil")
 	}
+}
+
+func TestRuntimeManagerRetiresCredentialPartitionAfterLastLease(t *testing.T) {
+	base := effectiveConfigForTest(
+		t,
+		channel.NewRegistry(),
+		channel.AzureOpenAI,
+		json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`),
+	)
+	partition, err := partitionProviderRuntime(
+		base,
+		execution.NewCredentialSnapshot(17, 1, 23, nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := newFakeManagedRuntime()
+	manager := newRuntimeManagerPool(func(context.Context, effectiveProviderConfig) (managedProviderRuntime, error) {
+		return runtime, nil
+	})
+	manager.reconcile([]effectiveProviderConfig{base})
+	lease, err := manager.acquire(context.Background(), partition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.retireCredential(17)
+	if runtime.shutdowns.Load() != 0 {
+		t.Fatal("credential runtime shut down while a lease was in flight")
+	}
+	lease.Release()
+	if runtime.shutdowns.Load() != 1 {
+		t.Fatalf("credential runtime shutdowns = %d, want 1", runtime.shutdowns.Load())
+	}
+	<-manager.beginShutdown()
 }
 
 func TestRuntimeManagerKeepsRuntimesRetiringWhenReconcileArrivesAfterShutdown(t *testing.T) {

@@ -88,6 +88,8 @@ func TestDeleteGroupRejectsActiveAndDisabledExplicitAccessKeyReferences(t *testi
 
 func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T) {
 	fixture := newServiceFixture(t)
+	runtime := &recordingCredentialRuntimeExecutor{}
+	fixture.service.executor = runtime
 	groupID := createGroupWithCredentials(t, fixture, "sk-delete-a\nsk-delete-b")
 	beforeRevision := fixture.manager.Current().Revision
 	var keyRows []models.Credential
@@ -117,6 +119,10 @@ func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T)
 	}
 	if groupCount != 0 || keyCount != 0 {
 		t.Fatalf("DB counts = group:%d key:%d", groupCount, keyCount)
+	}
+	wantRetired := []uint{keyRows[0].ID, keyRows[1].ID}
+	if got := runtime.retiredCredentialIDs(); !reflect.DeepEqual(got, wantRetired) {
+		t.Fatalf("retired credential runtimes = %#v, want %#v", got, wantRetired)
 	}
 }
 

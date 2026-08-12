@@ -115,7 +115,7 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 	})
 	allowedVertex := createPriceTestGroup(t, fixture.db, models.Group{
 		Name: "allowed-vertex", ChannelID: string(channel.GoogleVertex),
-		Params:    models.JSON(`{"project_id":"project-sentinel","location":"us-central1"}`),
+		Params:    models.JSON(`{"location":"us-central1"}`),
 		Models:    models.JSON(`[{"id":"upstream-shared","alias":"shared"}]`),
 		Overrides: models.JSON(`{}`), Enabled: true,
 	})
@@ -191,7 +191,7 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 	for _, privateValue := range []string{
 		"base_url", "https://openai.example/v1",
 		"endpoint", "https://azure.example",
-		"project_id", "project-sentinel", "location", "us-central1",
+		"location", "us-central1",
 		"client-hidden", "client-b", "gemini-private", "private-gemini",
 		"private-disabled", "private-hidden", "private-client-b",
 		"private-gemini-model", "private-disabled-model",

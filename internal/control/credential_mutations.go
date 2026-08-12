@@ -239,6 +239,7 @@ func (s *Service) DeleteGroupCredential(ctx context.Context, groupID, credential
 				return
 			}
 			s.stats.Reset(credentialID)
+			s.retireCredentialRuntime(credentialID)
 		}
 		if s.mutations == nil {
 			apply()
@@ -557,6 +558,7 @@ func (s *Service) BatchGroupCredentials(
 		if request.Action == CredentialBatchDelete {
 			for _, id := range ids {
 				s.stats.Reset(id)
+				s.retireCredentialRuntime(id)
 			}
 		}
 	})

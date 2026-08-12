@@ -60,6 +60,24 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 			want: execution.FailureHintModelUnavailable,
 		},
 		{
+			name: "forbidden model unavailable", status: http.StatusForbidden,
+			body: `{"error":{"code":"model_not_found"}}`,
+			want: execution.FailureHintModelUnavailable,
+		},
+		{
+			name: "generic forbidden permission", status: http.StatusForbidden,
+			body: `{"error":{"code":"permission_denied"}}`,
+		},
+		{
+			name: "payment required", status: http.StatusPaymentRequired,
+			body: `{"error":{"message":"billing disabled"}}`,
+		},
+		{
+			name: "explicit invalid key under forbidden", status: http.StatusForbidden,
+			body: `{"error":{"message":"API key not valid"}}`,
+			want: execution.FailureHintInvalidCredential,
+		},
+		{
 			name: "server error", status: http.StatusServiceUnavailable,
 			body: `{"error":{"message":"overloaded"}}`,
 			want: execution.FailureHintHostError,

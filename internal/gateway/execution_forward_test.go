@@ -813,3 +813,42 @@ func responsesExecutionForwardInput() ForwardInput {
 	input.Request.Body = []byte(`{"model":"public","stream":true}`)
 	return input
 }
+
+func TestStreamErrorFailureHintDoesNotTreatGenericForbiddenAsInvalidCredential(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		values []string
+		want   execution.FailureHint
+	}{
+		{
+			name:   "model marker wins over forbidden",
+			status: http.StatusForbidden,
+			values: []string{"model_not_found"},
+			want:   execution.FailureHintModelUnavailable,
+		},
+		{
+			name:   "generic forbidden permission",
+			status: http.StatusForbidden,
+			values: []string{"permission_denied"},
+		},
+		{
+			name:   "payment required",
+			status: http.StatusPaymentRequired,
+			values: []string{"billing disabled"},
+		},
+		{
+			name:   "explicit invalid key",
+			status: http.StatusForbidden,
+			values: []string{"API key not valid"},
+			want:   execution.FailureHintInvalidCredential,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := streamErrorFailureHint(test.status, test.values...); got != test.want {
+				t.Fatalf("streamErrorFailureHint() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

@@ -622,7 +622,6 @@ func (handler *Handler) executeAttempts(
 			recorder.setAffinityHit(true)
 		}
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
-		selectedCredentialID := selection.CredentialID
 		executionRequestID := "untracked"
 		if recorder != nil {
 			executionRequestID = recorder.requestID
@@ -649,9 +648,6 @@ func (handler *Handler) executeAttempts(
 				ref.IdentityGeneration,
 				normalizedCredential.payload,
 			),
-			OnStreamReady: func() {
-				handler.recordCredentialSuccess(selectedCredentialID, handler.now())
-			},
 			OnFirstResponse: func() {
 				recorder.recordFirstResponse()
 			},
@@ -689,6 +685,7 @@ func (handler *Handler) executeAttempts(
 				recorder.completeStream(result, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 			}
 			if stream && result.Stream.EndReason == StreamEndCleanEOF {
+				handler.recordCredentialSuccess(selection.CredentialID, handler.now())
 				handler.recordAffinitySuccess(requestAffinity, selection, ref)
 			}
 			return

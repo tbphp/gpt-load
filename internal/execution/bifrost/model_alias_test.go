@@ -2,11 +2,30 @@ package bifrost
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
+
+func TestNativeFirstSSEEventGateAcceptsTwoMiBEventAcrossChunks(t *testing.T) {
+	gate := &nativeFirstSSEEventGate{}
+	wire := []byte("data: " + strings.Repeat("x", 2<<20) + "\n\n")
+	split := len(wire) / 3
+	for _, chunk := range [][]byte{wire[:split], wire[split : 2*split], wire[2*split:]} {
+		output, err := gate.push(chunk)
+		if err != nil {
+			t.Fatalf("push() error = %v", err)
+		}
+		if gate.ready && len(output) != len(wire) {
+			t.Fatalf("ready output length = %d, want %d", len(output), len(wire))
+		}
+	}
+	if !gate.ready {
+		t.Fatal("two MiB first SSE event did not become ready")
+	}
+}
 
 func TestRewriteNativeResponseModelCoversNativeProtocolShapes(t *testing.T) {
 	t.Parallel()

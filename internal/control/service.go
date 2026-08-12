@@ -66,6 +66,19 @@ type Service struct {
 	writeMu               sync.RWMutex
 }
 
+type credentialRuntimeRetirer interface {
+	RetireCredential(uint)
+}
+
+func (s *Service) retireCredentialRuntime(credentialID uint) {
+	if s == nil || credentialID == 0 {
+		return
+	}
+	if runtime, ok := s.executor.(credentialRuntimeRetirer); ok {
+		runtime.RetireCredential(credentialID)
+	}
+}
+
 func NewService(
 	db *gorm.DB,
 	manager *state.Manager,

@@ -108,14 +108,16 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 		"rate_limit", "rate limit", "too_many_requests", "quota_exceeded",
 		"resource_exhausted", "throttl"):
 		return FailureCategoryRateLimited
-	case statusCode == http.StatusUnauthorized ||
-		statusCode == http.StatusPaymentRequired ||
-		statusCode == http.StatusForbidden:
+	case statusCode == http.StatusUnauthorized:
 		return FailureCategoryInvalidKey
 	case containsAny(markers,
 		"model_not_found", "model not found", "model_not_available",
 		"model unavailable", "deployment_not_found", "unsupported_model"):
 		return FailureCategoryModelUnavailable
+	case containsAny(markers,
+		"invalid_api_key", "api_key_invalid", "authentication_error",
+		"authentication failed", "invalid credential", "api key not valid"):
+		return FailureCategoryInvalidKey
 	case statusCode >= http.StatusInternalServerError && statusCode <= 599:
 		return FailureCategoryUpstreamHostError
 	case statusCode >= http.StatusBadRequest && statusCode <= 499:
@@ -128,7 +130,7 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 }
 
 func structuredUnsupportedModelClientError(statusCode int, evidence *execution.ErrorEvidence) bool {
-	if evidence == nil || statusCode < http.StatusBadRequest || statusCode >= http.StatusInternalServerError {
+	if evidence == nil || statusCode != http.StatusBadRequest {
 		return false
 	}
 	for _, value := range []string{evidence.Type, evidence.Code} {

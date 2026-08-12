@@ -398,8 +398,14 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{}, &failure
 	}
 	effective, effectiveErr := buildEffectiveProviderConfig(resolved, r.allowPrivate)
-	if effectiveErr != nil || effective.fingerprint != r.fixedConfig.fingerprint ||
-		!bytes.Equal(effective.canonical, r.fixedConfig.canonical) {
+	fixedFingerprint := r.fixedConfig.fingerprint
+	fixedCanonical := r.fixedConfig.canonical
+	if r.fixedConfig.baseFingerprint != "" {
+		fixedFingerprint = r.fixedConfig.baseFingerprint
+		fixedCanonical = r.fixedConfig.baseCanonical
+	}
+	if effectiveErr != nil || effective.fingerprint != fixedFingerprint ||
+		!bytes.Equal(effective.canonical, fixedCanonical) {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "execution target does not match provider runtime")
 		return preparedAttempt{}, &failure
 	}
@@ -916,6 +922,11 @@ func directKeyForAttempt(
 			config.RoleARN = optionalPlainSecret(credential, "role_arn")
 			config.ExternalID = optionalPlainSecret(credential, "external_id")
 			config.RoleSessionName = optionalPlainSecret(credential, "session_name")
+			if config.RoleARN != nil && config.RoleARN.GetValue() != "" {
+				sessionName := bedrockRoleSessionName(config.RoleSessionName, spec.Credential)
+				config.RoleSessionName = plainSecretPtr(sessionName)
+				secrets = appendUniqueString(secrets, sessionName)
+			}
 		}
 		key.BedrockKeyConfig = config
 	case channel.ProviderGoogleVertex:
@@ -965,6 +976,38 @@ func optionalPlainSecret(credential channel.Credential, field string) *schemas.S
 		return nil
 	}
 	return plainSecretPtr(value)
+}
+
+func bedrockRoleSessionName(
+	original *schemas.SecretVar,
+	credential execution.CredentialSnapshot,
+) string {
+	base := "bifrost-session"
+	if original != nil && original.GetValue() != "" {
+		base = original.GetValue()
+	}
+	digest := sha256.Sum256([]byte(fmt.Sprintf(
+		"%d:%d",
+		credential.ID,
+		credential.IdentityGeneration,
+	)))
+	suffix := "-gl-" + hex.EncodeToString(digest[:8])
+	if maximum := 64 - len(suffix); len(base) > maximum {
+		base = base[:maximum]
+	}
+	return base + suffix
+}
+
+func appendUniqueString(values []string, value string) []string {
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func credentialSecrets(credential channel.Credential) []string {

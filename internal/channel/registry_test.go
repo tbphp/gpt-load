@@ -292,15 +292,14 @@ func TestVertexUsesCredentialProjectAndDefaultsLocation(t *testing.T) {
 		t.Fatalf("empty Vertex location = %s, %v, want global", emptyLocation.CanonicalJSON(), err)
 	}
 
-	legacy, err := registry.ValidateParams(
-		GoogleVertex,
-		json.RawMessage(`{"project_id":"legacy-project","project_number":"123456","location":"us-central1"}`),
-	)
-	if err != nil {
-		t.Fatalf("ValidateParams(legacy Vertex) error = %v", err)
-	}
-	if got := string(legacy.CanonicalJSON()); got != `{"location":"us-central1"}` {
-		t.Fatalf("legacy Vertex params = %s, want only location", got)
+	for _, field := range []string{"project_id", "project_number"} {
+		_, err := registry.ValidateParams(
+			GoogleVertex,
+			json.RawMessage(`{"`+field+`":"legacy-value","location":"us-central1"}`),
+		)
+		if err == nil || !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("ValidateParams(Vertex %s) error = %v, want unknown field", field, err)
+		}
 	}
 
 	descriptor, ok := registry.Get(GoogleVertex)

@@ -373,20 +373,21 @@ func sanitizeStreamErrorEvidenceValue(
 func streamErrorFailureHint(statusCode int, values ...string) execution.FailureHint {
 	markers := strings.ToLower(strings.Join(values, " "))
 	switch {
-	case statusCode == http.StatusUnauthorized || statusCode == http.StatusPaymentRequired ||
-		statusCode == http.StatusForbidden || containsStreamErrorMarker(markers,
-		"invalid_api_key", "api_key_invalid", "authentication_error",
-		"authentication failed", "permission_denied", "unauthorized",
-		"invalid credential", "api key not valid"):
+	case statusCode == http.StatusUnauthorized:
 		return execution.FailureHintInvalidCredential
+	case containsStreamErrorMarker(markers,
+		"model_not_found", "model not found", "model_not_available",
+		"model unavailable", "deployment_not_found", "unsupported_model"):
+		return execution.FailureHintModelUnavailable
 	case statusCode == http.StatusTooManyRequests || containsStreamErrorMarker(markers,
 		"rate_limit", "rate limit", "too_many_requests", "quota_exceeded",
 		"resource_exhausted", "throttl"):
 		return execution.FailureHintRateLimited
 	case containsStreamErrorMarker(markers,
-		"model_not_found", "model not found", "model_not_available",
-		"model unavailable", "deployment_not_found", "unsupported_model"):
-		return execution.FailureHintModelUnavailable
+		"invalid_api_key", "api_key_invalid", "authentication_error",
+		"authentication failed",
+		"invalid credential", "api key not valid"):
+		return execution.FailureHintInvalidCredential
 	case statusCode >= http.StatusInternalServerError && statusCode <= 599:
 		return execution.FailureHintHostError
 	default:

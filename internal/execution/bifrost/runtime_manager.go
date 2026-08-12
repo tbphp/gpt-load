@@ -17,12 +17,15 @@ import (
 )
 
 type effectiveProviderConfig struct {
-	provider       schemas.ModelProvider
-	providerConfig *schemas.ProviderConfig
-	canonical      []byte
-	fingerprint    string
-	targetBaseURL  string
-	custom         bool
+	provider              schemas.ModelProvider
+	providerConfig        *schemas.ProviderConfig
+	canonical             []byte
+	fingerprint           string
+	baseCanonical         []byte
+	baseFingerprint       string
+	credentialPartitionID uint
+	targetBaseURL         string
+	custom                bool
 }
 
 func buildEffectiveProviderConfig(
@@ -131,7 +134,8 @@ type runtimeManager struct {
 }
 
 // RuntimeManager owns lazily-created Bifrost cores keyed by canonical provider
-// construction config.
+// construction config, with credential partitions only where the SDK caches
+// credential-derived objects inside a Core.
 type RuntimeManager struct {
 	registry *channel.Registry
 	options  runtimeOptions
@@ -284,8 +288,7 @@ func (manager *runtimeManager) reconcile(configs []effectiveProviderConfig) {
 	manager.active = active
 	retired := make([]managedProviderRuntime, 0)
 	for _, entry := range manager.entries {
-		canonical, exists := active[entry.config.fingerprint]
-		entry.retiring = !exists || !bytes.Equal(canonical, entry.config.canonical)
+		entry.retiring = !manager.configIsActive(entry.config)
 		if runtime := manager.retireEntryLocked(entry); runtime != nil {
 			retired = append(retired, runtime)
 		}
@@ -323,8 +326,35 @@ func (manager *runtimeManager) beginShutdown() <-chan struct{} {
 }
 
 func (manager *runtimeManager) configIsActive(config effectiveProviderConfig) bool {
-	canonical, exists := manager.active[config.fingerprint]
-	return exists && bytes.Equal(canonical, config.canonical)
+	fingerprint := config.fingerprint
+	canonical := config.canonical
+	if config.baseFingerprint != "" {
+		fingerprint = config.baseFingerprint
+		canonical = config.baseCanonical
+	}
+	activeCanonical, exists := manager.active[fingerprint]
+	return exists && bytes.Equal(activeCanonical, canonical)
+}
+
+func (manager *runtimeManager) retireCredential(credentialID uint) {
+	if manager == nil || credentialID == 0 {
+		return
+	}
+	manager.mu.Lock()
+	retired := make([]managedProviderRuntime, 0)
+	for _, entry := range manager.entries {
+		if entry.config.credentialPartitionID != credentialID {
+			continue
+		}
+		entry.retiring = true
+		if runtime := manager.retireEntryLocked(entry); runtime != nil {
+			retired = append(retired, runtime)
+		}
+	}
+	manager.mu.Unlock()
+	for _, runtime := range retired {
+		manager.startShutdown(runtime)
+	}
 }
 
 func (manager *runtimeManager) retireEntryLocked(entry *runtimeEntry) managedProviderRuntime {
@@ -366,6 +396,7 @@ func cloneEffectiveProviderConfig(source effectiveProviderConfig) effectiveProvi
 	clone := source
 	clone.providerConfig = cloneProviderConfig(source.providerConfig)
 	clone.canonical = append([]byte(nil), source.canonical...)
+	clone.baseCanonical = append([]byte(nil), source.baseCanonical...)
 	return clone
 }
 
@@ -445,6 +476,50 @@ func (manager *RuntimeManager) configForAttempt(spec execution.AttemptSpec) (eff
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid provider runtime config")
 		return effectiveProviderConfig{}, &failure
 	}
+	if resolved.ProviderKind == channel.ProviderAzureOpenAI {
+		credential, credentialErr := manager.registry.ValidateCredential(
+			channel.ID(spec.ChannelID),
+			spec.Credential.Data(),
+		)
+		if credentialErr != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid credential")
+			return effectiveProviderConfig{}, &failure
+		}
+		apiKey, _ := credential.Value("api_key")
+		if apiKey != "" {
+			return config, nil
+		}
+		config, err = partitionProviderRuntime(config, spec.Credential)
+		if err != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInternal, "partition provider runtime")
+			return effectiveProviderConfig{}, &failure
+		}
+	}
+	return config, nil
+}
+
+func partitionProviderRuntime(
+	config effectiveProviderConfig,
+	credential execution.CredentialSnapshot,
+) (effectiveProviderConfig, error) {
+	canonical, err := json.Marshal(struct {
+		Base               json.RawMessage `json:"base"`
+		CredentialID       uint            `json:"credential_id"`
+		IdentityGeneration uint64          `json:"identity_generation"`
+	}{
+		Base:               config.canonical,
+		CredentialID:       credential.ID,
+		IdentityGeneration: credential.IdentityGeneration,
+	})
+	if err != nil {
+		return effectiveProviderConfig{}, fmt.Errorf("encode provider runtime partition: %w", err)
+	}
+	digest := sha256.Sum256(canonical)
+	config.baseCanonical = append([]byte(nil), config.canonical...)
+	config.baseFingerprint = config.fingerprint
+	config.credentialPartitionID = credential.ID
+	config.canonical = canonical
+	config.fingerprint = hex.EncodeToString(digest[:])
 	return config, nil
 }
 
@@ -484,6 +559,15 @@ func (manager *RuntimeManager) BeginShutdown() <-chan struct{} {
 // Shutdown waits until all leased runtimes finish and their Core shutdowns return.
 func (manager *RuntimeManager) Shutdown() {
 	<-manager.BeginShutdown()
+}
+
+// RetireCredential retires provider runtimes that cache objects derived from
+// the specified logical credential. In-flight leases finish before shutdown.
+func (manager *RuntimeManager) RetireCredential(credentialID uint) {
+	if manager == nil || manager.pool == nil {
+		return
+	}
+	manager.pool.retireCredential(credentialID)
 }
 
 var _ execution.Executor = (*RuntimeManager)(nil)

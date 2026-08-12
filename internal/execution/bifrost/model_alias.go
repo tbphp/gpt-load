@@ -11,7 +11,7 @@ import (
 
 const maxNativeAliasSSEEventBytes = 10 << 20
 
-const maxNativeFirstSSEEventBytes = 1 << 20
+const maxNativeFirstSSEEventBytes = maxNativeAliasSSEEventBytes
 
 type nativeFirstSSEEventGate struct {
 	pending   []byte

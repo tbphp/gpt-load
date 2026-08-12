@@ -11,7 +11,7 @@ import (
 	"gpt-load/internal/dialect"
 )
 
-const maxSSEEventBytes = 1 << 20
+const maxSSEEventBytes = 10 << 20
 
 var (
 	errSSEEventTooLarge   = errors.New("SSE event exceeds size limit")

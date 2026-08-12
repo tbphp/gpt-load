@@ -294,20 +294,21 @@ func failureHintFromHTTP(status int, body []byte) execution.FailureHint {
 func neutralFailureHint(status int, values ...string) execution.FailureHint {
 	markers := strings.ToLower(strings.Join(values, " "))
 	switch {
-	case status == http.StatusUnauthorized || status == http.StatusPaymentRequired ||
-		status == http.StatusForbidden || containsAnyMarker(markers,
-		"invalid_api_key", "api_key_invalid", "authentication_error",
-		"authentication failed", "permission_denied", "unauthorized",
-		"invalid credential", "api key not valid"):
+	case status == http.StatusUnauthorized:
 		return execution.FailureHintInvalidCredential
+	case containsAnyMarker(markers,
+		"model_not_found", "model not found", "model_not_available",
+		"model unavailable", "deployment_not_found", "unsupported_model"):
+		return execution.FailureHintModelUnavailable
 	case status == http.StatusTooManyRequests || containsAnyMarker(markers,
 		"rate_limit", "rate limit", "too_many_requests", "quota_exceeded",
 		"resource_exhausted", "throttl"):
 		return execution.FailureHintRateLimited
 	case containsAnyMarker(markers,
-		"model_not_found", "model not found", "model_not_available",
-		"model unavailable", "deployment_not_found", "unsupported_model"):
-		return execution.FailureHintModelUnavailable
+		"invalid_api_key", "api_key_invalid", "authentication_error",
+		"authentication failed",
+		"invalid credential", "api key not valid"):
+		return execution.FailureHintInvalidCredential
 	case status >= http.StatusInternalServerError && status <= 599:
 		return execution.FailureHintHostError
 	default:

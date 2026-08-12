@@ -929,21 +929,23 @@ func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
 	}
 }
 
-func TestHandlerRecordsStreamSuccessAtReadyTime(t *testing.T) {
+func TestHandlerRecordsStreamSuccessOnlyAfterCleanTerminal(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
-		name   string
-		result UpstreamResult
+		name        string
+		result      UpstreamResult
+		wantSuccess bool
 	}{
 		{
-			name: "committed success records before forward returns",
+			name: "clean terminal records after forward returns",
 			result: UpstreamResult{
 				StatusCode: http.StatusOK, Committed: true, RequestWritten: true,
 				Stream: StreamObservation{EndReason: StreamEndCleanEOF},
 			},
+			wantSuccess: true,
 		},
 		{
-			name: "pump failure after ready keeps success",
+			name: "pump failure after ready does not record success",
 			result: UpstreamResult{
 				Err: errors.New("stream pump failed"), Committed: true, RequestWritten: true,
 				Stream: StreamObservation{EndReason: StreamEndUpstreamTerminated},
@@ -973,13 +975,17 @@ func TestHandlerRecordsStreamSuccessAtReadyTime(t *testing.T) {
 			}()
 
 			receiveTestSignal(t, forwarder.ready, "stream-ready callback")
-			if got := stats.Snapshot(1, now); got != (health.CredentialStats{Success: 1}) {
-				t.Fatalf("stats before forward returns = %#v, want one success", got)
+			if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
+				t.Fatalf("stats before forward returns = %#v, want zero", got)
 			}
 			forwarder.Release()
 			receiveTestSignal(t, done, "stream request completion")
-			if got := stats.Snapshot(1, now); got != (health.CredentialStats{Success: 1}) {
-				t.Fatalf("stats after forward returns = %#v, want one success", got)
+			want := health.CredentialStats{}
+			if test.wantSuccess {
+				want.Success = 1
+			}
+			if got := stats.Snapshot(1, now); got != want {
+				t.Fatalf("stats after forward returns = %#v, want %#v", got, want)
 			}
 		})
 	}

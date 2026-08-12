@@ -28,6 +28,18 @@ func newSSERewriteStream(
 }
 
 func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
+	t.Run("two MiB event split across reads remains valid", func(t *testing.T) {
+		input := "data: " + strings.Repeat("x", 2<<20) + "\n\n"
+		stream := newSSERewriteStream(
+			&chunkedSSEBody{data: []byte(input), maxRead: 8191},
+			func(payload []byte, _ bool) ([]byte, error) { return bytes.Clone(payload), nil },
+		)
+		output, err := io.ReadAll(stream)
+		if err != nil || string(output) != input {
+			t.Fatalf("two MiB event output/error = %d bytes / %v", len(output), err)
+		}
+	})
+
 	t.Run("one byte reads expose only a complete payload", func(t *testing.T) {
 		input := "event: chunk\nid: 7\n: keep\ndata: {\"model\":\"provider\"}\n\n"
 		body := &chunkedSSEBody{data: []byte(input), maxRead: 1}

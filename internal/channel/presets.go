@@ -222,7 +222,7 @@ func normalizeVertexParams(raw json.RawMessage) (map[string]string, error) {
 	}
 	values := map[string]string{"location": "global"}
 	for key, rawValue := range object {
-		if key != "location" && key != "project_id" && key != "project_number" {
+		if key != "location" {
 			return nil, &ValidationError{Field: "params." + key, Reason: "unknown field"}
 		}
 		var value string
@@ -236,9 +236,7 @@ func normalizeVertexParams(raw json.RawMessage) (map[string]string, error) {
 		if err != nil {
 			return nil, &ValidationError{Field: "params." + key, Reason: err.Error()}
 		}
-		if key == "location" {
-			values[key] = normalized
-		}
+		values[key] = normalized
 	}
 	return values, nil
 }

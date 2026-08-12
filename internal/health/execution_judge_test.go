@@ -116,13 +116,60 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryInvalidKey, Action: ActionFailCredential},
 		},
 		{
-			name: "payment required fails credential",
+			name: "payment required is a client error",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,
 				StatusCode:    http.StatusPaymentRequired,
 				Evidence:      evidence(execution.ErrorKindHTTP, http.StatusPaymentRequired, "billing disabled"),
 			},
-			want: Result{Category: FailureCategoryInvalidKey, Action: ActionFailCredential},
+			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
+		},
+		{
+			name: "generic forbidden is a client error",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusForbidden,
+				Evidence:      evidence(execution.ErrorKindHTTP, http.StatusForbidden, "permission denied"),
+			},
+			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
+		},
+		{
+			name: "forbidden model marker cools credential",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusForbidden,
+				Now:           now,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					StatusCode: http.StatusForbidden,
+					Code:       "model_not_found",
+					Summary:    "model unavailable",
+				},
+			},
+			want: Result{
+				Category:      FailureCategoryModelUnavailable,
+				Action:        ActionCooldownCredential,
+				CooldownUntil: now.Add(time.Hour),
+			},
+		},
+		{
+			name: "forbidden unsupported model marker cools credential",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusForbidden,
+				Now:           now,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintModelUnavailable,
+					StatusCode: http.StatusForbidden,
+					Code:       "unsupported_model",
+				},
+			},
+			want: Result{
+				Category:      FailureCategoryModelUnavailable,
+				Action:        ActionCooldownCredential,
+				CooldownUntil: now.Add(time.Hour),
+			},
 		},
 		{
 			name: "provider hint identifies credential failure under HTTP 400",

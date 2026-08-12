@@ -2118,14 +2118,20 @@ func TestHandlerRecordsCommittedStreamTerminalMatrix(t *testing.T) {
 					downstreamBody,
 				)
 			}
+			wantClearCalls := 0
+			wantStats := health.CredentialStats{}
+			if test.observation.EndReason == StreamEndCleanEOF {
+				wantClearCalls = 1
+				wantStats.Success = 1
+			}
 			if runtimeRegistry.cooldownCalls != 0 ||
 				runtimeRegistry.incrFailureCalls != 0 ||
 				runtimeRegistry.blacklistCalls != 0 ||
-				runtimeRegistry.clearCalls != 1 {
+				runtimeRegistry.clearCalls != wantClearCalls {
 				t.Fatalf("Registry side effects = %#v", runtimeRegistry)
 			}
-			if got := handler.stats.Snapshot(1, now); got != (health.CredentialStats{Success: 1}) {
-				t.Fatalf("StatsStore side effects = %#v, want existing ready success only", got)
+			if got := handler.stats.Snapshot(1, now); got != wantStats {
+				t.Fatalf("StatsStore side effects = %#v, want %#v", got, wantStats)
 			}
 		})
 	}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"gpt-load/internal/execution"
 )
@@ -17,6 +18,25 @@ import (
 // visible atomically to the gateway.
 type controlHTTPExecutor struct {
 	client *http.Client
+}
+
+type recordingCredentialRuntimeExecutor struct {
+	controlHTTPExecutor
+
+	mu      sync.Mutex
+	retired []uint
+}
+
+func (executor *recordingCredentialRuntimeExecutor) RetireCredential(credentialID uint) {
+	executor.mu.Lock()
+	executor.retired = append(executor.retired, credentialID)
+	executor.mu.Unlock()
+}
+
+func (executor *recordingCredentialRuntimeExecutor) retiredCredentialIDs() []uint {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	return append([]uint(nil), executor.retired...)
 }
 
 func (executor controlHTTPExecutor) Execute(

@@ -14,7 +14,7 @@ import (
 
 const (
 	streamReadBufferSize   = 32 * 1024
-	maxFirstSSEEventBytes  = 1 << 20
+	maxFirstSSEEventBytes  = maxSSEEventBytes
 	downstreamWriteTimeout = 30 * time.Second
 )
 
