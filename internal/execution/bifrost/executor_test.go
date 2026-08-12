@@ -19,7 +19,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/usage"
 )
@@ -389,10 +388,6 @@ func TestRuntimeRejectsInvalidAttemptBeforeDispatch(t *testing.T) {
 			if err := result.Validate(); err != nil {
 				t.Fatalf("result validation: %v", err)
 			}
-			if result.ConversionTrace != nil &&
-				result.ConversionTrace.State == parametertrace.CapturePreflightBlocked {
-				t.Fatalf("invalid request was mislabeled as conversion preflight block: %#v", result.ConversionTrace)
-			}
 			assertNoPrivateLeak(t, result, testAPIKey)
 		})
 	}
@@ -425,10 +420,6 @@ func TestRuntimeRejectsNativeRequirementOnConvertedRouteBeforeDispatch(t *testin
 		result.Error.Kind != execution.ErrorKind("conversion_unsupported") ||
 		result.Error.Code != "critical_semantic_loss" {
 		t.Fatalf("result = %+v", result)
-	}
-	if result.ConversionTrace == nil ||
-		result.ConversionTrace.State != parametertrace.CapturePreflightBlocked {
-		t.Fatalf("preflight conversion trace = %#v", result.ConversionTrace)
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("upstream calls = %d, want 0", calls.Load())

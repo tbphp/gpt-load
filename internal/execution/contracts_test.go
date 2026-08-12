@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -142,18 +141,12 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	credentialData := []byte(`{"api_key":"sk-secret-value"}`)
 	raw := validAttemptSpec(credentialData)
 	raw.RouteRequirement = RouteRequirementNative
-	raw.ClientParameters = &parametertrace.Snapshot{
-		SchemaVersion: parametertrace.SchemaVersion,
-		State:         parametertrace.CaptureCaptured,
-		Entries:       []parametertrace.Entry{{Path: "stream", Kind: parametertrace.ValueBoolean, Value: "false"}},
-	}
 	owned := NewAttemptSpec(raw)
 
 	raw.Header.Set("X-Test", "mutated")
 	raw.Query.Set("api-version", "mutated")
 	raw.Body[0] = 'X'
 	raw.TargetConfig[0] = 'Y'
-	raw.ClientParameters.Entries[0].Value = "true"
 	credentialData[0] = 'Y'
 	if got := owned.Header.Get("X-Test"); got != "original" {
 		t.Fatalf("owned header = %q, want original", got)
@@ -170,9 +163,6 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	if owned.RouteRequirement != RouteRequirementNative {
 		t.Fatalf("owned route requirement = %q", owned.RouteRequirement)
 	}
-	if owned.ClientParameters == nil || owned.ClientParameters.Entries[0].Value != "false" {
-		t.Fatalf("owned client parameters = %#v", owned.ClientParameters)
-	}
 	if got := string(owned.Credential.Data()); got != `{"api_key":"sk-secret-value"}` {
 		t.Fatalf("owned credential = %q", got)
 	}
@@ -183,7 +173,6 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	clone.Body[0] = 'Z'
 	clone.TargetConfig[0] = 'Q'
 	clone.Credential.data[0] = 'Q'
-	clone.ClientParameters.Entries[0].Value = "true"
 	if owned.Header.Get("X-Test") != "original" || owned.Query.Get("api-version") != "2026-01-01" {
 		t.Fatal("mutating clone changed original maps")
 	}
@@ -192,9 +181,6 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	}
 	if string(owned.TargetConfig) != `{"base_url":"https://upstream.example"}` {
 		t.Fatal("mutating clone changed original raw messages")
-	}
-	if owned.ClientParameters.Entries[0].Value != "false" {
-		t.Fatal("mutating clone changed original client parameters")
 	}
 	encoded, err := json.Marshal(owned)
 	if err != nil {
@@ -276,22 +262,10 @@ func TestProbeAttemptIsSemanticAndDoesNotCarryProviderWireShape(t *testing.T) {
 
 func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	reasoningBudget := int64(4096)
-	conversionTrace := &parametertrace.Trace{
-		SchemaVersion: parametertrace.SchemaVersion,
-		State:         parametertrace.CaptureCaptured,
-		Target: parametertrace.Snapshot{SchemaVersion: parametertrace.SchemaVersion, State: parametertrace.CaptureCaptured, Entries: []parametertrace.Entry{{
-			Path: "reasoning.effort", Kind: parametertrace.ValueEnum, Value: "high",
-		}}},
-		Changes: []parametertrace.Change{{
-			Disposition: parametertrace.DispositionMapped,
-			SourcePath:  "reasoning.budget_tokens", TargetPath: "reasoning.effort",
-		}},
-	}
 	result := AttemptResult{
 		DispatchState:    DispatchMaybeSent,
 		UpstreamAPI:      UpstreamAPIAnthropicMessages,
 		AppliedReasoning: &reasoning.Config{Mode: "enabled", BudgetTokens: &reasoningBudget},
-		ConversionTrace:  conversionTrace,
 		StatusCode:       http.StatusOK,
 		Header:           http.Header{"X-Request-Id": {"request-1"}},
 		Body:             []byte("response"),
@@ -313,8 +287,6 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	clone.Usage.Raw[0] = 'Y'
 	clone.Error.Header.Set("Retry-After", "2")
 	*clone.AppliedReasoning.BudgetTokens = 2048
-	clone.ConversionTrace.Target.Entries[0].Value = "low"
-	clone.ConversionTrace.Changes[0].Disposition = parametertrace.DispositionDropped
 	if result.Header.Get("X-Request-ID") != "request-1" || string(result.Body) != "response" {
 		t.Fatal("mutating attempt result clone changed original response data")
 	}
@@ -324,10 +296,6 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	if result.AppliedReasoning == nil || result.AppliedReasoning.BudgetTokens == nil ||
 		*result.AppliedReasoning.BudgetTokens != reasoningBudget {
 		t.Fatal("mutating attempt result clone changed original reasoning")
-	}
-	if result.ConversionTrace.Target.Entries[0].Value != "high" ||
-		result.ConversionTrace.Changes[0].Disposition != parametertrace.DispositionMapped {
-		t.Fatal("mutating attempt result clone changed original conversion trace")
 	}
 
 	event := StreamEvent{
@@ -348,7 +316,6 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 		ResponseStarted:   true,
 		UpstreamAPI:       UpstreamAPIOpenAIResponses,
 		AppliedReasoning:  &reasoning.Config{Effort: "high", BudgetTokens: &reasoningBudget},
-		ConversionTrace:   conversionTrace,
 		StatusCode:        http.StatusOK,
 		Header:            http.Header{"X-Request-Id": {"request-1"}},
 		UpstreamRequestID: "upstream-1",
@@ -360,16 +327,12 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	streamClone.Usage.Raw[0] = 'X'
 	streamClone.Error.Header.Set("Retry-After", "2")
 	*streamClone.AppliedReasoning.BudgetTokens = 1024
-	streamClone.ConversionTrace.Target.Entries[0].Value = "minimal"
 	if streamResult.Header.Get("X-Request-ID") != "request-1" || string(streamResult.Usage.Raw) != "usage" || streamResult.Error.Header.Get("Retry-After") != "1" {
 		t.Fatal("mutating stream result clone changed original")
 	}
 	if streamResult.AppliedReasoning == nil || streamResult.AppliedReasoning.BudgetTokens == nil ||
 		*streamResult.AppliedReasoning.BudgetTokens != reasoningBudget {
 		t.Fatal("mutating stream result clone changed original reasoning")
-	}
-	if streamResult.ConversionTrace.Target.Entries[0].Value != "high" {
-		t.Fatal("mutating stream result clone changed original conversion trace")
 	}
 }
 
@@ -401,9 +364,6 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		{name: "timeout", mutate: func(s *AttemptSpec) { s.Timeouts.Request = -time.Second }, field: "timeouts.request"},
 		{name: "stream idle timeout", mutate: func(s *AttemptSpec) { s.Timeouts.StreamIdle = -time.Second }, field: "timeouts.stream_idle"},
 		{name: "target config", mutate: func(s *AttemptSpec) { s.TargetConfig = json.RawMessage("not-json") }, field: "target_config"},
-		{name: "client parameters", mutate: func(s *AttemptSpec) {
-			s.ClientParameters = &parametertrace.Snapshot{State: parametertrace.CaptureState("unknown"), Entries: []parametertrace.Entry{}}
-		}, field: "client_parameters"},
 		{name: "credential", mutate: func(s *AttemptSpec) { s.Credential = NewCredentialSnapshot(0, 7, 3, []byte("secret")) }, field: "credential.id"},
 	}
 	for _, tt := range tests {
@@ -480,22 +440,6 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	}
 	if err := (StreamResult{DispatchState: DispatchNotSent, UpstreamAPI: UpstreamAPI("unknown")}).Validate(); err == nil {
 		t.Fatal("expected invalid stream result upstream API to be rejected")
-	}
-	invalidTrace := &parametertrace.Trace{
-		SchemaVersion: parametertrace.SchemaVersion,
-		State:         parametertrace.CaptureState("unknown"),
-		Target: parametertrace.Snapshot{
-			SchemaVersion: parametertrace.SchemaVersion,
-			State:         parametertrace.CaptureUnavailable,
-			Entries:       []parametertrace.Entry{},
-		},
-		Changes: []parametertrace.Change{},
-	}
-	if err := (AttemptResult{DispatchState: DispatchMaybeSent, ResponseStarted: true, StatusCode: http.StatusOK, ConversionTrace: invalidTrace}).Validate(); err == nil {
-		t.Fatal("expected invalid attempt conversion trace to be rejected")
-	}
-	if err := (StreamResult{DispatchState: DispatchNotSent, ConversionTrace: invalidTrace, Error: &ErrorEvidence{Kind: ErrorKindTransport, Summary: "failed"}}).Validate(); err == nil {
-		t.Fatal("expected invalid stream conversion trace to be rejected")
 	}
 	invalidResults := []AttemptResult{
 		{DispatchState: DispatchMaybeSent, StatusCode: http.StatusOK},

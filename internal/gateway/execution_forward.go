@@ -11,7 +11,6 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/usage"
@@ -545,7 +544,6 @@ func executionRepresentationFailure(result UpstreamResult, err error) UpstreamRe
 		ResponseStarted:   result.ResponseStarted,
 		UpstreamAPI:       result.UpstreamAPI,
 		AppliedReasoning:  result.AppliedReasoning.Clone(),
-		ConversionTrace:   cloneConversionTrace(result.ConversionTrace),
 		UpstreamRequestID: result.UpstreamRequestID,
 	}
 }
@@ -581,7 +579,6 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 		RawQuery:         input.Request.RawQuery,
 		Header:           headers,
 		Body:             input.Request.Body,
-		ClientParameters: cloneParameterSnapshot(input.ClientParameters),
 		IncludeUsage:     input.ObserveUsage && input.Group.InjectUsageOptions,
 		TargetConfig:     input.TargetConfig,
 		Timeouts: execution.AttemptTimeouts{
@@ -608,7 +605,6 @@ func upstreamFromExecutionResult(
 	if result.AppliedReasoning != nil {
 		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
 	}
-	upstream.ConversionTrace = cloneConversionTrace(result.ConversionTrace)
 	upstream.UpstreamAPI = result.UpstreamAPI
 	upstream.Body = append([]byte(nil), result.Body...)
 	upstream.ClassificationBody = append([]byte(nil), result.Body...)
@@ -634,20 +630,11 @@ func upstreamFromExecutionStreamResult(
 	if result.AppliedReasoning != nil {
 		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
 	}
-	upstream.ConversionTrace = cloneConversionTrace(result.ConversionTrace)
 	upstream.UpstreamAPI = result.UpstreamAPI
 	if !result.ResponseStarted && result.Error != nil {
 		upstream.Err = executionFailureError(ctx, result.Error)
 	}
 	return upstream
-}
-
-func cloneParameterSnapshot(value *parametertrace.Snapshot) *parametertrace.Snapshot {
-	if value == nil {
-		return nil
-	}
-	clone := parametertrace.CloneSnapshot(*value)
-	return &clone
 }
 
 func baseExecutionResult(

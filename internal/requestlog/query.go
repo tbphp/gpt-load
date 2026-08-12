@@ -10,7 +10,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
@@ -29,7 +28,6 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 
 	query := service.db.WithContext(ctx).
 		Model(&models.RequestLog{}).
-		Omit("ClientParameters").
 		Order("completed_at_ms DESC").
 		Order("id DESC").
 		Limit(limit + 1)
@@ -237,10 +235,6 @@ func (service *Service) Get(ctx context.Context, requestID string) (Record, erro
 func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 	attempts := make([]Attempt, 0, len(rows))
 	for _, row := range rows {
-		conversionTrace, err := decodeConversionTrace(row.ConversionTrace)
-		if err != nil {
-			return nil, fmt.Errorf("decode request log attempt conversion trace: %w", err)
-		}
 		var receipt *pricing.Receipt
 		if len(row.PricingReceipt) > 0 && string(row.PricingReceipt) != "null" {
 			var decoded pricing.Receipt
@@ -285,7 +279,6 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 			ErrorSummary:    row.ErrorSummary,
 			Committed:       row.Committed,
 			PricingReceipt:  receipt,
-			ConversionTrace: conversionTrace,
 		})
 	}
 	return attempts, nil
@@ -294,10 +287,6 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 	records := make([]Record, 0, len(rows))
 	for _, row := range rows {
-		clientParameters, err := decodeParameterSnapshot(row.ClientParameters)
-		if err != nil {
-			return nil, fmt.Errorf("decode request log client parameters: %w", err)
-		}
 		if err := validateStoredModelObservation(row); err != nil {
 			return nil, err
 		}
@@ -328,7 +317,6 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 				Effort:       row.ReasoningEffort,
 				BudgetTokens: row.ReasoningBudgetTokens,
 			},
-			ClientParameters:        clientParameters,
 			Attempts:                nil,
 			GroupID:                 row.GroupID,
 			ChannelID:               channel.ID(row.ChannelID),
@@ -346,34 +334,6 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 		})
 	}
 	return records, nil
-}
-
-func decodeParameterSnapshot(value models.JSON) (*parametertrace.Snapshot, error) {
-	if len(value) == 0 || string(value) == "null" {
-		return nil, nil
-	}
-	var snapshot parametertrace.Snapshot
-	if err := json.Unmarshal(value, &snapshot); err != nil {
-		return nil, err
-	}
-	if err := snapshot.Validate(); err != nil {
-		return nil, err
-	}
-	return &snapshot, nil
-}
-
-func decodeConversionTrace(value models.JSON) (*parametertrace.Trace, error) {
-	if len(value) == 0 || string(value) == "null" {
-		return nil, nil
-	}
-	var trace parametertrace.Trace
-	if err := json.Unmarshal(value, &trace); err != nil {
-		return nil, err
-	}
-	if err := trace.Validate(); err != nil {
-		return nil, err
-	}
-	return &trace, nil
 }
 
 func validateStoredModelObservation(row models.RequestLog) error {

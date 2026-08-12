@@ -14,7 +14,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -235,12 +234,28 @@ func TestConvertedAttemptReportsAppliedReasoning(t *testing.T) {
 		allowPrivateNetwork: true,
 		anthropicBaseURL:    server.URL,
 	})
+	longInput := strings.Repeat("conversation context ", (256<<10)/len("conversation context ")+1)
+	body, err := json.Marshal(map[string]any{
+		"model":             "client-model",
+		"input":             longInput,
+		"max_output_tokens": 4096,
+		"reasoning": map[string]any{
+			"mode":   "pro",
+			"effort": "high",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= 256<<10 {
+		t.Fatalf("request body = %d bytes, want > 256 KiB", len(body))
+	}
 	spec := convertedSpec(
 		channel.Anthropic,
 		protocol.OpenAIResponses,
 		execution.OperationResponsesCreate,
 		"/v1/responses",
-		[]byte(`{"model":"client-model","input":"hello","max_output_tokens":4096,"reasoning":{"mode":"pro","effort":"high"}}`),
+		body,
 	)
 	result := runtime.Execute(context.Background(), spec)
 	if result.Error != nil || result.StatusCode != http.StatusOK {
@@ -254,7 +269,6 @@ func TestConvertedAttemptReportsAppliedReasoning(t *testing.T) {
 		result.AppliedReasoning.Effort == "high" {
 		t.Fatalf("result retained canonical reasoning instead of wire values: %#v", result.AppliedReasoning)
 	}
-	assertMappedReasoningTrace(t, result.ConversionTrace)
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal result: %v", err)
@@ -302,7 +316,6 @@ func TestConvertedAttemptReportsWireReasoningOnProviderError(t *testing.T) {
 	if !reflect.DeepEqual(result.AppliedReasoning, want) {
 		t.Fatalf("result applied reasoning = %#v, wire reasoning = %#v", result.AppliedReasoning, want)
 	}
-	assertMappedReasoningTrace(t, result.ConversionTrace)
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal result: %v", err)
@@ -635,20 +648,6 @@ func inspectAnthropicWireReasoning(t *testing.T, body []byte) *reasoning.Config 
 		result.Effort = wire.OutputConfig.Effort
 	}
 	return result
-}
-
-func assertMappedReasoningTrace(t *testing.T, trace *parametertrace.Trace) {
-	t.Helper()
-	if trace == nil || (trace.State != parametertrace.CaptureCaptured && trace.State != parametertrace.CapturePartial) {
-		t.Fatalf("conversion trace = %#v", trace)
-	}
-	for _, change := range trace.Changes {
-		if change.Disposition == parametertrace.DispositionMapped &&
-			(strings.HasPrefix(change.SourcePath, "reasoning.") || strings.HasPrefix(change.TargetPath, "reasoning.")) {
-			return
-		}
-	}
-	t.Fatalf("conversion trace has no reasoning mapping: %#v", trace)
 }
 
 func TestConvertedOpenAIChatStreamUsesSelectedProvider(t *testing.T) {

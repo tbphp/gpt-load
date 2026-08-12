@@ -26,7 +26,6 @@ type RequestLog struct {
 	ReasoningMode           string              `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningEffort         string              `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningBudgetTokens   *int64              `gorm:"column:reasoning_budget_tokens"`
-	ClientParameters        JSON                `gorm:"column:client_parameters_json;type:json"`
 	UncachedInputTokens     int64               `gorm:"column:uncached_input_tokens;not null;default:0;check:chk_request_log_uncached_input,uncached_input_tokens >= 0"`
 	OutputTokens            int64               `gorm:"not null;default:0;check:chk_request_log_output,output_tokens >= 0"`
 	CacheReadTokens         int64               `gorm:"not null;default:0;check:chk_request_log_cache_read,cache_read_tokens >= 0"`
@@ -70,7 +69,6 @@ type RequestLogAttempt struct {
 	ErrorSummary          string      `gorm:"type:text;not null"`
 	Committed             bool        `gorm:"not null;default:false"`
 	PricingReceipt        JSON        `gorm:"type:json"`
-	ConversionTrace       JSON        `gorm:"column:conversion_trace_json;type:json"`
 	RequestLog            *RequestLog `gorm:"foreignKey:RequestID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 

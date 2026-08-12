@@ -12,7 +12,6 @@ import (
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -58,7 +57,6 @@ type requestRecorder struct {
 	stream           bool
 	firstResponseMs  *int64
 	reasoning        reasoning.Config
-	clientParameters *parametertrace.Snapshot
 	usageApplicable  bool
 	usageDiagnostics usage.Diagnostics
 	affinityHit      bool
@@ -137,7 +135,6 @@ func (recorder *requestRecorder) emit() {
 		DurationMs:            duration.Milliseconds(),
 		AffinityHit:           recorder.affinityHit,
 		Reasoning:             recorder.reasoning,
-		ClientParameters:      cloneParameterSnapshot(recorder.clientParameters),
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
@@ -192,14 +189,6 @@ func (recorder *requestRecorder) setReasoning(config reasoning.Config) {
 		config.BudgetTokens = &budget
 	}
 	recorder.reasoning = config
-}
-
-func (recorder *requestRecorder) setClientParameters(value parametertrace.Snapshot) {
-	if recorder == nil {
-		return
-	}
-	clone := parametertrace.CloneSnapshot(value)
-	recorder.clientParameters = &clone
 }
 
 func (recorder *requestRecorder) recordFirstResponse() {
@@ -343,7 +332,6 @@ func (recorder *requestRecorder) appendAttempt(
 		ErrorCode:         errorCode,
 		ErrorSummary:      errorSummary,
 		Committed:         result.Committed,
-		ConversionTrace:   cloneConversionTrace(result.ConversionTrace),
 	}
 	if attempt.ErrorCode != "" && attempt.ErrorSummary == "" {
 		attempt.ErrorSummary = fixedErrorSummary(attempt.ErrorCode)

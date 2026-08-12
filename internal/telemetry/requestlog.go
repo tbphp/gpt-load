@@ -5,7 +5,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -75,7 +74,6 @@ type Attempt struct {
 	ErrorCode         string
 	ErrorSummary      string
 	Committed         bool
-	ConversionTrace   *parametertrace.Trace
 }
 
 // PricingObservation is the frozen, dependency-neutral quote selected by the
@@ -116,7 +114,6 @@ type RequestEvent struct {
 	DurationMs            int64
 	AffinityHit           bool
 	Reasoning             reasoning.Config
-	ClientParameters      *parametertrace.Snapshot
 	Attempts              []Attempt
 	Usage                 UsageObservation
 }

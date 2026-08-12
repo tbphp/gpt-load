@@ -1,16 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import {
-  ArrowDown,
-  ArrowRight,
-  ArrowUp,
-  CircleHelp,
-  Info,
-  Layers,
-  Magnet,
-  Search,
-  TriangleAlert,
-} from '@lucide/vue'
+import { ArrowRight, CircleHelp, Info, Layers, Magnet, Search, TriangleAlert } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -663,7 +653,9 @@ function costLabel(log: RequestLogItemDto): string {
           <span role="columnheader">{{ t('monitor.logs.columns.modelProtocol') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.response') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.cost') }}</span>
-          <span role="columnheader">{{ t('monitor.logs.columns.tokens') }}</span>
+          <span class="logs-list__tokens-header" role="columnheader">
+            {{ t('monitor.logs.columns.tokens') }}
+          </span>
           <span role="columnheader">{{ t('monitor.logs.columns.timing') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.actions') }}</span>
         </template>
@@ -830,7 +822,7 @@ function costLabel(log: RequestLogItemDto): string {
             >
               <span class="logs-list__token-values">
                 <span class="logs-list__token-line">
-                  <ArrowDown :size="12" aria-hidden="true" />
+                  <span class="logs-list__token-direction" aria-hidden="true">in</span>
                   {{ formatLogTokenCount(log.input_tokens, locale) }}
                   <span class="logs-list__token-hints">
                     <AppTooltip v-if="hasRequestLogCache(log)" :content="cacheTooltip(log)">
@@ -857,7 +849,7 @@ function costLabel(log: RequestLogItemDto): string {
                   </span>
                 </span>
                 <span class="logs-list__token-line">
-                  <ArrowUp :size="12" aria-hidden="true" />
+                  <span class="logs-list__token-direction" aria-hidden="true">out</span>
                   {{ formatLogTokenCount(log.output_tokens, locale) }}
                 </span>
               </span>
@@ -1021,9 +1013,13 @@ function costLabel(log: RequestLogItemDto): string {
   min-width: 0;
 }
 
+.logs-list__tokens-header {
+  text-align: left;
+}
+
 .logs-list__tokens {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  justify-content: flex-start;
   font-family: var(--font-mono);
 }
 
@@ -1051,6 +1047,16 @@ function costLabel(log: RequestLogItemDto): string {
   display: grid;
   min-width: 0;
   gap: 2px;
+}
+
+.logs-list__token-direction {
+  width: 3ch;
+  color: var(--color-text-faint);
+  font-family: var(--font-sans);
+  font-size: var(--text-label-xs);
+  font-weight: 400;
+  line-height: 1;
+  text-align: right;
 }
 
 .logs-list__token-hints {

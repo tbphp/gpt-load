@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	migrationLedgerTable                      = "schema_migrations"
-	initialV2MigrationID                      = "0001_final_v2"
-	requestLogExecutionObservationMigrationID = "0002_request_log_execution_observation"
-	requestLogConversionTraceMigrationID      = "0003_request_log_conversion_trace"
+	migrationLedgerTable                       = "schema_migrations"
+	initialV2MigrationID                       = "0001_final_v2"
+	requestLogExecutionObservationMigrationID  = "0002_request_log_execution_observation"
+	requestLogConversionTraceMigrationID       = "0003_request_log_conversion_trace"
+	removeRequestLogConversionTraceMigrationID = "0004_remove_request_log_conversion_trace"
 )
 
 const (
@@ -50,6 +51,10 @@ var migrations = []migration{
 	{
 		ID: requestLogConversionTraceMigrationID,
 		Up: addRequestLogConversionTrace,
+	},
+	{
+		ID: removeRequestLogConversionTraceMigrationID,
+		Up: removeRequestLogConversionTrace,
 	},
 }
 

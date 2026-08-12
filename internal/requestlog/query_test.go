@@ -12,7 +12,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -117,47 +116,6 @@ func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
 		attempts[0].Reasoning.BudgetTokens == nil ||
 		*attempts[0].Reasoning.BudgetTokens != reasoningBudget {
 		t.Fatalf("decoded attempt observation = %#v", attempts[0])
-	}
-}
-
-func TestDecodeRequestLogConversionObservations(t *testing.T) {
-	client := parametertrace.ProjectJSON([]byte(`{"thinking":{"type":"enabled","budget_tokens":4096}}`))
-	target := parametertrace.ProjectJSON([]byte(`{"reasoning_effort":"high"}`))
-	trace := parametertrace.Compare(client, target)
-	clientJSON, _ := json.Marshal(client)
-	traceJSON, _ := json.Marshal(trace)
-
-	records, err := decodeRequestLogRows([]models.RequestLog{{
-		ID: "00000000-0000-4000-8000-000000000699", CompletedAtMS: 1,
-		Protocol: string(protocol.Anthropic), ModelConsistency: string(telemetry.ModelConsistencyNotApplicable),
-		Status: string(telemetry.RequestStatusError), UsageState: string(usage.StateNotApplicable),
-		CostState: string(pricing.CostStateNotApplicable), PricingCompleteness: string(pricing.CompletenessNotApplicable),
-		ClientParameters: clientJSON,
-	}})
-	if err != nil || len(records) != 1 || records[0].ClientParameters == nil ||
-		records[0].ClientParameters.State != parametertrace.CaptureCaptured {
-		t.Fatalf("decoded client parameters = %#v, error = %v", records, err)
-	}
-	attempts, err := decodeAttemptRows([]models.RequestLogAttempt{{
-		RequestID: "00000000-0000-4000-8000-000000000699", Sequence: 1,
-		GroupID: 7, GroupName: "primary", CredentialID: 8,
-		FailureCategory: string(telemetry.FailureCategoryConversionUnsupported),
-		Action:          string(telemetry.ActionSkipGroup), ConversionTrace: traceJSON,
-	}})
-	if err != nil || len(attempts) != 1 || attempts[0].ConversionTrace == nil ||
-		attempts[0].ConversionTrace.State != parametertrace.CaptureCaptured {
-		t.Fatalf("decoded conversion trace = %#v, error = %v", attempts, err)
-	}
-
-	bad := models.JSON(`{"state":"captured","entries":[{"path":"unsafe path","kind":"enum","value":"secret"}],"truncated":false}`)
-	if _, err := decodeRequestLogRows([]models.RequestLog{{
-		ID: "00000000-0000-4000-8000-000000000698", CompletedAtMS: 1,
-		Protocol: string(protocol.Anthropic), ModelConsistency: string(telemetry.ModelConsistencyNotApplicable),
-		Status: string(telemetry.RequestStatusError), UsageState: string(usage.StateNotApplicable),
-		CostState: string(pricing.CostStateNotApplicable), PricingCompleteness: string(pricing.CompletenessNotApplicable),
-		ClientParameters: bad,
-	}}); err == nil {
-		t.Fatal("decodeRequestLogRows accepted malformed client parameters")
 	}
 }
 
@@ -722,11 +680,6 @@ func TestServiceListBatchLoadsCurrentAccessKeyNames(t *testing.T) {
 
 func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 	reasoningBudget := int64(4096)
-	clientParameters := parametertrace.ProjectJSON([]byte(`{"thinking":{"type":"enabled","budget_tokens":4096}}`))
-	targetParameters := parametertrace.ProjectJSON([]byte(`{"reasoning_effort":"high"}`))
-	conversionTrace := parametertrace.Compare(clientParameters, targetParameters)
-	clientJSON, _ := json.Marshal(clientParameters)
-	traceJSON, _ := json.Marshal(conversionTrace)
 	db := openRequestLogQueryDB(t)
 	row := requestLogQueryRow(
 		"00000000-0000-4000-8000-000000000401",
@@ -753,9 +706,7 @@ func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 		DurationMs:            10,
 		FailureCategory:       string(telemetry.FailureCategoryOK),
 		Action:                string(telemetry.ActionTerminate),
-		ConversionTrace:       traceJSON,
 	}}
-	row.ClientParameters = clientJSON
 	row.GroupID = 7
 	row.ChannelID = string(channel.Anthropic)
 	row.CredentialID = 9
@@ -768,7 +719,7 @@ func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 		t.Fatalf("List() error = %v", err)
 	}
 	if len(page.Items) != 1 || page.Items[0].Attempts != nil ||
-		page.Items[0].ClientParameters != nil || page.Items[0].AttemptCount != 1 {
+		page.Items[0].AttemptCount != 1 {
 		t.Fatalf("list item = %#v, want lightweight item without attempts", page.Items)
 	}
 	detail, err := newRequestLogTestService(db).Get(context.Background(), row.ID)
@@ -780,9 +731,7 @@ func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 		detail.UpstreamAPI != execution.UpstreamAPIAnthropicMessages ||
 		detail.Operation != execution.OperationResponsesCreate ||
 		detail.Attempts[0].Reasoning.BudgetTokens == nil ||
-		*detail.Attempts[0].Reasoning.BudgetTokens != reasoningBudget ||
-		detail.ClientParameters == nil || detail.Attempts[0].ConversionTrace == nil ||
-		detail.Attempts[0].ConversionTrace.State != parametertrace.CaptureCaptured {
+		*detail.Attempts[0].Reasoning.BudgetTokens != reasoningBudget {
 		t.Fatalf("detail attempts = %#v", detail.Attempts)
 	}
 }
