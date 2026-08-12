@@ -373,12 +373,19 @@ func TestUsageAPIReturnsAllDistributionViewsInOneResponse(t *testing.T) {
 			Distributions struct {
 				Group struct {
 					Requests json.RawMessage `json:"requests"`
+					Tokens   json.RawMessage `json:"tokens"`
 					Cost     json.RawMessage `json:"cost"`
 				} `json:"group"`
 				Model struct {
 					Requests json.RawMessage `json:"requests"`
+					Tokens   json.RawMessage `json:"tokens"`
 					Cost     json.RawMessage `json:"cost"`
 				} `json:"model"`
+				AccessKey struct {
+					Requests json.RawMessage `json:"requests"`
+					Tokens   json.RawMessage `json:"tokens"`
+					Cost     json.RawMessage `json:"cost"`
+				} `json:"access_key"`
 			} `json:"distributions"`
 		} `json:"data"`
 	}
@@ -387,9 +394,14 @@ func TestUsageAPIReturnsAllDistributionViewsInOneResponse(t *testing.T) {
 	}
 	if len(envelope.Data.Distribution) != 0 ||
 		len(envelope.Data.Distributions.Group.Requests) == 0 ||
+		len(envelope.Data.Distributions.Group.Tokens) == 0 ||
 		len(envelope.Data.Distributions.Group.Cost) == 0 ||
 		len(envelope.Data.Distributions.Model.Requests) == 0 ||
-		len(envelope.Data.Distributions.Model.Cost) == 0 {
+		len(envelope.Data.Distributions.Model.Tokens) == 0 ||
+		len(envelope.Data.Distributions.Model.Cost) == 0 ||
+		len(envelope.Data.Distributions.AccessKey.Requests) == 0 ||
+		len(envelope.Data.Distributions.AccessKey.Tokens) == 0 ||
+		len(envelope.Data.Distributions.AccessKey.Cost) == 0 {
 		t.Fatalf("usage distributions = %#v; body=%s", envelope.Data.Distributions, recorder.Body.String())
 	}
 }
@@ -424,6 +436,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 					Model: "upstream-model",
 					UsageDistributionAggregate: requestlog.UsageDistributionAggregate{
 						RequestCount:         1,
+						TotalTokens:          9,
 						EstimatedCostNanoUSD: 250_000_000,
 					},
 				}},
@@ -936,15 +949,21 @@ func usageTestDistributions(
 	source requestlog.UsageDistribution,
 ) requestlog.UsageDistributions {
 	result := requestlog.UsageDistributions{
-		Group: make(map[requestlog.UsageDistributionMetric]requestlog.UsageDistribution, 2),
-		Model: make(map[requestlog.UsageDistributionMetric]requestlog.UsageDistribution, 2),
+		Group:     make(map[requestlog.UsageDistributionMetric]requestlog.UsageDistribution, 3),
+		Model:     make(map[requestlog.UsageDistributionMetric]requestlog.UsageDistribution, 3),
+		AccessKey: make(map[requestlog.UsageDistributionMetric]requestlog.UsageDistribution, 3),
 	}
+	totalTokens := summary.UncachedInputTokens + summary.CacheReadTokens +
+		summary.CacheWrite5MTokens + summary.CacheWrite1HTokens +
+		summary.CacheWriteUnknownTokens + summary.OutputTokens
 	for _, dimension := range []requestlog.UsageDistributionDimension{
 		requestlog.UsageDistributionDimensionGroup,
 		requestlog.UsageDistributionDimensionModel,
+		requestlog.UsageDistributionDimensionAccessKey,
 	} {
 		for _, metric := range []requestlog.UsageDistributionMetric{
 			requestlog.UsageDistributionMetricRequests,
+			requestlog.UsageDistributionMetricTokens,
 			requestlog.UsageDistributionMetricCost,
 		} {
 			distribution := requestlog.UsageDistribution{
@@ -955,17 +974,21 @@ func usageTestDistributions(
 				distribution = source
 				distribution.Dimension = dimension
 				distribution.Metric = metric
-			} else if summary.RequestCount > 0 || summary.EstimatedCostNanoUSD > 0 {
+			} else if summary.RequestCount > 0 || totalTokens > 0 || summary.EstimatedCostNanoUSD > 0 {
 				other := requestlog.UsageDistributionAggregate{
 					RequestCount:         summary.RequestCount,
+					TotalTokens:          totalTokens,
 					EstimatedCostNanoUSD: summary.EstimatedCostNanoUSD,
 				}
 				distribution.Other = &other
 			}
-			if dimension == requestlog.UsageDistributionDimensionGroup {
+			switch dimension {
+			case requestlog.UsageDistributionDimensionGroup:
 				result.Group[metric] = distribution
-			} else {
+			case requestlog.UsageDistributionDimensionModel:
 				result.Model[metric] = distribution
+			case requestlog.UsageDistributionDimensionAccessKey:
+				result.AccessKey[metric] = distribution
 			}
 		}
 	}
@@ -979,10 +1002,13 @@ func usageTestDistributionsWithOverride(
 	distribution requestlog.UsageDistribution,
 ) requestlog.UsageDistributions {
 	result := usageTestDistributions(summary, requestlog.UsageDistribution{})
-	if dimension == requestlog.UsageDistributionDimensionGroup {
+	switch dimension {
+	case requestlog.UsageDistributionDimensionGroup:
 		result.Group[metric] = distribution
-	} else {
+	case requestlog.UsageDistributionDimensionModel:
 		result.Model[metric] = distribution
+	case requestlog.UsageDistributionDimensionAccessKey:
+		result.AccessKey[metric] = distribution
 	}
 	return result
 }
@@ -996,7 +1022,8 @@ func (reader *recordingUsageStatReader) QueryUsage(
 		return requestlog.UsageReport{}, reader.err
 	}
 	report := reader.report
-	if len(report.Distributions.Group) == 0 && len(report.Distributions.Model) == 0 {
+	if len(report.Distributions.Group) == 0 && len(report.Distributions.Model) == 0 &&
+		len(report.Distributions.AccessKey) == 0 {
 		report.Distributions = usageTestDistributions(report.Summary, requestlog.UsageDistribution{})
 	}
 	return report, nil

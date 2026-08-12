@@ -122,12 +122,14 @@ func queryUsageDistributions(
 	accessKeyScoped bool,
 ) (UsageDistributions, error) {
 	result := UsageDistributions{
-		Group: make(map[UsageDistributionMetric]UsageDistribution, 2),
-		Model: make(map[UsageDistributionMetric]UsageDistribution, 2),
+		Group:     make(map[UsageDistributionMetric]UsageDistribution, 3),
+		Model:     make(map[UsageDistributionMetric]UsageDistribution, 3),
+		AccessKey: make(map[UsageDistributionMetric]UsageDistribution, 3),
 	}
 	dimensions := []UsageDistributionDimension{
 		UsageDistributionDimensionGroup,
 		UsageDistributionDimensionModel,
+		UsageDistributionDimensionAccessKey,
 	}
 	if accessKeyScoped {
 		dimensions = []UsageDistributionDimension{UsageDistributionDimensionModel}
@@ -135,16 +137,20 @@ func queryUsageDistributions(
 	for _, dimension := range dimensions {
 		for _, metric := range []UsageDistributionMetric{
 			UsageDistributionMetricRequests,
+			UsageDistributionMetricTokens,
 			UsageDistributionMetricCost,
 		} {
 			distribution, err := queryUsageDistribution(scope, summary, dimension, metric)
 			if err != nil {
 				return UsageDistributions{}, err
 			}
-			if dimension == UsageDistributionDimensionGroup {
+			switch dimension {
+			case UsageDistributionDimensionGroup:
 				result.Group[metric] = distribution
-			} else {
+			case UsageDistributionDimensionModel:
 				result.Model[metric] = distribution
+			case UsageDistributionDimensionAccessKey:
+				result.AccessKey[metric] = distribution
 			}
 		}
 	}
@@ -265,13 +271,18 @@ func queryUsageDistribution(
 	query := scope.Session(&gorm.Session{})
 	switch dimension {
 	case UsageDistributionDimensionGroup:
-		query = query.Select("group_id, '' AS model, "+usageDistributionAggregateSelect).
+		query = query.Select("group_id, 0 AS access_key_id, '' AS model, "+usageDistributionAggregateSelect).
 			Where("group_id IN (?)", scope.Session(&gorm.Session{NewDB: true}).
 				Model(&models.Group{}).Select("id")).
 			Group("group_id")
 	case UsageDistributionDimensionModel:
-		query = query.Select("0 AS group_id, model, " + usageDistributionAggregateSelect).
+		query = query.Select("0 AS group_id, 0 AS access_key_id, model, " + usageDistributionAggregateSelect).
 			Group("model")
+	case UsageDistributionDimensionAccessKey:
+		query = query.Select("0 AS group_id, access_key_id, '' AS model, "+usageDistributionAggregateSelect).
+			Where("access_key_id IN (?)", scope.Session(&gorm.Session{NewDB: true}).
+				Model(&models.AccessKey{}).Select("id")).
+			Group("access_key_id")
 	default:
 		return UsageDistribution{}, fmt.Errorf(
 			"query usage distribution: unsupported dimension %q",
@@ -281,6 +292,11 @@ func queryUsageDistribution(
 	switch metric {
 	case UsageDistributionMetricRequests:
 		query = query.
+			Order("SUM(request_count) DESC").
+			Order("SUM(estimated_cost_nano_usd) DESC")
+	case UsageDistributionMetricTokens:
+		query = query.
+			Order(usageDistributionTotalTokensExpression + " DESC").
 			Order("SUM(request_count) DESC").
 			Order("SUM(estimated_cost_nano_usd) DESC")
 	case UsageDistributionMetricCost:
@@ -293,10 +309,13 @@ func queryUsageDistribution(
 			metric,
 		)
 	}
-	if dimension == UsageDistributionDimensionGroup {
+	switch dimension {
+	case UsageDistributionDimensionGroup:
 		query = query.Order("group_id ASC")
-	} else {
+	case UsageDistributionDimensionModel:
 		query = query.Order("model ASC")
+	case UsageDistributionDimensionAccessKey:
+		query = query.Order("access_key_id ASC")
 	}
 	if err := query.
 		Limit(usageDistributionLimit).
@@ -317,7 +336,7 @@ func queryUsageDistribution(
 			return UsageDistribution{}, fmt.Errorf("sum usage distribution: %w", err)
 		}
 		result.Items = append(result.Items, UsageDistributionItem{
-			GroupID: row.GroupID, Model: row.Model,
+			GroupID: row.GroupID, AccessKeyID: row.AccessKeyID, Model: row.Model,
 			UsageDistributionAggregate: row.UsageDistributionAggregate,
 		})
 	}
@@ -325,7 +344,7 @@ func queryUsageDistribution(
 	if err != nil {
 		return UsageDistribution{}, fmt.Errorf("calculate other usage distribution: %w", err)
 	}
-	if other.RequestCount > 0 || other.EstimatedCostNanoUSD > 0 {
+	if other.RequestCount > 0 || other.TotalTokens > 0 || other.EstimatedCostNanoUSD > 0 {
 		result.Other = &other
 	}
 	return result, nil
@@ -409,6 +428,10 @@ func addUsageDistributionAggregates(
 	if !ok {
 		return UsageDistributionAggregate{}, fmt.Errorf("request count overflow or negative")
 	}
+	tokens, ok := usage.CheckedAdd(left.TotalTokens, right.TotalTokens)
+	if !ok {
+		return UsageDistributionAggregate{}, fmt.Errorf("total tokens overflow or negative")
+	}
 	cost, ok := pricing.CheckedAddNanoUSD(
 		pricing.NanoUSD(left.EstimatedCostNanoUSD),
 		pricing.NanoUSD(right.EstimatedCostNanoUSD),
@@ -417,7 +440,7 @@ func addUsageDistributionAggregates(
 		return UsageDistributionAggregate{}, fmt.Errorf("estimated cost overflow or negative")
 	}
 	return UsageDistributionAggregate{
-		RequestCount: requests, EstimatedCostNanoUSD: int64(cost),
+		RequestCount: requests, TotalTokens: tokens, EstimatedCostNanoUSD: int64(cost),
 	}, nil
 }
 
@@ -425,12 +448,18 @@ func subtractUsageDistributionAggregate(
 	total UsageAggregate,
 	part UsageDistributionAggregate,
 ) (UsageDistributionAggregate, error) {
+	totalTokens, err := usageAggregateTotalTokens(total)
+	if err != nil {
+		return UsageDistributionAggregate{}, err
+	}
 	if part.RequestCount < 0 || part.RequestCount > total.RequestCount ||
+		part.TotalTokens < 0 || part.TotalTokens > totalTokens ||
 		part.EstimatedCostNanoUSD < 0 || part.EstimatedCostNanoUSD > total.EstimatedCostNanoUSD {
 		return UsageDistributionAggregate{}, fmt.Errorf("invalid distribution remainder")
 	}
 	return UsageDistributionAggregate{
 		RequestCount:         total.RequestCount - part.RequestCount,
+		TotalTokens:          totalTokens - part.TotalTokens,
 		EstimatedCostNanoUSD: total.EstimatedCostNanoUSD - part.EstimatedCostNanoUSD,
 	}, nil
 }
@@ -463,6 +492,16 @@ func validateUsageAggregate(aggregate UsageAggregate) error {
 	if !ok || requestCount != aggregate.RequestCount {
 		return fmt.Errorf("request count does not equal success plus failure")
 	}
+	if _, err := usageAggregateTotalTokens(aggregate); err != nil {
+		return err
+	}
+	if aggregate.EstimatedCostNanoUSD < 0 {
+		return fmt.Errorf("invalid cost")
+	}
+	return nil
+}
+
+func usageAggregateTotalTokens(aggregate UsageAggregate) (int64, error) {
 	totalTokens := int64(0)
 	for _, value := range []int64{
 		aggregate.UncachedInputTokens,
@@ -475,13 +514,10 @@ func validateUsageAggregate(aggregate UsageAggregate) error {
 		var added bool
 		totalTokens, added = usage.CheckedAdd(totalTokens, value)
 		if !added {
-			return fmt.Errorf("total tokens overflow")
+			return 0, fmt.Errorf("total tokens overflow")
 		}
 	}
-	if aggregate.EstimatedCostNanoUSD < 0 {
-		return fmt.Errorf("invalid cost")
-	}
-	return nil
+	return totalTokens, nil
 }
 
 // Aliases follow GORM's snake-case mapping for embedded UsageAggregate fields (for example, 5M -> 5_m).
@@ -501,8 +537,17 @@ const usageAggregateSelect = "" +
 	"COALESCE(SUM(unpriced_request_count), 0) AS unpriced_request_count, " +
 	"COALESCE(SUM(pricing_partial_count), 0) AS pricing_partial_count"
 
+const usageDistributionTotalTokensExpression = "" +
+	"COALESCE(SUM(uncached_input_tokens), 0) + " +
+	"COALESCE(SUM(cache_read_tokens), 0) + " +
+	"COALESCE(SUM(cache_write_5m_tokens), 0) + " +
+	"COALESCE(SUM(cache_write_1h_tokens), 0) + " +
+	"COALESCE(SUM(cache_write_unknown_tokens), 0) + " +
+	"COALESCE(SUM(output_tokens), 0)"
+
 const usageDistributionAggregateSelect = "" +
 	"COALESCE(SUM(request_count), 0) AS request_count, " +
+	usageDistributionTotalTokensExpression + " AS total_tokens, " +
 	"COALESCE(SUM(estimated_cost_nano_usd), 0) AS estimated_cost_nano_usd"
 
 type usageHourPoint struct {
@@ -518,7 +563,8 @@ type usageStatIntegrity struct {
 }
 
 type usageDistributionRow struct {
-	GroupID uint
-	Model   string
+	GroupID     uint
+	AccessKeyID uint
+	Model       string
 	UsageDistributionAggregate
 }

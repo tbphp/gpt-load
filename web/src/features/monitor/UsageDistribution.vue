@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { Boxes, Layers3 } from '@lucide/vue'
+import { Boxes, KeyRound, Layers3 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { GroupOptionDto } from '@/api/control/types'
+import type { AccessKeyOptionDto } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
 import type {
   UsageAggregateDto,
@@ -12,7 +13,7 @@ import type {
 } from '@/app/resources/usage'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
-import { formatEstimatedCost, formatInteger, formatPercent } from '@/lib/format'
+import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
 
 type DistributionItem = UsageDistributionDto['items'][number]
 type DistributionRow = {
@@ -27,6 +28,7 @@ const props = defineProps<{
   summary: UsageAggregateDto
   groups: GroupOptionDto[]
   channels: ChannelDto[]
+  accessKeys: AccessKeyOptionDto[]
 }>()
 
 const { locale, t } = useI18n()
@@ -36,7 +38,9 @@ const rows = computed<DistributionRow[]>(() => {
     key:
       props.distribution.dimension === 'group'
         ? `group:${item.group_id ?? 0}`
-        : `model:${item.model ?? ''}`,
+        : props.distribution.dimension === 'access_key'
+          ? `access-key:${item.access_key_id ?? 0}`
+          : `model:${item.model ?? ''}`,
     item,
     identity: item,
     rank: index + 1,
@@ -56,10 +60,21 @@ function channel(item: DistributionItem): ChannelDto | undefined {
   return props.channels.find(({ channel_id }) => channel_id === channelID)
 }
 
+function accessKey(item: DistributionItem): AccessKeyOptionDto | undefined {
+  return props.accessKeys.find(({ id }) => id === item.access_key_id)
+}
+
 function identityLabel(row: DistributionRow): string {
   if (row.identity === undefined) return t('monitor.usage.distribution.other')
   if (props.distribution.dimension === 'model') {
     return row.identity.model || t('monitor.usage.distribution.unknownModel')
+  }
+  if (props.distribution.dimension === 'access_key') {
+    const accessKeyID = row.identity.access_key_id ?? 0
+    return (
+      accessKey(row.identity)?.name ??
+      t('monitor.usage.distribution.deletedOrUnknownAccessKey', { id: accessKeyID })
+    )
   }
   const groupID = row.identity.group_id ?? 0
   return group(row.identity)?.name ?? t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
@@ -67,12 +82,21 @@ function identityLabel(row: DistributionRow): string {
 
 function identityMeta(row: DistributionRow): string {
   if (row.identity === undefined) {
-    return props.distribution.dimension === 'group'
-      ? t('monitor.usage.distribution.otherGroupHint')
-      : t('monitor.usage.distribution.otherHint')
+    if (props.distribution.dimension === 'group') {
+      return t('monitor.usage.distribution.otherGroupHint')
+    }
+    if (props.distribution.dimension === 'access_key') {
+      return t('monitor.usage.distribution.otherAccessKeyHint')
+    }
+    return t('monitor.usage.distribution.otherHint')
   }
   if (props.distribution.dimension === 'model') {
     return t('monitor.usage.distribution.modelHint')
+  }
+  if (props.distribution.dimension === 'access_key') {
+    return t('monitor.usage.distribution.accessKeyValue', {
+      id: row.identity.access_key_id ?? 0,
+    })
   }
   const groupID = row.identity.group_id ?? 0
   const groupChannel = channel(row.identity)
@@ -81,15 +105,17 @@ function identityMeta(row: DistributionRow): string {
 }
 
 function metricValue(item: UsageDistributionAggregateDto): number | bigint {
-  return props.distribution.metric === 'cost'
-    ? BigInt(item.estimated_cost_nano_usd)
-    : item.request_count
+  if (props.distribution.metric === 'cost') return BigInt(item.estimated_cost_nano_usd)
+  if (props.distribution.metric === 'tokens') return item.total_tokens
+  return item.request_count
 }
 
 function totalValue(): number | bigint {
-  return props.distribution.metric === 'cost'
-    ? BigInt(props.summary.estimated_cost_nano_usd)
-    : props.summary.request_count
+  if (props.distribution.metric === 'cost') {
+    return BigInt(props.summary.estimated_cost_nano_usd)
+  }
+  if (props.distribution.metric === 'tokens') return props.summary.total_tokens
+  return props.summary.request_count
 }
 
 function shareBasisPoints(item: UsageDistributionAggregateDto): number {
@@ -115,17 +141,22 @@ function barStyle(item: UsageDistributionAggregateDto): Record<string, string> {
 }
 
 function primaryValue(item: UsageDistributionAggregateDto): string {
-  return props.distribution.metric === 'cost'
-    ? formatEstimatedCost(item.estimated_cost_nano_usd, locale.value)
-    : formatInteger(item.request_count, locale.value)
+  if (props.distribution.metric === 'cost') {
+    return formatEstimatedCost(item.estimated_cost_nano_usd, locale.value)
+  }
+  if (props.distribution.metric === 'tokens') {
+    return formatTokens(item.total_tokens, locale.value)
+  }
+  return formatInteger(item.request_count, locale.value)
 }
 
 function secondaryValue(item: UsageDistributionAggregateDto): string {
-  return props.distribution.metric === 'cost'
-    ? t('monitor.usage.distribution.requestsValue', {
-        value: formatInteger(item.request_count, locale.value),
-      })
-    : formatEstimatedCost(item.estimated_cost_nano_usd, locale.value)
+  if (props.distribution.metric === 'requests') {
+    return formatEstimatedCost(item.estimated_cost_nano_usd, locale.value)
+  }
+  return t('monitor.usage.distribution.requestsValue', {
+    value: formatInteger(item.request_count, locale.value),
+  })
 }
 </script>
 
@@ -143,14 +174,15 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
 
         <span class="usage-distribution__identity" :title="identityLabel(row)">
           <span class="usage-distribution__icon" aria-hidden="true">
-            <template v-if="row.identity && distribution.dimension === 'group'">
+            <template v-if="distribution.dimension === 'group'">
               <ChannelIcon
-                v-if="channel(row.identity)"
+                v-if="row.identity && channel(row.identity)"
                 :icon="channel(row.identity)!.icon"
                 :mark="channel(row.identity)!.mark"
               />
               <Boxes v-else :size="17" />
             </template>
+            <KeyRound v-else-if="distribution.dimension === 'access_key'" :size="17" />
             <Layers3 v-else :size="17" />
           </span>
           <span class="usage-distribution__identity-copy">

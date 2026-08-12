@@ -265,6 +265,79 @@ func TestQueryUsageGroupDistributionKeepsOnlyPersistedGroupsInTopFive(t *testing
 	}
 }
 
+func TestQueryUsageAccessKeyTokenDistributionKeepsOnlyPersistedKeys(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
+
+	knownKeys := []models.AccessKey{
+		{
+			Name: "request-heavy", KeyValue: "cipher-0001", KeyHash: "hash-0001",
+			KeySuffix: "0001", Status: "active", Filters: models.JSON(`{}`),
+		},
+		{
+			Name: "token-heavy", KeyValue: "cipher-0002", KeyHash: "hash-0002",
+			KeySuffix: "0002", Status: "active", Filters: models.JSON(`{}`),
+		},
+	}
+	if err := db.Create(&knownKeys).Error; err != nil {
+		t.Fatalf("create persisted AccessKeys: %v", err)
+	}
+
+	requestHeavy := usageStat(start, 1, "request-heavy", 20)
+	requestHeavy.AccessKeyID = knownKeys[0].ID
+	requestHeavy.UncachedInputTokens = 100
+	requestHeavy.CacheReadTokens = 0
+	requestHeavy.CacheWrite5MTokens = 0
+	requestHeavy.CacheWrite1HTokens = 0
+	requestHeavy.OutputTokens = 0
+
+	tokenHeavy := usageStat(start, 1, "token-heavy", 5)
+	tokenHeavy.AccessKeyID = knownKeys[1].ID
+	tokenHeavy.UncachedInputTokens = 500
+	tokenHeavy.CacheReadTokens = 0
+	tokenHeavy.CacheWrite5MTokens = 0
+	tokenHeavy.CacheWrite1HTokens = 0
+	tokenHeavy.OutputTokens = 0
+
+	deletedOrUnknown := usageStat(start, 1, "deleted-key", 100)
+	deletedOrUnknown.AccessKeyID = 99_999
+	deletedOrUnknown.UncachedInputTokens = 1_000
+	deletedOrUnknown.CacheReadTokens = 0
+	deletedOrUnknown.CacheWrite5MTokens = 0
+	deletedOrUnknown.CacheWrite1HTokens = 0
+	deletedOrUnknown.OutputTokens = 0
+	createUsageStats(t, db, requestHeavy, tokenHeavy, deletedOrUnknown)
+
+	report, err := service.QueryUsage(context.Background(), UsageQuery{
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
+	})
+	if err != nil {
+		t.Fatalf("QueryUsage() error = %v", err)
+	}
+	distribution := usageDistribution(
+		t,
+		report,
+		UsageDistributionDimensionAccessKey,
+		UsageDistributionMetricTokens,
+	)
+	if len(distribution.Items) != 2 ||
+		distribution.Items[0].AccessKeyID != knownKeys[1].ID ||
+		distribution.Items[0].TotalTokens != 500 ||
+		distribution.Items[1].AccessKeyID != knownKeys[0].ID ||
+		distribution.Items[1].TotalTokens != 100 {
+		t.Fatalf("token distribution items = %#v", distribution.Items)
+	}
+	if distribution.Other == nil ||
+		distribution.Other.RequestCount != 100 ||
+		distribution.Other.TotalTokens != 1_000 ||
+		distribution.Other.EstimatedCostNanoUSD != 10_000_000_000 {
+		t.Fatalf("token distribution other = %#v", distribution.Other)
+	}
+}
+
 func TestQueryUsageModelDistributionAggregatesGroupsAndCredentials(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)

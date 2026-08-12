@@ -62,8 +62,10 @@ type usageSeriesResponse struct {
 
 type usageDistributionItemResponse struct {
 	GroupID              *uint   `json:"group_id,omitempty"`
+	AccessKeyID          *uint   `json:"access_key_id,omitempty"`
 	Model                *string `json:"model,omitempty"`
 	RequestCount         int64   `json:"request_count"`
+	TotalTokens          int64   `json:"total_tokens"`
 	EstimatedCostNanoUSD string  `json:"estimated_cost_nano_usd"`
 }
 
@@ -75,12 +77,14 @@ type usageDistributionResponse struct {
 }
 
 type usageDistributionViewsResponse struct {
-	Group map[requestlog.UsageDistributionMetric]usageDistributionResponse `json:"group,omitempty"`
-	Model map[requestlog.UsageDistributionMetric]usageDistributionResponse `json:"model"`
+	Group     map[requestlog.UsageDistributionMetric]usageDistributionResponse `json:"group,omitempty"`
+	Model     map[requestlog.UsageDistributionMetric]usageDistributionResponse `json:"model"`
+	AccessKey map[requestlog.UsageDistributionMetric]usageDistributionResponse `json:"access_key,omitempty"`
 }
 
 type usageDistributionAggregateResponse struct {
 	RequestCount         int64  `json:"request_count"`
+	TotalTokens          int64  `json:"total_tokens"`
 	EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
 }
 
@@ -374,7 +378,7 @@ func (service *Service) mapUsageResponse(
 		Summary: summary,
 		Series:  make([]usageSeriesResponse, 0, len(report.Series)),
 		Distributions: usageDistributionViewsResponse{
-			Model: make(map[requestlog.UsageDistributionMetric]usageDistributionResponse, 2),
+			Model: make(map[requestlog.UsageDistributionMetric]usageDistributionResponse, 3),
 		},
 	}
 	if accessKeyScoped {
@@ -398,17 +402,20 @@ func (service *Service) mapUsageResponse(
 		})
 	}
 	if !accessKeyScoped {
-		result.Distributions.Group = make(map[requestlog.UsageDistributionMetric]usageDistributionResponse, 2)
+		result.Distributions.Group = make(map[requestlog.UsageDistributionMetric]usageDistributionResponse, 3)
+		result.Distributions.AccessKey = make(map[requestlog.UsageDistributionMetric]usageDistributionResponse, 3)
 	}
 	for _, dimension := range []requestlog.UsageDistributionDimension{
 		requestlog.UsageDistributionDimensionGroup,
 		requestlog.UsageDistributionDimensionModel,
+		requestlog.UsageDistributionDimensionAccessKey,
 	} {
-		if accessKeyScoped && dimension == requestlog.UsageDistributionDimensionGroup {
+		if accessKeyScoped && dimension != requestlog.UsageDistributionDimensionModel {
 			continue
 		}
 		for _, metric := range []requestlog.UsageDistributionMetric{
 			requestlog.UsageDistributionMetricRequests,
+			requestlog.UsageDistributionMetricTokens,
 			requestlog.UsageDistributionMetricCost,
 		} {
 			distribution, ok := report.Distributions.Get(dimension, metric)
@@ -425,10 +432,13 @@ func (service *Service) mapUsageResponse(
 			if err := validateMappedUsageDistribution(result.Summary, mapped); err != nil {
 				return usageResponse{}, err
 			}
-			if dimension == requestlog.UsageDistributionDimensionGroup {
+			switch dimension {
+			case requestlog.UsageDistributionDimensionGroup:
 				result.Distributions.Group[metric] = mapped
-			} else {
+			case requestlog.UsageDistributionDimensionModel:
 				result.Distributions.Model[metric] = mapped
+			case requestlog.UsageDistributionDimensionAccessKey:
+				result.Distributions.AccessKey[metric] = mapped
 			}
 		}
 	}
@@ -451,17 +461,27 @@ func mapUsageDistribution(
 		if uint64(row.GroupID) > uint64(maxSafeInteger) {
 			return usageDistributionResponse{}, fmt.Errorf("map usage distribution: unsafe group")
 		}
+		if uint64(row.AccessKeyID) > uint64(maxSafeInteger) {
+			return usageDistributionResponse{}, fmt.Errorf("map usage distribution: unsafe access key")
+		}
 		identity := row.Model
 		switch distribution.Dimension {
 		case requestlog.UsageDistributionDimensionGroup:
-			if row.GroupID == 0 || row.Model != "" {
+			if row.GroupID == 0 || row.AccessKeyID != 0 || row.Model != "" {
 				return usageDistributionResponse{}, fmt.Errorf("map usage distribution: invalid group identity")
 			}
 			identity = strconv.FormatUint(uint64(row.GroupID), 10)
 		case requestlog.UsageDistributionDimensionModel:
-			if row.GroupID != 0 || !validUsageDistributionModel(row.Model) {
+			if row.GroupID != 0 || row.AccessKeyID != 0 || !validUsageDistributionModel(row.Model) {
 				return usageDistributionResponse{}, fmt.Errorf("map usage distribution: invalid model identity")
 			}
+		case requestlog.UsageDistributionDimensionAccessKey:
+			if row.GroupID != 0 || row.AccessKeyID == 0 || row.Model != "" {
+				return usageDistributionResponse{}, fmt.Errorf("map usage distribution: invalid access key identity")
+			}
+			identity = strconv.FormatUint(uint64(row.AccessKeyID), 10)
+		default:
+			return usageDistributionResponse{}, fmt.Errorf("map usage distribution: invalid dimension")
 		}
 		if _, exists := seenDistributionIdentities[identity]; exists {
 			return usageDistributionResponse{}, fmt.Errorf("map usage distribution: duplicate identity")
@@ -473,14 +493,19 @@ func mapUsageDistribution(
 		}
 		item := usageDistributionItemResponse{
 			RequestCount:         aggregate.RequestCount,
+			TotalTokens:          aggregate.TotalTokens,
 			EstimatedCostNanoUSD: aggregate.EstimatedCostNanoUSD,
 		}
-		if distribution.Dimension == requestlog.UsageDistributionDimensionGroup {
+		switch distribution.Dimension {
+		case requestlog.UsageDistributionDimensionGroup:
 			groupID := row.GroupID
 			item.GroupID = &groupID
-		} else {
+		case requestlog.UsageDistributionDimensionModel:
 			model := row.Model
 			item.Model = &model
+		case requestlog.UsageDistributionDimensionAccessKey:
+			accessKeyID := row.AccessKeyID
+			item.AccessKeyID = &accessKeyID
 		}
 		result.Items = append(result.Items, item)
 	}
@@ -499,11 +524,13 @@ func validateMappedUsageDistribution(
 	distribution usageDistributionResponse,
 ) error {
 	requestCount := int64(0)
+	totalTokens := int64(0)
 	cost := int64(0)
 	items := make([]usageDistributionAggregateResponse, 0, len(distribution.Items)+1)
 	for _, item := range distribution.Items {
 		items = append(items, usageDistributionAggregateResponse{
-			RequestCount: item.RequestCount, EstimatedCostNanoUSD: item.EstimatedCostNanoUSD,
+			RequestCount: item.RequestCount, TotalTokens: item.TotalTokens,
+			EstimatedCostNanoUSD: item.EstimatedCostNanoUSD,
 		})
 	}
 	if distribution.Other != nil {
@@ -515,6 +542,10 @@ func validateMappedUsageDistribution(
 		if !ok {
 			return fmt.Errorf("map usage distribution: request count overflow")
 		}
+		totalTokens, ok = usage.CheckedAdd(totalTokens, item.TotalTokens)
+		if !ok {
+			return fmt.Errorf("map usage distribution: total tokens overflow")
+		}
 		itemCost, err := strconv.ParseInt(item.EstimatedCostNanoUSD, 10, 64)
 		if err != nil {
 			return fmt.Errorf("map usage distribution: invalid cost")
@@ -525,7 +556,8 @@ func validateMappedUsageDistribution(
 		}
 		cost = int64(costValue)
 	}
-	if requestCount != summary.RequestCount || strconv.FormatInt(cost, 10) != summary.EstimatedCostNanoUSD {
+	if requestCount != summary.RequestCount || totalTokens != summary.TotalTokens ||
+		strconv.FormatInt(cost, 10) != summary.EstimatedCostNanoUSD {
 		return fmt.Errorf("map usage distribution: total mismatch")
 	}
 	return nil
@@ -535,11 +567,13 @@ func mapUsageDistributionAggregate(
 	source requestlog.UsageDistributionAggregate,
 ) (usageDistributionAggregateResponse, error) {
 	if source.RequestCount < 0 || source.RequestCount > maxSafeInteger ||
+		source.TotalTokens < 0 || source.TotalTokens > maxSafeInteger ||
 		source.EstimatedCostNanoUSD < 0 {
 		return usageDistributionAggregateResponse{}, fmt.Errorf("map usage distribution: unsafe aggregate")
 	}
 	return usageDistributionAggregateResponse{
 		RequestCount:         source.RequestCount,
+		TotalTokens:          source.TotalTokens,
 		EstimatedCostNanoUSD: strconv.FormatInt(source.EstimatedCostNanoUSD, 10),
 	}, nil
 }

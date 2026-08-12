@@ -161,14 +161,16 @@ const (
 type UsageDistributionDimension string
 
 const (
-	UsageDistributionDimensionGroup UsageDistributionDimension = "group"
-	UsageDistributionDimensionModel UsageDistributionDimension = "model"
+	UsageDistributionDimensionGroup     UsageDistributionDimension = "group"
+	UsageDistributionDimensionModel     UsageDistributionDimension = "model"
+	UsageDistributionDimensionAccessKey UsageDistributionDimension = "access_key"
 )
 
 type UsageDistributionMetric string
 
 const (
 	UsageDistributionMetricRequests UsageDistributionMetric = "requests"
+	UsageDistributionMetricTokens   UsageDistributionMetric = "tokens"
 	UsageDistributionMetricCost     UsageDistributionMetric = "cost"
 )
 
@@ -208,13 +210,15 @@ type UsageSeriesPoint struct {
 }
 
 type UsageDistributionItem struct {
-	GroupID uint
-	Model   string
+	GroupID     uint
+	AccessKeyID uint
+	Model       string
 	UsageDistributionAggregate
 }
 
 type UsageDistributionAggregate struct {
 	RequestCount         int64
+	TotalTokens          int64
 	EstimatedCostNanoUSD int64
 }
 
@@ -232,8 +236,9 @@ type UsageReport struct {
 }
 
 type UsageDistributions struct {
-	Group map[UsageDistributionMetric]UsageDistribution
-	Model map[UsageDistributionMetric]UsageDistribution
+	Group     map[UsageDistributionMetric]UsageDistribution
+	Model     map[UsageDistributionMetric]UsageDistribution
+	AccessKey map[UsageDistributionMetric]UsageDistribution
 }
 
 func (distributions UsageDistributions) Get(
@@ -246,6 +251,8 @@ func (distributions UsageDistributions) Get(
 		values = distributions.Group
 	case UsageDistributionDimensionModel:
 		values = distributions.Model
+	case UsageDistributionDimensionAccessKey:
+		values = distributions.AccessKey
 	default:
 		return UsageDistribution{}, false
 	}

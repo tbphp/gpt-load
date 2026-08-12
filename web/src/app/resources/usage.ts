@@ -18,8 +18,8 @@ import {
   projectString,
 } from './projector'
 
-export type UsageDistributionDimension = 'group' | 'model'
-export type UsageDistributionMetric = 'requests' | 'cost'
+export type UsageDistributionDimension = 'group' | 'model' | 'access_key'
+export type UsageDistributionMetric = 'requests' | 'tokens' | 'cost'
 export const usageRanges = timeRanges
 export type UsageRange = TimeRange
 
@@ -51,6 +51,7 @@ export interface UsageAggregateDto {
 
 export interface UsageDistributionAggregateDto {
   request_count: number
+  total_tokens: number
   estimated_cost_nano_usd: string
 }
 
@@ -66,6 +67,7 @@ export interface UsageReportDto {
   distributions: {
     group?: Record<UsageDistributionMetric, UsageDistributionDto>
     model: Record<UsageDistributionMetric, UsageDistributionDto>
+    access_key?: Record<UsageDistributionMetric, UsageDistributionDto>
   }
   collection_health: {
     scope: 'current_process' | 'access_key'
@@ -78,7 +80,13 @@ export interface UsageReportDto {
 export interface UsageDistributionDto {
   dimension: UsageDistributionDimension
   metric: UsageDistributionMetric
-  items: Array<UsageDistributionAggregateDto & { group_id?: number; model?: string }>
+  items: Array<
+    UsageDistributionAggregateDto & {
+      group_id?: number
+      model?: string
+      access_key_id?: number
+    }
+  >
   other: UsageDistributionAggregateDto | null
 }
 
@@ -99,7 +107,11 @@ const aggregateKeys = [
   'pricing_partial_count',
 ] as const
 const aggregateFields = [...aggregateKeys, 'estimated_cost_nano_usd'] as const
-const distributionAggregateFields = ['request_count', 'estimated_cost_nano_usd'] as const
+const distributionAggregateFields = [
+  'request_count',
+  'total_tokens',
+  'estimated_cost_nano_usd',
+] as const
 const reportFields = [
   'range',
   'granularity',
@@ -180,6 +192,7 @@ function projectUsageDistributionAggregate(value: unknown): UsageDistributionAgg
   assertNoSecretLikeFields(record, distributionAggregateFields)
   return {
     request_count: projectSafeInteger(record.request_count, { minimum: 0 }),
+    total_tokens: projectSafeInteger(record.total_tokens, { minimum: 0 }),
     estimated_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
   }
 }
@@ -254,7 +267,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     }
   })
   const distributionsRecord = projectRecord(record.distributions)
-  assertNoSecretLikeFields(distributionsRecord, ['group', 'model'])
+  assertNoSecretLikeFields(distributionsRecord, ['group', 'model', 'access_key'])
 
   function projectDistribution(
     value: unknown,
@@ -266,15 +279,25 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     const distributionDimension = projectEnum(distributionRecord.dimension, [
       'group',
       'model',
+      'access_key',
     ] as const)
-    const distributionMetric = projectEnum(distributionRecord.metric, ['requests', 'cost'] as const)
+    const distributionMetric = projectEnum(distributionRecord.metric, [
+      'requests',
+      'tokens',
+      'cost',
+    ] as const)
     if (distributionDimension !== expectedDimension || distributionMetric !== expectedMetric) {
       invalidResponse()
     }
     const identities = new Set<string>()
     const distributionItems = projectArray(distributionRecord.items, (value) => {
       const item = projectRecord(value)
-      const identityField = distributionDimension === 'group' ? 'group_id' : 'model'
+      const identityField =
+        distributionDimension === 'group'
+          ? 'group_id'
+          : distributionDimension === 'access_key'
+            ? 'access_key_id'
+            : 'model'
       assertNoSecretLikeFields(item, [...distributionAggregateFields, identityField])
       const aggregate = projectUsageDistributionAggregate(
         Object.fromEntries(distributionAggregateFields.map((field) => [field, item[field]])),
@@ -284,6 +307,12 @@ export function projectUsageReport(value: unknown): UsageReportDto {
         if (identities.has(String(groupID))) invalidResponse()
         identities.add(String(groupID))
         return { ...aggregate, group_id: groupID }
+      }
+      if (distributionDimension === 'access_key') {
+        const accessKeyID = projectSafeInteger(item.access_key_id, { minimum: 1 })
+        if (identities.has(String(accessKeyID))) invalidResponse()
+        identities.add(String(accessKeyID))
+        return { ...aggregate, access_key_id: accessKeyID }
       }
       const model = projectString(item.model, { allowEmpty: true })
       if (
@@ -315,8 +344,10 @@ export function projectUsageReport(value: unknown): UsageReportDto {
       (total, item) => total + BigInt(item.estimated_cost_nano_usd),
       0n,
     )
+    const distributedTokens = visibleAndOther.reduce((total, item) => total + item.total_tokens, 0)
     if (
       distributedRequests !== summary.request_count ||
+      distributedTokens !== summary.total_tokens ||
       distributedCost !== BigInt(summary.estimated_cost_nano_usd)
     ) {
       invalidResponse()
@@ -334,9 +365,10 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     dimension: UsageDistributionDimension,
   ): Record<UsageDistributionMetric, UsageDistributionDto> {
     const metricRecord = projectRecord(value)
-    assertNoSecretLikeFields(metricRecord, ['requests', 'cost'])
+    assertNoSecretLikeFields(metricRecord, ['requests', 'tokens', 'cost'])
     return {
       requests: projectDistribution(metricRecord.requests, dimension, 'requests'),
+      tokens: projectDistribution(metricRecord.tokens, dimension, 'tokens'),
       cost: projectDistribution(metricRecord.cost, dimension, 'cost'),
     }
   }
@@ -344,6 +376,12 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   const modelDistributions = projectDistributionMetricRecord(distributionsRecord.model, 'model')
   const groupDistributions = Object.prototype.hasOwnProperty.call(distributionsRecord, 'group')
     ? projectDistributionMetricRecord(distributionsRecord.group, 'group')
+    : undefined
+  const accessKeyDistributions = Object.prototype.hasOwnProperty.call(
+    distributionsRecord,
+    'access_key',
+  )
+    ? projectDistributionMetricRecord(distributionsRecord.access_key, 'access_key')
     : undefined
   const summary = projectUsageAggregate(record.summary)
 
@@ -359,6 +397,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     distributions: {
       ...(groupDistributions === undefined ? {} : { group: groupDistributions }),
       model: modelDistributions,
+      ...(accessKeyDistributions === undefined ? {} : { access_key: accessKeyDistributions }),
     },
     collection_health: projectCollectionHealth(record.collection_health),
   }

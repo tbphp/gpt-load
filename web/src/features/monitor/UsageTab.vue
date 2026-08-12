@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { useCollectionLoading } from '@/app/loading-state'
+import { listAccessKeyOptions } from '@/app/resources/access-keys'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import { listChannels } from '@/app/resources/channels'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -22,6 +23,7 @@ import { monitorLocation } from '@/app/route-locations'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import type { TrendDatum } from '@/components/charts/trend-chart'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -82,6 +84,15 @@ const channelsQuery = useQuery({
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
 })
+const accessKeysQuery = useQuery({
+  queryKey: controlQueryKeys.accessKeys.options(),
+  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
+  enabled: computed(() => !isAccessKey.value),
+  staleTime: Number.POSITIVE_INFINITY,
+  refetchOnMount: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+})
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
 const distributionDimension = ref<UsageDistributionDimension>('model')
@@ -91,6 +102,12 @@ const distribution = computed(() => {
   if (distributions === undefined) return undefined
   if (isAccessKey.value || distributionDimension.value === 'model') {
     return distributions.model[distributionMetric.value]
+  }
+  if (distributionDimension.value === 'access_key') {
+    return (
+      distributions.access_key?.[distributionMetric.value] ??
+      distributions.model[distributionMetric.value]
+    )
   }
   return (
     distributions.group?.[distributionMetric.value] ?? distributions.model[distributionMetric.value]
@@ -117,16 +134,21 @@ const usageRefreshing = computed(
     (!isAccessKey.value && groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
     (!isAccessKey.value &&
       channelsQuery.data.value !== undefined &&
-      channelsQuery.isFetching.value),
+      channelsQuery.isFetching.value) ||
+    (!isAccessKey.value &&
+      accessKeysQuery.data.value !== undefined &&
+      accessKeysQuery.isFetching.value),
 )
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
 const distributionDimensionOptions = computed(() => [
   { value: 'model', label: t('monitor.usage.distribution.dimensions.model') },
   { value: 'group', label: t('monitor.usage.distribution.dimensions.group') },
+  { value: 'access_key', label: t('monitor.usage.distribution.dimensions.accessKey') },
 ])
 const distributionMetricOptions = computed(() => [
-  { value: 'cost', label: t('monitor.usage.distribution.metrics.cost') },
   { value: 'requests', label: t('monitor.usage.distribution.metrics.requests') },
+  { value: 'tokens', label: t('monitor.usage.distribution.metrics.tokens') },
+  { value: 'cost', label: t('monitor.usage.distribution.metrics.cost') },
 ])
 const costChartResolution = 1_000_000_000n
 const trendMetricOptions = computed(() => [
@@ -300,14 +322,18 @@ async function resetFilters(): Promise<void> {
 }
 
 function updateDistributionDimension(value: string): void {
-  if (value !== 'group' && value !== 'model') return
-  if (isAccessKey.value || (value === 'group' && report.value?.distributions.group === undefined))
+  if (value !== 'group' && value !== 'model' && value !== 'access_key') return
+  if (
+    isAccessKey.value ||
+    (value === 'group' && report.value?.distributions.group === undefined) ||
+    (value === 'access_key' && report.value?.distributions.access_key === undefined)
+  )
     return
   distributionDimension.value = value as UsageDistributionDimension
 }
 
 function updateDistributionMetric(value: string): void {
-  if (value !== 'requests' && value !== 'cost') return
+  if (value !== 'requests' && value !== 'tokens' && value !== 'cost') return
   distributionMetric.value = value as UsageDistributionMetric
 }
 
@@ -340,7 +366,9 @@ function setSeriesExpanded(event: Event): void {
 async function refresh(): Promise<void> {
   await Promise.all([
     usageQuery.refetch(),
-    ...(!isAccessKey.value ? [groupsQuery.refetch(), channelsQuery.refetch()] : []),
+    ...(!isAccessKey.value
+      ? [groupsQuery.refetch(), channelsQuery.refetch(), accessKeysQuery.refetch()]
+      : []),
   ])
 }
 
@@ -375,7 +403,12 @@ defineExpose({ openFilters, refresh })
       />
 
       <InlineFeedback
-        v-if="!isAccessKey && (groupsQuery.isError.value || channelsQuery.isError.value)"
+        v-if="
+          !isAccessKey &&
+          (groupsQuery.isError.value ||
+            channelsQuery.isError.value ||
+            accessKeysQuery.isError.value)
+        "
         tone="warning"
       >
         {{ t('monitor.usage.options.partialFailed') }}
@@ -542,7 +575,8 @@ defineExpose({ openFilters, refresh })
                 size="compact"
                 @update:model-value="updateDistributionDimension"
               />
-              <SegmentedControl
+              <AppSelect
+                class="usage-distribution-section__metric-select"
                 :model-value="distributionMetric"
                 :label="t('monitor.usage.distribution.metricLabel')"
                 :options="distributionMetricOptions"
@@ -558,6 +592,7 @@ defineExpose({ openFilters, refresh })
             :summary="report.summary"
             :groups="groupsQuery.data.value ?? []"
             :channels="channelsQuery.data.value?.items ?? []"
+            :access-keys="accessKeysQuery.data.value ?? []"
           />
         </section>
 
@@ -642,6 +677,10 @@ defineExpose({ openFilters, refresh })
 
 .usage-distribution-section :deep(.monitor-section-heading) {
   flex-wrap: wrap;
+}
+
+.usage-distribution-section__metric-select {
+  min-width: 104px;
 }
 
 @media (max-width: 680px) {
