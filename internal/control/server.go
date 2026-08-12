@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -607,6 +608,10 @@ func writeServiceErrorResponse(
 	operation string,
 	err error,
 ) {
+	if requestWasCanceled(c.Request.Context(), err) {
+		return
+	}
+
 	var apiErr *app_errors.APIError
 	if errors.As(err, &apiErr) {
 		setMutationErrorCode(c, apiErr.Code)
@@ -624,6 +629,12 @@ func writeServiceErrorResponse(
 	setMutationErrorCode(c, app_errors.ErrInternalServer.Code)
 	logServiceError(operation, err, app_errors.ErrInternalServer.Code)
 	response.ErrorI18nFromAPIError(c, app_errors.ErrInternalServer, "internal_error")
+}
+
+func requestWasCanceled(ctx context.Context, err error) bool {
+	return ctx != nil &&
+		errors.Is(ctx.Err(), context.Canceled) &&
+		errors.Is(err, context.Canceled)
 }
 
 func serviceErrorMessageID(

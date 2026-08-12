@@ -173,6 +173,9 @@ func (service *Service) ListRequestLogs(
 	}
 	page, err := service.requestLogs.List(ctx, query)
 	if err != nil {
+		if requestWasCanceled(ctx, err) {
+			return requestlog.Page{}, err
+		}
 		return requestlog.Page{}, app_errors.ParseDBError(err)
 	}
 	return page, nil
@@ -184,6 +187,9 @@ func (service *Service) GetRequestLog(ctx context.Context, requestID string) (re
 	}
 	record, err := service.requestLogs.Get(ctx, requestID)
 	if err != nil {
+		if requestWasCanceled(ctx, err) {
+			return requestlog.Record{}, err
+		}
 		return requestlog.Record{}, app_errors.ParseDBError(err)
 	}
 	return record, nil
