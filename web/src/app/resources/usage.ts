@@ -25,17 +25,10 @@ export type UsageRange = TimeRange
 
 export interface UsageFilters {
   range: UsageRange
-  distribution?: UsageDistributionDimension
-  distribution_metric?: UsageDistributionMetric
   group_id?: number
   channel_id?: string
   credential_id?: number
   upstream_model?: string
-}
-
-type NormalizedUsageFilters = UsageFilters & {
-  distribution: UsageDistributionDimension
-  distribution_metric: UsageDistributionMetric
 }
 
 export interface UsageAggregateDto {
@@ -70,11 +63,9 @@ export interface UsageReportDto {
   observed_at_ms: number
   summary: UsageAggregateDto
   series: Array<UsageAggregateDto & { bucket_start_ms: number; bucket_end_ms: number }>
-  distribution: {
-    dimension: UsageDistributionDimension
-    metric: UsageDistributionMetric
-    items: Array<UsageDistributionAggregateDto & { group_id?: number; model?: string }>
-    other: UsageDistributionAggregateDto | null
+  distributions: {
+    group?: Record<UsageDistributionMetric, UsageDistributionDto>
+    model: Record<UsageDistributionMetric, UsageDistributionDto>
   }
   collection_health: {
     scope: 'current_process' | 'access_key'
@@ -82,6 +73,13 @@ export interface UsageReportDto {
     write_failure_total: number
     last_write_failure_at_ms: number | null
   }
+}
+
+export interface UsageDistributionDto {
+  dimension: UsageDistributionDimension
+  metric: UsageDistributionMetric
+  items: Array<UsageDistributionAggregateDto & { group_id?: number; model?: string }>
+  other: UsageDistributionAggregateDto | null
 }
 
 const aggregateKeys = [
@@ -111,7 +109,7 @@ const reportFields = [
   'observed_at_ms',
   'summary',
   'series',
-  'distribution',
+  'distributions',
   'collection_health',
 ] as const
 const hourMs = 60 * 60 * 1000
@@ -255,60 +253,100 @@ export function projectUsageReport(value: unknown): UsageReportDto {
       bucket_end_ms: bucketEndMS,
     }
   })
-  const distributionRecord = projectRecord(record.distribution)
-  assertNoSecretLikeFields(distributionRecord, ['dimension', 'metric', 'items', 'other'])
-  const distributionDimension = projectEnum(distributionRecord.dimension, [
-    'group',
-    'model',
-  ] as const)
-  const distributionMetric = projectEnum(distributionRecord.metric, ['requests', 'cost'] as const)
-  const identities = new Set<string>()
-  const distributionItems = projectArray(distributionRecord.items, (value) => {
-    const item = projectRecord(value)
-    const identityField = distributionDimension === 'group' ? 'group_id' : 'model'
-    assertNoSecretLikeFields(item, [...distributionAggregateFields, identityField])
-    const aggregate = projectUsageDistributionAggregate(
-      Object.fromEntries(distributionAggregateFields.map((field) => [field, item[field]])),
-    )
-    if (distributionDimension === 'group') {
-      const groupID = projectSafeInteger(item.group_id, { minimum: 1 })
-      if (identities.has(String(groupID))) invalidResponse()
-      identities.add(String(groupID))
-      return { ...aggregate, group_id: groupID }
+  const distributionsRecord = projectRecord(record.distributions)
+  assertNoSecretLikeFields(distributionsRecord, ['group', 'model'])
+
+  function projectDistribution(
+    value: unknown,
+    expectedDimension: UsageDistributionDimension,
+    expectedMetric: UsageDistributionMetric,
+  ): UsageDistributionDto {
+    const distributionRecord = projectRecord(value)
+    assertNoSecretLikeFields(distributionRecord, ['dimension', 'metric', 'items', 'other'])
+    const distributionDimension = projectEnum(distributionRecord.dimension, [
+      'group',
+      'model',
+    ] as const)
+    const distributionMetric = projectEnum(distributionRecord.metric, ['requests', 'cost'] as const)
+    if (distributionDimension !== expectedDimension || distributionMetric !== expectedMetric) {
+      invalidResponse()
     }
-    const model = projectString(item.model, { allowEmpty: true })
+    const identities = new Set<string>()
+    const distributionItems = projectArray(distributionRecord.items, (value) => {
+      const item = projectRecord(value)
+      const identityField = distributionDimension === 'group' ? 'group_id' : 'model'
+      assertNoSecretLikeFields(item, [...distributionAggregateFields, identityField])
+      const aggregate = projectUsageDistributionAggregate(
+        Object.fromEntries(distributionAggregateFields.map((field) => [field, item[field]])),
+      )
+      if (distributionDimension === 'group') {
+        const groupID = projectSafeInteger(item.group_id, { minimum: 1 })
+        if (identities.has(String(groupID))) invalidResponse()
+        identities.add(String(groupID))
+        return { ...aggregate, group_id: groupID }
+      }
+      const model = projectString(item.model, { allowEmpty: true })
+      if (
+        new TextEncoder().encode(model).length > 255 ||
+        model !== model.trim() ||
+        /[\p{Cc}]/u.test(model) ||
+        identities.has(model)
+      ) {
+        invalidResponse()
+      }
+      identities.add(model)
+      return { ...aggregate, model }
+    })
+    if (distributionItems.length > 5) invalidResponse()
+    const distributionOther =
+      distributionRecord.other === null
+        ? null
+        : projectUsageDistributionAggregate(distributionRecord.other)
+    const summary = projectUsageAggregate(record.summary)
+    const visibleAndOther = [
+      ...distributionItems,
+      ...(distributionOther === null ? [] : [distributionOther]),
+    ]
+    const distributedRequests = visibleAndOther.reduce(
+      (total, item) => total + item.request_count,
+      0,
+    )
+    const distributedCost = visibleAndOther.reduce(
+      (total, item) => total + BigInt(item.estimated_cost_nano_usd),
+      0n,
+    )
     if (
-      new TextEncoder().encode(model).length > 255 ||
-      model !== model.trim() ||
-      /[\p{Cc}]/u.test(model) ||
-      identities.has(model)
+      distributedRequests !== summary.request_count ||
+      distributedCost !== BigInt(summary.estimated_cost_nano_usd)
     ) {
       invalidResponse()
     }
-    identities.add(model)
-    return { ...aggregate, model }
-  })
-  if (distributionItems.length > 5) invalidResponse()
-  const distributionOther =
-    distributionRecord.other === null
-      ? null
-      : projectUsageDistributionAggregate(distributionRecord.other)
-  const summary = projectUsageAggregate(record.summary)
-  const visibleAndOther = [
-    ...distributionItems,
-    ...(distributionOther === null ? [] : [distributionOther]),
-  ]
-  const distributedRequests = visibleAndOther.reduce((total, item) => total + item.request_count, 0)
-  const distributedCost = visibleAndOther.reduce(
-    (total, item) => total + BigInt(item.estimated_cost_nano_usd),
-    0n,
-  )
-  if (
-    distributedRequests !== summary.request_count ||
-    distributedCost !== BigInt(summary.estimated_cost_nano_usd)
-  ) {
-    invalidResponse()
+    return {
+      dimension: distributionDimension,
+      metric: distributionMetric,
+      items: distributionItems,
+      other: distributionOther,
+    }
   }
+
+  function projectDistributionMetricRecord(
+    value: unknown,
+    dimension: UsageDistributionDimension,
+  ): Record<UsageDistributionMetric, UsageDistributionDto> {
+    const metricRecord = projectRecord(value)
+    assertNoSecretLikeFields(metricRecord, ['requests', 'cost'])
+    return {
+      requests: projectDistribution(metricRecord.requests, dimension, 'requests'),
+      cost: projectDistribution(metricRecord.cost, dimension, 'cost'),
+    }
+  }
+
+  const modelDistributions = projectDistributionMetricRecord(distributionsRecord.model, 'model')
+  const groupDistributions = Object.prototype.hasOwnProperty.call(distributionsRecord, 'group')
+    ? projectDistributionMetricRecord(distributionsRecord.group, 'group')
+    : undefined
+  const summary = projectUsageAggregate(record.summary)
+
   return {
     range,
     granularity,
@@ -318,26 +356,16 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     observed_at_ms: observedAtMS,
     summary,
     series,
-    distribution: {
-      dimension: distributionDimension,
-      metric: distributionMetric,
-      items: distributionItems,
-      other: distributionOther,
+    distributions: {
+      ...(groupDistributions === undefined ? {} : { group: groupDistributions }),
+      model: modelDistributions,
     },
     collection_health: projectCollectionHealth(record.collection_health),
   }
 }
 
-export function normalizeUsageFilters(filters: UsageFilters): NormalizedUsageFilters {
-  const distribution = filters.distribution ?? 'group'
-  const distributionMetric = filters.distribution_metric ?? 'requests'
-  if (distribution !== 'group' && distribution !== 'model') invalidResponse()
-  if (distributionMetric !== 'requests' && distributionMetric !== 'cost') invalidResponse()
-  const result: NormalizedUsageFilters = {
-    range: filters.range,
-    distribution,
-    distribution_metric: distributionMetric,
-  }
+export function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
+  const result: UsageFilters = { range: filters.range }
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
   if (filters.credential_id !== undefined) result.credential_id = filters.credential_id
@@ -356,8 +384,6 @@ export async function getUsageReport(
 ): Promise<UsageReportDto> {
   const normalized = normalizeUsageFilters(filters)
   const params = new URLSearchParams([['range', normalized.range]])
-  params.append('distribution', normalized.distribution)
-  params.append('distribution_metric', normalized.distribution_metric)
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
   if (normalized.channel_id !== undefined) params.append('channel_id', normalized.channel_id)
   if (normalized.credential_id !== undefined) {
@@ -369,12 +395,6 @@ export async function getUsageReport(
   const report = projectUsageReport(
     await client.request(`/api/usage?${params.toString()}`, { method: 'GET', signal }),
   )
-  if (
-    report.distribution.dimension !== normalized.distribution ||
-    report.distribution.metric !== normalized.distribution_metric
-  ) {
-    invalidResponse()
-  }
   return report
 }
 
@@ -387,6 +407,10 @@ export function usageQueryOptions(
     queryKey: computed(() => usageQueryIdentity(toValue(filters))),
     queryFn: ({ signal }) => getUsageReport(client, toValue(filters), signal),
     placeholderData: keepPreviousData,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     ...(intervalMs !== undefined
       ? {
           refetchInterval: intervalMs,

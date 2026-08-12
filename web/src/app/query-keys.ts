@@ -53,8 +53,6 @@ export function normalizeAccessKeyCollectionFilters(
 function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
   const result: UsageFilters = {
     range: filters.range,
-    distribution: filters.distribution ?? 'group',
-    distribution_metric: filters.distribution_metric ?? 'requests',
   }
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id

@@ -87,7 +87,6 @@ export function scopeAccessKeyUsageFilters(filters: UsageFilters): UsageFilters 
   delete scoped.group_id
   delete scoped.channel_id
   delete scoped.credential_id
-  scoped.distribution = 'model'
   return scoped
 }
 
@@ -140,8 +139,6 @@ export function usageMonitorQuery(
   if (channelID !== undefined) normalized.channel_id = channelID
   if (credentialID !== undefined) normalized.credential_id = String(credentialID)
   if (upstreamModel !== undefined) normalized.upstream_model = upstreamModel
-  if (filters.distribution === 'model') normalized.distribution = 'model'
-  if (filters.distribution_metric === 'cost') normalized.distribution_metric = 'cost'
   if (state.filtersOpen) normalized.panel = 'filters'
   if (state.seriesExpanded) normalized.series = 'expanded'
   return normalized

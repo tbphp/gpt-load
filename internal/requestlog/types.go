@@ -173,17 +173,15 @@ const (
 )
 
 type UsageQuery struct {
-	FromMS             int64
-	ToMS               int64
-	Granularity        UsageGranularity
-	BucketWidthMS      int64
-	AccessKeyID        *uint
-	GroupID            *uint
-	ChannelID          channel.ID
-	CredentialID       *uint
-	UpstreamModel      string
-	Distribution       UsageDistributionDimension
-	DistributionMetric UsageDistributionMetric
+	FromMS        int64
+	ToMS          int64
+	Granularity   UsageGranularity
+	BucketWidthMS int64
+	AccessKeyID   *uint
+	GroupID       *uint
+	ChannelID     channel.ID
+	CredentialID  *uint
+	UpstreamModel string
 }
 
 type UsageAggregate struct {
@@ -228,9 +226,31 @@ type UsageDistribution struct {
 }
 
 type UsageReport struct {
-	Summary      UsageAggregate
-	Series       []UsageSeriesPoint
-	Distribution UsageDistribution
+	Summary       UsageAggregate
+	Series        []UsageSeriesPoint
+	Distributions UsageDistributions
+}
+
+type UsageDistributions struct {
+	Group map[UsageDistributionMetric]UsageDistribution
+	Model map[UsageDistributionMetric]UsageDistribution
+}
+
+func (distributions UsageDistributions) Get(
+	dimension UsageDistributionDimension,
+	metric UsageDistributionMetric,
+) (UsageDistribution, bool) {
+	var values map[UsageDistributionMetric]UsageDistribution
+	switch dimension {
+	case UsageDistributionDimensionGroup:
+		values = distributions.Group
+	case UsageDistributionDimensionModel:
+		values = distributions.Model
+	default:
+		return UsageDistribution{}, false
+	}
+	distribution, ok := values[metric]
+	return distribution, ok
 }
 
 type Stats struct {

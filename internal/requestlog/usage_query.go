@@ -27,15 +27,6 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if input.Distribution == "" {
-		input.Distribution = UsageDistributionDimensionGroup
-	}
-	if input.DistributionMetric == "" {
-		input.DistributionMetric = UsageDistributionMetricRequests
-	}
-	if input.AccessKeyID != nil {
-		input.Distribution = UsageDistributionDimensionModel
-	}
 	bucketWidthMS, err := validateUsageQuery(input)
 	if err != nil {
 		return UsageReport{}, err
@@ -58,17 +49,14 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		if err != nil {
 			return err
 		}
-		distribution, err := queryUsageDistribution(
-			usageStatScope(connection, input),
-			summary,
-			input.Distribution,
-			input.DistributionMetric,
+		distributions, err := queryUsageDistributions(
+			usageStatScope(connection, input), summary, input.AccessKeyID != nil,
 		)
 		if err != nil {
 			return err
 		}
 		report = UsageReport{
-			Summary: summary, Series: series, Distribution: distribution,
+			Summary: summary, Series: series, Distributions: distributions,
 		}
 		return nil
 	})
@@ -125,23 +113,42 @@ func validateUsageQuery(input UsageQuery) (int64, error) {
 		(input.ToMS-input.FromMS)%bucketWidthMS != 0 {
 		return 0, fmt.Errorf("query usage: time range is not bucket aligned")
 	}
-	switch input.Distribution {
-	case UsageDistributionDimensionGroup, UsageDistributionDimensionModel:
-	default:
-		return 0, fmt.Errorf(
-			"query usage: unsupported distribution dimension %q",
-			input.Distribution,
-		)
-	}
-	switch input.DistributionMetric {
-	case UsageDistributionMetricRequests, UsageDistributionMetricCost:
-	default:
-		return 0, fmt.Errorf(
-			"query usage: unsupported distribution metric %q",
-			input.DistributionMetric,
-		)
-	}
 	return bucketWidthMS, nil
+}
+
+func queryUsageDistributions(
+	scope *gorm.DB,
+	summary UsageAggregate,
+	accessKeyScoped bool,
+) (UsageDistributions, error) {
+	result := UsageDistributions{
+		Group: make(map[UsageDistributionMetric]UsageDistribution, 2),
+		Model: make(map[UsageDistributionMetric]UsageDistribution, 2),
+	}
+	dimensions := []UsageDistributionDimension{
+		UsageDistributionDimensionGroup,
+		UsageDistributionDimensionModel,
+	}
+	if accessKeyScoped {
+		dimensions = []UsageDistributionDimension{UsageDistributionDimensionModel}
+	}
+	for _, dimension := range dimensions {
+		for _, metric := range []UsageDistributionMetric{
+			UsageDistributionMetricRequests,
+			UsageDistributionMetricCost,
+		} {
+			distribution, err := queryUsageDistribution(scope, summary, dimension, metric)
+			if err != nil {
+				return UsageDistributions{}, err
+			}
+			if dimension == UsageDistributionDimensionGroup {
+				result.Group[metric] = distribution
+			} else {
+				result.Model[metric] = distribution
+			}
+		}
+	}
+	return result, nil
 }
 
 func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
@@ -255,10 +262,12 @@ func queryUsageDistribution(
 	metric UsageDistributionMetric,
 ) (UsageDistribution, error) {
 	var rows []usageDistributionRow
-	query := scope
+	query := scope.Session(&gorm.Session{})
 	switch dimension {
 	case UsageDistributionDimensionGroup:
-		query = query.Select("group_id, '' AS model, " + usageDistributionAggregateSelect).
+		query = query.Select("group_id, '' AS model, "+usageDistributionAggregateSelect).
+			Where("group_id IN (?)", scope.Session(&gorm.Session{NewDB: true}).
+				Model(&models.Group{}).Select("id")).
 			Group("group_id")
 	case UsageDistributionDimensionModel:
 		query = query.Select("0 AS group_id, model, " + usageDistributionAggregateSelect).

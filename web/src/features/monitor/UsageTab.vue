@@ -69,15 +69,33 @@ const filterOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
 
-const groupsQuery = useQuery(groupOptionsQueryOptions(client, () => !isAccessKey.value))
+const groupsQuery = useQuery({
+  ...groupOptionsQueryOptions(client, () => !isAccessKey.value),
+  refetchOnMount: false,
+})
 const channelsQuery = useQuery({
   queryKey: controlQueryKeys.channels.list(''),
   queryFn: ({ signal }) => listChannels(client, '', signal),
   enabled: computed(() => !isAccessKey.value),
-  staleTime: 5 * 60 * 1_000,
+  staleTime: Number.POSITIVE_INFINITY,
+  refetchOnMount: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
 })
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
+const distributionDimension = ref<UsageDistributionDimension>('model')
+const distributionMetric = ref<UsageDistributionMetric>('cost')
+const distribution = computed(() => {
+  const distributions = report.value?.distributions
+  if (distributions === undefined) return undefined
+  if (isAccessKey.value || distributionDimension.value === 'model') {
+    return distributions.model[distributionMetric.value]
+  }
+  return (
+    distributions.group?.[distributionMetric.value] ?? distributions.model[distributionMetric.value]
+  )
+})
 const {
   initial: initialLoading,
   transition: reportTransition,
@@ -89,8 +107,7 @@ const {
     fetching: () => usageQuery.isFetching.value,
     hasData: () => report.value !== undefined,
     itemCount: () =>
-      (report.value?.distribution.items.length ?? 0) +
-      (report.value?.distribution.other === null ? 0 : 1),
+      (distribution.value?.items.length ?? 0) + (distribution.value?.other === null ? 0 : 1),
   },
   { fallbackRows: 5 },
 )
@@ -104,12 +121,12 @@ const usageRefreshing = computed(
 )
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
 const distributionDimensionOptions = computed(() => [
-  { value: 'group', label: t('monitor.usage.distribution.dimensions.group') },
   { value: 'model', label: t('monitor.usage.distribution.dimensions.model') },
+  { value: 'group', label: t('monitor.usage.distribution.dimensions.group') },
 ])
 const distributionMetricOptions = computed(() => [
-  { value: 'requests', label: t('monitor.usage.distribution.metrics.requests') },
   { value: 'cost', label: t('monitor.usage.distribution.metrics.cost') },
+  { value: 'requests', label: t('monitor.usage.distribution.metrics.requests') },
 ])
 const costChartResolution = 1_000_000_000n
 const trendMetricOptions = computed(() => [
@@ -211,8 +228,6 @@ watch(
     () => appliedFilters.value.channel_id,
     () => appliedFilters.value.credential_id,
     () => appliedFilters.value.upstream_model,
-    () => appliedFilters.value.distribution,
-    () => appliedFilters.value.distribution_metric,
   ],
   () => {
     draft.value = createUsageFilterDraft(appliedFilters.value)
@@ -281,39 +296,19 @@ async function applyFilters(): Promise<void> {
 }
 
 async function resetFilters(): Promise<void> {
-  await navigate({
-    range: appliedFilters.value.range,
-    distribution: appliedFilters.value.distribution,
-    distribution_metric: appliedFilters.value.distribution_metric,
-  })
+  await navigate({ range: appliedFilters.value.range })
 }
 
-async function updateDistributionDimension(value: string): Promise<void> {
+function updateDistributionDimension(value: string): void {
   if (value !== 'group' && value !== 'model') return
-  await navigate(
-    { ...appliedFilters.value, distribution: value as UsageDistributionDimension },
-    routeState.value,
-  )
-}
-
-async function updateDistributionMetric(value: string): Promise<void> {
-  if (value !== 'requests' && value !== 'cost') return
-  await navigate(
-    { ...appliedFilters.value, distribution_metric: value as UsageDistributionMetric },
-    routeState.value,
-  )
-}
-
-async function selectDistributionItem(
-  item: NonNullable<typeof report.value>['distribution']['items'][number],
-): Promise<void> {
-  if (report.value?.distribution.dimension === 'group' && item.group_id !== undefined) {
-    await navigate({ ...appliedFilters.value, group_id: item.group_id })
+  if (isAccessKey.value || (value === 'group' && report.value?.distributions.group === undefined))
     return
-  }
-  if (report.value?.distribution.dimension === 'model' && item.model) {
-    await navigate({ ...appliedFilters.value, upstream_model: item.model })
-  }
+  distributionDimension.value = value as UsageDistributionDimension
+}
+
+function updateDistributionMetric(value: string): void {
+  if (value !== 'requests' && value !== 'cost') return
+  distributionMetric.value = value as UsageDistributionMetric
 }
 
 async function updateTrendMetric(value: string): Promise<void> {
@@ -343,7 +338,10 @@ function setSeriesExpanded(event: Event): void {
 }
 
 async function refresh(): Promise<void> {
-  await usageQuery.refetch()
+  await Promise.all([
+    usageQuery.refetch(),
+    ...(!isAccessKey.value ? [groupsQuery.refetch(), channelsQuery.refetch()] : []),
+  ])
 }
 
 defineExpose({ openFilters, refresh })
@@ -538,14 +536,14 @@ defineExpose({ openFilters, refresh })
             <template #actions>
               <SegmentedControl
                 v-if="!isAccessKey"
-                :model-value="report.distribution.dimension"
+                :model-value="distributionDimension"
                 :label="t('monitor.usage.distribution.dimensionLabel')"
                 :options="distributionDimensionOptions"
                 size="compact"
                 @update:model-value="updateDistributionDimension"
               />
               <SegmentedControl
-                :model-value="report.distribution.metric"
+                :model-value="distributionMetric"
                 :label="t('monitor.usage.distribution.metricLabel')"
                 :options="distributionMetricOptions"
                 size="compact"
@@ -555,11 +553,11 @@ defineExpose({ openFilters, refresh })
           </MonitorSectionHeading>
 
           <UsageDistribution
-            :distribution="report.distribution"
+            v-if="distribution"
+            :distribution="distribution"
             :summary="report.summary"
             :groups="groupsQuery.data.value ?? []"
             :channels="channelsQuery.data.value?.items ?? []"
-            @select="selectDistributionItem"
           />
         </section>
 

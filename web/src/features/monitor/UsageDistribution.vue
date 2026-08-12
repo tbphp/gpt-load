@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Boxes, ChevronRight, Layers3 } from '@lucide/vue'
+import { Boxes, Layers3 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -8,29 +8,27 @@ import type { ChannelDto } from '@/app/resources/channels'
 import type {
   UsageAggregateDto,
   UsageDistributionAggregateDto,
-  UsageReportDto,
+  UsageDistributionDto,
 } from '@/app/resources/usage'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import { formatEstimatedCost, formatInteger, formatPercent } from '@/lib/format'
 
-type DistributionItem = UsageReportDto['distribution']['items'][number]
+type DistributionItem = UsageDistributionDto['items'][number]
 type DistributionRow = {
   key: string
   item: UsageDistributionAggregateDto
   identity?: DistributionItem
   rank?: number
-  selectable: boolean
 }
 
 const props = defineProps<{
-  distribution: UsageReportDto['distribution']
+  distribution: UsageDistributionDto
   summary: UsageAggregateDto
   groups: GroupOptionDto[]
   channels: ChannelDto[]
 }>()
 
-const emit = defineEmits<{ select: [item: DistributionItem] }>()
 const { locale, t } = useI18n()
 
 const rows = computed<DistributionRow[]>(() => {
@@ -42,10 +40,9 @@ const rows = computed<DistributionRow[]>(() => {
     item,
     identity: item,
     rank: index + 1,
-    selectable: props.distribution.dimension === 'group' || item.model !== '',
   }))
   if (props.distribution.other !== null) {
-    items.push({ key: 'other', item: props.distribution.other, selectable: false })
+    items.push({ key: 'other', item: props.distribution.other })
   }
   return items
 })
@@ -69,13 +66,18 @@ function identityLabel(row: DistributionRow): string {
 }
 
 function identityMeta(row: DistributionRow): string {
-  if (row.identity === undefined) return t('monitor.usage.distribution.otherHint')
+  if (row.identity === undefined) {
+    return props.distribution.dimension === 'group'
+      ? t('monitor.usage.distribution.otherGroupHint')
+      : t('monitor.usage.distribution.otherHint')
+  }
   if (props.distribution.dimension === 'model') {
     return t('monitor.usage.distribution.modelHint')
   }
   const groupID = row.identity.group_id ?? 0
   const groupChannel = channel(row.identity)
-  return groupChannel ? `${groupChannel.name} · Group #${groupID}` : `Group #${groupID}`
+  const groupLabel = t('monitor.usage.distribution.groupValue', { id: groupID })
+  return groupChannel ? `${groupChannel.name} · ${groupLabel}` : groupLabel
 }
 
 function metricValue(item: UsageDistributionAggregateDto): number | bigint {
@@ -125,22 +127,15 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
       })
     : formatEstimatedCost(item.estimated_cost_nano_usd, locale.value)
 }
-
-function select(row: DistributionRow): void {
-  if (row.selectable && row.identity !== undefined) emit('select', row.identity)
-}
 </script>
 
 <template>
   <ol class="usage-distribution" :aria-label="t('monitor.usage.distribution.caption')">
     <li v-for="row in rows" :key="row.key" class="usage-distribution__item">
-      <component
-        :is="row.selectable ? 'button' : 'div'"
+      <div
         class="usage-distribution__row"
         :class="{ 'usage-distribution__row--other': row.identity === undefined }"
-        :type="row.selectable ? 'button' : undefined"
-        :title="row.selectable ? t('monitor.usage.distribution.filterHint') : identityLabel(row)"
-        @click="select(row)"
+        :title="identityLabel(row)"
       >
         <span class="usage-distribution__rank" aria-hidden="true">
           {{ row.rank === undefined ? '∑' : String(row.rank).padStart(2, '0') }}
@@ -178,13 +173,7 @@ function select(row: DistributionRow): void {
         </span>
 
         <span class="usage-distribution__share">{{ shareLabel(row.item) }}</span>
-        <ChevronRight
-          v-if="row.selectable"
-          class="usage-distribution__arrow"
-          :size="16"
-          aria-hidden="true"
-        />
-      </component>
+      </div>
     </li>
   </ol>
 </template>
@@ -211,7 +200,7 @@ function select(row: DistributionRow): void {
   display: grid;
   min-width: 0;
   min-height: 62px;
-  grid-template-columns: 34px minmax(180px, 0.85fr) minmax(160px, 1.25fr) 116px 64px 22px;
+  grid-template-columns: 34px minmax(180px, 0.85fr) minmax(160px, 1.25fr) 116px 64px;
   align-items: center;
   gap: 14px;
   border: 0;
@@ -220,22 +209,6 @@ function select(row: DistributionRow): void {
   padding: 10px 15px;
   text-align: left;
   font: inherit;
-}
-
-button.usage-distribution__row {
-  cursor: pointer;
-  transition: background-color var(--duration-fast) var(--easing-standard);
-}
-
-button.usage-distribution__row:hover {
-  background: var(--color-surface-sunken);
-}
-
-button.usage-distribution__row:focus-visible {
-  position: relative;
-  z-index: 1;
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
 }
 
 .usage-distribution__item:last-child {
@@ -348,19 +321,9 @@ button.usage-distribution__row:focus-visible {
   font-size: var(--text-sm);
 }
 
-.usage-distribution__arrow {
-  color: var(--color-text-faint);
-  transition: transform var(--duration-fast) var(--easing-standard);
-}
-
-button.usage-distribution__row:hover .usage-distribution__arrow {
-  transform: translateX(2px);
-  color: var(--color-text-muted);
-}
-
 @media (max-width: 820px) {
   .usage-distribution__row {
-    grid-template-columns: 30px minmax(0, 1fr) 104px 58px 18px;
+    grid-template-columns: 30px minmax(0, 1fr) 104px 58px;
     gap: 10px;
     padding-inline: 12px;
   }
@@ -373,7 +336,7 @@ button.usage-distribution__row:hover .usage-distribution__arrow {
 @media (max-width: 560px) {
   .usage-distribution__row {
     min-height: 68px;
-    grid-template-columns: 26px minmax(0, 1fr) 86px 18px;
+    grid-template-columns: 26px minmax(0, 1fr) 86px;
   }
 
   .usage-distribution__share {
@@ -387,8 +350,7 @@ button.usage-distribution__row:hover .usage-distribution__arrow {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .usage-distribution__fill,
-  .usage-distribution__arrow {
+  .usage-distribution__fill {
     transition: none;
   }
 }

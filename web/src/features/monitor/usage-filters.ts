@@ -5,22 +5,16 @@ import { normalizeMonitorText } from './filter-validation'
 
 export interface UsageFilterDraft {
   range: UsageFilters['range']
-  distribution: NonNullable<UsageFilters['distribution']>
-  distribution_metric: NonNullable<UsageFilters['distribution_metric']>
   group_id: string
   channel_id: string
   credential_id: string
   upstream_model: string
 }
 
-export type UsageFilterErrors = Partial<
-  Record<Exclude<keyof UsageFilterDraft, 'range' | 'distribution' | 'distribution_metric'>, string>
->
+export type UsageFilterErrors = Partial<Record<Exclude<keyof UsageFilterDraft, 'range'>, string>>
 
 const emptyDraft = (): UsageFilterDraft => ({
   range: defaultTimeRange,
-  distribution: 'group',
-  distribution_metric: 'requests',
   group_id: '',
   channel_id: '',
   credential_id: '',
@@ -60,8 +54,6 @@ export function parseAppliedUsageFilters(query: Record<string, unknown>): UsageF
   if (channelID !== undefined) filters.channel_id = channelID
   if (credentialID !== undefined) filters.credential_id = credentialID
   if (upstreamModel !== undefined) filters.upstream_model = upstreamModel
-  if (query.distribution === 'model') filters.distribution = 'model'
-  if (query.distribution_metric === 'cost') filters.distribution_metric = 'cost'
   return filters
 }
 
@@ -69,8 +61,6 @@ export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft 
   return {
     ...emptyDraft(),
     range: filters.range,
-    distribution: filters.distribution ?? 'group',
-    distribution_metric: filters.distribution_metric ?? 'requests',
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     channel_id: filters.channel_id ?? '',
     credential_id: filters.credential_id === undefined ? '' : String(filters.credential_id),
@@ -81,8 +71,6 @@ export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft 
 export function applyUsageFilterDraft(draft: UsageFilterDraft): UsageFilters {
   const filters: UsageFilters = {
     range: normalizeUsageRange(draft.range),
-    distribution: draft.distribution,
-    distribution_metric: draft.distribution_metric,
   }
   const groupID = normalizeUsageGroupID(draft.group_id)
   const channelID = normalizeUsageChannelID(draft.channel_id)

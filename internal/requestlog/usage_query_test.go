@@ -36,13 +36,11 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 
 	groupID := uint(7)
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(24 * time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		GroupID:            &groupID,
-		UpstreamModel:      "target",
-		Distribution:       UsageDistributionDimensionGroup,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:        start.UnixMilli(),
+		ToMS:          start.Add(24 * time.Hour).UnixMilli(),
+		Granularity:   UsageGranularityHour,
+		GroupID:       &groupID,
+		UpstreamModel: "target",
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
@@ -70,9 +68,10 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 			)
 		}
 	}
-	if len(report.Distribution.Items) != 1 || report.Distribution.Items[0].GroupID != 7 ||
-		report.Distribution.Items[0].RequestCount != 292 || report.Distribution.Other != nil {
-		t.Fatalf("filtered distribution = %#v", report.Distribution)
+	distribution := usageDistribution(t, report, UsageDistributionDimensionGroup, UsageDistributionMetricRequests)
+	if len(distribution.Items) != 1 || distribution.Items[0].GroupID != 7 ||
+		distribution.Items[0].RequestCount != 292 || distribution.Other != nil {
+		t.Fatalf("filtered distribution = %#v", distribution)
 	}
 }
 
@@ -93,11 +92,9 @@ func TestQueryUsageExcludesLegacyZeroAttemptAggregates(t *testing.T) {
 	createUsageStats(t, db, attributed, legacyZeroAttempt)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		Distribution:       UsageDistributionDimensionGroup,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
@@ -110,9 +107,10 @@ func TestQueryUsageExcludesLegacyZeroAttemptAggregates(t *testing.T) {
 		report.Series[0].FailureCount != 0 {
 		t.Fatalf("series = %#v, want only attributed requests", report.Series)
 	}
-	if len(report.Distribution.Items) != 1 || report.Distribution.Items[0].GroupID != 7 ||
-		report.Distribution.Items[0].RequestCount != 3 || report.Distribution.Other != nil {
-		t.Fatalf("distribution = %#v", report.Distribution)
+	distribution := usageDistribution(t, report, UsageDistributionDimensionGroup, UsageDistributionMetricRequests)
+	if len(distribution.Items) != 1 || distribution.Items[0].GroupID != 7 ||
+		distribution.Items[0].RequestCount != 3 || distribution.Other != nil {
+		t.Fatalf("distribution = %#v", distribution)
 	}
 }
 
@@ -133,28 +131,27 @@ func TestQueryUsageScopesAccessKeyAndDistributesByModel(t *testing.T) {
 
 	accessKeyID := uint(41)
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		AccessKeyID:        &accessKeyID,
-		Distribution:       UsageDistributionDimensionModel,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
+		AccessKeyID: &accessKeyID,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if report.Summary.RequestCount != 6 || len(report.Distribution.Items) != 2 {
+	distribution := usageDistribution(t, report, UsageDistributionDimensionModel, UsageDistributionMetricRequests)
+	if report.Summary.RequestCount != 6 || len(distribution.Items) != 2 {
 		t.Fatalf("scoped report = %#v", report)
 	}
-	if report.Distribution.Items[0].GroupID != 0 ||
-		report.Distribution.Items[0].Model != "shared-model" ||
-		report.Distribution.Items[0].RequestCount != 5 {
-		t.Fatalf("model distribution[0] = %#v", report.Distribution.Items[0])
+	if distribution.Items[0].GroupID != 0 ||
+		distribution.Items[0].Model != "shared-model" ||
+		distribution.Items[0].RequestCount != 5 {
+		t.Fatalf("model distribution[0] = %#v", distribution.Items[0])
 	}
-	if report.Distribution.Items[1].GroupID != 0 ||
-		report.Distribution.Items[1].Model != "other-model" ||
-		report.Distribution.Items[1].RequestCount != 1 {
-		t.Fatalf("model distribution[1] = %#v", report.Distribution.Items[1])
+	if distribution.Items[1].GroupID != 0 ||
+		distribution.Items[1].Model != "other-model" ||
+		distribution.Items[1].RequestCount != 1 {
+		t.Fatalf("model distribution[1] = %#v", distribution.Items[1])
 	}
 }
 
@@ -165,12 +162,10 @@ func TestQueryUsageRejectsZeroAccessKeyScope(t *testing.T) {
 	zero := uint(0)
 
 	_, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		AccessKeyID:        &zero,
-		Distribution:       UsageDistributionDimensionModel,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
+		AccessKeyID: &zero,
 	})
 	if err == nil {
 		t.Fatal("QueryUsage() error = nil, want zero AccessKey scope rejection")
@@ -196,24 +191,77 @@ func TestQueryUsageDistributionAggregatesCredentialsAndFoldsRemainder(t *testing
 	createUsageStats(t, db, rows...)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		Distribution:       UsageDistributionDimensionGroup,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if len(report.Distribution.Items) != 5 || report.Distribution.Items[0].GroupID != 1 ||
-		report.Distribution.Items[0].RequestCount != 27 {
-		t.Fatalf("group distribution = %#v, want credentials aggregated into top five", report.Distribution)
+	distribution := usageDistribution(t, report, UsageDistributionDimensionGroup, UsageDistributionMetricRequests)
+	if len(distribution.Items) != 5 || distribution.Items[0].GroupID != 1 ||
+		distribution.Items[0].RequestCount != 27 {
+		t.Fatalf("group distribution = %#v, want credentials aggregated into top five", distribution)
 	}
-	if report.Distribution.Other == nil || report.Distribution.Other.RequestCount != 7 {
-		t.Fatalf("other distribution = %#v, want remaining two groups aggregated", report.Distribution.Other)
+	if distribution.Other == nil || distribution.Other.RequestCount != 7 {
+		t.Fatalf("other distribution = %#v, want remaining two groups aggregated", distribution.Other)
 	}
 	if report.Summary.RequestCount != 60 {
 		t.Fatalf("summary request count = %d, want 60", report.Summary.RequestCount)
+	}
+}
+
+func TestQueryUsageGroupDistributionKeepsOnlyPersistedGroupsInTopFive(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.July, 2, 0, 30, 0, 0, time.UTC).Truncate(time.Hour)
+
+	for _, groupID := range []uint{1, 2} {
+		if err := db.Create(&models.Group{
+			ID:        groupID,
+			Name:      fmt.Sprintf("known-group-%d", groupID),
+			ChannelID: "openai",
+			Params:    models.JSON(`{}`),
+			Models:    models.JSON(`[]`),
+			Enabled:   true,
+		}).Error; err != nil {
+			t.Fatalf("create known group %d: %v", groupID, err)
+		}
+	}
+
+	knownFirst := usageStat(start, 1, "known-first", 30)
+	knownFirst.EstimatedCostNanoUSD = 3_000_000_000
+	knownSecond := usageStat(start, 2, "known-second", 20)
+	knownSecond.EstimatedCostNanoUSD = 2_000_000_000
+	deleted := usageStat(start, 90, "deleted", 1_000)
+	deleted.EstimatedCostNanoUSD = 100_000_000_000
+	unknown := usageStat(start, 91, "unknown", 900)
+	unknown.EstimatedCostNanoUSD = 90_000_000_000
+	createUsageStatsWithoutGroups(t, db, knownFirst, knownSecond, deleted, unknown)
+
+	for _, metric := range []UsageDistributionMetric{
+		UsageDistributionMetricRequests,
+		UsageDistributionMetricCost,
+	} {
+		report, err := service.QueryUsage(context.Background(), UsageQuery{
+			FromMS:      start.UnixMilli(),
+			ToMS:        start.Add(time.Hour).UnixMilli(),
+			Granularity: UsageGranularityHour,
+		})
+		if err != nil {
+			t.Fatalf("QueryUsage(%s) error = %v", metric, err)
+		}
+		distribution := usageDistribution(t, report, UsageDistributionDimensionGroup, metric)
+		if len(distribution.Items) != 2 ||
+			distribution.Items[0].GroupID != 1 ||
+			distribution.Items[1].GroupID != 2 {
+			t.Fatalf("%s distribution items = %#v, want only persisted groups", metric, distribution.Items)
+		}
+		if distribution.Other == nil ||
+			distribution.Other.RequestCount != 1_900 ||
+			distribution.Other.EstimatedCostNanoUSD != 190_000_000_000 {
+			t.Fatalf("%s distribution other = %#v, want deleted and unknown totals", metric, distribution.Other)
+		}
 	}
 }
 
@@ -233,33 +281,17 @@ func TestQueryUsageModelDistributionAggregatesGroupsAndCredentials(t *testing.T)
 	createUsageStats(t, db, rows...)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		Distribution:       UsageDistributionDimensionModel,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if len(report.Distribution.Items) != 2 || report.Distribution.Items[0].Model != "shared-model" ||
-		report.Distribution.Items[0].RequestCount != 12 || report.Distribution.Other != nil {
-		t.Fatalf("model distribution = %#v", report.Distribution)
-	}
-}
-
-func TestQueryUsageRejectsInvalidDistributionDimension(t *testing.T) {
-	db := openRequestLogQueryDB(t)
-	start := time.Date(2026, time.July, 2, 0, 0, 0, 0, time.UTC)
-	_, err := newRequestLogTestService(db).QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		Distribution:       UsageDistributionDimension("credential"),
-		DistributionMetric: UsageDistributionMetricRequests,
-	})
-	if err == nil {
-		t.Fatal("QueryUsage() error = nil, want invalid distribution dimension rejection")
+	distribution := usageDistribution(t, report, UsageDistributionDimensionModel, UsageDistributionMetricRequests)
+	if len(distribution.Items) != 2 || distribution.Items[0].Model != "shared-model" ||
+		distribution.Items[0].RequestCount != 12 || distribution.Other != nil {
+		t.Fatalf("model distribution = %#v", distribution)
 	}
 }
 
@@ -408,50 +440,33 @@ func TestQueryUsageOrdersDistributionByRequestsAndCost(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			report, err := service.QueryUsage(context.Background(), UsageQuery{
-				FromMS:             start.UnixMilli(),
-				ToMS:               start.Add(time.Hour).UnixMilli(),
-				Granularity:        UsageGranularityHour,
-				Distribution:       UsageDistributionDimensionGroup,
-				DistributionMetric: test.metric,
+				FromMS:      start.UnixMilli(),
+				ToMS:        start.Add(time.Hour).UnixMilli(),
+				Granularity: UsageGranularityHour,
 			})
 			if err != nil {
 				t.Fatalf("QueryUsage() error = %v", err)
 			}
-			if report.Distribution.Dimension != UsageDistributionDimensionGroup ||
-				report.Distribution.Metric != test.metric {
-				t.Fatalf("distribution metadata = %#v", report.Distribution)
+			distribution := usageDistribution(t, report, UsageDistributionDimensionGroup, test.metric)
+			if distribution.Dimension != UsageDistributionDimensionGroup ||
+				distribution.Metric != test.metric {
+				t.Fatalf("distribution metadata = %#v", distribution)
 			}
-			if len(report.Distribution.Items) != len(test.want) {
-				t.Fatalf("distribution = %#v, want %d rows", report.Distribution, len(test.want))
+			if len(distribution.Items) != len(test.want) {
+				t.Fatalf("distribution = %#v, want %d rows", distribution, len(test.want))
 			}
 			for index, wantGroupID := range test.want {
-				if report.Distribution.Items[index].GroupID != wantGroupID {
+				if distribution.Items[index].GroupID != wantGroupID {
 					t.Fatalf(
 						"distribution[%d].GroupID = %d, want %d; report=%#v",
 						index,
-						report.Distribution.Items[index].GroupID,
+						distribution.Items[index].GroupID,
 						wantGroupID,
-						report.Distribution,
+						distribution,
 					)
 				}
 			}
 		})
-	}
-}
-
-func TestQueryUsageRejectsInvalidDistributionMetric(t *testing.T) {
-	db := openRequestLogQueryDB(t)
-	service := newRequestLogTestService(db)
-	start := time.Date(2026, time.July, 2, 3, 0, 0, 0, time.UTC)
-	_, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		Distribution:       UsageDistributionDimensionGroup,
-		DistributionMetric: UsageDistributionMetric("tokens"),
-	})
-	if err == nil {
-		t.Fatal("QueryUsage() error = nil, want invalid distribution metric rejection")
 	}
 }
 
@@ -496,8 +511,9 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
+	distribution := usageDistribution(t, report, UsageDistributionDimensionGroup, UsageDistributionMetricRequests)
 	if !inserted || report.Summary.RequestCount != 1 || len(report.Series) != 1 ||
-		len(report.Distribution.Items) != 1 || report.Distribution.Items[0].GroupID != 1 {
+		len(distribution.Items) != 1 || distribution.Items[0].GroupID != 1 {
 		t.Fatalf("report did not retain one snapshot: inserted=%t report=%#v", inserted, report)
 	}
 }
@@ -569,14 +585,24 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopDistribution(t *testing.T) {
 	corrupt.FailureCount = 0
 	corrupt.UncachedInputTokens = -1
 	rows = append(rows, compensating, corrupt)
+	for groupID := uint(1); groupID <= 102; groupID++ {
+		if err := db.Create(&models.Group{
+			ID:        groupID,
+			Name:      fmt.Sprintf("integrity-group-%d", groupID),
+			ChannelID: "openai",
+			Params:    models.JSON(`{}`),
+			Models:    models.JSON(`[]`),
+			Enabled:   true,
+		}).Error; err != nil {
+			t.Fatalf("create integrity group %d: %v", groupID, err)
+		}
+	}
 	createCorruptUsageStats(t, db, rows...)
 
 	input := UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		Distribution:       UsageDistributionDimensionGroup,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
 	}
 	summary, err := queryUsageSummary(usageStatScope(db, input))
 	if err != nil || summary.RequestCount != 303 {
@@ -588,8 +614,8 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopDistribution(t *testing.T) {
 	if distribution, err := queryUsageDistribution(
 		usageStatScope(db, input),
 		summary,
-		input.Distribution,
-		input.DistributionMetric,
+		UsageDistributionDimensionGroup,
+		UsageDistributionMetricRequests,
 	); err != nil || len(distribution.Items) != 5 || distribution.Items[4].GroupID != 5 {
 		t.Fatalf("pre-integrity distribution = %#v/%v, want valid top five", distribution, err)
 	}
@@ -598,6 +624,20 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopDistribution(t *testing.T) {
 	if err == nil {
 		t.Fatal("QueryUsage() error = nil, want corrupt row outside top distribution rejection")
 	}
+}
+
+func usageDistribution(
+	t *testing.T,
+	report UsageReport,
+	dimension UsageDistributionDimension,
+	metric UsageDistributionMetric,
+) UsageDistribution {
+	t.Helper()
+	distribution, ok := report.Distributions.Get(dimension, metric)
+	if !ok {
+		t.Fatalf("distribution %s/%s unavailable: %#v", dimension, metric, report.Distributions)
+	}
+	return distribution
 }
 
 func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
@@ -717,6 +757,37 @@ func usageStat(hour time.Time, groupID uint, model string, requestCount int64) m
 }
 
 func createUsageStats(t *testing.T, db *gorm.DB, rows ...models.UsageStat) {
+	t.Helper()
+	groupIDs := make(map[uint]struct{})
+	for _, row := range rows {
+		if row.GroupID == 0 {
+			continue
+		}
+		groupIDs[row.GroupID] = struct{}{}
+	}
+	for groupID := range groupIDs {
+		var count int64
+		if err := db.Model(&models.Group{}).Where("id = ?", groupID).Count(&count).Error; err != nil {
+			t.Fatalf("count group %d: %v", groupID, err)
+		}
+		if count > 0 {
+			continue
+		}
+		if err := db.Create(&models.Group{
+			ID:        groupID,
+			Name:      fmt.Sprintf("usage-group-%d", groupID),
+			ChannelID: "openai",
+			Params:    models.JSON(`{}`),
+			Models:    models.JSON(`[]`),
+			Enabled:   true,
+		}).Error; err != nil {
+			t.Fatalf("create usage group %d: %v", groupID, err)
+		}
+	}
+	createUsageStatsWithoutGroups(t, db, rows...)
+}
+
+func createUsageStatsWithoutGroups(t *testing.T, db *gorm.DB, rows ...models.UsageStat) {
 	t.Helper()
 	for _, row := range rows {
 		if err := db.Create(&row).Error; err != nil {

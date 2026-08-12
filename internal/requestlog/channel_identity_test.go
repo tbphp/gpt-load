@@ -187,20 +187,19 @@ func TestQueryUsageFiltersAndProjectsChannelCredential(t *testing.T) {
 
 	credentialID := uint(11)
 	report, err := newRequestLogTestService(db).QueryUsage(t.Context(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		ChannelID:          channel.OpenAI,
-		CredentialID:       &credentialID,
-		Distribution:       UsageDistributionDimensionGroup,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:       start.UnixMilli(),
+		ToMS:         start.Add(time.Hour).UnixMilli(),
+		Granularity:  UsageGranularityHour,
+		ChannelID:    channel.OpenAI,
+		CredentialID: &credentialID,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if report.Summary.RequestCount != 2 || len(report.Distribution.Items) != 1 ||
-		report.Distribution.Items[0].GroupID != 7 ||
-		report.Distribution.Items[0].RequestCount != 2 {
+	distribution := usageDistribution(t, report, UsageDistributionDimensionGroup, UsageDistributionMetricRequests)
+	if report.Summary.RequestCount != 2 || len(distribution.Items) != 1 ||
+		distribution.Items[0].GroupID != 7 ||
+		distribution.Items[0].RequestCount != 2 {
 		t.Fatalf("scoped usage report = %#v", report)
 	}
 }
@@ -223,27 +222,26 @@ func TestAccessScopedUsageDistributionCollapsesHiddenRoutesByModel(t *testing.T)
 
 	accessKeyID := uint(41)
 	report, err := newRequestLogTestService(db).QueryUsage(t.Context(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		AccessKeyID:        &accessKeyID,
-		Distribution:       UsageDistributionDimensionModel,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
+		AccessKeyID: &accessKeyID,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if len(report.Distribution.Items) != 1 {
+	modelDistribution := usageDistribution(t, report, UsageDistributionDimensionModel, UsageDistributionMetricRequests)
+	if len(modelDistribution.Items) != 1 {
 		t.Fatalf("access-scoped distribution = %#v", report)
 	}
-	distribution := report.Distribution.Items[0]
+	distribution := modelDistribution.Items[0]
 	if distribution.GroupID != 0 || distribution.Model != "shared-model" ||
 		distribution.RequestCount != 10 {
 		t.Fatalf("access-scoped distribution exposes or fragments routes: %#v", distribution)
 	}
 }
 
-func TestAccessScopedUsageForcesModelDistribution(t *testing.T) {
+func TestAccessScopedUsageReturnsOnlyModelDistributions(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	start := time.Date(2026, time.August, 9, 2, 45, 0, 0, time.UTC).Truncate(time.Hour)
 	first := usageStat(start, 7, "shared-model", 2)
@@ -254,21 +252,21 @@ func TestAccessScopedUsageForcesModelDistribution(t *testing.T) {
 
 	accessKeyID := uint(41)
 	report, err := newRequestLogTestService(db).QueryUsage(t.Context(), UsageQuery{
-		FromMS:             start.UnixMilli(),
-		ToMS:               start.Add(time.Hour).UnixMilli(),
-		Granularity:        UsageGranularityHour,
-		AccessKeyID:        &accessKeyID,
-		Distribution:       UsageDistributionDimensionGroup,
-		DistributionMetric: UsageDistributionMetricRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
+		AccessKeyID: &accessKeyID,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if report.Distribution.Dimension != UsageDistributionDimensionModel ||
-		len(report.Distribution.Items) != 1 ||
-		report.Distribution.Items[0].Model != "shared-model" ||
-		report.Distribution.Items[0].RequestCount != 5 {
-		t.Fatalf("access-scoped distribution = %#v", report.Distribution)
+	distribution := usageDistribution(t, report, UsageDistributionDimensionModel, UsageDistributionMetricRequests)
+	if len(report.Distributions.Group) != 0 ||
+		distribution.Dimension != UsageDistributionDimensionModel ||
+		len(distribution.Items) != 1 ||
+		distribution.Items[0].Model != "shared-model" ||
+		distribution.Items[0].RequestCount != 5 {
+		t.Fatalf("access-scoped distributions = %#v", report.Distributions)
 	}
 }
 

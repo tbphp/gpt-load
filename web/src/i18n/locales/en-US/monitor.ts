@@ -340,10 +340,11 @@ export default {
         metrics: { requests: 'Requests', cost: 'Estimated cost' },
         other: 'Other',
         otherHint: 'Combined remainder outside the Top 5',
+        otherGroupHint: 'Combined remainder, including deleted or unknown Groups',
+        groupValue: 'Group #{id}',
         modelHint: 'Upstream model',
         unknownModel: 'Unknown model',
         requestsValue: '{value} requests',
-        filterHint: 'Click to apply this item as a filter',
       },
       columns: {
         window: 'UTC window',
