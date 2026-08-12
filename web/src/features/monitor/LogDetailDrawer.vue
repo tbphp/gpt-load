@@ -60,24 +60,8 @@ const finalAttempt = computed(() => {
     ) ?? attempts[0]
   )
 })
-const mainErrorMessage = computed(() => {
-  const value = log.value
-  if (!value) return ''
-  if (value.error_summary.trim() !== '') return value.error_summary
-  return (
-    [...value.attempts].reverse().find((attempt) => attempt.error_summary.trim() !== '')
-      ?.error_summary ?? ''
-  )
-})
-const mainErrorCode = computed(() => {
-  const value = log.value
-  if (!value) return ''
-  if (value.error_code.trim() !== '') return value.error_code
-  return (
-    [...value.attempts].reverse().find((attempt) => attempt.error_code.trim() !== '')?.error_code ??
-    ''
-  )
-})
+const mainErrorMessage = computed(() => log.value?.error_summary ?? '')
+const mainErrorCode = computed(() => log.value?.error_code ?? '')
 const drawerDescription = computed(() =>
   t(
     props.selfScoped
