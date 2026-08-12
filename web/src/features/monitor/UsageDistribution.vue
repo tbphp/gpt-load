@@ -10,6 +10,7 @@ import type {
   UsageAggregateDto,
   UsageDistributionAggregateDto,
   UsageDistributionDto,
+  UsageDistributionMetric,
 } from '@/app/resources/usage'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
@@ -150,13 +151,30 @@ function primaryValue(item: UsageDistributionAggregateDto): string {
   return formatInteger(item.request_count, locale.value)
 }
 
-function secondaryValue(item: UsageDistributionAggregateDto): string {
-  if (props.distribution.metric === 'requests') {
-    return formatEstimatedCost(item.estimated_cost_nano_usd, locale.value)
+const distributionMetrics: UsageDistributionMetric[] = ['requests', 'tokens', 'cost']
+
+function secondaryMetricValue(
+  metric: UsageDistributionMetric,
+  item: UsageDistributionAggregateDto,
+): string {
+  if (metric === 'requests') {
+    return t('monitor.usage.distribution.requestsValue', {
+      value: formatInteger(item.request_count, locale.value),
+    })
   }
-  return t('monitor.usage.distribution.requestsValue', {
-    value: formatInteger(item.request_count, locale.value),
-  })
+  if (metric === 'tokens') {
+    return t('monitor.usage.distribution.tokensValue', {
+      value: formatTokens(item.total_tokens, locale.value),
+    })
+  }
+  return formatEstimatedCost(item.estimated_cost_nano_usd, locale.value)
+}
+
+function secondaryValue(item: UsageDistributionAggregateDto): string {
+  return distributionMetrics
+    .filter((metric) => metric !== props.distribution.metric)
+    .map((metric) => secondaryMetricValue(metric, item))
+    .join(' · ')
 }
 </script>
 
@@ -201,7 +219,7 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
 
         <span class="usage-distribution__values">
           <strong>{{ primaryValue(row.item) }}</strong>
-          <small>{{ secondaryValue(row.item) }}</small>
+          <small :title="secondaryValue(row.item)">{{ secondaryValue(row.item) }}</small>
         </span>
 
         <span class="usage-distribution__share">{{ shareLabel(row.item) }}</span>
@@ -232,7 +250,7 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
   display: grid;
   min-width: 0;
   min-height: 62px;
-  grid-template-columns: 34px minmax(180px, 0.85fr) minmax(160px, 1.25fr) 116px 64px;
+  grid-template-columns: 34px minmax(180px, 0.85fr) minmax(160px, 1.25fr) 176px 64px;
   align-items: center;
   gap: 14px;
   border: 0;
@@ -355,7 +373,7 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
 
 @media (max-width: 820px) {
   .usage-distribution__row {
-    grid-template-columns: 30px minmax(0, 1fr) 104px 58px;
+    grid-template-columns: 30px minmax(0, 1fr) 154px 58px;
     gap: 10px;
     padding-inline: 12px;
   }
@@ -368,7 +386,7 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
 @media (max-width: 560px) {
   .usage-distribution__row {
     min-height: 68px;
-    grid-template-columns: 26px minmax(0, 1fr) 86px;
+    grid-template-columns: 26px minmax(0, 1fr) 132px;
   }
 
   .usage-distribution__share {

@@ -347,6 +347,7 @@ export default {
         modelHint: 'アップストリームモデル',
         unknownModel: '不明なモデル',
         requestsValue: '{value} リクエスト',
+        tokensValue: '{value} Token',
       },
       columns: {
         window: 'UTC 時間枠',

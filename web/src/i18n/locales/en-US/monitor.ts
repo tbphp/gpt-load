@@ -347,6 +347,7 @@ export default {
         modelHint: 'Upstream model',
         unknownModel: 'Unknown model',
         requestsValue: '{value} requests',
+        tokensValue: '{value} tokens',
       },
       columns: {
         window: 'UTC window',

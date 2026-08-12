@@ -332,6 +332,7 @@ export default {
         modelHint: '上游模型',
         unknownModel: '未知模型',
         requestsValue: '{value} 次请求',
+        tokensValue: '{value} Token',
       },
       columns: {
         window: 'UTC 时间窗',
