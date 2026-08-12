@@ -26,10 +26,11 @@ const (
 )
 
 var databaseLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
-	SlowThreshold:        200 * time.Millisecond,
-	LogLevel:             logger.Warn,
-	ParameterizedQueries: true,
-	Colorful:             true,
+	SlowThreshold:             200 * time.Millisecond,
+	LogLevel:                  logger.Warn,
+	IgnoreRecordNotFoundError: true,
+	ParameterizedQueries:      true,
+	Colorful:                  true,
 })
 
 // Open opens a database using a fully resolved DSN.
