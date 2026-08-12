@@ -89,14 +89,15 @@ export default {
       storageNotice:
         'Plaintext is never put in URLs, logs, or notifications; a login interruption keeps it in this session for at most 15 minutes',
       analysisLabel: 'Key preflight',
+      noInput: 'No credentials yet',
       counters: {
         nonEmpty: 'Non-empty lines',
         empty: 'Empty lines',
         duplicates: 'Duplicates',
-        accessKeys: 'Possible AccessKeys',
       },
       accessKeyWarning: '{count} lines look like GPT-Load AccessKeys; verify before continuing',
       tooMany: 'At most 1,000 non-empty keys can be submitted',
+      required: 'Enter at least one credential first',
       channelCredentialNotice:
         'These are channel API keys; create client credentials on the Access Keys page',
       result: 'Added {added} credentials and skipped {duplicated} duplicates',

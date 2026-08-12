@@ -230,6 +230,16 @@ const submissionErrorMessage = computed(
         ? t(errorKey.value)
         : ''),
 )
+// Surfaces the two canCreate gates with no other visible feedback (channel/
+// connection setup, empty credentials). Model and credential-format errors
+// already render their own message via submissionErrorMessage, so they are
+// deliberately left out here to avoid saying the same thing twice.
+const submitBlockedReason = computed(() => {
+  if (payloadLocked.value || mutationPending.value) return ''
+  if (paramsError.value) return paramsError.value
+  if (credentialAnalysis.value.nonEmptyCount === 0) return t('import.credentials.required')
+  return ''
+})
 const canDiscover = computed(
   () =>
     !payloadLocked.value &&
@@ -896,6 +906,9 @@ onBeforeUnmount(() => {
     <footer class="new-group-import__actions">
       <div aria-live="polite">
         <strong>{{ summary }}</strong>
+        <span v-if="submitBlockedReason" class="new-group-import__block-reason">
+          {{ submitBlockedReason }}
+        </span>
       </div>
       <AppButton size="sm" :busy="mutationPending" :disabled="!canCreate" @click="submitCreate">
         {{ t('import.create') }}<ArrowRight :size="16" aria-hidden="true" />
@@ -1034,16 +1047,13 @@ onBeforeUnmount(() => {
 }
 
 .new-group-import__actions > div {
-  display: flex;
   min-width: 0;
   min-height: var(--control-sm);
-  align-items: center;
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
 
-.new-group-import__actions strong,
-.new-group-import__actions span {
+.new-group-import__actions strong {
   display: block;
 }
 
@@ -1051,6 +1061,27 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
+}
+
+.new-group-import__block-reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--color-warning);
+}
+
+.new-group-import__block-reason::before {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 9.5px;
+  font-weight: 700;
+  content: '!';
 }
 
 @media (max-width: 860px) {

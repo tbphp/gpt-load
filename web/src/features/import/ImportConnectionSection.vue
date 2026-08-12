@@ -88,6 +88,9 @@ function baseURLDescription(): string {
         <FormField
           v-if="!isOptionalBaseURL(param.key, param.required) || baseUrlOverrideEnabled"
           :id="`import-channel-param-${param.key}`"
+          :class="{
+            'import-connection__field--full': isOptionalBaseURL(param.key, param.required),
+          }"
           :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
           :description="param.key === 'base_url' ? baseURLDescription() : undefined"
           :error="fieldError(param.key)"
@@ -139,6 +142,10 @@ function baseURLDescription(): string {
   align-items: start;
   gap: 18px;
   margin-top: var(--space-3);
+}
+
+.import-connection__field--full {
+  grid-column: 1 / -1;
 }
 
 .import-connection__url {

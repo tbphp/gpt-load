@@ -70,18 +70,19 @@ const error = computed(() => {
   if (analysis.value.tooManyCredentials) return t('import.credentials.tooMany')
   return ''
 })
-const counters = computed(() => [
-  { value: analysis.value.nonEmptyCount, label: t('import.credentials.counters.nonEmpty') },
-  { value: analysis.value.emptyLineCount, label: t('import.credentials.counters.empty') },
-  {
-    value: analysis.value.duplicateCount,
-    label: props.duplicateLabel ?? t('import.credentials.counters.duplicates'),
-  },
-  {
-    value: analysis.value.likelyAccessKeyCount,
-    label: t('import.credentials.counters.accessKeys'),
-  },
-])
+// Only the metrics worth a second look become pills; a likely-AccessKey count
+// already gets its own warning banner below, so it is not repeated here.
+const counters = computed(() =>
+  [
+    { value: analysis.value.nonEmptyCount, label: t('import.credentials.counters.nonEmpty') },
+    { value: analysis.value.emptyLineCount, label: t('import.credentials.counters.empty') },
+    {
+      value: analysis.value.duplicateCount,
+      label: props.duplicateLabel ?? t('import.credentials.counters.duplicates'),
+    },
+  ].filter(({ value }) => value > 0),
+)
+const hasInput = computed(() => props.modelValue.trim().length > 0)
 </script>
 
 <template>
@@ -131,10 +132,13 @@ const counters = computed(() => [
       :aria-label="t('import.credentials.analysisLabel')"
       aria-live="polite"
     >
-      <div v-for="counter in counters" :key="counter.label">
+      <span v-if="!hasInput" class="credential-entry__counters-empty">
+        {{ t('import.credentials.noInput') }}
+      </span>
+      <span v-for="counter in counters" :key="counter.label" class="credential-entry__pill">
         <strong>{{ counter.value }}</strong>
-        <span>{{ counter.label }}</span>
-      </div>
+        {{ counter.label }}
+      </span>
     </div>
 
     <InlineFeedback
@@ -197,65 +201,45 @@ const counters = computed(() => [
 }
 
 .credential-entry__counters {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  overflow: hidden;
-  margin-top: 18px;
-  border-block: 1px solid var(--color-border-subtle);
-  border-radius: 0;
-  gap: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 27px;
+  margin-top: 14px;
 }
 
-.credential-entry__counters > div {
-  min-height: 56px;
-  background: transparent;
-  padding: 9px 10px;
-  line-height: 1.55;
+.credential-entry__counters-empty {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
 }
 
-.credential-entry__counters > div + div {
-  border-left: 1px solid var(--color-border-subtle);
+.credential-entry__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 4px 10px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
-.credential-entry__counters strong,
-.credential-entry__counters span {
-  display: block;
-}
-
-.credential-entry__counters strong {
+.credential-entry__pill strong {
   font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-meta);
+  font-weight: 640;
 }
 
 .credential-entry__warning {
-  margin-top: 18px;
-  font-size: 11px;
+  margin-top: 14px;
 }
 
 .credential-entry__format {
   margin-top: 12px;
-  font-size: 10.8px;
 }
 
 .credential-entry__note {
   margin-top: 18px;
-  font-size: 10.8px;
-}
-
-.credential-entry__counters span {
-  color: var(--color-text-faint);
-  font-size: 9.5px;
-}
-
-@media (max-width: 520px) {
-  .credential-entry__counters {
-    grid-template-columns: 1fr;
-  }
-
-  .credential-entry__counters > div + div {
-    border-left: 0;
-    border-top: 1px solid var(--color-border-subtle);
-  }
 }
 </style>

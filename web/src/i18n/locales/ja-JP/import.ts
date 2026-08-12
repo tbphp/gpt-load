@@ -88,14 +88,15 @@ export default {
       storageNotice:
         '平文は URL、ログ、通知に入りません — ログイン中断時は現在のセッションに最大 15 分だけ保持されます',
       analysisLabel: 'キーの事前確認',
+      noInput: 'まだ認証情報が入力されていません',
       counters: {
         nonEmpty: '空でない行',
         empty: '空行',
         duplicates: '重複',
-        accessKeys: 'AccessKey の可能性',
       },
       accessKeyWarning: '{count} 行が GPT-Load AccessKey のようです — 続行前に確認してください',
       tooMany: '空でないキーは最大 1,000 件です',
+      required: '先に認証情報を 1 件以上入力してください',
       channelCredentialNotice:
         'ここにはチャネルの API キーを入力します — クライアント認証情報はアクセスキーページで作成してください',
       result: '認証情報を {added} 件追加し、重複 {duplicated} 件をスキップしました',
