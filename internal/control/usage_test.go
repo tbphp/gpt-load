@@ -186,10 +186,84 @@ func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
 	}
 }
 
+func TestUsageAPIReturnsDistributionWithoutCredentialIdentity(t *testing.T) {
+	now := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
+	other := requestlog.UsageDistributionAggregate{
+		RequestCount:         3,
+		EstimatedCostNanoUSD: 300_000_000,
+	}
+	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
+		Summary: requestlog.UsageAggregate{
+			RequestCount: 13, SuccessCount: 11, FailureCount: 2,
+			EstimatedCostNanoUSD: 2_300_000_000,
+		},
+		Distribution: requestlog.UsageDistribution{
+			Dimension: requestlog.UsageDistributionDimensionGroup,
+			Metric:    requestlog.UsageDistributionMetricCost,
+			Items: []requestlog.UsageDistributionItem{{
+				GroupID: 7,
+				UsageDistributionAggregate: requestlog.UsageDistributionAggregate{
+					RequestCount:         10,
+					EstimatedCostNanoUSD: 2_000_000_000,
+				},
+			}},
+			Other: &other,
+		},
+	}}
+	engine, _ := newUsageTestEngine(t, now, reader)
+	recorder := performUsageRequest(
+		engine,
+		"test-auth-key",
+		"distribution=group&distribution_metric=cost",
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 ||
+		reader.queries[0].Distribution != requestlog.UsageDistributionDimensionGroup ||
+		reader.queries[0].DistributionMetric != requestlog.UsageDistributionMetricCost {
+		t.Fatalf("usage query = %#v", reader.queries)
+	}
+	var envelope struct {
+		Data struct {
+			Distribution struct {
+				Dimension string `json:"dimension"`
+				Metric    string `json:"metric"`
+				Items     []struct {
+					GroupID              uint   `json:"group_id"`
+					RequestCount         int64  `json:"request_count"`
+					EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+				} `json:"items"`
+				Other *struct {
+					RequestCount         int64  `json:"request_count"`
+					EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+				} `json:"other"`
+			} `json:"distribution"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if envelope.Data.Distribution.Dimension != "group" ||
+		envelope.Data.Distribution.Metric != "cost" ||
+		len(envelope.Data.Distribution.Items) != 1 ||
+		envelope.Data.Distribution.Items[0].GroupID != 7 ||
+		envelope.Data.Distribution.Items[0].RequestCount != 10 ||
+		envelope.Data.Distribution.Items[0].EstimatedCostNanoUSD != "2000000000" ||
+		envelope.Data.Distribution.Other == nil ||
+		envelope.Data.Distribution.Other.RequestCount != 3 {
+		t.Fatalf("distribution response = %#v", envelope.Data.Distribution)
+	}
+	for _, forbidden := range []string{`"credential_id"`, `"channel_id"`} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("usage response exposes removed field %s: %s", forbidden, recorder.Body.String())
+		}
+	}
+}
+
 func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60))
 	reader := &recordingUsageStatReader{}
-	reader.report.BreakdownCount = 14
 	engine, fixture := newUsageTestEngine(t, now, reader)
 	fixture.requestLogStats.value.DroppedTotal = 2
 	fixture.requestLogStats.value.WriteFailureTotal = 1
@@ -208,23 +282,27 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	if query.Granularity != requestlog.UsageGranularityHour ||
 		query.FromMS != time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.ToMS != time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC).UnixMilli() ||
-		query.GroupID != nil || query.UpstreamModel != "" || query.Limit != 100 ||
-		query.BreakdownOrder != requestlog.UsageBreakdownOrderRequests {
+		query.GroupID != nil || query.UpstreamModel != "" ||
+		query.Distribution != requestlog.UsageDistributionDimensionGroup ||
+		query.DistributionMetric != requestlog.UsageDistributionMetricRequests {
 		t.Fatalf("default UsageQuery = %#v", query)
 	}
 	var envelope struct {
 		Code int `json:"code"`
 		Data struct {
-			Range          string                         `json:"range"`
-			Granularity    requestlog.UsageGranularity    `json:"granularity"`
-			FromMS         int64                          `json:"from_ms"`
-			ToMS           int64                          `json:"to_ms"`
-			ObservedAtMS   int64                          `json:"observed_at_ms"`
-			Series         []json.RawMessage              `json:"series"`
-			Breakdown      []json.RawMessage              `json:"breakdown"`
-			Order          requestlog.UsageBreakdownOrder `json:"breakdown_order"`
-			BreakdownCount int64                          `json:"breakdown_count"`
-			Health         struct {
+			Range        string                      `json:"range"`
+			Granularity  requestlog.UsageGranularity `json:"granularity"`
+			FromMS       int64                       `json:"from_ms"`
+			ToMS         int64                       `json:"to_ms"`
+			ObservedAtMS int64                       `json:"observed_at_ms"`
+			Series       []json.RawMessage           `json:"series"`
+			Distribution struct {
+				Dimension string            `json:"dimension"`
+				Metric    string            `json:"metric"`
+				Items     []json.RawMessage `json:"items"`
+				Other     json.RawMessage   `json:"other"`
+			} `json:"distribution"`
+			Health struct {
 				Scope                string `json:"scope"`
 				DroppedTotal         uint64 `json:"dropped_total"`
 				WriteFailureTotal    uint64 `json:"write_failure_total"`
@@ -241,9 +319,10 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 		envelope.Data.ToMS != time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.ObservedAtMS != now.UnixMilli() ||
 		envelope.Data.Series == nil || len(envelope.Data.Series) != 0 ||
-		envelope.Data.Breakdown == nil || len(envelope.Data.Breakdown) != 0 ||
-		envelope.Data.Order != requestlog.UsageBreakdownOrderRequests ||
-		envelope.Data.BreakdownCount != 14 ||
+		envelope.Data.Distribution.Dimension != "group" ||
+		envelope.Data.Distribution.Metric != "requests" ||
+		envelope.Data.Distribution.Items == nil || len(envelope.Data.Distribution.Items) != 0 ||
+		string(envelope.Data.Distribution.Other) != "null" ||
 		envelope.Data.Health.Scope != "current_process" ||
 		envelope.Data.Health.DroppedTotal != 2 ||
 		envelope.Data.Health.WriteFailureTotal != 1 ||
@@ -273,6 +352,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		Summary: requestlog.UsageAggregate{
 			RequestCount: 1, UncachedInputTokens: 2, CacheWriteUnknownTokens: 4,
 			OutputTokens: 3, PricingPartialCount: 1,
+			EstimatedCostNanoUSD: 250_000_000,
 		},
 		Series: []requestlog.UsageSeriesPoint{{
 			BucketStartMS: time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli(),
@@ -283,23 +363,23 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 				EstimatedCostNanoUSD: 1_123_456_789_012,
 			},
 		}},
-		Breakdown: []requestlog.UsageBreakdown{{
-			GroupID: 9, ChannelID: channel.OpenAI, CredentialID: 13,
-			Model: "upstream-model",
-			UsageAggregate: requestlog.UsageAggregate{
-				RequestCount: 1, UncachedInputTokens: 2, CacheWriteUnknownTokens: 4,
-				OutputTokens: 3, PricingPartialCount: 1,
-				EstimatedCostNanoUSD: 250_000_000,
-			},
-		}},
-		BreakdownOrder: requestlog.UsageBreakdownOrderCost,
-		BreakdownCount: 1,
+		Distribution: requestlog.UsageDistribution{
+			Dimension: requestlog.UsageDistributionDimensionModel,
+			Metric:    requestlog.UsageDistributionMetricCost,
+			Items: []requestlog.UsageDistributionItem{{
+				Model: "upstream-model",
+				UsageDistributionAggregate: requestlog.UsageDistributionAggregate{
+					RequestCount:         1,
+					EstimatedCostNanoUSD: 250_000_000,
+				},
+			}},
+		},
 	}}
 	engine, _ := newUsageTestEngine(t, now, reader)
 	recorder := performUsageRequest(
 		engine,
 		"test-auth-key",
-		"range=30d&group_id=9&channel_id=openai&credential_id=13&upstream_model=upstream-model&breakdown_order=cost",
+		"range=30d&group_id=9&channel_id=openai&credential_id=13&upstream_model=upstream-model&distribution=model&distribution_metric=cost",
 	)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -314,19 +394,18 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		query.GroupID == nil || *query.GroupID != 9 ||
 		query.ChannelID != channel.OpenAI ||
 		query.CredentialID == nil || *query.CredentialID != 13 ||
-		query.UpstreamModel != "upstream-model" || query.Limit != 100 ||
-		query.BreakdownOrder != requestlog.UsageBreakdownOrderCost {
+		query.UpstreamModel != "upstream-model" ||
+		query.Distribution != requestlog.UsageDistributionDimensionModel ||
+		query.DistributionMetric != requestlog.UsageDistributionMetricCost {
 		t.Fatalf("30 day UsageQuery = %#v", query)
 	}
 	var envelope struct {
 		Data struct {
-			Range          string                         `json:"range"`
-			Granularity    requestlog.UsageGranularity    `json:"granularity"`
-			FromMS         int64                          `json:"from_ms"`
-			ToMS           int64                          `json:"to_ms"`
-			Order          requestlog.UsageBreakdownOrder `json:"breakdown_order"`
-			BreakdownCount int64                          `json:"breakdown_count"`
-			Summary        struct {
+			Range       string                      `json:"range"`
+			Granularity requestlog.UsageGranularity `json:"granularity"`
+			FromMS      int64                       `json:"from_ms"`
+			ToMS        int64                       `json:"to_ms"`
+			Summary     struct {
 				TotalTokens             int64  `json:"total_tokens"`
 				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
 				PricingPartialCount     int64  `json:"pricing_partial_count"`
@@ -339,15 +418,15 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 				PricingPartialCount     int64  `json:"pricing_partial_count"`
 				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
 			} `json:"series"`
-			Breakdown []struct {
-				GroupID                 uint   `json:"group_id"`
-				ChannelID               string `json:"channel_id"`
-				CredentialID            uint   `json:"credential_id"`
-				Model                   string `json:"model"`
-				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
-				PricingPartialCount     int64  `json:"pricing_partial_count"`
-				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
-			} `json:"breakdown"`
+			Distribution struct {
+				Dimension string `json:"dimension"`
+				Metric    string `json:"metric"`
+				Items     []struct {
+					Model                string `json:"model"`
+					RequestCount         int64  `json:"request_count"`
+					EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+				} `json:"items"`
+			} `json:"distribution"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
@@ -357,25 +436,22 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		envelope.Data.Granularity != requestlog.UsageGranularityDay ||
 		envelope.Data.FromMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
-		envelope.Data.Order != requestlog.UsageBreakdownOrderCost ||
-		envelope.Data.BreakdownCount != 1 ||
 		envelope.Data.Summary.TotalTokens != 9 ||
 		envelope.Data.Summary.CacheWriteUnknownTokens != 4 ||
 		envelope.Data.Summary.PricingPartialCount != 1 ||
-		envelope.Data.Summary.EstimatedCostNanoUSD != "0" ||
+		envelope.Data.Summary.EstimatedCostNanoUSD != "250000000" ||
 		len(envelope.Data.Series) != 1 ||
 		envelope.Data.Series[0].BucketStartMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.Series[0].TotalTokens != 9 ||
 		envelope.Data.Series[0].CacheWriteUnknownTokens != 4 ||
 		envelope.Data.Series[0].PricingPartialCount != 1 ||
 		envelope.Data.Series[0].EstimatedCostNanoUSD != "1123456789012" ||
-		len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 9 ||
-		envelope.Data.Breakdown[0].ChannelID != string(channel.OpenAI) ||
-		envelope.Data.Breakdown[0].CredentialID != 13 ||
-		envelope.Data.Breakdown[0].Model != "upstream-model" ||
-		envelope.Data.Breakdown[0].CacheWriteUnknownTokens != 4 ||
-		envelope.Data.Breakdown[0].PricingPartialCount != 1 ||
-		envelope.Data.Breakdown[0].EstimatedCostNanoUSD != "250000000" {
+		envelope.Data.Distribution.Dimension != "model" ||
+		envelope.Data.Distribution.Metric != "cost" ||
+		len(envelope.Data.Distribution.Items) != 1 ||
+		envelope.Data.Distribution.Items[0].Model != "upstream-model" ||
+		envelope.Data.Distribution.Items[0].RequestCount != 1 ||
+		envelope.Data.Distribution.Items[0].EstimatedCostNanoUSD != "250000000" {
 		t.Fatalf("usage response = %#v", envelope.Data)
 	}
 	for _, legacyField := range []string{`"key_id"`, `"upstream_key_id"`} {
@@ -466,10 +542,12 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 		{query: "upstream_key_id=1", code: "BAD_REQUEST"},
 		{query: "model=legacy", code: "BAD_REQUEST"},
 		{query: "upstream_model=", code: "VALIDATION_FAILED"},
-		{query: "breakdown_order=", code: "VALIDATION_FAILED"},
-		{query: "breakdown_order=unknown", code: "VALIDATION_FAILED"},
+		{query: "distribution=", code: "VALIDATION_FAILED"},
+		{query: "distribution=credential", code: "VALIDATION_FAILED"},
+		{query: "distribution_metric=", code: "VALIDATION_FAILED"},
+		{query: "distribution_metric=tokens", code: "VALIDATION_FAILED"},
 		{
-			query: "breakdown_order=cost&breakdown_order=requests",
+			query: "distribution_metric=cost&distribution_metric=requests",
 			code:  "BAD_REQUEST",
 		},
 	}
@@ -484,37 +562,86 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 	}
 }
 
-func TestMapUsageRejectsUnsafeOrMismatchedBreakdownMetadata(t *testing.T) {
+func TestMapUsageRejectsUnsafeOrMismatchedDistribution(t *testing.T) {
 	fixture := newServiceFixture(t)
 	query := requestlog.UsageQuery{
-		FromMS:         time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
-		ToMS:           time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli(),
-		Granularity:    requestlog.UsageGranularityHour,
-		Limit:          100,
-		BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
+		FromMS:             time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
+		ToMS:               time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli(),
+		Granularity:        requestlog.UsageGranularityHour,
+		Distribution:       requestlog.UsageDistributionDimensionGroup,
+		DistributionMetric: requestlog.UsageDistributionMetricRequests,
 	}
 	tests := []struct {
 		name   string
 		report requestlog.UsageReport
 	}{
 		{
-			name: "negative breakdown count",
+			name: "response dimension mismatch",
 			report: requestlog.UsageReport{
-				BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
-				BreakdownCount: -1,
+				Distribution: requestlog.UsageDistribution{
+					Dimension: requestlog.UsageDistributionDimensionModel,
+					Metric:    requestlog.UsageDistributionMetricRequests,
+				},
 			},
 		},
 		{
-			name: "unsafe breakdown count",
+			name: "response metric mismatch",
 			report: requestlog.UsageReport{
-				BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
-				BreakdownCount: maxSafeInteger + 1,
+				Distribution: requestlog.UsageDistribution{
+					Dimension: requestlog.UsageDistributionDimensionGroup,
+					Metric:    requestlog.UsageDistributionMetricCost,
+				},
 			},
 		},
 		{
-			name: "response order mismatch",
+			name: "unsafe group identity",
 			report: requestlog.UsageReport{
-				BreakdownOrder: requestlog.UsageBreakdownOrderCost,
+				Distribution: requestlog.UsageDistribution{
+					Dimension: requestlog.UsageDistributionDimensionGroup,
+					Metric:    requestlog.UsageDistributionMetricRequests,
+					Items: []requestlog.UsageDistributionItem{{
+						GroupID: uint(maxSafeInteger) + 1,
+					}},
+				},
+			},
+		},
+		{
+			name: "more than five items",
+			report: requestlog.UsageReport{
+				Distribution: requestlog.UsageDistribution{
+					Dimension: requestlog.UsageDistributionDimensionGroup,
+					Metric:    requestlog.UsageDistributionMetricRequests,
+					Items: []requestlog.UsageDistributionItem{
+						{GroupID: 1}, {GroupID: 2}, {GroupID: 3},
+						{GroupID: 4}, {GroupID: 5}, {GroupID: 6},
+					},
+				},
+			},
+		},
+		{
+			name: "duplicate group identity",
+			report: requestlog.UsageReport{
+				Distribution: requestlog.UsageDistribution{
+					Dimension: requestlog.UsageDistributionDimensionGroup,
+					Metric:    requestlog.UsageDistributionMetricRequests,
+					Items:     []requestlog.UsageDistributionItem{{GroupID: 1}, {GroupID: 1}},
+				},
+			},
+		},
+		{
+			name: "distribution total mismatch",
+			report: requestlog.UsageReport{
+				Summary: requestlog.UsageAggregate{RequestCount: 2, SuccessCount: 2},
+				Distribution: requestlog.UsageDistribution{
+					Dimension: requestlog.UsageDistributionDimensionGroup,
+					Metric:    requestlog.UsageDistributionMetricRequests,
+					Items: []requestlog.UsageDistributionItem{{
+						GroupID: 1,
+						UsageDistributionAggregate: requestlog.UsageDistributionAggregate{
+							RequestCount: 1,
+						},
+					}},
+				},
 			},
 		},
 	}
@@ -607,18 +734,18 @@ func TestUsageAPIExcludesLegacyZeroAttemptAggregateFromSQLite(t *testing.T) {
 				RequestCount int64 `json:"request_count"`
 				FailureCount int64 `json:"failure_count"`
 			} `json:"summary"`
-			Breakdown []struct {
-				GroupID      uint   `json:"group_id"`
-				Model        string `json:"model"`
-				RequestCount int64  `json:"request_count"`
-			} `json:"breakdown"`
+			Distribution struct {
+				Items []json.RawMessage `json:"items"`
+				Other json.RawMessage   `json:"other"`
+			} `json:"distribution"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if envelope.Data.Summary.RequestCount != 0 || envelope.Data.Summary.FailureCount != 0 ||
-		len(envelope.Data.Breakdown) != 0 {
+		len(envelope.Data.Distribution.Items) != 0 ||
+		string(envelope.Data.Distribution.Other) != "null" {
 		t.Fatalf("usage data = %#v", envelope.Data)
 	}
 }
@@ -662,11 +789,13 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 	}
 	now := time.Date(2026, time.August, 8, 17, 30, 0, 0, time.UTC)
 	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
-		Breakdown: []requestlog.UsageBreakdown{{
-			GroupID: 99, ChannelID: channel.OpenAI, CredentialID: 101,
-			Model: "allowed-model",
-		}},
-		BreakdownCount: 1,
+		Distribution: requestlog.UsageDistribution{
+			Dimension: requestlog.UsageDistributionDimensionModel,
+			Metric:    requestlog.UsageDistributionMetricRequests,
+			Items: []requestlog.UsageDistributionItem{{
+				Model: "allowed-model",
+			}},
+		},
 	}}
 	fixture.service.now = func() time.Time { return now }
 	fixture.service.usageStats = reader
@@ -680,25 +809,27 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 		t.Fatalf("AccessKey usage response = %d %s, want 200", recorder.Code, recorder.Body.String())
 	}
 	if len(reader.queries) != 1 || reader.queries[0].AccessKeyID == nil ||
-		*reader.queries[0].AccessKeyID != created.ID || reader.queries[0].GroupID != nil {
+		*reader.queries[0].AccessKeyID != created.ID || reader.queries[0].GroupID != nil ||
+		reader.queries[0].Distribution != requestlog.UsageDistributionDimensionModel {
 		t.Fatalf("AccessKey UsageQuery = %#v", reader.queries)
 	}
 	var envelope struct {
 		Data struct {
-			Breakdown []struct {
-				GroupID      uint    `json:"group_id"`
-				ChannelID    *string `json:"channel_id"`
-				CredentialID *uint   `json:"credential_id"`
-			} `json:"breakdown"`
+			Distribution struct {
+				Dimension string `json:"dimension"`
+				Items     []struct {
+					Model string `json:"model"`
+				} `json:"items"`
+			} `json:"distribution"`
 			CollectionHealth usageCollectionHealthResponse `json:"collection_health"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode AccessKey usage response: %v", err)
 	}
-	if len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 0 ||
-		envelope.Data.Breakdown[0].ChannelID != nil ||
-		envelope.Data.Breakdown[0].CredentialID != nil ||
+	if envelope.Data.Distribution.Dimension != "model" ||
+		len(envelope.Data.Distribution.Items) != 1 ||
+		envelope.Data.Distribution.Items[0].Model != "allowed-model" ||
 		envelope.Data.CollectionHealth.Scope != "access_key" ||
 		envelope.Data.CollectionHealth.DroppedTotal != 0 ||
 		envelope.Data.CollectionHealth.WriteFailureTotal != 0 ||
@@ -735,8 +866,11 @@ func (reader *recordingUsageStatReader) QueryUsage(
 		return requestlog.UsageReport{}, reader.err
 	}
 	report := reader.report
-	if report.BreakdownOrder == "" {
-		report.BreakdownOrder = query.BreakdownOrder
+	if report.Distribution.Dimension == "" {
+		report.Distribution.Dimension = query.Distribution
+	}
+	if report.Distribution.Metric == "" {
+		report.Distribution.Metric = query.DistributionMetric
 	}
 	return report, nil
 }

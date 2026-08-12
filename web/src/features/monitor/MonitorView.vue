@@ -126,7 +126,6 @@ function selectUsageRange(value: string): void {
         { ...usageFilters.value, range: value },
         {
           filtersOpen: false,
-          expandedBreakdowns: [],
           seriesExpanded: false,
           metric: state.metric,
         },

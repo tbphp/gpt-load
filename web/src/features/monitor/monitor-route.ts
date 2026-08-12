@@ -25,18 +25,10 @@ export interface HealthMonitorState {
   groupsExpanded: boolean
 }
 
-export interface UsageBreakdownIdentity {
-  groupID: number
-  channelID: string | null
-  credentialID: number | null
-  model: string
-}
-
 export type UsageTrendMetric = 'requests' | 'tokens' | 'cost'
 
 export interface UsageMonitorState {
   filtersOpen: boolean
-  expandedBreakdowns: UsageBreakdownIdentity[]
   seriesExpanded: boolean
   metric: UsageTrendMetric
 }
@@ -95,6 +87,7 @@ export function scopeAccessKeyUsageFilters(filters: UsageFilters): UsageFilters 
   delete scoped.group_id
   delete scoped.channel_id
   delete scoped.credential_id
+  scoped.distribution = 'model'
   return scoped
 }
 
@@ -112,14 +105,10 @@ export function normalizeAccessKeyMonitorQuery(query: Record<string, unknown>): 
       parseLogsMonitorState(query),
     )
   }
-  const state = parseUsageMonitorState(query)
-  return usageMonitorQuery(scopeAccessKeyUsageFilters(parseAppliedUsageFilters(query)), {
-    ...state,
-    expandedBreakdowns: state.expandedBreakdowns.filter(
-      ({ groupID, channelID, credentialID }) =>
-        groupID === 0 && channelID === null && credentialID === null,
-    ),
-  })
+  return usageMonitorQuery(
+    scopeAccessKeyUsageFilters(parseAppliedUsageFilters(query)),
+    parseUsageMonitorState(query),
+  )
 }
 
 export function parseHealthMonitorState(query: Record<string, unknown>): HealthMonitorState {
@@ -134,7 +123,6 @@ export function usageMonitorQuery(
   filters: UsageFilters = { range: defaultTimeRange },
   state: UsageMonitorState = {
     filtersOpen: false,
-    expandedBreakdowns: [],
     seriesExpanded: false,
     metric: 'requests',
   },
@@ -152,10 +140,9 @@ export function usageMonitorQuery(
   if (channelID !== undefined) normalized.channel_id = channelID
   if (credentialID !== undefined) normalized.credential_id = String(credentialID)
   if (upstreamModel !== undefined) normalized.upstream_model = upstreamModel
-  if (filters.breakdown_order === 'cost') normalized.breakdown_order = 'cost'
+  if (filters.distribution === 'model') normalized.distribution = 'model'
+  if (filters.distribution_metric === 'cost') normalized.distribution_metric = 'cost'
   if (state.filtersOpen) normalized.panel = 'filters'
-  const expandedBreakdowns = serializeUsageBreakdowns(state.expandedBreakdowns)
-  if (expandedBreakdowns !== undefined) normalized.expanded_breakdowns = expandedBreakdowns
   if (state.seriesExpanded) normalized.series = 'expanded'
   return normalized
 }
@@ -163,7 +150,6 @@ export function usageMonitorQuery(
 export function parseUsageMonitorState(query: Record<string, unknown>): UsageMonitorState {
   return {
     filtersOpen: query.panel === 'filters',
-    expandedBreakdowns: parseUsageBreakdowns(query.expanded_breakdowns),
     seriesExpanded: query.series === 'expanded',
     metric: normalizeUsageTrendMetric(query.metric),
   }
@@ -171,27 +157,6 @@ export function parseUsageMonitorState(query: Record<string, unknown>): UsageMon
 
 function normalizeUsageTrendMetric(raw: unknown): UsageTrendMetric {
   return raw === 'tokens' || raw === 'cost' ? raw : 'requests'
-}
-
-export function usageBreakdownIdentity(
-  groupID: number,
-  channelID: string | null,
-  credentialID: number | null,
-  model: string,
-): UsageBreakdownIdentity {
-  return { groupID, channelID, credentialID, model }
-}
-
-export function sameUsageBreakdownIdentity(
-  left: UsageBreakdownIdentity,
-  right: UsageBreakdownIdentity,
-): boolean {
-  return (
-    left.groupID === right.groupID &&
-    left.channelID === right.channelID &&
-    left.credentialID === right.credentialID &&
-    left.model === right.model
-  )
 }
 
 export function sameMonitorQuery(left: LocationQueryRaw, right: LocationQueryRaw): boolean {
@@ -313,82 +278,6 @@ function serializePositiveIDList(values: readonly number[]): string | undefined 
     .filter((value) => Number.isSafeInteger(value) && value > 0)
     .sort((left, right) => left - right)
   return normalized.length > 0 ? normalized.join(',') : undefined
-}
-
-function parseUsageBreakdowns(raw: unknown): UsageBreakdownIdentity[] {
-  if (typeof raw !== 'string' || raw.length > 10_000) return []
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed) || parsed.length > 100) return []
-    const identities: UsageBreakdownIdentity[] = []
-    const seen = new Set<string>()
-    for (const item of parsed) {
-      if (!Array.isArray(item) || item.length !== 4) return []
-      const [groupID, channelID, credentialID, model] = item
-      if (
-        !Number.isSafeInteger(groupID) ||
-        Number(groupID) < 0 ||
-        (channelID !== null && normalizeUsageChannelID(channelID) === undefined) ||
-        (credentialID !== null &&
-          (!Number.isSafeInteger(credentialID) || Number(credentialID) <= 0)) ||
-        typeof model !== 'string' ||
-        Array.from(model).length > 200 ||
-        /[\u0000-\u001f\u007f]/u.test(model)
-      ) {
-        return []
-      }
-      const key = JSON.stringify([groupID, channelID, credentialID, model])
-      if (seen.has(key)) return []
-      seen.add(key)
-      identities.push({
-        groupID: Number(groupID),
-        channelID: channelID === null ? null : String(channelID),
-        credentialID: credentialID === null ? null : Number(credentialID),
-        model,
-      })
-    }
-    return identities.sort(
-      (left, right) =>
-        left.groupID - right.groupID ||
-        (left.channelID ?? '').localeCompare(right.channelID ?? '') ||
-        (left.credentialID ?? 0) - (right.credentialID ?? 0) ||
-        left.model.localeCompare(right.model),
-    )
-  } catch {
-    return []
-  }
-}
-
-function serializeUsageBreakdowns(
-  identities: readonly UsageBreakdownIdentity[],
-): string | undefined {
-  const normalized = [...identities]
-    .filter(
-      ({ groupID, channelID, credentialID, model }) =>
-        Number.isSafeInteger(groupID) &&
-        groupID >= 0 &&
-        (channelID === null || normalizeUsageChannelID(channelID) !== undefined) &&
-        (credentialID === null || (Number.isSafeInteger(credentialID) && credentialID > 0)) &&
-        Array.from(model).length <= 200 &&
-        !/[\u0000-\u001f\u007f]/u.test(model),
-    )
-    .sort(
-      (left, right) =>
-        left.groupID - right.groupID ||
-        (left.channelID ?? '').localeCompare(right.channelID ?? '') ||
-        (left.credentialID ?? 0) - (right.credentialID ?? 0) ||
-        left.model.localeCompare(right.model),
-    )
-  return normalized.length > 0
-    ? JSON.stringify(
-        normalized.map(({ groupID, channelID, credentialID, model }) => [
-          groupID,
-          channelID,
-          credentialID,
-          model,
-        ]),
-      )
-    : undefined
 }
 
 function parseLogCursorHistory(raw: unknown): string[] {

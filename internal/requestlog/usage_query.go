@@ -7,7 +7,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/dbtx"
@@ -16,10 +15,9 @@ import (
 )
 
 const (
-	defaultUsageBreakdownLimit = 100
-	maxUsageBreakdownLimit     = 100
-	maxUsageSeriesHours        = 30 * 24
-	usageRollbackTimeout       = time.Second
+	usageDistributionLimit = 5
+	maxUsageSeriesHours    = 30 * 24
+	usageRollbackTimeout   = time.Second
 )
 
 func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (UsageReport, error) {
@@ -29,14 +27,18 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if input.Distribution == "" {
+		input.Distribution = UsageDistributionDimensionGroup
+	}
+	if input.DistributionMetric == "" {
+		input.DistributionMetric = UsageDistributionMetricRequests
+	}
+	if input.AccessKeyID != nil {
+		input.Distribution = UsageDistributionDimensionModel
+	}
 	bucketWidthMS, err := validateUsageQuery(input)
 	if err != nil {
 		return UsageReport{}, err
-	}
-
-	limit := input.Limit
-	if limit <= 0 || limit > maxUsageBreakdownLimit {
-		limit = defaultUsageBreakdownLimit
 	}
 
 	var report UsageReport
@@ -56,30 +58,17 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		if err != nil {
 			return err
 		}
-		collapseByModel := input.AccessKeyID != nil
-		breakdownCount, err := queryUsageBreakdownCount(
+		distribution, err := queryUsageDistribution(
 			usageStatScope(connection, input),
-			collapseByModel,
-		)
-		if err != nil {
-			return err
-		}
-		breakdown, truncated, err := queryUsageBreakdown(
-			usageStatScope(connection, input),
-			limit,
-			input.BreakdownOrder,
-			collapseByModel,
+			summary,
+			input.Distribution,
+			input.DistributionMetric,
 		)
 		if err != nil {
 			return err
 		}
 		report = UsageReport{
-			Summary:            summary,
-			Series:             series,
-			Breakdown:          breakdown,
-			BreakdownTruncated: truncated,
-			BreakdownOrder:     input.BreakdownOrder,
-			BreakdownCount:     breakdownCount,
+			Summary: summary, Series: series, Distribution: distribution,
 		}
 		return nil
 	})
@@ -136,15 +125,23 @@ func validateUsageQuery(input UsageQuery) (int64, error) {
 		(input.ToMS-input.FromMS)%bucketWidthMS != 0 {
 		return 0, fmt.Errorf("query usage: time range is not bucket aligned")
 	}
-	switch input.BreakdownOrder {
-	case UsageBreakdownOrderRequests, UsageBreakdownOrderCost:
-		return bucketWidthMS, nil
+	switch input.Distribution {
+	case UsageDistributionDimensionGroup, UsageDistributionDimensionModel:
 	default:
 		return 0, fmt.Errorf(
-			"query usage: unsupported breakdown order %q",
-			input.BreakdownOrder,
+			"query usage: unsupported distribution dimension %q",
+			input.Distribution,
 		)
 	}
+	switch input.DistributionMetric {
+	case UsageDistributionMetricRequests, UsageDistributionMetricCost:
+	default:
+		return 0, fmt.Errorf(
+			"query usage: unsupported distribution metric %q",
+			input.DistributionMetric,
+		)
+	}
+	return bucketWidthMS, nil
 }
 
 func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
@@ -251,84 +248,78 @@ func queryUsageSeries(scope *gorm.DB, bucketWidthMS int64) ([]UsageSeriesPoint, 
 	return mergeUsageHours(source, bucketWidthMS)
 }
 
-func queryUsageBreakdownCount(scope *gorm.DB, collapseByModel bool) (int64, error) {
-	var grouped *gorm.DB
-	if collapseByModel {
-		grouped = scope.Select("model").Group("model")
-	} else {
-		grouped = scope.Select("channel_id, group_id, credential_id, model").
-			Group("channel_id, group_id, credential_id, model")
-	}
-	var count int64
-	if err := scope.Session(&gorm.Session{NewDB: true}).
-		Table("(?) AS usage_breakdown_items", grouped).
-		Count(&count).Error; err != nil {
-		return 0, fmt.Errorf("query usage breakdown group count: %w", err)
-	}
-	if count < 0 {
-		return 0, fmt.Errorf("query usage breakdown group count: negative count")
-	}
-	return count, nil
-}
-
-func queryUsageBreakdown(
+func queryUsageDistribution(
 	scope *gorm.DB,
-	limit int,
-	order UsageBreakdownOrder,
-	collapseByModel bool,
-) ([]UsageBreakdown, bool, error) {
-	var rows []usageBreakdownRow
-	var query *gorm.DB
-	if collapseByModel {
-		query = scope.Select("0 AS group_id, '' AS channel_id, 0 AS credential_id, model, " + usageAggregateSelect).
+	summary UsageAggregate,
+	dimension UsageDistributionDimension,
+	metric UsageDistributionMetric,
+) (UsageDistribution, error) {
+	var rows []usageDistributionRow
+	query := scope
+	switch dimension {
+	case UsageDistributionDimensionGroup:
+		query = query.Select("group_id, '' AS model, " + usageDistributionAggregateSelect).
+			Group("group_id")
+	case UsageDistributionDimensionModel:
+		query = query.Select("0 AS group_id, model, " + usageDistributionAggregateSelect).
 			Group("model")
-	} else {
-		query = scope.Select("group_id, channel_id, credential_id, model, " + usageAggregateSelect).
-			Group("channel_id, group_id, credential_id, model")
+	default:
+		return UsageDistribution{}, fmt.Errorf(
+			"query usage distribution: unsupported dimension %q",
+			dimension,
+		)
 	}
-	switch order {
-	case UsageBreakdownOrderRequests:
+	switch metric {
+	case UsageDistributionMetricRequests:
 		query = query.
 			Order("SUM(request_count) DESC").
 			Order("SUM(estimated_cost_nano_usd) DESC")
-	case UsageBreakdownOrderCost:
+	case UsageDistributionMetricCost:
 		query = query.
 			Order("SUM(estimated_cost_nano_usd) DESC").
 			Order("SUM(request_count) DESC")
 	default:
-		return nil, false, fmt.Errorf(
-			"query usage breakdown: unsupported order %q",
-			order,
+		return UsageDistribution{}, fmt.Errorf(
+			"query usage distribution: unsupported metric %q",
+			metric,
 		)
 	}
+	if dimension == UsageDistributionDimensionGroup {
+		query = query.Order("group_id ASC")
+	} else {
+		query = query.Order("model ASC")
+	}
 	if err := query.
-		Order("channel_id ASC").
-		Order("group_id ASC").
-		Order("credential_id ASC").
-		Order("model ASC").
-		Limit(limit + 1).
+		Limit(usageDistributionLimit).
 		Find(&rows).Error; err != nil {
-		return nil, false, fmt.Errorf("query usage breakdown: %w", err)
+		return UsageDistribution{}, fmt.Errorf("query usage distribution: %w", err)
 	}
 
-	truncated := len(rows) > limit
-	if truncated {
-		rows = rows[:limit]
+	result := UsageDistribution{
+		Dimension: dimension,
+		Metric:    metric,
+		Items:     make([]UsageDistributionItem, 0, len(rows)),
 	}
-	breakdown := make([]UsageBreakdown, 0, len(rows))
+	visible := UsageDistributionAggregate{}
 	for _, row := range rows {
-		if err := validateUsageAggregate(row.UsageAggregate); err != nil {
-			return nil, false, fmt.Errorf("validate usage breakdown: %w", err)
+		var err error
+		visible, err = addUsageDistributionAggregates(visible, row.UsageDistributionAggregate)
+		if err != nil {
+			return UsageDistribution{}, fmt.Errorf("sum usage distribution: %w", err)
 		}
-		breakdown = append(breakdown, UsageBreakdown{
-			GroupID:        row.GroupID,
-			ChannelID:      channel.ID(row.ChannelID),
-			CredentialID:   row.CredentialID,
-			Model:          row.Model,
-			UsageAggregate: row.UsageAggregate,
+		result.Items = append(result.Items, UsageDistributionItem{
+			GroupID: row.GroupID, Model: row.Model,
+			UsageDistributionAggregate: row.UsageDistributionAggregate,
 		})
 	}
-	return breakdown, truncated, nil
+	other, err := subtractUsageDistributionAggregate(summary, visible)
+	if err != nil {
+		return UsageDistribution{}, fmt.Errorf("calculate other usage distribution: %w", err)
+	}
+	if other.RequestCount > 0 || other.EstimatedCostNanoUSD > 0 {
+		result.Other = &other
+	}
+	return result, nil
 }
 
 func mergeUsageHours(source []usageHourPoint, bucketWidthMS int64) ([]UsageSeriesPoint, error) {
@@ -402,6 +393,39 @@ func addUsageAggregates(left, right UsageAggregate) (UsageAggregate, error) {
 	return result, nil
 }
 
+func addUsageDistributionAggregates(
+	left, right UsageDistributionAggregate,
+) (UsageDistributionAggregate, error) {
+	requests, ok := usage.CheckedAdd(left.RequestCount, right.RequestCount)
+	if !ok {
+		return UsageDistributionAggregate{}, fmt.Errorf("request count overflow or negative")
+	}
+	cost, ok := pricing.CheckedAddNanoUSD(
+		pricing.NanoUSD(left.EstimatedCostNanoUSD),
+		pricing.NanoUSD(right.EstimatedCostNanoUSD),
+	)
+	if !ok {
+		return UsageDistributionAggregate{}, fmt.Errorf("estimated cost overflow or negative")
+	}
+	return UsageDistributionAggregate{
+		RequestCount: requests, EstimatedCostNanoUSD: int64(cost),
+	}, nil
+}
+
+func subtractUsageDistributionAggregate(
+	total UsageAggregate,
+	part UsageDistributionAggregate,
+) (UsageDistributionAggregate, error) {
+	if part.RequestCount < 0 || part.RequestCount > total.RequestCount ||
+		part.EstimatedCostNanoUSD < 0 || part.EstimatedCostNanoUSD > total.EstimatedCostNanoUSD {
+		return UsageDistributionAggregate{}, fmt.Errorf("invalid distribution remainder")
+	}
+	return UsageDistributionAggregate{
+		RequestCount:         total.RequestCount - part.RequestCount,
+		EstimatedCostNanoUSD: total.EstimatedCostNanoUSD - part.EstimatedCostNanoUSD,
+	}, nil
+}
+
 func validateUsageAggregate(aggregate UsageAggregate) error {
 	fields := []struct {
 		name  string
@@ -468,6 +492,10 @@ const usageAggregateSelect = "" +
 	"COALESCE(SUM(unpriced_request_count), 0) AS unpriced_request_count, " +
 	"COALESCE(SUM(pricing_partial_count), 0) AS pricing_partial_count"
 
+const usageDistributionAggregateSelect = "" +
+	"COALESCE(SUM(request_count), 0) AS request_count, " +
+	"COALESCE(SUM(estimated_cost_nano_usd), 0) AS estimated_cost_nano_usd"
+
 type usageHourPoint struct {
 	BucketStartMS int64
 	UsageAggregate
@@ -480,10 +508,8 @@ type usageStatIntegrity struct {
 	InvalidCost   int64
 }
 
-type usageBreakdownRow struct {
-	GroupID      uint
-	ChannelID    string
-	CredentialID uint
-	Model        string
-	UsageAggregate
+type usageDistributionRow struct {
+	GroupID uint
+	Model   string
+	UsageDistributionAggregate
 }

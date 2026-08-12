@@ -12,23 +12,24 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/usage"
 )
 
 const (
-	usageRange1Hour   = "1h"
-	usageRange24Hours = "24h"
-	usageRange3Days   = "3d"
-	usageRange7Days   = "7d"
-	usageRange15Days  = "15d"
-	usageRange30Days  = "30d"
-	usageRangeCustom  = "custom"
-	usageBreakdownMax = 100
-	usageCustomMaxMS  = 30 * epochms.MillisecondsPerDay
+	usageRange1Hour        = "1h"
+	usageRange24Hours      = "24h"
+	usageRange3Days        = "3d"
+	usageRange7Days        = "7d"
+	usageRange15Days       = "15d"
+	usageRange30Days       = "30d"
+	usageRangeCustom       = "custom"
+	usageDistributionLimit = 5
+	usageCustomMaxMS       = 30 * epochms.MillisecondsPerDay
 )
 
 type UsageStatReader interface {
@@ -59,12 +60,23 @@ type usageSeriesResponse struct {
 	usageAggregateResponse
 }
 
-type usageBreakdownResponse struct {
-	GroupID      uint        `json:"group_id"`
-	ChannelID    *channel.ID `json:"channel_id"`
-	CredentialID *uint       `json:"credential_id"`
-	Model        string      `json:"model"`
-	usageAggregateResponse
+type usageDistributionItemResponse struct {
+	GroupID              *uint   `json:"group_id,omitempty"`
+	Model                *string `json:"model,omitempty"`
+	RequestCount         int64   `json:"request_count"`
+	EstimatedCostNanoUSD string  `json:"estimated_cost_nano_usd"`
+}
+
+type usageDistributionResponse struct {
+	Dimension requestlog.UsageDistributionDimension `json:"dimension"`
+	Metric    requestlog.UsageDistributionMetric    `json:"metric"`
+	Items     []usageDistributionItemResponse       `json:"items"`
+	Other     *usageDistributionAggregateResponse   `json:"other"`
+}
+
+type usageDistributionAggregateResponse struct {
+	RequestCount         int64  `json:"request_count"`
+	EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
 }
 
 type usageCollectionHealthResponse struct {
@@ -75,19 +87,16 @@ type usageCollectionHealthResponse struct {
 }
 
 type usageResponse struct {
-	Range              string                         `json:"range"`
-	Granularity        requestlog.UsageGranularity    `json:"granularity"`
-	BucketWidthMS      int64                          `json:"bucket_width_ms"`
-	FromMS             int64                          `json:"from_ms"`
-	ToMS               int64                          `json:"to_ms"`
-	ObservedAtMS       int64                          `json:"observed_at_ms"`
-	Summary            usageAggregateResponse         `json:"summary"`
-	Series             []usageSeriesResponse          `json:"series"`
-	Breakdown          []usageBreakdownResponse       `json:"breakdown"`
-	BreakdownTruncated bool                           `json:"breakdown_truncated"`
-	BreakdownOrder     requestlog.UsageBreakdownOrder `json:"breakdown_order"`
-	BreakdownCount     int64                          `json:"breakdown_count"`
-	CollectionHealth   usageCollectionHealthResponse  `json:"collection_health"`
+	Range            string                        `json:"range"`
+	Granularity      requestlog.UsageGranularity   `json:"granularity"`
+	BucketWidthMS    int64                         `json:"bucket_width_ms"`
+	FromMS           int64                         `json:"from_ms"`
+	ToMS             int64                         `json:"to_ms"`
+	ObservedAtMS     int64                         `json:"observed_at_ms"`
+	Summary          usageAggregateResponse        `json:"summary"`
+	Series           []usageSeriesResponse         `json:"series"`
+	Distribution     usageDistributionResponse     `json:"distribution"`
+	CollectionHealth usageCollectionHealthResponse `json:"collection_health"`
 }
 
 func (service *Service) QueryUsage(
@@ -121,6 +130,7 @@ func (server *Server) handleUsage(c *gin.Context) {
 			return
 		}
 		query.AccessKeyID = &accessKeyID
+		query.Distribution = requestlog.UsageDistributionDimensionModel
 	}
 	report, err := server.service.QueryUsage(c.Request.Context(), query)
 	if err != nil {
@@ -141,14 +151,15 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		return requestlog.UsageQuery{}, app_errors.ErrBadRequest
 	}
 	allowed := map[string]struct{}{
-		"range":           {},
-		"from_ms":         {},
-		"to_ms":           {},
-		"group_id":        {},
-		"channel_id":      {},
-		"credential_id":   {},
-		"upstream_model":  {},
-		"breakdown_order": {},
+		"range":               {},
+		"from_ms":             {},
+		"to_ms":               {},
+		"group_id":            {},
+		"channel_id":          {},
+		"credential_id":       {},
+		"upstream_model":      {},
+		"distribution":        {},
+		"distribution_metric": {},
 	}
 	for key, value := range values {
 		if _, ok := allowed[key]; !ok || len(value) != 1 {
@@ -160,8 +171,8 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		return requestlog.UsageQuery{}, app_errors.ErrInternalServer
 	}
 	query := requestlog.UsageQuery{
-		Limit:          usageBreakdownMax,
-		BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
+		Distribution:       requestlog.UsageDistributionDimensionGroup,
+		DistributionMetric: requestlog.UsageDistributionMetricRequests,
 	}
 	rangeValue := usageRange24Hours
 	if value, ok := singleQueryValue(values, "range"); ok {
@@ -251,12 +262,22 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		}
 		query.UpstreamModel = value
 	}
-	if value, ok := singleQueryValue(values, "breakdown_order"); ok {
-		switch requestlog.UsageBreakdownOrder(value) {
-		case requestlog.UsageBreakdownOrderRequests:
-			query.BreakdownOrder = requestlog.UsageBreakdownOrderRequests
-		case requestlog.UsageBreakdownOrderCost:
-			query.BreakdownOrder = requestlog.UsageBreakdownOrderCost
+	if value, ok := singleQueryValue(values, "distribution"); ok {
+		switch requestlog.UsageDistributionDimension(value) {
+		case requestlog.UsageDistributionDimensionGroup:
+			query.Distribution = requestlog.UsageDistributionDimensionGroup
+		case requestlog.UsageDistributionDimensionModel:
+			query.Distribution = requestlog.UsageDistributionDimensionModel
+		default:
+			return requestlog.UsageQuery{}, app_errors.ErrValidation
+		}
+	}
+	if value, ok := singleQueryValue(values, "distribution_metric"); ok {
+		switch requestlog.UsageDistributionMetric(value) {
+		case requestlog.UsageDistributionMetricRequests:
+			query.DistributionMetric = requestlog.UsageDistributionMetricRequests
+		case requestlog.UsageDistributionMetricCost:
+			query.DistributionMetric = requestlog.UsageDistributionMetricCost
 		default:
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
@@ -325,16 +346,12 @@ func (service *Service) mapUsageResponse(
 	if !accessKeyScoped && service.requestLogStats == nil {
 		return usageResponse{}, app_errors.ErrInternalServer
 	}
-	switch query.BreakdownOrder {
-	case requestlog.UsageBreakdownOrderRequests, requestlog.UsageBreakdownOrderCost:
-	default:
-		return usageResponse{}, fmt.Errorf("map usage response: invalid query breakdown order")
+	if report.Distribution.Dimension != query.Distribution ||
+		report.Distribution.Metric != query.DistributionMetric {
+		return usageResponse{}, fmt.Errorf("map usage response: distribution metadata mismatch")
 	}
-	if report.BreakdownOrder != query.BreakdownOrder {
-		return usageResponse{}, fmt.Errorf("map usage response: breakdown order mismatch")
-	}
-	if report.BreakdownCount < 0 || report.BreakdownCount > maxSafeInteger {
-		return usageResponse{}, fmt.Errorf("map usage response: unsafe breakdown group count")
+	if len(report.Distribution.Items) > usageDistributionLimit {
+		return usageResponse{}, fmt.Errorf("map usage response: distribution exceeds limit")
 	}
 	summary, err := mapUsageAggregate(report.Summary)
 	if err != nil {
@@ -382,12 +399,13 @@ func (service *Service) mapUsageResponse(
 			WriteFailureTotal:    stats.WriteFailureTotal,
 			LastWriteFailureAtMS: lastWriteFailureAtMS,
 		},
-		Summary:            summary,
-		Series:             make([]usageSeriesResponse, 0, len(report.Series)),
-		Breakdown:          make([]usageBreakdownResponse, 0, len(report.Breakdown)),
-		BreakdownTruncated: report.BreakdownTruncated,
-		BreakdownOrder:     report.BreakdownOrder,
-		BreakdownCount:     report.BreakdownCount,
+		Summary: summary,
+		Series:  make([]usageSeriesResponse, 0, len(report.Series)),
+		Distribution: usageDistributionResponse{
+			Dimension: report.Distribution.Dimension,
+			Metric:    report.Distribution.Metric,
+			Items:     make([]usageDistributionItemResponse, 0, len(report.Distribution.Items)),
+		},
 	}
 	if accessKeyScoped {
 		result.CollectionHealth = usageCollectionHealthResponse{Scope: "access_key"}
@@ -409,34 +427,117 @@ func (service *Service) mapUsageResponse(
 			usageAggregateResponse: aggregate,
 		})
 	}
-	for _, row := range report.Breakdown {
+	seenDistributionIdentities := make(map[string]struct{}, len(report.Distribution.Items))
+	for _, row := range report.Distribution.Items {
 		if uint64(row.GroupID) > uint64(maxSafeInteger) {
-			return usageResponse{}, fmt.Errorf("map usage breakdown: unsafe group")
+			return usageResponse{}, fmt.Errorf("map usage distribution: unsafe group")
 		}
-		channelID, err := nullableRequestLogChannelID(row.ChannelID)
-		if err != nil {
-			return usageResponse{}, fmt.Errorf("map usage breakdown: %w", err)
+		identity := row.Model
+		switch report.Distribution.Dimension {
+		case requestlog.UsageDistributionDimensionGroup:
+			if row.GroupID == 0 || row.Model != "" {
+				return usageResponse{}, fmt.Errorf("map usage distribution: invalid group identity")
+			}
+			identity = strconv.FormatUint(uint64(row.GroupID), 10)
+		case requestlog.UsageDistributionDimensionModel:
+			if row.GroupID != 0 || !validUsageDistributionModel(row.Model) {
+				return usageResponse{}, fmt.Errorf("map usage distribution: invalid model identity")
+			}
 		}
-		credentialID, err := nullableRequestLogID(row.CredentialID, "credential")
-		if err != nil {
-			return usageResponse{}, fmt.Errorf("map usage breakdown: %w", err)
+		if _, exists := seenDistributionIdentities[identity]; exists {
+			return usageResponse{}, fmt.Errorf("map usage distribution: duplicate identity")
 		}
-		aggregate, err := mapUsageAggregate(row.UsageAggregate)
+		seenDistributionIdentities[identity] = struct{}{}
+		aggregate, err := mapUsageDistributionAggregate(row.UsageDistributionAggregate)
 		if err != nil {
 			return usageResponse{}, err
 		}
-		result.Breakdown = append(result.Breakdown, usageBreakdownResponse{
-			GroupID: row.GroupID, ChannelID: channelID, CredentialID: credentialID,
-			Model: row.Model, usageAggregateResponse: aggregate,
-		})
-		if accessKeyScoped {
-			redacted := &result.Breakdown[len(result.Breakdown)-1]
-			redacted.GroupID = 0
-			redacted.ChannelID = nil
-			redacted.CredentialID = nil
+		item := usageDistributionItemResponse{
+			RequestCount:         aggregate.RequestCount,
+			EstimatedCostNanoUSD: aggregate.EstimatedCostNanoUSD,
 		}
+		if report.Distribution.Dimension == requestlog.UsageDistributionDimensionGroup {
+			groupID := row.GroupID
+			item.GroupID = &groupID
+		} else {
+			model := row.Model
+			item.Model = &model
+		}
+		result.Distribution.Items = append(result.Distribution.Items, item)
+	}
+	if report.Distribution.Other != nil {
+		other, err := mapUsageDistributionAggregate(*report.Distribution.Other)
+		if err != nil {
+			return usageResponse{}, err
+		}
+		result.Distribution.Other = &other
+	}
+	if err := validateMappedUsageDistribution(result.Summary, result.Distribution); err != nil {
+		return usageResponse{}, err
 	}
 	return result, nil
+}
+
+func validateMappedUsageDistribution(
+	summary usageAggregateResponse,
+	distribution usageDistributionResponse,
+) error {
+	requestCount := int64(0)
+	cost := int64(0)
+	items := make([]usageDistributionAggregateResponse, 0, len(distribution.Items)+1)
+	for _, item := range distribution.Items {
+		items = append(items, usageDistributionAggregateResponse{
+			RequestCount: item.RequestCount, EstimatedCostNanoUSD: item.EstimatedCostNanoUSD,
+		})
+	}
+	if distribution.Other != nil {
+		items = append(items, *distribution.Other)
+	}
+	for _, item := range items {
+		var ok bool
+		requestCount, ok = usage.CheckedAdd(requestCount, item.RequestCount)
+		if !ok {
+			return fmt.Errorf("map usage distribution: request count overflow")
+		}
+		itemCost, err := strconv.ParseInt(item.EstimatedCostNanoUSD, 10, 64)
+		if err != nil {
+			return fmt.Errorf("map usage distribution: invalid cost")
+		}
+		costValue, ok := pricing.CheckedAddNanoUSD(pricing.NanoUSD(cost), pricing.NanoUSD(itemCost))
+		if !ok {
+			return fmt.Errorf("map usage distribution: cost overflow")
+		}
+		cost = int64(costValue)
+	}
+	if requestCount != summary.RequestCount || strconv.FormatInt(cost, 10) != summary.EstimatedCostNanoUSD {
+		return fmt.Errorf("map usage distribution: total mismatch")
+	}
+	return nil
+}
+
+func mapUsageDistributionAggregate(
+	source requestlog.UsageDistributionAggregate,
+) (usageDistributionAggregateResponse, error) {
+	if source.RequestCount < 0 || source.RequestCount > maxSafeInteger ||
+		source.EstimatedCostNanoUSD < 0 {
+		return usageDistributionAggregateResponse{}, fmt.Errorf("map usage distribution: unsafe aggregate")
+	}
+	return usageDistributionAggregateResponse{
+		RequestCount:         source.RequestCount,
+		EstimatedCostNanoUSD: strconv.FormatInt(source.EstimatedCostNanoUSD, 10),
+	}, nil
+}
+
+func validUsageDistributionModel(value string) bool {
+	if !utf8.ValidString(value) || len(value) > 255 || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
 }
 
 func usageResponseBucketWidth(query requestlog.UsageQuery) (int64, error) {

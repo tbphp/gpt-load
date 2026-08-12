@@ -2,6 +2,7 @@ package requestlog
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -35,13 +36,13 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 
 	groupID := uint(7)
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(24 * time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		GroupID:        &groupID,
-		UpstreamModel:  "target",
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(24 * time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		GroupID:            &groupID,
+		UpstreamModel:      "target",
+		Distribution:       UsageDistributionDimensionGroup,
+		DistributionMetric: UsageDistributionMetricRequests,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
@@ -69,10 +70,9 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 			)
 		}
 	}
-	if len(report.Breakdown) != 1 || report.Breakdown[0].GroupID != 7 ||
-		report.Breakdown[0].Model != "target" || report.Breakdown[0].RequestCount != 292 ||
-		report.BreakdownTruncated {
-		t.Fatalf("filtered breakdown = %#v truncated=%t", report.Breakdown, report.BreakdownTruncated)
+	if len(report.Distribution.Items) != 1 || report.Distribution.Items[0].GroupID != 7 ||
+		report.Distribution.Items[0].RequestCount != 292 || report.Distribution.Other != nil {
+		t.Fatalf("filtered distribution = %#v", report.Distribution)
 	}
 }
 
@@ -93,11 +93,11 @@ func TestQueryUsageExcludesLegacyZeroAttemptAggregates(t *testing.T) {
 	createUsageStats(t, db, attributed, legacyZeroAttempt)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		Distribution:       UsageDistributionDimensionGroup,
+		DistributionMetric: UsageDistributionMetricRequests,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
@@ -110,13 +110,13 @@ func TestQueryUsageExcludesLegacyZeroAttemptAggregates(t *testing.T) {
 		report.Series[0].FailureCount != 0 {
 		t.Fatalf("series = %#v, want only attributed requests", report.Series)
 	}
-	if report.BreakdownCount != 1 || len(report.Breakdown) != 1 ||
-		report.Breakdown[0].GroupID != 7 || report.Breakdown[0].Model != "model-a" {
-		t.Fatalf("breakdown = %#v count=%d", report.Breakdown, report.BreakdownCount)
+	if len(report.Distribution.Items) != 1 || report.Distribution.Items[0].GroupID != 7 ||
+		report.Distribution.Items[0].RequestCount != 3 || report.Distribution.Other != nil {
+		t.Fatalf("distribution = %#v", report.Distribution)
 	}
 }
 
-func TestQueryUsageScopesAccessKeyAndCollapsesBreakdownByModel(t *testing.T) {
+func TestQueryUsageScopesAccessKeyAndDistributesByModel(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	start := time.Date(2026, time.August, 8, 15, 0, 0, 0, time.UTC)
@@ -133,29 +133,28 @@ func TestQueryUsageScopesAccessKeyAndCollapsesBreakdownByModel(t *testing.T) {
 
 	accessKeyID := uint(41)
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		AccessKeyID:    &accessKeyID,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		AccessKeyID:        &accessKeyID,
+		Distribution:       UsageDistributionDimensionModel,
+		DistributionMetric: UsageDistributionMetricRequests,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
-	if report.Summary.RequestCount != 6 || report.BreakdownCount != 2 ||
-		len(report.Breakdown) != 2 {
+	if report.Summary.RequestCount != 6 || len(report.Distribution.Items) != 2 {
 		t.Fatalf("scoped report = %#v", report)
 	}
-	if report.Breakdown[0].GroupID != 0 ||
-		report.Breakdown[0].Model != "shared-model" ||
-		report.Breakdown[0].RequestCount != 5 {
-		t.Fatalf("collapsed breakdown[0] = %#v", report.Breakdown[0])
+	if report.Distribution.Items[0].GroupID != 0 ||
+		report.Distribution.Items[0].Model != "shared-model" ||
+		report.Distribution.Items[0].RequestCount != 5 {
+		t.Fatalf("model distribution[0] = %#v", report.Distribution.Items[0])
 	}
-	if report.Breakdown[1].GroupID != 0 ||
-		report.Breakdown[1].Model != "other-model" ||
-		report.Breakdown[1].RequestCount != 1 {
-		t.Fatalf("collapsed breakdown[1] = %#v", report.Breakdown[1])
+	if report.Distribution.Items[1].GroupID != 0 ||
+		report.Distribution.Items[1].Model != "other-model" ||
+		report.Distribution.Items[1].RequestCount != 1 {
+		t.Fatalf("model distribution[1] = %#v", report.Distribution.Items[1])
 	}
 }
 
@@ -166,15 +165,101 @@ func TestQueryUsageRejectsZeroAccessKeyScope(t *testing.T) {
 	zero := uint(0)
 
 	_, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		AccessKeyID:    &zero,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		AccessKeyID:        &zero,
+		Distribution:       UsageDistributionDimensionModel,
+		DistributionMetric: UsageDistributionMetricRequests,
 	})
 	if err == nil {
 		t.Fatal("QueryUsage() error = nil, want zero AccessKey scope rejection")
+	}
+}
+
+func TestQueryUsageDistributionAggregatesCredentialsAndFoldsRemainder(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.July, 2, 0, 0, 0, 0, time.UTC)
+
+	rows := make([]models.UsageStat, 0, 8)
+	for credentialID := uint(1); credentialID <= 3; credentialID++ {
+		row := usageStat(start, 1, "shared-model", int64(11-credentialID))
+		row.CredentialID = credentialID
+		rows = append(rows, row)
+	}
+	for groupID := uint(2); groupID <= 7; groupID++ {
+		row := usageStat(start, groupID, fmt.Sprintf("model-%d", groupID), int64(10-groupID))
+		row.CredentialID = groupID + 20
+		rows = append(rows, row)
+	}
+	createUsageStats(t, db, rows...)
+
+	report, err := service.QueryUsage(context.Background(), UsageQuery{
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		Distribution:       UsageDistributionDimensionGroup,
+		DistributionMetric: UsageDistributionMetricRequests,
+	})
+	if err != nil {
+		t.Fatalf("QueryUsage() error = %v", err)
+	}
+	if len(report.Distribution.Items) != 5 || report.Distribution.Items[0].GroupID != 1 ||
+		report.Distribution.Items[0].RequestCount != 27 {
+		t.Fatalf("group distribution = %#v, want credentials aggregated into top five", report.Distribution)
+	}
+	if report.Distribution.Other == nil || report.Distribution.Other.RequestCount != 7 {
+		t.Fatalf("other distribution = %#v, want remaining two groups aggregated", report.Distribution.Other)
+	}
+	if report.Summary.RequestCount != 60 {
+		t.Fatalf("summary request count = %d, want 60", report.Summary.RequestCount)
+	}
+}
+
+func TestQueryUsageModelDistributionAggregatesGroupsAndCredentials(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.July, 2, 0, 0, 0, 0, time.UTC)
+	rows := []models.UsageStat{
+		usageStat(start, 1, "shared-model", 3),
+		usageStat(start, 1, "shared-model", 4),
+		usageStat(start, 2, "shared-model", 5),
+		usageStat(start, 2, "other-model", 2),
+	}
+	for index := range rows {
+		rows[index].CredentialID = uint(index + 1)
+	}
+	createUsageStats(t, db, rows...)
+
+	report, err := service.QueryUsage(context.Background(), UsageQuery{
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		Distribution:       UsageDistributionDimensionModel,
+		DistributionMetric: UsageDistributionMetricRequests,
+	})
+	if err != nil {
+		t.Fatalf("QueryUsage() error = %v", err)
+	}
+	if len(report.Distribution.Items) != 2 || report.Distribution.Items[0].Model != "shared-model" ||
+		report.Distribution.Items[0].RequestCount != 12 || report.Distribution.Other != nil {
+		t.Fatalf("model distribution = %#v", report.Distribution)
+	}
+}
+
+func TestQueryUsageRejectsInvalidDistributionDimension(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	start := time.Date(2026, time.July, 2, 0, 0, 0, 0, time.UTC)
+	_, err := newRequestLogTestService(db).QueryUsage(context.Background(), UsageQuery{
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		Distribution:       UsageDistributionDimension("credential"),
+		DistributionMetric: UsageDistributionMetricRequests,
+	})
+	if err == nil {
+		t.Fatal("QueryUsage() error = nil, want invalid distribution dimension rejection")
 	}
 }
 
@@ -193,11 +278,9 @@ func TestQueryUsageMergesHourlyRowsIntoThirtyUTCDays(t *testing.T) {
 	createUsageStats(t, db, rows...)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.AddDate(0, 0, 30).UnixMilli(),
-		Granularity:    UsageGranularityDay,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.AddDate(0, 0, 30).UnixMilli(),
+		Granularity: UsageGranularityDay,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
@@ -234,12 +317,10 @@ func TestQueryUsageMergesHourlyRowsIntoAdaptiveBuckets(t *testing.T) {
 			)
 
 			report, err := service.QueryUsage(context.Background(), UsageQuery{
-				FromMS:         start.UnixMilli(),
-				ToMS:           start.Add(2 * width).UnixMilli(),
-				Granularity:    UsageGranularityHour,
-				BucketWidthMS:  width.Milliseconds(),
-				Limit:          100,
-				BreakdownOrder: UsageBreakdownOrderRequests,
+				FromMS:        start.UnixMilli(),
+				ToMS:          start.Add(2 * width).UnixMilli(),
+				Granularity:   UsageGranularityHour,
+				BucketWidthMS: width.Milliseconds(),
 			})
 			if err != nil {
 				t.Fatalf("QueryUsage() error = %v", err)
@@ -284,12 +365,10 @@ func TestQueryUsageRejectsInvalidBucketWidths(t *testing.T) {
 			db := openRequestLogQueryDB(t)
 			service := newRequestLogTestService(db)
 			_, err := service.QueryUsage(context.Background(), UsageQuery{
-				FromMS:         test.from.UnixMilli(),
-				ToMS:           test.to.UnixMilli(),
-				Granularity:    test.granularity,
-				BucketWidthMS:  test.width.Milliseconds(),
-				Limit:          100,
-				BreakdownOrder: UsageBreakdownOrderRequests,
+				FromMS:        test.from.UnixMilli(),
+				ToMS:          test.to.UnixMilli(),
+				Granularity:   test.granularity,
+				BucketWidthMS: test.width.Milliseconds(),
 			})
 			if err == nil {
 				t.Fatal("QueryUsage() error = nil, want invalid bucket width rejection")
@@ -298,40 +377,7 @@ func TestQueryUsageRejectsInvalidBucketWidths(t *testing.T) {
 	}
 }
 
-func TestQueryUsageLimitsBreakdownToStableTopHundred(t *testing.T) {
-	db := openRequestLogQueryDB(t)
-	service := newRequestLogTestService(db)
-	start := time.Date(2026, time.July, 2, 0, 0, 0, 0, time.UTC)
-	rows := make([]models.UsageStat, 0, 101)
-	for groupID := uint(1); groupID <= 101; groupID++ {
-		rows = append(rows, usageStat(start, groupID, "same-count", 1))
-	}
-	createUsageStats(t, db, rows...)
-
-	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
-	})
-	if err != nil {
-		t.Fatalf("QueryUsage() error = %v", err)
-	}
-	if len(report.Breakdown) != 100 || !report.BreakdownTruncated {
-		t.Fatalf("breakdown length/truncated = %d/%t, want 100/true", len(report.Breakdown), report.BreakdownTruncated)
-	}
-	if report.Summary.RequestCount != 101 {
-		t.Fatalf("summary request count = %d, want all 101 rows", report.Summary.RequestCount)
-	}
-	for index, row := range report.Breakdown {
-		if row.GroupID != uint(index+1) || row.Model != "same-count" || row.RequestCount != 1 {
-			t.Fatalf("breakdown[%d] = %#v, want stable group order", index, row)
-		}
-	}
-}
-
-func TestQueryUsageOrdersBreakdownByRequestsAndCost(t *testing.T) {
+func TestQueryUsageOrdersDistributionByRequestsAndCost(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	start := time.Date(2026, time.July, 2, 1, 0, 0, 0, time.UTC)
@@ -344,52 +390,48 @@ func TestQueryUsageOrdersBreakdownByRequestsAndCost(t *testing.T) {
 	createUsageStats(t, db, requestHeavy, expensiveLowRequests, expensiveHighRequests)
 
 	tests := []struct {
-		name  string
-		order UsageBreakdownOrder
-		want  []uint
+		name   string
+		metric UsageDistributionMetric
+		want   []uint
 	}{
 		{
-			name:  "requests use cost then identity tie breakers",
-			order: UsageBreakdownOrderRequests,
-			want:  []uint{1, 3, 2},
+			name:   "requests use cost then identity tie breakers",
+			metric: UsageDistributionMetricRequests,
+			want:   []uint{1, 3, 2},
 		},
 		{
-			name:  "cost uses requests then identity tie breakers",
-			order: UsageBreakdownOrderCost,
-			want:  []uint{3, 2, 1},
+			name:   "cost uses requests then identity tie breakers",
+			metric: UsageDistributionMetricCost,
+			want:   []uint{3, 2, 1},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			report, err := service.QueryUsage(context.Background(), UsageQuery{
-				FromMS:         start.UnixMilli(),
-				ToMS:           start.Add(time.Hour).UnixMilli(),
-				Granularity:    UsageGranularityHour,
-				Limit:          100,
-				BreakdownOrder: test.order,
+				FromMS:             start.UnixMilli(),
+				ToMS:               start.Add(time.Hour).UnixMilli(),
+				Granularity:        UsageGranularityHour,
+				Distribution:       UsageDistributionDimensionGroup,
+				DistributionMetric: test.metric,
 			})
 			if err != nil {
 				t.Fatalf("QueryUsage() error = %v", err)
 			}
-			if report.BreakdownOrder != test.order || report.BreakdownCount != 3 {
-				t.Fatalf(
-					"breakdown metadata = %q/%d, want %q/3",
-					report.BreakdownOrder,
-					report.BreakdownCount,
-					test.order,
-				)
+			if report.Distribution.Dimension != UsageDistributionDimensionGroup ||
+				report.Distribution.Metric != test.metric {
+				t.Fatalf("distribution metadata = %#v", report.Distribution)
 			}
-			if len(report.Breakdown) != len(test.want) {
-				t.Fatalf("breakdown = %#v, want %d rows", report.Breakdown, len(test.want))
+			if len(report.Distribution.Items) != len(test.want) {
+				t.Fatalf("distribution = %#v, want %d rows", report.Distribution, len(test.want))
 			}
 			for index, wantGroupID := range test.want {
-				if report.Breakdown[index].GroupID != wantGroupID {
+				if report.Distribution.Items[index].GroupID != wantGroupID {
 					t.Fatalf(
-						"breakdown[%d].GroupID = %d, want %d; report=%#v",
+						"distribution[%d].GroupID = %d, want %d; report=%#v",
 						index,
-						report.Breakdown[index].GroupID,
+						report.Distribution.Items[index].GroupID,
 						wantGroupID,
-						report.Breakdown,
+						report.Distribution,
 					)
 				}
 			}
@@ -397,69 +439,19 @@ func TestQueryUsageOrdersBreakdownByRequestsAndCost(t *testing.T) {
 	}
 }
 
-func TestQueryUsageCountsDistinctGroupModelBreakdownItemsWithinFilters(t *testing.T) {
-	db := openRequestLogQueryDB(t)
-	service := newRequestLogTestService(db)
-	start := time.Date(2026, time.July, 2, 2, 0, 0, 0, time.UTC)
-	createUsageStats(
-		t,
-		db,
-		usageStat(start, 1, "model-a", 1),
-		usageStat(start, 1, "model-b", 1),
-		usageStat(start, 2, "model-a", 1),
-		usageStat(start, 3, "model-b", 1),
-	)
-	groupID := uint(1)
-	tests := []struct {
-		name    string
-		groupID *uint
-		model   string
-		want    int64
-	}{
-		{name: "all group model items", want: 4},
-		{name: "one group across models", groupID: &groupID, want: 2},
-		{name: "model a", model: "model-a", want: 2},
-		{name: "model b", model: "model-b", want: 2},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			report, err := service.QueryUsage(context.Background(), UsageQuery{
-				FromMS:         start.UnixMilli(),
-				ToMS:           start.Add(time.Hour).UnixMilli(),
-				Granularity:    UsageGranularityHour,
-				GroupID:        test.groupID,
-				UpstreamModel:  test.model,
-				Limit:          100,
-				BreakdownOrder: UsageBreakdownOrderRequests,
-			})
-			if err != nil {
-				t.Fatalf("QueryUsage() error = %v", err)
-			}
-			if report.BreakdownCount != test.want {
-				t.Fatalf(
-					"BreakdownCount = %d, want %d; report=%#v",
-					report.BreakdownCount,
-					test.want,
-					report,
-				)
-			}
-		})
-	}
-}
-
-func TestQueryUsageRejectsInvalidBreakdownOrder(t *testing.T) {
+func TestQueryUsageRejectsInvalidDistributionMetric(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	start := time.Date(2026, time.July, 2, 3, 0, 0, 0, time.UTC)
 	_, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrder("unknown"),
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		Distribution:       UsageDistributionDimensionGroup,
+		DistributionMetric: UsageDistributionMetric("tokens"),
 	})
 	if err == nil {
-		t.Fatal("QueryUsage() error = nil, want invalid breakdown order rejection")
+		t.Fatal("QueryUsage() error = nil, want invalid distribution metric rejection")
 	}
 }
 
@@ -497,18 +489,15 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 	})
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)
 	}
 	if !inserted || report.Summary.RequestCount != 1 || len(report.Series) != 1 ||
-		report.BreakdownCount != 1 ||
-		len(report.Breakdown) != 1 || report.Breakdown[0].Model != "before" {
+		len(report.Distribution.Items) != 1 || report.Distribution.Items[0].GroupID != 1 {
 		t.Fatalf("report did not retain one snapshot: inserted=%t report=%#v", inserted, report)
 	}
 }
@@ -539,11 +528,9 @@ func TestQueryUsageCancelsAfterBeginWithoutPoisoningDatabaseConnection(t *testin
 	}()
 
 	_, err := service.QueryUsage(ctx, UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:      start.UnixMilli(),
+		ToMS:        start.Add(time.Hour).UnixMilli(),
+		Granularity: UsageGranularityHour,
 	})
 	if err == nil || !cancelled {
 		t.Fatalf("QueryUsage() error/cancelled = %v/%t, want cancelled query", err, cancelled)
@@ -564,7 +551,7 @@ func TestQueryUsageCancelsAfterBeginWithoutPoisoningDatabaseConnection(t *testin
 	}
 }
 
-func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
+func TestQueryUsageRejectsCorruptRowsOutsideTopDistribution(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	start := time.Date(2026, time.July, 5, 0, 0, 0, 0, time.UTC)
@@ -585,31 +572,31 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
 	createCorruptUsageStats(t, db, rows...)
 
 	input := UsageQuery{
-		FromMS:         start.UnixMilli(),
-		ToMS:           start.Add(time.Hour).UnixMilli(),
-		Granularity:    UsageGranularityHour,
-		Limit:          100,
-		BreakdownOrder: UsageBreakdownOrderRequests,
+		FromMS:             start.UnixMilli(),
+		ToMS:               start.Add(time.Hour).UnixMilli(),
+		Granularity:        UsageGranularityHour,
+		Distribution:       UsageDistributionDimensionGroup,
+		DistributionMetric: UsageDistributionMetricRequests,
 	}
-	if summary, err := queryUsageSummary(usageStatScope(db, input)); err != nil || summary.RequestCount != 303 {
+	summary, err := queryUsageSummary(usageStatScope(db, input))
+	if err != nil || summary.RequestCount != 303 {
 		t.Fatalf("pre-integrity summary = %#v/%v, want valid 303-request aggregate", summary, err)
 	}
 	if series, err := queryUsageSeries(usageStatScope(db, input), time.Hour.Milliseconds()); err != nil || len(series) != 1 {
 		t.Fatalf("pre-integrity series = %#v/%v, want one valid hour aggregate", series, err)
 	}
-	if breakdown, truncated, err := queryUsageBreakdown(
+	if distribution, err := queryUsageDistribution(
 		usageStatScope(db, input),
-		input.Limit,
-		input.BreakdownOrder,
-		false,
-	); err != nil ||
-		len(breakdown) != 100 || !truncated || breakdown[99].GroupID != 100 {
-		t.Fatalf("pre-integrity breakdown = %#v/%t/%v, want valid top 100 without group 102", breakdown, truncated, err)
+		summary,
+		input.Distribution,
+		input.DistributionMetric,
+	); err != nil || len(distribution.Items) != 5 || distribution.Items[4].GroupID != 5 {
+		t.Fatalf("pre-integrity distribution = %#v/%v, want valid top five", distribution, err)
 	}
 
-	_, err := service.QueryUsage(context.Background(), input)
+	_, err = service.QueryUsage(context.Background(), input)
 	if err == nil {
-		t.Fatal("QueryUsage() error = nil, want corrupt 102nd breakdown row rejection")
+		t.Fatal("QueryUsage() error = nil, want corrupt row outside top distribution rejection")
 	}
 }
 
@@ -699,11 +686,9 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 			db := openRequestLogQueryDB(t)
 			createCorruptUsageStats(t, db, test.rows...)
 			_, err := newRequestLogTestService(db).QueryUsage(context.Background(), UsageQuery{
-				FromMS:         start.UnixMilli(),
-				ToMS:           start.Add(time.Hour).UnixMilli(),
-				Granularity:    UsageGranularityHour,
-				Limit:          100,
-				BreakdownOrder: UsageBreakdownOrderRequests,
+				FromMS:      start.UnixMilli(),
+				ToMS:        start.Add(time.Hour).UnixMilli(),
+				Granularity: UsageGranularityHour,
 			})
 			if err == nil {
 				t.Fatal("QueryUsage() error = nil, want corrupt aggregate rejection")

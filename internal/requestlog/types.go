@@ -158,25 +158,32 @@ const (
 	UsageGranularityDay  UsageGranularity = "day"
 )
 
-type UsageBreakdownOrder string
+type UsageDistributionDimension string
 
 const (
-	UsageBreakdownOrderRequests UsageBreakdownOrder = "requests"
-	UsageBreakdownOrderCost     UsageBreakdownOrder = "cost"
+	UsageDistributionDimensionGroup UsageDistributionDimension = "group"
+	UsageDistributionDimensionModel UsageDistributionDimension = "model"
+)
+
+type UsageDistributionMetric string
+
+const (
+	UsageDistributionMetricRequests UsageDistributionMetric = "requests"
+	UsageDistributionMetricCost     UsageDistributionMetric = "cost"
 )
 
 type UsageQuery struct {
-	FromMS         int64
-	ToMS           int64
-	Granularity    UsageGranularity
-	BucketWidthMS  int64
-	AccessKeyID    *uint
-	GroupID        *uint
-	ChannelID      channel.ID
-	CredentialID   *uint
-	UpstreamModel  string
-	Limit          int
-	BreakdownOrder UsageBreakdownOrder
+	FromMS             int64
+	ToMS               int64
+	Granularity        UsageGranularity
+	BucketWidthMS      int64
+	AccessKeyID        *uint
+	GroupID            *uint
+	ChannelID          channel.ID
+	CredentialID       *uint
+	UpstreamModel      string
+	Distribution       UsageDistributionDimension
+	DistributionMetric UsageDistributionMetric
 }
 
 type UsageAggregate struct {
@@ -202,21 +209,28 @@ type UsageSeriesPoint struct {
 	UsageAggregate
 }
 
-type UsageBreakdown struct {
-	GroupID      uint
-	ChannelID    channel.ID
-	CredentialID uint
-	Model        string
-	UsageAggregate
+type UsageDistributionItem struct {
+	GroupID uint
+	Model   string
+	UsageDistributionAggregate
+}
+
+type UsageDistributionAggregate struct {
+	RequestCount         int64
+	EstimatedCostNanoUSD int64
+}
+
+type UsageDistribution struct {
+	Dimension UsageDistributionDimension
+	Metric    UsageDistributionMetric
+	Items     []UsageDistributionItem
+	Other     *UsageDistributionAggregate
 }
 
 type UsageReport struct {
-	Summary            UsageAggregate
-	Series             []UsageSeriesPoint
-	Breakdown          []UsageBreakdown
-	BreakdownTruncated bool
-	BreakdownOrder     UsageBreakdownOrder
-	BreakdownCount     int64
+	Summary      UsageAggregate
+	Series       []UsageSeriesPoint
+	Distribution UsageDistribution
 }
 
 type Stats struct {

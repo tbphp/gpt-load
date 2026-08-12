@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { ChevronRight, Database } from '@lucide/vue'
+import { Database } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -13,31 +13,28 @@ import { controlQueryKeys } from '@/app/query-keys'
 import {
   usageQueryOptions,
   type UsageAggregateDto,
-  type UsageBreakdownOrder,
+  type UsageDistributionDimension,
+  type UsageDistributionMetric,
   type UsageFilters,
   type UsageRange,
 } from '@/app/resources/usage'
 import { monitorLocation } from '@/app/route-locations'
-import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import type { TrendDatum } from '@/components/charts/trend-chart'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatCacheHitRate } from '@/lib/cache-rate'
-import { formatEstimatedCost, formatInteger, formatPercent, formatTokens } from '@/lib/format'
+import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 import UsageBarChart from './UsageBarChart.vue'
+import UsageDistribution from './UsageDistribution.vue'
 import {
   applyUsageFilterDraft,
   createUsageFilterDraft,
@@ -49,8 +46,6 @@ import {
 import type { UsageBarDatum } from './usage-bar-chart'
 import {
   parseUsageMonitorState,
-  sameUsageBreakdownIdentity,
-  usageBreakdownIdentity,
   usageMonitorQuery,
   type UsageMonitorState,
   type UsageTrendMetric,
@@ -93,7 +88,9 @@ const {
     placeholder: () => usageQuery.isPlaceholderData.value,
     fetching: () => usageQuery.isFetching.value,
     hasData: () => report.value !== undefined,
-    itemCount: () => report.value?.breakdown.length ?? 0,
+    itemCount: () =>
+      (report.value?.distribution.items.length ?? 0) +
+      (report.value?.distribution.other === null ? 0 : 1),
   },
   { fallbackRows: 5 },
 )
@@ -106,9 +103,13 @@ const usageRefreshing = computed(
       channelsQuery.isFetching.value),
 )
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
-const orderOptions = computed(() => [
-  { value: 'requests', label: t('monitor.usage.breakdown.orderRequests') },
-  { value: 'cost', label: t('monitor.usage.breakdown.orderCost') },
+const distributionDimensionOptions = computed(() => [
+  { value: 'group', label: t('monitor.usage.distribution.dimensions.group') },
+  { value: 'model', label: t('monitor.usage.distribution.dimensions.model') },
+])
+const distributionMetricOptions = computed(() => [
+  { value: 'requests', label: t('monitor.usage.distribution.metrics.requests') },
+  { value: 'cost', label: t('monitor.usage.distribution.metrics.cost') },
 ])
 const costChartResolution = 1_000_000_000n
 const trendMetricOptions = computed(() => [
@@ -210,7 +211,8 @@ watch(
     () => appliedFilters.value.channel_id,
     () => appliedFilters.value.credential_id,
     () => appliedFilters.value.upstream_model,
-    () => appliedFilters.value.breakdown_order,
+    () => appliedFilters.value.distribution,
+    () => appliedFilters.value.distribution_metric,
   ],
   () => {
     draft.value = createUsageFilterDraft(appliedFilters.value)
@@ -253,39 +255,6 @@ function inputTokens(aggregate: UsageAggregateDto): number {
   )
 }
 
-function cacheRateLabel(aggregate: UsageAggregateDto): string {
-  return formatCacheHitRate(aggregate.cache_read_tokens, inputTokens(aggregate), locale.value)
-}
-
-function groupName(groupID: number): string {
-  if (groupID === 0) return t('monitor.usage.breakdown.unattributedGroup')
-  return (
-    groupsQuery.data.value?.find((group) => group.id === groupID)?.name ??
-    t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
-  )
-}
-
-function routeMeta(row: NonNullable<typeof report.value>['breakdown'][number]): string {
-  if (isAccessKey.value) return t('monitor.usage.breakdown.redactedRoute')
-  const parts = [
-    row.group_id === 0 ? t('monitor.usage.breakdown.unattributedMeta') : `Group #${row.group_id}`,
-  ]
-  if (row.channel_id !== null) {
-    const channel = channelsQuery.data.value?.items.find(
-      ({ channel_id }) => channel_id === row.channel_id,
-    )
-    parts.push(channel?.name ?? row.channel_id)
-  }
-  if (row.credential_id !== null) {
-    parts.push(t('monitor.usage.breakdown.credentialRef', { id: row.credential_id }))
-  }
-  return parts.join(' · ')
-}
-
-function modelLabel(model: string): string {
-  return model === '' ? t('monitor.usage.breakdown.unknownModel') : model
-}
-
 function updateDraftField(field: keyof UsageFilterDraft, value: string): void {
   draft.value = { ...draft.value, [field]: value }
 }
@@ -314,16 +283,37 @@ async function applyFilters(): Promise<void> {
 async function resetFilters(): Promise<void> {
   await navigate({
     range: appliedFilters.value.range,
-    breakdown_order: appliedFilters.value.breakdown_order,
+    distribution: appliedFilters.value.distribution,
+    distribution_metric: appliedFilters.value.distribution_metric,
   })
 }
 
-async function updateBreakdownOrder(value: string): Promise<void> {
-  if (value !== 'requests' && value !== 'cost') return
+async function updateDistributionDimension(value: string): Promise<void> {
+  if (value !== 'group' && value !== 'model') return
   await navigate(
-    { ...appliedFilters.value, breakdown_order: value as UsageBreakdownOrder },
+    { ...appliedFilters.value, distribution: value as UsageDistributionDimension },
     routeState.value,
   )
+}
+
+async function updateDistributionMetric(value: string): Promise<void> {
+  if (value !== 'requests' && value !== 'cost') return
+  await navigate(
+    { ...appliedFilters.value, distribution_metric: value as UsageDistributionMetric },
+    routeState.value,
+  )
+}
+
+async function selectDistributionItem(
+  item: NonNullable<typeof report.value>['distribution']['items'][number],
+): Promise<void> {
+  if (report.value?.distribution.dimension === 'group' && item.group_id !== undefined) {
+    await navigate({ ...appliedFilters.value, group_id: item.group_id })
+    return
+  }
+  if (report.value?.distribution.dimension === 'model' && item.model) {
+    await navigate({ ...appliedFilters.value, upstream_model: item.model })
+  }
 }
 
 async function updateTrendMetric(value: string): Promise<void> {
@@ -338,45 +328,12 @@ async function navigate(
   filters: UsageFilters,
   state: UsageMonitorState = {
     filtersOpen: false,
-    expandedBreakdowns: [],
     seriesExpanded: false,
     metric: routeState.value.metric,
   },
 ): Promise<void> {
   const scopedFilters = isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
   await router.push(monitorLocation(usageMonitorQuery(scopedFilters, state)))
-}
-
-function breakdownExpanded(
-  groupID: number,
-  channelID: string | null,
-  credentialID: number | null,
-  model: string,
-): boolean {
-  const identity = usageBreakdownIdentity(groupID, channelID, credentialID, model)
-  return routeState.value.expandedBreakdowns.some((candidate) =>
-    sameUsageBreakdownIdentity(candidate, identity),
-  )
-}
-
-function setBreakdownExpanded(
-  groupID: number,
-  channelID: string | null,
-  credentialID: number | null,
-  model: string,
-  event: Event,
-): void {
-  const expanded = (event.currentTarget as HTMLDetailsElement).open
-  const identity = usageBreakdownIdentity(groupID, channelID, credentialID, model)
-  const current = routeState.value.expandedBreakdowns
-  const alreadyExpanded = current.some((candidate) =>
-    sameUsageBreakdownIdentity(candidate, identity),
-  )
-  if (expanded === alreadyExpanded) return
-  const next = expanded
-    ? [...current, identity]
-    : current.filter((candidate) => !sameUsageBreakdownIdentity(candidate, identity))
-  void navigate(appliedFilters.value, { ...routeState.value, expandedBreakdowns: next })
 }
 
 function setSeriesExpanded(event: Event): void {
@@ -571,187 +528,39 @@ defineExpose({ openFilters, refresh })
           </div>
         </section>
 
-        <section class="usage-breakdown" aria-labelledby="usage-breakdown-title">
+        <section class="usage-distribution-section" aria-labelledby="usage-distribution-title">
           <MonitorSectionHeading
-            id="usage-breakdown-title"
-            :title="t('monitor.usage.breakdown.title')"
-            :description="t('monitor.usage.breakdown.description')"
-            :meta="
-              t('monitor.usage.breakdown.count', {
-                count: formatInteger(report.breakdown_count, locale),
-              })
-            "
+            id="usage-distribution-title"
+            :title="t('monitor.usage.distribution.title')"
+            :description="t('monitor.usage.distribution.description')"
+            :meta="t('monitor.usage.distribution.limit')"
           >
             <template #actions>
-              <StatusBadge v-if="report.breakdown_truncated" tone="warning" size="compact">
-                {{ t('monitor.usage.breakdown.truncatedShort') }}
-              </StatusBadge>
-              <AppSelect
-                :model-value="report.breakdown_order"
-                :label="t('monitor.usage.breakdown.orderLabel')"
-                :options="orderOptions"
+              <SegmentedControl
+                v-if="!isAccessKey"
+                :model-value="report.distribution.dimension"
+                :label="t('monitor.usage.distribution.dimensionLabel')"
+                :options="distributionDimensionOptions"
                 size="compact"
-                @update:model-value="updateBreakdownOrder"
+                @update:model-value="updateDistributionDimension"
+              />
+              <SegmentedControl
+                :model-value="report.distribution.metric"
+                :label="t('monitor.usage.distribution.metricLabel')"
+                :options="distributionMetricOptions"
+                size="compact"
+                @update:model-value="updateDistributionMetric"
               />
             </template>
           </MonitorSectionHeading>
 
-          <LedgerRecordList
-            :label="t('monitor.usage.breakdown.caption')"
-            :row-count="report.breakdown.length + 1"
-            :scroll-hint="t('monitor.scrollHint')"
-            :grid-class="
-              isAccessKey
-                ? 'usage-breakdown-grid usage-breakdown-grid--scoped'
-                : 'usage-breakdown-grid'
-            "
-          >
-            <template #header>
-              <span v-if="!isAccessKey" role="columnheader">{{
-                t('monitor.usage.columns.route')
-              }}</span>
-              <span role="columnheader">{{ t('monitor.usage.columns.upstreamModel') }}</span>
-              <span role="columnheader">{{ t('monitor.usage.columns.requests') }}</span>
-              <span role="columnheader">{{ t('monitor.usage.columns.totalTokens') }}</span>
-              <span role="columnheader">{{ t('monitor.usage.columns.estimatedCost') }}</span>
-              <span role="columnheader">{{ t('monitor.usage.columns.quality') }}</span>
-              <span role="columnheader">{{ t('monitor.usage.columns.actions') }}</span>
-            </template>
-
-            <details
-              v-for="(row, index) in report.breakdown"
-              :key="`${row.group_id}:${row.channel_id ?? '-'}:${row.credential_id ?? '-'}:${row.model}`"
-              class="usage-breakdown-record"
-              :open="breakdownExpanded(row.group_id, row.channel_id, row.credential_id, row.model)"
-              @toggle="
-                setBreakdownExpanded(
-                  row.group_id,
-                  row.channel_id,
-                  row.credential_id,
-                  row.model,
-                  $event,
-                )
-              "
-            >
-              <summary
-                class="ledger-record-list__record usage-breakdown-record__summary"
-                role="row"
-                :aria-rowindex="index + 2"
-              >
-                <div
-                  v-if="!isAccessKey"
-                  class="ledger-record-list__cell usage-breakdown-record__identity"
-                  role="cell"
-                >
-                  <OverflowTooltip as="strong" :content="groupName(row.group_id)">
-                    {{ groupName(row.group_id) }}
-                  </OverflowTooltip>
-                  <small>{{ routeMeta(row) }}</small>
-                </div>
-                <div class="ledger-record-list__cell usage-breakdown-record__model" role="cell">
-                  <span class="usage-cell-label">{{
-                    t('monitor.usage.columns.upstreamModel')
-                  }}</span>
-                  <OverflowTooltip as="code" :content="modelLabel(row.model)">
-                    {{ modelLabel(row.model) }}
-                  </OverflowTooltip>
-                </div>
-                <div class="ledger-record-list__cell usage-breakdown-record__number" role="cell">
-                  <span class="usage-cell-label">{{ t('monitor.usage.columns.requests') }}</span>
-                  <span>{{ formatInteger(row.request_count, locale) }}</span>
-                </div>
-                <div class="ledger-record-list__cell usage-breakdown-record__number" role="cell">
-                  <span class="usage-cell-label">{{ t('monitor.usage.columns.totalTokens') }}</span>
-                  <span>{{ formatTokens(row.total_tokens, locale) }}</span>
-                </div>
-                <div class="ledger-record-list__cell usage-breakdown-record__cost" role="cell">
-                  <span class="usage-cell-label">{{
-                    t('monitor.usage.columns.estimatedCost')
-                  }}</span>
-                  <span>{{ formatCost(row) }}</span>
-                </div>
-                <div class="ledger-record-list__cell usage-breakdown-record__quality" role="cell">
-                  <span class="usage-cell-label">{{ t('monitor.usage.columns.quality') }}</span>
-                  <span>
-                    {{
-                      t('monitor.usage.columns.qualitySuccess', {
-                        rate: formatPercent(row.success_count, row.request_count, locale),
-                      })
-                    }}
-                  </span>
-                  <small>
-                    {{
-                      t('monitor.usage.columns.qualityCache', {
-                        rate: cacheRateLabel(row),
-                      })
-                    }}
-                  </small>
-                </div>
-                <div class="ledger-record-list__cell usage-breakdown-record__action" role="cell">
-                  <ChevronRight :size="17" aria-hidden="true" />
-                </div>
-              </summary>
-
-              <dl class="usage-breakdown-record__detail">
-                <div v-if="!isAccessKey">
-                  <dt>{{ t('monitor.usage.columns.channel') }}</dt>
-                  <dd>{{ row.channel_id ?? '—' }}</dd>
-                </div>
-                <div v-if="!isAccessKey">
-                  <dt>{{ t('monitor.usage.columns.credential') }}</dt>
-                  <dd>{{ row.credential_id === null ? '—' : `#${row.credential_id}` }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.columns.success') }}</dt>
-                  <dd>{{ formatInteger(row.success_count, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.columns.failure') }}</dt>
-                  <dd>{{ formatInteger(row.failure_count, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.tokens.uncachedInput') }}</dt>
-                  <dd>{{ formatTokens(row.uncached_input_tokens, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.tokens.cacheRead') }}</dt>
-                  <dd>{{ formatTokens(row.cache_read_tokens, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.tokens.cacheWrite5m') }}</dt>
-                  <dd>{{ formatTokens(row.cache_write_5m_tokens, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.tokens.cacheWrite1h') }}</dt>
-                  <dd>{{ formatTokens(row.cache_write_1h_tokens, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.tokens.cacheWriteUnknown') }}</dt>
-                  <dd>{{ formatTokens(row.cache_write_unknown_tokens, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.tokens.output') }}</dt>
-                  <dd>{{ formatTokens(row.output_tokens, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.quality.missing') }}</dt>
-                  <dd>{{ formatInteger(row.usage_missing_count, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.quality.partial') }}</dt>
-                  <dd>{{ formatInteger(row.partial_count, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.quality.unpriced') }}</dt>
-                  <dd>{{ formatInteger(row.unpriced_request_count, locale) }}</dd>
-                </div>
-                <div>
-                  <dt>{{ t('monitor.usage.quality.pricingPartial') }}</dt>
-                  <dd>{{ formatInteger(row.pricing_partial_count, locale) }}</dd>
-                </div>
-              </dl>
-            </details>
-          </LedgerRecordList>
+          <UsageDistribution
+            :distribution="report.distribution"
+            :summary="report.summary"
+            :groups="groupsQuery.data.value ?? []"
+            :channels="channelsQuery.data.value?.items ?? []"
+            @select="selectDistributionItem"
+          />
         </section>
 
         <details
@@ -819,7 +628,7 @@ defineExpose({ openFilters, refresh })
 <style scoped>
 .usage-tab,
 .usage-analysis-section,
-.usage-breakdown {
+.usage-distribution-section {
   display: grid;
   min-width: 0;
 }
@@ -829,8 +638,21 @@ defineExpose({ openFilters, refresh })
 }
 
 .usage-analysis-section,
-.usage-breakdown {
+.usage-distribution-section {
   gap: 12px;
+}
+
+.usage-distribution-section :deep(.monitor-section-heading) {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 680px) {
+  .usage-distribution-section :deep(.monitor-section-heading__actions) {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
 }
 
 .usage-trend-panel {
@@ -927,153 +749,6 @@ defineExpose({ openFilters, refresh })
   letter-spacing: -0.035em;
 }
 
-.usage-breakdown-grid {
-  --ledger-record-list-grid: minmax(170px, 1.2fr) minmax(120px, 0.85fr) 82px 92px 122px
-    minmax(160px, 1.1fr) 34px;
-  --ledger-record-list-column-gap: 13px;
-
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-card);
-  padding-inline: 14px;
-}
-
-.usage-breakdown-grid--scoped {
-  --ledger-record-list-grid: minmax(170px, 1.2fr) 82px 92px 122px minmax(160px, 1.1fr) 34px;
-}
-
-.usage-breakdown-record {
-  display: block;
-  min-width: 0;
-  grid-column: 1 / -1;
-}
-
-.usage-breakdown-record__summary {
-  --ledger-record-list-record-min-height: 72px;
-  --ledger-record-list-record-padding: 12px 0;
-
-  grid-template-columns: var(--ledger-record-list-grid);
-  column-gap: var(--ledger-record-list-column-gap);
-  cursor: pointer;
-  list-style: none;
-}
-
-.usage-breakdown-record__summary::-webkit-details-marker {
-  display: none;
-}
-
-.usage-breakdown-record[open] .usage-breakdown-record__summary {
-  background: var(--color-surface-sunken);
-}
-
-.usage-breakdown-record__identity,
-.usage-breakdown-record__cost,
-.usage-breakdown-record__quality {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.usage-breakdown-record__identity strong,
-.usage-breakdown-record__model code {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.usage-breakdown-record__identity strong {
-  font-size: var(--text-sm);
-  font-weight: 620;
-}
-
-.usage-breakdown-record__identity small,
-.usage-breakdown-record__cost small,
-.usage-breakdown-record__quality small {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.usage-breakdown-record__identity small,
-.usage-breakdown-record__model code,
-.usage-breakdown-record__number,
-.usage-breakdown-record__cost > span:not(.usage-cell-label) {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.usage-breakdown-record__model code,
-.usage-breakdown-record__number,
-.usage-breakdown-record__cost > span:not(.usage-cell-label) {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-.usage-breakdown-record__cost small {
-  color: var(--color-warning);
-}
-
-.usage-breakdown-record__quality {
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-  line-height: 1.45;
-}
-
-.usage-breakdown-record__action {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  justify-self: end;
-  border-radius: var(--radius-control);
-  color: var(--color-text-muted);
-  transition:
-    transform var(--duration-fast) var(--easing-standard),
-    background-color var(--duration-fast) var(--easing-standard);
-}
-
-.usage-breakdown-record__summary:hover .usage-breakdown-record__action {
-  background: var(--color-surface);
-}
-
-.usage-breakdown-record[open] .usage-breakdown-record__action {
-  transform: rotate(90deg);
-}
-
-.usage-cell-label {
-  display: none;
-  color: var(--color-text-faint);
-  font-family: var(--font-sans);
-  font-size: var(--text-label-xs);
-}
-
-.usage-breakdown-record__detail {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  margin: 0;
-  border-top: 1px solid var(--color-border-subtle);
-  gap: 14px 22px;
-  padding: 14px 0 16px;
-}
-
-.usage-breakdown-record__detail > div {
-  min-width: 0;
-}
-
-.usage-breakdown-record__detail dt {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.usage-breakdown-record__detail dd {
-  margin: 4px 0 0;
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-}
-
 .usage-buckets {
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
@@ -1121,47 +796,6 @@ defineExpose({ openFilters, refresh })
   }
 }
 
-@media (max-width: 860px) {
-  .usage-breakdown-grid {
-    padding-inline: 0;
-  }
-
-  .usage-breakdown-record {
-    display: block;
-    grid-column: 1;
-  }
-
-  .usage-breakdown-record__summary {
-    --ledger-record-list-card-grid: repeat(2, minmax(0, 1fr));
-
-    grid-template-columns: var(--ledger-record-list-card-grid);
-    position: relative;
-    padding-right: 52px;
-  }
-
-  .usage-breakdown-record__identity {
-    grid-column: 1 / -1;
-  }
-
-  .usage-breakdown-record__action {
-    position: absolute;
-    top: 13px;
-    right: 13px;
-  }
-
-  .usage-cell-label {
-    display: block;
-  }
-
-  .usage-breakdown-record__detail {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin: 0;
-    border: 1px solid var(--color-border-subtle);
-    border-top: 0;
-    border-radius: 0 0 var(--radius-control) var(--radius-control);
-  }
-}
-
 @media (max-width: 620px) {
   .usage-token-grid,
   .usage-quality-grid {
@@ -1170,20 +804,6 @@ defineExpose({ openFilters, refresh })
 
   .usage-trend-panel__chart {
     padding: 14px 12px 10px;
-  }
-}
-
-@media (max-width: 520px) {
-  .usage-breakdown-record__summary {
-    --ledger-record-list-card-grid: minmax(0, 1fr);
-  }
-
-  .usage-breakdown-record__identity {
-    grid-column: 1;
-  }
-
-  .usage-breakdown-record__detail {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

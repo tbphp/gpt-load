@@ -4,13 +4,11 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
-import { projectChannelID } from '@/app/resources/channels'
 import { timeRanges, type TimeRange } from '@/lib/time'
 
 import {
   assertNoSecretLikeFields,
   projectArray,
-  projectBoolean,
   projectEpochMilliseconds,
   projectEnum,
   projectNonNegativeInt64String,
@@ -20,13 +18,15 @@ import {
   projectString,
 } from './projector'
 
-export type UsageBreakdownOrder = 'requests' | 'cost'
+export type UsageDistributionDimension = 'group' | 'model'
+export type UsageDistributionMetric = 'requests' | 'cost'
 export const usageRanges = timeRanges
 export type UsageRange = TimeRange
 
 export interface UsageFilters {
   range: UsageRange
-  breakdown_order?: UsageBreakdownOrder
+  distribution?: UsageDistributionDimension
+  distribution_metric?: UsageDistributionMetric
   group_id?: number
   channel_id?: string
   credential_id?: number
@@ -34,7 +34,8 @@ export interface UsageFilters {
 }
 
 type NormalizedUsageFilters = UsageFilters & {
-  breakdown_order: UsageBreakdownOrder
+  distribution: UsageDistributionDimension
+  distribution_metric: UsageDistributionMetric
 }
 
 export interface UsageAggregateDto {
@@ -55,6 +56,11 @@ export interface UsageAggregateDto {
   pricing_partial_count: number
 }
 
+export interface UsageDistributionAggregateDto {
+  request_count: number
+  estimated_cost_nano_usd: string
+}
+
 export interface UsageReportDto {
   range: UsageRange
   granularity: 'hour' | 'day'
@@ -64,17 +70,12 @@ export interface UsageReportDto {
   observed_at_ms: number
   summary: UsageAggregateDto
   series: Array<UsageAggregateDto & { bucket_start_ms: number; bucket_end_ms: number }>
-  breakdown: Array<
-    UsageAggregateDto & {
-      group_id: number
-      channel_id: string | null
-      credential_id: number | null
-      model: string
-    }
-  >
-  breakdown_truncated: boolean
-  breakdown_order: UsageBreakdownOrder
-  breakdown_count: number
+  distribution: {
+    dimension: UsageDistributionDimension
+    metric: UsageDistributionMetric
+    items: Array<UsageDistributionAggregateDto & { group_id?: number; model?: string }>
+    other: UsageDistributionAggregateDto | null
+  }
   collection_health: {
     scope: 'current_process' | 'access_key'
     dropped_total: number
@@ -100,6 +101,7 @@ const aggregateKeys = [
   'pricing_partial_count',
 ] as const
 const aggregateFields = [...aggregateKeys, 'estimated_cost_nano_usd'] as const
+const distributionAggregateFields = ['request_count', 'estimated_cost_nano_usd'] as const
 const reportFields = [
   'range',
   'granularity',
@@ -109,10 +111,7 @@ const reportFields = [
   'observed_at_ms',
   'summary',
   'series',
-  'breakdown',
-  'breakdown_truncated',
-  'breakdown_order',
-  'breakdown_count',
+  'distribution',
   'collection_health',
 ] as const
 const hourMs = 60 * 60 * 1000
@@ -176,6 +175,15 @@ export function projectUsageAggregate(value: unknown): UsageAggregateDto {
     invalidResponse()
   }
   return result
+}
+
+function projectUsageDistributionAggregate(value: unknown): UsageDistributionAggregateDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, distributionAggregateFields)
+  return {
+    request_count: projectSafeInteger(record.request_count, { minimum: 0 }),
+    estimated_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
+  }
 }
 
 function projectCollectionHealth(value: unknown): UsageReportDto['collection_health'] {
@@ -247,29 +255,60 @@ export function projectUsageReport(value: unknown): UsageReportDto {
       bucket_end_ms: bucketEndMS,
     }
   })
-  const breakdown = projectArray(record.breakdown, (value) => {
+  const distributionRecord = projectRecord(record.distribution)
+  assertNoSecretLikeFields(distributionRecord, ['dimension', 'metric', 'items', 'other'])
+  const distributionDimension = projectEnum(distributionRecord.dimension, [
+    'group',
+    'model',
+  ] as const)
+  const distributionMetric = projectEnum(distributionRecord.metric, ['requests', 'cost'] as const)
+  const identities = new Set<string>()
+  const distributionItems = projectArray(distributionRecord.items, (value) => {
     const item = projectRecord(value)
-    assertNoSecretLikeFields(item, [
-      ...aggregateKeys,
-      'estimated_cost_nano_usd',
-      'group_id',
-      'channel_id',
-      'credential_id',
-      'model',
-    ])
-    const model = projectString(item.model, { allowEmpty: true })
-    if (model !== model.trim()) invalidResponse()
-    return {
-      ...projectUsageAggregate(
-        Object.fromEntries(aggregateFields.map((field) => [field, item[field]])),
-      ),
-      group_id: projectSafeInteger(item.group_id, { minimum: 0 }),
-      channel_id: item.channel_id === null ? null : projectChannelID(item.channel_id),
-      credential_id:
-        item.credential_id === null ? null : projectSafeInteger(item.credential_id, { minimum: 1 }),
-      model,
+    const identityField = distributionDimension === 'group' ? 'group_id' : 'model'
+    assertNoSecretLikeFields(item, [...distributionAggregateFields, identityField])
+    const aggregate = projectUsageDistributionAggregate(
+      Object.fromEntries(distributionAggregateFields.map((field) => [field, item[field]])),
+    )
+    if (distributionDimension === 'group') {
+      const groupID = projectSafeInteger(item.group_id, { minimum: 1 })
+      if (identities.has(String(groupID))) invalidResponse()
+      identities.add(String(groupID))
+      return { ...aggregate, group_id: groupID }
     }
+    const model = projectString(item.model, { allowEmpty: true })
+    if (
+      new TextEncoder().encode(model).length > 255 ||
+      model !== model.trim() ||
+      /[\p{Cc}]/u.test(model) ||
+      identities.has(model)
+    ) {
+      invalidResponse()
+    }
+    identities.add(model)
+    return { ...aggregate, model }
   })
+  if (distributionItems.length > 5) invalidResponse()
+  const distributionOther =
+    distributionRecord.other === null
+      ? null
+      : projectUsageDistributionAggregate(distributionRecord.other)
+  const summary = projectUsageAggregate(record.summary)
+  const visibleAndOther = [
+    ...distributionItems,
+    ...(distributionOther === null ? [] : [distributionOther]),
+  ]
+  const distributedRequests = visibleAndOther.reduce((total, item) => total + item.request_count, 0)
+  const distributedCost = visibleAndOther.reduce(
+    (total, item) => total + BigInt(item.estimated_cost_nano_usd),
+    0n,
+  )
+  if (
+    distributedRequests !== summary.request_count ||
+    distributedCost !== BigInt(summary.estimated_cost_nano_usd)
+  ) {
+    invalidResponse()
+  }
   return {
     range,
     granularity,
@@ -277,22 +316,27 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     from_ms: rangeFromMS,
     to_ms: rangeToMS,
     observed_at_ms: observedAtMS,
-    summary: projectUsageAggregate(record.summary),
+    summary,
     series,
-    breakdown,
-    breakdown_truncated: projectBoolean(record.breakdown_truncated),
-    breakdown_order: projectEnum(record.breakdown_order, ['requests', 'cost'] as const),
-    breakdown_count: projectSafeInteger(record.breakdown_count, { minimum: 0 }),
+    distribution: {
+      dimension: distributionDimension,
+      metric: distributionMetric,
+      items: distributionItems,
+      other: distributionOther,
+    },
     collection_health: projectCollectionHealth(record.collection_health),
   }
 }
 
 export function normalizeUsageFilters(filters: UsageFilters): NormalizedUsageFilters {
-  const breakdownOrder = filters.breakdown_order ?? 'requests'
-  if (breakdownOrder !== 'requests' && breakdownOrder !== 'cost') invalidResponse()
+  const distribution = filters.distribution ?? 'group'
+  const distributionMetric = filters.distribution_metric ?? 'requests'
+  if (distribution !== 'group' && distribution !== 'model') invalidResponse()
+  if (distributionMetric !== 'requests' && distributionMetric !== 'cost') invalidResponse()
   const result: NormalizedUsageFilters = {
     range: filters.range,
-    breakdown_order: breakdownOrder,
+    distribution,
+    distribution_metric: distributionMetric,
   }
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
@@ -312,9 +356,8 @@ export async function getUsageReport(
 ): Promise<UsageReportDto> {
   const normalized = normalizeUsageFilters(filters)
   const params = new URLSearchParams([['range', normalized.range]])
-  if (filters.breakdown_order !== undefined) {
-    params.append('breakdown_order', normalized.breakdown_order)
-  }
+  params.append('distribution', normalized.distribution)
+  params.append('distribution_metric', normalized.distribution_metric)
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
   if (normalized.channel_id !== undefined) params.append('channel_id', normalized.channel_id)
   if (normalized.credential_id !== undefined) {
@@ -326,7 +369,12 @@ export async function getUsageReport(
   const report = projectUsageReport(
     await client.request(`/api/usage?${params.toString()}`, { method: 'GET', signal }),
   )
-  if (report.breakdown_order !== normalized.breakdown_order) invalidResponse()
+  if (
+    report.distribution.dimension !== normalized.distribution ||
+    report.distribution.metric !== normalized.distribution_metric
+  ) {
+    invalidResponse()
+  }
   return report
 }
 

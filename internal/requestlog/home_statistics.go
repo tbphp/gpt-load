@@ -89,13 +89,11 @@ func (service *Service) QueryHomeStatistics(
 		return HomeStatisticsReport{}, fmt.Errorf("query home statistics: invalid observed time: %w", err)
 	}
 	usageInput := UsageQuery{
-		FromMS:         fromMS,
-		ToMS:           toMS,
-		Granularity:    granularity,
-		BucketWidthMS:  width,
-		AccessKeyID:    input.AccessKeyID,
-		Limit:          homeStatisticsRankingLimit,
-		BreakdownOrder: UsageBreakdownOrderCost,
+		FromMS:        fromMS,
+		ToMS:          toMS,
+		Granularity:   granularity,
+		BucketWidthMS: width,
+		AccessKeyID:   input.AccessKeyID,
 	}
 
 	report := HomeStatisticsReport{
