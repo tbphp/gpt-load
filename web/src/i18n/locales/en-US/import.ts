@@ -67,7 +67,10 @@ export default {
       name: 'Group name',
       namePlaceholder: 'Leave blank to use the channel default',
       url: 'Upstream base URL',
-      urlDescription: 'Enter the complete API prefix, for example https://api.example.com/v1',
+      urlDescription: 'Enter the Base URL required by the upstream service',
+      compatibleUrlDescription:
+        'Enter the complete API prefix, for example https://api.example.com/v1',
+      urlDescriptionWithDefault: 'Default URL: {url}',
       customUrl: 'Custom upstream URL',
       customUrlDescription:
         'Uses the channel preset or SDK official address by default; enable only for a proxy or private deployment',

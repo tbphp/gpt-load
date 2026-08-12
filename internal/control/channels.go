@@ -16,8 +16,17 @@ import (
 const channelMaxQueryRunes = 200
 
 type ChannelListResponse struct {
-	Items []channel.Descriptor `json:"items"`
-	Total int                  `json:"total"`
+	Items []ChannelListItem `json:"items"`
+	Total int               `json:"total"`
+}
+
+type ChannelListItem struct {
+	channel.Descriptor
+	DefaultBaseURL string `json:"default_base_url"`
+}
+
+type channelDefaultBaseURLProvider interface {
+	DefaultBaseURL(channel.ID) (string, bool, error)
 }
 
 func (s *Service) ListChannels(ctx context.Context, query string) (ChannelListResponse, error) {
@@ -30,7 +39,21 @@ func (s *Service) ListChannels(ctx context.Context, query string) (ChannelListRe
 	if s == nil || s.channelRegistry == nil {
 		return ChannelListResponse{}, app_errors.ErrInternalServer
 	}
-	items := s.channelRegistry.Search(query)
+	descriptors := s.channelRegistry.Search(query)
+	items := make([]ChannelListItem, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		item := ChannelListItem{Descriptor: descriptor}
+		if s.channelDefaultBaseURLs != nil {
+			baseURL, unique, err := s.channelDefaultBaseURLs.DefaultBaseURL(descriptor.ID)
+			if err != nil {
+				return ChannelListResponse{}, err
+			}
+			if unique {
+				item.DefaultBaseURL = baseURL
+			}
+		}
+		items = append(items, item)
+	}
 	return ChannelListResponse{Items: items, Total: len(items)}, nil
 }
 

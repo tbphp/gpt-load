@@ -31,6 +31,7 @@ export interface ChannelDto {
   name: string
   mark: string
   description: string
+  default_base_url: string
   param_fields: ChannelFieldDto[]
   credential_fields: ChannelFieldDto[]
   client_protocols: AccessProtocol[]
@@ -46,6 +47,7 @@ const channelFields = [
   'name',
   'mark',
   'description',
+  'default_base_url',
   'param_fields',
   'credential_fields',
   'client_protocols',
@@ -111,6 +113,7 @@ function projectChannel(value: unknown): ChannelDto {
     name: projectString(record.name),
     mark: projectString(record.mark, { allowEmpty: true }),
     description: projectString(record.description, { allowEmpty: true }),
+    default_base_url: projectString(record.default_base_url, { allowEmpty: true }),
     param_fields: paramFields,
     credential_fields: credentialFields,
     client_protocols: clientProtocols,

@@ -87,7 +87,6 @@ func TestRegistryPublicDescriptorsContainSchemasButNoInternalOrSecretValues(t *t
 	if field := compatible.ParamFields[0]; field.Key != "base_url" || field.InputKind != InputURL || !field.Required || field.Sensitive {
 		t.Fatalf("openai compatible param field = %#v", field)
 	}
-
 	encoded, err := json.Marshal(compatible)
 	if err != nil {
 		t.Fatalf("json.Marshal(descriptor) error = %v", err)
@@ -113,6 +112,23 @@ func TestRegistryReturnsExactCatalogProviderMappingWithoutResolvingParams(t *tes
 	}
 	if got, ok := registry.CatalogProviderID(ID("missing")); ok || got != "" {
 		t.Fatalf("CatalogProviderID(missing) = %q, %t, want empty, false", got, ok)
+	}
+}
+
+func TestRegistryReturnsProviderKindWithoutExposingItInDescriptor(t *testing.T) {
+	registry := NewRegistry()
+	if got, ok := registry.ProviderKind(OpenAI); !ok || got != ProviderOpenAI {
+		t.Fatalf("ProviderKind(openai) = %q, %t", got, ok)
+	}
+	if got, ok := registry.ProviderKind(ID("missing")); ok || got != "" {
+		t.Fatalf("ProviderKind(missing) = %q, %t", got, ok)
+	}
+	encoded, err := json.Marshal(registry.List())
+	if err != nil {
+		t.Fatalf("json.Marshal(descriptors) error = %v", err)
+	}
+	if strings.Contains(string(encoded), "provider_kind") {
+		t.Fatalf("public descriptors exposed provider kind: %s", encoded)
 	}
 }
 

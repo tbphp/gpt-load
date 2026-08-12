@@ -57,28 +57,16 @@ func buildEffectiveProviderConfig(
 }
 
 func resolveSDKProviderConfig(resolved channel.ResolvedTarget) (schemas.ModelProvider, string, bool, error) {
-	defaults := map[channel.ProviderKind]struct {
-		provider schemas.ModelProvider
-		baseURL  string
-	}{
-		channel.ProviderOpenAI:       {provider: schemas.OpenAI, baseURL: "https://api.openai.com"},
-		channel.ProviderAnthropic:    {provider: schemas.Anthropic, baseURL: "https://api.anthropic.com"},
-		channel.ProviderGemini:       {provider: schemas.Gemini, baseURL: "https://generativelanguage.googleapis.com/v1beta"},
-		channel.ProviderAzureOpenAI:  {provider: schemas.Azure},
-		channel.ProviderAWSBedrock:   {provider: schemas.Bedrock},
-		channel.ProviderGoogleVertex: {provider: schemas.Vertex},
-		channel.ProviderDeepSeek:     {provider: schemas.DeepSeek, baseURL: "https://api.deepseek.com"},
-		channel.ProviderOpenRouter:   {provider: schemas.OpenRouter, baseURL: "https://openrouter.ai/api"},
-		channel.ProviderGroq:         {provider: schemas.Groq, baseURL: "https://api.groq.com/openai"},
-		channel.ProviderXAI:          {provider: schemas.XAI, baseURL: "https://api.x.ai"},
-	}
-	if preset, ok := defaults[resolved.ProviderKind]; ok {
+	if preset, ok := sdkProviderSpecFor(resolved.ProviderKind); ok {
 		baseURL, configured, err := targetBaseURL(resolved.TargetConfig)
 		if err != nil {
 			return "", "", false, err
 		}
 		if !configured {
-			baseURL = preset.baseURL
+			baseURL, _, err = sdkDefaultBaseURL(resolved.ProviderKind)
+			if err != nil {
+				return "", "", false, err
+			}
 		}
 		return preset.provider, baseURL, false, nil
 	}

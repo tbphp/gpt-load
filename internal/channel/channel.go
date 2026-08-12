@@ -257,6 +257,16 @@ func (r *Registry) CatalogProviderID(id ID) (string, bool) {
 	return definition.catalogProviderID, true
 }
 
+// ProviderKind returns the runtime provider family for a known channel.
+// It is internal metadata and is not part of the serialized descriptor.
+func (r *Registry) ProviderKind(id ID) (ProviderKind, bool) {
+	definition, ok := r.lookup(id)
+	if !ok {
+		return "", false
+	}
+	return definition.providerKind, true
+}
+
 // ValidateParams validates and normalizes the channel parameter object.
 func (r *Registry) ValidateParams(id ID, raw json.RawMessage) (Params, error) {
 	definition, ok := r.lookup(id)

@@ -35,6 +35,7 @@ type Service struct {
 	manager                     *state.Manager
 	registry                    *state.CredentialRegistry
 	channelRegistry             *channel.Registry
+	channelDefaultBaseURLs      channelDefaultBaseURLProvider
 	registrySnapshot            func() []state.CredentialRuntimeView
 	priceRuntime                *PriceRuntime
 	catalogRuntime              *catalog.Runtime
@@ -102,6 +103,9 @@ func NewService(
 		operationRandom:       rand.Reader,
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),
+	}
+	if provider, ok := executor.(channelDefaultBaseURLProvider); ok {
+		service.channelDefaultBaseURLs = provider
 	}
 	if cfg != nil && cfg.ModelsDevAutoSyncOverride != nil {
 		value := *cfg.ModelsDevAutoSyncOverride

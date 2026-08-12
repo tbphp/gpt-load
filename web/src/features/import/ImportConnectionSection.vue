@@ -27,6 +27,16 @@ function fieldError(key: string): string {
 function isOptionalBaseURL(key: string, required: boolean): boolean {
   return key === 'base_url' && !required
 }
+
+function baseURLDescription(): string {
+  if (props.channel?.channel_id === 'openai_compatible') {
+    return t('import.connection.compatibleUrlDescription')
+  }
+  if (!props.channel?.default_base_url) return t('import.connection.urlDescription')
+  return t('import.connection.urlDescriptionWithDefault', {
+    url: props.channel.default_base_url,
+  })
+}
 </script>
 
 <template>
@@ -79,9 +89,7 @@ function isOptionalBaseURL(key: string, required: boolean): boolean {
           v-if="!isOptionalBaseURL(param.key, param.required) || baseUrlOverrideEnabled"
           :id="`import-channel-param-${param.key}`"
           :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
-          :description="
-            param.key === 'base_url' ? t('import.connection.urlDescription') : undefined
-          "
+          :description="param.key === 'base_url' ? baseURLDescription() : undefined"
           :error="fieldError(param.key)"
           :required="param.required || (param.key === 'base_url' && baseUrlOverrideEnabled)"
           :required-text="t('import.required')"

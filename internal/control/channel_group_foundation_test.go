@@ -24,6 +24,10 @@ func TestServiceUsesInjectedChannelRegistryAndListsSafeDescriptors(t *testing.T)
 	t.Parallel()
 
 	fixture := newServiceFixture(t)
+	fixture.service.channelDefaultBaseURLs = staticChannelDefaultBaseURLs{
+		channel.OpenAI:   "https://openai-sdk-default.example",
+		channel.DeepSeek: "https://deepseek-sdk-default.example",
+	}
 	if fixture.service.channelRegistry != fixture.channelRegistry {
 		t.Fatal("Service did not retain the injected ChannelRegistry")
 	}
@@ -34,7 +38,9 @@ func TestServiceUsesInjectedChannelRegistryAndListsSafeDescriptors(t *testing.T)
 	}
 	if result.Total != 3 || len(result.Items) != 3 ||
 		result.Items[0].ID != channel.OpenAI || result.Items[1].ID != channel.AzureOpenAI ||
-		result.Items[2].ID != channel.OpenAICompatible {
+		result.Items[2].ID != channel.OpenAICompatible ||
+		result.Items[0].DefaultBaseURL != "https://openai-sdk-default.example" ||
+		result.Items[1].DefaultBaseURL != "" || result.Items[2].DefaultBaseURL != "" {
 		t.Fatalf("ListChannels(openai) = %#v", result)
 	}
 	encoded, err := json.Marshal(result)
@@ -50,13 +56,17 @@ func TestServiceUsesInjectedChannelRegistryAndListsSafeDescriptors(t *testing.T)
 	common, err := fixture.service.ListChannels(context.Background(), "deep seek")
 	if err != nil || common.Total != 1 || len(common.Items) != 1 ||
 		common.Items[0].ID != channel.DeepSeek || len(common.Items[0].ParamFields) != 1 ||
-		common.Items[0].ParamFields[0].Key != "base_url" || common.Items[0].ParamFields[0].Required {
+		common.Items[0].ParamFields[0].Key != "base_url" || common.Items[0].ParamFields[0].Required ||
+		common.Items[0].DefaultBaseURL != "https://deepseek-sdk-default.example" {
 		t.Fatalf("ListChannels(deep seek) = %#v, %v", common, err)
 	}
-	commonJSON, err := json.Marshal(common)
-	if err != nil || strings.Contains(strings.ToLower(string(commonJSON)), "deepseek.com") {
-		t.Fatalf("common preset leaked fixed target: %s, %v", commonJSON, err)
-	}
+}
+
+type staticChannelDefaultBaseURLs map[channel.ID]string
+
+func (defaults staticChannelDefaultBaseURLs) DefaultBaseURL(channelID channel.ID) (string, bool, error) {
+	value, ok := defaults[channelID]
+	return value, ok, nil
 }
 
 func TestParseChannelQueryIsStrict(t *testing.T) {

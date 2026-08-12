@@ -65,7 +65,10 @@ export default {
       name: 'Group 名',
       namePlaceholder: '空欄の場合はチャネルの既定名を使用します',
       url: 'アップストリームのベース URL',
-      urlDescription: 'https://api.example.com/v1 のように完全な API プレフィックスを入力します',
+      urlDescription: 'アップストリームサービスが要求する Base URL を入力してください',
+      compatibleUrlDescription:
+        'https://api.example.com/v1 のように完全な API プレフィックスを入力してください',
+      urlDescriptionWithDefault: '既定の URL：{url}',
       customUrl: 'カスタム上流 URL',
       customUrlDescription:
         '既定ではチャネル設定または SDK 公式アドレスを使用します。プロキシまたはプライベート配置時のみ有効にしてください',
