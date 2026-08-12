@@ -444,7 +444,6 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		snapshot,
 		accessKey.ID,
 		selectedRoute.Protocol,
-		model,
 		metadata.AffinityPrefix,
 		allowedCredentialRefs,
 	)

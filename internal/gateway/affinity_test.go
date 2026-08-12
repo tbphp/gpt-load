@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/affinity"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -54,6 +55,41 @@ func TestHandlerLearnsAndReusesAutomaticSoftAffinity(t *testing.T) {
 
 	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-one"})
 	assertAffinityHits(t, sink.snapshot(), []bool{false, true})
+}
+
+func TestHandlerReusesSoftAffinityAcrossModelsWithSameCandidateRange(t *testing.T) {
+	forwarder := &scriptedForwarder{results: successfulAffinityResults(2)}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+	addAffinityModelRoute(t, manager.Current(), "gpt-4o-mini", 1)
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+	engine := newAffinityTestEngine(t, handler)
+
+	serveAffinityModelRequest(t, engine, "gpt-4o")
+	serveAffinityModelRequest(t, engine, "gpt-4o-mini")
+
+	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-one"})
+	assertAffinityHits(t, sink.snapshot(), []bool{false, true})
+}
+
+func TestHandlerRelearnsSoftAffinityWhenModelCandidateRangeChanges(t *testing.T) {
+	forwarder := &scriptedForwarder{results: successfulAffinityResults(4)}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+	moveSecondAffinityCredentialToGroup(t, manager.Current(), registry)
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	useAffinityRandomValues(handler, 0, 0, 0, 0)
+	engine := newAffinityTestEngine(t, handler)
+
+	serveAffinityModelRequest(t, engine, "gpt-4o")
+	serveAffinityModelRequest(t, engine, "gpt-4o-mini")
+	serveAffinityModelRequest(t, engine, "gpt-4o-mini")
+	serveAffinityModelRequest(t, engine, "gpt-4o")
+
+	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-two", "sk-two", "sk-one"})
+	assertAffinityHits(t, sink.snapshot(), []bool{false, false, true, false})
+	assertAffinityUpstreamModels(t, forwarder.inputs, []string{"gpt-4o", "gpt-4o-mini", "gpt-4o-mini", "gpt-4o"})
 }
 
 func TestHandlerDoesNotLearnAffinityForNonParticipatingGroup(t *testing.T) {
@@ -227,7 +263,6 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 		snapshot,
 		1,
 		protocol.OpenAICompletions,
-		"gpt-4o",
 		prefix,
 		map[uint]state.CredentialRef{1: oldRef},
 	)
@@ -246,7 +281,6 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 		snapshot,
 		1,
 		protocol.OpenAICompletions,
-		"gpt-4o",
 		prefix,
 		map[uint]state.CredentialRef{1: oldRef},
 	)
@@ -259,7 +293,6 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 		snapshot,
 		1,
 		protocol.OpenAICompletions,
-		"gpt-4o",
 		prefix,
 		map[uint]state.CredentialRef{1: changedRef},
 	)
@@ -295,6 +328,75 @@ func useAffinityRandomValues(handler *Handler, values ...int64) {
 		}
 		return rand.New(affinityFixedRandSource{value: value})
 	}
+}
+
+func addAffinityModelRoute(
+	t *testing.T,
+	snapshot *state.ConfigSnapshot,
+	externalModel string,
+	groupID uint,
+) {
+	t.Helper()
+	byOperation := snapshot.ExecutionCandidates[protocol.OpenAICompletions]
+	if byOperation == nil {
+		t.Fatal("OpenAI Completions execution candidates are missing")
+	}
+	byModel := byOperation[execution.OperationChatCompletion]
+	base := byModel["gpt-4o"]
+	if len(base) != 1 {
+		t.Fatalf("gpt-4o routes = %d, want 1", len(base))
+	}
+	route := base[0]
+	route.GroupID = groupID
+	route.UpstreamModelID = externalModel
+	byModel[externalModel] = []state.RouteTarget{route}
+}
+
+func moveSecondAffinityCredentialToGroup(
+	t *testing.T,
+	snapshot *state.ConfigSnapshot,
+	registry *state.CredentialRegistry,
+) {
+	t.Helper()
+	group := snapshot.Groups[1]
+	group.ID = 2
+	group.Name = "openai-two"
+	group.Models = []state.ModelConfig{{ID: "gpt-4o-mini"}}
+	snapshot.Groups[2] = group
+	catalog := snapshot.GroupCatalog[1]
+	catalog.ID = 2
+	catalog.Name = group.Name
+	snapshot.GroupCatalog[2] = catalog
+	addAffinityModelRoute(t, snapshot, "gpt-4o-mini", 2)
+
+	refs := registry.CaptureActiveCredentialRefs([]uint{1})
+	if len(refs) != 2 {
+		t.Fatalf("captured credential refs = %d, want 2", len(refs))
+	}
+	entries := make([]state.CredentialEntry, 0, len(refs))
+	for _, ref := range refs {
+		groupID := uint(1)
+		if ref.ID == 2 {
+			groupID = 2
+		}
+		entries = append(entries, state.CredentialEntry{
+			ID: ref.ID, GroupID: groupID, Version: ref.Version,
+			IdentityGeneration: ref.IdentityGeneration, Fingerprint: ref.Fingerprint,
+			Status: state.CredentialStatusActive, EncryptedValue: ref.EncryptedValue,
+		})
+	}
+	if err := registry.ReplaceCredentials(entries); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+}
+
+func serveAffinityModelRequest(t *testing.T, engine http.Handler, model string) {
+	t.Helper()
+	serveAffinityRequest(
+		t,
+		engine,
+		`{"model":"`+model+`","messages":[{"role":"user","content":"stable conversation"}]}`,
+	)
 }
 
 func newAffinityTestEngine(t *testing.T, handler *Handler) http.Handler {
@@ -338,5 +440,16 @@ func assertAffinityHits(t *testing.T, events []telemetry.RequestEvent, want []bo
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("affinity hits = %#v, want %#v", got, want)
+	}
+}
+
+func assertAffinityUpstreamModels(t *testing.T, inputs []ForwardInput, want []string) {
+	t.Helper()
+	got := make([]string, 0, len(inputs))
+	for _, input := range inputs {
+		got = append(got, input.UpstreamModelID)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("upstream models = %#v, want %#v", got, want)
 	}
 }

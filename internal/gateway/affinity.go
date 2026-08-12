@@ -17,7 +17,6 @@ func (handler *Handler) resolveRequestAffinity(
 	snapshot *state.ConfigSnapshot,
 	accessKeyID uint,
 	clientProtocol protocol.Protocol,
-	externalModel string,
 	prefix []byte,
 	allowedCredentialRefs map[uint]state.CredentialRef,
 ) requestAffinity {
@@ -33,7 +32,6 @@ func (handler *Handler) resolveRequestAffinity(
 		handler.encryption,
 		accessKeyID,
 		clientProtocol,
-		externalModel,
 		prefix,
 	)
 	if !key.Valid() {

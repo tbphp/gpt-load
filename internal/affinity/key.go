@@ -7,7 +7,7 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-const keyDomain = "gpt-load/affinity/prompt-prefix-hmac/v1"
+const keyDomain = "gpt-load/affinity/prompt-prefix-hmac/v2"
 
 // Key is an opaque, tenant-scoped affinity cache key.
 type Key string
@@ -26,7 +26,6 @@ func DeriveKey(
 	hasher Hasher,
 	accessKeyID uint,
 	clientProtocol protocol.Protocol,
-	externalModel string,
 	prefix []byte,
 ) Key {
 	if hasher == nil || accessKeyID == 0 || !clientProtocol.Valid() || len(prefix) == 0 {
@@ -38,7 +37,6 @@ func DeriveKey(
 	binary.BigEndian.PutUint64(encodedID[:], uint64(accessKeyID))
 	material.Write(encodedID[:])
 	writeKeyField(&material, []byte(clientProtocol))
-	writeKeyField(&material, []byte(externalModel))
 	writeKeyField(&material, prefix)
 	return Key(hasher.Hash(material.String()))
 }
