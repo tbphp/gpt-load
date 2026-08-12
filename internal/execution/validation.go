@@ -106,11 +106,6 @@ func (s AttemptSpec) Validate() error {
 	if len(s.TargetConfig) > 0 && !json.Valid(s.TargetConfig) {
 		return validationError("target_config", "must contain valid JSON")
 	}
-	if s.ClientParameters != nil {
-		if err := s.ClientParameters.Validate(); err != nil {
-			return validationError("client_parameters", "must contain a valid safe projection")
-		}
-	}
 	if err := s.Timeouts.Validate(); err != nil {
 		return err
 	}
@@ -175,11 +170,6 @@ func (r AttemptResult) Validate() error {
 	}
 	if !r.ResponseStarted && len(r.Body) > 0 {
 		return validationError("body", "requires response_started")
-	}
-	if r.ConversionTrace != nil {
-		if err := r.ConversionTrace.Validate(); err != nil {
-			return validationError("conversion_trace", "must contain a valid safe projection")
-		}
 	}
 	return nil
 }
@@ -247,11 +237,6 @@ func (r StreamResult) Validate() error {
 		r.Error,
 	); err != nil {
 		return err
-	}
-	if r.ConversionTrace != nil {
-		if err := r.ConversionTrace.Validate(); err != nil {
-			return validationError("conversion_trace", "must contain a valid safe projection")
-		}
 	}
 	return nil
 }

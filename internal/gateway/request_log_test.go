@@ -25,7 +25,6 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
@@ -1255,10 +1254,6 @@ func TestRequestRecorderEmitsOperationAndAppliedAttemptObservation(t *testing.T)
 		func() time.Time { return startedAt.Add(time.Second) },
 	)
 	recorder.setOperation(execution.OperationResponsesCreate)
-	clientParameters := parametertrace.ProjectJSON([]byte(`{"reasoning":{"effort":"high"}}`))
-	targetParameters := parametertrace.ProjectJSON([]byte(`{"thinking":{"type":"enabled","budget_tokens":4096}}`))
-	conversionTrace := parametertrace.Compare(clientParameters, targetParameters)
-	recorder.setClientParameters(clientParameters)
 	selection := requestLogSelection(7, 8, "converted")
 	selection.RouteMode = channel.RouteConverted
 	recorder.appendAttempt(
@@ -1268,7 +1263,6 @@ func TestRequestRecorderEmitsOperationAndAppliedAttemptObservation(t *testing.T)
 			AppliedReasoning: reasoning.Config{
 				Mode: "enabled", BudgetTokens: &budget,
 			},
-			ConversionTrace: &conversionTrace,
 		},
 		telemetry.FailureCategoryOK,
 		telemetry.ActionTerminate,
@@ -1281,8 +1275,6 @@ func TestRequestRecorderEmitsOperationAndAppliedAttemptObservation(t *testing.T)
 		status: telemetry.RequestStatusSuccess, statusCode: http.StatusOK,
 	}
 	budget = 1
-	clientParameters.Entries[0].Value = "mutated"
-	conversionTrace.Target.Entries[0].Value = "mutated"
 	recorder.emit()
 
 	events := sink.snapshot()
@@ -1295,10 +1287,6 @@ func TestRequestRecorderEmitsOperationAndAppliedAttemptObservation(t *testing.T)
 		attempt.Reasoning.Mode != "enabled" || attempt.Reasoning.BudgetTokens == nil ||
 		*attempt.Reasoning.BudgetTokens != 4096 {
 		t.Fatalf("attempt observation = %#v", attempt)
-	}
-	if events[0].ClientParameters == nil || events[0].ClientParameters.Entries[0].Value == "mutated" ||
-		attempt.ConversionTrace == nil || attempt.ConversionTrace.Target.Entries[0].Value == "mutated" {
-		t.Fatalf("conversion observation ownership = %#v / %#v", events[0].ClientParameters, attempt.ConversionTrace)
 	}
 }
 

@@ -15,7 +15,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -116,12 +115,9 @@ func (r *Runtime) executeConvertedResponses(
 	spec execution.AttemptSpec,
 	prepared preparedAttempt,
 ) (result execution.AttemptResult) {
-	clientParameters := conversionClientParameters(&spec)
 	var appliedReasoning *reasoning.Config
-	var conversionTrace *parametertrace.Trace
 	defer func() {
 		result.AppliedReasoning = appliedReasoning
-		result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 	}()
 
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
@@ -130,7 +126,7 @@ func (r *Runtime) executeConvertedResponses(
 	defer callCancel()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
-	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
+	enableConvertedWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesUnarySDKResult, 1)
 	go func() {
@@ -149,11 +145,11 @@ func (r *Runtime) executeConvertedResponses(
 	}
 
 	if outcome.err != nil {
-		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		captureAppliedReasoning(&outcome.err.ExtraFields.RawRequest, &appliedReasoning)
 		return convertedUnaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
 	}
 	if outcome.response != nil {
-		captureWireObservation(&outcome.response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		captureAppliedReasoning(&outcome.response.ExtraFields.RawRequest, &appliedReasoning)
 	}
 	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
 		return *failure
@@ -377,12 +373,9 @@ func (r *Runtime) executeConvertedResponsesStream(
 	prepared preparedAttempt,
 	sink execution.StreamSink,
 ) (result execution.StreamResult) {
-	clientParameters := conversionClientParameters(&spec)
 	var appliedReasoning *reasoning.Config
-	var conversionTrace *parametertrace.Trace
 	defer func() {
 		result.AppliedReasoning = appliedReasoning
-		result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 	}()
 
 	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
@@ -393,7 +386,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	defer preResponse.stop()
 
 	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
-	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
+	enableConvertedWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan responsesStreamSDKResult, 1)
 	go func() {
@@ -412,7 +405,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	}
 	preResponse.stop()
 	if outcome.err != nil {
-		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		captureAppliedReasoning(&outcome.err.ExtraFields.RawRequest, &appliedReasoning)
 		return convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
 	}
 	if outcome.stream == nil {
@@ -466,14 +459,14 @@ func (r *Runtime) executeConvertedResponsesStream(
 			if chunk == nil || chunk.BifrostResponsesStreamResponse == nil {
 				callCancel()
 				if chunk != nil && chunk.BifrostError != nil {
-					captureWireObservation(&chunk.BifrostError.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+					captureAppliedReasoning(&chunk.BifrostError.ExtraFields.RawRequest, &appliedReasoning)
 					return streamErrorResult(chunk.BifrostError, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 				}
 				return streamErrorResult(nil, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
 
 			response := chunk.BifrostResponsesStreamResponse
-			captureWireObservation(&response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+			captureAppliedReasoning(&response.ExtraFields.RawRequest, &appliedReasoning)
 			var chunkUsage *execution.UsageEvidence
 			if response.Response != nil {
 				if response.Response.Model != "" {

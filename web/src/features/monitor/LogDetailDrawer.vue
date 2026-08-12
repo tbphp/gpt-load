@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ChevronRight } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -30,7 +31,6 @@ import {
   requestLogCostDisplayState,
   requestLogUsageDisplayState,
 } from './log-format'
-import LogConversionTrace from './LogConversionTrace.vue'
 import LogRouteIdentity from './LogRouteIdentity.vue'
 
 const props = defineProps<{
@@ -193,6 +193,28 @@ function operationLabel(operation: RequestLogAttemptDto['operation']): string {
 function upstreamAPILabel(upstreamAPI: RequestLogAttemptDto['upstream_api']): string {
   if (upstreamAPI === null) return t('monitor.logs.protocolConversion.notRecorded')
   return upstreamAPI
+}
+
+function appliedReasoningLabel(reasoning: RequestLogAttemptDto['reasoning']): string {
+  if (reasoning === null) return t('monitor.logs.drawer.reasoningNotSpecified')
+  const details: string[] = []
+  if (reasoning.mode !== null) details.push(reasoning.mode)
+  if (reasoning.effort !== null) details.push(reasoning.effort)
+  if (reasoning.budget_tokens !== null) {
+    const semantic = reasoningBudgetSemantic(reasoning.budget_tokens)
+    if (semantic === 'dynamic') {
+      details.push(t('monitor.logs.drawer.reasoningBudgetDynamic'))
+    } else if (semantic === 'disabled') {
+      details.push(t('monitor.logs.drawer.reasoningBudgetDisabled'))
+    } else {
+      details.push(
+        t('monitor.logs.drawer.reasoningBudgetValue', {
+          value: formatLogReasoningBudget(reasoning.budget_tokens, locale.value),
+        }),
+      )
+    }
+  }
+  return details.join(' · ')
 }
 
 function isFinalAttempt(attempt: RequestLogAttemptDto): boolean {
@@ -467,29 +489,19 @@ function toggleAttemptErrorMessage(sequence: number): void {
               />
             </dd>
           </div>
-          <template v-if="log.route_mode !== 'converted'">
-            <div>
-              <dt>{{ t('monitor.logs.drawer.upstreamAPI') }}</dt>
-              <dd>{{ upstreamAPILabel(log.upstream_api) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
-              <dd>
-                <code>{{ log.upstream_model ?? '—' }}</code>
-              </dd>
-            </div>
-          </template>
-          <div v-else class="log-detail__wide">
-            <LogConversionTrace
-              :client-protocol="log.protocol"
-              :upstream-api="log.upstream_api"
-              :client-model="log.client_model"
-              :upstream-model="log.upstream_model"
-              :client-reasoning="log.reasoning"
-              :upstream-reasoning="finalAttempt?.reasoning ?? null"
-              :client-parameters="log.client_parameters"
-              :conversion-trace="finalAttempt?.conversion_trace ?? null"
-            />
+          <div>
+            <dt>{{ t('monitor.logs.drawer.upstreamAPI') }}</dt>
+            <dd>{{ upstreamAPILabel(log.upstream_api) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
+            <dd>
+              <code>{{ log.upstream_model ?? '—' }}</code>
+            </dd>
+          </div>
+          <div v-if="finalAttempt?.reasoning">
+            <dt>{{ t('monitor.logs.drawer.appliedReasoning') }}</dt>
+            <dd>{{ appliedReasoningLabel(finalAttempt.reasoning) }}</dd>
           </div>
         </dl>
         <div
@@ -591,141 +603,139 @@ function toggleAttemptErrorMessage(sequence: number): void {
       </section>
 
       <section v-if="!selfScoped" class="log-detail__section">
-        <h3>{{ t('monitor.logs.drawer.attempts') }}</h3>
-        <p v-if="log.attempts.length === 0" class="log-detail__empty">
-          {{ t('monitor.logs.drawer.noAttempts') }}
-        </p>
-        <article v-for="attempt in log.attempts" :key="attempt.sequence" class="log-attempt">
-          <header>
-            <span>{{ t('monitor.logs.drawer.attempt', { sequence: attempt.sequence }) }}</span>
-            <StatusBadge :tone="attemptTone(attempt)" size="compact">
-              {{ t(`monitor.logs.failureCategory.${attempt.failure_category}`)
-              }}<template v-if="attempt.status_code"> · {{ attempt.status_code }}</template>
-            </StatusBadge>
-          </header>
-          <dl class="log-detail__grid">
-            <div v-if="!isFinalAttempt(attempt)" class="log-detail__wide">
-              <dt>{{ t('monitor.logs.drawer.routeIdentity') }}</dt>
-              <dd>
-                <LogRouteIdentity
-                  :group-id="attempt.group_id"
-                  :group-name="attempt.group_name"
-                  :channel-id="attempt.channel_id"
-                  :channel-name="
-                    attempt.channel_id ? (channelNames?.[attempt.channel_id] ?? null) : null
-                  "
-                  :credential-id="attempt.credential_id"
-                />
-              </dd>
-            </div>
-            <template v-if="!isFinalAttempt(attempt) && attempt.route_mode !== 'converted'">
-              <div>
-                <dt>{{ t('monitor.logs.drawer.upstreamAPI') }}</dt>
-                <dd>{{ upstreamAPILabel(attempt.upstream_api) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
+        <details v-if="log.attempts.length > 0" class="log-attempt-chain">
+          <summary>
+            <ChevronRight class="log-attempt-chain__chevron" :size="15" aria-hidden="true" />
+            <span>{{ t('monitor.logs.drawer.attempts') }}</span>
+            <span class="log-attempt-chain__count">{{ log.attempts.length }}</span>
+          </summary>
+          <article v-for="attempt in log.attempts" :key="attempt.sequence" class="log-attempt">
+            <header>
+              <span>{{ t('monitor.logs.drawer.attempt', { sequence: attempt.sequence }) }}</span>
+              <StatusBadge :tone="attemptTone(attempt)" size="compact">
+                {{ t(`monitor.logs.failureCategory.${attempt.failure_category}`)
+                }}<template v-if="attempt.status_code"> · {{ attempt.status_code }}</template>
+              </StatusBadge>
+            </header>
+            <dl class="log-detail__grid">
+              <div v-if="!isFinalAttempt(attempt)" class="log-detail__wide">
+                <dt>{{ t('monitor.logs.drawer.routeIdentity') }}</dt>
                 <dd>
-                  <code>{{ attempt.upstream_model ?? '—' }}</code>
+                  <LogRouteIdentity
+                    :group-id="attempt.group_id"
+                    :group-name="attempt.group_name"
+                    :channel-id="attempt.channel_id"
+                    :channel-name="
+                      attempt.channel_id ? (channelNames?.[attempt.channel_id] ?? null) : null
+                    "
+                    :credential-id="attempt.credential_id"
+                  />
                 </dd>
               </div>
-            </template>
-            <div v-else-if="!isFinalAttempt(attempt)" class="log-detail__wide">
-              <LogConversionTrace
-                :client-protocol="log.protocol"
-                :upstream-api="attempt.upstream_api"
-                :client-model="log.client_model"
-                :upstream-model="attempt.upstream_model"
-                :client-reasoning="log.reasoning"
-                :upstream-reasoning="attempt.reasoning"
-                :client-parameters="log.client_parameters"
-                :conversion-trace="attempt.conversion_trace"
-              />
-            </div>
-            <div v-if="showAttemptOperation(attempt)">
-              <dt>{{ t('monitor.logs.drawer.operation') }}</dt>
-              <dd>{{ operationLabel(attempt.operation) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.dispatchState') }}</dt>
-              <dd>{{ dispatchStateLabel(attempt) }}</dd>
-            </div>
-            <div v-if="log.stream">
-              <dt>{{ t('monitor.logs.drawer.clientStreamState') }}</dt>
-              <dd>
-                {{
-                  attempt.committed
-                    ? t('monitor.logs.drawer.clientStreamStarted')
-                    : t('monitor.logs.drawer.clientStreamNotStarted')
-                }}
-              </dd>
-            </div>
-            <div v-if="attempt.upstream_request_id">
-              <dt>{{ t('monitor.logs.drawer.upstreamRequestId') }}</dt>
-              <dd>
-                <code>{{ attempt.upstream_request_id }}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.duration') }}</dt>
-              <dd>{{ formatLogDuration(attempt.duration_ms) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.action') }}</dt>
-              <dd>{{ t(`monitor.logs.action.${attempt.action}`) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.logs.drawer.subsequentAttempt') }}</dt>
-              <dd>
-                {{
-                  attempt.will_retry
-                    ? t('monitor.logs.drawer.subsequentAttemptOccurred')
-                    : t('monitor.logs.drawer.noSubsequentAttempt')
-                }}
-              </dd>
-            </div>
-          </dl>
-          <div
-            v-if="attempt.error_code || attemptErrorMessage(attempt)"
-            class="log-error-message log-error-message--attempt"
-          >
-            <p v-if="attempt.error_code" class="log-error-message__code">
-              <span>{{ t('monitor.logs.drawer.errorCode') }}</span>
-              <code>{{ attempt.error_code }}</code>
-            </p>
-            <p v-if="attemptErrorMessage(attempt)" class="log-error-message__label">
-              {{ t('monitor.logs.drawer.errorSummary') }}
-            </p>
-            <p
-              v-if="attemptErrorMessage(attempt)"
-              class="log-error-message__content"
-              :class="{
-                'log-error-message__content--collapsed':
-                  !isAttemptErrorMessageExpanded(attempt.sequence) &&
-                  errorMessageNeedsDisclosure(attemptErrorMessage(attempt)),
-              }"
+              <template v-if="!isFinalAttempt(attempt)">
+                <div>
+                  <dt>{{ t('monitor.logs.drawer.upstreamAPI') }}</dt>
+                  <dd>{{ upstreamAPILabel(attempt.upstream_api) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
+                  <dd>
+                    <code>{{ attempt.upstream_model ?? '—' }}</code>
+                  </dd>
+                </div>
+                <div v-if="attempt.reasoning">
+                  <dt>{{ t('monitor.logs.drawer.appliedReasoning') }}</dt>
+                  <dd>{{ appliedReasoningLabel(attempt.reasoning) }}</dd>
+                </div>
+              </template>
+              <div v-if="showAttemptOperation(attempt)">
+                <dt>{{ t('monitor.logs.drawer.operation') }}</dt>
+                <dd>{{ operationLabel(attempt.operation) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('monitor.logs.drawer.dispatchState') }}</dt>
+                <dd>{{ dispatchStateLabel(attempt) }}</dd>
+              </div>
+              <div v-if="log.stream">
+                <dt>{{ t('monitor.logs.drawer.clientStreamState') }}</dt>
+                <dd>
+                  {{
+                    attempt.committed
+                      ? t('monitor.logs.drawer.clientStreamStarted')
+                      : t('monitor.logs.drawer.clientStreamNotStarted')
+                  }}
+                </dd>
+              </div>
+              <div v-if="attempt.upstream_request_id">
+                <dt>{{ t('monitor.logs.drawer.upstreamRequestId') }}</dt>
+                <dd>
+                  <code>{{ attempt.upstream_request_id }}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('monitor.logs.drawer.duration') }}</dt>
+                <dd>{{ formatLogDuration(attempt.duration_ms) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('monitor.logs.drawer.action') }}</dt>
+                <dd>{{ t(`monitor.logs.action.${attempt.action}`) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('monitor.logs.drawer.subsequentAttempt') }}</dt>
+                <dd>
+                  {{
+                    attempt.will_retry
+                      ? t('monitor.logs.drawer.subsequentAttemptOccurred')
+                      : t('monitor.logs.drawer.noSubsequentAttempt')
+                  }}
+                </dd>
+              </div>
+            </dl>
+            <div
+              v-if="attempt.error_code || attemptErrorMessage(attempt)"
+              class="log-error-message log-error-message--attempt"
             >
-              {{ attemptErrorMessage(attempt) }}
-            </p>
-            <AppButton
-              v-if="
-                attemptErrorMessage(attempt) &&
-                errorMessageNeedsDisclosure(attemptErrorMessage(attempt))
-              "
-              class="log-error-message__toggle"
-              variant="link"
-              size="inline"
-              :aria-expanded="isAttemptErrorMessageExpanded(attempt.sequence)"
-              @click="toggleAttemptErrorMessage(attempt.sequence)"
-            >
-              {{
-                isAttemptErrorMessageExpanded(attempt.sequence)
-                  ? t('monitor.logs.drawer.collapseErrorMessage')
-                  : t('monitor.logs.drawer.expandErrorMessage')
-              }}
-            </AppButton>
-          </div>
-        </article>
+              <p v-if="attempt.error_code" class="log-error-message__code">
+                <span>{{ t('monitor.logs.drawer.errorCode') }}</span>
+                <code>{{ attempt.error_code }}</code>
+              </p>
+              <p v-if="attemptErrorMessage(attempt)" class="log-error-message__label">
+                {{ t('monitor.logs.drawer.errorSummary') }}
+              </p>
+              <p
+                v-if="attemptErrorMessage(attempt)"
+                class="log-error-message__content"
+                :class="{
+                  'log-error-message__content--collapsed':
+                    !isAttemptErrorMessageExpanded(attempt.sequence) &&
+                    errorMessageNeedsDisclosure(attemptErrorMessage(attempt)),
+                }"
+              >
+                {{ attemptErrorMessage(attempt) }}
+              </p>
+              <AppButton
+                v-if="
+                  attemptErrorMessage(attempt) &&
+                  errorMessageNeedsDisclosure(attemptErrorMessage(attempt))
+                "
+                class="log-error-message__toggle"
+                variant="link"
+                size="inline"
+                :aria-expanded="isAttemptErrorMessageExpanded(attempt.sequence)"
+                @click="toggleAttemptErrorMessage(attempt.sequence)"
+              >
+                {{
+                  isAttemptErrorMessageExpanded(attempt.sequence)
+                    ? t('monitor.logs.drawer.collapseErrorMessage')
+                    : t('monitor.logs.drawer.expandErrorMessage')
+                }}
+              </AppButton>
+            </div>
+          </article>
+        </details>
+        <p v-else class="log-detail__empty">
+          {{ t('monitor.logs.drawer.noAttempts') }}
+        </p>
       </section>
     </div>
   </AppDrawer>
@@ -908,6 +918,46 @@ function toggleAttemptErrorMessage(sequence: number): void {
   justify-content: space-between;
   gap: 10px;
   font-size: var(--text-label-xs);
+}
+
+.log-attempt-chain {
+  margin: 0;
+}
+
+.log-attempt-chain summary {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  list-style: none;
+}
+
+.log-attempt-chain summary::-webkit-details-marker {
+  display: none;
+}
+
+.log-attempt-chain__chevron {
+  color: var(--color-text-faint);
+  transition: transform 140ms ease;
+}
+
+.log-attempt-chain[open] .log-attempt-chain__chevron {
+  transform: rotate(90deg);
+}
+
+.log-attempt-chain__count {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  font-weight: 400;
+}
+
+.log-attempt-chain[open] .log-attempt:first-of-type {
+  margin-top: 10px;
 }
 
 .log-attempt + .log-attempt {

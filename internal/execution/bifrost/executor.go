@@ -20,7 +20,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -56,22 +55,15 @@ type streamSDKResult struct {
 
 // Execute executes one non-streaming attempt.
 func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
-	clientParameters := conversionClientParameters(&spec)
 	prepared, preflightError := r.prepare(spec, false)
 	if preflightError != nil {
-		failure := *preflightError
-		failure.ConversionTrace = preflightConversionTrace(spec, failure, clientParameters)
-		return failure
+		return *preflightError
 	}
 	var appliedReasoning *reasoning.Config
-	var conversionTrace *parametertrace.Trace
 	upstreamAPI := preparedUpstreamAPI(prepared, spec)
 	defer func() {
 		if result.AppliedReasoning == nil {
 			result.AppliedReasoning = appliedReasoning
-		}
-		if result.ConversionTrace == nil && prepared.mode == channel.RouteConverted {
-			result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 		}
 		result.UpstreamAPI = upstreamAPI
 	}()
@@ -91,7 +83,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 	defer callCancel()
 
 	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
-	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
+	enableConvertedWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan unarySDKResult, 1)
 	go func() {
@@ -110,14 +102,14 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 	}
 
 	if outcome.err != nil {
-		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		captureAppliedReasoning(&outcome.err.ExtraFields.RawRequest, &appliedReasoning)
 		if prepared.mode == channel.RouteConverted {
 			return convertedUnaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
 		}
 		return unaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
 	}
 	if outcome.response != nil {
-		captureWireObservation(&outcome.response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		captureAppliedReasoning(&outcome.response.ExtraFields.RawRequest, &appliedReasoning)
 	}
 	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
 		return *failure
@@ -163,22 +155,15 @@ func (r *Runtime) ExecuteStream(
 	if sink == nil {
 		return notSentStreamFailure(execution.ErrorKindInvalidRequest, "stream sink is required")
 	}
-	clientParameters := conversionClientParameters(&spec)
 	prepared, preflightError := r.prepare(spec, true)
 	if preflightError != nil {
-		failure := streamFromAttemptFailure(*preflightError)
-		failure.ConversionTrace = preflightConversionTrace(spec, *preflightError, clientParameters)
-		return failure
+		return streamFromAttemptFailure(*preflightError)
 	}
 	var appliedReasoning *reasoning.Config
-	var conversionTrace *parametertrace.Trace
 	upstreamAPI := preparedUpstreamAPI(prepared, spec)
 	defer func() {
 		if result.AppliedReasoning == nil {
 			result.AppliedReasoning = appliedReasoning
-		}
-		if result.ConversionTrace == nil && prepared.mode == channel.RouteConverted {
-			result.ConversionTrace = finalConversionTrace(clientParameters, conversionTrace)
 		}
 		result.UpstreamAPI = upstreamAPI
 	}()
@@ -197,7 +182,7 @@ func (r *Runtime) ExecuteStream(
 	defer preResponse.stop()
 
 	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
-	enableConvertedWireCapture(bifrostContext, prepared, clientParameters)
+	enableConvertedWireCapture(bifrostContext, prepared)
 	setTypedRequestURL(bifrostContext, prepared.typedURL)
 	outcomeChannel := make(chan streamSDKResult, 1)
 	go func() {
@@ -216,7 +201,7 @@ func (r *Runtime) ExecuteStream(
 	}
 	preResponse.stop()
 	if outcome.err != nil {
-		captureWireObservation(&outcome.err.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+		captureAppliedReasoning(&outcome.err.ExtraFields.RawRequest, &appliedReasoning)
 		if prepared.mode == channel.RouteConverted {
 			return convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
 		}
@@ -284,7 +269,7 @@ func (r *Runtime) ExecuteStream(
 				return streamErrorResult(nil, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
 			if chunk.BifrostError != nil {
-				captureWireObservation(&chunk.BifrostError.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+				captureAppliedReasoning(&chunk.BifrostError.ExtraFields.RawRequest, &appliedReasoning)
 				callCancel()
 				return streamErrorResult(chunk.BifrostError, bifrostContext, prepared.secrets, true, http.StatusOK, headers, model, usageEvidence)
 			}
@@ -294,7 +279,7 @@ func (r *Runtime) ExecuteStream(
 			}
 
 			response := chunk.BifrostChatResponse
-			captureWireObservation(&response.ExtraFields.RawRequest, clientParameters, &appliedReasoning, &conversionTrace)
+			captureAppliedReasoning(&response.ExtraFields.RawRequest, &appliedReasoning)
 			if response.Model != "" {
 				model = response.Model
 			}

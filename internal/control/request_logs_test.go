@@ -18,7 +18,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -750,63 +749,6 @@ func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
 	if !strings.Contains(string(raw), `"attempts":[{"sequence":1`) ||
 		!strings.Contains(string(raw), `"reasoning":null`) {
 		t.Fatalf("response = %s, want null attempt reasoning", raw)
-	}
-}
-
-func TestRequestLogDetailProjectsConversionParametersOnlyForPrivilegedDetail(t *testing.T) {
-	client := parametertrace.ProjectJSON([]byte(`{"thinking":{"type":"enabled","budget_tokens":4096}}`))
-	target := parametertrace.ProjectJSON([]byte(`{"reasoning_effort":"high"}`))
-	trace := parametertrace.Compare(client, target)
-	record := requestlog.Record{
-		RequestID: "00000000-0000-4000-8000-000000000590",
-		Protocol:  protocol.Anthropic, ModelConsistency: telemetry.ModelConsistencyNotApplicable,
-		Status: telemetry.RequestStatusSuccess, UsageState: usage.StateNotApplicable,
-		CostState: pricing.CostStateNotApplicable, PricingCompleteness: pricing.CompletenessNotApplicable,
-		ClientParameters: &client,
-		Attempts: []requestlog.Attempt{{
-			Sequence: 1, GroupID: 1, GroupName: "group",
-			FailureCategory: telemetry.FailureCategoryOK, Action: telemetry.ActionTerminate,
-			ConversionTrace: &trace,
-		}},
-	}
-	detail, err := mapRequestLogDetailResponse(record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	detailJSON, _ := json.Marshal(detail)
-	if !bytes.Contains(detailJSON, []byte(`"client_parameters":{"schema_version":1,"state":"captured"`)) ||
-		!bytes.Contains(detailJSON, []byte(`"conversion_trace":{"schema_version":1,"state":"captured"`)) {
-		t.Fatalf("detail omitted conversion parameters: %s", detailJSON)
-	}
-	list, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listJSON, _ := json.Marshal(list)
-	if bytes.Contains(listJSON, []byte("client_parameters")) || bytes.Contains(listJSON, []byte("conversion_trace")) {
-		t.Fatalf("list exposed conversion parameters: %s", listJSON)
-	}
-
-	sanitized := sanitizeAccessKeyRequestLog(record)
-	if sanitized.ClientParameters != nil || len(sanitized.Attempts) != 0 {
-		t.Fatalf("self-scoped record retained conversion parameters: %#v", sanitized)
-	}
-	invalid := record
-	invalid.ClientParameters = &parametertrace.Snapshot{
-		SchemaVersion: parametertrace.SchemaVersion,
-		State:         parametertrace.CaptureState("unknown"),
-		Entries:       []parametertrace.Entry{},
-	}
-	if _, err := mapRequestLogDetailResponse(invalid); err == nil {
-		t.Fatal("detail projection accepted invalid client parameters")
-	}
-	invalid = record
-	invalidTrace := parametertrace.CloneTrace(trace)
-	invalidTrace.State = parametertrace.CaptureState("unknown")
-	invalid.Attempts = append([]requestlog.Attempt(nil), record.Attempts...)
-	invalid.Attempts[0].ConversionTrace = &invalidTrace
-	if _, err := mapRequestLogDetailResponse(invalid); err == nil {
-		t.Fatal("detail projection accepted invalid conversion trace")
 	}
 }
 

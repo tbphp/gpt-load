@@ -1,8 +1,6 @@
 package requestlog
 
 import (
-	"encoding/json"
-	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -10,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -88,108 +85,6 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	if len(row.AttemptRows) != 1 || row.AttemptRows[0].GroupID != 7 ||
 		row.AttemptRows[0].CredentialID != 8 {
 		t.Fatalf("attempts = %+v", row.AttemptRows)
-	}
-}
-
-func TestMapEventPersistsOnlySafeConversionObservations(t *testing.T) {
-	event := testEvent("00000000-0000-4000-8000-000000000199")
-	client := parametertrace.ProjectJSON([]byte(`{"messages":[{"role":"user","content":"secret prompt"}],"thinking":{"type":"enabled","budget_tokens":4096},"tools":[{"name":"sk-supersecret99"}]}`))
-	target := parametertrace.ProjectJSON([]byte(`{"messages":[{"role":"user","content":"secret prompt"}],"reasoning_effort":"high","tools":[{"type":"function","function":{"name":"sk-supersecret99"}}]}`))
-	trace := parametertrace.Compare(client, target)
-	event.ClientParameters = &client
-	event.Attempts[0].ConversionTrace = &trace
-	event.Attempts[0].FailureCategory = telemetry.FailureCategoryConversionUnsupported
-
-	row := mustMapEvent(t, redact.New(), event)
-	if len(row.ClientParameters) == 0 || len(row.AttemptRows) != 1 ||
-		len(row.AttemptRows[0].ConversionTrace) == 0 {
-		t.Fatalf("conversion observations were not persisted: %#v / %#v", row.ClientParameters, row.AttemptRows)
-	}
-	for _, encoded := range [][]byte{row.ClientParameters, row.AttemptRows[0].ConversionTrace} {
-		if strings.Contains(string(encoded), "secret prompt") ||
-			strings.Contains(string(encoded), "sk-supersecret99") ||
-			!strings.Contains(string(encoded), "[REDACTED]") ||
-			len(encoded) > parametertrace.MaxTraceBytes {
-			t.Fatalf("unsafe or oversized conversion observation: %s", encoded)
-		}
-	}
-}
-
-func TestMapEventBoundsAllConversionObservationsToRequestEventBudget(t *testing.T) {
-	event := testEvent("00000000-0000-4000-8000-000000000198")
-	client := parametertrace.ProjectJSON([]byte(`{"thinking":{"type":"enabled","budget_tokens":4096}}`))
-	event.ClientParameters = &client
-	entries := make([]parametertrace.Entry, 0, 80)
-	changes := make([]parametertrace.Change, 0, 80)
-	for index := 0; index < 80; index++ {
-		path := fmt.Sprintf("tools.parameter_%03d", index)
-		entries = append(entries, parametertrace.Entry{
-			Path: path, Kind: parametertrace.ValueSummary, Value: strings.Repeat("v", 180),
-		})
-		changes = append(changes, parametertrace.Change{
-			Disposition: parametertrace.DispositionAdded, TargetPath: path,
-		})
-	}
-	largeTrace := parametertrace.Trace{
-		SchemaVersion: parametertrace.SchemaVersion,
-		State:         parametertrace.CaptureCaptured,
-		Target: parametertrace.Snapshot{
-			SchemaVersion: parametertrace.SchemaVersion,
-			State:         parametertrace.CaptureCaptured,
-			Entries:       entries,
-		},
-		Changes: changes,
-	}
-	baseAttempt := event.Attempts[0]
-	event.Attempts = make([]telemetry.Attempt, 3)
-	for index := range event.Attempts {
-		event.Attempts[index] = baseAttempt
-		event.Attempts[index].Sequence = index + 1
-		event.Attempts[index].ConversionTrace = &largeTrace
-	}
-
-	row := mustMapEvent(t, redact.New(), event)
-	total := len(row.ClientParameters)
-	for _, attempt := range row.AttemptRows {
-		total += len(attempt.ConversionTrace)
-		var trace parametertrace.Trace
-		if err := json.Unmarshal(attempt.ConversionTrace, &trace); err != nil {
-			t.Fatal(err)
-		}
-		if trace.State != parametertrace.CapturePartial || !trace.Target.Truncated {
-			t.Fatalf("trace was not marked partial: %#v", trace)
-		}
-	}
-	if total > parametertrace.MaxEventBytes {
-		t.Fatalf("conversion observation bytes = %d, want <= %d", total, parametertrace.MaxEventBytes)
-	}
-}
-
-func TestMapEventDropsTraceWhenTooManyAttemptsCannotFitEventBudget(t *testing.T) {
-	event := testEvent("00000000-0000-4000-8000-000000000197")
-	client := parametertrace.ProjectJSON([]byte(`{"thinking":{"type":"enabled","budget_tokens":4096}}`))
-	target := parametertrace.ProjectJSON([]byte(`{"reasoning_effort":"high"}`))
-	trace := parametertrace.Compare(client, target)
-	event.ClientParameters = &client
-	baseAttempt := event.Attempts[0]
-	event.Attempts = make([]telemetry.Attempt, 200)
-	for index := range event.Attempts {
-		event.Attempts[index] = baseAttempt
-		event.Attempts[index].Sequence = index + 1
-		event.Attempts[index].ConversionTrace = &trace
-	}
-
-	row := mustMapEvent(t, redact.New(), event)
-	total := len(row.ClientParameters)
-	omitted := 0
-	for _, attempt := range row.AttemptRows {
-		total += len(attempt.ConversionTrace)
-		if len(attempt.ConversionTrace) == 0 {
-			omitted++
-		}
-	}
-	if total > parametertrace.MaxEventBytes || omitted == 0 {
-		t.Fatalf("conversion bytes/omitted = %d/%d, want <= %d with omitted traces", total, omitted, parametertrace.MaxEventBytes)
 	}
 }
 

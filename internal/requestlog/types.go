@@ -6,7 +6,6 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
@@ -51,7 +50,6 @@ type Attempt struct {
 	ErrorSummary      string                    `json:"error_summary"`
 	Committed         bool                      `json:"committed"`
 	PricingReceipt    *pricing.Receipt          `json:"pricing_receipt,omitempty"`
-	ConversionTrace   *parametertrace.Trace     `json:"conversion_trace,omitempty"`
 }
 
 type RetryState string
@@ -131,7 +129,6 @@ type Record struct {
 	ErrorSummary            string
 	AffinityHit             bool
 	Reasoning               reasoning.Config
-	ClientParameters        *parametertrace.Snapshot
 	Attempts                []Attempt
 	GroupID                 uint
 	ChannelID               channel.ID

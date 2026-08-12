@@ -20,7 +20,6 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	platformheader "gpt-load/internal/platform/httpheader"
@@ -430,8 +429,6 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	recorder.setOperation(metadata.Operation)
 	recorder.setStream(metadata.Stream)
 	recorder.setReasoning(metadata.Reasoning)
-	clientParameters := parametertrace.ProjectJSON(body)
-	recorder.setClientParameters(clientParameters)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
 	recorder.setUsageDiagnostics(metadata.UsageDiagnostics)
 
@@ -452,7 +449,6 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		metadata.ObserveUsage,
 		metadata.Operation,
 		metadata.RouteRequirement,
-		clientParameters,
 		recorder,
 	)
 }
@@ -560,7 +556,6 @@ func (handler *Handler) executeAttempts(
 	observeUsage bool,
 	operation execution.Operation,
 	routeRequirement execution.RouteRequirement,
-	clientParameters parametertrace.Snapshot,
 	recorder *requestRecorder,
 ) {
 	type deferredAttempt struct {
@@ -637,7 +632,6 @@ func (handler *Handler) executeAttempts(
 				ref.IdentityGeneration,
 				normalizedCredential.payload,
 			),
-			ClientParameters: cloneParameterSnapshot(&clientParameters),
 			OnStreamReady: func() {
 				handler.recordCredentialSuccess(selectedCredentialID, handler.now())
 			},

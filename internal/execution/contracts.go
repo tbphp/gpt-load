@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"time"
 
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -225,9 +224,6 @@ type AttemptSpec struct {
 	RawQuery string      `json:"raw_query,omitempty"`
 	Header   http.Header `json:"header,omitempty"`
 	Body     []byte      `json:"body,omitempty"`
-	// ClientParameters is a bounded, content-free projection captured once at
-	// the gateway boundary for conversion diagnostics.
-	ClientParameters *parametertrace.Snapshot `json:"client_parameters,omitempty"`
 	// IncludeUsage asks the executor to request provider usage details when the
 	// selected operation supports an explicit wire option.
 	IncludeUsage bool `json:"include_usage,omitempty"`
@@ -251,10 +247,6 @@ func (s AttemptSpec) Clone() AttemptSpec {
 	clone.Body = cloneBytes(s.Body)
 	clone.TargetConfig = cloneRawMessage(s.TargetConfig)
 	clone.Credential = s.Credential.Clone()
-	if s.ClientParameters != nil {
-		parameters := parametertrace.CloneSnapshot(*s.ClientParameters)
-		clone.ClientParameters = &parameters
-	}
 	return clone
 }
 
@@ -371,18 +363,17 @@ func (e UsageEvidence) Clone() UsageEvidence {
 // AttemptResult is the terminal result of a non-streaming attempt.
 // The result owns Header, Body, Usage, and Error after return from Executor.
 type AttemptResult struct {
-	DispatchState     DispatchState         `json:"dispatch_state"`
-	ResponseStarted   bool                  `json:"response_started"`
-	UpstreamAPI       UpstreamAPI           `json:"upstream_api,omitempty"`
-	AppliedReasoning  *reasoning.Config     `json:"applied_reasoning,omitempty"`
-	ConversionTrace   *parametertrace.Trace `json:"conversion_trace,omitempty"`
-	StatusCode        int                   `json:"status_code,omitempty"`
-	Header            http.Header           `json:"header,omitempty"`
-	Body              []byte                `json:"body,omitempty"`
-	Model             string                `json:"model,omitempty"`
-	UpstreamRequestID string                `json:"upstream_request_id,omitempty"`
-	Usage             *UsageEvidence        `json:"usage,omitempty"`
-	Error             *ErrorEvidence        `json:"error,omitempty"`
+	DispatchState     DispatchState     `json:"dispatch_state"`
+	ResponseStarted   bool              `json:"response_started"`
+	UpstreamAPI       UpstreamAPI       `json:"upstream_api,omitempty"`
+	AppliedReasoning  *reasoning.Config `json:"applied_reasoning,omitempty"`
+	StatusCode        int               `json:"status_code,omitempty"`
+	Header            http.Header       `json:"header,omitempty"`
+	Body              []byte            `json:"body,omitempty"`
+	Model             string            `json:"model,omitempty"`
+	UpstreamRequestID string            `json:"upstream_request_id,omitempty"`
+	Usage             *UsageEvidence    `json:"usage,omitempty"`
+	Error             *ErrorEvidence    `json:"error,omitempty"`
 }
 
 // Clone returns an independent attempt result.
@@ -401,10 +392,6 @@ func (r AttemptResult) Clone() AttemptResult {
 	if r.AppliedReasoning != nil {
 		reasoningConfig := r.AppliedReasoning.Clone()
 		clone.AppliedReasoning = &reasoningConfig
-	}
-	if r.ConversionTrace != nil {
-		trace := parametertrace.CloneTrace(*r.ConversionTrace)
-		clone.ConversionTrace = &trace
 	}
 	return clone
 }
@@ -451,17 +438,16 @@ func (e StreamEvent) Clone() StreamEvent {
 // StreamResult is the terminal metadata returned after streaming ends.
 // The result owns Header, Usage, and Error after return from Executor.
 type StreamResult struct {
-	DispatchState     DispatchState         `json:"dispatch_state"`
-	ResponseStarted   bool                  `json:"response_started"`
-	UpstreamAPI       UpstreamAPI           `json:"upstream_api,omitempty"`
-	AppliedReasoning  *reasoning.Config     `json:"applied_reasoning,omitempty"`
-	ConversionTrace   *parametertrace.Trace `json:"conversion_trace,omitempty"`
-	StatusCode        int                   `json:"status_code,omitempty"`
-	Header            http.Header           `json:"header,omitempty"`
-	Model             string                `json:"model,omitempty"`
-	UpstreamRequestID string                `json:"upstream_request_id,omitempty"`
-	Usage             *UsageEvidence        `json:"usage,omitempty"`
-	Error             *ErrorEvidence        `json:"error,omitempty"`
+	DispatchState     DispatchState     `json:"dispatch_state"`
+	ResponseStarted   bool              `json:"response_started"`
+	UpstreamAPI       UpstreamAPI       `json:"upstream_api,omitempty"`
+	AppliedReasoning  *reasoning.Config `json:"applied_reasoning,omitempty"`
+	StatusCode        int               `json:"status_code,omitempty"`
+	Header            http.Header       `json:"header,omitempty"`
+	Model             string            `json:"model,omitempty"`
+	UpstreamRequestID string            `json:"upstream_request_id,omitempty"`
+	Usage             *UsageEvidence    `json:"usage,omitempty"`
+	Error             *ErrorEvidence    `json:"error,omitempty"`
 }
 
 // Clone returns an independent streaming result.
@@ -479,10 +465,6 @@ func (r StreamResult) Clone() StreamResult {
 	if r.AppliedReasoning != nil {
 		reasoningConfig := r.AppliedReasoning.Clone()
 		clone.AppliedReasoning = &reasoningConfig
-	}
-	if r.ConversionTrace != nil {
-		trace := parametertrace.CloneTrace(*r.ConversionTrace)
-		clone.ConversionTrace = &trace
 	}
 	return clone
 }

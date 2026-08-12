@@ -19,7 +19,7 @@ const compactLabel = computed(() => {
   if (props.groupId !== null) parts.push(`G${props.groupId}`)
   if (props.credentialId !== null) parts.push(`K${props.credentialId}`)
   if (props.channelId !== null) parts.push(props.channelId)
-  return parts.join(' · ') || '—'
+  return parts.join('·') || '—'
 })
 
 const tooltip = computed(() => {

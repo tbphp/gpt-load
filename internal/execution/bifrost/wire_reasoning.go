@@ -9,22 +9,19 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/execution"
-	"gpt-load/internal/parametertrace"
 	"gpt-load/internal/reasoning"
 )
 
 const maxAppliedReasoningValueBytes = 64
 
 // enableConvertedWireCapture asks Bifrost to return the final serialized
-// provider request for one bounded converted attempt. The caller must remove
-// RawRequest immediately after extracting the safe projection.
+// provider request only when a converted typed request carries reasoning. The
+// caller must clear RawRequest immediately after extracting the bounded result.
 func enableConvertedWireCapture(
 	ctx *schemas.BifrostContext,
 	prepared preparedAttempt,
-	client *parametertrace.Snapshot,
 ) {
-	if ctx == nil || prepared.mode != channel.RouteConverted || !capturableSnapshot(client) {
+	if ctx == nil || prepared.mode != channel.RouteConverted || !preparedReasoningPresent(prepared) {
 		return
 	}
 	ctx.SetValue(schemas.BifrostContextKeyAllowPerRequestRawOverride, true)
@@ -32,9 +29,12 @@ func enableConvertedWireCapture(
 	ctx.SetValue(schemas.BifrostContextKeySendBackRawResponse, false)
 }
 
-func capturableSnapshot(snapshot *parametertrace.Snapshot) bool {
-	return snapshot != nil &&
-		(snapshot.State == parametertrace.CaptureCaptured || snapshot.State == parametertrace.CapturePartial)
+func preparedReasoningPresent(prepared preparedAttempt) bool {
+	if prepared.request != nil && prepared.request.Params != nil && prepared.request.Params.Reasoning != nil {
+		return true
+	}
+	return prepared.responsesRequest != nil && prepared.responsesRequest.Params != nil &&
+		prepared.responsesRequest.Params.Reasoning != nil
 }
 
 // takeAppliedReasoning clears the sensitive raw request before parsing it and
@@ -53,108 +53,13 @@ func takeAppliedReasoning(rawRequest *any) *reasoning.Config {
 	return inspectWireAppliedReasoning(body)
 }
 
-// takeWireObservation clears the sensitive raw request before parsing it and
-// returns only the bounded target parameter projection plus the legacy
-// reasoning projection used elsewhere in request-log summaries.
-func takeWireObservation(
-	rawRequest *any,
-	client *parametertrace.Snapshot,
-) (*reasoning.Config, *parametertrace.Trace) {
-	if rawRequest == nil || *rawRequest == nil {
-		return nil, defaultConversionTrace(client)
-	}
-	raw := *rawRequest
-	*rawRequest = nil
-	body, ok := rawRequestJSON(raw)
-	if !ok {
-		return nil, defaultConversionTrace(client)
-	}
-	reasoningConfig := inspectWireAppliedReasoning(body)
-	if client == nil {
-		return reasoningConfig, nil
-	}
-	target := parametertrace.ProjectJSON(body)
-	trace := parametertrace.Compare(*client, target)
-	return reasoningConfig, &trace
-}
-
-func defaultConversionTrace(client *parametertrace.Snapshot) *parametertrace.Trace {
-	if client == nil {
-		return nil
-	}
-	state := parametertrace.CaptureUnavailable
-	if client.State == parametertrace.CaptureSkippedOversize {
-		state = parametertrace.CaptureSkippedOversize
-	}
-	trace := parametertrace.Trace{
-		SchemaVersion: parametertrace.SchemaVersion,
-		State:         state,
-		Target: parametertrace.Snapshot{
-			SchemaVersion: parametertrace.SchemaVersion,
-			State:         state,
-			Entries:       []parametertrace.Entry{},
-		},
-		Changes: []parametertrace.Change{},
-	}
-	return &trace
-}
-
-func conversionClientParameters(spec *execution.AttemptSpec) *parametertrace.Snapshot {
-	if spec == nil || spec.RouteMode != execution.RouteConverted {
-		return nil
-	}
-	if spec.ClientParameters != nil {
-		parameters := parametertrace.CloneSnapshot(*spec.ClientParameters)
-		spec.ClientParameters = &parameters
-		return spec.ClientParameters
-	}
-	parameters := parametertrace.ProjectJSON(spec.Body)
-	spec.ClientParameters = &parameters
-	return spec.ClientParameters
-}
-
-func captureWireObservation(
-	rawRequest *any,
-	client *parametertrace.Snapshot,
-	appliedReasoning **reasoning.Config,
-	conversionTrace **parametertrace.Trace,
-) {
+func captureAppliedReasoning(rawRequest *any, appliedReasoning **reasoning.Config) {
 	if rawRequest == nil || *rawRequest == nil {
 		return
 	}
-	reasoningConfig, trace := takeWireObservation(rawRequest, client)
-	if reasoningConfig != nil {
-		*appliedReasoning = reasoningConfig
+	if config := takeAppliedReasoning(rawRequest); config != nil {
+		*appliedReasoning = config
 	}
-	if trace != nil {
-		*conversionTrace = trace
-	}
-}
-
-func finalConversionTrace(
-	client *parametertrace.Snapshot,
-	trace *parametertrace.Trace,
-) *parametertrace.Trace {
-	if trace != nil {
-		clone := parametertrace.CloneTrace(*trace)
-		return &clone
-	}
-	return defaultConversionTrace(client)
-}
-
-func preflightConversionTrace(
-	spec execution.AttemptSpec,
-	failure execution.AttemptResult,
-	client *parametertrace.Snapshot,
-) *parametertrace.Trace {
-	if spec.RouteMode != execution.RouteConverted {
-		return nil
-	}
-	if failure.Error == nil || failure.Error.Kind != execution.ErrorKindConversionUnsupported {
-		return defaultConversionTrace(client)
-	}
-	trace := parametertrace.PreflightBlocked()
-	return &trace
 }
 
 func rawRequestJSON(raw any) ([]byte, bool) {
