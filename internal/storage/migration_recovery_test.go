@@ -11,12 +11,13 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/config"
+	migrationfiles "gpt-load/internal/storage/migrations"
 )
 
-func TestApplyMySQLMigrationRecoversEveryInitialV2DDLBoundary(t *testing.T) {
-	models := initialV2SchemaModels()
+func TestApplyMySQLMigrationRecoversEveryInitialDDLBoundary(t *testing.T) {
+	models := migrationfiles.SchemaModels0001()
 	for boundary := 0; boundary <= len(models); boundary++ {
-		t.Run(strings.TrimPrefix(initialV2TableNames()[boundaryOrLast(boundary, len(models))], ""), func(t *testing.T) {
+		t.Run(strings.TrimPrefix(migrationfiles.TableNames0001()[boundaryOrLast(boundary, len(models))], ""), func(t *testing.T) {
 			db := openInternalMigrationTestDatabase(t)
 			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 				t.Fatalf("create migration ledger: %v", err)
@@ -30,7 +31,7 @@ func TestApplyMySQLMigrationRecoversEveryInitialV2DDLBoundary(t *testing.T) {
 				}
 			}
 
-			if err := applyMySQLInitialV2Migration(db, migrations[0]); err != nil {
+			if err := applyMySQLMigration(db, migrations[0]); err != nil {
 				t.Fatalf("resume boundary %d: %v", boundary, err)
 			}
 			assertInternalMigrationComplete(t, db, []string{migrations[0].ID})
@@ -56,7 +57,7 @@ func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
 			name: "existing business data",
 			setup: func(t *testing.T, db internalMigrationDB) {
 				t.Helper()
-				if err := db.AutoMigrate(initialV2SchemaModels()[0]); err != nil {
+				if err := db.AutoMigrate(migrationfiles.SchemaModels0001()[0]); err != nil {
 					t.Fatal(err)
 				}
 				if err := db.Exec(`INSERT INTO groups
@@ -88,9 +89,9 @@ func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
 			}
 			test.setup(t, internalMigrationDB{db})
 
-			err := applyMySQLInitialV2Migration(db, migrations[0])
-			if err == nil || !strings.Contains(err.Error(), "unsafe interrupted baseline") {
-				t.Fatalf("applyMySQLInitialV2Migration() error = %v", err)
+			err := applyMySQLMigration(db, migrations[0])
+			if err == nil || !strings.Contains(err.Error(), "unsafe interrupted migration") {
+				t.Fatalf("applyMySQLMigration() error = %v", err)
 			}
 		})
 	}
@@ -115,7 +116,7 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = adminSQL.Close() })
 
-	models := initialV2SchemaModels()
+	models := migrationfiles.SchemaModels0001()
 	for boundary := 0; boundary <= len(models); boundary++ {
 		t.Run(fmt.Sprintf("boundary_%02d", boundary), func(t *testing.T) {
 			databaseName := fmt.Sprintf("gpt_load_recovery_%d_%02d", time.Now().UnixNano(), boundary)
@@ -196,7 +197,7 @@ func openInternalMigrationTestDatabase(t *testing.T) *gorm.DB {
 
 func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string) {
 	t.Helper()
-	for _, table := range initialV2TableNames() {
+	for _, table := range migrationfiles.TableNames0001() {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("table %q is missing", table)
 		}

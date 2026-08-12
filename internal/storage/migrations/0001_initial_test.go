@@ -1,4 +1,4 @@
-package storage_test
+package migrations_test
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-type initialV2Column struct {
+type initialColumn struct {
 	Name         string
 	Type         string
 	NotNull      int     `gorm:"column:notnull"`
@@ -21,7 +21,7 @@ type initialV2Column struct {
 }
 
 func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
-	db := openInitialV2TestDatabase(t)
+	db := openInitialTestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 	})
 	assertUniqueIndex(t, db, "model_prices", "idx_model_prices_channel_model", []string{"channel_id", "model_id"})
 
-	columns := initialV2Columns(t, db, "model_prices")
+	columns := initialColumns(t, db, "model_prices")
 	for _, name := range []string{
 		"input_price_nano_usd_per_million_tokens",
 		"output_price_nano_usd_per_million_tokens",
@@ -61,15 +61,15 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
-	db := openInitialV2TestDatabase(t)
+func TestAutoMigrateCreatesNormalizedRequestLogInitialSchema(t *testing.T) {
+	db := openInitialTestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
 	if !db.Migrator().HasTable("schema_migrations") {
 		t.Fatal("schema_migrations is missing")
 	}
-	requestColumns := initialV2Columns(t, db, "request_logs")
+	requestColumns := initialColumns(t, db, "request_logs")
 	for _, name := range []string{
 		"stream", "first_response_ms", "attempt_count",
 		"upstream_reported_model", "model_consistency",
@@ -82,6 +82,9 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
 	if _, ok := requestColumns["attempts"]; ok {
 		t.Error("request_logs.attempts JSON column still exists")
 	}
+	if _, ok := requestColumns["client_parameters_json"]; ok {
+		t.Error("request_logs.client_parameters_json temporary column exists")
+	}
 	assertColumns(t, db, "request_log_attempts", []string{
 		"request_id", "sequence", "completed_at_ms", "group_id", "group_name",
 		"channel_id", "credential_id", "operation", "route_mode", "upstream_model",
@@ -91,6 +94,10 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
 		"failure_category", "action", "will_retry", "error_code", "error_summary",
 		"committed", "pricing_receipt",
 	})
+	attemptColumns := initialColumns(t, db, "request_log_attempts")
+	if _, ok := attemptColumns["conversion_trace_json"]; ok {
+		t.Error("request_log_attempts.conversion_trace_json temporary column exists")
+	}
 
 	var foreignKeys []struct {
 		Table    string
@@ -111,7 +118,7 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialV2(t *testing.T) {
 func TestAutoMigrateRejectsLegacySchemaInfoDatabase(t *testing.T) {
 	for _, version := range []uint{1, 2, 3, 4} {
 		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
-			db := openInitialV2TestDatabase(t)
+			db := openInitialTestDatabase(t)
 			if err := db.Exec("CREATE TABLE schema_info (version integer PRIMARY KEY)").Error; err != nil {
 				t.Fatal(err)
 			}
@@ -127,12 +134,12 @@ func TestAutoMigrateRejectsLegacySchemaInfoDatabase(t *testing.T) {
 }
 
 func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
-	db := openInitialV2TestDatabase(t)
+	db := openInitialTestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
 	}
 
-	groups := initialV2Columns(t, db, "groups")
+	groups := initialColumns(t, db, "groups")
 	for _, name := range []string{"channel_id", "params", "models", "overrides"} {
 		if _, ok := groups[name]; !ok {
 			t.Errorf("groups.%s is missing", name)
@@ -151,7 +158,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 		"request_logs": {"channel_id", "credential_id", "cache_write_unknown_tokens", "pricing_completeness"},
 		"usage_stats":  {"channel_id", "credential_id", "cache_write_unknown_tokens", "pricing_partial_count"},
 	} {
-		got := initialV2Columns(t, db, table)
+		got := initialColumns(t, db, table)
 		for _, name := range columns {
 			column, found := got[name]
 			if !found {
@@ -164,7 +171,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 			}
 		}
 	}
-	journal := initialV2Columns(t, db, "usage_aggregation_journal")
+	journal := initialColumns(t, db, "usage_aggregation_journal")
 	for _, name := range []string{
 		"request_id", "bucket_start_ms", "access_key_id", "channel_id", "group_id",
 		"credential_id", "model",
@@ -188,7 +195,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 	if applied.DefaultValue == nil || strings.Trim(*applied.DefaultValue, "'\"") != "false" {
 		t.Errorf("usage_aggregation_journal.applied default = %v, want false", applied.DefaultValue)
 	}
-	pricingCompleteness := initialV2Columns(t, db, "request_logs")["pricing_completeness"]
+	pricingCompleteness := initialColumns(t, db, "request_logs")["pricing_completeness"]
 	if pricingCompleteness.DefaultValue == nil ||
 		strings.Trim(*pricingCompleteness.DefaultValue, "'\"") != "not_applicable" {
 		t.Errorf("request_logs.pricing_completeness default = %v, want not_applicable",
@@ -197,7 +204,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 }
 
 func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
-	db := openMigratedInitialV2TestDatabase(t)
+	db := openMigratedInitialTestDatabase(t)
 	priceColumns := []string{
 		"input_price_nano_usd_per_million_tokens",
 		"output_price_nano_usd_per_million_tokens",
@@ -217,7 +224,7 @@ func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
 }
 
 func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testing.T) {
-	db := openMigratedInitialV2TestDatabase(t)
+	db := openMigratedInitialTestDatabase(t)
 
 	empty := models.ModelPrice{
 		ChannelID:         "openai",
@@ -345,7 +352,7 @@ func TestModelPriceValidatesContextTiersAcrossGORMWritePaths(t *testing.T) {
 }
 
 func TestFinalRequestLogEnforcesStateContract(t *testing.T) {
-	db := openMigratedInitialV2TestDatabase(t)
+	db := openMigratedInitialTestDatabase(t)
 	valid := []requestStateFixture{
 		{id: "valid-priced-complete", status: "success", usage: "complete", cost: "priced", pricing: "complete", estimatedCost: 1},
 		{id: "valid-priced-partial", status: "incomplete", usage: "partial", cost: "priced", pricing: "partial", estimatedCost: 0},
@@ -377,7 +384,7 @@ func TestFinalRequestLogEnforcesStateContract(t *testing.T) {
 }
 
 func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
-	db := openMigratedInitialV2TestDatabase(t)
+	db := openMigratedInitialTestDatabase(t)
 
 	for table, names := range map[string][]string{
 		"groups":             {"created_at_ms", "updated_at_ms"},
@@ -390,7 +397,7 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 		"jobs":               {"created_at_ms", "started_at_ms", "finished_at_ms"},
 		"control_operations": {"completed_at_ms", "compacted_at_ms", "created_at_ms", "updated_at_ms"},
 	} {
-		columns := initialV2Columns(t, db, table)
+		columns := initialColumns(t, db, table)
 		for _, name := range names {
 			column, ok := columns[name]
 			if !ok {
@@ -509,7 +516,7 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 }
 
 func TestAutoMigrateDoesNotReapplyCompletedMigrationForChangedTable(t *testing.T) {
-	db := openMigratedInitialV2TestDatabase(t)
+	db := openMigratedInitialTestDatabase(t)
 	if err := db.Exec(`ALTER TABLE usage_stats RENAME TO usage_stats_checked`).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +533,7 @@ func TestAutoMigrateDoesNotReapplyCompletedMigrationForChangedTable(t *testing.T
 }
 
 func TestAutoMigrateDoesNotReapplyCompletedMigrationForMissingIndex(t *testing.T) {
-	db := openMigratedInitialV2TestDatabase(t)
+	db := openMigratedInitialTestDatabase(t)
 	if err := db.Exec("DROP INDEX idx_model_prices_channel_model").Error; err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +567,7 @@ func insertRequestStateFixture(db *gorm.DB, fixture requestStateFixture) error {
 
 func createModelPriceForWritePath(t *testing.T, modelID string) (*gorm.DB, models.ModelPrice) {
 	t.Helper()
-	db := openMigratedInitialV2TestDatabase(t)
+	db := openMigratedInitialTestDatabase(t)
 	row := models.ModelPrice{
 		ChannelID: "openai",
 		ModelID:   modelID,
@@ -591,7 +598,7 @@ func assertModelPriceTiersNull(
 	}
 }
 
-func openInitialV2TestDatabase(t *testing.T) *gorm.DB {
+func openInitialTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := storage.Open(":memory:")
 	if err != nil {
@@ -609,22 +616,22 @@ func openInitialV2TestDatabase(t *testing.T) *gorm.DB {
 	return db
 }
 
-func openMigratedInitialV2TestDatabase(t *testing.T) *gorm.DB {
+func openMigratedInitialTestDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
-	db := openInitialV2TestDatabase(t)
+	db := openInitialTestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatalf("AutoMigrate() error = %v", err)
 	}
 	return db
 }
 
-func initialV2Columns(t *testing.T, db *gorm.DB, table string) map[string]initialV2Column {
+func initialColumns(t *testing.T, db *gorm.DB, table string) map[string]initialColumn {
 	t.Helper()
-	var columns []initialV2Column
+	var columns []initialColumn
 	if err := db.Raw("PRAGMA table_info('" + table + "')").Scan(&columns).Error; err != nil {
 		t.Fatalf("inspect %s columns: %v", table, err)
 	}
-	result := make(map[string]initialV2Column, len(columns))
+	result := make(map[string]initialColumn, len(columns))
 	for _, column := range columns {
 		result[column.Name] = column
 	}
@@ -633,7 +640,7 @@ func initialV2Columns(t *testing.T, db *gorm.DB, table string) map[string]initia
 
 func assertColumns(t *testing.T, db *gorm.DB, table string, want []string) {
 	t.Helper()
-	got := initialV2Columns(t, db, table)
+	got := initialColumns(t, db, table)
 	for _, name := range want {
 		if _, ok := got[name]; !ok {
 			t.Errorf("%s.%s is missing", table, name)

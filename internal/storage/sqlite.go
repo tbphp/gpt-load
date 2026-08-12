@@ -2,17 +2,14 @@ package storage
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/securefile"
@@ -26,51 +23,7 @@ type sqliteTarget struct {
 	directory    string
 }
 
-var databaseLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
-	SlowThreshold:        200 * time.Millisecond,
-	LogLevel:             logger.Warn,
-	ParameterizedQueries: true,
-	Colorful:             true,
-})
-
 var hardenManagedFileIfExists = securefile.HardenManagedFileIfExists
-
-// Open opens a database using a fully resolved DSN.
-// Resolving an empty DSN to DATA_DIR belongs to platform/config.
-func Open(dsn string) (*gorm.DB, error) {
-	return OpenWithSource(dsn, config.DatabaseSourceExternal)
-}
-
-// OpenWithSource opens a database and applies file controls only when the
-// application owns the managed SQLite location.
-func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
-	database, err := config.ParseDatabaseDSN(dsn)
-	if err != nil {
-		return nil, err
-	}
-	switch source {
-	case config.DatabaseSourceManaged:
-	case config.DatabaseSourceExternal:
-	default:
-		return nil, fmt.Errorf("open database: unsupported database source")
-	}
-
-	if database.Driver == config.DatabaseDriverSQLite {
-		if source == config.DatabaseSourceExternal {
-			logExternalDatabaseSource(database.Driver)
-		}
-		return openSQLite(database.DSN, source)
-	}
-	if source == config.DatabaseSourceManaged {
-		return nil, fmt.Errorf("open %s database: managed source is only supported by SQLite", databaseDisplayName(database.Driver))
-	}
-	logExternalDatabaseSource(database.Driver)
-	dialector, err := newDatabaseDialector(database)
-	if err != nil {
-		return nil, err
-	}
-	return openDatabase(database.Driver, dialector)
-}
 
 func openSQLite(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
 	target, err := parseSQLiteTarget(dsn)

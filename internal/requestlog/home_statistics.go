@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/platform/dbtx"
 	"gpt-load/internal/platform/epochms"
+	"gpt-load/internal/storage/dbtx"
 	"gpt-load/internal/storage/models"
 )
 

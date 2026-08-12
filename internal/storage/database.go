@@ -4,14 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/sirupsen/logrus"
 	gormmysql "gorm.io/driver/mysql"
 	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/platform/config"
 )
@@ -21,9 +25,53 @@ const (
 	databaseMaxIdleConnections = 5
 )
 
+var databaseLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
+	SlowThreshold:        200 * time.Millisecond,
+	LogLevel:             logger.Warn,
+	ParameterizedQueries: true,
+	Colorful:             true,
+})
+
+// Open opens a database using a fully resolved DSN.
+// Resolving an empty DSN to DATA_DIR belongs to platform/config.
+func Open(dsn string) (*gorm.DB, error) {
+	return OpenWithSource(dsn, config.DatabaseSourceExternal)
+}
+
+// OpenWithSource opens a database and applies file controls only when the
+// application owns the managed SQLite location.
+func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
+	database, err := config.ParseDatabaseDSN(dsn)
+	if err != nil {
+		return nil, err
+	}
+	switch source {
+	case config.DatabaseSourceManaged:
+	case config.DatabaseSourceExternal:
+	default:
+		return nil, fmt.Errorf("open database: unsupported database source")
+	}
+
+	if database.Driver == config.DatabaseDriverSQLite {
+		if source == config.DatabaseSourceExternal {
+			logExternalDatabaseSource(database.Driver)
+		}
+		return openSQLite(database.DSN, source)
+	}
+	if source == config.DatabaseSourceManaged {
+		return nil, fmt.Errorf("open %s database: managed source is only supported by SQLite", databaseDisplayName(database.Driver))
+	}
+	logExternalDatabaseSource(database.Driver)
+	dialector, err := newDatabaseDialector(database)
+	if err != nil {
+		return nil, err
+	}
+	return openDatabase(database.Driver, dialector)
+}
+
 // openDatabase is the shared GORM/SQL lifecycle for every supported driver.
 // Driver-specific behavior is limited to dialector construction and the
-// SQLite runtime hook in db.go.
+// SQLite runtime hook in sqlite.go.
 func openDatabase(driver config.DatabaseDriver, dialector gorm.Dialector) (*gorm.DB, error) {
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:         databaseLogger,
@@ -100,7 +148,7 @@ func mysqlDSNFromURL(rawDSN string) (string, error) {
 	// Keep the application-visible behavior stable across MySQL installations:
 	// parseTime is required for time-valued driver fields, clientFoundRows is
 	// required by existing RowsAffected contracts, and utf8mb4/binary lets
-	// connection literals represent exact identifiers. Schema migration 0004
+	// connection literals represent exact identifiers. Schema migration 0001
 	// enforces the corresponding binary identity on model_prices.model_id.
 	query.Set("parseTime", "true")
 	query.Set("clientFoundRows", "true")
