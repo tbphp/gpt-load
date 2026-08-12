@@ -331,7 +331,7 @@ export default {
         deletedOrUnknownAccessKey: '#{id} · 已删除或未知',
         modelHint: '上游模型',
         unknownModel: '未知模型',
-        requestsValue: '{value} 次请求',
+        requestsValue: '{value} 次',
         tokensValue: '{value} Token',
       },
       columns: {
