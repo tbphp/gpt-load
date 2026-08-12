@@ -100,75 +100,77 @@ watch(
   <div class="app-shell">
     <a class="skip-link" href="#main-content">{{ t('shell.skip') }}</a>
     <header class="app-topbar">
-      <RouterLink
-        class="brand"
-        :to="homeLocation()"
-        :aria-label="`${t('common.appName')} · ${t('shell.home')}`"
-      >
-        <BrandMark :size="24" />
-        <span>{{ t('common.appName') }}</span>
-      </RouterLink>
-
-      <span
-        v-if="isAccessKey"
-        class="access-scope-badge"
-        :title="t('shell.accessKeyReadOnlyDescription')"
-      >
-        <LockKeyhole :size="13" aria-hidden="true" />
-        <span>{{ t('shell.accessKeyReadOnly') }}</span>
-      </span>
-
-      <nav class="desktop-nav" :aria-label="t('shell.primaryNavigation')">
+      <div class="app-topbar__inner">
         <RouterLink
-          v-for="item in navigation"
-          :key="item.key"
-          class="nav-link"
-          :class="{ 'nav-link--active': isPrimaryActive(item.key) }"
-          :to="item.to"
-          :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
+          class="brand"
+          :to="homeLocation()"
+          :aria-label="`${t('common.appName')} · ${t('shell.home')}`"
         >
-          {{ item.label }}
+          <BrandMark :size="24" />
+          <span>{{ t('common.appName') }}</span>
         </RouterLink>
-      </nav>
 
-      <div class="shell-actions">
-        <RouterLink
-          v-if="!isAccessKey"
-          class="button-link import-action"
-          :to="importLocation()"
-          :aria-label="t('shell.import')"
+        <nav class="desktop-nav" :aria-label="t('shell.primaryNavigation')">
+          <RouterLink
+            v-for="item in navigation"
+            :key="item.key"
+            class="nav-link"
+            :class="{ 'nav-link--active': isPrimaryActive(item.key) }"
+            :to="item.to"
+            :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </nav>
+
+        <span
+          v-if="isAccessKey"
+          class="access-scope-badge"
+          :title="t('shell.accessKeyReadOnlyDescription')"
         >
-          <KeyRound :size="15" aria-hidden="true" />
-          <span class="import-action__label">{{ t('shell.import') }}</span>
-        </RouterLink>
-        <PreferencesControl
-          compact
-          show-sign-out
-          :locale="currentLocale"
-          :trigger-label="t('shell.menu')"
-          :theme="theme.theme.value"
-          @update:locale="setLocale"
-          @update:theme="theme.setTheme"
-          @sign-out="logout"
-        >
-          <template #mobile-navigation="{ close }">
-            <nav class="mobile-nav" :aria-label="t('shell.primaryNavigation')">
-              <p class="mobile-nav__label">{{ t('shell.primaryNavigation') }}</p>
-              <RouterLink
-                v-for="item in navigation"
-                :key="item.key"
-                class="mobile-nav__link"
-                :class="{ 'mobile-nav__link--active': isPrimaryActive(item.key) }"
-                :to="item.to"
-                :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
-                @click="close"
-              >
-                <span>{{ item.label }}</span>
-                <Check v-if="isPrimaryActive(item.key)" :size="15" aria-hidden="true" />
-              </RouterLink>
-            </nav>
-          </template>
-        </PreferencesControl>
+          <LockKeyhole :size="13" aria-hidden="true" />
+          <span>{{ t('shell.accessKeyReadOnly') }}</span>
+        </span>
+
+        <div class="shell-actions">
+          <RouterLink
+            v-if="!isAccessKey"
+            class="button-link import-action"
+            :to="importLocation()"
+            :aria-label="t('shell.import')"
+          >
+            <KeyRound :size="15" aria-hidden="true" />
+            <span class="import-action__label">{{ t('shell.import') }}</span>
+          </RouterLink>
+          <PreferencesControl
+            compact
+            show-sign-out
+            :locale="currentLocale"
+            :trigger-label="t('shell.menu')"
+            :theme="theme.theme.value"
+            @update:locale="setLocale"
+            @update:theme="theme.setTheme"
+            @sign-out="logout"
+          >
+            <template #mobile-navigation="{ close }">
+              <nav class="mobile-nav" :aria-label="t('shell.primaryNavigation')">
+                <p class="mobile-nav__label">{{ t('shell.primaryNavigation') }}</p>
+                <RouterLink
+                  v-for="item in navigation"
+                  :key="item.key"
+                  class="mobile-nav__link"
+                  :class="{ 'mobile-nav__link--active': isPrimaryActive(item.key) }"
+                  :to="item.to"
+                  :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
+                  @click="close"
+                >
+                  <span>{{ item.label }}</span>
+                  <Check v-if="isPrimaryActive(item.key)" :size="15" aria-hidden="true" />
+                </RouterLink>
+              </nav>
+            </template>
+          </PreferencesControl>
+        </div>
       </div>
     </header>
 
@@ -193,6 +195,13 @@ watch(
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
   padding: 0 var(--topbar-padding-inline);
+}
+.app-topbar__inner {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  gap: 28px;
 }
 .brand {
   display: inline-flex;
@@ -315,10 +324,29 @@ watch(
   color: var(--color-text);
   font-weight: 560;
 }
+@media (min-width: 1360px) {
+  .app-topbar {
+    padding-inline: var(--stage-padding-inline);
+  }
+  .app-topbar__inner {
+    position: relative;
+    width: min(100%, var(--page-max));
+    margin: 0 auto;
+  }
+  .brand {
+    position: absolute;
+    top: 50%;
+    right: calc(100% + var(--space-4));
+    transform: translateY(-50%);
+  }
+}
 @media (max-width: 860px) {
   .app-topbar {
     gap: var(--space-2);
     padding-inline: var(--space-4);
+  }
+  .app-topbar__inner {
+    gap: var(--space-2);
   }
   .desktop-nav {
     display: none;
