@@ -18,6 +18,7 @@ import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route
 import { useCollectionLoading } from '@/app/loading-state'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
@@ -204,6 +205,18 @@ function channelName(channelID: string): string {
   return (
     channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === channelID)?.name ??
     channelID
+  )
+}
+
+function channelIcon(channelID: string): string | null {
+  return (
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === channelID)?.icon ?? null
+  )
+}
+
+function channelMark(channelID: string): string | null {
+  return (
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === channelID)?.mark ?? null
   )
 }
 </script>
@@ -401,7 +414,15 @@ function channelName(channelID: string): string {
               </div>
 
               <div class="ledger-record-list__cell endpoint" role="cell">
-                <strong class="channel-name">{{ channelName(group.channel_id) }}</strong>
+                <span class="channel-heading">
+                  <ChannelIcon
+                    v-if="channelMark(group.channel_id)"
+                    class="channel-icon"
+                    :icon="channelIcon(group.channel_id) ?? ''"
+                    :mark="channelMark(group.channel_id) ?? ''"
+                  />
+                  <strong class="channel-name">{{ channelName(group.channel_id) }}</strong>
+                </span>
                 <code class="channel-id">{{ group.channel_id }}</code>
                 <CopyChip
                   v-if="group.params.base_url"
@@ -536,6 +557,18 @@ function channelName(channelID: string): string {
   font-family: var(--font-mono);
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.channel-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.channel-icon {
+  flex: none;
+  font-size: var(--text-sm);
 }
 
 .channel-name {

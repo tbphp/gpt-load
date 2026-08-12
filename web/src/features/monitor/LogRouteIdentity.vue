@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 
 const props = defineProps<{
@@ -9,16 +10,23 @@ const props = defineProps<{
   groupName?: string | null
   channelId: string | null
   channelName?: string | null
+  channelIcon?: string | null
+  channelMark?: string | null
   credentialId: number | null
 }>()
 
 const { t } = useI18n()
 
+// The icon is what carries the channel identity, so it replaces the channel ID
+// in the label. Callers that pass no icon metadata — or a channel list that
+// failed to load — must keep the ID, otherwise the row only shows G/K.
+const showsIcon = computed(() => Boolean(props.channelMark))
+
 const compactLabel = computed(() => {
   const parts: string[] = []
   if (props.groupId !== null) parts.push(`G${props.groupId}`)
   if (props.credentialId !== null) parts.push(`K${props.credentialId}`)
-  if (props.channelId !== null) parts.push(props.channelId)
+  if (!showsIcon.value && props.channelId !== null) parts.push(props.channelId)
   return parts.join('·') || '—'
 })
 
@@ -49,31 +57,47 @@ const tooltip = computed(() => {
 
 <template>
   <AppTooltip :content="tooltip" :disabled="tooltip.length === 0" side="top" align="start">
-    <code
+    <span
       class="log-route-identity"
       :tabindex="tooltip ? 0 : undefined"
       :aria-label="tooltip || undefined"
     >
-      {{ compactLabel }}
-    </code>
+      <ChannelIcon
+        v-if="showsIcon"
+        class="log-route-identity__icon"
+        :icon="channelIcon ?? ''"
+        :mark="channelMark ?? ''"
+      />
+      <code class="log-route-identity__label">{{ compactLabel }}</code>
+    </span>
   </AppTooltip>
 </template>
 
 <style scoped>
 .log-route-identity {
-  display: block;
+  display: flex;
   min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-faint);
+  align-items: center;
+  gap: 4px;
   cursor: help;
-  font-size: var(--text-label-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .log-route-identity:focus-visible {
   border-radius: var(--radius-tag);
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+.log-route-identity__icon {
+  flex: none;
+  font-size: var(--text-label-xs);
+}
+
+.log-route-identity__label {
+  overflow: hidden;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

@@ -66,24 +66,24 @@ func builtinDefinitions() []definition {
 	}}
 
 	azureDefinition := newDefinition(
-		AzureOpenAI, "Azure OpenAI", "AZ", "Azure OpenAI and Microsoft Foundry", []string{"azure", "foundry", "entra"},
+		AzureOpenAI, "Azure OpenAI", "AZ", "azure", "Azure OpenAI and Microsoft Foundry", []string{"azure", "foundry", "entra"},
 		azureParams, azureCredentials, "azure", ProviderAzureOpenAI, false, nil, false,
 	)
 	azureDefinition.validateCredential = validateAzureCredential
 	bedrockDefinition := newDefinition(
-		AWSBedrock, "AWS Bedrock", "BR", "Amazon Bedrock", []string{"aws", "amazon", "sigv4", "iam"},
+		AWSBedrock, "AWS Bedrock", "BR", "bedrock", "Amazon Bedrock", []string{"aws", "amazon", "sigv4", "iam"},
 		bedrockParams, bedrockCredentials, "amazon-bedrock", ProviderAWSBedrock, false, nil, false,
 	)
 	bedrockDefinition.validateCredential = validateBedrockCredential
 	vertexDefinition := newDefinition(
-		GoogleVertex, "Google Vertex AI", "VX", "Google Cloud Vertex AI", []string{"google", "gcp", "vertex"},
+		GoogleVertex, "Google Vertex AI", "VX", "vertexai", "Google Cloud Vertex AI", []string{"google", "gcp", "vertex"},
 		vertexParams, vertexCredentials, "google-vertex", ProviderGoogleVertex, false, nil, false,
 	)
 	vertexDefinition.validateParams = normalizeVertexParams
 
 	return []definition{
 		newDefinition(
-			OpenAI, "OpenAI", "OA", "OpenAI official API", []string{"gpt"},
+			OpenAI, "OpenAI", "OA", "openai", "OpenAI official API", []string{"gpt"},
 			baseURLOverrideParams, apiKeySchema, "openai", ProviderOpenAI, false,
 			map[protocol.Protocol]bool{
 				protocol.OpenAICompletions: true,
@@ -92,12 +92,12 @@ func builtinDefinitions() []definition {
 			true,
 		),
 		newDefinition(
-			Anthropic, "Anthropic", "AN", "Anthropic official API", []string{"claude"},
+			Anthropic, "Anthropic", "AN", "anthropic", "Anthropic official API", []string{"claude"},
 			baseURLOverrideParams, apiKeySchema, "anthropic", ProviderAnthropic, false,
 			map[protocol.Protocol]bool{protocol.Anthropic: true}, false,
 		),
 		newDefinition(
-			Gemini, "Google Gemini", "GE", "Google Gemini official API", []string{"google"},
+			Gemini, "Google Gemini", "GE", "gemini", "Google Gemini official API", []string{"google"},
 			baseURLOverrideParams, apiKeySchema, "google", ProviderGemini, false,
 			map[protocol.Protocol]bool{protocol.Gemini: true}, false,
 		),
@@ -105,43 +105,43 @@ func builtinDefinitions() []definition {
 		bedrockDefinition,
 		vertexDefinition,
 		newNativeOpenAIChannelDefinition(
-			DeepSeek, "DeepSeek", "DS", []string{"deep seek"},
+			DeepSeek, "DeepSeek", "DS", "deepseek", []string{"deep seek"},
 			"deepseek", ProviderDeepSeek, apiKeySchema, false,
 		),
 		newFixedCompatibleDefinition(
-			MoonshotAI, "Moonshot AI", "MS", []string{"kimi", "moonshot"},
+			MoonshotAI, "Moonshot AI", "MS", "moonshot", []string{"kimi", "moonshot"},
 			"https://api.moonshot.cn/v1", "moonshotai", apiKeySchema,
 		),
 		newFixedCompatibleDefinition(
-			SiliconFlow, "SiliconFlow", "SF", []string{"silicon flow"},
+			SiliconFlow, "SiliconFlow", "SF", "siliconcloud", []string{"silicon flow"},
 			"https://api.siliconflow.cn/v1", "siliconflow", apiKeySchema,
 		),
 		newFixedCompatibleDefinition(
-			ZhipuAI, "Zhipu AI", "ZP", []string{"glm", "bigmodel"},
+			ZhipuAI, "Zhipu AI", "ZP", "zhipu", []string{"glm", "bigmodel"},
 			"https://open.bigmodel.cn/api/paas/v4", "zhipuai", apiKeySchema,
 		),
 		newFixedCompatibleDefinition(
-			Alibaba, "Alibaba Cloud Bailian", "BL", []string{"dashscope", "qwen", "bailian"},
+			Alibaba, "Alibaba Cloud Bailian", "BL", "alibabacloud", []string{"dashscope", "qwen", "bailian"},
 			"https://dashscope.aliyuncs.com/compatible-mode/v1", "alibaba", apiKeySchema,
 		),
 		newFixedCompatibleDefinition(
-			Volcengine, "Volcengine Ark", "VE", []string{"doubao", "ark"},
+			Volcengine, "Volcengine Ark", "VE", "volcengine", []string{"doubao", "ark"},
 			"https://ark.cn-beijing.volces.com/api/v3", "volcengine", apiKeySchema,
 		),
 		newNativeOpenAIChannelDefinition(
-			OpenRouter, "OpenRouter", "OR", []string{"router"},
+			OpenRouter, "OpenRouter", "OR", "openrouter", []string{"router"},
 			"openrouter", ProviderOpenRouter, apiKeySchema, true,
 		),
 		newNativeOpenAIChannelDefinition(
-			Groq, "Groq", "GQ", []string{"groqcloud"},
+			Groq, "Groq", "GQ", "groq", []string{"groqcloud"},
 			"groq", ProviderGroq, apiKeySchema, false,
 		),
 		newNativeOpenAIChannelDefinition(
-			XAI, "xAI", "XA", []string{"grok"},
+			XAI, "xAI", "XA", "xai", []string{"grok"},
 			"xai", ProviderXAI, apiKeySchema, true,
 		),
 		newDefinition(
-			OpenAICompatible, "OpenAI Compatible", "OC", "Custom OpenAI-compatible API", []string{"custom", "proxy", "gateway"},
+			OpenAICompatible, "OpenAI Compatible", "OC", "compatible", "Custom OpenAI-compatible API", []string{"custom", "proxy", "gateway"},
 			compatibleParams, apiKeySchema, "", ProviderOpenAICompatible, true,
 			map[protocol.Protocol]bool{protocol.OpenAICompletions: true},
 			false,
@@ -269,6 +269,7 @@ func newFixedCompatibleDefinition(
 	id ID,
 	name string,
 	mark string,
+	icon string,
 	searchTerms []string,
 	baseURL string,
 	catalogProviderID string,
@@ -278,6 +279,7 @@ func newFixedCompatibleDefinition(
 		id,
 		name,
 		mark,
+		icon,
 		"Managed API preset",
 		searchTerms,
 		objectSchema{{
@@ -299,6 +301,7 @@ func newNativeOpenAIChannelDefinition(
 	id ID,
 	name string,
 	mark string,
+	icon string,
 	searchTerms []string,
 	catalogProviderID string,
 	providerKind ProviderKind,
@@ -313,6 +316,7 @@ func newNativeOpenAIChannelDefinition(
 		id,
 		name,
 		mark,
+		icon,
 		"Managed API preset",
 		searchTerms,
 		objectSchema{{
@@ -332,6 +336,7 @@ func newDefinition(
 	id ID,
 	name string,
 	mark string,
+	icon string,
 	description string,
 	searchTerms []string,
 	params objectSchema,
@@ -348,12 +353,13 @@ func newDefinition(
 			ID:               id,
 			Name:             name,
 			Mark:             mark,
+			Icon:             icon,
+			SearchTerms:      append([]string(nil), searchTerms...),
 			Description:      description,
 			ParamFields:      params.descriptors(),
 			CredentialFields: credentials.descriptors(),
 			ClientProtocols:  orderedProtocols(modes),
 		},
-		searchTerms:       append([]string(nil), searchTerms...),
 		params:            append(objectSchema(nil), params...),
 		credentials:       append(objectSchema(nil), credentials...),
 		catalogProviderID: catalogProviderID,

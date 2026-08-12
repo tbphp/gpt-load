@@ -470,6 +470,22 @@ function channelName(log: RequestLogItemDto): string | null {
   )
 }
 
+function channelIcon(log: RequestLogItemDto): string | null {
+  if (log.channel_id === null) return null
+  return (
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === log.channel_id)?.icon ??
+    null
+  )
+}
+
+function channelMark(log: RequestLogItemDto): string | null {
+  if (log.channel_id === null) return null
+  return (
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === log.channel_id)?.mark ??
+    null
+  )
+}
+
 function responseLabel(log: RequestLogItemDto): string {
   if (log.status === 'success') return t('monitor.logs.response.normal')
   if (log.status === 'error') {
@@ -690,6 +706,8 @@ function costLabel(log: RequestLogItemDto): string {
               :group-name="groupName(log)"
               :channel-id="log.channel_id"
               :channel-name="channelName(log)"
+              :channel-icon="channelIcon(log)"
+              :channel-mark="channelMark(log)"
               :credential-id="log.credential_id"
             />
           </div>

@@ -16,12 +16,14 @@ withDefaults(
     list?: string
     disabled?: boolean
     describedBy?: string
+    activeDescendant?: string
   }>(),
   {
     id: undefined,
     list: undefined,
     disabled: false,
     describedBy: undefined,
+    activeDescendant: undefined,
   },
 )
 const emit = defineEmits<{
@@ -57,6 +59,7 @@ defineExpose({ focus })
       :value="modelValue"
       :aria-label="label"
       :aria-describedby="describedBy"
+      :aria-activedescendant="activeDescendant"
       :placeholder="placeholder"
       :disabled="disabled"
       autocomplete="off"

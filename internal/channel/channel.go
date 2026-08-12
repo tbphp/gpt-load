@@ -57,9 +57,13 @@ type FieldDescriptor struct {
 
 // Descriptor contains only information safe to expose to the management UI.
 type Descriptor struct {
-	ID               ID                  `json:"channel_id"`
-	Name             string              `json:"name"`
-	Mark             string              `json:"mark"`
+	ID   ID     `json:"channel_id"`
+	Name string `json:"name"`
+	Mark string `json:"mark"`
+	// Icon names a frontend-owned icon resource. The frontend falls back to
+	// Mark when Icon is empty or the resource is not bundled.
+	Icon             string              `json:"icon"`
+	SearchTerms      []string            `json:"search_terms"`
 	Description      string              `json:"description"`
 	ParamFields      []FieldDescriptor   `json:"param_fields"`
 	CredentialFields []FieldDescriptor   `json:"credential_fields"`
@@ -468,7 +472,6 @@ func (s objectSchema) validate(prefix string, raw json.RawMessage) (map[string]s
 
 type definition struct {
 	descriptor         Descriptor
-	searchTerms        []string
 	params             objectSchema
 	validateParams     func(json.RawMessage) (map[string]string, error)
 	credentials        objectSchema
@@ -482,7 +485,7 @@ type definition struct {
 
 func (d definition) matches(query string) bool {
 	values := []string{string(d.descriptor.ID), d.descriptor.Name, d.descriptor.Description}
-	values = append(values, d.searchTerms...)
+	values = append(values, d.descriptor.SearchTerms...)
 	for _, value := range values {
 		if strings.Contains(strings.ToLower(value), query) {
 			return true
@@ -502,7 +505,6 @@ func newRegistry(definitions []definition) (*Registry, error) {
 			return nil, fmt.Errorf("duplicate channel ID %q", id)
 		}
 		definition.descriptor = cloneDescriptor(definition.descriptor)
-		definition.searchTerms = append([]string(nil), definition.searchTerms...)
 		definition.modes = cloneRouteModes(definition.modes)
 		definition.fixedTargetConfig = append(json.RawMessage(nil), definition.fixedTargetConfig...)
 		registry.byID[id] = definition
@@ -566,6 +568,7 @@ func (r *Registry) lookup(id ID) (definition, bool) {
 }
 
 func cloneDescriptor(source Descriptor) Descriptor {
+	source.SearchTerms = append([]string{}, source.SearchTerms...)
 	source.ParamFields = append([]FieldDescriptor{}, source.ParamFields...)
 	source.CredentialFields = append([]FieldDescriptor{}, source.CredentialFields...)
 	source.ClientProtocols = append([]protocol.Protocol{}, source.ClientProtocols...)

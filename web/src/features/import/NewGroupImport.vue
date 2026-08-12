@@ -10,11 +10,7 @@ import { ApiError, InvalidResponseError, RequestCancelledError } from '@/api/err
 import { useToast } from '@/app/toast'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { constrainCollectionSearch } from '@/app/route-query'
-import {
-  channelsQueryOptions,
-  normalizeChannelSearch,
-  type ChannelDto,
-} from '@/app/resources/channels'
+import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
 import {
   createGroup,
   discoverModels,
@@ -29,7 +25,6 @@ import {
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { type ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
-import { useDebouncedAction } from '@/app/use-debounced-action'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -57,7 +52,6 @@ import { analyzeCredentials } from './credential-analysis'
 import CredentialTextarea from './CredentialTextarea.vue'
 import type { ImportDraft, ModelDraftItem } from './model-draft'
 import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
-import ChannelCatalogDrawer from './ChannelCatalogDrawer.vue'
 import ChannelPresetPicker from './ChannelPresetPicker.vue'
 import {
   parseImportRouteQuery,
@@ -119,27 +113,17 @@ const draft = reactive<ImportDraft>(
 const baseUrlOverrideEnabled = ref(Boolean(draft.params.base_url?.trim()))
 let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
 const discoveryCandidates = ref<ModelCandidate[]>([])
-const channelSearchInput = ref(routeState.value.channelSearch ?? '')
-const channelSearchQuery = ref(normalizeChannelSearch(channelSearchInput.value))
-const channelSearchDebounce = useDebouncedAction(250)
 const shouldApplyDefaultChannel = ref(!operationDraft && !props.initialDraft)
-const channelsQuery = useQuery(channelsQueryOptions(api, channelSearchQuery))
 const allChannelsQuery = useQuery(channelsQueryOptions(api, ''))
 const allChannels = computed(() => allChannelsQuery.data.value?.items ?? [])
-const featuredChannels = computed(() => allChannels.value.slice(0, 3))
 const selectedChannelCache = ref<ChannelDto | null>(null)
 const selectedChannel = computed<ChannelDto | null>(
   () =>
     allChannels.value.find(({ channel_id }) => channel_id === draft.channel_id) ??
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.channel_id) ??
     (selectedChannelCache.value?.channel_id === draft.channel_id
       ? selectedChannelCache.value
       : null),
 )
-const channelCatalogLoading = computed(
-  () => channelsQuery.isFetching.value || allChannelsQuery.isFetching.value,
-)
-const catalogDrawerOpen = computed(() => routeState.value.panel === 'channels')
 const discoveryErrorKey = ref('')
 const discoveryLoading = ref(false)
 const discoveryDrawerOpen = computed(() => routeState.value.panel === 'discovery')
@@ -397,35 +381,8 @@ function setDiscoveryFilter(value: ImportDiscoveryFilter): void {
   updateRoute({ discoveryFilter: value })
 }
 
-watch(
-  () => routeState.value.channelSearch,
-  (search) => {
-    const value = search ?? ''
-    if (value === channelSearchInput.value) return
-    channelSearchInput.value = value
-    channelSearchDebounce.cancel()
-    channelSearchQuery.value = normalizeChannelSearch(value)
-  },
-)
-
-function setChannelSearch(value: string): void {
-  channelSearchInput.value = value
-  cancelDefaultChannel()
-  updateRoute({ channelSearch: constrainCollectionSearch(value) }, true)
-  channelSearchDebounce.schedule(() => {
-    channelSearchQuery.value = normalizeChannelSearch(value)
-  })
-}
-
 function retryChannels(): void {
-  channelSearchDebounce.cancel()
-  const normalizedInput = normalizeChannelSearch(channelSearchInput.value)
-  const normalizedQuery = normalizeChannelSearch(channelSearchQuery.value)
-  if (normalizedQuery !== normalizedInput) {
-    channelSearchQuery.value = normalizedInput
-    return
-  }
-  void Promise.all([channelsQuery.refetch(), allChannelsQuery.refetch()])
+  void allChannelsQuery.refetch()
 }
 
 watch(
@@ -824,7 +781,6 @@ function updateConflictDialog(open: boolean): void {
 
 onBeforeUnmount(() => {
   componentActive = false
-  channelSearchDebounce.cancel()
   cancelDiscovery()
   unregisterRecovery()
 })
@@ -844,30 +800,13 @@ onBeforeUnmount(() => {
 
     <ChannelPresetPicker
       :model-value="draft.channel_id"
+      :channels="allChannels"
       :selected-channel="selectedChannel"
-      :featured-channels="featuredChannels"
-      :search-results="channelsQuery.data.value?.items ?? []"
-      :search="channelSearchInput"
-      :searching="channelsQuery.isFetching.value"
-      :search-error="channelsQuery.isError.value"
+      :loading="allChannelsQuery.isFetching.value"
+      :error="allChannelsQuery.isError.value"
       :disabled="payloadLocked"
       @select="selectChannel"
-      @browse="setPanel('channels')"
       @retry="retryChannels"
-      @update:search="setChannelSearch"
-    />
-
-    <ChannelCatalogDrawer
-      :open="catalogDrawerOpen"
-      :recent="[]"
-      :channels="channelsQuery.data.value?.items ?? []"
-      :search="channelSearchInput"
-      :loading="channelCatalogLoading"
-      :error="channelsQuery.isError.value"
-      @update:open="setPanel($event ? 'channels' : undefined)"
-      @update:search="setChannelSearch"
-      @retry="retryChannels"
-      @select="selectChannel"
     />
 
     <ImportConnectionSection

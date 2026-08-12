@@ -1,298 +1,502 @@
 <script setup lang="ts">
-import { Check } from '@lucide/vue'
-import { computed } from 'vue'
+import { ChevronDown } from '@lucide/vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { ChannelDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppPopover from '@/components/ui/AppPopover.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
+
+const FEATURED_CHANNEL_IDS = ['openai', 'anthropic', 'gemini', 'openai_compatible']
 
 const props = defineProps<{
   modelValue: string | null
+  channels: readonly ChannelDto[]
   selectedChannel: ChannelDto | null
-  featuredChannels: readonly ChannelDto[]
-  searchResults: readonly ChannelDto[]
-  search: string
-  searching: boolean
-  searchError: boolean
+  loading: boolean
+  error: boolean
   disabled?: boolean
 }>()
 const emit = defineEmits<{
   select: [channel: ChannelDto]
-  browse: []
   retry: []
-  'update:search': [value: string]
 }>()
 const { t } = useI18n()
 
-const hasSearch = computed(() => props.search.trim().length > 0)
-const displayedChannels = computed(() =>
-  (hasSearch.value ? props.searchResults : props.featuredChannels).slice(0, 6),
-)
+interface ChannelMatch {
+  channel: ChannelDto
+  rank: number
+  reason: string
+}
 
-const currentChannel = computed(() =>
-  props.selectedChannel &&
-  !displayedChannels.value.some(
-    ({ channel_id }) => channel_id === props.selectedChannel?.channel_id,
-  )
+interface HighlightSegment {
+  text: string
+  matched: boolean
+}
+
+const popoverOpen = ref(false)
+const query = ref('')
+const activeIndex = ref(0)
+const searchInput = ref<InstanceType<typeof AppSearchInput>>()
+const identity = useId()
+const optionId = (channelID: string) => `${identity}-channel-${channelID}`
+
+const initialLoading = computed(() => props.loading && props.channels.length === 0)
+const loadFailed = computed(() => props.error && props.channels.length === 0)
+
+const byID = (id: string) => props.channels.find((channel) => channel.channel_id === id)
+const featuredChannels = computed(
+  () => FEATURED_CHANNEL_IDS.map(byID).filter(Boolean) as ChannelDto[],
+)
+const extraChannel = computed(() =>
+  props.selectedChannel && !FEATURED_CHANNEL_IDS.includes(props.selectedChannel.channel_id)
     ? props.selectedChannel
     : null,
 )
+const otherChannels = computed(() =>
+  props.channels.filter(({ channel_id }) => !FEATURED_CHANNEL_IDS.includes(channel_id)),
+)
 
-function choose(channel: ChannelDto): void {
-  if (props.disabled) return
-  emit('select', channel)
+function matchChannel(channel: ChannelDto, normalizedQuery: string): ChannelMatch | null {
+  const name = channel.name.toLocaleLowerCase()
+  if (name.startsWith(normalizedQuery)) return { channel, rank: 100, reason: '' }
+  if (name.includes(normalizedQuery)) return { channel, rank: 80, reason: '' }
+  const id = channel.channel_id
+  if (id.startsWith(normalizedQuery)) return { channel, rank: 70, reason: id }
+  if (id.includes(normalizedQuery)) return { channel, rank: 60, reason: id }
+  for (const term of channel.search_terms) {
+    const lower = term.toLocaleLowerCase()
+    if (lower.startsWith(normalizedQuery)) return { channel, rank: 50, reason: term }
+    if (lower.includes(normalizedQuery)) return { channel, rank: 30, reason: term }
+  }
+  // The server-side search this replaced also matched descriptions, which is
+  // the only way "microsoft" reaches Azure OpenAI. Rank it last so it never
+  // outranks a name or alias hit.
+  if (channel.description.toLocaleLowerCase().includes(normalizedQuery)) {
+    return { channel, rank: 10, reason: channel.description }
+  }
+  return null
 }
 
-function channelDescription(channel: ChannelDto): string {
-  return channel.param_fields.some(({ required }) => required)
-    ? t('import.presets.configurationRequired')
-    : t('import.presets.channelReady')
+const rankedMatches = computed<ChannelMatch[]>(() => {
+  const normalizedQuery = query.value.trim().toLocaleLowerCase()
+  if (!normalizedQuery) {
+    return otherChannels.value.map((channel) => ({ channel, rank: 0, reason: '' }))
+  }
+  return props.channels
+    .map((channel, index) => ({ index, match: matchChannel(channel, normalizedQuery) }))
+    .filter((row): row is { index: number; match: ChannelMatch } => row.match !== null)
+    .sort((a, b) => b.match.rank - a.match.rank || a.index - b.index)
+    .map((row) => row.match)
+})
+
+watch(rankedMatches, () => {
+  activeIndex.value = 0
+})
+
+const activeOptionId = computed(() => {
+  const match = rankedMatches.value[activeIndex.value]
+  return match ? optionId(match.channel.channel_id) : undefined
+})
+
+// Focus stays in the search input, so the highlighted option has to be scrolled
+// into view explicitly — otherwise Enter can select a row below the fold.
+watch(activeOptionId, async (id) => {
+  if (!id) return
+  await nextTick()
+  document.getElementById(id)?.scrollIntoView({ block: 'nearest' })
+})
+
+watch(popoverOpen, async (open) => {
+  if (!open) return
+  query.value = ''
+  activeIndex.value = 0
+  await nextTick()
+  searchInput.value?.focus()
+})
+
+function highlightSegments(text: string, rawQuery: string): HighlightSegment[] {
+  const trimmed = rawQuery.trim()
+  if (!trimmed) return [{ text, matched: false }]
+  const at = text.toLocaleLowerCase().indexOf(trimmed.toLocaleLowerCase())
+  if (at < 0) return [{ text, matched: false }]
+  const segments: HighlightSegment[] = []
+  if (at > 0) segments.push({ text: text.slice(0, at), matched: false })
+  segments.push({ text: text.slice(at, at + trimmed.length), matched: true })
+  if (at + trimmed.length < text.length) {
+    segments.push({ text: text.slice(at + trimmed.length), matched: false })
+  }
+  return segments
 }
 
 function channelSelected(channel: ChannelDto): boolean {
   return props.modelValue === channel.channel_id
 }
+
+function choose(channel: ChannelDto): void {
+  if (props.disabled) return
+  popoverOpen.value = false
+  emit('select', channel)
+}
+
+function onSearchKeydown(event: KeyboardEvent): void {
+  // AppSearchInput forwards listeners to its wrapper element, so keys pressed
+  // on the clear button bubble here too. Without this guard, Enter on that
+  // button would select the highlighted channel instead of clearing the query.
+  if (!(event.target instanceof HTMLInputElement)) return
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    activeIndex.value = Math.min(activeIndex.value + 1, rankedMatches.value.length - 1)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    activeIndex.value = Math.max(activeIndex.value - 1, 0)
+  } else if (event.key === 'Enter') {
+    const match = rankedMatches.value[activeIndex.value]
+    if (match) {
+      event.preventDefault()
+      choose(match.channel)
+    }
+  }
+}
 </script>
 
 <template>
-  <section class="preset-picker" aria-labelledby="channel-presets-heading">
-    <header class="preset-picker__header">
-      <div>
-        <h2 id="channel-presets-heading">{{ t('import.presets.title') }}</h2>
-        <p>{{ t('import.presets.description') }}</p>
-      </div>
-      <div class="preset-picker__header-actions">
-        <AppButton variant="secondary" size="compact" :disabled="disabled" @click="emit('browse')">
-          {{ t('import.presets.browse') }}
-        </AppButton>
-      </div>
-    </header>
-
-    <div class="preset-picker__search">
-      <AppSearchInput
-        :model-value="search"
-        :label="t('import.presets.search')"
-        :placeholder="t('import.presets.search')"
-        :clear-label="t('import.presets.clearSearch')"
-        :disabled="disabled"
-        @update:model-value="emit('update:search', $event)"
-      />
-      <AsyncRefreshIndicator :active="searching" :label="t('import.presets.loading')" />
+  <section class="channel-picker" aria-labelledby="channel-picker-heading">
+    <div class="channel-picker__header">
+      <h2 id="channel-picker-heading">{{ t('import.presets.title') }}</h2>
+      <span v-if="selectedChannel" class="channel-picker__current">
+        <span class="channel-picker__current-label">{{ t('import.presets.current') }}</span>
+        <ChannelIcon :icon="selectedChannel.icon" :mark="selectedChannel.mark" />
+        <span class="channel-picker__current-name">{{ selectedChannel.name }}</span>
+      </span>
     </div>
 
-    <InlineFeedback v-if="searchError" class="preset-picker__state" tone="danger">
-      {{ t('import.presets.loadFailed') }}
-      <template #action>
-        <AppButton variant="link" size="inline" @click="emit('retry')">
-          {{ t('common.retry') }}
-        </AppButton>
-      </template>
-    </InlineFeedback>
-    <InlineFeedback
-      v-else-if="hasSearch && !searching && displayedChannels.length === 0"
-      class="preset-picker__state"
-      tone="warning"
-    >
-      {{ t('import.presets.noMatches') }}
-    </InlineFeedback>
+    <div class="channel-picker__row">
+      <AsyncRefreshIndicator
+        :active="loading && channels.length > 0"
+        :label="t('import.presets.loading')"
+      />
 
-    <div v-if="displayedChannels.length" class="preset-picker__featured">
-      <button
-        v-for="channel in displayedChannels"
-        :key="channel.channel_id"
-        class="preset-picker__choice"
-        :class="{ 'preset-picker__choice--selected': channelSelected(channel) }"
-        type="button"
-        :disabled="disabled"
-        :aria-pressed="channelSelected(channel)"
-        @click="choose(channel)"
-      >
-        <span class="preset-picker__mark">{{ channel.mark }}</span>
-        <strong>{{ channel.name }}</strong>
-        <span class="preset-picker__description">{{ channelDescription(channel) }}</span>
-        <Check
-          v-if="channelSelected(channel)"
-          class="preset-picker__selected-icon"
-          :size="16"
-          aria-hidden="true"
-        />
-      </button>
+      <InlineFeedback v-if="initialLoading" tone="neutral">
+        {{ t('import.presets.loading') }}
+      </InlineFeedback>
+      <InlineFeedback v-else-if="loadFailed" tone="danger">
+        {{ t('import.presets.loadFailed') }}
+        <template #action>
+          <AppButton variant="link" size="inline" @click="emit('retry')">
+            {{ t('common.retry') }}
+          </AppButton>
+        </template>
+      </InlineFeedback>
 
-      <button
-        v-if="currentChannel"
-        key="current-channel"
-        class="preset-picker__choice preset-picker__choice--selected"
-        type="button"
-        :disabled="disabled"
-        aria-pressed="true"
-        @click="choose(currentChannel)"
-      >
-        <span class="preset-picker__mark">{{ currentChannel.mark || '···' }}</span>
-        <strong>{{ currentChannel.name }}</strong>
-        <span class="preset-picker__description">{{ channelDescription(currentChannel) }}</span>
-        <Check class="preset-picker__selected-icon" :size="16" aria-hidden="true" />
-      </button>
+      <div v-else class="channel-picker__chips">
+        <button
+          v-for="channel in featuredChannels"
+          :key="channel.channel_id"
+          type="button"
+          class="channel-picker__chip"
+          :class="{ 'channel-picker__chip--selected': channelSelected(channel) }"
+          :disabled="disabled"
+          :aria-pressed="channelSelected(channel)"
+          @click="choose(channel)"
+        >
+          <ChannelIcon :icon="channel.icon" :mark="channel.mark" />
+          <span>{{ channel.name }}</span>
+        </button>
+
+        <template v-if="extraChannel">
+          <span class="channel-picker__divider" aria-hidden="true" />
+          <button
+            type="button"
+            class="channel-picker__chip channel-picker__chip--selected"
+            :disabled="disabled"
+            aria-pressed="true"
+            @click="choose(extraChannel)"
+          >
+            <ChannelIcon :icon="extraChannel.icon" :mark="extraChannel.mark" />
+            <span>{{ extraChannel.name }}</span>
+          </button>
+        </template>
+
+        <span class="channel-picker__divider" aria-hidden="true" />
+
+        <AppPopover v-model:open="popoverOpen" align="start" content-class="channel-picker__panel">
+          <template #trigger>
+            <button
+              type="button"
+              class="channel-picker__chip channel-picker__chip--more"
+              :disabled="disabled"
+              :aria-expanded="popoverOpen"
+            >
+              <span>{{ t('import.presets.more') }}</span>
+              <ChevronDown
+                class="channel-picker__caret"
+                :class="{ 'channel-picker__caret--open': popoverOpen }"
+                :size="13"
+                aria-hidden="true"
+              />
+            </button>
+          </template>
+
+          <div class="channel-picker__panel-inner">
+            <AppSearchInput
+              ref="searchInput"
+              v-model="query"
+              :label="t('import.presets.search')"
+              :placeholder="t('import.presets.search')"
+              :clear-label="t('import.presets.clearSearch')"
+              :active-descendant="activeOptionId"
+              @keydown="onSearchKeydown"
+            />
+
+            <InlineFeedback v-if="rankedMatches.length === 0" tone="neutral" appearance="hint">
+              {{ t('import.presets.noMatches') }}
+            </InlineFeedback>
+            <div
+              v-else
+              class="channel-picker__options"
+              role="listbox"
+              :aria-label="t('import.presets.more')"
+            >
+              <button
+                v-for="(match, index) in rankedMatches"
+                :id="optionId(match.channel.channel_id)"
+                :key="match.channel.channel_id"
+                type="button"
+                role="option"
+                class="channel-picker__option"
+                :class="{ 'channel-picker__option--active': index === activeIndex }"
+                :aria-selected="channelSelected(match.channel)"
+                @click="choose(match.channel)"
+                @mouseenter="activeIndex = index"
+              >
+                <ChannelIcon :icon="match.channel.icon" :mark="match.channel.mark" />
+                <OverflowTooltip
+                  as="span"
+                  class="channel-picker__option-name"
+                  :content="match.channel.name"
+                  :focusable="false"
+                >
+                  <template
+                    v-for="(segment, segIndex) in highlightSegments(match.channel.name, query)"
+                    :key="segIndex"
+                  >
+                    <mark v-if="segment.matched">{{ segment.text }}</mark>
+                    <template v-else>{{ segment.text }}</template>
+                  </template>
+                </OverflowTooltip>
+                <span v-if="match.reason" class="channel-picker__option-reason">
+                  <template
+                    v-for="(segment, segIndex) in highlightSegments(match.reason, query)"
+                    :key="segIndex"
+                  >
+                    <mark v-if="segment.matched">{{ segment.text }}</mark>
+                    <template v-else>{{ segment.text }}</template>
+                  </template>
+                </span>
+              </button>
+            </div>
+          </div>
+        </AppPopover>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.preset-picker {
+.channel-picker {
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 22px 0 var(--space-6);
 }
 
-.preset-picker__header {
+.channel-picker__header {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
   margin-bottom: var(--space-3);
 }
 
-.preset-picker__header h2,
-.preset-picker__header p {
+.channel-picker__header h2 {
   margin: 0;
-}
-
-.preset-picker__header h2 {
   font-size: var(--title-section);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
-.preset-picker__header p {
-  margin-top: var(--space-1);
+.channel-picker__current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
 
-.preset-picker__header-actions {
+.channel-picker__current-label {
+  color: var(--color-text-faint);
+}
+
+.channel-picker__current-name {
+  color: var(--color-text-muted);
+  font-weight: 560;
+}
+
+.channel-picker__row {
+  position: relative;
+}
+
+.channel-picker__chips {
   display: flex;
-  flex: none;
-  gap: var(--space-2);
-}
-
-.preset-picker__header-actions :deep(.app-button) {
-  min-height: var(--touch-target);
-}
-
-.preset-picker__featured {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
-.preset-picker__search {
-  display: flex;
-  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
 }
 
-.preset-picker__search :deep(.app-search-input) {
-  min-width: 0;
-  flex: 1;
-}
-
-.preset-picker__state {
-  margin-bottom: var(--space-3);
-}
-
-.preset-picker__choice {
-  position: relative;
-  display: grid;
-  min-height: 88px;
-  align-content: start;
+.channel-picker__chip {
+  display: inline-flex;
+  min-height: var(--control-sm);
+  align-items: center;
+  gap: 8px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);
-  padding: var(--space-3);
-  text-align: left;
+  padding: 0 13px;
+  font: inherit;
+  font-size: var(--text-button);
+  font-weight: 560;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     border-color var(--duration-fast) var(--easing-standard),
     background-color var(--duration-fast) var(--easing-standard),
-    opacity var(--duration-fast) var(--easing-standard);
+    color var(--duration-fast) var(--easing-standard);
 }
 
-.preset-picker__choice:hover:not(:disabled) {
+.channel-picker__chip:hover:not(:disabled) {
   border-color: var(--color-text-faint);
   background: var(--color-surface-sunken);
 }
 
-.preset-picker__choice--selected {
-  border-color: var(--color-action);
-  box-shadow: inset 3px 0 0 var(--color-action);
-  cursor: default;
-}
-
-.preset-picker__choice > strong {
-  margin-top: 7px;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.preset-picker__description {
-  margin-top: 3px;
-  color: var(--color-text-faint);
-  font-size: 10.8px;
-  line-height: var(--line-normal);
-}
-
-.preset-picker__choice:disabled {
+.channel-picker__chip:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.preset-picker__mark {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  place-items: center;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-label-xs);
-  font-weight: 700;
+.channel-picker__chip--selected {
+  border-color: var(--color-action);
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  font-weight: 620;
 }
 
-.preset-picker__selected-icon {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+.channel-picker__chip--more .channel-picker__caret {
+  color: var(--color-text-faint);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.channel-picker__chip--more[aria-expanded='true'] {
+  border-color: var(--color-text-faint);
+  background: var(--color-surface-sunken);
+}
+
+.channel-picker__caret--open {
+  transform: rotate(180deg);
+}
+
+.channel-picker__divider {
+  width: 1px;
+  height: 20px;
+  flex: none;
+  background: var(--color-border-subtle);
+}
+
+.channel-picker__panel-inner {
+  display: flex;
+  width: min(360px, 100%);
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.channel-picker__options {
+  display: grid;
+  max-height: 320px;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.channel-picker__option {
+  display: grid;
+  min-width: 0;
+  min-height: var(--control-sm);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.channel-picker__option:hover,
+.channel-picker__option--active {
+  background: var(--color-surface-sunken);
+}
+
+.channel-picker__option[aria-selected='true'] .channel-picker__option-name {
   color: var(--color-action);
+  font-weight: 600;
+}
+
+.channel-picker__option-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-picker__option-name mark,
+.channel-picker__option-reason mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-warning) 26%, transparent);
+  color: inherit;
+  font-weight: 680;
+}
+
+.channel-picker__option-reason {
+  max-width: 45%;
+  flex: none;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--color-surface-sunken);
+  padding: 2px 6px;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 860px) {
-  .preset-picker__header {
-    flex-direction: column;
+  .channel-picker__chip {
+    min-height: var(--touch-target);
   }
 
-  .preset-picker__header-actions {
-    align-self: stretch;
-  }
-
-  .preset-picker__header-actions :deep(.app-button) {
+  .channel-picker__chip--more {
     flex: 1;
-  }
-
-  .preset-picker__featured {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 520px) {
-  .preset-picker__featured {
-    grid-template-columns: 1fr;
+    justify-content: center;
   }
 }
 </style>

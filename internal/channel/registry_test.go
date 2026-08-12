@@ -64,6 +64,25 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	}
 }
 
+func TestRegistryExposesNonEmptyIconAndSearchTermsForEveryBuiltInChannel(t *testing.T) {
+	registry := NewRegistry()
+	for _, descriptor := range registry.List() {
+		if strings.TrimSpace(descriptor.Icon) == "" {
+			t.Fatalf("channel %q has no icon", descriptor.ID)
+		}
+	}
+	// SearchTerms is the exact data Search() matches against; a hit on an
+	// alias that is not the channel ID, name, or description proves the two
+	// stay in sync after being folded into one field.
+	if got := descriptorIDs(registry.Search("kimi")); !reflect.DeepEqual(got, []ID{MoonshotAI}) {
+		t.Fatalf("Search(kimi) IDs = %v, want [%s]", got, MoonshotAI)
+	}
+	moonshot, ok := registry.Get(MoonshotAI)
+	if !ok || !reflect.DeepEqual(moonshot.SearchTerms, []string{"kimi", "moonshot"}) {
+		t.Fatalf("Get(moonshotai).SearchTerms = %#v, %t", moonshot.SearchTerms, ok)
+	}
+}
+
 func TestRegistryPublicDescriptorsContainSchemasButNoInternalOrSecretValues(t *testing.T) {
 	registry := NewRegistry()
 	official, ok := registry.Get(OpenAI)
