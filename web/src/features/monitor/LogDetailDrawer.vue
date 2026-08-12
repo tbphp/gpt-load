@@ -25,9 +25,8 @@ import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
   formatLogDuration,
   formatLogOutputRate,
-  formatLogReasoningBudget,
   formatLogTokenCount,
-  reasoningBudgetSemantic,
+  formatRequestLogReasoning,
   requestLogCostDisplayState,
   requestLogUsageDisplayState,
 } from './log-format'
@@ -195,26 +194,16 @@ function upstreamAPILabel(upstreamAPI: RequestLogAttemptDto['upstream_api']): st
   return upstreamAPI
 }
 
-function appliedReasoningLabel(reasoning: RequestLogAttemptDto['reasoning']): string {
-  if (reasoning === null) return t('monitor.logs.drawer.reasoningNotSpecified')
-  const details: string[] = []
-  if (reasoning.mode !== null) details.push(reasoning.mode)
-  if (reasoning.effort !== null) details.push(reasoning.effort)
-  if (reasoning.budget_tokens !== null) {
-    const semantic = reasoningBudgetSemantic(reasoning.budget_tokens)
-    if (semantic === 'dynamic') {
-      details.push(t('monitor.logs.drawer.reasoningBudgetDynamic'))
-    } else if (semantic === 'disabled') {
-      details.push(t('monitor.logs.drawer.reasoningBudgetDisabled'))
-    } else {
-      details.push(
-        t('monitor.logs.drawer.reasoningBudgetValue', {
-          value: formatLogReasoningBudget(reasoning.budget_tokens, locale.value),
-        }),
-      )
-    }
-  }
-  return details.join(' · ')
+function reasoningLabel(reasoning: RequestLogAttemptDto['reasoning']): string {
+  const value = formatRequestLogReasoning(reasoning, locale.value)
+  return value ? `[${value}]` : ''
+}
+
+function upstreamReasoningLabel(
+  reasoning: RequestLogAttemptDto['reasoning'],
+  routeMode: RequestLogAttemptDto['route_mode'],
+): string {
+  return reasoningLabel(routeMode === 'converted' ? reasoning : (log.value?.reasoning ?? null))
 }
 
 function isFinalAttempt(attempt: RequestLogAttemptDto): boolean {
@@ -433,43 +422,12 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.clientModel') }}</dt>
-            <dd>
-              <code>{{ log.client_model ?? '—' }}</code>
+            <dd class="log-detail__model-value">
+              <code>{{ log.client_model ?? '—' }}</code
+              ><small v-if="reasoningLabel(log.reasoning)" class="log-detail__reasoning">{{
+                reasoningLabel(log.reasoning)
+              }}</small>
             </dd>
-          </div>
-          <template v-if="log.reasoning">
-            <div v-if="log.reasoning.mode">
-              <dt>{{ t('monitor.logs.drawer.reasoningMode') }}</dt>
-              <dd>
-                <code>{{ log.reasoning.mode }}</code>
-              </dd>
-            </div>
-            <div v-if="log.reasoning.effort">
-              <dt>{{ t('monitor.logs.drawer.reasoningEffort') }}</dt>
-              <dd>
-                <code>{{ log.reasoning.effort }}</code>
-              </dd>
-            </div>
-            <div v-if="log.reasoning.budget_tokens !== null">
-              <dt>{{ t('monitor.logs.drawer.reasoningBudget') }}</dt>
-              <dd v-if="reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'dynamic'">
-                <code>auto</code>
-              </dd>
-              <dd v-else-if="reasoningBudgetSemantic(log.reasoning.budget_tokens) === 'disabled'">
-                <code>disabled</code>
-              </dd>
-              <dd v-else>
-                {{
-                  t('monitor.logs.drawer.reasoningBudgetValue', {
-                    value: formatLogReasoningBudget(log.reasoning.budget_tokens, locale),
-                  })
-                }}
-              </dd>
-            </div>
-          </template>
-          <div v-else>
-            <dt>{{ t('monitor.logs.drawer.reasoningConfig') }}</dt>
-            <dd>{{ t('monitor.logs.drawer.reasoningNotSpecified') }}</dd>
           </div>
         </dl>
       </section>
@@ -495,13 +453,24 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
-            <dd>
-              <code>{{ log.upstream_model ?? '—' }}</code>
+            <dd class="log-detail__model-value">
+              <code>{{ log.upstream_model ?? '—' }}</code
+              ><small
+                v-if="
+                  upstreamReasoningLabel(
+                    finalAttempt?.reasoning ?? null,
+                    finalAttempt?.route_mode ?? null,
+                  )
+                "
+                class="log-detail__reasoning"
+                >{{
+                  upstreamReasoningLabel(
+                    finalAttempt?.reasoning ?? null,
+                    finalAttempt?.route_mode ?? null,
+                  )
+                }}</small
+              >
             </dd>
-          </div>
-          <div v-if="finalAttempt?.reasoning">
-            <dt>{{ t('monitor.logs.drawer.appliedReasoning') }}</dt>
-            <dd>{{ appliedReasoningLabel(finalAttempt.reasoning) }}</dd>
           </div>
         </dl>
         <div
@@ -602,7 +571,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
         </dl>
       </section>
 
-      <section v-if="!selfScoped" class="log-detail__section">
+      <section v-if="!selfScoped" class="log-detail__section log-detail__attempt-section">
         <details v-if="log.attempts.length > 0" class="log-attempt-chain">
           <summary>
             <ChevronRight class="log-attempt-chain__chevron" :size="15" aria-hidden="true" />
@@ -639,13 +608,14 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 </div>
                 <div>
                   <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
-                  <dd>
-                    <code>{{ attempt.upstream_model ?? '—' }}</code>
+                  <dd class="log-detail__model-value">
+                    <code>{{ attempt.upstream_model ?? '—' }}</code
+                    ><small
+                      v-if="upstreamReasoningLabel(attempt.reasoning, attempt.route_mode)"
+                      class="log-detail__reasoning"
+                      >{{ upstreamReasoningLabel(attempt.reasoning, attempt.route_mode) }}</small
+                    >
                   </dd>
-                </div>
-                <div v-if="attempt.reasoning">
-                  <dt>{{ t('monitor.logs.drawer.appliedReasoning') }}</dt>
-                  <dd>{{ appliedReasoningLabel(attempt.reasoning) }}</dd>
                 </div>
               </template>
               <div v-if="showAttemptOperation(attempt)">
@@ -790,6 +760,10 @@ function toggleAttemptErrorMessage(sequence: number): void {
   padding: 16px 0;
 }
 
+.log-detail__attempt-section {
+  padding: 8px 0;
+}
+
 .log-detail__section h3 {
   margin: 0 0 12px;
   font-size: var(--text-sm);
@@ -817,6 +791,12 @@ function toggleAttemptErrorMessage(sequence: number): void {
   color: var(--color-text);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+
+.log-detail__reasoning {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  font-weight: 400;
 }
 
 .log-detail__protocol {
@@ -926,7 +906,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
 
 .log-attempt-chain summary {
   display: flex;
-  min-height: 28px;
+  min-height: 24px;
   align-items: center;
   gap: 6px;
   color: var(--color-text);
@@ -957,7 +937,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
 }
 
 .log-attempt-chain[open] .log-attempt:first-of-type {
-  margin-top: 10px;
+  margin-top: 4px;
 }
 
 .log-attempt + .log-attempt {
@@ -965,7 +945,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
 }
 
 .log-attempt {
-  padding: 13px 0;
+  padding: 8px 0;
 }
 
 .log-error-message--attempt {
@@ -984,7 +964,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   color: var(--color-text);
   font-size: var(--text-sm);
 }

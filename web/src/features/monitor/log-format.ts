@@ -1,4 +1,4 @@
-import type { RequestLogItemDto } from '@/app/resources/request-logs'
+import type { RequestLogItemDto, RequestLogReasoningDto } from '@/app/resources/request-logs'
 
 export type RequestLogUsageDisplayState = 'reported' | 'missing' | 'not_applicable'
 export type RequestLogCostDisplayState = 'complete' | 'unpriced' | 'not_applicable'
@@ -42,7 +42,13 @@ export function formatLogTokenCount(value: string, locale: string): string {
 }
 
 export function formatLogReasoning(log: RequestLogItemDto, locale: string): string {
-  const value = log.reasoning
+  return formatRequestLogReasoning(log.reasoning, locale)
+}
+
+export function formatRequestLogReasoning(
+  value: RequestLogReasoningDto | null,
+  locale: string,
+): string {
   if (value === null) return ''
   const details: string[] = []
   if (
