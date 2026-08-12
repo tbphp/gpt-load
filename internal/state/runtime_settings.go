@@ -19,6 +19,9 @@ const (
 	SettingStreamIdleTimeout        = "stream_idle_timeout"
 	SettingHeaderRules              = "header_rules"
 	SettingInjectUsageOptions       = "inject_usage_options"
+	SettingAffinityEnabled          = "affinity_enabled"
+	SettingAffinityTTL              = "affinity_ttl"
+	SettingAffinityCapacity         = "affinity_capacity"
 	SettingValidationInterval       = "validation_interval"
 	SettingRequestLogRetentionDays  = "request_log_retention_days"
 	SettingModelsDevAutoSyncEnabled = "models_dev_auto_sync_enabled"
@@ -28,6 +31,8 @@ const (
 	defaultRequestLogRetentionDays = 7
 	minRequestLogRetentionDays     = 1
 	maxRequestLogRetentionDays     = 365
+	defaultAffinityCapacity        = 10_000
+	maxAffinityCapacity            = 1_000_000
 )
 
 type RuntimeSettings struct {
@@ -36,6 +41,9 @@ type RuntimeSettings struct {
 	StreamIdleTimeout        time.Duration
 	HeaderRules              HeaderRules
 	InjectUsageOptions       bool
+	AffinityEnabled          bool
+	AffinityTTL              time.Duration
+	AffinityCapacity         int
 	ValidationInterval       time.Duration
 	RequestLogRetentionDays  int
 	ModelsDevAutoSyncEnabled bool
@@ -45,6 +53,7 @@ type ResolvedGroupSettings struct {
 	Timeouts           TimeoutConfig
 	HeaderRules        HeaderRules
 	InjectUsageOptions bool
+	AffinityEnabled    bool
 }
 
 func DefaultRuntimeSettings() RuntimeSettings {
@@ -54,6 +63,9 @@ func DefaultRuntimeSettings() RuntimeSettings {
 		StreamIdleTimeout:        300 * time.Second,
 		HeaderRules:              HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
+		AffinityEnabled:          true,
+		AffinityTTL:              time.Hour,
+		AffinityCapacity:         defaultAffinityCapacity,
 		ValidationInterval:       10 * time.Minute,
 		RequestLogRetentionDays:  defaultRequestLogRetentionDays,
 		ModelsDevAutoSyncEnabled: true,
@@ -67,6 +79,9 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
 		SettingInjectUsageOptions,
+		SettingAffinityEnabled,
+		SettingAffinityTTL,
+		SettingAffinityCapacity,
 		SettingValidationInterval,
 		SettingRequestLogRetentionDays,
 		SettingModelsDevAutoSyncEnabled:
@@ -110,6 +125,24 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.InjectUsageOptions = value
+		case SettingAffinityEnabled:
+			value, err := strictBoolean(key, value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.AffinityEnabled = value
+		case SettingAffinityTTL:
+			seconds, err := positiveWholeSeconds(key, value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.AffinityTTL = time.Duration(seconds) * time.Second
+		case SettingAffinityCapacity:
+			capacity, err := wholeNumberInRange(key, value, 1, maxAffinityCapacity)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.AffinityCapacity = capacity
 		case SettingValidationInterval:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
@@ -152,6 +185,7 @@ func ResolveGroupRuntimeSettings(
 		},
 		HeaderRules:        cloneHeaderRules(base.HeaderRules),
 		InjectUsageOptions: base.InjectUsageOptions,
+		AffinityEnabled:    base.AffinityEnabled,
 	}
 	for key, value := range settings {
 		switch key {
@@ -185,6 +219,12 @@ func ResolveGroupRuntimeSettings(
 				return ResolvedGroupSettings{}, err
 			}
 			resolved.InjectUsageOptions = parsed
+		case SettingAffinityEnabled:
+			parsed, err := strictBoolean(key, value)
+			if err != nil {
+				return ResolvedGroupSettings{}, err
+			}
+			resolved.AffinityEnabled = parsed
 		default:
 			return ResolvedGroupSettings{}, fmt.Errorf("unknown group setting %q", key)
 		}
@@ -205,6 +245,15 @@ func ValidateRuntimeSetting(key string, value any) error {
 		return err
 	case SettingInjectUsageOptions:
 		_, err := strictBoolean(key, value)
+		return err
+	case SettingAffinityEnabled:
+		_, err := strictBoolean(key, value)
+		return err
+	case SettingAffinityTTL:
+		_, err := positiveWholeSeconds(key, value)
+		return err
+	case SettingAffinityCapacity:
+		_, err := wholeNumberInRange(key, value, 1, maxAffinityCapacity)
 		return err
 	case SettingRequestLogRetentionDays:
 		_, err := wholeNumberInRange(

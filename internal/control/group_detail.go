@@ -20,6 +20,7 @@ type GroupEffectiveConfigResponse struct {
 	StreamIdleTimeout  int64               `json:"stream_idle_timeout"`
 	HeaderRules        HeaderRulesResponse `json:"header_rules"`
 	InjectUsageOptions bool                `json:"inject_usage_options"`
+	AffinityEnabled    bool                `json:"affinity_enabled"`
 }
 
 // GroupSummaryResponse contains the group fields required by the detail page header.
@@ -79,6 +80,7 @@ func effectiveGroupConfig(
 			Remove: append([]string{}, resolved.HeaderRules.Remove...),
 		},
 		InjectUsageOptions: resolved.InjectUsageOptions,
+		AffinityEnabled:    resolved.AffinityEnabled,
 	}, nil
 }
 

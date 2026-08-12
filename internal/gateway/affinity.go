@@ -14,13 +14,19 @@ type requestAffinity struct {
 }
 
 func (handler *Handler) resolveRequestAffinity(
+	snapshot *state.ConfigSnapshot,
 	accessKeyID uint,
 	clientProtocol protocol.Protocol,
 	externalModel string,
 	prefix []byte,
 	allowedCredentialRefs map[uint]state.CredentialRef,
 ) requestAffinity {
-	if handler == nil || handler.affinityCache == nil {
+	if handler == nil || handler.affinityCache == nil || snapshot == nil ||
+		!handler.affinityCache.Configure(
+			snapshot.Revision,
+			snapshot.Settings.AffinityCapacity,
+			snapshot.Settings.AffinityTTL,
+		) {
 		return requestAffinity{}
 	}
 	key := affinity.DeriveKey(
@@ -39,6 +45,10 @@ func (handler *Handler) resolveRequestAffinity(
 		return resolved
 	}
 	target := observation.Target
+	group, exists := snapshot.Groups[target.GroupID]
+	if !exists || !group.AffinityEnabled {
+		return resolved
+	}
 	ref, allowed := allowedCredentialRefs[target.CredentialID]
 	if !allowed || ref.GroupID != target.GroupID ||
 		ref.IdentityGeneration != target.IdentityGeneration {
@@ -53,7 +63,8 @@ func (handler *Handler) recordAffinitySuccess(
 	selection scheduler.Selection,
 	ref state.CredentialRef,
 ) {
-	if handler == nil || handler.affinityCache == nil || !request.key.Valid() {
+	if handler == nil || handler.affinityCache == nil || !request.key.Valid() ||
+		!selection.Group.AffinityEnabled {
 		return
 	}
 	handler.affinityCache.RecordSuccess(

@@ -30,6 +30,7 @@ export default {
       label: 'Settings sections',
       caption: 'Sections',
       forwarding: 'Request and forwarding',
+      affinity: 'Request affinity',
       headers: 'Global Header Rules',
       logs: 'Logs and maintenance',
       system: 'System information',
@@ -85,6 +86,21 @@ export default {
       resetPending: 'Saving will restore the current version default',
       enabled: 'Enabled',
       disabled: 'Disabled',
+    },
+    affinity: {
+      title: 'Request affinity',
+      description:
+        'Controls the global defaults for automatic soft affinity. Each Group can inherit, enable, or disable it.',
+      affinity_enabled: 'Enable request affinity',
+      enabledHelp:
+        'When disabled, only Groups that explicitly enable affinity can learn and reuse an affinity target.',
+      affinity_ttl: 'Default lifetime',
+      affinity_ttlEffective: '{value} seconds',
+      affinity_ttlError: 'Enter a positive safe integer no greater than 9,223,372,036.',
+      affinity_capacity: 'Cache capacity',
+      affinity_capacityEffective: '{value} entries',
+      affinity_capacityError: 'Enter a whole number between 1 and 1,000,000.',
+      entries: 'entries',
     },
     headers: {
       title: 'Global Header Rules',

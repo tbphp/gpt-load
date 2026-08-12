@@ -8,7 +8,8 @@ import type {
 } from '@/app/resources/settings'
 import { runtimeSettingKeys } from '@/app/resources/settings'
 
-export type SettingsSection = 'request-forwarding' | 'logs-maintenance' | 'model-prices'
+export type SettingsSection =
+  'request-forwarding' | 'affinity' | 'logs-maintenance' | 'model-prices'
 export type SettingsScope = SettingsSection | 'all'
 
 export interface SettingsDraft {
@@ -32,6 +33,7 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
   'validation_interval',
 ]
 const logsMaintenanceKeys: RuntimeSettingKey[] = ['request_log_retention_days']
+const affinityKeys: RuntimeSettingKey[] = ['affinity_enabled', 'affinity_ttl', 'affinity_capacity']
 const modelPriceKeys: RuntimeSettingKey[] = ['models_dev_auto_sync_enabled']
 
 function cloneHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
@@ -66,6 +68,8 @@ export function setSettingsOverride(
     next.overrides.add(key)
     if (key === 'inject_usage_options') {
       next.values.inject_usage_options = base.values.inject_usage_options
+    } else if (key === 'affinity_enabled') {
+      next.values.affinity_enabled = base.values.affinity_enabled
     } else if (key === 'models_dev_auto_sync_enabled') {
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key !== 'header_rules') {
@@ -120,6 +124,7 @@ function sameValue(left: unknown, right: unknown): boolean {
 
 export function settingsSectionKeys(section: SettingsSection): RuntimeSettingKey[] {
   if (section === 'request-forwarding') return [...requestForwardingKeys]
+  if (section === 'affinity') return [...affinityKeys]
   if (section === 'logs-maintenance') return [...logsMaintenanceKeys]
   return [...modelPriceKeys]
 }
@@ -179,6 +184,8 @@ export function replaceDraftFieldFromSettings(
     next.values.header_rules = cloneHeaderRules(settings.values.header_rules)
   } else if (key === 'inject_usage_options') {
     next.values.inject_usage_options = settings.values.inject_usage_options
+  } else if (key === 'affinity_enabled') {
+    next.values.affinity_enabled = settings.values.affinity_enabled
   } else if (key === 'models_dev_auto_sync_enabled') {
     next.values.models_dev_auto_sync_enabled = settings.values.models_dev_auto_sync_enabled
   } else {
@@ -240,6 +247,8 @@ export function rebaseSettingsDraft(
       rebased.values.header_rules = cloneHeaderRules(value as HeaderRulesDto)
     } else if (key === 'inject_usage_options') {
       rebased.values.inject_usage_options = value as boolean
+    } else if (key === 'affinity_enabled') {
+      rebased.values.affinity_enabled = value as boolean
     } else if (key === 'models_dev_auto_sync_enabled') {
       rebased.values.models_dev_auto_sync_enabled = value as boolean
     } else {
@@ -258,12 +267,23 @@ export function isValidRetention(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 1 && value <= 365
 }
 
+export function isValidAffinityCapacity(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 1 && value <= 1_000_000
+}
+
 function asciiLower(value: string): string {
   return value.replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32))
 }
 
 export function validateSettingsSection(draft: SettingsDraft, section: SettingsSection): boolean {
   if (section === 'model-prices') return true
+  if (section === 'affinity') {
+    return (
+      (!draft.overrides.has('affinity_ttl') || isValidTimeout(draft.values.affinity_ttl)) &&
+      (!draft.overrides.has('affinity_capacity') ||
+        isValidAffinityCapacity(draft.values.affinity_capacity))
+    )
+  }
   if (section === 'logs-maintenance') {
     return (
       !draft.overrides.has('request_log_retention_days') ||

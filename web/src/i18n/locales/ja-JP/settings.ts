@@ -30,6 +30,7 @@ export default {
       label: '設定セクション',
       caption: 'セクション',
       forwarding: 'リクエストと転送',
+      affinity: 'リクエストアフィニティ',
       headers: 'グローバル Header Rules',
       logs: 'ログとメンテナンス',
       system: 'システム情報',
@@ -84,6 +85,21 @@ export default {
       resetPending: '保存すると現在のバージョンの既定値に戻ります',
       enabled: '有効',
       disabled: '無効',
+    },
+    affinity: {
+      title: 'リクエストアフィニティ',
+      description:
+        '自動ソフトアフィニティのグローバル既定値を制御します。Group ごとに継承、有効、無効を選択できます。',
+      affinity_enabled: 'リクエストアフィニティを有効化',
+      enabledHelp:
+        '無効の場合、明示的に有効化した Group のみアフィニティ対象を学習して再利用できます。',
+      affinity_ttl: '既定の有効期間',
+      affinity_ttlEffective: '{value} 秒',
+      affinity_ttlError: '9,223,372,036 以下の正の安全な整数を入力してください。',
+      affinity_capacity: 'キャッシュ容量',
+      affinity_capacityEffective: '{value} 件',
+      affinity_capacityError: '1 から 1,000,000 までの整数を入力してください。',
+      entries: '件',
     },
     headers: {
       title: 'グローバル Header Rules',

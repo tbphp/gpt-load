@@ -223,6 +223,11 @@ export default {
           '此 Group 覆盖会完整替换全局 HeaderRules；后续全局更改不会合并到这里。',
         inject_usage_options: '注入用量选项',
         injectUsageHelp: '仅 openai-completions 支持此覆盖',
+        affinity_enabled: '请求亲和',
+        affinityHelp: '只控制本分组是否学习或复用亲和目标，不改变普通轮询、权重或重试。',
+        affinityInherit: '继承全局',
+        affinityEnable: '开启',
+        affinityDisable: '关闭',
       },
       delete: {
         sectionDescription: '删除 Group 会同时删除其全部渠道凭据，且无法撤销。',

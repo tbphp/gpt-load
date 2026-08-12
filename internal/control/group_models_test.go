@@ -334,6 +334,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	if settings.Effective.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
 		settings.Effective.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
 		settings.Effective.InjectUsageOptions != view.InjectUsageOptions ||
+		settings.Effective.AffinityEnabled != view.AffinityEnabled ||
 		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, view.HeaderRules.Remove) {
 		t.Fatalf("effective/snapshot = %#v/%#v", settings.Effective, view)
 	}

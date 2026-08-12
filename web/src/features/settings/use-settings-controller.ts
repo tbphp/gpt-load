@@ -110,6 +110,7 @@ export function useSettingsController(
       draft.value !== null &&
       conflicts.value.length === 0 &&
       validateSettingsSection(draft.value, 'request-forwarding') &&
+      validateSettingsSection(draft.value, 'affinity') &&
       validateSettingsSection(draft.value, 'logs-maintenance') &&
       validateSettingsSection(draft.value, 'model-prices'),
   )

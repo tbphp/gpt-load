@@ -114,3 +114,42 @@ func TestCacheRejectsInvalidInputs(t *testing.T) {
 		t.Fatalf("invalid inputs changed cache; entries=%d", cache.entryCount())
 	}
 }
+
+func TestCacheConfigureClearsEntriesAndRejectsOlderRevision(t *testing.T) {
+	now := time.Date(2026, time.August, 12, 12, 0, 0, 0, time.UTC)
+	cache := newCache(2, time.Hour, func() time.Time { return now })
+	key := Key("one")
+	target := Target{GroupID: 1, CredentialID: 11, IdentityGeneration: 101}
+	if !cache.Configure(1, 2, time.Hour) {
+		t.Fatal("Configure(1) = false")
+	}
+	observed := cache.Lookup(key)
+	if !cache.RecordSuccess(key, observed, target) {
+		t.Fatal("RecordSuccess() = false")
+	}
+	stale := cache.Lookup(key)
+	if !cache.Configure(2, 1, 30*time.Minute) {
+		t.Fatal("Configure(2) = false")
+	}
+	if cache.Lookup(key).Found() || cache.entryCount() != 0 {
+		t.Fatal("new configuration did not clear old entries")
+	}
+	if cache.Configure(1, 2, time.Hour) {
+		t.Fatal("older configuration revision was accepted")
+	}
+	if cache.RecordSuccess(key, stale, target) {
+		t.Fatal("request from an older configuration revision rewrote the cache")
+	}
+	for _, nextKey := range []Key{"two", "three"} {
+		if !cache.RecordSuccess(nextKey, cache.Lookup(nextKey), target) {
+			t.Fatalf("RecordSuccess(%q) = false", nextKey)
+		}
+	}
+	if cache.Lookup("two").Found() || !cache.Lookup("three").Found() || cache.entryCount() != 1 {
+		t.Fatal("configured capacity was not enforced")
+	}
+	now = now.Add(31 * time.Minute)
+	if cache.Lookup("three").Found() {
+		t.Fatal("configured TTL was not enforced")
+	}
+}

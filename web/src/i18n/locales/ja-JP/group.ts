@@ -229,6 +229,12 @@ export default {
           'この Group 上書きはグローバル HeaderRules 全体を置き換えます。今後のグローバル変更はマージされません。',
         inject_usage_options: '使用量オプションを注入',
         injectUsageHelp: 'この上書きは openai-completions でのみ利用できます',
+        affinity_enabled: 'リクエストアフィニティ',
+        affinityHelp:
+          '通常の重み、スケジューリング、再試行を変えず、この Group がアフィニティ対象を学習または再利用するかを制御します。',
+        affinityInherit: 'グローバルを継承',
+        affinityEnable: '有効',
+        affinityDisable: '無効',
       },
       delete: {
         sectionDescription:

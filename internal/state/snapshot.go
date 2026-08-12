@@ -118,6 +118,7 @@ type GroupView struct {
 	Timeouts           TimeoutConfig
 	HeaderRules        HeaderRules
 	InjectUsageOptions bool
+	AffinityEnabled    bool
 	WeightManual       *int
 }
 
@@ -190,6 +191,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			Timeouts:           resolved.Timeouts,
 			HeaderRules:        resolved.HeaderRules,
 			InjectUsageOptions: resolved.InjectUsageOptions,
+			AffinityEnabled:    resolved.AffinityEnabled,
 			WeightManual:       cloneWeight(group.WeightManual),
 		}
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)

@@ -38,6 +38,10 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 		got.Values.RequestLogRetentionDays != 7 || !got.Values.InjectUsageOptions {
 		t.Fatalf("values = %#v", got.Values)
 	}
+	if !got.Values.AffinityEnabled || got.Values.AffinityTTL != 3600 ||
+		got.Values.AffinityCapacity != 10_000 {
+		t.Fatalf("affinity values = %#v", got.Values)
+	}
 	if got.Values.HeaderRules.Set == nil || len(got.Values.HeaderRules.Set) != 0 {
 		t.Fatalf("header_rules.set = %#v, want empty map", got.Values.HeaderRules.Set)
 	}
@@ -78,6 +82,44 @@ func TestUpdateSettingsChangesAndResetsValidationInterval(t *testing.T) {
 	}
 	if reset.Values.ValidationInterval != 600 || len(reset.Overrides) != 0 {
 		t.Fatalf("reset validation interval = %#v", reset)
+	}
+}
+
+func TestUpdateSettingsChangesAndResetsAffinityDefaults(t *testing.T) {
+	fixture := newServiceFixture(t)
+	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingAffinityEnabled:  json.RawMessage("false"),
+			state.SettingAffinityTTL:      json.RawMessage("7200"),
+			state.SettingAffinityCapacity: json.RawMessage("20000"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Values.AffinityEnabled || updated.Values.AffinityTTL != 7200 ||
+		updated.Values.AffinityCapacity != 20_000 {
+		t.Fatalf("updated affinity settings = %#v", updated)
+	}
+	snapshot := fixture.manager.Current()
+	if snapshot.Settings.AffinityEnabled || snapshot.Settings.AffinityTTL != 2*time.Hour ||
+		snapshot.Settings.AffinityCapacity != 20_000 {
+		t.Fatalf("published affinity settings = %#v", snapshot.Settings)
+	}
+
+	reset, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingAffinityEnabled:  json.RawMessage("null"),
+			state.SettingAffinityTTL:      json.RawMessage("null"),
+			state.SettingAffinityCapacity: json.RawMessage("null"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reset.Values.AffinityEnabled || reset.Values.AffinityTTL != 3600 ||
+		reset.Values.AffinityCapacity != 10_000 {
+		t.Fatalf("reset affinity settings = %#v", reset)
 	}
 }
 

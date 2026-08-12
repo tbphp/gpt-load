@@ -21,6 +21,9 @@ export const runtimeSettingKeys = [
   'stream_idle_timeout',
   'header_rules',
   'inject_usage_options',
+  'affinity_enabled',
+  'affinity_ttl',
+  'affinity_capacity',
   'validation_interval',
   'request_log_retention_days',
   'models_dev_auto_sync_enabled',
@@ -31,6 +34,8 @@ export type TimeoutSettingKey = Exclude<
   RuntimeSettingKey,
   | 'header_rules'
   | 'inject_usage_options'
+  | 'affinity_enabled'
+  | 'affinity_capacity'
   | 'request_log_retention_days'
   | 'models_dev_auto_sync_enabled'
 >
@@ -41,6 +46,9 @@ export interface SettingsValues {
   stream_idle_timeout: number
   header_rules: HeaderRulesDto
   inject_usage_options: boolean
+  affinity_enabled: boolean
+  affinity_ttl: number
+  affinity_capacity: number
   validation_interval: number
   request_log_retention_days: number
   models_dev_auto_sync_enabled: boolean
@@ -58,6 +66,9 @@ export type SettingsPatch = Partial<{
   stream_idle_timeout: number | null
   header_rules: HeaderRulesDto | null
   inject_usage_options: boolean | null
+  affinity_enabled: boolean | null
+  affinity_ttl: number | null
+  affinity_capacity: number | null
   validation_interval: number | null
   request_log_retention_days: number | null
   models_dev_auto_sync_enabled: boolean | null
@@ -124,6 +135,12 @@ export function projectSettings(value: unknown): SettingsDto {
       stream_idle_timeout: projectSafeInteger(values.stream_idle_timeout, { minimum: 1 }),
       header_rules: projectHeaderRules(values.header_rules),
       inject_usage_options: projectBoolean(values.inject_usage_options),
+      affinity_enabled: projectBoolean(values.affinity_enabled),
+      affinity_ttl: projectSafeInteger(values.affinity_ttl, { minimum: 1 }),
+      affinity_capacity: projectSafeInteger(values.affinity_capacity, {
+        minimum: 1,
+        maximum: 1_000_000,
+      }),
       validation_interval: projectSafeInteger(values.validation_interval, { minimum: 1 }),
       request_log_retention_days: projectSafeInteger(values.request_log_retention_days, {
         minimum: 1,

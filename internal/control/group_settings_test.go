@@ -29,7 +29,8 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		"request_timeout":480,
 		"stream_idle_timeout":270,
 		"header_rules":{"set":{"X-Group":"value"},"remove":["X-Removed"]},
-		"inject_usage_options":false
+		"inject_usage_options":false,
+		"affinity_enabled":false
 	}`)
 	if err := fixture.db.Create(group).Error; err != nil {
 		t.Fatal(err)
@@ -53,6 +54,7 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		state.SettingStreamIdleTimeout,
 		state.SettingHeaderRules,
 		state.SettingInjectUsageOptions,
+		state.SettingAffinityEnabled,
 	} {
 		if got.Overrides[key] == nil {
 			t.Fatalf("overrides missing %q: %#v", key, got.Overrides)
@@ -60,7 +62,7 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 	}
 	if got.Effective.FirstByteTimeout != 180 ||
 		got.Effective.RequestTimeout != 480 || got.Effective.StreamIdleTimeout != 270 ||
-		got.Effective.InjectUsageOptions ||
+		got.Effective.InjectUsageOptions || got.Effective.AffinityEnabled ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Set, map[string]string{"X-Group": "value"}) ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Remove, []string{"X-Removed"}) {
 		t.Fatalf("effective = %#v", got.Effective)
@@ -107,6 +109,36 @@ func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 	}
 	if !reflect.DeepEqual(stored, result) {
 		t.Fatalf("stored settings = %#v, want %#v", stored, result)
+	}
+}
+
+func TestUpdateGroupSettingsOverridesAffinityParticipation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-affinity")
+
+	for _, test := range []struct {
+		name     string
+		override config.Settings
+		want     bool
+	}{
+		{name: "disable", override: config.Settings{state.SettingAffinityEnabled: false}, want: false},
+		{name: "enable", override: config.Settings{state.SettingAffinityEnabled: true}, want: true},
+		{name: "inherit", override: config.Settings{}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+				Overrides: optionalField[config.Settings]{Set: true, Value: test.override},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Effective.AffinityEnabled != test.want {
+				t.Fatalf("effective affinity = %t, want %t", got.Effective.AffinityEnabled, test.want)
+			}
+			if view := fixture.manager.Current().Groups[groupID]; view.AffinityEnabled != test.want {
+				t.Fatalf("snapshot affinity = %t, want %t", view.AffinityEnabled, test.want)
+			}
+		})
 	}
 }
 

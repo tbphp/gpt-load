@@ -229,6 +229,12 @@ export default {
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
         inject_usage_options: 'Inject usage options',
         injectUsageHelp: 'This override is available only for openai-completions',
+        affinity_enabled: 'Request affinity',
+        affinityHelp:
+          'Controls whether this Group learns or reuses affinity targets without changing normal weights, scheduling, or retries.',
+        affinityInherit: 'Inherit global',
+        affinityEnable: 'Enable',
+        affinityDisable: 'Disable',
       },
       delete: {
         sectionDescription:

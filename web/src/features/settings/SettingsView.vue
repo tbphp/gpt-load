@@ -30,10 +30,11 @@ import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { formatLocalInstant } from '@/lib/format'
 
 import GlobalHeaderRulesSection from './GlobalHeaderRulesSection.vue'
+import AffinitySettingsSection from './AffinitySettingsSection.vue'
 import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
 import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
-import { isValidRetention, isValidTimeout } from './settings-patch'
+import { isValidAffinityCapacity, isValidRetention, isValidTimeout } from './settings-patch'
 import { useSettingsController } from './use-settings-controller'
 import {
   isCanonicalSettingsRouteQuery,
@@ -87,6 +88,7 @@ const {
 
 const navItems = computed(() => [
   { id: 'settings-forwarding', label: t('settings.navigation.forwarding') },
+  { id: 'settings-affinity', label: t('settings.navigation.affinity') },
   { id: 'settings-headers', label: t('settings.navigation.headers') },
   { id: 'settings-logs', label: t('settings.navigation.logs') },
   { id: 'settings-system', label: t('settings.navigation.system') },
@@ -109,6 +111,7 @@ const timeoutKeys = [
   'request_timeout',
   'stream_idle_timeout',
   'validation_interval',
+  'affinity_ttl',
 ] as const
 const changedKeys = computed(() => {
   const changed = runtimeSettingKeys.filter((key) =>
@@ -128,6 +131,8 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
     if (key === 'header_rules') return !headerRulesValid.value
     if (key === 'request_log_retention_days')
       return !isValidRetention(current.values.request_log_retention_days)
+    if (key === 'affinity_capacity')
+      return !isValidAffinityCapacity(current.values.affinity_capacity)
     return false
   })
 })
@@ -188,6 +193,7 @@ function sectionID(section: SettingsSection): string {
 function sectionFromID(id: string): SettingsSection | undefined {
   const section = id.replace(/^settings-/u, '')
   return section === 'forwarding' ||
+    section === 'affinity' ||
     section === 'headers' ||
     section === 'logs' ||
     section === 'system'
@@ -220,6 +226,8 @@ function confirmDiscard(): void {
 }
 
 function settingLabel(key: RuntimeSettingKey): string {
+  if (key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity')
+    return t(`settings.affinity.${key}`)
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
   if (key === 'header_rules') return t('settings.headers.title')
   return t(`settings.runtime.${key}`)
@@ -235,9 +243,11 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
   const section =
     key === 'header_rules'
       ? 'settings-headers'
-      : key === 'request_log_retention_days'
-        ? 'settings-logs'
-        : 'settings-forwarding'
+      : key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity'
+        ? 'settings-affinity'
+        : key === 'request_log_retention_days'
+          ? 'settings-logs'
+          : 'settings-forwarding'
   await navigateSection(section)
   await nextTick()
   const target =
@@ -321,6 +331,15 @@ onBeforeUnmount(() => {
             </InlineFeedback>
 
             <RuntimeSettingsSection
+              :base="base"
+              :draft="draft"
+              :disabled="operationLocked"
+              :conflicts="conflicts"
+              @change="updateDraft"
+              @choose-mine="chooseMine"
+              @choose-latest="chooseLatest"
+            />
+            <AffinitySettingsSection
               :base="base"
               :draft="draft"
               :disabled="operationLocked"

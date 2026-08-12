@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/affinity"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
@@ -52,6 +54,77 @@ func TestHandlerLearnsAndReusesAutomaticSoftAffinity(t *testing.T) {
 
 	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-one"})
 	assertAffinityHits(t, sink.snapshot(), []bool{false, true})
+}
+
+func TestHandlerDoesNotLearnAffinityForNonParticipatingGroup(t *testing.T) {
+	forwarder := &scriptedForwarder{results: successfulAffinityResults(2)}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+	snapshot := manager.Current()
+	group := snapshot.Groups[1]
+	group.AffinityEnabled = false
+	snapshot.Groups[1] = group
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+	engine := newAffinityTestEngine(t, handler)
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"stable conversation"}]}`
+
+	serveAffinityRequest(t, engine, body)
+	serveAffinityRequest(t, engine, body)
+
+	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-two"})
+	assertAffinityHits(t, sink.snapshot(), []bool{false, false})
+}
+
+func TestHandlerGroupAffinityOverrideWinsOverGlobalSetting(t *testing.T) {
+	tests := []struct {
+		name           string
+		globalEnabled  bool
+		groupOverrides config.Settings
+		wantKeys       []string
+		wantHits       []bool
+	}{
+		{
+			name: "group enables when global is disabled", globalEnabled: false,
+			groupOverrides: config.Settings{state.SettingAffinityEnabled: true},
+			wantKeys:       []string{"sk-one", "sk-one"}, wantHits: []bool{false, true},
+		},
+		{
+			name: "group disables when global is enabled", globalEnabled: true,
+			groupOverrides: config.Settings{state.SettingAffinityEnabled: false},
+			wantKeys:       []string{"sk-one", "sk-two"}, wantHits: []bool{false, false},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: successfulAffinityResults(2)}
+			handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+			current := manager.Current()
+			group := current.Groups[1]
+			resolved, err := state.ResolveGroupRuntimeSettings(state.RuntimeSettings{
+				AffinityEnabled:  test.globalEnabled,
+				AffinityTTL:      time.Hour,
+				AffinityCapacity: 10_000,
+			}, test.groupOverrides)
+			if err != nil {
+				t.Fatal(err)
+			}
+			group.AffinityEnabled = resolved.AffinityEnabled
+			current.Settings.AffinityEnabled = test.globalEnabled
+			current.Groups[1] = group
+			sink := &recordingRequestLogSink{}
+			handler.requestLogSink = sink
+			useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+			engine := newAffinityTestEngine(t, handler)
+			body := `{"model":"gpt-4o","messages":[{"role":"user","content":"stable conversation"}]}`
+
+			serveAffinityRequest(t, engine, body)
+			serveAffinityRequest(t, engine, body)
+
+			assertAffinityAttemptKeys(t, forwarder.inputs, test.wantKeys)
+			assertAffinityHits(t, sink.snapshot(), test.wantHits)
+		})
+	}
 }
 
 func TestHandlerSoftAffinityRetriesAndRebindsAfterFallbackSuccess(t *testing.T) {
@@ -146,10 +219,12 @@ func TestHandlerLearnsAffinityOnlyFromCleanCompletedStream(t *testing.T) {
 }
 
 func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
-	handler, _, _ := newHandlerForTest(t, &scriptedForwarder{}, "sk-one")
+	handler, manager, _ := newHandlerForTest(t, &scriptedForwarder{}, "sk-one")
+	snapshot := manager.Current()
 	prefix := []byte(`{"v":1,"user":["hello"]}`)
 	oldRef := state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}
 	initial := handler.resolveRequestAffinity(
+		snapshot,
 		1,
 		protocol.OpenAICompletions,
 		"gpt-4o",
@@ -168,6 +243,7 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 	}
 
 	hit := handler.resolveRequestAffinity(
+		snapshot,
 		1,
 		protocol.OpenAICompletions,
 		"gpt-4o",
@@ -180,6 +256,7 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 	changedRef := oldRef
 	changedRef.IdentityGeneration = 2
 	stale := handler.resolveRequestAffinity(
+		snapshot,
 		1,
 		protocol.OpenAICompletions,
 		"gpt-4o",

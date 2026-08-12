@@ -33,6 +33,7 @@ function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   if (value.header_rules) next.header_rules = cloneHeaders(value.header_rules)
   if (value.inject_usage_options !== undefined)
     next.inject_usage_options = value.inject_usage_options
+  if (value.affinity_enabled !== undefined) next.affinity_enabled = value.affinity_enabled
   return next
 }
 

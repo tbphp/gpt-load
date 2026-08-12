@@ -29,6 +29,7 @@ import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
+import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
@@ -150,6 +151,27 @@ const displayedHeaderRules = computed<HeaderRulesDto>(
     draft.value?.overrides.header_rules ??
     saved.value?.effective.header_rules ?? { set: {}, remove: [] },
 )
+const affinityMode = computed(() => {
+  const value = draft.value?.overrides.affinity_enabled
+  return value === undefined ? 'inherit' : value ? 'enabled' : 'disabled'
+})
+const affinityOptions = computed<SegmentedControlOption[]>(() => [
+  {
+    value: 'inherit',
+    label: t('group.settings.runtime.affinityInherit'),
+    disabled: mutationPending.value,
+  },
+  {
+    value: 'enabled',
+    label: t('group.settings.runtime.affinityEnable'),
+    disabled: mutationPending.value,
+  },
+  {
+    value: 'disabled',
+    label: t('group.settings.runtime.affinityDisable'),
+    disabled: mutationPending.value,
+  },
+])
 function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
   draft.value = createGroupSettingsDraft(settings)
@@ -268,6 +290,14 @@ function setInjectUsageOverride(enabled: boolean): void {
   const overrides = { ...draft.value.overrides }
   if (enabled) overrides.inject_usage_options = saved.value.effective.inject_usage_options
   else delete overrides.inject_usage_options
+  draft.value = { ...draft.value, overrides }
+}
+
+function setAffinityMode(value: string): void {
+  if (!draft.value || !['inherit', 'enabled', 'disabled'].includes(value)) return
+  const overrides = { ...draft.value.overrides }
+  if (value === 'inherit') delete overrides.affinity_enabled
+  else overrides.affinity_enabled = value === 'enabled'
   draft.value = { ...draft.value, overrides }
 }
 
@@ -492,6 +522,19 @@ onBeforeUnmount(() => {
                   </template>
                 </RuntimeOverrideRow>
               </div>
+              <div class="group-settings__runtime-row group-settings__affinity-row">
+                <div class="group-settings__affinity-identity">
+                  <strong>{{ t('group.settings.runtime.affinity_enabled') }}</strong>
+                  <small>{{ t('group.settings.runtime.affinityHelp') }}</small>
+                </div>
+                <SegmentedControl
+                  :model-value="affinityMode"
+                  :options="affinityOptions"
+                  :label="t('group.settings.runtime.affinity_enabled')"
+                  size="sm"
+                  @update:model-value="setAffinityMode"
+                />
+              </div>
             </div>
           </section>
           <section id="settings-headers" class="group-settings__section">
@@ -691,6 +734,26 @@ small {
   gap: var(--space-2);
   white-space: nowrap;
 }
+.group-settings__affinity-row {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 11px 2px;
+}
+.group-settings__affinity-identity {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+.group-settings__affinity-identity strong {
+  font-size: var(--text-meta);
+}
+.group-settings__affinity-identity small {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
 .group-settings__header-rules {
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
@@ -766,6 +829,10 @@ small {
     width: min(100%, 220px);
   }
   .group-settings__danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .group-settings__affinity-row {
     align-items: stretch;
     flex-direction: column;
   }

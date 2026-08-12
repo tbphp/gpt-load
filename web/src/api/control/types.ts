@@ -77,6 +77,7 @@ export interface GroupRuntimeConfigDto {
   stream_idle_timeout?: number
   header_rules?: HeaderRulesDto
   inject_usage_options?: boolean
+  affinity_enabled?: boolean
 }
 
 export interface GroupEffectiveConfigDto {
@@ -85,6 +86,7 @@ export interface GroupEffectiveConfigDto {
   stream_idle_timeout: number
   header_rules: HeaderRulesDto
   inject_usage_options: boolean
+  affinity_enabled: boolean
 }
 
 export interface GroupSettingsDto {

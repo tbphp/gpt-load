@@ -22,12 +22,82 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		StreamIdleTimeout:        300 * time.Second,
 		HeaderRules:              HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
+		AffinityEnabled:          true,
+		AffinityTTL:              time.Hour,
+		AffinityCapacity:         10_000,
 		ValidationInterval:       10 * time.Minute,
 		RequestLogRetentionDays:  7,
 		ModelsDevAutoSyncEnabled: true,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, want) {
 		t.Fatalf("Settings = %#v, want %#v", snapshot.Settings, want)
+	}
+}
+
+func TestAffinitySettingsArePublicAndGroupEnableIsOverridable(t *testing.T) {
+	for key, value := range map[string]any{
+		"affinity_enabled":  false,
+		"affinity_ttl":      json.Number("7200"),
+		"affinity_capacity": json.Number("20000"),
+	} {
+		if !IsRuntimeSettingKey(key) {
+			t.Errorf("IsRuntimeSettingKey(%q) = false", key)
+		}
+		if err := ValidateRuntimeSetting(key, value); err != nil {
+			t.Errorf("ValidateRuntimeSetting(%q) error = %v", key, err)
+		}
+	}
+	global, err := ResolveRuntimeSettings(config.Settings{
+		"affinity_enabled":  false,
+		"affinity_ttl":      json.Number("7200"),
+		"affinity_capacity": json.Number("20000"),
+	})
+	if err != nil {
+		t.Fatalf("ResolveRuntimeSettings() error = %v", err)
+	}
+	if global.AffinityEnabled || global.AffinityTTL != 2*time.Hour || global.AffinityCapacity != 20_000 {
+		t.Fatalf("global affinity settings = %#v", global)
+	}
+	group, err := ResolveGroupRuntimeSettings(
+		global,
+		config.Settings{"affinity_enabled": false},
+	)
+	if err != nil {
+		t.Fatalf("ResolveGroupRuntimeSettings() error = %v", err)
+	}
+	if group.AffinityEnabled {
+		t.Fatal("group affinity = true, want explicit false")
+	}
+	overridden, err := ResolveGroupRuntimeSettings(global, config.Settings{"affinity_enabled": true})
+	if err != nil || !overridden.AffinityEnabled {
+		t.Fatalf("group affinity override = %#v, %v; want true", overridden, err)
+	}
+	for _, key := range []string{"affinity_ttl", "affinity_capacity"} {
+		if _, err := ResolveGroupRuntimeSettings(global, config.Settings{key: 1}); err == nil {
+			t.Fatalf("group accepted system-only %s", key)
+		}
+	}
+}
+
+func TestAffinitySettingsRejectInvalidValues(t *testing.T) {
+	for key, values := range map[string][]any{
+		SettingAffinityEnabled:  {nil, 0, "true"},
+		SettingAffinityTTL:      {json.Number("0"), json.Number("1.5"), "3600"},
+		SettingAffinityCapacity: {json.Number("0"), json.Number("1000001"), json.Number("1.5")},
+	} {
+		for _, value := range values {
+			if err := ValidateRuntimeSetting(key, value); err == nil {
+				t.Errorf("ValidateRuntimeSetting(%q, %#v) accepted invalid value", key, value)
+			}
+		}
+	}
+	for _, value := range []any{nil, 0, "true"} {
+		if _, err := ResolveGroupRuntimeSettings(
+			DefaultRuntimeSettings(),
+			config.Settings{SettingAffinityEnabled: value},
+		); err == nil {
+			t.Errorf("ResolveGroupRuntimeSettings(%#v) accepted invalid affinity switch", value)
+		}
 	}
 }
 
@@ -340,6 +410,9 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
 		SettingInjectUsageOptions,
+		SettingAffinityEnabled,
+		SettingAffinityTTL,
+		SettingAffinityCapacity,
 		SettingValidationInterval,
 		SettingRequestLogRetentionDays,
 	} {

@@ -441,6 +441,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 	query.AllowedCredentialIDs = allowedCredentialIDs
 	requestAffinity := handler.resolveRequestAffinity(
+		snapshot,
 		accessKey.ID,
 		selectedRoute.Protocol,
 		model,

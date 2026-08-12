@@ -81,6 +81,7 @@ const runtimeSettingFields = [
   'stream_idle_timeout',
   'header_rules',
   'inject_usage_options',
+  'affinity_enabled',
 ] as const
 
 export interface HeaderRulesDto {
@@ -94,6 +95,7 @@ export interface GroupRuntimeConfigDto {
   stream_idle_timeout?: number
   header_rules?: HeaderRulesDto
   inject_usage_options?: boolean
+  affinity_enabled?: boolean
 }
 
 export interface GroupEffectiveConfigDto {
@@ -102,6 +104,7 @@ export interface GroupEffectiveConfigDto {
   stream_idle_timeout: number
   header_rules: HeaderRulesDto
   inject_usage_options: boolean
+  affinity_enabled: boolean
 }
 
 export type {
@@ -261,6 +264,9 @@ function projectRuntimeConfig(
   }
   if (complete || Object.prototype.hasOwnProperty.call(record, 'inject_usage_options')) {
     result.inject_usage_options = projectBoolean(record.inject_usage_options)
+  }
+  if (complete || Object.prototype.hasOwnProperty.call(record, 'affinity_enabled')) {
+    result.affinity_enabled = projectBoolean(record.affinity_enabled)
   }
   return result as GroupRuntimeConfigDto | GroupEffectiveConfigDto
 }

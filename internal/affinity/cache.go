@@ -24,10 +24,11 @@ func (target Target) Valid() bool {
 
 // Observation is a versioned cache lookup used for conditional success updates.
 type Observation struct {
-	Target  Target
-	key     Key
-	version uint64
-	found   bool
+	Target   Target
+	key      Key
+	revision uint64
+	version  uint64
+	found    bool
 }
 
 func (observation Observation) Found() bool {
@@ -49,6 +50,7 @@ type Cache struct {
 	capacity    int
 	ttl         time.Duration
 	now         func() time.Time
+	revision    uint64
 	nextVersion uint64
 }
 
@@ -65,6 +67,29 @@ func newCache(capacity int, ttl time.Duration, now func() time.Time) *Cache {
 	}
 }
 
+// Configure applies one frozen runtime configuration revision. Moving to a
+// newer revision clears entries so changed TTL, capacity, and group policy
+// take effect atomically. Older requests cannot restore stale configuration.
+func (cache *Cache) Configure(revision uint64, capacity int, ttl time.Duration) bool {
+	if cache == nil || revision == 0 || capacity <= 0 || ttl <= 0 || cache.now == nil {
+		return false
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if revision < cache.revision {
+		return false
+	}
+	if revision == cache.revision {
+		return cache.capacity == capacity && cache.ttl == ttl
+	}
+	cache.revision = revision
+	cache.capacity = capacity
+	cache.ttl = ttl
+	cache.entries = make(map[Key]*list.Element)
+	cache.recent.Init()
+	return true
+}
+
 func (cache *Cache) Lookup(key Key) Observation {
 	if cache == nil || !key.Valid() || cache.now == nil {
 		return Observation{}
@@ -73,20 +98,20 @@ func (cache *Cache) Lookup(key Key) Observation {
 	defer cache.mu.Unlock()
 	element := cache.currentElementLocked(key, cache.now())
 	if element == nil {
-		return Observation{key: key}
+		return Observation{key: key, revision: cache.revision}
 	}
 	cache.recent.MoveToFront(element)
 	entry := element.Value.(*cacheEntry)
 	return Observation{
-		Target: entry.target, key: key, version: entry.version, found: true,
+		Target: entry.target, key: key, revision: cache.revision,
+		version: entry.version, found: true,
 	}
 }
 
 // RecordSuccess conditionally learns the successful target. It returns true
 // when this call inserted, refreshed, or changed the current mapping.
 func (cache *Cache) RecordSuccess(key Key, observed Observation, target Target) bool {
-	if cache == nil || !key.Valid() || !target.Valid() || cache.capacity <= 0 ||
-		cache.ttl <= 0 || cache.now == nil {
+	if cache == nil || !key.Valid() || !target.Valid() || cache.now == nil {
 		return false
 	}
 	if observed.key.Valid() && observed.key != key {
@@ -95,6 +120,9 @@ func (cache *Cache) RecordSuccess(key Key, observed Observation, target Target) 
 
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
+	if cache.capacity <= 0 || cache.ttl <= 0 || observed.revision != cache.revision {
+		return false
+	}
 	now := cache.now()
 	element := cache.currentElementLocked(key, now)
 	if observed.found {
