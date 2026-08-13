@@ -84,8 +84,8 @@ export default {
     network: '无法连接到管理 API，请检查服务后重试。',
     invalidResponse: '管理 API 返回了无法识别的响应。',
     checking: '正在验证当前会话…',
-    sessionNotePrefix: '登录密钥仅保存在当前浏览器会话的 ',
-    sessionNoteSuffix: ' 中',
+    sessionNotePrefix: '登录密钥保存在当前站点的 ',
+    sessionNoteSuffix: ' 中，退出登录或认证失效时清除',
     help: {
       title: '可以使用哪种密钥？',
       accessKeyTitle: 'AccessKey',

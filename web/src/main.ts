@@ -88,7 +88,7 @@ async function bootstrap(): Promise<void> {
   })
 
   authSession = createAuthSession({
-    storage: getBrowserStorage('sessionStorage'),
+    storage: getBrowserStorage('localStorage'),
     queryClient,
     onClear: clearEphemeralState,
     validate: (key, globalUnauthorized, signal) =>
