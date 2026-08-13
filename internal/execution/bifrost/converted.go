@@ -30,6 +30,7 @@ type responsesStreamSDKResult struct {
 }
 
 type targetConversionError struct {
+	code    string
 	summary string
 }
 
@@ -40,12 +41,22 @@ func (err *targetConversionError) Error() string {
 	return err.summary
 }
 
-func (*targetConversionError) ConversionCode() string {
-	return execution.ErrorCodeTargetConversionNotSupported
+func (err *targetConversionError) ConversionCode() string {
+	if err == nil || err.code == "" {
+		return execution.ErrorCodeTargetConversionNotSupported
+	}
+	return err.code
 }
 
 func unsupportedTargetConversion(summary string) error {
 	return &targetConversionError{summary: summary}
+}
+
+func criticalSemanticLoss(summary string) error {
+	return &targetConversionError{
+		code:    execution.ErrorCodeCriticalSemanticLoss,
+		summary: summary,
+	}
 }
 
 func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas.ModelProvider) (*schemas.BifrostResponsesRequest, error) {
@@ -71,7 +82,11 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		if err := json.Unmarshal(spec.Body, &wire); err != nil {
 			return nil, fmt.Errorf("invalid Anthropic request body")
 		}
+		if provider == schemas.DeepSeek && wire.Container != nil {
+			return nil, criticalSemanticLoss("DeepSeek Anthropic route cannot preserve container semantics")
+		}
 		request = wire.ToBifrostResponsesRequest(conversionContext)
+		preserveDeepSeekAnthropicEffort(request, provider, wire.OutputConfig)
 	case protocol.Gemini:
 		if spec.Operation != execution.OperationChatCompletion {
 			return nil, unsupportedTargetConversion("converted Gemini operation is not supported")
@@ -94,6 +109,25 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 	request.RawRequestBody = nil
 	stripResponsesControlParams(request.Params)
 	return request, nil
+}
+
+func preserveDeepSeekAnthropicEffort(
+	request *schemas.BifrostResponsesRequest,
+	provider schemas.ModelProvider,
+	outputConfig *anthropic.AnthropicOutputConfig,
+) {
+	if request == nil || provider != schemas.DeepSeek || outputConfig == nil || outputConfig.Effort == nil {
+		return
+	}
+	if request.Params == nil {
+		request.Params = &schemas.ResponsesParameters{}
+	}
+	if request.Params.ExtraParams == nil {
+		request.Params.ExtraParams = make(map[string]any)
+	}
+	request.Params.ExtraParams["output_config"] = map[string]any{
+		"effort": *outputConfig.Effort,
+	}
 }
 
 func stripResponsesControlParams(params *schemas.ResponsesParameters) {
@@ -299,6 +333,24 @@ func convertedTypedTarget(
 		return "", nil
 	default:
 		return "", fmt.Errorf("unsupported provider kind")
+	}
+	if baseURL != "" {
+		return resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+	}
+	return appendTypedQuery(resourcePath, rawQuery), nil
+}
+
+func deepSeekNativeTypedTarget(baseURL string, clientProtocol protocol.Protocol, rawQuery string) (string, error) {
+	resourcePath := ""
+	switch clientProtocol {
+	case protocol.OpenAICompletions:
+		resourcePath = "/chat/completions"
+	case protocol.OpenAIResponses:
+		resourcePath = "/responses"
+	case protocol.Anthropic:
+		resourcePath = "/anthropic/v1/messages"
+	default:
+		return "", fmt.Errorf("unsupported DeepSeek native protocol")
 	}
 	if baseURL != "" {
 		return resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
