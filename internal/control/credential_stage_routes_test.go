@@ -232,7 +232,7 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 	contentSecurityPolicy := response.Header.Get("Content-Security-Policy")
 	if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" ||
 		response.Header.Get("Referrer-Policy") != "no-referrer" || !strings.Contains(contentSecurityPolicy, "script-src 'sha256-") ||
-		response.Header.Get("Location") != "" || !strings.Contains(body, "授权成功") || !strings.Contains(body, "关闭并返回") {
+		response.Header.Get("Location") != "" || !strings.Contains(body, "账号已连接") || !strings.Contains(body, "关闭") {
 		t.Fatalf("callback response = %d %#v", response.StatusCode, response.Header)
 	}
 	completed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
@@ -268,7 +268,7 @@ func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&error=access_denied"
 	response, body := getOAuthCallbackResponse(t, callbackURL)
 	if response.StatusCode != http.StatusOK || response.Header.Get("Location") != "" ||
-		!strings.Contains(body, "授权失败") || !strings.Contains(body, "关闭并返回") {
+		!strings.Contains(body, "授权未完成") || !strings.Contains(body, "关闭") {
 		t.Fatalf("callback response = %d %#v", response.StatusCode, response.Header)
 	}
 	failed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
