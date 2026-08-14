@@ -27,6 +27,44 @@ func TestMapGroupRowToStateCarriesDeepClonedParams(t *testing.T) {
 	}
 }
 
+func TestSubscriptionGroupSettingsAndModelsRemainUpdatable(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-group-update", "group-update@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name:           stringPointer("subscription-before"),
+		ChannelID:      channel.Codex,
+		ConnectionType: models.ConnectionTypeSubscription,
+		Params:         json.RawMessage(`{}`),
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{
+			{ID: "gpt-before"},
+		}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settings, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
+		Name: optionalField[string]{Set: true, Value: "subscription-after"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateGroupSettings() error = %v", err)
+	}
+	if settings.Name != "subscription-after" || settings.ConnectionType != models.ConnectionTypeSubscription {
+		t.Fatalf("updated settings = %#v", settings)
+	}
+
+	groupModels, err := fixture.service.UpdateGroupModels(t.Context(), created.GroupID, GroupModelsUpdateRequest{
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-after"}}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateGroupModels() error = %v", err)
+	}
+	if len(groupModels.Items) != 1 || groupModels.Items[0].ID != "gpt-after" {
+		t.Fatalf("updated models = %#v", groupModels)
+	}
+}
+
 func TestGroupCatalogSyncTriggerOnlyTracksProviderAndModelIDChanges(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{

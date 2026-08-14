@@ -145,7 +145,7 @@ func (s *Service) discoverCodexModels(
 	for _, model := range models {
 		ids = append(ids, model.ID)
 	}
-	target := discoveryTarget{channelID: channel.Codex, catalogProviderID: "openai"}
+	target := discoveryTarget{channelID: channel.Codex}
 	return s.mergeDiscoveredModels(ctx, normalizeDiscoveredModels(ids), target)
 }
 

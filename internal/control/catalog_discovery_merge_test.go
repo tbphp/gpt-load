@@ -8,11 +8,49 @@ import (
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {
+			ID: "openai", Name: "OpenAI", Models: map[string]catalog.Model{
+				"gpt-codex": {
+					ID: "gpt-codex", Name: "OpenAI catalog name",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				},
+				"openai-catalog-only": {
+					ID: "openai-catalog-only", Name: "OpenAI catalog only",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
+				},
+			},
+		},
+	}})
+	stage := mustImportSubscriptionStage(t, fixture, "account-codex-models", "codex-models@example.com")
+	fixture.service.listCodexModels = func(context.Context, codex.Credential) ([]codex.Model, error) {
+		return []codex.Model{{ID: "gpt-codex"}}, nil
+	}
+
+	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, StagedCredentialID: stage.StageID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	openAI := "OpenAI"
+	want := []ModelCandidate{{
+		ID: "gpt-codex", Name: "gpt-codex", Sources: []string{"live"},
+		PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
+	}}
+	if !reflect.DeepEqual(got.Models, want) {
+		t.Fatalf("Codex candidates = %#v, want %#v", got.Models, want)
+	}
+}
 
 func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *testing.T) {
 	fixture := newServiceFixture(t)

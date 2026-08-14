@@ -52,6 +52,7 @@ func mapGroupRowToState(group models.Group) (state.GroupConfig, error) {
 		ID:              group.ID,
 		Name:            group.Name,
 		ChannelID:       channel.ID(group.ChannelID),
+		ConnectionType:  string(group.ConnectionType),
 		Params:          append(json.RawMessage(nil), group.Params...),
 		ValidationModel: validationModel,
 		Models:          runtimeModels,

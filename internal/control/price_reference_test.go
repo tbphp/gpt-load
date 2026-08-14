@@ -76,6 +76,23 @@ func TestResolveAutomaticPriceForIdentityFallsBackForCompatibleChannel(t *testin
 	}
 }
 
+func TestResolveAutomaticPriceForIdentityTreatsCodexOpenAIPriceAsReference(t *testing.T) {
+	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			"gpt-codex": {ID: "gpt-codex", Cost: openAICost},
+		}},
+	}}
+
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Codex), ModelID: "gpt-codex",
+	})
+	if !ok || match.cost != openAICost || match.providerID != "openai" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("Codex price reference = %#v, %t", match, ok)
+	}
+}
+
 func TestCompatibleAutomaticPriceUsesGlobalPriority(t *testing.T) {
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}

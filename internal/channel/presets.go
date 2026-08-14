@@ -94,7 +94,7 @@ func builtinDefinitions() []definition {
 		),
 		newDefinition(
 			Codex, "Codex", "CX", "openai", "OpenAI Codex subscription", []string{"subscription", "oauth", "chatgpt"},
-			nil, nil, "openai", ProviderOpenAI, false,
+			nil, nil, "", ProviderOpenAI, false,
 			map[protocol.Protocol]bool{protocol.OpenAIResponses: true}, false,
 		),
 		newDefinition(

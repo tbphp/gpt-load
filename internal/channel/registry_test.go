@@ -196,7 +196,7 @@ func TestOnlyCodexSupportsSubscription(t *testing.T) {
 func TestRegistryReturnsExactCatalogProviderMappingWithoutResolvingParams(t *testing.T) {
 	registry := NewRegistry()
 	for id, want := range map[ID]string{
-		OpenAI: "openai", Codex: "openai", Anthropic: "anthropic", Gemini: "google",
+		OpenAI: "openai", Codex: "", Anthropic: "anthropic", Gemini: "google",
 		ID("azure_openai"): "azure", ID("aws_bedrock"): "amazon-bedrock", ID("google_vertex"): "google-vertex",
 		OpenAICompatible: "",
 	} {
