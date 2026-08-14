@@ -364,6 +364,8 @@ export default {
         reauthorizeFailed: '无法更新该账号的授权',
         sync: '同步',
         syncFailed: '无法同步账号信息',
+        moreActions: '更多操作',
+        autoRenews: '会自动续期',
         resetCredits: '重置卡',
         resetCreditsCount: '{count} 张可用',
         tokenExpiresAt: '访问凭据到期',
@@ -382,6 +384,9 @@ export default {
         estimate: {
           title: '额度预估',
           usedPercent: '已用 {value}%',
+          consumed: '已消耗',
+          periodTotal: '预估总量',
+          periodRemaining: '预估剩余',
           comingSoon: '用量数据即将支持',
           windowSeparator: '、',
         },

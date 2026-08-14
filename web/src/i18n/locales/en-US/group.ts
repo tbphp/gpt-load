@@ -374,6 +374,8 @@ export default {
         reauthorizeFailed: 'Unable to update this account authorization',
         sync: 'Sync',
         syncFailed: 'Unable to sync account information',
+        moreActions: 'More actions',
+        autoRenews: 'renews automatically',
         resetCredits: 'Reset credits',
         resetCreditsCount: '{count} available',
         tokenExpiresAt: 'Access credential expires',
@@ -393,6 +395,9 @@ export default {
         estimate: {
           title: 'Usage estimate',
           usedPercent: '{value}% used',
+          consumed: 'Consumed',
+          periodTotal: 'Est. total',
+          periodRemaining: 'Est. left',
           comingSoon: 'Usage data is coming soon',
           windowSeparator: ', ',
         },

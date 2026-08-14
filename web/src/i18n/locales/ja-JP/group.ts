@@ -376,6 +376,8 @@ export default {
         reauthorizeFailed: 'このアカウントの認証を更新できません',
         sync: '同期',
         syncFailed: 'アカウント情報を同期できません',
+        moreActions: 'その他の操作',
+        autoRenews: '自動更新されます',
         resetCredits: 'リセットクレジット',
         resetCreditsCount: '{count} 件利用可能',
         tokenExpiresAt: 'アクセス認証情報の期限',
@@ -395,6 +397,9 @@ export default {
         estimate: {
           title: '利用量の見積もり',
           usedPercent: '使用済み {value}%',
+          consumed: '消費済み',
+          periodTotal: '推定総量',
+          periodRemaining: '推定残量',
           comingSoon: '利用量データは近日対応予定です',
           windowSeparator: '、',
         },

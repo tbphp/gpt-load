@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { RotateCcw, Trash2 } from '@lucide/vue'
-import { computed } from 'vue'
+import { Ellipsis, RotateCcw, Trash2 } from '@lucide/vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { CredentialItemDto, CredentialQuotaWindowDto } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppPopover from '@/components/ui/AppPopover.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
@@ -24,10 +24,19 @@ const emit = defineEmits<{
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t } = useI18n()
+const menuOpen = ref(false)
 
 const observation = computed(() => props.item.observation)
 const snapshot = computed(() => observation.value?.snapshot)
-const quotaWindows = computed(() => snapshot.value?.quota_windows ?? [])
+// 窗口按时长从短到长排：最快恢复的排最前，用户先看到的是最快能缓解的那一条。
+// 缺 window_seconds 的窗口（上游未提供时长）排在最后，保持后端给的相对次序。
+const quotaWindows = computed(() =>
+  [...(snapshot.value?.quota_windows ?? [])].sort((left, right) => {
+    const leftSeconds = left.window_seconds ?? Number.MAX_SAFE_INTEGER
+    const rightSeconds = right.window_seconds ?? Number.MAX_SAFE_INTEGER
+    return leftSeconds - rightSeconds
+  }),
+)
 const accountQuotaWindows = computed(() =>
   quotaWindows.value.filter((window) => window.scope === 'account'),
 )
@@ -78,12 +87,6 @@ const statusTone = computed<'success' | 'warning' | 'danger' | 'neutral'>(() => 
   }
   return tones[unifiedStatus.value]
 })
-const needsReauthorize = computed(
-  () =>
-    props.item.auth_state === 'reauthorization_required' ||
-    props.item.auth_state === 'outcome_unknown',
-)
-
 const authErrorKeys: Readonly<Record<string, string>> = {
   refresh_rejected: 'group.credentials.subscription.authError.refreshRejected',
   refresh_identity_changed: 'group.credentials.subscription.authError.identityChanged',
@@ -157,6 +160,23 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
   if (value < 70) return 'warning'
   return 'success'
 }
+
+function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'): void {
+  menuOpen.value = false
+  switch (action) {
+    case 'reauthorize':
+      emit('reauthorize', props.item)
+      return
+    case 'toggle':
+      emit('toggle', props.item)
+      return
+    case 'restore':
+      emit('restore', props.item)
+      return
+    case 'remove':
+      emit('remove', props.item)
+  }
+}
 </script>
 
 <template>
@@ -179,55 +199,49 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
       >
         {{ t('group.credentials.subscription.sync') }}
       </AppButton>
-      <AppButton
-        v-if="needsReauthorize"
-        variant="secondary"
-        tone="danger"
-        size="compact"
-        :disabled="busy"
-        @click="emit('reauthorize', item)"
-      >
-        {{ t('group.credentials.subscription.reauthorize') }}
-      </AppButton>
-      <AppButton
-        variant="secondary"
-        :tone="item.configured_status === 'active' ? 'warning' : 'success'"
-        size="compact"
-        :disabled="busy"
-        @click="emit('toggle', item)"
-      >
-        {{
-          item.configured_status === 'active'
-            ? t('group.credentials.disable')
-            : t('group.credentials.enable')
-        }}
-      </AppButton>
-      <IconButton
-        v-if="isProblem"
-        variant="ghost"
-        tone="success"
-        size="compact"
-        :label="t('group.credentials.restore')"
-        :disabled="busy"
-        @click="emit('restore', item)"
-      >
-        <RotateCcw :size="15" aria-hidden="true" />
-      </IconButton>
-      <IconButton
-        variant="ghost"
-        tone="danger"
-        size="compact"
-        :label="t('group.credentials.delete')"
-        :disabled="busy"
-        @click="emit('remove', item)"
-      >
-        <Trash2 :size="15" aria-hidden="true" />
-      </IconButton>
+      <AppPopover v-model:open="menuOpen" align="end">
+        <template #trigger>
+          <IconButton
+            variant="ghost"
+            size="compact"
+            :label="t('group.credentials.subscription.moreActions')"
+            :disabled="busy"
+          >
+            <Ellipsis :size="16" aria-hidden="true" />
+          </IconButton>
+        </template>
+        <div class="subscription-account__menu">
+          <button type="button" :disabled="busy" @click="runMenuAction('reauthorize')">
+            {{ t('group.credentials.subscription.reauthorize') }}
+          </button>
+          <button type="button" :disabled="busy" @click="runMenuAction('toggle')">
+            {{
+              item.configured_status === 'active'
+                ? t('group.credentials.disable')
+                : t('group.credentials.enable')
+            }}
+          </button>
+          <button v-if="isProblem" type="button" :disabled="busy" @click="runMenuAction('restore')">
+            <RotateCcw :size="14" aria-hidden="true" />{{ t('group.credentials.restore') }}
+          </button>
+          <button
+            type="button"
+            class="subscription-account__menu-danger"
+            :disabled="busy"
+            @click="runMenuAction('remove')"
+          >
+            <Trash2 :size="14" aria-hidden="true" />{{ t('group.credentials.delete') }}
+          </button>
+        </div>
+      </AppPopover>
     </div>
 
-    <InlineFeedback v-if="authIssue" tone="danger" appearance="ledger">
-      {{ authIssue }}
-    </InlineFeedback>
+    <div v-if="authIssue" class="subscription-account__alert">
+      <span>{{ authIssue }}</span>
+      <AppButton size="compact" :disabled="busy" @click="emit('reauthorize', item)">
+        {{ t('group.credentials.subscription.reauthorize') }}
+      </AppButton>
+    </div>
 
     <div v-if="quotaWindows.length" class="subscription-account__quotas">
       <div v-for="window in quotaWindows" :key="window.id" class="subscription-account__quota">
@@ -292,13 +306,41 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
             <strong>{{ window.label }}</strong>
             <span v-if="usedPercentLabel(window)">{{ usedPercentLabel(window) }}</span>
           </div>
-          <p>{{ t('group.credentials.subscription.estimate.comingSoon') }}</p>
+          <dl class="subscription-account__estimate-rows">
+            <div>
+              <dt>{{ t('group.credentials.subscription.estimate.consumed') }}</dt>
+              <dd>—</dd>
+              <dd class="subscription-account__estimate-money">—</dd>
+            </div>
+            <div class="subscription-account__estimate-total">
+              <dt>{{ t('group.credentials.subscription.estimate.periodTotal') }}</dt>
+              <dd>—</dd>
+              <dd class="subscription-account__estimate-money">—</dd>
+            </div>
+            <div>
+              <dt>{{ t('group.credentials.subscription.estimate.periodRemaining') }}</dt>
+              <dd>—</dd>
+              <dd class="subscription-account__estimate-money">—</dd>
+            </div>
+          </dl>
+          <p class="subscription-account__estimate-pending">
+            {{ t('group.credentials.subscription.estimate.comingSoon') }}
+          </p>
         </article>
       </div>
     </details>
 
-    <div v-if="resetCreditsAvailable" class="subscription-account__credits">
+    <div
+      v-if="resetCreditsAvailable"
+      class="subscription-account__credits"
+      :class="{
+        'subscription-account__credits--urgent': unifiedStatus === 'quota_exhausted',
+      }"
+    >
       <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
+      <span class="subscription-account__credits-dots" aria-hidden="true">
+        <i v-for="index in Math.min(resetCreditsAvailable, 5)" :key="index"></i>
+      </span>
       <strong>{{
         t('group.credentials.subscription.resetCreditsCount', { count: n(resetCreditsAvailable) })
       }}</strong>
@@ -314,6 +356,7 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
         />
       </span>
       <span>{{ recentLabel }}</span>
+      <span class="subscription-account__spacer"></span>
       <span v-if="item.account.expires_at_ms">
         {{ t('group.credentials.subscription.tokenExpiresAt') }}
         <AppRelativeTime
@@ -321,6 +364,9 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
           :locale="locale"
           :empty-label="t('group.credentials.subscription.unknown')"
         />
+        <template v-if="item.auth_state === 'ready'">
+          · {{ t('group.credentials.subscription.autoRenews') }}
+        </template>
       </span>
     </div>
 
@@ -523,7 +569,37 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
   font-family: var(--font-mono);
   font-size: var(--text-label-xs);
 }
-.subscription-account__estimate-grid p {
+.subscription-account__estimate-rows {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+.subscription-account__estimate-rows > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(52px, auto);
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.subscription-account__estimate-rows dt {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.subscription-account__estimate-rows dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.subscription-account__estimate-money {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.subscription-account__estimate-total dd {
+  color: var(--color-action);
+}
+.subscription-account__estimate-pending {
   margin: 0;
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
@@ -538,15 +614,84 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
   padding: 7px 10px;
   font-size: var(--text-sm);
 }
-.subscription-account__credits span {
+.subscription-account__credits--urgent {
+  border-color: color-mix(in srgb, var(--color-action) 40%, var(--color-border-subtle));
+  background: var(--color-action-soft);
+}
+.subscription-account__credits > span:first-child {
   color: var(--color-text-faint);
+}
+.subscription-account__credits-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.subscription-account__credits-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-action);
+}
+.subscription-account__alert {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-feedback-danger-border);
+  border-radius: var(--radius-control);
+  background: var(--color-danger-bg);
+  padding: 9px 12px;
+  color: var(--color-text);
+  font-size: var(--text-meta);
+}
+.subscription-account__alert > span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.subscription-account__menu {
+  display: grid;
+  gap: 2px;
+  width: min(220px, 100%);
+}
+.subscription-account__menu button {
+  display: flex;
+  min-height: var(--control-sm);
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 0 10px;
+  font: inherit;
+  font-size: var(--text-button);
+  font-weight: 560;
+  text-align: left;
+  cursor: pointer;
+}
+.subscription-account__menu button:hover:not(:disabled) {
+  background: var(--color-interactive-hover);
+  color: var(--color-text);
+}
+.subscription-account__menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.subscription-account__menu-danger {
+  color: var(--color-danger) !important;
+}
+.subscription-account__menu-danger:hover:not(:disabled) {
+  background: var(--color-danger-bg) !important;
 }
 .subscription-account__meta {
   display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-4);
   color: var(--color-text-faint);
   font-size: var(--text-sm);
+}
+.subscription-account__meta .subscription-account__spacer {
+  flex: 1 1 auto;
 }
 .subscription-account__diagnostics-grid {
   display: grid;

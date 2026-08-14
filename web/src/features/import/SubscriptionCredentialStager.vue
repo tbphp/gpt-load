@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ExternalLink, FileJson, Send, Trash2 } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -41,8 +41,10 @@ const callbackURLs = ref<Record<string, string>>({})
 const callbackErrorKeys = ref<Record<string, string>>({})
 const copyState = ref<Record<string, 'idle' | 'success' | 'failure'>>({})
 const showJSONImport = ref(false)
+const nowMS = ref(Date.now())
 const polling = new Map<string, { timer?: number; controller?: AbortController }>()
 const expiryTimers = new Map<string, number>()
+let countdownTimer: number | undefined
 const readyCount = computed(
   () => props.modelValue.filter(({ status }) => status === 'ready').length,
 )
@@ -260,6 +262,22 @@ function copyButtonLabel(stage: CredentialStage): string {
   return t('import.subscription.copyAuthorization')
 }
 
+// 授权会话的剩余时间用 m:ss 倒计时，而不是「10 分钟后」这类相对措辞——
+// 用户在这一步是在等一个明确的截止点，秒级读数才有参考价值。
+function remainingCountdown(stage: CredentialStage): string {
+  const remainingSeconds = Math.max(0, Math.floor((stage.expires_at_ms - nowMS.value) / 1_000))
+  const minutes = Math.floor(remainingSeconds / 60)
+  const seconds = remainingSeconds % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+async function restartAuthorization(stage: CredentialStage): Promise<void> {
+  if (props.disabled || busyAction.value) return
+  await removeStage(stage)
+  if (feedbackKey.value) return
+  await beginAuthorization()
+}
+
 async function removeStage(stage: CredentialStage): Promise<void> {
   if (props.disabled) return
   feedbackKey.value = ''
@@ -309,9 +327,16 @@ function stageErrorKey(code: string): string {
   return known[code] ?? 'import.subscription.stageError.unknown'
 }
 
+onMounted(() => {
+  countdownTimer = window.setInterval(() => {
+    nowMS.value = Date.now()
+  }, 1_000)
+})
+
 onBeforeUnmount(() => {
   for (const stageID of [...polling.keys()]) stopPolling(stageID)
   for (const stageID of [...expiryTimers.keys()]) stopExpiryTimer(stageID)
+  if (countdownTimer !== undefined) window.clearInterval(countdownTimer)
   oauthJSON.value = ''
   callbackURLs.value = {}
   callbackErrorKeys.value = {}
@@ -394,13 +419,36 @@ onBeforeUnmount(() => {
           {{ t(stageErrorKey(stage.error_code)) }}
         </p>
 
+        <div v-if="stage.status === 'ready'" class="subscription-stager__ready" role="status">
+          <span class="subscription-stager__ready-tick" aria-hidden="true">✓</span>
+          <span>{{ t('import.subscription.readyNotice') }}</span>
+        </div>
+
         <div
           v-if="stage.status === 'pending_authorization' && stage.authorization_url"
           class="subscription-stager__authorization"
         >
           <div class="subscription-stager__waiting">
             <span class="subscription-stager__spinner" aria-hidden="true"></span>
-            <span>{{ t('import.subscription.waiting') }}</span>
+            <span class="subscription-stager__waiting-text">
+              <strong>{{ t('import.subscription.waiting') }}</strong>
+              <span>
+                {{
+                  t('import.subscription.sessionExpiresIn', {
+                    countdown: remainingCountdown(stage),
+                  })
+                }}
+                ·
+                <button
+                  type="button"
+                  class="subscription-stager__restart"
+                  :disabled="disabled || Boolean(busyAction)"
+                  @click="restartAuthorization(stage)"
+                >
+                  {{ t('import.subscription.restart') }}
+                </button>
+              </span>
+            </span>
           </div>
 
           <span class="subscription-stager__authorization-label">
@@ -633,6 +681,59 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
+}
+.subscription-stager__waiting-text {
+  display: grid;
+  gap: 2px;
+}
+.subscription-stager__waiting-text strong {
+  font-size: var(--text-meta);
+  font-weight: 620;
+}
+.subscription-stager__waiting-text > span {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.subscription-stager__restart {
+  border: 0;
+  background: none;
+  color: var(--color-action);
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-label-xs);
+  font-weight: 560;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.subscription-stager__restart:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.subscription-stager__ready {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--color-feedback-success-border);
+  border-radius: var(--radius-control);
+  background: var(--color-success-bg);
+  padding: 9px 12px;
+  color: var(--color-text);
+  font-size: var(--text-meta);
+}
+.subscription-stager__ready-tick {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-success);
+  color: var(--color-surface);
+  font-size: 11px;
+  font-weight: 700;
 }
 .subscription-stager__spinner {
   width: 14px;
