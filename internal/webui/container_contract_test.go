@@ -58,11 +58,14 @@ func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
 	if service.Environment["HOST"] != "0.0.0.0" {
 		t.Fatalf("resolved application HOST = %q, want 0.0.0.0", service.Environment["HOST"])
 	}
-	if len(service.Ports) != 1 ||
+	if len(service.Ports) != 2 ||
 		service.Ports[0].Target != 41234 ||
 		service.Ports[0].Published != "41234" ||
-		service.Ports[0].HostIP != "127.0.0.1" {
-		t.Fatalf("resolved ports = %#v, want 127.0.0.1:41234:41234", service.Ports)
+		service.Ports[0].HostIP != "127.0.0.1" ||
+		service.Ports[1].Target != 1455 ||
+		service.Ports[1].Published != "1455" ||
+		service.Ports[1].HostIP != "127.0.0.1" {
+		t.Fatalf("resolved ports = %#v, want application 41234 and loopback OAuth callback 1455", service.Ports)
 	}
 	if len(service.Healthcheck.Test) != 2 ||
 		!strings.Contains(service.Healthcheck.Test[1], "localhost:41234/health") {
@@ -160,6 +163,33 @@ func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 	}
 }
 
+func TestDockerfileCopiesLocalCPAEmbeddedModuleBeforeGoModuleDownload(t *testing.T) {
+	content := readRepositoryFile(t, "Dockerfile")
+	rootModules := strings.Index(content, "COPY go.mod go.sum ./")
+	bridgeModules := strings.Index(content, "COPY third_party/cpaembedded/go.mod third_party/cpaembedded/go.sum ./third_party/cpaembedded/")
+	download := strings.Index(content, "RUN go mod download")
+	bridgeSource := strings.Index(content, "COPY third_party/cpaembedded ./third_party/cpaembedded")
+	build := strings.Index(content, "GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build")
+	if rootModules < 0 || bridgeModules < 0 || download < 0 || bridgeSource < 0 || build < 0 {
+		t.Fatalf("Dockerfile is missing local CPA embedded module build inputs")
+	}
+	if rootModules >= bridgeModules || bridgeModules >= download || download >= bridgeSource || bridgeSource >= build {
+		t.Fatalf("Dockerfile local CPA module copy order is invalid")
+	}
+}
+
+func TestDockerfileDistributesDeclaredThirdPartyLicenseTexts(t *testing.T) {
+	content := readRepositoryFile(t, "Dockerfile")
+	for _, required := range []string{
+		"COPY LICENSES/Apache-2.0.txt /app/licenses/Apache-2.0.txt",
+		"COPY LICENSES/MIT.txt /app/licenses/MIT.txt",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("Dockerfile does not distribute declared license text %q", required)
+		}
+	}
+}
+
 func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
 	t.Setenv("BIND_ADDRESS", "")
 	t.Setenv("PORT", "")
@@ -203,15 +233,18 @@ func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
 	if service.Environment["HOST"] != "0.0.0.0" {
 		t.Fatalf("resolved application HOST = %q, want 0.0.0.0", service.Environment["HOST"])
 	}
-	if len(service.Ports) != 1 ||
+	if len(service.Ports) != 2 ||
 		service.Ports[0].Target != 3001 ||
 		service.Ports[0].Published != "3001" ||
-		service.Ports[0].HostIP != "127.0.0.1" {
-		t.Fatalf("resolved ports = %#v, want 127.0.0.1:3001:3001", service.Ports)
+		service.Ports[0].HostIP != "127.0.0.1" ||
+		service.Ports[1].Target != 1455 ||
+		service.Ports[1].Published != "1455" ||
+		service.Ports[1].HostIP != "127.0.0.1" {
+		t.Fatalf("resolved ports = %#v, want application 3001 and loopback OAuth callback 1455", service.Ports)
 	}
 }
 
-func TestComposeProjectsHaveIndependentNamesPortsAndVolumes(t *testing.T) {
+func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testing.T) {
 	t.Setenv("BIND_ADDRESS", "")
 	t.Setenv("PORT", "")
 
@@ -280,10 +313,13 @@ func TestComposeProjectsHaveIndependentNamesPortsAndVolumes(t *testing.T) {
 		if service.ContainerName != "" {
 			t.Fatalf("resolved project %s fixes container_name to %q", item.projectName, service.ContainerName)
 		}
-		if len(service.Ports) != 1 ||
+		if len(service.Ports) != 2 ||
 			service.Ports[0].Target != item.targetPort ||
 			service.Ports[0].Published != item.publishedPort ||
-			service.Ports[0].HostIP != "127.0.0.1" {
+			service.Ports[0].HostIP != "127.0.0.1" ||
+			service.Ports[1].Target != 1455 ||
+			service.Ports[1].Published != "1455" ||
+			service.Ports[1].HostIP != "127.0.0.1" {
 			t.Fatalf("resolved project %s ports = %#v", item.projectName, service.Ports)
 		}
 		wantVolume := item.projectName + "_gpt-load-data"

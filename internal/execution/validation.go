@@ -54,6 +54,9 @@ func (s AttemptSpec) Validate() error {
 	if strings.TrimSpace(s.ChannelID) == "" {
 		return validationError("channel_id", "must not be empty")
 	}
+	if s.ConnectionType != "" && s.ConnectionType != "api_key" && s.ConnectionType != "subscription" {
+		return validationError("connection_type", "unsupported value")
+	}
 	if strings.TrimSpace(s.TargetKind) == "" || len(s.TargetKind) > 64 || containsControl(s.TargetKind) {
 		return validationError("target_kind", "must be a safe non-empty identifier")
 	}
@@ -119,6 +122,9 @@ func (e ErrorEvidence) Validate() error {
 	}
 	if !e.Hint.Valid() {
 		return validationError("error.hint", "unsupported value")
+	}
+	if !e.ReplaySafety.Valid() {
+		return validationError("error.replay_safety", "unsupported value")
 	}
 	if !validOptionalHTTPStatus(e.StatusCode) {
 		return validationError("error.status_code", "must be zero or a valid HTTP status")

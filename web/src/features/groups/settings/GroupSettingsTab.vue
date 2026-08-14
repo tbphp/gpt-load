@@ -84,8 +84,10 @@ const selectedChannel = computed(() =>
   channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.value?.channel_id),
 )
 const channelName = computed(() => selectedChannel.value?.name ?? draft.value?.channel_id ?? '')
-const channelParamFields = computed<ChannelFieldDto[]>(
-  () => selectedChannel.value?.param_fields ?? [],
+const channelParamFields = computed<ChannelFieldDto[]>(() =>
+  saved.value?.connection_type === 'subscription'
+    ? []
+    : (selectedChannel.value?.param_fields ?? []),
 )
 const channelParamsDisabled = computed(() => selectedChannel.value === undefined)
 let controller: AbortController | undefined

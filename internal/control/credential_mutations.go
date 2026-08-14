@@ -97,8 +97,11 @@ func (s *Service) RevealGroupCredential(
 	if group.ChannelID == "" {
 		return CredentialRevealResult{}, app_errors.ErrValidation
 	}
+	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
+		return CredentialRevealResult{}, app_errors.ErrForbidden
+	}
 	var row models.Credential
-	if err := s.db.WithContext(ctx).Select("id", "group_id", "data", "fingerprint", "status", "weight_manual", "updated_at_ms").
+	if err := s.db.WithContext(ctx).Select("id", "group_id", "data", "fingerprint", "identity_fingerprint", "secret_version", "auth_state", "status", "weight_manual", "updated_at_ms").
 		Where("id = ? AND group_id = ?", credentialID, groupID).Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return CredentialRevealResult{}, credentialNotFoundError()
@@ -173,29 +176,21 @@ func (s *Service) UpdateGroupCredential(
 		return nil
 	}, func() error {
 		var applyErr error
-		apply := func() {
-			entries, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credentialID})
-			if snapshotErr != nil {
-				applyErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
-				return
-			}
-			entry := entries[0]
-			entry.Status = state.CredentialStatus(committed.Status)
-			entry.WeightManual = cloneInt(committed.WeightManual)
-			entry.Version = groupCollectionCredentialVersion(committed.UpdatedAtMS)
-			entry.IdentityGeneration = groupCollectionCredentialIdentity(
-				committed.Fingerprint,
-				committedGroup,
-			)
-			entry.Fingerprint = committed.Fingerprint
-			entry.EncryptedValue = committed.Data
-			applyErr = s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
+		entries, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credentialID})
+		if snapshotErr != nil {
+			return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 		}
-		if s.mutations == nil {
-			apply()
-		} else {
-			s.mutations.Do(credentialID, apply)
-		}
+		entry := entries[0]
+		entry.Status = state.CredentialStatus(committed.Status)
+		entry.WeightManual = cloneInt(committed.WeightManual)
+		entry.Version = groupCollectionCredentialVersion(committed.SecretVersion)
+		entry.IdentityGeneration = groupCollectionCredentialIdentity(
+			committed.IdentityFingerprint,
+			committedGroup,
+		)
+		entry.Fingerprint = committed.Fingerprint
+		entry.EncryptedValue = committed.Data
+		applyErr = s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
 		return applyErr
 	})
 	if err != nil {
@@ -232,21 +227,12 @@ func (s *Service) DeleteGroupCredential(ctx context.Context, groupID, credential
 		}
 		return nil
 	}, func() error {
-		var applyErr error
-		apply := func() {
-			if !s.registry.RemoveCredential(credentialID) {
-				applyErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
-				return
-			}
-			s.stats.Reset(credentialID)
-			s.retireCredentialRuntime(credentialID)
+		if !s.registry.RemoveCredential(credentialID) {
+			return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 		}
-		if s.mutations == nil {
-			apply()
-		} else {
-			s.mutations.Do(credentialID, apply)
-		}
-		return applyErr
+		s.stats.Reset(credentialID)
+		s.retireCredentialRuntime(credentialID)
+		return nil
 	})
 }
 
@@ -317,7 +303,7 @@ func (s *Service) RestoreGroupCredential(
 	if !exists {
 		return CredentialItemResponse{}, dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 	}
-	return s.mapCredentialItem(row, view, group, s.stats.Snapshot(credentialID, observedAt), observedAt)
+	return s.mapCredentialItem(ctx, row, view, group, s.stats.Snapshot(credentialID, observedAt), observedAt)
 }
 
 func validateCredentialRuntimeRow(
@@ -336,11 +322,14 @@ func validateCredentialRuntimeRow(
 	if view.Status != state.CredentialStatus(row.Status) {
 		return dbRegistryMismatch(mismatchStatus, groupID, row.ID)
 	}
+	if view.AuthState != normalizeRuntimeCredentialAuthState(row.AuthState) {
+		return dbRegistryMismatch(mismatchStatus, groupID, row.ID)
+	}
 	if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 		return dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
 	}
-	if view.Version != groupCollectionCredentialVersion(row.UpdatedAtMS) ||
-		view.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint, group) {
+	if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
+		view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, group) {
 		return dbRegistryMismatch(mismatchIdentity, groupID, row.ID)
 	}
 	return nil
@@ -357,7 +346,7 @@ func (s *Service) loadCredentialItem(ctx context.Context, groupID, credentialID 
 	}
 	for _, row := range observation.rows {
 		if row.ID == credentialID {
-			return s.mapCredentialItem(row, observation.runtime[credentialID], observation.group,
+			return s.mapCredentialItem(ctx, row, observation.runtime[credentialID], observation.group,
 				s.stats.Snapshot(credentialID, observation.observedAt), observation.observedAt)
 		}
 	}
@@ -365,23 +354,40 @@ func (s *Service) loadCredentialItem(ctx context.Context, groupID, credentialID 
 }
 
 func (s *Service) mapCredentialItem(
+	ctx context.Context,
 	row models.Credential,
 	view state.CredentialRuntimeView,
 	group models.Group,
 	stats health.CredentialStats,
 	observedAt time.Time,
 ) (CredentialItemResponse, error) {
-	canonical, _, err := s.decodeCredential(group, row)
+	canonical, identity, err := s.decodeCredential(group, row)
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
-	mask, err := maskCanonicalCredential(canonical)
+	mask, account, err := credentialPresentation(group, row, canonical, identity)
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
 	bucket := classifyHealthKey(state.GroupCatalogView{ID: group.ID, Name: group.Name, Enabled: group.Enabled,
 		WeightManual: cloneInt(group.WeightManual)}, view, observedAt)
-	return mapCredentialRuntimeItem(mask, row.ID, view, bucket, stats, observedAt)
+	item, err := mapCredentialRuntimeItem(mask, row.ID, view, bucket, stats, observedAt)
+	if err != nil {
+		return CredentialItemResponse{}, err
+	}
+	item.ConnectionType = string(normalizeGroupConnectionType(group.ConnectionType))
+	item.SecretVersion = row.SecretVersion
+	item.AuthState = string(row.AuthState)
+	item.Account = account
+	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
+		var observation models.CredentialObservation
+		result := s.db.WithContext(ctx).Take(&observation, "credential_id = ?", row.ID)
+		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return CredentialItemResponse{}, app_errors.ParseDBError(result.Error)
+		}
+		item.Observation = presentCredentialObservation(observation, row.IdentityFingerprint, observedAt)
+	}
+	return item, nil
 }
 
 func normalizeCredentialBatchRequest(request CredentialBatchRequest) ([]uint, error) {
@@ -458,17 +464,6 @@ func (s *Service) BatchGroupCredentials(
 			mutationErr = fmt.Errorf("snapshot credential registry entries: %w", app_errors.ErrInternalServer)
 			return
 		}
-		nowMS := int64(0)
-		for _, id := range ids {
-			candidate, versionErr := nextCredentialUpdatedAtMS(s.now(), rowByID[id].UpdatedAtMS)
-			if versionErr != nil {
-				mutationErr = app_errors.ErrInternalServer
-				return
-			}
-			if candidate > nowMS {
-				nowMS = candidate
-			}
-		}
 		desired := make([]state.CredentialEntry, len(before))
 		for index, entry := range before {
 			desired[index] = entry
@@ -477,7 +472,6 @@ func (s *Service) BatchGroupCredentials(
 			} else if request.Action == CredentialBatchDisable {
 				desired[index].Status = state.CredentialStatusDisabled
 			}
-			desired[index].Version = uint64(nowMS)
 		}
 		persist := func() error {
 			return s.withControlTransaction(ctx, func(tx *gorm.DB) error {
@@ -486,11 +480,11 @@ func (s *Service) BatchGroupCredentials(
 				switch request.Action {
 				case CredentialBatchEnable:
 					result = query.Model(&models.Credential{}).Updates(map[string]any{
-						"status": models.CredentialStatusActive, "updated_at_ms": nowMS,
+						"status": models.CredentialStatusActive,
 					})
 				case CredentialBatchDisable:
 					result = query.Model(&models.Credential{}).Updates(map[string]any{
-						"status": models.CredentialStatusDisabled, "updated_at_ms": nowMS,
+						"status": models.CredentialStatusDisabled,
 					})
 				case CredentialBatchDelete:
 					result = query.Delete(&models.Credential{})
@@ -523,7 +517,7 @@ func (s *Service) BatchGroupCredentials(
 				)
 				mutationErr = joinCommittedRuntimeRecovery(
 					errors.Join(operationErr, applyErr),
-					s.recoverCommittedCredentialRegistry(ctx),
+					s.recoverCommittedCredentialRegistryGroup(ctx, groupID),
 				)
 				return
 			}
@@ -535,7 +529,7 @@ func (s *Service) BatchGroupCredentials(
 				)
 				mutationErr = joinCommittedRuntimeRecovery(
 					errors.Join(operationErr, restoreErr),
-					s.recoverCommittedCredentialRegistry(ctx),
+					s.recoverCommittedCredentialRegistryGroup(ctx, groupID),
 				)
 			}
 			return

@@ -4,18 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
+	"gpt-load/internal/storage/models"
 )
 
 type ModelDiscoveryRequest struct {
-	ChannelID   channel.ID      `json:"channel_id"`
-	Params      json.RawMessage `json:"params"`
-	Credentials string          `json:"credentials"`
+	ChannelID          channel.ID            `json:"channel_id"`
+	ConnectionType     models.ConnectionType `json:"connection_type"`
+	Params             json.RawMessage       `json:"params"`
+	Credentials        string                `json:"credentials"`
+	StagedCredentialID string                `json:"staged_credential_id"`
 }
 
 type ModelDiscoveryResult struct {
@@ -31,6 +35,16 @@ func (s *Service) DiscoverModels(
 	}
 
 	if s == nil || s.channelRegistry == nil || request.ChannelID == "" {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
+	connectionType := normalizeGroupConnectionType(request.ConnectionType)
+	if connectionType == models.ConnectionTypeSubscription {
+		if request.ChannelID != channel.OpenAI || strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "" {
+			return ModelDiscoveryResult{}, app_errors.ErrValidation
+		}
+		return s.discoverSubscriptionStageModels(ctx, request.ChannelID, request.StagedCredentialID)
+	}
+	if strings.TrimSpace(request.StagedCredentialID) != "" {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 	resolvedTarget, err := s.channelRegistry.Resolve(request.ChannelID, request.Params)

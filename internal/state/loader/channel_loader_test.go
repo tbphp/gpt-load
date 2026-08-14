@@ -109,9 +109,14 @@ func TestBuildCompileInputMapsChannelAndCredentialMetadata(t *testing.T) {
 	mustCreate(t, db, &group)
 	credential := models.Credential{
 		GroupID: group.ID, Data: "encrypted-channel-secret", Fingerprint: "fingerprint-one",
-		Status: models.CredentialStatusActive, UpdatedAtMS: 42,
+		Status: models.CredentialStatusActive,
 	}
 	mustCreate(t, db, &credential)
+	if err := db.Table("credentials").Where("id = ?", credential.ID).
+		UpdateColumn("secret_version", 42).Error; err != nil {
+		t.Fatal(err)
+	}
+	credential.SecretVersion = 42
 
 	input, err := loader.BuildCompileInput(t.Context(), db, channel.NewRegistry())
 	if err != nil {
@@ -155,12 +160,17 @@ func TestBuildGroupCredentialEntriesUsesStableCredentialIdentity(t *testing.T) {
 	mustCreate(t, db, &group)
 	weight := 9
 	credentials := []models.Credential{
-		{GroupID: group.ID, Data: "cipher-one", Fingerprint: "fingerprint-one", Status: models.CredentialStatusActive, UpdatedAtMS: 0},
-		{GroupID: group.ID, Data: "cipher-two", Fingerprint: "fingerprint-two", Status: models.CredentialStatusDisabled, WeightManual: &weight, UpdatedAtMS: 99},
+		{GroupID: group.ID, Data: "cipher-one", Fingerprint: "fingerprint-one", Status: models.CredentialStatusActive},
+		{GroupID: group.ID, Data: "cipher-two", Fingerprint: "fingerprint-two", Status: models.CredentialStatusDisabled, WeightManual: &weight, SecretVersion: 99},
 	}
 	for index := range credentials {
 		mustCreate(t, db, &credentials[index])
 	}
+	if err := db.Table("credentials").Where("id = ?", credentials[1].ID).
+		UpdateColumn("secret_version", 99).Error; err != nil {
+		t.Fatal(err)
+	}
+	credentials[1].SecretVersion = 99
 
 	entries, err := loader.BuildGroupCredentialEntries(t.Context(), db, group.ID)
 	if err != nil {
@@ -227,6 +237,45 @@ func TestBuildGroupCredentialEntriesChangesIdentityWhenExecutionTargetChanges(t 
 	}
 	if len(entries) != 1 || entries[0].Blacklisted || entries[0].FailureCount != 0 {
 		t.Fatalf("target change retained old health state: %#v", entries)
+	}
+}
+
+func TestSubscriptionTokenRefreshKeepsIdentityGeneration(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	group := models.Group{
+		Name: "subscription-refresh", ChannelID: string(channel.OpenAI),
+		ConnectionType: models.ConnectionTypeSubscription,
+		Params:         models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true,
+	}
+	mustCreate(t, db, &group)
+	credential := models.Credential{
+		GroupID: group.ID, Data: "old-cipher", Fingerprint: "old-secret-fingerprint",
+		IdentityFingerprint: "stable-account-fingerprint", SecretVersion: 7,
+		Status: models.CredentialStatusActive,
+	}
+	mustCreate(t, db, &credential)
+
+	before, err := loader.BuildGroupCredentialEntries(t.Context(), db, group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.Credential{}).Where("id = ?", credential.ID).Updates(map[string]any{
+		"data": "new-cipher", "fingerprint": "new-secret-fingerprint", "secret_version": 8,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	after, err := loader.BuildGroupCredentialEntries(t.Context(), db, group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before[0].IdentityGeneration != after[0].IdentityGeneration {
+		t.Fatalf("identity changed across token refresh: before=%d after=%d",
+			before[0].IdentityGeneration, after[0].IdentityGeneration)
+	}
+	if before[0].Version != 7 || after[0].Version != 8 {
+		t.Fatalf("secret versions = %d -> %d, want 7 -> 8", before[0].Version, after[0].Version)
 	}
 }
 

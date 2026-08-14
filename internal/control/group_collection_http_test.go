@@ -491,10 +491,10 @@ func decodeGroupOptionsSuccess(
 		t.Fatalf("decode raw options data: %v", err)
 	}
 	for _, rawOption := range rawOptions {
-		if len(rawOption) != 6 {
-			t.Fatalf("option fields = %#v, want exactly id/name/channel_id/params/enabled/models", rawOption)
+		if len(rawOption) != 7 {
+			t.Fatalf("option fields = %#v, want exactly id/name/channel_id/connection_type/params/enabled/models", rawOption)
 		}
-		for _, field := range []string{"id", "name", "channel_id", "params", "enabled", "models"} {
+		for _, field := range []string{"id", "name", "channel_id", "connection_type", "params", "enabled", "models"} {
 			if _, ok := rawOption[field]; !ok {
 				t.Fatalf("option fields = %#v, missing %q", rawOption, field)
 			}

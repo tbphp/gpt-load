@@ -39,12 +39,13 @@ type idempotentMutationResult struct {
 }
 
 type idempotentOperationInput struct {
-	IdempotencyKey  string
-	DigestVersion   uint
-	RequestDigest   [32]byte
-	Kind            operationKind
-	PrepareMutation func()
-	Mutate          func(operationTransaction) (idempotentMutationResult, error)
+	IdempotencyKey       string
+	DigestVersion        uint
+	RequestDigest        [32]byte
+	Kind                 operationKind
+	CredentialMutationID uint
+	PrepareMutation      func()
+	Mutate               func(operationTransaction) (idempotentMutationResult, error)
 }
 
 type idempotentOperationResult struct {
@@ -191,49 +192,56 @@ func (s *Service) executeIdempotentOperation(
 
 	var mutationResult idempotentMutationResult
 	var operation models.ControlOperation
-	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-		var mutationErr error
-		mutationResult, mutationErr = input.Mutate(tx)
-		if mutationErr != nil {
-			return mutationErr
-		}
-		if mutationResult.ResourceIdentity == "" || len(mutationResult.CanonicalResult) == 0 {
-			return fmt.Errorf(
-				"idempotent mutation result is incomplete: %w",
-				app_errors.ErrInternalServer,
+	mutate := func() {
+		err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+			var mutationErr error
+			mutationResult, mutationErr = input.Mutate(tx)
+			if mutationErr != nil {
+				return mutationErr
+			}
+			if mutationResult.ResourceIdentity == "" || len(mutationResult.CanonicalResult) == 0 {
+				return fmt.Errorf(
+					"idempotent mutation result is incomplete: %w",
+					app_errors.ErrInternalServer,
+				)
+			}
+			canonicalResult, canonicalErr := canonicaljson.Canonicalize(
+				mutationResult.CanonicalResult,
 			)
-		}
-		canonicalResult, canonicalErr := canonicaljson.Canonicalize(
-			mutationResult.CanonicalResult,
-		)
-		if canonicalErr != nil || !bytes.Equal(canonicalResult, mutationResult.CanonicalResult) {
-			return fmt.Errorf(
-				"idempotent mutation result is not canonical: %w",
-				app_errors.ErrInternalServer,
-			)
-		}
-		nowMS, timeErr := epochms.FromTime(s.now())
-		if timeErr != nil {
-			return app_errors.ErrInternalServer
-		}
-		operation = models.ControlOperation{
-			OperationID:        operationID,
-			IdempotencyKey:     input.IdempotencyKey,
-			DigestVersion:      input.DigestVersion,
-			RequestDigest:      append([]byte(nil), input.RequestDigest[:]...),
-			OperationKind:      string(input.Kind),
-			ResourceIdentity:   mutationResult.ResourceIdentity,
-			CanonicalResult:    append([]byte(nil), mutationResult.CanonicalResult...),
-			RequiredStages:     models.JSON(encodedStages),
-			LastCompletedStage: string(operationStageDBCommitted),
-			CreatedAtMS:        nowMS,
-			UpdatedAtMS:        nowMS,
-		}
-		if err := tx.Create(&operation).Error; err != nil {
-			return app_errors.ParseDBError(err)
-		}
-		return nil
-	})
+			if canonicalErr != nil || !bytes.Equal(canonicalResult, mutationResult.CanonicalResult) {
+				return fmt.Errorf(
+					"idempotent mutation result is not canonical: %w",
+					app_errors.ErrInternalServer,
+				)
+			}
+			nowMS, timeErr := epochms.FromTime(s.now())
+			if timeErr != nil {
+				return app_errors.ErrInternalServer
+			}
+			operation = models.ControlOperation{
+				OperationID:        operationID,
+				IdempotencyKey:     input.IdempotencyKey,
+				DigestVersion:      input.DigestVersion,
+				RequestDigest:      append([]byte(nil), input.RequestDigest[:]...),
+				OperationKind:      string(input.Kind),
+				ResourceIdentity:   mutationResult.ResourceIdentity,
+				CanonicalResult:    append([]byte(nil), mutationResult.CanonicalResult...),
+				RequiredStages:     models.JSON(encodedStages),
+				LastCompletedStage: string(operationStageDBCommitted),
+				CreatedAtMS:        nowMS,
+				UpdatedAtMS:        nowMS,
+			}
+			if err := tx.Create(&operation).Error; err != nil {
+				return app_errors.ParseDBError(err)
+			}
+			return nil
+		})
+	}
+	if input.CredentialMutationID != 0 && s.mutations != nil {
+		s.mutations.Do(input.CredentialMutationID, mutate)
+	} else {
+		mutate()
+	}
 	if err != nil {
 		return idempotentOperationResult{}, err
 	}
@@ -389,15 +397,27 @@ func (s *Service) recoverRegistryOperation(
 	if err != nil {
 		return err
 	}
-	entries, err := stateloader.BuildGroupCredentialEntries(ctx, s.db, groupID)
-	if err != nil {
+	var credentialIDs []uint
+	if err := s.db.WithContext(ctx).Model(&models.Credential{}).
+		Where("group_id = ?", groupID).Order("id ASC").Pluck("id", &credentialIDs).Error; err != nil {
+		return app_errors.ParseDBError(err)
+	}
+	var reconcileErr error
+	reconcile := func() {
+		entries, buildErr := stateloader.BuildGroupCredentialEntries(ctx, s.db, groupID)
+		if buildErr != nil {
+			reconcileErr = buildErr
+			return
+		}
+		if s.registry.MatchesGroup(groupID, entries) {
+			return
+		}
+		_, reconcileErr = s.reconcileRegistryGroup(groupID, entries)
+	}
+	if err := s.doCredentialMutations(credentialIDs, reconcile); err != nil {
 		return err
 	}
-	if s.registry.MatchesGroup(groupID, entries) {
-		return nil
-	}
-	_, err = s.reconcileRegistryGroup(groupID, entries)
-	return err
+	return reconcileErr
 }
 
 func (s *Service) advanceOperationStageLocked(

@@ -46,13 +46,15 @@ type homeResponse struct {
 }
 
 type homeCredentialRow struct {
-	ID          uint
-	GroupID     uint
-	ChannelID   string
-	Params      models.JSON
-	Fingerprint string
-	Status      models.CredentialStatus
-	UpdatedAtMS int64
+	ID                  uint
+	GroupID             uint
+	ChannelID           string
+	ConnectionType      models.ConnectionType
+	Params              models.JSON
+	Fingerprint         string
+	IdentityFingerprint string
+	SecretVersion       uint64
+	Status              models.CredentialStatus
 }
 
 type homeAccessKeyRow struct {
@@ -239,8 +241,8 @@ func (s *Service) readHomeRows(
 		}
 		if err := tx.Model(&models.Credential{}).
 			Select(
-				"credentials.id", "credentials.group_id", "groups.channel_id", "groups.params",
-				"credentials.fingerprint", "credentials.status", "credentials.updated_at_ms",
+				"credentials.id", "credentials.group_id", "groups.channel_id", "groups.connection_type", "groups.params",
+				"credentials.fingerprint", "credentials.identity_fingerprint", "credentials.secret_version", "credentials.status",
 			).
 			Joins("JOIN groups ON groups.id = credentials.group_id").
 			Order("credentials.id ASC").
@@ -442,11 +444,12 @@ func countAvailableHomeCredentialsInGroups(
 			)
 		}
 		if credential.Status != status ||
-			credential.Version != groupCollectionCredentialVersion(row.UpdatedAtMS) ||
+			credential.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
 			credential.IdentityGeneration != groupCollectionCredentialIdentity(
-				row.Fingerprint,
+				row.IdentityFingerprint,
 				models.Group{
-					ID: row.GroupID, ChannelID: row.ChannelID, Params: row.Params,
+					ID: row.GroupID, ChannelID: row.ChannelID,
+					ConnectionType: row.ConnectionType, Params: row.Params,
 				},
 			) {
 			return 0, fmt.Errorf(

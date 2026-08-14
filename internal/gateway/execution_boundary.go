@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
@@ -23,6 +25,7 @@ type normalizedCredential struct {
 func normalizeChannelCredential(
 	registry *channel.Registry,
 	channelID channel.ID,
+	connectionType string,
 	decrypted string,
 ) (normalizedCredential, error) {
 	if registry == nil || channelID == "" {
@@ -33,6 +36,20 @@ func normalizeChannelCredential(
 		return normalizedCredential{}, fmt.Errorf("credential is empty")
 	}
 	raw := []byte(trimmed)
+	if connectionType == "subscription" {
+		credential, err := cpaembedded.ParseCodexCredentialJSON(raw)
+		if err != nil {
+			return normalizedCredential{}, fmt.Errorf("validate subscription credential: %w", err)
+		}
+		payload, err := json.Marshal(credential)
+		if err != nil {
+			return normalizedCredential{}, fmt.Errorf("encode subscription credential: %w", err)
+		}
+		return normalizedCredential{
+			payload: payload,
+			secrets: []string{credential.AccessToken, credential.RefreshToken, credential.IDToken},
+		}, nil
+	}
 	validated, err := registry.ValidateCredential(channelID, raw)
 	if err != nil {
 		return normalizedCredential{}, fmt.Errorf("validate credential: %w", err)

@@ -72,26 +72,26 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
 		{
 			ID: 1, GroupID: enabled.ID, Status: state.CredentialStatusActive,
-			Version:            groupCollectionCredentialVersion(credentials[0].UpdatedAtMS),
-			IdentityGeneration: groupCollectionCredentialIdentity(credentials[0].Fingerprint, *enabled), Fingerprint: credentials[0].Fingerprint,
+			Version:            groupCollectionCredentialVersion(credentials[0].SecretVersion),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[0].IdentityFingerprint, *enabled), Fingerprint: credentials[0].Fingerprint,
 			EncryptedValue: "cipher-1",
 		},
 		{
 			ID: 2, GroupID: enabled.ID, Status: state.CredentialStatusActive,
-			Version:            groupCollectionCredentialVersion(credentials[1].UpdatedAtMS),
-			IdentityGeneration: groupCollectionCredentialIdentity(credentials[1].Fingerprint, *enabled), Fingerprint: credentials[1].Fingerprint,
+			Version:            groupCollectionCredentialVersion(credentials[1].SecretVersion),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[1].IdentityFingerprint, *enabled), Fingerprint: credentials[1].Fingerprint,
 			CooldownUntil: now.Add(time.Hour), EncryptedValue: "cipher-2",
 		},
 		{
 			ID: 3, GroupID: enabledTwo.ID, Status: state.CredentialStatusDisabled,
-			Version:            groupCollectionCredentialVersion(credentials[2].UpdatedAtMS),
-			IdentityGeneration: groupCollectionCredentialIdentity(credentials[2].Fingerprint, *enabledTwo), Fingerprint: credentials[2].Fingerprint,
+			Version:            groupCollectionCredentialVersion(credentials[2].SecretVersion),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[2].IdentityFingerprint, *enabledTwo), Fingerprint: credentials[2].Fingerprint,
 			EncryptedValue: "cipher-3",
 		},
 		{
 			ID: 4, GroupID: disabled.ID, Status: state.CredentialStatusActive,
-			Version:            groupCollectionCredentialVersion(credentials[3].UpdatedAtMS),
-			IdentityGeneration: groupCollectionCredentialIdentity(credentials[3].Fingerprint, *disabled), Fingerprint: credentials[3].Fingerprint,
+			Version:            groupCollectionCredentialVersion(credentials[3].SecretVersion),
+			IdentityGeneration: groupCollectionCredentialIdentity(credentials[3].IdentityFingerprint, *disabled), Fingerprint: credentials[3].Fingerprint,
 			EncryptedValue: "cipher-4",
 		},
 	}); err != nil {

@@ -209,6 +209,7 @@ type AttemptSpec struct {
 	AttemptID        string            `json:"attempt_id"`
 	Sequence         uint32            `json:"sequence"`
 	ChannelID        string            `json:"channel_id"`
+	ConnectionType   string            `json:"connection_type"`
 	TargetKind       string            `json:"target_kind"`
 	RouteMode        RouteMode         `json:"route_mode"`
 	ClientProtocol   protocol.Protocol `json:"client_protocol"`
@@ -227,6 +228,9 @@ type AttemptSpec struct {
 	// IncludeUsage asks the executor to request provider usage details when the
 	// selected operation supports an explicit wire option.
 	IncludeUsage bool `json:"include_usage,omitempty"`
+	// ForceCredentialRefresh is set only by GPT-Load after a provider explicitly
+	// rejects this selected subscription credential before processing.
+	ForceCredentialRefresh bool `json:"force_credential_refresh,omitempty"`
 	// TargetConfig is non-secret configuration resolved by the channel registry.
 	TargetConfig json.RawMessage    `json:"target_config,omitempty"`
 	Timeouts     AttemptTimeouts    `json:"timeouts"`
@@ -235,6 +239,9 @@ type AttemptSpec struct {
 
 // NewAttemptSpec takes ownership of an independent clone of spec.
 func NewAttemptSpec(spec AttemptSpec) AttemptSpec {
+	if spec.ConnectionType == "" {
+		spec.ConnectionType = "api_key"
+	}
 	spec.RouteRequirement = spec.RouteRequirement.Normalize()
 	return spec.Clone()
 }
@@ -308,16 +315,19 @@ func (k ErrorKind) Valid() bool {
 type FailureHint string
 
 const (
-	FailureHintInvalidCredential FailureHint = "invalid_credential"
-	FailureHintRateLimited       FailureHint = "rate_limited"
-	FailureHintModelUnavailable  FailureHint = "model_unavailable"
-	FailureHintHostError         FailureHint = "host_error"
+	FailureHintInvalidCredential       FailureHint = "invalid_credential"
+	FailureHintRefreshRequired         FailureHint = "refresh_required"
+	FailureHintReauthorizationRequired FailureHint = "reauthorization_required"
+	FailureHintRateLimited             FailureHint = "rate_limited"
+	FailureHintModelUnavailable        FailureHint = "model_unavailable"
+	FailureHintHostError               FailureHint = "host_error"
 )
 
 // Valid reports whether the optional hint is recognized.
 func (h FailureHint) Valid() bool {
 	switch h {
-	case "", FailureHintInvalidCredential, FailureHintRateLimited,
+	case "", FailureHintInvalidCredential, FailureHintRefreshRequired,
+		FailureHintReauthorizationRequired, FailureHintRateLimited,
 		FailureHintModelUnavailable, FailureHintHostError:
 		return true
 	default:
@@ -325,19 +335,33 @@ func (h FailureHint) Valid() bool {
 	}
 }
 
+// ReplaySafety records whether a provider has explicitly confirmed that the
+// failed model request was rejected before processing.
+type ReplaySafety string
+
+const (
+	ReplaySafetyUnknown                  ReplaySafety = "unknown"
+	ReplaySafetyRejectedBeforeProcessing ReplaySafety = "rejected_before_processing"
+)
+
+func (s ReplaySafety) Valid() bool {
+	return s == "" || s == ReplaySafetyUnknown || s == ReplaySafetyRejectedBeforeProcessing
+}
+
 // ErrorEvidence contains provider-neutral evidence for an unsuccessful attempt.
 // Summary may retain a bounded, sanitized upstream error message; raw error
 // bodies are never retained.
 type ErrorEvidence struct {
-	Kind       ErrorKind     `json:"kind"`
-	Hint       FailureHint   `json:"hint,omitempty"`
-	StatusCode int           `json:"status_code,omitempty"`
-	Type       string        `json:"type,omitempty"`
-	Code       string        `json:"code,omitempty"`
-	Summary    string        `json:"summary,omitempty"`
-	RequestID  string        `json:"request_id,omitempty"`
-	RetryAfter time.Duration `json:"retry_after,omitempty"`
-	Header     http.Header   `json:"-"`
+	Kind         ErrorKind     `json:"kind"`
+	Hint         FailureHint   `json:"hint,omitempty"`
+	StatusCode   int           `json:"status_code,omitempty"`
+	Type         string        `json:"type,omitempty"`
+	Code         string        `json:"code,omitempty"`
+	Summary      string        `json:"summary,omitempty"`
+	RequestID    string        `json:"request_id,omitempty"`
+	RetryAfter   time.Duration `json:"retry_after,omitempty"`
+	ReplaySafety ReplaySafety  `json:"replay_safety,omitempty"`
+	Header       http.Header   `json:"-"`
 }
 
 // Clone returns an independent error evidence value.

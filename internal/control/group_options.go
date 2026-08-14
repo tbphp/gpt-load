@@ -14,21 +14,23 @@ import (
 )
 
 type GroupOption struct {
-	ID        uint            `json:"id"`
-	Name      string          `json:"name"`
-	ChannelID channel.ID      `json:"channel_id"`
-	Params    json.RawMessage `json:"params"`
-	Enabled   bool            `json:"enabled"`
-	Models    []string        `json:"models"`
+	ID             uint                  `json:"id"`
+	Name           string                `json:"name"`
+	ChannelID      channel.ID            `json:"channel_id"`
+	ConnectionType models.ConnectionType `json:"connection_type"`
+	Params         json.RawMessage       `json:"params"`
+	Enabled        bool                  `json:"enabled"`
+	Models         []string              `json:"models"`
 }
 
 type groupOptionRow struct {
-	ID        uint
-	Name      string
-	ChannelID string
-	Params    models.JSON
-	Enabled   bool
-	Models    models.JSON
+	ID             uint
+	Name           string
+	ChannelID      string
+	ConnectionType models.ConnectionType
+	Params         models.JSON
+	Enabled        bool
+	Models         models.JSON
 }
 
 func (s *Service) ListGroupOptions(ctx context.Context) ([]GroupOption, error) {
@@ -65,7 +67,7 @@ func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, er
 	var rows []groupOptionRow
 	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
 		return tx.Model(&models.Group{}).
-			Select("id", "name", "channel_id", "params", "enabled", "models").
+			Select("id", "name", "channel_id", "connection_type", "params", "enabled", "models").
 			Order("id ASC").
 			Find(&rows).Error
 	})
@@ -111,7 +113,8 @@ func mapGroupOptions(rows []groupOptionRow, registries ...*channel.Registry) ([]
 		}
 		option := GroupOption{
 			ID: row.ID, Name: row.Name, ChannelID: channelID,
-			Params: append(json.RawMessage(nil), params...), Enabled: row.Enabled,
+			ConnectionType: normalizeGroupConnectionType(row.ConnectionType),
+			Params:         append(json.RawMessage(nil), params...), Enabled: row.Enabled,
 			Models: make([]string, 0, len(models)),
 		}
 		for _, model := range models {

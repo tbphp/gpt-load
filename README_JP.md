@@ -49,6 +49,7 @@ GPT-Loadは、Goで構築されたセルフホスト型のマルチチャネルA
 - **4つのクライアントプロトコル**：OpenAI Completions、OpenAI Responses、Anthropic Messages、Geminiの公開エンドポイントを維持します。各チャネルはネイティブまたは変換可能なoperationを明示し、未対応の機能組み合わせは送信前に拒否します。
 - **チャネルとトラフィックの管理**：ユーザーは検索可能なコード定義チャネルを選び、モデルと暗号化認証情報を入力します。GPT-LoadがAccessKeyフィルター、Groupをまたぐ認証情報スケジューリング、リトライ判断、ヘルス、cooldown、blacklist、自動重み付けを所有します。
 - **Provider実行**：公式Bifrost Core Go SDKがProvider固有の認証、request/response変換、streaming、usage正規化、エラー解析を担当します。GPT-Loadは論理attemptごとに1つの認証情報を固定し、Bifrostの設定可能なretryとfallbackを無効にします。
+- **Codexサブスクリプション**：OpenAI GroupではAPI Key、またはブラウザーOAuth/CPA JSONによるCodexアカウントを選択できます。サブスクリプションも既存のスケジューリング、retry、health、weight、affinityを共有し、認証情報は暗号化され、アカウント使用状況は明示的な同期時だけ上流へ問い合わせます。
 - **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
 - **使用量と推定コスト**：4プロトコルのうち生成usageを返すエンドポイントからusageを取得し、24時間/30日レポート、リクエスト単位の品質状態、利用可能な場合にModels.devから同期する完全一致の4価格スロット、ユーザー管理価格を提供します。
 
@@ -90,7 +91,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 デフォルトのnamed volumeにはSQLite、`auth.key`、`encryption.key`が保持されます。本番環境では、保護されたsecret処理を通じて明示的な`AUTH_KEY`と`ENCRYPTION_KEY`を注入してください。実際のsecretを`.env`、ログ、issueへコミットしないでください。MySQLまたはPostgreSQLの`DATABASE_DSN`はoperator管理の設定として、デプロイのsecret/configuration systemから渡してください。
 
-Composeはコンテナ内でのみ全インターフェースをlistenし、ホスト側はデフォルトでloopbackにだけ公開します。`BIND_ADDRESS=0.0.0.0`、またはネイティブプロセスの`HOST=0.0.0.0`は明示的なopt-inです。本番では、TLS reverse proxyとACL/firewallを備えた管理下のネットワーク境界の内側でのみ公開してください。
+Composeはコンテナ内でのみ全インターフェースをlistenし、ホスト側はデフォルトでloopbackにだけ公開します。Codex OAuthクライアント固定のcallback portも`127.0.0.1:1455`に公開します。同一ホストで同時にブラウザー認証できるコンテナは1つだけです。`BIND_ADDRESS=0.0.0.0`、`OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`、またはネイティブプロセスの`HOST=0.0.0.0`は明示的なopt-inです。本番では、TLS reverse proxyとACL/firewallを備えた管理下のネットワーク境界の内側でのみ公開してください。
 
 ### ネイティブバイナリ
 
@@ -207,6 +208,7 @@ Usage/Costの品質境界：
 |---|---|---|
 | `HOST` | `127.0.0.1` | ネイティブHTTPリッスンアドレス。`0.0.0.0`は明示的なopt-inで、リリースコンテナは内部だけ`0.0.0.0`に上書き |
 | `BIND_ADDRESS` | `127.0.0.1` | Composeのホスト側公開アドレス。プロセス設定ではない |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Codex OAuth固定callback port `1455`のComposeホスト側公開アドレス |
 | `PORT` | `3001` | HTTPリッスンポート |
 | `DATA_DIR` | `./data` | ネイティブの永続ディレクトリ。コンテナ内では`/app/data`に上書き |
 | `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空ならmanaged SQLiteを選択。非空値は統一された`sqlite`、`mysql`、`postgres` URLで指定し、operatorが管理 |

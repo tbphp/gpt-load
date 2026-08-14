@@ -13,6 +13,9 @@ import type {
   CredentialCollectionFilters,
   CredentialConfiguredStatus,
   CredentialItemDto,
+  CredentialObservationDto,
+  CredentialObservationSnapshotDto,
+  CredentialQuotaWindowDto,
   CredentialRecoveryDto,
   CredentialRevealDto,
   CredentialStatus,
@@ -27,6 +30,7 @@ import {
   projectBoolean,
   projectEnum,
   projectEpochMilliseconds,
+  projectFiniteNumber,
   projectNullableEpochMilliseconds,
   projectRecord,
   projectSafeInteger,
@@ -72,7 +76,12 @@ const credentialSummaryFields = [
 ] as const
 const credentialItemFields = [
   'credential_id',
+  'connection_type',
+  'secret_version',
   'mask',
+  'account',
+  'auth_state',
+  'observation',
   'configured_status',
   'effective_status',
   'weight_mode',
@@ -102,16 +111,170 @@ const failureCategories = [
   'downstream_cancel',
   'ambiguous',
 ] as const
+const connectionTypes = ['api_key', 'subscription'] as const
+const authStates = ['ready', 'refreshing', 'reauthorization_required', 'outcome_unknown'] as const
+const observationStates = ['fresh', 'stale', 'refreshing', 'error', 'unavailable'] as const
+const quotaStates = ['available', 'exhausted', 'unknown'] as const
 const canonicalMask = /^(?:\*{4}|.{4}\*{4}.{4})$/u
+const subscriptionMask = /^(?:[^\s@]{1,64}@[^\s@]{1,255}|Subscription #[1-9]\d*)$/u
+const accountFields = ['email_mask'] as const
+const observationFields = [
+  'state',
+  'snapshot',
+  'observation_version',
+  'observed_at_ms',
+  'fresh_until_ms',
+  'last_attempt_at_ms',
+  'next_allowed_at_ms',
+  'last_error_code',
+] as const
+const observationSnapshotFields = [
+  'plan_summary',
+  'quota_windows',
+  'reset_credits_available',
+] as const
+const planFields = ['name'] as const
+const quotaWindowFields = [
+  'id',
+  'label',
+  'scope',
+  'unit',
+  'used',
+  'limit',
+  'remaining',
+  'utilization',
+  'reset_at_ms',
+  'window_seconds',
+  'model_ids',
+  'state',
+  'is_primary',
+] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
 }
 
-function projectMask(value: unknown): string {
+function projectMask(value: unknown, connectionType: 'api_key' | 'subscription'): string {
   const mask = projectString(value)
-  if (!canonicalMask.test(mask)) invalidResponse()
+  if (
+    (connectionType === 'api_key' && !canonicalMask.test(mask)) ||
+    (connectionType === 'subscription' && !subscriptionMask.test(mask))
+  ) {
+    invalidResponse()
+  }
   return mask
+}
+
+function projectAccount(value: unknown): CredentialItemDto['account'] {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, accountFields)
+  if (record.email_mask === undefined) return {}
+  const emailMask = projectString(record.email_mask)
+  if (!subscriptionMask.test(emailMask) || emailMask.startsWith('Subscription #')) invalidResponse()
+  return { email_mask: emailMask }
+}
+
+function projectOptionalNumber(
+  record: Record<string, unknown>,
+  key: string,
+  bounds: { minimum?: number; maximum?: number } = {},
+): number | undefined {
+  return record[key] === undefined ? undefined : projectFiniteNumber(record[key], bounds)
+}
+
+function projectQuotaWindow(value: unknown): CredentialQuotaWindowDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, quotaWindowFields)
+  const id = projectString(record.id)
+  const label = projectString(record.label)
+  const scope = projectString(record.scope)
+  const unit = projectString(record.unit)
+  if (
+    id !== id.trim() ||
+    label.trim().length === 0 ||
+    scope.trim().length === 0 ||
+    unit.trim().length === 0
+  ) {
+    invalidResponse()
+  }
+  const modelIDs =
+    record.model_ids === undefined
+      ? undefined
+      : projectArray(record.model_ids, (modelID) => projectString(modelID))
+  if (modelIDs && new Set(modelIDs).size !== modelIDs.length) invalidResponse()
+  const used = projectOptionalNumber(record, 'used', { minimum: 0 })
+  const limit = projectOptionalNumber(record, 'limit', { minimum: 0 })
+  const remaining = projectOptionalNumber(record, 'remaining', { minimum: 0 })
+  const utilization = projectOptionalNumber(record, 'utilization', { minimum: 0, maximum: 1 })
+  return {
+    id,
+    label,
+    scope,
+    unit,
+    ...(used === undefined ? {} : { used }),
+    ...(limit === undefined ? {} : { limit }),
+    ...(remaining === undefined ? {} : { remaining }),
+    ...(utilization === undefined ? {} : { utilization }),
+    ...(record.reset_at_ms === undefined
+      ? {}
+      : { reset_at_ms: projectEpochMilliseconds(record.reset_at_ms) }),
+    ...(record.window_seconds === undefined
+      ? {}
+      : {
+          window_seconds: projectSafeInteger(record.window_seconds, {
+            minimum: 1,
+          }),
+        }),
+    ...(modelIDs === undefined ? {} : { model_ids: modelIDs }),
+    state: projectEnum(record.state, quotaStates),
+    ...(record.is_primary === undefined ? {} : { is_primary: projectBoolean(record.is_primary) }),
+  }
+}
+
+function projectObservationSnapshot(value: unknown): CredentialObservationSnapshotDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, observationSnapshotFields)
+  const planRecord = projectRecord(record.plan_summary)
+  assertNoSecretLikeFields(planRecord, planFields)
+  const planName =
+    planRecord.name === undefined
+      ? undefined
+      : projectString(planRecord.name, { allowEmpty: false })
+  const quotaWindows = projectArray(record.quota_windows, projectQuotaWindow)
+  if (
+    new Set(quotaWindows.map(({ id }) => id)).size !== quotaWindows.length ||
+    quotaWindows.filter(({ is_primary }) => is_primary).length > 1
+  ) {
+    invalidResponse()
+  }
+  return {
+    plan_summary: planName === undefined ? {} : { name: planName },
+    quota_windows: quotaWindows,
+    ...(record.reset_credits_available === undefined
+      ? {}
+      : {
+          reset_credits_available: projectSafeInteger(record.reset_credits_available, {
+            minimum: 0,
+          }),
+        }),
+  }
+}
+
+function projectObservation(value: unknown): CredentialObservationDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, observationFields)
+  return {
+    state: projectEnum(record.state, observationStates),
+    snapshot: record.snapshot === null ? null : projectObservationSnapshot(record.snapshot),
+    observation_version: projectSafeInteger(record.observation_version, { minimum: 0 }),
+    observed_at_ms: projectNullableEpochMilliseconds(record.observed_at_ms),
+    fresh_until_ms: projectNullableEpochMilliseconds(record.fresh_until_ms),
+    last_attempt_at_ms: projectNullableEpochMilliseconds(record.last_attempt_at_ms),
+    next_allowed_at_ms: projectNullableEpochMilliseconds(record.next_allowed_at_ms),
+    ...(record.last_error_code === undefined
+      ? {}
+      : { last_error_code: projectString(record.last_error_code) }),
+  }
 }
 
 export function projectCredentialSummary(value: unknown): CredentialSummaryDto {
@@ -152,6 +315,7 @@ function projectRecovery(value: unknown): CredentialRecoveryDto {
 export function projectCredentialItem(value: unknown): CredentialItemDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, credentialItemFields)
+  const connectionType = projectEnum(record.connection_type, connectionTypes)
   const configuredStatus = projectEnum(record.configured_status, configuredStatuses)
   const effectiveStatus = projectEnum(record.effective_status, effectiveStatuses)
   const weightMode = projectEnum(record.weight_mode, weightModes)
@@ -170,7 +334,14 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
   }
   return {
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
-    mask: projectMask(record.mask),
+    connection_type: connectionType,
+    secret_version: projectSafeInteger(record.secret_version, { minimum: 1 }),
+    mask: projectMask(record.mask, connectionType),
+    account: projectAccount(record.account),
+    auth_state: projectEnum(record.auth_state, authStates),
+    ...(record.observation === undefined
+      ? {}
+      : { observation: projectObservation(record.observation) }),
     configured_status: configuredStatus,
     effective_status: effectiveStatus,
     weight_mode: weightMode,
@@ -363,6 +534,21 @@ export async function restoreCredential(
 ): Promise<CredentialItemDto> {
   return projectCredentialItem(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/restore`, {
+      method: 'POST',
+      json: {},
+      signal,
+    }),
+  )
+}
+
+export async function refreshCredentialObservation(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  signal?: AbortSignal,
+): Promise<CredentialObservationDto> {
+  return projectObservation(
+    await client.request(`/api/groups/${groupId}/credentials/${credentialId}/observation-refresh`, {
       method: 'POST',
       json: {},
       signal,

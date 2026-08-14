@@ -51,6 +51,19 @@ var (
 	ErrModelPriceUnpricedConfirmationRequired = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED", Message: "Marking a model price as unpriced requires explicit confirmation"}
 	ErrModelPriceReferenced                   = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_REFERENCED", Message: "Model price is referenced by Groups"}
 	ErrModelPriceAutomaticDeleteForbidden     = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_AUTOMATIC_DELETE_FORBIDDEN", Message: "Automatic model prices cannot be deleted manually"}
+	ErrOAuthFileInvalid                       = &APIError{HTTPStatus: http.StatusBadRequest, Code: "OAUTH_FILE_INVALID", Message: "OAuth credential file is invalid"}
+	ErrOAuthFileTooLarge                      = &APIError{HTTPStatus: http.StatusRequestEntityTooLarge, Code: "OAUTH_FILE_TOO_LARGE", Message: "OAuth credential file is too large"}
+	ErrAuthorizationUnavailable               = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "AUTHORIZATION_UNAVAILABLE", Message: "Browser authorization is unavailable"}
+	ErrAuthorizationStateInvalid              = &APIError{HTTPStatus: http.StatusBadRequest, Code: "AUTHORIZATION_STATE_INVALID", Message: "Authorization state is invalid"}
+	ErrAuthorizationExchangeFailed            = &APIError{HTTPStatus: http.StatusBadGateway, Code: "AUTHORIZATION_EXCHANGE_FAILED", Message: "Authorization exchange failed"}
+	ErrStagedCredentialNotReady               = &APIError{HTTPStatus: http.StatusConflict, Code: "STAGED_CREDENTIAL_NOT_READY", Message: "Staged credential is not ready"}
+	ErrStagedCredentialExpired                = &APIError{HTTPStatus: http.StatusGone, Code: "STAGED_CREDENTIAL_EXPIRED", Message: "Staged credential expired"}
+	ErrStagedCredentialConsumed               = &APIError{HTTPStatus: http.StatusConflict, Code: "STAGED_CREDENTIAL_CONSUMED", Message: "Staged credential was already consumed"}
+	ErrStagedCredentialMismatch               = &APIError{HTTPStatus: http.StatusConflict, Code: "STAGED_CREDENTIAL_MISMATCH", Message: "Staged credential does not match the target"}
+	ErrDuplicateCredentialIdentity            = &APIError{HTTPStatus: http.StatusConflict, Code: "DUPLICATE_CREDENTIAL_IDENTITY", Message: "Subscription account already exists in the group"}
+	ErrCredentialReauthorizationRequired      = &APIError{HTTPStatus: http.StatusConflict, Code: "CREDENTIAL_REAUTHORIZATION_REQUIRED", Message: "Credential requires reauthorization"}
+	ErrCredentialAuthOutcomeUnknown           = &APIError{HTTPStatus: http.StatusConflict, Code: "CREDENTIAL_AUTH_OUTCOME_UNKNOWN", Message: "Credential authorization outcome is unknown"}
+	ErrObservationRefreshThrottled            = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "OBSERVATION_REFRESH_THROTTLED", Message: "Credential information refresh is throttled"}
 )
 
 // NewAPIErrorWithData creates a copy of an APIError with response data.

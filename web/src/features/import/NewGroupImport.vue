@@ -11,6 +11,7 @@ import { useToast } from '@/app/toast'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { constrainCollectionSearch } from '@/app/route-query'
 import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
+import { connectGroupCredentials } from '@/app/resources/credential-stages'
 import {
   createGroup,
   discoverModels,
@@ -29,6 +30,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
@@ -50,6 +52,7 @@ import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import { analyzeCredentials } from './credential-analysis'
 import CredentialTextarea from './CredentialTextarea.vue'
+import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
 import type { ImportDraft, ModelDraftItem } from './model-draft'
 import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
 import ChannelPresetPicker from './ChannelPresetPicker.vue'
@@ -72,15 +75,18 @@ const toast = useToast()
 const importOperationOwner = useImportOperationOwner()
 const createOperation = importOperationOwner.createGroup
 const appendOperation = importOperationOwner.importCredentials
+const connectOperation = importOperationOwner.connectCredentials
 const routeState = computed(() => parseImportRouteQuery(route.query))
 
 function freshDraft(): ImportDraft {
   return {
     mode: 'new',
     channel_id: '',
+    connection_type: 'api_key',
     params: {},
     name: '',
     credentials: '',
+    staged_credentials: [],
     models: [],
   }
 }
@@ -89,6 +95,12 @@ function cloneDraft(source: ImportDraft): ImportDraft {
   return {
     ...source,
     params: { ...source.params },
+    staged_credentials: source.staged_credentials.map((stage) => ({
+      stage_id: stage.stage_id,
+      status: stage.status,
+      account: { ...stage.account },
+      expires_at_ms: stage.expires_at_ms,
+    })),
     models: source.models.map((model) => ({ ...model, sources: [...model.sources] })),
   }
 }
@@ -104,6 +116,7 @@ function sameTargetConflict(cause: unknown): SameTargetConflictData | null {
 const defaultDraft = freshDraft()
 const operationDraft =
   createOperation.operation.value?.payload.draft ??
+  connectOperation.operation.value?.payload.draft ??
   (appendOperation.operation.value?.payload.draft.mode === 'new'
     ? appendOperation.operation.value.payload.draft
     : null)
@@ -141,18 +154,27 @@ const serverModelConflicts = ref<ModelNameConflict[]>([])
 const completed = ref(false)
 if (createOperation.outcome.value?.kind === 'confirmed') createOperation.reset()
 if (appendOperation.outcome.value?.kind === 'confirmed') appendOperation.reset()
+if (connectOperation.outcome.value?.kind === 'confirmed') connectOperation.reset()
 const mutationPending = computed(
-  () => createOperation.pending.value || appendOperation.pending.value,
+  () =>
+    createOperation.pending.value ||
+    appendOperation.pending.value ||
+    connectOperation.pending.value,
 )
 const payloadLocked = computed(
-  () => createOperation.operation.value !== null || appendOperation.operation.value !== null,
+  () =>
+    createOperation.operation.value !== null ||
+    appendOperation.operation.value !== null ||
+    connectOperation.operation.value !== null,
 )
 const activeMutation = computed(() =>
-  appendOperation.operation.value
-    ? appendOperation
-    : createOperation.operation.value
-      ? createOperation
-      : null,
+  connectOperation.operation.value
+    ? connectOperation
+    : appendOperation.operation.value
+      ? appendOperation
+      : createOperation.operation.value
+        ? createOperation
+        : null,
 )
 const mutationOutcome = computed(() => activeMutation.value?.outcome.value ?? null)
 const operationNoticeKey = computed(() => {
@@ -179,9 +201,34 @@ let discoveryPanelRun = false
 let componentActive = true
 
 const credentialAnalysis = computed(() => analyzeCredentials(draft.credentials, draft.channel_id))
+const readyStages = computed(() =>
+  draft.staged_credentials.filter(
+    ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > Date.now(),
+  ),
+)
+const credentialCount = computed(() =>
+  draft.connection_type === 'subscription'
+    ? readyStages.value.length
+    : credentialAnalysis.value.nonEmptyCount,
+)
+const selectedConnection = computed(() =>
+  selectedChannel.value?.connection_types.find(({ id }) => id === draft.connection_type),
+)
+const connectionOptions = computed(() =>
+  (selectedChannel.value?.connection_types ?? []).map(({ id }) => ({
+    value: id,
+    label: t(`import.connectionType.${id}`),
+    disabled: payloadLocked.value,
+  })),
+)
+const connectionChannel = computed<ChannelDto | null>(() =>
+  selectedChannel.value && draft.connection_type === 'subscription'
+    ? { ...selectedChannel.value, param_fields: [] }
+    : selectedChannel.value,
+)
 const paramErrors = computed<Record<string, string>>(() => {
   const errors: Record<string, string> = {}
-  const channel = selectedChannel.value
+  const channel = connectionChannel.value
   if (!channel) return errors
   for (const field of channel.param_fields) {
     const value = draft.params[field.key]?.trim() ?? ''
@@ -237,23 +284,28 @@ const submissionErrorMessage = computed(
 const submitBlockedReason = computed(() => {
   if (payloadLocked.value || mutationPending.value) return ''
   if (paramsError.value) return paramsError.value
-  if (credentialAnalysis.value.nonEmptyCount === 0) return t('import.credentials.required')
+  if (credentialCount.value === 0)
+    return t(
+      draft.connection_type === 'subscription'
+        ? 'import.subscription.required'
+        : 'import.credentials.required',
+    )
   return ''
 })
 const canDiscover = computed(
   () =>
     !payloadLocked.value &&
     !paramsError.value &&
-    credentialAnalysis.value.nonEmptyCount > 0 &&
-    !credentialAnalysis.value.tooManyCredentials,
+    credentialCount.value > 0 &&
+    (draft.connection_type === 'subscription' || !credentialAnalysis.value.tooManyCredentials),
 )
 const canCreate = computed(
   () =>
     !payloadLocked.value &&
     !mutationPending.value &&
     !paramsError.value &&
-    credentialAnalysis.value.nonEmptyCount > 0 &&
-    !credentialAnalysis.value.tooManyCredentials &&
+    credentialCount.value > 0 &&
+    (draft.connection_type === 'subscription' || !credentialAnalysis.value.tooManyCredentials) &&
     modelValidity.value.invalidIndexes.size === 0,
 )
 const currentModelIDs = computed(() => draft.models.map(({ id }) => id.trim()).filter(Boolean))
@@ -262,7 +314,7 @@ const dirty = computed(
 )
 const summary = computed(() =>
   t(draft.models.length ? 'import.summary' : 'import.summaryOptional', {
-    credentials: credentialAnalysis.value.nonEmptyCount,
+    credentials: credentialCount.value,
     models: draft.models.length,
   }),
 )
@@ -331,7 +383,9 @@ const unsavedChanges = useUnsavedChanges(dirty, {
 const unregisterRecovery = recovery.register(() => {
   if (completed.value) return null
   const stableDraft =
-    createOperation.operation.value?.payload.draft ?? appendOperation.operation.value?.payload.draft
+    createOperation.operation.value?.payload.draft ??
+    connectOperation.operation.value?.payload.draft ??
+    appendOperation.operation.value?.payload.draft
   return stableDraft?.mode === 'new' ? cloneDraft(stableDraft) : snapshotDraft()
 })
 
@@ -396,7 +450,13 @@ function retryChannels(): void {
 }
 
 watch(
-  [() => draft.channel_id, () => JSON.stringify(draft.params), () => draft.credentials],
+  [
+    () => draft.channel_id,
+    () => draft.connection_type,
+    () => JSON.stringify(draft.params),
+    () => draft.credentials,
+    () => readyStages.value.map(({ stage_id }) => stage_id).join(','),
+  ],
   invalidateDiscovery,
 )
 
@@ -436,9 +496,21 @@ function selectChannel(channel: ChannelDto): void {
   cancelDefaultChannel()
   selectedChannelCache.value = channel
   draft.channel_id = channel.channel_id
+  if (!channel.connection_types.some(({ id }) => id === draft.connection_type)) {
+    draft.connection_type = 'api_key'
+  }
   draft.params = initialChannelParams(channel)
   baseUrlOverrideEnabled.value = false
   setPanel(undefined)
+}
+
+function setConnectionType(value: string): void {
+  if (payloadLocked.value || (value !== 'api_key' && value !== 'subscription')) return
+  if (!selectedChannel.value?.connection_types.some(({ id }) => id === value)) return
+  draft.connection_type = value
+  draft.params = value === 'subscription' ? {} : initialChannelParams(selectedChannel.value)
+  baseUrlOverrideEnabled.value = false
+  invalidateDiscovery()
 }
 
 function setChannelParam(key: string, value: string): void {
@@ -502,10 +574,13 @@ function startDiscovery(): void {
   if (!canDiscover.value || discoveryLoading.value) return
   const request = {
     channel_id: draft.channel_id,
+    connection_type: draft.connection_type,
     params: Object.fromEntries(
       Object.entries(draft.params).map(([key, value]) => [key, value.trim()]),
     ),
-    credentials: draft.credentials,
+    ...(draft.connection_type === 'subscription'
+      ? { staged_credential_id: readyStages.value[0]?.stage_id }
+      : { credentials: draft.credentials }),
   }
   cancelDiscovery()
   const controller = new AbortController()
@@ -575,12 +650,15 @@ function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
   const name = draft.name.trim()
   return {
     channel_id: draft.channel_id,
+    connection_type: draft.connection_type,
     params: Object.fromEntries(
       Object.entries(draft.params).map(([key, value]) => [key, value.trim()]),
     ),
     ...(name ? { name } : {}),
     models: toGroupModels(draft.models),
-    credentials: draft.credentials,
+    ...(draft.connection_type === 'subscription'
+      ? { staged_credential_ids: readyStages.value.map(({ stage_id }) => stage_id) }
+      : { credentials: draft.credentials }),
     confirm_same_target: confirmSameTarget,
   }
 }
@@ -593,9 +671,13 @@ async function finishSuccess(
 ): Promise<void> {
   completed.value = true
   draft.credentials = ''
+  draft.staged_credentials = []
   recovery.clear()
   if (kind === 'create') createOperation.reset()
-  else appendOperation.reset()
+  else {
+    appendOperation.reset()
+    connectOperation.reset()
+  }
 
   await applyInvalidationPlan(
     queryClient,
@@ -703,13 +785,47 @@ async function appendToGroup(groupID: number): Promise<void> {
   const current = createOperation.operation.value
   if (!current || !conflict.value || mutationPending.value) return
   const displayedConflict = conflict.value
-  const credentials = current.payload.request.credentials
   const stableDraft = current.payload.draft
   createOperation.reset()
+  if (stableDraft.connection_type === 'subscription') {
+    const stageIDs = current.payload.request.staged_credential_ids ?? []
+    if (!importOperationOwner.beginConnectCredentials({ groupID, stageIDs }, stableDraft)) return
+    await executeConnectOperation()
+    if (conflict.value === displayedConflict) conflict.value = null
+    return
+  }
+  const credentials = current.payload.request.credentials ?? ''
   if (!importOperationOwner.beginImportCredentials({ groupID, credentials }, 'new', stableDraft))
     return
   await executeAppendOperation()
   if (conflict.value === displayedConflict) conflict.value = null
+}
+
+async function executeConnectOperation(): Promise<void> {
+  if (!connectOperation.operation.value) return
+  errorKey.value = ''
+  const outcome = await connectOperation.execute((operation, signal) =>
+    connectGroupCredentials(
+      api,
+      operation.payload.groupID,
+      operation.payload.stageIDs,
+      operation.idempotencyKey,
+      signal,
+    ),
+  )
+  if (!outcome) return
+  if (outcome.kind === 'confirmed') {
+    await finishSuccess(
+      outcome.value.group_id,
+      'append',
+      outcome.value.credentials_added,
+      outcome.value.credentials_duplicated,
+    )
+    return
+  }
+  if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
+  connectOperation.reset()
+  await reportSubmissionError('import.appendFailed')
 }
 
 async function executeAppendOperation(): Promise<void> {
@@ -754,7 +870,8 @@ async function executeAppendOperation(): Promise<void> {
 }
 
 async function retryOperation(): Promise<void> {
-  if (appendOperation.operation.value) await executeAppendOperation()
+  if (connectOperation.operation.value) await executeConnectOperation()
+  else if (appendOperation.operation.value) await executeAppendOperation()
   else if (createOperation.operation.value) await executeCreateOperation()
 }
 
@@ -763,6 +880,7 @@ async function abandonOperation(): Promise<void> {
   if (!(await unsavedChanges.confirmDiscard()) || mutationPending.value) return
   createOperation.reset()
   appendOperation.reset()
+  connectOperation.reset()
   conflict.value = null
   serverModelConflicts.value = []
   credentialValidation.value = null
@@ -773,6 +891,7 @@ function returnToEdit(): void {
   if (mutationPending.value) return
   createOperation.reset()
   appendOperation.reset()
+  connectOperation.reset()
   conflict.value = null
   credentialValidation.value = null
   errorKey.value = ''
@@ -819,8 +938,26 @@ onBeforeUnmount(() => {
       @retry="retryChannels"
     />
 
+    <section
+      v-if="connectionOptions.length > 1"
+      class="new-group-import__connection-type"
+      aria-labelledby="connection-type-heading"
+    >
+      <div>
+        <h2 id="connection-type-heading">{{ t('import.connectionType.title') }}</h2>
+        <p>{{ t('import.connectionType.description') }}</p>
+      </div>
+      <SegmentedControl
+        :model-value="draft.connection_type"
+        :label="t('import.connectionType.title')"
+        :options="connectionOptions"
+        size="sm"
+        @update:model-value="setConnectionType"
+      />
+    </section>
+
     <ImportConnectionSection
-      :channel="selectedChannel"
+      :channel="connectionChannel"
       :name="draft.name"
       :params="draft.params"
       :param-errors="paramErrors"
@@ -832,8 +969,14 @@ onBeforeUnmount(() => {
     />
 
     <CredentialTextarea
+      v-if="selectedConnection?.credential_input !== 'authorization'"
       v-model="draft.credentials"
       :channel="selectedChannel"
+      :disabled="payloadLocked"
+    />
+    <SubscriptionCredentialStager
+      v-else
+      v-model="draft.staged_credentials"
       :disabled="payloadLocked"
     />
 
@@ -978,6 +1121,32 @@ onBeforeUnmount(() => {
   margin-top: var(--space-5);
 }
 
+.new-group-import__connection-type {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 18px 0;
+}
+
+.new-group-import__connection-type h2,
+.new-group-import__connection-type p {
+  margin: 0;
+}
+
+.new-group-import__connection-type h2 {
+  font-size: var(--title-section);
+  font-weight: 650;
+}
+
+.new-group-import__connection-type p {
+  margin-top: 3px;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
 .new-group-import__models {
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
@@ -1085,6 +1254,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 860px) {
+  .new-group-import__connection-type {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .new-group-import__actions {
     align-items: stretch;
     flex-direction: column;

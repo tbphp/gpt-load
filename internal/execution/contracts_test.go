@@ -129,7 +129,7 @@ func TestCredentialSnapshotProtectsSecretDataAndJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	if strings.Contains(string(encoded), "sk-secret-value") || strings.Contains(string(encoded), "api_key") {
+	if strings.Contains(string(encoded), "sk-secret-value") || strings.Contains(string(encoded), `"api_key":`) {
 		t.Fatalf("credential JSON leaked secret data: %s", encoded)
 	}
 	if !strings.Contains(string(encoded), `"id":41`) || !strings.Contains(string(encoded), `"version":7`) || !strings.Contains(string(encoded), `"identity_generation":3`) {
@@ -186,7 +186,7 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	if strings.Contains(string(encoded), "sk-secret-value") || strings.Contains(string(encoded), "api_key") {
+	if strings.Contains(string(encoded), "sk-secret-value") || strings.Contains(string(encoded), `"api_key":`) {
 		t.Fatalf("attempt JSON leaked credential data: %s", encoded)
 	}
 }
@@ -351,6 +351,7 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		{name: "attempt id", mutate: func(s *AttemptSpec) { s.AttemptID = "" }, field: "attempt_id"},
 		{name: "sequence", mutate: func(s *AttemptSpec) { s.Sequence = 0 }, field: "sequence"},
 		{name: "channel", mutate: func(s *AttemptSpec) { s.ChannelID = "" }, field: "channel_id"},
+		{name: "connection type", mutate: func(s *AttemptSpec) { s.ConnectionType = "driver" }, field: "connection_type"},
 		{name: "target kind", mutate: func(s *AttemptSpec) { s.TargetKind = "" }, field: "target_kind"},
 		{name: "route mode", mutate: func(s *AttemptSpec) { s.RouteMode = RouteMode("fallback") }, field: "route_mode"},
 		{name: "route requirement", mutate: func(s *AttemptSpec) { s.RouteRequirement = RouteRequirement("converted-only") }, field: "route_requirement"},
@@ -531,6 +532,7 @@ func validAttemptSpec(credentialData []byte) AttemptSpec {
 		AttemptID:      "attempt-1",
 		Sequence:       1,
 		ChannelID:      "openai",
+		ConnectionType: "api_key",
 		TargetKind:     "openai",
 		RouteMode:      RouteNative,
 		ClientProtocol: protocol.OpenAICompletions,

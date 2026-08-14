@@ -98,6 +98,7 @@ watch(
               v-if="activeTab === 'credentials'"
               :key="groupId"
               :group-id="groupId"
+              :connection-type="summaryQuery.data.value.connection_type"
             />
             <GroupModelsTab v-else-if="activeTab === 'models'" :key="groupId" :group-id="groupId" />
             <GroupSettingsTab

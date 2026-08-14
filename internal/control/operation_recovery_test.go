@@ -126,6 +126,59 @@ func TestOperationReplayOnlyRecordsStageWhenRegistrySideEffectAlreadySatisfied(t
 	}
 }
 
+func TestOperationRegistryRecoverySerializesWithCredentialSecretMutation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	mutations := 0
+	input := newDurableGroupOperationInput(
+		t,
+		fixture,
+		"0a8f47a2-9c35-4d6e-8b1a-1234567890ab",
+		&mutations,
+	)
+	fixture.service.beforeAdvanceOperationStage = func(
+		_ context.Context,
+		_ *models.ControlOperation,
+		stage operationStage,
+	) error {
+		if stage == operationStageRegistryApplied {
+			return errors.New("pause registry recovery")
+		}
+		return nil
+	}
+	_, err := fixture.service.executeIdempotentOperation(t.Context(), input)
+	assertAPIErrorCode(t, err, app_errors.ErrControlOperationIncomplete.Code)
+	fixture.service.beforeAdvanceOperationStage = nil
+
+	var credential models.Credential
+	if err := fixture.db.First(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	go fixture.mutations.Do(credential.ID, func() {
+		close(entered)
+		<-release
+	})
+	<-entered
+	done := make(chan error, 1)
+	go func() { done <- fixture.service.DrainCommittedOperations(context.Background()) }()
+	select {
+	case callErr := <-done:
+		close(release)
+		t.Fatalf("operation recovery completed inside credential mutation: %v", callErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case callErr := <-done:
+		if callErr != nil {
+			t.Fatalf("DrainCommittedOperations() error = %v", callErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("operation recovery did not finish")
+	}
+}
+
 func TestOperationBarrierBlocksNewMutationBehindOlderRecovery(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x33}, 32))

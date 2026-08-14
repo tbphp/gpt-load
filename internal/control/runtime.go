@@ -43,6 +43,10 @@ type RequestLogCleaner interface {
 	Sweep(context.Context, time.Time)
 }
 
+type credentialStageCleaner interface {
+	CleanupCredentialStages(context.Context, time.Time) error
+}
+
 type runtimeTicker interface {
 	C() <-chan time.Time
 	Stop()
@@ -66,8 +70,10 @@ type Runtime struct {
 	mutations          credentialMutationCoordinator
 	validator          validationSweep
 	requestLogCleaner  RequestLogCleaner
+	stageCleaner       credentialStageCleaner
 	operationRecovery  operationRecoveryRuntime
 	catalogSync        catalogSyncRuntime
+	oauthCallback      *OAuthCallbackServer
 	manager            *state.Manager
 	autoWeightInterval time.Duration
 	validationInterval time.Duration
@@ -93,6 +99,7 @@ func NewRuntime(
 		stats:              stats,
 		mutations:          mutations,
 		requestLogCleaner:  requestLogCleaner,
+		stageCleaner:       operationRecovery,
 		operationRecovery:  operationRecovery,
 		catalogSync:        catalogSync,
 		manager:            manager,
@@ -105,6 +112,9 @@ func NewRuntime(
 		newTicker: func(interval time.Duration) runtimeTicker {
 			return standardRuntimeTicker{ticker: time.NewTicker(interval)}
 		},
+	}
+	if operationRecovery != nil {
+		runtime.oauthCallback = operationRecovery.oauthCallback
 	}
 	runtime.validator = newValidationWorker(
 		manager,
@@ -136,7 +146,7 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		defer wait.Done()
 		runtime.runValidation(ctx, validationTicker, currentValidationInterval, validationUpdates)
 	}()
-	if runtime.requestLogCleaner != nil {
+	if runtime.requestLogCleaner != nil || runtime.stageCleaner != nil {
 		retentionTicker := runtime.newTicker(retentionInterval)
 		wait.Add(1)
 		go func() {
@@ -156,6 +166,13 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		go func() {
 			defer wait.Done()
 			runtime.catalogSync.Run(ctx)
+		}()
+	}
+	if runtime.oauthCallback != nil {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			runtime.oauthCallback.Run(ctx)
 		}()
 	}
 	wait.Wait()
@@ -238,7 +255,7 @@ func (runtime *Runtime) runRetention(ctx context.Context, ticker runtimeTicker) 
 	if ctx.Err() != nil {
 		return
 	}
-	runtime.requestLogCleaner.Sweep(ctx, runtime.now())
+	runtime.sweepRetention(ctx, runtime.now())
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,8 +264,17 @@ func (runtime *Runtime) runRetention(ctx context.Context, ticker runtimeTicker) 
 			if ctx.Err() != nil {
 				return
 			}
-			runtime.requestLogCleaner.Sweep(ctx, runtime.now())
+			runtime.sweepRetention(ctx, runtime.now())
 		}
+	}
+}
+
+func (runtime *Runtime) sweepRetention(ctx context.Context, now time.Time) {
+	if runtime.requestLogCleaner != nil {
+		runtime.requestLogCleaner.Sweep(ctx, now)
+	}
+	if runtime.stageCleaner != nil {
+		_ = runtime.stageCleaner.CleanupCredentialStages(ctx, now)
 	}
 }
 

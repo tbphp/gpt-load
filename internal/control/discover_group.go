@@ -24,7 +24,17 @@ func (s *Service) DiscoverGroupModels(
 	ctx context.Context,
 	groupID uint,
 ) (ModelDiscoveryResult, error) {
-	target, err := s.buildGroupDiscoveryTarget(ctx, groupID)
+	if groupID == 0 {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
+	rows, err := s.readGroupDiscoverySnapshot(ctx, groupID)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
+	}
+	if rows.found && normalizeGroupConnectionType(rows.group.ConnectionType) == models.ConnectionTypeSubscription {
+		return s.discoverSubscriptionGroupModels(ctx, rows)
+	}
+	target, err := s.mapGroupDiscoveryTarget(rows)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
@@ -180,8 +190,8 @@ func (s *Service) mapGroupDiscoveryTarget(
 		discoveryCredentials = append(discoveryCredentials, discoveryCredential{
 			snapshot: execution.NewCredentialSnapshot(
 				credentialRow.ID,
-				groupCollectionCredentialVersion(credentialRow.UpdatedAtMS),
-				groupCollectionCredentialIdentity(credentialRow.Fingerprint, rows.group),
+				groupCollectionCredentialVersion(credentialRow.SecretVersion),
+				groupCollectionCredentialIdentity(credentialRow.IdentityFingerprint, rows.group),
 				canonical,
 			),
 			apiKey: apiKey,

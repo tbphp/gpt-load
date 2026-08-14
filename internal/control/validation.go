@@ -21,6 +21,7 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/storage/models"
 )
 
 const validationConcurrency = 8
@@ -284,6 +285,9 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 }
 
 func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, bool) {
+	if strings.TrimSpace(group.ConnectionType) == string(models.ConnectionTypeSubscription) {
+		return groupValidationTarget{}, false
+	}
 	if group.ChannelID == "" || group.ResolvedTarget.ChannelID != group.ChannelID ||
 		!group.ResolvedTarget.ProviderKind.Valid() {
 		return groupValidationTarget{}, false

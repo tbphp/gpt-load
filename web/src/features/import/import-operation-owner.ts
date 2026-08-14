@@ -1,5 +1,6 @@
 import { inject, readonly, ref, watch, type InjectionKey } from 'vue'
 
+import type { CredentialConnectResult } from '@/app/resources/credential-stages'
 import type {
   GroupCreateRequest,
   GroupCreateResult,
@@ -21,6 +22,12 @@ export interface ImportCredentialsOperationPayload {
   draft: ImportRecoveryDraft
 }
 
+export interface ConnectCredentialsOperationPayload {
+  groupID: number
+  stageIDs: string[]
+  draft: ImportDraft
+}
+
 export function createImportOperationOwner() {
   const createGroup = useStableImportOperation<
     CreateGroupImportOperationPayload,
@@ -30,19 +37,33 @@ export function createImportOperationOwner() {
     ImportCredentialsOperationPayload,
     CredentialImportResult
   >()
+  const connectCredentials = useStableImportOperation<
+    ConnectCredentialsOperationPayload,
+    CredentialConnectResult
+  >()
   const operationMode = ref<'new' | 'existing' | null>(null)
 
   const stopOperationWatch = watch(
-    [createGroup.operation, importCredentials.operation],
-    ([createOperation, importOperation]) => {
-      if (!createOperation && !importOperation) operationMode.value = null
+    [createGroup.operation, importCredentials.operation, connectCredentials.operation],
+    ([createOperation, importOperation, connectOperation]) => {
+      if (!createOperation && !importOperation && !connectOperation) operationMode.value = null
     },
     { flush: 'sync' },
   )
 
   function beginCreate(request: GroupCreateRequest, draft: ImportDraft) {
-    if (importCredentials.operation.value) return null
+    if (importCredentials.operation.value || connectCredentials.operation.value) return null
     const operation = createGroup.begin({ request, draft })
+    operationMode.value = 'new'
+    return operation
+  }
+
+  function beginConnectCredentials(
+    payload: { groupID: number; stageIDs: string[] },
+    draft: ImportDraft,
+  ) {
+    if (createGroup.operation.value || importCredentials.operation.value) return null
+    const operation = connectCredentials.begin({ ...payload, draft })
     operationMode.value = 'new'
     return operation
   }
@@ -62,6 +83,7 @@ export function createImportOperationOwner() {
   function clear(): void {
     createGroup.reset()
     importCredentials.reset()
+    connectCredentials.reset()
     operationMode.value = null
   }
 
@@ -73,9 +95,11 @@ export function createImportOperationOwner() {
   return {
     createGroup,
     importCredentials,
+    connectCredentials,
     operationMode: readonly(operationMode),
     beginCreate,
     beginImportCredentials,
+    beginConnectCredentials,
     clear,
     dispose,
   }

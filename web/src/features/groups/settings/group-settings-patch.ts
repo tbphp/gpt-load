@@ -9,6 +9,7 @@ export type GroupTimeoutKey = 'first_byte_timeout' | 'request_timeout' | 'stream
 
 export interface GroupSettingsDraft {
   channel_id: string
+  connection_type: GroupSettingsDto['connection_type']
   params: ChannelParamsDto
   name: string
   validation_model: string | null

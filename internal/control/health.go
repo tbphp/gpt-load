@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
@@ -14,6 +15,7 @@ import (
 	"gpt-load/internal/platform/version"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
+	"gpt-load/internal/storage/models"
 )
 
 type RequestLogStatsReader interface {
@@ -104,6 +106,7 @@ func classifyHealthKey(
 	if !group.Enabled ||
 		(group.WeightManual != nil && *group.WeightManual == 0) ||
 		key.Status != state.CredentialStatusActive ||
+		(key.AuthState != "" && key.AuthState != state.CredentialAuthStateReady) ||
 		(key.WeightManual != nil && *key.WeightManual == 0) {
 		return healthBucketDisabled
 	}
@@ -151,6 +154,7 @@ func (service *Service) healthProblemMask(
 	ciphertexts map[uint]string,
 	credentialID uint,
 	channelID channel.ID,
+	connectionType string,
 ) (string, error) {
 	if service == nil || service.encryption == nil || credentialID == 0 {
 		return "", fmt.Errorf(
@@ -174,6 +178,17 @@ func (service *Service) healthProblemMask(
 			err,
 			app_errors.ErrInternalServer,
 		)
+	}
+	if normalizeGroupConnectionType(models.ConnectionType(connectionType)) == models.ConnectionTypeSubscription {
+		credential, parseErr := cpaembedded.ParseCodexCredentialJSON([]byte(plaintext))
+		plaintext = ""
+		if parseErr != nil {
+			return "", fmt.Errorf("map runtime health subscription credential %d: %w", credentialID, app_errors.ErrInternalServer)
+		}
+		if mask := maskEmail(credential.Email); mask != "" {
+			return mask, nil
+		}
+		return fmt.Sprintf("Subscription #%d", credentialID), nil
 	}
 	validated, err := normalizeStoredCredential(service.channelRegistry, channelID, plaintext)
 	if err != nil {
@@ -237,6 +252,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			observation.problemCiphertexts,
 			key.ID,
 			groupView.ChannelID,
+			groupView.ConnectionType,
 		)
 		if err != nil {
 			return runtimeHealthResponse{}, err

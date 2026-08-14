@@ -17,6 +17,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	bifrostexecutor "gpt-load/internal/execution/bifrost"
+	cpaexecutor "gpt-load/internal/execution/cpa"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
@@ -144,7 +145,16 @@ func BuildContainer() (*dig.Container, error) {
 			manager.SetSnapshotReconciler(providerRuntimeSnapshotReconciler{runtime: runtime})
 			return manager
 		},
-		func(runtime *bifrostexecutor.RuntimeManager) execution.Executor { return runtime },
+		cpaexecutor.NewAdapter,
+		func(
+			runtime *bifrostexecutor.RuntimeManager,
+			subscription *cpaexecutor.Adapter,
+		) execution.Executor {
+			return &routedExecutor{
+				Router:   execution.NewRouter(runtime, subscription),
+				defaults: runtime,
+			}
+		},
 		func(runtime *bifrostexecutor.RuntimeManager) app.ExecutionRuntime { return runtime },
 		gateway.NewExecutionForwarder,
 		func(forwarder *gateway.ExecutionForwarder) gateway.AttemptForwarder { return forwarder },
@@ -191,6 +201,15 @@ func BuildContainer() (*dig.Container, error) {
 
 type providerRuntimeSnapshotReconciler struct {
 	runtime *bifrostexecutor.RuntimeManager
+}
+
+type routedExecutor struct {
+	*execution.Router
+	defaults *bifrostexecutor.RuntimeManager
+}
+
+func (executor *routedExecutor) DefaultBaseURL(channelID channel.ID) (string, bool, error) {
+	return executor.defaults.DefaultBaseURL(channelID)
 }
 
 func (reconciler providerRuntimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {

@@ -20,12 +20,14 @@ import (
 )
 
 type groupCreateDigestBody struct {
-	Name              *string         `json:"name"`
-	ChannelID         channel.ID      `json:"channel_id"`
-	Params            json.RawMessage `json:"params"`
-	Models            []GroupModel    `json:"models"`
-	Credentials       []string        `json:"credentials"`
-	ConfirmSameTarget bool            `json:"confirm_same_target,omitempty"`
+	Name                *string               `json:"name"`
+	ChannelID           channel.ID            `json:"channel_id"`
+	ConnectionType      models.ConnectionType `json:"connection_type"`
+	Params              json.RawMessage       `json:"params"`
+	Models              []GroupModel          `json:"models"`
+	Credentials         []string              `json:"credentials"`
+	StagedCredentialIDs []string              `json:"staged_credential_ids,omitempty"`
+	ConfirmSameTarget   bool                  `json:"confirm_same_target,omitempty"`
 }
 
 type credentialImportDigestBody struct {
@@ -41,17 +43,22 @@ func (s *Service) CreateGroupIdempotent(
 	if err != nil {
 		return GroupCreateResult{}, err
 	}
-	credentialLines, err := normalizeIdempotencyKeyLines(request.Credentials)
-	if err != nil {
-		return GroupCreateResult{}, err
+	credentialLines := []string(nil)
+	if normalized.connectionType == models.ConnectionTypeAPIKey {
+		credentialLines, err = normalizeIdempotencyKeyLines(request.Credentials)
+		if err != nil {
+			return GroupCreateResult{}, err
+		}
 	}
 	digestBody := groupCreateDigestBody{
-		Name:              normalized.explicitName,
-		ChannelID:         normalized.channelID,
-		Params:            append(json.RawMessage(nil), normalized.params...),
-		Models:            append([]GroupModel(nil), normalized.models...),
-		Credentials:       credentialLines,
-		ConfirmSameTarget: normalized.confirmSameTarget,
+		Name:                normalized.explicitName,
+		ChannelID:           normalized.channelID,
+		ConnectionType:      normalized.connectionType,
+		Params:              append(json.RawMessage(nil), normalized.params...),
+		Models:              append([]GroupModel(nil), normalized.models...),
+		Credentials:         credentialLines,
+		StagedCredentialIDs: append([]string(nil), normalized.stagedCredentialIDs...),
+		ConfirmSameTarget:   normalized.confirmSameTarget,
 	}
 	canonicalBody, err := canonicalIdempotencyBody(digestBody)
 	if err != nil {
@@ -92,7 +99,7 @@ func (s *Service) CreateGroupIdempotent(
 		},
 		Mutate: func(tx *gorm.DB) (idempotentMutationResult, error) {
 			if !normalized.confirmSameTarget {
-				conflicts, err := findGroupsByTarget(tx, normalized.channelID, normalized.params)
+				conflicts, err := findGroupsByTarget(tx, normalized.channelID, normalized.connectionType, normalized.params)
 				if err != nil {
 					return idempotentMutationResult{}, err
 				}
@@ -112,17 +119,30 @@ func (s *Service) CreateGroupIdempotent(
 				return idempotentMutationResult{}, app_errors.ErrInternalServer
 			}
 			group := models.Group{
-				Name:      name,
-				ChannelID: string(normalized.channelID),
-				Params:    append(models.JSON(nil), normalized.params...),
-				Models:    models.JSON(encodedModels),
-				Overrides: normalized.encodedOverrides,
-				Enabled:   true,
+				Name:           name,
+				ChannelID:      string(normalized.channelID),
+				ConnectionType: normalized.connectionType,
+				Params:         append(models.JSON(nil), normalized.params...),
+				Models:         models.JSON(encodedModels),
+				Overrides:      normalized.encodedOverrides,
+				Enabled:        true,
 			}
 			if err := tx.Create(&group).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}
-			added, duplicated, err := s.persistCredentials(tx, group.ID, normalized.credentials)
+			added := 0
+			duplicated := 0
+			if normalized.connectionType == models.ConnectionTypeSubscription {
+				added, err = s.consumeCredentialStages(
+					tx,
+					group.ID,
+					normalized.channelID,
+					normalized.connectionType,
+					normalized.stagedCredentialIDs,
+				)
+			} else {
+				added, duplicated, err = s.persistCredentials(tx, group.ID, normalized.credentials)
+			}
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
@@ -213,11 +233,14 @@ func (s *Service) ImportGroupCredentialsIdempotent(
 		Kind:           operationKindCredentialImport,
 		Mutate: func(tx *gorm.DB) (idempotentMutationResult, error) {
 			var group models.Group
-			if err := tx.Select("id", "channel_id").Where("id = ?", groupID).Take(&group).Error; err != nil {
+			if err := tx.Select("id", "channel_id", "connection_type").Where("id = ?", groupID).Take(&group).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return idempotentMutationResult{}, groupNotFoundError()
 				}
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
+			}
+			if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeAPIKey {
+				return idempotentMutationResult{}, app_errors.ErrValidation
 			}
 			normalized, err := s.normalizeCredentials(channel.ID(group.ChannelID), request.Credentials)
 			if err != nil {

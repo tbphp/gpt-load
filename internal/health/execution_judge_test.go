@@ -57,6 +57,17 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryUpstreamHostError, Action: ActionSkipGroup},
 		},
 		{
+			name: "not sent subscription reauthorization retries another credential",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchNotSent,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindProvider,
+					Hint: execution.FailureHintReauthorizationRequired,
+				},
+			},
+			want: Result{Category: FailureCategoryAuthenticationRequired, Action: ActionRetry},
+		},
+		{
 			name: "maybe sent transport error is ambiguous",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,
@@ -114,6 +125,22 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 				Evidence:      evidence(execution.ErrorKindHTTP, http.StatusUnauthorized, "invalid credential"),
 			},
 			want: Result{Category: FailureCategoryInvalidKey, Action: ActionFailCredential},
+		},
+		{
+			name: "unknown subscription authorization failure stays ambiguous",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusUnauthorized,
+				Evidence: &execution.ErrorEvidence{
+					Kind:         execution.ErrorKindHTTP,
+					StatusCode:   http.StatusUnauthorized,
+					Type:         "authentication_error",
+					Code:         "auth_unavailable",
+					Summary:      "authorization failed",
+					ReplaySafety: execution.ReplaySafetyUnknown,
+				},
+			},
+			want: Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate},
 		},
 		{
 			name: "payment required is a client error",
@@ -184,6 +211,20 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 				},
 			},
 			want: Result{Category: FailureCategoryInvalidKey, Action: ActionFailCredential},
+		},
+		{
+			name: "subscription refresh hint retries without blacklisting the credential",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusUnauthorized,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintRefreshRequired,
+					StatusCode: http.StatusUnauthorized,
+					Summary:    "authorization expired",
+				},
+			},
+			want: Result{Category: FailureCategoryAuthenticationRequired, Action: ActionRetry},
 		},
 		{
 			name: "model not found cools credential",

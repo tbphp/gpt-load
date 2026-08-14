@@ -38,6 +38,7 @@ type GroupCollectionItem struct {
 	ID               uint                            `json:"id"`
 	Name             string                          `json:"name"`
 	ChannelID        channel.ID                      `json:"channel_id"`
+	ConnectionType   models.ConnectionType           `json:"connection_type"`
 	Params           json.RawMessage                 `json:"params"`
 	Status           GroupCollectionStatus           `json:"status"`
 	ModelCount       int64                           `json:"model_count"`
@@ -129,7 +130,7 @@ func (s *Service) readGroupCollectionRows(
 		rows.groups = cloneGroupRows(groups)
 		var credentials []models.Credential
 		if err := tx.Model(&models.Credential{}).
-			Select("id", "group_id", "fingerprint", "status", "weight_manual", "updated_at_ms").
+			Select("id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual").
 			Order("group_id ASC, id ASC").Find(&credentials).Error; err != nil {
 			return err
 		}
@@ -249,9 +250,9 @@ func mapGroupCollectionRecords(
 		if runtimeCredential.ID != persistedCredential.ID ||
 			runtimeCredential.GroupID != persistedCredential.GroupID ||
 			runtimeCredential.Status != status ||
-			runtimeCredential.Version != groupCollectionCredentialVersion(persistedCredential.UpdatedAtMS) ||
+			runtimeCredential.Version != groupCollectionCredentialVersion(persistedCredential.SecretVersion) ||
 			runtimeCredential.IdentityGeneration != groupCollectionCredentialIdentity(
-				persistedCredential.Fingerprint,
+				persistedCredential.IdentityFingerprint,
 				persistedGroups[persistedCredential.GroupID],
 			) ||
 			!equalGroupCollectionWeight(runtimeCredential.WeightManual, persistedCredential.WeightManual) {
@@ -301,8 +302,9 @@ func mapGroupCollectionRecords(
 		record := groupCollectionRecord{
 			GroupCollectionItem: GroupCollectionItem{
 				ID: group.ID, Name: group.Name, ChannelID: channelID,
-				Params:     append(json.RawMessage(nil), params...),
-				ModelCount: int64(len(groupModels)),
+				ConnectionType: normalizeGroupConnectionType(group.ConnectionType),
+				Params:         append(json.RawMessage(nil), params...),
+				ModelCount:     int64(len(groupModels)),
 			},
 			CreatedAtMS: group.CreatedAtMS,
 		}
@@ -343,17 +345,18 @@ func groupCollectionRuntimeCredentialStatus(status models.CredentialStatus) (sta
 	}
 }
 
-func groupCollectionCredentialVersion(updatedAtMS int64) uint64 {
-	if updatedAtMS < 1 {
+func groupCollectionCredentialVersion(secretVersion uint64) uint64 {
+	if secretVersion < 1 {
 		return 1
 	}
-	return uint64(updatedAtMS)
+	return secretVersion
 }
 
 func groupCollectionCredentialIdentity(fingerprint string, group models.Group) uint64 {
 	return stateloader.CredentialIdentityGeneration(
 		fingerprint,
 		group.ChannelID,
+		string(group.ConnectionType),
 		json.RawMessage(group.Params),
 	)
 }

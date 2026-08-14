@@ -22,8 +22,14 @@ import {
   credentialCollectionQueryOptions,
   revealCredential,
   restoreCredential,
+  refreshCredentialObservation,
   updateCredential,
 } from '@/app/resources/credentials'
+import {
+  connectGroupCredentials,
+  reauthorizeGroupCredential,
+  type CredentialStage,
+} from '@/app/resources/credential-stages'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
@@ -33,6 +39,7 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -43,6 +50,8 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import CredentialBatchBar from './GroupCredentialBatchBar.vue'
 import CredentialRecord from './GroupCredentialRecord.vue'
+import SubscriptionCredentialDrawer from './SubscriptionCredentialDrawer.vue'
+import SubscriptionCredentialStager from '@/features/import/SubscriptionCredentialStager.vue'
 import {
   constrainCredentialSearch,
   isCanonicalCredentialRouteQuery,
@@ -52,7 +61,10 @@ import {
   type CredentialRouteState,
 } from '../group-route'
 
-const props = defineProps<{ groupId: number }>()
+const props = defineProps<{
+  groupId: number
+  connectionType: 'api_key' | 'subscription'
+}>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const route = useRoute()
@@ -68,6 +80,11 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
+const managedCredential = ref<CredentialItemDto | null>(null)
+const connectionDrawerOpen = ref(false)
+const connectionStages = ref<CredentialStage[]>([])
+const reauthorizationTarget = ref<CredentialItemDto | null>(null)
+const connectOperationKey = ref<string>()
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
 
@@ -359,6 +376,95 @@ async function reconcileItem(result: CredentialItemDto, refetchActive: boolean):
   }
 }
 
+async function refreshObservation(item: CredentialItemDto): Promise<void> {
+  if (pending(item.credential_id)) return
+  feedback.value = ''
+  setPending(item.credential_id, 'observation', true)
+  try {
+    const observation = await refreshCredentialObservation(
+      client,
+      props.groupId,
+      item.credential_id,
+    )
+    const next = { ...item, observation }
+    await reconcileItem(next, false)
+    if (managedCredential.value?.credential_id === item.credential_id)
+      managedCredential.value = next
+  } catch {
+    feedback.value = t('group.credentials.subscription.syncFailed')
+  } finally {
+    setPending(item.credential_id, 'observation', false)
+  }
+}
+
+function openConnectionDrawer(target?: CredentialItemDto): void {
+  managedCredential.value = null
+  connectionStages.value = []
+  reauthorizationTarget.value = target ?? null
+  connectOperationKey.value = undefined
+  connectionDrawerOpen.value = true
+}
+
+function setConnectionDrawer(open: boolean): void {
+  if (!open && singleBusy.value) return
+  connectionDrawerOpen.value = open
+  if (!open) {
+    managedCredential.value = null
+    connectionStages.value = []
+    reauthorizationTarget.value = null
+    connectOperationKey.value = undefined
+  }
+}
+
+async function saveConnectedAccounts(): Promise<void> {
+  const ready = connectionStages.value.filter(({ status }) => status === 'ready')
+  if (ready.length === 0 || singleBusy.value) return
+  feedback.value = ''
+  const target = reauthorizationTarget.value
+  let succeeded = false
+  setPending(target?.credential_id ?? 0, target ? 'reauthorize' : 'connect', true)
+  try {
+    if (target) {
+      const result = await reauthorizeGroupCredential(
+        client,
+        props.groupId,
+        target.credential_id,
+        ready[0].stage_id,
+        target.secret_version,
+        (connectOperationKey.value ??= crypto.randomUUID()),
+      )
+      await reconcileItem(result, true)
+      if (managedCredential.value?.credential_id === target.credential_id) {
+        managedCredential.value = result
+      }
+    } else {
+      connectOperationKey.value ??= crypto.randomUUID()
+      await connectGroupCredentials(
+        client,
+        props.groupId,
+        ready.map(({ stage_id }) => stage_id),
+        connectOperationKey.value,
+      )
+      await refetchActiveCredentialPage()
+      void queryClient.invalidateQueries({
+        queryKey: controlQueryKeys.groups.summary(props.groupId),
+        exact: true,
+        refetchType: 'active',
+      })
+    }
+    succeeded = true
+  } catch {
+    feedback.value = t(
+      target
+        ? 'group.credentials.subscription.reauthorizeFailed'
+        : 'group.credentials.subscription.connectFailed',
+    )
+  } finally {
+    setPending(target?.credential_id ?? 0, target ? 'reauthorize' : 'connect', false)
+    if (succeeded) setConnectionDrawer(false)
+  }
+}
+
 async function reconcileBatch(
   action: 'enable' | 'disable' | 'delete',
   result: Awaited<ReturnType<typeof batchCredentials>>,
@@ -487,7 +593,11 @@ async function runBatch(
   >
     <PanelHeader heading-id="group-credentials-heading" :title="t('group.credentials.title')">
       <template #actions>
+        <AppButton v-if="connectionType === 'subscription'" @click="openConnectionDrawer()">
+          <Plus :size="16" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
+        </AppButton>
         <RouterLink
+          v-else
           v-slot="{ navigate }"
           :to="importLocation({ mode: 'existing', group_id: groupId })"
           custom
@@ -587,7 +697,11 @@ async function runBatch(
       >
         <template #icon><KeyRound :size="20" /></template>
         <template #actions>
+          <AppButton v-if="connectionType === 'subscription'" @click="openConnectionDrawer()">
+            <Plus :size="15" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
+          </AppButton>
           <RouterLink
+            v-else
             v-slot="{ navigate }"
             :to="importLocation({ mode: 'existing', group_id: groupId })"
             custom
@@ -640,7 +754,15 @@ async function runBatch(
             <span role="columnheader">{{ t('group.credentials.columns.credential') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.status') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.weight') }}</span>
-            <span role="columnheader">{{ t('group.credentials.columns.recent') }}</span>
+            <span role="columnheader">
+              {{
+                t(
+                  connectionType === 'subscription'
+                    ? 'group.credentials.columns.entitlement'
+                    : 'group.credentials.columns.recent',
+                )
+              }}
+            </span>
             <span role="columnheader">{{ t('group.credentials.columns.actions') }}</span>
           </template>
 
@@ -662,6 +784,8 @@ async function runBatch(
             @weight="mutateItem($event.item, 'weight', $event.value)"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
+            @refresh="refreshObservation"
+            @manage="managedCredential = $event"
             @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
           />
         </LedgerRecordList>
@@ -702,6 +826,57 @@ async function runBatch(
       @update:open="!$event && (deleteTarget = undefined)"
       @confirm="confirmDelete"
     />
+    <SubscriptionCredentialDrawer
+      :open="managedCredential !== null"
+      :item="managedCredential"
+      :busy="managedCredential ? rowBusy(managedCredential.credential_id) : false"
+      @update:open="!$event && (managedCredential = null)"
+      @refresh="refreshObservation"
+      @reauthorize="openConnectionDrawer"
+    />
+    <AppDrawer
+      :open="connectionDrawerOpen"
+      appearance="ledger"
+      :title="
+        reauthorizationTarget
+          ? t('group.credentials.subscription.reauthorize')
+          : t('group.credentials.subscription.connect')
+      "
+      :description="t('group.credentials.subscription.connectDescription')"
+      show-description
+      :dismissible="!singleBusy"
+      :close-label="t('common.close')"
+      @update:open="setConnectionDrawer"
+    >
+      <SubscriptionCredentialStager
+        v-model="connectionStages"
+        compact
+        :single="reauthorizationTarget !== null"
+        :disabled="singleBusy"
+      />
+      <template #footer>
+        <AppButton
+          variant="secondary"
+          size="compact"
+          :disabled="singleBusy"
+          @click="setConnectionDrawer(false)"
+        >
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton
+          size="compact"
+          :busy="singleBusy"
+          :disabled="!connectionStages.some(({ status }) => status === 'ready')"
+          @click="saveConnectedAccounts"
+        >
+          {{
+            reauthorizationTarget
+              ? t('group.credentials.subscription.confirmReauthorize')
+              : t('group.credentials.subscription.confirmConnect')
+          }}
+        </AppButton>
+      </template>
+    </AppDrawer>
   </section>
 </template>
 

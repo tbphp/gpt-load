@@ -103,6 +103,9 @@ const selectedGroup = computed(() => {
     ? null
     : (groupsQuery.data.value?.find((group) => group.id === id) ?? null)
 })
+const apiKeyGroups = computed(() =>
+  (groupsQuery.data.value ?? []).filter(({ connection_type }) => connection_type === 'api_key'),
+)
 const selectedChannel = computed<ChannelDto | null>(() => {
   const channelID = selectedGroup.value?.channel_id
   return channelID
@@ -117,7 +120,7 @@ const selectedGroupMissing = computed(
 )
 const selectorOptions = computed(() => [
   { value: selectorPlaceholder, label: t('import.existing.groupPlaceholder') },
-  ...(groupsQuery.data.value ?? []).map((group) => ({
+  ...apiKeyGroups.value.map((group) => ({
     value: String(group.id),
     label: t('import.existing.groupOption', { id: group.id, name: group.name }),
   })),
@@ -295,7 +298,7 @@ onBeforeUnmount(() => {
         <h2 id="existing-target-heading">{{ t('import.existing.title') }}</h2>
         <div class="existing-import__section-actions">
           <span v-if="groupsQuery.data.value" class="existing-import__group-count">
-            {{ t('import.existing.groupCount', { count: groupsQuery.data.value.length }) }}
+            {{ t('import.existing.groupCount', { count: apiKeyGroups.length }) }}
           </span>
         </div>
       </header>
@@ -332,7 +335,7 @@ onBeforeUnmount(() => {
         <InlineFeedback v-if="groupsQuery.isError.value" tone="warning">
           {{ t('import.existing.groupsStale') }}
         </InlineFeedback>
-        <InlineFeedback v-if="groupsQuery.data.value?.length === 0" tone="info">
+        <InlineFeedback v-if="apiKeyGroups.length === 0" tone="info">
           {{ t('import.existing.groupsEmpty') }}
         </InlineFeedback>
         <div class="existing-import__target-body">
@@ -350,7 +353,7 @@ onBeforeUnmount(() => {
                 :label="t('import.existing.groupLabel')"
                 :options="selectorOptions"
                 size="sm"
-                :disabled="payloadLocked || groupsQuery.data.value?.length === 0"
+                :disabled="payloadLocked || apiKeyGroups.length === 0"
                 :aria-describedby="field.describedBy"
                 @update:model-value="selectGroup"
               />

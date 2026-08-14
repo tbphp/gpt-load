@@ -26,6 +26,7 @@ type GroupConfig struct {
 	ID              uint
 	Name            string
 	ChannelID       channel.ID
+	ConnectionType  string
 	Params          json.RawMessage
 	ValidationModel string
 	Models          []ModelConfig
@@ -110,6 +111,7 @@ type GroupView struct {
 	ID                 uint
 	Name               string
 	ChannelID          channel.ID
+	ConnectionType     string
 	Params             json.RawMessage
 	ResolvedTarget     channel.ResolvedTarget
 	ValidationModel    string
@@ -193,6 +195,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			InjectUsageOptions: resolved.InjectUsageOptions,
 			AffinityEnabled:    resolved.AffinityEnabled,
 			WeightManual:       cloneWeight(group.WeightManual),
+			ConnectionType:     normalizeConnectionType(group.ConnectionType),
 		}
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)
 		if err != nil {
@@ -225,6 +228,13 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	return snapshot, nil
 }
 
+func normalizeConnectionType(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "api_key"
+	}
+	return strings.TrimSpace(value)
+}
+
 func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
 	return AccessKeyView{
 		ID: input.ID, Name: input.Name, Status: input.Status,
@@ -248,6 +258,11 @@ func appendExecutionTargets(
 	for _, clientProtocol := range descriptor.ClientProtocols {
 		for _, operation := range target.Operations(clientProtocol) {
 			if operation == execution.OperationListModels || operation == execution.OperationProbe {
+				continue
+			}
+			if normalizeConnectionType(group.ConnectionType) == "subscription" &&
+				operation != execution.OperationChatCompletion &&
+				operation != execution.OperationResponsesCreate {
 				continue
 			}
 			mode, ok := target.Mode(clientProtocol, operation)
@@ -347,6 +362,13 @@ func validateCompileInput(input CompileInput) error {
 		}
 		if group.ChannelID == "" {
 			return fmt.Errorf("group %d channel id is required", group.ID)
+		}
+		if _, ok := input.ChannelRegistry.Get(group.ChannelID); !ok {
+			return fmt.Errorf("group %d has unknown channel %q", group.ID, group.ChannelID)
+		}
+		connectionType := normalizeConnectionType(group.ConnectionType)
+		if !input.ChannelRegistry.SupportsConnectionType(group.ChannelID, connectionType) {
+			return fmt.Errorf("group %d channel %q does not support connection type %q", group.ID, group.ChannelID, connectionType)
 		}
 		if _, err := input.ChannelRegistry.Resolve(group.ChannelID, group.Params); err != nil {
 			return fmt.Errorf("group %d channel %q: %w", group.ID, group.ChannelID, err)

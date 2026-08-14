@@ -18,6 +18,21 @@ owned by GPT-Load.
 The complete Apache License 2.0 text is distributed in
 `LICENSES/Apache-2.0.txt`.
 
+## CLIProxyAPI
+
+- Module: `github.com/router-for-me/CLIProxyAPI/v7`
+- Version: `v7.2.130`
+- Copyright: 2025-2005.9 Luis Pater; 2025.9-present Router-For.ME
+- License: MIT License
+
+GPT-Load uses a pinned, execution-only embedded adapter around CLIProxyAPI's
+Codex OAuth and HTTP executor code. GPT-Load retains ownership of credential
+storage, account selection, retry, health, affinity, logging, and usage policy;
+the embedded adapter does not use CLIProxyAPI's manager, pool, file store,
+WebSocket executor, fallback, or automatic retry.
+
+The complete MIT License text is distributed in `LICENSES/MIT.txt`.
+
 ## Lobe Icons
 
 - Module: `@lobehub/icons-static-svg`

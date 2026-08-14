@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
@@ -82,6 +83,33 @@ func TestDiscoverModelsUsesSystemDefaultsAndNormalizesSuccessfulResult(t *testin
 	}
 	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("calls = %#v, want stable normalized order %#v", calls, wantCalls)
+	}
+}
+
+func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
+	t.Parallel()
+
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-models", "models@example.com")
+	fixture.service.listCodexModels = func(_ context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+		if credential.AccountID != "account-models" || credential.AccessToken == "" {
+			t.Fatalf("credential = %#v", credential)
+		}
+		return []cpaembedded.Model{{ID: " gpt-5.2 "}, {ID: "gpt-5.2"}, {ID: "gpt-5.1-codex"}}, nil
+	}
+	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.OpenAI, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	})
+	if err != nil {
+		t.Fatalf("DiscoverModels() error = %v", err)
+	}
+	if got := result.Models; len(got) != 2 || got[0].ID != "gpt-5.2" || got[1].ID != "gpt-5.1-codex" {
+		t.Fatalf("models = %#v", got)
+	}
+	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil || row.Status != models.CredentialStageReady || row.EncryptedPayload == "" {
+		t.Fatalf("stage was consumed = %#v, %v", row, err)
 	}
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, RotateCcw, SlidersHorizontal, Trash2 } from '@lucide/vue'
+import { ChevronDown, RefreshCw, RotateCcw, SlidersHorizontal, Trash2 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -31,6 +31,8 @@ const emit = defineEmits<{
   weight: [payload: { item: CredentialItemDto; value: string }]
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
+  refresh: [item: CredentialItemDto]
+  manage: [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t } = useI18n()
@@ -54,6 +56,24 @@ const recentLabel = computed(() =>
         failure: n(props.item.recent_failure_count),
       }),
 )
+const primaryQuota = computed(() =>
+  props.item.observation?.snapshot?.quota_windows.find(({ is_primary }) => is_primary),
+)
+const entitlementLabel = computed(() => {
+  if (props.item.connection_type !== 'subscription') return recentLabel.value
+  const window = primaryQuota.value
+  if (!window)
+    return t(
+      `group.credentials.subscription.observation.${props.item.observation?.state ?? 'unavailable'}`,
+    )
+  if (window.utilization !== undefined) {
+    return `${window.label} · ${n(Math.round(window.utilization * 100))}%`
+  }
+  if (window.remaining !== undefined && window.limit !== undefined) {
+    return `${window.label} · ${n(window.remaining)} / ${n(window.limit)}`
+  }
+  return `${window.label} · ${t(`group.credentials.subscription.quotaState.${window.state}`)}`
+})
 const recoveryLabel = computed(() => {
   if (props.item.recovery.mode === 'none') return t('group.credentials.recovery.none')
   if (props.item.recovery.at_ms !== null)
@@ -125,12 +145,22 @@ function saveWeight(): void {
           t('group.credentials.columns.credential')
         }}</span>
         <CopyChip
+          v-if="item.connection_type === 'api_key'"
           :value="item.mask"
           :label="t('group.credentials.copy')"
           :success-label="t('common.copied')"
           :failure-label="t('common.copyFailed')"
           :resolve-value="() => resolveCopyValue(item.credential_id)"
         />
+        <span v-else class="group-credential-record__account">
+          <strong>{{ item.mask }}</strong>
+          <small>
+            {{
+              item.observation?.snapshot?.plan_summary.name ||
+              t(`group.credentials.subscription.auth.${item.auth_state}`)
+            }}
+          </small>
+        </span>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__status" role="cell">
@@ -156,7 +186,7 @@ function saveWeight(): void {
         <span class="group-credential-record__mobile-label">{{
           t('group.credentials.columns.recent')
         }}</span>
-        <span>{{ recentLabel }}</span>
+        <span>{{ entitlementLabel }}</span>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__actions" role="cell">
@@ -245,6 +275,26 @@ function saveWeight(): void {
           }}
         </AppButton>
         <IconButton
+          v-if="item.connection_type === 'subscription'"
+          variant="ghost"
+          tone="action"
+          size="compact"
+          :label="t('group.credentials.subscription.sync')"
+          :disabled="busy"
+          @click="emit('refresh', item)"
+        >
+          <RefreshCw :size="15" aria-hidden="true" />
+        </IconButton>
+        <AppButton
+          v-if="item.connection_type === 'subscription'"
+          variant="secondary"
+          size="compact"
+          :disabled="busy"
+          @click="emit('manage', item)"
+        >
+          {{ t('group.credentials.subscription.manage') }}
+        </AppButton>
+        <IconButton
           v-if="isProblem"
           variant="ghost"
           tone="success"
@@ -292,6 +342,25 @@ function saveWeight(): void {
           :aria-hidden="!expanded"
         >
           <dl>
+            <template v-if="item.connection_type === 'subscription'">
+              <div>
+                <dt>{{ t('group.credentials.subscription.authLabel') }}</dt>
+                <dd>{{ t(`group.credentials.subscription.auth.${item.auth_state}`) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('group.credentials.subscription.plan') }}</dt>
+                <dd>
+                  {{
+                    item.observation?.snapshot?.plan_summary.name ||
+                    t('group.credentials.subscription.unknown')
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('group.credentials.subscription.quotaSummary') }}</dt>
+                <dd>{{ entitlementLabel }}</dd>
+              </div>
+            </template>
             <div>
               <dt>{{ t('group.credentials.detailsFailure') }}</dt>
               <dd>{{ failureLabel }}</dd>
@@ -350,6 +419,30 @@ function saveWeight(): void {
 .group-credential-record__recent {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+.group-credential-record__account {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.group-credential-record__account strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-credential-record__account small {
+  overflow: hidden;
+  color: var(--color-text-faint);
+  font-family: var(--font-sans);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-credential-record__weight-none {

@@ -55,6 +55,14 @@ type FieldDescriptor struct {
 	Sensitive bool      `json:"sensitive"`
 }
 
+// ConnectionTypeDescriptor describes a product-visible authentication mode.
+// Runtime executor names are intentionally absent.
+type ConnectionTypeDescriptor struct {
+	ID                   string   `json:"id"`
+	CredentialInput      string   `json:"credential_input"`
+	AuthorizationMethods []string `json:"authorization_methods,omitempty"`
+}
+
 // Descriptor contains only information safe to expose to the management UI.
 type Descriptor struct {
 	ID   ID     `json:"channel_id"`
@@ -62,12 +70,13 @@ type Descriptor struct {
 	Mark string `json:"mark"`
 	// Icon names a frontend-owned icon resource. The frontend falls back to
 	// Mark when Icon is empty or the resource is not bundled.
-	Icon             string              `json:"icon"`
-	SearchTerms      []string            `json:"search_terms"`
-	Description      string              `json:"description"`
-	ParamFields      []FieldDescriptor   `json:"param_fields"`
-	CredentialFields []FieldDescriptor   `json:"credential_fields"`
-	ClientProtocols  []protocol.Protocol `json:"client_protocols"`
+	Icon             string                     `json:"icon"`
+	SearchTerms      []string                   `json:"search_terms"`
+	Description      string                     `json:"description"`
+	ParamFields      []FieldDescriptor          `json:"param_fields"`
+	CredentialFields []FieldDescriptor          `json:"credential_fields"`
+	ConnectionTypes  []ConnectionTypeDescriptor `json:"connection_types"`
+	ClientProtocols  []protocol.Protocol        `json:"client_protocols"`
 }
 
 // Params is one validated, canonical channel parameter object.
@@ -313,6 +322,23 @@ func (r *Registry) ProviderKind(id ID) (ProviderKind, bool) {
 		return "", false
 	}
 	return definition.providerKind, true
+}
+
+// SupportsConnectionType reports whether a channel accepts one connection type.
+func (r *Registry) SupportsConnectionType(id ID, connectionType string) bool {
+	descriptor, ok := r.Get(id)
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(connectionType) == "" {
+		connectionType = "api_key"
+	}
+	for _, candidate := range descriptor.ConnectionTypes {
+		if candidate.ID == connectionType {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateParams validates and normalizes the channel parameter object.
@@ -568,9 +594,15 @@ func (r *Registry) lookup(id ID) (definition, bool) {
 }
 
 func cloneDescriptor(source Descriptor) Descriptor {
+	connectionTypes := source.ConnectionTypes
 	source.SearchTerms = append([]string{}, source.SearchTerms...)
 	source.ParamFields = append([]FieldDescriptor{}, source.ParamFields...)
 	source.CredentialFields = append([]FieldDescriptor{}, source.CredentialFields...)
+	source.ConnectionTypes = make([]ConnectionTypeDescriptor, len(connectionTypes))
+	for index, connectionType := range connectionTypes {
+		source.ConnectionTypes[index] = connectionType
+		source.ConnectionTypes[index].AuthorizationMethods = append([]string{}, connectionType.AuthorizationMethods...)
+	}
 	source.ClientProtocols = append([]protocol.Protocol{}, source.ClientProtocols...)
 	return source
 }

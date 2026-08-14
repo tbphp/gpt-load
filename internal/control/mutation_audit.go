@@ -84,6 +84,14 @@ func groupCredentialsMutationLocator(c *gin.Context) string {
 	return "group:" + mutationID(c.Param("group_id")) + "/credentials"
 }
 
+func credentialStageMutationLocator(c *gin.Context) string {
+	value := c.Param("stage_id")
+	if validateIdempotencyKey(value) != nil {
+		return "credential-stage:unknown"
+	}
+	return "credential-stage:" + value
+}
+
 func accessKeyMutationLocator(c *gin.Context) string {
 	return "access-key:" + mutationID(c.Param("id"))
 }

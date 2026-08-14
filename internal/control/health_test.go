@@ -441,7 +441,7 @@ func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
 
 func TestHealthProblemMaskFailsClosedWhenCiphertextIsMissing(t *testing.T) {
 	fixture := newServiceFixture(t)
-	if _, err := fixture.service.healthProblemMask(nil, 1, ""); !errors.Is(
+	if _, err := fixture.service.healthProblemMask(nil, 1, "", "api_key"); !errors.Is(
 		err,
 		app_errors.ErrInternalServer,
 	) {
@@ -460,12 +460,26 @@ func TestHealthProblemMaskExtractsTypedCredentialSecret(t *testing.T) {
 		map[uint]string{1: ciphertext},
 		1,
 		channel.OpenAI,
+		"api_key",
 	)
 	if err != nil {
 		t.Fatalf("healthProblemMask() error = %v", err)
 	}
 	if mask != "prov****tail" || strings.Contains(mask, "api_key") || strings.Contains(mask, "{") {
 		t.Fatalf("healthProblemMask() = %q, want api_key-only mask", mask)
+	}
+}
+
+func TestHealthProblemMaskUsesSafeSubscriptionAccountIdentity(t *testing.T) {
+	fixture := newServiceFixture(t)
+	ciphertext := encryptHealthKey(t, fixture,
+		`{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret","account_id":"account-one","email":"owner@example.com"}`)
+	mask, err := fixture.service.healthProblemMask(map[uint]string{1: ciphertext}, 1, channel.OpenAI, "subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mask != "o***r@example.com" || strings.Contains(mask, "secret") {
+		t.Fatalf("mask = %q", mask)
 	}
 }
 

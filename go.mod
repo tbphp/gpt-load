@@ -21,6 +21,19 @@ require (
 )
 
 require (
+	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/pierrec/xxHash v0.1.5 // indirect
+	github.com/redis/go-redis/v9 v9.19.0 // indirect
+	github.com/refraction-networking/utls v1.8.2 // indirect
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.130 // indirect
+	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 // indirect
+	github.com/tiktoken-go/tokenizer v0.8.1 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
+)
+
+require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -90,6 +103,7 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded v0.0.0
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/savsgio/gotils v0.0.0-20250408102913-196191ec6287 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
@@ -106,7 +120,7 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.5.1 // indirect
 	go.starlark.net v0.0.0-20260102030733-3fee463870c9 // indirect
 	golang.org/x/arch v0.23.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
@@ -119,3 +133,5 @@ require (
 
 // Temporary stream lifecycle fix: https://github.com/valyala/fasthttp/pull/2353
 replace github.com/valyala/fasthttp => github.com/tbphp/fasthttp v1.71.1-0.20260811052014-9e2f0ae954f2
+
+replace github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded => ./third_party/cpaembedded

@@ -43,10 +43,14 @@ type ForwardInput struct {
 	Operation        execution.Operation
 	RouteRequirement execution.RouteRequirement
 	ChannelID        string
+	ConnectionType   string
 	TargetKind       string
 	RouteMode        execution.RouteMode
 	TargetConfig     json.RawMessage
 	Credential       execution.CredentialSnapshot
+	// ForceCredentialRefresh preserves one explicit provider-auth retry as a
+	// globally counted Attempt on the same selected credential.
+	ForceCredentialRefresh bool
 }
 
 // UpstreamResult is the gateway's stable view of one logical execution

@@ -49,6 +49,7 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 - **Four client protocols:** OpenAI Completions, OpenAI Responses, Anthropic Messages, and Gemini requests keep their public endpoints. Each channel declares its supported native and converted operations; unsupported feature combinations fail before dispatch.
 - **Channel and traffic management:** Users select a searchable code-defined channel, then enter models and encrypted credentials. GPT-Load owns AccessKey filtering, cross-Group credential scheduling, retry decisions, health state, cooldown, blacklist, and automatic weights.
 - **Provider execution:** The official Bifrost Core Go SDK maintains provider-specific authentication, request/response conversion, streaming, normalized usage, and provider errors. GPT-Load pins one selected credential per logical attempt and disables Bifrost's configured retry and fallback policy.
+- **Codex subscriptions:** OpenAI Groups can use API keys or Codex browser OAuth/CPA JSON accounts. Subscription accounts share GPT-Load's existing scheduling, retry, health, weight, and affinity behavior, while credentials stay encrypted and account usage is synchronized only on explicit request.
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
 - **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, exact four-slot model prices synchronized from Models.dev where available, and user-managed prices.
 
@@ -90,7 +91,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 The named volume preserves the default SQLite database, `auth.key`, and `encryption.key`. Production deployments should inject explicit `AUTH_KEY` and `ENCRYPTION_KEY` values through protected secret handling. Never commit real secrets to `.env`, logs, or issues. A MySQL or PostgreSQL `DATABASE_DSN` is operator-managed and should be supplied through the deployment secret/configuration system.
 
-Compose listens on all interfaces only inside the container while publishing to host loopback by default. Setting `BIND_ADDRESS=0.0.0.0`, or running a native binary with `HOST=0.0.0.0`, is an explicit opt-in. In production, expose either only behind a controlled network boundary with a TLS reverse proxy and ACL/firewall controls.
+Compose listens on all interfaces only inside the container while publishing to host loopback by default. It also publishes the provider-fixed Codex OAuth callback on `127.0.0.1:1455`; keep it on loopback unless the network boundary is explicitly controlled. Because this callback port is fixed by the OAuth client, only one container on a host can perform browser authorization at a time. Setting `BIND_ADDRESS=0.0.0.0`, `OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`, or running a native binary with `HOST=0.0.0.0`, is an explicit opt-in. In production, expose either only behind a controlled network boundary with a TLS reverse proxy and ACL/firewall controls.
 
 ### Native binary
 
@@ -207,6 +208,7 @@ Usage/Cost quality boundaries:
 |---|---|---|
 | `HOST` | `127.0.0.1` | Native HTTP listen address; `0.0.0.0` is an explicit opt-in. The release container overrides this to `0.0.0.0` internally |
 | `BIND_ADDRESS` | `127.0.0.1` | Compose host-side publish address; not a process setting |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Compose host-side address for the fixed Codex OAuth callback on port `1455` |
 | `PORT` | `3001` | HTTP listen port |
 | `DATA_DIR` | `./data` | Native persistent directory; the container overrides it to `/app/data` |
 | `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects managed SQLite. Non-empty values use one of `sqlite`, `mysql`, or `postgres` URL forms and are operator-managed |

@@ -222,8 +222,8 @@ func TestWriteConfigAppliesRuntimeBeforePublishingSnapshot(t *testing.T) {
 		}
 		return fixture.registry.ApplyCredentialImport(group.ID, []state.CredentialEntry{{
 			ID: credential.ID, GroupID: group.ID,
-			Version:            groupCollectionCredentialVersion(credential.UpdatedAtMS),
-			IdentityGeneration: groupCollectionCredentialIdentity(credential.Fingerprint, *group),
+			Version:            groupCollectionCredentialVersion(credential.SecretVersion),
+			IdentityGeneration: groupCollectionCredentialIdentity(credential.IdentityFingerprint, *group),
 			Fingerprint:        credential.Fingerprint, Status: state.CredentialStatusActive,
 			EncryptedValue: credential.Data,
 		}})
@@ -467,6 +467,45 @@ func TestWriteConfigSnapshotFailureReloadsCommittedDatabaseTruth(t *testing.T) {
 	after := fixture.manager.Current()
 	if after == nil || after.Revision != beforeRevision+1 || len(after.Groups) != 1 {
 		t.Fatalf("recovered snapshot = %#v, want committed database truth", after)
+	}
+}
+
+func TestWriteConfigRecoveryPreservesCredentialRuntimeState(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("runtime-health-preserved")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	credential := models.Credential{
+		GroupID: group.ID, Data: "ciphertext-runtime-health",
+		Fingerprint: "secret-runtime-health", IdentityFingerprint: "identity-runtime-health",
+		SecretVersion: 1, AuthState: models.CredentialAuthStateReady,
+		Status: models.CredentialStatusActive,
+	}
+	if err := fixture.db.Create(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	entries, err := stateloader.BuildCredentialEntries(t.Context(), fixture.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.registry.ReplaceCredentials(entries); err != nil {
+		t.Fatal(err)
+	}
+	cooldownUntil := time.Now().Add(time.Hour).Truncate(time.Millisecond)
+	if !fixture.registry.SetCooldown(credential.ID, cooldownUntil) {
+		t.Fatal("SetCooldown() = false")
+	}
+	fixture.service.publishSnapshot = func(state.CompileInput) (*state.ConfigSnapshot, error) {
+		return nil, errors.New("forced snapshot publication failure")
+	}
+
+	if _, err := fixture.service.writeConfig(t.Context(), func(*gorm.DB) error { return nil }, nil); err == nil {
+		t.Fatal("writeConfig() error = nil")
+	}
+	views := fixture.registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.Equal(cooldownUntil) {
+		t.Fatalf("registry views = %#v", views)
 	}
 }
 

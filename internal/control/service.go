@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
@@ -26,48 +27,80 @@ import (
 )
 
 const (
-	defaultModelDiscoveryTimeout     = 30 * time.Second
-	controlTransactionCleanupTimeout = time.Second
+	defaultModelDiscoveryTimeout      = 30 * time.Second
+	defaultSubscriptionControlTimeout = 30 * time.Second
+	controlTransactionCleanupTimeout  = time.Second
 )
 
 type Service struct {
-	db                          *gorm.DB
-	manager                     *state.Manager
-	registry                    *state.CredentialRegistry
-	channelRegistry             *channel.Registry
-	channelDefaultBaseURLs      channelDefaultBaseURLProvider
-	registrySnapshot            func() []state.CredentialRuntimeView
-	priceRuntime                *PriceRuntime
-	catalogRuntime              *catalog.Runtime
-	catalogSync                 *CatalogSyncCoordinator
-	modelsDevAutoSyncOverride   *bool
-	encryption                  encryption.Service
-	executor                    execution.Executor
-	requestLogs                 RequestLogReader
-	usageStats                  UsageStatReader
-	homeStatistics              HomeStatisticsReader
-	stats                       *health.StatsStore
-	mutations                   credentialMutationCoordinator
-	requestLogStats             RequestLogStatsReader
-	modelDiscoveryTimeout       time.Duration
-	random                      io.Reader
-	operationRandom             io.Reader
-	now                         func() time.Time
-	publishSnapshot             func(state.CompileInput) (*state.ConfigSnapshot, error)
-	reconcileRegistryGroup      func(uint, []state.CredentialEntry) (bool, error)
-	applyBatchRegistryMutation  func(uint, []uint, CredentialBatchAction) error
-	restoreBatchRegistryEntries func(uint, []state.CredentialEntry) error
-	beforeAdvanceOperationStage func(
+	db                           *gorm.DB
+	manager                      *state.Manager
+	registry                     *state.CredentialRegistry
+	channelRegistry              *channel.Registry
+	channelDefaultBaseURLs       channelDefaultBaseURLProvider
+	registrySnapshot             func() []state.CredentialRuntimeView
+	priceRuntime                 *PriceRuntime
+	catalogRuntime               *catalog.Runtime
+	catalogSync                  *CatalogSyncCoordinator
+	modelsDevAutoSyncOverride    *bool
+	encryption                   encryption.Service
+	executor                     execution.Executor
+	requestLogs                  RequestLogReader
+	usageStats                   UsageStatReader
+	homeStatistics               HomeStatisticsReader
+	stats                        *health.StatsStore
+	mutations                    credentialMutationCoordinator
+	requestLogStats              RequestLogStatsReader
+	modelDiscoveryTimeout        time.Duration
+	random                       io.Reader
+	operationRandom              io.Reader
+	completeBrowserAuthorization func(context.Context, cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error)
+	listCodexModels              func(context.Context, cpaembedded.CodexCredential) ([]cpaembedded.Model, error)
+	observeCodexAccount          func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error)
+	oauthCallback                *OAuthCallbackServer
+	now                          func() time.Time
+	publishSnapshot              func(state.CompileInput) (*state.ConfigSnapshot, error)
+	reconcileRegistryGroup       func(uint, []state.CredentialEntry) (bool, error)
+	applyBatchRegistryMutation   func(uint, []uint, CredentialBatchAction) error
+	restoreBatchRegistryEntries  func(uint, []state.CredentialEntry) error
+	beforeAdvanceOperationStage  func(
 		context.Context,
 		*models.ControlOperation,
 		operationStage,
 	) error
 	operationRecoveryWake chan struct{}
 	writeMu               sync.RWMutex
+	observationMu         sync.Mutex
+	observationFlights    map[uint]*observationFlight
+	observationSemaphore  chan struct{}
 }
 
 type credentialRuntimeRetirer interface {
 	RetireCredential(uint)
+}
+
+type credentialMultiMutationCoordinator interface {
+	DoMany([]uint, func())
+}
+
+func (s *Service) doCredentialMutations(credentialIDs []uint, fn func()) error {
+	if fn == nil {
+		return nil
+	}
+	if len(credentialIDs) == 0 || s.mutations == nil {
+		fn()
+		return nil
+	}
+	if len(credentialIDs) == 1 {
+		s.mutations.Do(credentialIDs[0], fn)
+		return nil
+	}
+	coordinator, ok := s.mutations.(credentialMultiMutationCoordinator)
+	if !ok {
+		return fmt.Errorf("credential mutation coordinator unavailable: %w", app_errors.ErrInternalServer)
+	}
+	coordinator.DoMany(credentialIDs, fn)
+	return nil
 }
 
 func (s *Service) retireCredentialRuntime(credentialID uint) {
@@ -114,8 +147,19 @@ func NewService(
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader,
 		operationRandom:       rand.Reader,
+		completeBrowserAuthorization: func(ctx context.Context, completion cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+			return cpaembedded.CompleteCodexBrowserAuthorization(ctx, completion, cpaembedded.Options{})
+		},
+		listCodexModels: func(ctx context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+			return cpaembedded.ListCodexModels(ctx, credential, "")
+		},
+		observeCodexAccount: func(ctx context.Context, credential cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+			return cpaembedded.ObserveCodexAccount(ctx, credential, "")
+		},
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),
+		observationFlights:    make(map[uint]*observationFlight),
+		observationSemaphore:  make(chan struct{}, 1),
 	}
 	if provider, ok := executor.(channelDefaultBaseURLProvider); ok {
 		service.channelDefaultBaseURLs = provider
@@ -129,6 +173,7 @@ func NewService(
 	service.applyBatchRegistryMutation = service.applyCredentialBatchRegistryMutation
 	service.restoreBatchRegistryEntries = registry.RestoreGroupCredentialEntriesExact
 	service.registrySnapshot = registry.Snapshot
+	service.oauthCallback = NewOAuthCallbackServer(service)
 	return service
 }
 
@@ -147,7 +192,27 @@ func (s *Service) writeGroupConfig(
 	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
 		return nil, err
 	}
+	var credentialIDs []uint
+	if err := s.db.WithContext(ctx).Model(&models.Credential{}).
+		Order("id ASC").Pluck("id", &credentialIDs).Error; err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+	var snapshot *state.ConfigSnapshot
+	var resultErr error
+	apply := func() {
+		snapshot, resultErr = s.writeGroupConfigLocked(ctx, mutate, afterCommitBeforePublish)
+	}
+	if err := s.doCredentialMutations(credentialIDs, apply); err != nil {
+		return nil, err
+	}
+	return snapshot, resultErr
+}
 
+func (s *Service) writeGroupConfigLocked(
+	ctx context.Context,
+	mutate func(*gorm.DB) error,
+	afterCommitBeforePublish func() error,
+) (*state.ConfigSnapshot, error) {
 	var catalogSnapshot *catalog.Snapshot
 	if s.catalogRuntime != nil {
 		catalogSnapshot = s.catalogRuntime.Load()
@@ -264,24 +329,33 @@ func (s *Service) writeCredentialConfig(
 	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
 		return err
 	}
-
-	if err := s.withControlTransaction(ctx, mutate); err != nil {
-		return err
-	}
-	if afterCommit != nil {
+	var result error
+	apply := func() {
+		if err := s.withControlTransaction(ctx, mutate); err != nil {
+			result = err
+			return
+		}
+		if afterCommit == nil {
+			return
+		}
 		if err := afterCommit(); err != nil {
 			operationErr := withControlOperationContext(
 				newControlOperationError(stageApplyCommittedRegistryMutation),
 				groupID,
 				credentialID,
 			)
-			return joinCommittedRuntimeRecovery(
+			result = joinCommittedRuntimeRecovery(
 				operationErr,
-				s.recoverCommittedCredentialRegistry(ctx),
+				s.recoverCommittedCredentialRegistryGroup(ctx, groupID),
 			)
 		}
 	}
-	return nil
+	if credentialID != 0 && s.mutations != nil {
+		s.mutations.Do(credentialID, apply)
+	} else {
+		apply()
+	}
+	return result
 }
 
 func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices bool) error {
@@ -292,20 +366,20 @@ func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices boo
 	if _, err := state.Compile(input); err != nil {
 		return fmt.Errorf("compile committed configuration: %w", err)
 	}
-	entries, err := stateloader.BuildCredentialEntries(ctx, s.db)
-	if err != nil {
-		return fmt.Errorf("reload committed credentials: %w", err)
-	}
 	var priceTable *pricing.Table
 	if includePrices {
+		entries, entriesErr := stateloader.BuildCredentialEntries(ctx, s.db)
+		if entriesErr != nil {
+			return fmt.Errorf("reload committed credentials: %w", entriesErr)
+		}
 		priceTable, err = loadPriceTable(ctx, s.db)
 		if err != nil {
 			return fmt.Errorf("reload committed prices: %w", err)
 		}
 		s.priceRuntime.Publish(priceTable)
-	}
-	if err := s.registry.ReplaceCredentials(entries); err != nil {
-		return fmt.Errorf("replace committed credentials: %w", err)
+		if err := s.registry.ReplaceCredentials(entries); err != nil {
+			return fmt.Errorf("replace committed credentials: %w", err)
+		}
 	}
 	if _, err := s.manager.Publish(input); err != nil {
 		return fmt.Errorf("publish committed configuration: %w", err)
@@ -313,13 +387,13 @@ func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices boo
 	return nil
 }
 
-func (s *Service) recoverCommittedCredentialRegistry(ctx context.Context) error {
-	entries, err := stateloader.BuildCredentialEntries(ctx, s.db)
+func (s *Service) recoverCommittedCredentialRegistryGroup(ctx context.Context, groupID uint) error {
+	entries, err := stateloader.BuildGroupCredentialEntries(ctx, s.db, groupID)
 	if err != nil {
-		return fmt.Errorf("reload committed credentials: %w", err)
+		return fmt.Errorf("reload committed group credentials: %w", err)
 	}
-	if err := s.registry.ReplaceCredentials(entries); err != nil {
-		return fmt.Errorf("replace committed credentials: %w", err)
+	if _, err := s.reconcileRegistryGroup(groupID, entries); err != nil {
+		return fmt.Errorf("reconcile committed group credentials: %w", err)
 	}
 	return nil
 }

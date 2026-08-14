@@ -1,0 +1,455 @@
+package embedded
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+)
+
+func TestParseCodexCredentialJSON(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{
+		"type":"codex",
+		"access_token":"access-secret",
+		"refresh_token":"refresh-secret",
+		"id_token":"id-secret",
+		"account_id":"account-123",
+		"email":"admin@example.com",
+		"expired":"2026-08-14T00:00:00Z",
+		"last_refresh":"2026-08-13T00:00:00Z",
+		"disabled":false,
+		"note":"ignored",
+		"websockets":true
+	}`)
+
+	credential, err := ParseCodexCredentialJSON(raw)
+	if err != nil {
+		t.Fatalf("ParseCodexCredentialJSON() error = %v", err)
+	}
+	if credential.AccountID != "account-123" || credential.Email != "admin@example.com" {
+		t.Fatalf("credential identity = %#v", credential)
+	}
+	if credential.AccessToken != "access-secret" || credential.RefreshToken != "refresh-secret" {
+		t.Fatal("credential tokens were not retained")
+	}
+	if credential.Type != ProviderCodex {
+		t.Fatalf("credential type = %q", credential.Type)
+	}
+	encoded, err := json.Marshal(credential)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), "note") || strings.Contains(string(encoded), "websockets") {
+		t.Fatalf("canonical credential retained CPA controls: %s", encoded)
+	}
+}
+
+func TestParseCodexCredentialJSONRejectsInvalidOrDangerousInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "wrong provider", raw: `{"type":"claude","access_token":"a","refresh_token":"r","account_id":"id"}`},
+		{name: "missing account", raw: `{"type":"codex","access_token":"a","refresh_token":"r"}`},
+		{name: "missing access token", raw: `{"type":"codex","refresh_token":"r","account_id":"id"}`},
+		{name: "proxy override", raw: `{"type":"codex","access_token":"a","refresh_token":"r","account_id":"id","proxy_url":"http://127.0.0.1"}`},
+		{name: "headers override", raw: `{"type":"codex","access_token":"a","refresh_token":"r","account_id":"id","headers":{"x":"y"}}`},
+		{name: "not object", raw: `[]`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := ParseCodexCredentialJSON([]byte(tt.raw)); err == nil {
+				t.Fatal("ParseCodexCredentialJSON() error = nil")
+			}
+		})
+	}
+}
+
+func TestCodexCredentialExpiresAtUsesStoredTimestampOrJWT(t *testing.T) {
+	t.Parallel()
+	stored := CodexCredential{Expire: "2026-08-14T00:00:00Z"}
+	if got, ok := CodexCredentialExpiresAt(stored); !ok || !got.Equal(time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("stored expiration = %v/%t", got, ok)
+	}
+	jwt := "e30.eyJleHAiOjE3ODY2NTQ4MDB9.signature"
+	if got, ok := CodexCredentialExpiresAt(CodexCredential{AccessToken: jwt}); !ok || got.Unix() != 1786654800 {
+		t.Fatalf("JWT expiration = %v/%t", got, ok)
+	}
+}
+
+func TestBeginCodexBrowserAuthorization(t *testing.T) {
+	t.Parallel()
+
+	result, err := BeginCodexBrowserAuthorization()
+	if err != nil {
+		t.Fatalf("BeginCodexBrowserAuthorization() error = %v", err)
+	}
+	parsed, err := url.Parse(result.AuthorizationURL)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	query := parsed.Query()
+	if query.Get("redirect_uri") != CodexRedirectURI {
+		t.Fatalf("redirect_uri = %q", query.Get("redirect_uri"))
+	}
+	if query.Get("state") != result.State || len(result.State) < 32 {
+		t.Fatalf("state mismatch or too short: %q", result.State)
+	}
+	if query.Get("code_challenge") != result.CodeChallenge || result.CodeVerifier == "" {
+		t.Fatal("PKCE values were not returned consistently")
+	}
+	if query.Get("code_challenge_method") != "S256" {
+		t.Fatalf("code_challenge_method = %q", query.Get("code_challenge_method"))
+	}
+}
+
+func TestCompleteCodexBrowserAuthorizationExchangesOnce(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s", r.Method)
+		}
+		body, _ := io.ReadAll(r.Body)
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Errorf("ParseQuery() error = %v", err)
+		}
+		if values.Get("code") != "auth-code" || values.Get("code_verifier") != "verifier" {
+			t.Errorf("form = %v", values)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"access","refresh_token":"refresh","id_token":"","expires_in":3600}`)
+	}))
+	defer server.Close()
+
+	credential, err := CompleteCodexBrowserAuthorization(context.Background(), BrowserAuthorizationCompletion{
+		ExpectedState: "state",
+		ReturnedState: "state",
+		Code:          "auth-code",
+		CodeVerifier:  "verifier",
+	}, Options{TokenURL: server.URL, HTTPClient: server.Client(), AccountID: "account-123"})
+	if err != nil {
+		t.Fatalf("CompleteCodexBrowserAuthorization() error = %v", err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("token requests = %d, want 1", requests.Load())
+	}
+	if credential.AccessToken != "access" || credential.RefreshToken != "refresh" || credential.AccountID != "account-123" {
+		t.Fatalf("credential = %#v", credential)
+	}
+}
+
+func TestCompleteCodexBrowserAuthorizationRejectsStateBeforeExchange(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+
+	_, err := CompleteCodexBrowserAuthorization(context.Background(), BrowserAuthorizationCompletion{
+		ExpectedState: "expected",
+		ReturnedState: "different",
+		Code:          "code",
+		CodeVerifier:  "verifier",
+	}, Options{TokenURL: server.URL, HTTPClient: server.Client(), AccountID: "account-123"})
+	if !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("error = %v, want ErrInvalidState", err)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("token requests = %d, want 0", requests.Load())
+	}
+}
+
+func TestCompleteCodexBrowserAuthorizationRejectsIncompleteCredential(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"access","refresh_token":"refresh","expires_in":3600}`)
+	}))
+	defer server.Close()
+
+	_, err := CompleteCodexBrowserAuthorization(context.Background(), BrowserAuthorizationCompletion{
+		ExpectedState: "state",
+		ReturnedState: "state",
+		Code:          "auth-code",
+		CodeVerifier:  "verifier",
+	}, Options{TokenURL: server.URL, HTTPClient: server.Client()})
+	if err == nil || !strings.Contains(err.Error(), "account_id") {
+		t.Fatalf("error = %v, want missing account_id", err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("token requests = %d, want 1", requests.Load())
+	}
+}
+
+func TestRefreshCodexCredentialOnce(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		values, _ := url.ParseQuery(string(body))
+		if values.Get("refresh_token") != "old-refresh" {
+			t.Errorf("refresh_token = %q", values.Get("refresh_token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"new-access","refresh_token":"new-refresh","id_token":"","expires_in":7200}`)
+	}))
+	defer server.Close()
+
+	credential, err := RefreshCodexCredentialOnce(context.Background(), CodexCredential{
+		Type:         ProviderCodex,
+		AccessToken:  "old-access",
+		RefreshToken: "old-refresh",
+		AccountID:    "account-123",
+		Email:        "admin@example.com",
+	}, Options{TokenURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatalf("RefreshCodexCredentialOnce() error = %v", err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("refresh requests = %d, want 1", requests.Load())
+	}
+	if credential.AccessToken != "new-access" || credential.RefreshToken != "new-refresh" {
+		t.Fatalf("credential = %#v", credential)
+	}
+	if credential.AccountID != "account-123" || credential.Email != "admin@example.com" {
+		t.Fatalf("identity changed: %#v", credential)
+	}
+}
+
+func TestRefreshCodexCredentialOnceHonorsCancellation(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := RefreshCodexCredentialOnce(ctx, CodexCredential{
+		Type:         ProviderCodex,
+		AccessToken:  "old-access",
+		RefreshToken: "old-refresh",
+		AccountID:    "account-123",
+	}, Options{TokenURL: server.URL, HTTPClient: server.Client()})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestRefreshCodexCredentialOnceClassifiesTokenEndpointError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"refresh token expired","refresh_token":"must-not-escape"}`)
+	}))
+	defer server.Close()
+
+	_, err := RefreshCodexCredentialOnce(context.Background(), CodexCredential{
+		Type:         ProviderCodex,
+		AccessToken:  "old-access",
+		RefreshToken: "old-refresh",
+		AccountID:    "account-123",
+	}, Options{TokenURL: server.URL, HTTPClient: server.Client()})
+	var tokenErr *TokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusBadRequest || tokenErr.Code != "invalid_grant" {
+		t.Fatalf("error = %#v, want sanitized invalid_grant", err)
+	}
+	if strings.Contains(err.Error(), "refresh token expired") || strings.Contains(err.Error(), "must-not-escape") {
+		t.Fatalf("TokenEndpointError leaked provider response: %v", err)
+	}
+}
+
+func TestCodexHTTPExecutorDoesNotFollowRedirects(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := requests.Add(1)
+		if count == 1 {
+			w.Header().Set("Location", "/second")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	executor := NewCodexHTTPExecutor()
+	auth := NewCodexAuth("credential-1", CodexCredential{
+		Type:         ProviderCodex,
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+		AccountID:    "account-123",
+	}, server.URL)
+	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "gpt-5.2",
+		Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`),
+		Format:  sdktranslator.FormatOpenAIResponse,
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want upstream redirect error")
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("upstream requests = %d, want 1", requests.Load())
+	}
+}
+
+func TestCodexHTTPExecutorCanonicalFacadeExecutesOnce(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2\",\"output\":[]}}\n\n")
+	}))
+	defer server.Close()
+	executor := NewCodexHTTPExecutor()
+	credential := CodexCredential{Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123"}
+	// This lower-level auth call only changes the test endpoint. Production
+	// canonical facade deliberately has no base URL input.
+	_, _ = executor.Execute(context.Background(), NewCodexAuth("probe", credential, server.URL), cliproxyexecutor.Request{
+		Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`), Format: sdktranslator.FormatOpenAIResponse,
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse})
+	if requests.Load() != 1 {
+		t.Fatalf("requests = %d, want 1", requests.Load())
+	}
+	var _ HTTPExecutor = executor
+}
+
+func TestCodexHTTPExecutorCanonicalFacadeLoadsChatTranslator(t *testing.T) {
+	t.Parallel()
+	var upstreamBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2\",\"output\":[]}}\n\n")
+	}))
+	defer server.Close()
+	executor := NewCodexHTTPExecutor()
+	auth := NewCodexAuth("probe", CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}, server.URL)
+	_, _ = executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model: "gpt-5.2", Payload: []byte(`{"messages":[{"role":"user","content":"hello"}],"store":false}`), Format: sdktranslator.FormatOpenAI,
+	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAI, ResponseFormat: sdktranslator.FormatOpenAI})
+	if len(upstreamBody) == 0 {
+		t.Fatal("upstream body is empty")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(upstreamBody, &payload); err != nil {
+		t.Fatalf("decode upstream body: %v", err)
+	}
+	if _, exists := payload["messages"]; exists {
+		t.Fatalf("chat messages were not translated: %s", upstreamBody)
+	}
+	if input, exists := payload["input"].([]any); !exists || len(input) == 0 {
+		t.Fatalf("translated input is missing: %s", upstreamBody)
+	}
+}
+
+func TestListCodexModelsRequestsOnceAndNormalizesIDs(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/models" || r.URL.Query().Get("client_version") == "" ||
+			r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("Chatgpt-Account-Id") != "account-123" {
+			t.Errorf("request = %s %s %#v", r.Method, r.URL.String(), r.Header)
+		}
+		_, _ = io.WriteString(w, `{"models":[{"slug":"gpt-5.2"},{"id":"gpt-5.3"},{"slug":"gpt-5.2"}]}`)
+	}))
+	defer server.Close()
+
+	models, err := ListCodexModels(context.Background(), CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 || len(models) != 2 || models[0].ID != "gpt-5.2" || models[1].ID != "gpt-5.3" {
+		t.Fatalf("requests=%d models=%#v", requests.Load(), models)
+	}
+}
+
+func TestObserveCodexAccountUsesFixedUsagePathOnce(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/wham/usage" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		w.Header().Set("Retry-After", "30")
+		_, _ = io.WriteString(w, `{"plan_type":"plus","rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":25}}}`)
+	}))
+	defer server.Close()
+
+	observation, err := ObserveCodexAccount(context.Background(), CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 || !json.Valid(observation.Payload) || observation.Header.Get("Retry-After") != "30" {
+		t.Fatalf("requests=%d observation=%#v", requests.Load(), observation)
+	}
+}
+
+func TestNewCodexAuthContainsOnlyCanonicalExecutionMetadata(t *testing.T) {
+	t.Parallel()
+
+	auth := NewCodexAuth("credential-1", CodexCredential{
+		Type:         ProviderCodex,
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+		IDToken:      "id",
+		AccountID:    "account-123",
+		Email:        "admin@example.com",
+		Expire:       time.Now().UTC().Format(time.RFC3339),
+	}, "")
+	if auth.Provider != ProviderCodex || auth.ID != "credential-1" {
+		t.Fatalf("auth identity = %#v", auth)
+	}
+	if _, ok := auth.Metadata["access_token"]; !ok {
+		t.Fatal("access_token metadata missing")
+	}
+	for _, forbidden := range []string{"proxy_url", "headers", "request_retry", "websockets"} {
+		if _, ok := auth.Metadata[forbidden]; ok {
+			t.Fatalf("forbidden metadata %q present", forbidden)
+		}
+	}
+	var _ cliproxyauth.ProviderExecutor = NewCodexHTTPExecutor()
+}

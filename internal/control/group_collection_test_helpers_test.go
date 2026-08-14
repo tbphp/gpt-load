@@ -104,8 +104,8 @@ func createGroupCollectionKey(
 	}
 	return state.CredentialEntry{
 		ID: row.ID, GroupID: groupID, Status: runtimeStatus, WeightManual: weight,
-		Version:            groupCollectionCredentialVersion(row.UpdatedAtMS),
-		IdentityGeneration: groupCollectionCredentialIdentity(row.Fingerprint, group),
+		Version:            groupCollectionCredentialVersion(row.SecretVersion),
+		IdentityGeneration: groupCollectionCredentialIdentity(row.IdentityFingerprint, group),
 		Fingerprint:        row.Fingerprint,
 		EncryptedValue:     row.Data,
 	}

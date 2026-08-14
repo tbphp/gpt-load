@@ -74,6 +74,7 @@ type credentialMutationCoordinator interface {
 type runtimeCredentialRegistry interface {
 	scheduler.CredentialSource
 	CaptureActiveCredentialRefs(groupIDs []uint) []state.CredentialRef
+	CredentialRef(credentialID uint) (state.CredentialRef, bool)
 	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
 	SetCooldownWithChange(credentialID uint, until time.Time) (exists bool, changed bool)
 	IncrFailure(credentialID uint) (int, bool)
@@ -583,21 +584,44 @@ func (handler *Handler) executeAttempts(
 	var lastProviderError *deferredAttempt
 	lastAttemptIndex := -1
 	attempts := 0
+	type credentialRefreshRetry struct {
+		selection scheduler.Selection
+		ref       state.CredentialRef
+	}
+	var refreshRetry *credentialRefreshRetry
 	for attempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
 		}
-		selection, err := iterator.Next()
-		if errors.Is(err, scheduler.ErrExhausted) {
-			break
-		}
-		if err != nil {
-			break
-		}
-		ref, allowed := allowedCredentialRefs[selection.CredentialID]
-		if !allowed || ref.GroupID != selection.GroupID {
-			continue
+		forceCredentialRefresh := false
+		var selection scheduler.Selection
+		var ref state.CredentialRef
+		if refreshRetry != nil {
+			selection = refreshRetry.selection
+			currentRef, exists := handler.registry.CredentialRef(selection.CredentialID)
+			if !exists || currentRef.GroupID != selection.GroupID ||
+				currentRef.IdentityGeneration != refreshRetry.ref.IdentityGeneration {
+				refreshRetry = nil
+				continue
+			}
+			ref = currentRef
+			forceCredentialRefresh = currentRef.Version <= refreshRetry.ref.Version
+			refreshRetry = nil
+		} else {
+			var err error
+			selection, err = iterator.Next()
+			if errors.Is(err, scheduler.ErrExhausted) {
+				break
+			}
+			if err != nil {
+				break
+			}
+			candidateRef, allowed := allowedCredentialRefs[selection.CredentialID]
+			if !allowed || candidateRef.GroupID != selection.GroupID {
+				continue
+			}
+			ref = candidateRef
 		}
 		encrypted, active := handler.registry.ActiveEncryptedCredentialDataIfMatch(ref)
 		if !active {
@@ -610,6 +634,7 @@ func (handler *Handler) executeAttempts(
 		normalizedCredential, err := normalizeChannelCredential(
 			handler.channels,
 			selection.ChannelID,
+			selection.Group.ConnectionType,
 			decryptedCredential,
 		)
 		if err != nil {
@@ -639,6 +664,7 @@ func (handler *Handler) executeAttempts(
 			Operation:        operation,
 			RouteRequirement: routeRequirement,
 			ChannelID:        string(selection.ChannelID),
+			ConnectionType:   selection.Group.ConnectionType,
 			TargetKind:       string(selection.ResolvedTarget.ProviderKind),
 			RouteMode:        execution.RouteMode(selection.RouteMode),
 			TargetConfig:     selection.ResolvedTarget.TargetConfig,
@@ -648,6 +674,7 @@ func (handler *Handler) executeAttempts(
 				ref.IdentityGeneration,
 				normalizedCredential.payload,
 			),
+			ForceCredentialRefresh: forceCredentialRefresh,
 			OnFirstResponse: func() {
 				recorder.recordFirstResponse()
 			},
@@ -719,6 +746,12 @@ func (handler *Handler) executeAttempts(
 		)
 		lastAttemptIndex = recordedAttempt
 		handler.applyCredentialAction(selection.CredentialID, decision, result.StatusCode, attemptNow)
+		if result.ExecutionError != nil &&
+			result.ExecutionError.Hint == execution.FailureHintRefreshRequired &&
+			result.ExecutionError.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing &&
+			selection.Group.ConnectionType == "subscription" && attempts < maxAttempts {
+			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
+		}
 		if decision.Action == health.ActionSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
@@ -849,6 +882,14 @@ func shouldRetryAcrossCandidates(
 		return true
 	}
 	if result.DispatchState != execution.DispatchMaybeSent {
+		return false
+	}
+	if result.ExecutionError != nil &&
+		(result.ExecutionError.Hint == execution.FailureHintRefreshRequired ||
+			result.ExecutionError.Hint == execution.FailureHintReauthorizationRequired) {
+		return result.ExecutionError.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing
+	}
+	if result.ExecutionError != nil && result.ExecutionError.ReplaySafety == execution.ReplaySafetyUnknown {
 		return false
 	}
 	switch result.StatusCode {

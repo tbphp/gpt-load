@@ -16,6 +16,7 @@ export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'
 export type GroupCollectionSort = 'status' | 'name' | 'credentials' | 'created'
 export type ModelPricingStatus = 'pending' | 'configured'
 export type ChannelParamsDto = Record<string, string>
+export type ConnectionType = 'api_key' | 'subscription'
 
 export interface GroupCollectionFilters {
   q?: string
@@ -36,6 +37,7 @@ export interface GroupCollectionItemDto {
   id: number
   name: string
   channel_id: string
+  connection_type: ConnectionType
   params: ChannelParamsDto
   status: GroupCollectionStatus
   model_count: number
@@ -60,6 +62,7 @@ export interface GroupSummaryDto {
   id: number
   name: string
   channel_id: string
+  connection_type: ConnectionType
   params: ChannelParamsDto
   service_status: GroupCollectionStatus
   credential_count: number
@@ -92,6 +95,7 @@ export interface GroupEffectiveConfigDto {
 export interface GroupSettingsDto {
   name: string
   channel_id: string
+  connection_type: ConnectionType
   params: ChannelParamsDto
   validation_model: string | null
   enabled: boolean
@@ -118,6 +122,46 @@ export type CredentialStatus = 'available' | 'cooldown' | 'blacklisted' | 'disab
 export type CredentialConfiguredStatus = 'active' | 'disabled'
 export type CredentialWeightMode = 'auto' | 'manual'
 export type CredentialRecoveryMode = 'none' | 'cooldown' | 'probe' | 'manual'
+export type CredentialAuthState =
+  'ready' | 'refreshing' | 'reauthorization_required' | 'outcome_unknown'
+export type CredentialObservationState = 'fresh' | 'stale' | 'refreshing' | 'error' | 'unavailable'
+
+export interface CredentialAccountDto {
+  email_mask?: string
+}
+
+export interface CredentialQuotaWindowDto {
+  id: string
+  label: string
+  scope: string
+  unit: string
+  used?: number
+  limit?: number
+  remaining?: number
+  utilization?: number
+  reset_at_ms?: number
+  window_seconds?: number
+  model_ids?: string[]
+  state: 'available' | 'exhausted' | 'unknown'
+  is_primary?: boolean
+}
+
+export interface CredentialObservationSnapshotDto {
+  plan_summary: { name?: string }
+  quota_windows: CredentialQuotaWindowDto[]
+  reset_credits_available?: number
+}
+
+export interface CredentialObservationDto {
+  state: CredentialObservationState
+  snapshot: CredentialObservationSnapshotDto | null
+  observation_version: number
+  observed_at_ms: number | null
+  fresh_until_ms: number | null
+  last_attempt_at_ms: number | null
+  next_allowed_at_ms: number | null
+  last_error_code?: string
+}
 
 export interface CredentialRecoveryDto {
   mode: CredentialRecoveryMode
@@ -127,7 +171,12 @@ export interface CredentialRecoveryDto {
 
 export interface CredentialItemDto {
   credential_id: number
+  connection_type: ConnectionType
+  secret_version: number
   mask: string
+  account: CredentialAccountDto
+  auth_state: CredentialAuthState
+  observation?: CredentialObservationDto
   configured_status: CredentialConfiguredStatus
   effective_status: CredentialStatus
   weight_mode: CredentialWeightMode
@@ -186,6 +235,7 @@ export interface GroupOptionDto {
   id: number
   name: string
   channel_id: string
+  connection_type: ConnectionType
   params: ChannelParamsDto
   enabled: boolean
   models: string[]

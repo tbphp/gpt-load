@@ -13,6 +13,7 @@ type CredentialRuntimeView struct {
 	WeightManual       *int
 	WeightAuto         int
 	Status             CredentialStatus
+	AuthState          CredentialAuthState
 	CooldownUntil      time.Time
 	Blacklisted        bool
 	FailureCount       int
@@ -49,6 +50,7 @@ func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 		WeightManual:       cloneWeight(entry.WeightManual),
 		WeightAuto:         entry.WeightAuto,
 		Status:             entry.Status,
+		AuthState:          entry.AuthState.normalize(),
 		CooldownUntil:      entry.CooldownUntil,
 		Blacklisted:        entry.Blacklisted,
 		FailureCount:       entry.FailureCount,

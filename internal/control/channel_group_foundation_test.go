@@ -164,6 +164,82 @@ func TestGroupCreateWireAcceptsOnlyChannelContract(t *testing.T) {
 	}
 }
 
+func TestGroupCreateDefaultsAPIKeyAndValidatesSubscriptionContract(t *testing.T) {
+	t.Parallel()
+
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("default api key"), ChannelID: channel.OpenAI,
+		Models: optionalGroupModels{Set: true}, Credentials: "sk-default",
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup(api_key) error = %v", err)
+	}
+	var group models.Group
+	if err := fixture.db.Take(&group, created.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if group.ConnectionType != models.ConnectionTypeAPIKey {
+		t.Fatalf("connection_type = %q", group.ConnectionType)
+	}
+
+	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("invalid subscription channel"), ChannelID: channel.Anthropic,
+		ConnectionType: models.ConnectionTypeSubscription,
+		Models:         optionalGroupModels{Set: true}, StagedCredentialIDs: []string{"stage-one"},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("unsupported subscription error = %v", err)
+	}
+	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("mixed input"), ChannelID: channel.OpenAI,
+		ConnectionType: models.ConnectionTypeSubscription,
+		Models:         optionalGroupModels{Set: true}, Credentials: "sk-mixed",
+		StagedCredentialIDs: []string{"stage-one"},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("mixed credential input error = %v", err)
+	}
+	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("subscription custom target"), ChannelID: channel.OpenAI,
+		ConnectionType: models.ConnectionTypeSubscription,
+		Params:         json.RawMessage(`{"base_url":"https://example.com/v1"}`),
+		Models:         optionalGroupModels{Set: true}, StagedCredentialIDs: []string{"stage-one"},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("subscription custom target error = %v", err)
+	}
+}
+
+func TestSameTargetIncludesConnectionType(t *testing.T) {
+	t.Parallel()
+
+	fixture := newServiceFixture(t)
+	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("api target"), ChannelID: channel.OpenAI,
+		Models: optionalGroupModels{Set: true}, Credentials: "sk-target",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var apiGroup models.Group
+	if err := fixture.db.Take(&apiGroup, first.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	conflicts, err := findGroupsByTarget(
+		fixture.db,
+		channel.OpenAI,
+		models.ConnectionTypeSubscription,
+		apiGroup.Params,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("subscription target conflicts with api_key target: %#v", conflicts)
+	}
+}
+
 func TestCreateChannelGroupPersistsCanonicalCredentialsAndPublishes(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.now = func() time.Time { return time.UnixMilli(1_786_000_000_000) }
@@ -408,7 +484,7 @@ func TestChannelGroupCollectionDetailAndOptionsUseChannelCredentialContract(t *t
 	if legacyCredentialQueries != 0 {
 		t.Fatalf("legacy upstream key queries = %d, want 0", legacyCredentialQueries)
 	}
-	if want := []string{"id", "group_id", "fingerprint", "status", "weight_manual", "updated_at_ms"}; !reflect.DeepEqual(credentialSelects, want) {
+	if want := []string{"id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual"}; !reflect.DeepEqual(credentialSelects, want) {
 		t.Fatalf("credential SELECT columns = %#v, want %#v", credentialSelects, want)
 	}
 	item := collection.Items[0]

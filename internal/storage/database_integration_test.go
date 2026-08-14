@@ -88,10 +88,21 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	for _, table := range []string{
 		"groups", "credentials", "access_keys", "request_logs", "request_log_attempts",
 		"usage_aggregation_journal", "usage_stats", "model_prices", "system_settings",
-		"jobs", "control_operations", "schema_migrations",
+		"jobs", "control_operations", "credential_stages", "credential_observations",
+		"schema_migrations",
 	} {
 		if !db.Migrator().HasTable(table) {
 			t.Fatalf("table %q is missing", table)
+		}
+	}
+	for table, columns := range map[string][]string{
+		"groups":      {"connection_type"},
+		"credentials": {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
+	} {
+		for _, column := range columns {
+			if !db.Migrator().HasColumn(table, column) {
+				t.Fatalf("column %q.%q is missing", table, column)
+			}
 		}
 	}
 
@@ -110,6 +121,46 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	}
 	if err := db.Create(&credential).Error; err != nil {
 		t.Fatalf("create credential: %v", err)
+	}
+	stage := models.CredentialStage{
+		ID: fmt.Sprintf("stage-%d", time.Now().UnixNano()), ChannelID: "openai",
+		ConnectionType: models.ConnectionTypeSubscription, AuthorizationMethod: "oauth_file",
+		Status: models.CredentialStageReady, EncryptedPayload: "encrypted-stage-data",
+		PayloadSchemaVersion: 1, SafeSummaryJSON: models.JSON(`{"email_mask":"a***z@example.com"}`),
+		IdentityFingerprint: "integration-stage-identity", ExpiresAtMS: time.Now().Add(time.Minute).UnixMilli(),
+		CreatedAtMS: time.Now().UnixMilli(), UpdatedAtMS: time.Now().UnixMilli(),
+	}
+	if err := db.Create(&stage).Error; err != nil {
+		t.Fatalf("create credential stage: %v", err)
+	}
+	observation := models.CredentialObservation{
+		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
+		SchemaVersion: 1, ObservationVersion: 1, SnapshotJSON: models.JSON(`{"quota_windows":[]}`),
+		State: models.CredentialObservationFresh, UpdatedAtMS: time.Now().UnixMilli(),
+	}
+	if err := db.Create(&observation).Error; err != nil {
+		t.Fatalf("create credential observation: %v", err)
+	}
+	invalidGroup := group
+	invalidGroup.ID = 0
+	invalidGroup.Name = fmt.Sprintf("invalid-connection-%d", time.Now().UnixNano())
+	invalidGroup.ConnectionType = models.ConnectionType("invalid")
+	if err := db.Create(&invalidGroup).Error; err == nil {
+		t.Fatal("database accepted an invalid Group connection_type")
+	}
+	invalidStage := stage
+	invalidStage.ID = fmt.Sprintf("invalid-stage-%d", time.Now().UnixNano())
+	invalidStage.Status = models.CredentialStageStatus("invalid")
+	if err := db.Create(&invalidStage).Error; err == nil {
+		t.Fatal("database accepted an invalid CredentialStage status")
+	}
+	duplicateIdentity := models.Credential{
+		GroupID: group.ID, Data: "other-encrypted-data",
+		Fingerprint:         fmt.Sprintf("other-secret-%d", time.Now().UnixNano()),
+		IdentityFingerprint: credential.IdentityFingerprint,
+	}
+	if err := db.Create(&duplicateIdentity).Error; err == nil {
+		t.Fatal("database accepted a duplicate Group credential identity")
 	}
 
 	setting := models.SystemSetting{

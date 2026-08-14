@@ -179,6 +179,15 @@ type controlledOperationRecovery struct {
 	returned chan struct{}
 }
 
+type controlledStageCleaner struct {
+	calls chan time.Time
+}
+
+func (cleaner *controlledStageCleaner) CleanupCredentialStages(_ context.Context, now time.Time) error {
+	cleaner.calls <- now
+	return nil
+}
+
 func (recovery *controlledOperationRecovery) RunOperationRecovery(ctx context.Context) {
 	close(recovery.started)
 	<-ctx.Done()
@@ -275,6 +284,41 @@ func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T
 	if got := cleaner.maxActive.Load(); got != 1 {
 		t.Fatalf("maximum concurrent Sweeps = %d, want 1", got)
 	}
+}
+
+func TestRuntimeSweepsCredentialStagesWithoutRequestLogCleaner(t *testing.T) {
+	base := time.Date(2026, time.August, 13, 8, 0, 0, 0, time.UTC)
+	autoTicker := newFakeRuntimeTicker()
+	validationTicker := newFakeRuntimeTicker()
+	retentionTicker := newFakeRuntimeTicker()
+	created := make(chan time.Duration, 3)
+	runtime := newTestRuntime(newFakeAutoWeightRegistry(), health.NewStatsStore(), newFakeValidationSweep(false), autoTicker, validationTicker, created, func() time.Time { return base })
+	cleaner := &controlledStageCleaner{calls: make(chan time.Time, 2)}
+	runtime.stageCleaner = cleaner
+	runtime.newTicker = func(interval time.Duration) runtimeTicker {
+		created <- interval
+		switch interval {
+		case 30 * time.Second:
+			return autoTicker
+		case 32 * time.Minute:
+			return validationTicker
+		case time.Hour:
+			return retentionTicker
+		default:
+			testingPanic("unexpected ticker interval", interval)
+			return nil
+		}
+	}
+	cancel, done := startRuntime(t, runtime)
+	awaitTickers(t, created)
+	if interval := awaitValue(t, created); interval != time.Hour {
+		t.Fatalf("retention interval = %v", interval)
+	}
+	if got := awaitValue(t, cleaner.calls); !got.Equal(base) {
+		t.Fatalf("cleanup time = %v", got)
+	}
+	stopRuntime(t, cancel, done)
+	awaitSignal(t, retentionTicker.stopped)
 }
 
 func TestRuntimeCancellationWaitsForRetentionSweep(t *testing.T) {

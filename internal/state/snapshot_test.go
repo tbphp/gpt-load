@@ -56,6 +56,36 @@ func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
 	}
 }
 
+func TestCompileSubscriptionPublishesOnlyVerifiedCodexOperations(t *testing.T) {
+	t.Parallel()
+	snapshot, err := Compile(CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.OpenAI, ConnectionType: "subscription",
+			Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "gpt-5", Alias: "public"}}, Enabled: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if got := snapshot.ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]["public"]; len(got) != 1 {
+		t.Fatalf("chat targets = %#v", got)
+	}
+	if got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesCreate]["public"]; len(got) != 1 {
+		t.Fatalf("responses create targets = %#v", got)
+	}
+	for _, operation := range []execution.Operation{
+		execution.OperationResponsesRetrieve, execution.OperationResponsesDelete,
+		execution.OperationResponsesCancel, execution.OperationResponsesCompact,
+		execution.OperationResponsesInputItems, execution.OperationResponsesInputTokens,
+		execution.OperationResponsesPassthrough,
+	} {
+		if got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][operation]; len(got) != 0 {
+			t.Fatalf("unsupported subscription operation %q was published: %#v", operation, got)
+		}
+	}
+}
+
 func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.T) {
 	t.Parallel()
 

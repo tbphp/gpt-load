@@ -232,6 +232,52 @@ func TestEnsureInitialStateDoesNotLogPlaintext(t *testing.T) {
 	}
 }
 
+func TestEnsureInitialStateRecoversInterruptedSubscriptionAuth(t *testing.T) {
+	t.Parallel()
+
+	fixture := newServiceFixture(t)
+	now := time.UnixMilli(1_800_000_000_000)
+	fixture.service.now = func() time.Time { return now }
+	group := validControlGroup("subscription-recovery")
+	group.ConnectionType = models.ConnectionTypeSubscription
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	credential := models.Credential{
+		GroupID: group.ID, Data: "cipher", Fingerprint: "secret", IdentityFingerprint: "identity",
+		SecretVersion: 2, AuthState: models.CredentialAuthStateRefreshing,
+		Status: models.CredentialStatusActive, CreatedAtMS: now.Add(-time.Hour).UnixMilli(), UpdatedAtMS: now.Add(-time.Hour).UnixMilli(),
+	}
+	if err := fixture.db.Create(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	stage := models.CredentialStage{
+		ID: "00000000-0000-4000-8000-000000000901", ChannelID: "openai",
+		ConnectionType: models.ConnectionTypeSubscription, AuthorizationMethod: "browser_oauth",
+		Status: models.CredentialStageExchanging, EncryptedPayload: "encrypted-stage", PayloadSchemaVersion: 1,
+		SafeSummaryJSON: models.JSON(`{}`), ExpiresAtMS: now.Add(time.Minute).UnixMilli(),
+		CreatedAtMS: now.Add(-time.Minute).UnixMilli(), UpdatedAtMS: now.Add(-time.Minute).UnixMilli(),
+	}
+	if err := fixture.db.Create(&stage).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.EnsureInitialState(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.Take(&credential, credential.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if credential.AuthState != models.CredentialAuthStateOutcomeUnknown || credential.AuthErrorCode != "refresh_interrupted" {
+		t.Fatalf("credential = %#v", credential)
+	}
+	if err := fixture.db.Take(&stage, "id = ?", stage.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stage.Status != models.CredentialStageOutcomeUnknown || stage.EncryptedPayload != "" || stage.ErrorCode != "authorization_exchange_interrupted" {
+		t.Fatalf("stage = %#v", stage)
+	}
+}
+
 type bootstrapFailingEncryptService struct {
 	encryption.Service
 }

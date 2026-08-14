@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
@@ -63,19 +64,24 @@ type CredentialSummaryResponse struct {
 }
 
 type CredentialItemResponse struct {
-	CredentialID            uint                       `json:"credential_id"`
-	Mask                    string                     `json:"mask"`
-	ConfiguredStatus        string                     `json:"configured_status"`
-	EffectiveStatus         string                     `json:"effective_status"`
-	WeightMode              string                     `json:"weight_mode"`
-	Weight                  *int                       `json:"weight"`
-	RecentSuccessCount      uint64                     `json:"recent_success_count"`
-	RecentFailureCount      uint64                     `json:"recent_failure_count"`
-	ConsecutiveFailureCount uint64                     `json:"consecutive_failure_count"`
-	LastFailureCategory     string                     `json:"last_failure_category"`
-	LastStatusCode          *int                       `json:"last_status_code"`
-	CooldownUntilMS         *int64                     `json:"cooldown_until_ms"`
-	Recovery                CredentialRecoveryResponse `json:"recovery"`
+	CredentialID            uint                           `json:"credential_id"`
+	ConnectionType          string                         `json:"connection_type"`
+	SecretVersion           uint64                         `json:"secret_version"`
+	Mask                    string                         `json:"mask"`
+	Account                 CredentialStageAccount         `json:"account"`
+	AuthState               string                         `json:"auth_state"`
+	Observation             *CredentialObservationResponse `json:"observation,omitempty"`
+	ConfiguredStatus        string                         `json:"configured_status"`
+	EffectiveStatus         string                         `json:"effective_status"`
+	WeightMode              string                         `json:"weight_mode"`
+	Weight                  *int                           `json:"weight"`
+	RecentSuccessCount      uint64                         `json:"recent_success_count"`
+	RecentFailureCount      uint64                         `json:"recent_failure_count"`
+	ConsecutiveFailureCount uint64                         `json:"consecutive_failure_count"`
+	LastFailureCategory     string                         `json:"last_failure_category"`
+	LastStatusCode          *int                           `json:"last_status_code"`
+	CooldownUntilMS         *int64                         `json:"cooldown_until_ms"`
+	Recovery                CredentialRecoveryResponse     `json:"recovery"`
 }
 
 type CredentialRecoveryResponse struct {
@@ -110,22 +116,49 @@ type CredentialBatchResponse struct {
 }
 
 type credentialCapture struct {
-	group      models.Group
-	rows       []models.Credential
-	views      []state.CredentialRuntimeView
-	observedAt time.Time
+	group        models.Group
+	rows         []models.Credential
+	observations []models.CredentialObservation
+	views        []state.CredentialRuntimeView
+	observedAt   time.Time
 }
 
 type credentialObservation struct {
-	group      models.Group
-	rows       []models.Credential
-	runtime    map[uint]state.CredentialRuntimeView
-	observedAt time.Time
+	group        models.Group
+	rows         []models.Credential
+	subscription map[uint]models.CredentialObservation
+	runtime      map[uint]state.CredentialRuntimeView
+	observedAt   time.Time
 }
 
 type credentialCollectionRecord struct {
 	item   CredentialItemResponse
 	bucket healthBucket
+}
+
+func normalizeGroupConnectionType(value models.ConnectionType) models.ConnectionType {
+	if value == "" {
+		return models.ConnectionTypeAPIKey
+	}
+	return value
+}
+
+func credentialPresentation(
+	group models.Group,
+	row models.Credential,
+	canonical json.RawMessage,
+	identity string,
+) (string, CredentialStageAccount, error) {
+	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
+		account := CredentialStageAccount{EmailMask: maskEmail(identity)}
+		mask := account.EmailMask
+		if mask == "" {
+			mask = fmt.Sprintf("Subscription #%d", row.ID)
+		}
+		return mask, account, nil
+	}
+	mask, err := maskCanonicalCredential(canonical)
+	return mask, CredentialStageAccount{}, err
 }
 
 func (s *Service) ImportGroupCredentials(
@@ -144,6 +177,9 @@ func (s *Service) ImportGroupCredentials(
 			return err
 		}
 		if group.ChannelID == "" {
+			return app_errors.ErrValidation
+		}
+		if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeAPIKey {
 			return app_errors.ErrValidation
 		}
 		normalized, err := s.normalizeCredentials(channel.ID(group.ChannelID), request.Credentials)
@@ -201,9 +237,15 @@ func (s *Service) captureCredentials(ctx context.Context, groupID uint) (credent
 	if groupErr == nil {
 		rowsErr = s.db.WithContext(ctx).Where("group_id = ?", groupID).Order("id ASC").Find(&rows).Error
 	}
+	observations := make([]models.CredentialObservation, 0)
+	var observationsErr error
+	if groupErr == nil && rowsErr == nil && len(rows) > 0 && normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
+		observationsErr = s.db.WithContext(ctx).
+			Where("credential_id IN (?)", credentialIDs(rows)).Find(&observations).Error
+	}
 	var views []state.CredentialRuntimeView
 	var observedAt time.Time
-	if groupErr == nil && rowsErr == nil {
+	if groupErr == nil && rowsErr == nil && observationsErr == nil {
 		views = s.registry.Snapshot()
 		observedAt = s.now().UTC()
 	}
@@ -220,7 +262,18 @@ func (s *Service) captureCredentials(ctx context.Context, groupID uint) (credent
 	if rowsErr != nil {
 		return credentialCapture{}, app_errors.ParseDBError(rowsErr)
 	}
-	return credentialCapture{group: group, rows: rows, views: views, observedAt: observedAt}, nil
+	if observationsErr != nil {
+		return credentialCapture{}, app_errors.ParseDBError(observationsErr)
+	}
+	return credentialCapture{group: group, rows: rows, observations: observations, views: views, observedAt: observedAt}, nil
+}
+
+func credentialIDs(rows []models.Credential) []uint {
+	ids := make([]uint, len(rows))
+	for index := range rows {
+		ids[index] = rows[index].ID
+	}
+	return ids
 }
 
 func validateCredentialCapture(capture credentialCapture) (credentialObservation, error) {
@@ -241,11 +294,14 @@ func validateCredentialCapture(capture credentialCapture) (credentialObservation
 		if view.Status != state.CredentialStatus(row.Status) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchStatus, groupID, row.ID)
 		}
+		if view.AuthState != normalizeRuntimeCredentialAuthState(row.AuthState) {
+			return credentialObservation{}, dbRegistryMismatch(mismatchStatus, groupID, row.ID)
+		}
 		if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
 		}
-		if view.Version != groupCollectionCredentialVersion(row.UpdatedAtMS) ||
-			view.IdentityGeneration != groupCollectionCredentialIdentity(row.Fingerprint, capture.group) {
+		if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
+			view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, capture.group) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchIdentity, groupID, row.ID)
 		}
 		persisted[row.ID] = struct{}{}
@@ -257,7 +313,18 @@ func validateCredentialCapture(capture credentialCapture) (credentialObservation
 			}
 		}
 	}
-	return credentialObservation{group: capture.group, rows: capture.rows, runtime: byID, observedAt: capture.observedAt}, nil
+	subscription := make(map[uint]models.CredentialObservation, len(capture.observations))
+	for _, row := range capture.observations {
+		subscription[row.CredentialID] = row
+	}
+	return credentialObservation{group: capture.group, rows: capture.rows, subscription: subscription, runtime: byID, observedAt: capture.observedAt}, nil
+}
+
+func normalizeRuntimeCredentialAuthState(value models.CredentialAuthState) state.CredentialAuthState {
+	if value == "" {
+		return state.CredentialAuthStateReady
+	}
+	return state.CredentialAuthState(value)
 }
 
 func (s *Service) decodeCredential(group models.Group, row models.Credential) (json.RawMessage, string, error) {
@@ -265,7 +332,20 @@ func (s *Service) decodeCredential(group models.Group, row models.Credential) (j
 	if err != nil {
 		return nil, "", fmt.Errorf("decrypt credential %d: %w", row.ID, app_errors.ErrInternalServer)
 	}
+	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
+		credential, err := cpaembedded.ParseCodexCredentialJSON([]byte(plaintext))
+		plaintext = ""
+		if err != nil {
+			return nil, "", fmt.Errorf("validate subscription credential %d: %w", row.ID, app_errors.ErrInternalServer)
+		}
+		canonical, err := json.Marshal(credential)
+		if err != nil {
+			return nil, "", fmt.Errorf("encode subscription credential %d: %w", row.ID, app_errors.ErrInternalServer)
+		}
+		return canonical, credential.Email, nil
+	}
 	validated, err := normalizeStoredCredential(s.channelRegistry, channel.ID(group.ChannelID), plaintext)
+	plaintext = ""
 	if err != nil {
 		return nil, "", fmt.Errorf("validate credential %d: %w", row.ID, app_errors.ErrInternalServer)
 	}
@@ -288,11 +368,11 @@ func (s *Service) mapCredentialCollection(
 		Enabled: observation.group.Enabled, WeightManual: cloneInt(observation.group.WeightManual)}
 	records := make([]credentialCollectionRecord, 0, len(observation.rows))
 	for _, row := range observation.rows {
-		canonical, _, err := s.decodeCredential(observation.group, row)
+		canonical, identity, err := s.decodeCredential(observation.group, row)
 		if err != nil {
 			return CredentialCollectionResponse{}, err
 		}
-		mask, err := maskCanonicalCredential(canonical)
+		mask, account, err := credentialPresentation(observation.group, row, canonical, identity)
 		if err != nil {
 			return CredentialCollectionResponse{}, err
 		}
@@ -304,6 +384,11 @@ func (s *Service) mapCredentialCollection(
 		if err != nil {
 			return CredentialCollectionResponse{}, err
 		}
+		item.ConnectionType = string(normalizeGroupConnectionType(observation.group.ConnectionType))
+		item.SecretVersion = row.SecretVersion
+		item.AuthState = string(row.AuthState)
+		item.Account = account
+		item.Observation = presentCredentialObservation(observation.subscription[row.ID], row.IdentityFingerprint, observation.observedAt)
 		records = append(records, credentialCollectionRecord{item: item, bucket: bucket})
 	}
 	summary := summarizeCredentialCollection(records)

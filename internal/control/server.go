@@ -9,11 +9,13 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/i18n"
@@ -37,6 +39,9 @@ const maxControlJSONBodyBytes int64 = 32 << 20
 
 func NewServer(cfg *config.Config, service *Service) *Server {
 	now := time.Now
+	if service != nil && service.oauthCallback != nil {
+		service.oauthCallback.configureForServerHost(cfg.Server.Host)
+	}
 	return &Server{
 		authDigest:    sha256.Sum256([]byte(cfg.AuthKey)),
 		service:       service,
@@ -68,6 +73,98 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 		return
 	}
 	writeSettingsRepresentation(c, representation)
+}
+
+type credentialAuthorizationRequest struct {
+	ChannelID string `json:"channel_id"`
+}
+
+func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
+	var request credentialAuthorizationRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "begin_credential_authorization", mapControlJSONError(err))
+		return
+	}
+	if s.service.oauthCallback == nil || s.service.oauthCallback.EnsureStarted() != nil {
+		writeServiceError(c, "begin_credential_authorization", app_errors.ErrAuthorizationUnavailable)
+		return
+	}
+	result, err := s.service.BeginCredentialAuthorization(c.Request.Context(), channel.ID(request.ChannelID))
+	if err != nil {
+		writeServiceError(c, "begin_credential_authorization", err)
+		return
+	}
+	setMutationResourceLocator(c, "credential-stage:"+result.StageID)
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleImportCredentialStage(c *gin.Context) {
+	reader, err := c.Request.MultipartReader()
+	if err != nil {
+		writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+		return
+	}
+	var raw []byte
+	fileCount := 0
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+			return
+		}
+		if part.FormName() != "file" || part.FileName() == "" {
+			_ = part.Close()
+			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+			return
+		}
+		fileCount++
+		if fileCount != 1 {
+			_ = part.Close()
+			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+			return
+		}
+		raw, err = io.ReadAll(io.LimitReader(part, maxOAuthFileBytes+1))
+		_ = part.Close()
+		if err != nil {
+			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+			return
+		}
+	}
+	if fileCount != 1 {
+		writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+		return
+	}
+	result, err := s.service.ImportCredentialStage(c.Request.Context(), channel.OpenAI, raw)
+	clear(raw)
+	if err != nil {
+		writeServiceError(c, "import_credential_stage", err)
+		return
+	}
+	setMutationResourceLocator(c, "credential-stage:"+result.StageID)
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleGetCredentialStage(c *gin.Context) {
+	result, err := s.service.GetCredentialStage(c.Request.Context(), strings.TrimSpace(c.Param("stage_id")))
+	if err != nil {
+		writeServiceError(c, "get_credential_stage", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleCancelCredentialStage(c *gin.Context) {
+	if err := s.service.CancelCredentialStage(c.Request.Context(), strings.TrimSpace(c.Param("stage_id"))); err != nil {
+		writeServiceError(c, "cancel_credential_stage", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", nil)
 }
 
 func (s *Server) handleUpdateSettings(c *gin.Context) {
@@ -224,6 +321,44 @@ func (s *Server) handleListGroupCredentials(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleGetGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "get_group_credential")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "get_group_credential")
+	if !ok {
+		return
+	}
+	result, err := s.service.GetCredentialDetail(c.Request.Context(), groupID, credentialID)
+	if err != nil {
+		writeServiceError(c, "get_group_credential", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleRefreshGroupCredentialObservation(c *gin.Context) {
+	groupID, ok := groupID(c, "refresh_group_credential_observation")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "refresh_group_credential_observation")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "refresh_group_credential_observation", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.RefreshCredentialObservation(c.Request.Context(), groupID, credentialID)
+	if err != nil {
+		writeServiceError(c, "refresh_group_credential_observation", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleRevealGroupCredential(c *gin.Context) {
 	groupID, ok := groupID(c, "reveal_group_credential")
 	if !ok {
@@ -346,6 +481,58 @@ func (s *Server) handleImportGroupCredentials(c *gin.Context) {
 	)
 	if err != nil {
 		writeServiceError(c, "import_group_credentials", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleConnectGroupCredentials(c *gin.Context) {
+	id, ok := groupID(c, "connect_group_credentials")
+	if !ok {
+		return
+	}
+	idempotencyKey, ok := requiredIdempotencyKey(c, "connect_group_credentials")
+	if !ok {
+		return
+	}
+	var request CredentialConnectRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "connect_group_credentials", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.ConnectGroupCredentialsIdempotent(
+		c.Request.Context(), idempotencyKey, id, request.StagedCredentialIDs,
+	)
+	if err != nil {
+		writeServiceError(c, "connect_group_credentials", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleReauthorizeGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "reauthorize_group_credential")
+	if !ok {
+		return
+	}
+	idempotencyKey, ok := requiredIdempotencyKey(c, "reauthorize_group_credential")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "reauthorize_group_credential")
+	if !ok {
+		return
+	}
+	var request CredentialReauthorizationRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "reauthorize_group_credential", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.ReauthorizeGroupCredentialIdempotent(
+		c.Request.Context(), idempotencyKey, groupID, credentialID, request,
+	)
+	if err != nil {
+		writeServiceError(c, "reauthorize_group_credential", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)

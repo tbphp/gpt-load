@@ -22,7 +22,7 @@ export interface ImportRecoveryService {
 }
 
 interface ImportRecoveryRecord {
-  version: 5
+  version: 6
   expires_at: number
   draft: ImportRecoveryDraft
 }
@@ -80,12 +80,24 @@ function isChannelParams(value: unknown): value is Record<string, string> {
 
 function isNewImportDraft(value: Record<string, unknown>): boolean {
   if (!(
-    hasOnlyFields(value, ['mode', 'channel_id', 'params', 'name', 'credentials', 'models']) &&
+    hasOnlyFields(value, [
+      'mode',
+      'channel_id',
+      'connection_type',
+      'params',
+      'name',
+      'credentials',
+      'staged_credentials',
+      'models',
+    ]) &&
     value.mode === 'new' &&
     isChannelID(value.channel_id) &&
+    (value.connection_type === 'api_key' || value.connection_type === 'subscription') &&
     isChannelParams(value.params) &&
     typeof value.name === 'string' &&
     typeof value.credentials === 'string' &&
+    Array.isArray(value.staged_credentials) &&
+    value.staged_credentials.every(isRecoveredStage) &&
     Array.isArray(value.models) &&
     value.models.every(isModel)
   )) {
@@ -93,6 +105,32 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
   }
   const models = value.models as ModelDraftItem[]
   return new Set(models.map(({ key }) => key)).size === models.length
+}
+
+function isRecoveredStage(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return (
+    hasOnlyFields(value, ['stage_id', 'status', 'authorization_url', 'account', 'expires_at_ms']) &&
+    typeof value.stage_id === 'string' &&
+    /^[a-zA-Z0-9_-]{1,100}$/u.test(value.stage_id) &&
+    [
+      'pending_authorization',
+      'exchanging',
+      'ready',
+      'consumed',
+      'failed',
+      'cancelled',
+      'expired',
+      'outcome_unknown',
+    ].includes(String(value.status)) &&
+    (value.authorization_url === undefined || typeof value.authorization_url === 'string') &&
+    isRecord(value.account) &&
+    hasOnlyFields(value.account, ['email_mask']) &&
+    (value.account.email_mask === undefined || typeof value.account.email_mask === 'string') &&
+    typeof value.expires_at_ms === 'number' &&
+    Number.isSafeInteger(value.expires_at_ms) &&
+    value.expires_at_ms >= 0
+  )
 }
 
 function isExistingImportDraft(value: Record<string, unknown>): boolean {
@@ -117,7 +155,7 @@ function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
     if (
       !isRecord(value) ||
       !hasOnlyFields(value, ['version', 'expires_at', 'draft']) ||
-      value.version !== 5 ||
+      value.version !== 6 ||
       typeof value.expires_at !== 'number' ||
       !Number.isFinite(value.expires_at) ||
       !isImportDraft(value.draft)
@@ -195,7 +233,7 @@ export function createImportRecoveryService(
     if (!deps.storage) return 'storage-unavailable'
 
     const record: ImportRecoveryRecord = {
-      version: 5,
+      version: 6,
       expires_at: deps.now() + importRecoveryTtlMs,
       draft,
     }

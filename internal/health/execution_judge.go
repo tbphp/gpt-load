@@ -49,6 +49,10 @@ func JudgeExecution(attempt ExecutionAttempt) Result {
 		return Result{Category: FailureCategoryDownstreamCancel, Action: ActionTerminate}
 	}
 	if attempt.DispatchState == execution.DispatchNotSent {
+		if attempt.Evidence.Hint == execution.FailureHintRefreshRequired ||
+			attempt.Evidence.Hint == execution.FailureHintReauthorizationRequired {
+			return Result{Category: FailureCategoryAuthenticationRequired, Action: ActionRetry}
+		}
 		switch attempt.Evidence.Kind {
 		case execution.ErrorKindTransport, execution.ErrorKindTimeout:
 			return Result{Category: FailureCategoryUpstreamHostError, Action: ActionSkipGroup}
@@ -83,12 +87,19 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 	}
 	markers := ""
 	if attempt.Evidence != nil {
+		if statusCode == http.StatusUnauthorized && attempt.Evidence.ReplaySafety == execution.ReplaySafetyUnknown &&
+			attempt.Evidence.Hint == "" {
+			return FailureCategoryAmbiguous
+		}
 		if structuredUnsupportedModelClientError(statusCode, attempt.Evidence) {
 			return FailureCategoryClientError
 		}
 		switch attempt.Evidence.Hint {
 		case execution.FailureHintInvalidCredential:
 			return FailureCategoryInvalidKey
+		case execution.FailureHintRefreshRequired,
+			execution.FailureHintReauthorizationRequired:
+			return FailureCategoryAuthenticationRequired
 		case execution.FailureHintRateLimited:
 			return FailureCategoryRateLimited
 		case execution.FailureHintModelUnavailable:
@@ -168,6 +179,8 @@ func resultForExecutionCategory(category FailureCategory, attempt ExecutionAttem
 		}
 	case FailureCategoryInvalidKey:
 		return Result{Category: category, Action: ActionFailCredential}
+	case FailureCategoryAuthenticationRequired:
+		return Result{Category: category, Action: ActionRetry}
 	case FailureCategoryUpstreamHostError:
 		return Result{Category: category, Action: ActionSkipGroup}
 	case FailureCategoryConversionUnsupported:

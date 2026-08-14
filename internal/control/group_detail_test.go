@@ -61,7 +61,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 			}
 			wantFields := map[string]struct{}{
 				"id": {}, "name": {}, "channel_id": {}, "params": {}, "service_status": {},
-				"credential_count": {}, "model_count": {},
+				"connection_type": {}, "credential_count": {}, "model_count": {},
 			}
 			for name := range fields {
 				if _, exists := wantFields[name]; !exists {

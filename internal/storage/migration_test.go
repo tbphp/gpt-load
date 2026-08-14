@@ -10,14 +10,16 @@ import (
 	migrationfiles "gpt-load/internal/storage/migrations"
 )
 
-func TestMigrationRegistryContainsOnlyFrozenInitialMigration(t *testing.T) {
-	if len(migrations) != 1 {
-		t.Fatalf("migration registry length = %d, want 1", len(migrations))
+func TestMigrationRegistryContainsOrderedSubscriptionMigration(t *testing.T) {
+	if len(migrations) != 2 {
+		t.Fatalf("migration registry length = %d, want 2", len(migrations))
 	}
-	entry := migrations[0]
-	if entry.ID != migrationfiles.ID0001 || entry.Up == nil ||
-		entry.Validate == nil || entry.ValidateRecoverable == nil {
-		t.Fatalf("migration registry entry = %#v", entry)
+	wantIDs := []string{migrationfiles.ID0001, migrationfiles.ID0002}
+	for index, entry := range migrations {
+		if entry.ID != wantIDs[index] || entry.Up == nil ||
+			entry.Validate == nil || entry.ValidateRecoverable == nil {
+			t.Fatalf("migration registry entry %d = %#v", index, entry)
+		}
 	}
 }
 

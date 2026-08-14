@@ -322,7 +322,7 @@ func TestGroupCredentialMutationsPreserveRuntimeIdentityAndHealthContracts(t *te
 	if !ok || committed.UpdatedAtMS <= rows[0].UpdatedAtMS ||
 		committed.WeightManual == nil || *committed.WeightManual != weight ||
 		after.WeightManual == nil || *after.WeightManual != weight ||
-		after.Version != uint64(committed.UpdatedAtMS) ||
+		after.Version != committed.SecretVersion ||
 		after.IdentityGeneration != before.IdentityGeneration || entryErr != nil ||
 		afterEntries[0].Fingerprint != beforeEntries[0].Fingerprint {
 		t.Fatalf("identity/version after update: row=%#v before=%#v after=%#v", committed, before, after)
@@ -449,6 +449,28 @@ func TestCredentialHTTPUsesCanonicalWireAndRejectsLegacyFields(t *testing.T) {
 		fmt.Sprintf(`{"action":"disable","key_ids":[%d]}`, row.ID), auth, "")
 	if legacyBatchField.Code != http.StatusBadRequest {
 		t.Fatalf("legacy batch field = %d %s", legacyBatchField.Code, legacyBatchField.Body.String())
+	}
+}
+
+func TestAPIKeyCredentialImportRejectsSubscriptionGroup(t *testing.T) {
+	fixture, groupID, _ := newSubscriptionCredentialFixture(t)
+	before, err := fixture.service.ListGroupCredentials(t.Context(), groupID, CredentialCollectionQuery{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = fixture.service.ImportGroupCredentialsIdempotent(
+		t.Context(),
+		"00000000-0000-4000-8000-0000000000c3",
+		groupID,
+		CredentialImportRequest{Credentials: "must-not-enter-subscription-group"},
+	)
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("ImportGroupCredentialsIdempotent() error = %v", err)
+	}
+	after, listErr := fixture.service.ListGroupCredentials(t.Context(), groupID, CredentialCollectionQuery{Page: 1, PageSize: 20})
+	if listErr != nil || after.Summary.Total != before.Summary.Total {
+		t.Fatalf("credential collection changed: before=%#v after=%#v err=%v", before, after, listErr)
 	}
 }
 

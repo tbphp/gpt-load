@@ -81,7 +81,7 @@ func builtinDefinitions() []definition {
 	)
 	vertexDefinition.validateParams = normalizeVertexParams
 
-	return []definition{
+	definitions := []definition{
 		newDefinition(
 			OpenAI, "OpenAI", "OA", "openai", "OpenAI official API", []string{"gpt"},
 			baseURLOverrideParams, apiKeySchema, "openai", ProviderOpenAI, false,
@@ -147,6 +147,19 @@ func builtinDefinitions() []definition {
 			false,
 		),
 	}
+	for index := range definitions {
+		definitions[index].descriptor.ConnectionTypes = []ConnectionTypeDescriptor{{
+			ID: "api_key", CredentialInput: "batch_text",
+		}}
+	}
+	definitions[0].descriptor.ConnectionTypes = append(
+		definitions[0].descriptor.ConnectionTypes,
+		ConnectionTypeDescriptor{
+			ID: "subscription", CredentialInput: "authorization",
+			AuthorizationMethods: []string{"browser_oauth", "oauth_file"},
+		},
+	)
+	return definitions
 }
 
 func secretField(key, label string) fieldSpec {

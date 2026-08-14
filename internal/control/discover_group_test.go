@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
@@ -310,6 +311,32 @@ func TestDiscoverGroupModelsReturnsNotFoundAndNoActiveUpstreamKey(t *testing.T) 
 			t.Fatalf("DiscoverGroupModels() error = %v, want ErrNoActiveCredential", err)
 		}
 	})
+}
+
+func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
+	t.Parallel()
+
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-saved-models", "saved@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("saved subscription discovery"), ChannelID: channel.OpenAI,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.listCodexModels = func(_ context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+		if credential.AccountID != "account-saved-models" {
+			t.Fatalf("credential = %#v", credential)
+		}
+		return []cpaembedded.Model{{ID: "gpt-5.2"}}, nil
+	}
+	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
+	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "gpt-5.2" {
+		t.Fatalf("result = %#v, %v", result, err)
+	}
 }
 
 func TestDiscoverGroupModelsDecryptsEveryKeyBeforeHTTP(t *testing.T) {

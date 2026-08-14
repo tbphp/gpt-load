@@ -20,6 +20,7 @@ import (
 
 type GroupSettingsResponse struct {
 	ChannelID       channel.ID                   `json:"channel_id"`
+	ConnectionType  models.ConnectionType        `json:"connection_type"`
 	Params          json.RawMessage              `json:"params"`
 	Name            string                       `json:"name"`
 	ValidationModel *string                      `json:"validation_model"`
@@ -106,6 +107,7 @@ func groupSettingsResponse(
 	}
 	return GroupSettingsResponse{
 		ChannelID:       channelID,
+		ConnectionType:  normalizeGroupConnectionType(group.ConnectionType),
 		Params:          validated.CanonicalJSON(),
 		Name:            group.Name,
 		ValidationModel: cloneString(group.ValidationModel),
@@ -225,6 +227,10 @@ func (s *Service) UpdateGroupSettings(
 				channel.ID(group.ChannelID), normalized.params,
 			)
 			if validateErr != nil {
+				return app_errors.ErrValidation
+			}
+			if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription &&
+				string(params.CanonicalJSON()) != "{}" {
 				return app_errors.ErrValidation
 			}
 			group.Params = models.JSON(params.CanonicalJSON())

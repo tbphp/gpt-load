@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -20,12 +21,14 @@ import (
 )
 
 type GroupCreateRequest struct {
-	Name              *string             `json:"name"`
-	ChannelID         channel.ID          `json:"channel_id"`
-	Params            json.RawMessage     `json:"params"`
-	Models            optionalGroupModels `json:"models"`
-	Credentials       string              `json:"credentials"`
-	ConfirmSameTarget bool                `json:"confirm_same_target"`
+	Name                *string               `json:"name"`
+	ChannelID           channel.ID            `json:"channel_id"`
+	ConnectionType      models.ConnectionType `json:"connection_type"`
+	Params              json.RawMessage       `json:"params"`
+	Models              optionalGroupModels   `json:"models"`
+	Credentials         string                `json:"credentials"`
+	StagedCredentialIDs []string              `json:"staged_credential_ids"`
+	ConfirmSameTarget   bool                  `json:"confirm_same_target"`
 }
 
 type GroupCreateResult struct {
@@ -45,15 +48,17 @@ type SameTargetConflictData struct {
 }
 
 type normalizedGroupCreate struct {
-	channelID         channel.ID
-	params            models.JSON
-	defaultName       string
-	hostname          string
-	explicitName      *string
-	models            []GroupModel
-	encodedOverrides  models.JSON
-	credentials       normalizedCredentials
-	confirmSameTarget bool
+	channelID           channel.ID
+	connectionType      models.ConnectionType
+	params              models.JSON
+	defaultName         string
+	hostname            string
+	explicitName        *string
+	models              []GroupModel
+	encodedOverrides    models.JSON
+	credentials         normalizedCredentials
+	stagedCredentialIDs []string
+	confirmSameTarget   bool
 }
 
 func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (GroupCreateResult, error) {
@@ -72,10 +77,10 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	}
 
 	result := GroupCreateResult{}
-	requestedEntries := make([]state.CredentialEntry, 0, len(normalized.credentials.candidates))
+	requestedEntries := make([]state.CredentialEntry, 0, len(normalized.credentials.candidates)+len(normalized.stagedCredentialIDs))
 	_, err = s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		if !normalized.confirmSameTarget {
-			conflicts, err := findGroupsByTarget(tx, normalized.channelID, normalized.params)
+			conflicts, err := findGroupsByTarget(tx, normalized.channelID, normalized.connectionType, normalized.params)
 			if err != nil {
 				return err
 			}
@@ -96,12 +101,13 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 			return fmt.Errorf("encode group models: %w", err)
 		}
 		group := models.Group{
-			Name:      name,
-			ChannelID: string(normalized.channelID),
-			Params:    append(models.JSON(nil), normalized.params...),
-			Models:    models.JSON(encodedModels),
-			Overrides: normalized.encodedOverrides,
-			Enabled:   true,
+			Name:           name,
+			ChannelID:      string(normalized.channelID),
+			ConnectionType: normalized.connectionType,
+			Params:         append(models.JSON(nil), normalized.params...),
+			Models:         models.JSON(encodedModels),
+			Overrides:      normalized.encodedOverrides,
+			Enabled:        true,
 		}
 		if err := tx.Create(&group).Error; err != nil {
 			return app_errors.ParseDBError(err)
@@ -109,8 +115,18 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 
 		result.GroupID = group.ID
 		result.GroupName = group.Name
-		result.CredentialsAdded, result.CredentialsDuplicated, err =
-			s.persistCredentials(tx, group.ID, normalized.credentials)
+		if normalized.connectionType == models.ConnectionTypeSubscription {
+			result.CredentialsAdded, err = s.consumeCredentialStages(
+				tx,
+				group.ID,
+				normalized.channelID,
+				normalized.connectionType,
+				normalized.stagedCredentialIDs,
+			)
+		} else {
+			result.CredentialsAdded, result.CredentialsDuplicated, err =
+				s.persistCredentials(tx, group.ID, normalized.credentials)
+		}
 		if err != nil {
 			return err
 		}
@@ -136,8 +152,25 @@ func (s *Service) normalizeGroupCreate(
 	if s == nil || s.channelRegistry == nil || request.ChannelID == "" {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
+	connectionType := request.ConnectionType
+	if connectionType == "" {
+		connectionType = models.ConnectionTypeAPIKey
+	}
+	if !s.channelRegistry.SupportsConnectionType(request.ChannelID, string(connectionType)) {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
+	}
+	if connectionType == models.ConnectionTypeAPIKey {
+		if len(request.StagedCredentialIDs) != 0 {
+			return normalizedGroupCreate{}, app_errors.ErrValidation
+		}
+	} else if strings.TrimSpace(request.Credentials) != "" || len(request.StagedCredentialIDs) == 0 {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
+	}
 	params, err := s.channelRegistry.ValidateParams(request.ChannelID, request.Params)
 	if err != nil {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
+	}
+	if connectionType == models.ConnectionTypeSubscription && string(params.CanonicalJSON()) != "{}" {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
 	descriptor, ok := s.channelRegistry.Get(request.ChannelID)
@@ -155,9 +188,18 @@ func (s *Service) normalizeGroupCreate(
 	if err != nil {
 		return normalizedGroupCreate{}, err
 	}
-	credentials, err := s.normalizeCredentials(request.ChannelID, request.Credentials)
-	if err != nil {
-		return normalizedGroupCreate{}, err
+	credentials := normalizedCredentials{}
+	stagedCredentialIDs := []string(nil)
+	if connectionType == models.ConnectionTypeAPIKey {
+		credentials, err = s.normalizeCredentials(request.ChannelID, request.Credentials)
+		if err != nil {
+			return normalizedGroupCreate{}, err
+		}
+	} else {
+		stagedCredentialIDs, err = normalizeCredentialStageIDs(request.StagedCredentialIDs)
+		if err != nil {
+			return normalizedGroupCreate{}, err
+		}
 	}
 
 	runtimeModels := make([]state.ModelConfig, 0, len(groupModels))
@@ -177,7 +219,8 @@ func (s *Service) normalizeGroupCreate(
 		ChannelRegistry: s.channelRegistry,
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "candidate", ChannelID: request.ChannelID,
-			Params: canonicalParams, Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
+			ConnectionType: string(connectionType), Params: canonicalParams,
+			Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
 		}},
 	})
 	if err != nil {
@@ -194,15 +237,17 @@ func (s *Service) normalizeGroupCreate(
 		defaultName = hostname
 	}
 	return normalizedGroupCreate{
-		channelID:         request.ChannelID,
-		params:            models.JSON(canonicalParams),
-		defaultName:       defaultName,
-		hostname:          hostname,
-		explicitName:      explicitName,
-		models:            groupModels,
-		encodedOverrides:  models.JSON(`{}`),
-		credentials:       credentials,
-		confirmSameTarget: request.ConfirmSameTarget,
+		channelID:           request.ChannelID,
+		connectionType:      connectionType,
+		params:              models.JSON(canonicalParams),
+		defaultName:         defaultName,
+		hostname:            hostname,
+		explicitName:        explicitName,
+		models:              groupModels,
+		encodedOverrides:    models.JSON(`{}`),
+		credentials:         credentials,
+		stagedCredentialIDs: stagedCredentialIDs,
+		confirmSameTarget:   request.ConfirmSameTarget,
 	}, nil
 }
 
@@ -256,6 +301,7 @@ func canonicalizeGroupSettingNumbers(value any) any {
 func findGroupsByTarget(
 	tx *gorm.DB,
 	channelID channel.ID,
+	connectionType models.ConnectionType,
 	params models.JSON,
 ) ([]ExistingGroupSummary, error) {
 	type targetRow struct {
@@ -266,7 +312,7 @@ func findGroupsByTarget(
 	var rows []targetRow
 	if err := tx.Model(&models.Group{}).
 		Select("id", "name", "params").
-		Where("channel_id = ?", string(channelID)).
+		Where("channel_id = ? AND connection_type = ?", string(channelID), string(connectionType)).
 		Order("id ASC").
 		Find(&rows).Error; err != nil {
 		return nil, app_errors.ParseDBError(err)

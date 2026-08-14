@@ -51,6 +51,16 @@ func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *
 	}
 }
 
+func TestBuildGroupValidationTargetSkipsSubscriptionGroups(t *testing.T) {
+	t.Parallel()
+
+	group := validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)
+	group.ConnectionType = "subscription"
+	if _, ok := buildGroupValidationTarget(group); ok {
+		t.Fatal("buildGroupValidationTarget(subscription) ok = true")
+	}
+}
+
 func TestValidationProtocolUsesFirstNativePresetProtocolThenConfiguredFallback(t *testing.T) {
 	t.Parallel()
 

@@ -599,6 +599,8 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 		"system_settings",
 		"jobs",
 		"control_operations",
+		"credential_stages",
+		"credential_observations",
 		"schema_migrations",
 	}
 	for _, table := range wantTables {
@@ -613,6 +615,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	}
 	wantMigrationIDs := []string{
 		"0001_initial",
+		"0002_subscription_connections",
 	}
 	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
 		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)

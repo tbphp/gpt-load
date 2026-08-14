@@ -17,6 +17,7 @@ func TestNormalizeChannelCredentialRequiresCanonicalStoredObject(t *testing.T) {
 	credential, err := normalizeChannelCredential(
 		channel.NewRegistry(),
 		channel.OpenAI,
+		"api_key",
 		` {"api_key":"sk-typed"} `,
 	)
 	if err != nil {
@@ -27,7 +28,7 @@ func TestNormalizeChannelCredentialRequiresCanonicalStoredObject(t *testing.T) {
 	}
 
 	for _, invalid := range []string{"", " ", "sk-legacy", `"sk-legacy"`, `[]`, `{}`, `{"api_key":""}`} {
-		if credential, err := normalizeChannelCredential(channel.NewRegistry(), channel.OpenAI, invalid); err == nil {
+		if credential, err := normalizeChannelCredential(channel.NewRegistry(), channel.OpenAI, "api_key", invalid); err == nil {
 			t.Fatalf("normalizeChannelCredential(%q) = %#v, nil", invalid, credential)
 		}
 	}
@@ -39,6 +40,7 @@ func TestNormalizeChannelCredentialPreservesStructuredCloudSecrets(t *testing.T)
 	got, err := normalizeChannelCredential(
 		channel.NewRegistry(),
 		channel.AWSBedrock,
+		"api_key",
 		` {"access_key":"AKIA_TEST","secret_key":"bedrock-secret","session_token":"bedrock-session"} `,
 	)
 	if err != nil {

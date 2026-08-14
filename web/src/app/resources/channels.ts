@@ -17,6 +17,13 @@ import {
 } from './projector'
 
 export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
+export type ChannelConnectionType = 'api_key' | 'subscription'
+
+export interface ChannelConnectionTypeDto {
+  id: ChannelConnectionType
+  credential_input: 'batch_text' | 'authorization'
+  authorization_methods: Array<'browser_oauth' | 'oauth_file'>
+}
 
 export interface ChannelFieldDto {
   key: string
@@ -36,6 +43,7 @@ export interface ChannelDto {
   default_base_url: string
   param_fields: ChannelFieldDto[]
   credential_fields: ChannelFieldDto[]
+  connection_types: ChannelConnectionTypeDto[]
   client_protocols: AccessProtocol[]
 }
 
@@ -54,11 +62,16 @@ const channelFields = [
   'default_base_url',
   'param_fields',
   'credential_fields',
+  'connection_types',
   'client_protocols',
 ] as const
 const fieldFields = ['key', 'label', 'input_kind', 'required', 'sensitive'] as const
 const listFields = ['items', 'total'] as const
 const inputKinds = ['text', 'url', 'secret'] as const
+const connectionTypes = ['api_key', 'subscription'] as const
+const credentialInputs = ['batch_text', 'authorization'] as const
+const authorizationMethods = ['browser_oauth', 'oauth_file'] as const
+const connectionTypeFields = ['id', 'credential_input', 'authorization_methods'] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -96,17 +109,39 @@ function projectChannelField(value: unknown): ChannelFieldDto {
   }
 }
 
+function projectConnectionType(value: unknown): ChannelConnectionTypeDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, connectionTypeFields)
+  const id = projectEnum(record.id, connectionTypes)
+  const credentialInput = projectEnum(record.credential_input, credentialInputs)
+  const methods = projectArray(record.authorization_methods ?? [], (method) =>
+    projectEnum(method, authorizationMethods),
+  )
+  if (
+    new Set(methods).size !== methods.length ||
+    (id === 'api_key' && (credentialInput !== 'batch_text' || methods.length !== 0)) ||
+    (id === 'subscription' && credentialInput !== 'authorization')
+  ) {
+    invalidResponse()
+  }
+  return { id, credential_input: credentialInput, authorization_methods: methods }
+}
+
 function projectChannel(value: unknown): ChannelDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, channelFields)
   const paramFields = projectArray(record.param_fields, projectChannelField)
   const credentialFields = projectArray(record.credential_fields, projectChannelField)
+  const projectedConnectionTypes = projectArray(record.connection_types, projectConnectionType)
   const clientProtocols = projectArray(record.client_protocols, (protocol) =>
     projectEnum(protocol, enabledDataProtocols),
   )
   if (
     new Set(paramFields.map(({ key }) => key)).size !== paramFields.length ||
     new Set(credentialFields.map(({ key }) => key)).size !== credentialFields.length ||
+    new Set(projectedConnectionTypes.map(({ id }) => id)).size !==
+      projectedConnectionTypes.length ||
+    !projectedConnectionTypes.some(({ id }) => id === 'api_key') ||
     credentialFields.some(({ sensitive }) => !sensitive) ||
     new Set(clientProtocols).size !== clientProtocols.length
   ) {
@@ -122,6 +157,7 @@ function projectChannel(value: unknown): ChannelDto {
     default_base_url: projectString(record.default_base_url, { allowEmpty: true }),
     param_fields: paramFields,
     credential_fields: credentialFields,
+    connection_types: projectedConnectionTypes,
     client_protocols: clientProtocols,
   }
 }

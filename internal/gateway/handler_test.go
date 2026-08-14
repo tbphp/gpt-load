@@ -1497,6 +1497,10 @@ func (panicRuntimeRegistry) CaptureActiveCredentialRefs([]uint) []state.Credenti
 	panic("model endpoint captured upstream keys")
 }
 
+func (panicRuntimeRegistry) CredentialRef(uint) (state.CredentialRef, bool) {
+	panic("model endpoint read a credential reference")
+}
+
 func (panicRuntimeRegistry) ActiveEncryptedCredentialDataIfMatch(state.CredentialRef) (string, bool) {
 	panic("model endpoint matched an upstream key")
 }
@@ -3210,6 +3214,19 @@ func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
 			decision: retry, want: true,
 		},
 		{
+			name: "subscription refresh rejected before model dispatch", operation: execution.OperationChatCompletion,
+			method: http.MethodPost,
+			result: UpstreamResult{
+				DispatchState: execution.DispatchNotSent,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindProvider,
+					Hint: execution.FailureHintReauthorizationRequired,
+				},
+			},
+			decision: health.Result{Category: health.FailureCategoryAuthenticationRequired, Action: health.ActionRetry},
+			want:     true,
+		},
+		{
 			name: "local conversion failure was not sent", operation: execution.OperationChatCompletion,
 			method: http.MethodPost,
 			result: UpstreamResult{
@@ -3227,6 +3244,21 @@ func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
 			method:   http.MethodPost,
 			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusUnauthorized},
 			decision: authRetry, want: true,
+		},
+		{
+			name: "subscription authorization failure with unknown replay safety", operation: execution.OperationResponsesCreate,
+			method: http.MethodPost,
+			result: UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusUnauthorized,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:         execution.ErrorKindHTTP,
+					StatusCode:   http.StatusUnauthorized,
+					ReplaySafety: execution.ReplaySafetyUnknown,
+					Summary:      "authorization failed",
+				},
+			},
+			decision: authRetry,
 		},
 		{
 			name: "retrieve is read only", operation: execution.OperationResponsesRetrieve,
@@ -3265,6 +3297,214 @@ func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
 				t.Fatalf("shouldRetryAcrossCandidates() = %t, want %t", got, test.want)
 			}
 		})
+	}
+}
+
+func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusUnauthorized,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
+				Hint:         execution.FailureHintRefreshRequired,
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				Summary:      "access token expired",
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: []byte(`{"id":"ok","model":"gpt-4o"}`),
+		},
+	}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "placeholder")
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.OpenAI,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	canonical := `{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-1"}`
+	encrypted, err := handler.encryption.Encrypt(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: encrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	if forwarder.inputs[0].Credential.ID != forwarder.inputs[1].Credential.ID ||
+		forwarder.inputs[0].ForceCredentialRefresh || !forwarder.inputs[1].ForceCredentialRefresh {
+		t.Fatalf("inputs = %#v", forwarder.inputs)
+	}
+}
+
+func TestSubscriptionExplicit401UsesNewerCredentialVersionFromConcurrentRefresh(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusUnauthorized,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
+				Hint:         execution.FailureHintRefreshRequired,
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				Summary:      "access token expired",
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: []byte(`{"id":"ok","model":"gpt-4o"}`),
+		},
+	}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "placeholder")
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.OpenAI,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldCredential := `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
+	oldEncrypted, err := handler.encryption.Encrypt(oldCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: oldEncrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	newCredential := `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
+	newEncrypted, err := handler.encryption.Encrypt(newCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwarder.onCall = func(index int) {
+		if index == 0 && !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", newEncrypted) {
+			t.Fatal("publish concurrent credential refresh")
+		}
+	}
+
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	if forwarder.inputs[1].Credential.Version != 2 || forwarder.inputs[1].ForceCredentialRefresh ||
+		string(forwarder.inputs[1].Credential.Data()) != newCredential {
+		t.Fatalf("retry input = %#v credential=%s", forwarder.inputs[1], forwarder.inputs[1].Credential.Data())
+	}
+}
+
+func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchNotSent,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindProvider, Code: "refresh_rejected",
+				Hint: execution.FailureHintReauthorizationRequired,
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: []byte(`{"id":"ok","model":"gpt-4o"}`),
+		},
+	}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "placeholder-1", "placeholder-2")
+	credentials := []state.CredentialConfig{
+		{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account-1"},
+		{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "subscription-account-2"},
+	}
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.OpenAI,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: credentials,
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entries := make([]state.CredentialEntry, 0, 2)
+	for index := 1; index <= 2; index++ {
+		canonical := fmt.Sprintf(`{"type":"codex","access_token":"access-%d","refresh_token":"refresh-%d","account_id":"account-%d"}`, index, index, index)
+		encrypted, err := handler.encryption.Encrypt(canonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries = append(entries, state.CredentialEntry{
+			ID: uint(index), GroupID: 1, Version: 1, IdentityGeneration: uint64(index),
+			Fingerprint: fmt.Sprintf("subscription-account-%d", index),
+			Status:      state.CredentialStatusActive, EncryptedValue: encrypted,
+		})
+	}
+	if err := registry.ReplaceCredentials(entries); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	if forwarder.inputs[0].Credential.ID == forwarder.inputs[1].Credential.ID {
+		t.Fatalf("credential ids = %d, %d", forwarder.inputs[0].Credential.ID, forwarder.inputs[1].Credential.ID)
 	}
 }
 

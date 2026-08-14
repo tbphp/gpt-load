@@ -20,6 +20,7 @@ export interface ApiRequestOptions extends Omit<RequestInit, 'body' | 'headers'>
   authKey?: string
   headers?: HeadersInit
   json?: unknown
+  body?: BodyInit | null
   handleUnauthorized?: boolean
 }
 
@@ -232,9 +233,13 @@ export function createApiClient(deps: ApiClientDependencies): ApiClientWithRespo
       authKey = deps.getAuthKey(),
       headers: callerHeaders,
       json,
+      body,
       handleUnauthorized = true,
       ...requestInit
     } = options
+    if (json !== undefined && body !== undefined && body !== null) {
+      throw new TypeError('REQUEST_BODY_CONFLICT')
+    }
     const headers = new Headers(callerHeaders)
     if (authKey) {
       headers.set('Authorization', `Bearer ${authKey}`)
@@ -251,7 +256,7 @@ export function createApiClient(deps: ApiClientDependencies): ApiClientWithRespo
       result = await deps.fetch(path, {
         ...requestInit,
         headers,
-        body: json === undefined ? undefined : JSON.stringify(json),
+        body: json === undefined ? body : JSON.stringify(json),
       })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {

@@ -6,6 +6,7 @@ services:
     #   dockerfile: Dockerfile
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3001}:${PORT:-3001}"
+      - "${OAUTH_CALLBACK_BIND_ADDRESS:-127.0.0.1}:1455:1455"
     env_file:
       - .env
     environment:

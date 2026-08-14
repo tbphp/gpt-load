@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -224,6 +225,59 @@ func TestUpdateGroupTargetResetsCredentialHealthIdentity(t *testing.T) {
 	}
 	if got := fixture.stats.Snapshot(credential.ID, now); got != (health.CredentialStats{}) {
 		t.Fatalf("credential stats after target update = %#v, want zero", got)
+	}
+}
+
+func TestUpdateGroupTargetSerializesWithCredentialSecretMutation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		ChannelID: channel.OpenAICompatible,
+		Params:    json.RawMessage(`{"base_url":"https://serialized-old.example/v1"}`),
+		Models:    optionalGroupModels{Set: true}, Credentials: "sk-target-serialized",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	go fixture.mutations.Do(credential.ID, func() {
+		close(entered)
+		<-release
+	})
+	<-entered
+	done := make(chan error, 1)
+	go func() {
+		_, callErr := fixture.service.UpdateGroupSettings(context.Background(), created.GroupID, GroupSettingsUpdateRequest{
+			Params: optionalField[json.RawMessage]{Set: true, Value: json.RawMessage(`{"base_url":"https://serialized-new.example/v1"}`)},
+		})
+		done <- callErr
+	}()
+	select {
+	case callErr := <-done:
+		close(release)
+		t.Fatalf("group target update completed inside credential mutation: %v", callErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	var blocked models.Group
+	if err := fixture.db.Take(&blocked, created.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if string(blocked.Params) != `{"base_url":"https://serialized-old.example/v1"}` {
+		close(release)
+		t.Fatalf("group target changed before credential mutation released: %s", blocked.Params)
+	}
+	close(release)
+	select {
+	case callErr := <-done:
+		if callErr != nil {
+			t.Fatalf("UpdateGroupSettings() error = %v", callErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("group target update did not finish")
 	}
 }
 

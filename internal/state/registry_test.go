@@ -63,6 +63,35 @@ func TestKeyRegistryReplaceAndEncryptedValue(t *testing.T) {
 	}
 }
 
+func TestCredentialRegistryReplaceSecretIfMatchPreservesRuntimeState(t *testing.T) {
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
+		Version: 3, IdentityGeneration: 9, Fingerprint: "old-fingerprint", EncryptedValue: "old-cipher",
+		CooldownUntil: time.Unix(100, 0), Blacklisted: true, FailureCount: 2, FailureGeneration: 4,
+	}})
+	registry.mu.Lock()
+	registry.buckets[10][1].FailureGeneration = 4
+	registry.mu.Unlock()
+
+	if !registry.ReplaceCredentialSecretIfMatch(1, 3, 4, "new-fingerprint", "new-cipher") {
+		t.Fatal("ReplaceCredentialSecretIfMatch() = false, want true")
+	}
+	got := registryEntry(t, registry, 1)
+	if got.Version != 4 || got.IdentityGeneration != 9 || got.Fingerprint != "new-fingerprint" || got.EncryptedValue != "new-cipher" {
+		t.Fatalf("updated entry = %#v", got)
+	}
+	if !got.Blacklisted || got.FailureCount != 2 || got.FailureGeneration != 4 || got.CooldownUntil != time.Unix(100, 0) {
+		t.Fatalf("runtime state changed during secret replacement: %#v", got)
+	}
+	if registry.ReplaceCredentialSecretIfMatch(1, 3, 5, "stale", "stale") {
+		t.Fatal("stale secret replacement succeeded")
+	}
+	if after := registryEntry(t, registry, 1); !reflect.DeepEqual(after, got) {
+		t.Fatalf("stale replacement changed entry: %#v", after)
+	}
+}
+
 func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
 	registry := NewCredentialRegistry()
 	now := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)

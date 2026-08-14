@@ -439,7 +439,9 @@ func (s *Service) persistCredentials(
 		}
 		row := models.Credential{
 			GroupID: groupID, Data: ciphertext, Fingerprint: candidate.fingerprint,
-			Status: models.CredentialStatusActive, CreatedAtMS: nowMS, UpdatedAtMS: nowMS,
+			IdentityFingerprint: candidate.fingerprint, SecretVersion: 1,
+			AuthState: models.CredentialAuthStateReady,
+			Status:    models.CredentialStatusActive, CreatedAtMS: nowMS, UpdatedAtMS: nowMS,
 		}
 		if err := tx.Create(&row).Error; err != nil {
 			return 0, 0, app_errors.ParseDBError(err)

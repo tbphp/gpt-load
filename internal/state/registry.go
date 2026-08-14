@@ -15,6 +15,15 @@ const (
 	CredentialStatusDisabled CredentialStatus = "disabled"
 )
 
+type CredentialAuthState string
+
+const (
+	CredentialAuthStateReady                   CredentialAuthState = "ready"
+	CredentialAuthStateRefreshing              CredentialAuthState = "refreshing"
+	CredentialAuthStateReauthorizationRequired CredentialAuthState = "reauthorization_required"
+	CredentialAuthStateOutcomeUnknown          CredentialAuthState = "outcome_unknown"
+)
+
 type CredentialEntry struct {
 	ID                 uint
 	GroupID            uint
@@ -24,6 +33,7 @@ type CredentialEntry struct {
 	WeightManual       *int
 	WeightAuto         int
 	Status             CredentialStatus
+	AuthState          CredentialAuthState
 	CooldownUntil      time.Time
 	Blacklisted        bool
 	FailureCount       int
@@ -74,6 +84,9 @@ func ValidateCredentialEntries(entries []CredentialEntry) error {
 		}
 		if entry.Status != CredentialStatusActive && entry.Status != CredentialStatusDisabled {
 			return fmt.Errorf("credential %d has invalid status %q", entry.ID, entry.Status)
+		}
+		if !entry.AuthState.valid() {
+			return fmt.Errorf("credential %d has invalid auth state %q", entry.ID, entry.AuthState)
 		}
 		if err := validateManualWeight(fmt.Sprintf("credential %d", entry.ID), entry.WeightManual); err != nil {
 			return err
@@ -451,6 +464,44 @@ func (r *CredentialRegistry) UpdateCredentialConfig(
 	return nil
 }
 
+// ReplaceCredentialSecretIfMatch publishes one durable secret rotation without
+// changing the logical account identity or its runtime health state.
+func (r *CredentialRegistry) ReplaceCredentialSecretIfMatch(
+	credentialID uint,
+	expectedVersion, nextVersion uint64,
+	fingerprint, encryptedValue string,
+) bool {
+	if credentialID == 0 || expectedVersion == 0 ||
+		nextVersion <= expectedVersion || strings.TrimSpace(fingerprint) == "" || encryptedValue == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok || entry.Version != expectedVersion {
+		return false
+	}
+	entry.Version = nextVersion
+	entry.Fingerprint = fingerprint
+	entry.EncryptedValue = encryptedValue
+	entry.AuthState = CredentialAuthStateReady
+	return true
+}
+
+func (r *CredentialRegistry) SetCredentialAuthState(credentialID uint, authState CredentialAuthState) bool {
+	if !authState.valid() {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return false
+	}
+	entry.AuthState = authState.normalize()
+	return true
+}
+
 // EncryptedCredentialData returns encrypted credential data for the selected
 // stable credential ID. Decryption belongs to the gateway execution boundary.
 func (r *CredentialRegistry) EncryptedCredentialData(credentialID uint) (string, bool) {
@@ -471,7 +522,7 @@ func (r *CredentialRegistry) ActiveEncryptedCredentialData(credentialID, expecte
 		return "", false
 	}
 	entry, ok := r.buckets[groupID][credentialID]
-	if !ok || entry.Status != CredentialStatusActive {
+	if !ok || entry.Status != CredentialStatusActive || entry.AuthState.normalize() != CredentialAuthStateReady {
 		return "", false
 	}
 	return entry.EncryptedValue, true
@@ -489,7 +540,7 @@ func (r *CredentialRegistry) CaptureActiveCredentialRefs(groupIDs []uint) []Cred
 	refs := make([]CredentialRef, 0)
 	for groupID := range selectedGroups {
 		for _, entry := range r.buckets[groupID] {
-			if entry.Status != CredentialStatusActive {
+			if entry.Status != CredentialStatusActive || entry.AuthState.normalize() != CredentialAuthStateReady {
 				continue
 			}
 			refs = append(refs, CredentialRef{
@@ -525,7 +576,7 @@ func (r *CredentialRegistry) ActiveEncryptedCredentialDataIfMatch(ref Credential
 		entry.IdentityGeneration != ref.IdentityGeneration ||
 		entry.Fingerprint != ref.Fingerprint ||
 		entry.EncryptedValue != ref.EncryptedValue ||
-		entry.Status != CredentialStatusActive {
+		entry.Status != CredentialStatusActive || entry.AuthState.normalize() != CredentialAuthStateReady {
 		return "", false
 	}
 	// FailureGeneration is intentionally excluded: failure accounting must not
@@ -548,6 +599,22 @@ func (r *CredentialRegistry) ActiveCredentialIDs() []uint {
 	return ids
 }
 
+// CredentialRef returns one detached durable identity reference, including
+// disabled or temporarily unavailable credentials.
+func (r *CredentialRegistry) CredentialRef(credentialID uint) (CredentialRef, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return CredentialRef{}, false
+	}
+	return CredentialRef{
+		ID: entry.ID, GroupID: entry.GroupID, Version: entry.Version,
+		IdentityGeneration: entry.IdentityGeneration, Fingerprint: entry.Fingerprint,
+		EncryptedValue: entry.EncryptedValue, FailureGeneration: entry.FailureGeneration,
+	}, true
+}
+
 // CollectCredentialCandidates returns currently schedulable credentials.
 func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []CredentialMeta {
 	r.mu.RLock()
@@ -555,7 +622,7 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 	for _, groupID := range groupIDs {
 		for _, entry := range r.buckets[groupID] {
 			view := runtimeView(entry)
-			if view.RuntimeState(now) != CredentialRuntimeAvailable {
+			if view.RuntimeState(now) != CredentialRuntimeAvailable || entry.AuthState.normalize() != CredentialAuthStateReady {
 				continue
 			}
 			meta := CredentialMeta{
@@ -763,6 +830,23 @@ func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
 		entry.WeightAuto = DefaultWeight
 	}
 	return entry
+}
+
+func (state CredentialAuthState) normalize() CredentialAuthState {
+	if state == "" {
+		return CredentialAuthStateReady
+	}
+	return state
+}
+
+func (state CredentialAuthState) valid() bool {
+	switch state.normalize() {
+	case CredentialAuthStateReady, CredentialAuthStateRefreshing,
+		CredentialAuthStateReauthorizationRequired, CredentialAuthStateOutcomeUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 func detachCredentialEntryExact(entry CredentialEntry) CredentialEntry {

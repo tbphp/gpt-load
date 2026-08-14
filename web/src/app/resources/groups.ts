@@ -4,6 +4,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { ApiClient } from '@/api/client'
 import type {
   ChannelParamsDto,
+  ConnectionType,
   CredentialCounts,
   GroupCollectionFilters,
   GroupCollectionItemDto,
@@ -37,6 +38,7 @@ const groupSummaryFields = [
   'id',
   'name',
   'channel_id',
+  'connection_type',
   'params',
   'service_status',
   'credential_count',
@@ -45,6 +47,7 @@ const groupSummaryFields = [
 const groupSettingsFields = [
   'name',
   'channel_id',
+  'connection_type',
   'params',
   'validation_model',
   'enabled',
@@ -66,15 +69,25 @@ const groupCollectionItemFields = [
   'id',
   'name',
   'channel_id',
+  'connection_type',
   'params',
   'status',
   'model_count',
   'credential_counts',
 ] as const
 const groupCollectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
-const groupOptionFields = ['id', 'name', 'channel_id', 'params', 'enabled', 'models'] as const
+const groupOptionFields = [
+  'id',
+  'name',
+  'channel_id',
+  'connection_type',
+  'params',
+  'enabled',
+  'models',
+] as const
 const credentialCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
 const groupCollectionStatuses = ['available', 'unavailable', 'disabled'] as const
+const connectionTypes = ['api_key', 'subscription'] as const
 const runtimeSettingFields = [
   'first_byte_timeout',
   'request_timeout',
@@ -134,8 +147,10 @@ export interface GroupInUseData {
 
 export interface ModelDiscoveryRequest {
   channel_id: string
+  connection_type: ConnectionType
   params: ChannelParamsDto
-  credentials: string
+  credentials?: string
+  staged_credential_id?: string
 }
 
 export interface ModelDiscoveryResult {
@@ -155,9 +170,11 @@ export interface GroupModelsReplaceRequest {
 export interface GroupCreateRequest {
   name?: string
   channel_id: string
+  connection_type: ConnectionType
   params: ChannelParamsDto
   models: GroupModelUpdateDto[]
-  credentials: string
+  credentials?: string
+  staged_credential_ids?: string[]
   confirm_same_target: boolean
 }
 
@@ -278,6 +295,7 @@ export function projectGroupSummary(value: unknown): GroupSummaryDto {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),
+    connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
     service_status: projectEnum(record.service_status, groupCollectionStatuses),
     credential_count: projectSafeInteger(record.credential_count, { minimum: 0 }),
@@ -291,6 +309,7 @@ export function projectGroupSettings(value: unknown): GroupSettingsDto {
   return {
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),
+    connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
     validation_model:
       record.validation_model === null ? null : projectNonBlankString(record.validation_model),
@@ -384,6 +403,7 @@ function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),
+    connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
     status,
     model_count: modelCount,
@@ -447,6 +467,7 @@ function projectGroupOption(value: unknown): GroupOptionDto {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),
+    connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
     enabled: projectBoolean(record.enabled),
     models,

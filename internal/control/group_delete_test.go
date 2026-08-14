@@ -2,6 +2,7 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -123,6 +124,47 @@ func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T)
 	wantRetired := []uint{keyRows[0].ID, keyRows[1].ID}
 	if got := runtime.retiredCredentialIDs(); !reflect.DeepEqual(got, wantRetired) {
 		t.Fatalf("retired credential runtimes = %#v, want %#v", got, wantRetired)
+	}
+}
+
+func TestDeleteGroupSerializesWithCredentialSecretMutation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "sk-delete-serialized")
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	go fixture.mutations.Do(credential.ID, func() {
+		close(entered)
+		<-release
+	})
+	<-entered
+	done := make(chan error, 1)
+	go func() { done <- fixture.service.DeleteGroup(context.Background(), groupID) }()
+	select {
+	case callErr := <-done:
+		close(release)
+		t.Fatalf("group delete completed inside credential mutation: %v", callErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	var count int64
+	if err := fixture.db.Model(&models.Group{}).Where("id = ?", groupID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		close(release)
+		t.Fatalf("group was deleted before credential mutation released")
+	}
+	close(release)
+	select {
+	case callErr := <-done:
+		if callErr != nil {
+			t.Fatalf("DeleteGroup() error = %v", callErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("group delete did not finish")
 	}
 }
 

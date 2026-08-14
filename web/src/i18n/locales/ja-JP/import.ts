@@ -67,6 +67,47 @@ export default {
       urlError: '有効な HTTP または HTTPS のアップストリーム URL を入力してください',
       paramRequired: '{name} を入力してください',
     },
+    connectionType: {
+      title: '接続方式',
+      description:
+        'API キーとサブスクリプションアカウントは同じ Group のスケジュールと再試行を使用します',
+      api_key: 'API キー',
+      subscription: 'サブスクリプション',
+    },
+    subscription: {
+      title: 'サブスクリプションアカウント',
+      description: 'ブラウザー OAuth で Codex を接続するか、CPA 互換の認証 JSON をインポートします',
+      securityNotice:
+        'ブラウザーには一時 Stage ID とマスク済みアカウントだけを保存します。Token はサーバーで暗号化され、Group 作成時に原子的に保存されます。',
+      callbackNotice:
+        'OAuth は固定のローカルコールバック 127.0.0.1:1455 を使用します。リモート配置ではブラウザー側で ssh -L 1455:127.0.0.1:1455 <user>@<server> を先に実行してください。',
+      authorize: 'ブラウザーで認証',
+      authorizeFailed: 'ブラウザー認証を開始できません',
+      popupBlocked:
+        'ポップアップがブロックされました。「認証ページを再度開く」から続行してください。',
+      reopen: '認証ページを再度開く',
+      importFile: 'OAuth JSON をインポート',
+      importing: 'インポート中…',
+      importFailed: 'OAuth ファイルが無効または未対応です',
+      pollFailed: '認証状態を取得できません。再試行を続けます',
+      cancelFailed: '一時認証をキャンセルできません',
+      remove: '削除',
+      required: '先にサブスクリプションアカウントを 1 件以上認証してください',
+      readyCount: '{count} アカウント準備完了',
+      pendingAccount: 'アカウント認証を待機中',
+      expires: '有効期限',
+      unknown: '不明',
+      status: {
+        pending_authorization: '認証待ち',
+        exchanging: '認証情報を交換中',
+        ready: '準備完了',
+        consumed: '保存済み',
+        failed: '失敗',
+        cancelled: 'キャンセル済み',
+        expired: '期限切れ',
+        outcome_unknown: '結果不明',
+      },
+    },
     credentials: {
       title: 'API キー',
       description: '1 行に 1 つ、最大 1,000 件 — 重複は二重に追加されません',

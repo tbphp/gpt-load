@@ -12,6 +12,7 @@ const (
 	FailureCategoryClientError
 	FailureCategoryConversionUnsupported
 	FailureCategoryDownstreamCancel
+	FailureCategoryAuthenticationRequired
 )
 
 func (category FailureCategory) String() string {
@@ -32,6 +33,8 @@ func (category FailureCategory) String() string {
 		return "conversion_unsupported"
 	case FailureCategoryDownstreamCancel:
 		return "downstream_cancel"
+	case FailureCategoryAuthenticationRequired:
+		return "authentication_required"
 	default:
 		return "ambiguous"
 	}

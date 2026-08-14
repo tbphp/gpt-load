@@ -117,6 +117,48 @@ func TestRegistryPublicDescriptorsContainSchemasButNoInternalOrSecretValues(t *t
 	}
 }
 
+func TestOpenAIAdvertisesSubscriptionWithoutExposingExecutor(t *testing.T) {
+	t.Parallel()
+
+	descriptor, ok := NewRegistry().Get(OpenAI)
+	if !ok {
+		t.Fatal("OpenAI descriptor is missing")
+	}
+	if len(descriptor.ConnectionTypes) != 2 || descriptor.ConnectionTypes[0].ID != "api_key" ||
+		descriptor.ConnectionTypes[1].ID != "subscription" {
+		t.Fatalf("connection types = %#v", descriptor.ConnectionTypes)
+	}
+	if got := descriptor.ConnectionTypes[1].AuthorizationMethods; len(got) != 2 ||
+		got[0] != "browser_oauth" || got[1] != "oauth_file" {
+		t.Fatalf("subscription authorization methods = %#v", got)
+	}
+	encoded, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, internalName := range []string{"CPA", "Bifrost", "executor"} {
+		if strings.Contains(strings.ToLower(string(encoded)), strings.ToLower(internalName)) {
+			t.Fatalf("descriptor exposes %q: %s", internalName, encoded)
+		}
+	}
+}
+
+func TestOnlyOpenAISupportsSubscription(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	if !registry.SupportsConnectionType(OpenAI, "subscription") {
+		t.Fatal("OpenAI subscription is not supported")
+	}
+	if registry.SupportsConnectionType(Anthropic, "subscription") ||
+		registry.SupportsConnectionType(OpenAICompatible, "subscription") {
+		t.Fatal("an unsupported channel advertises subscription")
+	}
+	if !registry.SupportsConnectionType(Anthropic, "api_key") {
+		t.Fatal("legacy api_key support is missing")
+	}
+}
+
 func TestRegistryReturnsExactCatalogProviderMappingWithoutResolvingParams(t *testing.T) {
 	registry := NewRegistry()
 	for id, want := range map[ID]string{
