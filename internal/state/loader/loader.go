@@ -15,9 +15,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
-
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
+	"gpt-load/internal/connection"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
@@ -159,9 +159,9 @@ func (l *Loader) validatePersistedCredentials(
 		plaintext = ""
 		var canonical []byte
 		if strings.TrimSpace(target.connectionType) == string(models.ConnectionTypeSubscription) {
-			credential, parseErr := cpaembedded.ParseCodexCredentialJSON(raw)
+			credential, parseErr := codex.ParseCredentialJSON(raw)
 			if parseErr == nil {
-				canonical, parseErr = json.Marshal(credential)
+				canonical, parseErr = codex.MarshalCredential(credential)
 			}
 			clear(raw)
 			if parseErr != nil {
@@ -550,9 +550,7 @@ func CredentialIdentityGeneration(
 	_, _ = hasher.Write([]byte{0})
 	_, _ = hasher.Write([]byte(channelID))
 	_, _ = hasher.Write([]byte{0})
-	if strings.TrimSpace(connectionType) == "" {
-		connectionType = string(models.ConnectionTypeAPIKey)
-	}
+	connectionType = connection.Normalize(connectionType)
 	_, _ = hasher.Write([]byte(connectionType))
 	_, _ = hasher.Write([]byte{0})
 	_, _ = hasher.Write(bytes.TrimSpace(params))

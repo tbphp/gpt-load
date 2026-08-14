@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
@@ -328,11 +328,11 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.listCodexModels = func(_ context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+	fixture.service.listCodexModels = func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
 		if credential.AccountID != "account-saved-models" {
 			t.Fatalf("credential = %#v", credential)
 		}
-		return []cpaembedded.Model{{ID: "gpt-5.2"}}, nil
+		return []codex.Model{{ID: "gpt-5.2"}}, nil
 	}
 	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
 	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "gpt-5.2" {
@@ -353,20 +353,20 @@ func TestDiscoverGroupModelsPreparesSubscriptionCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepareCalls := 0
-	fixture.service.prepareCodexCredential = func(_ context.Context, snapshot execution.CredentialSnapshot) (cpaembedded.CodexCredential, *execution.ErrorEvidence) {
+	fixture.service.prepareCodexCredential = func(_ context.Context, snapshot execution.CredentialSnapshot) (codex.Credential, *execution.ErrorEvidence) {
 		prepareCalls++
-		credential, parseErr := cpaembedded.ParseCodexCredentialJSON(snapshot.Data())
+		credential, parseErr := codex.ParseCredentialJSON(snapshot.Data())
 		if parseErr != nil {
 			t.Fatal(parseErr)
 		}
 		credential.AccessToken = "refreshed-access"
 		return credential, nil
 	}
-	fixture.service.listCodexModels = func(_ context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+	fixture.service.listCodexModels = func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
 		if credential.AccessToken != "refreshed-access" {
 			t.Fatalf("credential = %#v", credential)
 		}
-		return []cpaembedded.Model{{ID: "gpt-5.2"}}, nil
+		return []codex.Model{{ID: "gpt-5.2"}}, nil
 	}
 
 	if _, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID); err != nil || prepareCalls != 1 {
@@ -391,7 +391,7 @@ func TestDiscoverGroupModelsSkipsSubscriptionCredentialRequiringAuthorization(t 
 		t.Fatal(err)
 	}
 	calls := 0
-	fixture.service.listCodexModels = func(context.Context, cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+	fixture.service.listCodexModels = func(context.Context, codex.Credential) ([]codex.Model, error) {
 		calls++
 		return nil, nil
 	}
@@ -424,7 +424,7 @@ func TestDiscoverGroupModelsDoesNotMaskAttemptedSubscriptionFailure(t *testing.T
 		t.Fatal(err)
 	}
 	calls := 0
-	fixture.service.listCodexModels = func(context.Context, cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+	fixture.service.listCodexModels = func(context.Context, codex.Credential) ([]codex.Model, error) {
 		calls++
 		return nil, errors.New("upstream unavailable")
 	}

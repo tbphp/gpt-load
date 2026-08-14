@@ -12,9 +12,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
-
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -42,9 +41,9 @@ type CredentialStageResult struct {
 }
 
 type stagedCodexPayload struct {
-	Credential cpaembedded.CodexCredential `json:"credential,omitempty"`
-	State      string                      `json:"state,omitempty"`
-	Verifier   string                      `json:"verifier,omitempty"`
+	Credential codex.Credential `json:"credential,omitempty"`
+	State      string           `json:"state,omitempty"`
+	Verifier   string           `json:"verifier,omitempty"`
 }
 
 func (s *Service) ImportCredentialStage(
@@ -58,7 +57,7 @@ func (s *Service) ImportCredentialStage(
 	if len(raw) > maxOAuthFileBytes {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileTooLarge
 	}
-	credential, err := cpaembedded.ParseCodexCredentialJSON(raw)
+	credential, err := codex.ParseCredentialJSON(raw)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileInvalid
 	}
@@ -71,28 +70,28 @@ func (s *Service) ImportCredentialStage(
 
 func (s *Service) prepareImportedCodexCredential(
 	ctx context.Context,
-	credential cpaembedded.CodexCredential,
-) (cpaembedded.CodexCredential, error) {
-	expiresAt, known := cpaembedded.CodexCredentialExpiresAt(credential)
+	credential codex.Credential,
+) (codex.Credential, error) {
+	expiresAt, known := codex.CredentialExpiresAt(credential)
 	if !known || expiresAt.After(s.now().Add(5*time.Minute)) {
 		return credential, nil
 	}
 	if s.refreshCodexCredential == nil {
-		return cpaembedded.CodexCredential{}, app_errors.ErrAuthorizationUnavailable
+		return codex.Credential{}, app_errors.ErrAuthorizationUnavailable
 	}
 	refreshContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancel()
 	refreshed, err := s.refreshCodexCredential(refreshContext, credential)
 	if err != nil {
-		var tokenErr *cpaembedded.TokenEndpointError
-		if errors.Is(err, cpaembedded.ErrCredentialIdentityChanged) ||
-			errors.As(err, &tokenErr) && cpaembedded.IsDefinitiveRefreshRejection(tokenErr.Code) {
-			return cpaembedded.CodexCredential{}, app_errors.ErrCredentialReauthorizationRequired
+		var tokenErr *codex.TokenEndpointError
+		if errors.Is(err, codex.ErrCredentialIdentityChanged) ||
+			errors.As(err, &tokenErr) && codex.IsDefinitiveRefreshRejection(tokenErr.Code) {
+			return codex.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 		}
-		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+		return codex.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
 	}
 	if refreshed.AccountID != credential.AccountID {
-		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialReauthorizationRequired
+		return codex.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 	}
 	return refreshed, nil
 }
@@ -104,7 +103,7 @@ func (s *Service) BeginCredentialAuthorization(
 	if s == nil || s.db == nil || s.encryption == nil || channelID != channel.Codex {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
-	authorization, err := cpaembedded.BeginCodexBrowserAuthorization()
+	authorization, err := codex.BeginBrowserAuthorization()
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
 	}
@@ -222,12 +221,12 @@ func (s *Service) completeCredentialAuthorization(
 	}
 	exchangeContext, cancelExchange := context.WithTimeout(context.WithoutCancel(ctx), defaultSubscriptionControlTimeout)
 	defer cancelExchange()
-	credential, err := s.completeBrowserAuthorization(exchangeContext, cpaembedded.BrowserAuthorizationCompletion{
+	credential, err := s.completeBrowserAuthorization(exchangeContext, codex.BrowserAuthorizationCompletion{
 		ExpectedState: payload.State, ReturnedState: returnedState,
 		Code: code, CodeVerifier: payload.Verifier,
 	})
 	if err != nil {
-		var tokenErr *cpaembedded.TokenEndpointError
+		var tokenErr *codex.TokenEndpointError
 		var finalizeErr error
 		if errors.As(err, &tokenErr) && definitiveAuthorizationCodeRejection(tokenErr.Code) {
 			finalizeErr = s.failCredentialStageExchange(ctx, row.ID, "authorization_exchange_rejected")
@@ -348,7 +347,7 @@ func (s *Service) persistReadyCredentialStage(
 	ctx context.Context,
 	channelID channel.ID,
 	method string,
-	credential cpaembedded.CodexCredential,
+	credential codex.Credential,
 ) (CredentialStageResult, error) {
 	payload, err := json.Marshal(stagedCodexPayload{Credential: credential})
 	if err != nil {
@@ -389,7 +388,7 @@ func (s *Service) persistReadyCredentialStage(
 func (s *Service) finishCredentialStageExchange(
 	ctx context.Context,
 	row models.CredentialStage,
-	credential cpaembedded.CodexCredential,
+	credential codex.Credential,
 ) (CredentialStageResult, error) {
 	payload, err := json.Marshal(stagedCodexPayload{Credential: credential})
 	if err != nil {
@@ -535,11 +534,11 @@ func (s *Service) consumeCredentialStages(
 			return 0, app_errors.ErrStagedCredentialMismatch
 		}
 		plaintext = ""
-		canonical, err := json.Marshal(payload.Credential)
+		canonical, err := codex.MarshalCredential(payload.Credential)
 		if err != nil {
 			return 0, app_errors.ErrInternalServer
 		}
-		credential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
+		credential, err := codex.ParseCredentialJSON(canonical)
 		if err != nil {
 			clear(canonical)
 			return 0, app_errors.ErrStagedCredentialMismatch
@@ -681,7 +680,7 @@ func maskEmail(email string) string {
 	return string(local[0]) + "***" + string(local[len(local)-1]) + "@" + parts[1]
 }
 
-func codexCredentialAccount(credential cpaembedded.CodexCredential) CredentialStageAccount {
+func codexCredentialAccount(credential codex.Credential) CredentialStageAccount {
 	account := CredentialStageAccount{EmailMask: maskEmail(credential.Email)}
 	account.ExpiresAtMS = credentialTimestampMS(credential.Expire)
 	account.LastRefreshAtMS = credentialTimestampMS(credential.LastRefresh)

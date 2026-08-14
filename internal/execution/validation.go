@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"gpt-load/internal/connection"
 )
 
 // Validate validates the credential identity and secret data.
@@ -54,7 +56,7 @@ func (s AttemptSpec) Validate() error {
 	if strings.TrimSpace(s.ChannelID) == "" {
 		return validationError("channel_id", "must not be empty")
 	}
-	if s.ConnectionType != "" && s.ConnectionType != "api_key" && s.ConnectionType != "subscription" {
+	if !connection.Valid(s.ConnectionType) {
 		return validationError("connection_type", "unsupported value")
 	}
 	if strings.TrimSpace(s.TargetKind) == "" || len(s.TargetKind) > 64 || containsControl(s.TargetKind) {

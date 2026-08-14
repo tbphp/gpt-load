@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
@@ -24,6 +24,7 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/dbtx"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription"
 )
 
 const (
@@ -54,11 +55,11 @@ type Service struct {
 	modelDiscoveryTimeout        time.Duration
 	random                       io.Reader
 	operationRandom              io.Reader
-	completeBrowserAuthorization func(context.Context, cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error)
-	prepareCodexCredential       func(context.Context, execution.CredentialSnapshot) (cpaembedded.CodexCredential, *execution.ErrorEvidence)
-	refreshCodexCredential       func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error)
-	listCodexModels              func(context.Context, cpaembedded.CodexCredential) ([]cpaembedded.Model, error)
-	observeCodexAccount          func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error)
+	completeBrowserAuthorization func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error)
+	prepareCodexCredential       func(context.Context, execution.CredentialSnapshot) (codex.Credential, *execution.ErrorEvidence)
+	refreshCodexCredential       func(context.Context, codex.Credential) (codex.Credential, error)
+	listCodexModels              func(context.Context, codex.Credential) ([]codex.Model, error)
+	observeCodexAccount          func(context.Context, codex.Credential) (codex.AccountObservation, error)
 	oauthCallback                *OAuthCallbackServer
 	now                          func() time.Time
 	publishSnapshot              func(state.CompileInput) (*state.ConfigSnapshot, error)
@@ -79,10 +80,6 @@ type Service struct {
 
 type credentialRuntimeRetirer interface {
 	RetireCredential(uint)
-}
-
-type codexCredentialPreparer interface {
-	PrepareCodexCredential(context.Context, execution.CredentialSnapshot) (cpaembedded.CodexCredential, *execution.ErrorEvidence)
 }
 
 type credentialMultiMutationCoordinator interface {
@@ -127,6 +124,7 @@ func NewService(
 	cfg *config.Config,
 	encryptionService encryption.Service,
 	executor execution.Executor,
+	subscriptionCredentials *subscription.CodexCredentialManager,
 	requestLogs RequestLogReader,
 	usageStats UsageStatReader,
 	homeStatistics HomeStatisticsReader,
@@ -153,28 +151,28 @@ func NewService(
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader,
 		operationRandom:       rand.Reader,
-		completeBrowserAuthorization: func(ctx context.Context, completion cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
-			return cpaembedded.CompleteCodexBrowserAuthorization(ctx, completion, cpaembedded.Options{})
+		completeBrowserAuthorization: func(ctx context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+			return codex.CompleteBrowserAuthorization(ctx, completion)
 		},
-		refreshCodexCredential: func(ctx context.Context, credential cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-			return cpaembedded.RefreshCodexCredentialOnce(ctx, credential, cpaembedded.Options{})
+		refreshCodexCredential: func(ctx context.Context, credential codex.Credential) (codex.Credential, error) {
+			return codex.RefreshCredentialOnce(ctx, credential)
 		},
-		listCodexModels: func(ctx context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
-			return cpaembedded.ListCodexModels(ctx, credential, "")
+		listCodexModels: func(ctx context.Context, credential codex.Credential) ([]codex.Model, error) {
+			return codex.ListModels(ctx, credential)
 		},
-		observeCodexAccount: func(ctx context.Context, credential cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
-			return cpaembedded.ObserveCodexAccount(ctx, credential, "")
+		observeCodexAccount: func(ctx context.Context, credential codex.Credential) (codex.AccountObservation, error) {
+			return codex.ObserveAccount(ctx, credential)
 		},
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),
 		observationFlights:    make(map[observationFlightKey]*observationFlight),
 		observationSemaphore:  make(chan struct{}, 1),
 	}
+	if subscriptionCredentials != nil {
+		service.prepareCodexCredential = subscriptionCredentials.PrepareCodexCredential
+	}
 	if provider, ok := executor.(channelDefaultBaseURLProvider); ok {
 		service.channelDefaultBaseURLs = provider
-	}
-	if preparer, ok := executor.(codexCredentialPreparer); ok {
-		service.prepareCodexCredential = preparer.PrepareCodexCredential
 	}
 	if cfg != nil && cfg.ModelsDevAutoSyncOverride != nil {
 		value := *cfg.ModelsDevAutoSyncOverride

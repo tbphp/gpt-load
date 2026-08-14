@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
@@ -159,13 +160,13 @@ func builtinDefinitions() []definition {
 				delete(operations, execution.OperationProbe)
 			}
 			definitions[index].descriptor.ConnectionTypes = []ConnectionTypeDescriptor{{
-				ID: "subscription", CredentialInput: "authorization",
+				ID: connection.Subscription, CredentialInput: "authorization",
 				AuthorizationMethods: []string{"browser_oauth", "oauth_file"},
 			}}
 			continue
 		}
 		definitions[index].descriptor.ConnectionTypes = []ConnectionTypeDescriptor{{
-			ID: "api_key", CredentialInput: "batch_text",
+			ID: connection.APIKey, CredentialInput: "batch_text",
 		}}
 	}
 	return definitions

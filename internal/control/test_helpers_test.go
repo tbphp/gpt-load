@@ -27,6 +27,7 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription"
 )
 
 var (
@@ -190,6 +191,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	}
 	stats := health.NewStatsStore()
 	mutations := health.NewMutationCoordinator()
+	subscriptionCredentials := subscription.NewCodexCredentialManager(db, keyService, registry, mutations)
 	requestLogStats := &staticRequestLogStatsReader{}
 	priceRuntime := NewPriceRuntime()
 	catalogRuntime := &catalog.Runtime{}
@@ -206,6 +208,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 			nil,
 			keyService,
 			controlHTTPExecutor{},
+			subscriptionCredentials,
 			nil,
 			nil,
 			nil,

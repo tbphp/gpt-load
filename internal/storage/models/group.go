@@ -4,6 +4,8 @@ import (
 	"bytes"
 
 	"gorm.io/gorm"
+
+	"gpt-load/internal/connection"
 )
 
 // Group is the persisted configuration for an upstream service group.
@@ -41,8 +43,8 @@ func (group *Group) BeforeSave(_ *gorm.DB) error {
 type ConnectionType string
 
 const (
-	ConnectionTypeAPIKey       ConnectionType = "api_key"
-	ConnectionTypeSubscription ConnectionType = "subscription"
+	ConnectionTypeAPIKey       ConnectionType = connection.APIKey
+	ConnectionTypeSubscription ConnectionType = connection.Subscription
 )
 
 // CredentialStatus is the durable operator-controlled state of channel data.

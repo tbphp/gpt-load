@@ -17,6 +17,7 @@ import (
 
 	"gpt-load/internal/affinity"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/connection"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
@@ -749,7 +750,7 @@ func (handler *Handler) executeAttempts(
 		if result.ExecutionError != nil &&
 			result.ExecutionError.Hint == execution.FailureHintRefreshRequired &&
 			result.ExecutionError.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing &&
-			selection.Group.ConnectionType == "subscription" && attempts < maxAttempts {
+			connection.Normalize(selection.Group.ConnectionType) == connection.Subscription && attempts < maxAttempts {
 			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
 		}
 		if decision.Action == health.ActionSkipGroup {

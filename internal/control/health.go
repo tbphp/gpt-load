@@ -6,9 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
-
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
@@ -180,7 +179,7 @@ func (service *Service) healthProblemMask(
 		)
 	}
 	if normalizeGroupConnectionType(models.ConnectionType(connectionType)) == models.ConnectionTypeSubscription {
-		credential, parseErr := cpaembedded.ParseCodexCredentialJSON([]byte(plaintext))
+		credential, parseErr := codex.ParseCredentialJSON([]byte(plaintext))
 		plaintext = ""
 		if parseErr != nil {
 			return "", fmt.Errorf("map runtime health subscription credential %d: %w", credentialID, app_errors.ErrInternalServer)

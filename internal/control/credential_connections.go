@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -358,11 +358,11 @@ func (s *Service) readyStageCredential(
 		return models.CredentialStage{}, nil, app_errors.ErrStagedCredentialMismatch
 	}
 	plaintext = ""
-	canonical, err := json.Marshal(payload.Credential)
+	canonical, err := codex.MarshalCredential(payload.Credential)
 	if err != nil {
 		return models.CredentialStage{}, nil, app_errors.ErrInternalServer
 	}
-	credential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
+	credential, err := codex.ParseCredentialJSON(canonical)
 	if err != nil || s.subscriptionIdentityFingerprint(channelID, credential.AccountID) != stage.IdentityFingerprint {
 		clear(canonical)
 		return models.CredentialStage{}, nil, app_errors.ErrStagedCredentialMismatch

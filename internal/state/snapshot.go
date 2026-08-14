@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
@@ -195,7 +196,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			InjectUsageOptions: resolved.InjectUsageOptions,
 			AffinityEnabled:    resolved.AffinityEnabled,
 			WeightManual:       cloneWeight(group.WeightManual),
-			ConnectionType:     normalizeConnectionType(group.ConnectionType),
+			ConnectionType:     connection.Normalize(group.ConnectionType),
 		}
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)
 		if err != nil {
@@ -228,13 +229,6 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	return snapshot, nil
 }
 
-func normalizeConnectionType(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "api_key"
-	}
-	return strings.TrimSpace(value)
-}
-
 func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
 	return AccessKeyView{
 		ID: input.ID, Name: input.Name, Status: input.Status,
@@ -260,7 +254,7 @@ func appendExecutionTargets(
 			if operation == execution.OperationListModels || operation == execution.OperationProbe {
 				continue
 			}
-			if normalizeConnectionType(group.ConnectionType) == "subscription" &&
+			if connection.Normalize(group.ConnectionType) == connection.Subscription &&
 				operation != execution.OperationChatCompletion &&
 				operation != execution.OperationResponsesCreate {
 				continue
@@ -366,7 +360,7 @@ func validateCompileInput(input CompileInput) error {
 		if _, ok := input.ChannelRegistry.Get(group.ChannelID); !ok {
 			return fmt.Errorf("group %d has unknown channel %q", group.ID, group.ChannelID)
 		}
-		connectionType := normalizeConnectionType(group.ConnectionType)
+		connectionType := connection.Normalize(group.ConnectionType)
 		if !input.ChannelRegistry.SupportsConnectionType(group.ChannelID, connectionType) {
 			return fmt.Errorf("group %d channel %q does not support connection type %q", group.ID, group.ChannelID, connectionType)
 		}

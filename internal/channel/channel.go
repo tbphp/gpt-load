@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
@@ -331,9 +332,7 @@ func (r *Registry) SupportsConnectionType(id ID, connectionType string) bool {
 	if !ok {
 		return false
 	}
-	if strings.TrimSpace(connectionType) == "" {
-		connectionType = "api_key"
-	}
+	connectionType = connection.Normalize(connectionType)
 	for _, candidate := range descriptor.ConnectionTypes {
 		if candidate.ID == connectionType {
 			return true

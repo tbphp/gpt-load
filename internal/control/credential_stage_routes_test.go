@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 
+	"gpt-load/internal/codex"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage/models"
 )
@@ -107,11 +107,11 @@ func TestManualOAuthCallbackCompletesOnlyItsBoundStageOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := authorizationURL.Query().Get("state")
-	fixture.service.completeBrowserAuthorization = func(_ context.Context, completion cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+	fixture.service.completeBrowserAuthorization = func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		if completion.ReturnedState != state || completion.Code != "authorization-code" {
 			t.Fatalf("completion = %#v", completion)
 		}
-		return cpaembedded.CodexCredential{Type: "codex", AccessToken: "access", RefreshToken: "refresh", AccountID: "account-one", Email: "one@example.com"}, nil
+		return codex.Credential{Type: "codex", AccessToken: "access", RefreshToken: "refresh", AccountID: "account-one", Email: "one@example.com"}, nil
 	}
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
@@ -308,8 +308,8 @@ func TestNewServerConfiguresOAuthCallbackForWildcardContainerHost(t *testing.T) 
 func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) {
 	initControlI18n(t)
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
-		return cpaembedded.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":35}}}`)}, nil
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		return codex.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":35}}}`)}, nil
 	}
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
@@ -342,12 +342,12 @@ func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) 
 	}
 }
 
-func successfulBrowserCompletion(payload stagedCodexPayload, t *testing.T) func(context.Context, cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+func successfulBrowserCompletion(payload stagedCodexPayload, t *testing.T) func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 	t.Helper()
-	return func(_ context.Context, completion cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+	return func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		if completion.ExpectedState != payload.State || completion.ReturnedState != payload.State || completion.Code != "authorization-code" {
 			t.Fatalf("completion = %#v", completion)
 		}
-		return cpaembedded.CodexCredential{Type: "codex", AccessToken: "access", RefreshToken: "refresh", AccountID: "account-one", Email: "one@example.com"}, nil
+		return codex.Credential{Type: "codex", AccessToken: "access", RefreshToken: "refresh", AccountID: "account-one", Email: "one@example.com"}, nil
 	}
 }

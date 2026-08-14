@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"gpt-load/internal/connection"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -239,9 +240,7 @@ type AttemptSpec struct {
 
 // NewAttemptSpec takes ownership of an independent clone of spec.
 func NewAttemptSpec(spec AttemptSpec) AttemptSpec {
-	if spec.ConnectionType == "" {
-		spec.ConnectionType = "api_key"
-	}
+	spec.ConnectionType = connection.Normalize(spec.ConnectionType)
 	spec.RouteRequirement = spec.RouteRequirement.Normalize()
 	return spec.Clone()
 }

@@ -9,9 +9,8 @@ import (
 	"testing"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
-
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -79,12 +78,12 @@ func TestRefreshCredentialObservationPersistsLKGAndThrottles(t *testing.T) {
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
 	calls := 0
-	fixture.service.observeCodexAccount = func(_ context.Context, credential cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+	fixture.service.observeCodexAccount = func(_ context.Context, credential codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		if credential.AccountID != "account-observation" {
 			t.Fatalf("credential = %#v", credential)
 		}
-		return cpaembedded.AccountObservation{Payload: []byte(`{"plan_type":"plus","rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":40,"reset_at":1800001000}}}`)}, nil
+		return codex.AccountObservation{Payload: []byte(`{"plan_type":"plus","rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":40,"reset_at":1800001000}}}`)}, nil
 	}
 	first, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err != nil {
@@ -106,9 +105,9 @@ func TestRefreshCredentialObservationPersistsLKGAndThrottles(t *testing.T) {
 	}
 
 	now = now.Add(6 * time.Minute)
-	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
-		return cpaembedded.AccountObservation{}, errors.New("upstream unavailable")
+		return codex.AccountObservation{}, errors.New("upstream unavailable")
 	}
 	failed, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err == nil || failed.Snapshot == nil || failed.State != string(models.CredentialObservationError) {
@@ -124,9 +123,9 @@ func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) 
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
 	calls := 0
-	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
-		return cpaembedded.AccountObservation{Payload: []byte(`[]`)}, nil
+		return codex.AccountObservation{Payload: []byte(`[]`)}, nil
 	}
 
 	failed, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
@@ -150,10 +149,10 @@ func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) 
 func TestRefreshCredentialObservationUsesBoundedUpstreamContext(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	hasBoundedDeadline := false
-	fixture.service.observeCodexAccount = func(ctx context.Context, _ cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+	fixture.service.observeCodexAccount = func(ctx context.Context, _ codex.Credential) (codex.AccountObservation, error) {
 		deadline, ok := ctx.Deadline()
 		hasBoundedDeadline = ok && time.Until(deadline) > 0 && time.Until(deadline) <= 31*time.Second
-		return cpaembedded.AccountObservation{}, errors.New("upstream unavailable")
+		return codex.AccountObservation{}, errors.New("upstream unavailable")
 	}
 
 	_, _ = fixture.service.RefreshCredentialObservation(context.Background(), groupID, credentialID)
@@ -169,9 +168,9 @@ func TestRefreshCredentialObservationRejectsNonReadyCredentialBeforeUpstream(t *
 		t.Fatal(err)
 	}
 	calls := 0
-	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
-		return cpaembedded.AccountObservation{}, nil
+		return codex.AccountObservation{}, nil
 	}
 
 	_, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
@@ -188,11 +187,11 @@ func TestConcurrentObservationRefreshIsSingleflight(t *testing.T) {
 	release := make(chan struct{})
 	var once sync.Once
 	calls := 0
-	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		once.Do(func() { close(started) })
 		<-release
-		return cpaembedded.AccountObservation{Payload: []byte(`{"rate_limit":{}}`)}, nil
+		return codex.AccountObservation{Payload: []byte(`{"rate_limit":{}}`)}, nil
 	}
 	results := make(chan error, 2)
 	go func() {
@@ -233,10 +232,10 @@ func TestObservationSingleflightKeepsGroupAndCredentialBoundTogether(t *testing.
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		close(started)
 		<-release
-		return cpaembedded.AccountObservation{Payload: []byte(`{"rate_limit":{}}`)}, nil
+		return codex.AccountObservation{Payload: []byte(`{"rate_limit":{}}`)}, nil
 	}
 	validDone := make(chan error, 1)
 	go func() {
@@ -259,8 +258,8 @@ func TestSubscriptionCredentialCollectionAndDetailIncludeCachedObservation(t *te
 	t.Parallel()
 
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
-		return cpaembedded.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"secondary_window":{"limit_window_seconds":604800,"used_percent":65}}}`)}, nil
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		return codex.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"secondary_window":{"limit_window_seconds":604800,"used_percent":65}}}`)}, nil
 	}
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)

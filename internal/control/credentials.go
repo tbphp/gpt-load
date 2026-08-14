@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
+	"gpt-load/internal/connection"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -138,10 +139,7 @@ type credentialCollectionRecord struct {
 }
 
 func normalizeGroupConnectionType(value models.ConnectionType) models.ConnectionType {
-	if value == "" {
-		return models.ConnectionTypeAPIKey
-	}
-	return value
+	return models.ConnectionType(connection.Normalize(string(value)))
 }
 
 func credentialPresentation(
@@ -151,7 +149,7 @@ func credentialPresentation(
 	identity string,
 ) (string, CredentialStageAccount, error) {
 	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
-		credential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
+		credential, err := codex.ParseCredentialJSON(canonical)
 		if err != nil {
 			return "", CredentialStageAccount{}, err
 		}
@@ -338,12 +336,12 @@ func (s *Service) decodeCredential(group models.Group, row models.Credential) (j
 		return nil, "", fmt.Errorf("decrypt credential %d: %w", row.ID, app_errors.ErrInternalServer)
 	}
 	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
-		credential, err := cpaembedded.ParseCodexCredentialJSON([]byte(plaintext))
+		credential, err := codex.ParseCredentialJSON([]byte(plaintext))
 		plaintext = ""
 		if err != nil {
 			return nil, "", fmt.Errorf("validate subscription credential %d: %w", row.ID, app_errors.ErrInternalServer)
 		}
-		canonical, err := json.Marshal(credential)
+		canonical, err := codex.MarshalCredential(credential)
 		if err != nil {
 			return nil, "", fmt.Errorf("encode subscription credential %d: %w", row.ID, app_errors.ErrInternalServer)
 		}

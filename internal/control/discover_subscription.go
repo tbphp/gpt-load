@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
-
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
@@ -71,25 +70,25 @@ func (s *Service) prepareStoredCodexCredential(
 	ctx context.Context,
 	group models.Group,
 	row models.Credential,
-) (cpaembedded.CodexCredential, error) {
+) (codex.Credential, error) {
 	switch row.AuthState {
 	case "", models.CredentialAuthStateReady:
 	case models.CredentialAuthStateReauthorizationRequired:
-		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialReauthorizationRequired
+		return codex.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 	case models.CredentialAuthStateRefreshing, models.CredentialAuthStateOutcomeUnknown:
-		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+		return codex.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
 	default:
-		return cpaembedded.CodexCredential{}, app_errors.ErrInternalServer
+		return codex.Credential{}, app_errors.ErrInternalServer
 	}
 	canonical, _, err := s.decodeCredential(group, row)
 	if err != nil {
-		return cpaembedded.CodexCredential{}, err
+		return codex.Credential{}, err
 	}
 	defer clear(canonical)
 	if s.prepareCodexCredential == nil {
-		credential, parseErr := cpaembedded.ParseCodexCredentialJSON(canonical)
+		credential, parseErr := codex.ParseCredentialJSON(canonical)
 		if parseErr != nil {
-			return cpaembedded.CodexCredential{}, app_errors.ErrInternalServer
+			return codex.Credential{}, app_errors.ErrInternalServer
 		}
 		return credential, nil
 	}
@@ -102,7 +101,7 @@ func (s *Service) prepareStoredCodexCredential(
 		canonical,
 	))
 	if evidence != nil {
-		return cpaembedded.CodexCredential{}, codexPreparationAPIError(evidence)
+		return codex.Credential{}, codexPreparationAPIError(evidence)
 	}
 	return credential, nil
 }
@@ -131,7 +130,7 @@ func codexPreparationAPIError(evidence *execution.ErrorEvidence) error {
 
 func (s *Service) discoverCodexModels(
 	ctx context.Context,
-	credential cpaembedded.CodexCredential,
+	credential codex.Credential,
 ) (ModelDiscoveryResult, error) {
 	if s == nil || s.listCodexModels == nil {
 		return ModelDiscoveryResult{}, app_errors.ErrInternalServer
@@ -150,25 +149,25 @@ func (s *Service) discoverCodexModels(
 	return s.mergeDiscoveredModels(ctx, normalizeDiscoveredModels(ids), target)
 }
 
-func (s *Service) decodeStageCodexCredential(stage models.CredentialStage) (cpaembedded.CodexCredential, error) {
+func (s *Service) decodeStageCodexCredential(stage models.CredentialStage) (codex.Credential, error) {
 	plaintext, err := s.encryption.Decrypt(stage.EncryptedPayload)
 	if err != nil {
-		return cpaembedded.CodexCredential{}, app_errors.ErrStagedCredentialMismatch
+		return codex.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
 	var payload stagedCodexPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		plaintext = ""
-		return cpaembedded.CodexCredential{}, app_errors.ErrStagedCredentialMismatch
+		return codex.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
 	plaintext = ""
-	canonical, err := json.Marshal(payload.Credential)
+	canonical, err := codex.MarshalCredential(payload.Credential)
 	if err != nil {
-		return cpaembedded.CodexCredential{}, app_errors.ErrInternalServer
+		return codex.Credential{}, app_errors.ErrInternalServer
 	}
-	credential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
+	credential, err := codex.ParseCredentialJSON(canonical)
 	clear(canonical)
 	if err != nil {
-		return cpaembedded.CodexCredential{}, app_errors.ErrStagedCredentialMismatch
+		return codex.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
 	return credential, nil
 }

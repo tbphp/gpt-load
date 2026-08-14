@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
@@ -91,11 +91,11 @@ func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
 
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-models", "models@example.com")
-	fixture.service.listCodexModels = func(_ context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+	fixture.service.listCodexModels = func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
 		if credential.AccountID != "account-models" || credential.AccessToken == "" {
 			t.Fatalf("credential = %#v", credential)
 		}
-		return []cpaembedded.Model{{ID: " gpt-5.2 "}, {ID: "gpt-5.2"}, {ID: "gpt-5.1-codex"}}, nil
+		return []codex.Model{{ID: " gpt-5.2 "}, {ID: "gpt-5.2"}, {ID: "gpt-5.1-codex"}}, nil
 	}
 	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
 		ChannelID:          channel.Codex,

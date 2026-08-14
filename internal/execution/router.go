@@ -1,6 +1,10 @@
 package execution
 
-import "context"
+import (
+	"context"
+
+	"gpt-load/internal/connection"
+)
 
 // Router preserves one global execution contract while dispatching the
 // already-selected attempt by its product connection type.
@@ -39,10 +43,10 @@ func (r *Router) executor(connectionType string) Executor {
 	if r == nil {
 		return nil
 	}
-	switch connectionType {
-	case "", "api_key":
+	switch connection.Normalize(connectionType) {
+	case connection.APIKey:
 		return r.apiKey
-	case "subscription":
+	case connection.Subscription:
 		return r.subscription
 	default:
 		return nil

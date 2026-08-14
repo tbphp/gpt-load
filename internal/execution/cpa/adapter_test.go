@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -13,9 +12,9 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
@@ -23,16 +22,34 @@ import (
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription"
 )
 
 type fakeExecutor struct {
 	mu      sync.Mutex
 	calls   int
-	last    cpaembedded.CodexCredential
-	request cpaembedded.ExecuteRequest
-	result  cpaembedded.ExecuteResponse
+	last    codex.Credential
+	request codex.ExecuteRequest
+	result  codex.ExecuteResponse
 	err     error
-	stream  *cpaembedded.ExecuteStreamResponse
+	stream  *codex.ExecuteStreamResponse
+}
+
+type fakeCredentialPreparer struct {
+	credential codex.Credential
+	evidence   *execution.ErrorEvidence
+	calls      int
+	force      bool
+}
+
+func (f *fakeCredentialPreparer) Prepare(
+	_ context.Context,
+	_ execution.CredentialSnapshot,
+	force bool,
+) (codex.Credential, *execution.ErrorEvidence) {
+	f.calls++
+	f.force = force
+	return f.credential, f.evidence
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -41,15 +58,7 @@ func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, err
 	return fn(request)
 }
 
-type failingEncryptService struct {
-	encryption.Service
-}
-
-func (failingEncryptService) Encrypt(string) (string, error) {
-	return "", errors.New("encrypt failed")
-}
-
-func (f *fakeExecutor) ExecuteCanonical(_ context.Context, _ string, credential cpaembedded.CodexCredential, request cpaembedded.ExecuteRequest) (cpaembedded.ExecuteResponse, error) {
+func (f *fakeExecutor) Execute(_ context.Context, _ string, credential codex.Credential, request codex.ExecuteRequest) (codex.ExecuteResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -58,7 +67,7 @@ func (f *fakeExecutor) ExecuteCanonical(_ context.Context, _ string, credential 
 	return f.result, f.err
 }
 
-func (f *fakeExecutor) ExecuteStreamCanonical(_ context.Context, _ string, credential cpaembedded.CodexCredential, request cpaembedded.ExecuteRequest) (*cpaembedded.ExecuteStreamResponse, error) {
+func (f *fakeExecutor) ExecuteStream(_ context.Context, _ string, credential codex.Credential, request codex.ExecuteRequest) (*codex.ExecuteStreamResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -67,297 +76,24 @@ func (f *fakeExecutor) ExecuteStreamCanonical(_ context.Context, _ string, crede
 	return f.stream, f.err
 }
 
-func TestAdapterRefreshesExpiringCredentialOnceAndPreservesIdentity(t *testing.T) {
-	adapter, db, registry, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	var refreshCalls int
-	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		refreshCalls++
-		current.AccessToken = "new-access"
-		current.RefreshToken = "new-refresh"
-		current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-		return current, nil
-	}
-	fake := &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"id":"resp_1","model":"gpt-5","usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`), Headers: http.Header{"X-Request-Id": {"upstream-1"}}}}
-	adapter.executor = fake
-
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.Error != nil || result.StatusCode != http.StatusOK || refreshCalls != 1 || fake.calls != 1 || fake.last.AccessToken != "new-access" {
-		t.Fatalf("result=%#v refresh=%d execute=%d credential=%#v", result, refreshCalls, fake.calls, fake.last)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.SecretVersion != 2 || stored.IdentityFingerprint != row.IdentityFingerprint || stored.AuthState != models.CredentialAuthStateReady {
-		t.Fatalf("stored credential = %#v", stored)
-	}
-	entry, ok := registry.CredentialRef(row.ID)
-	if !ok || entry.Version != 2 || entry.IdentityGeneration != stateloader.CredentialIdentityGeneration(row.IdentityFingerprint, "codex", "subscription", json.RawMessage(`{}`)) {
-		t.Fatalf("registry entry = %#v", entry)
-	}
-}
-
-func TestAdapterForceRefreshesCredentialAfterExplicitRejection(t *testing.T) {
-	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Hour)))
-	var refreshCalls int
-	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		refreshCalls++
-		current.AccessToken = "new-access"
-		current.RefreshToken = "new-refresh"
-		current.Expire = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
-		return current, nil
-	}
-	fake := &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"id":"resp_1","model":"gpt-5"}`)}}
-	adapter.executor = fake
+func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	preparer := &fakeCredentialPreparer{evidence: &execution.ErrorEvidence{
+		Kind: execution.ErrorKindProvider, Hint: execution.FailureHintReauthorizationRequired,
+		Code: "refresh_rejected", Summary: "subscription account requires reauthorization",
+	}}
+	executor := &fakeExecutor{}
+	adapter.credentials = preparer
+	adapter.executor = executor
 	spec := validSpec(t, row, keyService)
 	spec.ForceCredentialRefresh = true
 
 	result := adapter.Execute(t.Context(), spec)
-	if result.Error != nil || refreshCalls != 1 || fake.calls != 1 || fake.last.AccessToken != "new-access" {
-		t.Fatalf("result=%#v refresh=%d execute=%d credential=%#v", result, refreshCalls, fake.calls, fake.last)
-	}
-}
-
-func TestAdapterForceRefreshUsesNewerSecretWrittenByConcurrentRequest(t *testing.T) {
-	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Hour)))
-	var refreshCalls int
-	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		refreshCalls++
-		current.AccessToken = "new-access"
-		current.RefreshToken = "new-refresh"
-		current.Expire = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
-		return current, nil
-	}
-	fake := &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"id":"resp_1","model":"gpt-5"}`)}}
-	adapter.executor = fake
-	spec := validSpec(t, row, keyService)
-	spec.ForceCredentialRefresh = true
-
-	first := adapter.Execute(t.Context(), spec)
-	second := adapter.Execute(t.Context(), spec)
-	if first.Error != nil || second.Error != nil || refreshCalls != 1 || fake.calls != 2 || fake.last.AccessToken != "new-access" {
-		t.Fatalf("first=%#v second=%#v refresh=%d execute=%d credential=%#v", first, second, refreshCalls, fake.calls, fake.last)
-	}
-}
-
-func TestAdapterConcurrentPrepareUsesOneRefresh(t *testing.T) {
-	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	var mu sync.Mutex
-	refreshCalls := 0
-	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		mu.Lock()
-		refreshCalls++
-		mu.Unlock()
-		time.Sleep(20 * time.Millisecond)
-		current.AccessToken = "new-access"
-		current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-		return current, nil
-	}
-	adapter.executor = &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"id":"resp","model":"gpt-5"}`)}}
-	spec := validSpec(t, row, keyService)
-	var wait sync.WaitGroup
-	wait.Add(2)
-	for range 2 {
-		go func() { defer wait.Done(); _ = adapter.Execute(context.Background(), spec) }()
-	}
-	wait.Wait()
-	mu.Lock()
-	defer mu.Unlock()
-	if refreshCalls != 1 {
-		t.Fatalf("refresh calls = %d, want 1", refreshCalls)
-	}
-}
-
-func TestAdapterReconcilesRegistryWhenIncrementalRefreshPublicationFails(t *testing.T) {
-	adapter, db, registry, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		current.AccessToken = "new-access"
-		current.RefreshToken = "new-refresh"
-		current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-		return current, nil
-	}
-	adapter.executor = &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"id":"resp"}`)}}
-	adapter.replaceSecret = func(uint, uint64, uint64, string, string) bool { return false }
-
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.Error != nil {
-		t.Fatalf("result = %#v, evidence = %#v", result, result.Error)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.SecretVersion != row.SecretVersion+1 || stored.AuthState != models.CredentialAuthStateReady {
-		t.Fatalf("stored credential = %#v", stored)
-	}
-	plaintext, err := keyService.Decrypt(stored.Data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	credential, err := cpaembedded.ParseCodexCredentialJSON([]byte(plaintext))
-	if err != nil || credential.AccessToken != "new-access" {
-		t.Fatalf("durable credential = %#v, %v", credential, err)
-	}
-	ref, ok := registry.CredentialRef(row.ID)
-	if !ok || ref.Version != row.SecretVersion+1 || ref.Fingerprint != stored.Fingerprint || ref.EncryptedValue != stored.Data {
-		t.Fatalf("registry ref = %#v, ok = %t", ref, ok)
-	}
-}
-
-func TestAdapterFailsClosedWhenRefreshedSecretCannotReachRegistry(t *testing.T) {
-	adapter, db, registry, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		current.AccessToken = "new-access"
-		current.RefreshToken = "new-refresh"
-		current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-		return current, nil
-	}
-	adapter.replaceSecret = func(uint, uint64, uint64, string, string) bool { return false }
-	adapter.reconcileGroup = func(uint, []state.CredentialEntry) (bool, error) {
-		return false, errors.New("registry unavailable")
-	}
-	adapter.executor = &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"id":"must-not-run"}`)}}
-
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.Error == nil || result.Error.Code != "refresh_registry_mismatch" {
+	if result.DispatchState != execution.DispatchNotSent || result.Error != preparer.evidence {
 		t.Fatalf("result = %#v", result)
 	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.SecretVersion != row.SecretVersion+1 || stored.AuthState != models.CredentialAuthStateOutcomeUnknown {
-		t.Fatalf("stored credential = %#v", stored)
-	}
-	views := registry.Snapshot()
-	if len(views) != 1 || views[0].ID != row.ID || views[0].AuthState != state.CredentialAuthStateOutcomeUnknown {
-		t.Fatalf("registry views = %#v", views)
-	}
-}
-
-func TestAdapterRestoresReadyWhenRegistryCannotPublishRefreshStart(t *testing.T) {
-	adapter, db, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.registry.RemoveCredential(row.ID)
-	adapter.reconcileGroup = func(uint, []state.CredentialEntry) (bool, error) {
-		return false, errors.New("registry unavailable")
-	}
-	refreshCalls := 0
-	adapter.refresh = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		refreshCalls++
-		return cpaembedded.CodexCredential{}, errors.New("must not be called")
-	}
-
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.Error == nil || result.Error.Code != "refresh_registry_mismatch" || refreshCalls != 0 {
-		t.Fatalf("result = %#v, evidence = %#v, refresh calls = %d", result, result.Error, refreshCalls)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.SecretVersion != row.SecretVersion || stored.AuthState != models.CredentialAuthStateReady {
-		t.Fatalf("stored credential = %#v", stored)
-	}
-}
-
-func TestAdapterDefinitiveRefreshRejectionRequiresReauthorization(t *testing.T) {
-	adapter, db, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.refresh = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		return cpaembedded.CodexCredential{}, &cpaembedded.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
-	}
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Hint != execution.FailureHintReauthorizationRequired {
-		t.Fatalf("result = %#v", result)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.AuthState != models.CredentialAuthStateReauthorizationRequired {
-		t.Fatalf("auth state = %q", stored.AuthState)
-	}
-}
-
-func TestAdapterRefreshIdentityChangeRequiresReauthorization(t *testing.T) {
-	adapter, db, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.refresh = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		return cpaembedded.CodexCredential{}, cpaembedded.ErrCredentialIdentityChanged
-	}
-
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.Error == nil || result.Error.Code != "refresh_identity_changed" || result.Error.Hint != execution.FailureHintReauthorizationRequired {
-		t.Fatalf("result = %#v", result)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.AuthState != models.CredentialAuthStateReauthorizationRequired || stored.AuthErrorCode != "refresh_identity_changed" {
-		t.Fatalf("stored credential = %#v", stored)
-	}
-}
-
-func TestAdapterTransientRefreshRejectionDoesNotRequireReauthorization(t *testing.T) {
-	adapter, db, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.refresh = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		return cpaembedded.CodexCredential{}, &cpaembedded.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
-	}
-
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Code != "refresh_outcome_unknown" {
-		t.Fatalf("result = %#v", result)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.AuthState != models.CredentialAuthStateOutcomeUnknown {
-		t.Fatalf("auth state = %q", stored.AuthState)
-	}
-}
-
-func TestAdapterAmbiguousRefreshFailureStopsWithoutReplay(t *testing.T) {
-	adapter, db, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.refresh = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		return cpaembedded.CodexCredential{}, errors.New("connection reset")
-	}
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Hint != execution.FailureHintReauthorizationRequired {
-		t.Fatalf("result = %#v", result)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.AuthState != models.CredentialAuthStateOutcomeUnknown {
-		t.Fatalf("auth state = %q", stored.AuthState)
-	}
-}
-
-func TestAdapterMarksOutcomeUnknownWhenRotatedTokenCannotBeEncrypted(t *testing.T) {
-	adapter, db, registry, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	adapter.encryption = failingEncryptService{Service: keyService}
-	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-		current.AccessToken = "new-access"
-		current.RefreshToken = "new-refresh"
-		return current, nil
-	}
-
-	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.DispatchState != execution.DispatchNotSent || result.Error == nil ||
-		result.Error.Code != "refresh_persist_failed" || result.Error.Hint != execution.FailureHintReauthorizationRequired {
-		t.Fatalf("result = %#v", result)
-	}
-	var stored models.Credential
-	if err := db.First(&stored, row.ID).Error; err != nil {
-		t.Fatal(err)
-	}
-	if stored.SecretVersion != row.SecretVersion || stored.AuthState != models.CredentialAuthStateOutcomeUnknown {
-		t.Fatalf("stored credential = %#v", stored)
-	}
-	views := registry.Snapshot()
-	if len(views) != 1 || views[0].AuthState != state.CredentialAuthStateOutcomeUnknown {
-		t.Fatalf("registry views = %#v", views)
+	if preparer.calls != 1 || !preparer.force || executor.calls != 0 {
+		t.Fatalf("prepare calls = %d, force = %t, execute calls = %d", preparer.calls, preparer.force, executor.calls)
 	}
 }
 
@@ -399,7 +135,7 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-			fake := &fakeExecutor{result: cpaembedded.ExecuteResponse{
+			fake := &fakeExecutor{result: codex.ExecuteResponse{
 				Payload: []byte(`{"model":"gpt-5"}`),
 				Headers: http.Header{
 					"Content-Type":     {"text/event-stream"},
@@ -484,10 +220,10 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-			chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
-			chunks <- cpaembedded.ExecuteStreamChunk{Payload: []byte(test.payload)}
+			chunks := make(chan codex.ExecuteStreamChunk, 1)
+			chunks <- codex.ExecuteStreamChunk{Payload: []byte(test.payload)}
 			close(chunks)
-			fake := &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+			fake := &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
 			adapter.executor = fake
 			spec := validSpec(t, row, keyService)
 			spec.ClientProtocol = test.protocol
@@ -515,9 +251,9 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 
 func TestAdapterDoesNotCompleteStreamAfterContextCancellation(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-	chunks := make(chan cpaembedded.ExecuteStreamChunk)
+	chunks := make(chan codex.ExecuteStreamChunk)
 	close(chunks)
-	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
 	spec := validSpec(t, row, keyService)
 	spec.ClientProtocol = protocol.OpenAICompletions
 	spec.Operation = execution.OperationChatCompletion
@@ -539,8 +275,8 @@ func TestAdapterDoesNotCompleteStreamAfterContextCancellation(t *testing.T) {
 
 func TestAdapterUsesFirstByteTimeoutBeforeFirstData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
-	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+	chunks := make(chan codex.ExecuteStreamChunk, 1)
+	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
 	spec := validSpec(t, row, keyService)
 	spec.Timeouts.FirstByte = 20 * time.Millisecond
 	spec.Timeouts.StreamIdle = 250 * time.Millisecond
@@ -562,9 +298,9 @@ func TestAdapterUsesFirstByteTimeoutBeforeFirstData(t *testing.T) {
 
 func TestAdapterSwitchesToStreamIdleTimeoutAfterFirstData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
-	chunks <- cpaembedded.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.created","response":{"id":"resp_1"}}`)}
-	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+	chunks := make(chan codex.ExecuteStreamChunk, 1)
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.created","response":{"id":"resp_1"}}`)}
+	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
 	spec := validSpec(t, row, keyService)
 	spec.Timeouts.FirstByte = 200 * time.Millisecond
 	spec.Timeouts.StreamIdle = 20 * time.Millisecond
@@ -585,10 +321,10 @@ func TestAdapterSwitchesToStreamIdleTimeoutAfterFirstData(t *testing.T) {
 
 func TestAdapterReturnsFirstStreamErrorBeforeReady(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
-	chunks <- cpaembedded.ExecuteStreamChunk{Err: statusError{status: http.StatusBadRequest, message: `{"error":{"type":"invalid_request_error","code":"bad_request"}}`}}
+	chunks := make(chan codex.ExecuteStreamChunk, 1)
+	chunks <- codex.ExecuteStreamChunk{Err: statusError{status: http.StatusBadRequest, message: `{"error":{"type":"invalid_request_error","code":"bad_request"}}`}}
 	close(chunks)
-	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{
+	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{
 		Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks,
 	}}
 
@@ -617,10 +353,10 @@ func TestAdapterRewritesStreamModelAliasForEveryProtocol(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-			chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
-			chunks <- cpaembedded.ExecuteStreamChunk{Payload: []byte(test.payload)}
+			chunks := make(chan codex.ExecuteStreamChunk, 1)
+			chunks <- codex.ExecuteStreamChunk{Payload: []byte(test.payload)}
 			close(chunks)
-			adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+			adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
 			spec := validSpec(t, row, keyService)
 			spec.ClientProtocol = test.protocol
 			spec.Operation = test.operation
@@ -806,10 +542,10 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 
 func TestAdapterStreamsReadyThenFramedData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
-	chunks <- cpaembedded.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"id":"resp_1"}}`)}
+	chunks := make(chan codex.ExecuteStreamChunk, 1)
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"id":"resp_1"}}`)}
 	close(chunks)
-	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks}}
+	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks}}
 	var events []execution.StreamEvent
 	result := adapter.ExecuteStream(t.Context(), validSpec(t, row, keyService), func(event execution.StreamEvent) error {
 		events = append(events, event.Clone())
@@ -849,7 +585,7 @@ func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *sta
 	if err := db.Create(&group).Error; err != nil {
 		t.Fatal(err)
 	}
-	credential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
+	credential, err := codex.ParseCredentialJSON(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -862,11 +598,12 @@ func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *sta
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{ID: row.ID, GroupID: group.ID, Version: 1, IdentityGeneration: identityGeneration, Fingerprint: row.Fingerprint, Status: state.CredentialStatusActive, WeightAuto: state.DefaultWeight, EncryptedValue: row.Data}}); err != nil {
 		t.Fatal(err)
 	}
-	return NewAdapter(db, keyService, registry, health.NewMutationCoordinator()), db, registry, keyService, row
+	credentials := subscription.NewCodexCredentialManager(db, keyService, registry, health.NewMutationCoordinator())
+	return NewAdapter(credentials), db, registry, keyService, row
 }
 
 func credentialJSON(access, refresh string, expires time.Time) []byte {
-	value, _ := json.Marshal(cpaembedded.CodexCredential{Type: cpaembedded.ProviderCodex, AccessToken: access, RefreshToken: refresh, AccountID: "account-1", Email: "a@example.com", Expire: expires.UTC().Format(time.RFC3339)})
+	value, _ := codex.MarshalCredential(codex.Credential{Type: codex.Provider, AccessToken: access, RefreshToken: refresh, AccountID: "account-1", Email: "a@example.com", Expire: expires.UTC().Format(time.RFC3339)})
 	return value
 }
 

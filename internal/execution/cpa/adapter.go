@@ -16,29 +16,20 @@ import (
 	"time"
 	"unicode/utf8"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
-	"gorm.io/gorm"
-
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
+	"gpt-load/internal/connection"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
-	"gpt-load/internal/health"
-	"gpt-load/internal/platform/encryption"
 	platformredact "gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
-	"gpt-load/internal/state"
-	stateloader "gpt-load/internal/state/loader"
-	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription"
 	"gpt-load/internal/usage"
 )
 
-const (
-	refreshLeadTime        = 5 * time.Minute
-	refreshFinalizeTimeout = 5 * time.Second
-	codexUpstreamAPI       = execution.UpstreamAPIOpenAIResponses
-)
+const codexUpstreamAPI = execution.UpstreamAPIOpenAIResponses
 
 var convertedRepresentationHeaderNames = [...]string{
 	"Content-Encoding",
@@ -54,39 +45,17 @@ var convertedRepresentationHeaderNames = [...]string{
 }
 
 type Adapter struct {
-	db             *gorm.DB
-	encryption     encryption.Service
-	registry       *state.CredentialRegistry
-	mutations      *health.MutationCoordinator
-	executor       cpaembedded.HTTPExecutor
-	refresh        func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error)
-	replaceSecret  func(uint, uint64, uint64, string, string) bool
-	reconcileGroup func(uint, []state.CredentialEntry) (bool, error)
-	now            func() time.Time
+	credentials credentialPreparer
+	executor    codex.Executor
 }
 
-func NewAdapter(db *gorm.DB, encryptionService encryption.Service, registry *state.CredentialRegistry, mutations *health.MutationCoordinator) *Adapter {
-	if mutations == nil {
-		mutations = health.NewMutationCoordinator()
-	}
-	return &Adapter{
-		db: db, encryption: encryptionService, registry: registry, mutations: mutations,
-		executor: cpaembedded.NewCodexHTTPExecutor(), now: time.Now,
-		replaceSecret:  registry.ReplaceCredentialSecretIfMatch,
-		reconcileGroup: registry.ReconcileGroup,
-		refresh: func(ctx context.Context, credential cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
-			return cpaembedded.RefreshCodexCredentialOnce(ctx, credential, cpaembedded.Options{})
-		},
-	}
+type credentialPreparer interface {
+	Prepare(context.Context, execution.CredentialSnapshot, bool) (codex.Credential, *execution.ErrorEvidence)
 }
 
-// PrepareCodexCredential applies the same durable refresh lifecycle used by
-// data-plane requests before a control-plane Codex call.
-func (a *Adapter) PrepareCodexCredential(
-	ctx context.Context,
-	snapshot execution.CredentialSnapshot,
-) (cpaembedded.CodexCredential, *execution.ErrorEvidence) {
-	return a.prepare(ctx, snapshot, false)
+// NewAdapter creates the Codex subscription execution adapter.
+func NewAdapter(credentials *subscription.CodexCredentialManager) *Adapter {
+	return &Adapter{credentials: credentials, executor: codex.NewExecutor()}
 }
 
 func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execution.AttemptResult {
@@ -94,13 +63,13 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	if err := a.validateSpec(spec); err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
-	credential, evidence := a.prepare(ctx, spec.Credential, spec.ForceCredentialRefresh)
+	credential, evidence := a.credentials.Prepare(ctx, spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: evidence}
 	}
 	execCtx, cancel := withRequestTimeout(ctx, spec.Timeouts.Request)
 	defer cancel()
-	response, err := a.executor.ExecuteCanonical(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
+	response, err := a.executor.Execute(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
 	if err != nil {
 		result := unaryExecutionError(execCtx, err, credential)
 		result.UpstreamAPI = codexUpstreamAPI
@@ -125,7 +94,7 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	if err := a.validateSpec(spec); err != nil {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "")
 	}
-	credential, evidence := a.prepare(ctx, spec.Credential, spec.ForceCredentialRefresh)
+	credential, evidence := a.credentials.Prepare(ctx, spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: evidence}
 	}
@@ -135,7 +104,7 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	defer cancelStream(context.Canceled)
 	firstByte := startFirstByteGate(spec.Timeouts.FirstByte, cancelStream)
 	defer firstByte.stop()
-	response, err := a.executor.ExecuteStreamCanonical(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
+	response, err := a.executor.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
 	if err != nil {
 		result := unaryExecutionError(streamCtx, err, credential)
 		var applied *reasoning.Config
@@ -220,13 +189,13 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 }
 
 func (a *Adapter) validateSpec(spec execution.AttemptSpec) error {
-	if a == nil || a.db == nil || a.encryption == nil || a.registry == nil || a.executor == nil {
+	if a == nil || a.credentials == nil || a.executor == nil {
 		return fmt.Errorf("subscription executor is unavailable")
 	}
 	if err := spec.Validate(); err != nil {
 		return err
 	}
-	if spec.ConnectionType != "subscription" || spec.ChannelID != string(channel.Codex) {
+	if connection.Normalize(spec.ConnectionType) != connection.Subscription || spec.ChannelID != string(channel.Codex) {
 		return fmt.Errorf("unsupported subscription target")
 	}
 	switch spec.ClientProtocol {
@@ -247,206 +216,8 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) error {
 	return nil
 }
 
-func (a *Adapter) prepare(ctx context.Context, snapshot execution.CredentialSnapshot, forceRefresh bool) (cpaembedded.CodexCredential, *execution.ErrorEvidence) {
-	credential, err := cpaembedded.ParseCodexCredentialJSON(snapshot.Data())
-	if err != nil {
-		return cpaembedded.CodexCredential{}, localEvidence("credential_invalid", "subscription credential is invalid")
-	}
-	if !forceRefresh {
-		if expiration, ok := cpaembedded.CodexCredentialExpiresAt(credential); !ok || expiration.After(a.now().Add(refreshLeadTime)) {
-			return credential, nil
-		}
-	}
-	var prepared cpaembedded.CodexCredential
-	var prepareErr *execution.ErrorEvidence
-	a.mutations.Do(snapshot.ID, func() {
-		prepared, prepareErr = a.refreshCredentialLocked(ctx, snapshot.ID, snapshot.Version, forceRefresh)
-	})
-	return prepared, prepareErr
-}
-
-func (a *Adapter) refreshCredentialLocked(
-	ctx context.Context,
-	credentialID uint,
-	expectedVersion uint64,
-	forceRefresh bool,
-) (cpaembedded.CodexCredential, *execution.ErrorEvidence) {
-	var row models.Credential
-	if err := a.db.WithContext(ctx).First(&row, credentialID).Error; err != nil {
-		return cpaembedded.CodexCredential{}, localEvidence("credential_unavailable", "subscription credential is unavailable")
-	}
-	if row.AuthState != models.CredentialAuthStateReady {
-		return cpaembedded.CodexCredential{}, authEvidence(string(row.AuthState))
-	}
-	plaintext, err := a.encryption.Decrypt(row.Data)
-	if err != nil {
-		return cpaembedded.CodexCredential{}, localEvidence("credential_decrypt_failed", "subscription credential is unavailable")
-	}
-	current, err := cpaembedded.ParseCodexCredentialJSON([]byte(plaintext))
-	plaintext = ""
-	if err != nil {
-		return cpaembedded.CodexCredential{}, localEvidence("credential_invalid", "subscription credential is invalid")
-	}
-	if forceRefresh && row.SecretVersion > expectedVersion {
-		return current, nil
-	}
-	if !forceRefresh {
-		if expiration, ok := cpaembedded.CodexCredentialExpiresAt(current); !ok || expiration.After(a.now().Add(refreshLeadTime)) {
-			return current, nil
-		}
-	}
-	if err := a.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateRefreshing, ""); err != nil {
-		finalizeContext, cancel := refreshFinalizeContext(ctx)
-		restoreErr := a.setAuthState(finalizeContext, row.ID, row.SecretVersion, models.CredentialAuthStateReady, "")
-		if restoreErr == nil {
-			restoreErr = a.publishAuthState(finalizeContext, row, models.CredentialAuthStateReady)
-		}
-		cancel()
-		if restoreErr != nil {
-			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-			return cpaembedded.CodexCredential{}, authEvidence("refresh_registry_mismatch")
-		}
-		return cpaembedded.CodexCredential{}, localEvidence("refresh_start_failed", "subscription credential refresh could not start")
-	}
-	refreshed, refreshErr := a.refresh(ctx, current)
-	if refreshErr != nil {
-		stateValue, code := models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown"
-		var tokenErr *cpaembedded.TokenEndpointError
-		if errors.Is(refreshErr, cpaembedded.ErrCredentialIdentityChanged) {
-			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"
-		} else if errors.As(refreshErr, &tokenErr) && cpaembedded.IsDefinitiveRefreshRejection(tokenErr.Code) {
-			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_rejected"
-		}
-		if err := a.transitionAuthState(ctx, row, row.SecretVersion, stateValue, code); err != nil {
-			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
-		}
-		return cpaembedded.CodexCredential{}, authEvidence(code)
-	}
-	if refreshed.AccountID != current.AccountID {
-		if err := a.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"); err != nil {
-			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
-		}
-		return cpaembedded.CodexCredential{}, authEvidence("refresh_identity_changed")
-	}
-	canonical, err := json.Marshal(refreshed)
-	if err != nil {
-		if markErr := a.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_persist_failed"); markErr != nil {
-			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
-		}
-		return cpaembedded.CodexCredential{}, authEvidence("refresh_persist_failed")
-	}
-	ciphertext, err := a.encryption.Encrypt(string(canonical))
-	fingerprint := a.encryption.Hash(string(canonical))
-	clear(canonical)
-	if err != nil {
-		if markErr := a.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_persist_failed"); markErr != nil {
-			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
-		}
-		return cpaembedded.CodexCredential{}, authEvidence("refresh_persist_failed")
-	}
-	nextVersion := row.SecretVersion + 1
-	finalizeContext, cancelFinalize := refreshFinalizeContext(ctx)
-	updated := a.db.WithContext(finalizeContext).Model(&models.Credential{}).
-		Where("id = ? AND secret_version = ? AND auth_state = ?", row.ID, row.SecretVersion, models.CredentialAuthStateRefreshing).
-		Updates(map[string]any{
-			"data": ciphertext, "fingerprint": fingerprint, "secret_version": nextVersion,
-			"auth_state": models.CredentialAuthStateReady, "auth_error_code": "", "updated_at_ms": a.now().UnixMilli(),
-		})
-	cancelFinalize()
-	if updated.Error != nil || updated.RowsAffected != 1 {
-		if markErr := a.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_commit_failed"); markErr != nil {
-			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
-		}
-		return cpaembedded.CodexCredential{}, authEvidence("refresh_commit_failed")
-	}
-	if a.replaceSecret == nil || !a.replaceSecret(row.ID, row.SecretVersion, nextVersion, fingerprint, ciphertext) {
-		// The rotated token is durable. Reconcile this Group from DB truth so a
-		// failed incremental publication cannot leave control and data planes at
-		// different secret versions.
-		reconcileContext, cancelReconcile := refreshFinalizeContext(ctx)
-		entries, reconcileErr := stateloader.BuildGroupCredentialEntries(reconcileContext, a.db, row.GroupID)
-		if reconcileErr != nil {
-			cancelReconcile()
-		} else if a.reconcileGroup == nil {
-			reconcileErr = errors.New("credential registry reconciliation is unavailable")
-			cancelReconcile()
-		} else {
-			_, reconcileErr = a.reconcileGroup(row.GroupID, entries)
-			cancelReconcile()
-		}
-		if reconcileErr != nil {
-			if markErr := a.markRefreshOutcomeUnknown(ctx, row, nextVersion, "refresh_registry_mismatch"); markErr != nil {
-				a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-				return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
-			}
-			return cpaembedded.CodexCredential{}, authEvidence("refresh_registry_mismatch")
-		}
-	}
-	return refreshed, nil
-}
-
-func (a *Adapter) markRefreshOutcomeUnknown(ctx context.Context, row models.Credential, version uint64, code string) error {
-	return a.transitionAuthState(ctx, row, version, models.CredentialAuthStateOutcomeUnknown, code)
-}
-
-func (a *Adapter) setAuthState(ctx context.Context, credentialID uint, version uint64, authState models.CredentialAuthState, code string) error {
-	result := a.db.WithContext(ctx).Model(&models.Credential{}).
-		Where("id = ? AND secret_version = ?", credentialID, version).
-		Updates(map[string]any{"auth_state": authState, "auth_error_code": code, "updated_at_ms": a.now().UnixMilli()})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return fmt.Errorf("credential auth state update affected %d rows", result.RowsAffected)
-	}
-	return nil
-}
-
-func (a *Adapter) transitionAuthState(
-	ctx context.Context,
-	row models.Credential,
-	version uint64,
-	authState models.CredentialAuthState,
-	code string,
-) error {
-	finalizeContext, cancel := refreshFinalizeContext(ctx)
-	defer cancel()
-	if err := a.setAuthState(finalizeContext, row.ID, version, authState, code); err != nil {
-		return err
-	}
-	return a.publishAuthState(finalizeContext, row, authState)
-}
-
-func (a *Adapter) publishAuthState(
-	ctx context.Context,
-	row models.Credential,
-	authState models.CredentialAuthState,
-) error {
-	if a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthState(authState)) {
-		return nil
-	}
-	entries, err := stateloader.BuildGroupCredentialEntries(ctx, a.db, row.GroupID)
-	if err != nil {
-		return err
-	}
-	if a.reconcileGroup == nil {
-		return fmt.Errorf("credential registry reconciliation is unavailable")
-	}
-	_, err = a.reconcileGroup(row.GroupID, entries)
-	return err
-}
-
-func refreshFinalizeContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithTimeout(context.WithoutCancel(ctx), refreshFinalizeTimeout)
-}
-
-func bridgeRequest(spec execution.AttemptSpec) cpaembedded.ExecuteRequest {
-	return cpaembedded.ExecuteRequest{
+func bridgeRequest(spec execution.AttemptSpec) codex.ExecuteRequest {
+	return codex.ExecuteRequest{
 		Model: spec.UpstreamModel, Payload: append([]byte(nil), spec.Body...),
 		Format: formatFor(spec.ClientProtocol), Headers: spec.Header.Clone(),
 		OriginalRequest: append([]byte(nil), spec.Body...),
@@ -482,7 +253,7 @@ func convertedResponseHeaders(source http.Header, contentType string) http.Heade
 	return headers
 }
 
-func unaryExecutionError(ctx context.Context, err error, credential cpaembedded.CodexCredential) execution.AttemptResult {
+func unaryExecutionError(ctx context.Context, err error, credential codex.Credential) execution.AttemptResult {
 	status, evidence := executionErrorEvidence(ctx, err, credential)
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: status != 0,
@@ -490,7 +261,7 @@ func unaryExecutionError(ctx context.Context, err error, credential cpaembedded.
 	}
 }
 
-func streamExecutionError(headers http.Header, err error, credential cpaembedded.CodexCredential, applied *reasoning.Config, responseStarted bool) execution.StreamResult {
+func streamExecutionError(headers http.Header, err error, credential codex.Credential, applied *reasoning.Config, responseStarted bool) execution.StreamResult {
 	status, evidence := executionErrorEvidence(context.Background(), err, credential)
 	responseStarted = responseStarted || status != 0
 	if responseStarted && status == 0 {
@@ -529,7 +300,7 @@ func streamConsumerStopped(headers http.Header, applied *reasoning.Config, respo
 	}
 }
 
-func executionErrorEvidence(ctx context.Context, err error, credential cpaembedded.CodexCredential) (int, *execution.ErrorEvidence) {
+func executionErrorEvidence(ctx context.Context, err error, credential codex.Credential) (int, *execution.ErrorEvidence) {
 	if err == nil {
 		return 0, nil
 	}
@@ -581,7 +352,7 @@ func explicitAccessTokenExpiration(code string) bool {
 	}
 }
 
-func safeErrorSummary(err error, credential cpaembedded.CodexCredential) string {
+func safeErrorSummary(err error, credential codex.Credential) string {
 	fallback := "subscription upstream request failed"
 	if err == nil {
 		return fallback
@@ -629,17 +400,6 @@ func safeScalar(value string) string {
 	return value
 }
 
-func authEvidence(code string) *execution.ErrorEvidence {
-	return &execution.ErrorEvidence{
-		Kind: execution.ErrorKindProvider, Hint: execution.FailureHintReauthorizationRequired,
-		Code: safeScalar(code), Summary: "subscription account requires reauthorization",
-	}
-}
-
-func localEvidence(code, summary string) *execution.ErrorEvidence {
-	return &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Code: safeScalar(code), Summary: summary}
-}
-
 func unaryNotSent(kind execution.ErrorKind, summary, code string, _ error) execution.AttemptResult {
 	return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: &execution.ErrorEvidence{Kind: kind, Code: code, Summary: summary}}
 }
@@ -669,13 +429,13 @@ func appliedReasoning(effort string) *reasoning.Config {
 	return &reasoning.Config{Effort: effort}
 }
 
-func nextChunk(ctx context.Context, chunks <-chan cpaembedded.ExecuteStreamChunk, timeout time.Duration) (cpaembedded.ExecuteStreamChunk, bool, error) {
+func nextChunk(ctx context.Context, chunks <-chan codex.ExecuteStreamChunk, timeout time.Duration) (codex.ExecuteStreamChunk, bool, error) {
 	if timeout <= 0 {
 		select {
 		case chunk, ok := <-chunks:
 			return chunk, ok, nil
 		case <-ctx.Done():
-			return cpaembedded.ExecuteStreamChunk{}, false, context.Cause(ctx)
+			return codex.ExecuteStreamChunk{}, false, context.Cause(ctx)
 		}
 	}
 	timer := time.NewTimer(timeout)
@@ -684,9 +444,9 @@ func nextChunk(ctx context.Context, chunks <-chan cpaembedded.ExecuteStreamChunk
 	case chunk, ok := <-chunks:
 		return chunk, ok, nil
 	case <-ctx.Done():
-		return cpaembedded.ExecuteStreamChunk{}, false, context.Cause(ctx)
+		return codex.ExecuteStreamChunk{}, false, context.Cause(ctx)
 	case <-timer.C:
-		return cpaembedded.ExecuteStreamChunk{}, false, context.DeadlineExceeded
+		return codex.ExecuteStreamChunk{}, false, context.DeadlineExceeded
 	}
 }
 

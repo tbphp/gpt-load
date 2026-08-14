@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
-
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codex"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -64,7 +63,7 @@ func TestImportCodexOAuthJSONRefreshesExpiredCredentialBeforeReady(t *testing.T)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	refreshCalls := 0
-	fixture.service.refreshCodexCredential = func(_ context.Context, credential cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
+	fixture.service.refreshCodexCredential = func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
 		refreshCalls++
 		if credential.AccessToken != "expired-access" {
 			t.Fatalf("credential = %#v", credential)
@@ -174,13 +173,13 @@ func TestCompleteBrowserAuthorizationConsumesStateOnce(t *testing.T) {
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.completeBrowserAuthorization = func(_ context.Context, completion cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+	fixture.service.completeBrowserAuthorization = func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		if completion.ExpectedState != payload.State || completion.ReturnedState != payload.State ||
 			completion.Code != "authorization-code" || completion.CodeVerifier != payload.Verifier {
 			t.Fatalf("completion = %#v", completion)
 		}
-		return cpaembedded.CodexCredential{
-			Type: cpaembedded.ProviderCodex, AccessToken: "new-access", RefreshToken: "new-refresh",
+		return codex.Credential{
+			Type: codex.Provider, AccessToken: "new-access", RefreshToken: "new-refresh",
 			AccountID: "account-123", Email: "admin@example.com",
 		}, nil
 	}
@@ -214,8 +213,8 @@ func TestCompleteBrowserAuthorizationMarksDefinitiveExchangeRejectionFailed(t *t
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.completeBrowserAuthorization = func(context.Context, cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
-		return cpaembedded.CodexCredential{}, &cpaembedded.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
+	fixture.service.completeBrowserAuthorization = func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
 	}
 
 	if _, err := fixture.service.CompleteCredentialAuthorization(t.Context(), payload.State, "rejected-code"); !errors.Is(err, app_errors.ErrAuthorizationExchangeFailed) {
@@ -252,10 +251,10 @@ func TestCompleteBrowserAuthorizationUsesBoundedUpstreamContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasBoundedDeadline := false
-	fixture.service.completeBrowserAuthorization = func(ctx context.Context, _ cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+	fixture.service.completeBrowserAuthorization = func(ctx context.Context, _ codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		deadline, ok := ctx.Deadline()
 		hasBoundedDeadline = ok && time.Until(deadline) > 0 && time.Until(deadline) <= 31*time.Second
-		return cpaembedded.CodexCredential{}, &cpaembedded.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
+		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
 	}
 
 	_, _ = fixture.service.CompleteCredentialAuthorization(context.Background(), payload.State, "rejected-code")
@@ -283,12 +282,12 @@ func TestCompleteBrowserAuthorizationSurvivesCallbackCancellationAfterClaim(t *t
 		t.Fatal(err)
 	}
 	callbackContext, cancelCallback := context.WithCancel(context.Background())
-	fixture.service.completeBrowserAuthorization = func(ctx context.Context, _ cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+	fixture.service.completeBrowserAuthorization = func(ctx context.Context, _ codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		cancelCallback()
 		if ctx.Err() != nil {
-			return cpaembedded.CodexCredential{}, ctx.Err()
+			return codex.Credential{}, ctx.Err()
 		}
-		return cpaembedded.CodexCredential{}, errors.New("connection reset")
+		return codex.Credential{}, errors.New("connection reset")
 	}
 
 	if _, err := fixture.service.CompleteCredentialAuthorization(callbackContext, payload.State, "authorization-code"); !errors.Is(err, app_errors.ErrAuthorizationExchangeFailed) {
@@ -320,8 +319,8 @@ func TestCompleteBrowserAuthorizationTreatsTransientEndpointRejectionAsUnknown(t
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.completeBrowserAuthorization = func(context.Context, cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
-		return cpaembedded.CodexCredential{}, &cpaembedded.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
+	fixture.service.completeBrowserAuthorization = func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
 	}
 
 	if _, err := fixture.service.CompleteCredentialAuthorization(t.Context(), payload.State, "authorization-code"); !errors.Is(err, app_errors.ErrAuthorizationExchangeFailed) {
