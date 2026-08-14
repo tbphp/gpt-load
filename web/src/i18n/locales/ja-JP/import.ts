@@ -80,7 +80,7 @@ export default {
       securityNotice:
         'ブラウザーには一時 Stage ID とマスク済みアカウントだけを保存します。Token はサーバーで暗号化され、Group 作成時に原子的に保存されます。',
       callbackNotice:
-        'OAuth は固定のローカルコールバック 127.0.0.1:1455 を使用します。リモート配置ではブラウザー側で ssh -L 1455:127.0.0.1:1455 <user>@<server> を先に実行してください。',
+        'OAuth は固定のローカルコールバック 127.0.0.1:1455 を使用します。リモート配置ではブラウザー側で ssh -L 1455:127.0.0.1:1455 -l your-user your-server を先に実行してください。',
       authorize: 'ブラウザーで認証',
       authorizeFailed: 'ブラウザー認証を開始できません',
       popupBlocked:

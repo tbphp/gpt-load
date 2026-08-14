@@ -82,7 +82,7 @@ export default {
       securityNotice:
         'The browser keeps only a temporary Stage ID and masked account summary. Tokens are encrypted by the server and atomically promoted when the Group is created.',
       callbackNotice:
-        'OAuth uses the fixed local callback 127.0.0.1:1455. For a remote deployment, first run ssh -L 1455:127.0.0.1:1455 <user>@<server> on the browser machine.',
+        'OAuth uses the fixed local callback 127.0.0.1:1455. For a remote deployment, first run ssh -L 1455:127.0.0.1:1455 -l your-user your-server on the browser machine.',
       authorize: 'Authorize in browser',
       authorizeFailed: 'Unable to start browser authorization',
       popupBlocked: 'The browser blocked the popup. Use “Reopen authorization” to continue.',

@@ -74,7 +74,7 @@ export default {
       securityNotice:
         '浏览器仅保存临时 Stage ID 和脱敏账号信息；Token 由服务端加密暂存，创建分组时原子写入正式凭据。',
       callbackNotice:
-        'OAuth 回调固定使用本机 127.0.0.1:1455；远程部署请先在浏览器所在电脑运行 ssh -L 1455:127.0.0.1:1455 <user>@<server>。',
+        'OAuth 回调固定使用本机 127.0.0.1:1455；远程部署请先在浏览器所在电脑运行 ssh -L 1455:127.0.0.1:1455 -l your-user your-server。',
       authorize: '浏览器授权',
       authorizeFailed: '无法开始浏览器授权',
       popupBlocked: '浏览器阻止了弹窗，请使用“重新打开授权页”继续',
