@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ExternalLink, FileJson, Plus, Send, Trash2 } from '@lucide/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ExternalLink, FileJson, Send, Trash2 } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -14,7 +14,6 @@ import {
 } from '@/app/resources/credential-stages'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import CopyButton from '@/components/ui/CopyButton.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -40,6 +39,8 @@ const feedbackKey = ref('')
 const oauthJSON = ref('')
 const callbackURLs = ref<Record<string, string>>({})
 const callbackErrorKeys = ref<Record<string, string>>({})
+const copyState = ref<Record<string, 'idle' | 'success' | 'failure'>>({})
+const showJSONImport = ref(false)
 const polling = new Map<string, { timer?: number; controller?: AbortController }>()
 const expiryTimers = new Map<string, number>()
 const readyCount = computed(
@@ -62,6 +63,7 @@ function replaceStage(stage: CredentialStage): void {
   if (!shouldPoll(stage)) {
     clearCallbackURL(stage.stage_id)
     clearCallbackError(stage.stage_id)
+    clearCopyState(stage.stage_id)
   }
 }
 
@@ -70,6 +72,13 @@ function clearCallbackURL(stageID: string): void {
   const next = { ...callbackURLs.value }
   delete next[stageID]
   callbackURLs.value = next
+}
+
+function clearCopyState(stageID: string): void {
+  if (!(stageID in copyState.value)) return
+  const next = { ...copyState.value }
+  delete next[stageID]
+  copyState.value = next
 }
 
 function clearCallbackError(stageID: string): void {
@@ -226,6 +235,31 @@ async function submitCallback(stage: CredentialStage): Promise<void> {
   }
 }
 
+async function handleCallbackPaste(stage: CredentialStage): Promise<void> {
+  await nextTick()
+  if (callbackURLs.value[stage.stage_id]?.trim()) await submitCallback(stage)
+}
+
+async function copyAuthorizationLink(stage: CredentialStage): Promise<void> {
+  if (!stage.authorization_url) return
+  try {
+    await navigator.clipboard.writeText(stage.authorization_url)
+    copyState.value = { ...copyState.value, [stage.stage_id]: 'success' }
+  } catch {
+    copyState.value = { ...copyState.value, [stage.stage_id]: 'failure' }
+  }
+  window.setTimeout(() => {
+    copyState.value = { ...copyState.value, [stage.stage_id]: 'idle' }
+  }, 2_000)
+}
+
+function copyButtonLabel(stage: CredentialStage): string {
+  const state = copyState.value[stage.stage_id]
+  if (state === 'success') return t('common.copied')
+  if (state === 'failure') return t('common.copyFailed')
+  return t('import.subscription.copyAuthorization')
+}
+
 async function removeStage(stage: CredentialStage): Promise<void> {
   if (props.disabled) return
   feedbackKey.value = ''
@@ -241,6 +275,7 @@ async function removeStage(stage: CredentialStage): Promise<void> {
   stopExpiryTimer(stage.stage_id)
   clearCallbackURL(stage.stage_id)
   clearCallbackError(stage.stage_id)
+  clearCopyState(stage.stage_id)
   emit(
     'update:modelValue',
     props.modelValue.filter(({ stage_id }) => stage_id !== stage.stage_id),
@@ -280,6 +315,7 @@ onBeforeUnmount(() => {
   oauthJSON.value = ''
   callbackURLs.value = {}
   callbackErrorKeys.value = {}
+  copyState.value = {}
 })
 </script>
 
@@ -362,24 +398,21 @@ onBeforeUnmount(() => {
           v-if="stage.status === 'pending_authorization' && stage.authorization_url"
           class="subscription-stager__authorization"
         >
+          <div class="subscription-stager__waiting">
+            <span class="subscription-stager__spinner" aria-hidden="true"></span>
+            <span>{{ t('import.subscription.waiting') }}</span>
+          </div>
+
           <span class="subscription-stager__authorization-label">
             {{ t('import.subscription.authorizationLink') }}
           </span>
           <div class="subscription-stager__authorization-link">
             <code>{{ stage.authorization_url }}</code>
-            <CopyButton
-              :value="stage.authorization_url"
-              :label="t('import.subscription.copyAuthorization')"
-              :success-label="t('common.copied')"
-              :failure-label="t('common.copyFailed')"
-            />
-            <a
-              :href="stage.authorization_url"
-              target="_blank"
-              rel="noopener noreferrer"
-              :aria-label="t('import.subscription.openAuthorization')"
-            >
-              <ExternalLink :size="16" aria-hidden="true" />
+            <AppButton variant="secondary" size="compact" @click="copyAuthorizationLink(stage)">
+              {{ copyButtonLabel(stage) }}
+            </AppButton>
+            <a :href="stage.authorization_url" target="_blank" rel="noopener noreferrer">
+              <ExternalLink :size="15" aria-hidden="true" />
               <span>{{ t('import.subscription.openAuthorization') }}</span>
             </a>
           </div>
@@ -399,6 +432,7 @@ onBeforeUnmount(() => {
               :placeholder="t('import.subscription.callbackPlaceholder')"
               :aria-invalid="callbackErrorKeys[stage.stage_id] ? 'true' : undefined"
               :aria-describedby="callbackDescribedBy(stage.stage_id)"
+              @paste="handleCallbackPaste(stage)"
             />
             <AppButton
               type="submit"
@@ -425,67 +459,76 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="canAdd" class="subscription-stager__entry">
-      <div class="subscription-stager__actions">
-        <AppButton
-          :busy="busyAction === 'authorize'"
-          :disabled="disabled || Boolean(busyAction)"
-          @click="beginAuthorization"
-        >
-          <Plus :size="16" aria-hidden="true" />{{ t('import.subscription.authorize') }}
-        </AppButton>
-        <span>{{ t('import.subscription.orImport') }}</span>
-      </div>
-
-      <FormField
-        id="subscription-oauth-json"
-        :label="t('import.subscription.oauthJSONLabel')"
-        :description="t('import.subscription.oauthJSONDescription')"
-        size="compact"
+      <AppButton
+        class="subscription-stager__primary"
+        size="lg"
+        :busy="busyAction === 'authorize'"
+        :disabled="disabled || Boolean(busyAction)"
+        @click="beginAuthorization"
       >
-        <template #default="field">
-          <textarea
-            id="subscription-oauth-json"
-            v-model="oauthJSON"
-            rows="5"
-            :disabled="disabled || Boolean(busyAction)"
-            :aria-describedby="field.describedBy"
-            autocomplete="off"
-            autocapitalize="none"
-            spellcheck="false"
-            :placeholder="OAUTH_JSON_PLACEHOLDER"
-          ></textarea>
-        </template>
-      </FormField>
+        {{ t('import.subscription.authorize') }}
+      </AppButton>
 
-      <div class="subscription-stager__import-actions">
-        <AppButton
-          variant="secondary"
-          :busy="busyAction === 'import'"
-          :disabled="disabled || Boolean(busyAction) || !oauthJSON.trim()"
-          @click="importText"
+      <button
+        type="button"
+        class="subscription-stager__json-toggle"
+        :disabled="disabled || Boolean(busyAction)"
+        @click="showJSONImport = !showJSONImport"
+      >
+        {{ t('import.subscription.orImport') }}
+      </button>
+
+      <div v-if="showJSONImport" class="subscription-stager__json">
+        <FormField
+          id="subscription-oauth-json"
+          :label="t('import.subscription.oauthJSONLabel')"
+          :description="t('import.subscription.oauthJSONDescription')"
+          size="compact"
         >
-          <FileJson :size="16" aria-hidden="true" />{{ t('import.subscription.importText') }}
-        </AppButton>
-        <label
-          class="subscription-stager__file"
-          :class="{ 'is-disabled': disabled || Boolean(busyAction) }"
-        >
-          <FileJson :size="16" aria-hidden="true" />
-          {{
-            busyAction === 'import'
-              ? t('import.subscription.importing')
-              : t('import.subscription.importFile')
-          }}
-          <input
-            type="file"
-            accept="application/json,.json"
-            :disabled="disabled || Boolean(busyAction)"
-            @change="importFile"
-          />
-        </label>
+          <template #default="field">
+            <textarea
+              id="subscription-oauth-json"
+              v-model="oauthJSON"
+              rows="5"
+              :disabled="disabled || Boolean(busyAction)"
+              :aria-describedby="field.describedBy"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              :placeholder="OAUTH_JSON_PLACEHOLDER"
+            ></textarea>
+          </template>
+        </FormField>
+
+        <div class="subscription-stager__import-actions">
+          <AppButton
+            variant="secondary"
+            :busy="busyAction === 'import'"
+            :disabled="disabled || Boolean(busyAction) || !oauthJSON.trim()"
+            @click="importText"
+          >
+            <FileJson :size="16" aria-hidden="true" />{{ t('import.subscription.importText') }}
+          </AppButton>
+          <label
+            class="subscription-stager__file"
+            :class="{ 'is-disabled': disabled || Boolean(busyAction) }"
+          >
+            <FileJson :size="16" aria-hidden="true" />
+            {{
+              busyAction === 'import'
+                ? t('import.subscription.importing')
+                : t('import.subscription.importFile')
+            }}
+            <input
+              type="file"
+              accept="application/json,.json"
+              :disabled="disabled || Boolean(busyAction)"
+              @change="importFile"
+            />
+          </label>
+        </div>
       </div>
     </div>
-    <p class="subscription-stager__callback-note">{{ t('import.subscription.callbackNotice') }}</p>
     <InlineFeedback v-if="feedbackKey" tone="danger" appearance="ledger">
       {{ t(feedbackKey) }}
     </InlineFeedback>
@@ -511,16 +554,14 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
 }
 .subscription-stager__header h2,
-.subscription-stager__header p,
-.subscription-stager__callback-note {
+.subscription-stager__header p {
   margin: 0;
 }
 .subscription-stager__header h2 {
   font-size: var(--title-section);
   font-weight: 650;
 }
-.subscription-stager__header p,
-.subscription-stager__callback-note {
+.subscription-stager__header p {
   margin-top: 4px;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
@@ -584,6 +625,28 @@ onBeforeUnmount(() => {
   gap: 7px;
   border-top: 1px solid var(--color-border-subtle);
   padding-top: 10px;
+}
+.subscription-stager__waiting {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 560;
+}
+.subscription-stager__spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid var(--color-border-control);
+  border-top-color: var(--color-action);
+  border-radius: 50%;
+  animation: subscription-stager-spin 0.9s linear infinite;
+}
+@keyframes subscription-stager-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .subscription-stager__authorization-label,
 .subscription-stager__callback label {
@@ -651,15 +714,30 @@ onBeforeUnmount(() => {
   display: grid;
   gap: var(--space-3);
 }
-.subscription-stager__actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+.subscription-stager__primary {
+  width: fit-content;
 }
-.subscription-stager__actions > span {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+.subscription-stager__json-toggle {
+  width: fit-content;
+  border: 0;
+  background: none;
+  color: var(--color-action);
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 560;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.subscription-stager__json-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.subscription-stager__json {
+  display: grid;
+  gap: var(--space-3);
 }
 .subscription-stager__entry textarea {
   width: 100%;
@@ -707,8 +785,7 @@ onBeforeUnmount(() => {
   clip: rect(0 0 0 0);
 }
 @media (max-width: 640px) {
-  .subscription-stager__header,
-  .subscription-stager__actions {
+  .subscription-stager__header {
     align-items: stretch;
     flex-direction: column;
   }
@@ -730,7 +807,7 @@ onBeforeUnmount(() => {
     width: 100%;
     min-height: var(--touch-target);
   }
-  .subscription-stager__actions :deep(.app-button),
+  .subscription-stager__primary,
   .subscription-stager__import-actions :deep(.app-button),
   .subscription-stager__file {
     width: 100%;
@@ -738,6 +815,11 @@ onBeforeUnmount(() => {
   }
   .subscription-stager__authorization-link {
     grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .subscription-stager__spinner {
+    animation: none;
   }
 }
 </style>

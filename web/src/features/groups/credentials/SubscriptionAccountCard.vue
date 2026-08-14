@@ -1,0 +1,599 @@
+<script setup lang="ts">
+import { RotateCcw, Trash2 } from '@lucide/vue'
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+import type { CredentialItemDto, CredentialQuotaWindowDto } from '@/api/control/types'
+import AppButton from '@/components/ui/AppButton.vue'
+import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
+import IconButton from '@/components/ui/IconButton.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
+
+import { presentCredentialFailureCategory } from './credential-failure-presenter'
+
+const props = defineProps<{
+  item: CredentialItemDto
+  busy: boolean
+}>()
+const emit = defineEmits<{
+  toggle: [item: CredentialItemDto]
+  restore: [item: CredentialItemDto]
+  refresh: [item: CredentialItemDto]
+  reauthorize: [item: CredentialItemDto]
+  remove: [item: CredentialItemDto]
+}>()
+const { locale, n, t } = useI18n()
+
+const observation = computed(() => props.item.observation)
+const snapshot = computed(() => observation.value?.snapshot)
+const quotaWindows = computed(() => snapshot.value?.quota_windows ?? [])
+const accountQuotaWindows = computed(() =>
+  quotaWindows.value.filter((window) => window.scope === 'account'),
+)
+const constrainedModels = computed(() =>
+  Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
+)
+const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available)
+const isProblem = computed(
+  () => props.item.effective_status === 'cooldown' || props.item.effective_status === 'blacklisted',
+)
+
+type UnifiedStatus =
+  | 'available'
+  | 'quota_exhausted'
+  | 'cooldown'
+  | 'blacklisted'
+  | 'refreshing'
+  | 'needs_reauth'
+  | 'disabled'
+
+const unifiedStatus = computed<UnifiedStatus>(() => {
+  if (props.item.configured_status === 'disabled') return 'disabled'
+  if (props.item.auth_state === 'refreshing') return 'refreshing'
+  if (
+    props.item.auth_state === 'reauthorization_required' ||
+    props.item.auth_state === 'outcome_unknown'
+  ) {
+    return 'needs_reauth'
+  }
+  if (props.item.effective_status === 'blacklisted') return 'blacklisted'
+  if (props.item.effective_status === 'cooldown') return 'cooldown'
+  if (
+    quotaWindows.value.some((window) => window.scope === 'account' && window.state === 'exhausted')
+  ) {
+    return 'quota_exhausted'
+  }
+  return 'available'
+})
+const statusTone = computed<'success' | 'warning' | 'danger' | 'neutral'>(() => {
+  const tones: Record<UnifiedStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
+    available: 'success',
+    quota_exhausted: 'warning',
+    cooldown: 'warning',
+    blacklisted: 'danger',
+    refreshing: 'neutral',
+    needs_reauth: 'danger',
+    disabled: 'neutral',
+  }
+  return tones[unifiedStatus.value]
+})
+const needsReauthorize = computed(
+  () =>
+    props.item.auth_state === 'reauthorization_required' ||
+    props.item.auth_state === 'outcome_unknown',
+)
+
+const authErrorKeys: Readonly<Record<string, string>> = {
+  refresh_rejected: 'group.credentials.subscription.authError.refreshRejected',
+  refresh_identity_changed: 'group.credentials.subscription.authError.identityChanged',
+  refresh_outcome_unknown: 'group.credentials.subscription.authError.outcomeUnknown',
+  refresh_persist_failed: 'group.credentials.subscription.authError.persistFailed',
+  refresh_commit_failed: 'group.credentials.subscription.authError.persistFailed',
+  refresh_registry_mismatch: 'group.credentials.subscription.authError.runtimeMismatch',
+  refresh_start_failed: 'group.credentials.subscription.authError.refreshStartFailed',
+  refresh_state_commit_failed: 'group.credentials.subscription.authError.persistFailed',
+}
+const authIssue = computed(() => {
+  if (props.item.auth_state === 'ready') return ''
+  const key = props.item.auth_error_code ? authErrorKeys[props.item.auth_error_code] : undefined
+  return key ? t(key) : t(`group.credentials.subscription.auth.${props.item.auth_state}`)
+})
+const recentLabel = computed(() =>
+  props.item.recent_failure_count === 0
+    ? t('group.credentials.recentSuccessOnly', { success: n(props.item.recent_success_count) })
+    : t('group.credentials.recent', {
+        success: n(props.item.recent_success_count),
+        failure: n(props.item.recent_failure_count),
+      }),
+)
+const failureLabel = computed(() =>
+  props.item.recent_failure_count === 0
+    ? t('group.credentials.none')
+    : `${presentCredentialFailureCategory(t, props.item.last_failure_category)}${
+        props.item.last_status_code === null ? '' : ` · ${props.item.last_status_code}`
+      }`,
+)
+const observationErrorKeys: Readonly<Record<string, string>> = {
+  observation_upstream_failed: 'group.credentials.subscription.observationError.upstreamFailed',
+  observation_payload_invalid: 'group.credentials.subscription.observationError.payloadInvalid',
+}
+function observationErrorLabel(code: string | undefined): string {
+  if (!code) return '—'
+  const key = observationErrorKeys[code]
+  return key ? t(key) : code
+}
+
+function remainingPercent(window: CredentialQuotaWindowDto): number | undefined {
+  if (window.utilization !== undefined) return Math.round((1 - window.utilization) * 100)
+  if (window.remaining !== undefined && window.limit && window.limit > 0) {
+    return Math.max(0, Math.min(100, Math.round((window.remaining / window.limit) * 100)))
+  }
+  return undefined
+}
+function quotaValueLabel(window: CredentialQuotaWindowDto): string {
+  const value = remainingPercent(window)
+  if (value !== undefined)
+    return t('group.credentials.subscription.remainingPercent', { value: n(value) })
+  if (window.remaining !== undefined && window.limit !== undefined) {
+    return t('group.credentials.subscription.remaining', {
+      remaining: n(window.remaining),
+      limit: n(window.limit),
+    })
+  }
+  return t('group.credentials.subscription.unknown')
+}
+function usedPercentLabel(window: CredentialQuotaWindowDto): string {
+  const remaining = remainingPercent(window)
+  return remaining === undefined
+    ? ''
+    : t('group.credentials.subscription.estimate.usedPercent', { value: n(100 - remaining) })
+}
+function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'danger' | undefined {
+  if (window.state === 'exhausted') return 'danger'
+  const value = remainingPercent(window)
+  if (value === undefined) return undefined
+  if (value < 30) return 'danger'
+  if (value < 70) return 'warning'
+  return 'success'
+}
+</script>
+
+<template>
+  <article class="subscription-account" :class="`subscription-account--${statusTone}`">
+    <div class="subscription-account__top">
+      <strong class="subscription-account__mail">{{ item.mask }}</strong>
+      <span v-if="snapshot?.plan_summary.name" class="subscription-account__plan">
+        {{ snapshot.plan_summary.name }}
+      </span>
+      <StatusBadge :tone="statusTone" size="compact">
+        {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
+      </StatusBadge>
+      <span class="subscription-account__spacer"></span>
+      <AppButton
+        variant="secondary"
+        size="compact"
+        :busy="busy"
+        :disabled="item.configured_status === 'disabled'"
+        @click="emit('refresh', item)"
+      >
+        {{ t('group.credentials.subscription.sync') }}
+      </AppButton>
+      <AppButton
+        v-if="needsReauthorize"
+        variant="secondary"
+        tone="danger"
+        size="compact"
+        :disabled="busy"
+        @click="emit('reauthorize', item)"
+      >
+        {{ t('group.credentials.subscription.reauthorize') }}
+      </AppButton>
+      <AppButton
+        variant="secondary"
+        :tone="item.configured_status === 'active' ? 'warning' : 'success'"
+        size="compact"
+        :disabled="busy"
+        @click="emit('toggle', item)"
+      >
+        {{
+          item.configured_status === 'active'
+            ? t('group.credentials.disable')
+            : t('group.credentials.enable')
+        }}
+      </AppButton>
+      <IconButton
+        v-if="isProblem"
+        variant="ghost"
+        tone="success"
+        size="compact"
+        :label="t('group.credentials.restore')"
+        :disabled="busy"
+        @click="emit('restore', item)"
+      >
+        <RotateCcw :size="15" aria-hidden="true" />
+      </IconButton>
+      <IconButton
+        variant="ghost"
+        tone="danger"
+        size="compact"
+        :label="t('group.credentials.delete')"
+        :disabled="busy"
+        @click="emit('remove', item)"
+      >
+        <Trash2 :size="15" aria-hidden="true" />
+      </IconButton>
+    </div>
+
+    <InlineFeedback v-if="authIssue" tone="danger" appearance="ledger">
+      {{ authIssue }}
+    </InlineFeedback>
+
+    <div v-if="quotaWindows.length" class="subscription-account__quotas">
+      <div v-for="window in quotaWindows" :key="window.id" class="subscription-account__quota">
+        <span class="subscription-account__quota-name">{{ window.label }}</span>
+        <span
+          v-if="remainingPercent(window) !== undefined"
+          class="subscription-account__quota-track"
+          role="progressbar"
+          :aria-label="window.label"
+          :aria-valuenow="remainingPercent(window)"
+          :aria-valuetext="quotaValueLabel(window)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <span
+            class="subscription-account__quota-fill"
+            :class="
+              quotaTone(window) ? `subscription-account__quota-fill--${quotaTone(window)}` : ''
+            "
+            :style="{ width: `${remainingPercent(window)}%` }"
+          />
+        </span>
+        <span
+          v-else
+          class="subscription-account__quota-track subscription-account__quota-track--unknown"
+          role="img"
+          :aria-label="`${window.label}: ${quotaValueLabel(window)}`"
+        />
+        <span class="subscription-account__quota-value">{{ quotaValueLabel(window) }}</span>
+        <span class="subscription-account__quota-reset">
+          <template v-if="window.reset_at_ms">
+            <AppRelativeTime
+              :instant="window.reset_at_ms"
+              :locale="locale"
+              :empty-label="t('group.credentials.subscription.unknown')"
+            />
+          </template>
+          <template v-else>—</template>
+        </span>
+      </div>
+    </div>
+    <p v-else class="subscription-account__faint">
+      {{ t('group.credentials.subscription.noQuota') }}
+    </p>
+
+    <p v-if="unifiedStatus === 'quota_exhausted'" class="subscription-account__hint">
+      {{ t('group.credentials.subscription.quotaExhaustedHint') }}
+    </p>
+
+    <details v-if="accountQuotaWindows.length" class="subscription-account__estimate">
+      <summary>
+        {{ t('group.credentials.subscription.estimate.title') }} ·
+        {{
+          accountQuotaWindows
+            .map((window) => window.label)
+            .join(t('group.credentials.subscription.estimate.windowSeparator'))
+        }}
+      </summary>
+      <div class="subscription-account__estimate-grid">
+        <article v-for="window in accountQuotaWindows" :key="window.id">
+          <div class="subscription-account__estimate-head">
+            <strong>{{ window.label }}</strong>
+            <span v-if="usedPercentLabel(window)">{{ usedPercentLabel(window) }}</span>
+          </div>
+          <p>{{ t('group.credentials.subscription.estimate.comingSoon') }}</p>
+        </article>
+      </div>
+    </details>
+
+    <div v-if="resetCreditsAvailable" class="subscription-account__credits">
+      <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
+      <strong>{{
+        t('group.credentials.subscription.resetCreditsCount', { count: n(resetCreditsAvailable) })
+      }}</strong>
+    </div>
+
+    <div class="subscription-account__meta">
+      <span>
+        {{ t('group.credentials.subscription.observedAt') }}
+        <AppRelativeTime
+          :instant="observation?.observed_at_ms ?? null"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+        />
+      </span>
+      <span>{{ recentLabel }}</span>
+      <span v-if="item.account.expires_at_ms">
+        {{ t('group.credentials.subscription.tokenExpiresAt') }}
+        <AppRelativeTime
+          :instant="item.account.expires_at_ms"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+        />
+      </span>
+    </div>
+
+    <details class="subscription-account__diagnostics">
+      <summary>{{ t('group.credentials.subscription.diagnostics') }}</summary>
+      <dl class="subscription-account__diagnostics-grid">
+        <div>
+          <dt>{{ t('group.credentials.detailsFailure') }}</dt>
+          <dd>{{ failureLabel }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
+          <dd>{{ n(item.consecutive_failure_count) }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('group.credentials.subscription.lastTokenRefresh') }}</dt>
+          <dd>
+            <AppRelativeTime
+              :instant="item.account.last_refresh_at_ms ?? null"
+              :locale="locale"
+              :empty-label="t('group.credentials.subscription.unknown')"
+            />
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t('group.credentials.subscription.freshUntil') }}</dt>
+          <dd>
+            <AppRelativeTime
+              :instant="observation?.fresh_until_ms ?? null"
+              :locale="locale"
+              :empty-label="t('group.credentials.subscription.unknown')"
+            />
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t('group.credentials.subscription.nextAllowed') }}</dt>
+          <dd>
+            <AppRelativeTime
+              :instant="observation?.next_allowed_at_ms ?? null"
+              :locale="locale"
+              :empty-label="t('group.credentials.subscription.unknown')"
+            />
+          </dd>
+        </div>
+        <div>
+          <dt>{{ t('group.credentials.subscription.lastError') }}</dt>
+          <dd>{{ observationErrorLabel(observation?.last_error_code) }}</dd>
+        </div>
+      </dl>
+      <div v-if="constrainedModels.length" class="subscription-account__models">
+        <span>{{ t('group.credentials.subscription.modelConstraints') }}</span>
+        <code v-for="model in constrainedModels" :key="model">{{ model }}</code>
+      </div>
+    </details>
+  </article>
+</template>
+
+<style scoped>
+.subscription-account {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-left: 3px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-3) var(--space-4);
+}
+.subscription-account--success {
+  border-left-color: var(--color-success);
+}
+.subscription-account--warning {
+  border-left-color: var(--color-warning);
+}
+.subscription-account--danger {
+  border-left-color: var(--color-danger);
+}
+.subscription-account__top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.subscription-account__mail {
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-weight: 620;
+}
+.subscription-account__plan {
+  border-radius: var(--radius-tag);
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  padding: 2px 7px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  text-transform: uppercase;
+}
+.subscription-account__spacer {
+  flex: 1 1 auto;
+}
+.subscription-account__quotas {
+  display: grid;
+  gap: var(--space-2);
+}
+.subscription-account__quota {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.22fr) minmax(0, 1fr) minmax(56px, auto) minmax(90px, auto);
+  align-items: center;
+  gap: var(--space-3);
+}
+.subscription-account__quota-name {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 580;
+}
+.subscription-account__quota-track {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+  overflow: hidden;
+}
+.subscription-account__quota-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--color-success);
+}
+.subscription-account__quota-fill--warning {
+  background: var(--color-warning);
+}
+.subscription-account__quota-fill--danger {
+  background: var(--color-danger);
+}
+.subscription-account__quota-track--unknown {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-border-subtle),
+    var(--color-border-subtle) 6px,
+    var(--color-surface-sunken) 6px,
+    var(--color-surface-sunken) 12px
+  );
+}
+.subscription-account__quota-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.subscription-account__quota-reset {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.subscription-account__faint,
+.subscription-account__hint {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+.subscription-account__estimate,
+.subscription-account__diagnostics {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-2);
+}
+.subscription-account__estimate summary,
+.subscription-account__diagnostics summary {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.subscription-account__estimate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.subscription-account__estimate-grid article {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 9px 10px;
+}
+.subscription-account__estimate-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.subscription-account__estimate-head strong {
+  font-size: var(--text-sm);
+}
+.subscription-account__estimate-head span {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+}
+.subscription-account__estimate-grid p {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.subscription-account__credits {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 7px 10px;
+  font-size: var(--text-sm);
+}
+.subscription-account__credits span {
+  color: var(--color-text-faint);
+}
+.subscription-account__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+.subscription-account__diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0 0;
+}
+.subscription-account__diagnostics-grid dt {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.subscription-account__diagnostics-grid dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.subscription-account__models {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+.subscription-account__models span {
+  color: var(--color-text-faint);
+}
+.subscription-account__models code {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 3px 7px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+}
+@media (max-width: 640px) {
+  .subscription-account__quota {
+    grid-template-columns: minmax(76px, 0.3fr) minmax(0, 1fr) minmax(50px, auto);
+  }
+  .subscription-account__quota-reset {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+  .subscription-account__top :deep(.app-button),
+  .subscription-account__top :deep(.icon-button) {
+    min-height: var(--touch-target);
+  }
+}
+</style>

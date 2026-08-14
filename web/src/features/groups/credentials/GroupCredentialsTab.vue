@@ -51,6 +51,7 @@ import { presentSubscriptionErrorKey } from '@/features/subscription-error-prese
 
 import CredentialBatchBar from './GroupCredentialBatchBar.vue'
 import CredentialRecord from './GroupCredentialRecord.vue'
+import SubscriptionAccountCard from './SubscriptionAccountCard.vue'
 import {
   constrainCredentialSearch,
   isCanonicalCredentialRouteQuery,
@@ -79,7 +80,6 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
-const collapsedSubscriptionIds = ref(new Set<number>())
 const connectionWorkspaceOpen = ref(false)
 const connectionWorkspace = ref<HTMLElement>()
 const connectionWorkspaceHeading = ref<HTMLElement>()
@@ -197,7 +197,6 @@ watch(
 watch(
   () => props.groupId,
   () => {
-    collapsedSubscriptionIds.value = new Set()
     connectionWorkspaceOpen.value = false
     connectionStages.value = []
     reauthorizationTarget.value = null
@@ -267,22 +266,13 @@ function setPageSize(pageSize: 20 | 50 | 100): void {
   setFilter({ page_size: pageSize })
 }
 function setExpanded(id: number, expanded: boolean): void {
-  if (props.connectionType === 'subscription') {
-    const next = new Set(collapsedSubscriptionIds.value)
-    if (expanded) next.delete(id)
-    else next.add(id)
-    collapsedSubscriptionIds.value = next
-    return
-  }
   const next = new Set(routeState.value.expandedCredentialIDs)
   if (expanded) next.add(id)
   else next.delete(id)
   updateRoute(filters.value, false, { ...routeState.value, expandedCredentialIDs: [...next] })
 }
 function credentialExpanded(id: number): boolean {
-  return props.connectionType === 'subscription'
-    ? !collapsedSubscriptionIds.value.has(id)
-    : routeState.value.expandedCredentialIDs.includes(id)
+  return routeState.value.expandedCredentialIDs.includes(id)
 }
 function setWeightEditor(id: number, open: boolean): void {
   updateRoute(filters.value, false, {
@@ -427,6 +417,28 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
   }
 }
 
+const autoSavedStageIDs = new Set<string>()
+
+watch(
+  connectionStages,
+  (stages) => {
+    if (
+      !connectionWorkspaceOpen.value ||
+      reauthorizationTarget.value === null ||
+      singleBusy.value
+    ) {
+      return
+    }
+    const ready = stages.find(
+      ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > Date.now(),
+    )
+    if (!ready || autoSavedStageIDs.has(ready.stage_id)) return
+    autoSavedStageIDs.add(ready.stage_id)
+    void saveConnectedAccounts()
+  },
+  { deep: true },
+)
+
 async function openConnectionWorkspace(target?: CredentialItemDto): Promise<void> {
   connectionStages.value = []
   reauthorizationTarget.value = target ?? null
@@ -525,9 +537,6 @@ async function reconcileBatch(
 
 function clearDeletedRouteState(ids: readonly number[]): void {
   const deleted = new Set(ids)
-  collapsedSubscriptionIds.value = new Set(
-    [...collapsedSubscriptionIds.value].filter((id) => !deleted.has(id)),
-  )
   const next: CredentialRouteState = {
     expandedCredentialIDs: routeState.value.expandedCredentialIDs.filter((id) => !deleted.has(id)),
     weightCredentialID:
@@ -638,7 +647,14 @@ async function runBatch(
     aria-labelledby="group-credentials-heading"
     :aria-busy="credentialsQuery.isFetching.value ? 'true' : undefined"
   >
-    <PanelHeader heading-id="group-credentials-heading" :title="t('group.credentials.title')">
+    <PanelHeader
+      heading-id="group-credentials-heading"
+      :title="
+        connectionType === 'subscription'
+          ? t('group.credentials.subscription.title')
+          : t('group.credentials.title')
+      "
+    >
       <template #actions>
         <AppButton v-if="connectionType === 'subscription'" @click="openConnectionWorkspace()">
           <Plus :size="16" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
@@ -735,48 +751,50 @@ async function runBatch(
         @retry="credentialsQuery.refetch()"
       />
       <p v-if="feedback" class="group-credentials__feedback" role="alert">{{ feedback }}</p>
-      <CollectionStatusSummary
-        v-if="collection.summary.total > 0"
-        :total="collection.summary.total"
-        :items="statusSummaryItems"
-        :model-value="filters.status"
-        :label="t('group.credentials.summary.region')"
-        :total-label="t('group.credentials.summary.current')"
-        appearance="detail"
-        @update:model-value="setStatus"
-      />
-      <CollectionFilterBar
-        v-if="collection.summary.total > 0"
-        single-column
-        :label="t('group.credentials.filters.region')"
-        :show-result="hasChangedConditions"
-        appearance="detail"
-      >
-        <label class="collection-filter-field collection-filter-field--search">
-          <span class="collection-filter-label">{{ t('group.credentials.filters.search') }}</span>
-          <AppSearchInput
-            v-model="searchDraft"
-            :label="t('group.credentials.filters.search')"
-            :placeholder="t('group.credentials.filters.placeholder')"
-            :clear-label="t('group.credentials.filters.clear')"
-            @update:model-value="scheduleSearch"
-            @clear="clearSearch"
-          />
-        </label>
-        <template #result>
-          <span aria-live="polite">
-            {{
-              t('group.credentials.filters.result', {
-                shown: n(collection.items.length),
-                total: n(collection.pagination.total_items),
-              })
-            }}
-          </span>
-          <AppButton variant="link" size="inline" @click="resetFilters">
-            {{ t('group.credentials.filters.reset') }}
-          </AppButton>
-        </template>
-      </CollectionFilterBar>
+      <template v-if="connectionType !== 'subscription'">
+        <CollectionStatusSummary
+          v-if="collection.summary.total > 0"
+          :total="collection.summary.total"
+          :items="statusSummaryItems"
+          :model-value="filters.status"
+          :label="t('group.credentials.summary.region')"
+          :total-label="t('group.credentials.summary.current')"
+          appearance="detail"
+          @update:model-value="setStatus"
+        />
+        <CollectionFilterBar
+          v-if="collection.summary.total > 0"
+          single-column
+          :label="t('group.credentials.filters.region')"
+          :show-result="hasChangedConditions"
+          appearance="detail"
+        >
+          <label class="collection-filter-field collection-filter-field--search">
+            <span class="collection-filter-label">{{ t('group.credentials.filters.search') }}</span>
+            <AppSearchInput
+              v-model="searchDraft"
+              :label="t('group.credentials.filters.search')"
+              :placeholder="t('group.credentials.filters.placeholder')"
+              :clear-label="t('group.credentials.filters.clear')"
+              @update:model-value="scheduleSearch"
+              @clear="clearSearch"
+            />
+          </label>
+          <template #result>
+            <span aria-live="polite">
+              {{
+                t('group.credentials.filters.result', {
+                  shown: n(collection.items.length),
+                  total: n(collection.pagination.total_items),
+                })
+              }}
+            </span>
+            <AppButton variant="link" size="inline" @click="resetFilters">
+              {{ t('group.credentials.filters.reset') }}
+            </AppButton>
+          </template>
+        </CollectionFilterBar>
+      </template>
       <SkeletonSurface
         v-if="collectionTransition"
         variant="collection"
@@ -788,8 +806,16 @@ async function runBatch(
       />
       <EmptyState
         v-else-if="collection.summary.total === 0"
-        :title="t('group.credentials.emptyTitle')"
-        :description="t('group.credentials.emptyDescription')"
+        :title="
+          connectionType === 'subscription'
+            ? t('group.credentials.subscription.emptyTitle')
+            : t('group.credentials.emptyTitle')
+        "
+        :description="
+          connectionType === 'subscription'
+            ? t('group.credentials.subscription.emptyDescription')
+            : t('group.credentials.emptyDescription')
+        "
         variant="ledger"
       >
         <template #icon><KeyRound :size="20" /></template>
@@ -822,6 +848,34 @@ async function runBatch(
           </AppButton>
         </template>
       </EmptyState>
+      <template v-else-if="connectionType === 'subscription'">
+        <div class="group-credentials__accounts">
+          <SubscriptionAccountCard
+            v-for="item in collection.items"
+            :key="item.credential_id"
+            :item="item"
+            :busy="rowBusy(item.credential_id)"
+            @toggle="mutateItem($event, 'toggle')"
+            @restore="mutateItem($event, 'restore')"
+            @refresh="refreshObservation"
+            @reauthorize="openConnectionWorkspace"
+            @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
+          />
+        </div>
+        <PaginationBar
+          v-if="collection.pagination.total_pages > 1"
+          :page="collection.pagination.page"
+          :page-size="collection.pagination.page_size"
+          :total-items="collection.pagination.total_items"
+          :total-pages="collection.pagination.total_pages"
+          show-page-size
+          appearance="detail"
+          :pending="credentialsQuery.isFetching.value"
+          @previous="setPage(filters.page - 1)"
+          @next="setPage(filters.page + 1)"
+          @update:page-size="setPageSize"
+        />
+      </template>
       <template v-else>
         <CredentialBatchBar
           v-if="selectedCount > 0"
@@ -851,15 +905,7 @@ async function runBatch(
             <span role="columnheader">{{ t('group.credentials.columns.credential') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.status') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.weight') }}</span>
-            <span role="columnheader">
-              {{
-                t(
-                  connectionType === 'subscription'
-                    ? 'group.credentials.columns.entitlement'
-                    : 'group.credentials.columns.recent',
-                )
-              }}
-            </span>
+            <span role="columnheader">{{ t('group.credentials.columns.recent') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.actions') }}</span>
           </template>
 
@@ -881,8 +927,6 @@ async function runBatch(
             @weight="mutateItem($event.item, 'weight', $event.value)"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
-            @refresh="refreshObservation"
-            @reauthorize="openConnectionWorkspace"
             @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
           />
         </LedgerRecordList>
@@ -978,6 +1022,10 @@ async function runBatch(
   justify-content: flex-end;
   border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-3);
+}
+.group-credentials__accounts {
+  display: grid;
+  gap: var(--space-2);
 }
 .group-credential-record-grid {
   --ledger-record-list-record-min-height: 52px;

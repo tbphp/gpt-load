@@ -14,7 +14,6 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatLocalInstant } from '@/lib/format'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
-import SubscriptionCredentialDetails from './SubscriptionCredentialDetails.vue'
 
 const props = defineProps<{
   item: CredentialItemDto
@@ -32,8 +31,6 @@ const emit = defineEmits<{
   weight: [payload: { item: CredentialItemDto; value: string }]
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
-  refresh: [item: CredentialItemDto]
-  reauthorize: [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t } = useI18n()
@@ -57,33 +54,6 @@ const recentLabel = computed(() =>
         failure: n(props.item.recent_failure_count),
       }),
 )
-const primaryQuota = computed(() =>
-  props.item.observation?.snapshot?.quota_windows.find(({ is_primary }) => is_primary),
-)
-const subscriptionSecondaryLabel = computed(() => {
-  if (props.item.auth_state !== 'ready') {
-    return t(`group.credentials.subscription.auth.${props.item.auth_state}`)
-  }
-  return (
-    props.item.observation?.snapshot?.plan_summary.name ||
-    t('group.credentials.subscription.auth.ready')
-  )
-})
-const entitlementLabel = computed(() => {
-  if (props.item.connection_type !== 'subscription') return recentLabel.value
-  const window = primaryQuota.value
-  if (!window)
-    return t(
-      `group.credentials.subscription.observationShort.${props.item.observation?.state ?? 'unavailable'}`,
-    )
-  if (window.utilization !== undefined) {
-    return `${window.label} · ${n(Math.round(window.utilization * 100))}%`
-  }
-  if (window.remaining !== undefined && window.limit !== undefined) {
-    return `${window.label} · ${n(window.remaining)} / ${n(window.limit)}`
-  }
-  return `${window.label} · ${t(`group.credentials.subscription.quotaState.${window.state}`)}`
-})
 const recoveryLabel = computed(() => {
   if (props.item.recovery.mode === 'none') return t('group.credentials.recovery.none')
   if (props.item.recovery.at_ms !== null)
@@ -155,17 +125,12 @@ function saveWeight(): void {
           t('group.credentials.columns.credential')
         }}</span>
         <CopyChip
-          v-if="item.connection_type === 'api_key'"
           :value="item.mask"
           :label="t('group.credentials.copy')"
           :success-label="t('common.copied')"
           :failure-label="t('common.copyFailed')"
           :resolve-value="() => resolveCopyValue(item.credential_id)"
         />
-        <span v-else class="group-credential-record__account">
-          <strong>{{ item.mask }}</strong>
-          <small>{{ subscriptionSecondaryLabel }}</small>
-        </span>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__status" role="cell">
@@ -189,13 +154,9 @@ function saveWeight(): void {
 
       <div class="ledger-record-list__cell group-credential-record__recent" role="cell">
         <span class="group-credential-record__mobile-label">{{
-          t(
-            item.connection_type === 'subscription'
-              ? 'group.credentials.columns.entitlement'
-              : 'group.credentials.columns.recent',
-          )
+          t('group.credentials.columns.recent')
         }}</span>
-        <span>{{ entitlementLabel }}</span>
+        <span>{{ recentLabel }}</span>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__actions" role="cell">
@@ -331,13 +292,6 @@ function saveWeight(): void {
           :aria-hidden="!expanded"
           :inert="!expanded || undefined"
         >
-          <SubscriptionCredentialDetails
-            v-if="item.connection_type === 'subscription'"
-            :item="item"
-            :busy="busy"
-            @refresh="emit('refresh', $event)"
-            @reauthorize="emit('reauthorize', $event)"
-          />
           <dl class="group-credential-record__runtime-details">
             <div>
               <dt>{{ t('group.credentials.detailsFailure') }}</dt>
@@ -397,30 +351,6 @@ function saveWeight(): void {
 .group-credential-record__recent {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-}
-
-.group-credential-record__account {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.group-credential-record__account strong {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-credential-record__account small {
-  overflow: hidden;
-  color: var(--color-text-faint);
-  font-family: var(--font-sans);
-  font-size: var(--text-label-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .group-credential-record__weight-none {
