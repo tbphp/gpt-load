@@ -4,6 +4,7 @@
 package embedded
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -36,6 +37,7 @@ const (
 	maxTokenResponse     = 1024 * 1024
 	defaultLoginTimeout  = 5 * time.Minute
 	defaultCodexBaseURL  = "https://chatgpt.com/backend-api/codex"
+	defaultCodexAPIBase  = "https://chatgpt.com/backend-api"
 	defaultModelsVersion = "0.144.1"
 	maxObservedBodyBytes = 32 << 20
 )
@@ -117,6 +119,18 @@ type Model struct {
 type AccountObservation struct {
 	Payload []byte
 	Header  http.Header
+}
+
+// UpstreamHTTPError reports only the HTTP status and bounded operation name.
+// Provider response bodies may contain sensitive account details and are never
+// retained by the embedded boundary.
+type UpstreamHTTPError struct {
+	Operation  string
+	StatusCode int
+}
+
+func (e *UpstreamHTTPError) Error() string {
+	return fmt.Sprintf("Codex %s endpoint returned status %d", e.Operation, e.StatusCode)
 }
 
 // HTTPExecutor is the stable execution facade consumed by GPT-Load. CPA's
@@ -492,33 +506,90 @@ func ListCodexModels(ctx context.Context, credential CodexCredential, baseURL st
 // ObserveCodexAccount performs exactly one fixed usage request. The response
 // schema remains opaque here so GPT-Load can version and normalize it itself.
 func ObserveCodexAccount(ctx context.Context, credential CodexCredential, baseURL string) (AccountObservation, error) {
-	if err := validateCredential(credential); err != nil {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = defaultCodexAPIBase
+	}
+	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/usage", nil, "usage")
+}
+
+// ObserveCodexResetCredits fetches the reset-credit detail endpoint without
+// interpreting its evolving response schema.
+func ObserveCodexResetCredits(ctx context.Context, credential CodexCredential, baseURL string) (AccountObservation, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = defaultCodexAPIBase
+	}
+	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/rate-limit-reset-credits", nil, "reset credits")
+}
+
+// ConsumeCodexResetCredit consumes the next available reset credit. GPT-Load
+// supplies a durable UUID v4 as redeem_request_id so retries never create a new
+// upstream operation identity.
+func ConsumeCodexResetCredit(
+	ctx context.Context,
+	credential CodexCredential,
+	baseURL string,
+	redeemRequestID string,
+) (AccountObservation, error) {
+	redeemRequestID = strings.TrimSpace(redeemRequestID)
+	if redeemRequestID == "" || len(redeemRequestID) > 128 {
+		return AccountObservation{}, fmt.Errorf("invalid Codex reset redeem request id")
+	}
+	payload, err := json.Marshal(map[string]string{"redeem_request_id": redeemRequestID})
+	if err != nil {
 		return AccountObservation{}, err
 	}
 	if strings.TrimSpace(baseURL) == "" {
-		baseURL = "https://chatgpt.com/backend-api"
+		baseURL = defaultCodexAPIBase
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/usage", nil)
+	return requestCodexJSON(
+		ctx,
+		credential,
+		http.MethodPost,
+		strings.TrimRight(baseURL, "/")+"/wham/rate-limit-reset-credits/consume",
+		payload,
+		"reset credit consume",
+	)
+}
+
+func requestCodexJSON(
+	ctx context.Context,
+	credential CodexCredential,
+	method string,
+	target string,
+	payload []byte,
+	operation string,
+) (AccountObservation, error) {
+	if err := validateCredential(credential); err != nil {
+		return AccountObservation{}, err
+	}
+	var body io.Reader
+	if payload != nil {
+		body = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
 		return AccountObservation{}, err
 	}
 	applyCodexReadHeaders(req, credential)
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := clientWithoutRedirects(nil).Do(req)
 	if err != nil {
 		return AccountObservation{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponse+1))
-	if err != nil || len(body) > maxTokenResponse {
-		return AccountObservation{}, fmt.Errorf("read Codex usage response")
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponse+1))
+	if err != nil || len(responseBody) > maxTokenResponse {
+		return AccountObservation{}, fmt.Errorf("read Codex %s response", operation)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return AccountObservation{}, fmt.Errorf("Codex usage endpoint returned status %d", resp.StatusCode)
+		return AccountObservation{}, &UpstreamHTTPError{Operation: operation, StatusCode: resp.StatusCode}
 	}
-	if !json.Valid(body) {
-		return AccountObservation{}, fmt.Errorf("decode Codex usage response")
+	if !json.Valid(responseBody) {
+		return AccountObservation{}, fmt.Errorf("decode Codex %s response", operation)
 	}
-	return AccountObservation{Payload: body, Header: resp.Header.Clone()}, nil
+	return AccountObservation{Payload: responseBody, Header: resp.Header.Clone()}, nil
 }
 
 func applyCodexReadHeaders(req *http.Request, credential CodexCredential) {

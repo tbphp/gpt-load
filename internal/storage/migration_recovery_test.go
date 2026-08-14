@@ -273,7 +273,108 @@ func TestExternalDatabaseMySQLInterruptedSubscriptionRecovery(t *testing.T) {
 				_ = restartedSQL.Close()
 				t.Fatalf("resume subscription schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID})
+			wantMigrationIDs := make([]string, 0, len(migrations))
+			for _, value := range migrations {
+				wantMigrationIDs = append(wantMigrationIDs, value.ID)
+			}
+			assertInternalMigrationComplete(t, restarted, wantMigrationIDs)
+			if err := restartedSQL.Close(); err != nil {
+				t.Fatalf("close recovered database: %v", err)
+			}
+		})
+	}
+}
+
+func TestExternalDatabaseMySQLInterruptedSubscriptionRuntimeRecovery(t *testing.T) {
+	rawDSN := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
+	if rawDSN == "" {
+		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
+	}
+	parsed, err := url.Parse(rawDSN)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "mysql") {
+		t.Skip("interrupted subscription runtime recovery is specific to MySQL")
+	}
+	admin, err := OpenWithSource(rawDSN, config.DatabaseSourceExternal)
+	if err != nil {
+		t.Fatalf("open MySQL admin database: %v", err)
+	}
+	adminSQL, err := admin.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = adminSQL.Close() })
+
+	steps := []func(*gorm.DB) error{
+		func(db *gorm.DB) error { return db.AutoMigrate(&storagemodels.CredentialResetOperation{}) },
+		func(db *gorm.DB) error {
+			return db.Exec(`CREATE INDEX idx_request_logs_credential_completed_id
+				ON request_logs (credential_id, completed_at_ms DESC, id DESC)`).Error
+		},
+	}
+
+	for boundary := 0; boundary <= len(steps); boundary++ {
+		t.Run(fmt.Sprintf("boundary_%02d", boundary), func(t *testing.T) {
+			databaseName := fmt.Sprintf("gpt_load_subscription_runtime_recovery_%d_%02d", time.Now().UnixNano(), boundary)
+			if err := admin.Exec("CREATE DATABASE `" + databaseName + "`").Error; err != nil {
+				t.Fatalf("create recovery database: %v", err)
+			}
+			t.Cleanup(func() {
+				if dropErr := admin.Exec("DROP DATABASE IF EXISTS `" + databaseName + "`").Error; dropErr != nil {
+					t.Errorf("drop recovery database: %v", dropErr)
+				}
+			})
+
+			recoveryURL := *parsed
+			recoveryURL.Path = "/" + databaseName
+			recoveryURL.RawPath = ""
+			partial, err := OpenWithSource(recoveryURL.String(), config.DatabaseSourceExternal)
+			if err != nil {
+				t.Fatalf("open recovery database: %v", err)
+			}
+			if err := partial.AutoMigrate(&schemaMigration{}); err != nil {
+				t.Fatalf("create recovery ledger: %v", err)
+			}
+			for _, entry := range migrations[:3] {
+				if err := entry.Up(partial); err != nil {
+					t.Fatalf("create prerequisite migration %s: %v", entry.ID, err)
+				}
+				if err := partial.Create(&schemaMigration{ID: entry.ID}).Error; err != nil {
+					t.Fatalf("record prerequisite migration %s: %v", entry.ID, err)
+				}
+			}
+			if err := partial.Create(&schemaMigration{ID: migrationResumeMarker(migrations[3].ID)}).Error; err != nil {
+				t.Fatalf("record subscription runtime recovery marker: %v", err)
+			}
+			for _, apply := range steps[:boundary] {
+				if err := apply(partial); err != nil {
+					t.Fatalf("create subscription runtime schema prefix %d: %v", boundary, err)
+				}
+			}
+			partialSQL, err := partial.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := partialSQL.Close(); err != nil {
+				t.Fatalf("close interrupted database: %v", err)
+			}
+
+			restarted, err := OpenWithSource(recoveryURL.String(), config.DatabaseSourceExternal)
+			if err != nil {
+				t.Fatalf("reopen recovery database: %v", err)
+			}
+			restartedSQL, err := restarted.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := AutoMigrate(restarted); err != nil {
+				_ = restartedSQL.Close()
+				t.Fatalf("resume subscription runtime schema prefix %d: %v", boundary, err)
+			}
+			wantMigrationIDs := make([]string, 0, len(migrations))
+			for _, value := range migrations {
+				wantMigrationIDs = append(wantMigrationIDs, value.ID)
+			}
+			assertInternalMigrationComplete(t, restarted, wantMigrationIDs)
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}

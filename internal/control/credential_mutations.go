@@ -386,6 +386,7 @@ func (s *Service) mapCredentialItem(
 			return CredentialItemResponse{}, app_errors.ParseDBError(result.Error)
 		}
 		item.Observation = presentCredentialObservation(observation, row.IdentityFingerprint, observedAt)
+		s.enrichCredentialObservationUsage(ctx, row.ID, item.Observation)
 	}
 	return item, nil
 }

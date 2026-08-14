@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Ellipsis, RotateCcw, Trash2 } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { CredentialItemDto, CredentialQuotaWindowDto } from '@/api/control/types'
@@ -9,6 +9,7 @@ import AppPopover from '@/components/ui/AppPopover.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { formatEstimatedCost, formatTokens } from '@/lib/format'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
 
@@ -20,11 +21,23 @@ const emit = defineEmits<{
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
   refresh: [item: CredentialItemDto]
+  reset: [item: CredentialItemDto]
   reauthorize: [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t } = useI18n()
 const menuOpen = ref(false)
+const nowMs = ref(Date.now())
+let freshnessTimer: number | undefined
+
+onMounted(() => {
+  freshnessTimer = window.setInterval(() => {
+    nowMs.value = Date.now()
+  }, 30_000)
+})
+onBeforeUnmount(() => {
+  if (freshnessTimer !== undefined) window.clearInterval(freshnessTimer)
+})
 
 const observation = computed(() => props.item.observation)
 const snapshot = computed(() => observation.value?.snapshot)
@@ -40,13 +53,41 @@ const quotaWindows = computed(() =>
 const accountQuotaWindows = computed(() =>
   quotaWindows.value.filter((window) => window.scope === 'account'),
 )
+const lastUsedAtMS = computed(() => {
+  const values = accountQuotaWindows.value
+    .map((window) => window.observed_usage?.last_used_at_ms)
+    .filter((value): value is number => value !== undefined)
+  return values.length ? Math.max(...values) : undefined
+})
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
-const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available)
+const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available ?? 0)
+const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
+const nextResetCredit = computed(() =>
+  resetCredits.value.find(({ expires_at_ms }) => expires_at_ms > nowMs.value),
+)
+const observationIsCurrent = computed(() => {
+  const freshUntil = observation.value?.fresh_until_ms
+  return (
+    observation.value?.state === 'fresh' &&
+    freshUntil !== null &&
+    freshUntil !== undefined &&
+    freshUntil > nowMs.value
+  )
+})
+const resetCreditsUsable = computed(() => {
+  if (!observationIsCurrent.value || !resetCreditsAvailable.value) return false
+  return resetCredits.value.length === 0 || nextResetCredit.value !== undefined
+})
 const isProblem = computed(
   () => props.item.effective_status === 'cooldown' || props.item.effective_status === 'blacklisted',
 )
+
+function quotaWindowIsCurrent(window: CredentialQuotaWindowDto): boolean {
+  if (!observationIsCurrent.value) return false
+  return window.reset_at_ms === undefined || window.reset_at_ms > nowMs.value
+}
 
 type UnifiedStatus =
   | 'available'
@@ -69,7 +110,10 @@ const unifiedStatus = computed<UnifiedStatus>(() => {
   if (props.item.effective_status === 'blacklisted') return 'blacklisted'
   if (props.item.effective_status === 'cooldown') return 'cooldown'
   if (
-    quotaWindows.value.some((window) => window.scope === 'account' && window.state === 'exhausted')
+    quotaWindows.value.some(
+      (window) =>
+        window.scope === 'account' && quotaWindowIsCurrent(window) && window.state === 'exhausted',
+    )
   ) {
     return 'quota_exhausted'
   }
@@ -98,7 +142,12 @@ const authErrorKeys: Readonly<Record<string, string>> = {
   refresh_state_commit_failed: 'group.credentials.subscription.authError.persistFailed',
 }
 const authIssue = computed(() => {
-  if (props.item.auth_state === 'ready') return ''
+  if (
+    props.item.auth_state !== 'reauthorization_required' &&
+    props.item.auth_state !== 'outcome_unknown'
+  ) {
+    return ''
+  }
   const key = props.item.auth_error_code ? authErrorKeys[props.item.auth_error_code] : undefined
   return key ? t(key) : t(`group.credentials.subscription.auth.${props.item.auth_state}`)
 })
@@ -128,6 +177,7 @@ function observationErrorLabel(code: string | undefined): string {
 }
 
 function remainingPercent(window: CredentialQuotaWindowDto): number | undefined {
+  if (!quotaWindowIsCurrent(window)) return undefined
   if (window.utilization !== undefined) return Math.round((1 - window.utilization) * 100)
   if (window.remaining !== undefined && window.limit && window.limit > 0) {
     return Math.max(0, Math.min(100, Math.round((window.remaining / window.limit) * 100)))
@@ -135,6 +185,7 @@ function remainingPercent(window: CredentialQuotaWindowDto): number | undefined 
   return undefined
 }
 function quotaValueLabel(window: CredentialQuotaWindowDto): string {
+  if (!quotaWindowIsCurrent(window)) return t('group.credentials.subscription.quotaPendingRefresh')
   const value = remainingPercent(window)
   if (value !== undefined)
     return t('group.credentials.subscription.remainingPercent', { value: n(value) })
@@ -152,7 +203,22 @@ function usedPercentLabel(window: CredentialQuotaWindowDto): string {
     ? ''
     : t('group.credentials.subscription.estimate.usedPercent', { value: n(100 - remaining) })
 }
+function observedUsageNote(window: CredentialQuotaWindowDto): string {
+  const observed = window.observed_usage
+  if (!observed) return t('group.credentials.subscription.estimate.unavailable')
+  const notes = [
+    observed.data_complete
+      ? t('group.credentials.subscription.estimate.exactData')
+      : t('group.credentials.subscription.estimate.approximateData'),
+  ]
+  if (!observed.usage_complete)
+    notes.push(t('group.credentials.subscription.estimate.partialUsage'))
+  if (!observed.pricing_complete)
+    notes.push(t('group.credentials.subscription.estimate.partialPricing'))
+  return notes.join(t('group.credentials.subscription.estimate.noteSeparator'))
+}
 function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'danger' | undefined {
+  if (!quotaWindowIsCurrent(window)) return undefined
   if (window.state === 'exhausted') return 'danger'
   const value = remainingPercent(window)
   if (value === undefined) return undefined
@@ -307,32 +373,36 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
             <strong>{{ window.label }}</strong>
             <span v-if="usedPercentLabel(window)">{{ usedPercentLabel(window) }}</span>
           </div>
-          <dl class="subscription-account__estimate-rows">
+          <dl v-if="window.observed_usage" class="subscription-account__estimate-rows">
             <div>
-              <dt>{{ t('group.credentials.subscription.estimate.consumed') }}</dt>
-              <dd>—</dd>
-              <dd class="subscription-account__estimate-money">—</dd>
-            </div>
-            <div class="subscription-account__estimate-total">
-              <dt>{{ t('group.credentials.subscription.estimate.periodTotal') }}</dt>
-              <dd>—</dd>
-              <dd class="subscription-account__estimate-money">—</dd>
+              <dt>{{ t('group.credentials.subscription.estimate.requests') }}</dt>
+              <dd>{{ n(window.observed_usage.request_count) }}</dd>
             </div>
             <div>
-              <dt>{{ t('group.credentials.subscription.estimate.periodRemaining') }}</dt>
-              <dd>—</dd>
-              <dd class="subscription-account__estimate-money">—</dd>
+              <dt>{{ t('group.credentials.subscription.estimate.tokens') }}</dt>
+              <dd>{{ formatTokens(window.observed_usage.total_tokens, locale) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('group.credentials.subscription.estimate.referenceCost') }}</dt>
+              <dd class="subscription-account__estimate-money">
+                {{
+                  formatEstimatedCost(
+                    window.observed_usage.estimated_reference_cost_nano_usd,
+                    locale,
+                  )
+                }}
+              </dd>
             </div>
           </dl>
           <p class="subscription-account__estimate-pending">
-            {{ t('group.credentials.subscription.estimate.comingSoon') }}
+            {{ observedUsageNote(window) }}
           </p>
         </article>
       </div>
     </details>
 
     <div
-      v-if="resetCreditsAvailable"
+      v-if="resetCreditsUsable"
       class="subscription-account__credits"
       :class="{
         'subscription-account__credits--urgent': unifiedStatus === 'quota_exhausted',
@@ -345,6 +415,19 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       <strong>{{
         t('group.credentials.subscription.resetCreditsCount', { count: n(resetCreditsAvailable) })
       }}</strong>
+      <span v-if="nextResetCredit" class="subscription-account__credits-expiry">
+        {{ t('group.credentials.subscription.nearestResetCredit') }}
+        <AppRelativeTime
+          :instant="nextResetCredit.expires_at_ms"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+          hint
+        />
+      </span>
+      <span class="subscription-account__spacer"></span>
+      <AppButton size="compact" :disabled="busy" @click="emit('reset', item)">
+        {{ t('group.credentials.subscription.consumeResetCredit') }}
+      </AppButton>
     </div>
 
     <div class="subscription-account__meta">
@@ -358,6 +441,15 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
         />
       </span>
       <span>{{ recentLabel }}</span>
+      <span v-if="lastUsedAtMS">
+        {{ t('group.credentials.subscription.lastUsed') }}
+        <AppRelativeTime
+          :instant="lastUsedAtMS"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+          hint
+        />
+      </span>
       <span class="subscription-account__spacer"></span>
       <span v-if="item.account.expires_at_ms">
         {{ t('group.credentials.subscription.tokenExpiresAt') }}
@@ -425,6 +517,17 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       <div v-if="constrainedModels.length" class="subscription-account__models">
         <span>{{ t('group.credentials.subscription.modelConstraints') }}</span>
         <code v-for="model in constrainedModels" :key="model">{{ model }}</code>
+      </div>
+      <div v-if="resetCredits.length" class="subscription-account__reset-credit-list">
+        <span>{{ t('group.credentials.subscription.resetCreditExpirations') }}</span>
+        <AppRelativeTime
+          v-for="credit in resetCredits"
+          :key="credit.expires_at_ms"
+          :instant="credit.expires_at_ms"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+          hint
+        />
       </div>
     </details>
   </article>
@@ -582,7 +685,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 }
 .subscription-account__estimate-rows > div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(52px, auto);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: var(--space-2);
 }
@@ -601,9 +704,6 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 .subscription-account__estimate-money {
   color: var(--color-text-muted);
   font-weight: 500;
-}
-.subscription-account__estimate-total dd {
-  color: var(--color-action);
 }
 .subscription-account__estimate-pending {
   margin: 0;
@@ -625,6 +725,9 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   background: var(--color-action-soft);
 }
 .subscription-account__credits > span:first-child {
+  color: var(--color-text-faint);
+}
+.subscription-account__credits-expiry {
   color: var(--color-text-faint);
 }
 .subscription-account__credits-dots {
@@ -714,6 +817,15 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   font-family: var(--font-mono);
   font-size: var(--text-meta);
   font-variant-numeric: tabular-nums;
+}
+.subscription-account__reset-credit-list {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 .subscription-account__models {
   display: flex;

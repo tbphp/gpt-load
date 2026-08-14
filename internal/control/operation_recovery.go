@@ -37,8 +37,10 @@ type recoveryPendingData struct {
 func (s *Service) DrainCommittedOperations(ctx context.Context) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.recoverPendingOperationsLocked(ctx, 0)
-	return err
+	if _, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
+		return err
+	}
+	return s.restoreCredentialQuotaObservations(ctx)
 }
 
 func (s *Service) recoverPendingOperationsLocked(

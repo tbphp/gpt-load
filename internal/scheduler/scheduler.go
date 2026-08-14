@@ -3,10 +3,12 @@ package scheduler
 
 import (
 	"errors"
+	"math"
 	"math/rand"
 	"time"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -170,7 +172,6 @@ func (iterator *Iterator) weightedPoolForMode(mode channel.RouteMode, now time.T
 		return tried
 	}, now)
 	weighted := make([]weightedCredential, 0, len(pool))
-	var total int64
 	for _, credential := range pool {
 		if iterator.allowedCredentialIDs != nil {
 			if _, allowed := iterator.allowedCredentialIDs[credential.ID]; !allowed {
@@ -193,9 +194,55 @@ func (iterator *Iterator) weightedPoolForMode(mode channel.RouteMode, now time.T
 			continue
 		}
 		weighted = append(weighted, weightedCredential{meta: credential, weight: weight})
-		total += weight
+	}
+	weighted = prioritizeSubscriptionQuota(weighted, iterator.targetsByMode[mode])
+	var total int64
+	for _, credential := range weighted {
+		total += credential.weight
 	}
 	return weighted, total
+}
+
+type subscriptionQuotaPriority struct {
+	eligible bool
+	known    bool
+	maximum  float64
+}
+
+func prioritizeSubscriptionQuota(
+	weighted []weightedCredential,
+	targets map[uint]candidateTarget,
+) []weightedCredential {
+	priorities := make(map[uint]subscriptionQuotaPriority)
+	for _, candidate := range weighted {
+		target, exists := targets[candidate.meta.GroupID]
+		if !exists || target.group.ChannelID != channel.Codex ||
+			connection.Normalize(target.group.ConnectionType) != connection.Subscription {
+			continue
+		}
+		priority, seen := priorities[candidate.meta.GroupID]
+		if !seen {
+			priority = subscriptionQuotaPriority{eligible: true, known: true}
+		}
+		remaining := candidate.meta.QuotaRemaining
+		if remaining == nil || math.IsNaN(*remaining) || math.IsInf(*remaining, 0) ||
+			*remaining < 0 || *remaining > 1 {
+			priority.known = false
+		} else if *remaining > priority.maximum {
+			priority.maximum = *remaining
+		}
+		priorities[candidate.meta.GroupID] = priority
+	}
+	result := weighted[:0]
+	for _, candidate := range weighted {
+		priority := priorities[candidate.meta.GroupID]
+		if priority.eligible && priority.known &&
+			candidate.meta.QuotaRemaining != nil && *candidate.meta.QuotaRemaining < priority.maximum {
+			continue
+		}
+		result = append(result, candidate)
+	}
+	return result
 }
 
 func (iterator *Iterator) Next() (Selection, error) {

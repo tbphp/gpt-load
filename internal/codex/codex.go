@@ -97,6 +97,17 @@ type AccountObservation struct {
 	Header  http.Header
 }
 
+// UpstreamHTTPError preserves only the status needed for stable control-plane
+// classification. Upstream bodies never cross the embedded boundary.
+type UpstreamHTTPError struct {
+	Operation  string
+	StatusCode int
+}
+
+func (e *UpstreamHTTPError) Error() string {
+	return fmt.Sprintf("codex %s upstream returned status %d", e.Operation, e.StatusCode)
+}
+
 // TokenEndpointError retains only the bounded OAuth classification needed by
 // the credential lifecycle. Provider response bodies are never exposed.
 type TokenEndpointError struct {
@@ -174,6 +185,33 @@ func ObserveAccount(ctx context.Context, credential Credential) (AccountObservat
 		return AccountObservation{}, err
 	}
 	return AccountObservation{Payload: append([]byte(nil), value.Payload...), Header: value.Header.Clone()}, nil
+}
+
+// ObserveResetCredits retrieves the available reset-credit detail payload.
+func ObserveResetCredits(ctx context.Context, credential Credential) (AccountObservation, error) {
+	value, err := cpaembedded.ObserveCodexResetCredits(ctx, credentialToBridge(credential), "")
+	if err != nil {
+		return AccountObservation{}, normalizeUpstreamError(err)
+	}
+	return AccountObservation{Payload: append([]byte(nil), value.Payload...), Header: value.Header.Clone()}, nil
+}
+
+// ConsumeResetCredit consumes the next available credit with a caller-owned,
+// durable upstream idempotency identity.
+func ConsumeResetCredit(ctx context.Context, credential Credential, redeemRequestID string) (AccountObservation, error) {
+	value, err := cpaembedded.ConsumeCodexResetCredit(ctx, credentialToBridge(credential), "", redeemRequestID)
+	if err != nil {
+		return AccountObservation{}, normalizeUpstreamError(err)
+	}
+	return AccountObservation{Payload: append([]byte(nil), value.Payload...), Header: value.Header.Clone()}, nil
+}
+
+func normalizeUpstreamError(err error) error {
+	var upstream *cpaembedded.UpstreamHTTPError
+	if errors.As(err, &upstream) {
+		return &UpstreamHTTPError{Operation: upstream.Operation, StatusCode: upstream.StatusCode}
+	}
+	return err
 }
 
 // ExecuteRequest is the canonical request accepted by the embedded CPA bridge.

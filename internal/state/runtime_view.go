@@ -17,6 +17,22 @@ type CredentialRuntimeView struct {
 	CooldownUntil      time.Time
 	Blacklisted        bool
 	FailureCount       int
+	QuotaRemaining     *float64
+	QuotaResetAt       time.Time
+	QuotaFreshUntil    time.Time
+}
+
+func (view CredentialRuntimeView) FreshQuotaRemaining(now time.Time) *float64 {
+	if view.QuotaRemaining == nil || !view.QuotaFreshUntil.After(now) ||
+		!view.QuotaResetAt.After(now) {
+		return nil
+	}
+	return cloneFloat(view.QuotaRemaining)
+}
+
+func (view CredentialRuntimeView) QuotaExhausted(now time.Time) bool {
+	remaining := view.FreshQuotaRemaining(now)
+	return remaining != nil && *remaining <= 0
 }
 
 type CredentialRuntimeState string
@@ -54,6 +70,9 @@ func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 		CooldownUntil:      entry.CooldownUntil,
 		Blacklisted:        entry.Blacklisted,
 		FailureCount:       entry.FailureCount,
+		QuotaRemaining:     cloneFloat(entry.quotaRemaining),
+		QuotaResetAt:       entry.quotaResetAt,
+		QuotaFreshUntil:    entry.quotaFreshUntil,
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/dbtx"
@@ -48,6 +49,7 @@ type Service struct {
 	executor                     execution.Executor
 	requestLogs                  RequestLogReader
 	usageStats                   UsageStatReader
+	credentialWindowUsage        credentialWindowUsageReader
 	homeStatistics               HomeStatisticsReader
 	stats                        *health.StatsStore
 	mutations                    credentialMutationCoordinator
@@ -60,6 +62,8 @@ type Service struct {
 	refreshCodexCredential       func(context.Context, codex.Credential) (codex.Credential, error)
 	listCodexModels              func(context.Context, codex.Credential) ([]codex.Model, error)
 	observeCodexAccount          func(context.Context, codex.Credential) (codex.AccountObservation, error)
+	observeCodexResetCredits     func(context.Context, codex.Credential) (codex.AccountObservation, error)
+	consumeCodexResetCredit      func(context.Context, codex.Credential, string) (codex.AccountObservation, error)
 	oauthCallback                *OAuthCallbackServer
 	now                          func() time.Time
 	publishSnapshot              func(state.CompileInput) (*state.ConfigSnapshot, error)
@@ -80,6 +84,13 @@ type Service struct {
 
 type credentialRuntimeRetirer interface {
 	RetireCredential(uint)
+}
+
+type credentialWindowUsageReader interface {
+	QueryCredentialWindowUsage(
+		context.Context,
+		requestlog.CredentialWindowUsageQuery,
+	) (requestlog.CredentialWindowUsage, error)
 }
 
 type credentialMultiMutationCoordinator interface {
@@ -163,6 +174,12 @@ func NewService(
 		observeCodexAccount: func(ctx context.Context, credential codex.Credential) (codex.AccountObservation, error) {
 			return codex.ObserveAccount(ctx, credential)
 		},
+		observeCodexResetCredits: func(ctx context.Context, credential codex.Credential) (codex.AccountObservation, error) {
+			return codex.ObserveResetCredits(ctx, credential)
+		},
+		consumeCodexResetCredit: func(ctx context.Context, credential codex.Credential, redeemRequestID string) (codex.AccountObservation, error) {
+			return codex.ConsumeResetCredit(ctx, credential, redeemRequestID)
+		},
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),
 		observationFlights:    make(map[observationFlightKey]*observationFlight),
@@ -170,6 +187,11 @@ func NewService(
 	}
 	if subscriptionCredentials != nil {
 		service.prepareCodexCredential = subscriptionCredentials.PrepareCodexCredential
+	}
+	if reader, ok := usageStats.(credentialWindowUsageReader); ok {
+		service.credentialWindowUsage = reader
+	} else if reader, ok := requestLogs.(credentialWindowUsageReader); ok {
+		service.credentialWindowUsage = reader
 	}
 	if provider, ok := executor.(channelDefaultBaseURLProvider); ok {
 		service.channelDefaultBaseURLs = provider
@@ -389,6 +411,9 @@ func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices boo
 		s.priceRuntime.Publish(priceTable)
 		if err := s.registry.ReplaceCredentials(entries); err != nil {
 			return fmt.Errorf("replace committed credentials: %w", err)
+		}
+		if err := s.restoreCredentialQuotaObservations(ctx); err != nil {
+			return fmt.Errorf("restore committed credential quota observations: %w", err)
 		}
 	}
 	if _, err := s.manager.Publish(input); err != nil {

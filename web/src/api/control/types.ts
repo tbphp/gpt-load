@@ -146,12 +146,33 @@ export interface CredentialQuotaWindowDto {
   model_ids?: string[]
   state: 'available' | 'exhausted' | 'unknown'
   is_primary?: boolean
+  observed_usage?: CredentialObservedWindowUsageDto
+}
+
+export interface CredentialObservedWindowUsageDto {
+  window_start_ms: number
+  window_end_ms: number
+  source: 'request_logs' | 'usage_stats'
+  data_complete: boolean
+  usage_complete: boolean
+  pricing_complete: boolean
+  request_count: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  estimated_reference_cost_nano_usd: string
+  last_used_at_ms?: number
 }
 
 export interface CredentialObservationSnapshotDto {
   plan_summary: { name?: string }
   quota_windows: CredentialQuotaWindowDto[]
   reset_credits_available?: number
+  reset_credits?: CredentialResetCreditDto[]
+}
+
+export interface CredentialResetCreditDto {
+  expires_at_ms: number
 }
 
 export interface CredentialObservationDto {
@@ -163,6 +184,15 @@ export interface CredentialObservationDto {
   last_attempt_at_ms: number | null
   next_allowed_at_ms: number | null
   last_error_code?: string
+}
+
+export interface CredentialResetCreditConsumeDto {
+  status: 'succeeded'
+  windows_reset: number
+  redeemed_at_ms?: number
+  observation?: CredentialObservationDto
+  observation_pending?: boolean
+  replayed: boolean
 }
 
 export interface CredentialRecoveryDto {

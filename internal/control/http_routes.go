@@ -254,6 +254,17 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleRefreshGroupCredentialObservation,
 			),
 			controlRoute(
+				"control.group-credentials.reset-credit-consume",
+				http.MethodPost,
+				"/groups/:group_id/credentials/:credential_id/reset-credits/consume",
+				s.auditMutation(newMutationDescriptor(
+					"group_credential_reset_credit_consume",
+					"group_credential",
+					groupCredentialMutationLocator,
+				)),
+				s.handleConsumeGroupCredentialResetCredit,
+			),
+			controlRoute(
 				"control.group-credentials.reveal",
 				http.MethodPost,
 				"/groups/:group_id/credentials/:credential_id/reveal",

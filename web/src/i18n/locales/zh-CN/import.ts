@@ -79,7 +79,8 @@ export default {
       openAuthorization: '重新打开',
       callbackLabel: '授权后跳转的网址',
       callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
-      callbackHelp: '只要内容里包含 code= 就能识别，带不带前缀都行。这个地址打不开是正常的。',
+      callbackHelp:
+        '请粘贴完整的 localhost:1455 授权回调网址，网址必须同时包含 code 和 state。这个地址打不开是正常的。',
       submitCallback: '提交',
       callbackFailed: '这段网址无效、已使用，或不属于当前这次授权',
       orImport: '已有 auth.json 文件？直接导入',

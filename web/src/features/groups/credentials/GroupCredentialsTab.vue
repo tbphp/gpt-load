@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { ApiError } from '@/api/errors'
 import type {
   CredentialCollectionDto,
   CredentialCollectionFilters,
@@ -19,6 +20,7 @@ import {
   batchCredentials,
   cacheCredentialBatch,
   cacheCredentialItem,
+  consumeCredentialResetCredit,
   credentialCollectionQueryOptions,
   revealCredential,
   restoreCredential,
@@ -81,6 +83,8 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
+const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
+const resetOperationKeys = new Map<number, string>()
 const connectionWorkspaceOpen = ref(false)
 const connectionStages = ref<CredentialStage[]>([])
 const reauthorizationTarget = ref<CredentialItemDto | null>(null)
@@ -130,6 +134,9 @@ const dialogBusy = computed(() => {
   if (target === undefined) return false
   return target.ids.length === 1 ? pending(target.ids[0]) : batchBusy.value
 })
+const resetDialogBusy = computed(() =>
+  resetTarget.value === undefined ? false : pending(resetTarget.value.item.credential_id),
+)
 const hasChangedConditions = computed(
   () => filters.value.q !== undefined || filters.value.status !== undefined,
 )
@@ -413,6 +420,47 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
     )
   } finally {
     setPending(item.credential_id, 'observation', false)
+  }
+}
+
+function openResetCreditDialog(item: CredentialItemDto): void {
+  if (pending(item.credential_id)) return
+  const idempotencyKey = resetOperationKeys.get(item.credential_id) ?? crypto.randomUUID()
+  resetOperationKeys.set(item.credential_id, idempotencyKey)
+  resetTarget.value = { item, idempotencyKey }
+}
+
+async function confirmResetCredit(): Promise<void> {
+  const target = resetTarget.value
+  if (target === undefined || pending(target.item.credential_id)) return
+  feedback.value = ''
+  setPending(target.item.credential_id, 'reset-credit', true)
+  try {
+    const result = await consumeCredentialResetCredit(
+      client,
+      props.groupId,
+      target.item.credential_id,
+      target.idempotencyKey,
+    )
+    if (result.observation) {
+      await reconcileItem({ ...target.item, observation: result.observation }, false)
+    } else {
+      await refetchActiveCredentialPage()
+    }
+    if (result.observation_pending) {
+      feedback.value = t('group.credentials.subscription.consumeResetCreditPending')
+    }
+    resetOperationKeys.delete(target.item.credential_id)
+    resetTarget.value = undefined
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.code !== 'RESET_CREDIT_OUTCOME_UNKNOWN') {
+      resetOperationKeys.delete(target.item.credential_id)
+    }
+    feedback.value = t(
+      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.consumeResetCreditFailed'),
+    )
+  } finally {
+    setPending(target.item.credential_id, 'reset-credit', false)
   }
 }
 
@@ -848,6 +896,7 @@ async function runBatch(
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
             @refresh="refreshObservation"
+            @reset="openResetCreditDialog"
             @reauthorize="openConnectionWorkspace"
             @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
           />
@@ -934,6 +983,22 @@ async function runBatch(
         />
       </template>
     </template>
+    <AppConfirmDialog
+      appearance="ledger"
+      :open="resetTarget !== undefined"
+      :title="t('group.credentials.subscription.consumeResetCreditTitle')"
+      :description="
+        t('group.credentials.subscription.consumeResetCreditDescription', {
+          account: resetTarget?.item.mask ?? '',
+        })
+      "
+      :close-label="t('group.credentials.closeDialog')"
+      :cancel-label="t('group.credentials.cancel')"
+      :confirm-label="t('group.credentials.subscription.consumeResetCredit')"
+      :pending="resetDialogBusy"
+      @update:open="!$event && (resetTarget = undefined)"
+      @confirm="confirmResetCredit"
+    />
     <AppConfirmDialog
       appearance="ledger"
       :open="deleteTarget !== undefined"

@@ -502,6 +502,7 @@ export default {
         credential_disabled: '凭据已停用',
         credential_blacklisted: '凭据已拉黑',
         credential_cooldown: '凭据正在冷却',
+        credential_quota_exhausted: '订阅账号额度已用尽，恢复前自动跳过',
         credential_weight_zero: '凭据有效权重为零',
         credential_not_allowed: '该请求排除了此凭据',
         no_available_credential: 'Group 当前没有可用凭据',

@@ -89,7 +89,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		"groups", "credentials", "access_keys", "request_logs", "request_log_attempts",
 		"usage_aggregation_journal", "usage_stats", "model_prices", "system_settings",
 		"jobs", "control_operations", "credential_stages", "credential_observations",
-		"schema_migrations",
+		"credential_reset_operations", "schema_migrations",
 	} {
 		if !db.Migrator().HasTable(table) {
 			t.Fatalf("table %q is missing", table)

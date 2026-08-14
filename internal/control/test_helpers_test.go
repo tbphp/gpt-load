@@ -195,28 +195,32 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	requestLogStats := &staticRequestLogStatsReader{}
 	priceRuntime := NewPriceRuntime()
 	catalogRuntime := &catalog.Runtime{}
+	service := NewService(
+		db,
+		manager,
+		registry,
+		priceRuntime,
+		catalogRuntime,
+		nil,
+		keyService,
+		controlHTTPExecutor{},
+		subscriptionCredentials,
+		nil,
+		nil,
+		nil,
+		stats,
+		mutations,
+		requestLogStats,
+		channelRegistry,
+	)
+	// Tests opt into reset-credit upstream calls explicitly; no fixture may
+	// reach a real provider by accident.
+	service.observeCodexResetCredits = nil
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, channelRegistry: channelRegistry, encryption: keyService,
 		priceRuntime: priceRuntime, catalogRuntime: catalogRuntime,
 		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
-		service: NewService(
-			db,
-			manager,
-			registry,
-			priceRuntime,
-			catalogRuntime,
-			nil,
-			keyService,
-			controlHTTPExecutor{},
-			subscriptionCredentials,
-			nil,
-			nil,
-			nil,
-			stats,
-			mutations,
-			requestLogStats,
-			channelRegistry,
-		),
+		service: service,
 	}
 }
 

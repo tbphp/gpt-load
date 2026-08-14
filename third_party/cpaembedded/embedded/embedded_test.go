@@ -450,6 +450,63 @@ func TestObserveCodexAccountUsesFixedUsagePathOnce(t *testing.T) {
 	}
 }
 
+func TestObserveCodexResetCreditsUsesFixedDetailsPathOnce(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodGet || r.URL.Path != "/wham/rate-limit-reset-credits" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("Chatgpt-Account-Id") != "account-123" {
+			t.Errorf("headers = %#v", r.Header)
+		}
+		_, _ = io.WriteString(w, `{"available_count":1,"credits":[{"status":"available","expires_at":"2026-09-01T00:00:00Z"}]}`)
+	}))
+	defer server.Close()
+
+	observation, err := ObserveCodexResetCredits(context.Background(), CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 || !json.Valid(observation.Payload) {
+		t.Fatalf("requests=%d observation=%#v", requests.Load(), observation)
+	}
+}
+
+func TestConsumeCodexResetCreditUsesStableRedeemRequestIDOnce(t *testing.T) {
+	t.Parallel()
+
+	const redeemRequestID = "9f0f4c32-89d2-4bcb-9e19-052940dc2f16"
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodPost || r.URL.Path != "/wham/rate-limit-reset-credits/consume" ||
+			r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("request = %s %s %#v", r.Method, r.URL.Path, r.Header)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["redeem_request_id"] != redeemRequestID || len(body) != 1 {
+			t.Errorf("body = %#v, err = %v", body, err)
+		}
+		_, _ = io.WriteString(w, `{"code":"reset","windows_reset":1}`)
+	}))
+	defer server.Close()
+
+	result, err := ConsumeCodexResetCredit(context.Background(), CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}, server.URL, redeemRequestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 || !json.Valid(result.Payload) {
+		t.Fatalf("requests=%d result=%#v", requests.Load(), result)
+	}
+}
+
 func TestNewCodexAuthContainsOnlyCanonicalExecutionMetadata(t *testing.T) {
 	t.Parallel()
 

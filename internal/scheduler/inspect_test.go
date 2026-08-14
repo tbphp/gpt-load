@@ -292,6 +292,28 @@ func TestInspectRejectsCatalogRegistryMismatch(t *testing.T) {
 	}
 }
 
+func TestInspectReportsFreshCredentialQuotaExhaustion(t *testing.T) {
+	now := inspectNow()
+	inspection, err := Inspect(inspectSnapshot(t), []state.CredentialRuntimeView{{
+		ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
+		QuotaRemaining: floatPointer(0), QuotaResetAt: now.Add(time.Hour), QuotaFreshUntil: now.Add(30 * time.Minute),
+	}}, Query{
+		ClientProtocol: protocol.OpenAICompletions,
+		Operation:      execution.OperationChatCompletion,
+		ExternalModel:  modelPointer("public"),
+		AccessKey:      state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential := inspection.Groups[0].Credentials[0]
+	if credential.Available || credential.Reason != ReasonCredentialQuotaExhausted {
+		t.Fatalf("credential inspection = %#v", credential)
+	}
+}
+
+func floatPointer(value float64) *float64 { return &value }
+
 func TestInspectReportsNoKeysForIncludedGroup(t *testing.T) {
 	got, err := Inspect(inspectSnapshot(t), nil, Query{
 		ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion,

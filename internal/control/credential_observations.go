@@ -15,7 +15,9 @@ import (
 
 	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/usage"
 )
 
 const (
@@ -28,25 +30,42 @@ type ObservationPlanSummary struct {
 }
 
 type ObservationQuotaWindow struct {
-	ID            string   `json:"id"`
-	Label         string   `json:"label"`
-	Scope         string   `json:"scope"`
-	Unit          string   `json:"unit"`
-	Used          *float64 `json:"used,omitempty"`
-	Limit         *float64 `json:"limit,omitempty"`
-	Remaining     *float64 `json:"remaining,omitempty"`
-	Utilization   *float64 `json:"utilization,omitempty"`
-	ResetAtMS     *int64   `json:"reset_at_ms,omitempty"`
-	WindowSeconds *int64   `json:"window_seconds,omitempty"`
-	ModelIDs      []string `json:"model_ids,omitempty"`
-	State         string   `json:"state"`
-	IsPrimary     bool     `json:"is_primary,omitempty"`
+	ID            string                  `json:"id"`
+	Label         string                  `json:"label"`
+	Scope         string                  `json:"scope"`
+	Unit          string                  `json:"unit"`
+	Used          *float64                `json:"used,omitempty"`
+	Limit         *float64                `json:"limit,omitempty"`
+	Remaining     *float64                `json:"remaining,omitempty"`
+	Utilization   *float64                `json:"utilization,omitempty"`
+	ResetAtMS     *int64                  `json:"reset_at_ms,omitempty"`
+	WindowSeconds *int64                  `json:"window_seconds,omitempty"`
+	ModelIDs      []string                `json:"model_ids,omitempty"`
+	State         string                  `json:"state"`
+	IsPrimary     bool                    `json:"is_primary,omitempty"`
+	ObservedUsage *ObservationWindowUsage `json:"observed_usage,omitempty"`
+}
+
+type ObservationWindowUsage struct {
+	WindowStartMS                 int64  `json:"window_start_ms"`
+	WindowEndMS                   int64  `json:"window_end_ms"`
+	Source                        string `json:"source"`
+	DataComplete                  bool   `json:"data_complete"`
+	UsageComplete                 bool   `json:"usage_complete"`
+	PricingComplete               bool   `json:"pricing_complete"`
+	RequestCount                  int64  `json:"request_count"`
+	InputTokens                   int64  `json:"input_tokens"`
+	OutputTokens                  int64  `json:"output_tokens"`
+	TotalTokens                   int64  `json:"total_tokens"`
+	EstimatedReferenceCostNanoUSD string `json:"estimated_reference_cost_nano_usd"`
+	LastUsedAtMS                  *int64 `json:"last_used_at_ms,omitempty"`
 }
 
 type CredentialObservationSnapshot struct {
 	Plan                  ObservationPlanSummary   `json:"plan_summary"`
 	QuotaWindows          []ObservationQuotaWindow `json:"quota_windows"`
 	ResetCreditsAvailable *int64                   `json:"reset_credits_available,omitempty"`
+	ResetCredits          []ObservationResetCredit `json:"reset_credits,omitempty"`
 }
 
 type CredentialObservationResponse struct {
@@ -70,6 +89,7 @@ type observationFlight struct {
 	result CredentialObservationResponse
 	err    error
 	joined int
+	force  bool
 }
 
 type observationFlightKey struct {
@@ -82,41 +102,65 @@ func (s *Service) RefreshCredentialObservation(
 	groupID uint,
 	credentialID uint,
 ) (CredentialObservationResponse, error) {
+	return s.refreshCredentialObservation(ctx, groupID, credentialID, false)
+}
+
+func (s *Service) refreshCredentialObservation(
+	ctx context.Context,
+	groupID uint,
+	credentialID uint,
+	force bool,
+) (CredentialObservationResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialObservationResponse{}, app_errors.ErrValidation
 	}
-	key := observationFlightKey{groupID: groupID, credentialID: credentialID}
-	s.observationMu.Lock()
-	if existing := s.observationFlights[key]; existing != nil {
-		existing.joined++
-		s.observationMu.Unlock()
-		select {
-		case <-ctx.Done():
-			return CredentialObservationResponse{}, ctx.Err()
-		case <-existing.done:
-			return existing.result, existing.err
-		}
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	flight := &observationFlight{done: make(chan struct{})}
-	s.observationFlights[key] = flight
-	s.observationMu.Unlock()
-	defer func() {
+	key := observationFlightKey{groupID: groupID, credentialID: credentialID}
+	for {
 		s.observationMu.Lock()
-		delete(s.observationFlights, key)
-		close(flight.done)
+		if existing := s.observationFlights[key]; existing != nil {
+			existing.joined++
+			followUp := force && !existing.force
+			s.observationMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return CredentialObservationResponse{}, ctx.Err()
+			case <-existing.done:
+				if followUp {
+					continue
+				}
+				return existing.result, existing.err
+			}
+		}
+		flight := &observationFlight{done: make(chan struct{}), force: force}
+		s.observationFlights[key] = flight
 		s.observationMu.Unlock()
-	}()
-	flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID)
-	return flight.result, flight.err
+		defer func() {
+			s.observationMu.Lock()
+			delete(s.observationFlights, key)
+			close(flight.done)
+			s.observationMu.Unlock()
+		}()
+		flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID, force)
+		return flight.result, flight.err
+	}
 }
 
-func (s *Service) refreshCredentialObservationOnce(ctx context.Context, groupID, credentialID uint) (CredentialObservationResponse, error) {
+func (s *Service) refreshCredentialObservationOnce(
+	ctx context.Context,
+	groupID uint,
+	credentialID uint,
+	force bool,
+) (CredentialObservationResponse, error) {
 	group, credential, previous, err := s.loadObservationTarget(ctx, groupID, credentialID)
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
 	now := s.now().UTC()
-	if previous.NextAllowedAtMS != nil && now.UnixMilli() < *previous.NextAllowedAtMS {
+	if !force && previous.IdentityFingerprint == credential.IdentityFingerprint &&
+		previous.NextAllowedAtMS != nil && now.UnixMilli() < *previous.NextAllowedAtMS {
 		return mapCredentialObservation(previous), app_errors.NewAPIErrorWithData(
 			app_errors.ErrObservationRefreshThrottled,
 			map[string]int64{"retry_at_ms": *previous.NextAllowedAtMS},
@@ -150,6 +194,20 @@ func (s *Service) refreshCredentialObservationOnce(ctx context.Context, groupID,
 			"observation_payload_invalid", "normalize subscription information",
 		)
 	}
+	if s.observeCodexResetCredits != nil {
+		detailContext, cancelDetails := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+		details, detailErr := s.observeCodexResetCredits(detailContext, codexCredential)
+		cancelDetails()
+		if detailErr == nil {
+			count, credits, listPresent, normalizeErr := normalizeCodexResetCreditDetails(details.Payload)
+			if count != nil {
+				snapshot.ResetCreditsAvailable = count
+			}
+			if normalizeErr == nil && listPresent {
+				snapshot.ResetCredits = credits
+			}
+		}
+	}
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return CredentialObservationResponse{}, app_errors.ErrInternalServer
@@ -169,7 +227,10 @@ func (s *Service) refreshCredentialObservationOnce(ctx context.Context, groupID,
 	if err := s.upsertCredentialObservation(ctx, row); err != nil {
 		return CredentialObservationResponse{}, err
 	}
-	return mapCredentialObservation(row), nil
+	response := mapCredentialObservation(row)
+	s.applyCredentialQuotaObservation(credentialID, &response)
+	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
+	return response, nil
 }
 
 func (s *Service) recordCredentialObservationFailure(
@@ -199,7 +260,9 @@ func (s *Service) recordCredentialObservationFailure(
 	if err := s.upsertCredentialObservation(ctx, failed); err != nil {
 		return CredentialObservationResponse{}, err
 	}
-	return mapCredentialObservation(failed), fmt.Errorf("%s: %w", summary, app_errors.ErrBadGateway)
+	response := mapCredentialObservation(failed)
+	s.applyCredentialQuotaObservation(credential.ID, &response)
+	return response, fmt.Errorf("%s: %w", summary, app_errors.ErrBadGateway)
 }
 
 func (s *Service) GetCredentialObservation(ctx context.Context, groupID, credentialID uint) (CredentialObservationResponse, error) {
@@ -207,7 +270,9 @@ func (s *Service) GetCredentialObservation(ctx context.Context, groupID, credent
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
-	return observationResponseValue(presentCredentialObservation(row, credential.IdentityFingerprint, s.now().UTC())), nil
+	response := observationResponseValue(presentCredentialObservation(row, credential.IdentityFingerprint, s.now().UTC()))
+	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
+	return response, nil
 }
 
 func (s *Service) GetCredentialDetail(ctx context.Context, groupID, credentialID uint) (CredentialDetailResponse, error) {
@@ -266,6 +331,40 @@ func (s *Service) upsertCredentialObservation(ctx context.Context, row models.Cr
 	})
 }
 
+func (s *Service) restoreCredentialQuotaObservations(ctx context.Context) error {
+	var observations []models.CredentialObservation
+	if err := s.db.WithContext(ctx).Find(&observations).Error; err != nil {
+		return app_errors.ParseDBError(err)
+	}
+	if len(observations) == 0 {
+		return nil
+	}
+	credentialIDs := make([]uint, 0, len(observations))
+	for _, observation := range observations {
+		credentialIDs = append(credentialIDs, observation.CredentialID)
+	}
+	var credentials []models.Credential
+	if err := s.db.WithContext(ctx).
+		Where("id IN ?", credentialIDs).
+		Find(&credentials).Error; err != nil {
+		return app_errors.ParseDBError(err)
+	}
+	identities := make(map[uint]string, len(credentials))
+	for _, credential := range credentials {
+		identities[credential.ID] = credential.IdentityFingerprint
+	}
+	now := s.now().UTC()
+	for _, observation := range observations {
+		identity, exists := identities[observation.CredentialID]
+		if !exists {
+			continue
+		}
+		response := presentCredentialObservation(observation, identity, now)
+		s.applyCredentialQuotaObservation(observation.CredentialID, response)
+	}
+	return nil
+}
+
 func mapCredentialObservation(row models.CredentialObservation) CredentialObservationResponse {
 	response := CredentialObservationResponse{
 		State: string(row.State), ObservationVersion: row.ObservationVersion,
@@ -299,6 +398,155 @@ func observationResponseValue(value *CredentialObservationResponse) CredentialOb
 		return *value
 	}
 	return CredentialObservationResponse{State: string(models.CredentialObservationUnavailable)}
+}
+
+func (s *Service) applyCredentialQuotaObservation(
+	credentialID uint,
+	response *CredentialObservationResponse,
+) {
+	if s == nil || s.registry == nil || credentialID == 0 || response == nil ||
+		response.State != string(models.CredentialObservationFresh) ||
+		response.Snapshot == nil || response.FreshUntilMS == nil {
+		if s != nil && s.registry != nil && credentialID != 0 {
+			s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}, time.Time{})
+		}
+		return
+	}
+	nowMS := s.now().UTC().UnixMilli()
+	if *response.FreshUntilMS <= nowMS {
+		s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}, time.Time{})
+		return
+	}
+	var remaining *float64
+	var resetAtMS int64
+	for _, window := range response.Snapshot.QuotaWindows {
+		if window.Scope != "account" || window.ResetAtMS == nil || *window.ResetAtMS <= nowMS {
+			continue
+		}
+		value, known := observationWindowRemainingRatio(window)
+		if !known {
+			continue
+		}
+		if remaining == nil || value < *remaining {
+			cloned := value
+			remaining = &cloned
+			resetAtMS = *window.ResetAtMS
+		} else if value == *remaining && *window.ResetAtMS > resetAtMS {
+			// Equal bottlenecks must all recover before this credential is usable.
+			resetAtMS = *window.ResetAtMS
+		}
+	}
+	if remaining == nil || resetAtMS == 0 {
+		s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}, time.Time{})
+		return
+	}
+	s.registry.SetCredentialQuotaObservation(
+		credentialID,
+		remaining,
+		time.UnixMilli(resetAtMS).UTC(),
+		time.UnixMilli(*response.FreshUntilMS).UTC(),
+	)
+}
+
+func observationWindowRemainingRatio(window ObservationQuotaWindow) (float64, bool) {
+	if window.State == "exhausted" {
+		return 0, true
+	}
+	if window.Utilization != nil {
+		return math.Max(0, math.Min(1, 1-*window.Utilization)), true
+	}
+	if window.Remaining != nil && window.Limit != nil && *window.Limit > 0 {
+		return math.Max(0, math.Min(1, *window.Remaining / *window.Limit)), true
+	}
+	return 0, false
+}
+
+func (s *Service) enrichCredentialObservationUsage(
+	ctx context.Context,
+	credentialID uint,
+	response *CredentialObservationResponse,
+) {
+	if s == nil || s.credentialWindowUsage == nil || credentialID == 0 ||
+		response == nil || response.Snapshot == nil {
+		return
+	}
+	nowMS := s.now().UTC().UnixMilli()
+	for index := range response.Snapshot.QuotaWindows {
+		window := &response.Snapshot.QuotaWindows[index]
+		if window.Scope != "account" || window.ResetAtMS == nil ||
+			window.WindowSeconds == nil || *window.WindowSeconds <= 0 ||
+			*window.ResetAtMS <= nowMS {
+			continue
+		}
+		if *window.WindowSeconds > math.MaxInt64/1000 {
+			continue
+		}
+		windowMS := *window.WindowSeconds * 1000
+		if windowMS > *window.ResetAtMS {
+			continue
+		}
+		fromMS := *window.ResetAtMS - windowMS
+		if fromMS >= nowMS {
+			continue
+		}
+		source := requestlog.CredentialWindowUsageSourceRequestLogs
+		if *window.WindowSeconds > int64((24*time.Hour)/time.Second) {
+			source = requestlog.CredentialWindowUsageSourceHourlyStats
+		}
+		observed, err := s.credentialWindowUsage.QueryCredentialWindowUsage(ctx, requestlog.CredentialWindowUsageQuery{
+			CredentialID: credentialID,
+			FromMS:       fromMS,
+			ToMS:         nowMS,
+			Source:       source,
+		})
+		if err != nil {
+			continue
+		}
+		mapped, ok := mapObservationWindowUsage(fromMS, nowMS, observed)
+		if ok {
+			window.ObservedUsage = mapped
+		}
+	}
+}
+
+func mapObservationWindowUsage(
+	fromMS int64,
+	toMS int64,
+	observed requestlog.CredentialWindowUsage,
+) (*ObservationWindowUsage, bool) {
+	inputTokens := int64(0)
+	for _, value := range []int64{
+		observed.UncachedInputTokens,
+		observed.CacheReadTokens,
+		observed.CacheWrite5MTokens,
+		observed.CacheWrite1HTokens,
+		observed.CacheWriteUnknownTokens,
+	} {
+		var ok bool
+		inputTokens, ok = usage.CheckedAdd(inputTokens, value)
+		if !ok {
+			return nil, false
+		}
+	}
+	totalTokens, ok := usage.CheckedAdd(inputTokens, observed.OutputTokens)
+	if !ok {
+		return nil, false
+	}
+	return &ObservationWindowUsage{
+		WindowStartMS: fromMS,
+		WindowEndMS:   toMS,
+		Source:        string(observed.Source),
+		DataComplete:  observed.DataComplete,
+		UsageComplete: observed.UsageMissingCount == 0 && observed.PartialCount == 0,
+		PricingComplete: observed.UnpricedRequestCount == 0 &&
+			observed.PricingPartialCount == 0,
+		RequestCount:                  observed.RequestCount,
+		InputTokens:                   inputTokens,
+		OutputTokens:                  observed.OutputTokens,
+		TotalTokens:                   totalTokens,
+		EstimatedReferenceCostNanoUSD: strconv.FormatInt(observed.EstimatedCostNanoUSD, 10),
+		LastUsedAtMS:                  observed.LastUsedAtMS,
+	}, true
 }
 
 func normalizeCodexObservation(raw []byte) (CredentialObservationSnapshot, error) {

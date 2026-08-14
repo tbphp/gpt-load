@@ -65,6 +65,9 @@ var (
 	ErrCredentialAuthOutcomeUnknown           = &APIError{HTTPStatus: http.StatusConflict, Code: "CREDENTIAL_AUTH_OUTCOME_UNKNOWN", Message: "Credential authorization outcome is unknown"}
 	ErrCredentialVersionConflict              = &APIError{HTTPStatus: http.StatusConflict, Code: "CREDENTIAL_VERSION_CONFLICT", Message: "Credential changed since it was loaded"}
 	ErrObservationRefreshThrottled            = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "OBSERVATION_REFRESH_THROTTLED", Message: "Credential information refresh is throttled"}
+	ErrResetCreditUnavailable                 = &APIError{HTTPStatus: http.StatusConflict, Code: "RESET_CREDIT_UNAVAILABLE", Message: "No reset credit is currently available"}
+	ErrResetCreditRejected                    = &APIError{HTTPStatus: http.StatusBadGateway, Code: "RESET_CREDIT_REJECTED", Message: "The reset credit was rejected by the upstream"}
+	ErrResetCreditOutcomeUnknown              = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "RESET_CREDIT_OUTCOME_UNKNOWN", Message: "The reset credit outcome is unknown; retry with the same idempotency key"}
 )
 
 // NewAPIErrorWithData creates a copy of an APIError with response data.

@@ -394,6 +394,36 @@ func (s *Server) handleRefreshGroupCredentialObservation(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleConsumeGroupCredentialResetCredit(c *gin.Context) {
+	groupID, ok := groupID(c, "consume_group_credential_reset_credit")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "consume_group_credential_reset_credit")
+	if !ok {
+		return
+	}
+	idempotencyKey, ok := requiredIdempotencyKey(c, "consume_group_credential_reset_credit")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "consume_group_credential_reset_credit", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.ConsumeCredentialResetCredit(
+		c.Request.Context(),
+		groupID,
+		credentialID,
+		idempotencyKey,
+	)
+	if err != nil {
+		writeServiceError(c, "consume_group_credential_reset_credit", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleRevealGroupCredential(c *gin.Context) {
 	groupID, ok := groupID(c, "reveal_group_credential")
 	if !ok {
@@ -876,6 +906,12 @@ func serviceErrorMessageID(
 		return "control.operation_incomplete"
 	case app_errors.ErrControlRecoveryPending.Code:
 		return "control.recovery_pending"
+	case app_errors.ErrResetCreditUnavailable.Code:
+		return "reset_credit.unavailable"
+	case app_errors.ErrResetCreditRejected.Code:
+		return "reset_credit.rejected"
+	case app_errors.ErrResetCreditOutcomeUnknown.Code:
+		return "reset_credit.outcome_unknown"
 	case app_errors.ErrSettingsPreconditionRequired.Code:
 		return "settings.precondition_required"
 	case app_errors.ErrSettingsVersionConflict.Code:

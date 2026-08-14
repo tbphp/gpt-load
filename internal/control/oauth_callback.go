@@ -282,8 +282,8 @@ func presentOAuthCallbackOutcome(outcome oauthCallbackOutcome) oauthCallbackPres
 	switch outcome.Kind {
 	case oauthOutcomeSuccess:
 		return oauthCallbackPresentation{
-			Title:     "账号已连接",
-			Message:   "GPT-Load 已经收到授权，这个页面可以关闭了。",
+			Title:     "授权已完成",
+			Message:   "GPT-Load 已经收到授权。请返回 GPT-Load 添加账号，这个页面可以关闭了。",
 			Tone:      "success",
 			Icon:      `<path d="m6.5 12.5 3.5 3.5 7.5-8"/>`,
 			AutoClose: true,

@@ -228,7 +228,7 @@ func (s *Service) ListGroupCredentials(
 	if err != nil {
 		return CredentialCollectionResponse{}, err
 	}
-	return s.mapCredentialCollection(observation, query)
+	return s.mapCredentialCollection(ctx, observation, query)
 }
 
 func (s *Service) captureCredentials(ctx context.Context, groupID uint) (credentialCapture, error) {
@@ -357,6 +357,7 @@ func (s *Service) decodeCredential(group models.Group, row models.Credential) (j
 }
 
 func (s *Service) mapCredentialCollection(
+	ctx context.Context,
 	observation credentialObservation,
 	query CredentialCollectionQuery,
 ) (CredentialCollectionResponse, error) {
@@ -412,9 +413,13 @@ func (s *Service) mapCredentialCollection(
 		return left.item.CredentialID < right.item.CredentialID
 	})
 	total := len(filtered)
+	items := credentialCollectionPage(filtered, query.Page, query.PageSize)
+	for index := range items {
+		s.enrichCredentialObservationUsage(ctx, items[index].CredentialID, items[index].Observation)
+	}
 	return CredentialCollectionResponse{
 		ObservedAtMS: observedAtMS, StatsWindowSeconds: credentialCollectionStatsWindow,
-		Summary: summary, Items: credentialCollectionPage(filtered, query.Page, query.PageSize),
+		Summary: summary, Items: items,
 		Pagination: CredentialPaginationResponse{Page: query.Page, PageSize: query.PageSize,
 			TotalItems: total, TotalPages: credentialCollectionTotalPages(total, query.PageSize)},
 	}, nil

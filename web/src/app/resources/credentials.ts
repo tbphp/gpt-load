@@ -15,7 +15,9 @@ import type {
   CredentialItemDto,
   CredentialObservationDto,
   CredentialObservationSnapshotDto,
+  CredentialObservedWindowUsageDto,
   CredentialQuotaWindowDto,
+  CredentialResetCreditConsumeDto,
   CredentialRecoveryDto,
   CredentialRevealDto,
   CredentialStatus,
@@ -32,6 +34,7 @@ import {
   projectEpochMilliseconds,
   projectFiniteNumber,
   projectNullableEpochMilliseconds,
+  projectNonNegativeInt64String,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -133,8 +136,18 @@ const observationSnapshotFields = [
   'plan_summary',
   'quota_windows',
   'reset_credits_available',
+  'reset_credits',
 ] as const
 const planFields = ['name'] as const
+const resetCreditFields = ['expires_at_ms'] as const
+const resetCreditConsumeFields = [
+  'status',
+  'windows_reset',
+  'redeemed_at_ms',
+  'observation',
+  'observation_pending',
+  'replayed',
+] as const
 const quotaWindowFields = [
   'id',
   'label',
@@ -149,7 +162,48 @@ const quotaWindowFields = [
   'model_ids',
   'state',
   'is_primary',
+  'observed_usage',
 ] as const
+const observedWindowUsageFields = [
+  'window_start_ms',
+  'window_end_ms',
+  'source',
+  'data_complete',
+  'usage_complete',
+  'pricing_complete',
+  'request_count',
+  'input_tokens',
+  'output_tokens',
+  'total_tokens',
+  'estimated_reference_cost_nano_usd',
+  'last_used_at_ms',
+] as const
+
+function projectObservedWindowUsage(value: unknown): CredentialObservedWindowUsageDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, observedWindowUsageFields)
+  const windowStart = projectEpochMilliseconds(record.window_start_ms)
+  const windowEnd = projectEpochMilliseconds(record.window_end_ms)
+  if (windowEnd <= windowStart) invalidResponse()
+  return {
+    window_start_ms: windowStart,
+    window_end_ms: windowEnd,
+    source: projectEnum(record.source, ['request_logs', 'usage_stats'] as const),
+    data_complete: projectBoolean(record.data_complete),
+    usage_complete: projectBoolean(record.usage_complete),
+    pricing_complete: projectBoolean(record.pricing_complete),
+    request_count: projectSafeInteger(record.request_count, { minimum: 0 }),
+    input_tokens: projectSafeInteger(record.input_tokens, { minimum: 0 }),
+    output_tokens: projectSafeInteger(record.output_tokens, { minimum: 0 }),
+    total_tokens: projectSafeInteger(record.total_tokens, { minimum: 0 }),
+    estimated_reference_cost_nano_usd: projectNonNegativeInt64String(
+      record.estimated_reference_cost_nano_usd,
+    ),
+    ...(record.last_used_at_ms === undefined
+      ? {}
+      : { last_used_at_ms: projectEpochMilliseconds(record.last_used_at_ms) }),
+  }
+}
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -247,6 +301,9 @@ function projectQuotaWindow(value: unknown): CredentialQuotaWindowDto {
     ...(modelIDs === undefined ? {} : { model_ids: modelIDs }),
     state: projectEnum(record.state, quotaStates),
     ...(record.is_primary === undefined ? {} : { is_primary: projectBoolean(record.is_primary) }),
+    ...(record.observed_usage === undefined
+      ? {}
+      : { observed_usage: projectObservedWindowUsage(record.observed_usage) }),
   }
 }
 
@@ -274,6 +331,15 @@ function projectObservationSnapshot(value: unknown): CredentialObservationSnapsh
       : {
           reset_credits_available: projectSafeInteger(record.reset_credits_available, {
             minimum: 0,
+          }),
+        }),
+    ...(record.reset_credits === undefined
+      ? {}
+      : {
+          reset_credits: projectArray(record.reset_credits, (value) => {
+            const credit = projectRecord(value)
+            assertNoSecretLikeFields(credit, resetCreditFields)
+            return { expires_at_ms: projectEpochMilliseconds(credit.expires_at_ms) }
           }),
         }),
   }
@@ -576,6 +642,42 @@ export async function refreshCredentialObservation(
       signal,
     }),
   )
+}
+
+export async function consumeCredentialResetCredit(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<CredentialResetCreditConsumeDto> {
+  const record = projectRecord(
+    await client.request(
+      `/api/groups/${groupId}/credentials/${credentialId}/reset-credits/consume`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        json: {},
+        signal,
+      },
+    ),
+  )
+  assertNoSecretLikeFields(record, resetCreditConsumeFields)
+  const status = projectEnum(record.status, ['succeeded'] as const)
+  return {
+    status,
+    windows_reset: projectSafeInteger(record.windows_reset, { minimum: 0 }),
+    ...(record.redeemed_at_ms === undefined
+      ? {}
+      : { redeemed_at_ms: projectEpochMilliseconds(record.redeemed_at_ms) }),
+    ...(record.observation === undefined
+      ? {}
+      : { observation: projectObservation(record.observation) }),
+    ...(record.observation_pending === undefined
+      ? {}
+      : { observation_pending: projectBoolean(record.observation_pending) }),
+    replayed: projectBoolean(record.replayed),
+  }
 }
 
 export async function batchCredentials(

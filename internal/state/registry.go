@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -39,6 +40,9 @@ type CredentialEntry struct {
 	FailureCount       int
 	FailureGeneration  uint64
 	EncryptedValue     string
+	quotaRemaining     *float64
+	quotaResetAt       time.Time
+	quotaFreshUntil    time.Time
 }
 
 type CredentialMeta struct {
@@ -48,6 +52,7 @@ type CredentialMeta struct {
 	IdentityGeneration uint64
 	WeightManual       *int
 	WeightAuto         int
+	QuotaRemaining     *float64
 }
 
 type CredentialRef struct {
@@ -499,6 +504,11 @@ func (r *CredentialRegistry) SetCredentialAuthState(credentialID uint, authState
 		return false
 	}
 	entry.AuthState = authState.normalize()
+	if entry.AuthState != CredentialAuthStateReady {
+		entry.quotaRemaining = nil
+		entry.quotaResetAt = time.Time{}
+		entry.quotaFreshUntil = time.Time{}
+	}
 	return true
 }
 
@@ -625,10 +635,14 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 			if view.RuntimeState(now) != CredentialRuntimeAvailable || entry.AuthState.normalize() != CredentialAuthStateReady {
 				continue
 			}
+			if view.QuotaExhausted(now) {
+				continue
+			}
 			meta := CredentialMeta{
 				ID: view.ID, GroupID: view.GroupID,
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
 				WeightManual: cloneWeight(view.WeightManual), WeightAuto: view.WeightAuto,
+				QuotaRemaining: view.FreshQuotaRemaining(now),
 			}
 			metas = append(metas, meta)
 		}
@@ -649,6 +663,38 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 		return filtered[i].ID < filtered[j].ID
 	})
 	return filtered
+}
+
+// SetCredentialQuotaObservation publishes an ephemeral provider observation to
+// routing. Passing nil clears the observation and restores normal scheduling.
+func (r *CredentialRegistry) SetCredentialQuotaObservation(
+	credentialID uint,
+	remaining *float64,
+	resetAt time.Time,
+	freshUntil time.Time,
+) bool {
+	if credentialID == 0 {
+		return false
+	}
+	if remaining != nil && (math.IsNaN(*remaining) || math.IsInf(*remaining, 0) ||
+		*remaining < 0 || *remaining > 1 || resetAt.IsZero() || freshUntil.IsZero()) {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return false
+	}
+	entry.quotaRemaining = cloneFloat(remaining)
+	if remaining == nil {
+		entry.quotaResetAt = time.Time{}
+		entry.quotaFreshUntil = time.Time{}
+		return true
+	}
+	entry.quotaResetAt = resetAt
+	entry.quotaFreshUntil = freshUntil
+	return true
 }
 
 func (r *CredentialRegistry) SetCooldown(credentialID uint, until time.Time) bool {
@@ -825,6 +871,7 @@ func (r *CredentialRegistry) entryLocked(credentialID uint) (*CredentialEntry, b
 
 func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
+	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.FailureGeneration = 0
 	if entry.WeightAuto == 0 {
 		entry.WeightAuto = DefaultWeight
@@ -851,5 +898,14 @@ func (state CredentialAuthState) valid() bool {
 
 func detachCredentialEntryExact(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
+	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	return entry
+}
+
+func cloneFloat(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

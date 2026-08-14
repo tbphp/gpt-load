@@ -40,6 +40,10 @@ export default {
       outcomeUnknown: 'The credential outcome is unknown; reload the account state first',
       versionConflict: 'The authorization changed elsewhere; reload and try again',
       refreshThrottled: 'Sync was requested too recently; retry after the allowed time',
+      resetCreditUnavailable: 'No reset credit is available; sync the account first',
+      resetCreditRejected: 'The upstream did not accept the reset credit; sync and try again',
+      resetCreditOutcomeUnknown:
+        'The reset outcome is unknown. Do not reload the page; confirm again to retry safely with the same operation identity',
       operationIncomplete: 'The account was saved, but runtime recovery is still in progress',
       recoveryPending: 'An earlier account operation is still recovering; try again shortly',
     },

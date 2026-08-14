@@ -87,7 +87,7 @@ export default {
       callbackLabel: 'ログイン後に遷移した URL',
       callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
       callbackHelp:
-        'code= が含まれていれば認識されます（前後の文字列は問いません）。このアドレスが開けないのは正常です。',
+        'localhost:1455 の認証コールバック URL を完全な形で貼り付けてください。code と state の両方が必要です。このアドレスが開けないのは正常です。',
       submitCallback: '送信',
       callbackFailed: 'この URL は無効、使用済み、または別の認証に属しています',
       orImport: 'auth.json をお持ちの場合はこちらから読み込み',

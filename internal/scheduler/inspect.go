@@ -17,24 +17,25 @@ var ErrInconsistentSnapshot = errors.New("inconsistent scheduler snapshot")
 type ReasonCode string
 
 const (
-	ReasonAccessKeyDisabled     ReasonCode = "access_key_disabled"
-	ReasonProtocolFiltered      ReasonCode = "protocol_filtered"
-	ReasonModelFiltered         ReasonCode = "model_filtered"
-	ReasonModelRequiredByFilter ReasonCode = "model_required_by_filter"
-	ReasonOperationUnsupported  ReasonCode = "operation_unsupported"
-	ReasonNativeRouteRequired   ReasonCode = "native_route_required"
-	ReasonNoRouteTarget         ReasonCode = "no_route_target"
-	ReasonGroupDisabled         ReasonCode = "group_disabled"
-	ReasonGroupFiltered         ReasonCode = "group_filtered"
-	ReasonNoAvailableGroup      ReasonCode = "no_available_group"
-	ReasonNoCredentials         ReasonCode = "no_credentials"
-	ReasonGroupWeightZero       ReasonCode = "group_weight_zero"
-	ReasonCredentialDisabled    ReasonCode = "credential_disabled"
-	ReasonCredentialBlacklisted ReasonCode = "credential_blacklisted"
-	ReasonCredentialCooldown    ReasonCode = "credential_cooldown"
-	ReasonCredentialWeightZero  ReasonCode = "credential_weight_zero"
-	ReasonCredentialNotAllowed  ReasonCode = "credential_not_allowed"
-	ReasonNoAvailableCredential ReasonCode = "no_available_credential"
+	ReasonAccessKeyDisabled        ReasonCode = "access_key_disabled"
+	ReasonProtocolFiltered         ReasonCode = "protocol_filtered"
+	ReasonModelFiltered            ReasonCode = "model_filtered"
+	ReasonModelRequiredByFilter    ReasonCode = "model_required_by_filter"
+	ReasonOperationUnsupported     ReasonCode = "operation_unsupported"
+	ReasonNativeRouteRequired      ReasonCode = "native_route_required"
+	ReasonNoRouteTarget            ReasonCode = "no_route_target"
+	ReasonGroupDisabled            ReasonCode = "group_disabled"
+	ReasonGroupFiltered            ReasonCode = "group_filtered"
+	ReasonNoAvailableGroup         ReasonCode = "no_available_group"
+	ReasonNoCredentials            ReasonCode = "no_credentials"
+	ReasonGroupWeightZero          ReasonCode = "group_weight_zero"
+	ReasonCredentialDisabled       ReasonCode = "credential_disabled"
+	ReasonCredentialBlacklisted    ReasonCode = "credential_blacklisted"
+	ReasonCredentialCooldown       ReasonCode = "credential_cooldown"
+	ReasonCredentialQuotaExhausted ReasonCode = "credential_quota_exhausted"
+	ReasonCredentialWeightZero     ReasonCode = "credential_weight_zero"
+	ReasonCredentialNotAllowed     ReasonCode = "credential_not_allowed"
+	ReasonNoAvailableCredential    ReasonCode = "no_available_credential"
 )
 
 type Inspection struct {
@@ -265,6 +266,10 @@ func inspectCredential(
 		result.Reason = ReasonCredentialCooldown
 		result.CooldownUntil = credential.CooldownUntil
 	default:
+		if credential.QuotaExhausted(now) {
+			result.Reason = ReasonCredentialQuotaExhausted
+			return result
+		}
 		result.Available = true
 		result.EffectiveWeight = effectiveWeight(
 			group.WeightManual,

@@ -232,7 +232,8 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 	contentSecurityPolicy := response.Header.Get("Content-Security-Policy")
 	if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" ||
 		response.Header.Get("Referrer-Policy") != "no-referrer" || !strings.Contains(contentSecurityPolicy, "script-src 'sha256-") ||
-		response.Header.Get("Location") != "" || !strings.Contains(body, "账号已连接") || !strings.Contains(body, "关闭") {
+		response.Header.Get("Location") != "" || !strings.Contains(body, "授权已完成") ||
+		!strings.Contains(body, "返回 GPT-Load 添加账号") || !strings.Contains(body, "关闭") {
 		t.Fatalf("callback response = %d %#v", response.StatusCode, response.Header)
 	}
 	completed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
@@ -339,6 +340,49 @@ func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) 
 	engine.ServeHTTP(secondResponse, secondRequest)
 	if secondResponse.Code != http.StatusTooManyRequests || !strings.Contains(secondResponse.Body.String(), `"retry_at_ms"`) {
 		t.Fatalf("throttled = %d %s", secondResponse.Code, secondResponse.Body)
+	}
+}
+
+func TestCredentialResetCreditRouteRequiresIdempotencyAndReplays(t *testing.T) {
+	initControlI18n(t)
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	consumeCalls := 0
+	fixture.service.consumeCodexResetCredit = func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
+		consumeCalls++
+		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil
+	}
+	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		return codex.AccountObservation{Payload: []byte(`{}`)}, nil
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	path := fmt.Sprintf("/api/groups/%d/credentials/%d/reset-credits/consume", groupID, credentialID)
+
+	missingKey := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+	missingKey.Header.Set("Authorization", "Bearer test-auth-key")
+	missingKey.Header.Set("Content-Type", "application/json")
+	missingResponse := httptest.NewRecorder()
+	engine.ServeHTTP(missingResponse, missingKey)
+	if missingResponse.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing idempotency = %d %s", missingResponse.Code, missingResponse.Body)
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Bearer test-auth-key")
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Idempotency-Key", resetCreditTestKey)
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"succeeded"`) {
+			t.Fatalf("attempt %d = %d %s", attempt, response.Code, response.Body)
+		}
+		if attempt == 1 && !strings.Contains(response.Body.String(), `"replayed":true`) {
+			t.Fatalf("replay = %s", response.Body)
+		}
+	}
+	if consumeCalls != 1 {
+		t.Fatalf("consume calls = %d", consumeCalls)
 	}
 }
 

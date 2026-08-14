@@ -89,7 +89,7 @@ export default {
       callbackLabel: 'URL after sign-in',
       callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
       callbackHelp:
-        'Anything containing code= will be recognized, with or without the prefix. This address failing to open is expected.',
+        'Paste the full localhost:1455 authorization callback URL. It must contain both code and state. This address failing to open is expected.',
       submitCallback: 'Submit',
       callbackFailed: 'This URL is invalid, already used, or belongs to another authorization',
       orImport: 'Have an auth.json file? Import it directly',
