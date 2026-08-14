@@ -6,7 +6,7 @@ the complete resolved dependency inventory.
 ## Bifrost Core
 
 - Module: `github.com/maximhq/bifrost/core`
-- Version: `v1.7.7`
+- Version: `v1.7.11`
 - Copyright: 2025 H3 Labs Inc.
 - License: Apache License 2.0
 
