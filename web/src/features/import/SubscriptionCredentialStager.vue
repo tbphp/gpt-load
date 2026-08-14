@@ -16,6 +16,7 @@ import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import PanelHeader from '@/components/ui/PanelHeader.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
 
@@ -351,17 +352,21 @@ onBeforeUnmount(() => {
     :aria-labelledby="hideHeader ? undefined : 'subscription-stager-title'"
     :aria-label="hideHeader ? t('import.subscription.title') : undefined"
   >
-    <header v-if="!hideHeader" class="subscription-stager__header">
-      <div>
-        <h2 id="subscription-stager-title">{{ t('import.subscription.title') }}</h2>
-        <p>{{ t('import.subscription.description') }}</p>
-      </div>
-      <span v-if="readyCount" class="subscription-stager__count">
-        {{ t('import.subscription.readyCount', { count: readyCount }) }}
-      </span>
-    </header>
+    <PanelHeader
+      v-if="!hideHeader"
+      heading-id="subscription-stager-title"
+      :title="t('import.subscription.title')"
+      :description="t('import.subscription.description')"
+    >
+      <template v-if="readyCount" #actions>
+        <span class="subscription-stager__count">
+          {{ t('import.subscription.readyCount', { count: readyCount }) }}
+        </span>
+      </template>
+    </PanelHeader>
 
-    <InlineFeedback tone="neutral" appearance="ledger-hint" glyph="i">
+    <!-- 安全说明只在还没连上账号时引导；已有账号后它就只是噪音 -->
+    <InlineFeedback v-if="!modelValue.length" tone="neutral" appearance="ledger-hint" glyph="i">
       {{ t('import.subscription.securityNotice') }}
     </InlineFeedback>
 
@@ -595,29 +600,10 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 22px 0 var(--space-6);
 }
+/* compact 用于抽屉内部：外层容器已提供内边距与边界，这里不再叠加 */
 .subscription-stager--compact {
   border-bottom: 0;
-  padding: 18px 0;
-}
-.subscription-stager__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.subscription-stager__header h2,
-.subscription-stager__header p {
-  margin: 0;
-}
-.subscription-stager__header h2 {
-  font-size: var(--title-section);
-  font-weight: 650;
-}
-.subscription-stager__header p {
-  margin-top: 4px;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-  line-height: 1.55;
+  padding: 0;
 }
 .subscription-stager__count {
   flex: none;
@@ -890,10 +876,6 @@ onBeforeUnmount(() => {
   clip: rect(0 0 0 0);
 }
 @media (max-width: 640px) {
-  .subscription-stager__header {
-    align-items: stretch;
-    flex-direction: column;
-  }
   .subscription-stager__account {
     padding: 10px;
   }

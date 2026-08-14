@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { KeyRound, Plus, Search } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -39,6 +39,7 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -81,8 +82,6 @@ const pendingOperations = ref(new Set<string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const connectionWorkspaceOpen = ref(false)
-const connectionWorkspace = ref<HTMLElement>()
-const connectionWorkspaceHeading = ref<HTMLElement>()
 const connectionStages = ref<CredentialStage[]>([])
 const reauthorizationTarget = ref<CredentialItemDto | null>(null)
 const connectOperationKey = ref<string>()
@@ -439,14 +438,12 @@ watch(
   { deep: true },
 )
 
-async function openConnectionWorkspace(target?: CredentialItemDto): Promise<void> {
+// 抽屉自己管理焦点与滚动，这里只负责重置暂存状态。
+function openConnectionWorkspace(target?: CredentialItemDto): void {
   connectionStages.value = []
   reauthorizationTarget.value = target ?? null
   connectOperationKey.value = undefined
   connectionWorkspaceOpen.value = true
-  await nextTick()
-  connectionWorkspace.value?.scrollIntoView({ block: 'start' })
-  connectionWorkspaceHeading.value?.focus({ preventScroll: true })
 }
 
 function setConnectionWorkspace(open: boolean): void {
@@ -672,33 +669,20 @@ async function runBatch(
       </template>
     </PanelHeader>
 
-    <section
-      v-if="connectionType === 'subscription' && connectionWorkspaceOpen"
-      ref="connectionWorkspace"
-      class="group-credentials__connection-workspace"
-      aria-labelledby="subscription-connection-heading"
+    <AppDrawer
+      v-if="connectionType === 'subscription'"
+      :open="connectionWorkspaceOpen"
+      :title="
+        reauthorizationTarget
+          ? t('group.credentials.subscription.reauthorize')
+          : t('group.credentials.subscription.connect')
+      "
+      :description="connectionWorkspaceDescription"
+      show-description
+      :close-label="t('common.close')"
+      :dismissible="!singleBusy"
+      @update:open="setConnectionWorkspace"
     >
-      <header>
-        <div>
-          <h3 id="subscription-connection-heading" ref="connectionWorkspaceHeading" tabindex="-1">
-            {{
-              reauthorizationTarget
-                ? t('group.credentials.subscription.reauthorize')
-                : t('group.credentials.subscription.connect')
-            }}
-          </h3>
-          <p>{{ connectionWorkspaceDescription }}</p>
-        </div>
-        <AppButton
-          variant="ghost"
-          size="compact"
-          class="group-credentials__connection-close"
-          :disabled="singleBusy"
-          @click="setConnectionWorkspace(false)"
-        >
-          {{ t('common.close') }}
-        </AppButton>
-      </header>
       <SubscriptionCredentialStager
         v-model="connectionStages"
         compact
@@ -706,9 +690,15 @@ async function runBatch(
         :single="reauthorizationTarget !== null"
         :disabled="singleBusy"
       />
-      <footer>
+      <template #footer>
         <AppButton
-          size="compact"
+          variant="secondary"
+          :disabled="singleBusy"
+          @click="setConnectionWorkspace(false)"
+        >
+          {{ t('group.credentials.cancel') }}
+        </AppButton>
+        <AppButton
           :busy="singleBusy"
           :disabled="!connectionStages.some(({ status }) => status === 'ready')"
           @click="saveConnectedAccounts"
@@ -719,8 +709,8 @@ async function runBatch(
               : t('group.credentials.subscription.confirmConnect')
           }}
         </AppButton>
-      </footer>
-    </section>
+      </template>
+    </AppDrawer>
 
     <AsyncRefreshIndicator :active="collectionRefreshing" :label="t('group.credentials.loading')" />
 
@@ -985,44 +975,6 @@ async function runBatch(
   color: var(--color-text);
   padding: var(--space-3);
 }
-.group-credentials__connection-workspace {
-  display: grid;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-4);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-sunken);
-  padding: var(--space-4);
-}
-.group-credentials__connection-workspace > header,
-.group-credentials__connection-workspace > footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.group-credentials__connection-workspace h3,
-.group-credentials__connection-workspace p {
-  margin: 0;
-}
-.group-credentials__connection-workspace h3 {
-  font-size: var(--title-section);
-  font-weight: 650;
-}
-.group-credentials__connection-workspace h3:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 3px;
-}
-.group-credentials__connection-workspace p {
-  margin-top: 3px;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-}
-.group-credentials__connection-workspace > footer {
-  justify-content: flex-end;
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-3);
-}
 .group-credentials__accounts {
   display: grid;
   gap: var(--space-2);
@@ -1068,29 +1020,12 @@ async function runBatch(
   }
 }
 @media (max-width: 860px) {
-  .group-credentials__connection-workspace > header {
-    align-items: flex-start;
-  }
   .group-credential-record-grid {
     --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
   }
   .group-credentials__select-all label {
     width: var(--touch-target);
     height: var(--touch-target);
-  }
-}
-@media (max-width: 560px) {
-  .group-credentials__connection-workspace > header,
-  .group-credentials__connection-workspace > footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .group-credentials__connection-workspace > footer :deep(.app-button) {
-    width: 100%;
-    min-height: var(--touch-target);
-  }
-  .group-credentials__connection-close {
-    min-height: var(--touch-target);
   }
 }
 @media (max-width: 800px) {
