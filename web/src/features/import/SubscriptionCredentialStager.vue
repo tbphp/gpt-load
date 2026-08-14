@@ -376,12 +376,14 @@ onBeforeUnmount(() => {
             <strong>{{
               stage.account.email_mask || t('import.subscription.pendingAccount')
             }}</strong>
-            <span>
+            <!-- 等待授权时由下方倒计时承担有效期，这里不重复显示 -->
+            <span v-if="stage.status !== 'pending_authorization'">
               {{ t('import.subscription.expires') }}
               <AppRelativeTime
                 :instant="stage.expires_at_ms"
                 :locale="locale"
                 :empty-label="t('import.subscription.unknown')"
+                hint
               />
             </span>
             <span v-if="stage.account.expires_at_ms">
@@ -390,6 +392,7 @@ onBeforeUnmount(() => {
                 :instant="stage.account.expires_at_ms"
                 :locale="locale"
                 :empty-label="t('import.subscription.unknown')"
+                hint
               />
             </span>
             <span v-if="stage.account.last_refresh_at_ms">
@@ -398,6 +401,7 @@ onBeforeUnmount(() => {
                 :instant="stage.account.last_refresh_at_ms"
                 :locale="locale"
                 :empty-label="t('import.subscription.unknown')"
+                hint
               />
             </span>
           </div>

@@ -277,6 +277,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               :instant="window.reset_at_ms"
               :locale="locale"
               :empty-label="t('group.credentials.subscription.unknown')"
+              hint
             />
           </template>
           <template v-else>—</template>
@@ -353,6 +354,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           :instant="observation?.observed_at_ms ?? null"
           :locale="locale"
           :empty-label="t('group.credentials.subscription.unknown')"
+          hint
         />
       </span>
       <span>{{ recentLabel }}</span>
@@ -363,6 +365,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           :instant="item.account.expires_at_ms"
           :locale="locale"
           :empty-label="t('group.credentials.subscription.unknown')"
+          hint
         />
         <template v-if="item.auth_state === 'ready'">
           · {{ t('group.credentials.subscription.autoRenews') }}
@@ -388,6 +391,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               :instant="item.account.last_refresh_at_ms ?? null"
               :locale="locale"
               :empty-label="t('group.credentials.subscription.unknown')"
+              hint
             />
           </dd>
         </div>
@@ -398,6 +402,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               :instant="observation?.fresh_until_ms ?? null"
               :locale="locale"
               :empty-label="t('group.credentials.subscription.unknown')"
+              hint
             />
           </dd>
         </div>
@@ -408,6 +413,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               :instant="observation?.next_allowed_at_ms ?? null"
               :locale="locale"
               :empty-label="t('group.credentials.subscription.unknown')"
+              hint
             />
           </dd>
         </div>
