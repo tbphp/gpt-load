@@ -87,32 +87,38 @@ export function formatDuration(startedAtMs: number, nowMs: number, locale: strin
 
 export function formatRelativeInstant(ms: number, nowMs: number, locale: string): string {
   if (!Number.isSafeInteger(ms) || !Number.isSafeInteger(nowMs)) return '—'
-  const elapsedSeconds = Math.max(0, Math.floor((nowMs - ms) / 1_000))
+  // Signed: negative delta reads as "N ago", positive as "in N" — callers may
+  // pass either a past instant (last sync) or a future one (reset time, expiry).
+  const deltaSeconds = Math.floor((ms - nowMs) / 1_000)
+  const absSeconds = Math.abs(deltaSeconds)
   let value: number
   let unit: Intl.RelativeTimeFormatUnit
 
-  if (elapsedSeconds < 60) {
-    value = elapsedSeconds
+  if (absSeconds < 60) {
+    value = absSeconds
     unit = 'second'
-  } else if (elapsedSeconds < 3_600) {
-    value = Math.floor(elapsedSeconds / 60)
+  } else if (absSeconds < 3_600) {
+    value = Math.floor(absSeconds / 60)
     unit = 'minute'
-  } else if (elapsedSeconds < 86_400) {
-    value = Math.floor(elapsedSeconds / 3_600)
+  } else if (absSeconds < 86_400) {
+    value = Math.floor(absSeconds / 3_600)
     unit = 'hour'
-  } else if (elapsedSeconds < 2_592_000) {
-    value = Math.floor(elapsedSeconds / 86_400)
+  } else if (absSeconds < 2_592_000) {
+    value = Math.floor(absSeconds / 86_400)
     unit = 'day'
-  } else if (elapsedSeconds < 31_536_000) {
-    value = Math.floor(elapsedSeconds / 2_592_000)
+  } else if (absSeconds < 31_536_000) {
+    value = Math.floor(absSeconds / 2_592_000)
     unit = 'month'
   } else {
-    value = Math.floor(elapsedSeconds / 31_536_000)
+    value = Math.floor(absSeconds / 31_536_000)
     unit = 'year'
   }
 
   try {
-    return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-value, unit)
+    return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
+      deltaSeconds < 0 ? -value : value,
+      unit,
+    )
   } catch {
     return formatLocalInstant(ms, locale)
   }
