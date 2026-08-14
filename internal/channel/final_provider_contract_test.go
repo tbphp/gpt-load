@@ -45,12 +45,13 @@ func TestNativeProviderChannelsResolveWithoutCompatibleFallback(t *testing.T) {
 		channelID         ID
 		providerKind      ProviderKind
 		responsesMode     RouteMode
+		anthropicMode     RouteMode
 		catalogProviderID string
 	}{
-		{channelID: DeepSeek, providerKind: ProviderKind("deepseek"), responsesMode: RouteConverted, catalogProviderID: "deepseek"},
-		{channelID: OpenRouter, providerKind: ProviderKind("openrouter"), responsesMode: RouteNative, catalogProviderID: "openrouter"},
-		{channelID: Groq, providerKind: ProviderKind("groq"), responsesMode: RouteConverted, catalogProviderID: "groq"},
-		{channelID: XAI, providerKind: ProviderKind("xai"), responsesMode: RouteNative, catalogProviderID: "xai"},
+		{channelID: DeepSeek, providerKind: ProviderKind("deepseek"), responsesMode: RouteNative, anthropicMode: RouteNative, catalogProviderID: "deepseek"},
+		{channelID: OpenRouter, providerKind: ProviderKind("openrouter"), responsesMode: RouteNative, anthropicMode: RouteConverted, catalogProviderID: "openrouter"},
+		{channelID: Groq, providerKind: ProviderKind("groq"), responsesMode: RouteConverted, anthropicMode: RouteConverted, catalogProviderID: "groq"},
+		{channelID: XAI, providerKind: ProviderKind("xai"), responsesMode: RouteNative, anthropicMode: RouteConverted, catalogProviderID: "xai"},
 	}
 	for _, test := range tests {
 		t.Run(string(test.channelID), func(t *testing.T) {
@@ -69,6 +70,14 @@ func TestNativeProviderChannelsResolveWithoutCompatibleFallback(t *testing.T) {
 			}
 			if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != test.responsesMode {
 				t.Fatalf("Responses mode = %q, %t, want %q", mode, ok, test.responsesMode)
+			}
+			if mode, ok := target.Mode(protocol.Anthropic, execution.OperationChatCompletion); !ok || mode != test.anthropicMode {
+				t.Fatalf("Anthropic mode = %q, %t, want %q", mode, ok, test.anthropicMode)
+			}
+			if test.channelID == DeepSeek {
+				if mode, ok := target.Mode(protocol.Anthropic, execution.OperationListModels); !ok || mode != RouteConverted {
+					t.Fatalf("DeepSeek Anthropic model-list mode = %q, %t", mode, ok)
+				}
 			}
 			if _, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesRetrieve); ok {
 				t.Fatal("target unexpectedly supports Responses lifecycle")

@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
 )
 
 type effectiveProviderConfig struct {
@@ -36,11 +37,31 @@ func buildEffectiveProviderConfig(
 	if err != nil {
 		return effectiveProviderConfig{}, err
 	}
-	config := providerConfig(baseURL, custom, schemas.OpenAI, allowPrivateNetwork)
+	config := buildProviderConfig(provider, baseURL, custom, schemas.OpenAI, allowPrivateNetwork)
+	return newEffectiveProviderConfig(provider, baseURL, custom, config)
+}
+
+func buildProviderConfig(
+	provider schemas.ModelProvider,
+	baseURL string,
+	custom bool,
+	baseProvider schemas.ModelProvider,
+	allowPrivateNetwork bool,
+) *schemas.ProviderConfig {
+	config := providerConfig(baseURL, custom, baseProvider, allowPrivateNetwork)
 	if !custom {
 		config = providerConfig(baseURL, false, provider, allowPrivateNetwork)
 	}
 	config.CheckAndSetDefaults()
+	return config
+}
+
+func newEffectiveProviderConfig(
+	provider schemas.ModelProvider,
+	baseURL string,
+	custom bool,
+	config *schemas.ProviderConfig,
+) (effectiveProviderConfig, error) {
 	canonical, err := json.Marshal(struct {
 		Provider schemas.ModelProvider   `json:"provider"`
 		Config   *schemas.ProviderConfig `json:"config"`
@@ -57,6 +78,48 @@ func buildEffectiveProviderConfig(
 		targetBaseURL:  baseURL,
 		custom:         custom,
 	}, nil
+}
+
+func buildEffectiveProviderConfigForAttempt(
+	resolved channel.ResolvedTarget,
+	spec execution.AttemptSpec,
+	allowPrivateNetwork bool,
+) (effectiveProviderConfig, error) {
+	base, err := buildEffectiveProviderConfig(resolved, allowPrivateNetwork)
+	if err != nil || resolved.ProviderKind != channel.ProviderDeepSeek {
+		return base, err
+	}
+	if spec.ClientProtocol != protocol.OpenAIResponses ||
+		(spec.Operation != execution.OperationResponsesCreate && spec.Operation != execution.OperationProbe) ||
+		channel.RouteMode(spec.RouteMode) != channel.RouteNative {
+		return base, nil
+	}
+
+	provider := customProviderKey(schemas.OpenAI, base.targetBaseURL)
+	config := buildProviderConfig(provider, base.targetBaseURL, true, schemas.OpenAI, allowPrivateNetwork)
+	config.CustomProviderConfig.AllowedRequests.Responses = true
+	config.CustomProviderConfig.AllowedRequests.ResponsesStream = true
+	config.CustomProviderConfig.AllowedRequests.ChatCompletion = false
+	config.CustomProviderConfig.AllowedRequests.ChatCompletionStream = false
+	config.CustomProviderConfig.RequestPathOverrides[schemas.ResponsesRequest] = base.targetBaseURL + "/responses"
+	config.CustomProviderConfig.RequestPathOverrides[schemas.ResponsesStreamRequest] = base.targetBaseURL + "/responses"
+	config.CheckAndSetDefaults()
+	return newEffectiveProviderConfig(provider, base.targetBaseURL, true, config)
+}
+
+func buildDeepSeekResponsesConfig(
+	resolved channel.ResolvedTarget,
+	allowPrivateNetwork bool,
+) (effectiveProviderConfig, error) {
+	return buildEffectiveProviderConfigForAttempt(
+		resolved,
+		execution.AttemptSpec{
+			ClientProtocol: protocol.OpenAIResponses,
+			Operation:      execution.OperationResponsesCreate,
+			RouteMode:      execution.RouteNative,
+		},
+		allowPrivateNetwork,
+	)
 }
 
 func resolveSDKProviderConfig(resolved channel.ResolvedTarget) (schemas.ModelProvider, string, bool, error) {
@@ -471,7 +534,7 @@ func (manager *RuntimeManager) configForAttempt(spec execution.AttemptSpec) (eff
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel target")
 		return effectiveProviderConfig{}, &failure
 	}
-	config, err := buildEffectiveProviderConfig(resolved, manager.options.allowPrivateNetwork)
+	config, err := buildEffectiveProviderConfigForAttempt(resolved, spec, manager.options.allowPrivateNetwork)
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid provider runtime config")
 		return effectiveProviderConfig{}, &failure
@@ -528,13 +591,23 @@ func (manager *RuntimeManager) Reconcile(targets []channel.ResolvedTarget) error
 	if manager == nil || manager.pool == nil {
 		return fmt.Errorf("reconcile provider runtimes: manager is unavailable")
 	}
-	configs := make([]effectiveProviderConfig, 0, len(targets))
+	configs := make([]effectiveProviderConfig, 0, len(targets)*2)
 	for _, target := range targets {
 		config, err := buildEffectiveProviderConfig(target, manager.options.allowPrivateNetwork)
 		if err != nil {
 			return fmt.Errorf("reconcile provider runtime %q: %w", target.ChannelID, err)
 		}
 		configs = append(configs, config)
+		if target.ProviderKind == channel.ProviderDeepSeek {
+			responsesMode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate)
+			if ok && responsesMode == channel.RouteNative {
+				responsesConfig, responsesErr := buildDeepSeekResponsesConfig(target, manager.options.allowPrivateNetwork)
+				if responsesErr != nil {
+					return fmt.Errorf("reconcile provider runtime %q Responses: %w", target.ChannelID, responsesErr)
+				}
+				configs = append(configs, responsesConfig)
+			}
+		}
 	}
 	manager.pool.reconcile(configs)
 	return nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -26,6 +28,95 @@ import (
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
+
+func TestRequestLogReadsPreserveRequestCancellation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	reader := &recordingRequestLogReader{err: context.Canceled, getErr: context.Canceled}
+	fixture.service.requestLogs = reader
+	requestCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := fixture.service.ListRequestLogs(requestCtx, requestlog.ListQuery{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListRequestLogs() error = %v, want context.Canceled", err)
+	}
+	if _, err := fixture.service.GetRequestLog(requestCtx, "request-id"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetRequestLog() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestListRequestLogsSuppressesOnlyCanceledHTTPRequestErrors(t *testing.T) {
+	initControlI18n(t)
+	tests := []struct {
+		name       string
+		requestCtx func() context.Context
+		readerErr  error
+		wantError  bool
+	}{
+		{
+			name: "canceled request",
+			requestCtx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			readerErr: context.Canceled,
+		},
+		{
+			name: "deadline exceeded",
+			requestCtx: func() context.Context {
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				cancel()
+				return ctx
+			},
+			readerErr: context.DeadlineExceeded,
+			wantError: true,
+		},
+		{
+			name: "database failure after request cancellation",
+			requestCtx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			readerErr: errors.New("database unavailable"),
+			wantError: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			fixture.service.requestLogs = &recordingRequestLogReader{err: test.readerErr}
+			server := NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service)
+			recorder := httptest.NewRecorder()
+			ginContext, _ := gin.CreateTestContext(recorder)
+			ginContext.Request = httptest.NewRequest(http.MethodGet, "/api/logs", nil).
+				WithContext(test.requestCtx())
+
+			var logs bytes.Buffer
+			logger := logrus.StandardLogger()
+			previousOutput, previousFormatter := logger.Out, logger.Formatter
+			logrus.SetOutput(&logs)
+			logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+			t.Cleanup(func() {
+				logrus.SetOutput(previousOutput)
+				logrus.SetFormatter(previousFormatter)
+			})
+
+			server.handleListRequestLogs(ginContext)
+			loggedFailure := strings.Contains(logs.String(), "[CONTROL] Operation failed")
+			if test.wantError {
+				if recorder.Body.Len() == 0 || !loggedFailure {
+					t.Fatalf("error response/log = %q / %q", recorder.Body.String(), logs.String())
+				}
+				return
+			}
+			if recorder.Body.Len() != 0 || loggedFailure {
+				t.Fatalf("canceled response/log = %q / %q", recorder.Body.String(), logs.String())
+			}
+		})
+	}
+}
 
 func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing.T) {
 	validCursor := encodeTestCursorPayload(

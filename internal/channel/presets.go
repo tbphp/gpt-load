@@ -104,9 +104,9 @@ func builtinDefinitions() []definition {
 		azureDefinition,
 		bedrockDefinition,
 		vertexDefinition,
-		newNativeOpenAIChannelDefinition(
+		newDeepSeekDefinition(
 			DeepSeek, "DeepSeek", "DS", "deepseek", []string{"deep seek"},
-			"deepseek", ProviderDeepSeek, apiKeySchema, false,
+			"deepseek", ProviderDeepSeek, apiKeySchema,
 		),
 		newFixedCompatibleDefinition(
 			MoonshotAI, "Moonshot AI", "MS", "moonshot", []string{"kimi", "moonshot"},
@@ -341,6 +341,44 @@ func newNativeOpenAIChannelDefinition(
 		nativeProtocols,
 		false,
 	)
+}
+
+func newDeepSeekDefinition(
+	id ID,
+	name string,
+	mark string,
+	icon string,
+	searchTerms []string,
+	catalogProviderID string,
+	providerKind ProviderKind,
+	credentials objectSchema,
+) definition {
+	deepSeek := newDefinition(
+		id,
+		name,
+		mark,
+		icon,
+		"Managed API preset",
+		searchTerms,
+		objectSchema{{
+			descriptor: FieldDescriptor{Key: "base_url", Label: "Base URL", InputKind: InputURL},
+			normalize:  normalizeBaseURL,
+		}},
+		credentials,
+		catalogProviderID,
+		providerKind,
+		false,
+		map[protocol.Protocol]bool{
+			protocol.OpenAICompletions: true,
+			protocol.OpenAIResponses:   true,
+			protocol.Anthropic:         true,
+		},
+		false,
+	)
+	// DeepSeek's Anthropic-compatible surface exposes Messages, while its model
+	// catalog remains OpenAI-shaped and is converted for Anthropic clients.
+	deepSeek.modes[protocol.Anthropic][execution.OperationListModels] = RouteConverted
+	return deepSeek
 }
 
 func newDefinition(

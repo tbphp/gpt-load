@@ -323,6 +323,11 @@ func (r *Runtime) ExecuteStream(
 
 func preparedUpstreamAPI(prepared preparedAttempt, spec execution.AttemptSpec) execution.UpstreamAPI {
 	providerKind := channel.ProviderKind(spec.TargetKind)
+	if providerKind == channel.ProviderDeepSeek &&
+		spec.ClientProtocol == protocol.Anthropic &&
+		spec.Operation != execution.OperationListModels {
+		return execution.UpstreamAPIAnthropicMessages
+	}
 	switch providerKind {
 	case channel.ProviderAzureOpenAI:
 		return execution.UpstreamAPIAzureOpenAI
@@ -397,7 +402,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInternal, "provider runtime config is unavailable")
 		return preparedAttempt{}, &failure
 	}
-	effective, effectiveErr := buildEffectiveProviderConfig(resolved, r.allowPrivate)
+	effective, effectiveErr := buildEffectiveProviderConfigForAttempt(resolved, spec, r.allowPrivate)
 	fixedFingerprint := r.fixedConfig.fingerprint
 	fixedCanonical := r.fixedConfig.canonical
 	if r.fixedConfig.baseFingerprint != "" {
@@ -475,6 +480,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid credential")
 		return preparedAttempt{}, &failure
 	}
+	if providerKind == channel.ProviderDeepSeek && spec.ClientProtocol == protocol.Anthropic {
+		directKey.UseAnthropicEndpoints = schemas.Ptr(true)
+	}
 	if spec.Operation == execution.OperationProbe {
 		if mode == channel.RouteNative && providerKind == channel.ProviderGoogleVertex {
 			passthroughPath, pathErr := vertexNativeGeminiPath(spec.UpstreamModel, "generateContent")
@@ -509,6 +517,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			false,
 			"",
 		)
+		if targetErr == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
+			typedURL, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, "")
+		}
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel probe target")
 			return preparedAttempt{}, &failure
@@ -588,6 +599,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			return preparedAttempt{}, &failure
 		}
 		typedURL, targetErr := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, true, stream, safeQuery)
+		if targetErr == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
+			typedURL, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, safeQuery)
+		}
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
@@ -1053,6 +1067,11 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 	bifrostContext.SetValue(schemas.BifrostContextKeyRequestID, spec.RequestID)
 	bifrostContext.SetValue(schemas.BifrostContextKeyDirectKey, directKey)
 	bifrostContext.SetValue(schemas.BifrostContextKeyLargeResponseThreshold, r.maxUnaryResponseBodyBytes)
+	if spec.Operation == execution.OperationChatCompletion &&
+		channel.ProviderKind(spec.TargetKind) == channel.ProviderDeepSeek &&
+		spec.ClientProtocol == protocol.Anthropic {
+		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
+	}
 	if spec.Operation == execution.OperationProbe &&
 		channel.ProviderKind(spec.TargetKind) == channel.ProviderOpenAICompatible {
 		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)

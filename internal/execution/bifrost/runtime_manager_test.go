@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -52,6 +53,35 @@ func TestEffectiveProviderConfigUsesSDKProviderAndCanonicalDefaultBaseURL(t *tes
 	compatible := effectiveConfigForTest(t, registry, channel.OpenAICompatible, json.RawMessage(`{"base_url":"https://relay.example/v1"}`))
 	if compatible.provider == schemas.OpenAI || !compatible.custom || compatible.targetBaseURL != "https://relay.example/v1" {
 		t.Fatalf("compatible config = provider %q custom %t base %q", compatible.provider, compatible.custom, compatible.targetBaseURL)
+	}
+}
+
+func TestDeepSeekResponsesUsesDedicatedOpenAIRuntimeConfig(t *testing.T) {
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.DeepSeek, json.RawMessage(`{"base_url":"https://deepseek.example/api"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := buildEffectiveProviderConfig(resolved, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responses, err := buildDeepSeekResponsesConfig(resolved, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.provider != schemas.DeepSeek || base.custom || responses.provider == base.provider || !responses.custom {
+		t.Fatalf("base/responses configs = %+v/%+v", base, responses)
+	}
+	custom := responses.providerConfig.CustomProviderConfig
+	if custom == nil || custom.BaseProviderType != schemas.OpenAI || custom.AllowedRequests == nil ||
+		!custom.AllowedRequests.Responses || !custom.AllowedRequests.ResponsesStream ||
+		custom.AllowedRequests.ChatCompletion || custom.AllowedRequests.ChatCompletionStream {
+		t.Fatalf("DeepSeek Responses custom config = %+v", custom)
+	}
+	if custom.RequestPathOverrides[schemas.ResponsesRequest] != "https://deepseek.example/api/responses" ||
+		custom.RequestPathOverrides[schemas.ResponsesStreamRequest] != "https://deepseek.example/api/responses" {
+		t.Fatalf("DeepSeek Responses path overrides = %#v", custom.RequestPathOverrides)
 	}
 }
 
@@ -583,8 +613,8 @@ func TestProductionRuntimeManagerUsesDeclaredResponsesOperation(t *testing.T) {
 	}{
 		{
 			channelID: channel.DeepSeek,
-			wantPath:  "/chat/completions",
-			response:  `{"id":"chat","object":"chat.completion","created":1,"model":"served","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+			wantPath:  "/responses",
+			response:  `{"id":"resp","object":"response","created_at":1,"status":"completed","model":"served","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
 		},
 		{
 			channelID: channel.OpenRouter,
@@ -637,6 +667,216 @@ func TestProductionRuntimeManagerUsesDeclaredResponsesOperation(t *testing.T) {
 				t.Fatalf("upstream calls = %d, want 1", calls.Load())
 			}
 		})
+	}
+}
+
+func TestProductionRuntimeManagerUsesDeepSeekNativeAnthropicEndpoint(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.Method != http.MethodPost || request.URL.Path != "/anthropic/v1/messages" {
+			t.Errorf("request target = %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("X-Api-Key") != "native-key" || request.Header.Get("Authorization") != "" {
+			t.Errorf("credential headers = x-api-key:%q authorization:%q", request.Header.Get("X-Api-Key"), request.Header.Get("Authorization"))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"id":"msg","type":"message","role":"assistant","model":"served","content":[{"type":"text","text":"OK"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+
+	spec := deepSeekAnthropicAttempt(t, server.URL)
+	result := manager.Execute(context.Background(), spec)
+	if validationErr := result.Validate(); validationErr != nil || result.Error != nil {
+		t.Fatalf("Execute() = %+v validation=%v", result, validationErr)
+	}
+	if calls.Load() != 1 || result.UpstreamAPI != execution.UpstreamAPIAnthropicMessages {
+		t.Fatalf("calls/result = %d/%+v", calls.Load(), result)
+	}
+}
+
+func TestProductionRuntimeManagerRejectsDeepSeekAnthropicContainerBeforeDispatch(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer server.Close()
+
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+
+	spec := deepSeekAnthropicAttempt(t, server.URL)
+	spec.RouteRequirement = execution.RouteRequirementNative
+	spec.Body = []byte(`{"model":"client-model","max_tokens":16,"container":{"id":"container_123"},"messages":[{"role":"user","content":"hello"}]}`)
+	result := manager.Execute(context.Background(), spec)
+	if validationErr := result.Validate(); validationErr != nil {
+		t.Fatalf("Execute() validation = %v; result=%+v", validationErr, result)
+	}
+	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindConversionUnsupported ||
+		result.Error.Code != execution.ErrorCodeCriticalSemanticLoss {
+		t.Fatalf("Execute() = %+v", result)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("upstream calls = %d, want 0", calls.Load())
+	}
+}
+
+func TestProductionRuntimeManagerPreservesDeepSeekAnthropicEffort(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload struct {
+			OutputConfig *struct {
+				Effort string `json:"effort"`
+			} `json:"output_config"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode request body: %v; body=%s", err, body)
+		}
+		if payload.OutputConfig == nil || payload.OutputConfig.Effort != "high" {
+			t.Errorf("output_config = %+v; body=%s", payload.OutputConfig, body)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"id":"msg","type":"message","role":"assistant","model":"served","content":[{"type":"text","text":"OK"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+
+	spec := deepSeekAnthropicAttempt(t, server.URL)
+	spec.Body = []byte(`{"model":"client-model","max_tokens":8192,"thinking":{"type":"enabled","budget_tokens":4096},"output_config":{"effort":"high"},"messages":[{"role":"user","content":"hello"}]}`)
+	result := manager.Execute(context.Background(), spec)
+	if validationErr := result.Validate(); validationErr != nil || result.Error != nil {
+		t.Fatalf("Execute() = %+v validation=%v", result, validationErr)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("upstream calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestProductionRuntimeManagerPreservesDeepSeekAnthropicEffortStream(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		var payload struct {
+			Stream       bool `json:"stream"`
+			OutputConfig *struct {
+				Effort string `json:"effort"`
+			} `json:"output_config"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Errorf("decode request body: %v; body=%s", err, body)
+			return
+		}
+		if !payload.Stream || payload.OutputConfig == nil || payload.OutputConfig.Effort != "high" {
+			t.Errorf("stream/output_config = %t/%+v; body=%s", payload.Stream, payload.OutputConfig, body)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, anthropicResponsesStreamFixture)
+	}))
+	defer server.Close()
+
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+
+	spec := deepSeekAnthropicAttempt(t, server.URL)
+	spec.Body = []byte(`{"model":"client-model","max_tokens":8192,"stream":true,"thinking":{"type":"enabled","budget_tokens":4096},"output_config":{"effort":"high"},"messages":[{"role":"user","content":"hello"}]}`)
+	result := manager.ExecuteStream(context.Background(), spec, func(execution.StreamEvent) error { return nil })
+	if validationErr := result.Validate(); validationErr != nil || result.Error != nil {
+		t.Fatalf("ExecuteStream() = %+v validation=%v", result, validationErr)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("upstream calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestProductionRuntimeManagerUsesDeepSeekNativeResponsesStream(t *testing.T) {
+	const upstreamStream = "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream\",\"object\":\"response\",\"status\":\"in_progress\",\"model\":\"served\",\"output\":[]}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"served\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/responses" {
+			t.Errorf("request target = %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer native-key" {
+			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil || payload["stream"] != true {
+			t.Errorf("stream request = %s err=%v", body, err)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, upstreamStream)
+	}))
+	defer server.Close()
+
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+
+	spec := openAIResponsesAttempt(t, channel.DeepSeek, server.URL)
+	var data bytes.Buffer
+	result := manager.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+		if event.Kind == execution.StreamEventData {
+			data.Write(event.Data)
+		}
+		return nil
+	})
+	if validationErr := result.Validate(); validationErr != nil || result.Error != nil {
+		t.Fatalf("ExecuteStream() = %+v validation=%v", result, validationErr)
+	}
+	if !strings.Contains(data.String(), "event: response.created") ||
+		!strings.Contains(data.String(), "event: response.completed") ||
+		result.UpstreamAPI != execution.UpstreamAPIOpenAIResponses {
+		t.Fatalf("stream/result = %q/%+v", data.String(), result)
 	}
 }
 
@@ -781,6 +1021,37 @@ func openAIResponsesAttempt(t *testing.T, channelID channel.ID, baseURL string) 
 		Path:           "/v1/responses",
 		Header:         make(http.Header),
 		Body:           []byte(`{"model":"upstream-model","input":"hello","stream":false}`),
+		Credential:     execution.NewCredentialSnapshot(1, 1, 1, []byte(`{"api_key":"native-key"}`)),
+	})
+}
+
+func deepSeekAnthropicAttempt(t *testing.T, baseURL string) execution.AttemptSpec {
+	t.Helper()
+	registry := channel.NewRegistry()
+	target, err := registry.Resolve(channel.DeepSeek, json.RawMessage(`{"base_url":"`+baseURL+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode, ok := target.Mode(protocol.Anthropic, execution.OperationChatCompletion)
+	if !ok {
+		t.Fatal("DeepSeek Anthropic route is missing")
+	}
+	return execution.NewAttemptSpec(execution.AttemptSpec{
+		RequestID:      "deepseek-anthropic-request",
+		AttemptID:      "deepseek-anthropic-attempt",
+		Sequence:       1,
+		ChannelID:      string(channel.DeepSeek),
+		TargetKind:     string(target.ProviderKind),
+		TargetConfig:   target.TargetConfig,
+		RouteMode:      execution.RouteMode(mode),
+		ClientProtocol: protocol.Anthropic,
+		Operation:      execution.OperationChatCompletion,
+		ClientModel:    "client-model",
+		UpstreamModel:  "upstream-model",
+		Method:         http.MethodPost,
+		Path:           "/v1/messages",
+		Header:         make(http.Header),
+		Body:           []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
 		Credential:     execution.NewCredentialSnapshot(1, 1, 1, []byte(`{"api_key":"native-key"}`)),
 	})
 }

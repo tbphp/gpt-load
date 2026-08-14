@@ -85,8 +85,8 @@ export default {
     network: 'Unable to reach the management API. Check the service and try again.',
     invalidResponse: 'The management API returned an unrecognized response.',
     checking: 'Verifying the current session…',
-    sessionNotePrefix: 'The sign-in key is stored only in ',
-    sessionNoteSuffix: ' for this browser session',
+    sessionNotePrefix: "The sign-in key is stored in this site's ",
+    sessionNoteSuffix: ' and cleared on sign-out or authentication failure',
     help: {
       title: 'Which key can I use?',
       accessKeyTitle: 'AccessKey',

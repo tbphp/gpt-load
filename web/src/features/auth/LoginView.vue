@@ -235,7 +235,7 @@ async function submit(): Promise<void> {
             </AppButton>
 
             <p id="auth-session-note" class="ledger-login__session-note">
-              {{ t('auth.sessionNotePrefix') }}<code>sessionStorage</code
+              {{ t('auth.sessionNotePrefix') }}<code>localStorage</code
               >{{ t('auth.sessionNoteSuffix') }}
             </p>
           </form>

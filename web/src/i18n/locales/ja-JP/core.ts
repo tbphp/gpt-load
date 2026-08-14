@@ -84,8 +84,8 @@ export default {
     network: '管理 API に接続できません。サービスを確認して再試行してください。',
     invalidResponse: '管理 API から認識できない応答が返されました。',
     checking: '現在のセッションを確認しています…',
-    sessionNotePrefix: 'ログインキーは、このブラウザーセッションの ',
-    sessionNoteSuffix: ' にのみ保存されます',
+    sessionNotePrefix: 'ログインキーは、このサイトの ',
+    sessionNoteSuffix: ' に保存され、ログアウトまたは認証失敗時に削除されます',
     help: {
       title: 'どのキーを使用できますか？',
       accessKeyTitle: 'AccessKey',

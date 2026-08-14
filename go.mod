@@ -8,7 +8,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.19.1
-	github.com/maximhq/bifrost/core v1.7.7
+	github.com/maximhq/bifrost/core v1.7.11
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
 	github.com/sirupsen/logrus v1.9.4
 	go.uber.org/dig v1.19.0

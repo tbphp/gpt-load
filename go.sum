@@ -174,8 +174,8 @@ github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsRe
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
 github.com/mattn/go-sqlite3 v1.14.22 h1:2gZY6PC6kBnID23Tichd1K+Z0oS6nE/XwU+Vz/5o4kU=
 github.com/mattn/go-sqlite3 v1.14.22/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
-github.com/maximhq/bifrost/core v1.7.7 h1:5mMspsjvP/yJ4XBvuuAZ99R0BF+Dyy2l6FFO6UZxLfk=
-github.com/maximhq/bifrost/core v1.7.7/go.mod h1:XQGQ99V6iW2yRbq4zg5+LfDcJMR06x/Ie4HuC8FWEDI=
+github.com/maximhq/bifrost/core v1.7.11 h1:9dhHNM9IN3DPM7q+Xhg06LW+WGITz9d9m0RyeVHOQ4Y=
+github.com/maximhq/bifrost/core v1.7.11/go.mod h1:ftRe80M+N8GTP7OvEG2G4yNK0jr/s/T4XFSA/YuuOTA=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

@@ -335,7 +335,7 @@ func TestNativeOpenAIStyleTypedTargetsPreserveSafeQuery(t *testing.T) {
 		wantTarget string
 	}{
 		{name: "deepseek chat", provider: channel.ProviderDeepSeek, wantTarget: "/chat/completions?" + rawQuery},
-		{name: "deepseek responses stream", provider: channel.ProviderDeepSeek, responses: true, stream: true, wantTarget: "/chat/completions?" + rawQuery},
+		{name: "deepseek converted responses stream", provider: channel.ProviderDeepSeek, responses: true, stream: true, wantTarget: "/chat/completions?" + rawQuery},
 		{name: "openrouter chat stream", provider: channel.ProviderOpenRouter, stream: true, wantTarget: "/v1/chat/completions?" + rawQuery},
 		{name: "openrouter responses", provider: channel.ProviderOpenRouter, responses: true, wantTarget: "/v1/responses?" + rawQuery},
 		{name: "groq chat", provider: channel.ProviderGroq, wantTarget: "/v1/chat/completions?" + rawQuery},
@@ -368,6 +368,31 @@ func TestNativeOpenAIStyleTypedTargetsPreserveSafeQuery(t *testing.T) {
 				t.Fatal("convertedTypedTarget() error = nil")
 			}
 		})
+	}
+}
+
+func TestDeepSeekNativeTypedTargetsPreserveSafeQuery(t *testing.T) {
+	const rawQuery = "trace=%2F&cursor=next"
+	for _, test := range []struct {
+		clientProtocol protocol.Protocol
+		wantTarget     string
+	}{
+		{clientProtocol: protocol.OpenAICompletions, wantTarget: "/chat/completions?" + rawQuery},
+		{clientProtocol: protocol.OpenAIResponses, wantTarget: "/responses?" + rawQuery},
+		{clientProtocol: protocol.Anthropic, wantTarget: "/anthropic/v1/messages?" + rawQuery},
+	} {
+		t.Run(string(test.clientProtocol), func(t *testing.T) {
+			target, err := deepSeekNativeTypedTarget("", test.clientProtocol, rawQuery)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if target != test.wantTarget {
+				t.Fatalf("target = %q, want %q", target, test.wantTarget)
+			}
+		})
+	}
+	if _, err := deepSeekNativeTypedTarget("", protocol.Gemini, rawQuery); err == nil {
+		t.Fatal("Gemini native target error = nil")
 	}
 }
 

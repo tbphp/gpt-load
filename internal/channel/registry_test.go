@@ -543,8 +543,17 @@ func TestCuratedChannelResolvesCodeOwnedTargetAndCatalogMapping(t *testing.T) {
 	if mode, ok := target.Mode(protocol.OpenAICompletions, execution.OperationChatCompletion); !ok || mode != RouteNative {
 		t.Fatalf("DeepSeek native completions mode = %q, %t", mode, ok)
 	}
-	if mode, ok := target.Mode(protocol.Anthropic, execution.OperationChatCompletion); !ok || mode != RouteConverted {
-		t.Fatalf("DeepSeek converted Anthropic mode = %q, %t", mode, ok)
+	if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteNative {
+		t.Fatalf("DeepSeek native Responses mode = %q, %t", mode, ok)
+	}
+	if mode, ok := target.Mode(protocol.Anthropic, execution.OperationChatCompletion); !ok || mode != RouteNative {
+		t.Fatalf("DeepSeek native Anthropic mode = %q, %t", mode, ok)
+	}
+	if mode, ok := target.Mode(protocol.Anthropic, execution.OperationListModels); !ok || mode != RouteConverted {
+		t.Fatalf("DeepSeek Anthropic model-list mode = %q, %t", mode, ok)
+	}
+	if mode, ok := target.Mode(protocol.Gemini, execution.OperationChatCompletion); !ok || mode != RouteConverted {
+		t.Fatalf("DeepSeek converted Gemini mode = %q, %t", mode, ok)
 	}
 	descriptor, ok := registry.Get(DeepSeek)
 	if !ok || len(descriptor.ParamFields) != 1 || len(descriptor.CredentialFields) != 1 {
