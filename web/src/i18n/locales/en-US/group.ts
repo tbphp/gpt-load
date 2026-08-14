@@ -67,7 +67,6 @@ export default {
     copyUpstreamUrl: 'Copy upstream address {url}',
     copySuccess: 'Copied',
     copyFailure: 'Copy failed',
-    connectionType: { api_key: 'API Key', subscription: 'Subscription' },
     modelEditor: {
       title: 'Models and aliases',
       description:
@@ -364,22 +363,17 @@ export default {
       subscription: {
         connect: 'Connect subscription account',
         connectDescription:
-          'Finish browser OAuth or import an auth file, then save the temporary account into this Group.',
+          'Finish browser OAuth or import OAuth JSON, then save the temporary account into this Group.',
         confirmConnect: 'Add account',
         connectFailed: 'Unable to add the subscription account to this Group',
         reauthorize: 'Reauthorize',
         confirmReauthorize: 'Update authorization',
         reauthorizeFailed: 'Unable to update this subscription authorization',
-        manage: 'Manage account',
         sync: 'Sync upstream info',
         syncFailed: 'Unable to sync upstream subscription information',
-        drawerTitle: 'Subscription account',
-        drawerDescription: 'Manage authorization, dynamic entitlements, and runtime status',
         account: 'Account',
         plan: 'Plan',
         resetCredits: 'Available reset credits',
-        authLabel: 'Authorization',
-        quotaSummary: 'Entitlement summary',
         quotas: 'Usage limits',
         noQuota: 'The upstream has not supplied any displayable quota window',
         modelConstraints: 'Model-specific limits',
@@ -389,7 +383,11 @@ export default {
         resetAt: 'Resets at',
         syncInfo: 'Sync information',
         observedAt: 'Last successful sync',
+        freshUntil: 'Information valid until',
+        lastAttempt: 'Last sync attempt',
         nextAllowed: 'Next allowed sync',
+        observationVersion: 'Information version',
+        lastError: 'Last sync error',
         auth: {
           ready: 'Authorized',
           refreshing: 'Refreshing credential',

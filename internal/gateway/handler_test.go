@@ -3322,7 +3322,7 @@ func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testin
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.OpenAI,
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
 			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
@@ -3387,7 +3387,7 @@ func TestSubscriptionExplicit401UsesNewerCredentialVersionFromConcurrentRefresh(
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.OpenAI,
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
 			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
@@ -3464,7 +3464,7 @@ func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *tes
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.OpenAI,
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
 			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},

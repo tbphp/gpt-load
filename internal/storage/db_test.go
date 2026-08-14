@@ -616,6 +616,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	wantMigrationIDs := []string{
 		"0001_initial",
 		"0002_subscription_connections",
+		"0003_codex_channel",
 	}
 	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
 		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)

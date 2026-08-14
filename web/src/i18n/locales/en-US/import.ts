@@ -69,12 +69,6 @@ export default {
       urlError: 'Enter a valid HTTP or HTTPS upstream URL',
       paramRequired: 'Enter {name}',
     },
-    connectionType: {
-      title: 'Connection type',
-      description: 'API keys and subscription accounts share Group scheduling and retries',
-      api_key: 'API Key',
-      subscription: 'Subscription',
-    },
     subscription: {
       title: 'Subscription accounts',
       description:
@@ -82,14 +76,28 @@ export default {
       securityNotice:
         'The browser keeps only a temporary Stage ID and masked account summary. Tokens are encrypted by the server and atomically promoted when the Group is created.',
       callbackNotice:
-        'OAuth uses the fixed local callback 127.0.0.1:1455. For a remote deployment, first run ssh -L 1455:127.0.0.1:1455 -l your-user your-server on the browser machine.',
+        'OAuth always redirects to http://localhost:1455/auth/callback. For a remote deployment, copy the browser’s final URL and submit it here.',
       authorize: 'Authorize in browser',
       authorizeFailed: 'Unable to start browser authorization',
       popupBlocked: 'The browser blocked the popup. Use “Reopen authorization” to continue.',
-      reopen: 'Reopen authorization',
-      importFile: 'Import OAuth JSON',
+      authorizationLink: 'Authorization link',
+      copyAuthorization: 'Copy authorization link',
+      openAuthorization: 'Open authorization link',
+      callbackLabel: 'Callback URL',
+      callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
+      callbackHelp:
+        'If the local port is unreachable, copy the complete callback URL from the browser address bar and submit it here.',
+      submitCallback: 'Submit callback URL',
+      callbackFailed:
+        'The callback URL is invalid, already used, or belongs to another authorization',
+      orImport: 'or import CPA OAuth JSON',
+      oauthJSONLabel: 'OAuth JSON content',
+      oauthJSONDescription:
+        'Paste a Codex OAuth JSON exported by CPA, or choose a local JSON file.',
+      importText: 'Import pasted content',
+      importFile: 'Choose JSON file',
       importing: 'Importing…',
-      importFailed: 'The OAuth file is invalid or unsupported',
+      importFailed: 'The OAuth JSON is invalid or unsupported',
       pollFailed: 'Authorization status is temporarily unavailable; polling will continue',
       cancelFailed: 'Unable to cancel this temporary authorization',
       remove: 'Remove',

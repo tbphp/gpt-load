@@ -27,7 +27,7 @@ func TestImportCodexOAuthJSONCreatesEncryptedReadyStage(t *testing.T) {
 		"id_token":"id-secret","account_id":"account-123","email":"admin@example.com",
 		"expired":"2027-01-01T00:00:00Z"
 	}`)
-	result, err := fixture.service.ImportCredentialStage(t.Context(), channel.OpenAI, raw)
+	result, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, raw)
 	if err != nil {
 		t.Fatalf("ImportCredentialStage() error = %v", err)
 	}
@@ -67,7 +67,7 @@ func TestImportCodexOAuthJSONRejectsInvalidInput(t *testing.T) {
 		[]byte(`{"type":"codex","access_token":"a","refresh_token":"r","account_id":"id","proxy_url":"http://127.0.0.1"}`),
 		make([]byte, 64*1024+1),
 	} {
-		if _, err := fixture.service.ImportCredentialStage(t.Context(), channel.OpenAI, raw); !errors.Is(err, app_errors.ErrOAuthFileInvalid) &&
+		if _, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, raw); !errors.Is(err, app_errors.ErrOAuthFileInvalid) &&
 			!errors.Is(err, app_errors.ErrOAuthFileTooLarge) {
 			t.Fatalf("invalid import error = %v", err)
 		}
@@ -79,7 +79,7 @@ func TestBeginBrowserAuthorizationCreatesPendingStage(t *testing.T) {
 
 	fixture := newServiceFixture(t)
 	fixture.service.now = func() time.Time { return time.UnixMilli(1_800_000_000_000) }
-	result, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.OpenAI)
+	result, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
 		t.Fatalf("BeginCredentialAuthorization() error = %v", err)
 	}
@@ -103,7 +103,7 @@ func TestCancelCredentialStageClearsPayload(t *testing.T) {
 	t.Parallel()
 
 	fixture := newServiceFixture(t)
-	result, err := fixture.service.ImportCredentialStage(t.Context(), channel.OpenAI, []byte(
+	result, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
 		`{"type":"codex","access_token":"a","refresh_token":"r","account_id":"id"}`,
 	))
 	if err != nil {
@@ -126,7 +126,7 @@ func TestCompleteBrowserAuthorizationConsumesStateOnce(t *testing.T) {
 
 	fixture := newServiceFixture(t)
 	fixture.service.now = func() time.Time { return time.UnixMilli(1_800_000_000_000) }
-	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.OpenAI)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestCompleteBrowserAuthorizationConsumesStateOnce(t *testing.T) {
 
 func TestCompleteBrowserAuthorizationMarksDefinitiveExchangeRejectionFailed(t *testing.T) {
 	fixture := newServiceFixture(t)
-	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.OpenAI)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestCompleteBrowserAuthorizationMarksDefinitiveExchangeRejectionFailed(t *t
 
 func TestCompleteBrowserAuthorizationUsesBoundedUpstreamContext(t *testing.T) {
 	fixture := newServiceFixture(t)
-	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.OpenAI)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestCompleteBrowserAuthorizationUsesBoundedUpstreamContext(t *testing.T) {
 
 func TestCompleteBrowserAuthorizationSurvivesCallbackCancellationAfterClaim(t *testing.T) {
 	fixture := newServiceFixture(t)
-	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.OpenAI)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestCompleteBrowserAuthorizationSurvivesCallbackCancellationAfterClaim(t *t
 
 func TestCompleteBrowserAuthorizationTreatsTransientEndpointRejectionAsUnknown(t *testing.T) {
 	fixture := newServiceFixture(t)
-	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.OpenAI)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,15 +303,14 @@ func TestCreateSubscriptionGroupConsumesReadyStageAtomically(t *testing.T) {
 	t.Parallel()
 
 	fixture := newServiceFixture(t)
-	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.OpenAI, []byte(
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
 		`{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-123","email":"admin@example.com"}`,
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := GroupCreateRequest{
-		Name: stringPointer("subscription group"), ChannelID: channel.OpenAI,
-		ConnectionType:      models.ConnectionTypeSubscription,
+		Name: stringPointer("subscription group"), ChannelID: channel.Codex,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},
 	}
@@ -356,14 +355,14 @@ func TestCreateSubscriptionGroupRollsBackStageOnFailure(t *testing.T) {
 	t.Parallel()
 
 	fixture := newServiceFixture(t)
-	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.OpenAI, []byte(
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
 		`{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-123"}`,
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = fixture.service.CreateGroupIdempotent(t.Context(), "00000000-0000-4000-8000-000000000778", GroupCreateRequest{
-		Name: stringPointer("invalid subscription group"), ChannelID: channel.OpenAI,
+		Name: stringPointer("invalid subscription group"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "", Alias: "invalid"}}},
 		StagedCredentialIDs: []string{stage.StageID},
@@ -386,7 +385,7 @@ func TestConnectSubscriptionGroupConsumesReadyStage(t *testing.T) {
 	fixture := newServiceFixture(t)
 	first := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription connect"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription connect"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{first.StageID},
@@ -417,7 +416,7 @@ func TestConnectSubscriptionGroupIdempotentReplaysConsumedStage(t *testing.T) {
 	fixture := newServiceFixture(t)
 	first := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription connect replay"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription connect replay"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{first.StageID},
@@ -457,7 +456,7 @@ func TestSubscriptionCredentialCannotBeRevealedOrImportedAsText(t *testing.T) {
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription secret boundary"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription secret boundary"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},
@@ -483,7 +482,7 @@ func TestReauthorizeSubscriptionCredentialPreservesIdentityAndAdvancesSecretVers
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription reauthorize"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription reauthorize"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},
@@ -512,7 +511,7 @@ func TestReauthorizeSubscriptionCredentialPreservesIdentityAndAdvancesSecretVers
 	if after.IdentityFingerprint != before.IdentityFingerprint || after.SecretVersion != before.SecretVersion+1 || after.Fingerprint == before.Fingerprint {
 		t.Fatalf("before/after = %#v / %#v", before, after)
 	}
-	if view, ok := findRuntimeCredential(fixture.registry.Snapshot(), before.ID); !ok || view.Version != after.SecretVersion || view.IdentityGeneration != groupCollectionCredentialIdentity(after.IdentityFingerprint, models.Group{ID: created.GroupID, ChannelID: string(channel.OpenAI), ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`)}) {
+	if view, ok := findRuntimeCredential(fixture.registry.Snapshot(), before.ID); !ok || view.Version != after.SecretVersion || view.IdentityGeneration != groupCollectionCredentialIdentity(after.IdentityFingerprint, models.Group{ID: created.GroupID, ChannelID: string(channel.Codex), ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`)}) {
 		t.Fatalf("runtime view = %#v, %v", view, ok)
 	}
 }
@@ -523,7 +522,7 @@ func TestReauthorizeSubscriptionCredentialIdempotentReplaysConsumedStage(t *test
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription reauthorize replay"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription reauthorize replay"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},
@@ -568,7 +567,7 @@ func TestReauthorizeSubscriptionCredentialSerializesSecretMutation(t *testing.T)
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription reauthorize serialized"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription reauthorize serialized"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},
@@ -627,7 +626,7 @@ func TestReauthorizeSubscriptionCredentialAcquiresControlWriteLockBeforeCredenti
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription reauthorize lock order"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription reauthorize lock order"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},
@@ -712,7 +711,7 @@ func TestReauthorizeSubscriptionCredentialRejectsDifferentAccount(t *testing.T) 
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription reauthorize mismatch"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription reauthorize mismatch"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},
@@ -796,7 +795,7 @@ func TestCleanupCredentialStagesExpiresSecretsAndRemovesOldTombstones(t *testing
 
 func mustImportSubscriptionStage(t *testing.T, fixture serviceFixture, accountID, email string) CredentialStageResult {
 	t.Helper()
-	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.OpenAI, []byte(fmt.Sprintf(
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(fmt.Sprintf(
 		`{"type":"codex","access_token":"access-%s","refresh_token":"refresh-%s","account_id":%q,"email":%q}`,
 		accountID, accountID, accountID, email,
 	)))

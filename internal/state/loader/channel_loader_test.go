@@ -245,7 +245,7 @@ func TestSubscriptionTokenRefreshKeepsIdentityGeneration(t *testing.T) {
 
 	db := openMigratedDatabase(t)
 	group := models.Group{
-		Name: "subscription-refresh", ChannelID: string(channel.OpenAI),
+		Name: "subscription-refresh", ChannelID: string(channel.Codex),
 		ConnectionType: models.ConnectionTypeSubscription,
 		Params:         models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true,
 	}

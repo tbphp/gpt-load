@@ -36,11 +36,12 @@ func TestServiceUsesInjectedChannelRegistryAndListsSafeDescriptors(t *testing.T)
 	if err != nil {
 		t.Fatalf("ListChannels() error = %v", err)
 	}
-	if result.Total != 3 || len(result.Items) != 3 ||
-		result.Items[0].ID != channel.OpenAI || result.Items[1].ID != channel.AzureOpenAI ||
-		result.Items[2].ID != channel.OpenAICompatible ||
+	if result.Total != 4 || len(result.Items) != 4 ||
+		result.Items[0].ID != channel.OpenAI || result.Items[1].ID != channel.Codex ||
+		result.Items[2].ID != channel.AzureOpenAI || result.Items[3].ID != channel.OpenAICompatible ||
 		result.Items[0].DefaultBaseURL != "https://openai-sdk-default.example" ||
-		result.Items[1].DefaultBaseURL != "" || result.Items[2].DefaultBaseURL != "" {
+		result.Items[1].DefaultBaseURL != "" || result.Items[2].DefaultBaseURL != "" ||
+		result.Items[3].DefaultBaseURL != "" {
 		t.Fatalf("ListChannels(openai) = %#v", result)
 	}
 	encoded, err := json.Marshal(result)
@@ -192,7 +193,7 @@ func TestGroupCreateDefaultsAPIKeyAndValidatesSubscriptionContract(t *testing.T)
 		t.Fatalf("unsupported subscription error = %v", err)
 	}
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("mixed input"), ChannelID: channel.OpenAI,
+		Name: stringPointer("mixed input"), ChannelID: channel.Codex,
 		ConnectionType: models.ConnectionTypeSubscription,
 		Models:         optionalGroupModels{Set: true}, Credentials: "sk-mixed",
 		StagedCredentialIDs: []string{"stage-one"},
@@ -201,7 +202,7 @@ func TestGroupCreateDefaultsAPIKeyAndValidatesSubscriptionContract(t *testing.T)
 		t.Fatalf("mixed credential input error = %v", err)
 	}
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription custom target"), ChannelID: channel.OpenAI,
+		Name: stringPointer("subscription custom target"), ChannelID: channel.Codex,
 		ConnectionType: models.ConnectionTypeSubscription,
 		Params:         json.RawMessage(`{"base_url":"https://example.com/v1"}`),
 		Models:         optionalGroupModels{Set: true}, StagedCredentialIDs: []string{"stage-one"},
@@ -228,7 +229,7 @@ func TestSameTargetIncludesConnectionType(t *testing.T) {
 	}
 	conflicts, err := findGroupsByTarget(
 		fixture.db,
-		channel.OpenAI,
+		channel.Codex,
 		models.ConnectionTypeSubscription,
 		apiGroup.Params,
 	)

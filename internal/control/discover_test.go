@@ -98,7 +98,7 @@ func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
 		return []cpaembedded.Model{{ID: " gpt-5.2 "}, {ID: "gpt-5.2"}, {ID: "gpt-5.1-codex"}}, nil
 	}
 	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
-		ChannelID: channel.OpenAI, ConnectionType: models.ConnectionTypeSubscription,
+		ChannelID:          channel.Codex,
 		StagedCredentialID: stage.StageID,
 	})
 	if err != nil {

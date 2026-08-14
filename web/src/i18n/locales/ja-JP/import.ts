@@ -67,28 +67,34 @@ export default {
       urlError: '有効な HTTP または HTTPS のアップストリーム URL を入力してください',
       paramRequired: '{name} を入力してください',
     },
-    connectionType: {
-      title: '接続方式',
-      description:
-        'API キーとサブスクリプションアカウントは同じ Group のスケジュールと再試行を使用します',
-      api_key: 'API キー',
-      subscription: 'サブスクリプション',
-    },
     subscription: {
       title: 'サブスクリプションアカウント',
       description: 'ブラウザー OAuth で Codex を接続するか、CPA 互換の認証 JSON をインポートします',
       securityNotice:
         'ブラウザーには一時 Stage ID とマスク済みアカウントだけを保存します。Token はサーバーで暗号化され、Group 作成時に原子的に保存されます。',
       callbackNotice:
-        'OAuth は固定のローカルコールバック 127.0.0.1:1455 を使用します。リモート配置ではブラウザー側で ssh -L 1455:127.0.0.1:1455 -l your-user your-server を先に実行してください。',
+        'OAuth は常に http://localhost:1455/auth/callback にリダイレクトします。リモート配置ではブラウザーの最終 URL をコピーして送信してください。',
       authorize: 'ブラウザーで認証',
       authorizeFailed: 'ブラウザー認証を開始できません',
       popupBlocked:
         'ポップアップがブロックされました。「認証ページを再度開く」から続行してください。',
-      reopen: '認証ページを再度開く',
-      importFile: 'OAuth JSON をインポート',
+      authorizationLink: '認証リンク',
+      copyAuthorization: '認証リンクをコピー',
+      openAuthorization: '認証リンクを開く',
+      callbackLabel: 'コールバック URL',
+      callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
+      callbackHelp:
+        'ローカルポートに接続できない場合は、ブラウザーのアドレスバーから完全なコールバック URL をコピーして送信してください。',
+      submitCallback: 'コールバック URL を送信',
+      callbackFailed: 'コールバック URL が無効、使用済み、または別の認証に属しています',
+      orImport: 'または CPA OAuth JSON をインポート',
+      oauthJSONLabel: 'OAuth JSON の内容',
+      oauthJSONDescription:
+        'CPA がエクスポートした Codex OAuth JSON を貼り付けるか、ローカル JSON ファイルを選択します。',
+      importText: '貼り付けた内容をインポート',
+      importFile: 'JSON ファイルを選択',
       importing: 'インポート中…',
-      importFailed: 'OAuth ファイルが無効または未対応です',
+      importFailed: 'OAuth JSON が無効または未対応です',
       pollFailed: '認証状態を取得できません。再試行を続けます',
       cancelFailed: '一時認証をキャンセルできません',
       remove: '削除',

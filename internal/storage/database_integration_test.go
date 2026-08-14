@@ -123,7 +123,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		t.Fatalf("create credential: %v", err)
 	}
 	stage := models.CredentialStage{
-		ID: fmt.Sprintf("stage-%d", time.Now().UnixNano()), ChannelID: "openai",
+		ID: fmt.Sprintf("stage-%d", time.Now().UnixNano()), ChannelID: "codex",
 		ConnectionType: models.ConnectionTypeSubscription, AuthorizationMethod: "oauth_file",
 		Status: models.CredentialStageReady, EncryptedPayload: "encrypted-stage-data",
 		PayloadSchemaVersion: 1, SafeSummaryJSON: models.JSON(`{"email_mask":"a***z@example.com"}`),

@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -27,7 +29,7 @@ func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
-	unauthorized := httptest.NewRequest(http.MethodPost, "/api/credential-stages/authorizations", strings.NewReader(`{"channel_id":"openai"}`))
+	unauthorized := httptest.NewRequest(http.MethodPost, "/api/credential-stages/authorizations", strings.NewReader(`{"channel_id":"codex"}`))
 	unauthorized.Header.Set("Content-Type", "application/json")
 	unauthorizedResponse := httptest.NewRecorder()
 	engine.ServeHTTP(unauthorizedResponse, unauthorized)
@@ -35,7 +37,7 @@ func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 		t.Fatalf("unauthorized = %d %s", unauthorizedResponse.Code, unauthorizedResponse.Body)
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/authorizations", strings.NewReader(`{"channel_id":"openai"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/authorizations", strings.NewReader(`{"channel_id":"codex"}`))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -68,6 +70,100 @@ func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 	if removeResponse.Code != http.StatusOK {
 		t.Fatalf("delete response = %d %s", removeResponse.Code, removeResponse.Body)
 	}
+}
+
+func TestBeginCredentialAuthorizationAllowsManualCallbackWhenListenerIsUnavailable(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	fixture.service.oauthCallback.listen = func(string, string) (net.Listener, error) {
+		return nil, fmt.Errorf("port is already in use")
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/authorizations", strings.NewReader(`{"channel_id":"codex"}`))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"authorization_url"`) {
+		t.Fatalf("authorization response = %d %s", response.Code, response.Body)
+	}
+}
+
+func TestManualOAuthCallbackCompletesOnlyItsBoundStageOnce(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	first, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorizationURL, err := url.Parse(first.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := authorizationURL.Query().Get("state")
+	fixture.service.completeBrowserAuthorization = func(_ context.Context, completion cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
+		if completion.ReturnedState != state || completion.Code != "authorization-code" {
+			t.Fatalf("completion = %#v", completion)
+		}
+		return cpaembedded.CodexCredential{Type: "codex", AccessToken: "access", RefreshToken: "refresh", AccountID: "account-one", Email: "one@example.com"}, nil
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	callbackURL := "http://localhost:1455/auth/callback?code=authorization-code&state=" + url.QueryEscape(state)
+
+	mismatched := postManualOAuthCallback(engine, second.StageID, callbackURL)
+	if mismatched.Code != http.StatusBadRequest {
+		t.Fatalf("mismatched callback = %d %s", mismatched.Code, mismatched.Body)
+	}
+	completed := postManualOAuthCallback(engine, first.StageID, callbackURL)
+	if completed.Code != http.StatusOK || !strings.Contains(completed.Body.String(), `"status":"ready"`) || strings.Contains(completed.Body.String(), "access") {
+		t.Fatalf("completed callback = %d %s", completed.Code, completed.Body)
+	}
+	replayed := postManualOAuthCallback(engine, first.StageID, callbackURL)
+	if replayed.Code != http.StatusBadRequest {
+		t.Fatalf("replayed callback = %d %s", replayed.Code, replayed.Body)
+	}
+	remaining, err := fixture.service.GetCredentialStage(t.Context(), second.StageID)
+	if err != nil || remaining.Status != string(models.CredentialStagePendingAuthorization) {
+		t.Fatalf("second stage = %#v, %v", remaining, err)
+	}
+}
+
+func TestParseManualOAuthCallbackURLRequiresFixedLocalCallback(t *testing.T) {
+	valid := "http://localhost:1455/auth/callback?code=authorization-code&state=state-one"
+	parsed, err := parseManualOAuthCallbackURL(valid)
+	if err != nil || parsed.Code != "authorization-code" || parsed.State != "state-one" {
+		t.Fatalf("valid callback = %#v, %v", parsed, err)
+	}
+	for _, callbackURL := range []string{
+		"https://localhost:1455/auth/callback?code=authorization-code&state=state-one",
+		"http://127.0.0.1:1455/auth/callback?code=authorization-code&state=state-one",
+		"http://localhost:1456/auth/callback?code=authorization-code&state=state-one",
+		"http://localhost:1455/other?code=authorization-code&state=state-one",
+		"http://user@localhost:1455/auth/callback?code=authorization-code&state=state-one",
+		"http://localhost:1455/auth/callback?code=authorization-code&state=state-one#fragment",
+		"http://localhost:1455/auth/callback?code=authorization-code&state=one&state=two",
+	} {
+		if _, err := parseManualOAuthCallbackURL(callbackURL); err == nil {
+			t.Fatalf("parseManualOAuthCallbackURL(%q) succeeded", callbackURL)
+		}
+	}
+}
+
+func postManualOAuthCallback(engine *gin.Engine, stageID string, callbackURL string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(map[string]string{"callback_url": callbackURL})
+	request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/"+stageID+"/oauth-callback", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	return response
 }
 
 func TestOAuthFileImportRouteStreamsOneFileIntoReadyStage(t *testing.T) {
@@ -107,7 +203,7 @@ func TestOAuthFileImportRouteStreamsOneFileIntoReadyStage(t *testing.T) {
 
 func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 	fixture := newServiceFixture(t)
-	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), "openai")
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,14 +227,12 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
 
-	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&code=authorization-code"
-	response, err := http.Get(callbackURL) // #nosec G107 -- local test listener
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
+	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&code=authorization-code&iss=" + url.QueryEscape("https://auth.openai.com")
+	response, body := getOAuthCallbackResponse(t, callbackURL)
+	contentSecurityPolicy := response.Header.Get("Content-Security-Policy")
 	if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" ||
-		response.Header.Get("Referrer-Policy") != "no-referrer" || response.Header.Get("Content-Security-Policy") == "" {
+		response.Header.Get("Referrer-Policy") != "no-referrer" || !strings.Contains(contentSecurityPolicy, "script-src 'sha256-") ||
+		response.Header.Get("Location") != "" || !strings.Contains(body, "授权成功") || !strings.Contains(body, "关闭并返回") {
 		t.Fatalf("callback response = %d %#v", response.StatusCode, response.Header)
 	}
 	completed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
@@ -149,7 +243,7 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 
 func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 	fixture := newServiceFixture(t)
-	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), "openai")
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,13 +266,10 @@ func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
 
 	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&error=access_denied"
-	response, err := http.Get(callbackURL) // #nosec G107 -- local test listener
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("callback status = %d", response.StatusCode)
+	response, body := getOAuthCallbackResponse(t, callbackURL)
+	if response.StatusCode != http.StatusOK || response.Header.Get("Location") != "" ||
+		!strings.Contains(body, "授权失败") || !strings.Contains(body, "关闭并返回") {
+		t.Fatalf("callback response = %d %#v", response.StatusCode, response.Header)
 	}
 	failed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
 	if err != nil {
@@ -187,6 +278,23 @@ func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 	if failed.Status != string(models.CredentialStageFailed) {
 		t.Fatalf("status = %q, want failed", failed.Status)
 	}
+}
+
+func getOAuthCallbackResponse(t *testing.T, callbackURL string) (*http.Response, string) {
+	t.Helper()
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	response, err := client.Get(callbackURL) // #nosec G107 -- local test listener
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response, string(body)
 }
 
 func TestNewServerConfiguresOAuthCallbackForWildcardContainerHost(t *testing.T) {

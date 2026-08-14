@@ -152,11 +152,8 @@ func (s *Service) normalizeGroupCreate(
 	if s == nil || s.channelRegistry == nil || request.ChannelID == "" {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
-	connectionType := request.ConnectionType
-	if connectionType == "" {
-		connectionType = models.ConnectionTypeAPIKey
-	}
-	if !s.channelRegistry.SupportsConnectionType(request.ChannelID, string(connectionType)) {
+	connectionType, err := s.resolveChannelConnectionType(request.ChannelID, request.ConnectionType)
+	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
 	if connectionType == models.ConnectionTypeAPIKey {
@@ -249,6 +246,24 @@ func (s *Service) normalizeGroupCreate(
 		stagedCredentialIDs: stagedCredentialIDs,
 		confirmSameTarget:   request.ConfirmSameTarget,
 	}, nil
+}
+
+func (s *Service) resolveChannelConnectionType(
+	channelID channel.ID,
+	requested models.ConnectionType,
+) (models.ConnectionType, error) {
+	if s == nil || s.channelRegistry == nil {
+		return "", app_errors.ErrValidation
+	}
+	expected, ok := s.channelRegistry.ConnectionType(channelID)
+	if !ok {
+		return "", app_errors.ErrValidation
+	}
+	connectionType := models.ConnectionType(expected)
+	if requested != "" && requested != connectionType {
+		return "", app_errors.ErrValidation
+	}
+	return connectionType, nil
 }
 
 func normalizeGroupSettings(settings config.Settings) (config.Settings, models.JSON, error) {

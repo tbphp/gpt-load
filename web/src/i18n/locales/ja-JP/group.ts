@@ -67,7 +67,6 @@ export default {
     copyUpstreamUrl: 'アップストリームアドレス {url} をコピー',
     copySuccess: 'コピーしました',
     copyFailure: 'コピーできませんでした',
-    connectionType: { api_key: 'API キー', subscription: 'サブスクリプション' },
     modelEditor: {
       title: 'モデルとエイリアス',
       description:
@@ -365,22 +364,17 @@ export default {
       subscription: {
         connect: 'サブスクリプションを接続',
         connectDescription:
-          'ブラウザー OAuth または認証ファイルのインポート完了後、一時アカウントをこの Group に保存します。',
+          'ブラウザー OAuth または OAuth JSON のインポート完了後、一時アカウントをこの Group に保存します。',
         confirmConnect: 'アカウントを追加',
         connectFailed: 'この Group にサブスクリプションアカウントを追加できません',
         reauthorize: '再認証',
         confirmReauthorize: '認証を更新',
         reauthorizeFailed: 'このアカウントの認証を更新できません',
-        manage: 'アカウント管理',
         sync: '上流情報を同期',
         syncFailed: 'サブスクリプション情報を同期できません',
-        drawerTitle: 'サブスクリプションアカウント',
-        drawerDescription: '認証、動的利用枠、ランタイム状態を管理します',
         account: 'アカウント',
         plan: 'プラン',
         resetCredits: '利用可能なリセット回数',
-        authLabel: '認証状態',
-        quotaSummary: '利用枠の概要',
         quotas: '使用制限',
         noQuota: '上流から表示可能な利用枠が提供されていません',
         modelConstraints: 'モデル固有の制限',
@@ -390,7 +384,11 @@ export default {
         resetAt: 'リセット',
         syncInfo: '同期情報',
         observedAt: '最終成功同期',
+        freshUntil: '情報の有効期限',
+        lastAttempt: '最終同期試行',
         nextAllowed: '次回同期可能時刻',
+        observationVersion: '情報バージョン',
+        lastError: '最終同期エラー',
         auth: {
           ready: '認証済み',
           refreshing: '認証情報を更新中',

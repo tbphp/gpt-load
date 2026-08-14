@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, RefreshCw, RotateCcw, SlidersHorizontal, Trash2 } from '@lucide/vue'
+import { ChevronDown, RotateCcw, SlidersHorizontal, Trash2 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -14,6 +14,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatLocalInstant } from '@/lib/format'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
+import SubscriptionCredentialDetails from './SubscriptionCredentialDetails.vue'
 
 const props = defineProps<{
   item: CredentialItemDto
@@ -32,7 +33,7 @@ const emit = defineEmits<{
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
   refresh: [item: CredentialItemDto]
-  manage: [item: CredentialItemDto]
+  reauthorize: [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t } = useI18n()
@@ -275,26 +276,6 @@ function saveWeight(): void {
           }}
         </AppButton>
         <IconButton
-          v-if="item.connection_type === 'subscription'"
-          variant="ghost"
-          tone="action"
-          size="compact"
-          :label="t('group.credentials.subscription.sync')"
-          :disabled="busy"
-          @click="emit('refresh', item)"
-        >
-          <RefreshCw :size="15" aria-hidden="true" />
-        </IconButton>
-        <AppButton
-          v-if="item.connection_type === 'subscription'"
-          variant="secondary"
-          size="compact"
-          :disabled="busy"
-          @click="emit('manage', item)"
-        >
-          {{ t('group.credentials.subscription.manage') }}
-        </AppButton>
-        <IconButton
           v-if="isProblem"
           variant="ghost"
           tone="success"
@@ -340,27 +321,16 @@ function saveWeight(): void {
           class="ledger-record-list__cell group-credential-record__details"
           role="cell"
           :aria-hidden="!expanded"
+          :inert="!expanded || undefined"
         >
-          <dl>
-            <template v-if="item.connection_type === 'subscription'">
-              <div>
-                <dt>{{ t('group.credentials.subscription.authLabel') }}</dt>
-                <dd>{{ t(`group.credentials.subscription.auth.${item.auth_state}`) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('group.credentials.subscription.plan') }}</dt>
-                <dd>
-                  {{
-                    item.observation?.snapshot?.plan_summary.name ||
-                    t('group.credentials.subscription.unknown')
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('group.credentials.subscription.quotaSummary') }}</dt>
-                <dd>{{ entitlementLabel }}</dd>
-              </div>
-            </template>
+          <SubscriptionCredentialDetails
+            v-if="item.connection_type === 'subscription'"
+            :item="item"
+            :busy="busy"
+            @refresh="emit('refresh', $event)"
+            @reauthorize="emit('reauthorize', $event)"
+          />
+          <dl class="group-credential-record__runtime-details">
             <div>
               <dt>{{ t('group.credentials.detailsFailure') }}</dt>
               <dd>{{ failureLabel }}</dd>
@@ -469,6 +439,8 @@ function saveWeight(): void {
 }
 
 .group-credential-record__details {
+  display: grid;
+  gap: var(--space-4);
   min-width: 0;
   border-top: 1px solid var(--color-border-subtle);
   background: var(--color-surface-sunken);

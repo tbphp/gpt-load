@@ -12,7 +12,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 
-const FEATURED_CHANNEL_IDS = ['openai', 'anthropic', 'gemini', 'openai_compatible']
+const FEATURED_CHANNEL_IDS = ['openai', 'codex', 'anthropic', 'gemini', 'openai_compatible']
 
 const props = defineProps<{
   modelValue: string | null

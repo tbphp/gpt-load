@@ -30,7 +30,6 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
@@ -211,21 +210,8 @@ const credentialCount = computed(() =>
     ? readyStages.value.length
     : credentialAnalysis.value.nonEmptyCount,
 )
-const selectedConnection = computed(() =>
-  selectedChannel.value?.connection_types.find(({ id }) => id === draft.connection_type),
-)
-const connectionOptions = computed(() =>
-  (selectedChannel.value?.connection_types ?? []).map(({ id }) => ({
-    value: id,
-    label: t(`import.connectionType.${id}`),
-    disabled: payloadLocked.value,
-  })),
-)
-const connectionChannel = computed<ChannelDto | null>(() =>
-  selectedChannel.value && draft.connection_type === 'subscription'
-    ? { ...selectedChannel.value, param_fields: [] }
-    : selectedChannel.value,
-)
+const selectedConnection = computed(() => selectedChannel.value?.connection_types[0] ?? null)
+const connectionChannel = computed<ChannelDto | null>(() => selectedChannel.value)
 const paramErrors = computed<Record<string, string>>(() => {
   const errors: Record<string, string> = {}
   const channel = connectionChannel.value
@@ -471,9 +457,24 @@ watch(
     const channel = channels[0]
     cancelDefaultChannel()
     draft.channel_id = channel.channel_id
+    draft.connection_type = channel.connection_types[0]!.id
     draft.params = initialChannelParams(channel)
     defaultDraft.channel_id = channel.channel_id
+    defaultDraft.connection_type = channel.connection_types[0]!.id
     defaultDraft.params = initialChannelParams(channel)
+  },
+  { immediate: true },
+)
+
+watch(
+  selectedChannel,
+  (channel) => {
+    if (!channel || payloadLocked.value) return
+    const connectionType = channel.connection_types[0]!.id
+    if (draft.connection_type === connectionType) return
+    draft.connection_type = connectionType
+    draft.params = initialChannelParams(channel)
+    baseUrlOverrideEnabled.value = false
   },
   { immediate: true },
 )
@@ -496,21 +497,10 @@ function selectChannel(channel: ChannelDto): void {
   cancelDefaultChannel()
   selectedChannelCache.value = channel
   draft.channel_id = channel.channel_id
-  if (!channel.connection_types.some(({ id }) => id === draft.connection_type)) {
-    draft.connection_type = 'api_key'
-  }
+  draft.connection_type = channel.connection_types[0]!.id
   draft.params = initialChannelParams(channel)
   baseUrlOverrideEnabled.value = false
   setPanel(undefined)
-}
-
-function setConnectionType(value: string): void {
-  if (payloadLocked.value || (value !== 'api_key' && value !== 'subscription')) return
-  if (!selectedChannel.value?.connection_types.some(({ id }) => id === value)) return
-  draft.connection_type = value
-  draft.params = value === 'subscription' ? {} : initialChannelParams(selectedChannel.value)
-  baseUrlOverrideEnabled.value = false
-  invalidateDiscovery()
 }
 
 function setChannelParam(key: string, value: string): void {
@@ -938,24 +928,6 @@ onBeforeUnmount(() => {
       @retry="retryChannels"
     />
 
-    <section
-      v-if="connectionOptions.length > 1"
-      class="new-group-import__connection-type"
-      aria-labelledby="connection-type-heading"
-    >
-      <div>
-        <h2 id="connection-type-heading">{{ t('import.connectionType.title') }}</h2>
-        <p>{{ t('import.connectionType.description') }}</p>
-      </div>
-      <SegmentedControl
-        :model-value="draft.connection_type"
-        :label="t('import.connectionType.title')"
-        :options="connectionOptions"
-        size="sm"
-        @update:model-value="setConnectionType"
-      />
-    </section>
-
     <ImportConnectionSection
       :channel="connectionChannel"
       :name="draft.name"
@@ -1121,32 +1093,6 @@ onBeforeUnmount(() => {
   margin-top: var(--space-5);
 }
 
-.new-group-import__connection-type {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: 18px 0;
-}
-
-.new-group-import__connection-type h2,
-.new-group-import__connection-type p {
-  margin: 0;
-}
-
-.new-group-import__connection-type h2 {
-  font-size: var(--title-section);
-  font-weight: 650;
-}
-
-.new-group-import__connection-type p {
-  margin-top: 3px;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-}
-
 .new-group-import__models {
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
@@ -1254,10 +1200,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 860px) {
-  .new-group-import__connection-type {
-    align-items: stretch;
-    flex-direction: column;
-  }
   .new-group-import__actions {
     align-items: stretch;
     flex-direction: column;

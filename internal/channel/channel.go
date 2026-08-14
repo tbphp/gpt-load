@@ -20,6 +20,7 @@ type ID string
 
 const (
 	OpenAI           ID = "openai"
+	Codex            ID = "codex"
 	Anthropic        ID = "anthropic"
 	Gemini           ID = "gemini"
 	AzureOpenAI      ID = "azure_openai"
@@ -55,8 +56,8 @@ type FieldDescriptor struct {
 	Sensitive bool      `json:"sensitive"`
 }
 
-// ConnectionTypeDescriptor describes a product-visible authentication mode.
-// Runtime executor names are intentionally absent.
+// ConnectionTypeDescriptor describes the code-owned credential flow used by a
+// channel. The UI consumes it internally and does not expose a mode selector.
 type ConnectionTypeDescriptor struct {
 	ID                   string   `json:"id"`
 	CredentialInput      string   `json:"credential_input"`
@@ -339,6 +340,17 @@ func (r *Registry) SupportsConnectionType(id ID, connectionType string) bool {
 		}
 	}
 	return false
+}
+
+// ConnectionType returns the single code-owned connection type for a channel.
+// Connection type remains runtime metadata; callers must not treat it as a
+// user-selectable option.
+func (r *Registry) ConnectionType(id ID) (string, bool) {
+	descriptor, ok := r.Get(id)
+	if !ok || len(descriptor.ConnectionTypes) != 1 {
+		return "", false
+	}
+	return descriptor.ConnectionTypes[0].ID, true
 }
 
 // ValidateParams validates and normalizes the channel parameter object.

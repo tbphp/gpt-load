@@ -474,7 +474,7 @@ func TestHealthProblemMaskUsesSafeSubscriptionAccountIdentity(t *testing.T) {
 	fixture := newServiceFixture(t)
 	ciphertext := encryptHealthKey(t, fixture,
 		`{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret","account_id":"account-one","email":"owner@example.com"}`)
-	mask, err := fixture.service.healthProblemMask(map[uint]string{1: ciphertext}, 1, channel.OpenAI, "subscription")
+	mask, err := fixture.service.healthProblemMask(map[uint]string{1: ciphertext}, 1, channel.Codex, "subscription")
 	if err != nil {
 		t.Fatal(err)
 	}

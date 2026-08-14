@@ -2,11 +2,15 @@ package control
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +20,24 @@ import (
 )
 
 const defaultOAuthCallbackAddress = "127.0.0.1:1455"
+
+const oauthResultScript = `const button = document.getElementById("close-and-return")
+const hint = document.getElementById("close-hint")
+button.addEventListener("click", () => {
+  if (window.opener && !window.opener.closed) window.opener.focus()
+  window.close()
+  window.setTimeout(() => {
+    hint.hidden = false
+    button.disabled = true
+    button.textContent = "请手动关闭此页面"
+  }, 100)
+})`
+
+type oauthCallbackParameters struct {
+	State         string
+	Code          string
+	ProviderError string
+}
 
 // OAuthCallbackServer owns the fixed localhost callback required by Codex's
 // OAuth client. It is deliberately separate from the authenticated /api server.
@@ -124,54 +146,128 @@ func (server *OAuthCallbackServer) serveHTTP(writer http.ResponseWriter, request
 		http.Error(writer, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	switch request.URL.Path {
-	case "/auth/result/success":
-		writeOAuthResult(writer, true)
-		return
-	case "/auth/result/failure":
-		writeOAuthResult(writer, false)
-		return
-	case "/auth/callback":
-	default:
+	if request.URL.Path != "/auth/callback" {
 		http.NotFound(writer, request)
 		return
 	}
-	query := request.URL.Query()
+	callback, err := parseOAuthCallbackQuery(request.URL.Query())
+	if err != nil {
+		writeOAuthResult(writer, false)
+		return
+	}
+	if callback.ProviderError != "" {
+		_ = server.service.FailCredentialAuthorization(request.Context(), callback.State, callback.ProviderError)
+		writeOAuthResult(writer, false)
+		return
+	}
+	if _, err := server.service.CompleteCredentialAuthorization(request.Context(), callback.State, callback.Code); err != nil {
+		writeOAuthResult(writer, false)
+		return
+	}
+	writeOAuthResult(writer, true)
+}
+
+func parseManualOAuthCallbackURL(raw string) (oauthCallbackParameters, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 16*1024 {
+		return oauthCallbackParameters{}, errors.New("invalid OAuth callback URL")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || !parsed.IsAbs() || !strings.EqualFold(parsed.Scheme, "http") ||
+		parsed.User != nil || parsed.Fragment != "" || !strings.EqualFold(parsed.Hostname(), "localhost") ||
+		parsed.Port() != "1455" || parsed.EscapedPath() != "/auth/callback" {
+		return oauthCallbackParameters{}, errors.New("invalid OAuth callback URL")
+	}
+	return parseOAuthCallbackQuery(parsed.Query())
+}
+
+func parseOAuthCallbackQuery(query url.Values) (oauthCallbackParameters, error) {
 	stateValues, codeValues, errorValues := query["state"], query["code"], query["error"]
-	if len(stateValues) != 1 || stateValues[0] == "" {
-		http.Redirect(writer, request, "/auth/result/failure", http.StatusSeeOther)
-		return
+	if len(stateValues) != 1 || strings.TrimSpace(stateValues[0]) == "" {
+		return oauthCallbackParameters{}, errors.New("invalid OAuth callback state")
 	}
-	if len(errorValues) == 1 && errorValues[0] != "" && len(codeValues) == 0 {
-		_ = server.service.FailCredentialAuthorization(request.Context(), stateValues[0], errorValues[0])
-		http.Redirect(writer, request, "/auth/result/failure", http.StatusSeeOther)
-		return
+	if len(errorValues) == 1 && strings.TrimSpace(errorValues[0]) != "" && len(codeValues) == 0 {
+		if descriptions := query["error_description"]; len(descriptions) > 1 {
+			return oauthCallbackParameters{}, errors.New("invalid OAuth callback error")
+		}
+		return oauthCallbackParameters{State: stateValues[0], ProviderError: errorValues[0]}, nil
 	}
-	if len(codeValues) != 1 || codeValues[0] == "" || len(errorValues) != 0 {
-		http.Redirect(writer, request, "/auth/result/failure", http.StatusSeeOther)
-		return
+	if len(codeValues) != 1 || strings.TrimSpace(codeValues[0]) == "" || len(errorValues) != 0 || len(query["error_description"]) != 0 {
+		return oauthCallbackParameters{}, errors.New("invalid OAuth callback code")
 	}
-	if _, err := server.service.CompleteCredentialAuthorization(request.Context(), stateValues[0], codeValues[0]); err != nil {
-		http.Redirect(writer, request, "/auth/result/failure", http.StatusSeeOther)
-		return
-	}
-	http.Redirect(writer, request, "/auth/result/success", http.StatusSeeOther)
+	return oauthCallbackParameters{State: stateValues[0], Code: codeValues[0]}, nil
 }
 
 func setOAuthCallbackHeaders(writer http.ResponseWriter) {
+	scriptHash := sha256.Sum256([]byte(oauthResultScript))
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("Pragma", "no-cache")
 	writer.Header().Set("Referrer-Policy", "no-referrer")
-	writer.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	writer.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-"+base64.StdEncoding.EncodeToString(scriptHash[:])+"'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	writer.Header().Set("X-Content-Type-Options", "nosniff")
 }
 
 func writeOAuthResult(writer http.ResponseWriter, success bool) {
-	title, message := "授权失败", "未能连接订阅账号，请关闭此窗口后重试。"
+	stateClass := "failure"
+	title := "授权失败"
+	message := "未能连接订阅账号，请返回 GPT-Load 后重试。"
+	icon := `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8M16 8l-8 8"/></svg>`
 	if success {
-		title, message = "授权成功", "订阅账号已连接，可以关闭此窗口返回 GPT-Load。"
+		stateClass = "success"
+		title = "授权成功"
+		message = "订阅账号已连接，可以关闭此窗口返回 GPT-Load。"
+		icon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 12.5 3.5 3.5 7.5-8"/></svg>`
 	}
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.Header().Set("Content-Language", "zh-CN")
 	writer.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(writer, "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+title+"</title><style>body{font-family:system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f6f7f9;color:#1f2937}.card{max-width:30rem;margin:1rem;padding:2rem;border:1px solid #dfe3e8;border-radius:12px;background:white;box-shadow:0 8px 24px #0000000d}h1{font-size:1.25rem;margin:0 0 .75rem}p{margin:0;line-height:1.6;color:#5b6472}</style><main class=\"card\"><h1>"+title+"</h1><p>"+message+"</p></main></html>")
+	page := `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>` + title + `</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: #f5f7fb; color: #172033; }
+    .shell { width: min(100%, 34rem); padding: 1.5rem; }
+    .card { padding: clamp(1.75rem, 6vw, 2.75rem); text-align: center; background: #fff; border: 1px solid #dfe4ec; border-radius: 1.25rem; }
+    .status-icon { display: grid; place-items: center; width: 3.75rem; height: 3.75rem; margin: 0 auto 1.25rem; border-radius: 999px; }
+    .status-icon svg { width: 1.75rem; height: 1.75rem; fill: none; stroke: currentColor; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
+    .success .status-icon { color: #15803d; background: #dcfce7; }
+    .failure .status-icon { color: #b42318; background: #fee4e2; }
+    .eyebrow { margin: 0 0 .5rem; color: #64748b; font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(1.6rem, 5vw, 2rem); line-height: 1.25; letter-spacing: -.02em; }
+    .message { max-width: 27rem; margin: 1rem auto 0; color: #475569; font-size: 1rem; line-height: 1.7; }
+    .url-note { margin: .75rem 0 0; color: #64748b; font-size: .875rem; line-height: 1.6; }
+    .actions { margin-top: 1.75rem; }
+    .close-button { min-width: 11rem; min-height: 3rem; padding: .75rem 1.25rem; border: 0; border-radius: .75rem; color: #fff; background: #2563eb; font: inherit; font-weight: 650; cursor: pointer; transition: background-color .18s ease; }
+    .close-button:hover { background: #1d4ed8; }
+    .close-button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+    .close-button:disabled { cursor: default; background: #64748b; }
+    .close-hint { margin: .75rem 0 0; color: #64748b; font-size: .8125rem; line-height: 1.5; }
+    [hidden] { display: none; }
+    @media (max-width: 30rem) { .shell { padding: 1rem; } .card { border-radius: 1rem; } }
+    @media (prefers-reduced-motion: reduce) { .close-button { transition: none; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="card ` + stateClass + `" aria-labelledby="result-title" aria-describedby="result-message">
+      <div class="status-icon">` + icon + `</div>
+      <p class="eyebrow">Codex OAuth</p>
+      <h1 id="result-title">` + title + `</h1>
+      <p id="result-message" class="message">` + message + `</p>
+      <p class="url-note">当前回调 URL 已保留在浏览器地址栏中。</p>
+      <div class="actions">
+        <button id="close-and-return" class="close-button" type="button">关闭并返回</button>
+        <p id="close-hint" class="close-hint" hidden>浏览器未允许自动关闭，请手动关闭此页面并返回 GPT-Load。</p>
+      </div>
+    </section>
+  </main>
+  <script>` + oauthResultScript + `</script>
+</body>
+</html>`
+	_, _ = io.WriteString(writer, page)
 }

@@ -59,6 +59,13 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.credential-stages.get", http.MethodGet, "/credential-stages/:stage_id", s.handleGetCredentialStage),
 			controlRoute(
+				"control.credential-stages.oauth-callback",
+				http.MethodPost,
+				"/credential-stages/:stage_id/oauth-callback",
+				s.auditMutation(newMutationDescriptor("credential_stage_oauth_callback", "credential_stage", credentialStageMutationLocator)),
+				s.handleCredentialAuthorizationCallback,
+			),
+			controlRoute(
 				"control.credential-stages.cancel",
 				http.MethodDelete,
 				"/credential-stages/:stage_id",

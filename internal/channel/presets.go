@@ -92,6 +92,11 @@ func builtinDefinitions() []definition {
 			true,
 		),
 		newDefinition(
+			Codex, "Codex", "CX", "openai", "OpenAI Codex subscription", []string{"subscription", "oauth", "chatgpt"},
+			nil, nil, "openai", ProviderOpenAI, false,
+			map[protocol.Protocol]bool{protocol.OpenAIResponses: true}, false,
+		),
+		newDefinition(
 			Anthropic, "Anthropic", "AN", "anthropic", "Anthropic official API", []string{"claude"},
 			baseURLOverrideParams, apiKeySchema, "anthropic", ProviderAnthropic, false,
 			map[protocol.Protocol]bool{protocol.Anthropic: true}, false,
@@ -148,17 +153,21 @@ func builtinDefinitions() []definition {
 		),
 	}
 	for index := range definitions {
+		if definitions[index].descriptor.ID == Codex {
+			for _, operations := range definitions[index].modes {
+				delete(operations, execution.OperationListModels)
+				delete(operations, execution.OperationProbe)
+			}
+			definitions[index].descriptor.ConnectionTypes = []ConnectionTypeDescriptor{{
+				ID: "subscription", CredentialInput: "authorization",
+				AuthorizationMethods: []string{"browser_oauth", "oauth_file"},
+			}}
+			continue
+		}
 		definitions[index].descriptor.ConnectionTypes = []ConnectionTypeDescriptor{{
 			ID: "api_key", CredentialInput: "batch_text",
 		}}
 	}
-	definitions[0].descriptor.ConnectionTypes = append(
-		definitions[0].descriptor.ConnectionTypes,
-		ConnectionTypeDescriptor{
-			ID: "subscription", CredentialInput: "authorization",
-			AuthorizationMethods: []string{"browser_oauth", "oauth_file"},
-		},
-	)
 	return definitions
 }
 

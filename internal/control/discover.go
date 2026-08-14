@@ -37,9 +37,12 @@ func (s *Service) DiscoverModels(
 	if s == nil || s.channelRegistry == nil || request.ChannelID == "" {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
-	connectionType := normalizeGroupConnectionType(request.ConnectionType)
+	connectionType, err := s.resolveChannelConnectionType(request.ChannelID, request.ConnectionType)
+	if err != nil {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
 	if connectionType == models.ConnectionTypeSubscription {
-		if request.ChannelID != channel.OpenAI || strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "" {
+		if request.ChannelID != channel.Codex || strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "" {
 			return ModelDiscoveryResult{}, app_errors.ErrValidation
 		}
 		return s.discoverSubscriptionStageModels(ctx, request.ChannelID, request.StagedCredentialID)

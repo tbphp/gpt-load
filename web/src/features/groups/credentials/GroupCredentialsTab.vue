@@ -39,7 +39,6 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
-import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -50,7 +49,6 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import CredentialBatchBar from './GroupCredentialBatchBar.vue'
 import CredentialRecord from './GroupCredentialRecord.vue'
-import SubscriptionCredentialDrawer from './SubscriptionCredentialDrawer.vue'
 import SubscriptionCredentialStager from '@/features/import/SubscriptionCredentialStager.vue'
 import {
   constrainCredentialSearch,
@@ -80,8 +78,8 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
-const managedCredential = ref<CredentialItemDto | null>(null)
-const connectionDrawerOpen = ref(false)
+const collapsedSubscriptionIds = ref(new Set<number>())
+const connectionWorkspaceOpen = ref(false)
 const connectionStages = ref<CredentialStage[]>([])
 const reauthorizationTarget = ref<CredentialItemDto | null>(null)
 const connectOperationKey = ref<string>()
@@ -186,6 +184,15 @@ watch(
   },
 )
 watch(
+  () => props.groupId,
+  () => {
+    collapsedSubscriptionIds.value = new Set()
+    connectionWorkspaceOpen.value = false
+    connectionStages.value = []
+    reauthorizationTarget.value = null
+  },
+)
+watch(
   () => [
     props.groupId,
     filters.value.page,
@@ -249,10 +256,22 @@ function setPageSize(pageSize: 20 | 50 | 100): void {
   setFilter({ page_size: pageSize })
 }
 function setExpanded(id: number, expanded: boolean): void {
+  if (props.connectionType === 'subscription') {
+    const next = new Set(collapsedSubscriptionIds.value)
+    if (expanded) next.delete(id)
+    else next.add(id)
+    collapsedSubscriptionIds.value = next
+    return
+  }
   const next = new Set(routeState.value.expandedCredentialIDs)
   if (expanded) next.add(id)
   else next.delete(id)
   updateRoute(filters.value, false, { ...routeState.value, expandedCredentialIDs: [...next] })
+}
+function credentialExpanded(id: number): boolean {
+  return props.connectionType === 'subscription'
+    ? !collapsedSubscriptionIds.value.has(id)
+    : routeState.value.expandedCredentialIDs.includes(id)
 }
 function setWeightEditor(id: number, open: boolean): void {
   updateRoute(filters.value, false, {
@@ -388,8 +407,6 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
     )
     const next = { ...item, observation }
     await reconcileItem(next, false)
-    if (managedCredential.value?.credential_id === item.credential_id)
-      managedCredential.value = next
   } catch {
     feedback.value = t('group.credentials.subscription.syncFailed')
   } finally {
@@ -397,19 +414,17 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
   }
 }
 
-function openConnectionDrawer(target?: CredentialItemDto): void {
-  managedCredential.value = null
+function openConnectionWorkspace(target?: CredentialItemDto): void {
   connectionStages.value = []
   reauthorizationTarget.value = target ?? null
   connectOperationKey.value = undefined
-  connectionDrawerOpen.value = true
+  connectionWorkspaceOpen.value = true
 }
 
-function setConnectionDrawer(open: boolean): void {
+function setConnectionWorkspace(open: boolean): void {
   if (!open && singleBusy.value) return
-  connectionDrawerOpen.value = open
+  connectionWorkspaceOpen.value = open
   if (!open) {
-    managedCredential.value = null
     connectionStages.value = []
     reauthorizationTarget.value = null
     connectOperationKey.value = undefined
@@ -434,9 +449,6 @@ async function saveConnectedAccounts(): Promise<void> {
         (connectOperationKey.value ??= crypto.randomUUID()),
       )
       await reconcileItem(result, true)
-      if (managedCredential.value?.credential_id === target.credential_id) {
-        managedCredential.value = result
-      }
     } else {
       connectOperationKey.value ??= crypto.randomUUID()
       await connectGroupCredentials(
@@ -461,7 +473,7 @@ async function saveConnectedAccounts(): Promise<void> {
     )
   } finally {
     setPending(target?.credential_id ?? 0, target ? 'reauthorize' : 'connect', false)
-    if (succeeded) setConnectionDrawer(false)
+    if (succeeded) setConnectionWorkspace(false)
   }
 }
 
@@ -481,6 +493,9 @@ async function reconcileBatch(
 
 function clearDeletedRouteState(ids: readonly number[]): void {
   const deleted = new Set(ids)
+  collapsedSubscriptionIds.value = new Set(
+    [...collapsedSubscriptionIds.value].filter((id) => !deleted.has(id)),
+  )
   const next: CredentialRouteState = {
     expandedCredentialIDs: routeState.value.expandedCredentialIDs.filter((id) => !deleted.has(id)),
     weightCredentialID:
@@ -593,7 +608,7 @@ async function runBatch(
   >
     <PanelHeader heading-id="group-credentials-heading" :title="t('group.credentials.title')">
       <template #actions>
-        <AppButton v-if="connectionType === 'subscription'" @click="openConnectionDrawer()">
+        <AppButton v-if="connectionType === 'subscription'" @click="openConnectionWorkspace()">
           <Plus :size="16" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
         </AppButton>
         <RouterLink
@@ -608,6 +623,53 @@ async function runBatch(
         </RouterLink>
       </template>
     </PanelHeader>
+
+    <section
+      v-if="connectionType === 'subscription' && connectionWorkspaceOpen"
+      class="group-credentials__connection-workspace"
+      aria-labelledby="subscription-connection-heading"
+    >
+      <header>
+        <div>
+          <h3 id="subscription-connection-heading">
+            {{
+              reauthorizationTarget
+                ? t('group.credentials.subscription.reauthorize')
+                : t('group.credentials.subscription.connect')
+            }}
+          </h3>
+          <p>{{ t('group.credentials.subscription.connectDescription') }}</p>
+        </div>
+        <AppButton
+          variant="ghost"
+          size="compact"
+          :disabled="singleBusy"
+          @click="setConnectionWorkspace(false)"
+        >
+          {{ t('common.close') }}
+        </AppButton>
+      </header>
+      <SubscriptionCredentialStager
+        v-model="connectionStages"
+        compact
+        :single="reauthorizationTarget !== null"
+        :disabled="singleBusy"
+      />
+      <footer>
+        <AppButton
+          size="compact"
+          :busy="singleBusy"
+          :disabled="!connectionStages.some(({ status }) => status === 'ready')"
+          @click="saveConnectedAccounts"
+        >
+          {{
+            reauthorizationTarget
+              ? t('group.credentials.subscription.confirmReauthorize')
+              : t('group.credentials.subscription.confirmConnect')
+          }}
+        </AppButton>
+      </footer>
+    </section>
 
     <AsyncRefreshIndicator :active="collectionRefreshing" :label="t('group.credentials.loading')" />
 
@@ -697,7 +759,7 @@ async function runBatch(
       >
         <template #icon><KeyRound :size="20" /></template>
         <template #actions>
-          <AppButton v-if="connectionType === 'subscription'" @click="openConnectionDrawer()">
+          <AppButton v-if="connectionType === 'subscription'" @click="openConnectionWorkspace()">
             <Plus :size="15" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
           </AppButton>
           <RouterLink
@@ -775,7 +837,7 @@ async function runBatch(
             "
             :selected="selectedIds.has(item.credential_id)"
             :busy="rowBusy(item.credential_id)"
-            :expanded="routeState.expandedCredentialIDs.includes(item.credential_id)"
+            :expanded="credentialExpanded(item.credential_id)"
             :weight-editor-open="routeState.weightCredentialID === item.credential_id"
             :resolve-copy-value="resolveCopyValue"
             @update:selected="setSelected(item.credential_id, $event)"
@@ -785,7 +847,7 @@ async function runBatch(
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
             @refresh="refreshObservation"
-            @manage="managedCredential = $event"
+            @reauthorize="openConnectionWorkspace"
             @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
           />
         </LedgerRecordList>
@@ -826,57 +888,6 @@ async function runBatch(
       @update:open="!$event && (deleteTarget = undefined)"
       @confirm="confirmDelete"
     />
-    <SubscriptionCredentialDrawer
-      :open="managedCredential !== null"
-      :item="managedCredential"
-      :busy="managedCredential ? rowBusy(managedCredential.credential_id) : false"
-      @update:open="!$event && (managedCredential = null)"
-      @refresh="refreshObservation"
-      @reauthorize="openConnectionDrawer"
-    />
-    <AppDrawer
-      :open="connectionDrawerOpen"
-      appearance="ledger"
-      :title="
-        reauthorizationTarget
-          ? t('group.credentials.subscription.reauthorize')
-          : t('group.credentials.subscription.connect')
-      "
-      :description="t('group.credentials.subscription.connectDescription')"
-      show-description
-      :dismissible="!singleBusy"
-      :close-label="t('common.close')"
-      @update:open="setConnectionDrawer"
-    >
-      <SubscriptionCredentialStager
-        v-model="connectionStages"
-        compact
-        :single="reauthorizationTarget !== null"
-        :disabled="singleBusy"
-      />
-      <template #footer>
-        <AppButton
-          variant="secondary"
-          size="compact"
-          :disabled="singleBusy"
-          @click="setConnectionDrawer(false)"
-        >
-          {{ t('common.cancel') }}
-        </AppButton>
-        <AppButton
-          size="compact"
-          :busy="singleBusy"
-          :disabled="!connectionStages.some(({ status }) => status === 'ready')"
-          @click="saveConnectedAccounts"
-        >
-          {{
-            reauthorizationTarget
-              ? t('group.credentials.subscription.confirmReauthorize')
-              : t('group.credentials.subscription.confirmConnect')
-          }}
-        </AppButton>
-      </template>
-    </AppDrawer>
   </section>
 </template>
 
@@ -894,6 +905,40 @@ async function runBatch(
   background: var(--color-danger-bg);
   color: var(--color-text);
   padding: var(--space-3);
+}
+.group-credentials__connection-workspace {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-sunken);
+  padding: var(--space-4);
+}
+.group-credentials__connection-workspace > header,
+.group-credentials__connection-workspace > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.group-credentials__connection-workspace h3,
+.group-credentials__connection-workspace p {
+  margin: 0;
+}
+.group-credentials__connection-workspace h3 {
+  font-size: var(--title-section);
+  font-weight: 650;
+}
+.group-credentials__connection-workspace p {
+  margin-top: 3px;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+.group-credentials__connection-workspace > footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-3);
 }
 .group-credential-record-grid {
   --ledger-record-list-record-min-height: 52px;
@@ -936,12 +981,26 @@ async function runBatch(
   }
 }
 @media (max-width: 860px) {
+  .group-credentials__connection-workspace > header {
+    align-items: flex-start;
+  }
   .group-credential-record-grid {
     --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
   }
   .group-credentials__select-all label {
     width: var(--touch-target);
     height: var(--touch-target);
+  }
+}
+@media (max-width: 560px) {
+  .group-credentials__connection-workspace > header,
+  .group-credentials__connection-workspace > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .group-credentials__connection-workspace > footer :deep(.app-button) {
+    width: 100%;
+    min-height: var(--touch-target);
   }
 }
 @media (max-width: 800px) {

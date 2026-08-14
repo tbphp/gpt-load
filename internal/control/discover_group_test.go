@@ -319,7 +319,7 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-saved-models", "saved@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("saved subscription discovery"), ChannelID: channel.OpenAI,
+		Name: stringPointer("saved subscription discovery"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},

@@ -11,6 +11,7 @@ import (
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -201,7 +202,7 @@ func newSubscriptionCredentialFixture(t *testing.T) (serviceFixture, uint, uint)
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-observation", "observation@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("subscription observation"), ChannelID: "openai",
+		Name: stringPointer("subscription observation"), ChannelID: channel.Codex,
 		ConnectionType:      models.ConnectionTypeSubscription,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
 		StagedCredentialIDs: []string{stage.StageID},

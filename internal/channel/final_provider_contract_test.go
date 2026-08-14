@@ -13,6 +13,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 	registry := NewRegistry()
 	want := []ID{
 		OpenAI,
+		Codex,
 		Anthropic,
 		Gemini,
 		AzureOpenAI,

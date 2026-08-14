@@ -86,9 +86,10 @@ func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
 		writeServiceError(c, "begin_credential_authorization", mapControlJSONError(err))
 		return
 	}
-	if s.service.oauthCallback == nil || s.service.oauthCallback.EnsureStarted() != nil {
-		writeServiceError(c, "begin_credential_authorization", app_errors.ErrAuthorizationUnavailable)
-		return
+	if s.service.oauthCallback != nil {
+		if err := s.service.oauthCallback.EnsureStarted(); err != nil {
+			s.logger.WithField("event", "oauth.callback_start_failed").WithError(err).Warn("OAuth callback listener is unavailable; manual callback remains available")
+		}
 	}
 	result, err := s.service.BeginCredentialAuthorization(c.Request.Context(), channel.ID(request.ChannelID))
 	if err != nil {
@@ -96,6 +97,39 @@ func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
 		return
 	}
 	setMutationResourceLocator(c, "credential-stage:"+result.StageID)
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
+type credentialAuthorizationCallbackRequest struct {
+	CallbackURL string `json:"callback_url"`
+}
+
+func (s *Server) handleCredentialAuthorizationCallback(c *gin.Context) {
+	var request credentialAuthorizationCallbackRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "complete_credential_authorization", mapControlJSONError(err))
+		return
+	}
+	callback, err := parseManualOAuthCallbackURL(request.CallbackURL)
+	if err != nil {
+		writeServiceError(c, "complete_credential_authorization", app_errors.ErrValidation)
+		return
+	}
+	stageID := strings.TrimSpace(c.Param("stage_id"))
+	var result CredentialStageResult
+	if callback.ProviderError != "" {
+		err = s.service.failCredentialAuthorizationForStage(c.Request.Context(), stageID, callback.State, callback.ProviderError)
+		if err == nil {
+			result, err = s.service.GetCredentialStage(c.Request.Context(), stageID)
+		}
+	} else {
+		result, err = s.service.completeCredentialAuthorizationForStage(c.Request.Context(), stageID, callback.State, callback.Code)
+	}
+	if err != nil {
+		writeServiceError(c, "complete_credential_authorization", err)
+		return
+	}
 	setSecretResponseHeaders(c)
 	response.SuccessI18n(c, "common.success", result)
 }
@@ -139,7 +173,7 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 		writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 		return
 	}
-	result, err := s.service.ImportCredentialStage(c.Request.Context(), channel.OpenAI, raw)
+	result, err := s.service.ImportCredentialStage(c.Request.Context(), channel.Codex, raw)
 	clear(raw)
 	if err != nil {
 		writeServiceError(c, "import_credential_stage", err)

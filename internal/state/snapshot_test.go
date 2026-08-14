@@ -61,7 +61,7 @@ func TestCompileSubscriptionPublishesOnlyVerifiedCodexOperations(t *testing.T) {
 	snapshot, err := Compile(CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.OpenAI, ConnectionType: "subscription",
+			ID: 1, Name: "subscription", ChannelID: channel.Codex, ConnectionType: "subscription",
 			Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "gpt-5", Alias: "public"}}, Enabled: true,
 		}},
 	})

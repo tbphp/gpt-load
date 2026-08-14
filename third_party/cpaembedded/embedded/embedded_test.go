@@ -347,34 +347,56 @@ func TestCodexHTTPExecutorCanonicalFacadeExecutesOnce(t *testing.T) {
 	var _ HTTPExecutor = executor
 }
 
-func TestCodexHTTPExecutorCanonicalFacadeLoadsChatTranslator(t *testing.T) {
+func TestCodexHTTPExecutorLoadsSupportedClientTranslators(t *testing.T) {
 	t.Parallel()
-	var upstreamBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamBody, _ = io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2\",\"output\":[]}}\n\n")
-	}))
-	defer server.Close()
-	executor := NewCodexHTTPExecutor()
-	auth := NewCodexAuth("probe", CodexCredential{
-		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
-	}, server.URL)
-	_, _ = executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
-		Model: "gpt-5.2", Payload: []byte(`{"messages":[{"role":"user","content":"hello"}],"store":false}`), Format: sdktranslator.FormatOpenAI,
-	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAI, ResponseFormat: sdktranslator.FormatOpenAI})
-	if len(upstreamBody) == 0 {
-		t.Fatal("upstream body is empty")
+	tests := []struct {
+		name          string
+		format        sdktranslator.Format
+		payload       string
+		sourceField   string
+		responseField string
+	}{
+		{name: "OpenAI chat", format: sdktranslator.FormatOpenAI, payload: `{"messages":[{"role":"user","content":"hello"}],"store":false}`, sourceField: "messages", responseField: "choices"},
+		{name: "Anthropic", format: sdktranslator.FormatClaude, payload: `{"messages":[{"role":"user","content":"hello"}],"max_tokens":64}`, sourceField: "messages", responseField: "content"},
+		{name: "Gemini", format: sdktranslator.FormatGemini, payload: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`, sourceField: "contents", responseField: "candidates"},
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(upstreamBody, &payload); err != nil {
-		t.Fatalf("decode upstream body: %v", err)
-	}
-	if _, exists := payload["messages"]; exists {
-		t.Fatalf("chat messages were not translated: %s", upstreamBody)
-	}
-	if input, exists := payload["input"].([]any); !exists || len(input) == 0 {
-		t.Fatalf("translated input is missing: %s", upstreamBody)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamBody []byte
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				upstreamBody, _ = io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2\",\"output\":[]}}\n\n")
+			}))
+			defer server.Close()
+			executor := NewCodexHTTPExecutor()
+			auth := NewCodexAuth("probe", CodexCredential{
+				Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+			}, server.URL)
+			response, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+				Model: "gpt-5.2", Payload: []byte(test.payload), Format: test.format,
+			}, cliproxyexecutor.Options{SourceFormat: test.format, ResponseFormat: test.format})
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			var upstream map[string]any
+			if err := json.Unmarshal(upstreamBody, &upstream); err != nil {
+				t.Fatalf("decode upstream body: %v", err)
+			}
+			if _, exists := upstream[test.sourceField]; exists {
+				t.Fatalf("source request was not translated: %s", upstreamBody)
+			}
+			if input, exists := upstream["input"].([]any); !exists || len(input) == 0 {
+				t.Fatalf("translated input is missing: %s", upstreamBody)
+			}
+			var clientResponse map[string]any
+			if err := json.Unmarshal(response.Payload, &clientResponse); err != nil {
+				t.Fatalf("decode client response %q: %v", response.Payload, err)
+			}
+			if _, exists := clientResponse[test.responseField]; !exists {
+				t.Fatalf("response was not translated to %s: %s", test.format, response.Payload)
+			}
+		})
 	}
 }
 

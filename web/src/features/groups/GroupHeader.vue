@@ -39,9 +39,6 @@ const channelName = computed(
       <div class="group-header__details">
         <span class="group-header__id">#{{ group.id }}</span>
         <span class="meta-tag">{{ channelName }}</span>
-        <span class="meta-tag">
-          {{ t(`group.connectionType.${group.connection_type}`) }}
-        </span>
         <code class="group-header__channel-id">{{ group.channel_id }}</code>
         <CopyChip
           v-if="group.params.base_url"

@@ -141,7 +141,7 @@ function projectChannel(value: unknown): ChannelDto {
     new Set(credentialFields.map(({ key }) => key)).size !== credentialFields.length ||
     new Set(projectedConnectionTypes.map(({ id }) => id)).size !==
       projectedConnectionTypes.length ||
-    !projectedConnectionTypes.some(({ id }) => id === 'api_key') ||
+    projectedConnectionTypes.length !== 1 ||
     credentialFields.some(({ sensitive }) => !sensitive) ||
     new Set(clientProtocols).size !== clientProtocols.length
   ) {

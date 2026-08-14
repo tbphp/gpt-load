@@ -14,6 +14,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	registry := NewRegistry()
 	wantIDs := []ID{
 		OpenAI,
+		Codex,
 		Anthropic,
 		Gemini,
 		ID("azure_openai"),
@@ -35,6 +36,9 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	}
 	if got := descriptorIDs(registry.Search("GeMiNi")); !reflect.DeepEqual(got, []ID{Gemini}) {
 		t.Fatalf("Search(gemini) IDs = %v", got)
+	}
+	if got := descriptorIDs(registry.Search("subscription")); !reflect.DeepEqual(got, []ID{Codex}) {
+		t.Fatalf("Search(subscription) IDs = %v, want [codex]", got)
 	}
 	if got := descriptorIDs(registry.Search("compatible")); !reflect.DeepEqual(got, []ID{OpenAICompatible}) {
 		t.Fatalf("Search(compatible) IDs = %v", got)
@@ -117,20 +121,46 @@ func TestRegistryPublicDescriptorsContainSchemasButNoInternalOrSecretValues(t *t
 	}
 }
 
-func TestOpenAIAdvertisesSubscriptionWithoutExposingExecutor(t *testing.T) {
+func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) {
 	t.Parallel()
 
-	descriptor, ok := NewRegistry().Get(OpenAI)
+	registry := NewRegistry()
+	descriptor, ok := registry.Get(Codex)
 	if !ok {
-		t.Fatal("OpenAI descriptor is missing")
+		t.Fatal("Codex descriptor is missing")
 	}
-	if len(descriptor.ConnectionTypes) != 2 || descriptor.ConnectionTypes[0].ID != "api_key" ||
-		descriptor.ConnectionTypes[1].ID != "subscription" {
+	if len(descriptor.ConnectionTypes) != 1 || descriptor.ConnectionTypes[0].ID != "subscription" {
 		t.Fatalf("connection types = %#v", descriptor.ConnectionTypes)
 	}
-	if got := descriptor.ConnectionTypes[1].AuthorizationMethods; len(got) != 2 ||
+	if got := descriptor.ConnectionTypes[0].AuthorizationMethods; len(got) != 2 ||
 		got[0] != "browser_oauth" || got[1] != "oauth_file" {
 		t.Fatalf("subscription authorization methods = %#v", got)
+	}
+	openAI, ok := registry.Get(OpenAI)
+	if !ok || len(openAI.ConnectionTypes) != 1 || openAI.ConnectionTypes[0].ID != "api_key" {
+		t.Fatalf("OpenAI connection types = %#v, found = %t", openAI.ConnectionTypes, ok)
+	}
+	target, err := registry.Resolve(Codex, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for clientProtocol, expectation := range map[protocol.Protocol]struct {
+		operation execution.Operation
+		mode      RouteMode
+	}{
+		protocol.OpenAICompletions: {operation: execution.OperationChatCompletion, mode: RouteConverted},
+		protocol.OpenAIResponses:   {operation: execution.OperationResponsesCreate, mode: RouteNative},
+		protocol.Anthropic:         {operation: execution.OperationChatCompletion, mode: RouteConverted},
+		protocol.Gemini:            {operation: execution.OperationChatCompletion, mode: RouteConverted},
+	} {
+		if mode, exists := target.Mode(clientProtocol, expectation.operation); !exists || mode != expectation.mode {
+			t.Fatalf("Codex %q/%q mode = %q, %t, want %q", clientProtocol, expectation.operation, mode, exists, expectation.mode)
+		}
+		for _, unsupported := range []execution.Operation{execution.OperationListModels, execution.OperationProbe} {
+			if _, exists := target.Mode(clientProtocol, unsupported); exists {
+				t.Fatalf("Codex unexpectedly advertises %q/%q", clientProtocol, unsupported)
+			}
+		}
 	}
 	encoded, err := json.Marshal(descriptor)
 	if err != nil {
@@ -143,16 +173,20 @@ func TestOpenAIAdvertisesSubscriptionWithoutExposingExecutor(t *testing.T) {
 	}
 }
 
-func TestOnlyOpenAISupportsSubscription(t *testing.T) {
+func TestOnlyCodexSupportsSubscription(t *testing.T) {
 	t.Parallel()
 
 	registry := NewRegistry()
-	if !registry.SupportsConnectionType(OpenAI, "subscription") {
-		t.Fatal("OpenAI subscription is not supported")
+	if !registry.SupportsConnectionType(Codex, "subscription") {
+		t.Fatal("Codex subscription is not supported")
 	}
-	if registry.SupportsConnectionType(Anthropic, "subscription") ||
+	if registry.SupportsConnectionType(OpenAI, "subscription") ||
+		registry.SupportsConnectionType(Anthropic, "subscription") ||
 		registry.SupportsConnectionType(OpenAICompatible, "subscription") {
 		t.Fatal("an unsupported channel advertises subscription")
+	}
+	if registry.SupportsConnectionType(Codex, "api_key") {
+		t.Fatal("Codex unexpectedly supports API keys")
 	}
 	if !registry.SupportsConnectionType(Anthropic, "api_key") {
 		t.Fatal("legacy api_key support is missing")
@@ -162,7 +196,7 @@ func TestOnlyOpenAISupportsSubscription(t *testing.T) {
 func TestRegistryReturnsExactCatalogProviderMappingWithoutResolvingParams(t *testing.T) {
 	registry := NewRegistry()
 	for id, want := range map[ID]string{
-		OpenAI: "openai", Anthropic: "anthropic", Gemini: "google",
+		OpenAI: "openai", Codex: "openai", Anthropic: "anthropic", Gemini: "google",
 		ID("azure_openai"): "azure", ID("aws_bedrock"): "amazon-bedrock", ID("google_vertex"): "google-vertex",
 		OpenAICompatible: "",
 	} {
@@ -180,6 +214,9 @@ func TestRegistryReturnsProviderKindWithoutExposingItInDescriptor(t *testing.T) 
 	registry := NewRegistry()
 	if got, ok := registry.ProviderKind(OpenAI); !ok || got != ProviderOpenAI {
 		t.Fatalf("ProviderKind(openai) = %q, %t", got, ok)
+	}
+	if got, ok := registry.ProviderKind(Codex); !ok || got != ProviderOpenAI {
+		t.Fatalf("ProviderKind(codex) = %q, %t", got, ok)
 	}
 	if got, ok := registry.ProviderKind(ID("missing")); ok || got != "" {
 		t.Fatalf("ProviderKind(missing) = %q, %t", got, ok)

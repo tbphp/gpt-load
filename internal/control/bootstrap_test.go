@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -239,6 +240,7 @@ func TestEnsureInitialStateRecoversInterruptedSubscriptionAuth(t *testing.T) {
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
 	group := validControlGroup("subscription-recovery")
+	group.ChannelID = string(channel.Codex)
 	group.ConnectionType = models.ConnectionTypeSubscription
 	if err := fixture.db.Create(group).Error; err != nil {
 		t.Fatal(err)
@@ -252,7 +254,7 @@ func TestEnsureInitialStateRecoversInterruptedSubscriptionAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	stage := models.CredentialStage{
-		ID: "00000000-0000-4000-8000-000000000901", ChannelID: "openai",
+		ID: "00000000-0000-4000-8000-000000000901", ChannelID: "codex",
 		ConnectionType: models.ConnectionTypeSubscription, AuthorizationMethod: "browser_oauth",
 		Status: models.CredentialStageExchanging, EncryptedPayload: "encrypted-stage", PayloadSchemaVersion: 1,
 		SafeSummaryJSON: models.JSON(`{}`), ExpiresAtMS: now.Add(time.Minute).UnixMilli(),

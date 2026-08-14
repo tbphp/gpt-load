@@ -14,6 +14,7 @@ import (
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -208,7 +209,7 @@ func (s *Service) loadObservationTarget(ctx context.Context, groupID, credential
 		if err := tx.Take(&group, groupID).Error; err != nil {
 			return err
 		}
-		if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription || group.ChannelID != "openai" {
+		if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription || group.ChannelID != string(channel.Codex) {
 			return app_errors.ErrValidation
 		}
 		if err := tx.Where("id = ? AND group_id = ?", credentialID, groupID).Take(&credential).Error; err != nil {

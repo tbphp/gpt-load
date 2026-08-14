@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,6 +32,12 @@ type fakeExecutor struct {
 	result  cpaembedded.ExecuteResponse
 	err     error
 	stream  *cpaembedded.ExecuteStreamResponse
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 type failingEncryptService struct {
@@ -83,7 +91,7 @@ func TestAdapterRefreshesExpiringCredentialOnceAndPreservesIdentity(t *testing.T
 		t.Fatalf("stored credential = %#v", stored)
 	}
 	entry, ok := registry.CredentialRef(row.ID)
-	if !ok || entry.Version != 2 || entry.IdentityGeneration != stateloader.CredentialIdentityGeneration(row.IdentityFingerprint, "openai", "subscription", json.RawMessage(`{}`)) {
+	if !ok || entry.Version != 2 || entry.IdentityGeneration != stateloader.CredentialIdentityGeneration(row.IdentityFingerprint, "codex", "subscription", json.RawMessage(`{}`)) {
 		t.Fatalf("registry entry = %#v", entry)
 	}
 }
@@ -320,6 +328,165 @@ func TestAdapterMapsExplicitExpiredTokenToSafeRefresh(t *testing.T) {
 	}
 }
 
+func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
+	tests := []struct {
+		name       string
+		protocol   protocol.Protocol
+		operation  execution.Operation
+		wantFormat string
+		wantAPI    execution.UpstreamAPI
+	}{
+		{name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, wantFormat: "openai", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, wantFormat: "openai-response", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{name: "Anthropic Messages", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, wantFormat: "claude", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{name: "Gemini GenerateContent", protocol: protocol.Gemini, operation: execution.OperationChatCompletion, wantFormat: "gemini", wantAPI: execution.UpstreamAPIOpenAIResponses},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			fake := &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"model":"gpt-5"}`)}}
+			adapter.executor = fake
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = test.protocol
+			spec.Operation = test.operation
+			if test.protocol != protocol.OpenAIResponses {
+				spec.RouteMode = execution.RouteConverted
+			}
+
+			result := adapter.Execute(t.Context(), spec)
+			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamAPI != test.wantAPI {
+				t.Fatalf("result=%#v calls=%d request=%#v", result, fake.calls, fake.request)
+			}
+		})
+	}
+}
+
+func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
+	tests := []struct {
+		name       string
+		protocol   protocol.Protocol
+		operation  execution.Operation
+		wantFormat string
+		wantAPI    execution.UpstreamAPI
+	}{
+		{name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, wantFormat: "openai", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, wantFormat: "openai-response", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{name: "Anthropic Messages", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, wantFormat: "claude", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{name: "Gemini GenerateContent", protocol: protocol.Gemini, operation: execution.OperationChatCompletion, wantFormat: "gemini", wantAPI: execution.UpstreamAPIOpenAIResponses},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			chunks := make(chan cpaembedded.ExecuteStreamChunk)
+			close(chunks)
+			fake := &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+			adapter.executor = fake
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = test.protocol
+			spec.Operation = test.operation
+			if test.protocol != protocol.OpenAIResponses {
+				spec.RouteMode = execution.RouteConverted
+			}
+
+			result := adapter.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error { return nil })
+			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamAPI != test.wantAPI {
+				t.Fatalf("result=%#v calls=%d request=%#v", result, fake.calls, fake.request)
+			}
+		})
+	}
+}
+
+func TestAdapterReportsFinalCPAResponsesReasoning(t *testing.T) {
+	tests := []struct {
+		name       string
+		stream     bool
+		model      string
+		body       string
+		wantEffort string
+	}{
+		{
+			name:       "adaptive effort",
+			model:      "gpt-5.6-sol",
+			body:       `{"model":"gpt-5.6-sol","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"thinking":{"type":"adaptive"},"output_config":{"effort":"max"}}`,
+			wantEffort: "max",
+		},
+		{
+			name:       "budget effort stream",
+			stream:     true,
+			model:      "gpt-5.6-luna",
+			body:       `{"model":"gpt-5.6-luna","max_tokens":16000,"messages":[{"role":"user","content":"hello"}],"thinking":{"type":"enabled","budget_tokens":14848},"stream":true}`,
+			wantEffort: "high",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			wireEffort := make(chan string, 1)
+			transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				if got := request.URL.String(); got != "https://chatgpt.com/backend-api/codex/responses" {
+					t.Errorf("upstream URL = %q", got)
+				}
+				var payload struct {
+					Reasoning struct {
+						Effort string `json:"effort"`
+					} `json:"reasoning"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+					t.Errorf("decode upstream request: %v", err)
+				}
+				wireEffort <- payload.Reasoning.Effort
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+					Body: io.NopCloser(strings.NewReader(
+						`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"` + test.model + `","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}` + "\n\n",
+					)),
+					Request: request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = protocol.Anthropic
+			spec.Operation = execution.OperationChatCompletion
+			spec.RouteMode = execution.RouteConverted
+			spec.UpstreamModel = test.model
+			spec.Body = []byte(test.body)
+
+			var resultReasoning string
+			var upstreamAPI execution.UpstreamAPI
+			if test.stream {
+				result := adapter.ExecuteStream(ctx, spec, func(execution.StreamEvent) error { return nil })
+				if result.Error != nil {
+					t.Fatalf("ExecuteStream() error = %#v", result.Error)
+				}
+				upstreamAPI = result.UpstreamAPI
+				if result.AppliedReasoning != nil {
+					resultReasoning = result.AppliedReasoning.Effort
+				}
+			} else {
+				result := adapter.Execute(ctx, spec)
+				if result.Error != nil {
+					t.Fatalf("Execute() error = %#v", result.Error)
+				}
+				upstreamAPI = result.UpstreamAPI
+				if result.AppliedReasoning != nil {
+					resultReasoning = result.AppliedReasoning.Effort
+				}
+			}
+			if got := <-wireEffort; got != test.wantEffort {
+				t.Fatalf("wire reasoning effort = %q, want %q", got, test.wantEffort)
+			}
+			if upstreamAPI != execution.UpstreamAPIOpenAIResponses {
+				t.Fatalf("upstream API = %q, want %q", upstreamAPI, execution.UpstreamAPIOpenAIResponses)
+			}
+			if resultReasoning != test.wantEffort {
+				t.Fatalf("applied reasoning effort = %q, want %q", resultReasoning, test.wantEffort)
+			}
+		})
+	}
+}
+
 func TestAdapterStreamsReadyThenFramedData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
@@ -361,7 +528,7 @@ func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *sta
 	if err != nil {
 		t.Fatal(err)
 	}
-	group := models.Group{Name: "subscription", ChannelID: "openai", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true}
+	group := models.Group{Name: "subscription", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true}
 	if err := db.Create(&group).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -392,5 +559,5 @@ func validSpec(t *testing.T, row models.Credential, keyService encryption.Servic
 	if err != nil {
 		t.Fatal(err)
 	}
-	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "openai", ConnectionType: "subscription", TargetKind: "openai", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))})
+	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "codex", ConnectionType: "subscription", TargetKind: "openai", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))})
 }

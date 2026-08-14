@@ -49,7 +49,7 @@ func (s *Service) ImportCredentialStage(
 	channelID channel.ID,
 	raw []byte,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil || channelID != channel.OpenAI {
+	if s == nil || s.db == nil || s.encryption == nil || channelID != channel.Codex {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
 	if len(raw) > maxOAuthFileBytes {
@@ -66,7 +66,7 @@ func (s *Service) BeginCredentialAuthorization(
 	ctx context.Context,
 	channelID channel.ID,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil || channelID != channel.OpenAI {
+	if s == nil || s.db == nil || s.encryption == nil || channelID != channel.Codex {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
 	authorization, err := cpaembedded.BeginCodexBrowserAuthorization()
@@ -112,6 +112,27 @@ func (s *Service) CompleteCredentialAuthorization(
 	returnedState string,
 	code string,
 ) (CredentialStageResult, error) {
+	return s.completeCredentialAuthorization(ctx, "", returnedState, code)
+}
+
+func (s *Service) completeCredentialAuthorizationForStage(
+	ctx context.Context,
+	stageID string,
+	returnedState string,
+	code string,
+) (CredentialStageResult, error) {
+	if strings.TrimSpace(stageID) == "" {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
+	}
+	return s.completeCredentialAuthorization(ctx, stageID, returnedState, code)
+}
+
+func (s *Service) completeCredentialAuthorization(
+	ctx context.Context,
+	stageID string,
+	returnedState string,
+	code string,
+) (CredentialStageResult, error) {
 	if s == nil || s.completeBrowserAuthorization == nil || strings.TrimSpace(returnedState) == "" ||
 		strings.TrimSpace(code) == "" {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
@@ -119,8 +140,11 @@ func (s *Service) CompleteCredentialAuthorization(
 	stateHash := s.encryption.Hash("oauth-state/v1|" + returnedState)
 	var row models.CredentialStage
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("oauth_state_hash = ? AND status = ?", stateHash, models.CredentialStagePendingAuthorization).
-			Take(&row).Error; err != nil {
+		query := tx.Where("oauth_state_hash = ? AND status = ?", stateHash, models.CredentialStagePendingAuthorization)
+		if stageID != "" {
+			query = query.Where("id = ?", stageID)
+		}
+		if err := query.Take(&row).Error; err != nil {
 			return err
 		}
 		if s.now().UnixMilli() >= row.ExpiresAtMS {
@@ -204,6 +228,17 @@ func definitiveAuthorizationCodeRejection(code string) bool {
 // FailCredentialAuthorization consumes a provider rejection without retaining
 // its untrusted query text or leaving the Stage pending until expiry.
 func (s *Service) FailCredentialAuthorization(ctx context.Context, returnedState string, providerError string) error {
+	return s.failCredentialAuthorization(ctx, "", returnedState, providerError)
+}
+
+func (s *Service) failCredentialAuthorizationForStage(ctx context.Context, stageID string, returnedState string, providerError string) error {
+	if strings.TrimSpace(stageID) == "" {
+		return app_errors.ErrAuthorizationStateInvalid
+	}
+	return s.failCredentialAuthorization(ctx, stageID, returnedState, providerError)
+}
+
+func (s *Service) failCredentialAuthorization(ctx context.Context, stageID string, returnedState string, providerError string) error {
 	if s == nil || strings.TrimSpace(returnedState) == "" || strings.TrimSpace(providerError) == "" {
 		return app_errors.ErrAuthorizationStateInvalid
 	}
@@ -213,8 +248,12 @@ func (s *Service) FailCredentialAuthorization(ctx context.Context, returnedState
 	}
 	nowMS := s.now().UnixMilli()
 	stateHash := s.encryption.Hash("oauth-state/v1|" + returnedState)
-	result := s.db.WithContext(ctx).Model(&models.CredentialStage{}).
-		Where("oauth_state_hash = ? AND status = ? AND expires_at_ms > ?", stateHash, models.CredentialStagePendingAuthorization, nowMS).
+	query := s.db.WithContext(ctx).Model(&models.CredentialStage{}).
+		Where("oauth_state_hash = ? AND status = ? AND expires_at_ms > ?", stateHash, models.CredentialStagePendingAuthorization, nowMS)
+	if stageID != "" {
+		query = query.Where("id = ?", stageID)
+	}
+	result := query.
 		Updates(map[string]any{
 			"status": models.CredentialStageFailed, "encrypted_payload": "",
 			"oauth_state_hash": nil, "error_code": errorCode, "updated_at_ms": nowMS,

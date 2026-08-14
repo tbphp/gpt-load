@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	codexauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
@@ -20,6 +21,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 	internalexecutor "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
@@ -35,6 +37,7 @@ const (
 	defaultLoginTimeout  = 5 * time.Minute
 	defaultCodexBaseURL  = "https://chatgpt.com/backend-api/codex"
 	defaultModelsVersion = "0.144.1"
+	maxObservedBodyBytes = 32 << 20
 )
 
 var (
@@ -120,13 +123,15 @@ type ExecuteRequest struct {
 }
 
 type ExecuteResponse struct {
-	Payload []byte
-	Headers http.Header
+	Payload                []byte
+	Headers                http.Header
+	AppliedReasoningEffort string
 }
 
 type ExecuteStreamResponse struct {
-	Headers http.Header
-	Chunks  <-chan ExecuteStreamChunk
+	Headers                http.Header
+	Chunks                 <-chan ExecuteStreamChunk
+	AppliedReasoningEffort string
 }
 
 type ExecuteStreamChunk struct {
@@ -334,29 +339,34 @@ func (e *CodexHTTPExecutor) Identifier() string { return ProviderCodex }
 func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, "")
-	response, err := e.inner.Execute(e.executionContext(ctx, auth), auth, cliproxyexecutor.Request{
+	observation := newExecutionObservation(request)
+	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		SourceFormat: format, ResponseFormat: format,
 	})
 	if err != nil {
-		return ExecuteResponse{}, err
+		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
 	}
-	return ExecuteResponse{Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone()}, nil
+	return ExecuteResponse{
+		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
+		AppliedReasoningEffort: observation.reasoningEffort(),
+	}, nil
 }
 
 func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (*ExecuteStreamResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, "")
-	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth), auth, cliproxyexecutor.Request{
+	observation := newExecutionObservation(request)
+	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Stream: true, Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		SourceFormat: format, ResponseFormat: format,
 	})
 	if err != nil {
-		return nil, err
+		return &ExecuteStreamResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
@@ -369,15 +379,18 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 			}
 		}
 	}()
-	return &ExecuteStreamResponse{Headers: response.Headers.Clone(), Chunks: chunks}, nil
+	return &ExecuteStreamResponse{
+		Headers: response.Headers.Clone(), Chunks: chunks,
+		AppliedReasoningEffort: observation.reasoningEffort(),
+	}, nil
 }
 
 func (e *CodexHTTPExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return e.inner.Execute(e.executionContext(ctx, auth), auth, req, opts)
+	return e.inner.Execute(e.executionContext(ctx, auth, nil), auth, req, opts)
 }
 
 func (e *CodexHTTPExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
-	return e.inner.ExecuteStream(e.executionContext(ctx, auth), auth, req, opts)
+	return e.inner.ExecuteStream(e.executionContext(ctx, auth, nil), auth, req, opts)
 }
 
 func (e *CodexHTTPExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
@@ -397,7 +410,7 @@ func (e *CodexHTTPExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.
 }
 
 func (e *CodexHTTPExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth, req *http.Request) (*http.Response, error) {
-	return e.inner.HttpRequest(e.executionContext(ctx, auth), auth, req)
+	return e.inner.HttpRequest(e.executionContext(ctx, auth, nil), auth, req)
 }
 
 // ListCodexModels performs exactly one account-bound models request.
@@ -504,7 +517,7 @@ func applyCodexReadHeaders(req *http.Request, credential CodexCredential) {
 	req.Header.Set("User-Agent", "codex_cli_rs/"+defaultModelsVersion)
 }
 
-func (e *CodexHTTPExecutor) executionContext(ctx context.Context, auth *cliproxyauth.Auth) context.Context {
+func (e *CodexHTTPExecutor) executionContext(ctx context.Context, auth *cliproxyauth.Auth, observation *executionObservation) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -513,14 +526,18 @@ func (e *CodexHTTPExecutor) executionContext(ctx context.Context, auth *cliproxy
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{base: transport})
+	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{base: transport, observation: observation})
 }
 
 type noRedirectRoundTripper struct {
-	base http.RoundTripper
+	base        http.RoundTripper
+	observation *executionObservation
 }
 
 func (t noRedirectRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.observation != nil {
+		t.observation.observe(req)
+	}
 	resp, err := t.base.RoundTrip(req)
 	if err != nil {
 		return nil, err
@@ -530,6 +547,55 @@ func (t noRedirectRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 		return nil, ErrRedirectNotAllowed
 	}
 	return resp, nil
+}
+
+type executionObservation struct {
+	capture bool
+	mu      sync.RWMutex
+	effort  string
+}
+
+func newExecutionObservation(request ExecuteRequest) *executionObservation {
+	body := request.OriginalRequest
+	if len(body) == 0 {
+		body = request.Payload
+	}
+	return &executionObservation{
+		capture: thinking.ExtractReasoningEffort(body, request.Format, request.Model) != "",
+	}
+}
+
+func (o *executionObservation) observe(request *http.Request) {
+	if o == nil || !o.capture || request == nil || request.GetBody == nil || request.ContentLength > maxObservedBodyBytes {
+		return
+	}
+	bodyReader, err := request.GetBody()
+	if err != nil {
+		return
+	}
+	body, readErr := io.ReadAll(io.LimitReader(bodyReader, maxObservedBodyBytes+1))
+	_ = bodyReader.Close()
+	if readErr != nil || len(body) > maxObservedBodyBytes {
+		clear(body)
+		return
+	}
+	effort := thinking.ExtractTranslatedReasoningEffort(body, ProviderCodex)
+	clear(body)
+	if effort == "" {
+		return
+	}
+	o.mu.Lock()
+	o.effort = effort
+	o.mu.Unlock()
+}
+
+func (o *executionObservation) reasoningEffort() string {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.effort
 }
 
 func exchangeToken(ctx context.Context, values url.Values, options Options) (CodexCredential, error) {

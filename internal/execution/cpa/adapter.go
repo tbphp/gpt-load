@@ -18,19 +18,24 @@ import (
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	platformredact "gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/reasoning"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/usage"
 )
 
-const refreshLeadTime = 5 * time.Minute
+const (
+	refreshLeadTime  = 5 * time.Minute
+	codexUpstreamAPI = execution.UpstreamAPIOpenAIResponses
+)
 
 type Adapter struct {
 	db            *gorm.DB
@@ -70,7 +75,10 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	defer cancel()
 	response, err := a.executor.ExecuteCanonical(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
 	if err != nil {
-		return unaryExecutionError(execCtx, err, credential)
+		result := unaryExecutionError(execCtx, err, credential)
+		result.UpstreamAPI = codexUpstreamAPI
+		result.AppliedReasoning = appliedReasoning(response.AppliedReasoningEffort)
+		return result
 	}
 	body := append([]byte(nil), response.Payload...)
 	headers := response.Headers.Clone()
@@ -82,7 +90,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	}
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamAPI: upstreamAPI(spec.ClientProtocol), StatusCode: http.StatusOK,
+		UpstreamAPI: codexUpstreamAPI, AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
 		UpstreamRequestID: upstreamRequestID(headers), Usage: usageEvidence(spec.ClientProtocol, body),
 	}
@@ -105,8 +113,18 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	response, err := a.executor.ExecuteStreamCanonical(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
 	if err != nil {
 		result := unaryExecutionError(execCtx, err, credential)
-		return execution.StreamResult{DispatchState: result.DispatchState, ResponseStarted: result.ResponseStarted, UpstreamAPI: result.UpstreamAPI, StatusCode: result.StatusCode, Header: result.Header, UpstreamRequestID: result.UpstreamRequestID, Error: result.Error}
+		var applied *reasoning.Config
+		if response != nil {
+			applied = appliedReasoning(response.AppliedReasoningEffort)
+		}
+		return execution.StreamResult{
+			DispatchState: result.DispatchState, ResponseStarted: result.ResponseStarted,
+			UpstreamAPI: codexUpstreamAPI, AppliedReasoning: applied,
+			StatusCode: result.StatusCode, Header: result.Header,
+			UpstreamRequestID: result.UpstreamRequestID, Error: result.Error,
+		}
 	}
+	applied := appliedReasoning(response.AppliedReasoningEffort)
 	headers := response.Headers.Clone()
 	if headers == nil {
 		headers = make(http.Header)
@@ -115,26 +133,26 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		headers.Set("Content-Type", "text/event-stream")
 	}
 	if err := sink(execution.StreamEvent{Kind: execution.StreamEventReady, Sequence: 1, StatusCode: http.StatusOK, Header: headers}); err != nil {
-		return successfulStreamTerminal(spec, headers)
+		return successfulStreamTerminal(spec, headers, applied)
 	}
 	sequence := uint64(2)
 	for {
 		chunk, ok, idleErr := nextChunk(execCtx, response.Chunks, spec.Timeouts.StreamIdle)
 		if idleErr != nil {
-			return streamExecutionError(spec, headers, idleErr, credential)
+			return streamExecutionError(spec, headers, idleErr, credential, applied)
 		}
 		if !ok {
-			return successfulStreamTerminal(spec, headers)
+			return successfulStreamTerminal(spec, headers, applied)
 		}
 		if chunk.Err != nil {
-			return streamExecutionError(spec, headers, chunk.Err, credential)
+			return streamExecutionError(spec, headers, chunk.Err, credential, applied)
 		}
 		if len(chunk.Payload) == 0 {
 			continue
 		}
 		framed := frameSSE(chunk.Payload)
 		if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: framed}); err != nil {
-			return successfulStreamTerminal(spec, headers)
+			return successfulStreamTerminal(spec, headers, applied)
 		}
 		sequence++
 	}
@@ -147,13 +165,19 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) error {
 	if err := spec.Validate(); err != nil {
 		return err
 	}
-	if spec.ConnectionType != "subscription" || spec.ChannelID != "openai" {
+	if spec.ConnectionType != "subscription" || spec.ChannelID != string(channel.Codex) {
 		return fmt.Errorf("unsupported subscription target")
 	}
-	if spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate {
-		return fmt.Errorf("unsupported subscription operation")
-	}
-	if spec.ClientProtocol != protocol.OpenAICompletions && spec.ClientProtocol != protocol.OpenAIResponses {
+	switch spec.ClientProtocol {
+	case protocol.OpenAIResponses:
+		if spec.Operation != execution.OperationResponsesCreate {
+			return fmt.Errorf("unsupported subscription operation")
+		}
+	case protocol.OpenAICompletions, protocol.Anthropic, protocol.Gemini:
+		if spec.Operation != execution.OperationChatCompletion {
+			return fmt.Errorf("unsupported subscription operation")
+		}
+	default:
 		return fmt.Errorf("unsupported subscription protocol")
 	}
 	if !json.Valid(spec.Body) {
@@ -305,17 +329,16 @@ func bridgeRequest(spec execution.AttemptSpec) cpaembedded.ExecuteRequest {
 }
 
 func formatFor(clientProtocol protocol.Protocol) string {
-	if clientProtocol == protocol.OpenAIResponses {
+	switch clientProtocol {
+	case protocol.OpenAIResponses:
 		return "openai-response"
+	case protocol.Anthropic:
+		return "claude"
+	case protocol.Gemini:
+		return "gemini"
+	default:
+		return "openai"
 	}
-	return "openai"
-}
-
-func upstreamAPI(clientProtocol protocol.Protocol) execution.UpstreamAPI {
-	if clientProtocol == protocol.OpenAIResponses {
-		return execution.UpstreamAPIOpenAIResponses
-	}
-	return execution.UpstreamAPIOpenAIChatCompletions
 }
 
 func unaryExecutionError(ctx context.Context, err error, credential cpaembedded.CodexCredential) execution.AttemptResult {
@@ -326,14 +349,14 @@ func unaryExecutionError(ctx context.Context, err error, credential cpaembedded.
 	}
 }
 
-func streamExecutionError(spec execution.AttemptSpec, headers http.Header, err error, credential cpaembedded.CodexCredential) execution.StreamResult {
+func streamExecutionError(spec execution.AttemptSpec, headers http.Header, err error, credential cpaembedded.CodexCredential, applied *reasoning.Config) execution.StreamResult {
 	status, evidence := executionErrorEvidence(context.Background(), err, credential)
 	if status == 0 {
 		status = http.StatusOK
 	}
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamAPI: upstreamAPI(spec.ClientProtocol), StatusCode: status,
+		UpstreamAPI: codexUpstreamAPI, AppliedReasoning: applied, StatusCode: status,
 		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Error: evidence,
 	}
 }
@@ -459,12 +482,25 @@ func streamNotSent(kind execution.ErrorKind, summary, code string) execution.Str
 	return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: &execution.ErrorEvidence{Kind: kind, Code: code, Summary: summary}}
 }
 
-func successfulStreamTerminal(spec execution.AttemptSpec, headers http.Header) execution.StreamResult {
+func successfulStreamTerminal(spec execution.AttemptSpec, headers http.Header, applied *reasoning.Config) execution.StreamResult {
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamAPI: upstreamAPI(spec.ClientProtocol), StatusCode: http.StatusOK,
+		UpstreamAPI: codexUpstreamAPI, AppliedReasoning: applied, StatusCode: http.StatusOK,
 		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Model: spec.UpstreamModel,
 	}
+}
+
+func appliedReasoning(effort string) *reasoning.Config {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" || len(effort) > 64 {
+		return nil
+	}
+	for _, character := range effort {
+		if (character < 'a' || character > 'z') && character != '-' && character != '_' {
+			return nil
+		}
+	}
+	return &reasoning.Config{Effort: effort}
 }
 
 func nextChunk(ctx context.Context, chunks <-chan cpaembedded.ExecuteStreamChunk, timeout time.Duration) (cpaembedded.ExecuteStreamChunk, bool, error) {
@@ -495,8 +531,9 @@ func frameSSE(payload []byte) []byte {
 
 func responseModel(body []byte, fallback string) string {
 	var value struct {
-		Model    string `json:"model"`
-		Response struct {
+		Model        string `json:"model"`
+		ModelVersion string `json:"modelVersion"`
+		Response     struct {
 			Model string `json:"model"`
 		} `json:"response"`
 	}
@@ -507,15 +544,25 @@ func responseModel(body []byte, fallback string) string {
 		if strings.TrimSpace(value.Response.Model) != "" {
 			return strings.TrimSpace(value.Response.Model)
 		}
+		if strings.TrimSpace(value.ModelVersion) != "" {
+			return strings.TrimSpace(value.ModelVersion)
+		}
 	}
 	return fallback
 }
 
 func usageEvidence(clientProtocol protocol.Protocol, body []byte) *execution.UsageEvidence {
 	var extractor dialect.UsageExtractor
-	if clientProtocol == protocol.OpenAIResponses {
+	usageField := "usage"
+	switch clientProtocol {
+	case protocol.OpenAIResponses:
 		extractor = dialect.NewOpenAIResponses()
-	} else {
+	case protocol.Anthropic:
+		extractor = dialect.NewAnthropic()
+	case protocol.Gemini:
+		extractor = dialect.NewGemini()
+		usageField = "usageMetadata"
+	default:
 		extractor = dialect.NewOpenAI()
 	}
 	result, err := extractor.ExtractUsage(body)
@@ -524,7 +571,7 @@ func usageEvidence(clientProtocol protocol.Protocol, body []byte) *execution.Usa
 	}
 	var root map[string]json.RawMessage
 	_ = json.Unmarshal(body, &root)
-	raw := append([]byte(nil), root["usage"]...)
+	raw := append([]byte(nil), root[usageField]...)
 	return &execution.UsageEvidence{Normalized: result, Raw: raw}
 }
 

@@ -104,7 +104,23 @@ export async function beginCredentialAuthorization(
   return projectCredentialStage(
     await client.request('/api/credential-stages/authorizations', {
       method: 'POST',
-      json: { channel_id: 'openai' },
+      json: { channel_id: 'codex' },
+      signal,
+    }),
+  )
+}
+
+export async function completeCredentialAuthorization(
+  client: ApiClient,
+  stageID: string,
+  callbackURL: string,
+  signal?: AbortSignal,
+): Promise<CredentialStage> {
+  const id = projectStageID(stageID)
+  return projectCredentialStage(
+    await client.request(`/api/credential-stages/${id}/oauth-callback`, {
+      method: 'POST',
+      json: { callback_url: callbackURL },
       signal,
     }),
   )
