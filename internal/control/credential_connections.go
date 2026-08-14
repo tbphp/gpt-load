@@ -177,10 +177,12 @@ func (s *Service) ReauthorizeGroupCredentialIdempotent(
 		return CredentialItemResponse{}, app_errors.ErrInternalServer
 	}
 	resourceIdentity := "group:" + strconv.FormatUint(uint64(groupID), 10)
+	digestResourceLocator := resourceIdentity +
+		"/credential:" + strconv.FormatUint(uint64(credentialID), 10)
 	digest, err := buildIdempotencyDigest(idempotencyDigestInput{
 		Version: 1, Method: "POST", OperationKind: operationKindCredentialImport,
 		PathTemplate:    "/api/groups/:group_id/credentials/:credential_id/reauthorize",
-		ResourceLocator: resourceIdentity, AuthScopeID: idempotencyAuthScopeID,
+		ResourceLocator: digestResourceLocator, AuthScopeID: idempotencyAuthScopeID,
 		CanonicalBody: canonicalBody,
 	})
 	if err != nil {
@@ -271,7 +273,7 @@ func (s *Service) reauthorizeGroupCredentialMutation(
 		return 0, nil, app_errors.ParseDBError(err)
 	}
 	if credential.SecretVersion != request.ExpectedSecretVersion {
-		return 0, nil, app_errors.ErrCredentialAuthOutcomeUnknown
+		return 0, nil, app_errors.ErrCredentialVersionConflict
 	}
 	stage, canonical, err := s.readyStageCredential(tx, request.StageID, channel.ID(group.ChannelID))
 	if err != nil {
@@ -300,7 +302,7 @@ func (s *Service) reauthorizeGroupCredentialMutation(
 		return 0, nil, app_errors.ParseDBError(updated.Error)
 	}
 	if updated.RowsAffected != 1 {
-		return 0, nil, app_errors.ErrCredentialAuthOutcomeUnknown
+		return 0, nil, app_errors.ErrCredentialVersionConflict
 	}
 	consumed := tx.Model(&models.CredentialStage{}).
 		Where("id = ? AND status = ?", stage.ID, models.CredentialStageReady).

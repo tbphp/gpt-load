@@ -18,6 +18,7 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
 
 const OAUTH_JSON_PLACEHOLDER = '{"type":"codex","access_token":"...","refresh_token":"..."}'
 
@@ -27,8 +28,9 @@ const props = withDefaults(
     disabled?: boolean
     single?: boolean
     compact?: boolean
+    hideHeader?: boolean
   }>(),
-  { disabled: false, single: false, compact: false },
+  { disabled: false, single: false, compact: false, hideHeader: false },
 )
 const emit = defineEmits<{ 'update:modelValue': [stages: CredentialStage[]] }>()
 const client = useApiClient()
@@ -37,7 +39,9 @@ const busyAction = ref<'authorize' | 'import' | `callback:${string}` | ''>('')
 const feedbackKey = ref('')
 const oauthJSON = ref('')
 const callbackURLs = ref<Record<string, string>>({})
+const callbackErrorKeys = ref<Record<string, string>>({})
 const polling = new Map<string, { timer?: number; controller?: AbortController }>()
+const expiryTimers = new Map<string, number>()
 const readyCount = computed(
   () => props.modelValue.filter(({ status }) => status === 'ready').length,
 )
@@ -55,7 +59,10 @@ function replaceStage(stage: CredentialStage): void {
       ? [...props.modelValue, merged]
       : props.modelValue.map((item, itemIndex) => (itemIndex === index ? merged : item)),
   )
-  if (!shouldPoll(stage)) clearCallbackURL(stage.stage_id)
+  if (!shouldPoll(stage)) {
+    clearCallbackURL(stage.stage_id)
+    clearCallbackError(stage.stage_id)
+  }
 }
 
 function clearCallbackURL(stageID: string): void {
@@ -63,6 +70,13 @@ function clearCallbackURL(stageID: string): void {
   const next = { ...callbackURLs.value }
   delete next[stageID]
   callbackURLs.value = next
+}
+
+function clearCallbackError(stageID: string): void {
+  if (!(stageID in callbackErrorKeys.value)) return
+  const next = { ...callbackErrorKeys.value }
+  delete next[stageID]
+  callbackErrorKeys.value = next
 }
 
 function stopPolling(stageID: string): void {
@@ -73,8 +87,35 @@ function stopPolling(stageID: string): void {
   polling.delete(stageID)
 }
 
+function stopExpiryTimer(stageID: string): void {
+  const timer = expiryTimers.get(stageID)
+  if (timer !== undefined) window.clearTimeout(timer)
+  expiryTimers.delete(stageID)
+}
+
 function shouldPoll(stage: CredentialStage): boolean {
   return stage.status === 'pending_authorization' || stage.status === 'exchanging'
+}
+
+function expireReadyStage(stageID: string): void {
+  stopExpiryTimer(stageID)
+  const stage = props.modelValue.find((item) => item.stage_id === stageID)
+  if (!stage || stage.status !== 'ready') return
+  if (stage.expires_at_ms > Date.now()) {
+    scheduleExpiry(stage)
+    return
+  }
+  replaceStage({ ...stage, status: 'expired' })
+}
+
+function scheduleExpiry(stage: CredentialStage): void {
+  stopExpiryTimer(stage.stage_id)
+  if (stage.status !== 'ready') return
+  const delay = Math.max(0, Math.min(stage.expires_at_ms - Date.now() + 10, 2_147_483_647))
+  expiryTimers.set(
+    stage.stage_id,
+    window.setTimeout(() => expireReadyStage(stage.stage_id), delay),
+  )
 }
 
 function schedulePoll(stage: CredentialStage): void {
@@ -86,6 +127,7 @@ function schedulePoll(stage: CredentialStage): void {
     state.controller = controller
     try {
       const next = await getCredentialStage(client, stage.stage_id, controller.signal)
+      if (feedbackKey.value === 'import.subscription.pollFailed') feedbackKey.value = ''
       replaceStage(next)
       if (!shouldPoll(next)) {
         stopPolling(stage.stage_id)
@@ -104,9 +146,13 @@ function schedulePoll(stage: CredentialStage): void {
 watch(
   () => props.modelValue,
   (stages) => {
-    for (const stage of stages) schedulePoll(stage)
+    for (const stage of stages) {
+      schedulePoll(stage)
+      scheduleExpiry(stage)
+    }
     const live = new Set(stages.map(({ stage_id }) => stage_id))
     for (const stageID of polling.keys()) if (!live.has(stageID)) stopPolling(stageID)
+    for (const stageID of expiryTimers.keys()) if (!live.has(stageID)) stopExpiryTimer(stageID)
   },
   { deep: true, immediate: true },
 )
@@ -126,9 +172,9 @@ async function beginAuthorization(): Promise<void> {
     schedulePoll(stage)
     if (popup && stage.authorization_url) popup.location.replace(stage.authorization_url)
     else feedbackKey.value = 'import.subscription.popupBlocked'
-  } catch {
+  } catch (cause) {
     popup?.close()
-    feedbackKey.value = 'import.subscription.authorizeFailed'
+    feedbackKey.value = presentSubscriptionErrorKey(cause, 'import.subscription.authorizeFailed')
   } finally {
     busyAction.value = ''
   }
@@ -155,8 +201,8 @@ async function importOAuthJSON(file: File): Promise<void> {
   try {
     replaceStage(await importCredentialStage(client, file))
     oauthJSON.value = ''
-  } catch {
-    feedbackKey.value = 'import.subscription.importFailed'
+  } catch (cause) {
+    feedbackKey.value = presentSubscriptionErrorKey(cause, 'import.subscription.importFailed')
   } finally {
     busyAction.value = ''
   }
@@ -166,11 +212,15 @@ async function submitCallback(stage: CredentialStage): Promise<void> {
   const callbackURL = callbackURLs.value[stage.stage_id]?.trim() ?? ''
   if (!callbackURL || props.disabled || busyAction.value) return
   feedbackKey.value = ''
+  clearCallbackError(stage.stage_id)
   busyAction.value = `callback:${stage.stage_id}`
   try {
     replaceStage(await completeCredentialAuthorization(client, stage.stage_id, callbackURL))
-  } catch {
-    feedbackKey.value = 'import.subscription.callbackFailed'
+  } catch (cause) {
+    callbackErrorKeys.value = {
+      ...callbackErrorKeys.value,
+      [stage.stage_id]: presentSubscriptionErrorKey(cause, 'import.subscription.callbackFailed'),
+    }
   } finally {
     busyAction.value = ''
   }
@@ -182,13 +232,15 @@ async function removeStage(stage: CredentialStage): Promise<void> {
   if (stage.status === 'pending_authorization' || stage.status === 'ready') {
     try {
       await cancelCredentialStage(client, stage.stage_id)
-    } catch {
-      feedbackKey.value = 'import.subscription.cancelFailed'
+    } catch (cause) {
+      feedbackKey.value = presentSubscriptionErrorKey(cause, 'import.subscription.cancelFailed')
       return
     }
   }
   stopPolling(stage.stage_id)
+  stopExpiryTimer(stage.stage_id)
   clearCallbackURL(stage.stage_id)
+  clearCallbackError(stage.stage_id)
   emit(
     'update:modelValue',
     props.modelValue.filter(({ stage_id }) => stage_id !== stage.stage_id),
@@ -202,10 +254,32 @@ function statusTone(stage: CredentialStage): 'success' | 'warning' | 'danger' | 
   return 'danger'
 }
 
+function callbackDescribedBy(stageID: string): string {
+  return [
+    `oauth-callback-${stageID}-help`,
+    callbackErrorKeys.value[stageID] ? `oauth-callback-${stageID}-error` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+function stageErrorKey(code: string): string {
+  const known: Readonly<Record<string, string>> = {
+    authorization_denied: 'import.subscription.stageError.authorizationDenied',
+    authorization_failed: 'import.subscription.stageError.authorizationFailed',
+    authorization_exchange_rejected: 'import.subscription.stageError.exchangeRejected',
+    authorization_exchange_unknown: 'import.subscription.stageError.exchangeUnknown',
+    authorization_exchange_interrupted: 'import.subscription.stageError.exchangeInterrupted',
+  }
+  return known[code] ?? 'import.subscription.stageError.unknown'
+}
+
 onBeforeUnmount(() => {
   for (const stageID of [...polling.keys()]) stopPolling(stageID)
+  for (const stageID of [...expiryTimers.keys()]) stopExpiryTimer(stageID)
   oauthJSON.value = ''
   callbackURLs.value = {}
+  callbackErrorKeys.value = {}
 })
 </script>
 
@@ -213,9 +287,10 @@ onBeforeUnmount(() => {
   <section
     class="subscription-stager"
     :class="{ 'subscription-stager--compact': compact }"
-    aria-labelledby="subscription-stager-title"
+    :aria-labelledby="hideHeader ? undefined : 'subscription-stager-title'"
+    :aria-label="hideHeader ? t('import.subscription.title') : undefined"
   >
-    <header class="subscription-stager__header">
+    <header v-if="!hideHeader" class="subscription-stager__header">
       <div>
         <h2 id="subscription-stager-title">{{ t('import.subscription.title') }}</h2>
         <p>{{ t('import.subscription.description') }}</p>
@@ -248,6 +323,22 @@ onBeforeUnmount(() => {
                 :empty-label="t('import.subscription.unknown')"
               />
             </span>
+            <span v-if="stage.account.expires_at_ms">
+              {{ t('import.subscription.tokenExpires') }}
+              <AppRelativeTime
+                :instant="stage.account.expires_at_ms"
+                :locale="locale"
+                :empty-label="t('import.subscription.unknown')"
+              />
+            </span>
+            <span v-if="stage.account.last_refresh_at_ms">
+              {{ t('import.subscription.lastRefresh') }}
+              <AppRelativeTime
+                :instant="stage.account.last_refresh_at_ms"
+                :locale="locale"
+                :empty-label="t('import.subscription.unknown')"
+              />
+            </span>
           </div>
           <StatusBadge :tone="statusTone(stage)" size="compact">
             {{ t(`import.subscription.status.${stage.status}`) }}
@@ -262,6 +353,10 @@ onBeforeUnmount(() => {
             <Trash2 :size="14" aria-hidden="true" />{{ t('import.subscription.remove') }}
           </AppButton>
         </div>
+
+        <p v-if="stage.error_code" class="subscription-stager__stage-error" role="alert">
+          {{ t(stageErrorKey(stage.error_code)) }}
+        </p>
 
         <div
           v-if="stage.status === 'pending_authorization' && stage.authorization_url"
@@ -285,6 +380,7 @@ onBeforeUnmount(() => {
               :aria-label="t('import.subscription.openAuthorization')"
             >
               <ExternalLink :size="16" aria-hidden="true" />
+              <span>{{ t('import.subscription.openAuthorization') }}</span>
             </a>
           </div>
 
@@ -301,6 +397,8 @@ onBeforeUnmount(() => {
               spellcheck="false"
               :disabled="disabled || Boolean(busyAction)"
               :placeholder="t('import.subscription.callbackPlaceholder')"
+              :aria-invalid="callbackErrorKeys[stage.stage_id] ? 'true' : undefined"
+              :aria-describedby="callbackDescribedBy(stage.stage_id)"
             />
             <AppButton
               type="submit"
@@ -310,7 +408,17 @@ onBeforeUnmount(() => {
             >
               <Send :size="15" aria-hidden="true" />{{ t('import.subscription.submitCallback') }}
             </AppButton>
-            <p>{{ t('import.subscription.callbackHelp') }}</p>
+            <p :id="`oauth-callback-${stage.stage_id}-help`">
+              {{ t('import.subscription.callbackHelp') }}
+            </p>
+            <p
+              v-if="callbackErrorKeys[stage.stage_id]"
+              :id="`oauth-callback-${stage.stage_id}-error`"
+              class="subscription-stager__callback-error"
+              role="alert"
+            >
+              {{ t(callbackErrorKeys[stage.stage_id]) }}
+            </p>
           </form>
         </div>
       </article>
@@ -465,6 +573,12 @@ onBeforeUnmount(() => {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
+.subscription-stager__stage-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-label-xs);
+  line-height: 1.5;
+}
 .subscription-stager__authorization {
   display: grid;
   gap: 7px;
@@ -496,13 +610,18 @@ onBeforeUnmount(() => {
 }
 .subscription-stager__authorization-link a {
   display: inline-flex;
-  width: 44px;
+  min-width: 44px;
   height: 44px;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   color: var(--color-action);
+  padding: 0 10px;
+  font-size: var(--text-label-xs);
+  font-weight: 600;
+  text-decoration: none;
 }
 .subscription-stager__callback {
   display: grid;
@@ -513,6 +632,9 @@ onBeforeUnmount(() => {
 .subscription-stager__callback label,
 .subscription-stager__callback p {
   grid-column: 1 / -1;
+}
+.subscription-stager__callback .subscription-stager__callback-error {
+  color: var(--color-danger);
 }
 .subscription-stager__callback input {
   min-width: 0;
@@ -569,6 +691,10 @@ onBeforeUnmount(() => {
   border-color: var(--color-text-faint);
   color: var(--color-text);
 }
+.subscription-stager__file:focus-within {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
 .subscription-stager__file.is-disabled {
   cursor: not-allowed;
   opacity: 0.46;
@@ -595,6 +721,7 @@ onBeforeUnmount(() => {
   .subscription-stager__account-summary :deep(.app-button) {
     grid-column: 1 / -1;
     justify-self: start;
+    min-height: var(--touch-target);
   }
   .subscription-stager__callback {
     grid-template-columns: 1fr;

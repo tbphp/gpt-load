@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -21,6 +22,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	platformredact "gpt-load/internal/platform/redact"
@@ -33,19 +35,34 @@ import (
 )
 
 const (
-	refreshLeadTime  = 5 * time.Minute
-	codexUpstreamAPI = execution.UpstreamAPIOpenAIResponses
+	refreshLeadTime        = 5 * time.Minute
+	refreshFinalizeTimeout = 5 * time.Second
+	codexUpstreamAPI       = execution.UpstreamAPIOpenAIResponses
 )
 
+var convertedRepresentationHeaderNames = [...]string{
+	"Content-Encoding",
+	"Content-Length",
+	"ETag",
+	"Digest",
+	"Content-MD5",
+	"Content-Range",
+	"Content-Digest",
+	"Repr-Digest",
+	"Signature",
+	"Signature-Input",
+}
+
 type Adapter struct {
-	db            *gorm.DB
-	encryption    encryption.Service
-	registry      *state.CredentialRegistry
-	mutations     *health.MutationCoordinator
-	executor      cpaembedded.HTTPExecutor
-	refresh       func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error)
-	replaceSecret func(uint, uint64, uint64, string, string) bool
-	now           func() time.Time
+	db             *gorm.DB
+	encryption     encryption.Service
+	registry       *state.CredentialRegistry
+	mutations      *health.MutationCoordinator
+	executor       cpaembedded.HTTPExecutor
+	refresh        func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error)
+	replaceSecret  func(uint, uint64, uint64, string, string) bool
+	reconcileGroup func(uint, []state.CredentialEntry) (bool, error)
+	now            func() time.Time
 }
 
 func NewAdapter(db *gorm.DB, encryptionService encryption.Service, registry *state.CredentialRegistry, mutations *health.MutationCoordinator) *Adapter {
@@ -55,11 +72,21 @@ func NewAdapter(db *gorm.DB, encryptionService encryption.Service, registry *sta
 	return &Adapter{
 		db: db, encryption: encryptionService, registry: registry, mutations: mutations,
 		executor: cpaembedded.NewCodexHTTPExecutor(), now: time.Now,
-		replaceSecret: registry.ReplaceCredentialSecretIfMatch,
+		replaceSecret:  registry.ReplaceCredentialSecretIfMatch,
+		reconcileGroup: registry.ReconcileGroup,
 		refresh: func(ctx context.Context, credential cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
 			return cpaembedded.RefreshCodexCredentialOnce(ctx, credential, cpaembedded.Options{})
 		},
 	}
+}
+
+// PrepareCodexCredential applies the same durable refresh lifecycle used by
+// data-plane requests before a control-plane Codex call.
+func (a *Adapter) PrepareCodexCredential(
+	ctx context.Context,
+	snapshot execution.CredentialSnapshot,
+) (cpaembedded.CodexCredential, *execution.ErrorEvidence) {
+	return a.prepare(ctx, snapshot, false)
 }
 
 func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execution.AttemptResult {
@@ -81,13 +108,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 		return result
 	}
 	body := append([]byte(nil), response.Payload...)
-	headers := response.Headers.Clone()
-	if headers == nil {
-		headers = make(http.Header)
-	}
-	if headers.Get("Content-Type") == "" {
-		headers.Set("Content-Type", "application/json")
-	}
+	headers := convertedResponseHeaders(response.Headers, "application/json")
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 		UpstreamAPI: codexUpstreamAPI, AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
@@ -110,9 +131,13 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	}
 	execCtx, cancel := withRequestTimeout(ctx, spec.Timeouts.Request)
 	defer cancel()
-	response, err := a.executor.ExecuteStreamCanonical(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
+	streamCtx, cancelStream := context.WithCancelCause(execCtx)
+	defer cancelStream(context.Canceled)
+	firstByte := startFirstByteGate(spec.Timeouts.FirstByte, cancelStream)
+	defer firstByte.stop()
+	response, err := a.executor.ExecuteStreamCanonical(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
 	if err != nil {
-		result := unaryExecutionError(execCtx, err, credential)
+		result := unaryExecutionError(streamCtx, err, credential)
 		var applied *reasoning.Config
 		if response != nil {
 			applied = appliedReasoning(response.AppliedReasoningEffort)
@@ -125,36 +150,72 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		}
 	}
 	applied := appliedReasoning(response.AppliedReasoningEffort)
-	headers := response.Headers.Clone()
-	if headers == nil {
-		headers = make(http.Header)
-	}
-	if headers.Get("Content-Type") == "" {
-		headers.Set("Content-Type", "text/event-stream")
-	}
-	if err := sink(execution.StreamEvent{Kind: execution.StreamEventReady, Sequence: 1, StatusCode: http.StatusOK, Header: headers}); err != nil {
-		return successfulStreamTerminal(spec, headers, applied)
-	}
-	sequence := uint64(2)
+	headers := convertedResponseHeaders(response.Headers, "text/event-stream")
+	sequence := uint64(1)
+	ready := false
+	openAIDone := false
+	geminiTerminal := false
 	for {
-		chunk, ok, idleErr := nextChunk(execCtx, response.Chunks, spec.Timeouts.StreamIdle)
+		idleTimeout := spec.Timeouts.StreamIdle
+		if !ready {
+			idleTimeout = 0
+		}
+		chunk, ok, idleErr := nextChunk(streamCtx, response.Chunks, idleTimeout)
 		if idleErr != nil {
-			return streamExecutionError(spec, headers, idleErr, credential, applied)
+			return streamExecutionError(headers, idleErr, credential, applied, ready)
 		}
 		if !ok {
+			if err := context.Cause(streamCtx); err != nil {
+				return streamExecutionError(headers, err, credential, applied, ready)
+			}
+			if !ready {
+				return streamInternalError(headers, applied, "subscription upstream stream ended without data", false)
+			}
+			if spec.ClientProtocol == protocol.OpenAICompletions && !openAIDone {
+				sequence++
+				if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: []byte("data: [DONE]\n\n")}); err != nil {
+					return streamConsumerStopped(headers, applied, ready)
+				}
+			}
+			if spec.ClientProtocol == protocol.Gemini && !geminiTerminal {
+				sequence++
+				if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: []byte("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n")}); err != nil {
+					return streamConsumerStopped(headers, applied, ready)
+				}
+			}
 			return successfulStreamTerminal(spec, headers, applied)
 		}
 		if chunk.Err != nil {
-			return streamExecutionError(spec, headers, chunk.Err, credential, applied)
+			return streamExecutionError(headers, chunk.Err, credential, applied, ready)
 		}
 		if len(chunk.Payload) == 0 {
 			continue
 		}
-		framed := frameSSE(chunk.Payload)
-		if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: framed}); err != nil {
-			return successfulStreamTerminal(spec, headers, applied)
+		firstByte.stop()
+		if err := context.Cause(streamCtx); err != nil {
+			return streamExecutionError(headers, err, credential, applied, false)
+		}
+		payload := frameSSE(spec.ClientProtocol, chunk.Payload)
+		payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
+		if rewriteErr != nil {
+			return streamInternalError(headers, applied, "rewrite subscription response model", ready)
+		}
+		if spec.ClientProtocol == protocol.OpenAICompletions && isOpenAIDone(payload) {
+			openAIDone = true
+		}
+		if spec.ClientProtocol == protocol.Gemini && isGeminiTerminal(payload) {
+			geminiTerminal = true
+		}
+		if !ready {
+			if err := sink(execution.StreamEvent{Kind: execution.StreamEventReady, Sequence: sequence, StatusCode: http.StatusOK, Header: headers}); err != nil {
+				return streamConsumerStopped(headers, applied, false)
+			}
+			ready = true
 		}
 		sequence++
+		if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: payload}); err != nil {
+			return streamConsumerStopped(headers, applied, ready)
+		}
 	}
 }
 
@@ -234,90 +295,154 @@ func (a *Adapter) refreshCredentialLocked(
 			return current, nil
 		}
 	}
-	nowMS := a.now().UnixMilli()
-	started := a.db.WithContext(ctx).Model(&models.Credential{}).
-		Where("id = ? AND secret_version = ? AND auth_state = ?", row.ID, row.SecretVersion, models.CredentialAuthStateReady).
-		Updates(map[string]any{"auth_state": models.CredentialAuthStateRefreshing, "auth_error_code": "", "updated_at_ms": nowMS})
-	if started.Error != nil || started.RowsAffected != 1 {
+	if err := a.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateRefreshing, ""); err != nil {
+		finalizeContext, cancel := refreshFinalizeContext(ctx)
+		restoreErr := a.setAuthState(finalizeContext, row.ID, row.SecretVersion, models.CredentialAuthStateReady, "")
+		if restoreErr == nil {
+			restoreErr = a.publishAuthState(finalizeContext, row, models.CredentialAuthStateReady)
+		}
+		cancel()
+		if restoreErr != nil {
+			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+			return cpaembedded.CodexCredential{}, authEvidence("refresh_registry_mismatch")
+		}
 		return cpaembedded.CodexCredential{}, localEvidence("refresh_start_failed", "subscription credential refresh could not start")
-	}
-	if !a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateRefreshing) {
-		// No provider call has happened, so the original token is still known.
-		// Restore the durable state instead of falsely requiring reauthorization.
-		_ = a.setAuthState(context.WithoutCancel(ctx), row.ID, row.SecretVersion, models.CredentialAuthStateReady, "")
-		return cpaembedded.CodexCredential{}, localEvidence("refresh_registry_mismatch", "subscription credential runtime is unavailable")
 	}
 	refreshed, refreshErr := a.refresh(ctx, current)
 	if refreshErr != nil {
 		stateValue, code := models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown"
 		var tokenErr *cpaembedded.TokenEndpointError
-		if errors.As(refreshErr, &tokenErr) && definitiveRefreshRejection(tokenErr.Code) {
+		if errors.Is(refreshErr, cpaembedded.ErrCredentialIdentityChanged) {
+			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"
+		} else if errors.As(refreshErr, &tokenErr) && cpaembedded.IsDefinitiveRefreshRejection(tokenErr.Code) {
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_rejected"
 		}
-		_ = a.setAuthState(context.WithoutCancel(ctx), row.ID, row.SecretVersion, stateValue, code)
-		a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthState(stateValue))
+		if err := a.transitionAuthState(ctx, row, row.SecretVersion, stateValue, code); err != nil {
+			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+		}
 		return cpaembedded.CodexCredential{}, authEvidence(code)
 	}
 	if refreshed.AccountID != current.AccountID {
-		_ = a.setAuthState(context.WithoutCancel(ctx), row.ID, row.SecretVersion, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed")
-		a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateReauthorizationRequired)
+		if err := a.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"); err != nil {
+			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+		}
 		return cpaembedded.CodexCredential{}, authEvidence("refresh_identity_changed")
 	}
 	canonical, err := json.Marshal(refreshed)
 	if err != nil {
-		a.markRefreshOutcomeUnknown(ctx, row, "refresh_persist_failed")
+		if markErr := a.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_persist_failed"); markErr != nil {
+			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+		}
 		return cpaembedded.CodexCredential{}, authEvidence("refresh_persist_failed")
 	}
 	ciphertext, err := a.encryption.Encrypt(string(canonical))
 	fingerprint := a.encryption.Hash(string(canonical))
 	clear(canonical)
 	if err != nil {
-		a.markRefreshOutcomeUnknown(ctx, row, "refresh_persist_failed")
+		if markErr := a.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_persist_failed"); markErr != nil {
+			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+		}
 		return cpaembedded.CodexCredential{}, authEvidence("refresh_persist_failed")
 	}
 	nextVersion := row.SecretVersion + 1
-	updated := a.db.WithContext(context.WithoutCancel(ctx)).Model(&models.Credential{}).
+	finalizeContext, cancelFinalize := refreshFinalizeContext(ctx)
+	updated := a.db.WithContext(finalizeContext).Model(&models.Credential{}).
 		Where("id = ? AND secret_version = ? AND auth_state = ?", row.ID, row.SecretVersion, models.CredentialAuthStateRefreshing).
 		Updates(map[string]any{
 			"data": ciphertext, "fingerprint": fingerprint, "secret_version": nextVersion,
 			"auth_state": models.CredentialAuthStateReady, "auth_error_code": "", "updated_at_ms": a.now().UnixMilli(),
 		})
+	cancelFinalize()
 	if updated.Error != nil || updated.RowsAffected != 1 {
-		a.markRefreshOutcomeUnknown(ctx, row, "refresh_commit_failed")
+		if markErr := a.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_commit_failed"); markErr != nil {
+			return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+		}
 		return cpaembedded.CodexCredential{}, authEvidence("refresh_commit_failed")
 	}
 	if a.replaceSecret == nil || !a.replaceSecret(row.ID, row.SecretVersion, nextVersion, fingerprint, ciphertext) {
 		// The rotated token is durable. Reconcile this Group from DB truth so a
 		// failed incremental publication cannot leave control and data planes at
 		// different secret versions.
-		entries, reconcileErr := stateloader.BuildGroupCredentialEntries(context.WithoutCancel(ctx), a.db, row.GroupID)
+		reconcileContext, cancelReconcile := refreshFinalizeContext(ctx)
+		entries, reconcileErr := stateloader.BuildGroupCredentialEntries(reconcileContext, a.db, row.GroupID)
 		if reconcileErr != nil {
-			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-			return cpaembedded.CodexCredential{}, authEvidence("refresh_registry_mismatch")
+			cancelReconcile()
+		} else if a.reconcileGroup == nil {
+			reconcileErr = errors.New("credential registry reconciliation is unavailable")
+			cancelReconcile()
+		} else {
+			_, reconcileErr = a.reconcileGroup(row.GroupID, entries)
+			cancelReconcile()
 		}
-		if _, reconcileErr = a.registry.ReconcileGroup(row.GroupID, entries); reconcileErr != nil {
-			a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+		if reconcileErr != nil {
+			if markErr := a.markRefreshOutcomeUnknown(ctx, row, nextVersion, "refresh_registry_mismatch"); markErr != nil {
+				a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+				return cpaembedded.CodexCredential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+			}
 			return cpaembedded.CodexCredential{}, authEvidence("refresh_registry_mismatch")
 		}
 	}
 	return refreshed, nil
 }
 
-func (a *Adapter) markRefreshOutcomeUnknown(ctx context.Context, row models.Credential, code string) {
-	_ = a.setAuthState(
-		context.WithoutCancel(ctx),
-		row.ID,
-		row.SecretVersion,
-		models.CredentialAuthStateOutcomeUnknown,
-		code,
-	)
-	a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+func (a *Adapter) markRefreshOutcomeUnknown(ctx context.Context, row models.Credential, version uint64, code string) error {
+	return a.transitionAuthState(ctx, row, version, models.CredentialAuthStateOutcomeUnknown, code)
 }
 
 func (a *Adapter) setAuthState(ctx context.Context, credentialID uint, version uint64, authState models.CredentialAuthState, code string) error {
-	return a.db.WithContext(ctx).Model(&models.Credential{}).
+	result := a.db.WithContext(ctx).Model(&models.Credential{}).
 		Where("id = ? AND secret_version = ?", credentialID, version).
-		Updates(map[string]any{"auth_state": authState, "auth_error_code": code, "updated_at_ms": a.now().UnixMilli()}).Error
+		Updates(map[string]any{"auth_state": authState, "auth_error_code": code, "updated_at_ms": a.now().UnixMilli()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("credential auth state update affected %d rows", result.RowsAffected)
+	}
+	return nil
+}
+
+func (a *Adapter) transitionAuthState(
+	ctx context.Context,
+	row models.Credential,
+	version uint64,
+	authState models.CredentialAuthState,
+	code string,
+) error {
+	finalizeContext, cancel := refreshFinalizeContext(ctx)
+	defer cancel()
+	if err := a.setAuthState(finalizeContext, row.ID, version, authState, code); err != nil {
+		return err
+	}
+	return a.publishAuthState(finalizeContext, row, authState)
+}
+
+func (a *Adapter) publishAuthState(
+	ctx context.Context,
+	row models.Credential,
+	authState models.CredentialAuthState,
+) error {
+	if a.registry.SetCredentialAuthState(row.ID, state.CredentialAuthState(authState)) {
+		return nil
+	}
+	entries, err := stateloader.BuildGroupCredentialEntries(ctx, a.db, row.GroupID)
+	if err != nil {
+		return err
+	}
+	if a.reconcileGroup == nil {
+		return fmt.Errorf("credential registry reconciliation is unavailable")
+	}
+	_, err = a.reconcileGroup(row.GroupID, entries)
+	return err
+}
+
+func refreshFinalizeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), refreshFinalizeTimeout)
 }
 
 func bridgeRequest(spec execution.AttemptSpec) cpaembedded.ExecuteRequest {
@@ -341,6 +466,22 @@ func formatFor(clientProtocol protocol.Protocol) string {
 	}
 }
 
+func convertedResponseHeaders(source http.Header, contentType string) http.Header {
+	headers := source.Clone()
+	if headers == nil {
+		headers = make(http.Header)
+	}
+	for _, name := range convertedRepresentationHeaderNames {
+		for key := range headers {
+			if strings.EqualFold(key, name) {
+				delete(headers, key)
+			}
+		}
+	}
+	headers.Set("Content-Type", contentType)
+	return headers
+}
+
 func unaryExecutionError(ctx context.Context, err error, credential cpaembedded.CodexCredential) execution.AttemptResult {
 	status, evidence := executionErrorEvidence(ctx, err, credential)
 	return execution.AttemptResult{
@@ -349,15 +490,42 @@ func unaryExecutionError(ctx context.Context, err error, credential cpaembedded.
 	}
 }
 
-func streamExecutionError(spec execution.AttemptSpec, headers http.Header, err error, credential cpaembedded.CodexCredential, applied *reasoning.Config) execution.StreamResult {
+func streamExecutionError(headers http.Header, err error, credential cpaembedded.CodexCredential, applied *reasoning.Config, responseStarted bool) execution.StreamResult {
 	status, evidence := executionErrorEvidence(context.Background(), err, credential)
-	if status == 0 {
+	responseStarted = responseStarted || status != 0
+	if responseStarted && status == 0 {
 		status = http.StatusOK
 	}
 	return execution.StreamResult{
-		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: responseStarted,
 		UpstreamAPI: codexUpstreamAPI, AppliedReasoning: applied, StatusCode: status,
 		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Error: evidence,
+	}
+}
+
+func streamInternalError(headers http.Header, applied *reasoning.Config, summary string, responseStarted bool) execution.StreamResult {
+	status := 0
+	if responseStarted {
+		status = http.StatusOK
+	}
+	return execution.StreamResult{
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: responseStarted,
+		UpstreamAPI: codexUpstreamAPI, AppliedReasoning: applied, StatusCode: status,
+		Header: headers.Clone(), UpstreamRequestID: upstreamRequestID(headers),
+		Error: &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Summary: summary},
+	}
+}
+
+func streamConsumerStopped(headers http.Header, applied *reasoning.Config, responseStarted bool) execution.StreamResult {
+	status := 0
+	if responseStarted {
+		status = http.StatusOK
+	}
+	return execution.StreamResult{
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: responseStarted,
+		UpstreamAPI: codexUpstreamAPI, AppliedReasoning: applied, StatusCode: status,
+		Header: headers.Clone(), UpstreamRequestID: upstreamRequestID(headers),
+		Error: &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled, Summary: "stream consumer stopped"},
 	}
 }
 
@@ -372,10 +540,10 @@ func executionErrorEvidence(ctx context.Context, err error, credential cpaembedd
 	kind := execution.ErrorKindTransport
 	if status != 0 {
 		kind = execution.ErrorKindHTTP
-	} else if errors.Is(err, context.Canceled) || ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
-		kind = execution.ErrorKindCanceled
-	} else if errors.Is(err, context.DeadlineExceeded) || ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	} else if errors.Is(err, context.DeadlineExceeded) || ctx != nil && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
 		kind = execution.ErrorKindTimeout
+	} else if errors.Is(err, context.Canceled) || ctx != nil && errors.Is(context.Cause(ctx), context.Canceled) {
+		kind = execution.ErrorKindCanceled
 	} else if _, ok := err.(net.Error); ok {
 		kind = execution.ErrorKindTransport
 	}
@@ -413,15 +581,6 @@ func explicitAccessTokenExpiration(code string) bool {
 	}
 }
 
-func definitiveRefreshRejection(code string) bool {
-	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "invalid_grant", "refresh_token_expired", "refresh_token_revoked", "refresh_token_reused":
-		return true
-	default:
-		return false
-	}
-}
-
 func safeErrorSummary(err error, credential cpaembedded.CodexCredential) string {
 	fallback := "subscription upstream request failed"
 	if err == nil {
@@ -431,7 +590,14 @@ func safeErrorSummary(err error, credential cpaembedded.CodexCredential) string 
 	if summary == "" {
 		summary = err.Error()
 	}
-	summary = platformredact.New().String(summary, credential.AccessToken, credential.RefreshToken, credential.IDToken)
+	summary = platformredact.New().String(
+		summary,
+		credential.AccessToken,
+		credential.RefreshToken,
+		credential.IDToken,
+		credential.AccountID,
+		credential.Email,
+	)
 	summary = strings.Join(strings.Fields(strings.ToValidUTF8(summary, "\uFFFD")), " ")
 	if summary == "" {
 		summary = fallback
@@ -509,7 +675,7 @@ func nextChunk(ctx context.Context, chunks <-chan cpaembedded.ExecuteStreamChunk
 		case chunk, ok := <-chunks:
 			return chunk, ok, nil
 		case <-ctx.Done():
-			return cpaembedded.ExecuteStreamChunk{}, false, ctx.Err()
+			return cpaembedded.ExecuteStreamChunk{}, false, context.Cause(ctx)
 		}
 	}
 	timer := time.NewTimer(timeout)
@@ -518,15 +684,90 @@ func nextChunk(ctx context.Context, chunks <-chan cpaembedded.ExecuteStreamChunk
 	case chunk, ok := <-chunks:
 		return chunk, ok, nil
 	case <-ctx.Done():
-		return cpaembedded.ExecuteStreamChunk{}, false, ctx.Err()
+		return cpaembedded.ExecuteStreamChunk{}, false, context.Cause(ctx)
 	case <-timer.C:
 		return cpaembedded.ExecuteStreamChunk{}, false, context.DeadlineExceeded
 	}
 }
 
-func frameSSE(payload []byte) []byte {
+type firstByteGate struct {
+	stopOnce sync.Once
+	stopOne  chan struct{}
+	done     chan struct{}
+}
+
+func startFirstByteGate(budget time.Duration, cancel context.CancelCauseFunc) *firstByteGate {
+	gate := &firstByteGate{stopOne: make(chan struct{}), done: make(chan struct{})}
+	if budget <= 0 {
+		close(gate.done)
+		return gate
+	}
+	go func() {
+		defer close(gate.done)
+		timer := time.NewTimer(budget)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel(context.DeadlineExceeded)
+		case <-gate.stopOne:
+		}
+	}()
+	return gate
+}
+
+func (g *firstByteGate) stop() {
+	if g == nil {
+		return
+	}
+	g.stopOnce.Do(func() { close(g.stopOne) })
+	<-g.done
+}
+
+func frameSSE(clientProtocol protocol.Protocol, payload []byte) []byte {
 	payload = bytes.TrimRight(payload, "\r\n")
+	if (clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.Gemini) &&
+		!bytes.HasPrefix(payload, []byte("data:")) && !bytes.HasPrefix(payload, []byte("event:")) {
+		payload = append([]byte("data: "), payload...)
+	}
 	return append(append([]byte(nil), payload...), '\n', '\n')
+}
+
+func rewriteStreamModelAlias(spec execution.AttemptSpec, payload []byte) ([]byte, error) {
+	if !responsealias.Needs(spec.ClientModel, spec.UpstreamModel) {
+		return bytes.Clone(payload), nil
+	}
+	return responsealias.RewriteSSE(spec.ClientProtocol, payload, spec.ClientModel)
+}
+
+func isOpenAIDone(payload []byte) bool {
+	payload = bytes.TrimSpace(payload)
+	payload = bytes.TrimSpace(bytes.TrimPrefix(payload, []byte("data:")))
+	return bytes.Equal(payload, []byte("[DONE]"))
+}
+
+func isGeminiTerminal(payload []byte) bool {
+	payload = bytes.TrimSpace(payload)
+	payload = bytes.TrimSpace(bytes.TrimPrefix(payload, []byte("data:")))
+	var value struct {
+		Candidates []struct {
+			FinishReason string `json:"finishReason"`
+		} `json:"candidates"`
+		PromptFeedback struct {
+			BlockReason string `json:"blockReason"`
+		} `json:"promptFeedback"`
+	}
+	if json.Unmarshal(payload, &value) != nil {
+		return false
+	}
+	if value.PromptFeedback.BlockReason != "" {
+		return true
+	}
+	for _, candidate := range value.Candidates {
+		if candidate.FinishReason != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func responseModel(body []byte, fallback string) string {

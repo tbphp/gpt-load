@@ -32,7 +32,8 @@ export default {
     },
     existing: {
       title: '対象 Group',
-      description: 'モデルや設定を変更せず、チャネル認証情報のみを追加します',
+      description:
+        'この入口は API キー Group への認証情報追加専用です。モデルや設定は変更しません。サブスクリプションは Codex Group の認証情報ページから接続してください。',
       groupsLoading: 'Group を読み込み中…',
       groupsFailed: 'Group を読み込めません',
       groupsStale: 'Group の更新に失敗したため、キャッシュ結果を表示しています',
@@ -102,7 +103,17 @@ export default {
       readyCount: '{count} アカウント準備完了',
       pendingAccount: 'アカウント認証を待機中',
       expires: '有効期限',
+      tokenExpires: 'アクセス認証情報の期限',
+      lastRefresh: '最終更新',
       unknown: '不明',
+      stageError: {
+        authorizationDenied: 'Codex 認証がキャンセルされました。最初からやり直してください',
+        authorizationFailed: 'Codex 認証を完了できませんでした。最初からやり直してください',
+        exchangeRejected: 'Codex が認証コードを拒否しました。再認証してください',
+        exchangeUnknown: '認証交換の結果を確認できません。再認証してください',
+        exchangeInterrupted: '認証交換が中断されました。再認証してください',
+        unknown: '一時認証を完了できませんでした。最初からやり直してください',
+      },
       status: {
         pending_authorization: '認証待ち',
         exchanging: '認証情報を交換中',

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
@@ -274,7 +276,9 @@ func (runtime *Runtime) sweepRetention(ctx context.Context, now time.Time) {
 		runtime.requestLogCleaner.Sweep(ctx, now)
 	}
 	if runtime.stageCleaner != nil {
-		_ = runtime.stageCleaner.CleanupCredentialStages(ctx, now)
+		if err := runtime.stageCleaner.CleanupCredentialStages(ctx, now); err != nil {
+			logrus.WithError(err).WithField("event", "control.credential_stage_cleanup_failed").Warn("credential stage cleanup failed")
+		}
 	}
 }
 

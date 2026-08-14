@@ -215,7 +215,7 @@ func writeOAuthResult(writer http.ResponseWriter, success bool) {
 	if success {
 		stateClass = "success"
 		title = "授权成功"
-		message = "订阅账号已连接，可以关闭此窗口返回 GPT-Load。"
+		message = "认证信息已准备好，请返回 GPT-Load 完成账号连接。"
 		icon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 12.5 3.5 3.5 7.5-8"/></svg>`
 	}
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")

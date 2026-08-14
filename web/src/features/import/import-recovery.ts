@@ -110,7 +110,14 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
 function isRecoveredStage(value: unknown): boolean {
   if (!isRecord(value)) return false
   return (
-    hasOnlyFields(value, ['stage_id', 'status', 'authorization_url', 'account', 'expires_at_ms']) &&
+    hasOnlyFields(value, [
+      'stage_id',
+      'status',
+      'authorization_url',
+      'account',
+      'expires_at_ms',
+      'error_code',
+    ]) &&
     typeof value.stage_id === 'string' &&
     /^[a-zA-Z0-9_-]{1,100}$/u.test(value.stage_id) &&
     [
@@ -124,9 +131,19 @@ function isRecoveredStage(value: unknown): boolean {
       'outcome_unknown',
     ].includes(String(value.status)) &&
     (value.authorization_url === undefined || typeof value.authorization_url === 'string') &&
+    (value.error_code === undefined ||
+      (typeof value.error_code === 'string' && /^[a-z0-9_]{1,64}$/u.test(value.error_code))) &&
     isRecord(value.account) &&
-    hasOnlyFields(value.account, ['email_mask']) &&
+    hasOnlyFields(value.account, ['email_mask', 'expires_at_ms', 'last_refresh_at_ms']) &&
     (value.account.email_mask === undefined || typeof value.account.email_mask === 'string') &&
+    (value.account.expires_at_ms === undefined ||
+      (typeof value.account.expires_at_ms === 'number' &&
+        Number.isSafeInteger(value.account.expires_at_ms) &&
+        value.account.expires_at_ms >= 0)) &&
+    (value.account.last_refresh_at_ms === undefined ||
+      (typeof value.account.last_refresh_at_ms === 'number' &&
+        Number.isSafeInteger(value.account.last_refresh_at_ms) &&
+        value.account.last_refresh_at_ms >= 0)) &&
     typeof value.expires_at_ms === 'number' &&
     Number.isSafeInteger(value.expires_at_ms) &&
     value.expires_at_ms >= 0

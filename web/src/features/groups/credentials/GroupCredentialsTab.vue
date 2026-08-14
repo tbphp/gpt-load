@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { KeyRound, Plus, Search } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -46,10 +46,11 @@ import PanelHeader from '@/components/ui/PanelHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
+import SubscriptionCredentialStager from '@/features/import/SubscriptionCredentialStager.vue'
+import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
 
 import CredentialBatchBar from './GroupCredentialBatchBar.vue'
 import CredentialRecord from './GroupCredentialRecord.vue'
-import SubscriptionCredentialStager from '@/features/import/SubscriptionCredentialStager.vue'
 import {
   constrainCredentialSearch,
   isCanonicalCredentialRouteQuery,
@@ -80,11 +81,21 @@ const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const collapsedSubscriptionIds = ref(new Set<number>())
 const connectionWorkspaceOpen = ref(false)
+const connectionWorkspace = ref<HTMLElement>()
+const connectionWorkspaceHeading = ref<HTMLElement>()
 const connectionStages = ref<CredentialStage[]>([])
 const reauthorizationTarget = ref<CredentialItemDto | null>(null)
 const connectOperationKey = ref<string>()
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
+const connectionWorkspaceDescription = computed(() =>
+  reauthorizationTarget.value
+    ? t('group.credentials.subscription.reauthorizeDescription', {
+        account: reauthorizationTarget.value.mask,
+        id: reauthorizationTarget.value.credential_id,
+      })
+    : t('group.credentials.subscription.connectDescription'),
+)
 
 const collection = computed(() => credentialsQuery.data.value)
 const {
@@ -407,18 +418,23 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
     )
     const next = { ...item, observation }
     await reconcileItem(next, false)
-  } catch {
-    feedback.value = t('group.credentials.subscription.syncFailed')
+  } catch (cause) {
+    feedback.value = t(
+      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed'),
+    )
   } finally {
     setPending(item.credential_id, 'observation', false)
   }
 }
 
-function openConnectionWorkspace(target?: CredentialItemDto): void {
+async function openConnectionWorkspace(target?: CredentialItemDto): Promise<void> {
   connectionStages.value = []
   reauthorizationTarget.value = target ?? null
   connectOperationKey.value = undefined
   connectionWorkspaceOpen.value = true
+  await nextTick()
+  connectionWorkspace.value?.scrollIntoView({ block: 'start' })
+  connectionWorkspaceHeading.value?.focus({ preventScroll: true })
 }
 
 function setConnectionWorkspace(open: boolean): void {
@@ -432,8 +448,21 @@ function setConnectionWorkspace(open: boolean): void {
 }
 
 async function saveConnectedAccounts(): Promise<void> {
-  const ready = connectionStages.value.filter(({ status }) => status === 'ready')
-  if (ready.length === 0 || singleBusy.value) return
+  const now = Date.now()
+  const ready = connectionStages.value.filter(
+    ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now,
+  )
+  if (ready.length === 0 || singleBusy.value) {
+    if (!singleBusy.value && connectionStages.value.some(({ status }) => status === 'ready')) {
+      connectionStages.value = connectionStages.value.map((stage) =>
+        stage.status === 'ready' && stage.expires_at_ms <= now
+          ? { ...stage, status: 'expired' }
+          : stage,
+      )
+      feedback.value = t('common.subscriptionErrors.stageExpired')
+    }
+    return
+  }
   feedback.value = ''
   const target = reauthorizationTarget.value
   let succeeded = false
@@ -465,11 +494,14 @@ async function saveConnectedAccounts(): Promise<void> {
       })
     }
     succeeded = true
-  } catch {
+  } catch (cause) {
     feedback.value = t(
-      target
-        ? 'group.credentials.subscription.reauthorizeFailed'
-        : 'group.credentials.subscription.connectFailed',
+      presentSubscriptionErrorKey(
+        cause,
+        target
+          ? 'group.credentials.subscription.reauthorizeFailed'
+          : 'group.credentials.subscription.connectFailed',
+      ),
     )
   } finally {
     setPending(target?.credential_id ?? 0, target ? 'reauthorize' : 'connect', false)
@@ -626,23 +658,25 @@ async function runBatch(
 
     <section
       v-if="connectionType === 'subscription' && connectionWorkspaceOpen"
+      ref="connectionWorkspace"
       class="group-credentials__connection-workspace"
       aria-labelledby="subscription-connection-heading"
     >
       <header>
         <div>
-          <h3 id="subscription-connection-heading">
+          <h3 id="subscription-connection-heading" ref="connectionWorkspaceHeading" tabindex="-1">
             {{
               reauthorizationTarget
                 ? t('group.credentials.subscription.reauthorize')
                 : t('group.credentials.subscription.connect')
             }}
           </h3>
-          <p>{{ t('group.credentials.subscription.connectDescription') }}</p>
+          <p>{{ connectionWorkspaceDescription }}</p>
         </div>
         <AppButton
           variant="ghost"
           size="compact"
+          class="group-credentials__connection-close"
           :disabled="singleBusy"
           @click="setConnectionWorkspace(false)"
         >
@@ -652,6 +686,7 @@ async function runBatch(
       <SubscriptionCredentialStager
         v-model="connectionStages"
         compact
+        hide-header
         :single="reauthorizationTarget !== null"
         :disabled="singleBusy"
       />
@@ -930,6 +965,10 @@ async function runBatch(
   font-size: var(--title-section);
   font-weight: 650;
 }
+.group-credentials__connection-workspace h3:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 3px;
+}
 .group-credentials__connection-workspace p {
   margin-top: 3px;
   color: var(--color-text-faint);
@@ -1000,6 +1039,9 @@ async function runBatch(
   }
   .group-credentials__connection-workspace > footer :deep(.app-button) {
     width: 100%;
+    min-height: var(--touch-target);
+  }
+  .group-credentials__connection-close {
     min-height: var(--touch-target);
   }
 }

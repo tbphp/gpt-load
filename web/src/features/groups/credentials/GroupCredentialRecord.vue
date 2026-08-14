@@ -60,12 +60,21 @@ const recentLabel = computed(() =>
 const primaryQuota = computed(() =>
   props.item.observation?.snapshot?.quota_windows.find(({ is_primary }) => is_primary),
 )
+const subscriptionSecondaryLabel = computed(() => {
+  if (props.item.auth_state !== 'ready') {
+    return t(`group.credentials.subscription.auth.${props.item.auth_state}`)
+  }
+  return (
+    props.item.observation?.snapshot?.plan_summary.name ||
+    t('group.credentials.subscription.auth.ready')
+  )
+})
 const entitlementLabel = computed(() => {
   if (props.item.connection_type !== 'subscription') return recentLabel.value
   const window = primaryQuota.value
   if (!window)
     return t(
-      `group.credentials.subscription.observation.${props.item.observation?.state ?? 'unavailable'}`,
+      `group.credentials.subscription.observationShort.${props.item.observation?.state ?? 'unavailable'}`,
     )
   if (window.utilization !== undefined) {
     return `${window.label} · ${n(Math.round(window.utilization * 100))}%`
@@ -155,12 +164,7 @@ function saveWeight(): void {
         />
         <span v-else class="group-credential-record__account">
           <strong>{{ item.mask }}</strong>
-          <small>
-            {{
-              item.observation?.snapshot?.plan_summary.name ||
-              t(`group.credentials.subscription.auth.${item.auth_state}`)
-            }}
-          </small>
+          <small>{{ subscriptionSecondaryLabel }}</small>
         </span>
       </div>
 
@@ -185,7 +189,11 @@ function saveWeight(): void {
 
       <div class="ledger-record-list__cell group-credential-record__recent" role="cell">
         <span class="group-credential-record__mobile-label">{{
-          t('group.credentials.columns.recent')
+          t(
+            item.connection_type === 'subscription'
+              ? 'group.credentials.columns.entitlement'
+              : 'group.credentials.columns.recent',
+          )
         }}</span>
         <span>{{ entitlementLabel }}</span>
       </div>

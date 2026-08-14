@@ -9,6 +9,7 @@ import (
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -43,16 +44,15 @@ func (s *Service) discoverSubscriptionGroupModels(
 	if len(rows.credentials) == 0 {
 		return ModelDiscoveryResult{}, app_errors.ErrNoActiveCredential
 	}
+	var preparationErr error
+	attempted := false
 	for _, row := range rows.credentials {
-		canonical, _, err := s.decodeCredential(rows.group, row)
+		credential, err := s.prepareStoredCodexCredential(ctx, rows.group, row)
 		if err != nil {
-			return ModelDiscoveryResult{}, err
+			preparationErr = err
+			continue
 		}
-		credential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
-		clear(canonical)
-		if err != nil {
-			return ModelDiscoveryResult{}, fmt.Errorf("decode subscription credential: %w", app_errors.ErrInternalServer)
-		}
+		attempted = true
 		result, err := s.discoverCodexModels(ctx, credential)
 		if err == nil {
 			return result, nil
@@ -61,7 +61,72 @@ func (s *Service) discoverSubscriptionGroupModels(
 			return ModelDiscoveryResult{}, ctx.Err()
 		}
 	}
+	if !attempted && preparationErr != nil {
+		return ModelDiscoveryResult{}, preparationErr
+	}
 	return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
+}
+
+func (s *Service) prepareStoredCodexCredential(
+	ctx context.Context,
+	group models.Group,
+	row models.Credential,
+) (cpaembedded.CodexCredential, error) {
+	switch row.AuthState {
+	case "", models.CredentialAuthStateReady:
+	case models.CredentialAuthStateReauthorizationRequired:
+		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialReauthorizationRequired
+	case models.CredentialAuthStateRefreshing, models.CredentialAuthStateOutcomeUnknown:
+		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+	default:
+		return cpaembedded.CodexCredential{}, app_errors.ErrInternalServer
+	}
+	canonical, _, err := s.decodeCredential(group, row)
+	if err != nil {
+		return cpaembedded.CodexCredential{}, err
+	}
+	defer clear(canonical)
+	if s.prepareCodexCredential == nil {
+		credential, parseErr := cpaembedded.ParseCodexCredentialJSON(canonical)
+		if parseErr != nil {
+			return cpaembedded.CodexCredential{}, app_errors.ErrInternalServer
+		}
+		return credential, nil
+	}
+	prepareContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+	defer cancel()
+	credential, evidence := s.prepareCodexCredential(prepareContext, execution.NewCredentialSnapshot(
+		row.ID,
+		groupCollectionCredentialVersion(row.SecretVersion),
+		groupCollectionCredentialIdentity(row.IdentityFingerprint, group),
+		canonical,
+	))
+	if evidence != nil {
+		return cpaembedded.CodexCredential{}, codexPreparationAPIError(evidence)
+	}
+	return credential, nil
+}
+
+func codexPreparationAPIError(evidence *execution.ErrorEvidence) error {
+	if evidence == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(evidence.Code)) {
+	case "outcome_unknown", "refreshing", "refresh_outcome_unknown", "refresh_persist_failed",
+		"refresh_commit_failed", "refresh_registry_mismatch", "refresh_state_commit_failed":
+		return app_errors.ErrCredentialAuthOutcomeUnknown
+	case "reauthorization_required", "refresh_rejected", "refresh_identity_changed":
+		return app_errors.ErrCredentialReauthorizationRequired
+	}
+	if evidence.Hint == execution.FailureHintReauthorizationRequired {
+		return app_errors.ErrCredentialReauthorizationRequired
+	}
+	if evidence.Kind == execution.ErrorKindCanceled || evidence.Kind == execution.ErrorKindTimeout ||
+		evidence.Kind == execution.ErrorKindTransport || evidence.Kind == execution.ErrorKindHTTP ||
+		evidence.Kind == execution.ErrorKindProvider {
+		return app_errors.ErrBadGateway
+	}
+	return app_errors.ErrInternalServer
 }
 
 func (s *Service) discoverCodexModels(

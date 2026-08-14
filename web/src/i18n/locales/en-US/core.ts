@@ -23,6 +23,26 @@ export default {
     close: 'Close',
     asyncLoading: 'Loading this section…',
     asyncLoadFailed: 'Unable to load this section. Reload the page and try again.',
+    subscriptionErrors: {
+      oauthFileInvalid: 'The OAuth JSON is invalid or missing required fields',
+      oauthFileTooLarge: 'The OAuth JSON file must be smaller than 64 KiB',
+      authorizationUnavailable: 'Codex browser authorization is temporarily unavailable',
+      authorizationStateInvalid:
+        'This callback is expired, already used, or belongs to another authorization',
+      authorizationExchangeFailed:
+        'Codex rejected or could not complete the authorization exchange',
+      stageNotReady: 'The subscription account has not finished authorization',
+      stageExpired: 'The temporary subscription account expired; authorize or import it again',
+      stageConsumed: 'This temporary subscription account was already saved; authorize again',
+      stageMismatch: 'The temporary subscription account does not match this target',
+      duplicateAccount: 'This subscription account already exists in the Group',
+      reauthorizationRequired: 'This subscription account must be reauthorized',
+      outcomeUnknown: 'The credential outcome is unknown; reload the account state first',
+      versionConflict: 'The authorization changed elsewhere; reload and try again',
+      refreshThrottled: 'Sync was requested too recently; retry after the allowed time',
+      operationIncomplete: 'The account was saved, but runtime recovery is still in progress',
+      recoveryPending: 'An earlier account operation is still recovering; try again shortly',
+    },
     unsavedChangesDialog: {
       title: 'Discard unsaved changes?',
       description:

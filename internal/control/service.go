@@ -55,6 +55,8 @@ type Service struct {
 	random                       io.Reader
 	operationRandom              io.Reader
 	completeBrowserAuthorization func(context.Context, cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error)
+	prepareCodexCredential       func(context.Context, execution.CredentialSnapshot) (cpaembedded.CodexCredential, *execution.ErrorEvidence)
+	refreshCodexCredential       func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error)
 	listCodexModels              func(context.Context, cpaembedded.CodexCredential) ([]cpaembedded.Model, error)
 	observeCodexAccount          func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error)
 	oauthCallback                *OAuthCallbackServer
@@ -71,12 +73,16 @@ type Service struct {
 	operationRecoveryWake chan struct{}
 	writeMu               sync.RWMutex
 	observationMu         sync.Mutex
-	observationFlights    map[uint]*observationFlight
+	observationFlights    map[observationFlightKey]*observationFlight
 	observationSemaphore  chan struct{}
 }
 
 type credentialRuntimeRetirer interface {
 	RetireCredential(uint)
+}
+
+type codexCredentialPreparer interface {
+	PrepareCodexCredential(context.Context, execution.CredentialSnapshot) (cpaembedded.CodexCredential, *execution.ErrorEvidence)
 }
 
 type credentialMultiMutationCoordinator interface {
@@ -150,6 +156,9 @@ func NewService(
 		completeBrowserAuthorization: func(ctx context.Context, completion cpaembedded.BrowserAuthorizationCompletion) (cpaembedded.CodexCredential, error) {
 			return cpaembedded.CompleteCodexBrowserAuthorization(ctx, completion, cpaembedded.Options{})
 		},
+		refreshCodexCredential: func(ctx context.Context, credential cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
+			return cpaembedded.RefreshCodexCredentialOnce(ctx, credential, cpaembedded.Options{})
+		},
 		listCodexModels: func(ctx context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
 			return cpaembedded.ListCodexModels(ctx, credential, "")
 		},
@@ -158,11 +167,14 @@ func NewService(
 		},
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),
-		observationFlights:    make(map[uint]*observationFlight),
+		observationFlights:    make(map[observationFlightKey]*observationFlight),
 		observationSemaphore:  make(chan struct{}, 1),
 	}
 	if provider, ok := executor.(channelDefaultBaseURLProvider); ok {
 		service.channelDefaultBaseURLs = provider
+	}
+	if preparer, ok := executor.(codexCredentialPreparer); ok {
+		service.prepareCodexCredential = preparer.PrepareCodexCredential
 	}
 	if cfg != nil && cfg.ModelsDevAutoSyncOverride != nil {
 		value := *cfg.ModelsDevAutoSyncOverride

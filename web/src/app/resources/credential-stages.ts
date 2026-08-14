@@ -25,6 +25,8 @@ export type CredentialStageStatus =
 
 export interface CredentialStageAccount {
   email_mask?: string
+  expires_at_ms?: number
+  last_refresh_at_ms?: number
 }
 
 export interface CredentialStage {
@@ -33,6 +35,7 @@ export interface CredentialStage {
   authorization_url?: string
   account: CredentialStageAccount
   expires_at_ms: number
+  error_code?: string
 }
 
 export interface CredentialConnectResult {
@@ -41,8 +44,15 @@ export interface CredentialConnectResult {
   credentials_duplicated: number
 }
 
-const stageFields = ['stage_id', 'status', 'authorization_url', 'account', 'expires_at_ms'] as const
-const accountFields = ['email_mask'] as const
+const stageFields = [
+  'stage_id',
+  'status',
+  'authorization_url',
+  'account',
+  'expires_at_ms',
+  'error_code',
+] as const
+const accountFields = ['email_mask', 'expires_at_ms', 'last_refresh_at_ms'] as const
 const stageStatuses = [
   'pending_authorization',
   'exchanging',
@@ -67,10 +77,25 @@ function projectStageID(value: unknown): string {
 function projectAccount(value: unknown): CredentialStageAccount {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, accountFields)
-  if (record.email_mask === undefined) return {}
-  const emailMask = projectString(record.email_mask)
-  if (emailMask.length > 320 || /\s/u.test(emailMask)) invalidResponse()
-  return { email_mask: emailMask }
+  const emailMask = record.email_mask === undefined ? undefined : projectString(record.email_mask)
+  if (emailMask !== undefined && (emailMask.length > 320 || /\s/u.test(emailMask))) {
+    invalidResponse()
+  }
+  return {
+    ...(emailMask === undefined ? {} : { email_mask: emailMask }),
+    ...(record.expires_at_ms === undefined
+      ? {}
+      : { expires_at_ms: projectEpochMilliseconds(record.expires_at_ms) }),
+    ...(record.last_refresh_at_ms === undefined
+      ? {}
+      : { last_refresh_at_ms: projectEpochMilliseconds(record.last_refresh_at_ms) }),
+  }
+}
+
+function projectInternalErrorCode(value: unknown): string {
+  const code = projectString(value)
+  if (!/^[a-z0-9_]{1,64}$/u.test(code)) invalidResponse()
+  return code
 }
 
 export function projectCredentialStage(value: unknown): CredentialStage {
@@ -84,6 +109,9 @@ export function projectCredentialStage(value: unknown): CredentialStage {
     ...(authorizationURL === undefined ? {} : { authorization_url: authorizationURL }),
     account: projectAccount(record.account),
     expires_at_ms: projectEpochMilliseconds(record.expires_at_ms),
+    ...(record.error_code === undefined
+      ? {}
+      : { error_code: projectInternalErrorCode(record.error_code) }),
   }
 }
 

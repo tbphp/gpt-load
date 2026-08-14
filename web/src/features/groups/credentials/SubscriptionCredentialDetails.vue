@@ -23,6 +23,25 @@ const quotaWindows = computed(() => snapshot.value?.quota_windows ?? [])
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
+const authErrorKeys: Readonly<Record<string, string>> = {
+  refresh_rejected: 'group.credentials.subscription.authError.refreshRejected',
+  refresh_identity_changed: 'group.credentials.subscription.authError.identityChanged',
+  refresh_outcome_unknown: 'group.credentials.subscription.authError.outcomeUnknown',
+  refresh_persist_failed: 'group.credentials.subscription.authError.persistFailed',
+  refresh_commit_failed: 'group.credentials.subscription.authError.persistFailed',
+  refresh_registry_mismatch: 'group.credentials.subscription.authError.runtimeMismatch',
+  refresh_start_failed: 'group.credentials.subscription.authError.refreshStartFailed',
+  refresh_state_commit_failed: 'group.credentials.subscription.authError.persistFailed',
+}
+const observationErrorKeys: Readonly<Record<string, string>> = {
+  observation_upstream_failed: 'group.credentials.subscription.observationError.upstreamFailed',
+  observation_payload_invalid: 'group.credentials.subscription.observationError.payloadInvalid',
+}
+const authIssue = computed(() => {
+  if (props.item.auth_state === 'ready') return ''
+  const key = props.item.auth_error_code ? authErrorKeys[props.item.auth_error_code] : undefined
+  return key ? t(key) : t(`group.credentials.subscription.auth.${props.item.auth_state}`)
+})
 
 function percent(window: CredentialQuotaWindowDto): number | undefined {
   if (window.utilization !== undefined) return Math.round(window.utilization * 100)
@@ -49,6 +68,34 @@ function authTone(): 'success' | 'warning' | 'danger' {
   if (props.item.auth_state === 'refreshing') return 'warning'
   return 'danger'
 }
+
+function observationTone(): 'success' | 'warning' | 'neutral' {
+  if (observation.value?.state === 'fresh') return 'success'
+  if (observation.value?.state === 'refreshing' || observation.value?.state === 'error') {
+    return 'warning'
+  }
+  return 'neutral'
+}
+
+function quotaScope(window: CredentialQuotaWindowDto): string {
+  const known: Readonly<Record<string, string>> = {
+    account: 'group.credentials.subscription.scope.account',
+    global: 'group.credentials.subscription.scope.global',
+    model: 'group.credentials.subscription.scope.model',
+  }
+  const key = known[window.scope]
+  return key ? t(key) : window.scope
+}
+
+function quotaUnit(window: CredentialQuotaWindowDto): string {
+  return window.unit === 'percent' ? t('group.credentials.subscription.unit.percent') : window.unit
+}
+
+function observationErrorLabel(code: string | undefined): string {
+  if (!code) return '—'
+  const key = observationErrorKeys[code]
+  return key ? t(key) : code
+}
 </script>
 
 <template>
@@ -61,9 +108,11 @@ function authTone(): 'success' | 'warning' | 'danger' {
         <StatusBadge :status="item.effective_status" size="compact">
           {{ t(`group.credentials.effective.${item.effective_status}`) }}
         </StatusBadge>
-        <StatusBadge tone="neutral" size="compact">
+        <StatusBadge :tone="observationTone()" size="compact">
           {{
-            t(`group.credentials.subscription.observation.${observation?.state ?? 'unavailable'}`)
+            t(
+              `group.credentials.subscription.observationShort.${observation?.state ?? 'unavailable'}`,
+            )
           }}
         </StatusBadge>
       </div>
@@ -103,7 +152,33 @@ function authTone(): 'success' | 'warning' | 'danger' {
           }}
         </dd>
       </div>
+      <div>
+        <dt>{{ t('group.credentials.subscription.tokenExpiresAt') }}</dt>
+        <dd>
+          <AppDateTime
+            v-if="item.account.expires_at_ms"
+            :instant="item.account.expires_at_ms"
+            :locale="locale"
+          />
+          <span v-else>—</span>
+        </dd>
+      </div>
+      <div>
+        <dt>{{ t('group.credentials.subscription.lastTokenRefresh') }}</dt>
+        <dd>
+          <AppDateTime
+            v-if="item.account.last_refresh_at_ms"
+            :instant="item.account.last_refresh_at_ms"
+            :locale="locale"
+          />
+          <span v-else>—</span>
+        </dd>
+      </div>
     </dl>
+
+    <InlineFeedback v-if="authIssue" tone="danger" appearance="ledger">
+      {{ authIssue }}
+    </InlineFeedback>
 
     <InlineFeedback
       v-if="observation?.state !== 'fresh'"
@@ -125,21 +200,29 @@ function authTone(): 'success' | 'warning' | 'danger' {
             <span>{{ quotaValue(window) }}</span>
           </div>
           <div
+            v-if="percent(window) !== undefined"
             class="subscription-credential-details__progress"
             role="progressbar"
             :aria-label="window.label"
             :aria-valuenow="percent(window)"
+            :aria-valuetext="quotaValue(window)"
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <span
               :class="{ 'is-exhausted': window.state === 'exhausted' }"
-              :style="{ width: `${percent(window) ?? 0}%` }"
+              :style="{ width: `${percent(window)}%` }"
             />
           </div>
+          <div
+            v-else
+            class="subscription-credential-details__progress subscription-credential-details__progress--unknown"
+            role="img"
+            :aria-label="`${window.label}: ${quotaValue(window)}`"
+          />
           <div class="subscription-credential-details__quota-meta">
             <span>{{ t(`group.credentials.subscription.quotaState.${window.state}`) }}</span>
-            <span>{{ window.scope }} · {{ window.unit }}</span>
+            <span>{{ quotaScope(window) }} · {{ quotaUnit(window) }}</span>
             <span v-if="window.reset_at_ms">
               {{ t('group.credentials.subscription.resetAt') }}
               <AppDateTime :instant="window.reset_at_ms" :locale="locale" />
@@ -213,7 +296,7 @@ function authTone(): 'success' | 'warning' | 'danger' {
         <div>
           <dt>{{ t('group.credentials.subscription.lastError') }}</dt>
           <dd>
-            <code>{{ observation?.last_error_code || '—' }}</code>
+            <span>{{ observationErrorLabel(observation?.last_error_code) }}</span>
           </dd>
         </div>
       </dl>
@@ -322,6 +405,15 @@ function authTone(): 'success' | 'warning' | 'danger' {
 }
 .subscription-credential-details__progress > span.is-exhausted {
   background: var(--color-danger);
+}
+.subscription-credential-details__progress--unknown {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-border-subtle),
+    var(--color-border-subtle) 6px,
+    var(--color-surface-sunken) 6px,
+    var(--color-surface-sunken) 12px
+  );
 }
 .subscription-credential-details__models {
   display: flex;

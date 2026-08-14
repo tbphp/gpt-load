@@ -41,8 +41,9 @@ const (
 )
 
 var (
-	ErrInvalidState       = errors.New("codex oauth state mismatch")
-	ErrRedirectNotAllowed = errors.New("codex upstream redirect is not allowed")
+	ErrInvalidState              = errors.New("codex oauth state mismatch")
+	ErrRedirectNotAllowed        = errors.New("codex upstream redirect is not allowed")
+	ErrCredentialIdentityChanged = errors.New("refreshed codex credential identity changed")
 )
 
 // TokenEndpointError retains only the bounded OAuth error code needed to
@@ -54,6 +55,17 @@ type TokenEndpointError struct {
 
 func (e *TokenEndpointError) Error() string {
 	return fmt.Sprintf("token endpoint returned status %d", e.StatusCode)
+}
+
+// IsDefinitiveRefreshRejection reports OAuth codes that require a new browser
+// authorization instead of retrying the same refresh token.
+func IsDefinitiveRefreshRejection(code string) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "invalid_grant", "refresh_token_expired", "refresh_token_revoked", "refresh_token_reused":
+		return true
+	default:
+		return false
+	}
 }
 
 // CodexCredential is the canonical, execution-only Codex credential schema.
@@ -221,7 +233,7 @@ func RefreshCodexCredentialOnce(ctx context.Context, current CodexCredential, op
 		refreshed.Email = current.Email
 	}
 	if refreshed.AccountID != current.AccountID {
-		return CodexCredential{}, fmt.Errorf("refreshed credential identity changed")
+		return CodexCredential{}, ErrCredentialIdentityChanged
 	}
 	if err := validateCredential(refreshed); err != nil {
 		return CodexCredential{}, fmt.Errorf("refresh credential: %w", err)

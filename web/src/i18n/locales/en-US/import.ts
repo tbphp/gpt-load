@@ -33,7 +33,8 @@ export default {
     },
     existing: {
       title: 'Target Group',
-      description: 'Add channel credentials without changing models or settings',
+      description:
+        'This flow adds credentials only to API-key Groups without changing models or settings. Connect subscription accounts from the Codex Group credential page.',
       groupsLoading: 'Loading Groups…',
       groupsFailed: 'Unable to load Groups',
       groupsStale: 'Group refresh failed; showing cached results',
@@ -105,7 +106,17 @@ export default {
       readyCount: '{count} accounts ready',
       pendingAccount: 'Waiting for account authorization',
       expires: 'Expires',
+      tokenExpires: 'Access credential expires',
+      lastRefresh: 'Last refreshed',
       unknown: 'Unknown',
+      stageError: {
+        authorizationDenied: 'Codex authorization was cancelled; start again',
+        authorizationFailed: 'Codex could not finish authorization; start again',
+        exchangeRejected: 'Codex rejected the authorization code; authorize again',
+        exchangeUnknown: 'The authorization exchange outcome is unknown; authorize again',
+        exchangeInterrupted: 'The authorization exchange was interrupted; authorize again',
+        unknown: 'The temporary authorization did not finish; start again',
+      },
       status: {
         pending_authorization: 'Waiting for authorization',
         exchanging: 'Exchanging credential',

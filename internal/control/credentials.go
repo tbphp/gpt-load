@@ -70,6 +70,7 @@ type CredentialItemResponse struct {
 	Mask                    string                         `json:"mask"`
 	Account                 CredentialStageAccount         `json:"account"`
 	AuthState               string                         `json:"auth_state"`
+	AuthErrorCode           string                         `json:"auth_error_code,omitempty"`
 	Observation             *CredentialObservationResponse `json:"observation,omitempty"`
 	ConfiguredStatus        string                         `json:"configured_status"`
 	EffectiveStatus         string                         `json:"effective_status"`
@@ -150,7 +151,11 @@ func credentialPresentation(
 	identity string,
 ) (string, CredentialStageAccount, error) {
 	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
-		account := CredentialStageAccount{EmailMask: maskEmail(identity)}
+		credential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
+		if err != nil {
+			return "", CredentialStageAccount{}, err
+		}
+		account := codexCredentialAccount(credential)
 		mask := account.EmailMask
 		if mask == "" {
 			mask = fmt.Sprintf("Subscription #%d", row.ID)
@@ -387,8 +392,11 @@ func (s *Service) mapCredentialCollection(
 		item.ConnectionType = string(normalizeGroupConnectionType(observation.group.ConnectionType))
 		item.SecretVersion = row.SecretVersion
 		item.AuthState = string(row.AuthState)
+		item.AuthErrorCode = safeInternalErrorCode(row.AuthErrorCode)
 		item.Account = account
-		item.Observation = presentCredentialObservation(observation.subscription[row.ID], row.IdentityFingerprint, observation.observedAt)
+		if item.ConnectionType == string(models.ConnectionTypeSubscription) {
+			item.Observation = presentCredentialObservation(observation.subscription[row.ID], row.IdentityFingerprint, observation.observedAt)
+		}
 		records = append(records, credentialCollectionRecord{item: item, bucket: bucket})
 	}
 	summary := summarizeCredentialCollection(records)

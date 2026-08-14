@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
@@ -73,6 +72,11 @@ type observationFlight struct {
 	joined int
 }
 
+type observationFlightKey struct {
+	groupID      uint
+	credentialID uint
+}
+
 func (s *Service) RefreshCredentialObservation(
 	ctx context.Context,
 	groupID uint,
@@ -81,8 +85,9 @@ func (s *Service) RefreshCredentialObservation(
 	if groupID == 0 || credentialID == 0 {
 		return CredentialObservationResponse{}, app_errors.ErrValidation
 	}
+	key := observationFlightKey{groupID: groupID, credentialID: credentialID}
 	s.observationMu.Lock()
-	if existing := s.observationFlights[credentialID]; existing != nil {
+	if existing := s.observationFlights[key]; existing != nil {
 		existing.joined++
 		s.observationMu.Unlock()
 		select {
@@ -93,11 +98,11 @@ func (s *Service) RefreshCredentialObservation(
 		}
 	}
 	flight := &observationFlight{done: make(chan struct{})}
-	s.observationFlights[credentialID] = flight
+	s.observationFlights[key] = flight
 	s.observationMu.Unlock()
 	defer func() {
 		s.observationMu.Lock()
-		delete(s.observationFlights, credentialID)
+		delete(s.observationFlights, key)
 		close(flight.done)
 		s.observationMu.Unlock()
 	}()
@@ -117,14 +122,9 @@ func (s *Service) refreshCredentialObservationOnce(ctx context.Context, groupID,
 			map[string]int64{"retry_at_ms": *previous.NextAllowedAtMS},
 		)
 	}
-	canonical, _, err := s.decodeCredential(group, credential)
+	codexCredential, err := s.prepareStoredCodexCredential(ctx, group, credential)
 	if err != nil {
 		return CredentialObservationResponse{}, err
-	}
-	codexCredential, err := cpaembedded.ParseCodexCredentialJSON(canonical)
-	clear(canonical)
-	if err != nil {
-		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
 	select {
 	case s.observationSemaphore <- struct{}{}:
@@ -138,29 +138,17 @@ func (s *Service) refreshCredentialObservationOnce(ctx context.Context, groupID,
 	defer cancelObserve()
 	observation, observeErr := s.observeCodexAccount(observeContext, codexCredential)
 	if observeErr != nil {
-		failed := previous
-		failed.CredentialID = credential.ID
-		failed.IdentityFingerprint = credential.IdentityFingerprint
-		failed.SchemaVersion = 1
-		if failed.ObservationVersion == 0 {
-			failed.ObservationVersion = 1
-		}
-		failed.State = models.CredentialObservationError
-		failed.LastAttemptAtMS = &attemptMS
-		failed.NextAllowedAtMS = &nextAllowedMS
-		failed.LastErrorCode = "observation_upstream_failed"
-		failed.UpdatedAtMS = attemptMS
-		if len(failed.SnapshotJSON) == 0 {
-			failed.SnapshotJSON = models.JSON(`{}`)
-		}
-		if err := s.upsertCredentialObservation(ctx, failed); err != nil {
-			return CredentialObservationResponse{}, err
-		}
-		return mapCredentialObservation(failed), fmt.Errorf("refresh subscription information: %w", app_errors.ErrBadGateway)
+		return s.recordCredentialObservationFailure(
+			ctx, credential, previous, attemptMS, nextAllowedMS,
+			"observation_upstream_failed", "refresh subscription information",
+		)
 	}
 	snapshot, err := normalizeCodexObservation(observation.Payload)
 	if err != nil {
-		return CredentialObservationResponse{}, fmt.Errorf("normalize subscription information: %w", app_errors.ErrBadGateway)
+		return s.recordCredentialObservationFailure(
+			ctx, credential, previous, attemptMS, nextAllowedMS,
+			"observation_payload_invalid", "normalize subscription information",
+		)
 	}
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
@@ -182,6 +170,36 @@ func (s *Service) refreshCredentialObservationOnce(ctx context.Context, groupID,
 		return CredentialObservationResponse{}, err
 	}
 	return mapCredentialObservation(row), nil
+}
+
+func (s *Service) recordCredentialObservationFailure(
+	ctx context.Context,
+	credential models.Credential,
+	previous models.CredentialObservation,
+	attemptMS int64,
+	nextAllowedMS int64,
+	code string,
+	summary string,
+) (CredentialObservationResponse, error) {
+	failed := previous
+	failed.CredentialID = credential.ID
+	failed.IdentityFingerprint = credential.IdentityFingerprint
+	failed.SchemaVersion = 1
+	if failed.ObservationVersion == 0 {
+		failed.ObservationVersion = 1
+	}
+	failed.State = models.CredentialObservationError
+	failed.LastAttemptAtMS = &attemptMS
+	failed.NextAllowedAtMS = &nextAllowedMS
+	failed.LastErrorCode = code
+	failed.UpdatedAtMS = attemptMS
+	if len(failed.SnapshotJSON) == 0 {
+		failed.SnapshotJSON = models.JSON(`{}`)
+	}
+	if err := s.upsertCredentialObservation(ctx, failed); err != nil {
+		return CredentialObservationResponse{}, err
+	}
+	return mapCredentialObservation(failed), fmt.Errorf("%s: %w", summary, app_errors.ErrBadGateway)
 }
 
 func (s *Service) GetCredentialObservation(ctx context.Context, groupID, credentialID uint) (CredentialObservationResponse, error) {
@@ -314,7 +332,12 @@ func normalizeCodexObservation(raw []byte) (CredentialObservationSnapshot, error
 			if !ok {
 				continue
 			}
-			result.QuotaWindows = append(result.QuotaWindows, normalizeRateWindows(rate, safeObservationID(name)+"-", name)...)
+			windows := normalizeRateWindows(rate, safeObservationID(name)+"-", name)
+			modelIDs := observationStrings(firstObservationValue(entry, "model_ids", "modelIds"))
+			for windowIndex := range windows {
+				windows[windowIndex].ModelIDs = append([]string(nil), modelIDs...)
+			}
+			result.QuotaWindows = append(result.QuotaWindows, windows...)
 		}
 	}
 	sort.SliceStable(result.QuotaWindows, func(i, j int) bool {
@@ -381,9 +404,6 @@ func normalizeRateWindows(rate map[string]any, prefix, scope string) []Observati
 			value := reset * 1000
 			item.ResetAtMS = &value
 		}
-		if prefix != "" {
-			item.ModelIDs = []string{scope}
-		}
 		result = append(result, item)
 	}
 	return result
@@ -446,6 +466,30 @@ func observationInt(value any) (int64, bool) {
 		return 0, false
 	}
 	return int64(result), true
+}
+func observationStrings(value any) []string {
+	values, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		value, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, duplicate := seen[value]; duplicate {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 func safeObservationID(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))

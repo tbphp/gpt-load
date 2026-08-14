@@ -29,7 +29,8 @@ export default {
     },
     existing: {
       title: '目标分组',
-      description: '仅添加渠道凭据，不会修改模型或设置',
+      description:
+        '此入口仅追加 API Key 分组凭据，不会修改模型或设置；订阅账号请在 Codex 分组的凭据页连接。',
       groupsLoading: '正在加载分组…',
       groupsFailed: '无法加载分组',
       groupsStale: '分组列表刷新失败，正在显示缓存结果',
@@ -94,7 +95,17 @@ export default {
       readyCount: '{count} 个账号已就绪',
       pendingAccount: '等待账号授权',
       expires: '有效期',
+      tokenExpires: '访问凭据到期',
+      lastRefresh: '上次刷新',
       unknown: '未知',
+      stageError: {
+        authorizationDenied: '用户取消了 Codex 授权，请重新开始',
+        authorizationFailed: 'Codex 未能完成授权，请重新开始',
+        exchangeRejected: 'Codex 拒绝了授权码，请重新授权',
+        exchangeUnknown: '授权交换结果无法确认，请重新授权',
+        exchangeInterrupted: '授权交换被中断，请重新授权',
+        unknown: '临时授权未完成，请重新开始',
+      },
       status: {
         pending_authorization: '等待授权',
         exchanging: '正在交换凭据',

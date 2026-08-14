@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -336,6 +337,108 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
 	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "gpt-5.2" {
 		t.Fatalf("result = %#v, %v", result, err)
+	}
+}
+
+func TestDiscoverGroupModelsPreparesSubscriptionCredential(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-prepared-models", "prepared@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("prepared subscription discovery"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareCalls := 0
+	fixture.service.prepareCodexCredential = func(_ context.Context, snapshot execution.CredentialSnapshot) (cpaembedded.CodexCredential, *execution.ErrorEvidence) {
+		prepareCalls++
+		credential, parseErr := cpaembedded.ParseCodexCredentialJSON(snapshot.Data())
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		credential.AccessToken = "refreshed-access"
+		return credential, nil
+	}
+	fixture.service.listCodexModels = func(_ context.Context, credential cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+		if credential.AccessToken != "refreshed-access" {
+			t.Fatalf("credential = %#v", credential)
+		}
+		return []cpaembedded.Model{{ID: "gpt-5.2"}}, nil
+	}
+
+	if _, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID); err != nil || prepareCalls != 1 {
+		t.Fatalf("DiscoverGroupModels() error/calls = %v/%d", err, prepareCalls)
+	}
+}
+
+func TestDiscoverGroupModelsSkipsSubscriptionCredentialRequiringAuthorization(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-reauthorize-models", "reauthorize@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("unauthorized subscription discovery"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.Model(&models.Credential{}).Where("group_id = ?", created.GroupID).
+		Update("auth_state", models.CredentialAuthStateReauthorizationRequired).Error; err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	fixture.service.listCodexModels = func(context.Context, cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+		calls++
+		return nil, nil
+	}
+
+	_, err = fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
+	if !errors.Is(err, app_errors.ErrCredentialReauthorizationRequired) || calls != 0 {
+		t.Fatalf("DiscoverGroupModels() error/calls = %v/%d", err, calls)
+	}
+}
+
+func TestDiscoverGroupModelsDoesNotMaskAttemptedSubscriptionFailure(t *testing.T) {
+	fixture := newServiceFixture(t)
+	first := mustImportSubscriptionStage(t, fixture, "account-reauthorize-first", "first@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("subscription discovery failure"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{first.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := mustImportSubscriptionStage(t, fixture, "account-upstream-failure", "second@example.com")
+	if _, err := fixture.service.ConnectGroupCredentials(t.Context(), created.GroupID, []string{second.StageID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.Model(&models.Credential{}).
+		Where("group_id = ? AND id = (SELECT MIN(id) FROM credentials WHERE group_id = ?)", created.GroupID, created.GroupID).
+		Update("auth_state", models.CredentialAuthStateReauthorizationRequired).Error; err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	fixture.service.listCodexModels = func(context.Context, cpaembedded.CodexCredential) ([]cpaembedded.Model, error) {
+		calls++
+		return nil, errors.New("upstream unavailable")
+	}
+
+	_, err = fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
+	if !errors.Is(err, app_errors.ErrBadGateway) || errors.Is(err, app_errors.ErrCredentialReauthorizationRequired) || calls != 1 {
+		t.Fatalf("DiscoverGroupModels() error/calls = %v/%d, want BadGateway/1", err, calls)
+	}
+}
+
+func TestCodexPreparationAPIErrorTreatsStateCommitFailureAsUnknown(t *testing.T) {
+	err := codexPreparationAPIError(&execution.ErrorEvidence{Code: "refresh_state_commit_failed"})
+	if !errors.Is(err, app_errors.ErrCredentialAuthOutcomeUnknown) {
+		t.Fatalf("codexPreparationAPIError() = %v, want ErrCredentialAuthOutcomeUnknown", err)
 	}
 }
 

@@ -364,6 +364,8 @@ export default {
         connect: 'Connect subscription account',
         connectDescription:
           'Finish browser OAuth or import OAuth JSON, then save the temporary account into this Group.',
+        reauthorizeDescription:
+          'Updating {account} (credential #{id}). The new authorization must belong to the same subscription account.',
         confirmConnect: 'Add account',
         connectFailed: 'Unable to add the subscription account to this Group',
         reauthorize: 'Reauthorize',
@@ -374,6 +376,8 @@ export default {
         account: 'Account',
         plan: 'Plan',
         resetCredits: 'Available reset credits',
+        tokenExpiresAt: 'Access credential expires',
+        lastTokenRefresh: 'Last credential refresh',
         quotas: 'Usage limits',
         noQuota: 'The upstream has not supplied any displayable quota window',
         modelConstraints: 'Model-specific limits',
@@ -394,6 +398,25 @@ export default {
           reauthorization_required: 'Reauthorization required',
           outcome_unknown: 'Credential outcome unknown',
         },
+        authError: {
+          refreshRejected: 'Codex rejected the credential refresh. Reauthorize this account.',
+          identityChanged:
+            'The refreshed credential belongs to another account. Reauthorize the original account.',
+          outcomeUnknown:
+            'The latest credential refresh could not be confirmed. Reauthorize before using it.',
+          persistFailed:
+            'The new credential could not be published safely. Reload the account and try again.',
+          runtimeMismatch:
+            'The credential was updated, but runtime state has not caught up. Reload shortly.',
+          refreshStartFailed: 'The credential refresh could not start. Try again shortly.',
+        },
+        observationShort: {
+          fresh: 'Current',
+          stale: 'Stale',
+          refreshing: 'Syncing',
+          error: 'Sync failed',
+          unavailable: 'Not synced',
+        },
         observation: {
           fresh: 'Entitlements are current',
           stale: 'Entitlements are stale; showing the last successful result',
@@ -401,6 +424,12 @@ export default {
           error: 'The last sync failed; showing the last successful result',
           unavailable: 'Upstream entitlement information has not been synced',
         },
+        observationError: {
+          upstreamFailed: 'Unable to read Codex entitlement information',
+          payloadInvalid: 'Codex returned unrecognized entitlement information',
+        },
+        scope: { account: 'Account', global: 'Global', model: 'Model' },
+        unit: { percent: 'Percent' },
         quotaState: { available: 'Available', exhausted: 'Exhausted', unknown: 'Not provided' },
       },
       batch: {

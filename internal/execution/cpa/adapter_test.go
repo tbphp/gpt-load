@@ -1,6 +1,7 @@
 package cpa
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -203,9 +204,43 @@ func TestAdapterReconcilesRegistryWhenIncrementalRefreshPublicationFails(t *test
 	}
 }
 
+func TestAdapterFailsClosedWhenRefreshedSecretCannotReachRegistry(t *testing.T) {
+	adapter, db, registry, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
+	adapter.refresh = func(_ context.Context, current cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
+		current.AccessToken = "new-access"
+		current.RefreshToken = "new-refresh"
+		current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+		return current, nil
+	}
+	adapter.replaceSecret = func(uint, uint64, uint64, string, string) bool { return false }
+	adapter.reconcileGroup = func(uint, []state.CredentialEntry) (bool, error) {
+		return false, errors.New("registry unavailable")
+	}
+	adapter.executor = &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"id":"must-not-run"}`)}}
+
+	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
+	if result.Error == nil || result.Error.Code != "refresh_registry_mismatch" {
+		t.Fatalf("result = %#v", result)
+	}
+	var stored models.Credential
+	if err := db.First(&stored, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.SecretVersion != row.SecretVersion+1 || stored.AuthState != models.CredentialAuthStateOutcomeUnknown {
+		t.Fatalf("stored credential = %#v", stored)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || views[0].ID != row.ID || views[0].AuthState != state.CredentialAuthStateOutcomeUnknown {
+		t.Fatalf("registry views = %#v", views)
+	}
+}
+
 func TestAdapterRestoresReadyWhenRegistryCannotPublishRefreshStart(t *testing.T) {
 	adapter, db, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
 	adapter.registry.RemoveCredential(row.ID)
+	adapter.reconcileGroup = func(uint, []state.CredentialEntry) (bool, error) {
+		return false, errors.New("registry unavailable")
+	}
 	refreshCalls := 0
 	adapter.refresh = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
 		refreshCalls++
@@ -240,6 +275,25 @@ func TestAdapterDefinitiveRefreshRejectionRequiresReauthorization(t *testing.T) 
 	}
 	if stored.AuthState != models.CredentialAuthStateReauthorizationRequired {
 		t.Fatalf("auth state = %q", stored.AuthState)
+	}
+}
+
+func TestAdapterRefreshIdentityChangeRequiresReauthorization(t *testing.T) {
+	adapter, db, _, keyService, row := newAdapterFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
+	adapter.refresh = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
+		return cpaembedded.CodexCredential{}, cpaembedded.ErrCredentialIdentityChanged
+	}
+
+	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
+	if result.Error == nil || result.Error.Code != "refresh_identity_changed" || result.Error.Hint != execution.FailureHintReauthorizationRequired {
+		t.Fatalf("result = %#v", result)
+	}
+	var stored models.Credential
+	if err := db.First(&stored, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.AuthState != models.CredentialAuthStateReauthorizationRequired || stored.AuthErrorCode != "refresh_identity_changed" {
+		t.Fatalf("stored credential = %#v", stored)
 	}
 }
 
@@ -309,12 +363,13 @@ func TestAdapterMarksOutcomeUnknownWhenRotatedTokenCannotBeEncrypted(t *testing.
 
 func TestAdapterKeepsUnknownSubscription401NonReplayable(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access-secret", "refresh-secret", time.Now().Add(time.Hour)))
-	adapter.executor = &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"auth_unavailable","message":"access-secret expired"}}`}}
+	adapter.executor = &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"auth_unavailable","message":"access-secret expired for a@example.com (account-1)"}}`}}
 	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
 	if result.Error == nil || result.Error.Hint != "" || result.Error.ReplaySafety != execution.ReplaySafetyUnknown {
 		t.Fatalf("error evidence = %#v", result.Error)
 	}
-	if result.Error.Summary == "" || result.Error.Summary == "access-secret expired" {
+	if result.Error.Summary == "" || strings.Contains(result.Error.Summary, "access-secret") ||
+		strings.Contains(result.Error.Summary, "a@example.com") || strings.Contains(result.Error.Summary, "account-1") {
 		t.Fatalf("unsafe summary = %q", result.Error.Summary)
 	}
 }
@@ -344,7 +399,23 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-			fake := &fakeExecutor{result: cpaembedded.ExecuteResponse{Payload: []byte(`{"model":"gpt-5"}`)}}
+			fake := &fakeExecutor{result: cpaembedded.ExecuteResponse{
+				Payload: []byte(`{"model":"gpt-5"}`),
+				Headers: http.Header{
+					"Content-Type":     {"text/event-stream"},
+					"Content-Encoding": {"gzip"},
+					"Content-Length":   {"999"},
+					"ETag":             {`"upstream"`},
+					"Digest":           {"sha-256=upstream"},
+					"Content-MD5":      {"upstream"},
+					"Content-Range":    {"bytes 0-998/999"},
+					"Content-Digest":   {"sha-256=:dXBzdHJlYW0=:"},
+					"Repr-Digest":      {"sha-256=:dXBzdHJlYW0=:"},
+					"Signature":        {"sig1=:dXBzdHJlYW0=:"},
+					"Signature-Input":  {`sig1=("content-digest")`},
+					"X-Request-Id":     {"upstream-1"},
+				},
+			}}
 			adapter.executor = fake
 			spec := validSpec(t, row, keyService)
 			spec.ClientProtocol = test.protocol
@@ -357,6 +428,17 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamAPI != test.wantAPI {
 				t.Fatalf("result=%#v calls=%d request=%#v", result, fake.calls, fake.request)
 			}
+			if got := result.Header.Get("Content-Type"); got != "application/json" {
+				t.Fatalf("Content-Type = %q, want application/json", got)
+			}
+			for _, name := range []string{"Content-Encoding", "Content-Length", "ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest", "Signature", "Signature-Input"} {
+				if value := result.Header.Get(name); value != "" {
+					t.Fatalf("stale %s = %q", name, value)
+				}
+			}
+			if result.Header.Get("X-Request-Id") != "upstream-1" {
+				t.Fatalf("request ID header = %q", result.Header.Get("X-Request-Id"))
+			}
 		})
 	}
 }
@@ -368,16 +450,42 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 		operation  execution.Operation
 		wantFormat string
 		wantAPI    execution.UpstreamAPI
+		payload    string
+		wantData   []string
 	}{
-		{name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, wantFormat: "openai", wantAPI: execution.UpstreamAPIOpenAIResponses},
-		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, wantFormat: "openai-response", wantAPI: execution.UpstreamAPIOpenAIResponses},
-		{name: "Anthropic Messages", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, wantFormat: "claude", wantAPI: execution.UpstreamAPIOpenAIResponses},
-		{name: "Gemini GenerateContent", protocol: protocol.Gemini, operation: execution.OperationChatCompletion, wantFormat: "gemini", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{
+			name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion,
+			wantFormat: "openai", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			payload:  `{"id":"chatcmpl_1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			wantData: []string{`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n", "data: [DONE]\n\n"},
+		},
+		{
+			name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate,
+			wantFormat: "openai-response", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			payload:  `data: {"type":"response.completed","response":{"id":"resp_1"}}`,
+			wantData: []string{`data: {"type":"response.completed","response":{"id":"resp_1"}}` + "\n\n"},
+		},
+		{
+			name: "Anthropic Messages", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion,
+			wantFormat: "claude", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			payload:  "event: message_stop\ndata: {\"type\":\"message_stop\"}",
+			wantData: []string{"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"},
+		},
+		{
+			name: "Gemini GenerateContent", protocol: protocol.Gemini, operation: execution.OperationChatCompletion,
+			wantFormat: "gemini", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			payload: `{"candidates":[{"content":{"role":"model","parts":[]}}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}`,
+			wantData: []string{
+				`data: {"candidates":[{"content":{"role":"model","parts":[]}}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}` + "\n\n",
+				`data: {"candidates":[{"finishReason":"STOP"}]}` + "\n\n",
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-			chunks := make(chan cpaembedded.ExecuteStreamChunk)
+			chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
+			chunks <- cpaembedded.ExecuteStreamChunk{Payload: []byte(test.payload)}
 			close(chunks)
 			fake := &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
 			adapter.executor = fake
@@ -388,9 +496,149 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 				spec.RouteMode = execution.RouteConverted
 			}
 
-			result := adapter.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error { return nil })
+			var data []string
+			result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+				if event.Kind == execution.StreamEventData {
+					data = append(data, string(event.Data))
+				}
+				return nil
+			})
 			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamAPI != test.wantAPI {
 				t.Fatalf("result=%#v calls=%d request=%#v", result, fake.calls, fake.request)
+			}
+			if strings.Join(data, "") != strings.Join(test.wantData, "") {
+				t.Fatalf("stream data = %q, want %q", data, test.wantData)
+			}
+		})
+	}
+}
+
+func TestAdapterDoesNotCompleteStreamAfterContextCancellation(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	chunks := make(chan cpaembedded.ExecuteStreamChunk)
+	close(chunks)
+	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+	spec := validSpec(t, row, keyService)
+	spec.ClientProtocol = protocol.OpenAICompletions
+	spec.Operation = execution.OperationChatCompletion
+	spec.RouteMode = execution.RouteConverted
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	var dataEvents int
+	result := adapter.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
+		if event.Kind == execution.StreamEventData {
+			dataEvents++
+		}
+		return nil
+	})
+	if result.Error == nil || dataEvents != 0 {
+		t.Fatalf("result = %#v, data events = %d", result, dataEvents)
+	}
+}
+
+func TestAdapterUsesFirstByteTimeoutBeforeFirstData(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
+	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+	spec := validSpec(t, row, keyService)
+	spec.Timeouts.FirstByte = 20 * time.Millisecond
+	spec.Timeouts.StreamIdle = 250 * time.Millisecond
+	spec.Timeouts.Request = time.Second
+
+	started := time.Now()
+	var events []execution.StreamEvent
+	result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+	if elapsed := time.Since(started); elapsed >= 150*time.Millisecond {
+		t.Fatalf("first-byte timeout took %s", elapsed)
+	}
+	if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout || result.ResponseStarted || result.StatusCode != 0 || len(events) != 0 {
+		t.Fatalf("result = %#v, events = %#v", result, events)
+	}
+}
+
+func TestAdapterSwitchesToStreamIdleTimeoutAfterFirstData(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
+	chunks <- cpaembedded.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.created","response":{"id":"resp_1"}}`)}
+	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+	spec := validSpec(t, row, keyService)
+	spec.Timeouts.FirstByte = 200 * time.Millisecond
+	spec.Timeouts.StreamIdle = 20 * time.Millisecond
+	spec.Timeouts.Request = time.Second
+
+	var events []execution.StreamEvent
+	result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+	if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout || !result.ResponseStarted || result.StatusCode != http.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(events) != 2 || events[0].Kind != execution.StreamEventReady || events[1].Kind != execution.StreamEventData {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestAdapterReturnsFirstStreamErrorBeforeReady(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
+	chunks <- cpaembedded.ExecuteStreamChunk{Err: statusError{status: http.StatusBadRequest, message: `{"error":{"type":"invalid_request_error","code":"bad_request"}}`}}
+	close(chunks)
+	adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{
+		Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks,
+	}}
+
+	var events []execution.StreamEvent
+	result := adapter.ExecuteStream(t.Context(), validSpec(t, row, keyService), func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+	if result.Error == nil || result.StatusCode != http.StatusBadRequest || len(events) != 0 {
+		t.Fatalf("result = %#v, events = %#v", result, events)
+	}
+}
+
+func TestAdapterRewritesStreamModelAliasForEveryProtocol(t *testing.T) {
+	tests := []struct {
+		name      string
+		protocol  protocol.Protocol
+		operation execution.Operation
+		payload   string
+	}{
+		{name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, payload: `{"model":"upstream-model","choices":[{"finish_reason":"stop"}]}`},
+		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, payload: `data: {"type":"response.completed","response":{"model":"upstream-model"}}`},
+		{name: "Anthropic", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, payload: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"upstream-model\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}"},
+		{name: "Gemini", protocol: protocol.Gemini, operation: execution.OperationChatCompletion, payload: `{"modelVersion":"upstream-model","candidates":[{"finishReason":"STOP"}]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			chunks := make(chan cpaembedded.ExecuteStreamChunk, 1)
+			chunks <- cpaembedded.ExecuteStreamChunk{Payload: []byte(test.payload)}
+			close(chunks)
+			adapter.executor = &fakeExecutor{stream: &cpaembedded.ExecuteStreamResponse{Chunks: chunks}}
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = test.protocol
+			spec.Operation = test.operation
+			spec.ClientModel = "public-model"
+			spec.UpstreamModel = "upstream-model"
+			if test.protocol != protocol.OpenAIResponses {
+				spec.RouteMode = execution.RouteConverted
+			}
+
+			var wire strings.Builder
+			result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+				if event.Kind == execution.StreamEventData {
+					_, _ = wire.Write(event.Data)
+				}
+				return nil
+			})
+			if result.Error != nil || !strings.Contains(wire.String(), "public-model") || strings.Contains(wire.String(), "upstream-model") {
+				t.Fatalf("result = %#v, wire = %q", result, wire.String())
 			}
 		})
 	}
@@ -482,6 +730,75 @@ func TestAdapterReportsFinalCPAResponsesReasoning(t *testing.T) {
 			}
 			if resultReasoning != test.wantEffort {
 				t.Fatalf("applied reasoning effort = %q, want %q", resultReasoning, test.wantEffort)
+			}
+		})
+	}
+}
+
+func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
+	tests := []struct {
+		name         string
+		protocol     protocol.Protocol
+		body         string
+		wantFragment string
+		wantTerminal string
+	}{
+		{
+			name: "OpenAI Chat", protocol: protocol.OpenAICompletions,
+			body:         `{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}],"stream":true}`,
+			wantFragment: `"object":"chat.completion.chunk"`,
+			wantTerminal: "data: [DONE]\n\n",
+		},
+		{
+			name: "Gemini", protocol: protocol.Gemini,
+			body:         `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
+			wantFragment: `"text":"hello"`,
+			wantTerminal: `data: {"candidates":[{"finishReason":"STOP"}]}` + "\n\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				if got := request.URL.String(); got != "https://chatgpt.com/backend-api/codex/responses" {
+					t.Errorf("upstream URL = %q", got)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+					Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+						`data: {"type":"response.created","response":{"id":"resp_1","object":"response","status":"in_progress","created_at":1,"model":"gpt-5.6-luna","output":[]}}`,
+						`data: {"type":"response.output_text.delta","response_id":"resp_1","output_index":0,"item_id":"msg_1","content_index":0,"delta":"hello"}`,
+						`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"gpt-5.6-luna","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+					}, "\n\n") + "\n\n")),
+					Request: request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = test.protocol
+			spec.Operation = execution.OperationChatCompletion
+			spec.RouteMode = execution.RouteConverted
+			spec.UpstreamModel = "gpt-5.6-luna"
+			spec.ClientModel = "gpt-5.6-luna"
+			spec.Body = []byte(test.body)
+
+			var wire strings.Builder
+			result := adapter.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
+				if event.Kind == execution.StreamEventData {
+					if !bytes.HasPrefix(event.Data, []byte("data:")) {
+						t.Errorf("unframed client event = %q", event.Data)
+					}
+					_, _ = wire.Write(event.Data)
+				}
+				return nil
+			})
+			if result.Error != nil || result.UpstreamAPI != execution.UpstreamAPIOpenAIResponses {
+				t.Fatalf("result = %#v", result)
+			}
+			if !strings.Contains(wire.String(), test.wantFragment) || !strings.HasSuffix(wire.String(), test.wantTerminal) {
+				t.Fatalf("client wire = %q", wire.String())
 			}
 		})
 	}

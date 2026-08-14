@@ -55,6 +55,23 @@ func TestNormalizeCodexObservationDoesNotInventMissingFiveHourWindow(t *testing.
 	}
 }
 
+func TestNormalizeCodexObservationDoesNotTreatMeterNameAsModelID(t *testing.T) {
+	snapshot, err := normalizeCodexObservation([]byte(`{
+		"additional_rate_limits":[
+			{"metered_feature":"codex_other_models","rate_limit":{"primary_window":{"used_percent":12}}},
+			{"limit_name":"explicit-models","model_ids":["gpt-5.2","gpt-5.2","gpt-5.1"],"rate_limit":{"primary_window":{"used_percent":20}}}
+		]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.QuotaWindows) != 2 ||
+		!reflect.DeepEqual(snapshot.QuotaWindows[0].ModelIDs, []string{"gpt-5.2", "gpt-5.1"}) ||
+		len(snapshot.QuotaWindows[1].ModelIDs) != 0 {
+		t.Fatalf("quota windows = %#v", snapshot.QuotaWindows)
+	}
+}
+
 func TestRefreshCredentialObservationPersistsLKGAndThrottles(t *testing.T) {
 	t.Parallel()
 
@@ -102,6 +119,34 @@ func TestRefreshCredentialObservationPersistsLKGAndThrottles(t *testing.T) {
 	}
 }
 
+func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.UnixMilli(1_800_000_000_000)
+	fixture.service.now = func() time.Time { return now }
+	calls := 0
+	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+		calls++
+		return cpaembedded.AccountObservation{Payload: []byte(`[]`)}, nil
+	}
+
+	failed, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err == nil || failed.State != string(models.CredentialObservationError) ||
+		failed.NextAllowedAtMS == nil || failed.LastErrorCode != "observation_payload_invalid" {
+		t.Fatalf("failed observation = %#v, %v", failed, err)
+	}
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil {
+		t.Fatal("second refresh error = nil")
+	} else {
+		var apiErr *app_errors.APIError
+		if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrObservationRefreshThrottled.Code {
+			t.Fatalf("second refresh error = %v", err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("upstream calls = %d, want 1", calls)
+	}
+}
+
 func TestRefreshCredentialObservationUsesBoundedUpstreamContext(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	hasBoundedDeadline := false
@@ -114,6 +159,24 @@ func TestRefreshCredentialObservationUsesBoundedUpstreamContext(t *testing.T) {
 	_, _ = fixture.service.RefreshCredentialObservation(context.Background(), groupID, credentialID)
 	if !hasBoundedDeadline {
 		t.Fatal("observation refresh did not receive a bounded upstream context")
+	}
+}
+
+func TestRefreshCredentialObservationRejectsNonReadyCredentialBeforeUpstream(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	if err := fixture.db.Model(&models.Credential{}).Where("id = ?", credentialID).
+		Update("auth_state", models.CredentialAuthStateOutcomeUnknown).Error; err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+		calls++
+		return cpaembedded.AccountObservation{}, nil
+	}
+
+	_, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if !errors.Is(err, app_errors.ErrCredentialAuthOutcomeUnknown) || calls != 0 {
+		t.Fatalf("RefreshCredentialObservation() error/calls = %v/%d", err, calls)
 	}
 }
 
@@ -144,7 +207,7 @@ func TestConcurrentObservationRefreshIsSingleflight(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for {
 		fixture.service.observationMu.Lock()
-		flight := fixture.service.observationFlights[credentialID]
+		flight := fixture.service.observationFlights[observationFlightKey{groupID: groupID, credentialID: credentialID}]
 		joined := flight != nil && flight.joined > 0
 		fixture.service.observationMu.Unlock()
 		if joined {
@@ -163,6 +226,32 @@ func TestConcurrentObservationRefreshIsSingleflight(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("calls = %d", calls)
+	}
+}
+
+func TestObservationSingleflightKeepsGroupAndCredentialBoundTogether(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	fixture.service.observeCodexAccount = func(context.Context, cpaembedded.CodexCredential) (cpaembedded.AccountObservation, error) {
+		close(started)
+		<-release
+		return cpaembedded.AccountObservation{Payload: []byte(`{"rate_limit":{}}`)}, nil
+	}
+	validDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.RefreshCredentialObservation(context.Background(), groupID, credentialID)
+		validDone <- err
+	}()
+	<-started
+
+	_, invalidErr := fixture.service.RefreshCredentialObservation(t.Context(), groupID+999, credentialID)
+	if !errors.Is(invalidErr, app_errors.ErrResourceNotFound) {
+		t.Fatalf("cross-group refresh error = %v", invalidErr)
+	}
+	close(release)
+	if err := <-validDone; err != nil {
+		t.Fatalf("valid refresh error = %v", err)
 	}
 }
 

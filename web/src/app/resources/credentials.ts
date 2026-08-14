@@ -81,6 +81,7 @@ const credentialItemFields = [
   'mask',
   'account',
   'auth_state',
+  'auth_error_code',
   'observation',
   'configured_status',
   'effective_status',
@@ -117,7 +118,7 @@ const observationStates = ['fresh', 'stale', 'refreshing', 'error', 'unavailable
 const quotaStates = ['available', 'exhausted', 'unknown'] as const
 const canonicalMask = /^(?:\*{4}|.{4}\*{4}.{4})$/u
 const subscriptionMask = /^(?:[^\s@]{1,64}@[^\s@]{1,255}|Subscription #[1-9]\d*)$/u
-const accountFields = ['email_mask'] as const
+const accountFields = ['email_mask', 'expires_at_ms', 'last_refresh_at_ms'] as const
 const observationFields = [
   'state',
   'snapshot',
@@ -168,10 +169,28 @@ function projectMask(value: unknown, connectionType: 'api_key' | 'subscription')
 function projectAccount(value: unknown): CredentialItemDto['account'] {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, accountFields)
-  if (record.email_mask === undefined) return {}
-  const emailMask = projectString(record.email_mask)
-  if (!subscriptionMask.test(emailMask) || emailMask.startsWith('Subscription #')) invalidResponse()
-  return { email_mask: emailMask }
+  const emailMask = record.email_mask === undefined ? undefined : projectString(record.email_mask)
+  if (
+    emailMask !== undefined &&
+    (!subscriptionMask.test(emailMask) || emailMask.startsWith('Subscription #'))
+  ) {
+    invalidResponse()
+  }
+  return {
+    ...(emailMask === undefined ? {} : { email_mask: emailMask }),
+    ...(record.expires_at_ms === undefined
+      ? {}
+      : { expires_at_ms: projectEpochMilliseconds(record.expires_at_ms) }),
+    ...(record.last_refresh_at_ms === undefined
+      ? {}
+      : { last_refresh_at_ms: projectEpochMilliseconds(record.last_refresh_at_ms) }),
+  }
+}
+
+function projectInternalErrorCode(value: unknown): string {
+  const code = projectString(value)
+  if (!/^[a-z0-9_]{1,64}$/u.test(code)) invalidResponse()
+  return code
 }
 
 function projectOptionalNumber(
@@ -339,6 +358,9 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
     mask: projectMask(record.mask, connectionType),
     account: projectAccount(record.account),
     auth_state: projectEnum(record.auth_state, authStates),
+    ...(record.auth_error_code === undefined
+      ? {}
+      : { auth_error_code: projectInternalErrorCode(record.auth_error_code) }),
     ...(record.observation === undefined
       ? {}
       : { observation: projectObservation(record.observation) }),

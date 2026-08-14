@@ -365,6 +365,8 @@ export default {
         connect: 'サブスクリプションを接続',
         connectDescription:
           'ブラウザー OAuth または OAuth JSON のインポート完了後、一時アカウントをこの Group に保存します。',
+        reauthorizeDescription:
+          '{account}（認証情報 #{id}）を更新します。新しい認証は同じサブスクリプションアカウントに属する必要があります。',
         confirmConnect: 'アカウントを追加',
         connectFailed: 'この Group にサブスクリプションアカウントを追加できません',
         reauthorize: '再認証',
@@ -375,6 +377,8 @@ export default {
         account: 'アカウント',
         plan: 'プラン',
         resetCredits: '利用可能なリセット回数',
+        tokenExpiresAt: 'アクセス認証情報の期限',
+        lastTokenRefresh: '認証情報の最終更新',
         quotas: '使用制限',
         noQuota: '上流から表示可能な利用枠が提供されていません',
         modelConstraints: 'モデル固有の制限',
@@ -395,6 +399,26 @@ export default {
           reauthorization_required: '再認証が必要',
           outcome_unknown: '認証情報の結果不明',
         },
+        authError: {
+          refreshRejected:
+            'Codex が認証情報の更新を拒否しました。このアカウントを再認証してください。',
+          identityChanged:
+            '更新した認証情報は別のアカウントに属します。元のアカウントを再認証してください。',
+          outcomeUnknown: '最新の認証情報更新を確認できません。使用前に再認証してください。',
+          persistFailed:
+            '新しい認証情報を安全に反映できませんでした。再読み込みしてから再試行してください。',
+          runtimeMismatch:
+            '認証情報は更新されましたが、ランタイムが未同期です。しばらくしてから再読み込みしてください。',
+          refreshStartFailed:
+            '認証情報の更新を開始できません。しばらくしてから再試行してください。',
+        },
+        observationShort: {
+          fresh: '最新',
+          stale: '期限切れ',
+          refreshing: '同期中',
+          error: '同期失敗',
+          unavailable: '未同期',
+        },
         observation: {
           fresh: '利用枠情報は最新です',
           stale: '利用枠情報は期限切れです。最後に成功した結果を表示しています',
@@ -402,6 +426,12 @@ export default {
           error: '最終同期に失敗しました。最後に成功した結果を表示しています',
           unavailable: '上流の利用枠情報はまだ同期されていません',
         },
+        observationError: {
+          upstreamFailed: 'Codex の利用枠情報を取得できません',
+          payloadInvalid: 'Codex から認識できない利用枠情報が返されました',
+        },
+        scope: { account: 'アカウント', global: '全体', model: 'モデル' },
+        unit: { percent: 'パーセント' },
         quotaState: { available: '利用可能', exhausted: '使い切り', unknown: '未提供' },
       },
       batch: {

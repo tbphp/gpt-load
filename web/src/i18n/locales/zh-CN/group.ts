@@ -354,6 +354,7 @@ export default {
       subscription: {
         connect: '连接订阅账号',
         connectDescription: '完成浏览器 OAuth 或导入 OAuth JSON 后，再将临时账号保存到当前分组。',
+        reauthorizeDescription: '正在更新 {account}（凭据 #{id}），新授权必须属于同一订阅账号。',
         confirmConnect: '添加账号',
         connectFailed: '无法将订阅账号添加到当前分组',
         reauthorize: '重新授权',
@@ -364,6 +365,8 @@ export default {
         account: '账号',
         plan: '套餐',
         resetCredits: '可用重置次数',
+        tokenExpiresAt: '访问凭据到期',
+        lastTokenRefresh: '上次凭据刷新',
         quotas: '用量限制',
         noQuota: '上游尚未提供可展示的额度窗口',
         modelConstraints: '模型专项限制',
@@ -384,6 +387,21 @@ export default {
           reauthorization_required: '需要重新授权',
           outcome_unknown: '凭据结果未知',
         },
+        authError: {
+          refreshRejected: 'Codex 已拒绝刷新凭据，请重新授权该账号。',
+          identityChanged: '刷新结果属于其他账号，请重新授权原账号。',
+          outcomeUnknown: '无法确认最近一次凭据刷新结果，请重新授权后再使用。',
+          persistFailed: '新凭据未能安全发布，请重新加载账号状态后再试。',
+          runtimeMismatch: '凭据已更新，但运行时尚未同步，请稍后重新加载。',
+          refreshStartFailed: '当前无法开始刷新凭据，请稍后重试。',
+        },
+        observationShort: {
+          fresh: '权益最新',
+          stale: '权益已过期',
+          refreshing: '同步中',
+          error: '同步失败',
+          unavailable: '未同步',
+        },
         observation: {
           fresh: '权益信息已同步',
           stale: '权益信息已过期，仍显示上次成功结果',
@@ -391,6 +409,12 @@ export default {
           error: '最近一次同步失败，仍显示上次成功结果',
           unavailable: '尚未同步上游权益信息',
         },
+        observationError: {
+          upstreamFailed: '无法读取 Codex 权益信息',
+          payloadInvalid: 'Codex 返回了无法识别的权益信息',
+        },
+        scope: { account: '账号', global: '全局', model: '模型' },
+        unit: { percent: '百分比' },
         quotaState: { available: '可用', exhausted: '已用尽', unknown: '上游未提供' },
       },
       batch: {

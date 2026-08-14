@@ -63,6 +63,7 @@ var (
 	ErrDuplicateCredentialIdentity            = &APIError{HTTPStatus: http.StatusConflict, Code: "DUPLICATE_CREDENTIAL_IDENTITY", Message: "Subscription account already exists in the group"}
 	ErrCredentialReauthorizationRequired      = &APIError{HTTPStatus: http.StatusConflict, Code: "CREDENTIAL_REAUTHORIZATION_REQUIRED", Message: "Credential requires reauthorization"}
 	ErrCredentialAuthOutcomeUnknown           = &APIError{HTTPStatus: http.StatusConflict, Code: "CREDENTIAL_AUTH_OUTCOME_UNKNOWN", Message: "Credential authorization outcome is unknown"}
+	ErrCredentialVersionConflict              = &APIError{HTTPStatus: http.StatusConflict, Code: "CREDENTIAL_VERSION_CONFLICT", Message: "Credential changed since it was loaded"}
 	ErrObservationRefreshThrottled            = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "OBSERVATION_REFRESH_THROTTLED", Message: "Credential information refresh is throttled"}
 )
 

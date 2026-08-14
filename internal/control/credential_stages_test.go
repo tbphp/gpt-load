@@ -25,14 +25,15 @@ func TestImportCodexOAuthJSONCreatesEncryptedReadyStage(t *testing.T) {
 	raw := []byte(`{
 		"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret",
 		"id_token":"id-secret","account_id":"account-123","email":"admin@example.com",
-		"expired":"2027-01-01T00:00:00Z"
+		"expired":"2028-01-01T00:00:00Z","last_refresh":"2026-12-01T00:00:00Z"
 	}`)
 	result, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, raw)
 	if err != nil {
 		t.Fatalf("ImportCredentialStage() error = %v", err)
 	}
 	if result.StageID == "" || result.Status != string(models.CredentialStageReady) ||
-		result.Account.EmailMask == "" || result.ExpiresAtMS <= fixture.service.now().UnixMilli() {
+		result.Account.EmailMask == "" || result.Account.ExpiresAtMS == nil ||
+		result.Account.LastRefreshAtMS == nil || result.ExpiresAtMS <= fixture.service.now().UnixMilli() {
 		t.Fatalf("stage result = %#v", result)
 	}
 	encoded, _ := json.Marshal(result)
@@ -55,6 +56,37 @@ func TestImportCodexOAuthJSONCreatesEncryptedReadyStage(t *testing.T) {
 	}
 	if !strings.Contains(plaintext, "access-secret") || row.IdentityFingerprint == "account-123" {
 		t.Fatal("stage did not encrypt credential or exposed raw account identity")
+	}
+}
+
+func TestImportCodexOAuthJSONRefreshesExpiredCredentialBeforeReady(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	refreshCalls := 0
+	fixture.service.refreshCodexCredential = func(_ context.Context, credential cpaembedded.CodexCredential) (cpaembedded.CodexCredential, error) {
+		refreshCalls++
+		if credential.AccessToken != "expired-access" {
+			t.Fatalf("credential = %#v", credential)
+		}
+		credential.AccessToken = "fresh-access"
+		credential.RefreshToken = "fresh-refresh"
+		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return credential, nil
+	}
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"expired-access","refresh_token":"expired-refresh","account_id":"account-expired","expired":"2026-08-14T07:00:00Z"}`,
+	))
+	if err != nil || refreshCalls != 1 {
+		t.Fatalf("ImportCredentialStage() result/error/calls = %#v/%v/%d", stage, err, refreshCalls)
+	}
+	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := fixture.service.decodeStageCodexCredential(row)
+	if err != nil || credential.AccessToken != "fresh-access" || credential.RefreshToken != "fresh-refresh" {
+		t.Fatalf("stored credential = %#v, %v", credential, err)
 	}
 }
 
@@ -194,6 +226,10 @@ func TestCompleteBrowserAuthorizationMarksDefinitiveExchangeRejectionFailed(t *t
 	}
 	if row.Status != models.CredentialStageFailed || row.EncryptedPayload != "" || row.ErrorCode != "authorization_exchange_rejected" {
 		t.Fatalf("rejected stage = %#v", row)
+	}
+	result, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
+	if err != nil || result.ErrorCode != "authorization_exchange_rejected" {
+		t.Fatalf("failed stage result = %#v, %v", result, err)
 	}
 }
 
@@ -563,6 +599,80 @@ func TestReauthorizeSubscriptionCredentialIdempotentReplaysConsumedStage(t *test
 	}
 }
 
+func TestReauthorizeSubscriptionCredentialIdempotencyKeyIsBoundToCredential(t *testing.T) {
+	fixture := newServiceFixture(t)
+	firstStage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
+	secondStage := mustImportSubscriptionStage(t, fixture, "account-two", "two@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("subscription reauthorize credential binding"), ChannelID: channel.Codex,
+		ConnectionType: models.ConnectionTypeSubscription,
+		Models:         optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{
+			firstStage.StageID,
+			secondStage.StageID,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var credentials []models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Order("id ASC").Find(&credentials).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(credentials) != 2 {
+		t.Fatalf("credential count = %d", len(credentials))
+	}
+	firstIndex := 0
+	if credentials[firstIndex].IdentityFingerprint != fixture.service.subscriptionIdentityFingerprint(channel.Codex, "account-one") {
+		firstIndex = 1
+	}
+	secondIndex := 1 - firstIndex
+	ready := mustImportSubscriptionStage(t, fixture, "account-one", "renamed@example.com")
+	request := CredentialReauthorizationRequest{
+		StageID: ready.StageID, ExpectedSecretVersion: credentials[firstIndex].SecretVersion,
+	}
+	key := "123e4567-e89b-42d3-a456-426614174011"
+	if _, err := fixture.service.ReauthorizeGroupCredentialIdempotent(
+		t.Context(), key, created.GroupID, credentials[firstIndex].ID, request,
+	); err != nil {
+		t.Fatalf("first reauthorization error = %v", err)
+	}
+	_, err = fixture.service.ReauthorizeGroupCredentialIdempotent(
+		t.Context(), key, created.GroupID, credentials[secondIndex].ID, request,
+	)
+	assertAPIErrorCode(t, err, app_errors.ErrIdempotencyKeyReused.Code)
+}
+
+func TestReauthorizeSubscriptionCredentialRejectsStaleSecretVersionWithoutConsumingStage(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-stale-version", "stale@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("subscription stale version"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	ready := mustImportSubscriptionStage(t, fixture, "account-stale-version", "new@example.com")
+	_, err = fixture.service.ReauthorizeGroupCredential(t.Context(), created.GroupID, credential.ID, CredentialReauthorizationRequest{
+		StageID: ready.StageID, ExpectedSecretVersion: credential.SecretVersion + 1,
+	})
+	var apiErr *app_errors.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "CREDENTIAL_VERSION_CONFLICT" {
+		t.Fatalf("ReauthorizeGroupCredential() error = %v", err)
+	}
+	row, loadErr := fixture.service.loadCredentialStage(t.Context(), ready.StageID)
+	if loadErr != nil || row.Status != models.CredentialStageReady {
+		t.Fatalf("staged credential = %#v, %v", row, loadErr)
+	}
+}
+
 func TestReauthorizeSubscriptionCredentialSerializesSecretMutation(t *testing.T) {
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-one", "one@example.com")
@@ -790,6 +900,35 @@ func TestCleanupCredentialStagesExpiresSecretsAndRemovesOldTombstones(t *testing
 	}
 	if count != 0 {
 		t.Fatalf("old tombstone count = %d", count)
+	}
+}
+
+func TestGetCredentialStageFinalizesExpiredExchange(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	stage := mustImportSubscriptionStage(t, fixture, "interrupted-account", "interrupted@example.com")
+	if err := fixture.db.Model(&models.CredentialStage{}).Where("id = ?", stage.StageID).
+		Updates(map[string]any{
+			"status": models.CredentialStageExchanging, "expires_at_ms": now.Add(-time.Second).UnixMilli(),
+		}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := fixture.service.GetCredentialStage(t.Context(), stage.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != string(models.CredentialStageOutcomeUnknown) ||
+		result.ErrorCode != "authorization_exchange_interrupted" {
+		t.Fatalf("expired exchange result = %#v", result)
+	}
+	var stored models.CredentialStage
+	if err := fixture.db.Take(&stored, "id = ?", stage.StageID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.EncryptedPayload != "" || stored.OAuthStateHash != nil {
+		t.Fatalf("expired exchange retained secret material: %#v", stored)
 	}
 }
 

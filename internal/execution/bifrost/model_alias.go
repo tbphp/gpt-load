@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
-	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/protocol"
 )
 
@@ -86,28 +86,11 @@ func nativeSSEEventHasData(event []byte) bool {
 }
 
 func needsClientModelAlias(spec execution.AttemptSpec) bool {
-	return spec.ClientModel != "" && spec.UpstreamModel != "" && spec.ClientModel != spec.UpstreamModel
+	return responsealias.Needs(spec.ClientModel, spec.UpstreamModel)
 }
 
 func rewriteClientResponseModel(clientProtocol protocol.Protocol, body []byte, clientModel string) ([]byte, error) {
-	var rewriter dialect.ModelRewriter
-	switch clientProtocol {
-	case protocol.OpenAICompletions:
-		rewriter = dialect.NewOpenAI()
-	case protocol.OpenAIResponses:
-		rewriter = dialect.NewOpenAIResponses()
-	case protocol.Anthropic:
-		rewriter = dialect.NewAnthropic()
-	case protocol.Gemini:
-		rewriter = dialect.NewGemini()
-	default:
-		return nil, fmt.Errorf("unsupported client protocol")
-	}
-	rewritten, err := rewriter.RewriteResponseModel(body, clientModel)
-	if err != nil {
-		return nil, fmt.Errorf("rewrite native response model")
-	}
-	return rewritten, nil
+	return responsealias.RewriteJSON(clientProtocol, body, clientModel)
 }
 
 type nativeAliasSSERewriter struct {
@@ -191,49 +174,7 @@ type nativeSSELine struct {
 }
 
 func rewriteClientSSEEvent(event []byte, clientProtocol protocol.Protocol, clientModel string) ([]byte, error) {
-	lines := splitNativeSSELines(event)
-	dataValues := make([][]byte, 0, 1)
-	firstDataLine := -1
-	for index := range lines {
-		if !lines[index].isData {
-			continue
-		}
-		if firstDataLine < 0 {
-			firstDataLine = index
-		}
-		dataValues = append(dataValues, lines[index].data)
-	}
-	if firstDataLine < 0 {
-		return append([]byte(nil), event...), nil
-	}
-	payload := bytes.Join(dataValues, []byte{'\n'})
-	if len(payload) == 0 || bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
-		return append([]byte(nil), event...), nil
-	}
-	rewritten, err := rewriteClientResponseModel(clientProtocol, payload, clientModel)
-	if err != nil {
-		return nil, err
-	}
-	if bytes.Equal(rewritten, payload) {
-		return append([]byte(nil), event...), nil
-	}
-
-	var output bytes.Buffer
-	output.Grow(len(event) - len(payload) + len(rewritten))
-	for index, line := range lines {
-		switch {
-		case index == firstDataLine:
-			_, _ = output.WriteString("data: ")
-			_, _ = output.Write(rewritten)
-			_, _ = output.Write(line.terminator)
-		case line.isData:
-			continue
-		default:
-			_, _ = output.Write(line.content)
-			_, _ = output.Write(line.terminator)
-		}
-	}
-	return output.Bytes(), nil
+	return responsealias.RewriteSSE(clientProtocol, event, clientModel)
 }
 
 func splitNativeSSELines(event []byte) []nativeSSELine {

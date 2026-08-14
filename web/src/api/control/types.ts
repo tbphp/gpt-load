@@ -128,6 +128,8 @@ export type CredentialObservationState = 'fresh' | 'stale' | 'refreshing' | 'err
 
 export interface CredentialAccountDto {
   email_mask?: string
+  expires_at_ms?: number
+  last_refresh_at_ms?: number
 }
 
 export interface CredentialQuotaWindowDto {
@@ -176,6 +178,7 @@ export interface CredentialItemDto {
   mask: string
   account: CredentialAccountDto
   auth_state: CredentialAuthState
+  auth_error_code?: string
   observation?: CredentialObservationDto
   configured_status: CredentialConfiguredStatus
   effective_status: CredentialStatus

@@ -27,7 +27,9 @@ const (
 )
 
 type CredentialStageAccount struct {
-	EmailMask string `json:"email_mask,omitempty"`
+	EmailMask       string `json:"email_mask,omitempty"`
+	ExpiresAtMS     *int64 `json:"expires_at_ms,omitempty"`
+	LastRefreshAtMS *int64 `json:"last_refresh_at_ms,omitempty"`
 }
 
 type CredentialStageResult struct {
@@ -36,6 +38,7 @@ type CredentialStageResult struct {
 	AuthorizationURL string                 `json:"authorization_url,omitempty"`
 	Account          CredentialStageAccount `json:"account"`
 	ExpiresAtMS      int64                  `json:"expires_at_ms"`
+	ErrorCode        string                 `json:"error_code,omitempty"`
 }
 
 type stagedCodexPayload struct {
@@ -59,7 +62,39 @@ func (s *Service) ImportCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileInvalid
 	}
+	credential, err = s.prepareImportedCodexCredential(ctx, credential)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
 	return s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential)
+}
+
+func (s *Service) prepareImportedCodexCredential(
+	ctx context.Context,
+	credential cpaembedded.CodexCredential,
+) (cpaembedded.CodexCredential, error) {
+	expiresAt, known := cpaembedded.CodexCredentialExpiresAt(credential)
+	if !known || expiresAt.After(s.now().Add(5*time.Minute)) {
+		return credential, nil
+	}
+	if s.refreshCodexCredential == nil {
+		return cpaembedded.CodexCredential{}, app_errors.ErrAuthorizationUnavailable
+	}
+	refreshContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+	defer cancel()
+	refreshed, err := s.refreshCodexCredential(refreshContext, credential)
+	if err != nil {
+		var tokenErr *cpaembedded.TokenEndpointError
+		if errors.Is(err, cpaembedded.ErrCredentialIdentityChanged) ||
+			errors.As(err, &tokenErr) && cpaembedded.IsDefinitiveRefreshRejection(tokenErr.Code) {
+			return cpaembedded.CodexCredential{}, app_errors.ErrCredentialReauthorizationRequired
+		}
+		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+	}
+	if refreshed.AccountID != credential.AccountID {
+		return cpaembedded.CodexCredential{}, app_errors.ErrCredentialReauthorizationRequired
+	}
+	return refreshed, nil
 }
 
 func (s *Service) BeginCredentialAuthorization(
@@ -242,9 +277,9 @@ func (s *Service) failCredentialAuthorization(ctx context.Context, stageID strin
 	if s == nil || strings.TrimSpace(returnedState) == "" || strings.TrimSpace(providerError) == "" {
 		return app_errors.ErrAuthorizationStateInvalid
 	}
-	errorCode := "AUTHORIZATION_FAILED"
+	errorCode := "authorization_failed"
 	if strings.EqualFold(strings.TrimSpace(providerError), "access_denied") {
-		errorCode = "AUTHORIZATION_DENIED"
+		errorCode = "authorization_denied"
 	}
 	nowMS := s.now().UnixMilli()
 	stateHash := s.encryption.Hash("oauth-state/v1|" + returnedState)
@@ -272,9 +307,12 @@ func (s *Service) GetCredentialStage(ctx context.Context, stageID string) (Crede
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
-	if (row.Status == models.CredentialStagePendingAuthorization || row.Status == models.CredentialStageReady) &&
+	if (row.Status == models.CredentialStagePendingAuthorization || row.Status == models.CredentialStageReady ||
+		row.Status == models.CredentialStageExchanging) &&
 		s.now().UnixMilli() >= row.ExpiresAtMS {
-		_ = s.expireCredentialStage(ctx, &row)
+		if err := s.expireCredentialStage(ctx, &row); err != nil {
+			return CredentialStageResult{}, app_errors.ParseDBError(err)
+		}
 	}
 	var account CredentialStageAccount
 	if len(row.SafeSummaryJSON) > 0 {
@@ -282,6 +320,7 @@ func (s *Service) GetCredentialStage(ctx context.Context, stageID string) (Crede
 	}
 	return CredentialStageResult{
 		StageID: row.ID, Status: string(row.Status), Account: account, ExpiresAtMS: row.ExpiresAtMS,
+		ErrorCode: stageResultErrorCode(row.Status, row.ErrorCode),
 	}, nil
 }
 
@@ -324,7 +363,7 @@ func (s *Service) persistReadyCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
-	summary := CredentialStageAccount{EmailMask: maskEmail(credential.Email)}
+	summary := codexCredentialAccount(credential)
 	summaryJSON, err := json.Marshal(summary)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
@@ -361,7 +400,7 @@ func (s *Service) finishCredentialStageExchange(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
-	summary := CredentialStageAccount{EmailMask: maskEmail(credential.Email)}
+	summary := codexCredentialAccount(credential)
 	summaryJSON, err := json.Marshal(summary)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
@@ -560,18 +599,30 @@ func (s *Service) loadCredentialStage(ctx context.Context, stageID string) (mode
 }
 
 func (s *Service) expireCredentialStage(ctx context.Context, row *models.CredentialStage) error {
+	status := models.CredentialStageExpired
+	errorCode := ""
+	if row.Status == models.CredentialStageExchanging {
+		status = models.CredentialStageOutcomeUnknown
+		errorCode = "authorization_exchange_interrupted"
+	}
 	result := s.db.WithContext(ctx).Model(&models.CredentialStage{}).
 		Where("id = ? AND status = ?", row.ID, row.Status).
 		Updates(map[string]any{
-			"status": models.CredentialStageExpired, "encrypted_payload": "",
-			"oauth_state_hash": nil, "updated_at_ms": s.now().UnixMilli(),
+			"status": status, "encrypted_payload": "", "oauth_state_hash": nil,
+			"error_code": errorCode, "updated_at_ms": s.now().UnixMilli(),
 		})
 	if result.Error != nil {
 		return fmt.Errorf("expire credential stage: %w", result.Error)
 	}
 	if result.RowsAffected == 1 {
-		row.Status = models.CredentialStageExpired
+		row.Status = status
 		row.EncryptedPayload = ""
+		row.OAuthStateHash = nil
+		row.ErrorCode = errorCode
+		return nil
+	}
+	if err := s.db.WithContext(ctx).Take(row, "id = ?", row.ID).Error; err != nil {
+		return fmt.Errorf("reload credential stage after expiry race: %w", err)
 	}
 	return nil
 }
@@ -628,6 +679,44 @@ func maskEmail(email string) string {
 		return string(local[0]) + "***@" + parts[1]
 	}
 	return string(local[0]) + "***" + string(local[len(local)-1]) + "@" + parts[1]
+}
+
+func codexCredentialAccount(credential cpaembedded.CodexCredential) CredentialStageAccount {
+	account := CredentialStageAccount{EmailMask: maskEmail(credential.Email)}
+	account.ExpiresAtMS = credentialTimestampMS(credential.Expire)
+	account.LastRefreshAtMS = credentialTimestampMS(credential.LastRefresh)
+	return account
+}
+
+func credentialTimestampMS(value string) *int64 {
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return nil
+	}
+	result := parsed.UTC().UnixMilli()
+	return &result
+}
+
+func stageResultErrorCode(status models.CredentialStageStatus, code string) string {
+	switch status {
+	case models.CredentialStageFailed, models.CredentialStageOutcomeUnknown:
+		return safeInternalErrorCode(code)
+	default:
+		return ""
+	}
+}
+
+func safeInternalErrorCode(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || len(value) > 64 {
+		return ""
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' {
+			return ""
+		}
+	}
+	return value
 }
 
 func pointerTo[T any](value T) *T { return &value }

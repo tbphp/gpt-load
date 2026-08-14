@@ -32,6 +32,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
+import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
 import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 import {
   appendSelectedCandidates,
@@ -97,8 +98,12 @@ function cloneDraft(source: ImportDraft): ImportDraft {
     staged_credentials: source.staged_credentials.map((stage) => ({
       stage_id: stage.stage_id,
       status: stage.status,
+      ...(stage.authorization_url === undefined
+        ? {}
+        : { authorization_url: stage.authorization_url }),
       account: { ...stage.account },
       expires_at_ms: stage.expires_at_ms,
+      ...(stage.error_code === undefined ? {} : { error_code: stage.error_code }),
     })),
     models: source.models.map((model) => ({ ...model, sources: [...model.sources] })),
   }
@@ -201,10 +206,22 @@ let componentActive = true
 
 const credentialAnalysis = computed(() => analyzeCredentials(draft.credentials, draft.channel_id))
 const readyStages = computed(() =>
-  draft.staged_credentials.filter(
-    ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > Date.now(),
-  ),
+  draft.staged_credentials.filter(({ status }) => status === 'ready'),
 )
+
+function currentReadyStages(): typeof readyStages.value {
+  const now = Date.now()
+  return readyStages.value.filter(({ expires_at_ms }) => expires_at_ms > now)
+}
+
+function expireStaleReadyStages(): void {
+  const now = Date.now()
+  draft.staged_credentials = draft.staged_credentials.map((stage) =>
+    stage.status === 'ready' && stage.expires_at_ms <= now
+      ? { ...stage, status: 'expired' }
+      : stage,
+  )
+}
 const credentialCount = computed(() =>
   draft.connection_type === 'subscription'
     ? readyStages.value.length
@@ -562,6 +579,13 @@ function requestDiscovery(): void {
 
 function startDiscovery(): void {
   if (!canDiscover.value || discoveryLoading.value) return
+  const subscriptionStage =
+    draft.connection_type === 'subscription' ? currentReadyStages()[0] : undefined
+  if (draft.connection_type === 'subscription' && !subscriptionStage) {
+    expireStaleReadyStages()
+    discoveryErrorKey.value = 'common.subscriptionErrors.stageExpired'
+    return
+  }
   const request = {
     channel_id: draft.channel_id,
     connection_type: draft.connection_type,
@@ -569,7 +593,7 @@ function startDiscovery(): void {
       Object.entries(draft.params).map(([key, value]) => [key, value.trim()]),
     ),
     ...(draft.connection_type === 'subscription'
-      ? { staged_credential_id: readyStages.value[0]?.stage_id }
+      ? { staged_credential_id: subscriptionStage?.stage_id }
       : { credentials: draft.credentials }),
   }
   cancelDiscovery()
@@ -615,7 +639,10 @@ async function runDiscovery(
     ) {
       return
     }
-    discoveryErrorKey.value = 'common.modelDiscoveryFailed'
+    discoveryErrorKey.value =
+      draft.connection_type === 'subscription'
+        ? presentSubscriptionErrorKey(cause, 'common.modelDiscoveryFailed')
+        : 'common.modelDiscoveryFailed'
   } finally {
     if (discoveryRequestIdentity === identity && discoveryController === controller) {
       discoveryController = undefined
@@ -647,7 +674,7 @@ function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
     ...(name ? { name } : {}),
     models: toGroupModels(draft.models),
     ...(draft.connection_type === 'subscription'
-      ? { staged_credential_ids: readyStages.value.map(({ stage_id }) => stage_id) }
+      ? { staged_credential_ids: currentReadyStages().map(({ stage_id }) => stage_id) }
       : { credentials: draft.credentials }),
     confirm_same_target: confirmSameTarget,
   }
@@ -692,6 +719,15 @@ async function reportSubmissionError(key: string): Promise<void> {
 }
 
 async function submitCreate(): Promise<void> {
+  if (
+    draft.connection_type === 'subscription' &&
+    readyStages.value.length > 0 &&
+    currentReadyStages().length === 0
+  ) {
+    expireStaleReadyStages()
+    await reportSubmissionError('common.subscriptionErrors.stageExpired')
+    return
+  }
   if (!canCreate.value) return
   cancelDiscovery()
   conflict.value = null
@@ -747,7 +783,11 @@ async function executeCreateOperation(): Promise<void> {
     }
   }
   createOperation.reset()
-  await reportSubmissionError('import.createFailed')
+  await reportSubmissionError(
+    draft.connection_type === 'subscription'
+      ? presentSubscriptionErrorKey(cause, 'import.createFailed')
+      : 'import.createFailed',
+  )
 }
 
 async function submitSeparateGroup(): Promise<void> {
@@ -814,8 +854,9 @@ async function executeConnectOperation(): Promise<void> {
     return
   }
   if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
+  const cause = connectOperation.lastError.value
   connectOperation.reset()
-  await reportSubmissionError('import.appendFailed')
+  await reportSubmissionError(presentSubscriptionErrorKey(cause, 'import.appendFailed'))
 }
 
 async function executeAppendOperation(): Promise<void> {

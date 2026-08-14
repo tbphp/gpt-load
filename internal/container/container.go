@@ -2,11 +2,13 @@
 package container
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 	"go.uber.org/dig"
 	"gorm.io/gorm"
 
@@ -151,8 +153,9 @@ func BuildContainer() (*dig.Container, error) {
 			subscription *cpaexecutor.Adapter,
 		) execution.Executor {
 			return &routedExecutor{
-				Router:   execution.NewRouter(runtime, subscription),
-				defaults: runtime,
+				Router:       execution.NewRouter(runtime, subscription),
+				defaults:     runtime,
+				subscription: subscription,
 			}
 		},
 		func(runtime *bifrostexecutor.RuntimeManager) app.ExecutionRuntime { return runtime },
@@ -205,11 +208,19 @@ type providerRuntimeSnapshotReconciler struct {
 
 type routedExecutor struct {
 	*execution.Router
-	defaults *bifrostexecutor.RuntimeManager
+	defaults     *bifrostexecutor.RuntimeManager
+	subscription *cpaexecutor.Adapter
 }
 
 func (executor *routedExecutor) DefaultBaseURL(channelID channel.ID) (string, bool, error) {
 	return executor.defaults.DefaultBaseURL(channelID)
+}
+
+func (executor *routedExecutor) PrepareCodexCredential(
+	ctx context.Context,
+	snapshot execution.CredentialSnapshot,
+) (cpaembedded.CodexCredential, *execution.ErrorEvidence) {
+	return executor.subscription.PrepareCodexCredential(ctx, snapshot)
 }
 
 func (reconciler providerRuntimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {
