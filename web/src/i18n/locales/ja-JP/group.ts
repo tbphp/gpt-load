@@ -410,7 +410,6 @@ export default {
         synced: '同期',
         lastUsed: '最終利用',
         freshUntil: '情報の有効期限',
-        nextAllowed: '次回同期可能時刻',
         lastError: '最終同期エラー',
         estimate: {
           title: 'ローカル期間利用量',

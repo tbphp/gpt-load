@@ -138,7 +138,6 @@ const observationFields = [
   'observed_at_ms',
   'fresh_until_ms',
   'last_attempt_at_ms',
-  'next_allowed_at_ms',
   'last_error_code',
 ] as const
 const observationSnapshotFields = [
@@ -364,7 +363,6 @@ function projectObservation(value: unknown): CredentialObservationDto {
     observed_at_ms: projectNullableEpochMilliseconds(record.observed_at_ms),
     fresh_until_ms: projectNullableEpochMilliseconds(record.fresh_until_ms),
     last_attempt_at_ms: projectNullableEpochMilliseconds(record.last_attempt_at_ms),
-    next_allowed_at_ms: projectNullableEpochMilliseconds(record.next_allowed_at_ms),
     ...(record.last_error_code === undefined
       ? {}
       : { last_error_code: projectString(record.last_error_code) }),

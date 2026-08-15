@@ -395,7 +395,6 @@ export default {
         synced: '同步',
         lastUsed: '最近使用',
         freshUntil: '信息有效期',
-        nextAllowed: '下次允许同步',
         lastError: '最近同步错误',
         estimate: {
           title: '本地窗口用量',

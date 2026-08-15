@@ -182,7 +182,6 @@ export interface CredentialObservationDto {
   observed_at_ms: number | null
   fresh_until_ms: number | null
   last_attempt_at_ms: number | null
-  next_allowed_at_ms: number | null
   last_error_code?: string
 }
 

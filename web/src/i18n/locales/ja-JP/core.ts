@@ -38,7 +38,6 @@ export default {
       reauthorizationRequired: 'このサブスクリプションアカウントは再認証が必要です',
       outcomeUnknown: '認証情報の結果を確認できません。先にアカウント状態を再読み込みしてください',
       versionConflict: '認証が別の操作で更新されました。再読み込みしてから再試行してください',
-      refreshThrottled: '同期間隔が短すぎます。許可時刻以降に再試行してください',
       resetCreditUnavailable: '利用可能なリセットクレジットがありません。先に同期してください',
       resetCreditRejected:
         '上流でリセットクレジットを使用できませんでした。同期後に再試行してください',

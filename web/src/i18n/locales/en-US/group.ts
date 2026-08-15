@@ -408,7 +408,6 @@ export default {
         synced: 'Synced',
         lastUsed: 'Last used',
         freshUntil: 'Information valid until',
-        nextAllowed: 'Next allowed sync',
         lastError: 'Last sync error',
         estimate: {
           title: 'Local window usage',

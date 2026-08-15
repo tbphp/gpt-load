@@ -193,7 +193,12 @@ func TestConsumeCredentialResetCreditBlocksNewKeyUntilSuccessIsObserved(t *testi
 
 	now = now.Add(time.Minute)
 	observationHealthy = true
-	if _, err := fixture.service.refreshCredentialObservation(t.Context(), groupID, credentialID, true); err != nil {
+	if _, err := fixture.service.refreshCredentialObservation(
+		t.Context(),
+		groupID,
+		credentialID,
+		observationRefreshAfterMutation,
+	); err != nil {
 		t.Fatalf("force observation refresh: %v", err)
 	}
 	thirdKey := "9f0f4c32-89d2-4bcb-9e19-052940dc2f18"

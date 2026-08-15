@@ -14,7 +14,6 @@ const subscriptionErrorKeys: Readonly<Record<string, string>> = {
   CREDENTIAL_REAUTHORIZATION_REQUIRED: 'common.subscriptionErrors.reauthorizationRequired',
   CREDENTIAL_AUTH_OUTCOME_UNKNOWN: 'common.subscriptionErrors.outcomeUnknown',
   CREDENTIAL_VERSION_CONFLICT: 'common.subscriptionErrors.versionConflict',
-  OBSERVATION_REFRESH_THROTTLED: 'common.subscriptionErrors.refreshThrottled',
   RESET_CREDIT_UNAVAILABLE: 'common.subscriptionErrors.resetCreditUnavailable',
   RESET_CREDIT_REJECTED: 'common.subscriptionErrors.resetCreditRejected',
   RESET_CREDIT_OUTCOME_UNKNOWN: 'common.subscriptionErrors.resetCreditOutcomeUnknown',

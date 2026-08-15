@@ -37,7 +37,6 @@ export default {
       reauthorizationRequired: '该订阅账号需要重新授权',
       outcomeUnknown: '凭据操作结果无法确认，请先重新加载账号状态',
       versionConflict: '账号授权已被其他操作更新，请重新加载后再试',
-      refreshThrottled: '同步过于频繁，请在允许时间后重试',
       resetCreditUnavailable: '当前没有可用的重置卡，请先同步账号信息',
       resetCreditRejected: '上游未能使用重置卡，请同步后再试',
       resetCreditOutcomeUnknown:

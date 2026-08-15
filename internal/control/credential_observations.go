@@ -75,7 +75,6 @@ type CredentialObservationResponse struct {
 	ObservedAtMS       *int64                         `json:"observed_at_ms"`
 	FreshUntilMS       *int64                         `json:"fresh_until_ms"`
 	LastAttemptAtMS    *int64                         `json:"last_attempt_at_ms"`
-	NextAllowedAtMS    *int64                         `json:"next_allowed_at_ms"`
 	LastErrorCode      string                         `json:"last_error_code,omitempty"`
 }
 
@@ -84,12 +83,20 @@ type CredentialDetailResponse struct {
 	Observation CredentialObservationResponse `json:"observation"`
 }
 
+type observationRefreshMode uint8
+
+const (
+	observationRefreshScheduled observationRefreshMode = iota
+	observationRefreshManual
+	observationRefreshAfterMutation
+)
+
 type observationFlight struct {
 	done   chan struct{}
 	result CredentialObservationResponse
 	err    error
 	joined int
-	force  bool
+	mode   observationRefreshMode
 }
 
 type observationFlightKey struct {
@@ -102,14 +109,14 @@ func (s *Service) RefreshCredentialObservation(
 	groupID uint,
 	credentialID uint,
 ) (CredentialObservationResponse, error) {
-	return s.refreshCredentialObservation(ctx, groupID, credentialID, false)
+	return s.refreshCredentialObservation(ctx, groupID, credentialID, observationRefreshManual)
 }
 
 func (s *Service) refreshCredentialObservation(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
-	force bool,
+	mode observationRefreshMode,
 ) (CredentialObservationResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialObservationResponse{}, app_errors.ErrValidation
@@ -122,7 +129,7 @@ func (s *Service) refreshCredentialObservation(
 		s.observationMu.Lock()
 		if existing := s.observationFlights[key]; existing != nil {
 			existing.joined++
-			followUp := force && !existing.force
+			followUp := mode == observationRefreshAfterMutation && existing.mode != observationRefreshAfterMutation
 			s.observationMu.Unlock()
 			select {
 			case <-ctx.Done():
@@ -134,7 +141,7 @@ func (s *Service) refreshCredentialObservation(
 				return existing.result, existing.err
 			}
 		}
-		flight := &observationFlight{done: make(chan struct{}), force: force}
+		flight := &observationFlight{done: make(chan struct{}), mode: mode}
 		s.observationFlights[key] = flight
 		s.observationMu.Unlock()
 		defer func() {
@@ -143,7 +150,7 @@ func (s *Service) refreshCredentialObservation(
 			close(flight.done)
 			s.observationMu.Unlock()
 		}()
-		flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID, force)
+		flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID, mode)
 		return flight.result, flight.err
 	}
 }
@@ -152,19 +159,16 @@ func (s *Service) refreshCredentialObservationOnce(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
-	force bool,
+	mode observationRefreshMode,
 ) (CredentialObservationResponse, error) {
 	group, credential, previous, err := s.loadObservationTarget(ctx, groupID, credentialID)
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
 	now := s.now().UTC()
-	if !force && previous.IdentityFingerprint == credential.IdentityFingerprint &&
+	if mode == observationRefreshScheduled && previous.IdentityFingerprint == credential.IdentityFingerprint &&
 		previous.NextAllowedAtMS != nil && now.UnixMilli() < *previous.NextAllowedAtMS {
-		return mapCredentialObservation(previous), app_errors.NewAPIErrorWithData(
-			app_errors.ErrObservationRefreshThrottled,
-			map[string]int64{"retry_at_ms": *previous.NextAllowedAtMS},
-		)
+		return mapCredentialObservation(previous), nil
 	}
 	codexCredential, err := s.prepareStoredCodexCredential(ctx, group, credential)
 	if err != nil {
@@ -369,8 +373,7 @@ func mapCredentialObservation(row models.CredentialObservation) CredentialObserv
 	response := CredentialObservationResponse{
 		State: string(row.State), ObservationVersion: row.ObservationVersion,
 		ObservedAtMS: row.ObservedAtMS, FreshUntilMS: row.FreshUntilMS,
-		LastAttemptAtMS: row.LastAttemptAtMS, NextAllowedAtMS: row.NextAllowedAtMS,
-		LastErrorCode: row.LastErrorCode,
+		LastAttemptAtMS: row.LastAttemptAtMS, LastErrorCode: row.LastErrorCode,
 	}
 	if len(row.SnapshotJSON) > 0 && string(row.SnapshotJSON) != "{}" {
 		var snapshot CredentialObservationSnapshot

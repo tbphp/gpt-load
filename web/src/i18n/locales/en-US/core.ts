@@ -39,7 +39,6 @@ export default {
       reauthorizationRequired: 'This subscription account must be reauthorized',
       outcomeUnknown: 'The credential outcome is unknown; reload the account state first',
       versionConflict: 'The authorization changed elsewhere; reload and try again',
-      refreshThrottled: 'Sync was requested too recently; retry after the allowed time',
       resetCreditUnavailable: 'No reset credit is available; sync the account first',
       resetCreditRejected: 'The upstream did not accept the reset credit; sync and try again',
       resetCreditOutcomeUnknown:

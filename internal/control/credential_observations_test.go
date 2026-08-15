@@ -113,7 +113,7 @@ func TestNormalizeCodexObservationDoesNotTreatMeterNameAsModelID(t *testing.T) {
 	}
 }
 
-func TestRefreshCredentialObservationPersistsLKGAndThrottles(t *testing.T) {
+func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(t *testing.T) {
 	t.Parallel()
 
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
@@ -131,22 +131,17 @@ func TestRefreshCredentialObservationPersistsLKGAndThrottles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.State != string(models.CredentialObservationFresh) || first.Snapshot == nil || first.NextAllowedAtMS == nil || calls != 1 {
+	if first.State != string(models.CredentialObservationFresh) || first.Snapshot == nil || calls != 1 {
 		t.Fatalf("first = %#v, calls=%d", first, calls)
 	}
-	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil {
-		t.Fatal("second refresh should be throttled")
-	} else {
-		var apiErr *app_errors.APIError
-		if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrObservationRefreshThrottled.Code {
-			t.Fatalf("second error = %v", err)
-		}
+	second, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil || second.ObservationVersion != 2 {
+		t.Fatalf("second = %#v, %v", second, err)
 	}
-	if calls != 1 {
+	if calls != 2 {
 		t.Fatalf("calls = %d", calls)
 	}
 
-	now = now.Add(6 * time.Minute)
 	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		return codex.AccountObservation{}, errors.New("upstream unavailable")
@@ -283,7 +278,7 @@ func TestRefreshCredentialObservationPublishesAndClearsQuotaRoutingState(t *test
 	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{}, errors.New("upstream unavailable")
 	}
-	if _, err := fixture.service.refreshCredentialObservation(t.Context(), groupID, credentialID, true); err == nil {
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil {
 		t.Fatal("forced failed refresh error = nil")
 	}
 	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
@@ -502,19 +497,14 @@ func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) 
 
 	failed, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err == nil || failed.State != string(models.CredentialObservationError) ||
-		failed.NextAllowedAtMS == nil || failed.LastErrorCode != "observation_payload_invalid" {
+		failed.LastErrorCode != "observation_payload_invalid" {
 		t.Fatalf("failed observation = %#v, %v", failed, err)
 	}
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil {
 		t.Fatal("second refresh error = nil")
-	} else {
-		var apiErr *app_errors.APIError
-		if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrObservationRefreshThrottled.Code {
-			t.Fatalf("second refresh error = %v", err)
-		}
 	}
-	if calls != 1 {
-		t.Fatalf("upstream calls = %d, want 1", calls)
+	if calls != 2 {
+		t.Fatalf("upstream calls = %d, want 2", calls)
 	}
 }
 
@@ -600,7 +590,7 @@ func TestConcurrentObservationRefreshIsSingleflight(t *testing.T) {
 	}
 }
 
-func TestForcedObservationRefreshRunsAfterExistingNonForcedFlight(t *testing.T) {
+func TestPostMutationObservationRefreshRunsAfterExistingFlight(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -626,7 +616,12 @@ func TestForcedObservationRefreshRunsAfterExistingNonForcedFlight(t *testing.T) 
 	forcedResult := make(chan CredentialObservationResponse, 1)
 	forcedError := make(chan error, 1)
 	go func() {
-		result, err := fixture.service.refreshCredentialObservation(t.Context(), groupID, credentialID, true)
+		result, err := fixture.service.refreshCredentialObservation(
+			t.Context(),
+			groupID,
+			credentialID,
+			observationRefreshAfterMutation,
+		)
 		forcedResult <- result
 		forcedError <- err
 	}()

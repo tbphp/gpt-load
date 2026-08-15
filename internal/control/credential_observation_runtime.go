@@ -56,7 +56,12 @@ func (s *Service) refreshDueCredentialObservations(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if _, err := s.RefreshCredentialObservation(ctx, target.groupID, target.credentialID); err != nil {
+		if _, err := s.refreshCredentialObservation(
+			ctx,
+			target.groupID,
+			target.credentialID,
+			observationRefreshScheduled,
+		); err != nil {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"event":         "credential_observation_refresh",
 				"group_id":      target.groupID,

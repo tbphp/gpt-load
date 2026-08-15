@@ -338,8 +338,9 @@ func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) 
 	secondRequest.Header.Set("Content-Type", "application/json")
 	secondResponse := httptest.NewRecorder()
 	engine.ServeHTTP(secondResponse, secondRequest)
-	if secondResponse.Code != http.StatusTooManyRequests || !strings.Contains(secondResponse.Body.String(), `"retry_at_ms"`) {
-		t.Fatalf("throttled = %d %s", secondResponse.Code, secondResponse.Body)
+	if secondResponse.Code != http.StatusOK || !strings.Contains(secondResponse.Body.String(), `"state":"fresh"`) ||
+		strings.Contains(secondResponse.Body.String(), `"next_allowed_at_ms"`) {
+		t.Fatalf("second refresh = %d %s", secondResponse.Code, secondResponse.Body)
 	}
 }
 

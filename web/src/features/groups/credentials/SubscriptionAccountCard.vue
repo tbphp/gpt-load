@@ -509,17 +509,6 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           </dd>
         </div>
         <div>
-          <dt>{{ t('group.credentials.subscription.nextAllowed') }}</dt>
-          <dd>
-            <AppRelativeTime
-              :instant="observation?.next_allowed_at_ms ?? null"
-              :locale="locale"
-              :empty-label="t('group.credentials.subscription.unknown')"
-              hint
-            />
-          </dd>
-        </div>
-        <div>
           <dt>{{ t('group.credentials.subscription.lastError') }}</dt>
           <dd>{{ observationErrorLabel(observation?.last_error_code) }}</dd>
         </div>

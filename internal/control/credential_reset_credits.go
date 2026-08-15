@@ -137,7 +137,12 @@ func (s *Service) ConsumeCredentialResetCredit(
 	}
 
 	response := resetCreditResponse(result, false)
-	observation, observationErr := s.refreshCredentialObservation(ctx, groupID, credentialID, true)
+	observation, observationErr := s.refreshCredentialObservation(
+		ctx,
+		groupID,
+		credentialID,
+		observationRefreshAfterMutation,
+	)
 	response.Observation = &observation
 	response.ObservationPending = observationErr != nil
 	return response, nil
