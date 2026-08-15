@@ -28,6 +28,7 @@ import { type ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
+import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
@@ -227,8 +228,10 @@ const credentialCount = computed(() =>
     ? readyStages.value.length
     : credentialAnalysis.value.nonEmptyCount,
 )
-const selectedConnection = computed(() => selectedChannel.value?.connection_types[0] ?? null)
 const connectionChannel = computed<ChannelDto | null>(() => selectedChannel.value)
+// 订阅渠道（Codex）没有连接参数，分组名称又是可选的，因此整块「分组信息」
+// 不再单独占一屏：账号连接前置，名称并入底部创建区。
+const isSubscription = computed(() => draft.connection_type === 'subscription')
 const paramErrors = computed<Record<string, string>>(() => {
   const errors: Record<string, string> = {}
   const channel = connectionChannel.value
@@ -315,12 +318,19 @@ const currentModelIDs = computed(() => draft.models.map(({ id }) => id.trim()).f
 const dirty = computed(
   () => !completed.value && JSON.stringify(snapshotDraft()) !== JSON.stringify(defaultDraft),
 )
-const summary = computed(() =>
-  t(draft.models.length ? 'import.summary' : 'import.summaryOptional', {
+const summary = computed(() => {
+  const models = draft.models.length
+  if (isSubscription.value) {
+    return t(models ? 'import.summaryAccounts' : 'import.summaryAccountsOptional', {
+      accounts: credentialCount.value,
+      models,
+    })
+  }
+  return t(models ? 'import.summary' : 'import.summaryOptional', {
     credentials: credentialCount.value,
-    models: draft.models.length,
-  }),
-)
+    models,
+  })
+})
 const discoveryError = computed(() => (discoveryErrorKey.value ? t(discoveryErrorKey.value) : ''))
 const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
   tableLabel: t('import.models.tableLabel'),
@@ -583,7 +593,10 @@ function startDiscovery(): void {
     draft.connection_type === 'subscription' ? currentReadyStages()[0] : undefined
   if (draft.connection_type === 'subscription' && !subscriptionStage) {
     expireStaleReadyStages()
-    discoveryErrorKey.value = 'common.subscriptionErrors.stageExpired'
+    // 让位给 draft 变更触发的 invalidateDiscovery，否则这条提示会被它清掉。
+    void nextTick(() => {
+      discoveryErrorKey.value = 'common.subscriptionErrors.stageExpired'
+    })
     return
   }
   const request = {
@@ -704,7 +717,14 @@ async function finishSuccess(
   )
   if (!componentActive) return
   toast.show({
-    message: t('import.credentials.result', { added, duplicated }),
+    message: t(
+      isSubscription.value
+        ? duplicated > 0
+          ? 'import.subscription.resultDuplicated'
+          : 'import.subscription.result'
+        : 'import.credentials.result',
+      { added, duplicated },
+    ),
     tone: added === 0 ? 'warning' : 'success',
     duration: 4_000,
   })
@@ -725,6 +745,8 @@ async function submitCreate(): Promise<void> {
     currentReadyStages().length === 0
   ) {
     expireStaleReadyStages()
+    // 同上：draft 变更会触发清空 errorKey 的 watcher，先让它跑完。
+    await nextTick()
     await reportSubmissionError('common.subscriptionErrors.stageExpired')
     return
   }
@@ -969,35 +991,43 @@ onBeforeUnmount(() => {
       @retry="retryChannels"
     />
 
-    <ImportConnectionSection
-      :channel="connectionChannel"
-      :name="draft.name"
-      :params="draft.params"
-      :param-errors="paramErrors"
-      :base-url-override-enabled="baseUrlOverrideEnabled"
-      :disabled="payloadLocked"
-      @update:name="draft.name = $event"
-      @update:param="setChannelParam"
-      @update:base-url-override="setBaseURLOverride"
-    />
-
-    <CredentialTextarea
-      v-if="selectedConnection?.credential_input !== 'authorization'"
-      v-model="draft.credentials"
-      :channel="selectedChannel"
-      :disabled="payloadLocked"
-    />
     <SubscriptionCredentialStager
-      v-else
+      v-if="isSubscription"
       v-model="draft.staged_credentials"
+      :step="1"
+      context="create"
       :disabled="payloadLocked"
     />
+    <template v-else>
+      <ImportConnectionSection
+        :channel="connectionChannel"
+        :name="draft.name"
+        :params="draft.params"
+        :param-errors="paramErrors"
+        :base-url-override-enabled="baseUrlOverrideEnabled"
+        :disabled="payloadLocked"
+        @update:name="draft.name = $event"
+        @update:param="setChannelParam"
+        @update:base-url-override="setBaseURLOverride"
+      />
+
+      <CredentialTextarea
+        v-model="draft.credentials"
+        :channel="selectedChannel"
+        :disabled="payloadLocked"
+      />
+    </template>
 
     <section class="new-group-import__models" aria-labelledby="import-models-heading">
       <PanelHeader
         heading-id="import-models-heading"
+        :step="isSubscription ? 2 : undefined"
         :title="t('import.models.title')"
-        :description="t('import.models.description')"
+        :description="
+          isSubscription
+            ? t('import.models.descriptionSubscription')
+            : t('import.models.description')
+        "
       >
         <template #actions>
           <AppButton
@@ -1059,8 +1089,31 @@ onBeforeUnmount(() => {
       </InlineFeedback>
     </div>
 
-    <footer class="new-group-import__actions">
-      <div aria-live="polite">
+    <footer
+      class="new-group-import__actions"
+      :class="{ 'new-group-import__actions--subscription': isSubscription }"
+    >
+      <FormField
+        v-if="isSubscription"
+        id="import-group-name"
+        class="new-group-import__name"
+        :label="t('import.connection.name')"
+        :label-suffix="t('import.optional')"
+        size="compact"
+      >
+        <template #default="field">
+          <input
+            id="import-group-name"
+            :value="draft.name"
+            :disabled="payloadLocked"
+            :aria-describedby="field.describedBy"
+            autocomplete="off"
+            :placeholder="t('import.connection.namePlaceholder')"
+            @input="draft.name = ($event.target as HTMLInputElement).value"
+          />
+        </template>
+      </FormField>
+      <div class="new-group-import__summary" aria-live="polite">
         <strong>{{ summary }}</strong>
         <span v-if="submitBlockedReason" class="new-group-import__block-reason">
           {{ submitBlockedReason }}
@@ -1090,8 +1143,14 @@ onBeforeUnmount(() => {
 
     <AppDialog
       :open="conflict !== null"
-      :title="t('import.conflict.title')"
-      :description="t('import.conflict.description')"
+      :title="t(isSubscription ? 'import.conflict.titleSubscription' : 'import.conflict.title')"
+      :description="
+        t(
+          isSubscription
+            ? 'import.conflict.descriptionSubscription'
+            : 'import.conflict.description',
+        )
+      "
       :close-label="t('import.conflict.close')"
       :dismissible="!mutationPending"
       @update:open="updateConflictDialog"
@@ -1101,14 +1160,22 @@ onBeforeUnmount(() => {
           <div v-for="group in conflict.groups" :key="group.id">
             <div>
               <strong>#{{ group.id }} · {{ group.name }}</strong>
-              <span>{{ t('import.conflict.appendHelp') }}</span>
+              <span>{{
+                t(
+                  isSubscription
+                    ? 'import.conflict.appendHelpSubscription'
+                    : 'import.conflict.appendHelp',
+                )
+              }}</span>
             </div>
             <AppButton
               variant="secondary"
               :disabled="mutationPending"
               @click="appendToGroup(group.id)"
             >
-              {{ t('import.conflict.append') }}
+              {{
+                t(isSubscription ? 'import.conflict.appendSubscription' : 'import.conflict.append')
+              }}
             </AppButton>
           </div>
         </div>
@@ -1202,18 +1269,26 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.new-group-import__actions > div {
+/* 订阅分组只剩一个可选的名称字段，单独开一节太重，直接贴在创建区左侧 */
+.new-group-import__actions--subscription {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.new-group-import__name {
+  min-width: 0;
+}
+
+.new-group-import__summary {
   min-width: 0;
   min-height: var(--control-sm);
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
 
-.new-group-import__actions strong {
+.new-group-import__summary strong {
   display: block;
-}
-
-.new-group-import__actions strong {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
@@ -1244,6 +1319,10 @@ onBeforeUnmount(() => {
   .new-group-import__actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .new-group-import__actions--subscription {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .new-group-import__actions :deep(.app-button) {

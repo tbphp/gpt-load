@@ -83,7 +83,19 @@ type CredentialItemResponse struct {
 	LastFailureCategory     string                         `json:"last_failure_category"`
 	LastStatusCode          *int                           `json:"last_status_code"`
 	CooldownUntilMS         *int64                         `json:"cooldown_until_ms"`
+	DailyUsage              *CredentialDailyUsageResponse  `json:"daily_usage,omitempty"`
 	Recovery                CredentialRecoveryResponse     `json:"recovery"`
+}
+
+// CredentialDailyUsageResponse 汇报固定 24 小时窗口内的请求结果分布。
+// recent_success_count / recent_failure_count 来自 health 的 5 分钟内存窗口，
+// 是调度判定用的，重启即清零；这里的计数来自请求日志，用于给人看。
+type CredentialDailyUsageResponse struct {
+	WindowSeconds int64 `json:"window_seconds"`
+	SuccessCount  int64 `json:"success_count"`
+	FailureCount  int64 `json:"failure_count"`
+	// DataComplete 为 false 表示请求日志留存期短于该窗口，计数偏低。
+	DataComplete bool `json:"data_complete"`
 }
 
 type CredentialRecoveryResponse struct {
@@ -416,6 +428,9 @@ func (s *Service) mapCredentialCollection(
 	items := credentialCollectionPage(filtered, query.Page, query.PageSize)
 	for index := range items {
 		s.enrichCredentialObservationUsage(ctx, items[index].CredentialID, items[index].Observation)
+		if items[index].ConnectionType == string(models.ConnectionTypeSubscription) {
+			s.enrichCredentialDailyUsage(ctx, items[index].CredentialID, &items[index])
+		}
 	}
 	return CredentialCollectionResponse{
 		ObservedAtMS: observedAtMS, StatsWindowSeconds: credentialCollectionStatsWindow,

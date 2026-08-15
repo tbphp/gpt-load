@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ellipsis, RotateCcw, Trash2 } from '@lucide/vue'
+import { CircleCheck, CircleOff, Ellipsis, LogIn, RotateCcw, Trash2 } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -151,13 +151,23 @@ const authIssue = computed(() => {
   const key = props.item.auth_error_code ? authErrorKeys[props.item.auth_error_code] : undefined
   return key ? t(key) : t(`group.credentials.subscription.auth.${props.item.auth_state}`)
 })
-const recentLabel = computed(() =>
-  props.item.recent_failure_count === 0
-    ? t('group.credentials.recentSuccessOnly', { success: n(props.item.recent_success_count) })
-    : t('group.credentials.recent', {
-        success: n(props.item.recent_success_count),
-        failure: n(props.item.recent_failure_count),
-      }),
+// 卡片给的是请求日志里的 24 小时结果分布，不是 health 那个 5 分钟内存窗口
+//（后者重启即清零，是给调度判定用的）。始终并排给出成功与失败：失败 0 本身是
+// 信息，也让这一行宽度稳定。
+const dailyUsage = computed(() => props.item.daily_usage)
+const dailyLabel = computed(() =>
+  dailyUsage.value
+    ? t('group.credentials.recent', {
+        success: n(dailyUsage.value.success_count),
+        failure: n(dailyUsage.value.failure_count),
+      })
+    : '',
+)
+// 请求日志留存短于 24 小时时计数会偏低，只用 title 提示，不占版面。
+const dailyIncompleteHint = computed(() =>
+  dailyUsage.value && !dailyUsage.value.data_complete
+    ? t('group.credentials.subscription.dailyIncomplete')
+    : undefined,
 )
 const failureLabel = computed(() =>
   props.item.recent_failure_count === 0
@@ -202,20 +212,6 @@ function usedPercentLabel(window: CredentialQuotaWindowDto): string {
   return remaining === undefined
     ? ''
     : t('group.credentials.subscription.estimate.usedPercent', { value: n(100 - remaining) })
-}
-function observedUsageNote(window: CredentialQuotaWindowDto): string {
-  const observed = window.observed_usage
-  if (!observed) return t('group.credentials.subscription.estimate.unavailable')
-  const notes = [
-    observed.data_complete
-      ? t('group.credentials.subscription.estimate.exactData')
-      : t('group.credentials.subscription.estimate.approximateData'),
-  ]
-  if (!observed.usage_complete)
-    notes.push(t('group.credentials.subscription.estimate.partialUsage'))
-  if (!observed.pricing_complete)
-    notes.push(t('group.credentials.subscription.estimate.partialPricing'))
-  return notes.join(t('group.credentials.subscription.estimate.noteSeparator'))
 }
 function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'danger' | undefined {
   if (!quotaWindowIsCurrent(window)) return undefined
@@ -265,7 +261,11 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       >
         {{ t('group.credentials.subscription.sync') }}
       </AppButton>
-      <AppPopover v-model:open="menuOpen" align="end">
+      <AppPopover
+        v-model:open="menuOpen"
+        align="end"
+        content-class="app-popover__content--account-menu"
+      >
         <template #trigger>
           <IconButton
             variant="ghost"
@@ -278,9 +278,13 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
         </template>
         <div class="subscription-account__menu">
           <button type="button" :disabled="busy" @click="runMenuAction('reauthorize')">
-            {{ t('group.credentials.subscription.reauthorize') }}
+            <LogIn :size="15" aria-hidden="true" />{{
+              t('group.credentials.subscription.reauthorize')
+            }}
           </button>
           <button type="button" :disabled="busy" @click="runMenuAction('toggle')">
+            <CircleOff v-if="item.configured_status === 'active'" :size="15" aria-hidden="true" />
+            <CircleCheck v-else :size="15" aria-hidden="true" />
             {{
               item.configured_status === 'active'
                 ? t('group.credentials.disable')
@@ -288,15 +292,16 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
             }}
           </button>
           <button v-if="isProblem" type="button" :disabled="busy" @click="runMenuAction('restore')">
-            <RotateCcw :size="14" aria-hidden="true" />{{ t('group.credentials.restore') }}
+            <RotateCcw :size="15" aria-hidden="true" />{{ t('group.credentials.restore') }}
           </button>
+          <div class="subscription-account__menu-divider"></div>
           <button
             type="button"
             class="subscription-account__menu-danger"
             :disabled="busy"
             @click="runMenuAction('remove')"
           >
-            <Trash2 :size="14" aria-hidden="true" />{{ t('group.credentials.delete') }}
+            <Trash2 :size="15" aria-hidden="true" />{{ t('group.credentials.delete') }}
           </button>
         </div>
       </AppPopover>
@@ -358,6 +363,64 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       {{ t('group.credentials.subscription.quotaExhaustedHint') }}
     </p>
 
+    <div
+      v-if="resetCreditsUsable"
+      class="subscription-account__credits"
+      :class="{
+        'subscription-account__credits--urgent': unifiedStatus === 'quota_exhausted',
+      }"
+    >
+      <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
+      <span class="subscription-account__credits-dots" aria-hidden="true">
+        <i v-for="index in Math.min(resetCreditsAvailable, 5)" :key="index"></i>
+      </span>
+      <strong>{{
+        t('group.credentials.subscription.resetCreditsCount', { count: n(resetCreditsAvailable) })
+      }}</strong>
+      <span v-if="nextResetCredit" class="subscription-account__credits-expiry">
+        {{ t('group.credentials.subscription.nearestResetCredit') }}
+        <AppRelativeTime
+          :instant="nextResetCredit.expires_at_ms"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+          hint
+        />
+      </span>
+      <span class="subscription-account__spacer"></span>
+      <AppButton size="compact" :disabled="busy" @click="emit('reset', item)">
+        {{ t('group.credentials.subscription.consumeResetCredit') }}
+      </AppButton>
+    </div>
+
+    <!-- 一行读完「最近跑得怎么样」：计数窗口与 API Key 列表的「近 5 分钟」列同源。
+         访问凭据到期这类低频信息下沉到诊断信息，不占这一行。 -->
+    <div class="subscription-account__meta">
+      <template v-if="dailyLabel">
+        <span class="subscription-account__meta-window">
+          {{ t('group.credentials.subscription.dailyWindow') }}
+        </span>
+        <span :title="dailyIncompleteHint">{{ dailyLabel }}</span>
+      </template>
+      <span v-if="lastUsedAtMS">
+        {{ t('group.credentials.subscription.lastUsed') }}
+        <AppRelativeTime
+          :instant="lastUsedAtMS"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+          hint
+        />
+      </span>
+      <span>
+        {{ t('group.credentials.subscription.synced') }}
+        <AppRelativeTime
+          :instant="observation?.observed_at_ms ?? null"
+          :locale="locale"
+          :empty-label="t('group.credentials.subscription.unknown')"
+          hint
+        />
+      </span>
+    </div>
+
     <details v-if="accountQuotaWindows.length" class="subscription-account__estimate">
       <summary>
         {{ t('group.credentials.subscription.estimate.title') }} ·
@@ -394,76 +457,9 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               </dd>
             </div>
           </dl>
-          <p class="subscription-account__estimate-pending">
-            {{ observedUsageNote(window) }}
-          </p>
         </article>
       </div>
     </details>
-
-    <div
-      v-if="resetCreditsUsable"
-      class="subscription-account__credits"
-      :class="{
-        'subscription-account__credits--urgent': unifiedStatus === 'quota_exhausted',
-      }"
-    >
-      <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
-      <span class="subscription-account__credits-dots" aria-hidden="true">
-        <i v-for="index in Math.min(resetCreditsAvailable, 5)" :key="index"></i>
-      </span>
-      <strong>{{
-        t('group.credentials.subscription.resetCreditsCount', { count: n(resetCreditsAvailable) })
-      }}</strong>
-      <span v-if="nextResetCredit" class="subscription-account__credits-expiry">
-        {{ t('group.credentials.subscription.nearestResetCredit') }}
-        <AppRelativeTime
-          :instant="nextResetCredit.expires_at_ms"
-          :locale="locale"
-          :empty-label="t('group.credentials.subscription.unknown')"
-          hint
-        />
-      </span>
-      <span class="subscription-account__spacer"></span>
-      <AppButton size="compact" :disabled="busy" @click="emit('reset', item)">
-        {{ t('group.credentials.subscription.consumeResetCredit') }}
-      </AppButton>
-    </div>
-
-    <div class="subscription-account__meta">
-      <span>
-        {{ t('group.credentials.subscription.observedAt') }}
-        <AppRelativeTime
-          :instant="observation?.observed_at_ms ?? null"
-          :locale="locale"
-          :empty-label="t('group.credentials.subscription.unknown')"
-          hint
-        />
-      </span>
-      <span>{{ recentLabel }}</span>
-      <span v-if="lastUsedAtMS">
-        {{ t('group.credentials.subscription.lastUsed') }}
-        <AppRelativeTime
-          :instant="lastUsedAtMS"
-          :locale="locale"
-          :empty-label="t('group.credentials.subscription.unknown')"
-          hint
-        />
-      </span>
-      <span class="subscription-account__spacer"></span>
-      <span v-if="item.account.expires_at_ms">
-        {{ t('group.credentials.subscription.tokenExpiresAt') }}
-        <AppRelativeTime
-          :instant="item.account.expires_at_ms"
-          :locale="locale"
-          :empty-label="t('group.credentials.subscription.unknown')"
-          hint
-        />
-        <template v-if="item.auth_state === 'ready'">
-          · {{ t('group.credentials.subscription.autoRenews') }}
-        </template>
-      </span>
-    </div>
 
     <details class="subscription-account__diagnostics">
       <summary>{{ t('group.credentials.subscription.diagnostics') }}</summary>
@@ -475,6 +471,20 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
         <div>
           <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
           <dd>{{ n(item.consecutive_failure_count) }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('group.credentials.subscription.tokenExpiresAt') }}</dt>
+          <dd>
+            <AppRelativeTime
+              :instant="item.account.expires_at_ms ?? null"
+              :locale="locale"
+              :empty-label="t('group.credentials.subscription.unknown')"
+              hint
+            />
+            <template v-if="item.account.expires_at_ms && item.auth_state === 'ready'">
+              · {{ t('group.credentials.subscription.autoRenews') }}
+            </template>
+          </dd>
         </div>
         <div>
           <dt>{{ t('group.credentials.subscription.lastTokenRefresh') }}</dt>
@@ -559,10 +569,15 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+/* 卡片改成一行两个后宽度减半，长掩码要能收住而不是把徽标和按钮顶出去 */
 .subscription-account__mail {
+  min-width: 0;
+  overflow: hidden;
   font-family: var(--font-mono);
   font-size: var(--text-body);
   font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .subscription-account__plan {
   border-radius: var(--radius-tag);
@@ -587,9 +602,12 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   gap: var(--space-3);
 }
 .subscription-account__quota-name {
+  overflow: hidden;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .subscription-account__quota-track {
   position: relative;
@@ -705,11 +723,6 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   color: var(--color-text-muted);
   font-weight: 500;
 }
-.subscription-account__estimate-pending {
-  margin: 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
 .subscription-account__credits {
   display: flex;
   align-items: center;
@@ -758,49 +771,67 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 }
 .subscription-account__menu {
   display: grid;
-  gap: 2px;
-  width: min(220px, 100%);
+  width: 100%;
+  gap: 1px;
 }
 .subscription-account__menu button {
   display: flex;
-  min-height: var(--control-sm);
+  width: 100%;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-text-muted);
-  padding: 0 10px;
+  color: var(--color-text);
+  padding: 7px 6px;
   font: inherit;
   font-size: var(--text-button);
-  font-weight: 560;
   text-align: left;
   cursor: pointer;
 }
+.subscription-account__menu button svg {
+  flex: none;
+  color: var(--color-text-faint);
+}
 .subscription-account__menu button:hover:not(:disabled) {
-  background: var(--color-interactive-hover);
-  color: var(--color-text);
+  background: var(--color-surface-sunken);
+}
+.subscription-account__menu button:hover:not(:disabled) svg {
+  color: var(--color-text-muted);
 }
 .subscription-account__menu button:disabled {
   cursor: not-allowed;
   opacity: 0.46;
 }
-.subscription-account__menu-danger {
-  color: var(--color-danger) !important;
+.subscription-account__menu-divider {
+  height: 1px;
+  margin: 4px -8px;
+  background: var(--color-border-subtle);
 }
-.subscription-account__menu-danger:hover:not(:disabled) {
-  background: var(--color-danger-bg) !important;
+.subscription-account__menu button.subscription-account__menu-danger,
+.subscription-account__menu button.subscription-account__menu-danger svg {
+  color: var(--color-danger);
 }
+.subscription-account__menu button.subscription-account__menu-danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+}
+/* 目标是一行读完，所以内容压到最短、间距收紧；极端窄宽下允许换行而不是裁切 */
 .subscription-account__meta {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
+  gap: var(--space-1) var(--space-3);
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
-.subscription-account__meta .subscription-account__spacer {
-  flex: 1 1 auto;
+.subscription-account__meta > span {
+  white-space: nowrap;
+}
+.subscription-account__meta-window {
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  padding: 1px 6px;
+  font-size: var(--text-label-xs);
 }
 .subscription-account__diagnostics-grid {
   display: grid;
@@ -858,5 +889,18 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   .subscription-account__top :deep(.icon-button) {
     min-height: var(--touch-target);
   }
+}
+</style>
+
+<style>
+/* PopoverContent 由 AppPopover 渲染，作用域样式够不到它，按既有的
+   app-popover__content--<name> 约定做全局修饰（与 PreferencesControl 一致）。
+   默认 360px 宽对一个三四项的菜单来说是一大片空白。 */
+.app-popover__content.app-popover__content--account-menu {
+  width: auto;
+  min-width: 180px;
+  border-color: var(--color-border-control);
+  border-radius: 10px;
+  padding: 8px;
 }
 </style>

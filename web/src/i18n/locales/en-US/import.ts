@@ -71,25 +71,39 @@ export default {
       paramRequired: 'Enter {name}',
     },
     subscription: {
-      title: 'Subscription accounts',
-      description:
-        'Connect your ChatGPT subscription account, or import an existing auth.json file',
-      securityNotice:
-        'The browser never stores the access credential. The server encrypts and holds it, and only writes it in when the group is created.',
+      title: 'Connect a subscription account',
+      description: 'Sign in with ChatGPT, or import an existing auth.json file',
+      securityNotice: {
+        create:
+          'The browser never stores the access credential. The server encrypts and holds it, and only writes it in when the group is created.',
+        connect:
+          'The browser never stores the access credential. The server encrypts and holds it, and writes it into this group once authorization finishes.',
+      },
       authorize: 'Sign in with ChatGPT',
+      authorizeHint: 'Opens the ChatGPT authorization page and returns here automatically',
+      addAnother: 'Connect another account',
       authorizeFailed: 'Unable to complete ChatGPT sign-in',
-      popupBlocked: 'The popup was blocked. Use “Reopen” below to continue.',
-      waiting: 'Waiting for authorization…',
-      sessionExpiresIn: 'Session expires in {countdown}',
-      restart: 'Start over',
-      readyNotice: 'Account is ready and will be written in when the group is created',
+      popupBlocked:
+        'The browser blocked the new window. Open the authorization link below instead.',
+      waiting: 'Waiting for the browser to finish authorization',
+      waitingHelp:
+        'ChatGPT opened in a new window; this page continues automatically when it is done',
+      exchanging: 'Finishing authorization…',
+      sessionRemaining: 'Authorization session time left',
+      restart: 'Start a new authorization',
+      readyNotice: {
+        create: 'Written in when the group is created',
+        connect: 'Ready — will join this group',
+      },
+      manualHint:
+        "A local deployment finishes on its own — nothing to do here. For a remote deployment (your browser cannot reach the server's localhost:1455), open the link below to authorize, then paste back the URL your browser ends on.",
       authorizationLink: 'Authorization link',
       copyAuthorization: 'Copy link',
-      openAuthorization: 'Reopen',
-      callbackLabel: 'URL after sign-in',
+      openAuthorization: 'Open',
+      callbackLabel: 'URL your browser ended on',
       callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
       callbackHelp:
-        'Paste the full localhost:1455 authorization callback URL. It must contain both code and state. This address failing to open is expected.',
+        'Copy the whole URL from the address bar, not just part of it. It is fine if that page does not load.',
       submitCallback: 'Submit',
       callbackFailed: 'This URL is invalid, already used, or belongs to another authorization',
       orImport: 'Have an auth.json file? Import it directly',
@@ -99,15 +113,18 @@ export default {
       importFile: 'Choose a local file',
       importing: 'Importing…',
       importFailed: 'auth.json is invalid or unsupported',
-      pollFailed: 'Authorization status is temporarily unavailable; polling will continue',
-      cancelFailed: 'Unable to cancel this temporary authorization',
+      pollFailed: 'Authorization status is temporarily unavailable; still retrying',
+      pollAbandoned:
+        'Authorization status could not be read after several tries; start a new authorization',
+      cancelFailed:
+        'The server could not cancel this temporary authorization; it will expire on its own',
       remove: 'Remove',
       required: 'Sign in to at least one account first',
-      readyCount: '{count} accounts ready',
+      readyCount: '{count} ready',
+      result: 'Connected {added} account(s)',
+      resultDuplicated: 'Connected {added} account(s), skipped {duplicated} already present',
       pendingAccount: 'Waiting for account information',
       expires: 'Expires',
-      tokenExpires: 'Access credential expires',
-      lastRefresh: 'Last refreshed',
       unknown: 'Unknown',
       stageError: {
         authorizationDenied: 'Codex authorization was cancelled; start again',
@@ -115,6 +132,8 @@ export default {
         exchangeRejected: 'Codex rejected the authorization code; authorize again',
         exchangeUnknown: 'The authorization exchange outcome is unknown; authorize again',
         exchangeInterrupted: 'The authorization exchange was interrupted; authorize again',
+        expired: 'The authorization session timed out; start again',
+        cancelled: 'This authorization was cancelled; start again',
         unknown: 'The temporary authorization did not finish; start again',
       },
       status: {
@@ -175,6 +194,8 @@ export default {
     models: {
       title: 'Models and aliases',
       description: 'Models are always optional; enabled aliases become the public model names',
+      descriptionSubscription:
+        'Optional — you can create the Group without models. Connect an account to fetch the upstream list.',
       tableLabel: 'Models to publish',
       id: 'Model ID',
       alias: 'Public model name',
@@ -231,15 +252,22 @@ export default {
     create: 'Create Group',
     summary: '{credentials} credentials · {models} models',
     summaryOptional: '{credentials} credentials · models optional',
+    summaryAccounts: '{accounts} accounts · {models} models',
+    summaryAccountsOptional: '{accounts} accounts · models optional',
     createFailed: 'Unable to create the Group',
     appendFailed: 'Unable to import credentials into the selected Group',
     conflict: {
       title: 'This channel target already exists',
+      titleSubscription: 'A Codex Group already exists',
       description: 'Add credentials to an existing Group or create a separate Group',
+      descriptionSubscription: 'Add the account to an existing Group, or create a separate Group',
       close: 'Close URL conflict',
       append: 'Import credentials here',
+      appendSubscription: 'Add the account here',
       appendHelp:
         'Recommended · Adds only the current credentials without changing existing configuration',
+      appendHelpSubscription:
+        'Recommended · Adds only the current account without changing existing configuration',
       separate: 'Create a separate Group',
       edit: 'Return to edit',
     },

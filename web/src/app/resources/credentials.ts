@@ -12,6 +12,7 @@ import type {
   CredentialCollectionDto,
   CredentialCollectionFilters,
   CredentialConfiguredStatus,
+  CredentialDailyUsageDto,
   CredentialItemDto,
   CredentialObservationDto,
   CredentialObservationSnapshotDto,
@@ -45,6 +46,7 @@ export type {
   CredentialCollectionDto,
   CredentialCollectionFilters,
   CredentialConfiguredStatus,
+  CredentialDailyUsageDto,
   CredentialItemDto,
   CredentialRecoveryDto,
   CredentialRevealDto,
@@ -96,7 +98,14 @@ const credentialItemFields = [
   'last_failure_category',
   'last_status_code',
   'cooldown_until_ms',
+  'daily_usage',
   'recovery',
+] as const
+const credentialDailyUsageFields = [
+  'window_seconds',
+  'success_count',
+  'failure_count',
+  'data_complete',
 ] as const
 const credentialRecoveryFields = ['mode', 'automatic', 'at_ms'] as const
 const credentialPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
@@ -443,7 +452,21 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
         ? null
         : projectSafeInteger(record.last_status_code, { minimum: 100, maximum: 999 }),
     cooldown_until_ms: cooldownUntil,
+    ...(record.daily_usage === undefined
+      ? {}
+      : { daily_usage: projectDailyUsage(record.daily_usage) }),
     recovery,
+  }
+}
+
+function projectDailyUsage(value: unknown): CredentialDailyUsageDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, credentialDailyUsageFields)
+  return {
+    window_seconds: projectSafeInteger(record.window_seconds, { minimum: 1 }),
+    success_count: projectSafeInteger(record.success_count, { minimum: 0 }),
+    failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
+    data_complete: projectBoolean(record.data_complete),
   }
 }
 

@@ -34,6 +34,7 @@ import {
 } from '@/app/resources/credential-stages'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useToast } from '@/app/toast'
 import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
@@ -45,6 +46,7 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -73,6 +75,7 @@ const queryClient = useQueryClient()
 const route = useRoute()
 const router = useRouter()
 const { n, t } = useI18n()
+const toast = useToast()
 const filters = computed(() => parseCredentialRouteQuery(route.query))
 const routeState = computed(() => parseCredentialRouteState(route.query))
 const credentialsQuery = useQuery(
@@ -89,6 +92,8 @@ const connectionWorkspaceOpen = ref(false)
 const connectionStages = ref<CredentialStage[]>([])
 const reauthorizationTarget = ref<CredentialItemDto | null>(null)
 const connectOperationKey = ref<string>()
+// 抽屉打开时列表区被遮住，连接失败的提示必须落在抽屉内部才看得见。
+const connectFeedback = ref('')
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
 const connectionWorkspaceDescription = computed(() =>
@@ -128,6 +133,13 @@ const batchBusy = computed(() =>
 )
 const singleBusy = computed(() =>
   [...pendingOperations.value].some((key) => !key.startsWith('batch:')),
+)
+// 抽屉只关心自己那一次写入。用页面级 singleBusy 会让任意一行在忙时把抽屉
+// 整个锁死，连关闭按钮都点不动。
+const connectBusy = computed(() =>
+  [...pendingOperations.value].some(
+    (key) => key.endsWith(':connect') || key.endsWith(':reauthorize'),
+  ),
 )
 const dialogBusy = computed(() => {
   const target = deleteTarget.value
@@ -464,23 +476,25 @@ async function confirmResetCredit(): Promise<void> {
   }
 }
 
-const autoSavedStageIDs = new Set<string>()
+const autoWrittenSignatures = new Set<string>()
+const readyConnectionStages = computed(() =>
+  connectionStages.value.filter(({ status }) => status === 'ready'),
+)
 
+// 授权就绪即写入，省掉一次多余的确认点击。同时发起多个授权时等全部落定
+// 再一次性写入，避免第一个完成就把抽屉关掉；有失败的暂存时不自动写入，
+// 让用户先处理那一条。
 watch(
   connectionStages,
   (stages) => {
-    if (
-      !connectionWorkspaceOpen.value ||
-      reauthorizationTarget.value === null ||
-      singleBusy.value
-    ) {
+    if (!connectionWorkspaceOpen.value || connectBusy.value || stages.length === 0) return
+    const now = Date.now()
+    if (!stages.every(({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now)) {
       return
     }
-    const ready = stages.find(
-      ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > Date.now(),
-    )
-    if (!ready || autoSavedStageIDs.has(ready.stage_id)) return
-    autoSavedStageIDs.add(ready.stage_id)
+    const signature = stages.map(({ stage_id }) => stage_id).join(',')
+    if (autoWrittenSignatures.has(signature)) return
+    autoWrittenSignatures.add(signature)
     void saveConnectedAccounts()
   },
   { deep: true },
@@ -491,16 +505,20 @@ function openConnectionWorkspace(target?: CredentialItemDto): void {
   connectionStages.value = []
   reauthorizationTarget.value = target ?? null
   connectOperationKey.value = undefined
+  connectFeedback.value = ''
+  autoWrittenSignatures.clear()
   connectionWorkspaceOpen.value = true
 }
 
 function setConnectionWorkspace(open: boolean): void {
-  if (!open && singleBusy.value) return
+  if (!open && connectBusy.value) return
   connectionWorkspaceOpen.value = open
   if (!open) {
     connectionStages.value = []
     reauthorizationTarget.value = null
     connectOperationKey.value = undefined
+    connectFeedback.value = ''
+    autoWrittenSignatures.clear()
   }
 }
 
@@ -509,18 +527,18 @@ async function saveConnectedAccounts(): Promise<void> {
   const ready = connectionStages.value.filter(
     ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now,
   )
-  if (ready.length === 0 || singleBusy.value) {
-    if (!singleBusy.value && connectionStages.value.some(({ status }) => status === 'ready')) {
+  if (ready.length === 0 || connectBusy.value) {
+    if (!connectBusy.value && connectionStages.value.some(({ status }) => status === 'ready')) {
       connectionStages.value = connectionStages.value.map((stage) =>
         stage.status === 'ready' && stage.expires_at_ms <= now
           ? { ...stage, status: 'expired' }
           : stage,
       )
-      feedback.value = t('common.subscriptionErrors.stageExpired')
+      connectFeedback.value = t('common.subscriptionErrors.stageExpired')
     }
     return
   }
-  feedback.value = ''
+  connectFeedback.value = ''
   const target = reauthorizationTarget.value
   let succeeded = false
   setPending(target?.credential_id ?? 0, target ? 'reauthorize' : 'connect', true)
@@ -535,9 +553,15 @@ async function saveConnectedAccounts(): Promise<void> {
         (connectOperationKey.value ??= crypto.randomUUID()),
       )
       await reconcileItem(result, true)
+      toast.show({
+        message: t('group.credentials.subscription.reauthorizeSucceeded', {
+          account: target.mask,
+        }),
+        tone: 'success',
+      })
     } else {
       connectOperationKey.value ??= crypto.randomUUID()
-      await connectGroupCredentials(
+      const result = await connectGroupCredentials(
         client,
         props.groupId,
         ready.map(({ stage_id }) => stage_id),
@@ -549,10 +573,23 @@ async function saveConnectedAccounts(): Promise<void> {
         exact: true,
         refetchType: 'active',
       })
+      toast.show({
+        message: t(
+          result.credentials_duplicated > 0
+            ? 'group.credentials.subscription.connectDuplicated'
+            : 'group.credentials.subscription.connectSucceeded',
+          {
+            added: n(result.credentials_added),
+            duplicated: n(result.credentials_duplicated),
+          },
+        ),
+        tone: result.credentials_added === 0 ? 'warning' : 'success',
+        duration: 4_000,
+      })
     }
     succeeded = true
   } catch (cause) {
-    feedback.value = t(
+    connectFeedback.value = t(
       presentSubscriptionErrorKey(
         cause,
         target
@@ -719,6 +756,7 @@ async function runBatch(
 
     <AppDrawer
       v-if="connectionType === 'subscription'"
+      appearance="ledger"
       :open="connectionWorkspaceOpen"
       :title="
         reauthorizationTarget
@@ -728,33 +766,43 @@ async function runBatch(
       :description="connectionWorkspaceDescription"
       show-description
       :close-label="t('common.close')"
-      :dismissible="!singleBusy"
+      :dismissible="!connectBusy"
       @update:open="setConnectionWorkspace"
     >
-      <SubscriptionCredentialStager
-        v-model="connectionStages"
-        compact
-        hide-header
-        :single="reauthorizationTarget !== null"
-        :disabled="singleBusy"
-      />
+      <div class="group-credentials__connect">
+        <InlineFeedback v-if="connectFeedback" tone="danger" appearance="ledger">
+          {{ connectFeedback }}
+        </InlineFeedback>
+        <SubscriptionCredentialStager
+          v-model="connectionStages"
+          compact
+          hide-header
+          context="connect"
+          :single="reauthorizationTarget !== null"
+          :disabled="connectBusy"
+        />
+      </div>
       <template #footer>
         <AppButton
           variant="secondary"
-          :disabled="singleBusy"
+          :disabled="connectBusy"
           @click="setConnectionWorkspace(false)"
         >
           {{ t('group.credentials.cancel') }}
         </AppButton>
         <AppButton
-          :busy="singleBusy"
-          :disabled="!connectionStages.some(({ status }) => status === 'ready')"
+          :busy="connectBusy"
+          :disabled="readyConnectionStages.length === 0"
           @click="saveConnectedAccounts"
         >
           {{
             reauthorizationTarget
               ? t('group.credentials.subscription.confirmReauthorize')
-              : t('group.credentials.subscription.confirmConnect')
+              : readyConnectionStages.length > 1
+                ? t('group.credentials.subscription.confirmConnectCount', {
+                    count: n(readyConnectionStages.length),
+                  })
+                : t('group.credentials.subscription.confirmConnect')
           }}
         </AppButton>
       </template>
@@ -1040,9 +1088,18 @@ async function runBatch(
   color: var(--color-text);
   padding: var(--space-3);
 }
+/* auto-fill 而不是 auto-fit：只有一个账号时也占一个轨道宽度，不会被拉成整行。
+   容器窄于两个轨道时自动退回单列，不需要额外断点。 */
 .group-credentials__accounts {
   display: grid;
-  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  align-items: start;
+  gap: var(--space-3);
+}
+.group-credentials__connect {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
 }
 .group-credential-record-grid {
   --ledger-record-list-record-min-height: 52px;

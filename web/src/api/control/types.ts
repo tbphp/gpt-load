@@ -220,7 +220,17 @@ export interface CredentialItemDto {
   last_failure_category: FailureCategory
   last_status_code: number | null
   cooldown_until_ms: number | null
+  daily_usage?: CredentialDailyUsageDto
   recovery: CredentialRecoveryDto
+}
+
+/** 固定 24 小时窗口的请求结果分布，来源是请求日志而非 health 的 5 分钟内存窗口。 */
+export interface CredentialDailyUsageDto {
+  window_seconds: number
+  success_count: number
+  failure_count: number
+  /** false 表示请求日志留存期短于该窗口，计数偏低。 */
+  data_complete: boolean
 }
 
 export interface CredentialRevealDto {

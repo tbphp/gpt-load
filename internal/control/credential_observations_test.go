@@ -434,6 +434,62 @@ func (reader *recordingCredentialWindowUsageReader) QueryCredentialWindowUsage(
 	return result, nil
 }
 
+func TestEnrichCredentialDailyUsageQueriesExactDayWindow(t *testing.T) {
+	fixture, _, _ := newSubscriptionCredentialFixture(t)
+	now := time.UnixMilli(1_800_000_000_000)
+	fixture.service.now = func() time.Time { return now }
+	reader := &recordingCredentialWindowUsageReader{}
+	reader.result = requestlog.CredentialWindowUsage{
+		UsageAggregate: requestlog.UsageAggregate{
+			RequestCount: 18, SuccessCount: 15, FailureCount: 3,
+		},
+		DataComplete: true,
+	}
+	fixture.service.credentialWindowUsage = reader
+	item := CredentialItemResponse{CredentialID: 37}
+
+	fixture.service.enrichCredentialDailyUsage(t.Context(), 37, &item)
+
+	if len(reader.queries) != 1 {
+		t.Fatalf("usage queries = %#v, want exactly one day window", reader.queries)
+	}
+	query := reader.queries[0]
+	// 24 小时窗口必须走精确请求日志，走小时聚合会把窗口边界变成近似值。
+	if query.Source != requestlog.CredentialWindowUsageSourceRequestLogs ||
+		query.CredentialID != 37 ||
+		query.ToMS != now.UnixMilli() ||
+		query.FromMS != now.Add(-24*time.Hour).UnixMilli() {
+		t.Fatalf("day window query = %#v", query)
+	}
+	if item.DailyUsage == nil || item.DailyUsage.WindowSeconds != 86_400 ||
+		item.DailyUsage.SuccessCount != 15 || item.DailyUsage.FailureCount != 3 ||
+		!item.DailyUsage.DataComplete {
+		t.Fatalf("daily usage = %#v", item.DailyUsage)
+	}
+}
+
+func TestEnrichCredentialDailyUsageLeavesItemUntouchedOnQueryFailure(t *testing.T) {
+	fixture, _, _ := newSubscriptionCredentialFixture(t)
+	fixture.service.now = func() time.Time { return time.UnixMilli(1_800_000_000_000) }
+	fixture.service.credentialWindowUsage = failingCredentialWindowUsageReader{}
+	item := CredentialItemResponse{CredentialID: 37}
+
+	fixture.service.enrichCredentialDailyUsage(t.Context(), 37, &item)
+
+	if item.DailyUsage != nil {
+		t.Fatalf("daily usage = %#v, want nil when the aggregate is unavailable", item.DailyUsage)
+	}
+}
+
+type failingCredentialWindowUsageReader struct{}
+
+func (failingCredentialWindowUsageReader) QueryCredentialWindowUsage(
+	_ context.Context,
+	_ requestlog.CredentialWindowUsageQuery,
+) (requestlog.CredentialWindowUsage, error) {
+	return requestlog.CredentialWindowUsage{}, errors.New("request logs unavailable")
+}
+
 func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.UnixMilli(1_800_000_000_000)

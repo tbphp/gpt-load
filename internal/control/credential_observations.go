@@ -461,6 +461,42 @@ func observationWindowRemainingRatio(window ObservationQuotaWindow) (float64, bo
 	return 0, false
 }
 
+// credentialDailyUsageWindow 是账号卡上「近 24 小时成功/失败」的窗口长度。
+// 取 24 小时是因为 QueryCredentialWindowUsage 在不超过 24 小时时走精确请求日志，
+// 再长就退化成小时聚合，边界会变成近似值。
+const credentialDailyUsageWindow = 24 * time.Hour
+
+func (s *Service) enrichCredentialDailyUsage(
+	ctx context.Context,
+	credentialID uint,
+	item *CredentialItemResponse,
+) {
+	if s == nil || s.credentialWindowUsage == nil || credentialID == 0 || item == nil {
+		return
+	}
+	now := s.now().UTC()
+	fromMS := now.Add(-credentialDailyUsageWindow).UnixMilli()
+	toMS := now.UnixMilli()
+	if fromMS < 0 || toMS <= fromMS {
+		return
+	}
+	observed, err := s.credentialWindowUsage.QueryCredentialWindowUsage(ctx, requestlog.CredentialWindowUsageQuery{
+		CredentialID: credentialID,
+		FromMS:       fromMS,
+		ToMS:         toMS,
+		Source:       requestlog.CredentialWindowUsageSourceRequestLogs,
+	})
+	if err != nil {
+		return
+	}
+	item.DailyUsage = &CredentialDailyUsageResponse{
+		WindowSeconds: int64(credentialDailyUsageWindow / time.Second),
+		SuccessCount:  observed.SuccessCount,
+		FailureCount:  observed.FailureCount,
+		DataComplete:  observed.DataComplete,
+	}
+}
+
 func (s *Service) enrichCredentialObservationUsage(
 	ctx context.Context,
 	credentialID uint,

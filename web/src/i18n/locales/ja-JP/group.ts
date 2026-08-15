@@ -366,15 +366,23 @@ export default {
           'ChatGPT のサブスクリプションアカウントを接続すると、リクエストのルーティングを開始できます。',
         connect: 'アカウントを接続',
         connectDescription:
-          'ChatGPT でログインして認証を完了すると、アカウントがこのグループに追加されます。',
+          'ChatGPT でログインして認証が完了すると、アカウントは自動的にこのグループへ追加されます。',
         reauthorizeDescription:
           '{account} の認証を更新します。新しいログインは同じアカウントである必要があります。',
         confirmConnect: 'アカウントを追加',
+        confirmConnectCount: '{count} 件のアカウントを追加',
         connectFailed: 'このグループにアカウントを追加できません',
+        connectSucceeded: '{added} 件のアカウントを接続しました',
+        connectDuplicated:
+          '{added} 件のアカウントを接続し、既存の {duplicated} 件をスキップしました',
         reauthorize: '再ログイン',
         confirmReauthorize: '認証を更新',
         reauthorizeFailed: 'このアカウントの認証を更新できません',
+        reauthorizeSucceeded: '{account} の認証を更新しました',
         sync: '同期',
+        dailyWindow: '直近 24 時間',
+        dailyIncomplete:
+          'リクエストログの保持期間が 24 時間未満のため、件数が少なく出る場合があります',
         syncFailed: 'アカウント情報を同期できません',
         moreActions: 'その他の操作',
         autoRenews: '使用時に自動更新',
@@ -399,7 +407,7 @@ export default {
         quotaExhaustedHint:
           '利用枠が回復するまでこのアカウントを自動的に除外し、情報が古い場合は既存のスケジューラに戻します。',
         diagnostics: '診断情報',
-        observedAt: '最終成功同期',
+        synced: '同期',
         lastUsed: '最終利用',
         freshUntil: '情報の有効期限',
         nextAllowed: '次回同期可能時刻',
@@ -410,18 +418,12 @@ export default {
           requests: 'リクエスト',
           tokens: 'トークン',
           referenceCost: 'API 参考コスト',
-          exactData: '正確なリクエストログ',
-          approximateData: '時間集計のため期間境界は概算です',
-          partialUsage: '一部のリクエストで利用量が不完全です',
-          partialPricing: '一部のリクエストに参考価格がありません',
-          unavailable: 'ローカル利用量の記録がありません',
-          noteSeparator: '・',
           windowSeparator: '、',
         },
         auth: {
           ready: '認証済み',
           refreshing: '認証情報を更新中',
-          reauthorization_required: '再認証が必要',
+          reauthorization_required: '再ログインが必要',
           outcome_unknown: '認証情報の結果不明',
         },
         authError: {

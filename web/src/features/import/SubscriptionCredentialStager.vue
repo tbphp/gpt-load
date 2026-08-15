@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, FileJson, Send, Trash2 } from '@lucide/vue'
+import { ExternalLink, FileJson, Plus, Send } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -14,6 +14,8 @@ import {
 } from '@/app/resources/credential-stages'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import CopyChip from '@/components/ui/CopyChip.vue'
+import DisclosurePanel from '@/components/ui/DisclosurePanel.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
@@ -29,8 +31,21 @@ const props = withDefaults(
     single?: boolean
     compact?: boolean
     hideHeader?: boolean
+    step?: number
+    /**
+     * create：账号在创建分组时写入；connect：账号确认后加入已有分组。
+     * 只影响面向用户的措辞，不改变暂存行为。
+     */
+    context?: 'create' | 'connect'
   }>(),
-  { disabled: false, single: false, compact: false, hideHeader: false },
+  {
+    disabled: false,
+    single: false,
+    compact: false,
+    hideHeader: false,
+    step: undefined,
+    context: 'create',
+  },
 )
 const emit = defineEmits<{ 'update:modelValue': [stages: CredentialStage[]] }>()
 const client = useApiClient()
@@ -40,16 +55,22 @@ const feedbackKey = ref('')
 const oauthJSON = ref('')
 const callbackURLs = ref<Record<string, string>>({})
 const callbackErrorKeys = ref<Record<string, string>>({})
-const copyState = ref<Record<string, 'idle' | 'success' | 'failure'>>({})
-const showJSONImport = ref(false)
+// 弹窗被拦截时授权已经开始，唯一出路是手动打开链接，这里额外提示一句。
+const popupBlockedStages = ref<Record<string, boolean>>({})
+const jsonImportOpen = ref(false)
 const nowMS = ref(Date.now())
-const polling = new Map<string, { timer?: number; controller?: AbortController }>()
+const polling = new Map<
+  string,
+  { timer?: number; controller?: AbortController; failures: number }
+>()
 const expiryTimers = new Map<string, number>()
 let countdownTimer: number | undefined
 const readyCount = computed(
   () => props.modelValue.filter(({ status }) => status === 'ready').length,
 )
+const hasAccounts = computed(() => props.modelValue.length > 0)
 const canAdd = computed(() => !props.single || props.modelValue.length === 0)
+const entryBusy = computed(() => props.disabled || Boolean(busyAction.value))
 
 function replaceStage(stage: CredentialStage): void {
   const existing = props.modelValue.find((item) => item.stage_id === stage.stage_id)
@@ -66,7 +87,7 @@ function replaceStage(stage: CredentialStage): void {
   if (!shouldPoll(stage)) {
     clearCallbackURL(stage.stage_id)
     clearCallbackError(stage.stage_id)
-    clearCopyState(stage.stage_id)
+    clearStageFlags(stage.stage_id)
   }
 }
 
@@ -77,18 +98,18 @@ function clearCallbackURL(stageID: string): void {
   callbackURLs.value = next
 }
 
-function clearCopyState(stageID: string): void {
-  if (!(stageID in copyState.value)) return
-  const next = { ...copyState.value }
-  delete next[stageID]
-  copyState.value = next
-}
-
 function clearCallbackError(stageID: string): void {
   if (!(stageID in callbackErrorKeys.value)) return
   const next = { ...callbackErrorKeys.value }
   delete next[stageID]
   callbackErrorKeys.value = next
+}
+
+function clearStageFlags(stageID: string): void {
+  if (!(stageID in popupBlockedStages.value)) return
+  const next = { ...popupBlockedStages.value }
+  delete next[stageID]
+  popupBlockedStages.value = next
 }
 
 function stopPolling(stageID: string): void {
@@ -130,15 +151,20 @@ function scheduleExpiry(stage: CredentialStage): void {
   )
 }
 
+// 连续失败到这个次数就停止轮询：暂存已经被删除或服务端持续不可用时，
+// 无限重试只会一直刷错误，用户反而看不出该重新授权。
+const POLL_FAILURE_LIMIT = 5
+
 function schedulePoll(stage: CredentialStage): void {
   if (!shouldPoll(stage) || polling.has(stage.stage_id)) return
-  const state: { timer?: number; controller?: AbortController } = {}
+  const state: { timer?: number; controller?: AbortController; failures: number } = { failures: 0 }
   polling.set(stage.stage_id, state)
   const poll = async () => {
     const controller = new AbortController()
     state.controller = controller
     try {
       const next = await getCredentialStage(client, stage.stage_id, controller.signal)
+      state.failures = 0
       if (feedbackKey.value === 'import.subscription.pollFailed') feedbackKey.value = ''
       replaceStage(next)
       if (!shouldPoll(next)) {
@@ -146,11 +172,23 @@ function schedulePoll(stage: CredentialStage): void {
         return
       }
     } catch {
-      if (!controller.signal.aborted) feedbackKey.value = 'import.subscription.pollFailed'
+      if (!controller.signal.aborted) {
+        state.failures += 1
+        feedbackKey.value =
+          state.failures >= POLL_FAILURE_LIMIT
+            ? 'import.subscription.pollAbandoned'
+            : 'import.subscription.pollFailed'
+        if (state.failures >= POLL_FAILURE_LIMIT) {
+          stopPolling(stage.stage_id)
+          return
+        }
+      }
     } finally {
       state.controller = undefined
     }
-    if (polling.has(stage.stage_id)) state.timer = window.setTimeout(poll, 1_200)
+    if (polling.has(stage.stage_id)) {
+      state.timer = window.setTimeout(poll, 1_200 * Math.min(state.failures + 1, 4))
+    }
   }
   state.timer = window.setTimeout(poll, 800)
 }
@@ -169,21 +207,29 @@ watch(
   { deep: true, immediate: true },
 )
 
-async function beginAuthorization(): Promise<void> {
-  if (props.disabled || busyAction.value || !canAdd.value) return
-  feedbackKey.value = ''
-  const popup = window.open(
+// 弹窗必须在用户手势所在的那一个任务里打开，任何 await 之后再开都会被拦截。
+function openAuthorizationPopup(): Window | null {
+  return window.open(
     'about:blank',
     `gpt-load-codex-oauth-${Date.now()}`,
     'popup,width=720,height=820,resizable=yes,scrollbars=yes',
   )
+}
+
+async function beginAuthorization(existingPopup?: Window | null): Promise<void> {
+  if (props.disabled || busyAction.value || !canAdd.value) {
+    existingPopup?.close()
+    return
+  }
+  feedbackKey.value = ''
+  const popup = existingPopup === undefined ? openAuthorizationPopup() : existingPopup
   busyAction.value = 'authorize'
   try {
     const stage = await beginCredentialAuthorization(client)
     replaceStage(stage)
     schedulePoll(stage)
     if (popup && stage.authorization_url) popup.location.replace(stage.authorization_url)
-    else feedbackKey.value = 'import.subscription.popupBlocked'
+    else popupBlockedStages.value = { ...popupBlockedStages.value, [stage.stage_id]: true }
   } catch (cause) {
     popup?.close()
     feedbackKey.value = presentSubscriptionErrorKey(cause, 'import.subscription.authorizeFailed')
@@ -213,6 +259,7 @@ async function importOAuthJSON(file: File): Promise<void> {
   try {
     replaceStage(await importCredentialStage(client, file))
     oauthJSON.value = ''
+    jsonImportOpen.value = false
   } catch (cause) {
     feedbackKey.value = presentSubscriptionErrorKey(cause, 'import.subscription.importFailed')
   } finally {
@@ -243,26 +290,6 @@ async function handleCallbackPaste(stage: CredentialStage): Promise<void> {
   if (callbackURLs.value[stage.stage_id]?.trim()) await submitCallback(stage)
 }
 
-async function copyAuthorizationLink(stage: CredentialStage): Promise<void> {
-  if (!stage.authorization_url) return
-  try {
-    await navigator.clipboard.writeText(stage.authorization_url)
-    copyState.value = { ...copyState.value, [stage.stage_id]: 'success' }
-  } catch {
-    copyState.value = { ...copyState.value, [stage.stage_id]: 'failure' }
-  }
-  window.setTimeout(() => {
-    copyState.value = { ...copyState.value, [stage.stage_id]: 'idle' }
-  }, 2_000)
-}
-
-function copyButtonLabel(stage: CredentialStage): string {
-  const state = copyState.value[stage.stage_id]
-  if (state === 'success') return t('common.copied')
-  if (state === 'failure') return t('common.copyFailed')
-  return t('import.subscription.copyAuthorization')
-}
-
 // 授权会话的剩余时间用 m:ss 倒计时，而不是「10 分钟后」这类相对措辞——
 // 用户在这一步是在等一个明确的截止点，秒级读数才有参考价值。
 function remainingCountdown(stage: CredentialStage): string {
@@ -274,9 +301,11 @@ function remainingCountdown(stage: CredentialStage): string {
 
 async function restartAuthorization(stage: CredentialStage): Promise<void> {
   if (props.disabled || busyAction.value) return
+  const popup = openAuthorizationPopup()
   await removeStage(stage)
-  if (feedbackKey.value) return
-  await beginAuthorization()
+  // 等父组件把新的 modelValue 回灌进来，否则 single 模式下 canAdd 还是旧值。
+  await nextTick()
+  await beginAuthorization(popup)
 }
 
 async function removeStage(stage: CredentialStage): Promise<void> {
@@ -286,15 +315,16 @@ async function removeStage(stage: CredentialStage): Promise<void> {
     try {
       await cancelCredentialStage(client, stage.stage_id)
     } catch (cause) {
+      // 取消失败也要把卡片摘掉：暂存自己会到期，留一张点不动的卡片只会把
+      // 用户困在这一步。这里只作为提示，不阻断移除。
       feedbackKey.value = presentSubscriptionErrorKey(cause, 'import.subscription.cancelFailed')
-      return
     }
   }
   stopPolling(stage.stage_id)
   stopExpiryTimer(stage.stage_id)
   clearCallbackURL(stage.stage_id)
   clearCallbackError(stage.stage_id)
-  clearCopyState(stage.stage_id)
+  clearStageFlags(stage.stage_id)
   emit(
     'update:modelValue',
     props.modelValue.filter(({ stage_id }) => stage_id !== stage.stage_id),
@@ -308,13 +338,19 @@ function statusTone(stage: CredentialStage): 'success' | 'warning' | 'danger' | 
   return 'danger'
 }
 
-function callbackDescribedBy(stageID: string): string {
-  return [
-    `oauth-callback-${stageID}-help`,
-    callbackErrorKeys.value[stageID] ? `oauth-callback-${stageID}-error` : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
+function isAwaiting(stage: CredentialStage): boolean {
+  return stage.status === 'pending_authorization' || stage.status === 'exchanging'
+}
+
+// 这些状态下暂存已经没救了，卡片必须自带「重新授权」出口，
+// 否则用户只剩「移除」一个动作，得自己想到再点一次登录。
+function isRecoverable(stage: CredentialStage): boolean {
+  return (
+    stage.status === 'failed' ||
+    stage.status === 'cancelled' ||
+    stage.status === 'expired' ||
+    stage.status === 'outcome_unknown'
+  )
 }
 
 function stageErrorKey(code: string): string {
@@ -326,6 +362,13 @@ function stageErrorKey(code: string): string {
     authorization_exchange_interrupted: 'import.subscription.stageError.exchangeInterrupted',
   }
   return known[code] ?? 'import.subscription.stageError.unknown'
+}
+
+function stageErrorMessage(stage: CredentialStage): string {
+  if (stage.error_code) return t(stageErrorKey(stage.error_code))
+  if (stage.status === 'expired') return t('import.subscription.stageError.expired')
+  if (stage.status === 'cancelled') return t('import.subscription.stageError.cancelled')
+  return t('import.subscription.stageError.unknown')
 }
 
 onMounted(() => {
@@ -341,7 +384,7 @@ onBeforeUnmount(() => {
   oauthJSON.value = ''
   callbackURLs.value = {}
   callbackErrorKeys.value = {}
-  copyState.value = {}
+  popupBlockedStages.value = {}
 })
 </script>
 
@@ -355,6 +398,7 @@ onBeforeUnmount(() => {
     <PanelHeader
       v-if="!hideHeader"
       heading-id="subscription-stager-title"
+      :step="step"
       :title="t('import.subscription.title')"
       :description="t('import.subscription.description')"
     >
@@ -365,45 +409,57 @@ onBeforeUnmount(() => {
       </template>
     </PanelHeader>
 
-    <!-- 安全说明只在还没连上账号时引导；已有账号后它就只是噪音 -->
-    <InlineFeedback v-if="!modelValue.length" tone="neutral" appearance="ledger-hint" glyph="i">
-      {{ t('import.subscription.securityNotice') }}
-    </InlineFeedback>
-
-    <div v-if="modelValue.length" class="subscription-stager__accounts">
+    <div v-if="hasAccounts" class="subscription-stager__accounts">
       <article
         v-for="stage in modelValue"
         :key="stage.stage_id"
         class="subscription-stager__account"
+        :class="`subscription-stager__account--${statusTone(stage)}`"
       >
-        <div class="subscription-stager__account-summary">
+        <!-- 等待授权时主行就是等待态本身；再叠一行「等待账号信息」只是重复。 -->
+        <div
+          v-if="isAwaiting(stage)"
+          class="subscription-stager__summary subscription-stager__summary--awaiting"
+          role="status"
+        >
+          <span class="subscription-stager__spinner" aria-hidden="true"></span>
+          <div class="subscription-stager__identity">
+            <strong>
+              {{
+                stage.status === 'exchanging'
+                  ? t('import.subscription.exchanging')
+                  : t('import.subscription.waiting')
+              }}
+            </strong>
+            <span>{{ t('import.subscription.waitingHelp') }}</span>
+          </div>
+          <span
+            v-if="stage.status === 'pending_authorization'"
+            class="subscription-stager__countdown"
+            :aria-label="t('import.subscription.sessionRemaining')"
+          >
+            {{ remainingCountdown(stage) }}
+          </span>
+          <AppButton
+            variant="ghost"
+            size="compact"
+            :disabled="disabled || stage.status === 'exchanging'"
+            @click="removeStage(stage)"
+          >
+            {{ t('common.cancel') }}
+          </AppButton>
+        </div>
+
+        <div v-else class="subscription-stager__summary">
           <div class="subscription-stager__identity">
             <strong>{{
               stage.account.email_mask || t('import.subscription.pendingAccount')
             }}</strong>
-            <!-- 等待授权时由下方倒计时承担有效期，这里不重复显示 -->
-            <span v-if="stage.status !== 'pending_authorization'">
+            <span v-if="stage.status === 'ready'">
+              {{ t(`import.subscription.readyNotice.${context}`) }} ·
               {{ t('import.subscription.expires') }}
               <AppRelativeTime
                 :instant="stage.expires_at_ms"
-                :locale="locale"
-                :empty-label="t('import.subscription.unknown')"
-                hint
-              />
-            </span>
-            <span v-if="stage.account.expires_at_ms">
-              {{ t('import.subscription.tokenExpires') }}
-              <AppRelativeTime
-                :instant="stage.account.expires_at_ms"
-                :locale="locale"
-                :empty-label="t('import.subscription.unknown')"
-                hint
-              />
-            </span>
-            <span v-if="stage.account.last_refresh_at_ms">
-              {{ t('import.subscription.lastRefresh') }}
-              <AppRelativeTime
-                :instant="stage.account.last_refresh_at_ms"
                 :locale="locale"
                 :empty-label="t('import.subscription.unknown')"
                 hint
@@ -417,175 +473,192 @@ onBeforeUnmount(() => {
             variant="ghost"
             tone="danger"
             size="compact"
-            :disabled="disabled || stage.status === 'exchanging'"
+            :disabled="disabled"
             @click="removeStage(stage)"
           >
-            <Trash2 :size="14" aria-hidden="true" />{{ t('import.subscription.remove') }}
+            {{ t('import.subscription.remove') }}
           </AppButton>
         </div>
 
-        <p v-if="stage.error_code" class="subscription-stager__stage-error" role="alert">
-          {{ t(stageErrorKey(stage.error_code)) }}
-        </p>
-
-        <div v-if="stage.status === 'ready'" class="subscription-stager__ready" role="status">
-          <span class="subscription-stager__ready-tick" aria-hidden="true">✓</span>
-          <span>{{ t('import.subscription.readyNotice') }}</span>
+        <div v-if="isRecoverable(stage)" class="subscription-stager__recover" role="alert">
+          <span>{{ stageErrorMessage(stage) }}</span>
+          <AppButton
+            size="compact"
+            :disabled="disabled || Boolean(busyAction)"
+            :busy="busyAction === 'authorize'"
+            @click="restartAuthorization(stage)"
+          >
+            {{ t('import.subscription.restart') }}
+          </AppButton>
         </div>
 
+        <!-- 远程部署时浏览器到不了服务端的 localhost:1455，手动授权是常规路径而
+             不是异常兜底，因此授权链接与回调输入始终展开，不做折叠。 -->
         <div
           v-if="stage.status === 'pending_authorization' && stage.authorization_url"
           class="subscription-stager__authorization"
         >
-          <div class="subscription-stager__waiting">
-            <span class="subscription-stager__spinner" aria-hidden="true"></span>
-            <span class="subscription-stager__waiting-text">
-              <strong>{{ t('import.subscription.waiting') }}</strong>
-              <span>
-                {{
-                  t('import.subscription.sessionExpiresIn', {
-                    countdown: remainingCountdown(stage),
-                  })
-                }}
-                ·
-                <button
-                  type="button"
-                  class="subscription-stager__restart"
-                  :disabled="disabled || Boolean(busyAction)"
-                  @click="restartAuthorization(stage)"
-                >
-                  {{ t('import.subscription.restart') }}
-                </button>
-              </span>
-            </span>
-          </div>
+          <InlineFeedback
+            v-if="popupBlockedStages[stage.stage_id]"
+            tone="warning"
+            appearance="ledger"
+          >
+            {{ t('import.subscription.popupBlocked') }}
+          </InlineFeedback>
+          <p class="subscription-stager__manual-hint">
+            {{ t('import.subscription.manualHint') }}
+          </p>
 
-          <span class="subscription-stager__authorization-label">
-            {{ t('import.subscription.authorizationLink') }}
-          </span>
-          <div class="subscription-stager__authorization-link">
-            <code>{{ stage.authorization_url }}</code>
-            <AppButton variant="secondary" size="compact" @click="copyAuthorizationLink(stage)">
-              {{ copyButtonLabel(stage) }}
-            </AppButton>
-            <a :href="stage.authorization_url" target="_blank" rel="noopener noreferrer">
-              <ExternalLink :size="15" aria-hidden="true" />
-              <span>{{ t('import.subscription.openAuthorization') }}</span>
-            </a>
+          <div class="subscription-stager__link-field">
+            <span class="subscription-stager__field-label">
+              {{ t('import.subscription.authorizationLink') }}
+            </span>
+            <div class="subscription-stager__authorization-link">
+              <code>{{ stage.authorization_url }}</code>
+              <CopyChip
+                layout="icon"
+                :value="stage.authorization_url"
+                :label="t('import.subscription.copyAuthorization')"
+                :success-label="t('common.copied')"
+                :failure-label="t('common.copyFailed')"
+              />
+              <a :href="stage.authorization_url" target="_blank" rel="noopener noreferrer">
+                <ExternalLink :size="15" aria-hidden="true" />
+                <span>{{ t('import.subscription.openAuthorization') }}</span>
+              </a>
+            </div>
           </div>
 
           <form class="subscription-stager__callback" @submit.prevent="submitCallback(stage)">
-            <label :for="`oauth-callback-${stage.stage_id}`">
-              {{ t('import.subscription.callbackLabel') }}
-            </label>
-            <input
+            <FormField
               :id="`oauth-callback-${stage.stage_id}`"
-              v-model="callbackURLs[stage.stage_id]"
-              type="url"
-              autocomplete="off"
-              autocapitalize="none"
-              spellcheck="false"
-              :disabled="disabled || Boolean(busyAction)"
-              :placeholder="t('import.subscription.callbackPlaceholder')"
-              :aria-invalid="callbackErrorKeys[stage.stage_id] ? 'true' : undefined"
-              :aria-describedby="callbackDescribedBy(stage.stage_id)"
-              @paste="handleCallbackPaste(stage)"
-            />
+              :label="t('import.subscription.callbackLabel')"
+              :description="t('import.subscription.callbackHelp')"
+              :error="
+                callbackErrorKeys[stage.stage_id] ? t(callbackErrorKeys[stage.stage_id]) : undefined
+              "
+              size="compact"
+            >
+              <template #default="field">
+                <input
+                  :id="`oauth-callback-${stage.stage_id}`"
+                  v-model="callbackURLs[stage.stage_id]"
+                  type="url"
+                  autocomplete="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  :disabled="disabled || Boolean(busyAction)"
+                  :placeholder="t('import.subscription.callbackPlaceholder')"
+                  :aria-invalid="field.invalid || undefined"
+                  :aria-describedby="field.describedBy"
+                  @paste="handleCallbackPaste(stage)"
+                />
+              </template>
+            </FormField>
             <AppButton
               type="submit"
               variant="secondary"
+              size="sm"
               :busy="busyAction === `callback:${stage.stage_id}`"
               :disabled="disabled || Boolean(busyAction) || !callbackURLs[stage.stage_id]?.trim()"
             >
               <Send :size="15" aria-hidden="true" />{{ t('import.subscription.submitCallback') }}
             </AppButton>
-            <p :id="`oauth-callback-${stage.stage_id}-help`">
-              {{ t('import.subscription.callbackHelp') }}
-            </p>
-            <p
-              v-if="callbackErrorKeys[stage.stage_id]"
-              :id="`oauth-callback-${stage.stage_id}-error`"
-              class="subscription-stager__callback-error"
-              role="alert"
-            >
-              {{ t(callbackErrorKeys[stage.stage_id]) }}
-            </p>
           </form>
+
+          <AppButton
+            class="subscription-stager__restart"
+            variant="link"
+            size="inline"
+            :disabled="disabled || Boolean(busyAction)"
+            @click="restartAuthorization(stage)"
+          >
+            {{ t('import.subscription.restart') }}
+          </AppButton>
         </div>
       </article>
     </div>
 
     <div v-if="canAdd" class="subscription-stager__entry">
-      <AppButton
-        class="subscription-stager__primary"
-        size="lg"
-        :busy="busyAction === 'authorize'"
-        :disabled="disabled || Boolean(busyAction)"
-        @click="beginAuthorization"
-      >
-        {{ t('import.subscription.authorize') }}
-      </AppButton>
-
-      <button
-        type="button"
-        class="subscription-stager__json-toggle"
-        :disabled="disabled || Boolean(busyAction)"
-        @click="showJSONImport = !showJSONImport"
-      >
-        {{ t('import.subscription.orImport') }}
-      </button>
-
-      <div v-if="showJSONImport" class="subscription-stager__json">
-        <FormField
-          id="subscription-oauth-json"
-          :label="t('import.subscription.oauthJSONLabel')"
-          :description="t('import.subscription.oauthJSONDescription')"
-          size="compact"
+      <div class="subscription-stager__entry-primary">
+        <AppButton
+          class="subscription-stager__primary"
+          :variant="hasAccounts ? 'secondary' : 'primary'"
+          :size="hasAccounts ? 'sm' : 'lg'"
+          :busy="busyAction === 'authorize'"
+          :disabled="entryBusy"
+          @click="beginAuthorization()"
         >
-          <template #default="field">
-            <textarea
-              id="subscription-oauth-json"
-              v-model="oauthJSON"
-              rows="5"
-              :disabled="disabled || Boolean(busyAction)"
-              :aria-describedby="field.describedBy"
-              autocomplete="off"
-              autocapitalize="none"
-              spellcheck="false"
-              :placeholder="OAUTH_JSON_PLACEHOLDER"
-            ></textarea>
-          </template>
-        </FormField>
-
-        <div class="subscription-stager__import-actions">
-          <AppButton
-            variant="secondary"
-            :busy="busyAction === 'import'"
-            :disabled="disabled || Boolean(busyAction) || !oauthJSON.trim()"
-            @click="importText"
-          >
-            <FileJson :size="16" aria-hidden="true" />{{ t('import.subscription.importText') }}
-          </AppButton>
-          <label
-            class="subscription-stager__file"
-            :class="{ 'is-disabled': disabled || Boolean(busyAction) }"
-          >
-            <FileJson :size="16" aria-hidden="true" />
-            {{
-              busyAction === 'import'
-                ? t('import.subscription.importing')
-                : t('import.subscription.importFile')
-            }}
-            <input
-              type="file"
-              accept="application/json,.json"
-              :disabled="disabled || Boolean(busyAction)"
-              @change="importFile"
-            />
-          </label>
-        </div>
+          <Plus v-if="hasAccounts" :size="15" aria-hidden="true" />
+          {{
+            hasAccounts ? t('import.subscription.addAnother') : t('import.subscription.authorize')
+          }}
+        </AppButton>
+        <span v-if="!hasAccounts" class="subscription-stager__entry-hint">
+          {{ t('import.subscription.authorizeHint') }}
+        </span>
       </div>
+
+      <DisclosurePanel
+        :summary="t('import.subscription.orImport')"
+        :open="jsonImportOpen"
+        @update:open="jsonImportOpen = $event"
+      >
+        <div class="subscription-stager__json">
+          <FormField
+            id="subscription-oauth-json"
+            :label="t('import.subscription.oauthJSONLabel')"
+            :description="t('import.subscription.oauthJSONDescription')"
+            size="compact"
+          >
+            <template #default="field">
+              <textarea
+                id="subscription-oauth-json"
+                v-model="oauthJSON"
+                rows="5"
+                :disabled="entryBusy"
+                :aria-describedby="field.describedBy"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                :placeholder="OAUTH_JSON_PLACEHOLDER"
+              ></textarea>
+            </template>
+          </FormField>
+
+          <div class="subscription-stager__import-actions">
+            <AppButton
+              variant="secondary"
+              :busy="busyAction === 'import'"
+              :disabled="entryBusy || !oauthJSON.trim()"
+              @click="importText"
+            >
+              <FileJson :size="16" aria-hidden="true" />{{ t('import.subscription.importText') }}
+            </AppButton>
+            <label class="subscription-stager__file" :class="{ 'is-disabled': entryBusy }">
+              <FileJson :size="16" aria-hidden="true" />
+              {{
+                busyAction === 'import'
+                  ? t('import.subscription.importing')
+                  : t('import.subscription.importFile')
+              }}
+              <input
+                type="file"
+                accept="application/json,.json"
+                :disabled="entryBusy"
+                @change="importFile"
+              />
+            </label>
+          </div>
+        </div>
+      </DisclosurePanel>
     </div>
+
+    <!-- 安全说明只在还没连上账号时引导；已有账号后它就只是噪音 -->
+    <InlineFeedback v-if="!hasAccounts" tone="neutral" appearance="ledger-hint" glyph="i">
+      {{ t(`import.subscription.securityNotice.${context}`) }}
+    </InlineFeedback>
+
     <InlineFeedback v-if="feedbackKey" tone="danger" appearance="ledger">
       {{ t(feedbackKey) }}
     </InlineFeedback>
@@ -616,25 +689,37 @@ onBeforeUnmount(() => {
 }
 .subscription-stager__accounts {
   display: grid;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  overflow: hidden;
+  gap: var(--space-2);
+  min-width: 0;
 }
 .subscription-stager__account {
   display: grid;
   gap: 10px;
-  min-height: 60px;
+  min-width: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-left: 3px solid var(--color-border-control);
+  border-radius: var(--radius-control);
   background: var(--color-surface);
-  padding: 11px 12px;
+  padding: var(--space-3) var(--space-3-5);
 }
-.subscription-stager__account + .subscription-stager__account {
-  border-top: 1px solid var(--color-border-subtle);
+.subscription-stager__account--success {
+  border-left-color: var(--color-success);
 }
-.subscription-stager__account-summary {
+.subscription-stager__account--warning {
+  border-left-color: var(--color-warning);
+}
+.subscription-stager__account--danger {
+  border-left-color: var(--color-danger);
+}
+.subscription-stager__summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-3);
+  min-width: 0;
+}
+.subscription-stager__summary--awaiting {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
 }
 .subscription-stager__identity {
   display: grid;
@@ -648,82 +733,43 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 等待态的主行是一句话而不是账号地址，用正文字体读起来更自然 */
+.subscription-stager__summary--awaiting .subscription-stager__identity strong {
+  font-family: inherit;
+  font-size: var(--text-body);
+  font-weight: 620;
+}
 .subscription-stager__identity span {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
-.subscription-stager__stage-error {
-  margin: 0;
-  color: var(--color-danger);
-  font-size: var(--text-label-xs);
-  line-height: 1.5;
-}
-.subscription-stager__authorization {
-  display: grid;
-  gap: 7px;
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: 10px;
-}
-.subscription-stager__waiting {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+.subscription-stager__countdown {
+  flex: none;
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  font-weight: 560;
-}
-.subscription-stager__waiting-text {
-  display: grid;
-  gap: 2px;
-}
-.subscription-stager__waiting-text strong {
   font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
   font-weight: 620;
 }
-.subscription-stager__waiting-text > span {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-}
-.subscription-stager__restart {
-  border: 0;
-  background: none;
-  color: var(--color-action);
-  padding: 0;
-  font: inherit;
-  font-size: var(--text-label-xs);
-  font-weight: 560;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.subscription-stager__restart:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-}
-.subscription-stager__ready {
+.subscription-stager__recover {
   display: flex;
   align-items: center;
-  gap: 9px;
-  border: 1px solid var(--color-feedback-success-border);
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
-  background: var(--color-success-bg);
-  padding: 9px 12px;
+  background: var(--color-danger-bg);
+  padding: 8px 10px;
   color: var(--color-text);
   font-size: var(--text-meta);
 }
-.subscription-stager__ready-tick {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  flex: none;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--color-success);
-  color: var(--color-surface);
-  font-size: 11px;
-  font-weight: 700;
+.subscription-stager__recover > span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.subscription-stager__restart {
+  justify-self: start;
+  font-size: var(--text-sm);
+  font-weight: 560;
 }
 .subscription-stager__spinner {
   width: 14px;
@@ -739,8 +785,26 @@ onBeforeUnmount(() => {
     transform: rotate(360deg);
   }
 }
-.subscription-stager__authorization-label,
-.subscription-stager__callback label {
+.subscription-stager__authorization {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+}
+.subscription-stager__manual-hint {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  line-height: 1.6;
+}
+.subscription-stager__link-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.subscription-stager__field-label {
+  display: block;
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
   font-weight: 600;
@@ -765,7 +829,7 @@ onBeforeUnmount(() => {
 .subscription-stager__authorization-link a {
   display: inline-flex;
   min-width: 44px;
-  height: 44px;
+  height: var(--control-compact);
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -780,57 +844,41 @@ onBeforeUnmount(() => {
 .subscription-stager__callback {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 6px var(--space-2);
-}
-.subscription-stager__callback label,
-.subscription-stager__callback p {
-  grid-column: 1 / -1;
-}
-.subscription-stager__callback .subscription-stager__callback-error {
-  color: var(--color-danger);
-}
-.subscription-stager__callback input {
+  align-items: start;
+  gap: var(--space-2);
   min-width: 0;
-  height: var(--control-md);
+}
+.subscription-stager__callback :deep(input) {
   font-family: var(--font-mono);
 }
-.subscription-stager__callback p {
-  margin: 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-  line-height: 1.5;
+/* 提交按钮与输入框顶端对齐：label 占一行，按钮下移同样的高度 */
+.subscription-stager__callback :deep(.app-button) {
+  margin-top: 22px;
 }
 .subscription-stager__entry {
   display: grid;
   gap: var(--space-3);
+  min-width: 0;
+}
+.subscription-stager__entry-primary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
 }
 .subscription-stager__primary {
-  width: fit-content;
+  flex: none;
 }
-.subscription-stager__json-toggle {
-  width: fit-content;
-  border: 0;
-  background: none;
-  color: var(--color-action);
-  padding: 0;
-  font: inherit;
+.subscription-stager__entry-hint {
+  min-width: 0;
+  color: var(--color-text-faint);
   font-size: var(--text-sm);
-  font-weight: 560;
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-.subscription-stager__json-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
 }
 .subscription-stager__json {
   display: grid;
   gap: var(--space-3);
 }
-.subscription-stager__entry textarea {
+.subscription-stager__json textarea {
   width: 100%;
   resize: vertical;
   font-family: var(--font-mono);
@@ -861,7 +909,7 @@ onBeforeUnmount(() => {
   color: var(--color-text);
 }
 .subscription-stager__file:focus-within {
-  outline: 2px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 .subscription-stager__file.is-disabled {
@@ -877,12 +925,15 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 640px) {
   .subscription-stager__account {
-    padding: 10px;
+    padding: var(--space-2-5);
   }
-  .subscription-stager__account-summary {
+  .subscription-stager__summary {
     grid-template-columns: minmax(0, 1fr) auto;
   }
-  .subscription-stager__account-summary :deep(.app-button) {
+  .subscription-stager__summary--awaiting {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .subscription-stager__summary :deep(.app-button) {
     grid-column: 1 / -1;
     justify-self: start;
     min-height: var(--touch-target);
@@ -899,9 +950,6 @@ onBeforeUnmount(() => {
   .subscription-stager__file {
     width: 100%;
     min-height: var(--touch-target);
-  }
-  .subscription-stager__authorization-link {
-    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 }
 @media (prefers-reduced-motion: reduce) {
