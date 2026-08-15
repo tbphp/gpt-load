@@ -43,6 +43,17 @@ func mapEvent(
 	}
 	attempts := make([]models.RequestLogAttempt, 0, len(event.Attempts))
 	for _, attempt := range event.Attempts {
+		attemptCompletedAtMS := completedAtMS
+		if !attempt.CompletedAt.IsZero() {
+			attemptCompletedAtMS, err = epochms.FromTime(attempt.CompletedAt)
+			if err != nil {
+				return models.RequestLog{}, fmt.Errorf(
+					"map request event attempt %d completion time: %w",
+					attempt.Sequence,
+					err,
+				)
+			}
+		}
 		attemptReceipt := models.JSON(nil)
 		if attempt.Sequence == event.Usage.AttemptSequence {
 			attemptReceipt = receipt
@@ -50,7 +61,7 @@ func mapEvent(
 		attempts = append(attempts, models.RequestLogAttempt{
 			RequestID:             event.RequestID,
 			Sequence:              attempt.Sequence,
-			CompletedAtMS:         completedAtMS,
+			CompletedAtMS:         attemptCompletedAtMS,
 			GroupID:               attempt.GroupID,
 			GroupName:             redactIdentityValue(redactor, attempt.GroupName),
 			ChannelID:             string(attempt.ChannelID),

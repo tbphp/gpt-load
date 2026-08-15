@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"math"
 
+	"gorm.io/gorm"
+
 	"gpt-load/internal/platform/epochms"
+	"gpt-load/internal/storage/dbtx"
 	"gpt-load/internal/storage/models"
 )
 
@@ -43,20 +46,30 @@ func (service *Service) QueryCredentialWindowUsage(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-
-	var result CredentialWindowUsage
-	var err error
 	switch input.Source {
-	case CredentialWindowUsageSourceRequestLogs:
-		result, err = service.queryCredentialRequestLogUsage(ctx, input)
-	case CredentialWindowUsageSourceHourlyStats:
-		result, err = service.queryCredentialHourlyUsage(ctx, input)
+	case CredentialWindowUsageSourceRequestLogs, CredentialWindowUsageSourceHourlyStats:
 	default:
 		return CredentialWindowUsage{}, fmt.Errorf(
 			"query credential window usage: unsupported source %q",
 			input.Source,
 		)
 	}
+
+	var result CredentialWindowUsage
+	err := dbtx.Run(ctx, service.db, dbtx.Options{
+		Mode:           dbtx.ReadSnapshot,
+		CleanupTimeout: usageRollbackTimeout,
+		Operation:      "credential window usage read transaction",
+	}, func(connection *gorm.DB) error {
+		var queryErr error
+		switch input.Source {
+		case CredentialWindowUsageSourceRequestLogs:
+			result, queryErr = service.queryCredentialRequestLogUsage(connection, input)
+		case CredentialWindowUsageSourceHourlyStats:
+			result, queryErr = service.queryCredentialHourlyUsage(connection, input)
+		}
+		return queryErr
+	})
 	if err != nil {
 		return CredentialWindowUsage{}, fmt.Errorf("query credential window usage: %w", err)
 	}
@@ -64,11 +77,11 @@ func (service *Service) QueryCredentialWindowUsage(
 }
 
 func (service *Service) queryCredentialRequestLogUsage(
-	ctx context.Context,
+	db *gorm.DB,
 	input CredentialWindowUsageQuery,
 ) (CredentialWindowUsage, error) {
 	var row credentialRequestLogUsageRow
-	query := service.db.WithContext(ctx).Model(&models.RequestLog{}).
+	query := db.Model(&models.RequestLog{}).
 		Where("credential_id = ?", input.CredentialID).
 		Where("completed_at_ms >= ? AND completed_at_ms < ?", input.FromMS, input.ToMS)
 	if err := query.Select(credentialRequestLogUsageSelect).Find(&row).Error; err != nil {
@@ -86,40 +99,71 @@ func (service *Service) queryCredentialRequestLogUsage(
 }
 
 func (service *Service) queryCredentialHourlyUsage(
-	ctx context.Context,
+	db *gorm.DB,
 	input CredentialWindowUsageQuery,
 ) (CredentialWindowUsage, error) {
-	fromMS, err := epochms.AlignDown(input.FromMS, epochms.MillisecondsPerHour)
+	fullHoursFromMS, err := alignHourUp(input.FromMS)
 	if err != nil {
 		return CredentialWindowUsage{}, fmt.Errorf("align window start: %w", err)
 	}
-	toMS, err := alignHourUp(input.ToMS)
+	fullHoursToMS, err := alignHourUp(input.ToMS)
 	if err != nil {
 		return CredentialWindowUsage{}, fmt.Errorf("align window end: %w", err)
 	}
-	scope := service.db.WithContext(ctx).Model(&models.UsageStat{}).
-		Where("credential_id = ?", input.CredentialID).
-		Where("bucket_start_ms >= ? AND bucket_start_ms < ?", fromMS, toMS)
-	if err := validateUsageStatIntegrity(scope); err != nil {
-		return CredentialWindowUsage{}, err
+	result := CredentialWindowUsage{
+		Source:       CredentialWindowUsageSourceHourlyStats,
+		DataComplete: true,
 	}
-	aggregate, err := queryUsageSummary(scope)
-	if err != nil {
-		return CredentialWindowUsage{}, err
+	if fullHoursFromMS < fullHoursToMS {
+		scope := db.Model(&models.UsageStat{}).
+			Where("credential_id = ?", input.CredentialID).
+			Where("bucket_start_ms >= ? AND bucket_start_ms < ?", fullHoursFromMS, fullHoursToMS)
+		if err := validateUsageStatIntegrity(scope); err != nil {
+			return CredentialWindowUsage{}, err
+		}
+		aggregate, err := queryUsageSummary(scope)
+		if err != nil {
+			return CredentialWindowUsage{}, err
+		}
+		result.UsageAggregate = aggregate
+		var latest struct {
+			LastUsedAtMS *int64 `gorm:"column:last_used_at_ms"`
+		}
+		if err := scope.Select("MAX(bucket_start_ms) AS last_used_at_ms").Find(&latest).Error; err != nil {
+			return CredentialWindowUsage{}, fmt.Errorf("query latest usage bucket: %w", err)
+		}
+		result.LastUsedAtMS = latest.LastUsedAtMS
+		result.DataComplete = service.hourlyWindowRetained(fullHoursFromMS)
 	}
-	var latest struct {
-		LastUsedAtMS *int64 `gorm:"column:last_used_at_ms"`
+
+	boundaryToMS := fullHoursFromMS
+	if boundaryToMS > input.ToMS {
+		boundaryToMS = input.ToMS
 	}
-	if err := scope.Select("MAX(bucket_start_ms) AS last_used_at_ms").Find(&latest).Error; err != nil {
-		return CredentialWindowUsage{}, fmt.Errorf("query latest usage bucket: %w", err)
+	if input.FromMS < boundaryToMS {
+		boundary, err := service.queryCredentialRequestLogUsage(db, CredentialWindowUsageQuery{
+			CredentialID: input.CredentialID,
+			FromMS:       input.FromMS,
+			ToMS:         boundaryToMS,
+			Source:       CredentialWindowUsageSourceRequestLogs,
+		})
+		if err != nil {
+			return CredentialWindowUsage{}, err
+		}
+		result.UsageAggregate, err = addUsageAggregates(
+			result.UsageAggregate,
+			boundary.UsageAggregate,
+		)
+		if err != nil {
+			return CredentialWindowUsage{}, fmt.Errorf("merge boundary usage: %w", err)
+		}
+		result.DataComplete = result.DataComplete && boundary.DataComplete
+		if boundary.LastUsedAtMS != nil &&
+			(result.LastUsedAtMS == nil || *boundary.LastUsedAtMS > *result.LastUsedAtMS) {
+			result.LastUsedAtMS = boundary.LastUsedAtMS
+		}
 	}
-	return CredentialWindowUsage{
-		UsageAggregate: aggregate,
-		Source:         CredentialWindowUsageSourceHourlyStats,
-		DataComplete: input.FromMS == fromMS && input.ToMS == toMS &&
-			service.hourlyWindowRetained(input.FromMS),
-		LastUsedAtMS: latest.LastUsedAtMS,
-	}, nil
+	return result, nil
 }
 
 func (service *Service) requestLogWindowRetained(fromMS int64) bool {

@@ -381,8 +381,7 @@ export default {
         dailyWindow: 'Last 24 hours',
         dailySuccess: 'Success',
         dailyFailure: 'Failure',
-        dailyIncomplete:
-          'Request logs are retained for less than 24 hours, so the counts may be low',
+        dailyIncomplete: 'Statistics do not cover the full 24 hours, so the counts may be low',
         syncFailed: 'Unable to sync account information',
         moreActions: 'More actions',
         autoRenews: 'renews when used',
@@ -417,6 +416,11 @@ export default {
           requests: 'Requests',
           tokens: 'Tokens',
           referenceCost: 'API reference cost',
+          unavailable: 'Local statistics are not currently available',
+          dataIncomplete: 'Statistics do not cover the full window, so the value may be low',
+          usageIncomplete: 'Some requests lack complete token usage, so the value may be low',
+          pricingIncomplete:
+            'Some requests lack complete pricing, so the reference cost may be low',
           windowSeparator: ', ',
         },
         auth: {

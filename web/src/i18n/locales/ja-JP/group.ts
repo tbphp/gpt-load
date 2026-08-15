@@ -384,7 +384,7 @@ export default {
         dailySuccess: '成功',
         dailyFailure: '失敗',
         dailyIncomplete:
-          'リクエストログの保持期間が 24 時間未満のため、件数が少なく出る場合があります',
+          '統計データが 24 時間全体をカバーしていないため、件数が少なく出る場合があります',
         syncFailed: 'アカウント情報を同期できません',
         moreActions: 'その他の操作',
         autoRenews: '使用時に自動更新',
@@ -419,6 +419,12 @@ export default {
           requests: 'リクエスト',
           tokens: 'トークン',
           referenceCost: 'API 参考コスト',
+          unavailable: '利用可能なローカル統計は現在ありません',
+          dataIncomplete: '統計データが期間全体をカバーしていないため、値が少ない場合があります',
+          usageIncomplete:
+            '一部のリクエストでトークン使用量が不完全なため、値が少ない場合があります',
+          pricingIncomplete:
+            '一部のリクエストで価格情報が不完全なため、参考コストが少ない場合があります',
           windowSeparator: '、',
         },
         auth: {

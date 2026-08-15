@@ -13,6 +13,7 @@ import type {
   CredentialCollectionFilters,
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
+  CredentialDetailDto,
   CredentialItemDto,
   CredentialObservationDto,
   CredentialObservationSnapshotDto,
@@ -47,6 +48,7 @@ export type {
   CredentialCollectionFilters,
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
+  CredentialDetailDto,
   CredentialItemDto,
   CredentialRecoveryDto,
   CredentialRevealDto,
@@ -98,9 +100,11 @@ const credentialItemFields = [
   'last_failure_category',
   'last_status_code',
   'cooldown_until_ms',
+  'last_used_at_ms',
   'daily_usage',
   'recovery',
 ] as const
+const credentialDetailFields = ['credential', 'observation'] as const
 const credentialDailyUsageFields = [
   'window_seconds',
   'success_count',
@@ -450,6 +454,9 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
         ? null
         : projectSafeInteger(record.last_status_code, { minimum: 100, maximum: 999 }),
     cooldown_until_ms: cooldownUntil,
+    ...(record.last_used_at_ms === undefined
+      ? {}
+      : { last_used_at_ms: projectEpochMilliseconds(record.last_used_at_ms) }),
     ...(record.daily_usage === undefined
       ? {}
       : { daily_usage: projectDailyUsage(record.daily_usage) }),
@@ -465,6 +472,15 @@ function projectDailyUsage(value: unknown): CredentialDailyUsageDto {
     success_count: projectSafeInteger(record.success_count, { minimum: 0 }),
     failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
     data_complete: projectBoolean(record.data_complete),
+  }
+}
+
+export function projectCredentialDetail(value: unknown): CredentialDetailDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, credentialDetailFields)
+  return {
+    credential: projectCredentialItem(record.credential),
+    observation: projectObservation(record.observation),
   }
 }
 
@@ -567,6 +583,22 @@ export async function getCredentialCollection(
   ) {
     invalidResponse()
   }
+  return result
+}
+
+export async function getCredentialDetail(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  signal?: AbortSignal,
+): Promise<CredentialDetailDto> {
+  const result = projectCredentialDetail(
+    await client.request(`/api/groups/${groupId}/credentials/${credentialId}`, {
+      method: 'GET',
+      signal,
+    }),
+  )
+  if (result.credential.credential_id !== credentialId) invalidResponse()
   return result
 }
 

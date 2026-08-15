@@ -40,6 +40,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 		},
 		reflect.TypeOf(Attempt{}): {
 			"Sequence",
+			"CompletedAt",
 			"GroupID",
 			"GroupName",
 			"ChannelID",

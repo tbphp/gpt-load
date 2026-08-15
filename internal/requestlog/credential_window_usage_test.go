@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
@@ -64,6 +66,13 @@ func TestQueryCredentialWindowUsageUsesHourlyStatsForLongWindow(t *testing.T) {
 	createUsageStats(t, db, first, last, other)
 
 	from := now.Add(-7 * 24 * time.Hour).Add(10 * time.Minute)
+	boundary := requestLogWindowRow(
+		"00000000-0000-4000-8000-000000000735",
+		credentialID,
+		from.Add(5*time.Minute),
+		40,
+	)
+	createRequestLogQueryRow(t, db, boundary)
 	result, err := service.QueryCredentialWindowUsage(t.Context(), CredentialWindowUsageQuery{
 		CredentialID: credentialID,
 		FromMS:       from.UnixMilli(),
@@ -73,11 +82,63 @@ func TestQueryCredentialWindowUsageUsesHourlyStatsForLongWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryCredentialWindowUsage() error = %v", err)
 	}
-	if result.Source != CredentialWindowUsageSourceHourlyStats || result.DataComplete ||
-		result.RequestCount != 5 || result.UncachedInputTokens != 50 ||
-		result.EstimatedCostNanoUSD != 500_000_000 || result.LastUsedAtMS == nil ||
+	if result.Source != CredentialWindowUsageSourceHourlyStats || !result.DataComplete ||
+		result.RequestCount != 4 || result.UncachedInputTokens != 70 ||
+		result.EstimatedCostNanoUSD != 300_000_000 || result.LastUsedAtMS == nil ||
 		*result.LastUsedAtMS != last.BucketStartMS {
 		t.Fatalf("hourly window usage = %#v", result)
+	}
+}
+
+func TestQueryCredentialWindowUsageUsesOneReadSnapshot(t *testing.T) {
+	db, dsn := openRequestLogFileDB(t)
+	service := newRequestLogTestService(db)
+	now := time.Date(2026, time.August, 14, 12, 25, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	credentialID := uint(42)
+	from := now.Add(-5 * time.Hour)
+	hourly := usageStat(from.Add(time.Hour).Truncate(time.Hour), 17, "codex-a", 1)
+	hourly.CredentialID = credentialID
+	createUsageStats(t, db, hourly)
+
+	writerDB, closeWriter := openUsageQueryWriterDB(t, dsn)
+	defer closeWriter()
+	inserted := false
+	const callbackName = "test:credential_window_usage_snapshot_insert"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if inserted || tx.Statement.Table != "usage_stats" {
+			return
+		}
+		inserted = true
+		lateBoundary := requestLogWindowRow(
+			"00000000-0000-4000-8000-000000000736",
+			credentialID,
+			from.Add(5*time.Minute),
+			40,
+		)
+		if err := writerDB.Create(&lateBoundary).Error; err != nil {
+			t.Errorf("insert concurrent RequestLog: %v", err)
+		}
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Callback().Query().Remove(callbackName); err != nil {
+			t.Errorf("remove query callback: %v", err)
+		}
+	})
+
+	result, err := service.QueryCredentialWindowUsage(t.Context(), CredentialWindowUsageQuery{
+		CredentialID: credentialID,
+		FromMS:       from.UnixMilli(),
+		ToMS:         now.UnixMilli(),
+		Source:       CredentialWindowUsageSourceHourlyStats,
+	})
+	if err != nil {
+		t.Fatalf("QueryCredentialWindowUsage() error = %v", err)
+	}
+	if !inserted || result.RequestCount != 1 {
+		t.Fatalf("window usage did not retain one snapshot: inserted=%t result=%#v", inserted, result)
 	}
 }
 
