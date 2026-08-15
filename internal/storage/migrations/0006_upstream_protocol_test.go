@@ -29,11 +29,11 @@ func TestUpstreamProtocolMigrationDropsLegacyValuesAndPreservesAttempt(t *testin
 		t.Fatalf("insert request attempt: %v", err)
 	}
 
-	if err := migrations.Up0005(db); err != nil {
-		t.Fatalf("Up0005() error = %v", err)
+	if err := migrations.Up0006(db); err != nil {
+		t.Fatalf("Up0006() error = %v", err)
 	}
-	if err := migrations.Validate0005(db); err != nil {
-		t.Fatalf("Validate0005() error = %v", err)
+	if err := migrations.Validate0006(db); err != nil {
+		t.Fatalf("Validate0006() error = %v", err)
 	}
 	if db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
 		t.Fatal("legacy upstream_api column remains")
@@ -59,8 +59,8 @@ func TestUpstreamProtocolMigrationDropsLegacyValuesAndPreservesAttempt(t *testin
 		t.Fatalf("migrated attempt = %#v", attempt)
 	}
 
-	if err := migrations.Up0005(db); err != nil {
-		t.Fatalf("repeat Up0005() error = %v", err)
+	if err := migrations.Up0006(db); err != nil {
+		t.Fatalf("repeat Up0006() error = %v", err)
 	}
 }
 
@@ -73,11 +73,11 @@ func TestUpstreamProtocolMigrationRecoversOnlySafePartialStates(t *testing.T) {
 		if err := db.Exec(`ALTER TABLE request_log_attempts ADD COLUMN upstream_protocol varchar(32) NOT NULL DEFAULT ''`).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := migrations.ValidateRecoverable0005(db); err != nil {
-			t.Fatalf("ValidateRecoverable0005() error = %v", err)
+		if err := migrations.ValidateRecoverable0006(db); err != nil {
+			t.Fatalf("ValidateRecoverable0006() error = %v", err)
 		}
-		if err := migrations.Up0005(db); err != nil {
-			t.Fatalf("Up0005() error = %v", err)
+		if err := migrations.Up0006(db); err != nil {
+			t.Fatalf("Up0006() error = %v", err)
 		}
 		if db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
 			t.Fatal("legacy column remains after safe recovery")
@@ -89,8 +89,8 @@ func TestUpstreamProtocolMigrationRecoversOnlySafePartialStates(t *testing.T) {
 		if err := db.Exec(`CREATE TABLE request_log_attempts (request_id varchar(36) NOT NULL)`).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := migrations.ValidateRecoverable0005(db); err == nil {
-			t.Fatal("ValidateRecoverable0005() error = nil")
+		if err := migrations.ValidateRecoverable0006(db); err == nil {
+			t.Fatal("ValidateRecoverable0006() error = nil")
 		}
 	})
 
@@ -106,8 +106,8 @@ func TestUpstreamProtocolMigrationRecoversOnlySafePartialStates(t *testing.T) {
 			VALUES ('openai-chat-completions', 'openai-completions')`).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := migrations.Up0005(db); err == nil {
-			t.Fatal("Up0005() error = nil")
+		if err := migrations.Up0006(db); err == nil {
+			t.Fatal("Up0006() error = nil")
 		}
 		if !db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
 			t.Fatal("unsafe recovery dropped the legacy column")

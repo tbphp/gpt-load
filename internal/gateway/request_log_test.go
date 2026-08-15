@@ -45,6 +45,33 @@ func requestLogSelection(groupID, credentialID uint, name string) scheduler.Sele
 	}
 }
 
+func TestRequestRecorderCapturesAttemptCompletionTime(t *testing.T) {
+	completedAt := time.Date(2026, time.August, 15, 14, 35, 27, 123_000_000, time.UTC)
+	recorder := newRequestRecorder(
+		&recordingRequestLogSink{},
+		"00000000-0000-4000-8000-000000000001",
+		completedAt.Add(-time.Second),
+		1,
+		protocol.OpenAICompletions,
+		func() time.Time { return completedAt },
+	)
+
+	recorder.appendAttempt(
+		requestLogSelection(11, 21, "first"),
+		UpstreamResult{StatusCode: http.StatusOK},
+		telemetry.FailureCategoryOK,
+		telemetry.ActionTerminate,
+		"",
+		"",
+		completedAt.Add(-250*time.Millisecond),
+		completedAt,
+	)
+
+	if len(recorder.attempts) != 1 || !recorder.attempts[0].CompletedAt.Equal(completedAt) {
+		t.Fatalf("attempt completion = %#v, want %s", recorder.attempts, completedAt)
+	}
+}
+
 func TestRequestRecorderCapturesFirstResponseAfterDownstreamCommit(t *testing.T) {
 	startedAt := time.Date(2026, time.August, 5, 8, 0, 0, 0, time.UTC)
 	sink := &recordingRequestLogSink{}

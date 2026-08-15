@@ -168,7 +168,149 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 		Order("request_id ASC").Find(&journals).Error; err != nil {
 		return fmt.Errorf("query current usage journals: %w", err)
 	}
+	if len(attemptRows) > 0 && len(journals) > 0 {
+		pendingRequestIDs := make(map[string]struct{}, len(journals))
+		for _, journal := range journals {
+			pendingRequestIDs[journal.RequestID] = struct{}{}
+		}
+		pendingAttempts := make([]models.RequestLogAttempt, 0, len(attemptRows))
+		for _, attempt := range attemptRows {
+			if _, pending := pendingRequestIDs[attempt.RequestID]; pending {
+				pendingAttempts = append(pendingAttempts, attempt)
+			}
+		}
+		if err := applyCredentialAttemptStats(tx, pendingAttempts); err != nil {
+			return err
+		}
+	}
 	return applyUsageJournalBatch(tx, journals)
+}
+
+type credentialAttemptStatKey struct {
+	CredentialID  uint
+	BucketStartMS int64
+}
+
+type credentialAttemptStatDelta struct {
+	SuccessCount int64
+	FailureCount int64
+}
+
+func applyCredentialAttemptStats(tx *gorm.DB, attempts []models.RequestLogAttempt) error {
+	deltas, err := buildCredentialAttemptStatDeltas(attempts)
+	if err != nil {
+		return err
+	}
+	if len(deltas) == 0 {
+		return nil
+	}
+	keys := make([]credentialAttemptStatKey, 0, len(deltas))
+	credentialSet := make(map[uint]struct{})
+	bucketSet := make(map[int64]struct{})
+	for key := range deltas {
+		keys = append(keys, key)
+		credentialSet[key.CredentialID] = struct{}{}
+		bucketSet[key.BucketStartMS] = struct{}{}
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].CredentialID != keys[right].CredentialID {
+			return keys[left].CredentialID < keys[right].CredentialID
+		}
+		return keys[left].BucketStartMS < keys[right].BucketStartMS
+	})
+	credentialIDs := make([]uint, 0, len(credentialSet))
+	for credentialID := range credentialSet {
+		credentialIDs = append(credentialIDs, credentialID)
+	}
+	bucketStarts := make([]int64, 0, len(bucketSet))
+	for bucketStartMS := range bucketSet {
+		bucketStarts = append(bucketStarts, bucketStartMS)
+	}
+
+	var existingRows []models.CredentialAttemptStat
+	if err := tx.Where("credential_id IN ? AND bucket_start_ms IN ?", credentialIDs, bucketStarts).
+		Find(&existingRows).Error; err != nil {
+		return fmt.Errorf("query credential attempt stats: %w", err)
+	}
+	existing := make(map[credentialAttemptStatKey]models.CredentialAttemptStat, len(existingRows))
+	for _, row := range existingRows {
+		if row.SuccessCount < 0 || row.FailureCount < 0 {
+			return fmt.Errorf("query credential attempt stats: corrupt row")
+		}
+		existing[credentialAttemptStatKey{
+			CredentialID: row.CredentialID, BucketStartMS: row.BucketStartMS,
+		}] = row
+	}
+
+	for _, key := range keys {
+		row := existing[key]
+		row.CredentialID = key.CredentialID
+		row.BucketStartMS = key.BucketStartMS
+		delta := deltas[key]
+		if err := checkedInt64Add(&row.SuccessCount, delta.SuccessCount, "credential attempt success_count"); err != nil {
+			return err
+		}
+		if err := checkedInt64Add(&row.FailureCount, delta.FailureCount, "credential attempt failure_count"); err != nil {
+			return err
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "credential_id"}, {Name: "bucket_start_ms"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"success_count", "failure_count",
+			}),
+		}).Create(&row).Error; err != nil {
+			return fmt.Errorf("upsert credential attempt stat: %w", err)
+		}
+	}
+	return nil
+}
+
+func buildCredentialAttemptStatDeltas(
+	attempts []models.RequestLogAttempt,
+) (map[credentialAttemptStatKey]credentialAttemptStatDelta, error) {
+	deltas := make(map[credentialAttemptStatKey]credentialAttemptStatDelta)
+	for _, attempt := range attempts {
+		if attempt.CredentialID == 0 {
+			return nil, fmt.Errorf("aggregate credential attempt: credential ID is zero")
+		}
+		if attempt.FailureCategory == string(telemetry.FailureCategoryDownstreamCancel) {
+			continue
+		}
+		bucketStartMS, err := epochms.AlignDown(
+			attempt.CompletedAtMS,
+			epochms.MillisecondsPerHour,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("aggregate credential attempt completion time: %w", err)
+		}
+		key := credentialAttemptStatKey{
+			CredentialID: attempt.CredentialID, BucketStartMS: bucketStartMS,
+		}
+		delta := deltas[key]
+		switch telemetry.FailureCategory(attempt.FailureCategory) {
+		case telemetry.FailureCategoryOK:
+			if err := checkedInt64Add(&delta.SuccessCount, 1, "credential attempt success_count"); err != nil {
+				return nil, err
+			}
+		case telemetry.FailureCategoryRateLimited,
+			telemetry.FailureCategoryModelUnavailable,
+			telemetry.FailureCategoryInvalidKey,
+			telemetry.FailureCategoryUpstreamHost,
+			telemetry.FailureCategoryClientError,
+			telemetry.FailureCategoryConversionUnsupported,
+			telemetry.FailureCategoryAmbiguous:
+			if err := checkedInt64Add(&delta.FailureCount, 1, "credential attempt failure_count"); err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf(
+				"aggregate credential attempt: invalid failure category %q",
+				attempt.FailureCategory,
+			)
+		}
+		deltas[key] = delta
+	}
+	return deltas, nil
 }
 
 func applyUsageJournalBatch(

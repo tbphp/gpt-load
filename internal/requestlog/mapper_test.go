@@ -19,6 +19,7 @@ import (
 func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	event := testEvent("00000000-0000-4000-8000-000000000101")
 	event.CompletedAt = time.Date(2026, time.July, 24, 20, 30, 0, 123, time.FixedZone("test", 8*60*60))
+	event.Attempts[0].CompletedAt = event.CompletedAt.Add(-90 * time.Second)
 	event.Protocol = protocol.OpenAICompletions
 	event.Operation = execution.OperationChatCompletion
 	event.ClientModel = "client-alias"
@@ -83,7 +84,8 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	}
 
 	if len(row.AttemptRows) != 1 || row.AttemptRows[0].GroupID != 7 ||
-		row.AttemptRows[0].CredentialID != 8 {
+		row.AttemptRows[0].CredentialID != 8 ||
+		row.AttemptRows[0].CompletedAtMS != event.Attempts[0].CompletedAt.UnixMilli() {
 		t.Fatalf("attempts = %+v", row.AttemptRows)
 	}
 }

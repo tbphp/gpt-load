@@ -54,6 +54,7 @@ const (
 
 type Attempt struct {
 	Sequence          int
+	CompletedAt       time.Time
 	GroupID           uint
 	GroupName         string
 	ChannelID         channel.ID

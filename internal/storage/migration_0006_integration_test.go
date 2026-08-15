@@ -15,8 +15,8 @@ import (
 
 func TestSQLiteUpstreamProtocolMigrationRollsBackFailedDrop(t *testing.T) {
 	db := openInternalMigrationTestDatabase(t)
-	if err := applyMigrationRegistry(db, migrations[:4]); err != nil {
-		t.Fatalf("apply migrations through 0004: %v", err)
+	if err := applyMigrationRegistry(db, migrations[:5]); err != nil {
+		t.Fatalf("apply migrations through 0005: %v", err)
 	}
 	if err := db.Exec(`CREATE VIEW request_attempt_protocol_view AS
 		SELECT request_id, upstream_api FROM request_log_attempts`).Error; err != nil {
@@ -24,7 +24,7 @@ func TestSQLiteUpstreamProtocolMigrationRollsBackFailedDrop(t *testing.T) {
 	}
 
 	if err := AutoMigrate(db); err == nil {
-		t.Fatal("0005 unexpectedly succeeded with a dependent legacy-column view")
+		t.Fatal("0006 unexpectedly succeeded with a dependent legacy-column view")
 	}
 	if !db.Migrator().HasColumn("request_log_attempts", "upstream_api") ||
 		db.Migrator().HasColumn("request_log_attempts", "upstream_protocol") {
@@ -34,22 +34,22 @@ func TestSQLiteUpstreamProtocolMigrationRollsBackFailedDrop(t *testing.T) {
 		t.Fatalf("drop dependent view: %v", err)
 	}
 	if err := AutoMigrate(db); err != nil {
-		t.Fatalf("retry 0005 after removing dependency: %v", err)
+		t.Fatalf("retry 0006 after removing dependency: %v", err)
 	}
 }
 
-// TestExternalDatabaseUpstreamProtocolMigration exercises the real 0004 to
-// 0005 upgrade on both supported external engines. Historical protocol values
+// TestExternalDatabaseUpstreamProtocolMigration exercises the real 0005 to
+// 0006 upgrade on both supported external engines. Historical protocol values
 // are deliberately discarded while the rest of each attempt and its FK remain.
 func TestExternalDatabaseUpstreamProtocolMigration(t *testing.T) {
 	db := openIsolatedExternalMigrationDatabase(t, "protocol_upgrade")
-	if err := applyMigrationRegistry(db, migrations[:4]); err != nil {
-		t.Fatalf("apply migrations through 0004: %v", err)
+	if err := applyMigrationRegistry(db, migrations[:5]); err != nil {
+		t.Fatalf("apply migrations through 0005: %v", err)
 	}
 	seedLegacyUpstreamAttempt(t, db)
 
 	if err := AutoMigrate(db); err != nil {
-		t.Fatalf("upgrade through 0005: %v", err)
+		t.Fatalf("upgrade through 0006: %v", err)
 	}
 	if err := AutoMigrate(db); err != nil {
 		t.Fatalf("repeat migration chain: %v", err)
@@ -94,8 +94,8 @@ func TestExternalDatabasePostgresUpstreamProtocolRollback(t *testing.T) {
 		t.Skip("transactional DDL rollback contract is specific to PostgreSQL")
 	}
 	db := openIsolatedExternalMigrationDatabase(t, "protocol_rollback")
-	if err := applyMigrationRegistry(db, migrations[:4]); err != nil {
-		t.Fatalf("apply migrations through 0004: %v", err)
+	if err := applyMigrationRegistry(db, migrations[:5]); err != nil {
+		t.Fatalf("apply migrations through 0005: %v", err)
 	}
 	if err := db.Exec(`CREATE VIEW request_attempt_protocol_view AS
 		SELECT request_id, upstream_api FROM request_log_attempts`).Error; err != nil {
@@ -103,14 +103,14 @@ func TestExternalDatabasePostgresUpstreamProtocolRollback(t *testing.T) {
 	}
 
 	if err := AutoMigrate(db); err == nil {
-		t.Fatal("0005 unexpectedly succeeded with a dependent legacy-column view")
+		t.Fatal("0006 unexpectedly succeeded with a dependent legacy-column view")
 	}
 	if !db.Migrator().HasColumn("request_log_attempts", "upstream_api") ||
 		db.Migrator().HasColumn("request_log_attempts", "upstream_protocol") {
 		t.Fatal("failed PostgreSQL migration did not roll back its schema changes")
 	}
 	var completed int64
-	if err := db.Model(&schemaMigration{}).Where("id = ?", migrations[4].ID).Count(&completed).Error; err != nil {
+	if err := db.Model(&schemaMigration{}).Where("id = ?", migrations[5].ID).Count(&completed).Error; err != nil {
 		t.Fatal(err)
 	}
 	if completed != 0 {
@@ -120,7 +120,7 @@ func TestExternalDatabasePostgresUpstreamProtocolRollback(t *testing.T) {
 		t.Fatalf("drop dependent view: %v", err)
 	}
 	if err := AutoMigrate(db); err != nil {
-		t.Fatalf("retry 0005 after removing dependency: %v", err)
+		t.Fatalf("retry 0006 after removing dependency: %v", err)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestExternalDatabasePostgresUpstreamProtocolRollback(t *testing.T) {
 // column even when no #building marker existed before startup.
 func TestExternalDatabaseMySQLInterruptedUpstreamProtocolRecovery(t *testing.T) {
 	if externalDatabaseScheme(t) != "mysql" {
-		t.Skip("interrupted 0005 recovery is specific to MySQL")
+		t.Skip("interrupted 0006 recovery is specific to MySQL")
 	}
 	tests := []struct {
 		name        string
@@ -150,8 +150,8 @@ func TestExternalDatabaseMySQLInterruptedUpstreamProtocolRecovery(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := openIsolatedExternalMigrationDatabase(t, "protocol_"+test.name)
-			if err := applyMigrationRegistry(db, migrations[:4]); err != nil {
-				t.Fatalf("apply migrations through 0004: %v", err)
+			if err := applyMigrationRegistry(db, migrations[:5]); err != nil {
+				t.Fatalf("apply migrations through 0005: %v", err)
 			}
 			seedLegacyUpstreamAttempt(t, db)
 			if test.addNewDDL != "" {
@@ -170,37 +170,37 @@ func TestExternalDatabaseMySQLInterruptedUpstreamProtocolRecovery(t *testing.T) 
 				}
 			}
 			if test.marker {
-				if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[4].ID)}).Error; err != nil {
-					t.Fatalf("record 0005 recovery marker: %v", err)
+				if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[5].ID)}).Error; err != nil {
+					t.Fatalf("record 0006 recovery marker: %v", err)
 				}
 			}
 
 			err := AutoMigrate(db)
 			if test.wantSuccess {
 				if err != nil {
-					t.Fatalf("recover 0005: %v", err)
+					t.Fatalf("recover 0006: %v", err)
 				}
 				assertInternalMigrationComplete(t, db, []string{
-					migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID, migrations[4].ID,
+					migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID, migrations[4].ID, migrations[5].ID,
 				})
 				if db.Migrator().HasColumn("request_log_attempts", "upstream_api") ||
 					!db.Migrator().HasColumn("request_log_attempts", "upstream_protocol") {
-					t.Fatal("safe 0005 recovery did not reach the final schema")
+					t.Fatal("safe 0006 recovery did not reach the final schema")
 				}
 				return
 			}
 			if err == nil {
-				t.Fatal("unsafe 0005 recovery unexpectedly succeeded")
+				t.Fatal("unsafe 0006 recovery unexpectedly succeeded")
 			}
 			if test.wantOld && !db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
-				t.Fatal("unsafe 0005 recovery dropped the legacy column")
+				t.Fatal("unsafe 0006 recovery dropped the legacy column")
 			}
 			var completed int64
-			if err := db.Model(&schemaMigration{}).Where("id = ?", migrations[4].ID).Count(&completed).Error; err != nil {
+			if err := db.Model(&schemaMigration{}).Where("id = ?", migrations[5].ID).Count(&completed).Error; err != nil {
 				t.Fatal(err)
 			}
 			if completed != 0 {
-				t.Fatal("unsafe 0005 recovery was recorded as complete")
+				t.Fatal("unsafe 0006 recovery was recorded as complete")
 			}
 		})
 	}

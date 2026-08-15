@@ -22,6 +22,7 @@ import {
   cacheCredentialItem,
   consumeCredentialResetCredit,
   credentialCollectionQueryOptions,
+  getCredentialDetail,
   revealCredential,
   restoreCredential,
   refreshCredentialObservation,
@@ -348,6 +349,52 @@ function cachedCurrentSummary(): CredentialSummaryDto | undefined {
   )?.summary
 }
 
+function cachedCurrentCredential(id: number): CredentialItemDto | undefined {
+  return queryClient
+    .getQueryData<CredentialCollectionDto>(
+      controlQueryKeys.groups.credentials(props.groupId, filters.value),
+    )
+    ?.items.find(({ credential_id }) => credential_id === id)
+}
+
+function withPreservedObservedUsage(
+  item: CredentialItemDto,
+  sourceObservation: CredentialItemDto['observation'],
+): CredentialItemDto {
+  const targetObservation = item.observation
+  if (
+    !targetObservation?.snapshot ||
+    !sourceObservation?.snapshot ||
+    targetObservation.observation_version !== sourceObservation.observation_version ||
+    targetObservation.observed_at_ms !== sourceObservation.observed_at_ms
+  ) {
+    return item
+  }
+
+  const observedUsageByWindow = new Map(
+    sourceObservation.snapshot.quota_windows.flatMap((window) =>
+      window.observed_usage === undefined ? [] : [[window.id, window.observed_usage] as const],
+    ),
+  )
+  if (observedUsageByWindow.size === 0) return item
+
+  return {
+    ...item,
+    observation: {
+      ...targetObservation,
+      snapshot: {
+        ...targetObservation.snapshot,
+        quota_windows: targetObservation.snapshot.quota_windows.map((window) => {
+          const observedUsage = observedUsageByWindow.get(window.id)
+          return window.observed_usage !== undefined || observedUsage === undefined
+            ? window
+            : { ...window, observed_usage: observedUsage }
+        }),
+      },
+    },
+  }
+}
+
 function synchronizeGroupSummary(summary: CredentialSummaryDto | undefined): void {
   const queryKey = controlQueryKeys.groups.summary(props.groupId)
   if (summary === undefined) {
@@ -401,8 +448,21 @@ async function refetchActiveCredentialPage(): Promise<void> {
 
 async function reconcileItem(result: CredentialItemDto, refetchActive: boolean): Promise<void> {
   try {
-    await cacheCredentialItem(queryClient, props.groupId, result)
-    if (refetchActive) await refetchActiveCredentialPage()
+    const current = cachedCurrentCredential(result.credential_id)
+    const reconciled =
+      current === undefined ? result : withPreservedObservedUsage(result, current.observation)
+    await cacheCredentialItem(queryClient, props.groupId, reconciled)
+    if (refetchActive) {
+      await refetchActiveCredentialPage()
+      const refreshed = cachedCurrentCredential(result.credential_id)
+      if (refreshed !== undefined) {
+        await cacheCredentialItem(
+          queryClient,
+          props.groupId,
+          withPreservedObservedUsage(refreshed, reconciled.observation),
+        )
+      }
+    }
     const summary = cachedCurrentSummary()
     if (summary === undefined) {
       await invalidateReconciliationQueries()
@@ -425,14 +485,26 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
       props.groupId,
       item.credential_id,
     )
-    const next = { ...item, observation }
-    await reconcileItem(next, false)
+    await reconcileItem({ ...item, observation }, true)
   } catch (cause) {
     feedback.value = t(
       presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed'),
     )
   } finally {
     setPending(item.credential_id, 'observation', false)
+  }
+}
+
+async function loadCredentialUsage(item: CredentialItemDto): Promise<void> {
+  if (pending(item.credential_id)) return
+  setPending(item.credential_id, 'usage', true)
+  try {
+    const detail = await getCredentialDetail(client, props.groupId, item.credential_id)
+    await cacheCredentialItem(queryClient, props.groupId, detail.credential)
+  } catch {
+    feedback.value = t('group.credentials.loadFailed')
+  } finally {
+    setPending(item.credential_id, 'usage', false)
   }
 }
 
@@ -946,6 +1018,7 @@ async function runBatch(
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
             @refresh="refreshObservation"
+            @load-usage="loadCredentialUsage"
             @reset="openResetCreditDialog"
             @reauthorize="openConnectionWorkspace"
             @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"

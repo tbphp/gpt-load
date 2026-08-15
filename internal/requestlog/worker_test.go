@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -539,6 +540,77 @@ func TestWriteBatchInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(replayedStat, stat) {
 		t.Fatalf("replay changed UsageStat: got %+v want %+v", replayedStat, stat)
+	}
+}
+
+func TestWriteBatchAggregatesCredentialAttemptsByOwnCompletionHour(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	firstHour := time.Date(2026, time.August, 15, 14, 0, 0, 0, time.UTC)
+	row := aggregationRow(aggregationRequestID(90), firstHour.Add(2*time.Hour), 7, "attempt-model")
+	row.AttemptCount = 4
+	row.AttemptRows = []models.RequestLogAttempt{
+		credentialAttemptRow(row.ID, 1, firstHour.Add(time.Minute), 11, telemetry.FailureCategoryOK),
+		credentialAttemptRow(row.ID, 2, firstHour.Add(2*time.Minute), 11, telemetry.FailureCategoryRateLimited),
+		credentialAttemptRow(row.ID, 3, firstHour.Add(time.Hour+time.Minute), 22, telemetry.FailureCategoryInvalidKey),
+		credentialAttemptRow(row.ID, 4, firstHour.Add(time.Hour+2*time.Minute), 22, telemetry.FailureCategoryDownstreamCancel),
+	}
+
+	writer := &gormBatchWriter{db: db}
+	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
+		t.Fatalf("WriteBatch() error = %v", err)
+	}
+
+	var stats []models.CredentialAttemptStat
+	if err := db.Order("credential_id ASC").Order("bucket_start_ms ASC").Find(&stats).Error; err != nil {
+		t.Fatalf("query CredentialAttemptStats: %v", err)
+	}
+	want := []models.CredentialAttemptStat{
+		{CredentialID: 11, BucketStartMS: firstHour.UnixMilli(), SuccessCount: 1, FailureCount: 1},
+		{CredentialID: 22, BucketStartMS: firstHour.Add(time.Hour).UnixMilli(), FailureCount: 1},
+	}
+	if len(stats) != len(want) {
+		t.Fatalf("CredentialAttemptStat rows = %+v, want %+v", stats, want)
+	}
+	persisted := append([]models.CredentialAttemptStat(nil), stats...)
+	for index := range want {
+		stats[index].ID = 0
+		if stats[index] != want[index] {
+			t.Fatalf("CredentialAttemptStat[%d] = %+v, want %+v", index, stats[index], want[index])
+		}
+	}
+
+	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
+		t.Fatalf("replay WriteBatch() error = %v", err)
+	}
+	var replayed []models.CredentialAttemptStat
+	if err := db.Order("credential_id ASC").Order("bucket_start_ms ASC").Find(&replayed).Error; err != nil {
+		t.Fatalf("query replayed CredentialAttemptStats: %v", err)
+	}
+	if !reflect.DeepEqual(replayed, persisted) {
+		t.Fatalf("replay changed CredentialAttemptStats: before=%+v after=%+v", persisted, replayed)
+	}
+}
+
+func credentialAttemptRow(
+	requestID string,
+	sequence int,
+	completedAt time.Time,
+	credentialID uint,
+	category telemetry.FailureCategory,
+) models.RequestLogAttempt {
+	action := telemetry.ActionRetry
+	statusCode := http.StatusTooManyRequests
+	if category == telemetry.FailureCategoryOK {
+		action = telemetry.ActionTerminate
+		statusCode = http.StatusOK
+	} else if category == telemetry.FailureCategoryDownstreamCancel {
+		action = telemetry.ActionTerminate
+		statusCode = 499
+	}
+	return models.RequestLogAttempt{
+		RequestID: requestID, Sequence: sequence, CompletedAtMS: completedAt.UnixMilli(),
+		GroupID: 7, GroupName: "attempt-group", ChannelID: "openai", CredentialID: credentialID,
+		StatusCode: statusCode, FailureCategory: string(category), Action: string(action),
 	}
 }
 

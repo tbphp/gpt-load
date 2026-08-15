@@ -72,6 +72,17 @@ type RequestLogAttempt struct {
 	RequestLog            *RequestLog `gorm:"foreignKey:RequestID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 
+// CredentialAttemptStat is the hourly account-level outcome aggregate used by
+// subscription account cards. Downstream cancellations are intentionally not
+// included in either outcome count.
+type CredentialAttemptStat struct {
+	ID            uint  `gorm:"primaryKey;autoIncrement;index:idx_credential_attempt_stats_bucket_id,priority:2"`
+	CredentialID  uint  `gorm:"not null;check:chk_credential_attempt_stat_credential,credential_id > 0;uniqueIndex:idx_credential_attempt_stats_identity,priority:1"`
+	BucketStartMS int64 `gorm:"column:bucket_start_ms;not null;check:chk_credential_attempt_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_credential_attempt_stats_identity,priority:2;index:idx_credential_attempt_stats_bucket_id,priority:1"`
+	SuccessCount  int64 `gorm:"not null;default:0;check:chk_credential_attempt_stat_success_count,success_count >= 0"`
+	FailureCount  int64 `gorm:"not null;default:0;check:chk_credential_attempt_stat_failure_count,failure_count >= 0"`
+}
+
 // UsageAggregationJournal is the request-idempotent input for hourly usage
 // aggregation. It is staged, applied, and committed in the same transaction as
 // its RequestLog, and intentionally excludes request and error payloads.
@@ -108,11 +119,11 @@ func (UsageAggregationJournal) TableName() string {
 // credential, and upstream model.
 type UsageStat struct {
 	ID                      uint   `gorm:"primaryKey;autoIncrement"`
-	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null;check:chk_usage_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_usage_stats_identity,priority:1"`
+	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null;check:chk_usage_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_usage_stats_identity,priority:1;index:idx_usage_stats_credential_bucket,priority:2"`
 	AccessKeyID             uint   `gorm:"not null;uniqueIndex:idx_usage_stats_identity,priority:2"`
 	ChannelID               string `gorm:"type:varchar(64);not null;default:'';uniqueIndex:idx_usage_stats_identity,priority:3"`
 	GroupID                 uint   `gorm:"not null;uniqueIndex:idx_usage_stats_identity,priority:4"`
-	CredentialID            uint   `gorm:"not null;default:0;uniqueIndex:idx_usage_stats_identity,priority:5"`
+	CredentialID            uint   `gorm:"not null;default:0;uniqueIndex:idx_usage_stats_identity,priority:5;index:idx_usage_stats_credential_bucket,priority:1"`
 	Model                   string `gorm:"type:varchar(255);not null;uniqueIndex:idx_usage_stats_identity,priority:6"`
 	RequestCount            int64  `gorm:"not null;default:0;check:chk_usage_stat_request_count,request_count >= 0;check:chk_usage_stat_request_outcome,request_count = success_count + failure_count"`
 	SuccessCount            int64  `gorm:"not null;default:0;check:chk_usage_stat_success_count,success_count >= 0"`

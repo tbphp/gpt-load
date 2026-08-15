@@ -122,6 +122,11 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 		}).Error; err != nil {
 			t.Fatalf("create UsageStat at %d: %v", bucketStartMS, err)
 		}
+		if err := db.Create(&models.CredentialAttemptStat{
+			CredentialID: uint(index + 1), BucketStartMS: bucketStartMS, SuccessCount: 1,
+		}).Error; err != nil {
+			t.Fatalf("create CredentialAttemptStat at %d: %v", bucketStartMS, err)
+		}
 	}
 	for index, item := range []struct {
 		bucketStartMS int64
@@ -155,6 +160,18 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 		remaining[0].BucketStartMS != usageCutoffMS ||
 		remaining[1].BucketStartMS != usageCutoffMS+3_600_000 {
 		t.Fatalf("remaining UsageStats = %+v, want cutoff and newer integer buckets", remaining)
+	}
+	var remainingAttempts []models.CredentialAttemptStat
+	if err := db.Order("bucket_start_ms ASC").Find(&remainingAttempts).Error; err != nil {
+		t.Fatalf("query remaining CredentialAttemptStats: %v", err)
+	}
+	if len(remainingAttempts) != 2 ||
+		remainingAttempts[0].BucketStartMS != usageCutoffMS ||
+		remainingAttempts[1].BucketStartMS != usageCutoffMS+3_600_000 {
+		t.Fatalf(
+			"remaining CredentialAttemptStats = %+v, want cutoff and newer buckets",
+			remainingAttempts,
+		)
 	}
 	var journals []models.UsageAggregationJournal
 	if err := db.Order("request_id ASC").Find(&journals).Error; err != nil {
@@ -402,6 +419,13 @@ func TestRetentionReplayBoundaryKeepsAggregationIdempotentWithoutRequestLog(t *t
 	row := aggregationRow(aggregationRequestID(70), now.Add(-8*24*time.Hour), 15, "retention-aggregate")
 	row.Status = string(telemetry.RequestStatusSuccess)
 	row.UsageState = string(usage.StateComplete)
+	row.AttemptRows = []models.RequestLogAttempt{credentialAttemptRow(
+		row.ID,
+		1,
+		now.Add(-8*24*time.Hour),
+		23,
+		telemetry.FailureCategoryOK,
+	)}
 
 	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
 		t.Fatalf("initial WriteBatch() error = %v", err)
@@ -437,10 +461,21 @@ func assertRetentionReplayState(
 	if err := db.Find(&stats).Error; err != nil {
 		t.Fatalf("query UsageStats: %v", err)
 	}
+	var attemptStats []models.CredentialAttemptStat
+	if err := db.Find(&attemptStats).Error; err != nil {
+		t.Fatalf("query CredentialAttemptStats: %v", err)
+	}
 	if requestLogs != wantRequestLogs || len(stats) != 1 ||
-		stats[0].RequestCount != wantAggregatedRequests {
-		t.Fatalf("retention replay state = logs:%d stats:%+v, want logs:%d requests:%d",
-			requestLogs, stats, wantRequestLogs, wantAggregatedRequests)
+		stats[0].RequestCount != wantAggregatedRequests || len(attemptStats) != 1 ||
+		attemptStats[0].SuccessCount != 1 || attemptStats[0].FailureCount != 0 {
+		t.Fatalf(
+			"retention replay state = logs:%d stats:%+v attempt stats:%+v, want logs:%d requests:%d and one attempt",
+			requestLogs,
+			stats,
+			attemptStats,
+			wantRequestLogs,
+			wantAggregatedRequests,
+		)
 	}
 }
 

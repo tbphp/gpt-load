@@ -22,6 +22,7 @@ const emit = defineEmits<{
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
   refresh: [item: CredentialItemDto]
+  'load-usage': [item: CredentialItemDto]
   reset: [item: CredentialItemDto]
   reauthorize: [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
@@ -54,12 +55,7 @@ const quotaWindows = computed(() =>
 const accountQuotaWindows = computed(() =>
   quotaWindows.value.filter((window) => window.scope === 'account'),
 )
-const lastUsedAtMS = computed(() => {
-  const values = accountQuotaWindows.value
-    .map((window) => window.observed_usage?.last_used_at_ms)
-    .filter((value): value is number => value !== undefined)
-  return values.length ? Math.max(...values) : undefined
-})
+const lastUsedAtMS = computed(() => props.item.last_used_at_ms)
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
@@ -152,11 +148,11 @@ const authIssue = computed(() => {
   const key = props.item.auth_error_code ? authErrorKeys[props.item.auth_error_code] : undefined
   return key ? t(key) : t(`group.credentials.subscription.auth.${props.item.auth_state}`)
 })
-// 卡片给的是请求日志里的 24 小时结果分布，不是 health 那个 5 分钟内存窗口
+// 卡片给的是按账号上游尝试聚合的 24 小时结果分布，不是 health 那个 5 分钟内存窗口
 //（后者重启即清零，是给调度判定用的）。始终并排给出成功与失败：失败 0 本身是
 // 信息，也让这一行宽度稳定。
 const dailyUsage = computed(() => props.item.daily_usage)
-// 请求日志留存短于 24 小时时计数会偏低，只用 title 提示，不占版面。
+// 小时统计未覆盖完整 24 小时时计数会偏低，只用 title 提示，不占版面。
 const dailyIncompleteHint = computed(() =>
   dailyUsage.value && !dailyUsage.value.data_complete
     ? t('group.credentials.subscription.dailyIncomplete')
@@ -177,6 +173,65 @@ function observationErrorLabel(code: string | undefined): string {
   if (!code) return '—'
   const key = observationErrorKeys[code]
   return key ? t(key) : code
+}
+
+function windowUsageCanLoad(window: CredentialQuotaWindowDto): boolean {
+  if (!observationIsCurrent.value) return false
+  const resetAtMS = window.reset_at_ms
+  const windowSeconds = window.window_seconds
+  if (
+    resetAtMS === undefined ||
+    windowSeconds === undefined ||
+    windowSeconds <= 0 ||
+    resetAtMS <= nowMs.value
+  ) {
+    return false
+  }
+  const windowMS = windowSeconds * 1_000
+  return (
+    Number.isSafeInteger(windowMS) && windowMS <= resetAtMS && resetAtMS - windowMS < nowMs.value
+  )
+}
+
+function loadUsageOnOpen(event: Event): void {
+  const details = event.currentTarget as HTMLDetailsElement
+  if (
+    details.open &&
+    accountQuotaWindows.value.some(
+      (window) => windowUsageCanLoad(window) && window.observed_usage === undefined,
+    )
+  ) {
+    emit('load-usage', props.item)
+  }
+}
+
+function estimateTitles(...keys: string[]): string | undefined {
+  const titles = keys.filter(Boolean).map((key) => t(key))
+  return titles.length === 0 ? undefined : titles.join(' · ')
+}
+
+function requestCountTitle(window: CredentialQuotaWindowDto): string | undefined {
+  return window.observed_usage?.data_complete === false
+    ? t('group.credentials.subscription.estimate.dataIncomplete')
+    : undefined
+}
+
+function tokenCountTitle(window: CredentialQuotaWindowDto): string | undefined {
+  const observed = window.observed_usage
+  if (!observed) return undefined
+  return estimateTitles(
+    observed.data_complete ? '' : 'group.credentials.subscription.estimate.dataIncomplete',
+    observed.usage_complete ? '' : 'group.credentials.subscription.estimate.usageIncomplete',
+  )
+}
+
+function referenceCostTitle(window: CredentialQuotaWindowDto): string | undefined {
+  const observed = window.observed_usage
+  if (!observed) return undefined
+  return estimateTitles(
+    observed.data_complete ? '' : 'group.credentials.subscription.estimate.dataIncomplete',
+    observed.pricing_complete ? '' : 'group.credentials.subscription.estimate.pricingIncomplete',
+  )
 }
 
 function remainingPercent(window: CredentialQuotaWindowDto): number | undefined {
@@ -390,10 +445,10 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       </AppButton>
     </div>
 
-    <!-- 一行读完「最近跑得怎么样」：计数窗口与 API Key 列表的「近 5 分钟」列同源。
+    <!-- 一行读完「最近跑得怎么样」：最近使用取精确的账号活动时间，结果计数取小时聚合。
          访问凭据到期这类低频信息下沉到诊断信息，不占这一行。 -->
     <div class="subscription-account__meta">
-      <span v-if="lastUsedAtMS" class="subscription-account__meta-last-used">
+      <span v-if="lastUsedAtMS !== undefined" class="subscription-account__meta-last-used">
         {{ t('group.credentials.subscription.lastUsed') }}
         <AppRelativeTime
           :instant="lastUsedAtMS"
@@ -433,7 +488,11 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       </span>
     </div>
 
-    <details v-if="accountQuotaWindows.length" class="subscription-account__estimate">
+    <details
+      v-if="accountQuotaWindows.length"
+      class="subscription-account__estimate"
+      @toggle="loadUsageOnOpen"
+    >
       <summary>
         {{ t('group.credentials.subscription.estimate.title') }} ·
         {{
@@ -449,15 +508,15 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
             <span v-if="usedPercentLabel(window)">{{ usedPercentLabel(window) }}</span>
           </div>
           <dl v-if="window.observed_usage" class="subscription-account__estimate-rows">
-            <div>
+            <div :title="requestCountTitle(window)">
               <dt>{{ t('group.credentials.subscription.estimate.requests') }}</dt>
               <dd>{{ n(window.observed_usage.request_count) }}</dd>
             </div>
-            <div>
+            <div :title="tokenCountTitle(window)">
               <dt>{{ t('group.credentials.subscription.estimate.tokens') }}</dt>
               <dd>{{ formatTokens(window.observed_usage.total_tokens, locale) }}</dd>
             </div>
-            <div>
+            <div :title="referenceCostTitle(window)">
               <dt>{{ t('group.credentials.subscription.estimate.referenceCost') }}</dt>
               <dd class="subscription-account__estimate-money">
                 {{
@@ -469,6 +528,9 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               </dd>
             </div>
           </dl>
+          <p v-else class="subscription-account__estimate-unavailable">
+            {{ t('group.credentials.subscription.estimate.unavailable') }}
+          </p>
         </article>
       </div>
     </details>
@@ -731,6 +793,11 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 .subscription-account__estimate-money {
   color: var(--color-text-muted);
   font-weight: 500;
+}
+.subscription-account__estimate-unavailable {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 .subscription-account__credits {
   display: flex;

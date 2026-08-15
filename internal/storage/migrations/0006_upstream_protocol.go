@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const ID0005 = "0005_upstream_protocol"
+const ID0006 = "0006_upstream_protocol"
 
 const (
 	requestLogAttemptsTable = "request_log_attempts"
@@ -15,34 +15,34 @@ const (
 	upstreamProtocolColumn  = "upstream_protocol"
 )
 
-// Up0005 replaces the historical mixed wire/provider value with the canonical
+// Up0006 replaces the historical mixed wire/provider value with the canonical
 // protocol field. Historical values are intentionally not converted: the new
 // column starts empty while every other attempt field remains intact.
-func Up0005(db *gorm.DB) error {
-	state, err := inspectUpstreamProtocolState0005(db, true)
+func Up0006(db *gorm.DB) error {
+	state, err := inspectUpstreamProtocolState0006(db, true)
 	if err != nil {
 		return err
 	}
 	if !state.hasNew {
 		if err := db.Exec(fmt.Sprintf(
 			"ALTER TABLE %s ADD COLUMN %s varchar(32) NOT NULL DEFAULT ''",
-			quoteIdentifier0005(db, requestLogAttemptsTable),
-			quoteIdentifier0005(db, upstreamProtocolColumn),
+			quoteIdentifier0006(db, requestLogAttemptsTable),
+			quoteIdentifier0006(db, upstreamProtocolColumn),
 		)).Error; err != nil {
 			return fmt.Errorf("add request log upstream protocol: %w", err)
 		}
 	}
-	if err := validateUpstreamProtocolColumn0005(db); err != nil {
+	if err := validateUpstreamProtocolColumn0006(db); err != nil {
 		return err
 	}
-	if err := requireEmptyUpstreamProtocol0005(db); err != nil {
+	if err := requireEmptyUpstreamProtocol0006(db); err != nil {
 		return err
 	}
 	if state.hasOld {
 		if err := db.Exec(fmt.Sprintf(
 			"ALTER TABLE %s DROP COLUMN %s",
-			quoteIdentifier0005(db, requestLogAttemptsTable),
-			quoteIdentifier0005(db, legacyUpstreamAPIColumn),
+			quoteIdentifier0006(db, requestLogAttemptsTable),
+			quoteIdentifier0006(db, legacyUpstreamAPIColumn),
 		)).Error; err != nil {
 			return fmt.Errorf("drop legacy request log upstream API: %w", err)
 		}
@@ -50,18 +50,18 @@ func Up0005(db *gorm.DB) error {
 	return nil
 }
 
-// ValidateRecoverable0005 accepts only the known pre-migration and safe
+// ValidateRecoverable0006 accepts only the known pre-migration and safe
 // interrupted states. In particular, a partial new column must still be empty
 // before MySQL may resume and irreversibly drop the legacy column.
-func ValidateRecoverable0005(db *gorm.DB) error {
-	_, err := inspectUpstreamProtocolState0005(db, true)
+func ValidateRecoverable0006(db *gorm.DB) error {
+	_, err := inspectUpstreamProtocolState0006(db, true)
 	return err
 }
 
-// Validate0005 verifies the final schema. It does not require the column to
+// Validate0006 verifies the final schema. It does not require the column to
 // remain empty because completed migrations may already contain new records.
-func Validate0005(db *gorm.DB) error {
-	state, err := inspectUpstreamProtocolState0005(db, false)
+func Validate0006(db *gorm.DB) error {
+	state, err := inspectUpstreamProtocolState0006(db, false)
 	if err != nil {
 		return err
 	}
@@ -71,22 +71,22 @@ func Validate0005(db *gorm.DB) error {
 	if !state.hasNew {
 		return fmt.Errorf("validate upstream protocol schema: column %q is missing", upstreamProtocolColumn)
 	}
-	return validateUpstreamProtocolColumn0005(db)
+	return validateUpstreamProtocolColumn0006(db)
 }
 
-type upstreamProtocolState0005 struct {
+type upstreamProtocolState0006 struct {
 	hasOld bool
 	hasNew bool
 }
 
-func inspectUpstreamProtocolState0005(db *gorm.DB, requireRecoverable bool) (upstreamProtocolState0005, error) {
+func inspectUpstreamProtocolState0006(db *gorm.DB, requireRecoverable bool) (upstreamProtocolState0006, error) {
 	if db == nil || db.Dialector == nil {
-		return upstreamProtocolState0005{}, fmt.Errorf("inspect upstream protocol schema: database is unavailable")
+		return upstreamProtocolState0006{}, fmt.Errorf("inspect upstream protocol schema: database is unavailable")
 	}
 	if !db.Migrator().HasTable(requestLogAttemptsTable) {
-		return upstreamProtocolState0005{}, fmt.Errorf("inspect upstream protocol schema: table %q is missing", requestLogAttemptsTable)
+		return upstreamProtocolState0006{}, fmt.Errorf("inspect upstream protocol schema: table %q is missing", requestLogAttemptsTable)
 	}
-	state := upstreamProtocolState0005{
+	state := upstreamProtocolState0006{
 		hasOld: db.Migrator().HasColumn(requestLogAttemptsTable, legacyUpstreamAPIColumn),
 		hasNew: db.Migrator().HasColumn(requestLogAttemptsTable, upstreamProtocolColumn),
 	}
@@ -94,11 +94,11 @@ func inspectUpstreamProtocolState0005(db *gorm.DB, requireRecoverable bool) (ups
 		return state, fmt.Errorf("inspect upstream protocol schema: neither legacy nor canonical column exists")
 	}
 	if state.hasNew {
-		if err := validateUpstreamProtocolColumn0005(db); err != nil {
+		if err := validateUpstreamProtocolColumn0006(db); err != nil {
 			return state, err
 		}
 		if requireRecoverable {
-			if err := requireEmptyUpstreamProtocol0005(db); err != nil {
+			if err := requireEmptyUpstreamProtocol0006(db); err != nil {
 				return state, err
 			}
 		}
@@ -106,7 +106,7 @@ func inspectUpstreamProtocolState0005(db *gorm.DB, requireRecoverable bool) (ups
 	return state, nil
 }
 
-func validateUpstreamProtocolColumn0005(db *gorm.DB) error {
+func validateUpstreamProtocolColumn0006(db *gorm.DB) error {
 	columns, err := db.Migrator().ColumnTypes(requestLogAttemptsTable)
 	if err != nil {
 		return fmt.Errorf("inspect upstream protocol column: %w", err)
@@ -128,7 +128,7 @@ func validateUpstreamProtocolColumn0005(db *gorm.DB) error {
 			return fmt.Errorf("validate upstream protocol column: nullable is %t (known=%t), want false", nullable, hasNullable)
 		}
 		defaultValue, hasDefault := column.DefaultValue()
-		if !hasDefault || !isEmptyStringDefault0005(defaultValue) {
+		if !hasDefault || !isEmptyStringDefault0006(defaultValue) {
 			return fmt.Errorf("validate upstream protocol column: default is %q (known=%t), want empty string", defaultValue, hasDefault)
 		}
 		return nil
@@ -136,7 +136,7 @@ func validateUpstreamProtocolColumn0005(db *gorm.DB) error {
 	return fmt.Errorf("validate upstream protocol column: column %q is missing", upstreamProtocolColumn)
 }
 
-func requireEmptyUpstreamProtocol0005(db *gorm.DB) error {
+func requireEmptyUpstreamProtocol0006(db *gorm.DB) error {
 	var count int64
 	if err := db.Table(requestLogAttemptsTable).
 		Where(upstreamProtocolColumn + " IS NULL OR " + upstreamProtocolColumn + " <> ''").
@@ -149,14 +149,14 @@ func requireEmptyUpstreamProtocol0005(db *gorm.DB) error {
 	return nil
 }
 
-func quoteIdentifier0005(db *gorm.DB, value string) string {
+func quoteIdentifier0006(db *gorm.DB, value string) string {
 	if db != nil && db.Dialector != nil && strings.EqualFold(db.Dialector.Name(), "mysql") {
 		return "`" + value + "`"
 	}
 	return `"` + value + `"`
 }
 
-func isEmptyStringDefault0005(value string) bool {
+func isEmptyStringDefault0006(value string) bool {
 	value = strings.TrimSpace(value)
 	for strings.HasPrefix(value, "(") && strings.HasSuffix(value, ")") {
 		value = strings.TrimSpace(value[1 : len(value)-1])

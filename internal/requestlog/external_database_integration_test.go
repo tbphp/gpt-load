@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
 )
 
 // TestExternalDatabaseRequestLogLifecycle covers the request-log write,
@@ -48,6 +49,13 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 	row := aggregationRow(requestID, now.Add(-40*24*time.Hour), groupID, modelID)
 	row.ChannelID = "openai"
 	row.CredentialID = credentialID
+	row.AttemptRows = []models.RequestLogAttempt{{
+		RequestID: row.ID, Sequence: 1, CompletedAtMS: row.CompletedAtMS,
+		GroupID: groupID, GroupName: "external-request-log", ChannelID: row.ChannelID,
+		CredentialID: credentialID, StatusCode: 200,
+		FailureCategory: string(telemetry.FailureCategoryOK),
+		Action:          string(telemetry.ActionTerminate),
+	}}
 	writer := &gormBatchWriter{db: db}
 	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
 		t.Fatalf("first WriteBatch() error = %v", err)
@@ -69,8 +77,24 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 		modelID,
 		1,
 	)
+	assertExternalCredentialAttemptStat(t, db, row.CompletedAtMS, credentialID, 1)
 
 	service := NewService(db, redact.New(), staticRetentionPolicy{days: 1})
+	service.now = func() time.Time { return now }
+	activity, err := service.QueryCredentialActivity(t.Context(), CredentialActivityQuery{
+		CredentialIDs: []uint{credentialID},
+		FromMS:        row.CompletedAtMS,
+		ToMS:          row.CompletedAtMS + int64(time.Hour/time.Millisecond),
+	})
+	if err != nil {
+		t.Fatalf("QueryCredentialActivity() error = %v", err)
+	}
+	credentialActivity := activity[credentialID]
+	if credentialActivity.SuccessCount != 1 || credentialActivity.FailureCount != 0 ||
+		credentialActivity.LastUsedAtMS == nil ||
+		*credentialActivity.LastUsedAtMS != row.CompletedAtMS {
+		t.Fatalf("credential activity = %+v, want one exact successful attempt", credentialActivity)
+	}
 	service.Sweep(context.Background(), now)
 	assertExternalRequestLogCount(t, db, "id = ?", []any{requestID}, 0)
 	assertExternalUsageStatCount(
@@ -84,6 +108,7 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 		modelID,
 		0,
 	)
+	assertExternalCredentialAttemptStat(t, db, row.CompletedAtMS, credentialID, 0)
 	var journals int64
 	if err := db.Model(&models.UsageAggregationJournal{}).
 		Where("request_id = ?", requestID).
@@ -92,6 +117,30 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 	}
 	if journals != 0 {
 		t.Fatalf("usage aggregation journals for %q = %d, want 0", requestID, journals)
+	}
+}
+
+func assertExternalCredentialAttemptStat(
+	t *testing.T,
+	db *gorm.DB,
+	bucketStartMS int64,
+	credentialID uint,
+	wantRows int64,
+) {
+	t.Helper()
+	var rows []models.CredentialAttemptStat
+	if err := db.Where(
+		"bucket_start_ms = ? AND credential_id = ?",
+		bucketStartMS,
+		credentialID,
+	).Find(&rows).Error; err != nil {
+		t.Fatalf("query credential attempt stats: %v", err)
+	}
+	if int64(len(rows)) != wantRows {
+		t.Fatalf("credential attempt stat rows = %+v, want %d", rows, wantRows)
+	}
+	if wantRows == 1 && (rows[0].SuccessCount != 1 || rows[0].FailureCount != 0) {
+		t.Fatalf("credential attempt stat = %+v, want one success", rows[0])
 	}
 }
 

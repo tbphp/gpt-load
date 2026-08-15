@@ -313,6 +313,7 @@ func (recorder *requestRecorder) appendAttempt(
 	}
 	attempt := telemetry.Attempt{
 		Sequence:          len(recorder.attempts) + 1,
+		CompletedAt:       completedAt,
 		GroupID:           selection.GroupID,
 		GroupName:         selection.Group.Name,
 		ChannelID:         selection.ChannelID,

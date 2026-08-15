@@ -460,16 +460,23 @@ func observationWindowRemainingRatio(window ObservationQuotaWindow) (float64, bo
 }
 
 // credentialDailyUsageWindow 是账号卡上「近 24 小时成功/失败」的窗口长度。
-// 取 24 小时是因为 QueryCredentialWindowUsage 在不超过 24 小时时走精确请求日志，
-// 再长就退化成小时聚合，边界会变成近似值。
 const credentialDailyUsageWindow = 24 * time.Hour
 
-func (s *Service) enrichCredentialDailyUsage(
+func (s *Service) enrichCredentialActivities(
 	ctx context.Context,
-	credentialID uint,
-	item *CredentialItemResponse,
+	items []CredentialItemResponse,
 ) {
-	if s == nil || s.credentialWindowUsage == nil || credentialID == 0 || item == nil {
+	if s == nil || s.credentialActivity == nil || len(items) == 0 {
+		return
+	}
+	credentialIDs := make([]uint, 0, len(items))
+	for index := range items {
+		if items[index].ConnectionType == string(models.ConnectionTypeSubscription) &&
+			items[index].CredentialID != 0 {
+			credentialIDs = append(credentialIDs, items[index].CredentialID)
+		}
+	}
+	if len(credentialIDs) == 0 {
 		return
 	}
 	now := s.now().UTC()
@@ -478,21 +485,44 @@ func (s *Service) enrichCredentialDailyUsage(
 	if fromMS < 0 || toMS <= fromMS {
 		return
 	}
-	observed, err := s.credentialWindowUsage.QueryCredentialWindowUsage(ctx, requestlog.CredentialWindowUsageQuery{
-		CredentialID: credentialID,
-		FromMS:       fromMS,
-		ToMS:         toMS,
-		Source:       requestlog.CredentialWindowUsageSourceRequestLogs,
-	})
+	activities, err := s.credentialActivity.QueryCredentialActivity(
+		ctx,
+		requestlog.CredentialActivityQuery{
+			CredentialIDs: credentialIDs,
+			FromMS:        fromMS,
+			ToMS:          toMS,
+		},
+	)
 	if err != nil {
 		return
 	}
-	item.DailyUsage = &CredentialDailyUsageResponse{
-		WindowSeconds: int64(credentialDailyUsageWindow / time.Second),
-		SuccessCount:  observed.SuccessCount,
-		FailureCount:  observed.FailureCount,
-		DataComplete:  observed.DataComplete,
+	for index := range items {
+		activity, exists := activities[items[index].CredentialID]
+		if !exists {
+			continue
+		}
+		items[index].LastUsedAtMS = activity.LastUsedAtMS
+		items[index].DailyUsage = &CredentialDailyUsageResponse{
+			WindowSeconds: int64(credentialDailyUsageWindow / time.Second),
+			SuccessCount:  activity.SuccessCount,
+			FailureCount:  activity.FailureCount,
+			DataComplete:  activity.DataComplete,
+		}
 	}
+}
+
+func (s *Service) enrichCredentialDailyUsage(
+	ctx context.Context,
+	credentialID uint,
+	item *CredentialItemResponse,
+) {
+	if item == nil || credentialID == 0 {
+		return
+	}
+	item.CredentialID = credentialID
+	items := []CredentialItemResponse{*item}
+	s.enrichCredentialActivities(ctx, items)
+	*item = items[0]
 }
 
 func (s *Service) enrichCredentialObservationUsage(
@@ -501,10 +531,14 @@ func (s *Service) enrichCredentialObservationUsage(
 	response *CredentialObservationResponse,
 ) {
 	if s == nil || s.credentialWindowUsage == nil || credentialID == 0 ||
-		response == nil || response.Snapshot == nil {
+		response == nil || response.State != string(models.CredentialObservationFresh) ||
+		response.Snapshot == nil || response.FreshUntilMS == nil {
 		return
 	}
 	nowMS := s.now().UTC().UnixMilli()
+	if *response.FreshUntilMS <= nowMS {
+		return
+	}
 	for index := range response.Snapshot.QuotaWindows {
 		window := &response.Snapshot.QuotaWindows[index]
 		if window.Scope != "account" || window.ResetAtMS == nil ||
@@ -523,15 +557,11 @@ func (s *Service) enrichCredentialObservationUsage(
 		if fromMS >= nowMS {
 			continue
 		}
-		source := requestlog.CredentialWindowUsageSourceRequestLogs
-		if *window.WindowSeconds > int64((24*time.Hour)/time.Second) {
-			source = requestlog.CredentialWindowUsageSourceHourlyStats
-		}
 		observed, err := s.credentialWindowUsage.QueryCredentialWindowUsage(ctx, requestlog.CredentialWindowUsageQuery{
 			CredentialID: credentialID,
 			FromMS:       fromMS,
 			ToMS:         nowMS,
-			Source:       source,
+			Source:       requestlog.CredentialWindowUsageSourceHourlyStats,
 		})
 		if err != nil {
 			continue

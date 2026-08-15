@@ -203,18 +203,20 @@ func TestRefreshCredentialObservationKeepsUsageWhenResetCreditDetailsFail(t *tes
 	}
 }
 
-func TestEnrichCredentialObservationUsageSelectsExactAndHourlySources(t *testing.T) {
+func TestEnrichCredentialObservationUsageUsesHourlyStatsForEveryWindow(t *testing.T) {
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	shortReset := now.Add(2 * time.Hour).UnixMilli()
 	longReset := now.Add(3 * 24 * time.Hour).UnixMilli()
 	modelReset := now.Add(time.Hour).UnixMilli()
+	freshUntil := now.Add(time.Hour).UnixMilli()
 	shortSeconds := int64((5 * time.Hour) / time.Second)
 	longSeconds := int64((7 * 24 * time.Hour) / time.Second)
 	modelSeconds := int64(time.Hour / time.Second)
 	response := CredentialObservationResponse{
-		State: string(models.CredentialObservationFresh),
+		State:        string(models.CredentialObservationFresh),
+		FreshUntilMS: &freshUntil,
 		Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{
 			{ID: "short", Scope: "account", ResetAtMS: &shortReset, WindowSeconds: &shortSeconds},
 			{ID: "long", Scope: "account", ResetAtMS: &longReset, WindowSeconds: &longSeconds},
@@ -236,7 +238,7 @@ func TestEnrichCredentialObservationUsageSelectsExactAndHourlySources(t *testing
 	if len(reader.queries) != 2 {
 		t.Fatalf("usage queries = %#v, want two account windows", reader.queries)
 	}
-	if reader.queries[0].Source != requestlog.CredentialWindowUsageSourceRequestLogs ||
+	if reader.queries[0].Source != requestlog.CredentialWindowUsageSourceHourlyStats ||
 		reader.queries[0].FromMS != shortReset-shortSeconds*1000 ||
 		reader.queries[0].ToMS != now.UnixMilli() {
 		t.Fatalf("short window query = %#v", reader.queries[0])
@@ -253,6 +255,46 @@ func TestEnrichCredentialObservationUsageSelectsExactAndHourlySources(t *testing
 		shortUsage.EstimatedReferenceCostNanoUSD != "29" ||
 		response.Snapshot.QuotaWindows[2].ObservedUsage != nil {
 		t.Fatalf("enriched snapshot = %#v", response.Snapshot)
+	}
+}
+
+func TestEnrichCredentialObservationUsageSkipsNonCurrentObservation(t *testing.T) {
+	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
+	future := now.Add(time.Hour).UnixMilli()
+	expired := now.UnixMilli()
+	resetAt := now.Add(2 * time.Hour).UnixMilli()
+	windowSeconds := int64((5 * time.Hour) / time.Second)
+	tests := []struct {
+		name         string
+		state        string
+		freshUntilMS *int64
+	}{
+		{name: "stale", state: string(models.CredentialObservationStale), freshUntilMS: &future},
+		{name: "error", state: string(models.CredentialObservationError), freshUntilMS: &future},
+		{name: "missing fresh until", state: string(models.CredentialObservationFresh)},
+		{name: "expired", state: string(models.CredentialObservationFresh), freshUntilMS: &expired},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			fixture.service.now = func() time.Time { return now }
+			reader := &recordingCredentialWindowUsageReader{}
+			fixture.service.credentialWindowUsage = reader
+			response := CredentialObservationResponse{
+				State:        test.state,
+				FreshUntilMS: test.freshUntilMS,
+				Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{{
+					ID: "account", Scope: "account", ResetAtMS: &resetAt, WindowSeconds: &windowSeconds,
+				}}},
+			}
+
+			fixture.service.enrichCredentialObservationUsage(t.Context(), 37, &response)
+
+			if len(reader.queries) != 0 || response.Snapshot.QuotaWindows[0].ObservedUsage != nil {
+				t.Fatalf("non-current observation was enriched: queries=%#v response=%#v", reader.queries, response)
+			}
+		})
 	}
 }
 
@@ -428,19 +470,35 @@ func (reader *recordingCredentialWindowUsageReader) QueryCredentialWindowUsage(
 	return result, nil
 }
 
-func TestEnrichCredentialDailyUsageQueriesExactDayWindow(t *testing.T) {
+type recordingCredentialActivityReader struct {
+	queries []requestlog.CredentialActivityQuery
+	result  map[uint]requestlog.CredentialActivity
+	err     error
+}
+
+func (reader *recordingCredentialActivityReader) QueryCredentialActivity(
+	_ context.Context,
+	query requestlog.CredentialActivityQuery,
+) (map[uint]requestlog.CredentialActivity, error) {
+	reader.queries = append(reader.queries, query)
+	return reader.result, reader.err
+}
+
+func TestEnrichCredentialDailyUsageQueriesAttemptActivity(t *testing.T) {
 	fixture, _, _ := newSubscriptionCredentialFixture(t)
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
-	reader := &recordingCredentialWindowUsageReader{}
-	reader.result = requestlog.CredentialWindowUsage{
-		UsageAggregate: requestlog.UsageAggregate{
-			RequestCount: 18, SuccessCount: 15, FailureCount: 3,
+	lastUsedAtMS := now.Add(-time.Minute).UnixMilli()
+	reader := &recordingCredentialActivityReader{result: map[uint]requestlog.CredentialActivity{
+		37: {
+			CredentialID: 37, LastUsedAtMS: &lastUsedAtMS,
+			SuccessCount: 15, FailureCount: 3, DataComplete: true,
 		},
-		DataComplete: true,
+	}}
+	fixture.service.credentialActivity = reader
+	item := CredentialItemResponse{
+		CredentialID: 37, ConnectionType: string(models.ConnectionTypeSubscription),
 	}
-	fixture.service.credentialWindowUsage = reader
-	item := CredentialItemResponse{CredentialID: 37}
 
 	fixture.service.enrichCredentialDailyUsage(t.Context(), 37, &item)
 
@@ -448,25 +506,26 @@ func TestEnrichCredentialDailyUsageQueriesExactDayWindow(t *testing.T) {
 		t.Fatalf("usage queries = %#v, want exactly one day window", reader.queries)
 	}
 	query := reader.queries[0]
-	// 24 小时窗口必须走精确请求日志，走小时聚合会把窗口边界变成近似值。
-	if query.Source != requestlog.CredentialWindowUsageSourceRequestLogs ||
-		query.CredentialID != 37 ||
+	if !reflect.DeepEqual(query.CredentialIDs, []uint{37}) ||
 		query.ToMS != now.UnixMilli() ||
 		query.FromMS != now.Add(-24*time.Hour).UnixMilli() {
 		t.Fatalf("day window query = %#v", query)
 	}
 	if item.DailyUsage == nil || item.DailyUsage.WindowSeconds != 86_400 ||
 		item.DailyUsage.SuccessCount != 15 || item.DailyUsage.FailureCount != 3 ||
-		!item.DailyUsage.DataComplete {
-		t.Fatalf("daily usage = %#v", item.DailyUsage)
+		!item.DailyUsage.DataComplete || item.LastUsedAtMS == nil ||
+		*item.LastUsedAtMS != lastUsedAtMS {
+		t.Fatalf("credential activity = %#v / %#v", item.LastUsedAtMS, item.DailyUsage)
 	}
 }
 
 func TestEnrichCredentialDailyUsageLeavesItemUntouchedOnQueryFailure(t *testing.T) {
 	fixture, _, _ := newSubscriptionCredentialFixture(t)
 	fixture.service.now = func() time.Time { return time.UnixMilli(1_800_000_000_000) }
-	fixture.service.credentialWindowUsage = failingCredentialWindowUsageReader{}
-	item := CredentialItemResponse{CredentialID: 37}
+	fixture.service.credentialActivity = &recordingCredentialActivityReader{err: errors.New("activity unavailable")}
+	item := CredentialItemResponse{
+		CredentialID: 37, ConnectionType: string(models.ConnectionTypeSubscription),
+	}
 
 	fixture.service.enrichCredentialDailyUsage(t.Context(), 37, &item)
 
@@ -475,13 +534,32 @@ func TestEnrichCredentialDailyUsageLeavesItemUntouchedOnQueryFailure(t *testing.
 	}
 }
 
-type failingCredentialWindowUsageReader struct{}
+func TestEnrichCredentialActivitiesBatchesSubscriptionItems(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.UnixMilli(1_800_000_000_000)
+	fixture.service.now = func() time.Time { return now }
+	reader := &recordingCredentialActivityReader{result: map[uint]requestlog.CredentialActivity{
+		37: {CredentialID: 37, SuccessCount: 4, DataComplete: true},
+		39: {CredentialID: 39, FailureCount: 2, DataComplete: true},
+	}}
+	fixture.service.credentialActivity = reader
+	items := []CredentialItemResponse{
+		{CredentialID: 37, ConnectionType: string(models.ConnectionTypeSubscription)},
+		{CredentialID: 38, ConnectionType: string(models.ConnectionTypeAPIKey)},
+		{CredentialID: 39, ConnectionType: string(models.ConnectionTypeSubscription)},
+	}
 
-func (failingCredentialWindowUsageReader) QueryCredentialWindowUsage(
-	_ context.Context,
-	_ requestlog.CredentialWindowUsageQuery,
-) (requestlog.CredentialWindowUsage, error) {
-	return requestlog.CredentialWindowUsage{}, errors.New("request logs unavailable")
+	fixture.service.enrichCredentialActivities(t.Context(), items)
+
+	if len(reader.queries) != 1 ||
+		!reflect.DeepEqual(reader.queries[0].CredentialIDs, []uint{37, 39}) {
+		t.Fatalf("activity queries = %#v, want one subscription batch", reader.queries)
+	}
+	if items[0].DailyUsage == nil || items[0].DailyUsage.SuccessCount != 4 ||
+		items[1].DailyUsage != nil || items[2].DailyUsage == nil ||
+		items[2].DailyUsage.FailureCount != 2 {
+		t.Fatalf("enriched items = %#v", items)
+	}
 }
 
 func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) {

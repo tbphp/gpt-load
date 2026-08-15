@@ -11,15 +11,16 @@ import (
 )
 
 func TestMigrationRegistryContainsOrderedMigrations(t *testing.T) {
-	if len(migrations) != 5 {
-		t.Fatalf("migration registry length = %d, want 5", len(migrations))
-	}
 	wantIDs := []string{
 		migrationfiles.ID0001,
 		migrationfiles.ID0002,
 		migrationfiles.ID0003,
 		migrationfiles.ID0004,
 		migrationfiles.ID0005,
+		migrationfiles.ID0006,
+	}
+	if len(migrations) != len(wantIDs) {
+		t.Fatalf("migration registry length = %d, want %d", len(migrations), len(wantIDs))
 	}
 	for index, entry := range migrations {
 		if entry.ID != wantIDs[index] || entry.Up == nil ||

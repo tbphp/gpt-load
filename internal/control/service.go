@@ -51,6 +51,7 @@ type Service struct {
 	requestLogs                       RequestLogReader
 	usageStats                        UsageStatReader
 	credentialWindowUsage             credentialWindowUsageReader
+	credentialActivity                credentialActivityReader
 	homeStatistics                    HomeStatisticsReader
 	stats                             *health.StatsStore
 	mutations                         credentialMutationCoordinator
@@ -92,6 +93,13 @@ type credentialWindowUsageReader interface {
 		context.Context,
 		requestlog.CredentialWindowUsageQuery,
 	) (requestlog.CredentialWindowUsage, error)
+}
+
+type credentialActivityReader interface {
+	QueryCredentialActivity(
+		context.Context,
+		requestlog.CredentialActivityQuery,
+	) (map[uint]requestlog.CredentialActivity, error)
 }
 
 type credentialMultiMutationCoordinator interface {
@@ -226,6 +234,11 @@ func NewService(
 		service.credentialWindowUsage = reader
 	} else if reader, ok := requestLogs.(credentialWindowUsageReader); ok {
 		service.credentialWindowUsage = reader
+	}
+	if reader, ok := usageStats.(credentialActivityReader); ok {
+		service.credentialActivity = reader
+	} else if reader, ok := requestLogs.(credentialActivityReader); ok {
+		service.credentialActivity = reader
 	}
 	if provider, ok := executor.(channelDefaultBaseURLProvider); ok {
 		service.channelDefaultBaseURLs = provider
