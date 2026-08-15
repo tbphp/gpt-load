@@ -386,10 +386,6 @@ func (s *Service) mapCredentialItem(
 			return CredentialItemResponse{}, app_errors.ParseDBError(result.Error)
 		}
 		item.Observation = presentCredentialObservation(observation, row.IdentityFingerprint, observedAt)
-		s.enrichCredentialObservationUsage(ctx, row.ID, item.Observation)
-		// 单条变更的响应会直接替换前端缓存里的那一行，这里不补齐就会把
-		// 列表上已有的 24 小时计数抹掉。
-		s.enrichCredentialDailyUsage(ctx, row.ID, &item)
 	}
 	return item, nil
 }

@@ -406,12 +406,17 @@ export default {
         quotaExhaustedHint:
           'This account is skipped until quota resets; stale information falls back to the existing scheduler.',
         diagnostics: 'Diagnostics',
+        activity: 'Recent activity',
+        expandDetails: 'Expand statistics',
+        collapseDetails: 'Collapse statistics',
         synced: 'Synced',
         lastUsed: 'Last used',
         freshUntil: 'Information valid until',
         lastError: 'Last sync error',
         estimate: {
-          title: 'Local window usage',
+          title: 'Usage windows',
+          window: 'Window',
+          used: 'Quota used',
           usedPercent: '{value}% used',
           requests: 'Requests',
           tokens: 'Tokens',

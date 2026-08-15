@@ -86,6 +86,8 @@ const credentialsQuery = useQuery(
 const searchDraft = ref(filters.value.q ?? '')
 const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
+const loadedDetails = ref(new Map<number, CredentialItemDto>())
+const detailErrors = ref(new Map<number, string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
@@ -98,10 +100,13 @@ const connectOperationKey = ref<string>()
 const connectFeedback = ref('')
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
+function credentialDisplayName(item: CredentialItemDto): string {
+  return item.account.email ?? item.mask
+}
 const connectionWorkspaceDescription = computed(() =>
   reauthorizationTarget.value
     ? t('group.credentials.subscription.reauthorizeDescription', {
-        account: reauthorizationTarget.value.mask,
+        account: credentialDisplayName(reauthorizationTarget.value),
         id: reauthorizationTarget.value.credential_id,
       })
     : t('group.credentials.subscription.connectDescription'),
@@ -220,6 +225,8 @@ watch(
     connectionWorkspaceOpen.value = false
     connectionStages.value = []
     reauthorizationTarget.value = null
+    loadedDetails.value = new Map()
+    detailErrors.value = new Map()
   },
 )
 watch(
@@ -321,7 +328,29 @@ function pending(id: number): boolean {
   return [...pendingOperations.value].some((value) => value.startsWith(`${id}:`))
 }
 function rowBusy(id: number): boolean {
-  return batchBusy.value || pending(id)
+  return (
+    batchBusy.value ||
+    [...pendingOperations.value].some(
+      (value) => value.startsWith(`${id}:`) && value !== operation(id, 'usage'),
+    )
+  )
+}
+function detailBusy(id: number): boolean {
+  return pendingOperations.value.has(operation(id, 'usage'))
+}
+function detailLoaded(id: number): boolean {
+  return loadedDetails.value.has(id)
+}
+function detailError(id: number): string {
+  return detailErrors.value.get(id) ?? ''
+}
+function clearDetailState(id: number): void {
+  const loaded = new Map(loadedDetails.value)
+  loaded.delete(id)
+  loadedDetails.value = loaded
+  const errors = new Map(detailErrors.value)
+  errors.delete(id)
+  detailErrors.value = errors
 }
 async function resolveCopyValue(id: number): Promise<string> {
   const controller = copyControllers.create()
@@ -357,10 +386,18 @@ function cachedCurrentCredential(id: number): CredentialItemDto | undefined {
     ?.items.find(({ credential_id }) => credential_id === id)
 }
 
-function withPreservedObservedUsage(
+function withPreservedDetail(
   item: CredentialItemDto,
-  sourceObservation: CredentialItemDto['observation'],
+  source: CredentialItemDto,
 ): CredentialItemDto {
+  if (item.secret_version !== source.secret_version) return item
+
+  const preservedItem: CredentialItemDto = {
+    ...item,
+    ...(source.last_used_at_ms === undefined ? {} : { last_used_at_ms: source.last_used_at_ms }),
+    ...(source.daily_usage === undefined ? {} : { daily_usage: source.daily_usage }),
+  }
+  const sourceObservation = source.observation
   const targetObservation = item.observation
   if (
     !targetObservation?.snapshot ||
@@ -368,7 +405,7 @@ function withPreservedObservedUsage(
     targetObservation.observation_version !== sourceObservation.observation_version ||
     targetObservation.observed_at_ms !== sourceObservation.observed_at_ms
   ) {
-    return item
+    return preservedItem
   }
 
   const observedUsageByWindow = new Map(
@@ -376,10 +413,10 @@ function withPreservedObservedUsage(
       window.observed_usage === undefined ? [] : [[window.id, window.observed_usage] as const],
     ),
   )
-  if (observedUsageByWindow.size === 0) return item
+  if (observedUsageByWindow.size === 0) return preservedItem
 
   return {
-    ...item,
+    ...preservedItem,
     observation: {
       ...targetObservation,
       snapshot: {
@@ -393,6 +430,11 @@ function withPreservedObservedUsage(
       },
     },
   }
+}
+
+function credentialWithDetail(item: CredentialItemDto): CredentialItemDto {
+  const detail = loadedDetails.value.get(item.credential_id)
+  return detail === undefined ? item : withPreservedDetail(item, detail)
 }
 
 function synchronizeGroupSummary(summary: CredentialSummaryDto | undefined): void {
@@ -449,8 +491,10 @@ async function refetchActiveCredentialPage(): Promise<void> {
 async function reconcileItem(result: CredentialItemDto, refetchActive: boolean): Promise<void> {
   try {
     const current = cachedCurrentCredential(result.credential_id)
-    const reconciled =
-      current === undefined ? result : withPreservedObservedUsage(result, current.observation)
+    if (current !== undefined && current.secret_version !== result.secret_version) {
+      clearDetailState(result.credential_id)
+    }
+    const reconciled = current === undefined ? result : withPreservedDetail(result, current)
     await cacheCredentialItem(queryClient, props.groupId, reconciled)
     if (refetchActive) {
       await refetchActiveCredentialPage()
@@ -459,7 +503,7 @@ async function reconcileItem(result: CredentialItemDto, refetchActive: boolean):
         await cacheCredentialItem(
           queryClient,
           props.groupId,
-          withPreservedObservedUsage(refreshed, reconciled.observation),
+          withPreservedDetail(refreshed, reconciled),
         )
       }
     }
@@ -485,6 +529,7 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
       props.groupId,
       item.credential_id,
     )
+    clearDetailState(item.credential_id)
     await reconcileItem({ ...item, observation }, true)
   } catch (cause) {
     feedback.value = t(
@@ -496,13 +541,21 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
 }
 
 async function loadCredentialUsage(item: CredentialItemDto): Promise<void> {
-  if (pending(item.credential_id)) return
+  if (batchBusy.value || pending(item.credential_id) || detailLoaded(item.credential_id)) return
+  const errors = new Map(detailErrors.value)
+  errors.delete(item.credential_id)
+  detailErrors.value = errors
   setPending(item.credential_id, 'usage', true)
   try {
     const detail = await getCredentialDetail(client, props.groupId, item.credential_id)
     await cacheCredentialItem(queryClient, props.groupId, detail.credential)
+    const loaded = new Map(loadedDetails.value)
+    loaded.set(item.credential_id, detail.credential)
+    loadedDetails.value = loaded
   } catch {
-    feedback.value = t('group.credentials.loadFailed')
+    const nextErrors = new Map(detailErrors.value)
+    nextErrors.set(item.credential_id, t('group.credentials.loadFailed'))
+    detailErrors.value = nextErrors
   } finally {
     setPending(item.credential_id, 'usage', false)
   }
@@ -628,7 +681,7 @@ async function saveConnectedAccounts(): Promise<void> {
       await reconcileItem(result, true)
       toast.show({
         message: t('group.credentials.subscription.reauthorizeSucceeded', {
-          account: target.mask,
+          account: credentialDisplayName(target),
         }),
         tone: 'success',
       })
@@ -1013,15 +1066,23 @@ async function runBatch(
           <SubscriptionAccountCard
             v-for="item in collection.items"
             :key="item.credential_id"
-            :item="item"
+            :item="credentialWithDetail(item)"
             :busy="rowBusy(item.credential_id)"
+            :detail-busy="detailBusy(item.credential_id)"
+            :detail-loaded="detailLoaded(item.credential_id)"
+            :detail-error="detailError(item.credential_id)"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
             @refresh="refreshObservation"
-            @load-usage="loadCredentialUsage"
+            @load-details="loadCredentialUsage"
             @reset="openResetCreditDialog"
             @reauthorize="openConnectionWorkspace"
-            @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
+            @remove="
+              deleteTarget = {
+                ids: [$event.credential_id],
+                mask: $event.account.email ?? $event.mask,
+              }
+            "
           />
         </div>
         <PaginationBar
@@ -1112,7 +1173,7 @@ async function runBatch(
       :title="t('group.credentials.subscription.consumeResetCreditTitle')"
       :description="
         t('group.credentials.subscription.consumeResetCreditDescription', {
-          account: resetTarget?.item.mask ?? '',
+          account: resetTarget ? credentialDisplayName(resetTarget.item) : '',
         })
       "
       :close-label="t('group.credentials.closeDialog')"

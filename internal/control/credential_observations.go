@@ -276,6 +276,8 @@ func (s *Service) GetCredentialDetail(ctx context.Context, groupID, credentialID
 	if err != nil {
 		return CredentialDetailResponse{}, err
 	}
+	s.enrichCredentialObservationUsage(ctx, credentialID, item.Observation)
+	s.enrichCredentialDailyUsage(ctx, credentialID, &item)
 	observation := observationResponseValue(item.Observation)
 	return CredentialDetailResponse{Credential: item, Observation: observation}, nil
 }

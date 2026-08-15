@@ -134,7 +134,7 @@ const observationStates = ['fresh', 'stale', 'refreshing', 'error', 'unavailable
 const quotaStates = ['available', 'exhausted', 'unknown'] as const
 const canonicalMask = /^(?:\*{4}|.{4}\*{4}.{4})$/u
 const subscriptionMask = /^(?:[^\s@]{1,64}@[^\s@]{1,255}|Subscription #[1-9]\d*)$/u
-const accountFields = ['email_mask', 'expires_at_ms', 'last_refresh_at_ms'] as const
+const accountFields = ['email', 'email_mask', 'expires_at_ms', 'last_refresh_at_ms'] as const
 const observationFields = [
   'state',
   'snapshot',
@@ -232,17 +232,25 @@ function projectMask(value: unknown, connectionType: 'api_key' | 'subscription')
   return mask
 }
 
-function projectAccount(value: unknown): CredentialItemDto['account'] {
+function projectAccount(
+  value: unknown,
+  connectionType: 'api_key' | 'subscription',
+): CredentialItemDto['account'] {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, accountFields)
+  const email = record.email === undefined ? undefined : projectString(record.email)
   const emailMask = record.email_mask === undefined ? undefined : projectString(record.email_mask)
   if (
-    emailMask !== undefined &&
-    (!subscriptionMask.test(emailMask) || emailMask.startsWith('Subscription #'))
+    (connectionType === 'api_key' && (email !== undefined || emailMask !== undefined)) ||
+    (email !== undefined &&
+      (!subscriptionMask.test(email) || email.startsWith('Subscription #'))) ||
+    (emailMask !== undefined &&
+      (!subscriptionMask.test(emailMask) || emailMask.startsWith('Subscription #')))
   ) {
     invalidResponse()
   }
   return {
+    ...(email === undefined ? {} : { email }),
     ...(emailMask === undefined ? {} : { email_mask: emailMask }),
     ...(record.expires_at_ms === undefined
       ? {}
@@ -433,7 +441,7 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
     connection_type: connectionType,
     secret_version: projectSafeInteger(record.secret_version, { minimum: 1 }),
     mask: projectMask(record.mask, connectionType),
-    account: projectAccount(record.account),
+    account: projectAccount(record.account, connectionType),
     auth_state: projectEnum(record.auth_state, authStates),
     ...(record.auth_error_code === undefined
       ? {}
@@ -793,7 +801,12 @@ function queryFilters(queryKey: QueryKey): CredentialCollectionFilters | undefin
 
 function matchesFilters(item: CredentialItemDto, filters: CredentialCollectionFilters): boolean {
   if (filters.status !== undefined && item.effective_status !== filters.status) return false
-  return filters.q === undefined || item.mask.toLowerCase().includes(filters.q.toLowerCase())
+  if (filters.q === undefined) return true
+  const query = filters.q.toLowerCase()
+  return (
+    item.mask.toLowerCase().includes(query) ||
+    item.account.email?.toLowerCase().includes(query) === true
+  )
 }
 
 function withSummaryDelta(

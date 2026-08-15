@@ -776,6 +776,57 @@ func TestSubscriptionCredentialCollectionAndDetailIncludeCachedObservation(t *te
 	}
 }
 
+func TestSubscriptionCredentialCollectionDefersActivityUntilDetailAndExposesEmail(t *testing.T) {
+	t.Parallel()
+
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.UnixMilli(1_800_000_000_000)
+	fixture.service.now = func() time.Time { return now }
+	lastUsedAtMS := now.Add(-2 * time.Minute).UnixMilli()
+	reader := &recordingCredentialActivityReader{result: map[uint]requestlog.CredentialActivity{
+		credentialID: {
+			CredentialID: credentialID, LastUsedAtMS: &lastUsedAtMS,
+			SuccessCount: 12, FailureCount: 3, DataComplete: true,
+		},
+	}}
+	fixture.service.credentialActivity = reader
+
+	collection, err := fixture.service.ListGroupCredentials(
+		t.Context(), groupID, CredentialCollectionQuery{Page: 1, PageSize: 20},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(collection.Items) != 1 {
+		t.Fatalf("collection items = %#v", collection.Items)
+	}
+	if len(reader.queries) != 0 || collection.Items[0].LastUsedAtMS != nil ||
+		collection.Items[0].DailyUsage != nil {
+		t.Fatalf("collection queried or exposed lazy activity = %#v / %#v", reader.queries, collection.Items[0])
+	}
+	encodedAccount, err := json.Marshal(collection.Items[0].Account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var account map[string]any
+	if err := json.Unmarshal(encodedAccount, &account); err != nil {
+		t.Fatal(err)
+	}
+	if account["email"] != "observation@example.com" {
+		t.Fatalf("collection account = %s, want full subscription email", encodedAccount)
+	}
+
+	detail, err := fixture.service.GetCredentialDetail(t.Context(), groupID, credentialID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reader.queries) != 1 || detail.Credential.LastUsedAtMS == nil ||
+		*detail.Credential.LastUsedAtMS != lastUsedAtMS || detail.Credential.DailyUsage == nil ||
+		detail.Credential.DailyUsage.SuccessCount != 12 || detail.Credential.DailyUsage.FailureCount != 3 {
+		t.Fatalf("detail activity = %#v / %#v", reader.queries, detail.Credential)
+	}
+}
+
 func newSubscriptionCredentialFixture(t *testing.T) (serviceFixture, uint, uint) {
 	t.Helper()
 	fixture := newServiceFixture(t)

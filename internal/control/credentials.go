@@ -63,12 +63,19 @@ type CredentialSummaryResponse struct {
 	Disabled    int `json:"disabled"`
 }
 
+type CredentialAccountResponse struct {
+	Email           string `json:"email,omitempty"`
+	EmailMask       string `json:"email_mask,omitempty"`
+	ExpiresAtMS     *int64 `json:"expires_at_ms,omitempty"`
+	LastRefreshAtMS *int64 `json:"last_refresh_at_ms,omitempty"`
+}
+
 type CredentialItemResponse struct {
 	CredentialID            uint                           `json:"credential_id"`
 	ConnectionType          string                         `json:"connection_type"`
 	SecretVersion           uint64                         `json:"secret_version"`
 	Mask                    string                         `json:"mask"`
-	Account                 CredentialStageAccount         `json:"account"`
+	Account                 CredentialAccountResponse      `json:"account"`
 	AuthState               string                         `json:"auth_state"`
 	AuthErrorCode           string                         `json:"auth_error_code,omitempty"`
 	Observation             *CredentialObservationResponse `json:"observation,omitempty"`
@@ -159,17 +166,21 @@ func (s *Service) credentialPresentation(
 	row models.Credential,
 	canonical json.RawMessage,
 	identity string,
-) (string, CredentialStageAccount, error) {
+) (string, CredentialAccountResponse, error) {
 	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
 		driver, driverErr := s.subscriptionDriver(channel.ID(group.ChannelID))
 		if driverErr != nil {
-			return "", CredentialStageAccount{}, driverErr
+			return "", CredentialAccountResponse{}, driverErr
 		}
 		credential, err := driver.Parse(canonical)
 		if err != nil {
-			return "", CredentialStageAccount{}, err
+			return "", CredentialAccountResponse{}, err
 		}
-		account := subscriptionCredentialAccount(credential)
+		stagedAccount := subscriptionCredentialAccount(credential)
+		account := CredentialAccountResponse{
+			Email: strings.TrimSpace(credential.Account().Email), EmailMask: stagedAccount.EmailMask,
+			ExpiresAtMS: stagedAccount.ExpiresAtMS, LastRefreshAtMS: stagedAccount.LastRefreshAtMS,
+		}
 		mask := account.EmailMask
 		if mask == "" {
 			mask = fmt.Sprintf("Subscription #%d", row.ID)
@@ -177,7 +188,7 @@ func (s *Service) credentialPresentation(
 		return mask, account, nil
 	}
 	mask, err := maskCanonicalCredential(canonical)
-	return mask, CredentialStageAccount{}, err
+	return mask, CredentialAccountResponse{}, err
 }
 
 func (s *Service) ImportGroupCredentials(
@@ -244,7 +255,7 @@ func (s *Service) ListGroupCredentials(
 	if err != nil {
 		return CredentialCollectionResponse{}, err
 	}
-	return s.mapCredentialCollection(ctx, observation, query)
+	return s.mapCredentialCollection(observation, query)
 }
 
 func (s *Service) captureCredentials(ctx context.Context, groupID uint) (credentialCapture, error) {
@@ -374,7 +385,6 @@ func (s *Service) decodeCredential(group models.Group, row models.Credential) (j
 }
 
 func (s *Service) mapCredentialCollection(
-	ctx context.Context,
 	observation credentialObservation,
 	query CredentialCollectionQuery,
 ) (CredentialCollectionResponse, error) {
@@ -431,8 +441,6 @@ func (s *Service) mapCredentialCollection(
 	})
 	total := len(filtered)
 	items := credentialCollectionPage(filtered, query.Page, query.PageSize)
-	// 配额窗口的本地用量只在账号详情被展开时读取，避免列表按卡片聚合。
-	s.enrichCredentialActivities(ctx, items)
 	return CredentialCollectionResponse{
 		ObservedAtMS: observedAtMS, StatsWindowSeconds: credentialCollectionStatsWindow,
 		Summary: summary, Items: items,
@@ -462,7 +470,12 @@ func credentialCollectionMatches(record credentialCollectionRecord, query Creden
 	if query.Status != nil && record.item.EffectiveStatus != *query.Status {
 		return false
 	}
-	return query.Query == "" || strings.Contains(strings.ToLower(record.item.Mask), strings.ToLower(query.Query))
+	if query.Query == "" {
+		return true
+	}
+	queryValue := strings.ToLower(query.Query)
+	return strings.Contains(strings.ToLower(record.item.Mask), queryValue) ||
+		strings.Contains(strings.ToLower(record.item.Account.Email), queryValue)
 }
 
 func credentialCollectionPage(records []credentialCollectionRecord, page, pageSize int) []CredentialItemResponse {

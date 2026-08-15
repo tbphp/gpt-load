@@ -409,12 +409,17 @@ export default {
         quotaExhaustedHint:
           '利用枠が回復するまでこのアカウントを自動的に除外し、情報が古い場合は既存のスケジューラに戻します。',
         diagnostics: '診断情報',
+        activity: '最近のアクティビティ',
+        expandDetails: '統計データを展開',
+        collapseDetails: '統計データを折りたたむ',
         synced: '同期',
         lastUsed: '最終利用',
         freshUntil: '情報の有効期限',
         lastError: '最終同期エラー',
         estimate: {
-          title: 'ローカル期間利用量',
+          title: '利用量ウィンドウ',
+          window: '期間',
+          used: '利用済み',
           usedPercent: '使用済み {value}%',
           requests: 'リクエスト',
           tokens: 'トークン',

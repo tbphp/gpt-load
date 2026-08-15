@@ -127,6 +127,7 @@ export type CredentialAuthState =
 export type CredentialObservationState = 'fresh' | 'stale' | 'refreshing' | 'error' | 'unavailable'
 
 export interface CredentialAccountDto {
+  email?: string
   email_mask?: string
   expires_at_ms?: number
   last_refresh_at_ms?: number
