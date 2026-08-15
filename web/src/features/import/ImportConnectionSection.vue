@@ -17,6 +17,7 @@ const emit = defineEmits<{
   'update:name': [value: string]
   'update:param': [key: string, value: string]
   'update:base-url-override': [enabled: boolean]
+  'blur:param': [key: string]
 }>()
 const { t } = useI18n()
 
@@ -40,14 +41,11 @@ function baseURLDescription(): string {
 </script>
 
 <template>
-  <section class="import-connection" aria-labelledby="import-connection-heading">
-    <header>
-      <h2 id="import-connection-heading">{{ t('import.connection.title') }}</h2>
-    </header>
-
+  <div class="import-connection">
     <div class="import-connection__fields">
       <FormField
         id="import-group-name"
+        class="import-connection__name"
         :label="t('import.connection.name')"
         :label-suffix="t('import.optional')"
         size="compact"
@@ -65,87 +63,111 @@ function baseURLDescription(): string {
         </template>
       </FormField>
 
-      <template v-for="param in channel?.param_fields ?? []" :key="param.key">
-        <FormField
-          v-if="isOptionalBaseURL(param.key, param.required)"
-          id="import-channel-base-url-override"
-          :label="t('import.connection.customUrl')"
-          :description="t('import.connection.customUrlDescription')"
-          size="compact"
-        >
-          <template #default>
-            <div class="import-connection__switch-row">
-              <AppSwitch
-                :model-value="baseUrlOverrideEnabled"
-                :disabled="disabled"
-                :label="t('import.connection.customUrl')"
-                @update:model-value="emit('update:base-url-override', $event)"
-              />
-            </div>
-          </template>
-        </FormField>
+      <div v-if="channel?.param_fields.length" class="import-connection__params">
+        <template v-for="param in channel.param_fields" :key="param.key">
+          <FormField
+            v-if="isOptionalBaseURL(param.key, param.required)"
+            id="import-channel-base-url-override"
+            class="import-connection__param import-connection__param--optional-url"
+            :label="t('import.connection.customUrl')"
+            :description="baseURLDescription()"
+            :error="fieldError(param.key)"
+            :required="baseUrlOverrideEnabled"
+            :required-text="t('import.required')"
+            size="compact"
+          >
+            <template #default="field">
+              <div class="import-connection__switch-row">
+                <AppSwitch
+                  id="import-channel-base-url-override"
+                  :model-value="baseUrlOverrideEnabled"
+                  :disabled="disabled"
+                  :label="t('import.connection.customUrl')"
+                  @update:model-value="emit('update:base-url-override', $event)"
+                />
+                <div v-if="baseUrlOverrideEnabled" class="import-connection__url-input">
+                  <input
+                    :id="`import-channel-param-${param.key}`"
+                    class="import-connection__url"
+                    :value="params[param.key] ?? ''"
+                    type="url"
+                    required
+                    :disabled="disabled"
+                    :aria-label="t('import.connection.customUrl')"
+                    :aria-invalid="field.invalid || undefined"
+                    :aria-describedby="field.describedBy"
+                    autocomplete="off"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    placeholder="https://"
+                    @input="
+                      emit('update:param', param.key, ($event.target as HTMLInputElement).value)
+                    "
+                    @blur="emit('blur:param', param.key)"
+                  />
+                </div>
+              </div>
+            </template>
+          </FormField>
 
-        <FormField
-          v-if="!isOptionalBaseURL(param.key, param.required) || baseUrlOverrideEnabled"
-          :id="`import-channel-param-${param.key}`"
-          :class="{
-            'import-connection__field--full': isOptionalBaseURL(param.key, param.required),
-          }"
-          :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
-          :description="param.key === 'base_url' ? baseURLDescription() : undefined"
-          :error="fieldError(param.key)"
-          :required="param.required || (param.key === 'base_url' && baseUrlOverrideEnabled)"
-          :required-text="t('import.required')"
-          size="compact"
-        >
-          <template #default="field">
-            <input
-              :id="`import-channel-param-${param.key}`"
-              class="import-connection__url"
-              :value="params[param.key] ?? ''"
-              :type="param.input_kind === 'url' ? 'url' : 'text'"
-              :disabled="disabled"
-              :aria-invalid="field.invalid || undefined"
-              :aria-describedby="field.describedBy"
-              autocomplete="off"
-              autocapitalize="none"
-              spellcheck="false"
-              @input="emit('update:param', param.key, ($event.target as HTMLInputElement).value)"
-            />
-          </template>
-        </FormField>
-      </template>
+          <FormField
+            v-else
+            :id="`import-channel-param-${param.key}`"
+            class="import-connection__param"
+            :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
+            :description="param.key === 'base_url' ? baseURLDescription() : undefined"
+            :error="fieldError(param.key)"
+            :required="param.required"
+            :required-text="t('import.required')"
+            size="compact"
+          >
+            <template #default="field">
+              <input
+                :id="`import-channel-param-${param.key}`"
+                :class="{ 'import-connection__url': param.input_kind === 'url' }"
+                :value="params[param.key] ?? ''"
+                :type="param.input_kind === 'url' ? 'url' : 'text'"
+                :disabled="disabled"
+                :aria-invalid="field.invalid || undefined"
+                :aria-describedby="field.describedBy"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                :placeholder="param.input_kind === 'url' ? 'https://' : undefined"
+                @input="emit('update:param', param.key, ($event.target as HTMLInputElement).value)"
+                @blur="emit('blur:param', param.key)"
+              />
+            </template>
+          </FormField>
+        </template>
+      </div>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped>
 .import-connection {
   min-width: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: 22px 0 var(--space-6);
-}
-
-.import-connection > header h2 {
-  margin: 0;
-}
-
-.import-connection > header h2 {
-  font-size: var(--title-section);
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  margin-top: var(--space-5);
 }
 
 .import-connection__fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
   align-items: start;
   gap: 18px;
-  margin-top: var(--space-3);
 }
 
-.import-connection__field--full {
-  grid-column: 1 / -1;
+.import-connection__name,
+.import-connection__params,
+.import-connection__param {
+  min-width: 0;
+}
+
+.import-connection__params {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-4);
 }
 
 .import-connection__url {
@@ -156,11 +178,21 @@ function baseURLDescription(): string {
   display: flex;
   min-height: var(--control-xs);
   align-items: center;
+  gap: var(--space-3);
+}
+
+.import-connection__url-input {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 @media (max-width: 860px) {
   .import-connection__fields {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .import-connection__switch-row {
+    min-height: var(--touch-target);
   }
 }
 </style>

@@ -19,6 +19,41 @@ export default {
       new: 'New Group',
       existing: 'Existing Group',
     },
+    steps: {
+      channel: {
+        title: 'Choose a channel',
+        incomplete: 'Complete the required channel settings',
+        summary: '{channel} · {connection}',
+        connectionTypes: {
+          apiKey: 'API key',
+          subscription: 'Subscription account',
+        },
+      },
+      credentials: {
+        apiKeyTitle: 'Add API keys',
+        structuredTitle: 'Enter channel credentials',
+        subscriptionTitle: 'Connect ChatGPT accounts',
+        keyCount: '{count} key(s) entered',
+        credentialCount: '{count} credential(s) entered',
+        needsAttention: 'Credentials need attention',
+      },
+      models: {
+        title: 'Publish models',
+        optionalSummary: 'Models are optional',
+        availableAfterAccount: 'Connect an account to get models from upstream',
+        availableAfterCredentials: 'Enter credentials to get models from upstream',
+        availableAfterChannel: 'Complete channel settings to get models from upstream',
+      },
+      create: {
+        incomplete: 'Complete the required items',
+        creating: 'Creating Group',
+        creatingDescription: 'Credentials and settings are being stored securely',
+        checking: 'Checking the previous operation',
+        checkingDescription: 'Use the status action above to check the result',
+        readyDescription: 'Creates “{name}”; the name can be changed later',
+        unnamedGroup: 'Unnamed Group',
+      },
+    },
     operation: {
       reconciling:
         'The resource was committed and runtime recovery is still in progress; check the result with the same operation',
@@ -56,7 +91,6 @@ export default {
       importFailed: 'Unable to import credentials into the selected Group',
     },
     connection: {
-      title: 'Group details',
       name: 'Group name',
       namePlaceholder: 'Leave blank to use the channel default',
       url: 'Upstream base URL',
@@ -65,8 +99,6 @@ export default {
         'Enter the complete API prefix, for example https://api.example.com/v1',
       urlDescriptionWithDefault: 'Default URL: {url}',
       customUrl: 'Custom upstream URL',
-      customUrlDescription:
-        'Uses the channel preset or SDK official address by default; enable only for a proxy or private deployment',
       urlError: 'Enter a valid HTTP or HTTPS upstream URL',
       paramRequired: 'Enter {name}',
     },
@@ -210,6 +242,7 @@ export default {
       removeFor: 'Remove model {id}',
       empty: 'No models added; you can create the Group now',
       noMatches: 'No models match',
+      resolveErrors: 'Resolve the issues in the model settings',
       conflictSummary: 'Public model names contain exact duplicates',
       emptyAliasSummary: 'An enabled alias has no public model name',
       locateFirstInvalid: 'Go to first issue',

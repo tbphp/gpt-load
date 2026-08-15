@@ -19,6 +19,41 @@ export default {
       new: '新しい Group',
       existing: '既存 Group',
     },
+    steps: {
+      channel: {
+        title: 'チャネルを選択',
+        incomplete: '必須のチャネル設定を完了してください',
+        summary: '{channel} · {connection}',
+        connectionTypes: {
+          apiKey: 'API キー',
+          subscription: 'サブスクリプションアカウント',
+        },
+      },
+      credentials: {
+        apiKeyTitle: 'API キーを追加',
+        structuredTitle: 'チャネル認証情報を入力',
+        subscriptionTitle: 'ChatGPT アカウントを接続',
+        keyCount: 'キー {count} 件を入力済み',
+        credentialCount: '認証情報 {count} 件を入力済み',
+        needsAttention: '認証情報の確認が必要です',
+      },
+      models: {
+        title: 'モデルを公開',
+        optionalSummary: 'モデルは任意です',
+        availableAfterAccount: 'アカウント接続後に上流から取得できます',
+        availableAfterCredentials: '認証情報の入力後に上流から取得できます',
+        availableAfterChannel: 'チャネル設定の完了後に上流から取得できます',
+      },
+      create: {
+        incomplete: '必須項目を完了してください',
+        creating: 'Group を作成中',
+        creatingDescription: '認証情報と設定を安全に保存しています',
+        checking: '前回の操作を確認中',
+        checkingDescription: '上の状態操作から結果を確認してください',
+        readyDescription: '「{name}」を作成します。名前は後から変更できます',
+        unnamedGroup: '名前未設定の Group',
+      },
+    },
     operation: {
       reconciling:
         'リソースはコミット済みで、ランタイムの復旧が続いています — 同じ操作で結果を確認してください',
@@ -54,7 +89,6 @@ export default {
       importFailed: '選択した Group に認証情報をインポートできません',
     },
     connection: {
-      title: 'Group 情報',
       name: 'Group 名',
       namePlaceholder: '空欄の場合はチャネルの既定名を使用します',
       url: 'アップストリームのベース URL',
@@ -63,8 +97,6 @@ export default {
         'https://api.example.com/v1 のように完全な API プレフィックスを入力してください',
       urlDescriptionWithDefault: '既定の URL：{url}',
       customUrl: 'カスタム上流 URL',
-      customUrlDescription:
-        '既定ではチャネル設定または SDK 公式アドレスを使用します。プロキシまたはプライベート配置時のみ有効にしてください',
       urlError: '有効な HTTP または HTTPS のアップストリーム URL を入力してください',
       paramRequired: '{name} を入力してください',
     },
@@ -206,6 +238,7 @@ export default {
       removeFor: 'モデル {id} を削除',
       empty: 'モデルは未追加です — このまま Group を作成できます',
       noMatches: '一致するモデルはありません',
+      resolveErrors: 'モデル設定の問題を修正してください',
       conflictSummary: '公開モデル名に完全一致の重複があります',
       emptyAliasSummary: '有効化されたエイリアスに公開モデル名がありません',
       locateFirstInvalid: '最初の問題へ移動',

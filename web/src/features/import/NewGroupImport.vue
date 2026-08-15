@@ -26,11 +26,12 @@ import {
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { type ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
-import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
+import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
@@ -129,6 +130,9 @@ const draft = reactive<ImportDraft>(
   cloneDraft(operationDraft ?? props.initialDraft ?? defaultDraft),
 )
 const baseUrlOverrideEnabled = ref(Boolean(draft.params.base_url?.trim()))
+const paramTouched = reactive<Record<string, boolean>>({})
+const visibleModelInvalidIndexes = ref<Set<number>>(new Set())
+const revealAllModelErrors = ref(false)
 let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
 const discoveryCandidates = ref<ModelCandidate[]>([])
 const shouldApplyDefaultChannel = ref(!operationDraft && !props.initialDraft)
@@ -229,10 +233,14 @@ const credentialCount = computed(() =>
     : credentialAnalysis.value.nonEmptyCount,
 )
 const connectionChannel = computed<ChannelDto | null>(() => selectedChannel.value)
-// 订阅渠道（Codex）没有连接参数，分组名称又是可选的，因此整块「分组信息」
-// 不再单独占一屏：账号连接前置，名称并入底部创建区。
 const isSubscription = computed(() => draft.connection_type === 'subscription')
-const paramErrors = computed<Record<string, string>>(() => {
+const structuredCredentials = computed(
+  () =>
+    selectedChannel.value !== null &&
+    (selectedChannel.value.credential_fields.length !== 1 ||
+      selectedChannel.value.credential_fields[0]?.key !== 'api_key'),
+)
+const allParamErrors = computed<Record<string, string>>(() => {
   const errors: Record<string, string> = {}
   const channel = connectionChannel.value
   if (!channel) return errors
@@ -248,10 +256,14 @@ const paramErrors = computed<Record<string, string>>(() => {
   }
   return errors
 })
+const paramErrors = computed<Record<string, string>>(() =>
+  Object.fromEntries(Object.entries(allParamErrors.value).filter(([key]) => paramTouched[key])),
+)
+const visibleParamError = computed(() => Object.values(paramErrors.value)[0] ?? '')
 const paramsError = computed(() =>
   selectedChannel.value === null
     ? t('import.presets.channelRequired')
-    : (Object.values(paramErrors.value)[0] ?? ''),
+    : (Object.values(allParamErrors.value)[0] ?? ''),
 )
 const modelConflicts = computed(() =>
   serverModelConflicts.value.length
@@ -259,6 +271,11 @@ const modelConflicts = computed(() =>
     : findModelNameConflicts(toGroupModels(draft.models)),
 )
 const modelValidity = computed(() => modelDraftValidity(draft.models, modelConflicts.value))
+const hasVisibleModelErrors = computed(
+  () =>
+    visibleModelInvalidIndexes.value.size > 0 ||
+    (revealAllModelErrors.value && modelValidity.value.invalidIndexes.size > 0),
+)
 const modelValidationSummary = computed(() =>
   [
     modelConflicts.value.length ? t('import.models.conflictSummary') : '',
@@ -270,7 +287,7 @@ const modelValidationSummary = computed(() =>
 )
 const submissionErrorMessage = computed(
   () =>
-    modelValidationSummary.value ||
+    (hasVisibleModelErrors.value ? modelValidationSummary.value : '') ||
     (credentialValidation.value
       ? t('import.credentials.validation', {
           entry: credentialValidation.value.entry,
@@ -283,19 +300,22 @@ const submissionErrorMessage = computed(
         ? t(errorKey.value)
         : ''),
 )
-// Surfaces the two canCreate gates with no other visible feedback (channel/
-// connection setup, empty credentials). Model and credential-format errors
-// already render their own message via submissionErrorMessage, so they are
-// deliberately left out here to avoid saying the same thing twice.
 const submitBlockedReason = computed(() => {
   if (payloadLocked.value || mutationPending.value) return ''
-  if (paramsError.value) return paramsError.value
+  if (paramsError.value) {
+    if (selectedChannel.value === null) return t('import.presets.channelRequired')
+    return visibleParamError.value || t('import.steps.channel.incomplete')
+  }
   if (credentialCount.value === 0)
     return t(
       draft.connection_type === 'subscription'
         ? 'import.subscription.required'
         : 'import.credentials.required',
     )
+  if (!isSubscription.value && credentialAnalysis.value.tooManyCredentials) {
+    return t('import.credentials.tooMany')
+  }
+  if (modelValidity.value.invalidIndexes.size) return t('import.models.resolveErrors')
   return ''
 })
 const canDiscover = computed(
@@ -330,6 +350,125 @@ const summary = computed(() => {
     credentials: credentialCount.value,
     models,
   })
+})
+
+type ImportStepState = 'pending' | 'active' | 'ready' | 'error' | 'optional'
+
+const connectionTypeLabel = computed(() =>
+  t(
+    isSubscription.value
+      ? 'import.steps.channel.connectionTypes.subscription'
+      : 'import.steps.channel.connectionTypes.apiKey',
+  ),
+)
+const channelStepState = computed<ImportStepState>(() => {
+  if (visibleParamError.value) return 'error'
+  if (selectedChannel.value && !paramsError.value) return 'ready'
+  return 'active'
+})
+const channelStepSummary = computed(() => {
+  if (visibleParamError.value) return visibleParamError.value
+  const channel = selectedChannel.value
+  if (!channel) return ''
+  return t('import.steps.channel.summary', {
+    channel: channel.name,
+    connection: connectionTypeLabel.value,
+  })
+})
+const subscriptionStageError = computed(
+  () =>
+    isSubscription.value &&
+    readyStages.value.length === 0 &&
+    draft.staged_credentials.some(({ status }) =>
+      ['failed', 'cancelled', 'expired', 'outcome_unknown'].includes(status),
+    ),
+)
+const activeSubscriptionStage = computed(() =>
+  draft.staged_credentials.find(
+    ({ status }) => status === 'pending_authorization' || status === 'exchanging',
+  ),
+)
+const credentialStepState = computed<ImportStepState>(() => {
+  if (
+    (!isSubscription.value && credentialAnalysis.value.tooManyCredentials) ||
+    credentialValidation.value !== null ||
+    subscriptionStageError.value
+  ) {
+    return 'error'
+  }
+  if (credentialCount.value > 0) return 'ready'
+  return channelStepState.value === 'ready' ? 'active' : 'pending'
+})
+const credentialStepTitle = computed(() =>
+  t(
+    isSubscription.value
+      ? 'import.steps.credentials.subscriptionTitle'
+      : structuredCredentials.value
+        ? 'import.steps.credentials.structuredTitle'
+        : 'import.steps.credentials.apiKeyTitle',
+  ),
+)
+const credentialStepDescription = computed(() =>
+  t(
+    isSubscription.value
+      ? 'import.subscription.description'
+      : structuredCredentials.value
+        ? 'import.credentials.structuredDescription'
+        : 'import.credentials.description',
+  ),
+)
+const credentialStepSummary = computed(() => {
+  if (!isSubscription.value && credentialAnalysis.value.tooManyCredentials) {
+    return t('import.credentials.tooMany')
+  }
+  if (credentialValidation.value || subscriptionStageError.value) {
+    return t('import.steps.credentials.needsAttention')
+  }
+  if (isSubscription.value && credentialCount.value > 0) {
+    return t('import.subscription.readyCount', { count: credentialCount.value })
+  }
+  if (isSubscription.value && activeSubscriptionStage.value) {
+    return t(`import.subscription.status.${activeSubscriptionStage.value.status}`)
+  }
+  if (credentialCount.value > 0) {
+    return t(
+      structuredCredentials.value
+        ? 'import.steps.credentials.credentialCount'
+        : 'import.steps.credentials.keyCount',
+      { count: credentialCount.value },
+    )
+  }
+  return ''
+})
+const modelStepState = computed<ImportStepState>(() =>
+  hasVisibleModelErrors.value ? 'error' : 'optional',
+)
+const modelStepSummary = computed(() => {
+  if (hasVisibleModelErrors.value) return t('import.models.resolveErrors')
+  if (draft.models.length) return t('import.models.count', { count: draft.models.length })
+  if (paramsError.value) return t('import.steps.models.availableAfterChannel')
+  if (credentialCount.value === 0) {
+    return t(
+      isSubscription.value
+        ? 'import.steps.models.availableAfterAccount'
+        : 'import.steps.models.availableAfterCredentials',
+    )
+  }
+  return t('import.steps.models.optionalSummary')
+})
+const resolvedGroupName = computed(
+  () => draft.name.trim() || selectedChannel.value?.name || t('import.steps.create.unnamedGroup'),
+)
+const createStatusTitle = computed(() => {
+  if (mutationPending.value) return t('import.steps.create.creating')
+  if (payloadLocked.value) return t('import.steps.create.checking')
+  return canCreate.value ? summary.value : t('import.steps.create.incomplete')
+})
+const createStatusDescription = computed(() => {
+  if (mutationPending.value) return t('import.steps.create.creatingDescription')
+  if (payloadLocked.value) return t('import.steps.create.checkingDescription')
+  if (!canCreate.value) return submitBlockedReason.value
+  return t('import.steps.create.readyDescription', { name: resolvedGroupName.value })
 })
 const discoveryError = computed(() => (discoveryErrorKey.value ? t(discoveryErrorKey.value) : ''))
 const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
@@ -519,9 +658,18 @@ function initialChannelParams(channel: ChannelDto): Record<string, string> {
   )
 }
 
+function resetParamTouches(): void {
+  for (const key of Object.keys(paramTouched)) delete paramTouched[key]
+}
+
+function touchChannelParam(key: string): void {
+  paramTouched[key] = true
+}
+
 function selectChannel(channel: ChannelDto): void {
   if (payloadLocked.value) return
   cancelDefaultChannel()
+  resetParamTouches()
   selectedChannelCache.value = channel
   draft.channel_id = channel.channel_id
   draft.connection_type = channel.connection_types[0]!.id
@@ -541,6 +689,7 @@ function setChannelParam(key: string, value: string): void {
 
 function setBaseURLOverride(enabled: boolean): void {
   cancelDefaultChannel()
+  delete paramTouched.base_url
   baseUrlOverrideEnabled.value = enabled
   if (enabled) return
   const params = { ...draft.params }
@@ -672,8 +821,19 @@ function confirmCandidates(selectedCandidates: ModelCandidate[]): void {
   setPanel(undefined)
 }
 
-function addManualModel(): void {
-  void modelEditor.value?.addManual()
+async function addManualModel(): Promise<void> {
+  if (payloadLocked.value) return
+  await modelEditor.value?.addManual()
+}
+
+function updateVisibleModelInvalidIndexes(indexes: Set<number>): void {
+  visibleModelInvalidIndexes.value = new Set(indexes)
+}
+
+async function focusFirstInvalidModel(): Promise<void> {
+  revealAllModelErrors.value = true
+  await nextTick()
+  await modelEditor.value?.focusFirstInvalid()
 }
 
 function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
@@ -788,6 +948,7 @@ async function executeCreateOperation(): Promise<void> {
     const conflicts = readModelNameConflicts(cause.data)
     if (conflicts.length) {
       serverModelConflicts.value = conflicts
+      revealAllModelErrors.value = true
       createOperation.reset()
       await nextTick()
       submissionError.value?.focus()
@@ -950,12 +1111,9 @@ function returnToEdit(): void {
   errorKey.value = ''
 }
 
-watch(
-  () => draft.credentials,
-  () => {
-    credentialValidation.value = null
-  },
-)
+watch([() => draft.channel_id, () => draft.credentials], () => {
+  credentialValidation.value = null
+})
 
 function updateConflictDialog(open: boolean): void {
   if (!open && conflict.value !== null) returnToEdit()
@@ -980,93 +1138,214 @@ onBeforeUnmount(() => {
       @abandon="abandonOperation"
     />
 
-    <ChannelPresetPicker
-      :model-value="draft.channel_id"
-      :channels="allChannels"
-      :selected-channel="selectedChannel"
-      :loading="allChannelsQuery.isFetching.value"
-      :error="allChannelsQuery.isError.value"
-      :disabled="payloadLocked"
-      @select="selectChannel"
-      @retry="retryChannels"
-    />
-
-    <SubscriptionCredentialStager
-      v-if="isSubscription"
-      v-model="draft.staged_credentials"
-      :step="1"
-      context="create"
-      :disabled="payloadLocked"
-    />
-    <template v-else>
-      <ImportConnectionSection
-        :channel="connectionChannel"
-        :name="draft.name"
-        :params="draft.params"
-        :param-errors="paramErrors"
-        :base-url-override-enabled="baseUrlOverrideEnabled"
-        :disabled="payloadLocked"
-        @update:name="draft.name = $event"
-        @update:param="setChannelParam"
-        @update:base-url-override="setBaseURLOverride"
-      />
-
-      <CredentialTextarea
-        v-model="draft.credentials"
-        :channel="selectedChannel"
-        :disabled="payloadLocked"
-      />
-    </template>
-
-    <section class="new-group-import__models" aria-labelledby="import-models-heading">
-      <PanelHeader
-        heading-id="import-models-heading"
-        :step="isSubscription ? 2 : undefined"
-        :title="t('import.models.title')"
-        :description="
-          isSubscription
-            ? t('import.models.descriptionSubscription')
-            : t('import.models.description')
-        "
+    <div class="new-group-import__steps">
+      <section
+        class="new-group-import__step"
+        :data-state="channelStepState"
+        aria-labelledby="import-channel-step-heading"
       >
-        <template #actions>
-          <AppButton
-            variant="secondary"
-            :busy="discoveryLoading"
-            :disabled="!canDiscover"
-            @click="requestDiscovery"
-          >
-            <RefreshCw :size="16" aria-hidden="true" />{{ t('import.discover') }}
-          </AppButton>
-          <AppButton :disabled="payloadLocked" @click="addManualModel">
-            <Plus :size="16" aria-hidden="true" />{{ t('import.models.add') }}
-          </AppButton>
-        </template>
-      </PanelHeader>
+        <PanelHeader
+          heading-id="import-channel-step-heading"
+          :step="1"
+          :title="t('import.steps.channel.title')"
+        >
+          <template #title-suffix>
+            <span class="new-group-import__requirement new-group-import__requirement--required">
+              {{ t('import.required') }}
+            </span>
+          </template>
+          <template v-if="channelStepSummary" #actions>
+            <span
+              class="new-group-import__step-summary"
+              :class="{ 'new-group-import__step-summary--error': visibleParamError }"
+            >
+              <ChannelIcon
+                v-if="selectedChannel && !visibleParamError"
+                :icon="selectedChannel.icon"
+                :mark="selectedChannel.mark"
+              />
+              <span>{{ channelStepSummary }}</span>
+            </span>
+          </template>
+        </PanelHeader>
 
-      <ModelAliasEditor
-        ref="modelEditor"
-        class="new-group-import__model-editor"
-        :model-value="draft.models"
-        :conflicts="modelConflicts"
-        :labels="aliasEditorLabels"
-        :create-row="createManualRow"
-        :disabled="payloadLocked"
-        :search="routeState.modelSearch ?? ''"
-        @update:model-value="updateModels"
-        @update:search="setModelSearch"
-      >
-        <template #third-column="{ item }">
-          <ModelPricingStatus
-            :status="item.pricing_status"
-            :labels="{
-              pending: t('import.models.pricing.pending'),
-              configured: t('import.models.pricing.configured'),
-            }"
+        <div class="new-group-import__step-body">
+          <ChannelPresetPicker
+            :model-value="draft.channel_id"
+            :channels="allChannels"
+            :selected-channel="selectedChannel"
+            :loading="allChannelsQuery.isFetching.value"
+            :error="allChannelsQuery.isError.value"
+            :disabled="payloadLocked"
+            hide-header
+            compact
+            @select="selectChannel"
+            @retry="retryChannels"
           />
-        </template>
-      </ModelAliasEditor>
-    </section>
+
+          <ImportConnectionSection
+            :channel="connectionChannel"
+            :name="draft.name"
+            :params="draft.params"
+            :param-errors="paramErrors"
+            :base-url-override-enabled="baseUrlOverrideEnabled"
+            :disabled="payloadLocked"
+            @update:name="draft.name = $event"
+            @update:param="setChannelParam"
+            @update:base-url-override="setBaseURLOverride"
+            @blur:param="touchChannelParam"
+          />
+        </div>
+      </section>
+
+      <section
+        class="new-group-import__step"
+        :data-state="credentialStepState"
+        aria-labelledby="import-credentials-step-heading"
+      >
+        <PanelHeader
+          heading-id="import-credentials-step-heading"
+          :step="2"
+          :title="credentialStepTitle"
+          :description="credentialStepDescription"
+        >
+          <template #title-suffix>
+            <span class="new-group-import__requirement new-group-import__requirement--required">
+              {{ t('import.required') }}
+            </span>
+          </template>
+          <template v-if="credentialStepSummary" #actions>
+            <span
+              class="new-group-import__step-summary"
+              :class="{ 'new-group-import__step-summary--error': credentialStepState === 'error' }"
+            >
+              {{ credentialStepSummary }}
+            </span>
+          </template>
+        </PanelHeader>
+
+        <div class="new-group-import__step-body">
+          <SubscriptionCredentialStager
+            v-if="isSubscription"
+            v-model="draft.staged_credentials"
+            context="create"
+            :disabled="payloadLocked"
+            hide-header
+            compact
+          />
+          <CredentialTextarea
+            v-else
+            v-model="draft.credentials"
+            :channel="selectedChannel"
+            :disabled="payloadLocked"
+            hide-header
+            compact
+          />
+        </div>
+      </section>
+
+      <section
+        class="new-group-import__step"
+        :data-state="modelStepState"
+        aria-labelledby="import-models-heading"
+      >
+        <PanelHeader
+          heading-id="import-models-heading"
+          :step="3"
+          :title="t('import.steps.models.title')"
+        >
+          <template #title-suffix>
+            <span class="new-group-import__requirement new-group-import__requirement--optional">
+              {{ t('import.optional') }}
+            </span>
+          </template>
+          <template #actions>
+            <span
+              class="new-group-import__step-summary"
+              :class="{ 'new-group-import__step-summary--error': hasVisibleModelErrors }"
+            >
+              {{ modelStepSummary }}
+            </span>
+          </template>
+        </PanelHeader>
+
+        <div
+          id="import-models-content"
+          class="new-group-import__step-body new-group-import__models-body"
+        >
+          <div v-if="draft.models.length === 0" class="new-group-import__models-empty">
+            <span>{{ t('import.models.empty') }}</span>
+            <div class="new-group-import__models-actions">
+              <AppButton
+                variant="secondary"
+                size="sm"
+                :busy="discoveryLoading"
+                :disabled="!canDiscover"
+                @click="requestDiscovery"
+              >
+                <RefreshCw :size="16" aria-hidden="true" />{{ t('import.discover') }}
+              </AppButton>
+              <AppButton
+                variant="secondary"
+                size="sm"
+                :disabled="payloadLocked"
+                @click="addManualModel"
+              >
+                <Plus :size="16" aria-hidden="true" />{{ t('import.models.add') }}
+              </AppButton>
+            </div>
+          </div>
+
+          <div v-if="draft.models.length > 0" class="new-group-import__models-toolbar">
+            <AppButton
+              variant="secondary"
+              size="sm"
+              :busy="discoveryLoading"
+              :disabled="!canDiscover"
+              @click="requestDiscovery"
+            >
+              <RefreshCw :size="16" aria-hidden="true" />{{ t('import.discover') }}
+            </AppButton>
+            <AppButton
+              variant="secondary"
+              size="sm"
+              :disabled="payloadLocked"
+              @click="addManualModel"
+            >
+              <Plus :size="16" aria-hidden="true" />{{ t('import.models.add') }}
+            </AppButton>
+          </div>
+
+          <ModelAliasEditor
+            v-show="draft.models.length > 0"
+            ref="modelEditor"
+            class="new-group-import__model-editor"
+            :model-value="draft.models"
+            :conflicts="modelConflicts"
+            :labels="aliasEditorLabels"
+            :create-row="createManualRow"
+            :disabled="payloadLocked"
+            :search="routeState.modelSearch ?? ''"
+            :addable="false"
+            validation-mode="blur"
+            :show-all-errors="revealAllModelErrors"
+            @update:model-value="updateModels"
+            @update:search="setModelSearch"
+            @visible-validation-change="updateVisibleModelInvalidIndexes"
+          >
+            <template #third-column="{ item }">
+              <ModelPricingStatus
+                :status="item.pricing_status"
+                :labels="{
+                  pending: t('import.models.pricing.pending'),
+                  configured: t('import.models.pricing.configured'),
+                }"
+              />
+            </template>
+          </ModelAliasEditor>
+        </div>
+      </section>
+    </div>
 
     <div
       v-if="submissionErrorMessage"
@@ -1081,7 +1360,7 @@ onBeforeUnmount(() => {
             v-if="modelValidity.invalidIndexes.size"
             variant="link"
             size="inline"
-            @click="modelEditor?.focusFirstInvalid()"
+            @click="focusFirstInvalidModel"
           >
             {{ t('import.models.locateFirstInvalid') }}
           </AppButton>
@@ -1089,40 +1368,25 @@ onBeforeUnmount(() => {
       </InlineFeedback>
     </div>
 
-    <footer
-      class="new-group-import__actions"
-      :class="{ 'new-group-import__actions--subscription': isSubscription }"
+    <StickySaveBar
+      appearance="ledger"
+      always-visible
+      :dirty="!canCreate && !mutationPending"
+      :pending="mutationPending"
+      :status="canCreate ? 'saved' : operationNoticeKey ? 'indeterminate' : 'idle'"
     >
-      <FormField
-        v-if="isSubscription"
-        id="import-group-name"
-        class="new-group-import__name"
-        :label="t('import.connection.name')"
-        :label-suffix="t('import.optional')"
-        size="compact"
-      >
-        <template #default="field">
-          <input
-            id="import-group-name"
-            :value="draft.name"
-            :disabled="payloadLocked"
-            :aria-describedby="field.describedBy"
-            autocomplete="off"
-            :placeholder="t('import.connection.namePlaceholder')"
-            @input="draft.name = ($event.target as HTMLInputElement).value"
-          />
-        </template>
-      </FormField>
-      <div class="new-group-import__summary" aria-live="polite">
-        <strong>{{ summary }}</strong>
-        <span v-if="submitBlockedReason" class="new-group-import__block-reason">
-          {{ submitBlockedReason }}
-        </span>
-      </div>
-      <AppButton size="sm" :busy="mutationPending" :disabled="!canCreate" @click="submitCreate">
-        {{ t('import.create') }}<ArrowRight :size="16" aria-hidden="true" />
-      </AppButton>
-    </footer>
+      <template #status>
+        <div>
+          <strong>{{ createStatusTitle }}</strong>
+          <span v-if="createStatusDescription">{{ createStatusDescription }}</span>
+        </div>
+      </template>
+      <template #save>
+        <AppButton size="sm" :busy="mutationPending" :disabled="!canCreate" @click="submitCreate">
+          {{ t('import.create') }}<ArrowRight :size="16" aria-hidden="true" />
+        </AppButton>
+      </template>
+    </StickySaveBar>
 
     <ModelDiscoveryDrawer
       :open="discoveryDrawerOpen"
@@ -1201,10 +1465,135 @@ onBeforeUnmount(() => {
   margin-top: var(--space-5);
 }
 
-.new-group-import__models {
+.new-group-import__steps,
+.new-group-import__step,
+.new-group-import__step-body {
   min-width: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: 22px 0 var(--space-6);
+}
+
+.new-group-import__step {
+  padding: var(--space-5) 0 var(--space-6);
+}
+
+.new-group-import__step + .new-group-import__step {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.new-group-import__step :deep(.panel-header) {
+  min-height: 22px;
+  align-items: center;
+  margin-bottom: 0;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.new-group-import__step :deep(.panel-header h2) {
+  gap: var(--space-3);
+}
+
+.new-group-import__step :deep(.panel-header p) {
+  margin-left: 34px;
+}
+
+.new-group-import__step :deep(.panel-header__step) {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-faint);
+}
+
+.new-group-import__step[data-state='active'] :deep(.panel-header__step) {
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+}
+
+.new-group-import__step[data-state='ready'] :deep(.panel-header__step) {
+  border-color: color-mix(in srgb, var(--color-success) 34%, var(--color-border-subtle));
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.new-group-import__step[data-state='error'] :deep(.panel-header__step) {
+  border-color: color-mix(in srgb, var(--color-danger) 34%, var(--color-border-subtle));
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.new-group-import__step-body {
+  margin: var(--space-4) 0 0 34px;
+}
+
+.new-group-import__requirement {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-tag);
+  padding: 2px 8px;
+  font-size: var(--text-label-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.new-group-import__requirement--required {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.new-group-import__requirement--optional {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
+}
+
+.new-group-import__step-summary {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.new-group-import__step-summary > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-group-import__step-summary--error {
+  color: var(--color-danger);
+}
+
+.new-group-import__models-body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.new-group-import__models-empty {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px dashed var(--color-border-control);
+  border-radius: var(--radius-control);
+  padding: 14px var(--space-4);
+  color: var(--color-text-faint);
+  font-size: var(--text-meta);
+}
+
+.new-group-import__models-empty > span {
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.new-group-import__models-actions,
+.new-group-import__models-toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 .new-group-import__conflict-groups > div {
@@ -1243,17 +1632,8 @@ onBeforeUnmount(() => {
   font-size: var(--text-label-xs);
 }
 
-.new-group-import__actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  min-height: 64px;
-  padding: var(--space-4) 0 0;
-}
-
 .new-group-import__error {
-  margin-top: var(--space-5);
+  margin-top: var(--space-4);
 }
 
 .new-group-import__error-content {
@@ -1269,68 +1649,58 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-/* 订阅分组只剩一个可选的名称字段，单独开一节太重，直接贴在创建区左侧 */
-.new-group-import__actions--subscription {
-  display: grid;
-  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto;
-  align-items: end;
+.new-group-import :deep(.sticky-save-bar--ledger) {
+  margin-top: var(--space-5);
 }
 
-.new-group-import__name {
-  min-width: 0;
-}
-
-.new-group-import__summary {
-  min-width: 0;
-  min-height: var(--control-sm);
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.new-group-import__summary strong {
-  display: block;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  font-weight: 560;
-}
-
-.new-group-import__block-reason {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  color: var(--color-warning);
-}
-
-.new-group-import__block-reason::before {
-  display: grid;
-  width: 14px;
-  height: 14px;
+.new-group-import :deep(.sticky-save-bar--ledger .sticky-save-bar__actions) {
   flex: none;
-  place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  font-size: 9.5px;
-  font-weight: 700;
-  content: '!';
 }
 
 @media (max-width: 860px) {
-  .new-group-import__actions {
-    align-items: stretch;
-    flex-direction: column;
+  .new-group-import__step :deep(.panel-header__actions) {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: flex-start;
   }
 
-  .new-group-import__actions--subscription {
+  .new-group-import__step-summary {
+    flex: 1 1 auto;
+  }
+
+  .new-group-import__step-body,
+  .new-group-import__step :deep(.panel-header p) {
+    margin-left: 0;
+  }
+
+  .new-group-import__models-actions :deep(.app-button),
+  .new-group-import__models-toolbar :deep(.app-button) {
+    min-height: var(--touch-target);
+  }
+
+  .new-group-import :deep(.sticky-save-bar--ledger .sticky-save-bar__actions) {
+    display: grid;
+    width: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .new-group-import__actions :deep(.app-button) {
-    min-height: var(--touch-target);
+  .new-group-import :deep(.sticky-save-bar--ledger .sticky-save-bar__actions .app-button) {
+    width: 100%;
   }
 }
 
 @media (max-width: 640px) {
+  .new-group-import__models-actions,
+  .new-group-import__models-toolbar {
+    width: 100%;
+  }
+
+  .new-group-import__models-actions :deep(.app-button),
+  .new-group-import__models-toolbar :deep(.app-button) {
+    flex: 1 1 160px;
+  }
+
   .new-group-import__conflict-groups > div {
     align-items: stretch;
     flex-direction: column;

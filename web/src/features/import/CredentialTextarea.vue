@@ -17,6 +17,8 @@ const props = withDefaults(
     storageDescription?: string
     duplicateLabel?: string
     showCredentialNotice?: boolean
+    hideHeader?: boolean
+    compact?: boolean
     rows?: number
   }>(),
   {
@@ -26,6 +28,8 @@ const props = withDefaults(
     storageDescription: undefined,
     duplicateLabel: undefined,
     showCredentialNotice: true,
+    hideHeader: false,
+    compact: false,
     rows: 6,
   },
 )
@@ -86,8 +90,13 @@ const hasInput = computed(() => props.modelValue.trim().length > 0)
 </script>
 
 <template>
-  <section class="credential-entry" aria-labelledby="channel-credentials-heading">
-    <header>
+  <section
+    class="credential-entry"
+    :class="{ 'credential-entry--compact': compact }"
+    :aria-labelledby="hideHeader ? undefined : 'channel-credentials-heading'"
+    :aria-label="hideHeader ? title : undefined"
+  >
+    <header v-if="!hideHeader">
       <h2 id="channel-credentials-heading">{{ title }}</h2>
       <p v-if="showHeaderDescription">{{ description }}</p>
     </header>
@@ -168,6 +177,11 @@ const hasInput = computed(() => props.modelValue.trim().length > 0)
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 22px 0 var(--space-6);
+}
+
+.credential-entry--compact {
+  border-bottom: 0;
+  padding: 0;
 }
 
 .credential-entry > header h2,

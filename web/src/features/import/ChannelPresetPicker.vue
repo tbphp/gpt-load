@@ -14,14 +14,23 @@ import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 
 const FEATURED_CHANNEL_IDS = ['openai', 'codex', 'anthropic', 'gemini', 'openai_compatible']
 
-const props = defineProps<{
-  modelValue: string | null
-  channels: readonly ChannelDto[]
-  selectedChannel: ChannelDto | null
-  loading: boolean
-  error: boolean
-  disabled?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: string | null
+    channels: readonly ChannelDto[]
+    selectedChannel: ChannelDto | null
+    loading: boolean
+    error: boolean
+    disabled?: boolean
+    hideHeader?: boolean
+    compact?: boolean
+  }>(),
+  {
+    disabled: false,
+    hideHeader: false,
+    compact: false,
+  },
+)
 const emit = defineEmits<{
   select: [channel: ChannelDto]
   retry: []
@@ -166,8 +175,13 @@ function onSearchKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <section class="channel-picker" aria-labelledby="channel-picker-heading">
-    <div class="channel-picker__header">
+  <section
+    class="channel-picker"
+    :class="{ 'channel-picker--compact': compact }"
+    :aria-labelledby="hideHeader ? undefined : 'channel-picker-heading'"
+    :aria-label="hideHeader ? t('import.presets.title') : undefined"
+  >
+    <div v-if="!hideHeader" class="channel-picker__header">
       <h2 id="channel-picker-heading">{{ t('import.presets.title') }}</h2>
       <span v-if="selectedChannel" class="channel-picker__current">
         <span class="channel-picker__current-label">{{ t('import.presets.current') }}</span>
@@ -313,6 +327,11 @@ function onSearchKeydown(event: KeyboardEvent): void {
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 22px 0 var(--space-6);
+}
+
+.channel-picker--compact {
+  border-bottom: 0;
+  padding: 0;
 }
 
 .channel-picker__header {

@@ -12,6 +12,7 @@ import IconButton from '@/components/ui/IconButton.vue'
 import {
   modelDraftValidity,
   type ModelAliasEditorLabels,
+  type ModelDraftKey,
   type ModelDraftValue,
   type ModelNameConflict,
 } from './model-draft'
@@ -26,6 +27,8 @@ const props = withDefaults(
     searchable?: boolean
     addable?: boolean
     search?: string
+    validationMode?: 'immediate' | 'blur'
+    showAllErrors?: boolean
   }>(),
   {
     createRow: undefined,
@@ -33,16 +36,21 @@ const props = withDefaults(
     searchable: true,
     addable: true,
     search: undefined,
+    validationMode: 'immediate',
+    showAllErrors: false,
   },
 )
 const emit = defineEmits<{
   'update:modelValue': [value: T[]]
   'update:search': [value: string]
+  'visible-validation-change': [indexes: Set<number>]
 }>()
 
 const instanceId = useId()
 const root = ref<HTMLElement>()
 const internalSearch = ref(props.search ?? '')
+const touchedModelIDs = ref<Set<ModelDraftKey>>(new Set())
+const touchedAliases = ref<Set<ModelDraftKey>>(new Set())
 const searchValue = computed({
   get: () => internalSearch.value,
   set: (value: string) => {
@@ -124,7 +132,63 @@ function modelAliasError(item: ModelDraftValue, index: number): string {
   return validity.value.conflictIndexes.has(index) ? conflictMessage(index) : ''
 }
 
+function visibleModelIDError(item: ModelDraftValue, index: number): string {
+  const error = modelIDError(item, index)
+  if (!error) return ''
+  if (
+    props.validationMode === 'immediate' ||
+    props.showAllErrors ||
+    !item.editable_id ||
+    touchedModelIDs.value.has(item.key)
+  ) {
+    return error
+  }
+  return ''
+}
+
+function visibleModelAliasError(item: ModelDraftValue, index: number): string {
+  const error = modelAliasError(item, index)
+  if (!error) return ''
+  if (
+    props.validationMode === 'immediate' ||
+    props.showAllErrors ||
+    touchedAliases.value.has(item.key)
+  ) {
+    return error
+  }
+  return ''
+}
+
+const visibleInvalidIndexes = computed(
+  () =>
+    new Set(
+      props.modelValue.flatMap((item, index) =>
+        visibleModelIDError(item, index) || visibleModelAliasError(item, index) ? [index] : [],
+      ),
+    ),
+)
+
+watch(visibleInvalidIndexes, (indexes) => emit('visible-validation-change', new Set(indexes)), {
+  immediate: true,
+})
+
+function touchModelID(key: ModelDraftKey): void {
+  if (touchedModelIDs.value.has(key)) return
+  touchedModelIDs.value = new Set(touchedModelIDs.value).add(key)
+}
+
+function touchAlias(key: ModelDraftKey): void {
+  if (touchedAliases.value.has(key)) return
+  touchedAliases.value = new Set(touchedAliases.value).add(key)
+}
+
 async function setAliasEnabled(index: number, enabled: boolean): Promise<void> {
+  const item = props.modelValue[index]
+  if (enabled && item && props.validationMode === 'blur') {
+    const nextTouched = new Set(touchedAliases.value)
+    nextTouched.delete(item.key)
+    touchedAliases.value = nextTouched
+  }
   updateRow(index, { alias_enabled: enabled })
   if (!enabled) return
 
@@ -136,15 +200,20 @@ async function focusFirstInvalid(): Promise<void> {
   const index = Math.min(...validity.value.invalidIndexes)
   if (!Number.isFinite(index)) return
   searchValue.value = ''
-  await nextTick()
   const item = props.modelValue[index]
-  const selector =
+  const targetsModelID =
     validity.value.emptyIDIndexes.has(index) ||
     (validity.value.conflictIndexes.has(index) && item?.editable_id && !item.alias_enabled)
-      ? `[data-model-id-index="${index}"]`
-      : item?.alias_enabled
-        ? `[data-alias-input-index="${index}"]`
-        : `[data-alias-toggle-index="${index}"]`
+  if (item) {
+    if (targetsModelID) touchModelID(item.key)
+    else if (item.alias_enabled) touchAlias(item.key)
+  }
+  await nextTick()
+  const selector = targetsModelID
+    ? `[data-model-id-index="${index}"]`
+    : item?.alias_enabled
+      ? `[data-alias-input-index="${index}"]`
+      : `[data-alias-toggle-index="${index}"]`
   root.value?.querySelector<HTMLInputElement>(selector)?.focus()
 }
 
@@ -187,7 +256,7 @@ defineExpose({ addManual, focusFirstInvalid })
         v-for="({ item, index }, visibleIndex) in visibleRows"
         :key="item.key"
         class="ledger-record-list__record model-alias-editor__record"
-        :class="{ 'model-alias-editor__record--invalid': validity.invalidIndexes.has(index) }"
+        :class="{ 'model-alias-editor__record--invalid': visibleInvalidIndexes.has(index) }"
         role="row"
         :aria-rowindex="visibleIndex + 2"
       >
@@ -196,7 +265,7 @@ defineExpose({ addManual, focusFirstInvalid })
           <CompactFieldError
             :id="`${instanceId}-model-id-${index}`"
             class="model-alias-editor__id-field"
-            :error="modelIDError(item, index)"
+            :error="visibleModelIDError(item, index)"
           >
             <template #default="{ invalid, describedBy }">
               <AppTextInput
@@ -214,6 +283,7 @@ defineExpose({ addManual, focusFirstInvalid })
                 :spellcheck="false"
                 :disabled="disabled"
                 @update:model-value="updateRow(index, { id: $event })"
+                @blur="touchModelID(item.key)"
               />
               <code v-else :aria-describedby="describedBy">{{ item.id }}</code>
             </template>
@@ -240,7 +310,7 @@ defineExpose({ addManual, focusFirstInvalid })
               v-if="item.alias_enabled"
               :id="`${instanceId}-model-alias-${index}`"
               class="model-alias-editor__alias-field"
-              :error="modelAliasError(item, index)"
+              :error="visibleModelAliasError(item, index)"
             >
               <template #default="{ invalid, describedBy }">
                 <AppTextInput
@@ -256,6 +326,7 @@ defineExpose({ addManual, focusFirstInvalid })
                   :data-alias-input-index="index"
                   :spellcheck="false"
                   @update:model-value="updateRow(index, { alias: $event })"
+                  @blur="touchAlias(item.key)"
                 />
               </template>
             </CompactFieldError>

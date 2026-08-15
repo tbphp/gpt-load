@@ -15,7 +15,8 @@ defineProps<{
         <span v-if="step !== undefined" class="panel-header__step" aria-hidden="true">
           {{ step }}
         </span>
-        {{ title }}
+        <span class="panel-header__title">{{ title }}</span>
+        <slot name="title-suffix" />
       </h2>
       <p v-if="description">{{ description }}</p>
     </div>
@@ -49,6 +50,10 @@ defineProps<{
   font-size: var(--title-section);
   font-weight: 650;
   letter-spacing: -0.01em;
+}
+
+.panel-header__title {
+  min-width: 0;
 }
 
 .panel-header__step {
