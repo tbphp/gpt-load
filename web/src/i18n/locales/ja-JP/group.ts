@@ -381,6 +381,8 @@ export default {
         reauthorizeSucceeded: '{account} の認証を更新しました',
         sync: '同期',
         dailyWindow: '直近 24 時間',
+        dailySuccess: '成功',
+        dailyFailure: '失敗',
         dailyIncomplete:
           'リクエストログの保持期間が 24 時間未満のため、件数が少なく出る場合があります',
         syncFailed: 'アカウント情報を同期できません',

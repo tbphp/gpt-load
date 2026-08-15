@@ -8,6 +8,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatTokens } from '@/lib/format'
 
@@ -155,14 +156,6 @@ const authIssue = computed(() => {
 //（后者重启即清零，是给调度判定用的）。始终并排给出成功与失败：失败 0 本身是
 // 信息，也让这一行宽度稳定。
 const dailyUsage = computed(() => props.item.daily_usage)
-const dailyLabel = computed(() =>
-  dailyUsage.value
-    ? t('group.credentials.recent', {
-        success: n(dailyUsage.value.success_count),
-        failure: n(dailyUsage.value.failure_count),
-      })
-    : '',
-)
 // 请求日志留存短于 24 小时时计数会偏低，只用 title 提示，不占版面。
 const dailyIncompleteHint = computed(() =>
   dailyUsage.value && !dailyUsage.value.data_complete
@@ -316,10 +309,15 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 
     <div v-if="quotaWindows.length" class="subscription-account__quotas">
       <div v-for="window in quotaWindows" :key="window.id" class="subscription-account__quota">
-        <span class="subscription-account__quota-name">{{ window.label }}</span>
+        <OverflowTooltip class="subscription-account__quota-name" :content="window.label">
+          {{ window.label }}
+        </OverflowTooltip>
         <span
           v-if="remainingPercent(window) !== undefined"
           class="subscription-account__quota-track"
+          :class="
+            quotaTone(window) ? `subscription-account__quota-track--${quotaTone(window)}` : ''
+          "
           role="progressbar"
           :aria-label="window.label"
           :aria-valuenow="remainingPercent(window)"
@@ -395,13 +393,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
     <!-- 一行读完「最近跑得怎么样」：计数窗口与 API Key 列表的「近 5 分钟」列同源。
          访问凭据到期这类低频信息下沉到诊断信息，不占这一行。 -->
     <div class="subscription-account__meta">
-      <template v-if="dailyLabel">
-        <span class="subscription-account__meta-window">
-          {{ t('group.credentials.subscription.dailyWindow') }}
-        </span>
-        <span :title="dailyIncompleteHint">{{ dailyLabel }}</span>
-      </template>
-      <span v-if="lastUsedAtMS">
+      <span v-if="lastUsedAtMS" class="subscription-account__meta-last-used">
         {{ t('group.credentials.subscription.lastUsed') }}
         <AppRelativeTime
           :instant="lastUsedAtMS"
@@ -410,7 +402,27 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           hint
         />
       </span>
-      <span>
+      <span v-if="dailyUsage" class="subscription-account__meta-daily">
+        <span class="subscription-account__meta-window">
+          {{ t('group.credentials.subscription.dailyWindow') }}
+        </span>
+        <span class="subscription-account__daily-outcomes" :title="dailyIncompleteHint">
+          <span>
+            {{ t('group.credentials.subscription.dailySuccess') }}
+            <strong class="subscription-account__daily-success">{{
+              n(dailyUsage.success_count)
+            }}</strong>
+          </span>
+          <span class="subscription-account__daily-separator" aria-hidden="true">·</span>
+          <span>
+            {{ t('group.credentials.subscription.dailyFailure') }}
+            <strong class="subscription-account__daily-failure">{{
+              n(dailyUsage.failure_count)
+            }}</strong>
+          </span>
+        </span>
+      </span>
+      <span class="subscription-account__meta-sync">
         {{ t('group.credentials.subscription.synced') }}
         <AppRelativeTime
           :instant="observation?.observed_at_ms ?? null"
@@ -586,7 +598,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 }
 .subscription-account__quota {
   display: grid;
-  grid-template-columns: minmax(88px, 0.22fr) minmax(0, 1fr) minmax(56px, auto) minmax(90px, auto);
+  grid-template-columns: minmax(80px, 112px) minmax(0, 1fr) max-content max-content;
   align-items: center;
   gap: var(--space-3);
 }
@@ -602,21 +614,29 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   position: relative;
   height: 7px;
   border-radius: 999px;
-  background: var(--color-surface-sunken);
-  box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+  background: light-dark(#e9edf1, #29313a);
   overflow: hidden;
+}
+.subscription-account__quota-track--success {
+  background: light-dark(#dff6e6, #1b3c29);
+}
+.subscription-account__quota-track--warning {
+  background: light-dark(#fff4cc, #3b310f);
+}
+.subscription-account__quota-track--danger {
+  background: light-dark(#ffe5e8, #421d25);
 }
 .subscription-account__quota-fill {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: inherit;
-  background: var(--color-success);
+  background: #42be65;
 }
 .subscription-account__quota-fill--warning {
-  background: var(--color-warning);
+  background: #f1c21b;
 }
 .subscription-account__quota-fill--danger {
-  background: var(--color-danger);
+  background: #fa4d56;
 }
 .subscription-account__quota-track--unknown {
   background: repeating-linear-gradient(
@@ -804,16 +824,17 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 .subscription-account__menu button.subscription-account__menu-danger:hover:not(:disabled) {
   background: var(--color-danger-bg);
 }
-/* 目标是一行读完，所以内容压到最短、间距收紧；极端窄宽下允许换行而不是裁切 */
+/* 左右是时间信息，中间保留最重要的近 24 小时结果；窄屏再换行避免压缩数字。 */
 .subscription-account__meta {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-2) var(--space-4);
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
 .subscription-account__meta > span {
+  min-width: 0;
   white-space: nowrap;
 }
 .subscription-account__meta-window {
@@ -821,6 +842,43 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   background: var(--color-surface-sunken);
   padding: 1px 6px;
   font-size: var(--text-label-xs);
+}
+.subscription-account__meta-last-used {
+  justify-self: start;
+}
+.subscription-account__meta-daily {
+  display: inline-flex;
+  justify-self: center;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.subscription-account__daily-outcomes,
+.subscription-account__daily-outcomes > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+.subscription-account__daily-outcomes {
+  color: var(--color-text-faint);
+}
+.subscription-account__daily-outcomes strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+.subscription-account__daily-success {
+  color: var(--color-success);
+}
+.subscription-account__daily-failure {
+  color: var(--color-danger);
+}
+.subscription-account__daily-outcomes > .subscription-account__daily-separator {
+  color: var(--color-text-faint);
+}
+.subscription-account__meta-sync {
+  grid-column: 3;
+  justify-self: end;
 }
 .subscription-account__diagnostics-grid {
   display: grid;
@@ -868,11 +926,28 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 }
 @media (max-width: 640px) {
   .subscription-account__quota {
-    grid-template-columns: minmax(76px, 0.3fr) minmax(0, 1fr) minmax(50px, auto);
+    grid-template-columns: minmax(80px, 104px) minmax(0, 1fr) max-content;
   }
   .subscription-account__quota-reset {
     grid-column: 1 / -1;
     text-align: left;
+  }
+  .subscription-account__meta {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+  .subscription-account__meta-daily {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+  }
+  .subscription-account__meta-last-used {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .subscription-account__meta-sync {
+    grid-column: 2;
+    grid-row: 2;
   }
   .subscription-account__top :deep(.app-button),
   .subscription-account__top :deep(.icon-button) {

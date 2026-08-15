@@ -368,6 +368,8 @@ export default {
         reauthorizeSucceeded: '已更新 {account} 的授权',
         sync: '同步',
         dailyWindow: '近 24 小时',
+        dailySuccess: '成功',
+        dailyFailure: '失败',
         dailyIncomplete: '请求日志留存期短于 24 小时，计数可能偏低',
         syncFailed: '无法同步账号信息',
         moreActions: '更多操作',

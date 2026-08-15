@@ -379,6 +379,8 @@ export default {
         reauthorizeSucceeded: 'Authorization updated for {account}',
         sync: 'Sync',
         dailyWindow: 'Last 24 hours',
+        dailySuccess: 'Success',
+        dailyFailure: 'Failure',
         dailyIncomplete:
           'Request logs are retained for less than 24 hours, so the counts may be low',
         syncFailed: 'Unable to sync account information',
