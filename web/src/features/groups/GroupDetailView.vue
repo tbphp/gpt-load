@@ -117,14 +117,8 @@ watch(
 <style scoped>
 .group-detail-page {
   display: grid;
-  min-height: 760px;
   align-content: start;
   gap: 0;
-}
-@media (max-width: 800px) {
-  .group-detail-page {
-    min-height: 0;
-  }
 }
 .group-detail-invalid {
   display: grid;
