@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"strings"
 
-	"gpt-load/internal/channel/modules"
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
 type compiledExtensions struct {
-	paramsNormalizers    map[modules.ParamsNormalizerID]modules.ParamsNormalizer
-	credentialValidators map[modules.CredentialValidatorID]modules.CredentialValidator
-	routeResolvers       map[modules.RouteResolverID]modules.RouteResolver
+	paramsNormalizers    map[spec.ParamsNormalizerID]spec.ParamsNormalizer
+	credentialValidators map[spec.CredentialValidatorID]spec.CredentialValidator
+	routeResolvers       map[spec.RouteResolverID]spec.RouteResolver
 }
 
-func compileBuiltInModules(channelModules []modules.Module) ([]definition, error) {
+func compileBuiltInModules(channelModules []spec.Module) ([]definition, error) {
 	definitions := make([]definition, 0, len(channelModules))
 	for _, channelModule := range channelModules {
 		extensions, err := compileModuleExtensions(channelModule)
@@ -32,11 +32,11 @@ func compileBuiltInModules(channelModules []modules.Module) ([]definition, error
 	return definitions, nil
 }
 
-func compileModuleExtensions(channelModule modules.Module) (compiledExtensions, error) {
+func compileModuleExtensions(channelModule spec.Module) (compiledExtensions, error) {
 	result := compiledExtensions{
-		paramsNormalizers:    make(map[modules.ParamsNormalizerID]modules.ParamsNormalizer),
-		credentialValidators: make(map[modules.CredentialValidatorID]modules.CredentialValidator),
-		routeResolvers:       make(map[modules.RouteResolverID]modules.RouteResolver),
+		paramsNormalizers:    make(map[spec.ParamsNormalizerID]spec.ParamsNormalizer),
+		credentialValidators: make(map[spec.CredentialValidatorID]spec.CredentialValidator),
+		routeResolvers:       make(map[spec.RouteResolverID]spec.RouteResolver),
 	}
 	for id, extension := range channelModule.Extensions.ParamsNormalizers {
 		if id == "" || extension == nil {
@@ -56,7 +56,7 @@ func compileModuleExtensions(channelModule modules.Module) (compiledExtensions, 
 		}
 		result.credentialValidators[id] = extension
 	}
-	referencedResolvers := make(map[modules.RouteResolverID]struct{})
+	referencedResolvers := make(map[spec.RouteResolverID]struct{})
 	for _, route := range channelModule.Definition.Routes {
 		if route.Resolver != "" {
 			referencedResolvers[route.Resolver] = struct{}{}
@@ -74,7 +74,7 @@ func compileModuleExtensions(channelModule modules.Module) (compiledExtensions, 
 	return result, nil
 }
 
-func compileModule(source modules.Definition, extensions compiledExtensions) (definition, error) {
+func compileModule(source spec.Definition, extensions compiledExtensions) (definition, error) {
 	id := string(source.ID)
 	if id == "" || strings.Trim(id, "abcdefghijklmnopqrstuvwxyz0123456789_") != "" ||
 		strings.HasPrefix(id, "_") || strings.HasSuffix(id, "_") {
@@ -158,18 +158,18 @@ func compileModule(source modules.Definition, extensions compiledExtensions) (de
 	}, nil
 }
 
-func validateConnection(source modules.Definition) error {
+func validateConnection(source spec.Definition) error {
 	id := source.ID
 	connection := source.Connection
 	switch connection.Type {
-	case modules.ConnectionAPIKey:
+	case spec.ConnectionAPIKey:
 		if connection.CredentialInput != "batch_text" || len(connection.AuthorizationMethods) != 0 {
 			return fmt.Errorf("channel %q has invalid API key connection", id)
 		}
 		if source.Capabilities.SubscriptionDriver != "" {
 			return fmt.Errorf("channel %q binds a subscription driver to an API key connection", id)
 		}
-	case modules.ConnectionSubscription:
+	case spec.ConnectionSubscription:
 		if connection.CredentialInput != "authorization" || len(connection.AuthorizationMethods) == 0 {
 			return fmt.Errorf("channel %q has invalid subscription connection", id)
 		}
@@ -192,7 +192,7 @@ func validateConnection(source modules.Definition) error {
 	return nil
 }
 
-func compileSchema(channelID string, name string, fields []modules.Field) (objectSchema, error) {
+func compileSchema(channelID string, name string, fields []spec.Field) (objectSchema, error) {
 	result := make(objectSchema, 0, len(fields))
 	seen := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
@@ -203,10 +203,10 @@ func compileSchema(channelID string, name string, fields []modules.Field) (objec
 			return nil, fmt.Errorf("channel %q has duplicate %s field %q", channelID, name, field.Key)
 		}
 		seen[field.Key] = struct{}{}
-		if field.InputKind != modules.InputText && field.InputKind != modules.InputURL && field.InputKind != modules.InputSecret {
+		if field.InputKind != spec.InputText && field.InputKind != spec.InputURL && field.InputKind != spec.InputSecret {
 			return nil, fmt.Errorf("channel %q has invalid %s field %q input kind", channelID, name, field.Key)
 		}
-		if field.Sensitive != (field.InputKind == modules.InputSecret) {
+		if field.Sensitive != (field.InputKind == spec.InputSecret) {
 			return nil, fmt.Errorf("channel %q has inconsistent %s field %q sensitivity", channelID, name, field.Key)
 		}
 		if field.Sensitive && field.Default != "" {
@@ -237,7 +237,7 @@ func compileSchema(channelID string, name string, fields []modules.Field) (objec
 
 func resolveParamsNormalizer(
 	channelID string,
-	id modules.ParamsNormalizerID,
+	id spec.ParamsNormalizerID,
 	extensions compiledExtensions,
 ) (func(json.RawMessage) (map[string]string, error), error) {
 	if id == "" {
@@ -258,7 +258,7 @@ func resolveParamsNormalizer(
 
 func resolveCredentialValidator(
 	channelID string,
-	id modules.CredentialValidatorID,
+	id spec.CredentialValidatorID,
 	extensions compiledExtensions,
 ) (func(map[string]string) error, error) {
 	if id == "" {
@@ -278,11 +278,11 @@ func resolveCredentialValidator(
 
 func compileRoutes(
 	channelID string,
-	routes []modules.Route,
+	routes []spec.Route,
 	extensions compiledExtensions,
 ) (
 	map[protocol.Protocol]map[execution.Operation]RouteMode,
-	map[routeKey]modules.RouteResolver,
+	map[routeKey]spec.RouteResolver,
 	[]RouteDescriptor,
 	error,
 ) {
@@ -290,7 +290,7 @@ func compileRoutes(
 		return nil, nil, nil, fmt.Errorf("channel %q has no routes", channelID)
 	}
 	modes := make(map[protocol.Protocol]map[execution.Operation]RouteMode)
-	resolvers := make(map[routeKey]modules.RouteResolver)
+	resolvers := make(map[routeKey]spec.RouteResolver)
 	public := make([]RouteDescriptor, 0, len(routes))
 	seen := make(map[routeKey]struct{}, len(routes))
 	for _, candidate := range routes {
@@ -381,26 +381,26 @@ func isResponsesLifecycle(operation execution.Operation) bool {
 	}
 }
 
-func validateTargetPolicy(source modules.Definition, params objectSchema) error {
+func validateTargetPolicy(source spec.Definition, params objectSchema) error {
 	id := source.ID
 	switch source.Provider.EndpointPolicy {
-	case modules.EndpointSDKDefault:
+	case spec.EndpointSDKDefault:
 		if source.Provider.FixedBaseURL != "" {
 			return fmt.Errorf("channel %q combines SDK and fixed endpoints", id)
 		}
-	case modules.EndpointFixedWithOverride:
+	case spec.EndpointFixedWithOverride:
 		if source.Provider.FixedBaseURL == "" || !schemaHasField(params, "base_url", false) {
 			return fmt.Errorf("channel %q has an invalid fixed endpoint policy", id)
 		}
-	case modules.EndpointRequiredBaseURL:
+	case spec.EndpointRequiredBaseURL:
 		if source.Provider.FixedBaseURL != "" || !schemaHasField(params, "base_url", true) {
 			return fmt.Errorf("channel %q has an invalid required endpoint policy", id)
 		}
-	case modules.EndpointCloudParams:
+	case spec.EndpointCloudParams:
 		if source.Provider.FixedBaseURL != "" || len(params) == 0 {
 			return fmt.Errorf("channel %q has an invalid cloud endpoint policy", id)
 		}
-	case modules.EndpointNone:
+	case spec.EndpointNone:
 		if source.Provider.FixedBaseURL != "" || len(params) != 0 {
 			return fmt.Errorf("channel %q has target params for an endpoint-less provider", id)
 		}
@@ -419,13 +419,13 @@ func schemaHasField(schema objectSchema, key string, required bool) bool {
 	return false
 }
 
-func cloneConnection(source modules.Connection) modules.Connection {
+func cloneConnection(source spec.Connection) spec.Connection {
 	source.AuthorizationMethods = append([]string(nil), source.AuthorizationMethods...)
 	return source
 }
 
-func cloneCapabilityBindings(source modules.CapabilityBindings) modules.CapabilityBindings {
-	source.Actions = append([]modules.ActionID(nil), source.Actions...)
+func cloneCapabilityBindings(source spec.CapabilityBindings) spec.CapabilityBindings {
+	source.Actions = append([]spec.ActionID(nil), source.Actions...)
 	return source
 }
 

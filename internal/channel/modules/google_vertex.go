@@ -3,45 +3,49 @@ package modules
 import (
 	"strings"
 
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
-const vertexGeminiRouteResolver RouteResolverID = "vertex_gemini_native"
+const vertexGeminiRouteResolver spec.RouteResolverID = "vertex_gemini_native"
 
-func googleVertexModule() Module {
-	return Module{
-		Definition: Definition{
-			ID:          GoogleVertex,
+func GoogleVertex() spec.Module {
+	return spec.Module{
+		Definition: spec.Definition{
+			ID:          spec.GoogleVertex,
 			Name:        "Google Vertex AI",
 			Mark:        "VX",
 			Icon:        "vertexai",
 			SearchTerms: []string{"google", "gcp", "vertex"},
 			Description: "Google Cloud Vertex AI",
-			Connection:  apiKeyConnection(),
-			Params: []Field{{
-				Key: "location", Label: "Vertex location", InputKind: InputText,
-				Default: "global", Normalizer: normalizeCloudIdentifier,
-			}},
-			Credentials: []Field{{
-				Key: "service_account_json", Label: "Service account JSON", InputKind: InputSecret,
-				Required: true, Sensitive: true, Normalizer: normalizeServiceAccountJSON,
-			}},
-			Provider: ProviderBinding{
-				ProviderKind:      ProviderGoogleVertex,
-				CatalogProviderID: "google-vertex",
-				EndpointPolicy:    EndpointCloudParams,
+			Connection: spec.Connection{
+				Type:            spec.ConnectionAPIKey,
+				CredentialInput: "batch_text",
 			},
-			Routes: []Route{
-				route(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
-				route(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteConverted),
-				route(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteConverted),
-				route(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteConverted),
-				route(protocol.OpenAIResponses, execution.OperationListModels, execution.RouteConverted),
-				route(protocol.OpenAIResponses, execution.OperationProbe, execution.RouteConverted),
-				route(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
-				route(protocol.Anthropic, execution.OperationListModels, execution.RouteConverted),
-				route(protocol.Anthropic, execution.OperationProbe, execution.RouteConverted),
+			Params: []spec.Field{{
+				Key: "location", Label: "Vertex location", InputKind: spec.InputText,
+				Default: "global", Normalizer: spec.NormalizeCloudIdentifier,
+			}},
+			Credentials: []spec.Field{{
+				Key: "service_account_json", Label: "Service account JSON", InputKind: spec.InputSecret,
+				Required: true, Sensitive: true, Normalizer: spec.NormalizeServiceAccountJSON,
+			}},
+			Provider: spec.ProviderBinding{
+				ProviderKind:      spec.ProviderGoogleVertex,
+				CatalogProviderID: "google-vertex",
+				EndpointPolicy:    spec.EndpointCloudParams,
+			},
+			Routes: []spec.Route{
+				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationProbe, execution.RouteConverted),
+				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.Anthropic, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.Anthropic, execution.OperationProbe, execution.RouteConverted),
 				{
 					ClientProtocol: protocol.Gemini,
 					Operation:      execution.OperationChatCompletion,
@@ -49,7 +53,7 @@ func googleVertexModule() Module {
 					Resolver:       vertexGeminiRouteResolver,
 					PossibleModes:  []execution.RouteMode{execution.RouteConverted, execution.RouteNative},
 				},
-				route(protocol.Gemini, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.Gemini, execution.OperationListModels, execution.RouteConverted),
 				{
 					ClientProtocol: protocol.Gemini,
 					Operation:      execution.OperationProbe,
@@ -59,7 +63,7 @@ func googleVertexModule() Module {
 				},
 			},
 		},
-		Extensions: Extensions{RouteResolvers: map[RouteResolverID]RouteResolver{
+		Extensions: spec.Extensions{RouteResolvers: map[spec.RouteResolverID]spec.RouteResolver{
 			vertexGeminiRouteResolver: resolveVertexGeminiRoute,
 		}},
 	}

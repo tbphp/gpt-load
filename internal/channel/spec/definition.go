@@ -1,7 +1,6 @@
-// Package modules contains the code-owned definitions of built-in channels.
-// Each product channel lives in one file; runtime compilation and execution
-// remain owned by the outer channel and provider-adapter packages.
-package modules
+// Package spec defines the code-owned contract shared by channel modules and
+// the channel compiler.
+package spec
 
 import (
 	"encoding/json"
@@ -160,6 +159,15 @@ type Route struct {
 	PossibleModes  []execution.RouteMode
 }
 
+// NewRoute constructs one explicit static route declaration.
+func NewRoute(
+	clientProtocol protocol.Protocol,
+	operation execution.Operation,
+	mode execution.RouteMode,
+) Route {
+	return Route{ClientProtocol: clientProtocol, Operation: operation, Mode: mode}
+}
+
 // CapabilityBindings names optional implementations without embedding runtime
 // objects in public manifests.
 type CapabilityBindings struct {
@@ -175,7 +183,10 @@ type SchedulingPolicy struct {
 	QuotaPriority bool
 }
 
-// Definition is the complete, code-owned declaration for one channel.
+// Definition is the complete, code-owned declaration for one channel. Every
+// built-in module declares its schema, provider, routes, and bindings inline;
+// shared helpers may normalize a field or construct one Route, but never hide
+// a complete channel definition, schema, or route set.
 type Definition struct {
 	ID                  ID
 	Name                string

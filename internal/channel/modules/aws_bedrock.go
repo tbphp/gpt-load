@@ -1,41 +1,63 @@
 package modules
 
-import "fmt"
+import (
+	"fmt"
 
-const bedrockCredentialValidator CredentialValidatorID = "bedrock_credential"
+	"gpt-load/internal/channel/spec"
+	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
+)
 
-func awsBedrockModule() Module {
-	return Module{
-		Definition: Definition{
-			ID:          AWSBedrock,
+const bedrockCredentialValidator spec.CredentialValidatorID = "bedrock_credential"
+
+func AWSBedrock() spec.Module {
+	return spec.Module{
+		Definition: spec.Definition{
+			ID:          spec.AWSBedrock,
 			Name:        "AWS Bedrock",
 			Mark:        "BR",
 			Icon:        "bedrock",
 			SearchTerms: []string{"aws", "amazon", "sigv4", "iam"},
 			Description: "Amazon Bedrock",
-			Connection:  apiKeyConnection(),
-			Params: []Field{{
-				Key: "region", Label: "AWS region", InputKind: InputText,
-				Required: true, Normalizer: normalizeCloudIdentifier,
+			Connection: spec.Connection{
+				Type:            spec.ConnectionAPIKey,
+				CredentialInput: "batch_text",
+			},
+			Params: []spec.Field{{
+				Key: "region", Label: "AWS region", InputKind: spec.InputText,
+				Required: true, Normalizer: spec.NormalizeCloudIdentifier,
 			}},
-			Credentials: []Field{
-				secretField("api_key", "Bedrock API Key"),
-				secretField("access_key", "AWS access key"),
-				secretField("secret_key", "AWS secret key"),
-				secretField("session_token", "AWS session token"),
-				secretField("role_arn", "AWS role ARN"),
-				secretField("external_id", "AWS external ID"),
-				secretField("session_name", "AWS role session name"),
+			Credentials: []spec.Field{
+				{Key: "api_key", Label: "Bedrock API Key", InputKind: spec.InputSecret, Sensitive: true, Normalizer: spec.NormalizeNonEmpty},
+				{Key: "access_key", Label: "AWS access key", InputKind: spec.InputSecret, Sensitive: true, Normalizer: spec.NormalizeNonEmpty},
+				{Key: "secret_key", Label: "AWS secret key", InputKind: spec.InputSecret, Sensitive: true, Normalizer: spec.NormalizeNonEmpty},
+				{Key: "session_token", Label: "AWS session token", InputKind: spec.InputSecret, Sensitive: true, Normalizer: spec.NormalizeNonEmpty},
+				{Key: "role_arn", Label: "AWS role ARN", InputKind: spec.InputSecret, Sensitive: true, Normalizer: spec.NormalizeNonEmpty},
+				{Key: "external_id", Label: "AWS external ID", InputKind: spec.InputSecret, Sensitive: true, Normalizer: spec.NormalizeNonEmpty},
+				{Key: "session_name", Label: "AWS role session name", InputKind: spec.InputSecret, Sensitive: true, Normalizer: spec.NormalizeNonEmpty},
 			},
 			CredentialValidator: bedrockCredentialValidator,
-			Provider: ProviderBinding{
-				ProviderKind:      ProviderAWSBedrock,
+			Provider: spec.ProviderBinding{
+				ProviderKind:      spec.ProviderAWSBedrock,
 				CatalogProviderID: "amazon-bedrock",
-				EndpointPolicy:    EndpointCloudParams,
+				EndpointPolicy:    spec.EndpointCloudParams,
 			},
-			Routes: allConvertedRoutes(),
+			Routes: []spec.Route{
+				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationProbe, execution.RouteConverted),
+				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.Anthropic, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.Anthropic, execution.OperationProbe, execution.RouteConverted),
+				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.Gemini, execution.OperationListModels, execution.RouteConverted),
+				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteConverted),
+			},
 		},
-		Extensions: Extensions{CredentialValidators: map[CredentialValidatorID]CredentialValidator{
+		Extensions: spec.Extensions{CredentialValidators: map[spec.CredentialValidatorID]spec.CredentialValidator{
 			bedrockCredentialValidator: validateBedrockCredential,
 		}},
 	}

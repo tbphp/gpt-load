@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gpt-load/internal/channel/modules"
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/codex"
 )
 
@@ -16,7 +17,7 @@ type codexDriver struct{}
 
 func newCodexDriver() *codexDriver { return &codexDriver{} }
 
-func (*codexDriver) ID() modules.SubscriptionDriverID { return modules.CodexSubscriptionDriver }
+func (*codexDriver) ID() spec.SubscriptionDriverID { return modules.CodexSubscriptionDriver }
 
 func (*codexDriver) Parse(raw []byte) (Credential, error) {
 	value, err := codex.ParseCredentialJSON(raw)
@@ -200,9 +201,9 @@ func (driver *codexDriver) resetCreditAction() ResetCreditAction {
 	return codexResetCreditAction{driver}
 }
 
-func (codexModelDiscovery) ID() modules.UtilityID   { return modules.CodexModelDiscovery }
-func (codexQuotaObservation) ID() modules.UtilityID { return modules.CodexQuotaObservation }
-func (codexResetCreditAction) ID() modules.ActionID { return modules.CodexResetCreditAction }
+func (codexModelDiscovery) ID() spec.UtilityID   { return modules.CodexModelDiscovery }
+func (codexQuotaObservation) ID() spec.UtilityID { return modules.CodexQuotaObservation }
+func (codexResetCreditAction) ID() spec.ActionID { return modules.CodexResetCreditAction }
 
 func codexRuntimeCredential(value codex.Credential, canonical []byte) Credential {
 	expiresAt, expires := codex.CredentialExpiresAt(value)

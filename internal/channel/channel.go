@@ -12,40 +12,41 @@ import (
 	"strings"
 
 	"gpt-load/internal/channel/modules"
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
 // ID is a stable product channel identifier.
-type ID = modules.ID
+type ID = spec.ID
 
 const (
-	OpenAI           = modules.OpenAI
-	Codex            = modules.Codex
-	Anthropic        = modules.Anthropic
-	Gemini           = modules.Gemini
-	AzureOpenAI      = modules.AzureOpenAI
-	AWSBedrock       = modules.AWSBedrock
-	GoogleVertex     = modules.GoogleVertex
-	OpenAICompatible = modules.OpenAICompatible
-	DeepSeek         = modules.DeepSeek
-	MoonshotAI       = modules.MoonshotAI
-	SiliconFlow      = modules.SiliconFlow
-	ZhipuAI          = modules.ZhipuAI
-	Alibaba          = modules.Alibaba
-	Volcengine       = modules.Volcengine
-	OpenRouter       = modules.OpenRouter
-	Groq             = modules.Groq
-	XAI              = modules.XAI
+	OpenAI           = spec.OpenAI
+	Codex            = spec.Codex
+	Anthropic        = spec.Anthropic
+	Gemini           = spec.Gemini
+	AzureOpenAI      = spec.AzureOpenAI
+	AWSBedrock       = spec.AWSBedrock
+	GoogleVertex     = spec.GoogleVertex
+	OpenAICompatible = spec.OpenAICompatible
+	DeepSeek         = spec.DeepSeek
+	MoonshotAI       = spec.MoonshotAI
+	SiliconFlow      = spec.SiliconFlow
+	ZhipuAI          = spec.ZhipuAI
+	Alibaba          = spec.Alibaba
+	Volcengine       = spec.Volcengine
+	OpenRouter       = spec.OpenRouter
+	Groq             = spec.Groq
+	XAI              = spec.XAI
 )
 
 // InputKind describes how a field is collected without exposing its value.
-type InputKind = modules.InputKind
+type InputKind = spec.InputKind
 
 const (
-	InputText   = modules.InputText
-	InputURL    = modules.InputURL
-	InputSecret = modules.InputSecret
+	InputText   = spec.InputText
+	InputURL    = spec.InputURL
+	InputSecret = spec.InputSecret
 )
 
 // FieldDescriptor is the public, value-free schema for one channel field.
@@ -133,21 +134,21 @@ const (
 
 // ProviderKind identifies the upstream API family selected by a code-owned
 // channel preset. It is runtime metadata, not a persisted SDK identifier.
-type ProviderKind = modules.ProviderKind
+type ProviderKind = spec.ProviderKind
 
 const (
-	ProviderOpenAI           = modules.ProviderOpenAI
-	ProviderCodex            = modules.ProviderCodex
-	ProviderAnthropic        = modules.ProviderAnthropic
-	ProviderGemini           = modules.ProviderGemini
-	ProviderOpenAICompatible = modules.ProviderOpenAICompatible
-	ProviderAzureOpenAI      = modules.ProviderAzureOpenAI
-	ProviderAWSBedrock       = modules.ProviderAWSBedrock
-	ProviderGoogleVertex     = modules.ProviderGoogleVertex
-	ProviderDeepSeek         = modules.ProviderDeepSeek
-	ProviderOpenRouter       = modules.ProviderOpenRouter
-	ProviderGroq             = modules.ProviderGroq
-	ProviderXAI              = modules.ProviderXAI
+	ProviderOpenAI           = spec.ProviderOpenAI
+	ProviderCodex            = spec.ProviderCodex
+	ProviderAnthropic        = spec.ProviderAnthropic
+	ProviderGemini           = spec.ProviderGemini
+	ProviderOpenAICompatible = spec.ProviderOpenAICompatible
+	ProviderAzureOpenAI      = spec.ProviderAzureOpenAI
+	ProviderAWSBedrock       = spec.ProviderAWSBedrock
+	ProviderGoogleVertex     = spec.ProviderGoogleVertex
+	ProviderDeepSeek         = spec.ProviderDeepSeek
+	ProviderOpenRouter       = spec.ProviderOpenRouter
+	ProviderGroq             = spec.ProviderGroq
+	ProviderXAI              = spec.ProviderXAI
 )
 
 // ResolvedTarget is the provider-neutral execution target derived from a channel preset.
@@ -158,7 +159,7 @@ type ResolvedTarget struct {
 	CatalogProviderID string          `json:"-"`
 
 	modes     map[protocol.Protocol]map[execution.Operation]RouteMode
-	resolvers map[routeKey]modules.RouteResolver
+	resolvers map[routeKey]spec.RouteResolver
 }
 
 type routeKey struct {
@@ -243,7 +244,7 @@ type Registry struct {
 // runtime registry. Production startup propagates any invalid module as an
 // initialization error instead of publishing a partial registry.
 func CompileRegistry() (*Registry, error) {
-	definitions, err := compileBuiltInModules(modules.All())
+	definitions, err := compileBuiltInModules(builtInModules())
 	if err != nil {
 		return nil, fmt.Errorf("compile channel modules: %w", err)
 	}
@@ -341,21 +342,21 @@ func (r *Registry) ConnectionType(id ID) (string, bool) {
 
 // CapabilityBindings returns an independent copy of the compiled optional
 // channel capabilities. Runtime consumers resolve these bindings at startup.
-func (r *Registry) CapabilityBindings(id ID) (modules.CapabilityBindings, bool) {
+func (r *Registry) CapabilityBindings(id ID) (spec.CapabilityBindings, bool) {
 	definition, ok := r.lookup(id)
 	if !ok {
-		return modules.CapabilityBindings{}, false
+		return spec.CapabilityBindings{}, false
 	}
 	result := definition.capabilities
-	result.Actions = append([]modules.ActionID(nil), result.Actions...)
+	result.Actions = append([]spec.ActionID(nil), result.Actions...)
 	return result, true
 }
 
 // SchedulingPolicy returns immutable scheduling metadata for one channel.
-func (r *Registry) SchedulingPolicy(id ID) (modules.SchedulingPolicy, bool) {
+func (r *Registry) SchedulingPolicy(id ID) (spec.SchedulingPolicy, bool) {
 	definition, ok := r.lookup(id)
 	if !ok {
-		return modules.SchedulingPolicy{}, false
+		return spec.SchedulingPolicy{}, false
 	}
 	return definition.scheduling, true
 }
@@ -363,7 +364,7 @@ func (r *Registry) SchedulingPolicy(id ID) (modules.SchedulingPolicy, bool) {
 // FixedBaseURL returns the code-owned endpoint for a fixed preset.
 func (r *Registry) FixedBaseURL(id ID) (string, bool) {
 	definition, ok := r.lookup(id)
-	if !ok || definition.endpointPolicy != modules.EndpointFixedWithOverride || definition.fixedBaseURL == "" {
+	if !ok || definition.endpointPolicy != spec.EndpointFixedWithOverride || definition.fixedBaseURL == "" {
 		return "", false
 	}
 	return definition.fixedBaseURL, true
@@ -542,14 +543,14 @@ type definition struct {
 	validateCredential func(map[string]string) error
 	catalogProviderID  string
 	providerKind       ProviderKind
-	connection         modules.Connection
-	capabilities       modules.CapabilityBindings
-	scheduling         modules.SchedulingPolicy
-	endpointPolicy     modules.EndpointPolicy
+	connection         spec.Connection
+	capabilities       spec.CapabilityBindings
+	scheduling         spec.SchedulingPolicy
+	endpointPolicy     spec.EndpointPolicy
 	fixedBaseURL       string
 	fixedTargetConfig  json.RawMessage
 	modes              map[protocol.Protocol]map[execution.Operation]RouteMode
-	resolvers          map[routeKey]modules.RouteResolver
+	resolvers          map[routeKey]spec.RouteResolver
 }
 
 func (d definition) matches(query string) bool {
@@ -577,7 +578,7 @@ func newRegistry(definitions []definition) (*Registry, error) {
 		definition.modes = cloneRouteModes(definition.modes)
 		definition.resolvers = cloneRouteResolvers(definition.resolvers)
 		definition.connection.AuthorizationMethods = append([]string(nil), definition.connection.AuthorizationMethods...)
-		definition.capabilities.Actions = append([]modules.ActionID(nil), definition.capabilities.Actions...)
+		definition.capabilities.Actions = append([]spec.ActionID(nil), definition.capabilities.Actions...)
 		definition.fixedTargetConfig = append(json.RawMessage(nil), definition.fixedTargetConfig...)
 		registry.byID[id] = definition
 		registry.order = append(registry.order, id)
@@ -596,7 +597,7 @@ func validateDefinition(definition definition) error {
 	if !definition.providerKind.Valid() {
 		return fmt.Errorf("channel %q has invalid provider kind", id)
 	}
-	if definition.connection.Type != modules.ConnectionAPIKey && definition.connection.Type != modules.ConnectionSubscription {
+	if definition.connection.Type != spec.ConnectionAPIKey && definition.connection.Type != spec.ConnectionSubscription {
 		return fmt.Errorf("channel %q has invalid connection type", id)
 	}
 	if definition.connection.CredentialInput == "" {
@@ -684,8 +685,8 @@ func cloneRouteModes(source map[protocol.Protocol]map[execution.Operation]RouteM
 	return clone
 }
 
-func cloneRouteResolvers(source map[routeKey]modules.RouteResolver) map[routeKey]modules.RouteResolver {
-	clone := make(map[routeKey]modules.RouteResolver, len(source))
+func cloneRouteResolvers(source map[routeKey]spec.RouteResolver) map[routeKey]spec.RouteResolver {
+	clone := make(map[routeKey]spec.RouteResolver, len(source))
 	for key, resolver := range source {
 		clone[key] = resolver
 	}

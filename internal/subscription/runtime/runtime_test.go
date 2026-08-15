@@ -7,6 +7,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/channel/modules"
+	"gpt-load/internal/channel/spec"
 )
 
 func TestRuntimeCompilesSubscriptionCapabilitiesFromChannelBindings(t *testing.T) {
@@ -70,10 +71,10 @@ func TestCodexDriverProducesProviderNeutralCredential(t *testing.T) {
 	}
 }
 
-type duplicateDriver struct{ id modules.SubscriptionDriverID }
+type duplicateDriver struct{ id spec.SubscriptionDriverID }
 
-func (driver duplicateDriver) ID() modules.SubscriptionDriverID { return driver.id }
-func (duplicateDriver) Parse([]byte) (Credential, error)        { return Credential{}, nil }
+func (driver duplicateDriver) ID() spec.SubscriptionDriverID { return driver.id }
+func (duplicateDriver) Parse([]byte) (Credential, error)     { return Credential{}, nil }
 func (duplicateDriver) Refresh(context.Context, Credential) (Credential, error) {
 	return Credential{}, nil
 }

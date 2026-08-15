@@ -1,42 +1,51 @@
 package modules
 
 import (
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
 const (
-	CodexSubscriptionDriver SubscriptionDriverID = "codex"
-	CodexModelDiscovery     UtilityID            = "codex_models"
-	CodexQuotaObservation   UtilityID            = "codex_quota"
-	CodexResetCreditAction  ActionID             = "codex_reset_credit"
+	CodexSubscriptionDriver spec.SubscriptionDriverID = "codex"
+	CodexModelDiscovery     spec.UtilityID            = "codex_models"
+	CodexQuotaObservation   spec.UtilityID            = "codex_quota"
+	CodexResetCreditAction  spec.ActionID             = "codex_reset_credit"
 )
 
-func codexModule() Module {
-	return Module{Definition: Definition{
-		ID:          Codex,
-		Name:        "Codex",
-		Mark:        "CX",
-		Icon:        "openai",
-		SearchTerms: []string{"subscription", "oauth", "chatgpt"},
-		Description: "OpenAI Codex subscription",
-		Connection:  subscriptionConnection("browser_oauth", "oauth_file"),
-		Provider: ProviderBinding{
-			ProviderKind:   ProviderCodex,
-			EndpointPolicy: EndpointNone,
+func Codex() spec.Module {
+	return spec.Module{
+		Definition: spec.Definition{
+			ID:          spec.Codex,
+			Name:        "Codex",
+			Mark:        "CX",
+			Icon:        "openai",
+			SearchTerms: []string{"subscription", "oauth", "chatgpt"},
+			Description: "OpenAI Codex subscription",
+			Connection: spec.Connection{
+				Type:                 spec.ConnectionSubscription,
+				CredentialInput:      "authorization",
+				AuthorizationMethods: []string{"browser_oauth", "oauth_file"},
+			},
+			Params:      []spec.Field{},
+			Credentials: []spec.Field{},
+			Provider: spec.ProviderBinding{
+				ProviderKind:   spec.ProviderCodex,
+				EndpointPolicy: spec.EndpointNone,
+			},
+			Routes: []spec.Route{
+				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteNative),
+				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),
+			},
+			Capabilities: spec.CapabilityBindings{
+				SubscriptionDriver: CodexSubscriptionDriver,
+				ModelDiscovery:     CodexModelDiscovery,
+				QuotaObservation:   CodexQuotaObservation,
+				Actions:            []spec.ActionID{CodexResetCreditAction},
+			},
+			Scheduling: spec.SchedulingPolicy{QuotaPriority: true},
 		},
-		Routes: []Route{
-			route(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
-			route(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteNative),
-			route(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
-			route(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),
-		},
-		Capabilities: CapabilityBindings{
-			SubscriptionDriver: CodexSubscriptionDriver,
-			ModelDiscovery:     CodexModelDiscovery,
-			QuotaObservation:   CodexQuotaObservation,
-			Actions:            []ActionID{CodexResetCreditAction},
-		},
-		Scheduling: SchedulingPolicy{QuotaPriority: true},
-	}}
+	}
 }

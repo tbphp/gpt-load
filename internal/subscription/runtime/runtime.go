@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/channel/modules"
+	"gpt-load/internal/channel/spec"
 )
 
 // Credential is a provider-neutral, immutable subscription credential. Only
@@ -88,7 +88,7 @@ type AuthorizationCompletion struct {
 
 // Driver owns one subscription credential schema and refresh lifecycle.
 type Driver interface {
-	ID() modules.SubscriptionDriverID
+	ID() spec.SubscriptionDriverID
 	Parse([]byte) (Credential, error)
 	Refresh(context.Context, Credential) (Credential, error)
 	ClassifyRefreshFailure(error) RefreshFailure
@@ -106,7 +106,7 @@ type BrowserAuthorizationDriver interface {
 
 // ModelDiscovery is a narrow optional subscription capability.
 type ModelDiscovery interface {
-	ID() modules.UtilityID
+	ID() spec.UtilityID
 	DiscoverModels(context.Context, Credential) ([]string, error)
 }
 
@@ -123,13 +123,13 @@ type Observation struct {
 
 // QuotaObservation is a narrow optional account observation capability.
 type QuotaObservation interface {
-	ID() modules.UtilityID
+	ID() spec.UtilityID
 	Observe(context.Context, Credential) (Observation, error)
 }
 
 // ResetCreditAction is the currently supported mutating subscription action.
 type ResetCreditAction interface {
-	ID() modules.ActionID
+	ID() spec.ActionID
 	Consume(context.Context, Credential, string) (ResetCreditResult, error)
 }
 
@@ -186,38 +186,38 @@ func compileRuntime(
 	if channels == nil {
 		return nil, errors.New("compile subscription runtime: channel registry is unavailable")
 	}
-	driverByID, err := indexImplementations(drivers, func(value Driver) modules.ExtensionID {
+	driverByID, err := indexImplementations(drivers, func(value Driver) spec.ExtensionID {
 		if value == nil {
 			return ""
 		}
-		return modules.ExtensionID(value.ID())
+		return spec.ExtensionID(value.ID())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile subscription drivers: %w", err)
 	}
-	discoveryByID, err := indexImplementations(discoveries, func(value ModelDiscovery) modules.ExtensionID {
+	discoveryByID, err := indexImplementations(discoveries, func(value ModelDiscovery) spec.ExtensionID {
 		if value == nil {
 			return ""
 		}
-		return modules.ExtensionID(value.ID())
+		return spec.ExtensionID(value.ID())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile subscription model discovery: %w", err)
 	}
-	observationByID, err := indexImplementations(observations, func(value QuotaObservation) modules.ExtensionID {
+	observationByID, err := indexImplementations(observations, func(value QuotaObservation) spec.ExtensionID {
 		if value == nil {
 			return ""
 		}
-		return modules.ExtensionID(value.ID())
+		return spec.ExtensionID(value.ID())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile subscription observation: %w", err)
 	}
-	resetByID, err := indexImplementations(resetCredits, func(value ResetCreditAction) modules.ExtensionID {
+	resetByID, err := indexImplementations(resetCredits, func(value ResetCreditAction) spec.ExtensionID {
 		if value == nil {
 			return ""
 		}
-		return modules.ExtensionID(value.ID())
+		return spec.ExtensionID(value.ID())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compile subscription actions: %w", err)
@@ -229,32 +229,32 @@ func compileRuntime(
 		if !ok {
 			return nil, fmt.Errorf("compile subscription runtime: channel %q disappeared", descriptor.ID)
 		}
-		if descriptor.Connection.Type != string(modules.ConnectionSubscription) {
+		if descriptor.Connection.Type != string(spec.ConnectionSubscription) {
 			if bindings.SubscriptionDriver != "" || bindings.ModelDiscovery != "" ||
 				bindings.QuotaObservation != "" || len(bindings.Actions) != 0 {
 				return nil, fmt.Errorf("compile subscription runtime: API key channel %q binds subscription capabilities", descriptor.ID)
 			}
 			continue
 		}
-		driver, ok := driverByID[modules.ExtensionID(bindings.SubscriptionDriver)]
+		driver, ok := driverByID[spec.ExtensionID(bindings.SubscriptionDriver)]
 		if !ok {
 			return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown driver %q", descriptor.ID, bindings.SubscriptionDriver)
 		}
 		compiled := channelRuntime{driver: driver}
 		if bindings.ModelDiscovery != "" {
-			compiled.discovery, ok = discoveryByID[modules.ExtensionID(bindings.ModelDiscovery)]
+			compiled.discovery, ok = discoveryByID[spec.ExtensionID(bindings.ModelDiscovery)]
 			if !ok {
 				return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown model discovery %q", descriptor.ID, bindings.ModelDiscovery)
 			}
 		}
 		if bindings.QuotaObservation != "" {
-			compiled.observation, ok = observationByID[modules.ExtensionID(bindings.QuotaObservation)]
+			compiled.observation, ok = observationByID[spec.ExtensionID(bindings.QuotaObservation)]
 			if !ok {
 				return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown quota observation %q", descriptor.ID, bindings.QuotaObservation)
 			}
 		}
 		for _, actionID := range bindings.Actions {
-			action, exists := resetByID[modules.ExtensionID(actionID)]
+			action, exists := resetByID[spec.ExtensionID(actionID)]
 			if !exists {
 				return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown action %q", descriptor.ID, actionID)
 			}
@@ -268,8 +268,8 @@ func compileRuntime(
 	return result, nil
 }
 
-func indexImplementations[T any](values []T, id func(T) modules.ExtensionID) (map[modules.ExtensionID]T, error) {
-	result := make(map[modules.ExtensionID]T, len(values))
+func indexImplementations[T any](values []T, id func(T) spec.ExtensionID) (map[spec.ExtensionID]T, error) {
+	result := make(map[spec.ExtensionID]T, len(values))
 	for _, value := range values {
 		key := id(value)
 		if key == "" {
