@@ -398,7 +398,7 @@ export default {
           '{account} にリセットクレジットを 1 件使用します。この操作は取り消せません。結果を一時的に確認できない場合も GPT-Load は自動で追加消費しません。',
         consumeResetCreditFailed: 'リセットクレジットを使用できません',
         consumeResetCreditPending: 'リセットを送信しました。上流の利用枠同期を待っています',
-        tokenExpiresAt: 'アクセス認証情報の期限',
+        tokenExpiresAt: '認証期限',
         lastTokenRefresh: '認証情報の最終更新',
         noQuota: '上流から表示可能な利用枠が提供されていません',
         quotaPendingRefresh: '更新待ち',
@@ -406,6 +406,7 @@ export default {
         unknown: '未提供',
         remaining: '残り {remaining} / {limit}',
         remainingPercent: '残り {value}%',
+        quotaPeriod: '現在の期間\n{start} → {end}',
         quotaExhaustedHint:
           '利用枠が回復するまでこのアカウントを自動的に除外し、情報が古い場合は既存のスケジューラに戻します。',
         diagnostics: '診断情報',

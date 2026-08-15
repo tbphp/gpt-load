@@ -17,11 +17,14 @@ const props = withDefaults(
      * 关闭时退回原生 title，供不需要额外视觉噪音的密集表格使用。
      */
     hint?: boolean
+    /** 自定义 hint 内容；未提供时仍展示该时间点的完整本地时间。 */
+    tooltipContent?: string
     tooltipSide?: 'top' | 'right' | 'bottom' | 'left'
   }>(),
   {
     timeZone: currentTimeZone(),
     hint: false,
+    tooltipContent: undefined,
     tooltipSide: 'top',
   },
 )
@@ -40,6 +43,7 @@ const relative = computed(() =>
     ? props.emptyLabel
     : formatRelativeInstant(props.instant, now.value, props.locale),
 )
+const resolvedTooltipContent = computed(() => props.tooltipContent ?? absolute.value)
 let timer: number | undefined
 
 onMounted(() => {
@@ -54,7 +58,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <AppTooltip v-if="instant !== null && dateTime && hint" :content="absolute" :side="tooltipSide">
+  <AppTooltip
+    v-if="instant !== null && dateTime && hint"
+    :content="resolvedTooltipContent"
+    :side="tooltipSide"
+  >
     <time class="app-relative-time app-relative-time--hint" :datetime="dateTime" tabindex="0">
       {{ relative }}
     </time>

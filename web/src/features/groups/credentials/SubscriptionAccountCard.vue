@@ -20,7 +20,7 @@ import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost, formatTokens } from '@/lib/format'
+import { formatEstimatedCost, formatLocalInstant, formatTokens } from '@/lib/format'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
 
@@ -85,6 +85,10 @@ const quotaWindows = computed(() =>
 const accountQuotaWindows = computed(() =>
   quotaWindows.value.filter((window) => window.scope === 'account'),
 )
+const windowSkeletonHeight = computed(() => {
+  const rows = accountQuotaWindows.value.length
+  return rows === 0 ? '32px' : `${24 + rows * 32}px`
+})
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
@@ -102,6 +106,14 @@ const planLabel = computed(() => {
     free: 'Free',
   }
   return labels[normalized] ?? plan
+})
+const credentialExpiryTooltip = computed(() => {
+  const expiresAtMS = props.item.account.expires_at_ms
+  if (expiresAtMS === undefined) return undefined
+  const exact = formatLocalInstant(expiresAtMS, locale.value)
+  return props.item.auth_state === 'ready'
+    ? `${exact}\n${t('group.credentials.subscription.autoRenews')}`
+    : exact
 })
 const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available ?? 0)
 const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
@@ -267,6 +279,20 @@ function quotaValueLabel(window: CredentialQuotaWindowDto): string {
     })
   }
   return t('group.credentials.subscription.unknown')
+}
+
+function quotaPeriodTooltip(window: CredentialQuotaWindowDto): string | undefined {
+  const resetAtMS = window.reset_at_ms
+  if (resetAtMS === undefined) return undefined
+  const resetAt = formatLocalInstant(resetAtMS, locale.value)
+  const windowSeconds = window.window_seconds
+  if (windowSeconds === undefined || windowSeconds <= 0) return resetAt
+  const windowMS = windowSeconds * 1_000
+  if (!Number.isSafeInteger(windowMS) || windowMS > resetAtMS) return resetAt
+  return t('group.credentials.subscription.quotaPeriod', {
+    start: formatLocalInstant(resetAtMS - windowMS, locale.value),
+    end: resetAt,
+  })
 }
 
 function usedPercentValue(window: CredentialQuotaWindowDto): string {
@@ -444,6 +470,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               :instant="window.reset_at_ms"
               :locale="locale"
               :empty-label="t('group.credentials.subscription.unknown')"
+              :tooltip-content="quotaPeriodTooltip(window)"
               hint
             />
             <template v-else>—</template>
@@ -548,16 +575,22 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
     >
       <div v-if="!detailLoaded && !detailError" class="subscription-account__skeleton">
         <div class="subscription-account__skeleton-section">
-          <SkeletonBlock width="88px" height="11px" />
-          <SkeletonBlock height="36px" />
+          <span class="subscription-account__skeleton-title">
+            <SkeletonBlock width="88px" height="11px" />
+          </span>
+          <SkeletonBlock height="var(--subscription-detail-activity-height)" />
         </div>
         <div class="subscription-account__skeleton-section">
-          <SkeletonBlock width="140px" height="11px" />
-          <SkeletonBlock height="94px" />
+          <span class="subscription-account__skeleton-title">
+            <SkeletonBlock width="140px" height="11px" />
+          </span>
+          <SkeletonBlock :height="windowSkeletonHeight" />
         </div>
         <div class="subscription-account__skeleton-section">
-          <SkeletonBlock width="88px" height="11px" />
-          <SkeletonBlock height="62px" />
+          <span class="subscription-account__skeleton-title">
+            <SkeletonBlock width="88px" height="11px" />
+          </span>
+          <SkeletonBlock height="var(--subscription-detail-diagnostics-height)" />
         </div>
       </div>
 
@@ -693,21 +726,14 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               <dd>{{ failureLabel }}</dd>
             </dl>
             <dl>
-              <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
-              <dd>{{ n(item.consecutive_failure_count) }}</dd>
-            </dl>
-            <dl>
-              <dt>{{ t('group.credentials.subscription.tokenExpiresAt') }}</dt>
+              <dt>{{ t('group.credentials.subscription.freshUntil') }}</dt>
               <dd>
                 <AppRelativeTime
-                  :instant="item.account.expires_at_ms ?? null"
+                  :instant="observation?.fresh_until_ms ?? null"
                   :locale="locale"
                   :empty-label="t('group.credentials.subscription.unknown')"
                   hint
                 />
-                <template v-if="item.account.expires_at_ms && item.auth_state === 'ready'">
-                  · {{ t('group.credentials.subscription.autoRenews') }}
-                </template>
               </dd>
             </dl>
             <dl>
@@ -722,19 +748,24 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               </dd>
             </dl>
             <dl>
-              <dt>{{ t('group.credentials.subscription.freshUntil') }}</dt>
-              <dd>
-                <AppRelativeTime
-                  :instant="observation?.fresh_until_ms ?? null"
-                  :locale="locale"
-                  :empty-label="t('group.credentials.subscription.unknown')"
-                  hint
-                />
-              </dd>
+              <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
+              <dd>{{ n(item.consecutive_failure_count) }}</dd>
             </dl>
             <dl>
               <dt>{{ t('group.credentials.subscription.lastError') }}</dt>
               <dd>{{ observationErrorLabel(observation?.last_error_code) }}</dd>
+            </dl>
+            <dl>
+              <dt>{{ t('group.credentials.subscription.tokenExpiresAt') }}</dt>
+              <dd>
+                <AppRelativeTime
+                  :instant="item.account.expires_at_ms ?? null"
+                  :locale="locale"
+                  :empty-label="t('group.credentials.subscription.unknown')"
+                  :tooltip-content="credentialExpiryTooltip"
+                  hint
+                />
+              </dd>
             </dl>
           </div>
           <div v-if="constrainedModels.length" class="subscription-account__models">
@@ -761,11 +792,13 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 <style scoped>
 .subscription-account {
   overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
+  border: 1px solid color-mix(in srgb, var(--color-action) 24%, var(--color-border-subtle));
   border-left: 3px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  background: color-mix(in srgb, var(--color-action-soft) 46%, var(--color-surface));
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-action) 14%, transparent),
+    0 8px 24px color-mix(in srgb, var(--color-action) 10%, transparent);
 }
 .subscription-account--success {
   border-left-color: var(--color-success);
@@ -1054,9 +1087,13 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   animation: subscription-account-spin 800ms linear infinite;
 }
 .subscription-account__detail {
-  border-top: 1px solid var(--color-border-subtle);
-  background: color-mix(in srgb, var(--color-surface-sunken) 64%, var(--color-surface));
+  border-top: 1px solid color-mix(in srgb, var(--color-action) 18%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
   padding: 14px 18px 16px;
+}
+.subscription-account__skeleton {
+  --subscription-detail-activity-height: 34px;
+  --subscription-detail-diagnostics-height: 61px;
 }
 .subscription-account__skeleton,
 .subscription-account__detail-content {
@@ -1066,6 +1103,11 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 .subscription-account__skeleton-section {
   display: grid;
   gap: 6px;
+}
+.subscription-account__skeleton-title {
+  display: flex;
+  height: 15px;
+  align-items: center;
 }
 .subscription-account__detail-section {
   min-width: 0;
@@ -1263,6 +1305,10 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   .subscription-account__activity {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-2);
+  }
+  .subscription-account__skeleton {
+    --subscription-detail-activity-height: 60px;
+    --subscription-detail-diagnostics-height: 92px;
   }
   .subscription-account__activity-daily {
     justify-content: space-between;

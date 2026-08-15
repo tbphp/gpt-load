@@ -395,7 +395,7 @@ export default {
           'One reset credit will be used for {account}. This cannot be undone; if the outcome is temporarily unknown, GPT-Load will not consume another automatically.',
         consumeResetCreditFailed: 'Unable to use reset credit',
         consumeResetCreditPending: 'Reset submitted; waiting for the upstream quota to synchronize',
-        tokenExpiresAt: 'Access credential expires',
+        tokenExpiresAt: 'Credential expires',
         lastTokenRefresh: 'Last credential refresh',
         noQuota: 'The upstream has not supplied any displayable quota window',
         quotaPendingRefresh: 'Refresh pending',
@@ -403,6 +403,7 @@ export default {
         unknown: 'Not provided',
         remaining: '{remaining} / {limit} remaining',
         remainingPercent: '{value}% left',
+        quotaPeriod: 'Current period\n{start} → {end}',
         quotaExhaustedHint:
           'This account is skipped until quota resets; stale information falls back to the existing scheduler.',
         diagnostics: 'Diagnostics',
