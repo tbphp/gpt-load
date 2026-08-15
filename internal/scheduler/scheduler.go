@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -195,7 +194,7 @@ func (iterator *Iterator) weightedPoolForMode(mode channel.RouteMode, now time.T
 		}
 		weighted = append(weighted, weightedCredential{meta: credential, weight: weight})
 	}
-	weighted = prioritizeSubscriptionQuota(weighted, iterator.targetsByMode[mode])
+	weighted = prioritizeKnownQuota(weighted, iterator.targetsByMode[mode])
 	var total int64
 	for _, credential := range weighted {
 		total += credential.weight
@@ -203,26 +202,25 @@ func (iterator *Iterator) weightedPoolForMode(mode channel.RouteMode, now time.T
 	return weighted, total
 }
 
-type subscriptionQuotaPriority struct {
+type quotaPriority struct {
 	eligible bool
 	known    bool
 	maximum  float64
 }
 
-func prioritizeSubscriptionQuota(
+func prioritizeKnownQuota(
 	weighted []weightedCredential,
 	targets map[uint]candidateTarget,
 ) []weightedCredential {
-	priorities := make(map[uint]subscriptionQuotaPriority)
+	priorities := make(map[uint]quotaPriority)
 	for _, candidate := range weighted {
 		target, exists := targets[candidate.meta.GroupID]
-		if !exists || target.group.ChannelID != channel.Codex ||
-			connection.Normalize(target.group.ConnectionType) != connection.Subscription {
+		if !exists || !target.group.QuotaPriority {
 			continue
 		}
 		priority, seen := priorities[candidate.meta.GroupID]
 		if !seen {
-			priority = subscriptionQuotaPriority{eligible: true, known: true}
+			priority = quotaPriority{eligible: true, known: true}
 		}
 		remaining := candidate.meta.QuotaRemaining
 		if remaining == nil || math.IsNaN(*remaining) || math.IsInf(*remaining, 0) ||

@@ -62,8 +62,15 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	first := registry.List()
 	first[0].ClientProtocols[0] = protocol.Protocol("mutated")
 	first[0].ParamFields = append(first[0].ParamFields, FieldDescriptor{Key: "mutated"})
+	vertexIndex := 6
+	if first[vertexIndex].ID != GoogleVertex || first[vertexIndex].ParamFields[0].DefaultValue == nil {
+		t.Fatalf("unexpected Vertex descriptor = %#v", first[vertexIndex])
+	}
+	*first[vertexIndex].ParamFields[0].DefaultValue = "mutated"
 	second := registry.List()
-	if second[0].ClientProtocols[0] == protocol.Protocol("mutated") || len(second[0].ParamFields) != 1 {
+	if second[0].ClientProtocols[0] == protocol.Protocol("mutated") || len(second[0].ParamFields) != 1 ||
+		second[vertexIndex].ParamFields[0].DefaultValue == nil ||
+		*second[vertexIndex].ParamFields[0].DefaultValue != "global" {
 		t.Fatal("mutating List() output changed registry state")
 	}
 }
@@ -114,9 +121,27 @@ func TestRegistryPublicDescriptorsContainSchemasButNoInternalOrSecretValues(t *t
 	if err != nil {
 		t.Fatalf("json.Marshal(descriptor) error = %v", err)
 	}
-	for _, forbidden := range []string{"target_config", "catalog_provider", "secret-value", "default_value"} {
+	for _, forbidden := range []string{"target_config", "catalog_provider", "secret-value"} {
 		if strings.Contains(strings.ToLower(string(encoded)), forbidden) {
 			t.Fatalf("public descriptor leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestRegistryPublishesOnlySafeParameterDefaults(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	vertex, ok := registry.Get(GoogleVertex)
+	if !ok || len(vertex.ParamFields) != 1 || vertex.ParamFields[0].DefaultValue == nil ||
+		*vertex.ParamFields[0].DefaultValue != "global" {
+		t.Fatalf("Vertex parameter schema = %#v", vertex.ParamFields)
+	}
+	for _, descriptor := range registry.List() {
+		for _, field := range descriptor.CredentialFields {
+			if field.DefaultValue != nil {
+				t.Fatalf("channel %q publishes a credential default for %q", descriptor.ID, field.Key)
+			}
 		}
 	}
 }
@@ -129,16 +154,16 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 	if !ok {
 		t.Fatal("Codex descriptor is missing")
 	}
-	if len(descriptor.ConnectionTypes) != 1 || descriptor.ConnectionTypes[0].ID != "subscription" {
-		t.Fatalf("connection types = %#v", descriptor.ConnectionTypes)
+	if descriptor.Connection.Type != "subscription" {
+		t.Fatalf("connection = %#v", descriptor.Connection)
 	}
-	if got := descriptor.ConnectionTypes[0].AuthorizationMethods; len(got) != 2 ||
+	if got := descriptor.Connection.AuthorizationMethods; len(got) != 2 ||
 		got[0] != "browser_oauth" || got[1] != "oauth_file" {
 		t.Fatalf("subscription authorization methods = %#v", got)
 	}
 	openAI, ok := registry.Get(OpenAI)
-	if !ok || len(openAI.ConnectionTypes) != 1 || openAI.ConnectionTypes[0].ID != "api_key" {
-		t.Fatalf("OpenAI connection types = %#v, found = %t", openAI.ConnectionTypes, ok)
+	if !ok || openAI.Connection.Type != "api_key" {
+		t.Fatalf("OpenAI connection = %#v, found = %t", openAI.Connection, ok)
 	}
 	target, err := registry.Resolve(Codex, nil)
 	if err != nil {
@@ -169,6 +194,31 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 	for _, internalName := range []string{"CPA", "Bifrost", "executor"} {
 		if strings.Contains(strings.ToLower(string(encoded)), strings.ToLower(internalName)) {
 			t.Fatalf("descriptor exposes %q: %s", internalName, encoded)
+		}
+	}
+}
+
+func TestRegistryPublicDescriptorUsesSingularConnectionAndExplicitRoutes(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	for _, descriptor := range registry.List() {
+		encoded, err := json.Marshal(descriptor)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q) error = %v", descriptor.ID, err)
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &object); err != nil {
+			t.Fatalf("json.Unmarshal(%q) error = %v", descriptor.ID, err)
+		}
+		if _, exists := object["connection_types"]; exists {
+			t.Fatalf("channel %q still exposes connection_types: %s", descriptor.ID, encoded)
+		}
+		if _, exists := object["connection"]; !exists {
+			t.Fatalf("channel %q has no singular connection: %s", descriptor.ID, encoded)
+		}
+		if routes, exists := object["routes"]; !exists || string(routes) == "[]" || string(routes) == "null" {
+			t.Fatalf("channel %q has no explicit routes: %s", descriptor.ID, encoded)
 		}
 	}
 }
@@ -215,8 +265,8 @@ func TestRegistryReturnsProviderKindWithoutExposingItInDescriptor(t *testing.T) 
 	if got, ok := registry.ProviderKind(OpenAI); !ok || got != ProviderOpenAI {
 		t.Fatalf("ProviderKind(openai) = %q, %t", got, ok)
 	}
-	if got, ok := registry.ProviderKind(Codex); !ok || got != ProviderOpenAI {
-		t.Fatalf("ProviderKind(codex) = %q, %t", got, ok)
+	if got, ok := registry.ProviderKind(Codex); !ok || string(got) != "codex" {
+		t.Fatalf("ProviderKind(codex) = %q, %t, want codex, true", got, ok)
 	}
 	if got, ok := registry.ProviderKind(ID("missing")); ok || got != "" {
 		t.Fatalf("ProviderKind(missing) = %q, %t", got, ok)

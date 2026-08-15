@@ -12,7 +12,6 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/connection"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -154,18 +153,22 @@ func normalizeGroupConnectionType(value models.ConnectionType) models.Connection
 	return models.ConnectionType(connection.Normalize(string(value)))
 }
 
-func credentialPresentation(
+func (s *Service) credentialPresentation(
 	group models.Group,
 	row models.Credential,
 	canonical json.RawMessage,
 	identity string,
 ) (string, CredentialStageAccount, error) {
 	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
-		credential, err := codex.ParseCredentialJSON(canonical)
+		driver, driverErr := s.subscriptionDriver(channel.ID(group.ChannelID))
+		if driverErr != nil {
+			return "", CredentialStageAccount{}, driverErr
+		}
+		credential, err := driver.Parse(canonical)
 		if err != nil {
 			return "", CredentialStageAccount{}, err
 		}
-		account := codexCredentialAccount(credential)
+		account := subscriptionCredentialAccount(credential)
 		mask := account.EmailMask
 		if mask == "" {
 			mask = fmt.Sprintf("Subscription #%d", row.ID)
@@ -348,16 +351,17 @@ func (s *Service) decodeCredential(group models.Group, row models.Credential) (j
 		return nil, "", fmt.Errorf("decrypt credential %d: %w", row.ID, app_errors.ErrInternalServer)
 	}
 	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
-		credential, err := codex.ParseCredentialJSON([]byte(plaintext))
+		driver, driverErr := s.subscriptionDriver(channel.ID(group.ChannelID))
+		if driverErr != nil {
+			plaintext = ""
+			return nil, "", fmt.Errorf("resolve subscription credential %d: %w", row.ID, app_errors.ErrInternalServer)
+		}
+		credential, err := driver.Parse([]byte(plaintext))
 		plaintext = ""
 		if err != nil {
 			return nil, "", fmt.Errorf("validate subscription credential %d: %w", row.ID, app_errors.ErrInternalServer)
 		}
-		canonical, err := codex.MarshalCredential(credential)
-		if err != nil {
-			return nil, "", fmt.Errorf("encode subscription credential %d: %w", row.ID, app_errors.ErrInternalServer)
-		}
-		return canonical, credential.Email, nil
+		return credential.Canonical(), credential.Account().Email, nil
 	}
 	validated, err := normalizeStoredCredential(s.channelRegistry, channel.ID(group.ChannelID), plaintext)
 	plaintext = ""
@@ -388,7 +392,7 @@ func (s *Service) mapCredentialCollection(
 		if err != nil {
 			return CredentialCollectionResponse{}, err
 		}
-		mask, account, err := credentialPresentation(observation.group, row, canonical, identity)
+		mask, account, err := s.credentialPresentation(observation.group, row, canonical, identity)
 		if err != nil {
 			return CredentialCollectionResponse{}, err
 		}

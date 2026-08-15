@@ -16,9 +16,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/codex"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
@@ -91,6 +93,37 @@ func TestBeginCredentialAuthorizationAllowsManualCallbackWhenListenerIsUnavailab
 	}
 }
 
+func TestBeginCredentialAuthorizationStartsOnlyTheCallbackRequestedByTheDriver(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	originalBegin := fixture.service.beginSubscriptionAuthorization
+	fixture.service.beginSubscriptionAuthorization = func(channelID channel.ID) (subscriptionruntime.Authorization, error) {
+		authorization, err := originalBegin(channelID)
+		authorization.LocalCallback = false
+		return authorization, err
+	}
+	listenerCalled := false
+	fixture.service.oauthCallback.listen = func(string, string) (net.Listener, error) {
+		listenerCalled = true
+		return nil, fmt.Errorf("listener must not start")
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/authorizations", strings.NewReader(`{"channel_id":"codex"}`))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("authorization response = %d %s", response.Code, response.Body)
+	}
+	if listenerCalled {
+		t.Fatal("local callback listener started for an authorization that did not request it")
+	}
+}
+
 func TestManualOAuthCallbackCompletesOnlyItsBoundStageOnce(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
@@ -107,12 +140,12 @@ func TestManualOAuthCallbackCompletesOnlyItsBoundStageOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := authorizationURL.Query().Get("state")
-	fixture.service.completeBrowserAuthorization = func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+	setCodexAuthorizationCompletion(t, fixture.service, func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		if completion.ReturnedState != state || completion.Code != "authorization-code" {
 			t.Fatalf("completion = %#v", completion)
 		}
 		return codex.Credential{Type: "codex", AccessToken: "access", RefreshToken: "refresh", AccountID: "account-one", Email: "one@example.com"}, nil
-	}
+	})
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	callbackURL := "http://localhost:1455/auth/callback?code=authorization-code&state=" + url.QueryEscape(state)
@@ -174,6 +207,9 @@ func TestOAuthFileImportRouteStreamsOneFileIntoReadyStage(t *testing.T) {
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("channel_id", "codex"); err != nil {
+		t.Fatal(err)
+	}
 	part, err := writer.CreateFormFile("file", "codex.json")
 	if err != nil {
 		t.Fatal(err)
@@ -201,6 +237,32 @@ func TestOAuthFileImportRouteStreamsOneFileIntoReadyStage(t *testing.T) {
 	}
 }
 
+func TestOAuthFileImportRouteRequiresChannelID(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "codex.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write([]byte(`{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret","account_id":"account-one"}`))
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/import", &body)
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("import without channel_id = %d %s", response.Code, response.Body)
+	}
+}
+
 func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
@@ -215,11 +277,11 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.completeBrowserAuthorization = successfulBrowserCompletion(payload, t)
+	setCodexAuthorizationCompletion(t, fixture.service, successfulBrowserCompletion(payload, t))
 	fixture.service.oauthCallback.address = "127.0.0.1:0"
 	fixture.service.oauthCallback.listen = net.Listen
 	if err := fixture.service.oauthCallback.EnsureStarted(); err != nil {
@@ -256,7 +318,7 @@ func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +340,48 @@ func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 	}
 	if failed.Status != string(models.CredentialStageFailed) {
 		t.Fatalf("status = %q, want failed", failed.Status)
+	}
+}
+
+func TestOAuthCallbackExchangeFailureDoesNotOfferConsumedCallbackRetry(t *testing.T) {
+	fixture := newServiceFixture(t)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row models.CredentialStage
+	if err := fixture.db.Take(&row, "id = ?", started.StageID).Error; err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := fixture.encryption.Decrypt(row.EncryptedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload stagedSubscriptionPayload
+	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
+		t.Fatal(err)
+	}
+	setCodexAuthorizationCompletion(t, fixture.service, func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+		return codex.Credential{}, fmt.Errorf("temporary token exchange failure")
+	})
+	fixture.service.oauthCallback.address = "127.0.0.1:0"
+	if err := fixture.service.oauthCallback.EnsureStarted(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
+
+	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&code=one-time-authorization-code"
+	response, body := getOAuthCallbackResponse(t, callbackURL)
+	if response.StatusCode != http.StatusOK || !strings.Contains(body, "换取凭据时失败") ||
+		!strings.Contains(body, "不能重复使用") || strings.Contains(body, "copy-callback-url") ||
+		strings.Contains(body, "one-time-authorization-code") {
+		t.Fatalf("callback response = %d %s", response.StatusCode, body)
+	}
+	if err := fixture.db.Take(&row, "id = ?", started.StageID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != models.CredentialStageOutcomeUnknown {
+		t.Fatalf("stage status = %q, want outcome_unknown", row.Status)
 	}
 }
 
@@ -309,9 +413,9 @@ func TestNewServerConfiguresOAuthCallbackForWildcardContainerHost(t *testing.T) 
 func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) {
 	initControlI18n(t)
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":35}}}`)}, nil
-	}
+	})
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
@@ -348,13 +452,13 @@ func TestCredentialResetCreditRouteRequiresIdempotencyAndReplays(t *testing.T) {
 	initControlI18n(t)
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	consumeCalls := 0
-	fixture.service.consumeCodexResetCredit = func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
+	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
 		consumeCalls++
 		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil
-	}
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	})
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{}`)}, nil
-	}
+	})
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	path := fmt.Sprintf("/api/groups/%d/credentials/%d/reset-credits/consume", groupID, credentialID)
@@ -387,7 +491,7 @@ func TestCredentialResetCreditRouteRequiresIdempotencyAndReplays(t *testing.T) {
 	}
 }
 
-func successfulBrowserCompletion(payload stagedCodexPayload, t *testing.T) func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+func successfulBrowserCompletion(payload stagedSubscriptionPayload, t *testing.T) func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 	t.Helper()
 	return func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		if completion.ExpectedState != payload.State || completion.ReturnedState != payload.State || completion.Code != "authorization-code" {

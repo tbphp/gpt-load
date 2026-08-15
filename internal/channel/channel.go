@@ -11,58 +11,68 @@ import (
 	"sort"
 	"strings"
 
-	"gpt-load/internal/connection"
+	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
 // ID is a stable product channel identifier.
-type ID string
+type ID = modules.ID
 
 const (
-	OpenAI           ID = "openai"
-	Codex            ID = "codex"
-	Anthropic        ID = "anthropic"
-	Gemini           ID = "gemini"
-	AzureOpenAI      ID = "azure_openai"
-	AWSBedrock       ID = "aws_bedrock"
-	GoogleVertex     ID = "google_vertex"
-	OpenAICompatible ID = "openai_compatible"
-	DeepSeek         ID = "deepseek"
-	MoonshotAI       ID = "moonshotai"
-	SiliconFlow      ID = "siliconflow"
-	ZhipuAI          ID = "zhipuai"
-	Alibaba          ID = "alibaba"
-	Volcengine       ID = "volcengine"
-	OpenRouter       ID = "openrouter"
-	Groq             ID = "groq"
-	XAI              ID = "xai"
+	OpenAI           = modules.OpenAI
+	Codex            = modules.Codex
+	Anthropic        = modules.Anthropic
+	Gemini           = modules.Gemini
+	AzureOpenAI      = modules.AzureOpenAI
+	AWSBedrock       = modules.AWSBedrock
+	GoogleVertex     = modules.GoogleVertex
+	OpenAICompatible = modules.OpenAICompatible
+	DeepSeek         = modules.DeepSeek
+	MoonshotAI       = modules.MoonshotAI
+	SiliconFlow      = modules.SiliconFlow
+	ZhipuAI          = modules.ZhipuAI
+	Alibaba          = modules.Alibaba
+	Volcengine       = modules.Volcengine
+	OpenRouter       = modules.OpenRouter
+	Groq             = modules.Groq
+	XAI              = modules.XAI
 )
 
 // InputKind describes how a field is collected without exposing its value.
-type InputKind string
+type InputKind = modules.InputKind
 
 const (
-	InputText   InputKind = "text"
-	InputURL    InputKind = "url"
-	InputSecret InputKind = "secret"
+	InputText   = modules.InputText
+	InputURL    = modules.InputURL
+	InputSecret = modules.InputSecret
 )
 
 // FieldDescriptor is the public, value-free schema for one channel field.
 type FieldDescriptor struct {
-	Key       string    `json:"key"`
-	Label     string    `json:"label"`
-	InputKind InputKind `json:"input_kind"`
-	Required  bool      `json:"required"`
-	Sensitive bool      `json:"sensitive"`
+	Key          string    `json:"key"`
+	Label        string    `json:"label"`
+	InputKind    InputKind `json:"input_kind"`
+	Required     bool      `json:"required"`
+	Sensitive    bool      `json:"sensitive"`
+	DefaultValue *string   `json:"default_value"`
 }
 
-// ConnectionTypeDescriptor describes the code-owned credential flow used by a
-// channel. The UI consumes it internally and does not expose a mode selector.
-type ConnectionTypeDescriptor struct {
-	ID                   string   `json:"id"`
+// ConnectionDescriptor describes the single code-owned credential flow used
+// by a channel. Connection type never selects an execution adapter.
+type ConnectionDescriptor struct {
+	Type                 string   `json:"type"`
 	CredentialInput      string   `json:"credential_input"`
 	AuthorizationMethods []string `json:"authorization_methods,omitempty"`
+}
+
+// RouteDescriptor is the safe, compiled route projection exposed to the UI.
+type RouteDescriptor struct {
+	ClientProtocol protocol.Protocol   `json:"client_protocol"`
+	Operation      execution.Operation `json:"operation"`
+	RouteMode      RouteMode           `json:"route_mode"`
+	ModelDependent bool                `json:"model_dependent"`
+	PossibleModes  []RouteMode         `json:"possible_modes,omitempty"`
 }
 
 // Descriptor contains only information safe to expose to the management UI.
@@ -72,13 +82,14 @@ type Descriptor struct {
 	Mark string `json:"mark"`
 	// Icon names a frontend-owned icon resource. The frontend falls back to
 	// Mark when Icon is empty or the resource is not bundled.
-	Icon             string                     `json:"icon"`
-	SearchTerms      []string                   `json:"search_terms"`
-	Description      string                     `json:"description"`
-	ParamFields      []FieldDescriptor          `json:"param_fields"`
-	CredentialFields []FieldDescriptor          `json:"credential_fields"`
-	ConnectionTypes  []ConnectionTypeDescriptor `json:"connection_types"`
-	ClientProtocols  []protocol.Protocol        `json:"client_protocols"`
+	Icon             string               `json:"icon"`
+	SearchTerms      []string             `json:"search_terms"`
+	Description      string               `json:"description"`
+	ParamFields      []FieldDescriptor    `json:"param_fields"`
+	CredentialFields []FieldDescriptor    `json:"credential_fields"`
+	Connection       ConnectionDescriptor `json:"connection"`
+	Routes           []RouteDescriptor    `json:"routes"`
+	ClientProtocols  []protocol.Protocol  `json:"client_protocols"`
 }
 
 // Params is one validated, canonical channel parameter object.
@@ -122,41 +133,22 @@ const (
 
 // ProviderKind identifies the upstream API family selected by a code-owned
 // channel preset. It is runtime metadata, not a persisted SDK identifier.
-type ProviderKind string
+type ProviderKind = modules.ProviderKind
 
 const (
-	ProviderOpenAI           ProviderKind = "openai"
-	ProviderAnthropic        ProviderKind = "anthropic"
-	ProviderGemini           ProviderKind = "gemini"
-	ProviderOpenAICompatible ProviderKind = "openai_compatible"
-	ProviderAzureOpenAI      ProviderKind = "azure_openai"
-	ProviderAWSBedrock       ProviderKind = "aws_bedrock"
-	ProviderGoogleVertex     ProviderKind = "google_vertex"
-	ProviderDeepSeek         ProviderKind = "deepseek"
-	ProviderOpenRouter       ProviderKind = "openrouter"
-	ProviderGroq             ProviderKind = "groq"
-	ProviderXAI              ProviderKind = "xai"
+	ProviderOpenAI           = modules.ProviderOpenAI
+	ProviderCodex            = modules.ProviderCodex
+	ProviderAnthropic        = modules.ProviderAnthropic
+	ProviderGemini           = modules.ProviderGemini
+	ProviderOpenAICompatible = modules.ProviderOpenAICompatible
+	ProviderAzureOpenAI      = modules.ProviderAzureOpenAI
+	ProviderAWSBedrock       = modules.ProviderAWSBedrock
+	ProviderGoogleVertex     = modules.ProviderGoogleVertex
+	ProviderDeepSeek         = modules.ProviderDeepSeek
+	ProviderOpenRouter       = modules.ProviderOpenRouter
+	ProviderGroq             = modules.ProviderGroq
+	ProviderXAI              = modules.ProviderXAI
 )
-
-// Valid reports whether the provider kind is recognized.
-func (k ProviderKind) Valid() bool {
-	switch k {
-	case ProviderOpenAI,
-		ProviderAnthropic,
-		ProviderGemini,
-		ProviderOpenAICompatible,
-		ProviderAzureOpenAI,
-		ProviderAWSBedrock,
-		ProviderGoogleVertex,
-		ProviderDeepSeek,
-		ProviderOpenRouter,
-		ProviderGroq,
-		ProviderXAI:
-		return true
-	default:
-		return false
-	}
-}
 
 // ResolvedTarget is the provider-neutral execution target derived from a channel preset.
 type ResolvedTarget struct {
@@ -165,7 +157,13 @@ type ResolvedTarget struct {
 	TargetConfig      json.RawMessage `json:"-"`
 	CatalogProviderID string          `json:"-"`
 
-	modes map[protocol.Protocol]map[execution.Operation]RouteMode
+	modes     map[protocol.Protocol]map[execution.Operation]RouteMode
+	resolvers map[routeKey]modules.RouteResolver
+}
+
+type routeKey struct {
+	clientProtocol protocol.Protocol
+	operation      execution.Operation
 }
 
 // Mode returns how an operation reaches this channel.
@@ -191,11 +189,12 @@ func (t ResolvedTarget) ModeForModel(
 	if !ok {
 		return "", false
 	}
-	if t.ProviderKind == ProviderGoogleVertex && clientProtocol == protocol.Gemini &&
-		(operation == execution.OperationChatCompletion || operation == execution.OperationProbe) {
-		if _, native := NormalizeVertexGeminiModel(upstreamModel); native {
-			return RouteNative, true
+	if resolver := t.resolvers[routeKey{clientProtocol: clientProtocol, operation: operation}]; resolver != nil {
+		resolved := resolver(upstreamModel, mode)
+		if !resolved.Valid() {
+			return "", false
 		}
+		return resolved, true
 	}
 	return mode, true
 }
@@ -203,26 +202,7 @@ func (t ResolvedTarget) ModeForModel(
 // NormalizeVertexGeminiModel returns the Vertex resource ID for a Gemini,
 // Gemma, or numeric custom endpoint that can preserve the native Gemini wire format.
 func NormalizeVertexGeminiModel(model string) (string, bool) {
-	model = strings.TrimSpace(model)
-	lower := strings.ToLower(model)
-	for _, prefix := range []string{"publishers/google/models/", "google/"} {
-		if strings.HasPrefix(lower, prefix) {
-			model = model[len(prefix):]
-			lower = strings.ToLower(model)
-			break
-		}
-	}
-	if model == "" || strings.ContainsAny(model, "/\\:?#") {
-		return "", false
-	}
-	allDigits := true
-	for index := 0; index < len(model); index++ {
-		if model[index] < '0' || model[index] > '9' {
-			allDigits = false
-			break
-		}
-	}
-	return model, allDigits || strings.Contains(lower, "gemini") || strings.Contains(lower, "gemma")
+	return modules.NormalizeVertexGeminiModel(model)
 }
 
 // Operations returns the stable operation set declared for a client protocol.
@@ -259,11 +239,27 @@ type Registry struct {
 	order []ID
 }
 
-// NewRegistry constructs the built-in, read-only channel registry.
-func NewRegistry() *Registry {
-	registry, err := newRegistry(builtinDefinitions())
+// CompileRegistry validates every built-in module and constructs the immutable
+// runtime registry. Production startup propagates any invalid module as an
+// initialization error instead of publishing a partial registry.
+func CompileRegistry() (*Registry, error) {
+	definitions, err := compileBuiltInModules(modules.All())
 	if err != nil {
-		panic(fmt.Sprintf("build channel registry: %v", err))
+		return nil, fmt.Errorf("compile channel modules: %w", err)
+	}
+	registry, err := newRegistry(definitions)
+	if err != nil {
+		return nil, fmt.Errorf("build channel registry: %w", err)
+	}
+	return registry, nil
+}
+
+// NewRegistry constructs the built-in, read-only channel registry for compact
+// tests and helpers whose signature cannot return an error.
+func NewRegistry() *Registry {
+	registry, err := CompileRegistry()
+	if err != nil {
+		panic(err)
 	}
 	return registry
 }
@@ -329,16 +325,7 @@ func (r *Registry) ProviderKind(id ID) (ProviderKind, bool) {
 // SupportsConnectionType reports whether a channel accepts one connection type.
 func (r *Registry) SupportsConnectionType(id ID, connectionType string) bool {
 	descriptor, ok := r.Get(id)
-	if !ok {
-		return false
-	}
-	connectionType = connection.Normalize(connectionType)
-	for _, candidate := range descriptor.ConnectionTypes {
-		if candidate.ID == connectionType {
-			return true
-		}
-	}
-	return false
+	return ok && descriptor.Connection.Type == strings.TrimSpace(connectionType)
 }
 
 // ConnectionType returns the single code-owned connection type for a channel.
@@ -346,10 +333,40 @@ func (r *Registry) SupportsConnectionType(id ID, connectionType string) bool {
 // user-selectable option.
 func (r *Registry) ConnectionType(id ID) (string, bool) {
 	descriptor, ok := r.Get(id)
-	if !ok || len(descriptor.ConnectionTypes) != 1 {
+	if !ok || descriptor.Connection.Type == "" {
 		return "", false
 	}
-	return descriptor.ConnectionTypes[0].ID, true
+	return descriptor.Connection.Type, true
+}
+
+// CapabilityBindings returns an independent copy of the compiled optional
+// channel capabilities. Runtime consumers resolve these bindings at startup.
+func (r *Registry) CapabilityBindings(id ID) (modules.CapabilityBindings, bool) {
+	definition, ok := r.lookup(id)
+	if !ok {
+		return modules.CapabilityBindings{}, false
+	}
+	result := definition.capabilities
+	result.Actions = append([]modules.ActionID(nil), result.Actions...)
+	return result, true
+}
+
+// SchedulingPolicy returns immutable scheduling metadata for one channel.
+func (r *Registry) SchedulingPolicy(id ID) (modules.SchedulingPolicy, bool) {
+	definition, ok := r.lookup(id)
+	if !ok {
+		return modules.SchedulingPolicy{}, false
+	}
+	return definition.scheduling, true
+}
+
+// FixedBaseURL returns the code-owned endpoint for a fixed preset.
+func (r *Registry) FixedBaseURL(id ID) (string, bool) {
+	definition, ok := r.lookup(id)
+	if !ok || definition.endpointPolicy != modules.EndpointFixedWithOverride || definition.fixedBaseURL == "" {
+		return "", false
+	}
+	return definition.fixedBaseURL, true
 }
 
 // ValidateParams validates and normalizes the channel parameter object.
@@ -406,6 +423,7 @@ func (r *Registry) Resolve(id ID, raw json.RawMessage) (ResolvedTarget, error) {
 		TargetConfig:      append(json.RawMessage(nil), targetConfig...),
 		CatalogProviderID: definition.catalogProviderID,
 		modes:             cloneRouteModes(definition.modes),
+		resolvers:         cloneRouteResolvers(definition.resolvers),
 	}, nil
 }
 
@@ -457,8 +475,9 @@ func (e *ValidationError) Error() string { return fmt.Sprintf("%s: %s", e.Field,
 type normalizer func(string) (string, error)
 
 type fieldSpec struct {
-	descriptor FieldDescriptor
-	normalize  normalizer
+	descriptor   FieldDescriptor
+	defaultValue string
+	normalize    normalizer
 }
 
 type objectSchema []fieldSpec
@@ -489,6 +508,10 @@ func (s objectSchema) validate(prefix string, raw json.RawMessage) (map[string]s
 	for _, field := range s {
 		rawValue, exists := object[field.descriptor.Key]
 		if !exists {
+			if field.defaultValue != "" {
+				values[field.descriptor.Key] = field.defaultValue
+				continue
+			}
 			if field.descriptor.Required {
 				return nil, &ValidationError{Field: prefix + "." + field.descriptor.Key, Reason: "required"}
 			}
@@ -497,6 +520,10 @@ func (s objectSchema) validate(prefix string, raw json.RawMessage) (map[string]s
 		var value string
 		if err := json.Unmarshal(rawValue, &value); err != nil {
 			return nil, &ValidationError{Field: prefix + "." + field.descriptor.Key, Reason: "must be a string"}
+		}
+		if strings.TrimSpace(value) == "" && field.defaultValue != "" {
+			values[field.descriptor.Key] = field.defaultValue
+			continue
 		}
 		normalized, err := field.normalize(value)
 		if err != nil {
@@ -515,9 +542,14 @@ type definition struct {
 	validateCredential func(map[string]string) error
 	catalogProviderID  string
 	providerKind       ProviderKind
-	compatible         bool
+	connection         modules.Connection
+	capabilities       modules.CapabilityBindings
+	scheduling         modules.SchedulingPolicy
+	endpointPolicy     modules.EndpointPolicy
+	fixedBaseURL       string
 	fixedTargetConfig  json.RawMessage
 	modes              map[protocol.Protocol]map[execution.Operation]RouteMode
+	resolvers          map[routeKey]modules.RouteResolver
 }
 
 func (d definition) matches(query string) bool {
@@ -543,6 +575,9 @@ func newRegistry(definitions []definition) (*Registry, error) {
 		}
 		definition.descriptor = cloneDescriptor(definition.descriptor)
 		definition.modes = cloneRouteModes(definition.modes)
+		definition.resolvers = cloneRouteResolvers(definition.resolvers)
+		definition.connection.AuthorizationMethods = append([]string(nil), definition.connection.AuthorizationMethods...)
+		definition.capabilities.Actions = append([]modules.ActionID(nil), definition.capabilities.Actions...)
 		definition.fixedTargetConfig = append(json.RawMessage(nil), definition.fixedTargetConfig...)
 		registry.byID[id] = definition
 		registry.order = append(registry.order, id)
@@ -560,6 +595,12 @@ func validateDefinition(definition definition) error {
 	}
 	if !definition.providerKind.Valid() {
 		return fmt.Errorf("channel %q has invalid provider kind", id)
+	}
+	if definition.connection.Type != modules.ConnectionAPIKey && definition.connection.Type != modules.ConnectionSubscription {
+		return fmt.Errorf("channel %q has invalid connection type", id)
+	}
+	if definition.connection.CredentialInput == "" {
+		return fmt.Errorf("channel %q has no credential input", id)
 	}
 	if len(definition.fixedTargetConfig) > 0 && !json.Valid(definition.fixedTargetConfig) {
 		return fmt.Errorf("channel %q has invalid fixed target config", id)
@@ -605,17 +646,30 @@ func (r *Registry) lookup(id ID) (definition, bool) {
 }
 
 func cloneDescriptor(source Descriptor) Descriptor {
-	connectionTypes := source.ConnectionTypes
 	source.SearchTerms = append([]string{}, source.SearchTerms...)
 	source.ParamFields = append([]FieldDescriptor{}, source.ParamFields...)
 	source.CredentialFields = append([]FieldDescriptor{}, source.CredentialFields...)
-	source.ConnectionTypes = make([]ConnectionTypeDescriptor, len(connectionTypes))
-	for index, connectionType := range connectionTypes {
-		source.ConnectionTypes[index] = connectionType
-		source.ConnectionTypes[index].AuthorizationMethods = append([]string{}, connectionType.AuthorizationMethods...)
+	for index := range source.ParamFields {
+		source.ParamFields[index].DefaultValue = cloneStringPointer(source.ParamFields[index].DefaultValue)
+	}
+	for index := range source.CredentialFields {
+		source.CredentialFields[index].DefaultValue = cloneStringPointer(source.CredentialFields[index].DefaultValue)
+	}
+	source.Connection.AuthorizationMethods = append([]string{}, source.Connection.AuthorizationMethods...)
+	source.Routes = append([]RouteDescriptor{}, source.Routes...)
+	for index := range source.Routes {
+		source.Routes[index].PossibleModes = append([]RouteMode{}, source.Routes[index].PossibleModes...)
 	}
 	source.ClientProtocols = append([]protocol.Protocol{}, source.ClientProtocols...)
 	return source
+}
+
+func cloneStringPointer(source *string) *string {
+	if source == nil {
+		return nil
+	}
+	value := *source
+	return &value
 }
 
 func cloneRouteModes(source map[protocol.Protocol]map[execution.Operation]RouteMode) map[protocol.Protocol]map[execution.Operation]RouteMode {
@@ -626,6 +680,14 @@ func cloneRouteModes(source map[protocol.Protocol]map[execution.Operation]RouteM
 			clonedModes[operation] = mode
 		}
 		clone[clientProtocol] = clonedModes
+	}
+	return clone
+}
+
+func cloneRouteResolvers(source map[routeKey]modules.RouteResolver) map[routeKey]modules.RouteResolver {
+	clone := make(map[routeKey]modules.RouteResolver, len(source))
+	for key, resolver := range source {
+		clone[key] = resolver
 	}
 	return clone
 }

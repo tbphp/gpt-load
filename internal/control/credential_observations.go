@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -17,6 +15,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/usage"
 )
 
@@ -170,7 +169,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		previous.NextAllowedAtMS != nil && now.UnixMilli() < *previous.NextAllowedAtMS {
 		return mapCredentialObservation(previous), nil
 	}
-	codexCredential, err := s.prepareStoredCodexCredential(ctx, group, credential)
+	preparedCredential, err := s.prepareStoredSubscriptionCredential(ctx, group, credential)
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
@@ -184,33 +183,26 @@ func (s *Service) refreshCredentialObservationOnce(
 	nextAllowedMS := now.Add(observationRefreshFloor).UnixMilli()
 	observeContext, cancelObserve := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancelObserve()
-	observation, observeErr := s.observeCodexAccount(observeContext, codexCredential)
+	channelID := channel.ID(group.ChannelID)
+	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
 	if observeErr != nil {
+		if errors.Is(observeErr, subscriptionruntime.ErrObservationPayloadInvalid) {
+			return s.recordCredentialObservationFailure(
+				ctx, credential, previous, attemptMS, nextAllowedMS,
+				"observation_payload_invalid", "normalize subscription information",
+			)
+		}
 		return s.recordCredentialObservationFailure(
 			ctx, credential, previous, attemptMS, nextAllowedMS,
 			"observation_upstream_failed", "refresh subscription information",
 		)
 	}
-	snapshot, err := normalizeCodexObservation(observation.Payload)
-	if err != nil {
+	var snapshot CredentialObservationSnapshot
+	if err := json.Unmarshal(observation.Payload, &snapshot); err != nil || snapshot.QuotaWindows == nil {
 		return s.recordCredentialObservationFailure(
 			ctx, credential, previous, attemptMS, nextAllowedMS,
 			"observation_payload_invalid", "normalize subscription information",
 		)
-	}
-	if s.observeCodexResetCredits != nil {
-		detailContext, cancelDetails := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
-		details, detailErr := s.observeCodexResetCredits(detailContext, codexCredential)
-		cancelDetails()
-		if detailErr == nil {
-			count, credits, listPresent, normalizeErr := normalizeCodexResetCreditDetails(details.Payload)
-			if count != nil {
-				snapshot.ResetCreditsAvailable = count
-			}
-			if normalizeErr == nil && listPresent {
-				snapshot.ResetCredits = credits
-			}
-		}
 	}
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
@@ -296,7 +288,10 @@ func (s *Service) loadObservationTarget(ctx context.Context, groupID, credential
 		if err := tx.Take(&group, groupID).Error; err != nil {
 			return err
 		}
-		if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription || group.ChannelID != string(channel.Codex) {
+		if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription {
+			return app_errors.ErrValidation
+		}
+		if _, supported := s.subscriptions.QuotaObservation(channel.ID(group.ChannelID)); !supported {
 			return app_errors.ErrValidation
 		}
 		if err := tx.Where("id = ? AND group_id = ?", credentialID, groupID).Take(&credential).Error; err != nil {
@@ -586,207 +581,4 @@ func mapObservationWindowUsage(
 		EstimatedReferenceCostNanoUSD: strconv.FormatInt(observed.EstimatedCostNanoUSD, 10),
 		LastUsedAtMS:                  observed.LastUsedAtMS,
 	}, true
-}
-
-func normalizeCodexObservation(raw []byte) (CredentialObservationSnapshot, error) {
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.UseNumber()
-	var payload map[string]any
-	if err := decoder.Decode(&payload); err != nil || payload == nil {
-		return CredentialObservationSnapshot{}, errors.New("invalid observation")
-	}
-	result := CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{}}
-	result.Plan.Name = cleanObservationString(firstObservationValue(payload, "plan_type", "planType"))
-	if credits, ok := observationMap(firstObservationValue(payload, "rate_limit_reset_credits", "rateLimitResetCredits")); ok {
-		if value, ok := observationInt(firstObservationValue(credits, "available_count", "availableCount")); ok {
-			result.ResetCreditsAvailable = &value
-		}
-	}
-	if rate, ok := observationMap(firstObservationValue(payload, "rate_limit", "rateLimit")); ok {
-		result.QuotaWindows = append(result.QuotaWindows, normalizeRateWindows(rate, "", "account")...)
-	}
-	if additional, ok := firstObservationValue(payload, "additional_rate_limits", "additionalRateLimits").([]any); ok {
-		for index, rawEntry := range additional {
-			entry, ok := observationMap(rawEntry)
-			if !ok {
-				continue
-			}
-			name := cleanObservationString(firstObservationValue(entry, "limit_name", "limitName", "metered_feature", "meteredFeature"))
-			if name == "" {
-				name = "additional-" + strconv.Itoa(index+1)
-			}
-			rate, ok := observationMap(firstObservationValue(entry, "rate_limit", "rateLimit"))
-			if !ok {
-				continue
-			}
-			windows := normalizeRateWindows(rate, safeObservationID(name)+"-", name)
-			modelIDs := observationStrings(firstObservationValue(entry, "model_ids", "modelIds"))
-			for windowIndex := range windows {
-				windows[windowIndex].ModelIDs = append([]string(nil), modelIDs...)
-			}
-			result.QuotaWindows = append(result.QuotaWindows, windows...)
-		}
-	}
-	sort.SliceStable(result.QuotaWindows, func(i, j int) bool {
-		left, right := result.QuotaWindows[i], result.QuotaWindows[j]
-		if (left.State == "exhausted") != (right.State == "exhausted") {
-			return left.State == "exhausted"
-		}
-		lu, ru := -1.0, -1.0
-		if left.Utilization != nil {
-			lu = *left.Utilization
-		}
-		if right.Utilization != nil {
-			ru = *right.Utilization
-		}
-		if lu != ru {
-			return lu > ru
-		}
-		lr, rr := int64(math.MaxInt64), int64(math.MaxInt64)
-		if left.ResetAtMS != nil {
-			lr = *left.ResetAtMS
-		}
-		if right.ResetAtMS != nil {
-			rr = *right.ResetAtMS
-		}
-		if lr != rr {
-			return lr < rr
-		}
-		return left.ID < right.ID
-	})
-	if len(result.QuotaWindows) > 0 {
-		result.QuotaWindows[0].IsPrimary = true
-	}
-	return result, nil
-}
-
-func normalizeRateWindows(rate map[string]any, prefix, scope string) []ObservationQuotaWindow {
-	result := make([]ObservationQuotaWindow, 0, 2)
-	for _, name := range []string{"primary", "secondary"} {
-		window, ok := observationMap(firstObservationValue(rate, name+"_window", name+"Window"))
-		if !ok {
-			continue
-		}
-		item := ObservationQuotaWindow{ID: prefix + name, Label: observationWindowLabel(window, name, scope), Scope: scope, Unit: "percent", State: "unknown"}
-		if used, ok := observationFloat(firstObservationValue(window, "used_percent", "usedPercent")); ok {
-			used = math.Max(0, math.Min(100, used))
-			limit, remaining, utilization := 100.0, 100-used, used/100
-			item.Used, item.Limit, item.Remaining, item.Utilization = &used, &limit, &remaining, &utilization
-			if used >= 100 {
-				item.State = "exhausted"
-			} else {
-				item.State = "available"
-			}
-		}
-		if allowed, ok := firstObservationValue(rate, "allowed").(bool); ok && !allowed {
-			item.State = "exhausted"
-		}
-		if reached, ok := firstObservationValue(rate, "limit_reached", "limitReached").(bool); ok && reached {
-			item.State = "exhausted"
-		}
-		if seconds, ok := observationInt(firstObservationValue(window, "limit_window_seconds", "limitWindowSeconds")); ok {
-			item.WindowSeconds = &seconds
-		}
-		if reset, ok := observationInt(firstObservationValue(window, "reset_at", "resetAt")); ok {
-			value := reset * 1000
-			item.ResetAtMS = &value
-		}
-		result = append(result, item)
-	}
-	return result
-}
-
-func observationWindowLabel(window map[string]any, fallback, scope string) string {
-	if value := cleanObservationString(firstObservationValue(window, "label", "display_name", "displayName")); value != "" {
-		return value
-	}
-	if seconds, ok := observationInt(firstObservationValue(window, "limit_window_seconds", "limitWindowSeconds")); ok {
-		duration := strconv.FormatInt(seconds, 10) + "s"
-		switch seconds {
-		case 5 * 60 * 60:
-			duration = "5h"
-		case 7 * 24 * 60 * 60:
-			duration = "7d"
-		}
-		if scope != "account" {
-			return scope + " · " + duration
-		}
-		return duration
-	}
-	if scope != "account" {
-		return scope + " · " + fallback
-	}
-	return fallback
-}
-
-func firstObservationValue(values map[string]any, keys ...string) any {
-	for _, key := range keys {
-		if value, ok := values[key]; ok {
-			return value
-		}
-	}
-	return nil
-}
-func observationMap(value any) (map[string]any, bool) {
-	result, ok := value.(map[string]any)
-	return result, ok
-}
-func cleanObservationString(value any) string {
-	result, _ := value.(string)
-	return strings.TrimSpace(result)
-}
-func observationFloat(value any) (float64, bool) {
-	switch typed := value.(type) {
-	case json.Number:
-		result, err := typed.Float64()
-		return result, err == nil
-	case float64:
-		return typed, true
-	case int:
-		return float64(typed), true
-	}
-	return 0, false
-}
-func observationInt(value any) (int64, bool) {
-	result, ok := observationFloat(value)
-	if !ok || math.Trunc(result) != result || result < 0 || result > math.MaxInt64 {
-		return 0, false
-	}
-	return int64(result), true
-}
-func observationStrings(value any) []string {
-	values, ok := value.([]any)
-	if !ok {
-		return nil
-	}
-	result := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, raw := range values {
-		value, ok := raw.(string)
-		if !ok {
-			continue
-		}
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, duplicate := seen[value]; duplicate {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result
-}
-func safeObservationID(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	var b strings.Builder
-	for _, r := range value {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		} else if b.Len() > 0 && !strings.HasSuffix(b.String(), "-") {
-			b.WriteByte('-')
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }

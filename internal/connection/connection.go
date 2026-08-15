@@ -10,13 +10,9 @@ const (
 	Subscription = "subscription"
 )
 
-// Normalize keeps empty legacy values compatible with API-key groups.
+// Normalize trims an explicitly configured connection type.
 func Normalize(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return APIKey
-	}
-	return value
+	return strings.TrimSpace(value)
 }
 
 // Valid reports whether value names a supported product connection type.

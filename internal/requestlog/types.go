@@ -39,7 +39,7 @@ type Attempt struct {
 	UpstreamRequestID string                    `json:"upstream_request_id"`
 	DispatchState     execution.DispatchState   `json:"dispatch_state"`
 	ResponseStarted   bool                      `json:"response_started"`
-	UpstreamAPI       execution.UpstreamAPI     `json:"upstream_api"`
+	UpstreamProtocol  protocol.Protocol         `json:"upstream_protocol"`
 	Reasoning         reasoning.Config          `json:"reasoning"`
 	StatusCode        int                       `json:"status_code"`
 	DurationMs        int64                     `json:"duration_ms"`
@@ -114,7 +114,7 @@ type Record struct {
 	AccessKey               AccessKeyRef
 	Protocol                protocol.Protocol
 	Operation               execution.Operation
-	UpstreamAPI             execution.UpstreamAPI
+	UpstreamProtocol        protocol.Protocol
 	ClientModel             string
 	UpstreamModel           string
 	UpstreamReportedModel   string

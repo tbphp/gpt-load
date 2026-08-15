@@ -328,12 +328,12 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.listCodexModels = func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
+	setCodexModelDiscovery(t, fixture.service, func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
 		if credential.AccountID != "account-saved-models" {
 			t.Fatalf("credential = %#v", credential)
 		}
 		return []codex.Model{{ID: "gpt-5.2"}}, nil
-	}
+	})
 	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
 	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "gpt-5.2" {
 		t.Fatalf("result = %#v, %v", result, err)
@@ -353,7 +353,7 @@ func TestDiscoverGroupModelsPreparesSubscriptionCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepareCalls := 0
-	fixture.service.prepareCodexCredential = func(_ context.Context, snapshot execution.CredentialSnapshot) (codex.Credential, *execution.ErrorEvidence) {
+	setCodexCredentialPreparer(t, fixture.service, func(_ context.Context, snapshot execution.CredentialSnapshot) (codex.Credential, *execution.ErrorEvidence) {
 		prepareCalls++
 		credential, parseErr := codex.ParseCredentialJSON(snapshot.Data())
 		if parseErr != nil {
@@ -361,13 +361,13 @@ func TestDiscoverGroupModelsPreparesSubscriptionCredential(t *testing.T) {
 		}
 		credential.AccessToken = "refreshed-access"
 		return credential, nil
-	}
-	fixture.service.listCodexModels = func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
+	})
+	setCodexModelDiscovery(t, fixture.service, func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
 		if credential.AccessToken != "refreshed-access" {
 			t.Fatalf("credential = %#v", credential)
 		}
 		return []codex.Model{{ID: "gpt-5.2"}}, nil
-	}
+	})
 
 	if _, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID); err != nil || prepareCalls != 1 {
 		t.Fatalf("DiscoverGroupModels() error/calls = %v/%d", err, prepareCalls)
@@ -391,10 +391,10 @@ func TestDiscoverGroupModelsSkipsSubscriptionCredentialRequiringAuthorization(t 
 		t.Fatal(err)
 	}
 	calls := 0
-	fixture.service.listCodexModels = func(context.Context, codex.Credential) ([]codex.Model, error) {
+	setCodexModelDiscovery(t, fixture.service, func(context.Context, codex.Credential) ([]codex.Model, error) {
 		calls++
 		return nil, nil
-	}
+	})
 
 	_, err = fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
 	if !errors.Is(err, app_errors.ErrCredentialReauthorizationRequired) || calls != 0 {
@@ -424,10 +424,10 @@ func TestDiscoverGroupModelsDoesNotMaskAttemptedSubscriptionFailure(t *testing.T
 		t.Fatal(err)
 	}
 	calls := 0
-	fixture.service.listCodexModels = func(context.Context, codex.Credential) ([]codex.Model, error) {
+	setCodexModelDiscovery(t, fixture.service, func(context.Context, codex.Credential) ([]codex.Model, error) {
 		calls++
 		return nil, errors.New("upstream unavailable")
-	}
+	})
 
 	_, err = fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
 	if !errors.Is(err, app_errors.ErrBadGateway) || errors.Is(err, app_errors.ErrCredentialReauthorizationRequired) || calls != 1 {
@@ -436,9 +436,9 @@ func TestDiscoverGroupModelsDoesNotMaskAttemptedSubscriptionFailure(t *testing.T
 }
 
 func TestCodexPreparationAPIErrorTreatsStateCommitFailureAsUnknown(t *testing.T) {
-	err := codexPreparationAPIError(&execution.ErrorEvidence{Code: "refresh_state_commit_failed"})
+	err := subscriptionPreparationAPIError(&execution.ErrorEvidence{Code: "refresh_state_commit_failed"})
 	if !errors.Is(err, app_errors.ErrCredentialAuthOutcomeUnknown) {
-		t.Fatalf("codexPreparationAPIError() = %v, want ErrCredentialAuthOutcomeUnknown", err)
+		t.Fatalf("subscriptionPreparationAPIError() = %v, want ErrCredentialAuthOutcomeUnknown", err)
 	}
 }
 
@@ -513,7 +513,7 @@ func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T
 				Credentials: "state-key",
 				Models: optionalGroupModels{
 					Set: true, Values: []GroupModel{{ID: "persisted-model"}},
-				},
+				}, ConnectionType: "api_key",
 			})
 			if err != nil {
 				t.Fatalf("seed CreateGroup() error = %v", err)
@@ -549,7 +549,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 		ChannelID:   channel.OpenAICompatible,
 		Params:      []byte(`{"base_url":"https://discovery-lock.example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Credentials: "key-1",
+		Credentials: "key-1", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatalf("seed CreateGroup() error = %v", err)
@@ -610,7 +610,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 			ChannelID:   channel.Anthropic,
 			Params:      []byte(`{"base_url":"https://concurrent-group-write.example.com"}`),
 			Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-			Credentials: "concurrent-group-key",
+			Credentials: "concurrent-group-key", ConnectionType: "api_key",
 		})
 		groupWriteDone <- err
 	}()

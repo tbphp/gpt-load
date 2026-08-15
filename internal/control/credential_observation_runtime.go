@@ -6,7 +6,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"gpt-load/internal/channel"
 	"gpt-load/internal/storage/models"
 )
 
@@ -21,7 +20,7 @@ type credentialObservationRefreshTarget struct {
 }
 
 func (s *Service) RunCredentialObservationRefresh(ctx context.Context) {
-	if s == nil || s.observeCodexAccount == nil {
+	if s == nil || s.observeSubscriptionAccount == nil || len(s.subscriptions.QuotaObservationChannelIDs()) == 0 {
 		return
 	}
 	if ctx == nil {
@@ -41,7 +40,7 @@ func (s *Service) RunCredentialObservationRefresh(ctx context.Context) {
 }
 
 func (s *Service) refreshDueCredentialObservations(ctx context.Context) {
-	if s == nil || s.observeCodexAccount == nil || ctx.Err() != nil {
+	if s == nil || s.observeSubscriptionAccount == nil || ctx.Err() != nil {
 		return
 	}
 	now := s.now().UTC()
@@ -76,8 +75,12 @@ func (s *Service) dueCredentialObservationTargets(
 	now time.Time,
 ) ([]credentialObservationRefreshTarget, error) {
 	var groupIDs []uint
+	channelIDs := s.subscriptions.QuotaObservationChannelIDs()
+	if len(channelIDs) == 0 {
+		return nil, nil
+	}
 	if err := s.db.WithContext(ctx).Model(&models.Group{}).
-		Where("channel_id = ? AND connection_type = ? AND enabled = ?", channel.Codex, models.ConnectionTypeSubscription, true).
+		Where("channel_id IN ? AND connection_type = ? AND enabled = ?", channelIDs, models.ConnectionTypeSubscription, true).
 		Order("id ASC").
 		Pluck("id", &groupIDs).Error; err != nil || len(groupIDs) == 0 {
 		return nil, err

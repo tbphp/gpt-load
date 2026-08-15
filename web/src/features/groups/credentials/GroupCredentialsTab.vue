@@ -68,6 +68,7 @@ import {
 
 const props = defineProps<{
   groupId: number
+  channelId: string
   connectionType: 'api_key' | 'subscription'
 }>()
 const client = useApiClient()
@@ -775,6 +776,7 @@ async function runBatch(
         </InlineFeedback>
         <SubscriptionCredentialStager
           v-model="connectionStages"
+          :channel-id="channelId"
           compact
           hide-header
           context="connect"

@@ -64,7 +64,7 @@ type Attempt struct {
 	UpstreamRequestID string
 	DispatchState     execution.DispatchState
 	ResponseStarted   bool
-	UpstreamAPI       execution.UpstreamAPI
+	UpstreamProtocol  protocol.Protocol
 	Reasoning         reasoning.Config
 	StatusCode        int
 	DurationMs        int64

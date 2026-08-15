@@ -19,10 +19,32 @@ import {
 export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
 export type ChannelConnectionType = 'api_key' | 'subscription'
 
-export interface ChannelConnectionTypeDto {
-  id: ChannelConnectionType
+export interface ChannelConnectionDto {
+  type: ChannelConnectionType
   credential_input: 'batch_text' | 'authorization'
   authorization_methods: Array<'browser_oauth' | 'oauth_file'>
+}
+
+export type ChannelRouteMode = 'native' | 'converted'
+export type ChannelOperation =
+  | 'chat_completion'
+  | 'responses_create'
+  | 'responses_retrieve'
+  | 'responses_delete'
+  | 'responses_cancel'
+  | 'responses_input_items'
+  | 'responses_compact'
+  | 'responses_input_tokens'
+  | 'responses_passthrough'
+  | 'list_models'
+  | 'probe'
+
+export interface ChannelRouteDto {
+  client_protocol: AccessProtocol
+  operation: ChannelOperation
+  route_mode: ChannelRouteMode
+  model_dependent: boolean
+  possible_modes: ChannelRouteMode[]
 }
 
 export interface ChannelFieldDto {
@@ -31,6 +53,7 @@ export interface ChannelFieldDto {
   input_kind: ChannelFieldInputKind
   required: boolean
   sensitive: boolean
+  default_value: string | null
 }
 
 export interface ChannelDto {
@@ -43,7 +66,8 @@ export interface ChannelDto {
   default_base_url: string
   param_fields: ChannelFieldDto[]
   credential_fields: ChannelFieldDto[]
-  connection_types: ChannelConnectionTypeDto[]
+  connection: ChannelConnectionDto
+  routes: ChannelRouteDto[]
   client_protocols: AccessProtocol[]
 }
 
@@ -62,16 +86,45 @@ const channelFields = [
   'default_base_url',
   'param_fields',
   'credential_fields',
-  'connection_types',
+  'connection',
+  'routes',
   'client_protocols',
 ] as const
-const fieldFields = ['key', 'label', 'input_kind', 'required', 'sensitive'] as const
+const fieldFields = [
+  'key',
+  'label',
+  'input_kind',
+  'required',
+  'sensitive',
+  'default_value',
+] as const
 const listFields = ['items', 'total'] as const
 const inputKinds = ['text', 'url', 'secret'] as const
 const connectionTypes = ['api_key', 'subscription'] as const
 const credentialInputs = ['batch_text', 'authorization'] as const
 const authorizationMethods = ['browser_oauth', 'oauth_file'] as const
-const connectionTypeFields = ['id', 'credential_input', 'authorization_methods'] as const
+const connectionFields = ['type', 'credential_input', 'authorization_methods'] as const
+const routeFields = [
+  'client_protocol',
+  'operation',
+  'route_mode',
+  'model_dependent',
+  'possible_modes',
+] as const
+const routeModes = ['native', 'converted'] as const
+const operations = [
+  'chat_completion',
+  'responses_create',
+  'responses_retrieve',
+  'responses_delete',
+  'responses_cancel',
+  'responses_input_items',
+  'responses_compact',
+  'responses_input_tokens',
+  'responses_passthrough',
+  'list_models',
+  'probe',
+] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -92,11 +145,13 @@ function projectChannelField(value: unknown): ChannelFieldDto {
   const label = projectString(record.label)
   const inputKind = projectEnum(record.input_kind, inputKinds)
   const sensitive = projectBoolean(record.sensitive)
+  const defaultValue = record.default_value === null ? null : projectString(record.default_value)
   if (
     key !== key.trim() ||
     !/^[a-z][a-z0-9_]*$/u.test(key) ||
     label.trim().length === 0 ||
-    sensitive !== (inputKind === 'secret')
+    sensitive !== (inputKind === 'secret') ||
+    (sensitive && defaultValue !== null)
   ) {
     invalidResponse()
   }
@@ -106,25 +161,50 @@ function projectChannelField(value: unknown): ChannelFieldDto {
     input_kind: inputKind,
     required: projectBoolean(record.required),
     sensitive,
+    default_value: defaultValue,
   }
 }
 
-function projectConnectionType(value: unknown): ChannelConnectionTypeDto {
+function projectConnection(value: unknown): ChannelConnectionDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, connectionTypeFields)
-  const id = projectEnum(record.id, connectionTypes)
+  assertNoSecretLikeFields(record, connectionFields)
+  const type = projectEnum(record.type, connectionTypes)
   const credentialInput = projectEnum(record.credential_input, credentialInputs)
   const methods = projectArray(record.authorization_methods ?? [], (method) =>
     projectEnum(method, authorizationMethods),
   )
   if (
     new Set(methods).size !== methods.length ||
-    (id === 'api_key' && (credentialInput !== 'batch_text' || methods.length !== 0)) ||
-    (id === 'subscription' && credentialInput !== 'authorization')
+    (type === 'api_key' && (credentialInput !== 'batch_text' || methods.length !== 0)) ||
+    (type === 'subscription' && (credentialInput !== 'authorization' || methods.length === 0))
   ) {
     invalidResponse()
   }
-  return { id, credential_input: credentialInput, authorization_methods: methods }
+  return { type, credential_input: credentialInput, authorization_methods: methods }
+}
+
+function projectRoute(value: unknown): ChannelRouteDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, routeFields)
+  const routeMode = projectEnum(record.route_mode, routeModes)
+  const modelDependent = projectBoolean(record.model_dependent)
+  const possibleModes = projectArray(record.possible_modes ?? [], (mode) =>
+    projectEnum(mode, routeModes),
+  )
+  if (
+    new Set(possibleModes).size !== possibleModes.length ||
+    (!modelDependent && possibleModes.length !== 0) ||
+    (modelDependent && (possibleModes.length === 0 || !possibleModes.includes(routeMode)))
+  ) {
+    invalidResponse()
+  }
+  return {
+    client_protocol: projectEnum(record.client_protocol, enabledDataProtocols),
+    operation: projectEnum(record.operation, operations),
+    route_mode: routeMode,
+    model_dependent: modelDependent,
+    possible_modes: possibleModes,
+  }
 }
 
 function projectChannel(value: unknown): ChannelDto {
@@ -132,18 +212,24 @@ function projectChannel(value: unknown): ChannelDto {
   assertNoSecretLikeFields(record, channelFields)
   const paramFields = projectArray(record.param_fields, projectChannelField)
   const credentialFields = projectArray(record.credential_fields, projectChannelField)
-  const projectedConnectionTypes = projectArray(record.connection_types, projectConnectionType)
+  const connection = projectConnection(record.connection)
+  const routes = projectArray(record.routes, projectRoute)
   const clientProtocols = projectArray(record.client_protocols, (protocol) =>
     projectEnum(protocol, enabledDataProtocols),
+  )
+  const routeKeys = routes.map(
+    ({ client_protocol, operation }) => `${client_protocol}\u0000${operation}`,
+  )
+  const derivedProtocols = enabledDataProtocols.filter((protocol) =>
+    routes.some(({ client_protocol }) => client_protocol === protocol),
   )
   if (
     new Set(paramFields.map(({ key }) => key)).size !== paramFields.length ||
     new Set(credentialFields.map(({ key }) => key)).size !== credentialFields.length ||
-    new Set(projectedConnectionTypes.map(({ id }) => id)).size !==
-      projectedConnectionTypes.length ||
-    projectedConnectionTypes.length !== 1 ||
+    new Set(routeKeys).size !== routeKeys.length ||
     credentialFields.some(({ sensitive }) => !sensitive) ||
-    new Set(clientProtocols).size !== clientProtocols.length
+    new Set(clientProtocols).size !== clientProtocols.length ||
+    JSON.stringify(clientProtocols) !== JSON.stringify(derivedProtocols)
   ) {
     invalidResponse()
   }
@@ -157,7 +243,8 @@ function projectChannel(value: unknown): ChannelDto {
     default_base_url: projectString(record.default_base_url, { allowEmpty: true }),
     param_fields: paramFields,
     credential_fields: credentialFields,
-    connection_types: projectedConnectionTypes,
+    connection,
+    routes,
     client_protocols: clientProtocols,
   }
 }

@@ -43,8 +43,6 @@ type ForwardInput struct {
 	Operation        execution.Operation
 	RouteRequirement execution.RouteRequirement
 	ChannelID        string
-	ConnectionType   string
-	TargetKind       string
 	RouteMode        execution.RouteMode
 	TargetConfig     json.RawMessage
 	Credential       execution.CredentialSnapshot
@@ -72,7 +70,7 @@ type UpstreamResult struct {
 	Usage                     usage.Result
 	DispatchState             execution.DispatchState
 	ResponseStarted           bool
-	UpstreamAPI               execution.UpstreamAPI
+	UpstreamProtocol          protocol.Protocol
 	AppliedReasoning          reasoning.Config
 	UpstreamRequestID         string
 	ExecutionError            *execution.ErrorEvidence

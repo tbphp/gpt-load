@@ -27,6 +27,7 @@ const OAUTH_JSON_PLACEHOLDER = '{"type":"codex","access_token":"...","refresh_to
 const props = withDefaults(
   defineProps<{
     modelValue: CredentialStage[]
+    channelId: string
     disabled?: boolean
     single?: boolean
     compact?: boolean
@@ -225,7 +226,7 @@ async function beginAuthorization(existingPopup?: Window | null): Promise<void> 
   const popup = existingPopup === undefined ? openAuthorizationPopup() : existingPopup
   busyAction.value = 'authorize'
   try {
-    const stage = await beginCredentialAuthorization(client)
+    const stage = await beginCredentialAuthorization(client, props.channelId)
     replaceStage(stage)
     schedulePoll(stage)
     if (popup && stage.authorization_url) popup.location.replace(stage.authorization_url)
@@ -249,7 +250,9 @@ async function importFile(event: Event): Promise<void> {
 async function importText(): Promise<void> {
   const value = oauthJSON.value.trim()
   if (!value) return
-  await importOAuthJSON(new File([value], 'codex-oauth.json', { type: 'application/json' }))
+  await importOAuthJSON(
+    new File([value], `${props.channelId}-credential.json`, { type: 'application/json' }),
+  )
 }
 
 async function importOAuthJSON(file: File): Promise<void> {
@@ -257,7 +260,7 @@ async function importOAuthJSON(file: File): Promise<void> {
   feedbackKey.value = ''
   busyAction.value = 'import'
   try {
-    replaceStage(await importCredentialStage(client, file))
+    replaceStage(await importCredentialStage(client, props.channelId, file))
     oauthJSON.value = ''
     jsonImportOpen.value = false
   } catch (cause) {

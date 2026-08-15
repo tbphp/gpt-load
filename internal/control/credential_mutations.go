@@ -365,7 +365,7 @@ func (s *Service) mapCredentialItem(
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
-	mask, account, err := credentialPresentation(group, row, canonical, identity)
+	mask, account, err := s.credentialPresentation(group, row, canonical, identity)
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}

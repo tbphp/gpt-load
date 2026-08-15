@@ -52,21 +52,17 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{
-			{
-				ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
-			{
-				ID: 2, Name: "disabled", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 2, Name: "disabled", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: false,
 			},
-			{
-				ID: 3, Name: "zero-weight", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 3, Name: "zero-weight", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models:       []state.ModelConfig{{ID: "model"}},
 				WeightManual: &zero, Enabled: true,
 			},
-			{
-				ID: 4, Name: "empty", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 4, Name: "empty", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 		},
@@ -174,8 +170,7 @@ func TestRuntimeHealthAdvertisesExecutorValidationForChannelCredential(t *testin
 	fixture.service.now = func() time.Time { return now }
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "channel", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "channel", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
 	}); err != nil {
@@ -206,8 +201,7 @@ func TestRuntimeHealthExposesProblemCountsInsteadOfFailureAliases(t *testing.T) 
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
-	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
-		ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
@@ -268,12 +262,10 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{
-			{
-				ID: 2, Name: "two", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 2, Name: "two", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
-			{
-				ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 		},
@@ -337,8 +329,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	fixture.service.now = healthNow
 	plaintext := "provider-secret-credential-tail"
 	ciphertext := encryptHealthKey(t, fixture, plaintext)
-	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
-		ID: 1, Name: "safe", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "safe", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
@@ -418,8 +409,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.now = healthNow
-	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
-		ID: 1, Name: "safe", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "safe", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)

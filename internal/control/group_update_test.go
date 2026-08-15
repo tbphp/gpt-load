@@ -73,7 +73,7 @@ func TestGroupCatalogSyncTriggerOnlyTracksProviderAndModelIDChanges(t *testing.T
 		Models: optionalGroupModels{Set: true, Values: []GroupModel{
 			{ID: "model-a", Alias: "public-a", AliasEnabled: true},
 		}},
-		Credentials: "sk-catalog-trigger",
+		Credentials: "sk-catalog-trigger", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestGroupCatalogSyncTriggerOnlyTracksProviderAndModelIDChanges(t *testing.T
 		ChannelID:   channel.Anthropic,
 		Params:      json.RawMessage(`{}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{{ID: "created-model"}}},
-		Credentials: "sk-catalog-trigger-created",
+		Credentials: "sk-catalog-trigger-created", ConnectionType: "api_key",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestGroupCatalogSyncTriggerOnlyTracksProviderAndModelIDChanges(t *testing.T
 		ChannelID:   channel.OpenAICompatible,
 		Params:      json.RawMessage(`{"base_url":"https://catalog-trigger-custom.example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{{ID: "custom-a"}}},
-		Credentials: "sk-catalog-trigger-custom",
+		Credentials: "sk-catalog-trigger-custom", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)

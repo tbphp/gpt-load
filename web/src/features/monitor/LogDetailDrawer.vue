@@ -173,9 +173,11 @@ function operationLabel(operation: RequestLogAttemptDto['operation']): string {
   return t(`monitor.logs.operation.${operation}`)
 }
 
-function upstreamAPILabel(upstreamAPI: RequestLogAttemptDto['upstream_api']): string {
-  if (upstreamAPI === null) return t('monitor.logs.protocolConversion.notRecorded')
-  return upstreamAPI
+function upstreamProtocolLabel(
+  upstreamProtocol: RequestLogAttemptDto['upstream_protocol'],
+): string {
+  if (upstreamProtocol === null) return t('monitor.logs.protocolConversion.notRecorded')
+  return upstreamProtocol
 }
 
 function reasoningLabel(reasoning: RequestLogAttemptDto['reasoning']): string {
@@ -432,8 +434,8 @@ function toggleAttemptErrorMessage(sequence: number): void {
             </dd>
           </div>
           <div>
-            <dt>{{ t('monitor.logs.drawer.upstreamAPI') }}</dt>
-            <dd>{{ upstreamAPILabel(log.upstream_api) }}</dd>
+            <dt>{{ t('monitor.logs.drawer.upstreamProtocol') }}</dt>
+            <dd>{{ upstreamProtocolLabel(log.upstream_protocol) }}</dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
@@ -587,8 +589,8 @@ function toggleAttemptErrorMessage(sequence: number): void {
               </div>
               <template v-if="!isFinalAttempt(attempt)">
                 <div>
-                  <dt>{{ t('monitor.logs.drawer.upstreamAPI') }}</dt>
-                  <dd>{{ upstreamAPILabel(attempt.upstream_api) }}</dd>
+                  <dt>{{ t('monitor.logs.drawer.upstreamProtocol') }}</dt>
+                  <dd>{{ upstreamProtocolLabel(attempt.upstream_protocol) }}</dd>
                 </div>
                 <div>
                   <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>

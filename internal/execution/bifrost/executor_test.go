@@ -589,6 +589,9 @@ func TestRuntimePreparesStructuredCloudCredentialsForSelectedProvider(t *testing
 			if string(prepared.provider) != test.wantProvider {
 				t.Fatalf("provider = %q, want %q", prepared.provider, test.wantProvider)
 			}
+			if prepared.upstreamProtocol != "" {
+				t.Fatalf("dynamic cloud upstream protocol = %q, want empty", prepared.upstreamProtocol)
+			}
 			if prepared.directKey.ID != "23:7:5" || prepared.directKey.Weight != 1 || len(prepared.directKey.Models) != 1 || prepared.directKey.Models[0] != "*" {
 				t.Fatalf("direct key identity = %#v", prepared.directKey)
 			}
@@ -684,6 +687,9 @@ func TestRuntimePreparesNativeVertexGeminiFromSelectedCredentialProject(t *testi
 			}
 			if prepared.mode != channel.RouteNative || prepared.passthrough == nil {
 				t.Fatalf("prepared Vertex route = %#v, want native passthrough", prepared)
+			}
+			if prepared.upstreamProtocol != protocol.Gemini {
+				t.Fatalf("Vertex upstream protocol = %q, want %q", prepared.upstreamProtocol, protocol.Gemini)
 			}
 			if prepared.passthrough.Path != test.wantPath || prepared.passthrough.RawQuery != test.wantQuery {
 				t.Fatalf("Vertex target = %q?%s, want %q?%s", prepared.passthrough.Path, prepared.passthrough.RawQuery, test.wantPath, test.wantQuery)
@@ -1356,7 +1362,6 @@ func freezeTestAttempt(spec execution.AttemptSpec) execution.AttemptSpec {
 	if !ok {
 		mode = channel.RouteNative
 	}
-	spec.TargetKind = string(resolved.ProviderKind)
 	spec.RouteMode = execution.RouteMode(mode)
 	return execution.NewAttemptSpec(spec)
 }

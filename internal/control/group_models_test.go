@@ -40,7 +40,7 @@ func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 			{ID: "gpt-4o", Alias: "default", AliasEnabled: true},
 			{ID: "missing-price", Alias: ""},
 		}},
-		Credentials: "sk-model-read",
+		Credentials: "sk-model-read", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
-		Credentials: "sk-model-save-a\nsk-model-save-b",
+		Credentials: "sk-model-save-a\nsk-model-save-b", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -365,7 +365,7 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
-		Credentials: "sk-empty-models",
+		Credentials: "sk-empty-models", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -501,7 +501,7 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 				Set:    true,
 				Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 			},
-			Credentials: "sk-commit-models",
+			Credentials: "sk-commit-models", ConnectionType: "api_key",
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -105,8 +105,7 @@ func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
 
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 7, Name: "responses", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 7, Name: "responses", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
 	})
@@ -191,7 +190,7 @@ func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
 	}
 }
 
-func TestIteratorPrioritizesFreshCodexSubscriptionQuotaWithinGroup(t *testing.T) {
+func TestIteratorPrioritizesFreshQuotaForChannelsThatDeclareThePolicy(t *testing.T) {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
@@ -726,12 +725,10 @@ func schedulerSnapshot() *state.ConfigSnapshot {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "one", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "gpt-4o", Alias: "gpt-4o"}}, Enabled: true,
 			},
-			{
-				ID: 2, Name: "two", ChannelID: channel.OpenAICompatible,
+			{ConnectionType: "api_key", ID: 2, Name: "two", ChannelID: channel.OpenAICompatible,
 				Params: json.RawMessage(`{"base_url":"https://two.example/v1"}`),
 				Models: []state.ModelConfig{{ID: "provider-gpt-4o", Alias: "gpt-4o"}}, Enabled: true,
 			},

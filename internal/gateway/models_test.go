@@ -16,22 +16,19 @@ func TestVisibleModelIDs(t *testing.T) {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 1, Name: "first", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "first", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{
 					{ID: "zeta"}, {ID: "shared", Alias: "first-alias"}, {ID: "alpha"},
 				},
 				Enabled: true,
 			},
-			{
-				ID: 2, Name: "second", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 2, Name: "second", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{
 					{ID: "shared", Alias: "second-alias"}, {ID: "beta"},
 				},
 				Enabled: true,
 			},
-			{
-				ID: 3, Name: "disabled", ChannelID: channel.Gemini, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 3, Name: "disabled", ChannelID: channel.Gemini, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "hidden"}}, Enabled: false,
 			},
 		},
@@ -72,24 +69,21 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := state.Compile(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{
-		{
-			ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{
 				{ID: "chat-only"},
 				{ID: "shared"},
 			},
 			Enabled: true,
 		},
-		{
-			ID: 2, ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+		{ConnectionType: "api_key", ID: 2, ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{
 				{ID: "responses-only"},
 				{ID: "shared"},
 			},
 			Enabled: true,
 		},
-		{
-			ID: 3, ChannelID: channel.Gemini, Params: json.RawMessage(`{}`),
+		{ConnectionType: "api_key", ID: 3, ChannelID: channel.Gemini, Params: json.RawMessage(`{}`),
 			Models:  []state.ModelConfig{{ID: "both"}},
 			Enabled: true,
 		},
@@ -197,12 +191,10 @@ func TestBuildVisibleModelListBoundsFinalAnthropicJSONAcrossGroups(t *testing.T)
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 1, Name: "first", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "first", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "zeta"}}, Enabled: true,
 			},
-			{
-				ID: 2, Name: "second", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 2, Name: "second", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
 			},
 		},

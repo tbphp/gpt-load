@@ -45,8 +45,7 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 	)
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: groupID, Name: "data-plane", ChannelID: channel.OpenAICompatible,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: groupID, Name: "data-plane", ChannelID: channel.OpenAICompatible,
 			Params: json.RawMessage(`{"base_url":"` + upstream.URL + `/v1"}`),
 			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},

@@ -282,23 +282,28 @@ func convertedTypedTarget(
 	responses bool,
 	stream bool,
 	rawQuery string,
-) (string, error) {
+) (string, protocol.Protocol, error) {
 	var resourcePath string
+	var upstreamProtocol protocol.Protocol
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible:
 		resourcePath = "/chat/completions"
+		upstreamProtocol = protocol.OpenAICompletions
 		// Compatible targets are configured with Chat Completions only. Bifrost
 		// translates a converted Responses request back to that operation; the
 		// Responses path is reserved for native OpenAI targets.
 		if responses && providerKind == channel.ProviderOpenAI {
 			resourcePath = "/responses"
+			upstreamProtocol = protocol.OpenAIResponses
 		}
 		if providerKind == channel.ProviderOpenAI {
 			resourcePath = "/v1" + resourcePath
 		}
 	case channel.ProviderAnthropic:
 		resourcePath = "/v1/messages"
+		upstreamProtocol = protocol.Anthropic
 	case channel.ProviderGemini:
+		upstreamProtocol = protocol.Gemini
 		action := "generateContent"
 		if stream {
 			action = "streamGenerateContent"
@@ -309,39 +314,47 @@ func convertedTypedTarget(
 		}
 	case channel.ProviderDeepSeek:
 		resourcePath = "/chat/completions"
+		upstreamProtocol = protocol.OpenAICompletions
 	case channel.ProviderOpenRouter:
 		resourcePath = "/v1/chat/completions"
+		upstreamProtocol = protocol.OpenAICompletions
 		if responses {
 			resourcePath = "/v1/responses"
+			upstreamProtocol = protocol.OpenAIResponses
 		}
 	case channel.ProviderGroq:
 		if stream && rawQuery != "" {
-			return "", fmt.Errorf("provider streaming query is not supported")
+			return "", "", fmt.Errorf("provider streaming query is not supported")
 		}
 		resourcePath = "/v1/chat/completions"
+		upstreamProtocol = protocol.OpenAICompletions
 	case channel.ProviderXAI:
 		resourcePath = "/v1/chat/completions"
+		upstreamProtocol = protocol.OpenAICompletions
 		if responses {
 			resourcePath = "/v1/responses"
+			upstreamProtocol = protocol.OpenAIResponses
 		} else if stream && rawQuery != "" {
-			return "", fmt.Errorf("provider streaming query is not supported")
+			return "", "", fmt.Errorf("provider streaming query is not supported")
 		}
 	case channel.ProviderAzureOpenAI, channel.ProviderAWSBedrock, channel.ProviderGoogleVertex:
 		if rawQuery != "" {
-			return "", fmt.Errorf("provider-specific query is not supported")
+			return "", "", fmt.Errorf("provider-specific query is not supported")
 		}
-		return "", nil
+		return "", "", nil
 	default:
-		return "", fmt.Errorf("unsupported provider kind")
+		return "", "", fmt.Errorf("unsupported provider kind")
 	}
 	if baseURL != "" {
-		return resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+		target, err := resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+		return target, upstreamProtocol, err
 	}
-	return appendTypedQuery(resourcePath, rawQuery), nil
+	return appendTypedQuery(resourcePath, rawQuery), upstreamProtocol, nil
 }
 
-func deepSeekNativeTypedTarget(baseURL string, clientProtocol protocol.Protocol, rawQuery string) (string, error) {
+func deepSeekNativeTypedTarget(baseURL string, clientProtocol protocol.Protocol, rawQuery string) (string, protocol.Protocol, error) {
 	resourcePath := ""
+	upstreamProtocol := clientProtocol
 	switch clientProtocol {
 	case protocol.OpenAICompletions:
 		resourcePath = "/chat/completions"
@@ -350,39 +363,46 @@ func deepSeekNativeTypedTarget(baseURL string, clientProtocol protocol.Protocol,
 	case protocol.Anthropic:
 		resourcePath = "/anthropic/v1/messages"
 	default:
-		return "", fmt.Errorf("unsupported DeepSeek native protocol")
+		return "", "", fmt.Errorf("unsupported DeepSeek native protocol")
 	}
 	if baseURL != "" {
-		return resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+		target, err := resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+		return target, upstreamProtocol, err
 	}
-	return appendTypedQuery(resourcePath, rawQuery), nil
+	return appendTypedQuery(resourcePath, rawQuery), upstreamProtocol, nil
 }
 
-func convertedListModelsTarget(providerKind channel.ProviderKind, baseURL string, rawQuery string) (string, error) {
+func convertedListModelsTarget(providerKind channel.ProviderKind, baseURL string, rawQuery string) (string, protocol.Protocol, error) {
 	resourcePath := "/models"
+	upstreamProtocol := protocol.OpenAICompletions
 	switch providerKind {
-	case channel.ProviderOpenAI, channel.ProviderAnthropic:
+	case channel.ProviderOpenAI:
 		resourcePath = "/v1/models"
+	case channel.ProviderAnthropic:
+		resourcePath = "/v1/models"
+		upstreamProtocol = protocol.Anthropic
 	case channel.ProviderGemini:
 		resourcePath = "/models"
+		upstreamProtocol = protocol.Gemini
 	case channel.ProviderDeepSeek:
 		resourcePath = "/models"
 	case channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
 		resourcePath = "/v1/models"
 	case channel.ProviderOpenAICompatible:
 		if baseURL == "" {
-			return "", fmt.Errorf("compatible target is required")
+			return "", "", fmt.Errorf("compatible target is required")
 		}
-		return resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+		target, err := resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+		return target, upstreamProtocol, err
 	case channel.ProviderAzureOpenAI, channel.ProviderAWSBedrock, channel.ProviderGoogleVertex:
 		if rawQuery != "" {
-			return "", fmt.Errorf("provider-specific query is not supported")
+			return "", "", fmt.Errorf("provider-specific query is not supported")
 		}
-		return "", nil
+		return "", "", nil
 	default:
-		return "", fmt.Errorf("unsupported provider kind")
+		return "", "", fmt.Errorf("unsupported provider kind")
 	}
-	return appendTypedQuery(resourcePath, rawQuery), nil
+	return appendTypedQuery(resourcePath, rawQuery), upstreamProtocol, nil
 }
 
 func appendTypedQuery(path, rawQuery string) string {

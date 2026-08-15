@@ -319,8 +319,7 @@ func awaitManagerSignal(t *testing.T, signal <-chan struct{}, name string) {
 func managerCompileInput(groupID uint) CompileInput {
 	return CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []GroupConfig{{
-			ID: groupID, Name: "group", ChannelID: channel.OpenAI,
+		Groups: []GroupConfig{{ConnectionType: "api_key", ID: groupID, Name: "group", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
 	}

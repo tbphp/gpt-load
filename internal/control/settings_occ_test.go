@@ -190,7 +190,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 		Name: &groupName, ChannelID: channel.OpenAICompatible,
 		Params:      json.RawMessage(`{"base_url":"https://example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Credentials: "sk-unrelated-etag-key",
+		Credentials: "sk-unrelated-etag-key", ConnectionType: "api_key",
 	}); err != nil {
 		t.Fatal(err)
 	}

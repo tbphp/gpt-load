@@ -63,7 +63,7 @@ func TestImportCodexOAuthJSONRefreshesExpiredCredentialBeforeReady(t *testing.T)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	refreshCalls := 0
-	fixture.service.refreshCodexCredential = func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
+	setCodexCredentialRefresh(t, fixture.service, func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
 		refreshCalls++
 		if credential.AccessToken != "expired-access" {
 			t.Fatalf("credential = %#v", credential)
@@ -72,7 +72,7 @@ func TestImportCodexOAuthJSONRefreshesExpiredCredentialBeforeReady(t *testing.T)
 		credential.RefreshToken = "fresh-refresh"
 		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
 		return credential, nil
-	}
+	})
 	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
 		`{"type":"codex","access_token":"expired-access","refresh_token":"expired-refresh","account_id":"account-expired","expired":"2026-08-14T07:00:00Z"}`,
 	))
@@ -83,8 +83,9 @@ func TestImportCodexOAuthJSONRefreshesExpiredCredentialBeforeReady(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	credential, err := fixture.service.decodeStageCodexCredential(row)
-	if err != nil || credential.AccessToken != "fresh-access" || credential.RefreshToken != "fresh-refresh" {
+	credential, err := fixture.service.decodeStageSubscriptionCredential(channel.Codex, row)
+	parsed, parseErr := testCodexCredential(credential)
+	if err != nil || parseErr != nil || parsed.AccessToken != "fresh-access" || parsed.RefreshToken != "fresh-refresh" {
 		t.Fatalf("stored credential = %#v, %v", credential, err)
 	}
 }
@@ -169,20 +170,20 @@ func TestCompleteBrowserAuthorizationConsumesStateOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.completeBrowserAuthorization = func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+	setCodexAuthorizationCompletion(t, fixture.service, func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		if completion.ExpectedState != payload.State || completion.ReturnedState != payload.State ||
-			completion.Code != "authorization-code" || completion.CodeVerifier != payload.Verifier {
+			completion.Code != "authorization-code" || completion.CodeVerifier != codexTestVerifier(payload.DriverState) {
 			t.Fatalf("completion = %#v", completion)
 		}
 		return codex.Credential{
 			Type: codex.Provider, AccessToken: "new-access", RefreshToken: "new-refresh",
 			AccountID: "account-123", Email: "admin@example.com",
 		}, nil
-	}
+	})
 	result, err := fixture.service.CompleteCredentialAuthorization(t.Context(), payload.State, "authorization-code")
 	if err != nil {
 		t.Fatalf("CompleteCredentialAuthorization() error = %v", err)
@@ -192,6 +193,67 @@ func TestCompleteBrowserAuthorizationConsumesStateOnce(t *testing.T) {
 	}
 	if _, err := fixture.service.CompleteCredentialAuthorization(t.Context(), payload.State, "authorization-code"); !errors.Is(err, app_errors.ErrAuthorizationStateInvalid) {
 		t.Fatalf("replayed callback error = %v", err)
+	}
+}
+
+func TestCompleteBrowserAuthorizationAcceptsVersionOnePendingStage(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.UnixMilli(1_800_000_000_000)
+	fixture.service.now = func() time.Time { return now }
+	const (
+		state    = "legacy-oauth-state"
+		verifier = "legacy-pkce-verifier"
+	)
+	payload, err := json.Marshal(struct {
+		State    string `json:"state"`
+		Verifier string `json:"verifier"`
+	}{State: state, Verifier: verifier})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := fixture.encryption.Encrypt(string(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := models.CredentialStage{
+		ID: "legacy-pending-stage", ChannelID: string(channel.Codex),
+		ConnectionType:       models.ConnectionTypeSubscription,
+		AuthorizationMethod:  "browser_oauth",
+		Status:               models.CredentialStagePendingAuthorization,
+		EncryptedPayload:     ciphertext,
+		PayloadSchemaVersion: 1,
+		SafeSummaryJSON:      models.JSON(`{}`),
+		OAuthStateHash:       pointerTo(fixture.encryption.Hash("oauth-state/v1|" + state)),
+		ExpiresAtMS:          now.Add(credentialStageAuthTTL).UnixMilli(),
+		CreatedAtMS:          now.UnixMilli(),
+		UpdatedAtMS:          now.UnixMilli(),
+	}
+	if err := fixture.db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	setCodexAuthorizationCompletion(t, fixture.service, func(_ context.Context, completion codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+		if completion.ExpectedState != state || completion.ReturnedState != state ||
+			completion.Code != "authorization-code" || completion.CodeVerifier != verifier {
+			t.Fatalf("completion = %#v", completion)
+		}
+		return codex.Credential{
+			Type: codex.Provider, AccessToken: "new-access", RefreshToken: "new-refresh",
+			AccountID: "account-123", Email: "admin@example.com",
+		}, nil
+	})
+
+	result, err := fixture.service.CompleteCredentialAuthorization(t.Context(), state, "authorization-code")
+	if err != nil {
+		t.Fatalf("CompleteCredentialAuthorization() error = %v", err)
+	}
+	if result.StageID != row.ID || result.Status != string(models.CredentialStageReady) {
+		t.Fatalf("completed result = %#v", result)
+	}
+	if err := fixture.db.Take(&row, "id = ?", row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.PayloadSchemaVersion != 2 {
+		t.Fatalf("PayloadSchemaVersion = %d, want 2", row.PayloadSchemaVersion)
 	}
 }
 
@@ -209,13 +271,13 @@ func TestCompleteBrowserAuthorizationMarksDefinitiveExchangeRejectionFailed(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.completeBrowserAuthorization = func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+	setCodexAuthorizationCompletion(t, fixture.service, func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
-	}
+	})
 
 	if _, err := fixture.service.CompleteCredentialAuthorization(t.Context(), payload.State, "rejected-code"); !errors.Is(err, app_errors.ErrAuthorizationExchangeFailed) {
 		t.Fatalf("CompleteCredentialAuthorization() error = %v", err)
@@ -246,16 +308,16 @@ func TestCompleteBrowserAuthorizationUsesBoundedUpstreamContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
 	hasBoundedDeadline := false
-	fixture.service.completeBrowserAuthorization = func(ctx context.Context, _ codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+	setCodexAuthorizationCompletion(t, fixture.service, func(ctx context.Context, _ codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		deadline, ok := ctx.Deadline()
 		hasBoundedDeadline = ok && time.Until(deadline) > 0 && time.Until(deadline) <= 31*time.Second
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
-	}
+	})
 
 	_, _ = fixture.service.CompleteCredentialAuthorization(context.Background(), payload.State, "rejected-code")
 	if !hasBoundedDeadline {
@@ -277,18 +339,18 @@ func TestCompleteBrowserAuthorizationSurvivesCallbackCancellationAfterClaim(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
 	callbackContext, cancelCallback := context.WithCancel(context.Background())
-	fixture.service.completeBrowserAuthorization = func(ctx context.Context, _ codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+	setCodexAuthorizationCompletion(t, fixture.service, func(ctx context.Context, _ codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		cancelCallback()
 		if ctx.Err() != nil {
 			return codex.Credential{}, ctx.Err()
 		}
 		return codex.Credential{}, errors.New("connection reset")
-	}
+	})
 
 	if _, err := fixture.service.CompleteCredentialAuthorization(callbackContext, payload.State, "authorization-code"); !errors.Is(err, app_errors.ErrAuthorizationExchangeFailed) {
 		t.Fatalf("CompleteCredentialAuthorization() error = %v", err)
@@ -315,13 +377,13 @@ func TestCompleteBrowserAuthorizationTreatsTransientEndpointRejectionAsUnknown(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.completeBrowserAuthorization = func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
+	setCodexAuthorizationCompletion(t, fixture.service, func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
-	}
+	})
 
 	if _, err := fixture.service.CompleteCredentialAuthorization(t.Context(), payload.State, "authorization-code"); !errors.Is(err, app_errors.ErrAuthorizationExchangeFailed) {
 		t.Fatalf("CompleteCredentialAuthorization() error = %v", err)
@@ -347,7 +409,7 @@ func TestCreateSubscriptionGroupConsumesReadyStageAtomically(t *testing.T) {
 	request := GroupCreateRequest{
 		Name: stringPointer("subscription group"), ChannelID: channel.Codex,
 		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
-		StagedCredentialIDs: []string{stage.StageID},
+		StagedCredentialIDs: []string{stage.StageID}, ConnectionType: "subscription",
 	}
 	key := "00000000-0000-4000-8000-000000000777"
 	created, err := fixture.service.CreateGroupIdempotent(t.Context(), key, request)

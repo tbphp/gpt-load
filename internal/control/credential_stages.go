@@ -13,9 +13,9 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 const (
@@ -23,6 +23,7 @@ const (
 	credentialStageAuthTTL      = 5 * time.Minute
 	credentialStageTombstoneTTL = 24 * time.Hour
 	maxOAuthFileBytes           = 64 * 1024
+	stagedSubscriptionSchemaV2  = 2
 )
 
 type CredentialStageAccount struct {
@@ -38,12 +39,61 @@ type CredentialStageResult struct {
 	Account          CredentialStageAccount `json:"account"`
 	ExpiresAtMS      int64                  `json:"expires_at_ms"`
 	ErrorCode        string                 `json:"error_code,omitempty"`
+	LocalCallback    bool                   `json:"-"`
 }
 
-type stagedCodexPayload struct {
-	Credential codex.Credential `json:"credential,omitempty"`
-	State      string           `json:"state,omitempty"`
-	Verifier   string           `json:"verifier,omitempty"`
+type stagedSubscriptionPayload struct {
+	Credential  json.RawMessage `json:"credential,omitempty"`
+	State       string          `json:"state,omitempty"`
+	DriverState json.RawMessage `json:"driver_state,omitempty"`
+}
+
+// Version 1 was the Codex-only envelope used before subscription drivers were
+// generalized. It remains readable only for short-lived stages created before
+// an in-place upgrade.
+type stagedSubscriptionPayloadV1 struct {
+	State    string `json:"state,omitempty"`
+	Verifier string `json:"verifier,omitempty"`
+}
+
+func decodeStagedAuthorizationPayload(schemaVersion uint, plaintext []byte) (stagedSubscriptionPayload, error) {
+	switch schemaVersion {
+	case 1:
+		var legacy stagedSubscriptionPayloadV1
+		if err := json.Unmarshal(plaintext, &legacy); err != nil {
+			return stagedSubscriptionPayload{}, err
+		}
+		driverState, err := json.Marshal(struct {
+			Verifier string `json:"verifier"`
+		}{Verifier: legacy.Verifier})
+		if err != nil {
+			return stagedSubscriptionPayload{}, err
+		}
+		return stagedSubscriptionPayload{State: legacy.State, DriverState: driverState}, nil
+	case stagedSubscriptionSchemaV2:
+		var payload stagedSubscriptionPayload
+		if err := json.Unmarshal(plaintext, &payload); err != nil {
+			return stagedSubscriptionPayload{}, err
+		}
+		return payload, nil
+	default:
+		return stagedSubscriptionPayload{}, fmt.Errorf("unsupported credential stage payload schema version %d", schemaVersion)
+	}
+}
+
+func (s *Service) subscriptionDriver(channelID channel.ID) (subscriptionruntime.Driver, error) {
+	if s == nil || s.channelRegistry == nil || s.subscriptions == nil {
+		return nil, app_errors.ErrValidation
+	}
+	connectionType, ok := s.channelRegistry.ConnectionType(channelID)
+	if !ok || connectionType != string(models.ConnectionTypeSubscription) {
+		return nil, app_errors.ErrValidation
+	}
+	driver, ok := s.subscriptions.Driver(channelID)
+	if !ok {
+		return nil, app_errors.ErrValidation
+	}
+	return driver, nil
 }
 
 func (s *Service) ImportCredentialStage(
@@ -51,47 +101,51 @@ func (s *Service) ImportCredentialStage(
 	channelID channel.ID,
 	raw []byte,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil || channelID != channel.Codex {
+	if s == nil || s.db == nil || s.encryption == nil {
 		return CredentialStageResult{}, app_errors.ErrValidation
+	}
+	driver, err := s.subscriptionDriver(channelID)
+	if err != nil {
+		return CredentialStageResult{}, err
 	}
 	if len(raw) > maxOAuthFileBytes {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileTooLarge
 	}
-	credential, err := codex.ParseCredentialJSON(raw)
+	credential, err := driver.Parse(raw)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileInvalid
 	}
-	credential, err = s.prepareImportedCodexCredential(ctx, credential)
+	credential, err = s.prepareImportedSubscriptionCredential(ctx, channelID, driver, credential)
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
 	return s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential)
 }
 
-func (s *Service) prepareImportedCodexCredential(
+func (s *Service) prepareImportedSubscriptionCredential(
 	ctx context.Context,
-	credential codex.Credential,
-) (codex.Credential, error) {
-	expiresAt, known := codex.CredentialExpiresAt(credential)
+	channelID channel.ID,
+	driver subscriptionruntime.Driver,
+	credential subscriptionruntime.Credential,
+) (subscriptionruntime.Credential, error) {
+	expiresAt, known := credential.ExpiresAt()
 	if !known || expiresAt.After(s.now().Add(5*time.Minute)) {
 		return credential, nil
 	}
-	if s.refreshCodexCredential == nil {
-		return codex.Credential{}, app_errors.ErrAuthorizationUnavailable
+	if s.refreshSubscriptionCredential == nil {
+		return subscriptionruntime.Credential{}, app_errors.ErrAuthorizationUnavailable
 	}
 	refreshContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancel()
-	refreshed, err := s.refreshCodexCredential(refreshContext, credential)
+	refreshed, err := s.refreshSubscriptionCredential(refreshContext, channelID, credential)
 	if err != nil {
-		var tokenErr *codex.TokenEndpointError
-		if errors.Is(err, codex.ErrCredentialIdentityChanged) ||
-			errors.As(err, &tokenErr) && codex.IsDefinitiveRefreshRejection(tokenErr.Code) {
-			return codex.Credential{}, app_errors.ErrCredentialReauthorizationRequired
+		if driver.ClassifyRefreshFailure(err) != subscriptionruntime.RefreshFailureOutcomeUnknown {
+			return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 		}
-		return codex.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+		return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
 	}
-	if refreshed.AccountID != credential.AccountID {
-		return codex.Credential{}, app_errors.ErrCredentialReauthorizationRequired
+	if refreshed.Identity() == "" || refreshed.Identity() != credential.Identity() {
+		return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 	}
 	return refreshed, nil
 }
@@ -100,14 +154,20 @@ func (s *Service) BeginCredentialAuthorization(
 	ctx context.Context,
 	channelID channel.ID,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil || channelID != channel.Codex {
+	if s == nil || s.db == nil || s.encryption == nil {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
-	authorization, err := codex.BeginBrowserAuthorization()
+	if _, err := s.subscriptionDriver(channelID); err != nil {
+		return CredentialStageResult{}, err
+	}
+	if s.beginSubscriptionAuthorization == nil {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
+	}
+	authorization, err := s.beginSubscriptionAuthorization(channelID)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
 	}
-	payload, err := json.Marshal(stagedCodexPayload{State: authorization.State, Verifier: authorization.CodeVerifier})
+	payload, err := json.Marshal(stagedSubscriptionPayload{State: authorization.State, DriverState: authorization.DriverState})
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
@@ -126,7 +186,7 @@ func (s *Service) BeginCredentialAuthorization(
 		ID: stageID, ChannelID: string(channelID),
 		ConnectionType:      models.ConnectionTypeSubscription,
 		AuthorizationMethod: "browser_oauth", Status: models.CredentialStagePendingAuthorization,
-		EncryptedPayload: ciphertext, PayloadSchemaVersion: 1, SafeSummaryJSON: models.JSON(`{}`),
+		EncryptedPayload: ciphertext, PayloadSchemaVersion: stagedSubscriptionSchemaV2, SafeSummaryJSON: models.JSON(`{}`),
 		OAuthStateHash: pointerTo(s.encryption.Hash("oauth-state/v1|" + authorization.State)),
 		ExpiresAtMS:    expiresAt.UnixMilli(), CreatedAtMS: now.UnixMilli(), UpdatedAtMS: now.UnixMilli(),
 	}
@@ -134,8 +194,9 @@ func (s *Service) BeginCredentialAuthorization(
 		return CredentialStageResult{}, app_errors.ParseDBError(err)
 	}
 	return CredentialStageResult{
-		StageID: row.ID, Status: string(row.Status), AuthorizationURL: authorization.AuthorizationURL,
+		StageID: row.ID, Status: string(row.Status), AuthorizationURL: authorization.URL,
 		Account: CredentialStageAccount{}, ExpiresAtMS: row.ExpiresAtMS,
+		LocalCallback: authorization.LocalCallback,
 	}, nil
 }
 
@@ -167,7 +228,7 @@ func (s *Service) completeCredentialAuthorization(
 	returnedState string,
 	code string,
 ) (CredentialStageResult, error) {
-	if s == nil || s.completeBrowserAuthorization == nil || strings.TrimSpace(returnedState) == "" ||
+	if s == nil || s.completeSubscriptionAuthorization == nil || strings.TrimSpace(returnedState) == "" ||
 		strings.TrimSpace(code) == "" {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
 	}
@@ -212,8 +273,8 @@ func (s *Service) completeCredentialAuthorization(
 		}
 		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
 	}
-	var payload stagedCodexPayload
-	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
+	payload, err := decodeStagedAuthorizationPayload(row.PayloadSchemaVersion, []byte(plaintext))
+	if err != nil {
 		if markErr := s.markCredentialStageOutcomeUnknown(ctx, row.ID); markErr != nil {
 			return CredentialStageResult{}, app_errors.ErrInternalServer
 		}
@@ -221,14 +282,22 @@ func (s *Service) completeCredentialAuthorization(
 	}
 	exchangeContext, cancelExchange := context.WithTimeout(context.WithoutCancel(ctx), defaultSubscriptionControlTimeout)
 	defer cancelExchange()
-	credential, err := s.completeBrowserAuthorization(exchangeContext, codex.BrowserAuthorizationCompletion{
+	channelID := channel.ID(row.ChannelID)
+	driver, driverErr := s.subscriptionDriver(channelID)
+	if driverErr != nil {
+		if markErr := s.markCredentialStageOutcomeUnknown(ctx, row.ID); markErr != nil {
+			return CredentialStageResult{}, app_errors.ErrInternalServer
+		}
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
+	credential, err := s.completeSubscriptionAuthorization(exchangeContext, channelID, subscriptionruntime.AuthorizationCompletion{
 		ExpectedState: payload.State, ReturnedState: returnedState,
-		Code: code, CodeVerifier: payload.Verifier,
+		Code: code, DriverState: payload.DriverState,
 	})
 	if err != nil {
-		var tokenErr *codex.TokenEndpointError
 		var finalizeErr error
-		if errors.As(err, &tokenErr) && definitiveAuthorizationCodeRejection(tokenErr.Code) {
+		browser, browserOK := driver.(subscriptionruntime.BrowserAuthorizationDriver)
+		if browserOK && browser.AuthorizationFailureDefinitive(err) {
 			finalizeErr = s.failCredentialStageExchange(ctx, row.ID, "authorization_exchange_rejected")
 		} else {
 			finalizeErr = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
@@ -248,15 +317,6 @@ func (s *Service) completeCredentialAuthorization(
 		return CredentialStageResult{}, err
 	}
 	return result, nil
-}
-
-func definitiveAuthorizationCodeRejection(code string) bool {
-	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "invalid_grant", "access_denied":
-		return true
-	default:
-		return false
-	}
 }
 
 // FailCredentialAuthorization consumes a provider rejection without retaining
@@ -347,9 +407,9 @@ func (s *Service) persistReadyCredentialStage(
 	ctx context.Context,
 	channelID channel.ID,
 	method string,
-	credential codex.Credential,
+	credential subscriptionruntime.Credential,
 ) (CredentialStageResult, error) {
-	payload, err := json.Marshal(stagedCodexPayload{Credential: credential})
+	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: credential.Canonical()})
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
@@ -362,7 +422,7 @@ func (s *Service) persistReadyCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
-	summary := codexCredentialAccount(credential)
+	summary := subscriptionCredentialAccount(credential)
 	summaryJSON, err := json.Marshal(summary)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
@@ -371,9 +431,9 @@ func (s *Service) persistReadyCredentialStage(
 	row := models.CredentialStage{
 		ID: stageID, ChannelID: string(channelID), ConnectionType: models.ConnectionTypeSubscription,
 		AuthorizationMethod: method, Status: models.CredentialStageReady,
-		EncryptedPayload: ciphertext, PayloadSchemaVersion: 1,
+		EncryptedPayload: ciphertext, PayloadSchemaVersion: stagedSubscriptionSchemaV2,
 		SafeSummaryJSON:     models.JSON(summaryJSON),
-		IdentityFingerprint: s.subscriptionIdentityFingerprint(channelID, credential.AccountID),
+		IdentityFingerprint: s.subscriptionIdentityFingerprint(channelID, credential.Identity()),
 		ExpiresAtMS:         now.Add(credentialStageReadyTTL).UnixMilli(),
 		CreatedAtMS:         now.UnixMilli(), UpdatedAtMS: now.UnixMilli(),
 	}
@@ -388,9 +448,9 @@ func (s *Service) persistReadyCredentialStage(
 func (s *Service) finishCredentialStageExchange(
 	ctx context.Context,
 	row models.CredentialStage,
-	credential codex.Credential,
+	credential subscriptionruntime.Credential,
 ) (CredentialStageResult, error) {
-	payload, err := json.Marshal(stagedCodexPayload{Credential: credential})
+	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: credential.Canonical()})
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
@@ -399,7 +459,7 @@ func (s *Service) finishCredentialStageExchange(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
-	summary := codexCredentialAccount(credential)
+	summary := subscriptionCredentialAccount(credential)
 	summaryJSON, err := json.Marshal(summary)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
@@ -410,9 +470,10 @@ func (s *Service) finishCredentialStageExchange(
 		Where("id = ? AND status = ?", row.ID, models.CredentialStageExchanging).
 		Updates(map[string]any{
 			"status": models.CredentialStageReady, "encrypted_payload": ciphertext,
-			"safe_summary_json":    models.JSON(summaryJSON),
-			"identity_fingerprint": s.subscriptionIdentityFingerprint(channel.ID(row.ChannelID), credential.AccountID),
-			"expires_at_ms":        expiresAtMS, "updated_at_ms": nowMS,
+			"payload_schema_version": stagedSubscriptionSchemaV2,
+			"safe_summary_json":      models.JSON(summaryJSON),
+			"identity_fingerprint":   s.subscriptionIdentityFingerprint(channel.ID(row.ChannelID), credential.Identity()),
+			"expires_at_ms":          expiresAtMS, "updated_at_ms": nowMS,
 		})
 	if result.Error != nil {
 		return CredentialStageResult{}, app_errors.ParseDBError(result.Error)
@@ -453,7 +514,11 @@ func credentialStageFinalizeContext(ctx context.Context) (context.Context, conte
 }
 
 func (s *Service) subscriptionIdentityFingerprint(channelID channel.ID, accountID string) string {
-	return s.encryption.Hash("credential-identity/v1|" + string(channelID) + "|codex|" + strings.TrimSpace(accountID))
+	driver, ok := subscriptionsDriver(s.subscriptions, channelID)
+	if !ok || strings.TrimSpace(accountID) == "" {
+		return ""
+	}
+	return s.encryption.Hash("credential-identity/v1|" + string(channelID) + "|" + string(driver.ID()) + "|" + strings.TrimSpace(accountID))
 }
 
 func normalizeCredentialStageIDs(values []string) ([]string, error) {
@@ -528,22 +593,22 @@ func (s *Service) consumeCredentialStages(
 		if err != nil {
 			return 0, app_errors.ErrStagedCredentialMismatch
 		}
-		var payload stagedCodexPayload
+		var payload stagedSubscriptionPayload
 		if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 			plaintext = ""
 			return 0, app_errors.ErrStagedCredentialMismatch
 		}
 		plaintext = ""
-		canonical, err := codex.MarshalCredential(payload.Credential)
-		if err != nil {
-			return 0, app_errors.ErrInternalServer
-		}
-		credential, err := codex.ParseCredentialJSON(canonical)
-		if err != nil {
-			clear(canonical)
+		driver, driverOK := subscriptionsDriver(s.subscriptions, channelID)
+		if !driverOK {
 			return 0, app_errors.ErrStagedCredentialMismatch
 		}
-		identity := s.subscriptionIdentityFingerprint(channelID, credential.AccountID)
+		credential, err := driver.Parse(payload.Credential)
+		if err != nil {
+			return 0, app_errors.ErrStagedCredentialMismatch
+		}
+		canonical := credential.Canonical()
+		identity := s.subscriptionIdentityFingerprint(channelID, credential.Identity())
 		if identity != stage.IdentityFingerprint {
 			clear(canonical)
 			return 0, app_errors.ErrStagedCredentialMismatch
@@ -680,20 +745,18 @@ func maskEmail(email string) string {
 	return string(local[0]) + "***" + string(local[len(local)-1]) + "@" + parts[1]
 }
 
-func codexCredentialAccount(credential codex.Credential) CredentialStageAccount {
-	account := CredentialStageAccount{EmailMask: maskEmail(credential.Email)}
-	account.ExpiresAtMS = credentialTimestampMS(credential.Expire)
-	account.LastRefreshAtMS = credentialTimestampMS(credential.LastRefresh)
-	return account
-}
-
-func credentialTimestampMS(value string) *int64 {
-	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
-	if err != nil {
-		return nil
+func subscriptionCredentialAccount(credential subscriptionruntime.Credential) CredentialStageAccount {
+	metadata := credential.Account()
+	account := CredentialStageAccount{EmailMask: maskEmail(metadata.Email)}
+	if metadata.ExpiresAtKnown {
+		value := metadata.ExpiresAt.UTC().UnixMilli()
+		account.ExpiresAtMS = &value
 	}
-	result := parsed.UTC().UnixMilli()
-	return &result
+	if metadata.LastRefreshKnown {
+		value := metadata.LastRefresh.UTC().UnixMilli()
+		account.LastRefreshAtMS = &value
+	}
+	return account
 }
 
 func stageResultErrorCode(status models.CredentialStageStatus, code string) string {

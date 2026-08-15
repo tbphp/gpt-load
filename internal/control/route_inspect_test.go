@@ -249,8 +249,7 @@ func TestRouteInspectSupportsResponsesWithoutModel(t *testing.T) {
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "responses", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -305,8 +304,7 @@ func TestRouteInspectWithoutModelReturnsSharedFilterReason(t *testing.T) {
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "responses", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -346,12 +344,10 @@ func TestRouteInspectRouteRequirementExcludesOnlyConvertedTargets(t *testing.T) 
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{
-			{
-				ID: 1, Name: "native", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "native", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "native-model", Alias: "public-model"}}, Enabled: true,
 			},
-			{
-				ID: 2, Name: "converted", ChannelID: channel.OpenAICompatible,
+			{ConnectionType: "api_key", ID: 2, Name: "converted", ChannelID: channel.OpenAICompatible,
 				Params: json.RawMessage(`{"base_url":"https://compatible.example/v1"}`),
 				Models: []state.ModelConfig{{ID: "converted-model", Alias: "public-model"}}, Enabled: true,
 			},
@@ -408,14 +404,12 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
 		Groups: []state.GroupConfig{
-			{
-				ID: 2, Name: "backup", ChannelID: channel.OpenAI,
+			{ConnectionType: "api_key", ID: 2, Name: "backup", ChannelID: channel.OpenAI,
 				Params:       json.RawMessage(`{}`),
 				Models:       []state.ModelConfig{{ID: "provider-backup", Alias: "public-model"}},
 				WeightManual: &groupWeight, Enabled: true,
 			},
-			{
-				ID: 1, Name: "primary", ChannelID: channel.OpenAI,
+			{ConnectionType: "api_key", ID: 1, Name: "primary", ChannelID: channel.OpenAI,
 				Params:  json.RawMessage(`{}`),
 				Models:  []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
 				Enabled: true,
@@ -566,13 +560,11 @@ func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
 			if _, err := fixture.manager.Publish(state.CompileInput{
 				ChannelRegistry: fixture.channelRegistry,
 				Groups: []state.GroupConfig{
-					{
-						ID: 2, Name: "second", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+					{ConnectionType: "api_key", ID: 2, Name: "second", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 						Models:       []state.ModelConfig{{ID: "provider-two", Alias: "public-model"}},
 						WeightManual: &manual, Enabled: true,
 					},
-					{
-						ID: 1, Name: "first", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+					{ConnectionType: "api_key", ID: 1, Name: "first", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 						Models:  []state.ModelConfig{{ID: "provider-one", Alias: "public-model"}},
 						Enabled: true,
 					},
@@ -643,8 +635,7 @@ func TestRouteInspectEndpointReturnsNoRouteTargetExplanation(t *testing.T) {
 	fixture.service.now = func() time.Time { return now }
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "configured-model"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -681,8 +672,7 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 	groupWeight := 25
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models:       []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
 			WeightManual: &groupWeight, Enabled: true,
 		}},
@@ -896,8 +886,7 @@ func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {
 	})
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "upstream", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "upstream", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -972,8 +961,7 @@ func TestRouteInspectCatalogMismatchReturnsInternalServerError(t *testing.T) {
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "primary", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{

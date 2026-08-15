@@ -30,6 +30,7 @@ import (
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/telemetry"
 )
 
@@ -86,6 +87,7 @@ type runtimeCredentialRegistry interface {
 type Handler struct {
 	manager             *state.Manager
 	channels            *channel.Registry
+	subscriptions       *subscriptionruntime.Runtime
 	registry            runtimeCredentialRegistry
 	encryption          encryption.Service
 	forwarder           AttemptForwarder
@@ -142,8 +144,10 @@ func NewHandler(
 	if requestLogSink == nil {
 		requestLogSink = telemetry.NoopRequestLogSink{}
 	}
+	channels := channel.NewRegistry()
+	subscriptions, _ := subscriptionruntime.NewRuntime(channels)
 	return &Handler{
-		manager: manager, channels: channel.NewRegistry(), registry: registry, encryption: encryptionService,
+		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		affinityCache:  affinity.NewCache(),
@@ -172,6 +176,7 @@ func NewHandlerWithLifecycle(
 	manager *state.Manager,
 	registry *state.CredentialRegistry,
 	channelRegistry *channel.Registry,
+	subscriptions *subscriptionruntime.Runtime,
 	encryptionService encryption.Service,
 	forwarder AttemptForwarder,
 	dialects dialect.Set,
@@ -196,6 +201,9 @@ func NewHandlerWithLifecycle(
 	)
 	if channelRegistry != nil {
 		handler.channels = channelRegistry
+	}
+	if subscriptions != nil {
+		handler.subscriptions = subscriptions
 	}
 	handler.lifecycle = lifecycle
 	return handler
@@ -634,6 +642,7 @@ func (handler *Handler) executeAttempts(
 		}
 		normalizedCredential, err := normalizeChannelCredential(
 			handler.channels,
+			handler.subscriptions,
 			selection.ChannelID,
 			selection.Group.ConnectionType,
 			decryptedCredential,
@@ -665,8 +674,6 @@ func (handler *Handler) executeAttempts(
 			Operation:        operation,
 			RouteRequirement: routeRequirement,
 			ChannelID:        string(selection.ChannelID),
-			ConnectionType:   selection.Group.ConnectionType,
-			TargetKind:       string(selection.ResolvedTarget.ProviderKind),
 			RouteMode:        execution.RouteMode(selection.RouteMode),
 			TargetConfig:     selection.ResolvedTarget.TargetConfig,
 			Credential: execution.NewCredentialSnapshot(

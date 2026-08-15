@@ -22,31 +22,31 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		channelID      channel.ID
-		clientProtocol protocol.Protocol
-		operation      execution.Operation
-		clientPath     string
-		clientBody     []byte
-		upstreamPath   string
-		credentialName string
-		upstreamBody   string
-		upstreamAPI    execution.UpstreamAPI
-		modelInPath    bool
-		assertClient   func(*testing.T, map[string]any)
-		runtime        func(*testing.T, string) *testRuntime
+		name             string
+		channelID        channel.ID
+		clientProtocol   protocol.Protocol
+		operation        execution.Operation
+		clientPath       string
+		clientBody       []byte
+		upstreamPath     string
+		credentialName   string
+		upstreamBody     string
+		upstreamProtocol protocol.Protocol
+		modelInPath      bool
+		assertClient     func(*testing.T, map[string]any)
+		runtime          func(*testing.T, string) *testRuntime
 	}{
 		{
-			name:           "Anthropic client to OpenAI",
-			channelID:      channel.OpenAI,
-			clientProtocol: protocol.Anthropic,
-			operation:      execution.OperationChatCompletion,
-			clientPath:     "/v1/messages",
-			clientBody:     []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
-			upstreamPath:   "/v1/responses",
-			credentialName: "Authorization",
-			upstreamBody:   openAIResponsesConvertedFixture,
-			upstreamAPI:    execution.UpstreamAPIOpenAIResponses,
+			name:             "Anthropic client to OpenAI",
+			channelID:        channel.OpenAI,
+			clientProtocol:   protocol.Anthropic,
+			operation:        execution.OperationChatCompletion,
+			clientPath:       "/v1/messages",
+			clientBody:       []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
+			upstreamPath:     "/v1/responses",
+			credentialName:   "Authorization",
+			upstreamBody:     openAIResponsesConvertedFixture,
+			upstreamProtocol: protocol.OpenAIResponses,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["type"] != "message" || body["role"] != "assistant" || body["model"] != "client-model" {
 					t.Errorf("Anthropic response = %#v", body)
@@ -57,17 +57,17 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			},
 		},
 		{
-			name:           "Anthropic client to Gemini",
-			channelID:      channel.Gemini,
-			clientProtocol: protocol.Anthropic,
-			operation:      execution.OperationChatCompletion,
-			clientPath:     "/v1/messages",
-			clientBody:     []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
-			upstreamPath:   "/v1beta/models/upstream-model:generateContent",
-			credentialName: "X-Goog-Api-Key",
-			upstreamBody:   geminiResponsesConvertedFixture,
-			upstreamAPI:    execution.UpstreamAPIGeminiGenerateContent,
-			modelInPath:    true,
+			name:             "Anthropic client to Gemini",
+			channelID:        channel.Gemini,
+			clientProtocol:   protocol.Anthropic,
+			operation:        execution.OperationChatCompletion,
+			clientPath:       "/v1/messages",
+			clientBody:       []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
+			upstreamPath:     "/v1beta/models/upstream-model:generateContent",
+			credentialName:   "X-Goog-Api-Key",
+			upstreamBody:     geminiResponsesConvertedFixture,
+			upstreamProtocol: protocol.Gemini,
+			modelInPath:      true,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["type"] != "message" || body["role"] != "assistant" || body["model"] != "client-model" {
 					t.Errorf("Anthropic response = %#v", body)
@@ -78,16 +78,16 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			},
 		},
 		{
-			name:           "Gemini client to OpenAI",
-			channelID:      channel.OpenAI,
-			clientProtocol: protocol.Gemini,
-			operation:      execution.OperationChatCompletion,
-			clientPath:     "/v1beta/models/client-model:generateContent",
-			clientBody:     []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
-			upstreamPath:   "/v1/responses",
-			credentialName: "Authorization",
-			upstreamBody:   openAIResponsesConvertedFixture,
-			upstreamAPI:    execution.UpstreamAPIOpenAIResponses,
+			name:             "Gemini client to OpenAI",
+			channelID:        channel.OpenAI,
+			clientProtocol:   protocol.Gemini,
+			operation:        execution.OperationChatCompletion,
+			clientPath:       "/v1beta/models/client-model:generateContent",
+			clientBody:       []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+			upstreamPath:     "/v1/responses",
+			credentialName:   "Authorization",
+			upstreamBody:     openAIResponsesConvertedFixture,
+			upstreamProtocol: protocol.OpenAIResponses,
 			assertClient: func(t *testing.T, body map[string]any) {
 				candidates, _ := body["candidates"].([]any)
 				if len(candidates) != 1 || body["modelVersion"] != "client-model" {
@@ -99,16 +99,16 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			},
 		},
 		{
-			name:           "Gemini client to Anthropic",
-			channelID:      channel.Anthropic,
-			clientProtocol: protocol.Gemini,
-			operation:      execution.OperationChatCompletion,
-			clientPath:     "/v1beta/models/client-model:generateContent",
-			clientBody:     []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
-			upstreamPath:   "/v1/messages",
-			credentialName: "X-Api-Key",
-			upstreamBody:   anthropicResponsesConvertedFixture,
-			upstreamAPI:    execution.UpstreamAPIAnthropicMessages,
+			name:             "Gemini client to Anthropic",
+			channelID:        channel.Anthropic,
+			clientProtocol:   protocol.Gemini,
+			operation:        execution.OperationChatCompletion,
+			clientPath:       "/v1beta/models/client-model:generateContent",
+			clientBody:       []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+			upstreamPath:     "/v1/messages",
+			credentialName:   "X-Api-Key",
+			upstreamBody:     anthropicResponsesConvertedFixture,
+			upstreamProtocol: protocol.Anthropic,
 			assertClient: func(t *testing.T, body map[string]any) {
 				candidates, _ := body["candidates"].([]any)
 				if len(candidates) != 1 || body["modelVersion"] != "client-model" {
@@ -120,16 +120,16 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			},
 		},
 		{
-			name:           "OpenAI Responses client to Anthropic",
-			channelID:      channel.Anthropic,
-			clientProtocol: protocol.OpenAIResponses,
-			operation:      execution.OperationResponsesCreate,
-			clientPath:     "/v1/responses",
-			clientBody:     []byte(`{"model":"client-model","input":"hello","max_output_tokens":16}`),
-			upstreamPath:   "/v1/messages",
-			credentialName: "X-Api-Key",
-			upstreamBody:   anthropicResponsesConvertedFixture,
-			upstreamAPI:    execution.UpstreamAPIAnthropicMessages,
+			name:             "OpenAI Responses client to Anthropic",
+			channelID:        channel.Anthropic,
+			clientProtocol:   protocol.OpenAIResponses,
+			operation:        execution.OperationResponsesCreate,
+			clientPath:       "/v1/responses",
+			clientBody:       []byte(`{"model":"client-model","input":"hello","max_output_tokens":16}`),
+			upstreamPath:     "/v1/messages",
+			credentialName:   "X-Api-Key",
+			upstreamBody:     anthropicResponsesConvertedFixture,
+			upstreamProtocol: protocol.Anthropic,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["object"] != "response" || body["model"] != "client-model" {
 					t.Errorf("OpenAI Responses response = %#v", body)
@@ -140,17 +140,17 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 			},
 		},
 		{
-			name:           "OpenAI Responses client to Gemini",
-			channelID:      channel.Gemini,
-			clientProtocol: protocol.OpenAIResponses,
-			operation:      execution.OperationResponsesCreate,
-			clientPath:     "/v1/responses",
-			clientBody:     []byte(`{"model":"client-model","input":"hello","max_output_tokens":16}`),
-			upstreamPath:   "/v1beta/models/upstream-model:generateContent",
-			credentialName: "X-Goog-Api-Key",
-			upstreamBody:   geminiResponsesConvertedFixture,
-			upstreamAPI:    execution.UpstreamAPIGeminiGenerateContent,
-			modelInPath:    true,
+			name:             "OpenAI Responses client to Gemini",
+			channelID:        channel.Gemini,
+			clientProtocol:   protocol.OpenAIResponses,
+			operation:        execution.OperationResponsesCreate,
+			clientPath:       "/v1/responses",
+			clientBody:       []byte(`{"model":"client-model","input":"hello","max_output_tokens":16}`),
+			upstreamPath:     "/v1beta/models/upstream-model:generateContent",
+			credentialName:   "X-Goog-Api-Key",
+			upstreamBody:     geminiResponsesConvertedFixture,
+			upstreamProtocol: protocol.Gemini,
+			modelInPath:      true,
 			assertClient: func(t *testing.T, body map[string]any) {
 				if body["object"] != "response" || body["model"] != "client-model" {
 					t.Errorf("OpenAI Responses response = %#v", body)
@@ -203,8 +203,8 @@ func TestConvertedResponsesUnaryUsesCanonicalSDKConverters(t *testing.T) {
 				(result.UpstreamRequestID != "converted-request" && !requestIDMissingOnlyForGemini) {
 				t.Fatalf("result = %+v, body=%s", result, result.Body)
 			}
-			if result.UpstreamAPI != test.upstreamAPI {
-				t.Fatalf("result upstream API = %q, want %q", result.UpstreamAPI, test.upstreamAPI)
+			if result.UpstreamProtocol != test.upstreamProtocol {
+				t.Fatalf("result upstream API = %q, want %q", result.UpstreamProtocol, test.upstreamProtocol)
 			}
 			var clientBody map[string]any
 			if err := json.Unmarshal(result.Body, &clientBody); err != nil {
@@ -328,28 +328,32 @@ func TestConvertedAttemptReportsWireReasoningOnProviderError(t *testing.T) {
 func TestNativeOpenAIStyleTypedTargetsPreserveSafeQuery(t *testing.T) {
 	const rawQuery = "trace=%2F&cursor=next"
 	for _, test := range []struct {
-		name       string
-		provider   channel.ProviderKind
-		responses  bool
-		stream     bool
-		wantTarget string
+		name         string
+		provider     channel.ProviderKind
+		responses    bool
+		stream       bool
+		wantTarget   string
+		wantProtocol protocol.Protocol
 	}{
-		{name: "deepseek chat", provider: channel.ProviderDeepSeek, wantTarget: "/chat/completions?" + rawQuery},
-		{name: "deepseek converted responses stream", provider: channel.ProviderDeepSeek, responses: true, stream: true, wantTarget: "/chat/completions?" + rawQuery},
-		{name: "openrouter chat stream", provider: channel.ProviderOpenRouter, stream: true, wantTarget: "/v1/chat/completions?" + rawQuery},
-		{name: "openrouter responses", provider: channel.ProviderOpenRouter, responses: true, wantTarget: "/v1/responses?" + rawQuery},
-		{name: "groq chat", provider: channel.ProviderGroq, wantTarget: "/v1/chat/completions?" + rawQuery},
-		{name: "groq responses", provider: channel.ProviderGroq, responses: true, wantTarget: "/v1/chat/completions?" + rawQuery},
-		{name: "xai chat", provider: channel.ProviderXAI, wantTarget: "/v1/chat/completions?" + rawQuery},
-		{name: "xai responses stream", provider: channel.ProviderXAI, responses: true, stream: true, wantTarget: "/v1/responses?" + rawQuery},
+		{name: "deepseek chat", provider: channel.ProviderDeepSeek, wantTarget: "/chat/completions?" + rawQuery, wantProtocol: protocol.OpenAICompletions},
+		{name: "deepseek converted responses stream", provider: channel.ProviderDeepSeek, responses: true, stream: true, wantTarget: "/chat/completions?" + rawQuery, wantProtocol: protocol.OpenAICompletions},
+		{name: "openrouter chat stream", provider: channel.ProviderOpenRouter, stream: true, wantTarget: "/v1/chat/completions?" + rawQuery, wantProtocol: protocol.OpenAICompletions},
+		{name: "openrouter responses", provider: channel.ProviderOpenRouter, responses: true, wantTarget: "/v1/responses?" + rawQuery, wantProtocol: protocol.OpenAIResponses},
+		{name: "groq chat", provider: channel.ProviderGroq, wantTarget: "/v1/chat/completions?" + rawQuery, wantProtocol: protocol.OpenAICompletions},
+		{name: "groq responses", provider: channel.ProviderGroq, responses: true, wantTarget: "/v1/chat/completions?" + rawQuery, wantProtocol: protocol.OpenAICompletions},
+		{name: "xai chat", provider: channel.ProviderXAI, wantTarget: "/v1/chat/completions?" + rawQuery, wantProtocol: protocol.OpenAICompletions},
+		{name: "xai responses stream", provider: channel.ProviderXAI, responses: true, stream: true, wantTarget: "/v1/responses?" + rawQuery, wantProtocol: protocol.OpenAIResponses},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			target, err := convertedTypedTarget(test.provider, "", "model", test.responses, test.stream, rawQuery)
+			target, upstreamProtocol, err := convertedTypedTarget(test.provider, "", "model", test.responses, test.stream, rawQuery)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if target != test.wantTarget {
 				t.Fatalf("target = %q, want %q", target, test.wantTarget)
+			}
+			if upstreamProtocol != test.wantProtocol {
+				t.Fatalf("upstream protocol = %q, want %q", upstreamProtocol, test.wantProtocol)
 			}
 		})
 	}
@@ -364,7 +368,7 @@ func TestNativeOpenAIStyleTypedTargetsPreserveSafeQuery(t *testing.T) {
 		{name: "xai chat stream", provider: channel.ProviderXAI},
 	} {
 		t.Run(test.name+" rejects unsupported query", func(t *testing.T) {
-			if _, err := convertedTypedTarget(test.provider, "", "model", test.responses, true, rawQuery); err == nil {
+			if _, _, err := convertedTypedTarget(test.provider, "", "model", test.responses, true, rawQuery); err == nil {
 				t.Fatal("convertedTypedTarget() error = nil")
 			}
 		})
@@ -382,16 +386,19 @@ func TestDeepSeekNativeTypedTargetsPreserveSafeQuery(t *testing.T) {
 		{clientProtocol: protocol.Anthropic, wantTarget: "/anthropic/v1/messages?" + rawQuery},
 	} {
 		t.Run(string(test.clientProtocol), func(t *testing.T) {
-			target, err := deepSeekNativeTypedTarget("", test.clientProtocol, rawQuery)
+			target, upstreamProtocol, err := deepSeekNativeTypedTarget("", test.clientProtocol, rawQuery)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if target != test.wantTarget {
 				t.Fatalf("target = %q, want %q", target, test.wantTarget)
 			}
+			if upstreamProtocol != test.clientProtocol {
+				t.Fatalf("upstream protocol = %q, want %q", upstreamProtocol, test.clientProtocol)
+			}
 		})
 	}
-	if _, err := deepSeekNativeTypedTarget("", protocol.Gemini, rawQuery); err == nil {
+	if _, _, err := deepSeekNativeTypedTarget("", protocol.Gemini, rawQuery); err == nil {
 		t.Fatal("Gemini native target error = nil")
 	}
 }
@@ -408,12 +415,15 @@ func TestNativeOpenAIStyleListModelsTargetsPreserveSafeQuery(t *testing.T) {
 		{provider: channel.ProviderXAI, want: "/v1/models?" + rawQuery},
 	} {
 		t.Run(string(test.provider), func(t *testing.T) {
-			target, err := convertedListModelsTarget(test.provider, "", rawQuery)
+			target, upstreamProtocol, err := convertedListModelsTarget(test.provider, "", rawQuery)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if target != test.want {
 				t.Fatalf("target = %q, want %q", target, test.want)
+			}
+			if upstreamProtocol != protocol.OpenAICompletions {
+				t.Fatalf("upstream protocol = %q, want %q", upstreamProtocol, protocol.OpenAICompletions)
 			}
 		})
 	}
@@ -497,31 +507,31 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		channelID      channel.ID
-		clientProtocol protocol.Protocol
-		operation      execution.Operation
-		clientPath     string
-		clientBody     []byte
-		upstreamPath   string
-		credentialName string
-		upstreamStream string
-		upstreamModel  string
-		upstreamAPI    execution.UpstreamAPI
-		streamInBody   bool
-		wantReasoning  bool
-		wantFragments  []string
-		runtime        func(*testing.T, string) *testRuntime
+		name             string
+		channelID        channel.ID
+		clientProtocol   protocol.Protocol
+		operation        execution.Operation
+		clientPath       string
+		clientBody       []byte
+		upstreamPath     string
+		credentialName   string
+		upstreamStream   string
+		upstreamModel    string
+		upstreamProtocol protocol.Protocol
+		streamInBody     bool
+		wantReasoning    bool
+		wantFragments    []string
+		runtime          func(*testing.T, string) *testRuntime
 	}{
 		{
 			name: "Anthropic client from OpenAI stream", channelID: channel.OpenAI,
 			clientProtocol: protocol.Anthropic, operation: execution.OperationChatCompletion,
 			clientPath: "/v1/messages", clientBody: []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
 			upstreamPath: "/v1/responses", credentialName: "Authorization", upstreamStream: openAIResponsesStreamFixture,
-			upstreamModel: "gpt-upstream",
-			upstreamAPI:   execution.UpstreamAPIOpenAIResponses,
-			streamInBody:  true,
-			wantFragments: []string{"event: message_start", `"type":"message_start"`, "hello", "event: message_stop"},
+			upstreamModel:    "gpt-upstream",
+			upstreamProtocol: protocol.OpenAIResponses,
+			streamInBody:     true,
+			wantFragments:    []string{"event: message_start", `"type":"message_start"`, "hello", "event: message_stop"},
 			runtime: func(t *testing.T, base string) *testRuntime {
 				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
@@ -531,10 +541,10 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			clientProtocol: protocol.Gemini, operation: execution.OperationChatCompletion,
 			clientPath: "/v1beta/models/client-model:streamGenerateContent", clientBody: []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
 			upstreamPath: "/v1/responses", credentialName: "Authorization", upstreamStream: openAIResponsesStreamFixture,
-			upstreamModel: "gpt-upstream",
-			upstreamAPI:   execution.UpstreamAPIOpenAIResponses,
-			streamInBody:  true,
-			wantFragments: []string{"data: ", "hello", "usageMetadata"},
+			upstreamModel:    "gpt-upstream",
+			upstreamProtocol: protocol.OpenAIResponses,
+			streamInBody:     true,
+			wantFragments:    []string{"data: ", "hello", "usageMetadata"},
 			runtime: func(t *testing.T, base string) *testRuntime {
 				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 			},
@@ -544,11 +554,11 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			clientProtocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate,
 			clientPath: "/v1/responses", clientBody: []byte(`{"model":"client-model","input":"hello","max_output_tokens":4096,"reasoning":{"mode":"pro","effort":"high"}}`),
 			upstreamPath: "/v1/messages", credentialName: "X-Api-Key", upstreamStream: anthropicResponsesStreamFixture,
-			upstreamModel: "claude-upstream",
-			upstreamAPI:   execution.UpstreamAPIAnthropicMessages,
-			streamInBody:  true,
-			wantReasoning: true,
-			wantFragments: []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
+			upstreamModel:    "claude-upstream",
+			upstreamProtocol: protocol.Anthropic,
+			streamInBody:     true,
+			wantReasoning:    true,
+			wantFragments:    []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
 			runtime: func(t *testing.T, base string) *testRuntime {
 				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 			},
@@ -558,9 +568,9 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			clientProtocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate,
 			clientPath: "/v1/responses", clientBody: []byte(`{"model":"client-model","input":"hello","max_output_tokens":16}`),
 			upstreamPath: "/v1beta/models/upstream-model:streamGenerateContent", credentialName: "X-Goog-Api-Key", upstreamStream: geminiResponsesStreamFixture,
-			upstreamModel: "gemini-upstream",
-			upstreamAPI:   execution.UpstreamAPIGeminiGenerateContent,
-			wantFragments: []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
+			upstreamModel:    "gemini-upstream",
+			upstreamProtocol: protocol.Gemini,
+			wantFragments:    []string{"event: response.created", "response.output_text.delta", "hello", "event: response.completed"},
 			runtime: func(t *testing.T, base string) *testRuntime {
 				return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: base + "/v1beta"})
 			},
@@ -622,8 +632,8 @@ func TestConvertedResponsesStreamUsesClientProtocolFraming(t *testing.T) {
 			if result.Error != nil || ready != 1 || usageEvents == 0 || result.Usage == nil {
 				t.Fatalf("result/events = %+v ready=%d usage=%d data=%s", result, ready, usageEvents, data.String())
 			}
-			if result.UpstreamAPI != test.upstreamAPI {
-				t.Fatalf("result upstream API = %q, want %q", result.UpstreamAPI, test.upstreamAPI)
+			if result.UpstreamProtocol != test.upstreamProtocol {
+				t.Fatalf("result upstream API = %q, want %q", result.UpstreamProtocol, test.upstreamProtocol)
 			}
 			upstreamWireBody := <-wireBody
 			if test.wantReasoning {

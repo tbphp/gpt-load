@@ -11,7 +11,6 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -352,18 +351,22 @@ func (s *Service) readyStageCredential(
 	if err != nil {
 		return models.CredentialStage{}, nil, app_errors.ErrStagedCredentialMismatch
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		plaintext = ""
 		return models.CredentialStage{}, nil, app_errors.ErrStagedCredentialMismatch
 	}
 	plaintext = ""
-	canonical, err := codex.MarshalCredential(payload.Credential)
-	if err != nil {
-		return models.CredentialStage{}, nil, app_errors.ErrInternalServer
+	driver, driverErr := s.subscriptionDriver(channelID)
+	if driverErr != nil {
+		return models.CredentialStage{}, nil, app_errors.ErrStagedCredentialMismatch
 	}
-	credential, err := codex.ParseCredentialJSON(canonical)
-	if err != nil || s.subscriptionIdentityFingerprint(channelID, credential.AccountID) != stage.IdentityFingerprint {
+	credential, err := driver.Parse(payload.Credential)
+	if err != nil || s.subscriptionIdentityFingerprint(channelID, credential.Identity()) != stage.IdentityFingerprint {
+		return models.CredentialStage{}, nil, app_errors.ErrStagedCredentialMismatch
+	}
+	canonical := credential.Canonical()
+	if len(canonical) == 0 {
 		clear(canonical)
 		return models.CredentialStage{}, nil, app_errors.ErrStagedCredentialMismatch
 	}

@@ -772,7 +772,7 @@ function costLabel(log: RequestLogItemDto): string {
               <LogProtocolConversion
                 :mode="log.route_mode"
                 :client-protocol="log.protocol"
-                :upstream-api="log.upstream_api"
+                :upstream-protocol="log.upstream_protocol"
               />
             </span>
           </div>

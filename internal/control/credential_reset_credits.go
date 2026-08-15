@@ -8,19 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
-	"gpt-load/internal/codex"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 type ObservationResetCredit struct {
@@ -41,15 +38,6 @@ type storedResetCreditResult struct {
 	WindowsReset             int    `json:"windows_reset"`
 	RedeemedAtMS             *int64 `json:"redeemed_at_ms,omitempty"`
 	ObservationVersionBefore uint64 `json:"observation_version_before"`
-}
-
-type resetCreditUpstreamPayload struct {
-	Code         string `json:"code"`
-	WindowsReset int    `json:"windows_reset"`
-	Credit       *struct {
-		Status     string `json:"status"`
-		RedeemedAt string `json:"redeemed_at"`
-	} `json:"credit"`
 }
 
 func (s *Service) ConsumeCredentialResetCredit(
@@ -77,7 +65,11 @@ func (s *Service) ConsumeCredentialResetCredit(
 	); found {
 		return replay, replayErr
 	}
-	codexCredential, err := s.prepareStoredCodexCredential(ctx, group, credential)
+	channelID := channel.ID(group.ChannelID)
+	if _, supported := s.subscriptions.ResetCreditAction(channelID); !supported {
+		return ResetCreditConsumeResponse{}, app_errors.ErrValidation
+	}
+	preparedCredential, err := s.prepareStoredSubscriptionCredential(ctx, group, credential)
 	if err != nil {
 		return ResetCreditConsumeResponse{}, err
 	}
@@ -96,12 +88,12 @@ func (s *Service) ConsumeCredentialResetCredit(
 		return s.replayResetCreditOperation(ctx, groupID, credentialID, operation)
 	}
 
-	if s.consumeCodexResetCredit == nil {
+	if s.consumeSubscriptionResetCredit == nil {
 		_ = s.finishResetCreditOperation(operation.IdempotencyKey, models.CredentialResetOperationOutcomeUnknown, nil, app_errors.ErrResetCreditOutcomeUnknown.Code)
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	callContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
-	upstream, consumeErr := s.consumeCodexResetCredit(callContext, codexCredential, operation.RedeemRequestID)
+	upstream, consumeErr := s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, operation.RedeemRequestID)
 	cancel()
 	if consumeErr != nil {
 		state, apiErr := classifyResetCreditConsumeError(consumeErr)
@@ -110,10 +102,12 @@ func (s *Service) ConsumeCredentialResetCredit(
 		}
 		return ResetCreditConsumeResponse{}, apiErr
 	}
-	result, err := normalizeResetCreditConsumeResult(upstream.Payload)
-	if err != nil {
+	if upstream.Status != "succeeded" || upstream.WindowsReset < 0 {
 		_ = s.finishResetCreditOperation(operation.IdempotencyKey, models.CredentialResetOperationOutcomeUnknown, nil, app_errors.ErrResetCreditOutcomeUnknown.Code)
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
+	}
+	result := storedResetCreditResult{
+		Status: upstream.Status, WindowsReset: upstream.WindowsReset, RedeemedAtMS: upstream.RedeemedAtMS,
 	}
 	runtimeRestored := s.restoreCredentialRuntimeAfterReset(credentialID)
 	result.ObservationVersionBefore = previousObservation.ObservationVersion
@@ -392,7 +386,7 @@ func (s *Service) finishResetCreditOperation(
 }
 
 func classifyResetCreditConsumeError(err error) (models.CredentialResetOperationState, *app_errors.APIError) {
-	var upstream *codex.UpstreamHTTPError
+	var upstream *subscriptionruntime.UpstreamHTTPError
 	if !errors.As(err, &upstream) || upstream.StatusCode >= http.StatusInternalServerError {
 		return models.CredentialResetOperationOutcomeUnknown, app_errors.ErrResetCreditOutcomeUnknown
 	}
@@ -419,21 +413,6 @@ func resetCreditErrorByCode(code string) *app_errors.APIError {
 	}
 }
 
-func normalizeResetCreditConsumeResult(raw []byte) (storedResetCreditResult, error) {
-	var payload resetCreditUpstreamPayload
-	if json.Unmarshal(raw, &payload) != nil || !strings.EqualFold(strings.TrimSpace(payload.Code), "reset") || payload.WindowsReset < 0 {
-		return storedResetCreditResult{}, errors.New("invalid Codex reset credit response")
-	}
-	result := storedResetCreditResult{Status: "succeeded", WindowsReset: payload.WindowsReset}
-	if payload.Credit != nil && strings.TrimSpace(payload.Credit.RedeemedAt) != "" {
-		if parsed, err := time.Parse(time.RFC3339, payload.Credit.RedeemedAt); err == nil {
-			value := parsed.UnixMilli()
-			result.RedeemedAtMS = &value
-		}
-	}
-	return result, nil
-}
-
 func decodeStoredResetCreditResult(raw []byte) (storedResetCreditResult, error) {
 	var result storedResetCreditResult
 	if json.Unmarshal(raw, &result) != nil || result.Status != "succeeded" || result.WindowsReset < 0 {
@@ -447,120 +426,4 @@ func resetCreditResponse(result storedResetCreditResult, replayed bool) ResetCre
 		Status: result.Status, WindowsReset: result.WindowsReset,
 		RedeemedAtMS: result.RedeemedAtMS, Replayed: replayed,
 	}
-}
-
-type resetCreditDetailPayload struct {
-	ExpiresAt      string `json:"expires_at"`
-	ExpiresAtCamel string `json:"expiresAt"`
-	ResetType      string `json:"reset_type"`
-	ResetTypeCamel string `json:"resetType"`
-	Status         string `json:"status"`
-}
-
-type resetCreditDetailsEnvelope struct {
-	AvailableCount        json.RawMessage `json:"available_count"`
-	AvailableCountCamel   json.RawMessage `json:"availableCount"`
-	Credits               json.RawMessage `json:"credits"`
-	RateLimitResetCredits json.RawMessage `json:"rate_limit_reset_credits"`
-	Items                 json.RawMessage `json:"items"`
-	Data                  json.RawMessage `json:"data"`
-}
-
-func normalizeCodexResetCreditDetails(raw []byte) (*int64, []ObservationResetCredit, bool, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return nil, nil, false, nil
-	}
-
-	var details []*resetCreditDetailPayload
-	var count *int64
-	listPresent := false
-	if trimmed[0] == '[' {
-		if err := json.Unmarshal(trimmed, &details); err != nil {
-			return nil, nil, false, err
-		}
-		listPresent = true
-	} else {
-		var envelope resetCreditDetailsEnvelope
-		if err := json.Unmarshal(trimmed, &envelope); err != nil {
-			return nil, nil, false, err
-		}
-		count = parseResetCreditCount(envelope.AvailableCount, envelope.AvailableCountCamel)
-		for _, candidate := range []json.RawMessage{
-			envelope.Credits,
-			envelope.RateLimitResetCredits,
-			envelope.Items,
-			envelope.Data,
-		} {
-			candidate = bytes.TrimSpace(candidate)
-			if len(candidate) == 0 || bytes.Equal(candidate, []byte("null")) {
-				continue
-			}
-			if err := json.Unmarshal(candidate, &details); err != nil {
-				return count, nil, false, err
-			}
-			listPresent = true
-			break
-		}
-	}
-
-	availableCount := int64(0)
-	credits := make([]ObservationResetCredit, 0, len(details))
-	for _, detail := range details {
-		if detail == nil {
-			continue
-		}
-		resetType := strings.TrimSpace(detail.ResetType)
-		if resetType == "" {
-			resetType = strings.TrimSpace(detail.ResetTypeCamel)
-		}
-		if resetType != "" && !strings.EqualFold(resetType, "codex_rate_limits") {
-			continue
-		}
-		if status := strings.TrimSpace(detail.Status); status != "" && !strings.EqualFold(status, "available") {
-			continue
-		}
-		availableCount++
-		expiresAt := strings.TrimSpace(detail.ExpiresAt)
-		if expiresAt == "" {
-			expiresAt = strings.TrimSpace(detail.ExpiresAtCamel)
-		}
-		parsed, err := time.Parse(time.RFC3339, expiresAt)
-		if err != nil {
-			continue
-		}
-		credits = append(credits, ObservationResetCredit{ExpiresAtMS: parsed.UnixMilli()})
-	}
-	if count == nil && listPresent {
-		count = &availableCount
-	}
-	sort.Slice(credits, func(i, j int) bool { return credits[i].ExpiresAtMS < credits[j].ExpiresAtMS })
-	return count, credits, listPresent, nil
-}
-
-func parseResetCreditCount(values ...json.RawMessage) *int64 {
-	for _, value := range values {
-		trimmed := bytes.TrimSpace(value)
-		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-			continue
-		}
-		var count int64
-		if trimmed[0] == '"' {
-			var text string
-			if json.Unmarshal(trimmed, &text) != nil {
-				continue
-			}
-			parsed, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
-			if err != nil {
-				continue
-			}
-			count = parsed
-		} else if json.Unmarshal(trimmed, &count) != nil {
-			continue
-		}
-		if count >= 0 {
-			return &count
-		}
-	}
-	return nil
 }

@@ -122,6 +122,7 @@ type GroupView struct {
 	HeaderRules        HeaderRules
 	InjectUsageOptions bool
 	AffinityEnabled    bool
+	QuotaPriority      bool
 	WeightManual       *int
 }
 
@@ -198,6 +199,9 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			WeightManual:       cloneWeight(group.WeightManual),
 			ConnectionType:     connection.Normalize(group.ConnectionType),
 		}
+		if policy, ok := input.ChannelRegistry.SchedulingPolicy(group.ChannelID); ok {
+			view.QuotaPriority = policy.QuotaPriority
+		}
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)
 		if err != nil {
 			return nil, fmt.Errorf("compile group %d params: %w", group.ID, err)
@@ -252,11 +256,6 @@ func appendExecutionTargets(
 	for _, clientProtocol := range descriptor.ClientProtocols {
 		for _, operation := range target.Operations(clientProtocol) {
 			if operation == execution.OperationListModels || operation == execution.OperationProbe {
-				continue
-			}
-			if connection.Normalize(group.ConnectionType) == connection.Subscription &&
-				operation != execution.OperationChatCompletion &&
-				operation != execution.OperationResponsesCreate {
 				continue
 			}
 			mode, ok := target.Mode(clientProtocol, operation)

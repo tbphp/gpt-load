@@ -73,7 +73,7 @@ type requestLogAttemptResponse struct {
 	UpstreamRequestID *string                           `json:"upstream_request_id"`
 	DispatchState     *execution.DispatchState          `json:"dispatch_state"`
 	ResponseStarted   bool                              `json:"response_started"`
-	UpstreamAPI       *execution.UpstreamAPI            `json:"upstream_api"`
+	UpstreamProtocol  *protocol.Protocol                `json:"upstream_protocol"`
 	Reasoning         *requestLogReasoningResponse      `json:"reasoning"`
 	StatusCode        int                               `json:"status_code"`
 	DurationMs        int64                             `json:"duration_ms"`
@@ -123,7 +123,7 @@ type requestLogItemResponse struct {
 	AccessKey               requestLogAccessKeyResponse  `json:"access_key"`
 	Protocol                string                       `json:"protocol"`
 	Operation               *execution.Operation         `json:"operation"`
-	UpstreamAPI             *execution.UpstreamAPI       `json:"upstream_api"`
+	UpstreamProtocol        *protocol.Protocol           `json:"upstream_protocol"`
 	ClientModel             *string                      `json:"client_model"`
 	UpstreamModel           *string                      `json:"upstream_model"`
 	UpstreamReportedModel   *string                      `json:"upstream_reported_model"`
@@ -313,7 +313,7 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.ChannelID = ""
 	record.CredentialID = 0
 	record.RouteMode = ""
-	record.UpstreamAPI = ""
+	record.UpstreamProtocol = ""
 	record.Attempts = []requestlog.Attempt{}
 	return record
 }
@@ -843,9 +843,9 @@ func mapRequestLogItemResponse(
 	if err != nil {
 		return requestLogItemResponse{}, fmt.Errorf("map request log operation: %w", err)
 	}
-	upstreamAPI, err := nullableRequestLogUpstreamAPI(record.UpstreamAPI)
+	upstreamProtocol, err := nullableRequestLogUpstreamProtocol(record.UpstreamProtocol)
 	if err != nil {
-		return requestLogItemResponse{}, fmt.Errorf("map request log upstream API: %w", err)
+		return requestLogItemResponse{}, fmt.Errorf("map request log upstream protocol: %w", err)
 	}
 	return requestLogItemResponse{
 		RequestID:     record.RequestID,
@@ -857,7 +857,7 @@ func mapRequestLogItemResponse(
 		},
 		Protocol:                string(record.Protocol),
 		Operation:               operation,
-		UpstreamAPI:             upstreamAPI,
+		UpstreamProtocol:        upstreamProtocol,
 		ClientModel:             nullableRequestLogModel(record.ClientModel),
 		UpstreamModel:           nullableRequestLogModel(record.UpstreamModel),
 		UpstreamReportedModel:   nullableRequestLogModel(record.UpstreamReportedModel),
@@ -977,7 +977,7 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 	if err != nil {
 		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
 	}
-	upstreamAPI, err := nullableRequestLogUpstreamAPI(attempt.UpstreamAPI)
+	upstreamProtocol, err := nullableRequestLogUpstreamProtocol(attempt.UpstreamProtocol)
 	if err != nil {
 		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
 	}
@@ -997,7 +997,7 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 		UpstreamRequestID: nullableRequestLogModel(attempt.UpstreamRequestID),
 		DispatchState:     dispatchState,
 		ResponseStarted:   attempt.ResponseStarted,
-		UpstreamAPI:       upstreamAPI,
+		UpstreamProtocol:  upstreamProtocol,
 		Reasoning:         mapRequestLogReasoningConfig(attempt.Reasoning),
 		StatusCode:        attempt.StatusCode,
 		DurationMs:        attempt.DurationMs,
@@ -1109,12 +1109,12 @@ func nullableRequestLogOperation(value execution.Operation) (*execution.Operatio
 	return &value, nil
 }
 
-func nullableRequestLogUpstreamAPI(value execution.UpstreamAPI) (*execution.UpstreamAPI, error) {
+func nullableRequestLogUpstreamProtocol(value protocol.Protocol) (*protocol.Protocol, error) {
 	if value == "" {
 		return nil, nil
 	}
 	if !value.Valid() {
-		return nil, fmt.Errorf("invalid upstream API")
+		return nil, fmt.Errorf("invalid upstream protocol")
 	}
 	return &value, nil
 }

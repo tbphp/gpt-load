@@ -2,11 +2,7 @@ import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
-import {
-  enabledDataProtocols,
-  knownUpstreamAPIs,
-  type UpstreamAPIValue,
-} from '@/api/control/protocols'
+import { enabledDataProtocols, type ProtocolValue } from '@/api/control/protocols'
 import type { AccessProtocol, FailureCategory } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -52,7 +48,7 @@ export type RequestLogOperation =
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
 export type RequestLogDispatchState = 'not_sent' | 'maybe_sent'
-export type RequestLogUpstreamAPI = UpstreamAPIValue
+export type RequestLogUpstreamProtocol = ProtocolValue
 export type RequestLogFailureCategory = FailureCategory | 'conversion_unsupported'
 
 export type { FailureCategory } from '@/api/control/types'
@@ -126,7 +122,7 @@ export interface RequestLogAttemptDto {
   upstream_request_id: string | null
   dispatch_state: RequestLogDispatchState | null
   response_started: boolean
-  upstream_api: RequestLogUpstreamAPI | null
+  upstream_protocol: RequestLogUpstreamProtocol | null
   reasoning: RequestLogReasoningDto | null
   status_code: number
   duration_ms: number
@@ -151,7 +147,7 @@ export interface RequestLogItemDto {
   access_key: { id: number; name: string | null; deleted: boolean }
   protocol: AccessProtocol
   operation: RequestLogOperation | null
-  upstream_api: RequestLogUpstreamAPI | null
+  upstream_protocol: RequestLogUpstreamProtocol | null
   client_model: string | null
   upstream_model: string | null
   upstream_reported_model: string | null
@@ -245,7 +241,7 @@ const itemFields = [
   'access_key',
   'protocol',
   'operation',
-  'upstream_api',
+  'upstream_protocol',
   'client_model',
   'upstream_model',
   'upstream_reported_model',
@@ -400,7 +396,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'upstream_request_id',
     'dispatch_state',
     'response_started',
-    'upstream_api',
+    'upstream_protocol',
     'reasoning',
     'status_code',
     'duration_ms',
@@ -428,8 +424,10 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     dispatch_state:
       record.dispatch_state === null ? null : projectEnum(record.dispatch_state, dispatchStates),
     response_started: projectBoolean(record.response_started),
-    upstream_api:
-      record.upstream_api === null ? null : projectEnum(record.upstream_api, knownUpstreamAPIs),
+    upstream_protocol:
+      record.upstream_protocol === null
+        ? null
+        : projectEnum(record.upstream_protocol, enabledDataProtocols),
     reasoning: projectReasoning(record.reasoning),
     status_code: projectStatusCode(record.status_code),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),
@@ -517,8 +515,10 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     access_key: projectAccessKey(record.access_key),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
     operation: record.operation === null ? null : projectEnum(record.operation, operations),
-    upstream_api:
-      record.upstream_api === null ? null : projectEnum(record.upstream_api, knownUpstreamAPIs),
+    upstream_protocol:
+      record.upstream_protocol === null
+        ? null
+        : projectEnum(record.upstream_protocol, enabledDataProtocols),
     client_model: projectNullableModel(record.client_model),
     upstream_model: upstreamModel,
     upstream_reported_model: upstreamReportedModel,

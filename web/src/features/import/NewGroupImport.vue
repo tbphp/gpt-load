@@ -623,10 +623,10 @@ watch(
     const channel = channels[0]
     cancelDefaultChannel()
     draft.channel_id = channel.channel_id
-    draft.connection_type = channel.connection_types[0]!.id
+    draft.connection_type = channel.connection.type
     draft.params = initialChannelParams(channel)
     defaultDraft.channel_id = channel.channel_id
-    defaultDraft.connection_type = channel.connection_types[0]!.id
+    defaultDraft.connection_type = channel.connection.type
     defaultDraft.params = initialChannelParams(channel)
   },
   { immediate: true },
@@ -636,7 +636,7 @@ watch(
   selectedChannel,
   (channel) => {
     if (!channel || payloadLocked.value) return
-    const connectionType = channel.connection_types[0]!.id
+    const connectionType = channel.connection.type
     if (draft.connection_type === connectionType) return
     draft.connection_type = connectionType
     draft.params = initialChannelParams(channel)
@@ -654,7 +654,9 @@ watch(
 
 function initialChannelParams(channel: ChannelDto): Record<string, string> {
   return Object.fromEntries(
-    channel.param_fields.filter(({ required }) => required).map(({ key }) => [key, '']),
+    channel.param_fields
+      .filter(({ required, default_value: defaultValue }) => required || defaultValue !== null)
+      .map(({ key, default_value: defaultValue }) => [key, defaultValue ?? '']),
   )
 }
 
@@ -672,7 +674,7 @@ function selectChannel(channel: ChannelDto): void {
   resetParamTouches()
   selectedChannelCache.value = channel
   draft.channel_id = channel.channel_id
-  draft.connection_type = channel.connection_types[0]!.id
+  draft.connection_type = channel.connection.type
   draft.params = initialChannelParams(channel)
   baseUrlOverrideEnabled.value = false
   setPanel(undefined)
@@ -1228,6 +1230,7 @@ onBeforeUnmount(() => {
           <SubscriptionCredentialStager
             v-if="isSubscription"
             v-model="draft.staged_credentials"
+            :channel-id="draft.channel_id"
             context="create"
             :disabled="payloadLocked"
             hide-header

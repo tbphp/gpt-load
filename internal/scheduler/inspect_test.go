@@ -25,18 +25,15 @@ func inspectSnapshot(t *testing.T) *state.ConfigSnapshot {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 2, Name: "disabled", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 2, Name: "disabled", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models:  []state.ModelConfig{{ID: "provider-disabled", Alias: "public"}},
 				Enabled: false,
 			},
-			{
-				ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "active", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models:  []state.ModelConfig{{ID: "provider-active", Alias: "public"}},
 				Enabled: true,
 			},
-			{
-				ID: 3, Name: "weight-zero", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 3, Name: "weight-zero", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models:       []state.ModelConfig{{ID: "provider-zero", Alias: "public"}},
 				WeightManual: &zero, Enabled: true,
 			},
@@ -388,8 +385,7 @@ func TestInspectUsesExactKeyReasonPriority(t *testing.T) {
 
 func TestInspectSummarizesStaticGroupExclusions(t *testing.T) {
 	group := func(id uint, enabled bool) state.GroupConfig {
-		return state.GroupConfig{
-			ID: id, Name: fmt.Sprintf("group-%d", id),
+		return state.GroupConfig{ConnectionType: "api_key", ID: id, Name: fmt.Sprintf("group-%d", id),
 			ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models:  []state.ModelConfig{{ID: fmt.Sprintf("provider-%d", id), Alias: "public"}},
 			Enabled: enabled,

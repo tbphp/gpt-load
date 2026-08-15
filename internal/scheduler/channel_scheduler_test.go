@@ -116,8 +116,7 @@ func TestIteratorRoutesModelLessResponsesResourceOperation(t *testing.T) {
 
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 7, Name: "responses", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 7, Name: "responses", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
 	})
@@ -176,12 +175,10 @@ func TestCandidateGroupIDsForQuerySupportsModelLessResourceOperation(t *testing.
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 7, Name: "official", ChannelID: channel.OpenAI,
+			{ConnectionType: "api_key", ID: 7, Name: "official", ChannelID: channel.OpenAI,
 				Params: json.RawMessage(`{}`), Enabled: true,
 			},
-			{
-				ID: 8, Name: "compatible", ChannelID: channel.OpenAICompatible,
+			{ConnectionType: "api_key", ID: 8, Name: "compatible", ChannelID: channel.OpenAICompatible,
 				Params: json.RawMessage(`{"base_url":"https://compatible.example/v1"}`), Enabled: true,
 			},
 		},
@@ -207,13 +204,11 @@ func TestRouteRequirementKeepsStatefulResponsesOnNativeTargets(t *testing.T) {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 7, Name: "official", ChannelID: channel.OpenAI,
+			{ConnectionType: "api_key", ID: 7, Name: "official", ChannelID: channel.OpenAI,
 				Params: json.RawMessage(`{}`), Enabled: true,
 				Models: []state.ModelConfig{{ID: "gpt-native", Alias: "gpt"}},
 			},
-			{
-				ID: 8, Name: "compatible", ChannelID: channel.OpenAICompatible,
+			{ConnectionType: "api_key", ID: 8, Name: "compatible", ChannelID: channel.OpenAICompatible,
 				Params: json.RawMessage(`{"base_url":"https://compatible.example/v1"}`), Enabled: true,
 				Models: []state.ModelConfig{{ID: "gpt-converted", Alias: "gpt"}},
 			},
@@ -258,18 +253,15 @@ func TestStatefulResponsesCreateRequiresLifecycleTargetEvenWhenWireIsNative(t *t
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 7, Name: "openai", ChannelID: channel.OpenAI,
+			{ConnectionType: "api_key", ID: 7, Name: "openai", ChannelID: channel.OpenAI,
 				Params: json.RawMessage(`{}`), Enabled: true,
 				Models: []state.ModelConfig{{ID: "gpt-openai", Alias: "gpt"}},
 			},
-			{
-				ID: 8, Name: "openrouter", ChannelID: channel.OpenRouter,
+			{ConnectionType: "api_key", ID: 8, Name: "openrouter", ChannelID: channel.OpenRouter,
 				Params: json.RawMessage(`{}`), Enabled: true,
 				Models: []state.ModelConfig{{ID: "openai/gpt", Alias: "gpt"}},
 			},
-			{
-				ID: 9, Name: "xai", ChannelID: channel.XAI,
+			{ConnectionType: "api_key", ID: 9, Name: "xai", ChannelID: channel.XAI,
 				Params: json.RawMessage(`{}`), Enabled: true,
 				Models: []state.ModelConfig{{ID: "grok", Alias: "gpt"}},
 			},
@@ -296,8 +288,7 @@ func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 9, Name: "openrouter", ChannelID: channel.OpenRouter,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 9, Name: "openrouter", ChannelID: channel.OpenRouter,
 			Params: json.RawMessage(`{}`), Enabled: true,
 			Models: []state.ModelConfig{{ID: "openai/gpt-5.6-luna", Alias: "gpt-5.6-luna"}},
 		}},
@@ -341,8 +332,7 @@ func TestCandidateGroupIDsForQueryRoutesAnthropicThinkingToOpenAICompatible(t *t
 
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 10, Name: "compatible", ChannelID: channel.OpenAICompatible,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 10, Name: "compatible", ChannelID: channel.OpenAICompatible,
 			Params: json.RawMessage(`{"base_url":"https://compatible.example/v1"}`), Enabled: true,
 			Models: []state.ModelConfig{{ID: "reasoning-model", Alias: "claude-sonnet"}},
 		}},
@@ -469,16 +459,14 @@ func channelSchedulerSnapshot(t *testing.T) *state.ConfigSnapshot {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
-			{
-				ID: 1, Name: "converted", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 1, Name: "converted", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{
 					{ID: "converted-model", Alias: "public"},
 					{ID: "converted-only", Alias: "converted-only"},
 				},
 				Enabled: true,
 			},
-			{
-				ID: 2, Name: "native", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			{ConnectionType: "api_key", ID: 2, Name: "native", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "native-model", Alias: "public"}}, Enabled: true,
 			},
 		},

@@ -27,12 +27,14 @@ import (
 	"gpt-load/internal/platform/httproute"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/provideradapter"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/subscription"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/webui"
 
@@ -59,7 +61,7 @@ func BuildContainer() (*dig.Container, error) {
 		app.NewEngineWithLifecycle,
 		webui.NewServer,
 		state.NewCredentialRegistry,
-		channel.NewRegistry,
+		channel.CompileRegistry,
 		control.NewPriceRuntime,
 		control.NewCatalogBootstrap,
 		func(bootstrap *control.CatalogBootstrap) *catalog.Runtime { return bootstrap.Runtime },
@@ -141,22 +143,16 @@ func BuildContainer() (*dig.Container, error) {
 		func(registry *channel.Registry) (*bifrostexecutor.RuntimeManager, error) {
 			return bifrostexecutor.NewManagedRuntime(registry)
 		},
-		func(runtime *bifrostexecutor.RuntimeManager) *state.Manager {
+		func(adapters *provideradapter.Registry) *state.Manager {
 			manager := state.NewManager()
-			manager.SetSnapshotReconciler(providerRuntimeSnapshotReconciler{runtime: runtime})
+			manager.SetSnapshotReconciler(providerRuntimeSnapshotReconciler{adapters: adapters})
 			return manager
 		},
-		subscription.NewCodexCredentialManager,
+		subscriptionruntime.NewRuntime,
+		subscription.NewCredentialManager,
 		cpaexecutor.NewAdapter,
-		func(
-			runtime *bifrostexecutor.RuntimeManager,
-			subscription *cpaexecutor.Adapter,
-		) execution.Executor {
-			return &routedExecutor{
-				Router:   execution.NewRouter(runtime, subscription),
-				defaults: runtime,
-			}
-		},
+		newProviderAdapterRegistry,
+		func(registry *provideradapter.Registry) execution.Executor { return registry },
 		func(runtime *bifrostexecutor.RuntimeManager) app.ExecutionRuntime { return runtime },
 		gateway.NewExecutionForwarder,
 		func(forwarder *gateway.ExecutionForwarder) gateway.AttemptForwarder { return forwarder },
@@ -172,6 +168,7 @@ func BuildContainer() (*dig.Container, error) {
 			manager *state.Manager,
 			registry *state.CredentialRegistry,
 			channelRegistry *channel.Registry,
+			subscriptions *subscriptionruntime.Runtime,
 			encryptionService encryption.Service,
 		) app.RuntimeStateLoader {
 			return stateloader.NewWithCredentialValidation(
@@ -179,6 +176,7 @@ func BuildContainer() (*dig.Container, error) {
 				manager,
 				registry,
 				channelRegistry,
+				subscriptions,
 				encryptionService,
 			)
 		},
@@ -202,21 +200,34 @@ func BuildContainer() (*dig.Container, error) {
 }
 
 type providerRuntimeSnapshotReconciler struct {
-	runtime *bifrostexecutor.RuntimeManager
+	adapters *provideradapter.Registry
 }
 
-type routedExecutor struct {
-	*execution.Router
-	defaults *bifrostexecutor.RuntimeManager
-}
-
-func (executor *routedExecutor) DefaultBaseURL(channelID channel.ID) (string, bool, error) {
-	return executor.defaults.DefaultBaseURL(channelID)
+func newProviderAdapterRegistry(
+	channels *channel.Registry,
+	bifrost *bifrostexecutor.RuntimeManager,
+	codex *cpaexecutor.Adapter,
+) (*provideradapter.Registry, error) {
+	bindings := []provideradapter.Binding{
+		{ProviderKind: channel.ProviderOpenAI, Adapter: bifrost},
+		{ProviderKind: channel.ProviderAnthropic, Adapter: bifrost},
+		{ProviderKind: channel.ProviderGemini, Adapter: bifrost},
+		{ProviderKind: channel.ProviderOpenAICompatible, Adapter: bifrost},
+		{ProviderKind: channel.ProviderAzureOpenAI, Adapter: bifrost},
+		{ProviderKind: channel.ProviderAWSBedrock, Adapter: bifrost},
+		{ProviderKind: channel.ProviderGoogleVertex, Adapter: bifrost},
+		{ProviderKind: channel.ProviderDeepSeek, Adapter: bifrost},
+		{ProviderKind: channel.ProviderOpenRouter, Adapter: bifrost},
+		{ProviderKind: channel.ProviderGroq, Adapter: bifrost},
+		{ProviderKind: channel.ProviderXAI, Adapter: bifrost},
+		{ProviderKind: channel.ProviderCodex, Adapter: codex},
+	}
+	return provideradapter.NewRegistry(channels, bindings)
 }
 
 func (reconciler providerRuntimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {
-	if reconciler.runtime == nil {
-		return fmt.Errorf("reconcile provider runtimes: runtime manager is unavailable")
+	if reconciler.adapters == nil {
+		return fmt.Errorf("reconcile provider runtimes: adapter registry is unavailable")
 	}
 	targets := make([]channel.ResolvedTarget, 0)
 	if snapshot != nil {
@@ -225,7 +236,7 @@ func (reconciler providerRuntimeSnapshotReconciler) ReconcileConfigSnapshot(snap
 			targets = append(targets, group.ResolvedTarget)
 		}
 	}
-	return reconciler.runtime.Reconcile(targets)
+	return reconciler.adapters.ReconcileTargets(targets)
 }
 
 func newHTTPRegistry(

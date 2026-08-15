@@ -3,18 +3,17 @@ package control
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/platform/version"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
-	"gpt-load/internal/storage/models"
 )
 
 type RequestLogStatsReader interface {
@@ -178,13 +177,18 @@ func (service *Service) healthProblemMask(
 			app_errors.ErrInternalServer,
 		)
 	}
-	if normalizeGroupConnectionType(models.ConnectionType(connectionType)) == models.ConnectionTypeSubscription {
-		credential, parseErr := codex.ParseCredentialJSON([]byte(plaintext))
+	expectedConnection, known := service.channelRegistry.ConnectionType(channelID)
+	if !known || expectedConnection != strings.TrimSpace(connectionType) {
+		plaintext = ""
+		return "", fmt.Errorf("map runtime health credential %d: channel connection mismatch: %w", credentialID, app_errors.ErrInternalServer)
+	}
+	if driver, bound := service.subscriptions.Driver(channelID); bound {
+		credential, parseErr := driver.Parse([]byte(plaintext))
 		plaintext = ""
 		if parseErr != nil {
 			return "", fmt.Errorf("map runtime health subscription credential %d: %w", credentialID, app_errors.ErrInternalServer)
 		}
-		if mask := maskEmail(credential.Email); mask != "" {
+		if mask := maskEmail(credential.Account().Email); mask != "" {
 			return mask, nil
 		}
 		return fmt.Sprintf("Subscription #%d", credentialID), nil

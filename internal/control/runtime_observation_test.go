@@ -221,8 +221,7 @@ func TestRuntimeHealthReleasesReadLockBeforeDecryptingProblemKeys(t *testing.T) 
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
-	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{
-		ID: 1, Name: "health-lock", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "health-lock", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)

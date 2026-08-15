@@ -56,7 +56,7 @@ type RequestLogAttempt struct {
 	UpstreamRequestID     string      `gorm:"type:varchar(255);not null;default:''"`
 	DispatchState         string      `gorm:"type:varchar(32);not null;default:''"`
 	ResponseStarted       bool        `gorm:"not null;default:false"`
-	UpstreamAPI           string      `gorm:"type:varchar(64);not null;default:''"`
+	UpstreamProtocol      string      `gorm:"type:varchar(32);not null;default:''"`
 	ReasoningMode         string      `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningEffort       string      `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningBudgetTokens *int64      `gorm:"column:reasoning_budget_tokens"`

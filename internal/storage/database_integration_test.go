@@ -96,14 +96,18 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		}
 	}
 	for table, columns := range map[string][]string{
-		"groups":      {"connection_type"},
-		"credentials": {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
+		"groups":               {"connection_type"},
+		"credentials":          {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
+		"request_log_attempts": {"upstream_protocol"},
 	} {
 		for _, column := range columns {
 			if !db.Migrator().HasColumn(table, column) {
 				t.Fatalf("column %q.%q is missing", table, column)
 			}
 		}
+	}
+	if db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
+		t.Fatal("request_log_attempts.upstream_api remains after the complete migration chain")
 	}
 
 	suffix := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())

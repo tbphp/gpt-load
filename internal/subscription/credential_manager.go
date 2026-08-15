@@ -10,13 +10,14 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/codex"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 const (
@@ -24,98 +25,115 @@ const (
 	refreshFinalizeTimeout = 5 * time.Second
 )
 
-// CodexCredentialManager serializes refreshes and keeps the database and runtime
-// registry on the same durable credential version.
-type CodexCredentialManager struct {
+// CredentialManager serializes subscription refreshes and keeps the database
+// and runtime registry on the same durable credential version.
+type CredentialManager struct {
 	db             *gorm.DB
 	encryption     encryption.Service
 	registry       *state.CredentialRegistry
 	mutations      *health.MutationCoordinator
-	refresh        func(context.Context, codex.Credential) (codex.Credential, error)
+	runtime        *subscriptionruntime.Runtime
+	refresh        func(context.Context, subscriptionruntime.Driver, subscriptionruntime.Credential) (subscriptionruntime.Credential, error)
 	replaceSecret  func(uint, uint64, uint64, string, string) bool
 	reconcileGroup func(uint, []state.CredentialEntry) (bool, error)
 	now            func() time.Time
 }
 
-// NewCodexCredentialManager creates the shared control-plane and data-plane
-// lifecycle for durable Codex subscription credentials.
-func NewCodexCredentialManager(
+// Runtime returns the immutable capability registry used by this manager.
+func (manager *CredentialManager) Runtime() *subscriptionruntime.Runtime {
+	if manager == nil {
+		return nil
+	}
+	return manager.runtime
+}
+
+// NewCredentialManager creates the shared control-plane and data-plane
+// lifecycle for all compiled subscription channels.
+func NewCredentialManager(
 	db *gorm.DB,
 	encryptionService encryption.Service,
 	registry *state.CredentialRegistry,
 	mutations *health.MutationCoordinator,
-) *CodexCredentialManager {
+	runtime *subscriptionruntime.Runtime,
+) *CredentialManager {
 	if mutations == nil {
 		mutations = health.NewMutationCoordinator()
 	}
-	return &CodexCredentialManager{
+	return &CredentialManager{
 		db: db, encryption: encryptionService, registry: registry, mutations: mutations,
-		refresh: codex.RefreshCredentialOnce, now: time.Now,
+		runtime: runtime,
+		refresh: func(ctx context.Context, driver subscriptionruntime.Driver, credential subscriptionruntime.Credential) (subscriptionruntime.Credential, error) {
+			return driver.Refresh(ctx, credential)
+		},
+		now:            time.Now,
 		replaceSecret:  registry.ReplaceCredentialSecretIfMatch,
 		reconcileGroup: registry.ReconcileGroup,
 	}
 }
 
-// PrepareCodexCredential is the control-plane entry point. It shares the same
-// refresh and publication lifecycle as data-plane execution.
-func (manager *CodexCredentialManager) PrepareCodexCredential(
-	ctx context.Context,
-	snapshot execution.CredentialSnapshot,
-) (codex.Credential, *execution.ErrorEvidence) {
-	return manager.Prepare(ctx, snapshot, false)
-}
-
 // Prepare returns the currently usable credential, durably refreshing it when
 // required. No provider request is sent after an uncertain refresh outcome.
-func (manager *CodexCredentialManager) Prepare(
+func (manager *CredentialManager) Prepare(
 	ctx context.Context,
+	channelID channel.ID,
 	snapshot execution.CredentialSnapshot,
 	forceRefresh bool,
-) (codex.Credential, *execution.ErrorEvidence) {
-	credential, err := codex.ParseCredentialJSON(snapshot.Data())
+) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+	driver, ok := manager.runtime.Driver(channelID)
+	if !ok {
+		return subscriptionruntime.Credential{}, localEvidence("credential_driver_unavailable", "subscription credential driver is unavailable")
+	}
+	credential, err := driver.Parse(snapshot.Data())
 	if err != nil {
-		return codex.Credential{}, localEvidence("credential_invalid", "subscription credential is invalid")
+		return subscriptionruntime.Credential{}, localEvidence("credential_invalid", "subscription credential is invalid")
 	}
 	if !forceRefresh {
-		if expiration, ok := codex.CredentialExpiresAt(credential); !ok || expiration.After(manager.now().Add(refreshLeadTime)) {
+		if expiration, ok := credential.ExpiresAt(); !ok || expiration.After(manager.now().Add(refreshLeadTime)) {
 			return credential, nil
 		}
 	}
-	var prepared codex.Credential
+	var prepared subscriptionruntime.Credential
 	var prepareErr *execution.ErrorEvidence
 	manager.mutations.Do(snapshot.ID, func() {
-		prepared, prepareErr = manager.refreshCredentialLocked(ctx, snapshot.ID, snapshot.Version, forceRefresh)
+		prepared, prepareErr = manager.refreshCredentialLocked(ctx, channelID, driver, snapshot.ID, snapshot.Version, forceRefresh)
 	})
 	return prepared, prepareErr
 }
 
-func (manager *CodexCredentialManager) refreshCredentialLocked(
+func (manager *CredentialManager) refreshCredentialLocked(
 	ctx context.Context,
+	channelID channel.ID,
+	driver subscriptionruntime.Driver,
 	credentialID uint,
 	expectedVersion uint64,
 	forceRefresh bool,
-) (codex.Credential, *execution.ErrorEvidence) {
+) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 	var row models.Credential
 	if err := manager.db.WithContext(ctx).First(&row, credentialID).Error; err != nil {
-		return codex.Credential{}, localEvidence("credential_unavailable", "subscription credential is unavailable")
+		return subscriptionruntime.Credential{}, localEvidence("credential_unavailable", "subscription credential is unavailable")
+	}
+	var group models.Group
+	if err := manager.db.WithContext(ctx).Select("id", "channel_id", "connection_type").First(&group, row.GroupID).Error; err != nil ||
+		group.ChannelID != string(channelID) || group.ConnectionType != models.ConnectionTypeSubscription {
+		return subscriptionruntime.Credential{}, localEvidence("credential_target_mismatch", "subscription credential target does not match")
 	}
 	if row.AuthState != models.CredentialAuthStateReady {
-		return codex.Credential{}, authEvidence(string(row.AuthState))
+		return subscriptionruntime.Credential{}, authEvidence(string(row.AuthState))
 	}
 	plaintext, err := manager.encryption.Decrypt(row.Data)
 	if err != nil {
-		return codex.Credential{}, localEvidence("credential_decrypt_failed", "subscription credential is unavailable")
+		return subscriptionruntime.Credential{}, localEvidence("credential_decrypt_failed", "subscription credential is unavailable")
 	}
-	current, err := codex.ParseCredentialJSON([]byte(plaintext))
+	current, err := driver.Parse([]byte(plaintext))
 	plaintext = ""
 	if err != nil {
-		return codex.Credential{}, localEvidence("credential_invalid", "subscription credential is invalid")
+		return subscriptionruntime.Credential{}, localEvidence("credential_invalid", "subscription credential is invalid")
 	}
 	if forceRefresh && row.SecretVersion > expectedVersion {
 		return current, nil
 	}
 	if !forceRefresh {
-		if expiration, ok := codex.CredentialExpiresAt(current); !ok || expiration.After(manager.now().Add(refreshLeadTime)) {
+		if expiration, ok := current.ExpiresAt(); !ok || expiration.After(manager.now().Add(refreshLeadTime)) {
 			return current, nil
 		}
 	}
@@ -128,47 +146,47 @@ func (manager *CodexCredentialManager) refreshCredentialLocked(
 		cancel()
 		if restoreErr != nil {
 			manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-			return codex.Credential{}, authEvidence("refresh_registry_mismatch")
+			return subscriptionruntime.Credential{}, authEvidence("refresh_registry_mismatch")
 		}
-		return codex.Credential{}, localEvidence("refresh_start_failed", "subscription credential refresh could not start")
+		return subscriptionruntime.Credential{}, localEvidence("refresh_start_failed", "subscription credential refresh could not start")
 	}
-	refreshed, refreshErr := manager.refresh(ctx, current)
+	refreshed, refreshErr := manager.refresh(ctx, driver, current)
 	if refreshErr != nil {
 		stateValue, code := models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown"
-		var tokenErr *codex.TokenEndpointError
-		if errors.Is(refreshErr, codex.ErrCredentialIdentityChanged) {
+		switch driver.ClassifyRefreshFailure(refreshErr) {
+		case subscriptionruntime.RefreshFailureIdentityChanged:
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"
-		} else if errors.As(refreshErr, &tokenErr) && codex.IsDefinitiveRefreshRejection(tokenErr.Code) {
+		case subscriptionruntime.RefreshFailureReauthorizationRequired:
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_rejected"
 		}
 		if err := manager.transitionAuthState(ctx, row, row.SecretVersion, stateValue, code); err != nil {
 			manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-			return codex.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 		}
-		return codex.Credential{}, authEvidence(code)
+		return subscriptionruntime.Credential{}, authEvidence(code)
 	}
-	if refreshed.AccountID != current.AccountID {
+	if refreshed.Identity() == "" || refreshed.Identity() != current.Identity() {
 		if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"); err != nil {
 			manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-			return codex.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 		}
-		return codex.Credential{}, authEvidence("refresh_identity_changed")
+		return subscriptionruntime.Credential{}, authEvidence("refresh_identity_changed")
 	}
-	canonical, err := codex.MarshalCredential(refreshed)
-	if err != nil {
+	canonical := refreshed.Canonical()
+	if len(canonical) == 0 {
 		if markErr := manager.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_persist_failed"); markErr != nil {
-			return codex.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 		}
-		return codex.Credential{}, authEvidence("refresh_persist_failed")
+		return subscriptionruntime.Credential{}, authEvidence("refresh_persist_failed")
 	}
 	ciphertext, err := manager.encryption.Encrypt(string(canonical))
 	fingerprint := manager.encryption.Hash(string(canonical))
 	clear(canonical)
 	if err != nil {
 		if markErr := manager.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_persist_failed"); markErr != nil {
-			return codex.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 		}
-		return codex.Credential{}, authEvidence("refresh_persist_failed")
+		return subscriptionruntime.Credential{}, authEvidence("refresh_persist_failed")
 	}
 	nextVersion := row.SecretVersion + 1
 	finalizeContext, cancelFinalize := refreshFinalizeContext(ctx)
@@ -181,9 +199,9 @@ func (manager *CodexCredentialManager) refreshCredentialLocked(
 	cancelFinalize()
 	if updated.Error != nil || updated.RowsAffected != 1 {
 		if markErr := manager.markRefreshOutcomeUnknown(ctx, row, row.SecretVersion, "refresh_commit_failed"); markErr != nil {
-			return codex.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 		}
-		return codex.Credential{}, authEvidence("refresh_commit_failed")
+		return subscriptionruntime.Credential{}, authEvidence("refresh_commit_failed")
 	}
 	if manager.replaceSecret == nil || !manager.replaceSecret(row.ID, row.SecretVersion, nextVersion, fingerprint, ciphertext) {
 		// The rotated token is durable. Reconcile this Group from DB truth so a
@@ -203,15 +221,15 @@ func (manager *CodexCredentialManager) refreshCredentialLocked(
 		if reconcileErr != nil {
 			if markErr := manager.markRefreshOutcomeUnknown(ctx, row, nextVersion, "refresh_registry_mismatch"); markErr != nil {
 				manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
-				return codex.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
+				return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 			}
-			return codex.Credential{}, authEvidence("refresh_registry_mismatch")
+			return subscriptionruntime.Credential{}, authEvidence("refresh_registry_mismatch")
 		}
 	}
 	return refreshed, nil
 }
 
-func (manager *CodexCredentialManager) markRefreshOutcomeUnknown(
+func (manager *CredentialManager) markRefreshOutcomeUnknown(
 	ctx context.Context,
 	row models.Credential,
 	version uint64,
@@ -220,7 +238,7 @@ func (manager *CodexCredentialManager) markRefreshOutcomeUnknown(
 	return manager.transitionAuthState(ctx, row, version, models.CredentialAuthStateOutcomeUnknown, code)
 }
 
-func (manager *CodexCredentialManager) setAuthState(
+func (manager *CredentialManager) setAuthState(
 	ctx context.Context,
 	credentialID uint,
 	version uint64,
@@ -239,7 +257,7 @@ func (manager *CodexCredentialManager) setAuthState(
 	return nil
 }
 
-func (manager *CodexCredentialManager) transitionAuthState(
+func (manager *CredentialManager) transitionAuthState(
 	ctx context.Context,
 	row models.Credential,
 	version uint64,
@@ -254,7 +272,7 @@ func (manager *CodexCredentialManager) transitionAuthState(
 	return manager.publishAuthState(finalizeContext, row, authState)
 }
 
-func (manager *CodexCredentialManager) publishAuthState(
+func (manager *CredentialManager) publishAuthState(
 	ctx context.Context,
 	row models.Credential,
 	authState models.CredentialAuthState,

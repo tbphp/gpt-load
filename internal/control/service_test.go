@@ -550,12 +550,12 @@ func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	requests := []GroupCreateRequest{
-		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://shared.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-shared-a", ConfirmSameTarget: true},
-		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://shared.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-shared-b", ConfirmSameTarget: true},
-		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://one.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-one"},
-		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://two.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-two"},
-		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://three.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-three"},
-		{ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://four.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-four"},
+		{ChannelID: channel.OpenAICompatible, ConnectionType: models.ConnectionTypeAPIKey, Params: json.RawMessage(`{"base_url":"https://shared.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-shared-a", ConfirmSameTarget: true},
+		{ChannelID: channel.OpenAICompatible, ConnectionType: models.ConnectionTypeAPIKey, Params: json.RawMessage(`{"base_url":"https://shared.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-shared-b", ConfirmSameTarget: true},
+		{ChannelID: channel.OpenAICompatible, ConnectionType: models.ConnectionTypeAPIKey, Params: json.RawMessage(`{"base_url":"https://one.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-one"},
+		{ChannelID: channel.OpenAICompatible, ConnectionType: models.ConnectionTypeAPIKey, Params: json.RawMessage(`{"base_url":"https://two.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-two"},
+		{ChannelID: channel.OpenAICompatible, ConnectionType: models.ConnectionTypeAPIKey, Params: json.RawMessage(`{"base_url":"https://three.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-three"},
+		{ChannelID: channel.OpenAICompatible, ConnectionType: models.ConnectionTypeAPIKey, Params: json.RawMessage(`{"base_url":"https://four.example.com/v1"}`), Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "sk-four"},
 	}
 
 	start := make(chan struct{})

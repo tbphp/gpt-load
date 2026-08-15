@@ -48,7 +48,7 @@ func TestExecutionForwarderBuildsFrozenAttemptAndMapsUnaryResult(t *testing.T) {
 		spec execution.AttemptSpec,
 	) execution.AttemptResult {
 		if spec.RequestID != "request-1" || spec.AttemptID != "attempt-1" || spec.Sequence != 2 ||
-			spec.ChannelID != "openai" || spec.TargetKind != "openai" ||
+			spec.ChannelID != "openai" ||
 			spec.RouteMode != execution.RouteNative ||
 			spec.RouteRequirement != execution.RouteRequirementNative ||
 			spec.ClientProtocol != protocol.OpenAICompletions ||
@@ -119,7 +119,7 @@ func TestExecutionForwarderKeepsExecutionObservationOnRepresentationFailure(t *t
 		return execution.AttemptResult{
 			DispatchState:     execution.DispatchMaybeSent,
 			ResponseStarted:   true,
-			UpstreamAPI:       execution.UpstreamAPIAnthropicMessages,
+			UpstreamProtocol:  protocol.Anthropic,
 			AppliedReasoning:  &reasoning.Config{Mode: "enabled", BudgetTokens: &budget},
 			StatusCode:        http.StatusOK,
 			Header:            http.Header{"Content-Encoding": {"unsupported"}},
@@ -131,7 +131,7 @@ func TestExecutionForwarderKeepsExecutionObservationOnRepresentationFailure(t *t
 	result := NewExecutionForwarder(executor).Forward(context.Background(), executionForwardInput())
 	if !errors.Is(result.Err, ErrUpstreamProtocol) ||
 		result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
-		result.UpstreamAPI != execution.UpstreamAPIAnthropicMessages ||
+		result.UpstreamProtocol != protocol.Anthropic ||
 		result.UpstreamRequestID != "upstream-observation" ||
 		result.AppliedReasoning.Mode != "enabled" || result.AppliedReasoning.BudgetTokens == nil ||
 		*result.AppliedReasoning.BudgetTokens != budget {
@@ -768,7 +768,6 @@ func executionForwardInput() ForwardInput {
 		ClientProtocol:   protocol.OpenAICompletions,
 		Operation:        execution.OperationChatCompletion,
 		ChannelID:        "openai",
-		TargetKind:       "openai",
 		RouteMode:        execution.RouteNative,
 		RouteRequirement: execution.RouteRequirementNative,
 		TargetConfig:     []byte(`{}`),

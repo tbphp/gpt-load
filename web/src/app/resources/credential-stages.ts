@@ -127,12 +127,13 @@ function projectConnectResult(value: unknown): CredentialConnectResult {
 
 export async function beginCredentialAuthorization(
   client: ApiClient,
+  channelID: string,
   signal?: AbortSignal,
 ): Promise<CredentialStage> {
   return projectCredentialStage(
     await client.request('/api/credential-stages/authorizations', {
       method: 'POST',
-      json: { channel_id: 'codex' },
+      json: { channel_id: channelID },
       signal,
     }),
   )
@@ -156,10 +157,12 @@ export async function completeCredentialAuthorization(
 
 export async function importCredentialStage(
   client: ApiClient,
+  channelID: string,
   file: File,
   signal?: AbortSignal,
 ): Promise<CredentialStage> {
   const body = new FormData()
+  body.set('channel_id', channelID)
   body.set('file', file, file.name)
   return projectCredentialStage(
     await client.request('/api/credential-stages/import', { method: 'POST', body, signal }),

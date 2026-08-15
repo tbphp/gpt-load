@@ -32,12 +32,12 @@ func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T
 		},
 	}})
 	stage := mustImportSubscriptionStage(t, fixture, "account-codex-models", "codex-models@example.com")
-	fixture.service.listCodexModels = func(context.Context, codex.Credential) ([]codex.Model, error) {
+	setCodexModelDiscovery(t, fixture.service, func(context.Context, codex.Credential) ([]codex.Model, error) {
 		return []codex.Model{{ID: "gpt-codex"}}, nil
-	}
+	})
 
 	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
-		ChannelID: channel.Codex, StagedCredentialID: stage.StageID,
+		ChannelID: channel.Codex, StagedCredentialID: stage.StageID, ConnectionType: "subscription",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,8 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 		},
 	})
 	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
-		ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Credentials: "secret",
+		ChannelID: channel.OpenAI, ConnectionType: models.ConnectionTypeAPIKey,
+		Params: json.RawMessage(`{}`), Credentials: "secret",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -101,8 +102,9 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 	}
 
 	withoutProvider, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
-		ChannelID: channel.OpenAICompatible,
-		Params:    json.RawMessage(`{"base_url":"https://api.openai.com/v1"}`), Credentials: "secret",
+		ChannelID:      channel.OpenAICompatible,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Params:         json.RawMessage(`{"base_url":"https://api.openai.com/v1"}`), Credentials: "secret",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -149,8 +151,9 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 	)
 
 	request := ModelDiscoveryRequest{
-		ChannelID: channel.OpenAICompatible,
-		Params:    json.RawMessage(`{"base_url":"https://proxy.example/v1"}`), Credentials: "secret",
+		ChannelID:      channel.OpenAICompatible,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Params:         json.RawMessage(`{"base_url":"https://proxy.example/v1"}`), Credentials: "secret",
 	}
 	custom, err := fixture.service.DiscoverModels(t.Context(), request)
 	if err != nil {
@@ -166,10 +169,11 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 	}
 
 	savedCustom, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		ChannelID:   channel.OpenAICompatible,
-		Params:      json.RawMessage(`{"base_url":"https://saved-custom.example/v1"}`),
-		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Credentials: "saved-secret",
+		ChannelID:      channel.OpenAICompatible,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Params:         json.RawMessage(`{"base_url":"https://saved-custom.example/v1"}`),
+		Models:         optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Credentials:    "saved-secret",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -224,10 +228,11 @@ func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testi
 	})
 	providerID := "openai"
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		ChannelID:   channel.OpenAI,
-		Params:      json.RawMessage(`{}`),
-		Models:      optionalGroupModels{Set: true, Values: []GroupModel{{ID: "shared"}}},
-		Credentials: "saved-secret",
+		ChannelID:      channel.OpenAI,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Params:         json.RawMessage(`{}`),
+		Models:         optionalGroupModels{Set: true, Values: []GroupModel{{ID: "shared"}}},
+		Credentials:    "saved-secret",
 	})
 	if err != nil {
 		t.Fatal(err)

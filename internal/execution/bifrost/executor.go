@@ -33,6 +33,7 @@ const (
 type preparedAttempt struct {
 	provider          schemas.ModelProvider
 	mode              channel.RouteMode
+	upstreamProtocol  protocol.Protocol
 	request           *schemas.BifrostChatRequest
 	responsesRequest  *schemas.BifrostResponsesRequest
 	listModelsRequest *schemas.BifrostListModelsRequest
@@ -60,12 +61,11 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		return *preflightError
 	}
 	var appliedReasoning *reasoning.Config
-	upstreamAPI := preparedUpstreamAPI(prepared, spec)
 	defer func() {
 		if result.AppliedReasoning == nil {
 			result.AppliedReasoning = appliedReasoning
 		}
-		result.UpstreamAPI = upstreamAPI
+		result.UpstreamProtocol = prepared.upstreamProtocol
 	}()
 	if prepared.passthrough != nil {
 		return r.executeNative(parent, spec, prepared)
@@ -160,12 +160,11 @@ func (r *Runtime) ExecuteStream(
 		return streamFromAttemptFailure(*preflightError)
 	}
 	var appliedReasoning *reasoning.Config
-	upstreamAPI := preparedUpstreamAPI(prepared, spec)
 	defer func() {
 		if result.AppliedReasoning == nil {
 			result.AppliedReasoning = appliedReasoning
 		}
-		result.UpstreamAPI = upstreamAPI
+		result.UpstreamProtocol = prepared.upstreamProtocol
 	}()
 	if prepared.passthrough != nil {
 		return r.executeNativeStream(parent, spec, prepared, sink)
@@ -321,46 +320,6 @@ func (r *Runtime) ExecuteStream(
 	}
 }
 
-func preparedUpstreamAPI(prepared preparedAttempt, spec execution.AttemptSpec) execution.UpstreamAPI {
-	providerKind := channel.ProviderKind(spec.TargetKind)
-	if providerKind == channel.ProviderDeepSeek &&
-		spec.ClientProtocol == protocol.Anthropic &&
-		spec.Operation != execution.OperationListModels {
-		return execution.UpstreamAPIAnthropicMessages
-	}
-	switch providerKind {
-	case channel.ProviderAzureOpenAI:
-		return execution.UpstreamAPIAzureOpenAI
-	case channel.ProviderAWSBedrock:
-		return execution.UpstreamAPIAWSBedrock
-	case channel.ProviderGoogleVertex:
-		return execution.UpstreamAPIGoogleVertex
-	case channel.ProviderAnthropic:
-		if spec.Operation == execution.OperationListModels {
-			return execution.UpstreamAPIAnthropicModels
-		}
-		return execution.UpstreamAPIAnthropicMessages
-	case channel.ProviderGemini:
-		if spec.Operation == execution.OperationListModels {
-			return execution.UpstreamAPIGeminiModels
-		}
-		return execution.UpstreamAPIGeminiGenerateContent
-	}
-	if spec.Operation == execution.OperationListModels {
-		return execution.UpstreamAPIOpenAIModels
-	}
-	if prepared.passthrough != nil && spec.ClientProtocol == protocol.OpenAIResponses {
-		return execution.UpstreamAPIOpenAIResponses
-	}
-	if prepared.responsesRequest != nil {
-		target, err := url.Parse(prepared.typedURL)
-		if err == nil && strings.HasSuffix(strings.TrimRight(target.Path, "/"), "/responses") {
-			return execution.UpstreamAPIOpenAIResponses
-		}
-	}
-	return execution.UpstreamAPIOpenAIChatCompletions
-}
-
 func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAttempt, *execution.AttemptResult) {
 	if r == nil || r.core == nil || r.registry == nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInternal, "execution runtime is unavailable")
@@ -380,11 +339,6 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 
 	channelID := channel.ID(spec.ChannelID)
-	providerKind := channel.ProviderKind(spec.TargetKind)
-	if !providerKind.Valid() {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported execution target")
-		return preparedAttempt{}, &failure
-	}
 	if len(bytes.TrimSpace(spec.TargetConfig)) == 0 {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "channel target is required")
 		return preparedAttempt{}, &failure
@@ -394,10 +348,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel target: "+safeValidationReason(err))
 		return preparedAttempt{}, &failure
 	}
-	if resolved.ProviderKind != providerKind {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "execution target does not match channel")
-		return preparedAttempt{}, &failure
-	}
+	providerKind := resolved.ProviderKind
 	if r.fixedConfig == nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInternal, "provider runtime config is unavailable")
 		return preparedAttempt{}, &failure
@@ -491,8 +442,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				return preparedAttempt{}, &failure
 			}
 			return preparedAttempt{
-				provider: provider,
-				mode:     mode,
+				provider:         provider,
+				mode:             mode,
+				upstreamProtocol: protocol.Gemini,
 				passthrough: &schemas.BifrostPassthroughRequest{
 					Provider: provider,
 					Model:    spec.UpstreamModel,
@@ -509,7 +461,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
 		responses := spec.ClientProtocol == protocol.OpenAIResponses
-		typedURL, targetErr := convertedTypedTarget(
+		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(
 			providerKind,
 			targetBaseURL,
 			spec.UpstreamModel,
@@ -518,14 +470,14 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			"",
 		)
 		if targetErr == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
-			typedURL, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, "")
+			typedURL, upstreamProtocol, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, "")
 		}
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel probe target")
 			return preparedAttempt{}, &failure
 		}
 		prepared := preparedAttempt{
-			provider: provider, mode: mode, typedURL: typedURL,
+			provider: provider, mode: mode, upstreamProtocol: upstreamProtocol, typedURL: typedURL,
 			clientProtocol: spec.ClientProtocol, directKey: directKey, secrets: secrets,
 		}
 		if responses {
@@ -555,9 +507,15 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				passthroughHeaders["Content-Type"] = "application/json"
 			}
 		}
+		upstreamProtocol := spec.ClientProtocol
+		if spec.Operation == execution.OperationListModels &&
+			(spec.ClientProtocol == protocol.OpenAICompletions || spec.ClientProtocol == protocol.OpenAIResponses) {
+			upstreamProtocol = protocol.OpenAICompletions
+		}
 		return preparedAttempt{
-			provider: provider,
-			mode:     mode,
+			provider:         provider,
+			mode:             mode,
+			upstreamProtocol: upstreamProtocol,
 			passthrough: &schemas.BifrostPassthroughRequest{
 				Provider:    provider,
 				Model:       spec.UpstreamModel,
@@ -572,7 +530,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}, nil
 	}
 	if spec.Operation == execution.OperationListModels {
-		typedURL, targetErr := convertedListModelsTarget(providerKind, targetBaseURL, safeQuery)
+		typedURL, upstreamProtocol, targetErr := convertedListModelsTarget(providerKind, targetBaseURL, safeQuery)
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
@@ -580,6 +538,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{
 			provider:          provider,
 			mode:              mode,
+			upstreamProtocol:  upstreamProtocol,
 			listModelsRequest: &schemas.BifrostListModelsRequest{Provider: provider},
 			typedURL:          typedURL,
 			clientProtocol:    spec.ClientProtocol,
@@ -598,9 +557,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, conversionErr.Error())
 			return preparedAttempt{}, &failure
 		}
-		typedURL, targetErr := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, true, stream, safeQuery)
+		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, true, stream, safeQuery)
 		if targetErr == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
-			typedURL, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, safeQuery)
+			typedURL, upstreamProtocol, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, safeQuery)
 		}
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
@@ -609,6 +568,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{
 			provider:         provider,
 			mode:             mode,
+			upstreamProtocol: upstreamProtocol,
 			responsesRequest: request,
 			typedURL:         typedURL,
 			clientProtocol:   spec.ClientProtocol,
@@ -638,13 +598,13 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		delete(request.Params.ExtraParams, "fallback")
 		delete(request.Params.ExtraParams, "fallbacks")
 	}
-	typedURL, err := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, false, stream, safeQuery)
+	typedURL, upstreamProtocol, err := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, false, stream, safeQuery)
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 		return preparedAttempt{}, &failure
 	}
 	return preparedAttempt{
-		provider: provider, mode: mode, request: request, typedURL: typedURL,
+		provider: provider, mode: mode, upstreamProtocol: upstreamProtocol, request: request, typedURL: typedURL,
 		clientProtocol: spec.ClientProtocol, directKey: directKey, secrets: secrets,
 	}, nil
 }
@@ -1068,12 +1028,12 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 	bifrostContext.SetValue(schemas.BifrostContextKeyDirectKey, directKey)
 	bifrostContext.SetValue(schemas.BifrostContextKeyLargeResponseThreshold, r.maxUnaryResponseBodyBytes)
 	if spec.Operation == execution.OperationChatCompletion &&
-		channel.ProviderKind(spec.TargetKind) == channel.ProviderDeepSeek &&
+		r.providerKind(spec) == channel.ProviderDeepSeek &&
 		spec.ClientProtocol == protocol.Anthropic {
 		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
 	}
 	if spec.Operation == execution.OperationProbe &&
-		channel.ProviderKind(spec.TargetKind) == channel.ProviderOpenAICompatible {
+		r.providerKind(spec) == channel.ProviderOpenAICompatible {
 		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
 	}
 	if spec.Timeouts.StreamIdle > 0 {
@@ -1083,6 +1043,14 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 		bifrostContext.SetValue(schemas.BifrostContextKeyExtraHeaders, headers)
 	}
 	return bifrostContext
+}
+
+func (r *Runtime) providerKind(spec execution.AttemptSpec) channel.ProviderKind {
+	if r == nil || r.registry == nil {
+		return ""
+	}
+	providerKind, _ := r.registry.ProviderKind(channel.ID(spec.ChannelID))
+	return providerKind
 }
 
 func (r *Runtime) newStreamingSDKContext(parent context.Context, spec execution.AttemptSpec, directKey schemas.Key) *schemas.BifrostContext {

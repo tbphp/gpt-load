@@ -88,7 +88,7 @@ func (s *Service) executeModelDiscovery(
 			sequence++
 			spec := execution.NewAttemptSpec(execution.AttemptSpec{
 				RequestID: requestID, AttemptID: attemptID, Sequence: sequence,
-				ChannelID: string(target.channelID), TargetKind: string(target.resolvedTarget.ProviderKind),
+				ChannelID: string(target.channelID),
 				RouteMode: execution.RouteMode(routeMode), ClientProtocol: clientProtocol,
 				Operation: execution.OperationListModels, Method: method, Path: path,
 				RawQuery: rawQuery,

@@ -16,7 +16,6 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
@@ -32,7 +31,12 @@ type Loader struct {
 	manager         *state.Manager
 	registry        *state.CredentialRegistry
 	channelRegistry *channel.Registry
+	subscriptions   subscriptionCredentialCanonicalizer
 	encryption      encryption.Service
+}
+
+type subscriptionCredentialCanonicalizer interface {
+	CanonicalCredential(channel.ID, []byte) ([]byte, error)
 }
 
 // NewWithCredentialValidation creates the production loader that verifies
@@ -42,10 +46,12 @@ func NewWithCredentialValidation(
 	manager *state.Manager,
 	registry *state.CredentialRegistry,
 	channelRegistry *channel.Registry,
+	subscriptions subscriptionCredentialCanonicalizer,
 	encryptionService encryption.Service,
 ) *Loader {
 	loader := New(db, manager, registry, channelRegistry)
 	loader.encryption = encryptionService
+	loader.subscriptions = subscriptions
 	return loader
 }
 
@@ -158,16 +164,27 @@ func (l *Loader) validatePersistedCredentials(
 		raw := []byte(plaintext)
 		plaintext = ""
 		var canonical []byte
-		if strings.TrimSpace(target.connectionType) == string(models.ConnectionTypeSubscription) {
-			credential, parseErr := codex.ParseCredentialJSON(raw)
-			if parseErr == nil {
-				canonical, parseErr = codex.MarshalCredential(credential)
+		expectedConnection, known := l.channelRegistry.ConnectionType(target.channelID)
+		if !known || strings.TrimSpace(target.connectionType) != expectedConnection {
+			clear(raw)
+			return fmt.Errorf("validate credential %d for group %d: connection does not match channel", entry.ID, entry.GroupID)
+		}
+		if expectedConnection == string(models.ConnectionTypeSubscription) {
+			if l.subscriptions == nil {
+				clear(raw)
+				return fmt.Errorf("validate credential %d for group %d: subscription driver is unavailable", entry.ID, entry.GroupID)
 			}
+			var parseErr error
+			canonical, parseErr = l.subscriptions.CanonicalCredential(target.channelID, raw)
 			clear(raw)
 			if parseErr != nil {
 				return fmt.Errorf("validate credential %d for group %d: stored shape is invalid", entry.ID, entry.GroupID)
 			}
 		} else {
+			if expectedConnection != string(models.ConnectionTypeAPIKey) {
+				clear(raw)
+				return fmt.Errorf("validate credential %d for group %d: subscription driver is unavailable", entry.ID, entry.GroupID)
+			}
 			credential, validateErr := l.channelRegistry.ValidateCredential(target.channelID, raw)
 			clear(raw)
 			if validateErr != nil {

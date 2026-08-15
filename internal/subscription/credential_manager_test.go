@@ -12,6 +12,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
@@ -19,6 +20,7 @@ import (
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 type failingEncryptService struct {
@@ -32,16 +34,16 @@ func (failingEncryptService) Encrypt(string) (string, error) {
 func TestCredentialManagerRefreshesExpiringCredentialAndPublishesVersion(t *testing.T) {
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
 	refreshCalls := 0
-	manager.refresh = func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
 		refreshCalls++
 		current.AccessToken = "new-access"
 		current.RefreshToken = "new-refresh"
 		current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 		return current, nil
-	}
+	})
 
-	credential, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
-	if evidence != nil || refreshCalls != 1 || credential.AccessToken != "new-access" {
+	credential, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
+	if evidence != nil || refreshCalls != 1 || mustCodexCredential(t, credential).AccessToken != "new-access" {
 		t.Fatalf("credential=%#v evidence=%#v refresh=%d", credential, evidence, refreshCalls)
 	}
 	var stored models.Credential
@@ -60,16 +62,16 @@ func TestCredentialManagerRefreshesExpiringCredentialAndPublishesVersion(t *test
 func TestCredentialManagerForceRefreshesAfterExplicitRejection(t *testing.T) {
 	manager, _, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Hour)))
 	refreshCalls := 0
-	manager.refresh = func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
 		refreshCalls++
 		current.AccessToken = "new-access"
 		current.RefreshToken = "new-refresh"
 		current.Expire = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 		return current, nil
-	}
+	})
 
-	credential, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), true)
-	if evidence != nil || refreshCalls != 1 || credential.AccessToken != "new-access" {
+	credential, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), true)
+	if evidence != nil || refreshCalls != 1 || mustCodexCredential(t, credential).AccessToken != "new-access" {
 		t.Fatalf("credential=%#v evidence=%#v refresh=%d", credential, evidence, refreshCalls)
 	}
 }
@@ -77,19 +79,19 @@ func TestCredentialManagerForceRefreshesAfterExplicitRejection(t *testing.T) {
 func TestCredentialManagerForceRefreshUsesNewerDurableSecret(t *testing.T) {
 	manager, _, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Hour)))
 	refreshCalls := 0
-	manager.refresh = func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
 		refreshCalls++
 		current.AccessToken = "new-access"
 		current.RefreshToken = "new-refresh"
 		current.Expire = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 		return current, nil
-	}
+	})
 	snapshot := credentialSnapshot(t, row, keyService)
 
-	first, firstEvidence := manager.Prepare(t.Context(), snapshot, true)
-	second, secondEvidence := manager.Prepare(t.Context(), snapshot, true)
+	first, firstEvidence := manager.Prepare(t.Context(), channel.Codex, snapshot, true)
+	second, secondEvidence := manager.Prepare(t.Context(), channel.Codex, snapshot, true)
 	if firstEvidence != nil || secondEvidence != nil || refreshCalls != 1 ||
-		first.AccessToken != "new-access" || second.AccessToken != "new-access" {
+		mustCodexCredential(t, first).AccessToken != "new-access" || mustCodexCredential(t, second).AccessToken != "new-access" {
 		t.Fatalf("first=%#v second=%#v evidence=%#v/%#v refresh=%d", first, second, firstEvidence, secondEvidence, refreshCalls)
 	}
 }
@@ -98,7 +100,7 @@ func TestCredentialManagerSerializesConcurrentRefresh(t *testing.T) {
 	manager, _, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
 	var mu sync.Mutex
 	refreshCalls := 0
-	manager.refresh = func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
 		mu.Lock()
 		refreshCalls++
 		mu.Unlock()
@@ -106,14 +108,14 @@ func TestCredentialManagerSerializesConcurrentRefresh(t *testing.T) {
 		current.AccessToken = "new-access"
 		current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 		return current, nil
-	}
+	})
 	snapshot := credentialSnapshot(t, row, keyService)
 	var wait sync.WaitGroup
 	wait.Add(2)
 	for range 2 {
 		go func() {
 			defer wait.Done()
-			_, _ = manager.Prepare(context.Background(), snapshot, false)
+			_, _ = manager.Prepare(context.Background(), channel.Codex, snapshot, false)
 		}()
 	}
 	wait.Wait()
@@ -126,11 +128,11 @@ func TestCredentialManagerSerializesConcurrentRefresh(t *testing.T) {
 
 func TestCredentialManagerReconcilesRegistryAfterIncrementalPublicationMiss(t *testing.T) {
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	manager.refresh = refreshedCredential
+	manager.refresh = adaptCodexRefresh(refreshedCredential)
 	manager.replaceSecret = func(uint, uint64, uint64, string, string) bool { return false }
 
-	credential, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
-	if evidence != nil || credential.AccessToken != "new-access" {
+	credential, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
+	if evidence != nil || mustCodexCredential(t, credential).AccessToken != "new-access" {
 		t.Fatalf("credential=%#v evidence=%#v", credential, evidence)
 	}
 	var stored models.Credential
@@ -153,13 +155,13 @@ func TestCredentialManagerReconcilesRegistryAfterIncrementalPublicationMiss(t *t
 
 func TestCredentialManagerFailsClosedWhenRefreshedSecretCannotReachRegistry(t *testing.T) {
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	manager.refresh = refreshedCredential
+	manager.refresh = adaptCodexRefresh(refreshedCredential)
 	manager.replaceSecret = func(uint, uint64, uint64, string, string) bool { return false }
 	manager.reconcileGroup = func(uint, []state.CredentialEntry) (bool, error) {
 		return false, errors.New("registry unavailable")
 	}
 
-	_, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Code != "refresh_registry_mismatch" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
@@ -183,12 +185,12 @@ func TestCredentialManagerRestoresReadyWhenRefreshStartCannotPublish(t *testing.
 		return false, errors.New("registry unavailable")
 	}
 	refreshCalls := 0
-	manager.refresh = func(context.Context, codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
 		refreshCalls++
 		return codex.Credential{}, errors.New("must not be called")
-	}
+	})
 
-	_, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Code != "refresh_registry_mismatch" || refreshCalls != 0 {
 		t.Fatalf("evidence = %#v, refresh calls = %d", evidence, refreshCalls)
 	}
@@ -203,10 +205,10 @@ func TestCredentialManagerRestoresReadyWhenRefreshStartCannotPublish(t *testing.
 
 func TestCredentialManagerDefinitiveRejectionRequiresReauthorization(t *testing.T) {
 	manager, db, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	manager.refresh = func(context.Context, codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
-	}
-	_, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
+	})
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired {
 		t.Fatalf("evidence = %#v", evidence)
 	}
@@ -215,10 +217,10 @@ func TestCredentialManagerDefinitiveRejectionRequiresReauthorization(t *testing.
 
 func TestCredentialManagerIdentityChangeRequiresReauthorization(t *testing.T) {
 	manager, db, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	manager.refresh = func(context.Context, codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
 		return codex.Credential{}, codex.ErrCredentialIdentityChanged
-	}
-	_, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
+	})
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Code != "refresh_identity_changed" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
@@ -227,10 +229,10 @@ func TestCredentialManagerIdentityChangeRequiresReauthorization(t *testing.T) {
 
 func TestCredentialManagerTransientFailureMarksOutcomeUnknown(t *testing.T) {
 	manager, db, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	manager.refresh = func(context.Context, codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
-	}
-	_, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
+	})
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Code != "refresh_outcome_unknown" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
@@ -239,10 +241,10 @@ func TestCredentialManagerTransientFailureMarksOutcomeUnknown(t *testing.T) {
 
 func TestCredentialManagerAmbiguousFailureStopsWithoutReplay(t *testing.T) {
 	manager, db, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
-	manager.refresh = func(context.Context, codex.Credential) (codex.Credential, error) {
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
 		return codex.Credential{}, errors.New("connection reset")
-	}
-	_, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
+	})
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired {
 		t.Fatalf("evidence = %#v", evidence)
 	}
@@ -252,9 +254,9 @@ func TestCredentialManagerAmbiguousFailureStopsWithoutReplay(t *testing.T) {
 func TestCredentialManagerMarksOutcomeUnknownWhenRotatedTokenCannotBeEncrypted(t *testing.T) {
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
 	manager.encryption = failingEncryptService{Service: keyService}
-	manager.refresh = refreshedCredential
+	manager.refresh = adaptCodexRefresh(refreshedCredential)
 
-	_, evidence := manager.Prepare(t.Context(), credentialSnapshot(t, row, keyService), false)
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Code != "refresh_persist_failed" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
@@ -274,7 +276,7 @@ func TestCredentialManagerMarksOutcomeUnknownWhenRotatedTokenCannotBeEncrypted(t
 func newCredentialManagerFixture(
 	t *testing.T,
 	canonical []byte,
-) (*CodexCredentialManager, *gorm.DB, *state.CredentialRegistry, encryption.Service, models.Credential) {
+) (*CredentialManager, *gorm.DB, *state.CredentialRegistry, encryption.Service, models.Credential) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{TranslateError: true})
 	if err != nil {
@@ -321,7 +323,11 @@ func newCredentialManagerFixture(
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	manager := NewCodexCredentialManager(db, keyService, registry, health.NewMutationCoordinator())
+	subscriptions, err := subscriptionruntime.NewRuntime(channel.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewCredentialManager(db, keyService, registry, health.NewMutationCoordinator(), subscriptions)
 	return manager, db, registry, keyService, row
 }
 
@@ -347,6 +353,35 @@ func refreshedCredential(_ context.Context, current codex.Credential) (codex.Cre
 	current.RefreshToken = "new-refresh"
 	current.Expire = time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	return current, nil
+}
+
+func adaptCodexRefresh(
+	refresh func(context.Context, codex.Credential) (codex.Credential, error),
+) func(context.Context, subscriptionruntime.Driver, subscriptionruntime.Credential) (subscriptionruntime.Credential, error) {
+	return func(ctx context.Context, driver subscriptionruntime.Driver, current subscriptionruntime.Credential) (subscriptionruntime.Credential, error) {
+		parsed, err := codex.ParseCredentialJSON(current.Canonical())
+		if err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
+		refreshed, err := refresh(ctx, parsed)
+		if err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
+		canonical, err := codex.MarshalCredential(refreshed)
+		if err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
+		return driver.Parse(canonical)
+	}
+}
+
+func mustCodexCredential(t *testing.T, credential subscriptionruntime.Credential) codex.Credential {
+	t.Helper()
+	parsed, err := codex.ParseCredentialJSON(credential.Canonical())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }
 
 func assertStoredAuthState(

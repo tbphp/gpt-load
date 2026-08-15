@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func (s *Service) discoverSubscriptionStageModels(
@@ -29,11 +29,11 @@ func (s *Service) discoverSubscriptionStageModels(
 	if s.now().UnixMilli() >= stage.ExpiresAtMS {
 		return ModelDiscoveryResult{}, app_errors.ErrStagedCredentialExpired
 	}
-	credential, err := s.decodeStageCodexCredential(stage)
+	credential, err := s.decodeStageSubscriptionCredential(channelID, stage)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
-	return s.discoverCodexModels(ctx, credential)
+	return s.discoverSubscriptionModelsForChannel(ctx, channelID, credential)
 }
 
 func (s *Service) discoverSubscriptionGroupModels(
@@ -46,13 +46,13 @@ func (s *Service) discoverSubscriptionGroupModels(
 	var preparationErr error
 	attempted := false
 	for _, row := range rows.credentials {
-		credential, err := s.prepareStoredCodexCredential(ctx, rows.group, row)
+		credential, err := s.prepareStoredSubscriptionCredential(ctx, rows.group, row)
 		if err != nil {
 			preparationErr = err
 			continue
 		}
 		attempted = true
-		result, err := s.discoverCodexModels(ctx, credential)
+		result, err := s.discoverSubscriptionModelsForChannel(ctx, channel.ID(rows.group.ChannelID), credential)
 		if err == nil {
 			return result, nil
 		}
@@ -66,47 +66,52 @@ func (s *Service) discoverSubscriptionGroupModels(
 	return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
 }
 
-func (s *Service) prepareStoredCodexCredential(
+func (s *Service) prepareStoredSubscriptionCredential(
 	ctx context.Context,
 	group models.Group,
 	row models.Credential,
-) (codex.Credential, error) {
+) (subscriptionruntime.Credential, error) {
 	switch row.AuthState {
 	case "", models.CredentialAuthStateReady:
 	case models.CredentialAuthStateReauthorizationRequired:
-		return codex.Credential{}, app_errors.ErrCredentialReauthorizationRequired
+		return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 	case models.CredentialAuthStateRefreshing, models.CredentialAuthStateOutcomeUnknown:
-		return codex.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+		return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
 	default:
-		return codex.Credential{}, app_errors.ErrInternalServer
+		return subscriptionruntime.Credential{}, app_errors.ErrInternalServer
 	}
 	canonical, _, err := s.decodeCredential(group, row)
 	if err != nil {
-		return codex.Credential{}, err
+		return subscriptionruntime.Credential{}, err
 	}
 	defer clear(canonical)
-	if s.prepareCodexCredential == nil {
-		credential, parseErr := codex.ParseCredentialJSON(canonical)
+	channelID := channel.ID(group.ChannelID)
+	driver, driverErr := s.subscriptionDriver(channelID)
+	if driverErr != nil {
+		return subscriptionruntime.Credential{}, app_errors.ErrInternalServer
+	}
+	if s.prepareSubscriptionCredential == nil {
+		credential, parseErr := driver.Parse(canonical)
 		if parseErr != nil {
-			return codex.Credential{}, app_errors.ErrInternalServer
+			return subscriptionruntime.Credential{}, app_errors.ErrInternalServer
 		}
 		return credential, nil
 	}
 	prepareContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancel()
-	credential, evidence := s.prepareCodexCredential(prepareContext, execution.NewCredentialSnapshot(
+	credential, evidence := s.prepareSubscriptionCredential(prepareContext, channelID, execution.NewCredentialSnapshot(
 		row.ID,
 		groupCollectionCredentialVersion(row.SecretVersion),
 		groupCollectionCredentialIdentity(row.IdentityFingerprint, group),
 		canonical,
-	))
+	), false)
 	if evidence != nil {
-		return codex.Credential{}, codexPreparationAPIError(evidence)
+		return subscriptionruntime.Credential{}, subscriptionPreparationAPIError(evidence)
 	}
 	return credential, nil
 }
 
-func codexPreparationAPIError(evidence *execution.ErrorEvidence) error {
+func subscriptionPreparationAPIError(evidence *execution.ErrorEvidence) error {
 	if evidence == nil {
 		return nil
 	}
@@ -128,46 +133,42 @@ func codexPreparationAPIError(evidence *execution.ErrorEvidence) error {
 	return app_errors.ErrInternalServer
 }
 
-func (s *Service) discoverCodexModels(
+func (s *Service) discoverSubscriptionModelsForChannel(
 	ctx context.Context,
-	credential codex.Credential,
+	channelID channel.ID,
+	credential subscriptionruntime.Credential,
 ) (ModelDiscoveryResult, error) {
-	if s == nil || s.listCodexModels == nil {
+	if s == nil || s.discoverSubscriptionModels == nil {
 		return ModelDiscoveryResult{}, app_errors.ErrInternalServer
 	}
 	discoveryContext, cancel := context.WithTimeout(ctx, s.modelDiscoveryTimeout)
 	defer cancel()
-	models, err := s.listCodexModels(discoveryContext, credential)
+	ids, err := s.discoverSubscriptionModels(discoveryContext, channelID, credential)
 	if err != nil {
 		return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
 	}
-	ids := make([]string, 0, len(models))
-	for _, model := range models {
-		ids = append(ids, model.ID)
-	}
-	target := discoveryTarget{channelID: channel.Codex}
+	target := discoveryTarget{channelID: channelID}
 	return s.mergeDiscoveredModels(ctx, normalizeDiscoveredModels(ids), target)
 }
 
-func (s *Service) decodeStageCodexCredential(stage models.CredentialStage) (codex.Credential, error) {
+func (s *Service) decodeStageSubscriptionCredential(channelID channel.ID, stage models.CredentialStage) (subscriptionruntime.Credential, error) {
 	plaintext, err := s.encryption.Decrypt(stage.EncryptedPayload)
 	if err != nil {
-		return codex.Credential{}, app_errors.ErrStagedCredentialMismatch
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
-	var payload stagedCodexPayload
+	var payload stagedSubscriptionPayload
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		plaintext = ""
-		return codex.Credential{}, app_errors.ErrStagedCredentialMismatch
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
 	plaintext = ""
-	canonical, err := codex.MarshalCredential(payload.Credential)
-	if err != nil {
-		return codex.Credential{}, app_errors.ErrInternalServer
+	driver, driverErr := s.subscriptionDriver(channelID)
+	if driverErr != nil {
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
-	credential, err := codex.ParseCredentialJSON(canonical)
-	clear(canonical)
+	credential, err := driver.Parse(payload.Credential)
 	if err != nil {
-		return codex.Credential{}, app_errors.ErrStagedCredentialMismatch
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
 	return credential, nil
 }

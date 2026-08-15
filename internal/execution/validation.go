@@ -7,8 +7,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"gpt-load/internal/connection"
 )
 
 // Validate validates the credential identity and secret data.
@@ -55,12 +53,6 @@ func (s AttemptSpec) Validate() error {
 	}
 	if strings.TrimSpace(s.ChannelID) == "" {
 		return validationError("channel_id", "must not be empty")
-	}
-	if !connection.Valid(s.ConnectionType) {
-		return validationError("connection_type", "unsupported value")
-	}
-	if strings.TrimSpace(s.TargetKind) == "" || len(s.TargetKind) > 64 || containsControl(s.TargetKind) {
-		return validationError("target_kind", "must be a safe non-empty identifier")
 	}
 	if !s.RouteMode.Valid() {
 		return validationError("route_mode", "unsupported value")
@@ -160,8 +152,8 @@ func (e ErrorEvidence) Validate() error {
 
 // Validate validates a terminal attempt result.
 func (r AttemptResult) Validate() error {
-	if r.UpstreamAPI != "" && !r.UpstreamAPI.Valid() {
-		return validationError("upstream_api", "unsupported value")
+	if r.UpstreamProtocol != "" && !r.UpstreamProtocol.Valid() {
+		return validationError("upstream_protocol", "unsupported value")
 	}
 	if err := validateResultMetadata(
 		r.DispatchState,
@@ -233,8 +225,8 @@ func (e StreamEvent) Validate() error {
 
 // Validate validates a terminal streaming result.
 func (r StreamResult) Validate() error {
-	if r.UpstreamAPI != "" && !r.UpstreamAPI.Valid() {
-		return validationError("upstream_api", "unsupported value")
+	if r.UpstreamProtocol != "" && !r.UpstreamProtocol.Valid() {
+		return validationError("upstream_protocol", "unsupported value")
 	}
 	if err := validateResultMetadata(
 		r.DispatchState,

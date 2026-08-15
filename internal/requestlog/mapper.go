@@ -61,7 +61,7 @@ func mapEvent(
 			UpstreamRequestID:     redactIdentityValue(redactor, projectModel(attempt.UpstreamRequestID)),
 			DispatchState:         string(attempt.DispatchState),
 			ResponseStarted:       attempt.ResponseStarted,
-			UpstreamAPI:           string(attempt.UpstreamAPI),
+			UpstreamProtocol:      string(attempt.UpstreamProtocol),
 			ReasoningMode:         attempt.Reasoning.Mode,
 			ReasoningEffort:       attempt.Reasoning.Effort,
 			ReasoningBudgetTokens: attempt.Reasoning.BudgetTokens,
@@ -297,8 +297,8 @@ func validatedAttemptObservation(attempt telemetry.Attempt) (uint, error) {
 			!attempt.RouteMode.Valid() || !attempt.DispatchState.Valid()) {
 		return 0, fmt.Errorf("invalid attempt %d execution observation", attempt.Sequence)
 	}
-	if attempt.UpstreamAPI != "" && !attempt.UpstreamAPI.Valid() {
-		return 0, fmt.Errorf("invalid attempt %d upstream API", attempt.Sequence)
+	if attempt.UpstreamProtocol != "" && !attempt.UpstreamProtocol.Valid() {
+		return 0, fmt.Errorf("invalid attempt %d upstream protocol", attempt.Sequence)
 	}
 	return credentialID, nil
 }

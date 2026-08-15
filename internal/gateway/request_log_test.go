@@ -236,8 +236,7 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 	)
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "responses", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Enabled: true,
 		}},
 		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
@@ -377,8 +376,7 @@ func TestHandlerBillableResponsesUsageWithoutPriceIsUnpriced(t *testing.T) {
 	)
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "responses", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "unpriced-model"}}, Enabled: true,
 		}},
@@ -650,8 +648,7 @@ func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *
 	)
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "provider", ChannelID: channel.OpenAI,
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "provider", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: model, Alias: "client-alias"}}, Enabled: true,
 		}},
@@ -1259,7 +1256,7 @@ func TestRequestRecorderEmitsOperationAndAppliedAttemptObservation(t *testing.T)
 	recorder.appendAttempt(
 		selection,
 		UpstreamResult{
-			UpstreamAPI: execution.UpstreamAPIAnthropicMessages,
+			UpstreamProtocol: protocol.Anthropic,
 			AppliedReasoning: reasoning.Config{
 				Mode: "enabled", BudgetTokens: &budget,
 			},
@@ -1283,7 +1280,7 @@ func TestRequestRecorderEmitsOperationAndAppliedAttemptObservation(t *testing.T)
 		t.Fatalf("events = %#v, want one responses_create attempt", events)
 	}
 	attempt := events[0].Attempts[0]
-	if attempt.UpstreamAPI != execution.UpstreamAPIAnthropicMessages ||
+	if attempt.UpstreamProtocol != protocol.Anthropic ||
 		attempt.Reasoning.Mode != "enabled" || attempt.Reasoning.BudgetTokens == nil ||
 		*attempt.Reasoning.BudgetTokens != 4096 {
 		t.Fatalf("attempt observation = %#v", attempt)
@@ -1444,8 +1441,7 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 		t.Helper()
 		if _, err := manager.Publish(state.CompileInput{
 			ChannelRegistry: channel.NewRegistry(),
-			Groups: []state.GroupConfig{{
-				ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+			Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 			}},
 			AccessKeys: []state.AccessKeyConfig{{

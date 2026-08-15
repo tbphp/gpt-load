@@ -543,7 +543,7 @@ func executionRepresentationFailure(result UpstreamResult, err error) UpstreamRe
 		RequestWritten:    result.RequestWritten,
 		DispatchState:     result.DispatchState,
 		ResponseStarted:   result.ResponseStarted,
-		UpstreamAPI:       result.UpstreamAPI,
+		UpstreamProtocol:  result.UpstreamProtocol,
 		AppliedReasoning:  result.AppliedReasoning.Clone(),
 		UpstreamRequestID: result.UpstreamRequestID,
 	}
@@ -568,8 +568,6 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 		AttemptID:              input.AttemptID,
 		Sequence:               input.AttemptSequence,
 		ChannelID:              input.ChannelID,
-		ConnectionType:         input.ConnectionType,
-		TargetKind:             input.TargetKind,
 		RouteMode:              input.RouteMode,
 		ClientProtocol:         input.ClientProtocol,
 		Operation:              input.Operation,
@@ -608,7 +606,7 @@ func upstreamFromExecutionResult(
 	if result.AppliedReasoning != nil {
 		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
 	}
-	upstream.UpstreamAPI = result.UpstreamAPI
+	upstream.UpstreamProtocol = result.UpstreamProtocol
 	upstream.Body = append([]byte(nil), result.Body...)
 	upstream.ClassificationBody = append([]byte(nil), result.Body...)
 	if !result.ResponseStarted && result.Error != nil {
@@ -633,7 +631,7 @@ func upstreamFromExecutionStreamResult(
 	if result.AppliedReasoning != nil {
 		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
 	}
-	upstream.UpstreamAPI = result.UpstreamAPI
+	upstream.UpstreamProtocol = result.UpstreamProtocol
 	if !result.ResponseStarted && result.Error != nil {
 		upstream.Err = executionFailureError(ctx, result.Error)
 	}

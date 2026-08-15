@@ -4,35 +4,37 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessProtocol } from '@/api/control/types'
-import type { RequestLogRouteMode, RequestLogUpstreamAPI } from '@/app/resources/request-logs'
+import type { RequestLogRouteMode, RequestLogUpstreamProtocol } from '@/app/resources/request-logs'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 
 const props = defineProps<{
   mode: RequestLogRouteMode | null
   clientProtocol: AccessProtocol
-  upstreamApi: RequestLogUpstreamAPI | null
+  upstreamProtocol: RequestLogUpstreamProtocol | null
 }>()
 
 const { t } = useI18n()
 const clientProtocolLabel = computed(() => props.clientProtocol)
-const upstreamAPILabel = computed(() =>
-  props.upstreamApi === null ? t('monitor.logs.protocolConversion.notRecorded') : props.upstreamApi,
+const upstreamProtocolLabel = computed(() =>
+  props.upstreamProtocol === null
+    ? t('monitor.logs.protocolConversion.notRecorded')
+    : props.upstreamProtocol,
 )
 const tooltip = computed(() => {
-  if (props.upstreamApi === null) {
+  if (props.upstreamProtocol === null) {
     return t('monitor.logs.protocolConversion.tooltipNotRecorded', {
       client: clientProtocolLabel.value,
     })
   }
   return t('monitor.logs.protocolConversion.tooltip', {
     client: clientProtocolLabel.value,
-    upstream: upstreamAPILabel.value,
+    upstream: upstreamProtocolLabel.value,
   })
 })
 const label = computed(() =>
   t('monitor.logs.protocolConversion.label', {
     client: clientProtocolLabel.value,
-    upstream: upstreamAPILabel.value,
+    upstream: upstreamProtocolLabel.value,
   }),
 )
 </script>

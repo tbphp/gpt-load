@@ -308,8 +308,8 @@ func TestOpenAICompatibleConvertedResponsesUsesChatCompletions(t *testing.T) {
 	if !bytes.Contains(result.Body, []byte(`"object":"response"`)) {
 		t.Fatalf("converted Responses body = %s", result.Body)
 	}
-	if result.UpstreamAPI != execution.UpstreamAPIOpenAIChatCompletions {
-		t.Fatalf("upstream API = %q, want Chat Completions", result.UpstreamAPI)
+	if result.UpstreamProtocol != protocol.OpenAICompletions {
+		t.Fatalf("upstream API = %q, want Chat Completions", result.UpstreamProtocol)
 	}
 }
 

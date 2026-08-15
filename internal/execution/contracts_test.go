@@ -57,25 +57,6 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		RouteRequirementNative.Allows(RouteConverted) {
 		t.Fatal("route requirement mode policy is invalid")
 	}
-	for _, upstreamAPI := range []UpstreamAPI{
-		UpstreamAPIOpenAIChatCompletions,
-		UpstreamAPIOpenAIResponses,
-		UpstreamAPIAnthropicMessages,
-		UpstreamAPIGeminiGenerateContent,
-		UpstreamAPIOpenAIModels,
-		UpstreamAPIAnthropicModels,
-		UpstreamAPIGeminiModels,
-		UpstreamAPIAzureOpenAI,
-		UpstreamAPIAWSBedrock,
-		UpstreamAPIGoogleVertex,
-	} {
-		if !upstreamAPI.Valid() {
-			t.Fatalf("expected upstream API %q to be valid", upstreamAPI)
-		}
-	}
-	if UpstreamAPI("unknown").Valid() {
-		t.Fatal("expected unknown upstream API to be invalid")
-	}
 	for _, state := range []DispatchState{DispatchNotSent, DispatchMaybeSent} {
 		if !state.Valid() {
 			t.Fatalf("expected dispatch state %q to be valid", state)
@@ -264,7 +245,7 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	reasoningBudget := int64(4096)
 	result := AttemptResult{
 		DispatchState:    DispatchMaybeSent,
-		UpstreamAPI:      UpstreamAPIAnthropicMessages,
+		UpstreamProtocol: protocol.Anthropic,
 		AppliedReasoning: &reasoning.Config{Mode: "enabled", BudgetTokens: &reasoningBudget},
 		StatusCode:       http.StatusOK,
 		Header:           http.Header{"X-Request-Id": {"request-1"}},
@@ -314,7 +295,7 @@ func TestAttemptAndStreamResultsAreDefensivelyCopied(t *testing.T) {
 	streamResult := StreamResult{
 		DispatchState:     DispatchMaybeSent,
 		ResponseStarted:   true,
-		UpstreamAPI:       UpstreamAPIOpenAIResponses,
+		UpstreamProtocol:  protocol.OpenAIResponses,
 		AppliedReasoning:  &reasoning.Config{Effort: "high", BudgetTokens: &reasoningBudget},
 		StatusCode:        http.StatusOK,
 		Header:            http.Header{"X-Request-Id": {"request-1"}},
@@ -351,8 +332,6 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		{name: "attempt id", mutate: func(s *AttemptSpec) { s.AttemptID = "" }, field: "attempt_id"},
 		{name: "sequence", mutate: func(s *AttemptSpec) { s.Sequence = 0 }, field: "sequence"},
 		{name: "channel", mutate: func(s *AttemptSpec) { s.ChannelID = "" }, field: "channel_id"},
-		{name: "connection type", mutate: func(s *AttemptSpec) { s.ConnectionType = "driver" }, field: "connection_type"},
-		{name: "target kind", mutate: func(s *AttemptSpec) { s.TargetKind = "" }, field: "target_kind"},
 		{name: "route mode", mutate: func(s *AttemptSpec) { s.RouteMode = RouteMode("fallback") }, field: "route_mode"},
 		{name: "route requirement", mutate: func(s *AttemptSpec) { s.RouteRequirement = RouteRequirement("converted-only") }, field: "route_requirement"},
 		{name: "protocol", mutate: func(s *AttemptSpec) { s.ClientProtocol = protocol.Protocol("unknown") }, field: "client_protocol"},
@@ -436,11 +415,11 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	if err := (AttemptResult{DispatchState: DispatchState("unknown")}).Validate(); err == nil {
 		t.Fatal("expected invalid result dispatch state to be rejected")
 	}
-	if err := (AttemptResult{DispatchState: DispatchNotSent, UpstreamAPI: UpstreamAPI("unknown")}).Validate(); err == nil {
-		t.Fatal("expected invalid result upstream API to be rejected")
+	if err := (AttemptResult{DispatchState: DispatchNotSent, UpstreamProtocol: protocol.Protocol("unknown")}).Validate(); err == nil {
+		t.Fatal("expected invalid result upstream protocol to be rejected")
 	}
-	if err := (StreamResult{DispatchState: DispatchNotSent, UpstreamAPI: UpstreamAPI("unknown")}).Validate(); err == nil {
-		t.Fatal("expected invalid stream result upstream API to be rejected")
+	if err := (StreamResult{DispatchState: DispatchNotSent, UpstreamProtocol: protocol.Protocol("unknown")}).Validate(); err == nil {
+		t.Fatal("expected invalid stream result upstream protocol to be rejected")
 	}
 	invalidResults := []AttemptResult{
 		{DispatchState: DispatchMaybeSent, StatusCode: http.StatusOK},
@@ -532,8 +511,6 @@ func validAttemptSpec(credentialData []byte) AttemptSpec {
 		AttemptID:      "attempt-1",
 		Sequence:       1,
 		ChannelID:      "openai",
-		ConnectionType: "api_key",
-		TargetKind:     "openai",
 		RouteMode:      RouteNative,
 		ClientProtocol: protocol.OpenAICompletions,
 		Operation:      OperationChatCompletion,

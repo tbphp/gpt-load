@@ -98,6 +98,7 @@ watch(
               v-if="activeTab === 'credentials'"
               :key="groupId"
               :group-id="groupId"
+              :channel-id="summaryQuery.data.value.channel_id"
               :connection-type="summaryQuery.data.value.connection_type"
             />
             <GroupModelsTab v-else-if="activeTab === 'models'" :key="groupId" :group-id="groupId" />

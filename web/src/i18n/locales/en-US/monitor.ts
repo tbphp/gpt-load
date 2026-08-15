@@ -685,10 +685,9 @@ export default {
       credentialRef: 'Credential #{id}',
       protocolConversion: {
         label: 'Protocol conversion: {client} → {upstream}',
-        tooltip: 'Client protocol: {client}\nUpstream API: {upstream}',
-        tooltipNotRecorded:
-          'Client protocol: {client}\nUpstream API: Not recorded in historical logs',
-        notRecorded: 'Not recorded in historical logs',
+        tooltip: 'Client protocol: {client}\nUpstream protocol: {upstream}',
+        tooltipNotRecorded: 'Client protocol: {client}\nUpstream protocol: Not recorded',
+        notRecorded: 'Not recorded',
       },
       routeIdentity: {
         group: 'Group: {name} (G{id})',
@@ -777,7 +776,7 @@ export default {
         finalExecution: 'Final execution',
         route: 'Request and final route',
         routeIdentity: 'Final route identity',
-        upstreamAPI: 'Upstream API',
+        upstreamProtocol: 'Upstream protocol',
         affinity: 'Affinity hit',
         errorCode: 'Error code',
         errorSummary: 'Error message',

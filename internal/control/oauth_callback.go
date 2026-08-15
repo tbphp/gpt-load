@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -38,21 +39,6 @@ const oauthResultScript = `function closeThisWindow() {
 }
 const closeButton = document.getElementById("close-and-return")
 if (closeButton) closeButton.addEventListener("click", closeThisWindow)
-const copyButton = document.getElementById("copy-callback-url")
-if (copyButton) {
-  const defaultLabel = copyButton.textContent
-  copyButton.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(copyButton.getAttribute("data-url") || "")
-      copyButton.textContent = "已复制"
-    } catch (error) {
-      copyButton.textContent = "复制失败，请手动选择文本"
-    }
-    window.setTimeout(() => {
-      copyButton.textContent = defaultLabel
-    }, 2000)
-  })
-}
 if (document.body.dataset.autoclose === "1") {
   window.setTimeout(closeThisWindow, 2000)
 }`
@@ -63,8 +49,9 @@ type oauthCallbackParameters struct {
 	ProviderError string
 }
 
-// OAuthCallbackServer owns the fixed localhost callback required by Codex's
-// OAuth client. It is deliberately separate from the authenticated /api server.
+// OAuthCallbackServer owns the restricted localhost callback requested by a
+// compiled subscription driver. It is deliberately separate from the
+// authenticated /api server.
 type OAuthCallbackServer struct {
 	service *Service
 	address string
@@ -148,13 +135,20 @@ func (server *OAuthCallbackServer) Run(ctx context.Context) {
 	if server == nil || server.service == nil {
 		return
 	}
-	var pending int64
+	var pendingChannelIDs []string
 	nowMS := server.service.now().UnixMilli()
 	if err := server.service.db.WithContext(ctx).Model(&models.CredentialStage{}).
 		Where("status = ? AND expires_at_ms > ?", models.CredentialStagePendingAuthorization, nowMS).
-		Count(&pending).Error; err == nil && pending > 0 {
-		if startErr := server.EnsureStarted(); startErr != nil {
-			logrus.WithField("event", "oauth.callback_start_failed").WithError(startErr).Warn("OAuth callback listener is unavailable")
+		Distinct("channel_id").Order("channel_id ASC").Pluck("channel_id", &pendingChannelIDs).Error; err == nil {
+		for _, rawChannelID := range pendingChannelIDs {
+			browser, ok := subscriptionsBrowser(server.service.subscriptions, channel.ID(rawChannelID))
+			if !ok || !browser.RequiresLocalCallback() {
+				continue
+			}
+			if startErr := server.EnsureStarted(); startErr != nil {
+				logrus.WithField("event", "oauth.callback_start_failed").WithError(startErr).Warn("OAuth callback listener is unavailable")
+			}
+			break
 		}
 	}
 	<-ctx.Done()
@@ -174,7 +168,6 @@ func (server *OAuthCallbackServer) serveHTTP(writer http.ResponseWriter, request
 		http.NotFound(writer, request)
 		return
 	}
-	callbackURL := "http://" + request.Host + request.URL.String()
 	callback, err := parseOAuthCallbackQuery(request.URL.Query())
 	if err != nil {
 		writeOAuthResult(writer, oauthCallbackOutcome{Kind: oauthOutcomeInvalid})
@@ -188,8 +181,7 @@ func (server *OAuthCallbackServer) serveHTTP(writer http.ResponseWriter, request
 	result, err := server.service.CompleteCredentialAuthorization(request.Context(), callback.State, callback.Code)
 	if err != nil {
 		writeOAuthResult(writer, oauthCallbackOutcome{
-			Kind:        classifyOAuthCallbackFailure(err),
-			CallbackURL: callbackURL,
+			Kind: classifyOAuthCallbackFailure(err),
 		})
 		return
 	}
@@ -261,18 +253,16 @@ const (
 )
 
 // oauthCallbackOutcome carries only what the result page needs to render.
-// AccountMask is only ever set alongside oauthOutcomeSuccess; CallbackURL is
-// only ever set alongside oauthOutcomeExchangeFailed, where copying it back
-// into GPT-Load's manual field is the one path that can still recover.
+// AccountMask is only ever set alongside oauthOutcomeSuccess.
 type oauthCallbackOutcome struct {
 	Kind        oauthCallbackOutcomeKind
 	AccountMask string
-	CallbackURL string
 }
 
 type oauthCallbackPresentation struct {
 	Title     string
 	Message   string
+	Status    string
 	Tone      string
 	Icon      string
 	AutoClose bool
@@ -283,7 +273,8 @@ func presentOAuthCallbackOutcome(outcome oauthCallbackOutcome) oauthCallbackPres
 	case oauthOutcomeSuccess:
 		return oauthCallbackPresentation{
 			Title:     "授权已完成",
-			Message:   "GPT-Load 已经收到授权。请返回 GPT-Load 添加账号，这个页面可以关闭了。",
+			Message:   "授权信息已安全返回 GPT-Load。请返回 GPT-Load 添加账号，这个页面可以关闭了。",
+			Status:    "已完成",
 			Tone:      "success",
 			Icon:      `<path d="m6.5 12.5 3.5 3.5 7.5-8"/>`,
 			AutoClose: true,
@@ -291,7 +282,8 @@ func presentOAuthCallbackOutcome(outcome oauthCallbackOutcome) oauthCallbackPres
 	case oauthOutcomeDenied:
 		return oauthCallbackPresentation{
 			Title:   "授权未完成",
-			Message: "ChatGPT 没有完成这次授权。回到 GPT-Load 重新开始一次就行。",
+			Message: "上游账号服务没有完成这次授权。回到 GPT-Load 重新开始一次即可。",
+			Status:  "已取消",
 			Tone:    "warning",
 			Icon:    oauthWarningIconPath,
 		}
@@ -299,13 +291,15 @@ func presentOAuthCallbackOutcome(outcome oauthCallbackOutcome) oauthCallbackPres
 		return oauthCallbackPresentation{
 			Title:   "授权会话已过期",
 			Message: "这次授权花的时间超过了有效期。回到 GPT-Load 重新开始一次即可，之前的账号不受影响。",
+			Status:  "已过期",
 			Tone:    "warning",
 			Icon:    oauthWarningIconPath,
 		}
 	case oauthOutcomeExchangeFailed:
 		return oauthCallbackPresentation{
 			Title:   "换取凭据时失败",
-			Message: "授权本身成功了，但服务端向 ChatGPT 换取凭据时没有成功。把下面这段网址复制回 GPT-Load 可以直接重试。",
+			Message: "GPT-Load 未能确认凭据交换结果。请回到 GPT-Load 查看状态，并重新发起授权；本页面的回调地址不能重复使用。",
+			Status:  "需要处理",
 			Tone:    "danger",
 			Icon:    `<path d="M8 8l8 8M16 8l-8 8"/>`,
 		}
@@ -313,6 +307,7 @@ func presentOAuthCallbackOutcome(outcome oauthCallbackOutcome) oauthCallbackPres
 		return oauthCallbackPresentation{
 			Title:   "无法识别这次授权",
 			Message: "这个授权请求的信息不完整或已失效。回到 GPT-Load 重新开始一次即可。",
+			Status:  "无效请求",
 			Tone:    "warning",
 			Icon:    oauthWarningIconPath,
 		}
@@ -325,45 +320,61 @@ const oauthBrandMarkSVG = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable
 
 const oauthResultStyle = `:root {
   color-scheme: light dark;
-  --canvas: #eeede9; --surface: #ffffff; --sunken: #f5f4f1; --text: #15181b; --muted: #4e545b;
-  --faint: #687078; --border-subtle: #e6e5e0; --border-control: #cfcfc9; --action: #1c4f6e;
-  --action-hover: #163f58; --action-ink: #ffffff; --success: #1a6b3f; --success-bg: #e6f3ec;
-  --warning: #8f6212; --warning-bg: #f8f0dd; --danger: #d03b3b; --danger-bg: #fbebe9;
+  --canvas: #f3f5f7; --surface: #ffffff; --sunken: #f7f8f9; --text: #17202a; --muted: #4f5d6a;
+  --faint: #667481; --border-subtle: #dfe4e8; --border-control: #c7d0d8; --action: #165d7a;
+  --action-hover: #104a63; --action-ink: #ffffff; --tone: #667481; --tone-bg: #eef1f3;
 }
+body[data-tone="success"] { --tone: #18724a; --tone-bg: #e8f5ee; }
+body[data-tone="warning"] { --tone: #8a5d0b; --tone-bg: #fbf2dc; }
+body[data-tone="danger"] { --tone: #b83232; --tone-bg: #fcebea; }
 @media (prefers-color-scheme: dark) {
   :root {
-    --canvas: #0b0d10; --surface: #171b20; --sunken: #12151a; --text: #e8eaec; --muted: #969ca3;
-    --faint: #858c94; --border-subtle: #232830; --border-control: #333a43; --action: #6fb2d6;
-    --action-hover: #86c0de; --action-ink: #0c1a22; --success: #4fb178; --success-bg: #112a1d;
-    --warning: #d5a341; --warning-bg: #241d10; --danger: #e66767; --danger-bg: #2a1613;
+    --canvas: #0c1015; --surface: #151a21; --sunken: #10151b; --text: #eef1f3; --muted: #abb4bd;
+    --faint: #909ba6; --border-subtle: #2a323b; --border-control: #3d4853; --action: #78bddb;
+    --action-hover: #91cce4; --action-ink: #0d1d25; --tone: #aab3bc; --tone-bg: #242b33;
   }
+  body[data-tone="success"] { --tone: #62c38d; --tone-bg: #142c20; }
+  body[data-tone="warning"] { --tone: #e0b45b; --tone-bg: #302610; }
+  body[data-tone="danger"] { --tone: #ee7d7d; --tone-bg: #351918; }
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: var(--canvas); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-.shell { width: min(100%, 26rem); padding: 1.5rem; }
-.card { display: grid; justify-items: center; gap: 0.85rem; padding: clamp(1.75rem, 6vw, 2.25rem) clamp(1.5rem, 6vw, 2rem); text-align: center; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 12px 32px rgba(0, 0, 0, .06); }
-.brand { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-size: .75rem; font-weight: 700; letter-spacing: .06em; }
-.brand svg { width: 16px; height: 16px; fill: var(--action); }
-.status-icon { display: grid; place-items: center; width: 3.25rem; height: 3.25rem; border-radius: 999px; }
-.status-icon svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: currentColor; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
-.status-icon--success { color: var(--success); background: var(--success-bg); }
-.status-icon--warning { color: var(--warning); background: var(--warning-bg); }
-.status-icon--danger { color: var(--danger); background: var(--danger-bg); }
-h1 { margin: 0; font-size: clamp(1.35rem, 4.4vw, 1.6rem); line-height: 1.3; letter-spacing: -.01em; }
-.message { max-width: 30ch; margin: 0; color: var(--muted); font-size: .95rem; line-height: 1.65; }
-.account-chip code { display: inline-block; border-radius: 6px; background: var(--sunken); padding: 4px 10px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: .85rem; }
-.callback-url { width: 100%; display: grid; gap: .5rem; text-align: left; }
-.callback-url code { display: block; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--sunken); color: var(--muted); padding: .55rem .65rem; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
-.copy-button { justify-self: start; min-height: 2.5rem; padding: 0 1rem; border: 1px solid var(--border-control); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
-.copy-button:hover { border-color: var(--faint); }
-.actions { margin-top: .35rem; display: grid; justify-items: center; gap: .6rem; }
-.close-button { min-width: 9rem; min-height: 2.75rem; padding: .6rem 1.1rem; border: 0; border-radius: 7px; color: var(--action-ink); background: var(--action); font: inherit; font-weight: 650; cursor: pointer; transition: background-color .18s ease; }
-.close-button:hover { background: var(--action-hover); }
+body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: var(--canvas); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 16px; }
+button { font: inherit; }
+.shell { width: min(100%, 40rem); padding: clamp(1rem, 4vw, 2rem); }
+.card { position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: 18px; }
+.card::before { position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--tone); content: ""; }
+.card__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 4rem; padding: 1rem clamp(1.25rem, 5vw, 2rem); border-bottom: 1px solid var(--border-subtle); }
+.brand { display: inline-flex; align-items: center; gap: .5rem; color: var(--text); font-size: .78rem; font-weight: 750; letter-spacing: .075em; }
+.brand svg { width: 18px; height: 18px; fill: var(--action); }
+.result-badge { display: inline-flex; align-items: center; min-height: 1.75rem; padding: .25rem .65rem; border-radius: 999px; background: var(--tone-bg); color: var(--tone); font-size: .78rem; font-weight: 700; white-space: nowrap; }
+.card__body { display: grid; gap: 1.5rem; padding: clamp(1.5rem, 6vw, 2.5rem) clamp(1.25rem, 5vw, 2rem); }
+.result-summary { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); align-items: start; gap: 1.15rem; }
+.status-icon { display: grid; place-items: center; width: 3.5rem; height: 3.5rem; border-radius: 14px; background: var(--tone-bg); color: var(--tone); }
+.status-icon svg { width: 1.65rem; height: 1.65rem; fill: none; stroke: currentColor; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
+.result-copy { min-width: 0; }
+.eyebrow { margin: 0 0 .35rem; color: var(--tone); font-size: .76rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+h1 { margin: 0; font-size: clamp(1.45rem, 5vw, 1.85rem); line-height: 1.25; letter-spacing: -.025em; }
+.message { max-width: 52ch; margin: .65rem 0 0; color: var(--muted); font-size: .98rem; line-height: 1.7; }
+.account-chip { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; padding: .8rem 1rem; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--sunken); }
+.account-chip span { color: var(--faint); font-size: .8rem; font-weight: 650; }
+.account-chip code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: .86rem; overflow-wrap: anywhere; }
+.close-button { min-height: 2.75rem; border-radius: 9px; font-weight: 700; cursor: pointer; transition: background-color .18s ease, color .18s ease; }
 .close-button:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
-.close-button:disabled { cursor: default; background: var(--faint); }
-.auto-close-note, .close-hint { margin: 0; color: var(--faint); font-size: .8rem; line-height: 1.5; }
+.actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem clamp(1.25rem, 5vw, 2rem); border-top: 1px solid var(--border-subtle); background: var(--sunken); }
+.action-note { min-width: 0; }
+.auto-close-note, .close-hint { margin: 0; color: var(--faint); font-size: .82rem; line-height: 1.55; }
+.close-button { flex: 0 0 auto; min-width: 9.5rem; padding: .65rem 1.2rem; border: 0; color: var(--action-ink); background: var(--action); }
+.close-button:hover { background: var(--action-hover); }
+.close-button:disabled { cursor: default; background: var(--faint); color: var(--surface); }
 [hidden] { display: none; }
-@media (max-width: 26rem) { .shell { padding: 1rem; } .card { border-radius: 9px; } }
+@media (max-width: 32rem) {
+  .shell { padding: .75rem; }
+  .card { border-radius: 14px; }
+  .card__header, .card__body, .actions { padding-left: 1.15rem; padding-right: 1.15rem; }
+  .result-summary { grid-template-columns: 1fr; }
+  .actions { align-items: stretch; flex-direction: column; }
+  .close-button { width: 100%; }
+}
 @media (prefers-reduced-motion: reduce) { .close-button { transition: none; } }`
 
 func writeOAuthResult(writer http.ResponseWriter, outcome oauthCallbackOutcome) {
@@ -372,24 +383,17 @@ func writeOAuthResult(writer http.ResponseWriter, outcome oauthCallbackOutcome) 
 	writer.Header().Set("Content-Language", "zh-CN")
 	writer.WriteHeader(http.StatusOK)
 	autoCloseAttr := "0"
-	autoCloseNote := ""
+	autoCloseNote := `<p class="auto-close-note">处理完成后可安全关闭此页面。</p>`
 	if presentation.AutoClose {
 		autoCloseAttr = "1"
-		autoCloseNote = `<p class="auto-close-note">2 秒后自动关闭</p>`
+		autoCloseNote = `<p class="auto-close-note">页面将在 2 秒后自动关闭。</p>`
 	}
 	accountChip := ""
 	if outcome.Kind == oauthOutcomeSuccess && outcome.AccountMask != "" {
-		accountChip = `<div class="account-chip"><code>` + html.EscapeString(outcome.AccountMask) + `</code></div>`
-	}
-	callbackURLBlock := ""
-	if outcome.Kind == oauthOutcomeExchangeFailed && outcome.CallbackURL != "" {
-		escapedURL := html.EscapeString(outcome.CallbackURL)
-		callbackURLBlock = `<div class="callback-url">
-        <code>` + escapedURL + `</code>
-        <button id="copy-callback-url" type="button" class="copy-button" data-url="` + escapedURL + `">复制网址</button>
-      </div>`
+		accountChip = `<div class="account-chip"><span>已授权账号</span><code>` + html.EscapeString(outcome.AccountMask) + `</code></div>`
 	}
 	title := html.EscapeString(presentation.Title)
+	status := html.EscapeString(presentation.Status)
 	page := `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -398,19 +402,31 @@ func writeOAuthResult(writer http.ResponseWriter, outcome oauthCallbackOutcome) 
   <title>` + title + `</title>
   <style>` + oauthResultStyle + `</style>
 </head>
-<body data-autoclose="` + autoCloseAttr + `">
+<body data-tone="` + presentation.Tone + `" data-autoclose="` + autoCloseAttr + `">
   <main class="shell">
     <section class="card" aria-labelledby="result-title" aria-describedby="result-message">
-      <span class="brand">` + oauthBrandMarkSVG + `GPT-LOAD</span>
-      <div class="status-icon status-icon--` + presentation.Tone + `"><svg viewBox="0 0 24 24" aria-hidden="true">` + presentation.Icon + `</svg></div>
-      <h1 id="result-title">` + title + `</h1>
-      <p id="result-message" class="message">` + html.EscapeString(presentation.Message) + `</p>
-      ` + accountChip + callbackURLBlock + `
-      <div class="actions">
-        <button id="close-and-return" class="close-button" type="button">关闭</button>
-        ` + autoCloseNote + `
-        <p id="close-hint" class="close-hint" role="status" aria-live="polite" hidden>浏览器未允许自动关闭，请手动关闭此页面。</p>
+      <header class="card__header">
+        <span class="brand">` + oauthBrandMarkSVG + `GPT-LOAD</span>
+        <span class="result-badge">` + status + `</span>
+      </header>
+      <div class="card__body">
+        <div class="result-summary">
+          <div class="status-icon"><svg viewBox="0 0 24 24" aria-hidden="true">` + presentation.Icon + `</svg></div>
+          <div class="result-copy">
+            <p class="eyebrow">订阅账号授权</p>
+            <h1 id="result-title">` + title + `</h1>
+            <p id="result-message" class="message">` + html.EscapeString(presentation.Message) + `</p>
+          </div>
+        </div>
+        ` + accountChip + `
       </div>
+      <footer class="actions">
+        <div class="action-note">
+          ` + autoCloseNote + `
+          <p id="close-hint" class="close-hint" role="status" aria-live="polite" hidden>浏览器未允许自动关闭，请手动关闭此页面。</p>
+        </div>
+        <button id="close-and-return" class="close-button" type="button">关闭并返回</button>
+      </footer>
     </section>
   </main>
   <script>` + oauthResultScript + `</script>

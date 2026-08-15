@@ -75,7 +75,7 @@ func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID: channel.OpenAICompatible,
 		Params:    json.RawMessage(`{"base_url":"https://settings-before.example.com/v1"}`),
-		Models:    optionalGroupModels{Set: true}, Credentials: "sk-settings-update",
+		Models:    optionalGroupModels{Set: true}, Credentials: "sk-settings-update", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +149,7 @@ func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *tes
 		ChannelID:   channel.OpenAICompatible,
 		Params:      json.RawMessage(`{"base_url":"https://settings-first.example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Credentials: "sk-settings-first",
+		Credentials: "sk-settings-first", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatalf("first CreateGroup() error = %v", err)
@@ -159,7 +159,7 @@ func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *tes
 		ChannelID:   channel.OpenAICompatible,
 		Params:      json.RawMessage(`{"base_url":"https://settings-shared.example.com/v1"}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
-		Credentials: "sk-settings-second",
+		Credentials: "sk-settings-second", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatalf("second CreateGroup() error = %v", err)
@@ -188,7 +188,7 @@ func TestUpdateGroupTargetResetsCredentialHealthIdentity(t *testing.T) {
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID: channel.OpenAICompatible,
 		Params:    json.RawMessage(`{"base_url":"https://health-old.example/v1"}`),
-		Models:    optionalGroupModels{Set: true}, Credentials: "sk-target-health",
+		Models:    optionalGroupModels{Set: true}, Credentials: "sk-target-health", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -233,7 +233,7 @@ func TestUpdateGroupTargetSerializesWithCredentialSecretMutation(t *testing.T) {
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID: channel.OpenAICompatible,
 		Params:    json.RawMessage(`{"base_url":"https://serialized-old.example/v1"}`),
-		Models:    optionalGroupModels{Set: true}, Credentials: "sk-target-serialized",
+		Models:    optionalGroupModels{Set: true}, Credentials: "sk-target-serialized", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChanne
 	}
 	anthropic, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name: stringPointer("settings-anthropic"), ChannelID: channel.Anthropic,
-		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true}, Credentials: "sk-anthropic",
+		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true}, Credentials: "sk-anthropic", ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatal(err)

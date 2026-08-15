@@ -50,7 +50,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"UpstreamRequestID",
 			"DispatchState",
 			"ResponseStarted",
-			"UpstreamAPI",
+			"UpstreamProtocol",
 			"Reasoning",
 			"StatusCode",
 			"DurationMs",

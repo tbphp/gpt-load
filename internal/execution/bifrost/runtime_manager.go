@@ -530,7 +530,7 @@ func (manager *RuntimeManager) configForAttempt(spec execution.AttemptSpec) (eff
 		return effectiveProviderConfig{}, &failure
 	}
 	resolved, err := manager.registry.ResolveExecutionTarget(channel.ID(spec.ChannelID), spec.TargetConfig)
-	if err != nil || string(resolved.ProviderKind) != spec.TargetKind {
+	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel target")
 		return effectiveProviderConfig{}, &failure
 	}

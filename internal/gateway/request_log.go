@@ -323,7 +323,7 @@ func (recorder *requestRecorder) appendAttempt(
 		UpstreamRequestID: result.UpstreamRequestID,
 		DispatchState:     result.DispatchState,
 		ResponseStarted:   result.ResponseStarted,
-		UpstreamAPI:       result.UpstreamAPI,
+		UpstreamProtocol:  result.UpstreamProtocol,
 		Reasoning:         result.AppliedReasoning.Clone(),
 		StatusCode:        result.StatusCode,
 		DurationMs:        duration.Milliseconds(),

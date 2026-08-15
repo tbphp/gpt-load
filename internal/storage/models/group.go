@@ -29,9 +29,6 @@ type Group struct {
 // BeforeSave keeps channel parameters representable. Channel-specific shape
 // validation belongs to the code-owned channel registry.
 func (group *Group) BeforeSave(_ *gorm.DB) error {
-	if group.ConnectionType == "" {
-		group.ConnectionType = ConnectionTypeAPIKey
-	}
 	trimmed := bytes.TrimSpace(group.Params)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		group.Params = JSON(`{}`)

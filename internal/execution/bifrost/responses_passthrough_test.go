@@ -128,7 +128,6 @@ func TestGenericOpenAICompatibleDoesNotAdvertiseUnknownResponsesPassthrough(t *t
 
 	spec := convertedSpec(channel.OpenAICompatible, protocol.OpenAIResponses, execution.OperationResponsesPassthrough, "/v1/responses/vendor_extension", []byte(`{"vendor":true}`))
 	spec.TargetConfig, _ = json.Marshal(map[string]string{"base_url": server.URL + "/v1"})
-	spec.TargetKind = string(channel.ProviderOpenAICompatible)
 	spec.RouteMode = execution.RouteNative
 	result := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true}).Execute(context.Background(), spec)
 	if calls.Load() != 0 || result.DispatchState != execution.DispatchNotSent || result.Error == nil ||

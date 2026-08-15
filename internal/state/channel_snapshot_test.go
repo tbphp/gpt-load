@@ -15,8 +15,7 @@ func TestCompileBuildsOperationAwareChannelCandidates(t *testing.T) {
 
 	input := CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []GroupConfig{{
-			ID: 7, Name: "anthropic", ChannelID: channel.Anthropic,
+		Groups: []GroupConfig{{ConnectionType: "api_key", ID: 7, Name: "anthropic", ChannelID: channel.Anthropic,
 			Params:  json.RawMessage(`{}`),
 			Models:  []ModelConfig{{ID: "claude-upstream", Alias: "claude-public"}},
 			Enabled: true,
@@ -69,8 +68,7 @@ func TestCompileSelectsNativeVertexGeminiModePerModel(t *testing.T) {
 
 	snapshot, err := Compile(CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []GroupConfig{{
-			ID: 9, Name: "vertex", ChannelID: channel.GoogleVertex,
+		Groups: []GroupConfig{{ConnectionType: "api_key", ID: 9, Name: "vertex", ChannelID: channel.GoogleVertex,
 			Params: json.RawMessage(`{}`),
 			Models: []ModelConfig{
 				{ID: "gemini-2.5-pro", Alias: "gemini-public"},
@@ -102,8 +100,8 @@ func TestCompileIndexesNativeResponsesResourceOperationsWithoutModels(t *testing
 	snapshot, err := Compile(CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []GroupConfig{
-			{ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Enabled: true},
-			{ID: 2, Name: "compatible", ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://proxy.example/v1"}`), Enabled: true},
+			{ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Enabled: true},
+			{ConnectionType: "api_key", ID: 2, Name: "compatible", ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://proxy.example/v1"}`), Enabled: true},
 		},
 	})
 	if err != nil {
@@ -132,8 +130,8 @@ func TestCompileIndexesAllNativeResponsesExtensions(t *testing.T) {
 	snapshot, err := Compile(CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []GroupConfig{
-			{ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "official-upstream", Alias: "public"}}, Enabled: true},
-			{ID: 2, ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://proxy.example/v1"}`), Models: []ModelConfig{{ID: "compatible-upstream", Alias: "public"}}, Enabled: true},
+			{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "official-upstream", Alias: "public"}}, Enabled: true},
+			{ConnectionType: "api_key", ID: 2, ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{"base_url":"https://proxy.example/v1"}`), Models: []ModelConfig{{ID: "compatible-upstream", Alias: "public"}}, Enabled: true},
 		},
 	})
 	if err != nil {
@@ -166,8 +164,8 @@ func TestCompileOrdersNativeTargetsBeforeConvertedTargets(t *testing.T) {
 	snapshot, err := Compile(CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []GroupConfig{
-			{ID: 1, ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "converted", Alias: "public"}}, Enabled: true},
-			{ID: 2, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "native", Alias: "public"}}, Enabled: true},
+			{ConnectionType: "api_key", ID: 1, ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "converted", Alias: "public"}}, Enabled: true},
+			{ConnectionType: "api_key", ID: 2, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "native", Alias: "public"}}, Enabled: true},
 		},
 	})
 	if err != nil {
@@ -187,8 +185,7 @@ func TestCompileChannelSnapshotOwnsInputData(t *testing.T) {
 	params := json.RawMessage(`{"base_url":"https://proxy.example/v1/"}`)
 	input := CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
-		Groups: []GroupConfig{{
-			ID: 1, ChannelID: channel.OpenAICompatible, Params: params,
+		Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAICompatible, Params: params,
 			Models:       []ModelConfig{{ID: "upstream", Alias: "public"}},
 			WeightManual: &weight, Enabled: true,
 		}},
@@ -232,17 +229,17 @@ func TestCompileRejectsInvalidChannelAndCredentialConfiguration(t *testing.T) {
 	}{
 		{
 			name:    "missing registry",
-			input:   CompileInput{Groups: []GroupConfig{{ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}},
+			input:   CompileInput{Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}},
 			wantErr: "channel registry is required",
 		},
 		{
 			name:    "unknown channel",
-			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ID: 1, ChannelID: channel.ID("unknown"), Params: json.RawMessage(`{}`)}}},
+			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.ID("unknown"), Params: json.RawMessage(`{}`)}}},
 			wantErr: "unknown channel",
 		},
 		{
 			name:    "invalid params",
-			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ID: 1, ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{}`)}}},
+			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAICompatible, Params: json.RawMessage(`{}`)}}},
 			wantErr: "params.base_url",
 		},
 		{
@@ -255,7 +252,7 @@ func TestCompileRejectsInvalidChannelAndCredentialConfiguration(t *testing.T) {
 		},
 		{
 			name: "duplicate credential",
-			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}, Credentials: []CredentialConfig{
+			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}, Credentials: []CredentialConfig{
 				{ID: 1, GroupID: 1, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "fingerprint-1"},
 				{ID: 1, GroupID: 1, Status: CredentialStatusDisabled, Version: 2, IdentityGeneration: 2, Fingerprint: "fingerprint-2"},
 			}},
@@ -263,7 +260,7 @@ func TestCompileRejectsInvalidChannelAndCredentialConfiguration(t *testing.T) {
 		},
 		{
 			name: "invalid credential status",
-			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}, Credentials: []CredentialConfig{{
+			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}, Credentials: []CredentialConfig{{
 				ID: 1, GroupID: 1, Status: CredentialStatus("revoked"),
 				Version: 1, IdentityGeneration: 1, Fingerprint: "fingerprint-1",
 			}}},
@@ -271,7 +268,7 @@ func TestCompileRejectsInvalidChannelAndCredentialConfiguration(t *testing.T) {
 		},
 		{
 			name: "invalid credential weight",
-			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}, Credentials: []CredentialConfig{{
+			input: CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`)}}, Credentials: []CredentialConfig{{
 				ID: 1, GroupID: 1, Status: CredentialStatusActive, WeightManual: &invalidWeight,
 				Version: 1, IdentityGeneration: 1, Fingerprint: "fingerprint-1",
 			}}},

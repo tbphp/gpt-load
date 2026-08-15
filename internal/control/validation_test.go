@@ -1493,8 +1493,7 @@ func cloneValidationGroup(group state.GroupView) state.GroupView {
 }
 
 func validationManagerCompileInput(upstreamURL string) state.CompileInput {
-	return state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{{
-		ID:              1,
+	return state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1,
 		Name:            "group",
 		ChannelID:       channel.OpenAICompatible,
 		Params:          json.RawMessage(`{"base_url":"` + upstreamURL + `"}`),

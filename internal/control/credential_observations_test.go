@@ -120,13 +120,13 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
 	calls := 0
-	fixture.service.observeCodexAccount = func(_ context.Context, credential codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(_ context.Context, credential codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		if credential.AccountID != "account-observation" {
 			t.Fatalf("credential = %#v", credential)
 		}
 		return codex.AccountObservation{Payload: []byte(`{"plan_type":"plus","rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":40,"reset_at":1800001000}}}`)}, nil
-	}
+	})
 	first, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err != nil {
 		t.Fatal(err)
@@ -141,11 +141,10 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 	if calls != 2 {
 		t.Fatalf("calls = %d", calls)
 	}
-
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		return codex.AccountObservation{}, errors.New("upstream unavailable")
-	}
+	})
 	failed, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err == nil || failed.Snapshot == nil || failed.State != string(models.CredentialObservationError) {
 		t.Fatalf("failed = %#v, %v", failed, err)
@@ -157,14 +156,14 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 
 func TestRefreshCredentialObservationEnrichesResetCreditDetails(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{
 			"plan_type":"plus",
 			"rate_limit_reset_credits":{"available_count":1}
 		}`)}, nil
-	}
+	})
 	detailCalls := 0
-	fixture.service.observeCodexResetCredits = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexResetCreditObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		detailCalls++
 		return codex.AccountObservation{Payload: []byte(`{
 			"available_count":2,
@@ -173,7 +172,7 @@ func TestRefreshCredentialObservationEnrichesResetCreditDetails(t *testing.T) {
 				{"status":"available","expires_at":"2026-09-02T00:00:00Z"}
 			]
 		}`)}, nil
-	}
+	})
 
 	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err != nil {
@@ -187,12 +186,12 @@ func TestRefreshCredentialObservationEnrichesResetCreditDetails(t *testing.T) {
 
 func TestRefreshCredentialObservationKeepsUsageWhenResetCreditDetailsFail(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"rate_limit_reset_credits":{"available_count":2}}`)}, nil
-	}
-	fixture.service.observeCodexResetCredits = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	})
+	setCodexResetCreditObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{}, errors.New("details unavailable")
-	}
+	})
 
 	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err != nil {
@@ -262,11 +261,11 @@ func TestRefreshCredentialObservationPublishesAndClearsQuotaRoutingState(t *test
 	now := time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	resetAt := now.Add(7 * 24 * time.Hour).Unix()
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
 			"rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":100,"reset_at":%d}}
 		}`, resetAt))}, nil
-	}
+	})
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}
@@ -275,9 +274,9 @@ func TestRefreshCredentialObservationPublishesAndClearsQuotaRoutingState(t *test
 	}
 
 	now = now.Add(time.Minute)
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{}, errors.New("upstream unavailable")
-	}
+	})
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil {
 		t.Fatal("forced failed refresh error = nil")
 	}
@@ -316,11 +315,11 @@ func TestDrainCommittedOperationsRestoresFreshQuotaRoutingState(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 16, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	resetAt := now.Add(7 * 24 * time.Hour).Unix()
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
 			"rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":100,"reset_at":%d}}
 		}`, resetAt))}, nil
-	}
+	})
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}
@@ -340,11 +339,11 @@ func TestRecoverCommittedRuntimeRestoresFreshQuotaRoutingState(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 16, 30, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	resetAt := now.Add(7 * 24 * time.Hour).Unix()
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
 			"rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":100,"reset_at":%d}}
 		}`, resetAt))}, nil
-	}
+	})
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}
@@ -361,12 +360,12 @@ func TestRefreshDueCredentialObservationsPollsOnlyMissingOrExpiringAccounts(t *t
 	now := time.Date(2026, time.August, 14, 17, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	calls := 0
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
 			"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":20,"reset_at":%d}}
 		}`, now.Add(4*time.Hour).Unix()))}, nil
-	}
+	})
 
 	fixture.service.refreshDueCredentialObservations(t.Context())
 	fixture.service.refreshDueCredentialObservations(t.Context())
@@ -404,10 +403,10 @@ func TestDueCredentialObservationTargetsRefreshesChangedAccountIdentity(t *testi
 	}
 	upstreamCalls := 0
 	fixture.service.now = func() time.Time { return now }
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		upstreamCalls++
 		return codex.AccountObservation{Payload: []byte(`{}`)}, nil
-	}
+	})
 	fixture.service.refreshDueCredentialObservations(t.Context())
 	if upstreamCalls != 1 {
 		t.Fatalf("upstream calls = %d, want identity change to bypass old throttle", upstreamCalls)
@@ -490,10 +489,10 @@ func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) 
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
 	calls := 0
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		return codex.AccountObservation{Payload: []byte(`[]`)}, nil
-	}
+	})
 
 	failed, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err == nil || failed.State != string(models.CredentialObservationError) ||
@@ -511,11 +510,11 @@ func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) 
 func TestRefreshCredentialObservationUsesBoundedUpstreamContext(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	hasBoundedDeadline := false
-	fixture.service.observeCodexAccount = func(ctx context.Context, _ codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(ctx context.Context, _ codex.Credential) (codex.AccountObservation, error) {
 		deadline, ok := ctx.Deadline()
 		hasBoundedDeadline = ok && time.Until(deadline) > 0 && time.Until(deadline) <= 31*time.Second
 		return codex.AccountObservation{}, errors.New("upstream unavailable")
-	}
+	})
 
 	_, _ = fixture.service.RefreshCredentialObservation(context.Background(), groupID, credentialID)
 	if !hasBoundedDeadline {
@@ -530,10 +529,10 @@ func TestRefreshCredentialObservationRejectsNonReadyCredentialBeforeUpstream(t *
 		t.Fatal(err)
 	}
 	calls := 0
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		return codex.AccountObservation{}, nil
-	}
+	})
 
 	_, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if !errors.Is(err, app_errors.ErrCredentialAuthOutcomeUnknown) || calls != 0 {
@@ -549,12 +548,12 @@ func TestConcurrentObservationRefreshIsSingleflight(t *testing.T) {
 	release := make(chan struct{})
 	var once sync.Once
 	calls := 0
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		once.Do(func() { close(started) })
 		<-release
 		return codex.AccountObservation{Payload: []byte(`{"rate_limit":{}}`)}, nil
-	}
+	})
 	results := make(chan error, 2)
 	go func() {
 		_, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
@@ -595,7 +594,7 @@ func TestPostMutationObservationRefreshRunsAfterExistingFlight(t *testing.T) {
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
 	var calls atomic.Int32
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		call := calls.Add(1)
 		if call == 1 {
 			close(firstStarted)
@@ -603,7 +602,7 @@ func TestPostMutationObservationRefreshRunsAfterExistingFlight(t *testing.T) {
 			return codex.AccountObservation{Payload: []byte(`{"rate_limit":{"primary_window":{"used_percent":90}}}`)}, nil
 		}
 		return codex.AccountObservation{Payload: []byte(`{"rate_limit":{"primary_window":{"used_percent":20}}}`)}, nil
-	}
+	})
 
 	normalResult := make(chan CredentialObservationResponse, 1)
 	normalError := make(chan error, 1)
@@ -646,11 +645,11 @@ func TestObservationSingleflightKeepsGroupAndCredentialBoundTogether(t *testing.
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		close(started)
 		<-release
 		return codex.AccountObservation{Payload: []byte(`{"rate_limit":{}}`)}, nil
-	}
+	})
 	validDone := make(chan error, 1)
 	go func() {
 		_, err := fixture.service.RefreshCredentialObservation(context.Background(), groupID, credentialID)
@@ -672,9 +671,9 @@ func TestSubscriptionCredentialCollectionAndDetailIncludeCachedObservation(t *te
 	t.Parallel()
 
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	fixture.service.observeCodexAccount = func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"secondary_window":{"limit_window_seconds":604800,"used_percent":65}}}`)}, nil
-	}
+	})
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}

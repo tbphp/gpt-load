@@ -17,25 +17,10 @@ export const protocolCatalog = [
   },
 ] as const
 
-export const upstreamAPICatalog = [
-  'openai-chat-completions',
-  'openai-responses',
-  'anthropic-messages',
-  'gemini-generate-content',
-  'openai-models',
-  'anthropic-models',
-  'gemini-models',
-  'azure-openai',
-  'aws-bedrock',
-  'google-vertex',
-] as const
-
 export type ProtocolValue = (typeof protocolCatalog)[number]['value']
-export type UpstreamAPIValue = (typeof upstreamAPICatalog)[number]
 
 export const knownAccessProtocols = protocolCatalog.map(({ value }) => value) as ProtocolValue[]
 export const enabledDataProtocols = knownAccessProtocols
-export const knownUpstreamAPIs = [...upstreamAPICatalog]
 
 const protocolValues = new Set<string>(enabledDataProtocols)
 const protocolOnlyValues = new Set<ProtocolValue>(

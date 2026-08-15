@@ -59,6 +59,46 @@ func TestBuildContainerDoesNotInitializeUnusedRuntimeStore(t *testing.T) {
 	}
 }
 
+func TestBuildContainerPublishesCodexSubscriptionGroup(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		channels *channel.Registry,
+		manager *state.Manager,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		_, publishErr := manager.Publish(state.CompileInput{
+			ChannelRegistry: channels,
+			Groups: []state.GroupConfig{{
+				ID: 1, Name: "codex-subscription", ChannelID: channel.Codex,
+				ConnectionType: string(models.ConnectionTypeSubscription),
+				Params:         json.RawMessage(`{}`),
+				Models:         []state.ModelConfig{{ID: "gpt-5.2"}},
+				Enabled:        true,
+			}},
+		})
+		if publishErr != nil {
+			t.Fatalf("Publish() Codex subscription error = %v", publishErr)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve Codex publication graph: %v", err)
+	}
+}
+
 func TestBuildContainerWiresRequestLogRetentionSnapshotProvider(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())
@@ -816,8 +856,7 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 				_ = sqlDB.Close()
 			}
 		})
-		if _, publishErr := manager.Publish(state.CompileInput{ChannelRegistry: channels, Groups: []state.GroupConfig{{
-			ID: 1, Name: "shared", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+		if _, publishErr := manager.Publish(state.CompileInput{ChannelRegistry: channels, Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "shared", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}}}); publishErr != nil {
 			t.Fatalf("Publish() error = %v", publishErr)

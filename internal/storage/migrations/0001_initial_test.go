@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/storage"
+	"gpt-load/internal/storage/migrations"
 	"gpt-load/internal/storage/models"
 )
 
@@ -18,6 +19,22 @@ type initialColumn struct {
 	Type         string
 	NotNull      int     `gorm:"column:notnull"`
 	DefaultValue *string `gorm:"column:dflt_value"`
+}
+
+func TestFrozenInitialMigrationRetainsLegacyUpstreamAPIColumn(t *testing.T) {
+	db := openInitialTestDatabase(t)
+	if err := migrations.Up0001(db); err != nil {
+		t.Fatalf("Up0001() error = %v", err)
+	}
+	if err := migrations.Validate0001(db); err != nil {
+		t.Fatalf("Validate0001() error = %v", err)
+	}
+	if !db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
+		t.Fatal("frozen 0001 upstream_api column is missing")
+	}
+	if db.Migrator().HasColumn("request_log_attempts", "upstream_protocol") {
+		t.Fatal("frozen 0001 unexpectedly contains upstream_protocol")
+	}
 }
 
 func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
@@ -88,13 +105,16 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialSchema(t *testing.T) {
 	assertColumns(t, db, "request_log_attempts", []string{
 		"request_id", "sequence", "completed_at_ms", "group_id", "group_name",
 		"channel_id", "credential_id", "operation", "route_mode", "upstream_model",
-		"upstream_request_id", "dispatch_state", "response_started", "upstream_api",
+		"upstream_request_id", "dispatch_state", "response_started", "upstream_protocol",
 		"reasoning_mode", "reasoning_effort", "reasoning_budget_tokens",
 		"status_code", "duration_ms",
 		"failure_category", "action", "will_retry", "error_code", "error_summary",
 		"committed", "pricing_receipt",
 	})
 	attemptColumns := initialColumns(t, db, "request_log_attempts")
+	if _, ok := attemptColumns["upstream_api"]; ok {
+		t.Error("request_log_attempts.upstream_api legacy column remains after the complete chain")
+	}
 	if _, ok := attemptColumns["conversion_trace_json"]; ok {
 		t.Error("request_log_attempts.conversion_trace_json temporary column exists")
 	}

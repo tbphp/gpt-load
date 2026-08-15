@@ -364,7 +364,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					},
 					Protocol:              protocol.OpenAICompletions,
 					Operation:             execution.OperationChatCompletion,
-					UpstreamAPI:           execution.UpstreamAPIOpenAIChatCompletions,
+					UpstreamProtocol:      protocol.OpenAICompletions,
 					ClientModel:           "client-model",
 					UpstreamModel:         "upstream-model",
 					UpstreamReportedModel: "reported-model",
@@ -440,7 +440,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		envelope.Data.Items[0]["model_consistency"] != string(telemetry.ModelConsistencyMismatch) ||
 		envelope.Data.Items[0]["route_mode"] != string(channel.RouteNative) ||
 		envelope.Data.Items[0]["operation"] != string(execution.OperationChatCompletion) ||
-		envelope.Data.Items[0]["upstream_api"] != string(execution.UpstreamAPIOpenAIChatCompletions) {
+		envelope.Data.Items[0]["upstream_protocol"] != string(protocol.OpenAICompletions) {
 		t.Fatalf("list item model observation = %#v", envelope.Data.Items[0])
 	}
 	for _, forbidden := range []string{"headers", "body", "url"} {
@@ -524,7 +524,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 			CredentialID:         99,
 			Protocol:             protocol.OpenAICompletions,
 			Operation:            execution.OperationChatCompletion,
-			UpstreamAPI:          execution.UpstreamAPIOpenAIChatCompletions,
+			UpstreamProtocol:     protocol.OpenAICompletions,
 			Status:               telemetry.RequestStatusSuccess,
 			StatusCode:           http.StatusOK,
 			AttemptCount:         1,
@@ -545,7 +545,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 				UpstreamRequestID: "upstream-request-1",
 				DispatchState:     execution.DispatchMaybeSent,
 				ResponseStarted:   true,
-				UpstreamAPI:       execution.UpstreamAPIOpenAIChatCompletions,
+				UpstreamProtocol:  protocol.OpenAICompletions,
 				Reasoning: reasoning.Config{
 					Effort: "high", BudgetTokens: &reasoningBudget,
 				},
@@ -568,12 +568,12 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	}
 	var envelope struct {
 		Data struct {
-			RequestID    string `json:"request_id"`
-			Operation    string `json:"operation"`
-			UpstreamAPI  string `json:"upstream_api"`
-			ChannelID    string `json:"channel_id"`
-			CredentialID uint   `json:"credential_id"`
-			Attempts     []struct {
+			RequestID        string `json:"request_id"`
+			Operation        string `json:"operation"`
+			UpstreamProtocol string `json:"upstream_protocol"`
+			ChannelID        string `json:"channel_id"`
+			CredentialID     uint   `json:"credential_id"`
+			Attempts         []struct {
 				ChannelID         string `json:"channel_id"`
 				CredentialID      uint   `json:"credential_id"`
 				Operation         string `json:"operation"`
@@ -581,7 +581,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 				UpstreamRequestID string `json:"upstream_request_id"`
 				DispatchState     string `json:"dispatch_state"`
 				ResponseStarted   bool   `json:"response_started"`
-				UpstreamAPI       string `json:"upstream_api"`
+				UpstreamProtocol  string `json:"upstream_protocol"`
 				Reasoning         struct {
 					Effort       string `json:"effort"`
 					BudgetTokens string `json:"budget_tokens"`
@@ -607,7 +607,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	}
 	if envelope.Data.RequestID != requestID || envelope.Data.ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Operation != string(execution.OperationChatCompletion) ||
-		envelope.Data.UpstreamAPI != string(execution.UpstreamAPIOpenAIChatCompletions) ||
+		envelope.Data.UpstreamProtocol != string(protocol.OpenAICompletions) ||
 		envelope.Data.CredentialID != 99 || len(envelope.Data.Attempts) != 1 ||
 		envelope.Data.Attempts[0].ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Attempts[0].CredentialID != 99 ||
@@ -615,7 +615,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		envelope.Data.Attempts[0].RouteMode != string(channel.RouteNative) ||
 		envelope.Data.Attempts[0].UpstreamRequestID != "upstream-request-1" ||
 		envelope.Data.Attempts[0].DispatchState != string(execution.DispatchMaybeSent) ||
-		envelope.Data.Attempts[0].UpstreamAPI != string(execution.UpstreamAPIOpenAIChatCompletions) ||
+		envelope.Data.Attempts[0].UpstreamProtocol != string(protocol.OpenAICompletions) ||
 		envelope.Data.Attempts[0].Reasoning.Effort != "high" ||
 		envelope.Data.Attempts[0].Reasoning.BudgetTokens != "4096" ||
 		!envelope.Data.Attempts[0].ResponseStarted || !envelope.Data.Attempts[0].Committed ||
@@ -804,12 +804,16 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 		`"client_model":null`,
 		`"upstream_model":null`,
 		`"upstream_reported_model":null`,
+		`"upstream_protocol":null`,
 		`"model_consistency":"not_applicable"`,
 		`"reasoning":null`,
 	} {
 		if !strings.Contains(body, field) {
 			t.Fatalf("response = %s, want %s", body, field)
 		}
+	}
+	if strings.Contains(body, `"upstream_api"`) {
+		t.Fatalf("response = %s, contains legacy upstream_api", body)
 	}
 }
 
@@ -838,8 +842,10 @@ func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
 		t.Fatalf("marshal response: %v", err)
 	}
 	if !strings.Contains(string(raw), `"attempts":[{"sequence":1`) ||
-		!strings.Contains(string(raw), `"reasoning":null`) {
-		t.Fatalf("response = %s, want null attempt reasoning", raw)
+		strings.Count(string(raw), `"upstream_protocol":null`) != 2 ||
+		!strings.Contains(string(raw), `"reasoning":null`) ||
+		strings.Contains(string(raw), `"upstream_api"`) {
+		t.Fatalf("response = %s, want explicit null upstream protocols without legacy field", raw)
 	}
 }
 
@@ -1011,7 +1017,7 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		AccessKey:             requestlog.AccessKeyRef{ID: current.ID, Name: &current.Name},
 		Protocol:              protocol.OpenAICompletions,
 		Operation:             execution.OperationChatCompletion,
-		UpstreamAPI:           execution.UpstreamAPIAnthropicMessages,
+		UpstreamProtocol:      protocol.Anthropic,
 		ClientModel:           "client-model",
 		UpstreamModel:         "private-upstream-model",
 		UpstreamReportedModel: "private-reported-model",
@@ -1132,7 +1138,7 @@ func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
 		"channel_id":              "null",
 		"credential_id":           "null",
 		"route_mode":              "null",
-		"upstream_api":            "null",
+		"upstream_protocol":       "null",
 		"attempt_count":           "0",
 	} {
 		if string(item[field]) != want {

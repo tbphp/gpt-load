@@ -28,6 +28,7 @@ import (
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 var (
@@ -70,7 +71,7 @@ func createGroupWithCredentials(t *testing.T, fixture serviceFixture, credential
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name: &name, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models:      optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-4o"}}},
-		Credentials: credentials,
+		Credentials: credentials, ConnectionType: "api_key",
 	})
 	if err != nil {
 		t.Fatalf("CreateGroup(%q) error = %v", name, err)
@@ -191,7 +192,11 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	}
 	stats := health.NewStatsStore()
 	mutations := health.NewMutationCoordinator()
-	subscriptionCredentials := subscription.NewCodexCredentialManager(db, keyService, registry, mutations)
+	subscriptions, err := subscriptionruntime.NewRuntime(channelRegistry)
+	if err != nil {
+		t.Fatalf("subscriptionruntime.NewRuntime() error = %v", err)
+	}
+	subscriptionCredentials := subscription.NewCredentialManager(db, keyService, registry, mutations, subscriptions)
 	requestLogStats := &staticRequestLogStatsReader{}
 	priceRuntime := NewPriceRuntime()
 	catalogRuntime := &catalog.Runtime{}
@@ -213,9 +218,10 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 		requestLogStats,
 		channelRegistry,
 	)
+	installCodexControlTestHooks(service)
 	// Tests opt into reset-credit upstream calls explicitly; no fixture may
 	// reach a real provider by accident.
-	service.observeCodexResetCredits = nil
+	setCodexResetCreditObservation(service, nil)
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, channelRegistry: channelRegistry, encryption: keyService,
 		priceRuntime: priceRuntime, catalogRuntime: catalogRuntime,

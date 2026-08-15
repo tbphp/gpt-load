@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"time"
 
-	"gpt-load/internal/connection"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -71,42 +70,6 @@ const (
 	RouteNative    RouteMode = "native"
 	RouteConverted RouteMode = "converted"
 )
-
-// UpstreamAPI identifies the actual upstream wire API selected for an attempt.
-// Values are stable product vocabulary and intentionally exclude SDK names.
-type UpstreamAPI string
-
-const (
-	UpstreamAPIOpenAIChatCompletions UpstreamAPI = "openai-chat-completions"
-	UpstreamAPIOpenAIResponses       UpstreamAPI = "openai-responses"
-	UpstreamAPIAnthropicMessages     UpstreamAPI = "anthropic-messages"
-	UpstreamAPIGeminiGenerateContent UpstreamAPI = "gemini-generate-content"
-	UpstreamAPIOpenAIModels          UpstreamAPI = "openai-models"
-	UpstreamAPIAnthropicModels       UpstreamAPI = "anthropic-models"
-	UpstreamAPIGeminiModels          UpstreamAPI = "gemini-models"
-	UpstreamAPIAzureOpenAI           UpstreamAPI = "azure-openai"
-	UpstreamAPIAWSBedrock            UpstreamAPI = "aws-bedrock"
-	UpstreamAPIGoogleVertex          UpstreamAPI = "google-vertex"
-)
-
-// Valid reports whether the upstream API value is recognized.
-func (api UpstreamAPI) Valid() bool {
-	switch api {
-	case UpstreamAPIOpenAIChatCompletions,
-		UpstreamAPIOpenAIResponses,
-		UpstreamAPIAnthropicMessages,
-		UpstreamAPIGeminiGenerateContent,
-		UpstreamAPIOpenAIModels,
-		UpstreamAPIAnthropicModels,
-		UpstreamAPIGeminiModels,
-		UpstreamAPIAzureOpenAI,
-		UpstreamAPIAWSBedrock,
-		UpstreamAPIGoogleVertex:
-		return true
-	default:
-		return false
-	}
-}
 
 // Valid reports whether the route mode is recognized.
 func (m RouteMode) Valid() bool {
@@ -210,8 +173,6 @@ type AttemptSpec struct {
 	AttemptID        string            `json:"attempt_id"`
 	Sequence         uint32            `json:"sequence"`
 	ChannelID        string            `json:"channel_id"`
-	ConnectionType   string            `json:"connection_type"`
-	TargetKind       string            `json:"target_kind"`
 	RouteMode        RouteMode         `json:"route_mode"`
 	ClientProtocol   protocol.Protocol `json:"client_protocol"`
 	Operation        Operation         `json:"operation"`
@@ -240,7 +201,6 @@ type AttemptSpec struct {
 
 // NewAttemptSpec takes ownership of an independent clone of spec.
 func NewAttemptSpec(spec AttemptSpec) AttemptSpec {
-	spec.ConnectionType = connection.Normalize(spec.ConnectionType)
 	spec.RouteRequirement = spec.RouteRequirement.Normalize()
 	return spec.Clone()
 }
@@ -388,7 +348,7 @@ func (e UsageEvidence) Clone() UsageEvidence {
 type AttemptResult struct {
 	DispatchState     DispatchState     `json:"dispatch_state"`
 	ResponseStarted   bool              `json:"response_started"`
-	UpstreamAPI       UpstreamAPI       `json:"upstream_api,omitempty"`
+	UpstreamProtocol  protocol.Protocol `json:"upstream_protocol,omitempty"`
 	AppliedReasoning  *reasoning.Config `json:"applied_reasoning,omitempty"`
 	StatusCode        int               `json:"status_code,omitempty"`
 	Header            http.Header       `json:"header,omitempty"`
@@ -463,7 +423,7 @@ func (e StreamEvent) Clone() StreamEvent {
 type StreamResult struct {
 	DispatchState     DispatchState     `json:"dispatch_state"`
 	ResponseStarted   bool              `json:"response_started"`
-	UpstreamAPI       UpstreamAPI       `json:"upstream_api,omitempty"`
+	UpstreamProtocol  protocol.Protocol `json:"upstream_protocol,omitempty"`
 	AppliedReasoning  *reasoning.Config `json:"applied_reasoning,omitempty"`
 	StatusCode        int               `json:"status_code,omitempty"`
 	Header            http.Header       `json:"header,omitempty"`

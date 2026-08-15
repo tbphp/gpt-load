@@ -105,7 +105,6 @@ func TestRuntimeManagerPartitionsAzureEntraByCredentialIdentity(t *testing.T) {
 
 	spec := execution.AttemptSpec{
 		ChannelID:    string(channel.AzureOpenAI),
-		TargetKind:   string(target.ProviderKind),
 		TargetConfig: target.TargetConfig,
 	}
 	spec.Credential = execution.NewCredentialSnapshot(
@@ -699,7 +698,7 @@ func TestProductionRuntimeManagerUsesDeepSeekNativeAnthropicEndpoint(t *testing.
 	if validationErr := result.Validate(); validationErr != nil || result.Error != nil {
 		t.Fatalf("Execute() = %+v validation=%v", result, validationErr)
 	}
-	if calls.Load() != 1 || result.UpstreamAPI != execution.UpstreamAPIAnthropicMessages {
+	if calls.Load() != 1 || result.UpstreamProtocol != protocol.Anthropic {
 		t.Fatalf("calls/result = %d/%+v", calls.Load(), result)
 	}
 }
@@ -875,7 +874,7 @@ func TestProductionRuntimeManagerUsesDeepSeekNativeResponsesStream(t *testing.T)
 	}
 	if !strings.Contains(data.String(), "event: response.created") ||
 		!strings.Contains(data.String(), "event: response.completed") ||
-		result.UpstreamAPI != execution.UpstreamAPIOpenAIResponses {
+		result.UpstreamProtocol != protocol.OpenAIResponses {
 		t.Fatalf("stream/result = %q/%+v", data.String(), result)
 	}
 }
@@ -943,7 +942,6 @@ func deepSeekAttempt(t *testing.T, baseURL string, credentialID uint, apiKey str
 		AttemptID:      "manager-attempt",
 		Sequence:       1,
 		ChannelID:      string(channel.DeepSeek),
-		TargetKind:     string(target.ProviderKind),
 		TargetConfig:   target.TargetConfig,
 		RouteMode:      execution.RouteMode(mode),
 		ClientProtocol: protocol.OpenAICompletions,
@@ -979,7 +977,6 @@ func openAIChatAttempt(t *testing.T, channelID channel.ID, baseURL string, apiKe
 		AttemptID:      "native-path-attempt",
 		Sequence:       1,
 		ChannelID:      string(channelID),
-		TargetKind:     string(target.ProviderKind),
 		TargetConfig:   target.TargetConfig,
 		RouteMode:      execution.RouteMode(mode),
 		ClientProtocol: protocol.OpenAICompletions,
@@ -1010,7 +1007,6 @@ func openAIResponsesAttempt(t *testing.T, channelID channel.ID, baseURL string) 
 		AttemptID:      "responses-path-attempt",
 		Sequence:       1,
 		ChannelID:      string(channelID),
-		TargetKind:     string(target.ProviderKind),
 		TargetConfig:   target.TargetConfig,
 		RouteMode:      execution.RouteMode(mode),
 		ClientProtocol: protocol.OpenAIResponses,
@@ -1041,7 +1037,6 @@ func deepSeekAnthropicAttempt(t *testing.T, baseURL string) execution.AttemptSpe
 		AttemptID:      "deepseek-anthropic-attempt",
 		Sequence:       1,
 		ChannelID:      string(channel.DeepSeek),
-		TargetKind:     string(target.ProviderKind),
 		TargetConfig:   target.TargetConfig,
 		RouteMode:      execution.RouteMode(mode),
 		ClientProtocol: protocol.Anthropic,
@@ -1072,7 +1067,6 @@ func listModelsAttempt(t *testing.T, channelID channel.ID, baseURL string) execu
 		AttemptID:      "models-path-attempt",
 		Sequence:       1,
 		ChannelID:      string(channelID),
-		TargetKind:     string(target.ProviderKind),
 		TargetConfig:   target.TargetConfig,
 		RouteMode:      execution.RouteMode(mode),
 		ClientProtocol: protocol.OpenAICompletions,

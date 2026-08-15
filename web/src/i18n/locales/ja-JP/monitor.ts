@@ -685,10 +685,9 @@ export default {
       credentialRef: 'クレデンシャル #{id}',
       protocolConversion: {
         label: 'プロトコル変換：{client} → {upstream}',
-        tooltip: 'クライアントプロトコル：{client}\nアップストリーム API：{upstream}',
-        tooltipNotRecorded:
-          'クライアントプロトコル：{client}\nアップストリーム API：履歴ログに記録なし',
-        notRecorded: '履歴ログに記録なし',
+        tooltip: 'クライアントプロトコル：{client}\nアップストリームプロトコル：{upstream}',
+        tooltipNotRecorded: 'クライアントプロトコル：{client}\nアップストリームプロトコル：未記録',
+        notRecorded: '未記録',
       },
       routeIdentity: {
         group: 'Group：{name}（G{id}）',
@@ -777,7 +776,7 @@ export default {
         finalExecution: '最終実行',
         route: 'リクエストと最終ルート',
         routeIdentity: '最終ルート識別子',
-        upstreamAPI: 'アップストリーム API',
+        upstreamProtocol: 'アップストリームプロトコル',
         affinity: 'アフィニティ一致',
         errorCode: 'エラーコード',
         errorSummary: 'エラーメッセージ',

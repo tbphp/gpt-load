@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,7 +83,7 @@ func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
 		GroupID:               7,
 		GroupName:             "Primary",
 		CredentialID:          11,
-		UpstreamAPI:           string(execution.UpstreamAPIAnthropicMessages),
+		UpstreamProtocol:      string(protocol.Anthropic),
 		ReasoningMode:         "enabled",
 		ReasoningEffort:       "high",
 		ReasoningBudgetTokens: &reasoningBudget,
@@ -111,11 +112,21 @@ func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
 		!bytes.Contains(encoded, []byte(`"credential_id":11`)) {
 		t.Fatalf("decoded attempt identity JSON = %s, want credential_id only", encoded)
 	}
-	if attempts[0].UpstreamAPI != execution.UpstreamAPIAnthropicMessages ||
+	if attempts[0].UpstreamProtocol != protocol.Anthropic ||
 		attempts[0].Reasoning.Mode != "enabled" || attempts[0].Reasoning.Effort != "high" ||
 		attempts[0].Reasoning.BudgetTokens == nil ||
 		*attempts[0].Reasoning.BudgetTokens != reasoningBudget {
 		t.Fatalf("decoded attempt observation = %#v", attempts[0])
+	}
+}
+
+func TestDecodeAttemptRowsRejectsInvalidUpstreamProtocolOnEveryAttempt(t *testing.T) {
+	_, err := decodeAttemptRows([]models.RequestLogAttempt{
+		{Sequence: 1, UpstreamProtocol: "private-sdk-wire"},
+		{Sequence: 2, UpstreamProtocol: string(protocol.OpenAICompletions)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid upstream protocol") {
+		t.Fatalf("decodeAttemptRows() error = %v, want invalid upstream protocol", err)
 	}
 }
 
@@ -450,8 +461,8 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 	db := openRequestLogQueryDB(t)
 	event := testEvent("00000000-0000-4000-8000-000000000210")
 	event.Attempts = []telemetry.Attempt{
-		{Sequence: 1, GroupID: 12, GroupName: "retry", ChannelID: channel.OpenAI, CredentialID: 1, Operation: execution.OperationChatCompletion, RouteMode: channel.RouteConverted, UpstreamAPI: execution.UpstreamAPIAnthropicMessages, UpstreamModel: "retry-model", DispatchState: execution.DispatchMaybeSent, FailureCategory: telemetry.FailureCategoryRateLimited, Action: telemetry.ActionRetry, WillRetry: true},
-		{Sequence: 2, GroupID: 13, GroupName: "final", ChannelID: channel.OpenAI, CredentialID: 2, Operation: execution.OperationChatCompletion, RouteMode: channel.RouteNative, UpstreamAPI: execution.UpstreamAPIOpenAIChatCompletions, UpstreamModel: "final-model", DispatchState: execution.DispatchMaybeSent, FailureCategory: telemetry.FailureCategoryOK, Action: telemetry.ActionTerminate},
+		{Sequence: 1, GroupID: 12, GroupName: "retry", ChannelID: channel.OpenAI, CredentialID: 1, Operation: execution.OperationChatCompletion, RouteMode: channel.RouteConverted, UpstreamProtocol: protocol.Anthropic, UpstreamModel: "retry-model", DispatchState: execution.DispatchMaybeSent, FailureCategory: telemetry.FailureCategoryRateLimited, Action: telemetry.ActionRetry, WillRetry: true},
+		{Sequence: 2, GroupID: 13, GroupName: "final", ChannelID: channel.OpenAI, CredentialID: 2, Operation: execution.OperationChatCompletion, RouteMode: channel.RouteNative, UpstreamProtocol: protocol.OpenAICompletions, UpstreamModel: "final-model", DispatchState: execution.DispatchMaybeSent, FailureCategory: telemetry.FailureCategoryOK, Action: telemetry.ActionTerminate},
 	}
 	event.UpstreamModel = "final-model"
 	event.UpstreamReportedModel = "final-model"
@@ -486,8 +497,8 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 		if page.Items[0].RouteMode != channel.RouteNative {
 			t.Fatalf("List(GroupID=%d) final route mode = %q, want %q", groupID, page.Items[0].RouteMode, channel.RouteNative)
 		}
-		if page.Items[0].UpstreamAPI != execution.UpstreamAPIOpenAIChatCompletions {
-			t.Fatalf("List(GroupID=%d) final upstream API = %q", groupID, page.Items[0].UpstreamAPI)
+		if page.Items[0].UpstreamProtocol != protocol.OpenAICompletions {
+			t.Fatalf("List(GroupID=%d) final upstream protocol = %q", groupID, page.Items[0].UpstreamProtocol)
 		}
 	}
 }
@@ -500,7 +511,7 @@ func TestServiceListDoesNotInferMissingFinalRouteModeFromEarlierAttempt(t *testi
 		71,
 		"client-model",
 		[]Attempt{
-			{Sequence: 1, GroupID: 12, ChannelID: channel.OpenAI, CredentialID: 1, RouteMode: channel.RouteConverted, UpstreamAPI: execution.UpstreamAPIAnthropicMessages},
+			{Sequence: 1, GroupID: 12, ChannelID: channel.OpenAI, CredentialID: 1, RouteMode: channel.RouteConverted, UpstreamProtocol: protocol.Anthropic},
 			{Sequence: 2, GroupID: 12, ChannelID: channel.OpenAI, CredentialID: 1},
 		},
 	)
@@ -519,8 +530,8 @@ func TestServiceListDoesNotInferMissingFinalRouteModeFromEarlierAttempt(t *testi
 	if page.Items[0].RouteMode != "" {
 		t.Fatalf("List() final route mode = %q, want empty", page.Items[0].RouteMode)
 	}
-	if page.Items[0].UpstreamAPI != "" {
-		t.Fatalf("List() final upstream API = %q, want empty", page.Items[0].UpstreamAPI)
+	if page.Items[0].UpstreamProtocol != "" {
+		t.Fatalf("List() final upstream protocol = %q, want empty", page.Items[0].UpstreamProtocol)
 	}
 }
 
@@ -698,7 +709,7 @@ func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 		CredentialID:          9,
 		Operation:             string(execution.OperationResponsesCreate),
 		RouteMode:             string(channel.RouteConverted),
-		UpstreamAPI:           string(execution.UpstreamAPIAnthropicMessages),
+		UpstreamProtocol:      string(protocol.Anthropic),
 		ReasoningMode:         "enabled",
 		ReasoningEffort:       "high",
 		ReasoningBudgetTokens: &reasoningBudget,
@@ -728,7 +739,7 @@ func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 	}
 	if len(detail.Attempts) != 1 || detail.Attempts[0].GroupName != "Primary" ||
 		detail.RouteMode != channel.RouteConverted ||
-		detail.UpstreamAPI != execution.UpstreamAPIAnthropicMessages ||
+		detail.UpstreamProtocol != protocol.Anthropic ||
 		detail.Operation != execution.OperationResponsesCreate ||
 		detail.Attempts[0].Reasoning.BudgetTokens == nil ||
 		*detail.Attempts[0].Reasoning.BudgetTokens != reasoningBudget {
@@ -803,7 +814,7 @@ func requestLogQueryRow(
 			UpstreamRequestID:     attempt.UpstreamRequestID,
 			DispatchState:         string(attempt.DispatchState),
 			ResponseStarted:       attempt.ResponseStarted,
-			UpstreamAPI:           string(attempt.UpstreamAPI),
+			UpstreamProtocol:      string(attempt.UpstreamProtocol),
 			ReasoningMode:         attempt.Reasoning.Mode,
 			ReasoningEffort:       attempt.Reasoning.Effort,
 			ReasoningBudgetTokens: attempt.Reasoning.BudgetTokens,

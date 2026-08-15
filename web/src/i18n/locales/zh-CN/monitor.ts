@@ -664,9 +664,9 @@ export default {
       credentialRef: '凭据 #{id}',
       protocolConversion: {
         label: '协议转换：{client} → {upstream}',
-        tooltip: '客户端协议：{client}\n上游 API：{upstream}',
-        tooltipNotRecorded: '客户端协议：{client}\n上游 API：历史日志未记录',
-        notRecorded: '历史日志未记录',
+        tooltip: '客户端协议：{client}\n上游协议：{upstream}',
+        tooltipNotRecorded: '客户端协议：{client}\n上游协议：未记录',
+        notRecorded: '未记录',
       },
       routeIdentity: {
         group: 'Group：{name}（G{id}）',
@@ -755,7 +755,7 @@ export default {
         finalExecution: '最终执行',
         route: '请求与最终路由',
         routeIdentity: '最终路由标识',
-        upstreamAPI: '上游 API',
+        upstreamProtocol: '上游协议',
         affinity: '亲和命中',
         errorCode: '错误码',
         errorSummary: '错误消息',

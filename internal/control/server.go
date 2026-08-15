@@ -37,6 +37,7 @@ type Server struct {
 }
 
 const maxControlJSONBodyBytes int64 = 32 << 20
+const maxCredentialStageChannelIDBytes int64 = 128
 
 func NewServer(cfg *config.Config, service *Service) *Server {
 	now := time.Now
@@ -86,15 +87,15 @@ func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
 		writeServiceError(c, "begin_credential_authorization", mapControlJSONError(err))
 		return
 	}
-	if s.service.oauthCallback != nil {
-		if err := s.service.oauthCallback.EnsureStarted(); err != nil {
-			s.logger.WithField("event", "oauth.callback_start_failed").WithError(err).Warn("OAuth callback listener is unavailable; manual callback remains available")
-		}
-	}
 	result, err := s.service.BeginCredentialAuthorization(c.Request.Context(), channel.ID(request.ChannelID))
 	if err != nil {
 		writeServiceError(c, "begin_credential_authorization", err)
 		return
+	}
+	if result.LocalCallback && s.service.oauthCallback != nil {
+		if err := s.service.oauthCallback.EnsureStarted(); err != nil {
+			s.logger.WithField("event", "oauth.callback_start_failed").WithError(err).Warn("OAuth callback listener is unavailable; manual callback remains available")
+		}
 	}
 	setMutationResourceLocator(c, "credential-stage:"+result.StageID)
 	setSecretResponseHeaders(c)
@@ -141,7 +142,10 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 		return
 	}
 	var raw []byte
+	defer func() { clear(raw) }()
+	var channelID channel.ID
 	fileCount := 0
+	channelCount := 0
 	for {
 		part, nextErr := reader.NextPart()
 		if errors.Is(nextErr, io.EOF) {
@@ -151,30 +155,40 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 			return
 		}
-		if part.FormName() != "file" || part.FileName() == "" {
+		switch {
+		case part.FormName() == "channel_id" && part.FileName() == "":
+			channelCount++
+			value, readErr := io.ReadAll(io.LimitReader(part, maxCredentialStageChannelIDBytes+1))
 			_ = part.Close()
-			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
-			return
-		}
-		fileCount++
-		if fileCount != 1 {
+			if readErr != nil || int64(len(value)) > maxCredentialStageChannelIDBytes || channelCount != 1 {
+				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				return
+			}
+			channelID = channel.ID(strings.TrimSpace(string(value)))
+		case part.FormName() == "file" && part.FileName() != "":
+			fileCount++
+			if fileCount != 1 {
+				_ = part.Close()
+				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				return
+			}
+			raw, err = io.ReadAll(io.LimitReader(part, maxOAuthFileBytes+1))
 			_ = part.Close()
-			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
-			return
-		}
-		raw, err = io.ReadAll(io.LimitReader(part, maxOAuthFileBytes+1))
-		_ = part.Close()
-		if err != nil {
+			if err != nil {
+				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				return
+			}
+		default:
+			_ = part.Close()
 			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 			return
 		}
 	}
-	if fileCount != 1 {
+	if fileCount != 1 || channelCount != 1 || channelID == "" {
 		writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 		return
 	}
-	result, err := s.service.ImportCredentialStage(c.Request.Context(), channel.Codex, raw)
-	clear(raw)
+	result, err := s.service.ImportCredentialStage(c.Request.Context(), channelID, raw)
 	if err != nil {
 		writeServiceError(c, "import_credential_stage", err)
 		return

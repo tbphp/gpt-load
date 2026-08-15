@@ -107,8 +107,7 @@ func newDialectGatewayEngineWithForwarder(
 			baseURL := testUpstreamBaseURL(group.upstreamURL, selectedProtocol)
 			channelID, params = testChannelConfig(t, selectedProtocol, baseURL)
 		}
-		configs = append(configs, state.GroupConfig{
-			ID: group.id, Name: group.name, ChannelID: channelID, Params: params,
+		configs = append(configs, state.GroupConfig{ConnectionType: "api_key", ID: group.id, Name: group.name, ChannelID: channelID, Params: params,
 			Models: models, Enabled: true,
 		})
 		for _, apiKey := range group.apiKeys {

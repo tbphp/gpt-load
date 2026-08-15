@@ -12,8 +12,7 @@ import (
 
 func TestCompileCopiesAndValidatesGroupManualWeight(t *testing.T) {
 	weight := 25
-	input := CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{
-		ID: 1, Name: "weighted", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+	input := CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "weighted", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Models: []ModelConfig{{ID: "gpt-weighted"}}, WeightManual: &weight, Enabled: true,
 	}}}
 

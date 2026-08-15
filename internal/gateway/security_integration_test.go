@@ -184,8 +184,7 @@ func TestGatewaySecurityEventFormatterSecretMatrix(t *testing.T) {
 			)
 			if _, err := manager.Publish(state.CompileInput{
 				ChannelRegistry: channel.NewRegistry(),
-				Groups: []state.GroupConfig{{
-					ID: 1, Name: "safe-group", ChannelID: channel.OpenAI, Params: []byte(`{}`),
+				Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "safe-group", ChannelID: channel.OpenAI, Params: []byte(`{}`),
 					Models: []state.ModelConfig{{ID: "safe-model"}}, Enabled: true,
 				}},
 				AccessKeys: []state.AccessKeyConfig{{

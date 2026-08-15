@@ -260,7 +260,7 @@ func (s *Service) resolveChannelConnectionType(
 		return "", app_errors.ErrValidation
 	}
 	connectionType := models.ConnectionType(expected)
-	if requested != "" && requested != connectionType {
+	if requested == "" || requested != connectionType {
 		return "", app_errors.ErrValidation
 	}
 	return connectionType, nil

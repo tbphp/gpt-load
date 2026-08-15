@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestValidatedLoaderRejectsWrongEncryptionKeyBeforePublishing(t *testing.T) {
@@ -44,8 +45,9 @@ func TestValidatedLoaderRejectsWrongEncryptionKeyBeforePublishing(t *testing.T) 
 	}
 	manager := state.NewManager()
 	registry := state.NewCredentialRegistry()
+	channels, subscriptions := testSubscriptionRuntime(t)
 	err = loader.NewWithCredentialValidation(
-		db, manager, registry, channel.NewRegistry(), wrong,
+		db, manager, registry, channels, subscriptions, wrong,
 	).Load(t.Context())
 	if err == nil {
 		t.Fatal("Load() error = nil, want credential decryption failure")
@@ -82,8 +84,9 @@ func TestValidatedLoaderRejectsInvalidStoredCredentialShape(t *testing.T) {
 	})
 	manager := state.NewManager()
 	registry := state.NewCredentialRegistry()
+	channels, subscriptions := testSubscriptionRuntime(t)
 	err = loader.NewWithCredentialValidation(
-		db, manager, registry, channel.NewRegistry(), service,
+		db, manager, registry, channels, subscriptions, service,
 	).Load(t.Context())
 	if err == nil {
 		t.Fatal("Load() error = nil, want stored credential schema failure")
@@ -94,6 +97,16 @@ func TestValidatedLoaderRejectsInvalidStoredCredentialShape(t *testing.T) {
 	if strings.Contains(err.Error(), "must-not-leak") || strings.Contains(err.Error(), ciphertext) {
 		t.Fatalf("Load() error leaked credential material: %v", err)
 	}
+}
+
+func testSubscriptionRuntime(t *testing.T) (*channel.Registry, *subscriptionruntime.Runtime) {
+	t.Helper()
+	channels := channel.NewRegistry()
+	runtime, err := subscriptionruntime.NewRuntime(channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return channels, runtime
 }
 
 func TestBuildCompileInputMapsChannelAndCredentialMetadata(t *testing.T) {

@@ -10,10 +10,9 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
-	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 type normalizedCredential struct {
@@ -24,6 +23,7 @@ type normalizedCredential struct {
 
 func normalizeChannelCredential(
 	registry *channel.Registry,
+	subscriptions *subscriptionruntime.Runtime,
 	channelID channel.ID,
 	connectionType string,
 	decrypted string,
@@ -36,19 +36,22 @@ func normalizeChannelCredential(
 		return normalizedCredential{}, fmt.Errorf("credential is empty")
 	}
 	raw := []byte(trimmed)
-	if connection.Normalize(connectionType) == connection.Subscription {
-		credential, err := codex.ParseCredentialJSON(raw)
+	expectedConnection, ok := registry.ConnectionType(channelID)
+	if !ok || strings.TrimSpace(connectionType) != expectedConnection {
+		return normalizedCredential{}, fmt.Errorf("credential connection does not match channel")
+	}
+	if driver, bound := subscriptions.Driver(channelID); bound {
+		credential, err := driver.Parse(raw)
 		if err != nil {
 			return normalizedCredential{}, fmt.Errorf("validate subscription credential: %w", err)
 		}
-		payload, err := codex.MarshalCredential(credential)
-		if err != nil {
-			return normalizedCredential{}, fmt.Errorf("encode subscription credential: %w", err)
-		}
 		return normalizedCredential{
-			payload: payload,
+			payload: credential.Canonical(),
 			secrets: credential.SecretValues(),
 		}, nil
+	}
+	if expectedConnection != "api_key" {
+		return normalizedCredential{}, fmt.Errorf("subscription credential driver is unavailable")
 	}
 	validated, err := registry.ValidateCredential(channelID, raw)
 	if err != nil {

@@ -29,7 +29,7 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 		BudgetTokens: &reasoningBudget,
 	}
 	attemptBudget := int64(4096)
-	event.Attempts[0].UpstreamAPI = execution.UpstreamAPIOpenAIChatCompletions
+	event.Attempts[0].UpstreamProtocol = protocol.OpenAICompletions
 	event.Attempts[0].Reasoning = reasoning.Config{
 		Effort: "high", BudgetTokens: &attemptBudget,
 	}
@@ -67,7 +67,7 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 		t.Fatalf("persisted reasoning = %+v", row)
 	}
 	if row.Operation != string(execution.OperationChatCompletion) || len(row.AttemptRows) != 1 ||
-		row.AttemptRows[0].UpstreamAPI != string(execution.UpstreamAPIOpenAIChatCompletions) ||
+		row.AttemptRows[0].UpstreamProtocol != string(protocol.OpenAICompletions) ||
 		row.AttemptRows[0].ReasoningEffort != "high" ||
 		row.AttemptRows[0].ReasoningBudgetTokens == nil ||
 		*row.AttemptRows[0].ReasoningBudgetTokens != attemptBudget {
@@ -88,11 +88,11 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	}
 }
 
-func TestMapEventRejectsInvalidAttemptUpstreamAPI(t *testing.T) {
+func TestMapEventRejectsInvalidAttemptUpstreamProtocol(t *testing.T) {
 	event := testEvent("invalid-upstream-api")
-	event.Attempts[0].UpstreamAPI = execution.UpstreamAPI("private-sdk-name")
+	event.Attempts[0].UpstreamProtocol = protocol.Protocol("private-sdk-name")
 	if _, err := mapEvent(redact.New(), event); err == nil {
-		t.Fatal("mapEvent() accepted an invalid upstream API")
+		t.Fatal("mapEvent() accepted an invalid upstream protocol")
 	}
 }
 

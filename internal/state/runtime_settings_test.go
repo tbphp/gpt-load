@@ -182,8 +182,7 @@ func TestConnectTimeoutIsNotAPublicRuntimeSetting(t *testing.T) {
 }
 
 func TestCompileValidatesDisabledGroupSettings(t *testing.T) {
-	_, err := Compile(CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{
-		ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+	_, err := Compile(CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 		Settings: config.Settings{"request_log_retention_days": 30},
 		Enabled:  false,
 	}}})

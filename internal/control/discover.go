@@ -42,7 +42,8 @@ func (s *Service) DiscoverModels(
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 	if connectionType == models.ConnectionTypeSubscription {
-		if request.ChannelID != channel.Codex || strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "" {
+		if _, supported := s.subscriptions.ModelDiscovery(request.ChannelID); !supported ||
+			strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "" {
 			return ModelDiscoveryResult{}, app_errors.ErrValidation
 		}
 		return s.discoverSubscriptionStageModels(ctx, request.ChannelID, request.StagedCredentialID)
@@ -69,7 +70,8 @@ func (s *Service) DiscoverModels(
 		SystemSettings: systemSettings, ChannelRegistry: s.channelRegistry,
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "draft", ChannelID: request.ChannelID,
-			Params: append(json.RawMessage(nil), request.Params...), Enabled: true,
+			ConnectionType: string(connectionType),
+			Params:         append(json.RawMessage(nil), request.Params...), Enabled: true,
 		}},
 	})
 	if err != nil {

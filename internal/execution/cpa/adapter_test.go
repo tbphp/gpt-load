@@ -14,6 +14,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
@@ -23,6 +24,7 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 type fakeExecutor struct {
@@ -36,7 +38,7 @@ type fakeExecutor struct {
 }
 
 type fakeCredentialPreparer struct {
-	credential codex.Credential
+	credential subscriptionruntime.Credential
 	evidence   *execution.ErrorEvidence
 	calls      int
 	force      bool
@@ -44,9 +46,10 @@ type fakeCredentialPreparer struct {
 
 func (f *fakeCredentialPreparer) Prepare(
 	_ context.Context,
+	_ channel.ID,
 	_ execution.CredentialSnapshot,
 	force bool,
-) (codex.Credential, *execution.ErrorEvidence) {
+) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 	f.calls++
 	f.force = force
 	return f.credential, f.evidence
@@ -125,12 +128,12 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 		protocol   protocol.Protocol
 		operation  execution.Operation
 		wantFormat string
-		wantAPI    execution.UpstreamAPI
+		wantAPI    protocol.Protocol
 	}{
-		{name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, wantFormat: "openai", wantAPI: execution.UpstreamAPIOpenAIResponses},
-		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, wantFormat: "openai-response", wantAPI: execution.UpstreamAPIOpenAIResponses},
-		{name: "Anthropic Messages", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, wantFormat: "claude", wantAPI: execution.UpstreamAPIOpenAIResponses},
-		{name: "Gemini GenerateContent", protocol: protocol.Gemini, operation: execution.OperationChatCompletion, wantFormat: "gemini", wantAPI: execution.UpstreamAPIOpenAIResponses},
+		{name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, wantFormat: "openai", wantAPI: protocol.OpenAIResponses},
+		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, wantFormat: "openai-response", wantAPI: protocol.OpenAIResponses},
+		{name: "Anthropic Messages", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, wantFormat: "claude", wantAPI: protocol.OpenAIResponses},
+		{name: "Gemini GenerateContent", protocol: protocol.Gemini, operation: execution.OperationChatCompletion, wantFormat: "gemini", wantAPI: protocol.OpenAIResponses},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -161,7 +164,7 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 			}
 
 			result := adapter.Execute(t.Context(), spec)
-			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamAPI != test.wantAPI {
+			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamProtocol != test.wantAPI {
 				t.Fatalf("result=%#v calls=%d request=%#v", result, fake.calls, fake.request)
 			}
 			if got := result.Header.Get("Content-Type"); got != "application/json" {
@@ -185,31 +188,31 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 		protocol   protocol.Protocol
 		operation  execution.Operation
 		wantFormat string
-		wantAPI    execution.UpstreamAPI
+		wantAPI    protocol.Protocol
 		payload    string
 		wantData   []string
 	}{
 		{
 			name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion,
-			wantFormat: "openai", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			wantFormat: "openai", wantAPI: protocol.OpenAIResponses,
 			payload:  `{"id":"chatcmpl_1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
 			wantData: []string{`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n", "data: [DONE]\n\n"},
 		},
 		{
 			name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate,
-			wantFormat: "openai-response", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			wantFormat: "openai-response", wantAPI: protocol.OpenAIResponses,
 			payload:  `data: {"type":"response.completed","response":{"id":"resp_1"}}`,
 			wantData: []string{`data: {"type":"response.completed","response":{"id":"resp_1"}}` + "\n\n"},
 		},
 		{
 			name: "Anthropic Messages", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion,
-			wantFormat: "claude", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			wantFormat: "claude", wantAPI: protocol.OpenAIResponses,
 			payload:  "event: message_stop\ndata: {\"type\":\"message_stop\"}",
 			wantData: []string{"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"},
 		},
 		{
 			name: "Gemini GenerateContent", protocol: protocol.Gemini, operation: execution.OperationChatCompletion,
-			wantFormat: "gemini", wantAPI: execution.UpstreamAPIOpenAIResponses,
+			wantFormat: "gemini", wantAPI: protocol.OpenAIResponses,
 			payload: `{"candidates":[{"content":{"role":"model","parts":[]}}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}`,
 			wantData: []string{
 				`data: {"candidates":[{"content":{"role":"model","parts":[]}}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}` + "\n\n",
@@ -239,7 +242,7 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 				}
 				return nil
 			})
-			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamAPI != test.wantAPI {
+			if result.Error != nil || fake.calls != 1 || fake.request.Format != test.wantFormat || result.UpstreamProtocol != test.wantAPI {
 				t.Fatalf("result=%#v calls=%d request=%#v", result, fake.calls, fake.request)
 			}
 			if strings.Join(data, "") != strings.Join(test.wantData, "") {
@@ -438,13 +441,13 @@ func TestAdapterReportsFinalCPAResponsesReasoning(t *testing.T) {
 			spec.Body = []byte(test.body)
 
 			var resultReasoning string
-			var upstreamAPI execution.UpstreamAPI
+			var upstreamProtocol protocol.Protocol
 			if test.stream {
 				result := adapter.ExecuteStream(ctx, spec, func(execution.StreamEvent) error { return nil })
 				if result.Error != nil {
 					t.Fatalf("ExecuteStream() error = %#v", result.Error)
 				}
-				upstreamAPI = result.UpstreamAPI
+				upstreamProtocol = result.UpstreamProtocol
 				if result.AppliedReasoning != nil {
 					resultReasoning = result.AppliedReasoning.Effort
 				}
@@ -453,7 +456,7 @@ func TestAdapterReportsFinalCPAResponsesReasoning(t *testing.T) {
 				if result.Error != nil {
 					t.Fatalf("Execute() error = %#v", result.Error)
 				}
-				upstreamAPI = result.UpstreamAPI
+				upstreamProtocol = result.UpstreamProtocol
 				if result.AppliedReasoning != nil {
 					resultReasoning = result.AppliedReasoning.Effort
 				}
@@ -461,8 +464,8 @@ func TestAdapterReportsFinalCPAResponsesReasoning(t *testing.T) {
 			if got := <-wireEffort; got != test.wantEffort {
 				t.Fatalf("wire reasoning effort = %q, want %q", got, test.wantEffort)
 			}
-			if upstreamAPI != execution.UpstreamAPIOpenAIResponses {
-				t.Fatalf("upstream API = %q, want %q", upstreamAPI, execution.UpstreamAPIOpenAIResponses)
+			if upstreamProtocol != protocol.OpenAIResponses {
+				t.Fatalf("upstream API = %q, want %q", upstreamProtocol, protocol.OpenAIResponses)
 			}
 			if resultReasoning != test.wantEffort {
 				t.Fatalf("applied reasoning effort = %q, want %q", resultReasoning, test.wantEffort)
@@ -530,7 +533,7 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 				}
 				return nil
 			})
-			if result.Error != nil || result.UpstreamAPI != execution.UpstreamAPIOpenAIResponses {
+			if result.Error != nil || result.UpstreamProtocol != protocol.OpenAIResponses {
 				t.Fatalf("result = %#v", result)
 			}
 			if !strings.Contains(wire.String(), test.wantFragment) || !strings.HasSuffix(wire.String(), test.wantTerminal) {
@@ -598,8 +601,13 @@ func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *sta
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{ID: row.ID, GroupID: group.ID, Version: 1, IdentityGeneration: identityGeneration, Fingerprint: row.Fingerprint, Status: state.CredentialStatusActive, WeightAuto: state.DefaultWeight, EncryptedValue: row.Data}}); err != nil {
 		t.Fatal(err)
 	}
-	credentials := subscription.NewCodexCredentialManager(db, keyService, registry, health.NewMutationCoordinator())
-	return NewAdapter(credentials), db, registry, keyService, row
+	channels := channel.NewRegistry()
+	subscriptions, err := subscriptionruntime.NewRuntime(channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := subscription.NewCredentialManager(db, keyService, registry, health.NewMutationCoordinator(), subscriptions)
+	return NewAdapter(credentials, channels), db, registry, keyService, row
 }
 
 func credentialJSON(access, refresh string, expires time.Time) []byte {
@@ -613,5 +621,5 @@ func validSpec(t *testing.T, row models.Credential, keyService encryption.Servic
 	if err != nil {
 		t.Fatal(err)
 	}
-	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "codex", ConnectionType: "subscription", TargetKind: "openai", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))})
+	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "codex", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))})
 }
