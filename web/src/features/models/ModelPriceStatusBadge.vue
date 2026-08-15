@@ -17,7 +17,7 @@ const presentation = computed<{ icon: StatusIcon; label: string; tone: StatusTon
   switch (props.price.method) {
     case 'auto_sync':
       return props.price.match_source === 'provider_priority_fallback'
-        ? { icon: 'alert', label: t('modelPrices.method.reference_price'), tone: 'warning' }
+        ? { icon: 'info', label: t('modelPrices.method.reference_price'), tone: 'info' }
         : { icon: 'check', label: t('modelPrices.method.auto_sync'), tone: 'success' }
     case 'user_set':
       return { icon: 'edit', label: t('modelPrices.method.user_set'), tone: 'neutral' }

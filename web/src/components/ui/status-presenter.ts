@@ -1,5 +1,5 @@
-export type StatusTone = 'success' | 'warning' | 'danger' | 'neutral'
-export type StatusIcon = 'check' | 'alert' | 'off' | 'progress' | 'help' | 'edit'
+export type StatusTone = 'success' | 'info' | 'warning' | 'danger' | 'neutral'
+export type StatusIcon = 'check' | 'info' | 'alert' | 'off' | 'progress' | 'help' | 'edit'
 
 export type OperationalStatus =
   'available' | 'cooldown' | 'blacklisted' | 'disabled' | 'unavailable' | 'unknown'

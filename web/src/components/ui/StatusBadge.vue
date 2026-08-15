@@ -4,6 +4,7 @@ import {
   CircleCheck,
   CircleHelp,
   CircleOff,
+  Info,
   LoaderCircle,
   PencilLine,
 } from '@lucide/vue'
@@ -50,6 +51,7 @@ const resolvedIcon = computed<StatusIcon>(() => {
   const statusIcon = presentation.value.icon as StatusIcon | undefined
   if (statusIcon) return statusIcon
   if (resolvedTone.value === 'success') return 'check'
+  if (resolvedTone.value === 'info') return 'info'
   if (resolvedTone.value === 'warning') return 'alert'
   if (resolvedTone.value === 'danger') return 'off'
   return 'help'
@@ -57,6 +59,7 @@ const resolvedIcon = computed<StatusIcon>(() => {
 const iconComponent = computed(() => {
   if (resolvedIcon.value === 'progress') return LoaderCircle
   if (resolvedIcon.value === 'check') return CircleCheck
+  if (resolvedIcon.value === 'info') return Info
   if (resolvedIcon.value === 'alert') return CircleAlert
   if (resolvedIcon.value === 'off') return CircleOff
   if (resolvedIcon.value === 'edit') return PencilLine
@@ -87,6 +90,9 @@ const iconComponent = computed(() => {
 .status-badge--success {
   background: var(--color-success-bg);
 }
+.status-badge--info {
+  background: var(--color-info-bg);
+}
 .status-badge--neutral {
   background: var(--color-neutral-bg);
 }
@@ -103,6 +109,7 @@ const iconComponent = computed(() => {
   font-weight: 600;
 }
 .status-badge--success,
+.status-badge--info,
 .status-badge--neutral,
 .status-badge--warning,
 .status-badge--danger {
@@ -113,6 +120,9 @@ const iconComponent = computed(() => {
 }
 .status-badge--success svg {
   color: var(--color-success);
+}
+.status-badge--info svg {
+  color: var(--color-info);
 }
 .status-badge--warning svg {
   color: var(--color-warning);

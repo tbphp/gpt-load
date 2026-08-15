@@ -142,8 +142,8 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
         <div>
           <dt>{{ t('models.drawer.pricingChannel') }}</dt>
           <dd>
-            <span>{{ price.channel_name }}</span>
-            <code>{{ price.channel_id }}</code>
+            <span class="upstream-drawer__channel-name">{{ price.channel_name }}</span>
+            <code class="upstream-drawer__channel-id">{{ price.channel_id }}</code>
           </dd>
         </div>
         <div>
@@ -319,6 +319,22 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   color: var(--color-text);
   font-size: var(--text-label-xs);
   overflow-wrap: anywhere;
+}
+
+.upstream-drawer__channel-name {
+  color: var(--color-text);
+  font-size: var(--text-body);
+}
+
+.upstream-drawer__identity .upstream-drawer__channel-id {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  padding: 1px 5px;
+  color: var(--color-text-muted);
+  line-height: var(--line-compact);
 }
 
 .upstream-drawer__faint {
