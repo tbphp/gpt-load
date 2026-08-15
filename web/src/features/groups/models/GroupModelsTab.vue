@@ -8,6 +8,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
+import { channelsQueryOptions } from '@/app/resources/channels'
 import {
   cacheGroupModels,
   discoverGroupModels,
@@ -53,7 +54,7 @@ import {
   normalizeGroupTab,
 } from '../group-route'
 
-const props = defineProps<{ groupId: number }>()
+const props = defineProps<{ groupId: number; channelId: string }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const route = useRoute()
@@ -61,6 +62,12 @@ const router = useRouter()
 const { t } = useI18n()
 const routeState = computed(() => parseGroupModelsRouteQuery(route.query))
 const query = useQuery(groupModelsQueryOptions(client, () => props.groupId))
+const channelsQuery = useQuery(channelsQueryOptions(client, ''))
+const supportsModelDiscovery = computed(
+  () =>
+    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === props.channelId)
+      ?.capabilities.model_discovery === true,
+)
 const initialLoading = useStableLoading(
   () => query.isPending.value && query.data.value === undefined,
 )
@@ -224,13 +231,14 @@ watch(
 )
 
 watch(
-  [() => routeState.value.discoveryOpen, () => query.data.value],
-  ([open, models]) => {
+  [() => routeState.value.discoveryOpen, () => query.data.value, supportsModelDiscovery],
+  ([open, models, supported]) => {
     if (!open) {
       if (pending.value === 'discover') controller?.abort()
       return
     }
-    if (models && pending.value === null && candidates.value.length === 0) void runDiscovery()
+    if (supported && models && pending.value === null && candidates.value.length === 0)
+      void runDiscovery()
   },
   { immediate: true },
 )
@@ -306,7 +314,7 @@ function addManual(): void {
 }
 
 function requestDiscovery(): void {
-  if (pending.value) return
+  if (!supportsModelDiscovery.value || pending.value) return
   candidates.value = []
   discoveryError.value = ''
   if (drawerOpen.value) void runDiscovery()
@@ -314,7 +322,7 @@ function requestDiscovery(): void {
 }
 
 async function runDiscovery(): Promise<void> {
-  if (pending.value !== null) return
+  if (!supportsModelDiscovery.value || pending.value !== null) return
   controller?.abort()
   const active = new AbortController()
   controller = active
@@ -429,6 +437,7 @@ onBeforeUnmount(() => {
     <PanelHeader heading-id="group-models-heading" :title="t('group.modelEditor.title')">
       <template #actions>
         <AppButton
+          v-if="supportsModelDiscovery"
           variant="secondary"
           :busy="pending === 'discover'"
           :disabled="!query.data.value || pending !== null"
@@ -486,6 +495,7 @@ onBeforeUnmount(() => {
         </template>
       </ModelAliasEditor>
       <ModelDiscoveryDrawer
+        v-if="supportsModelDiscovery"
         :open="drawerOpen"
         :candidates="candidates"
         :current-ids="currentModelIDs"

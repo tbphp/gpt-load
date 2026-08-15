@@ -192,7 +192,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	}
 	stats := health.NewStatsStore()
 	mutations := health.NewMutationCoordinator()
-	subscriptions, err := subscriptionruntime.NewRuntime(channelRegistry)
+	subscriptions, err := subscriptionruntime.NewRuntime(channelRegistry, subscriptionruntime.CodexImplementations())
 	if err != nil {
 		t.Fatalf("subscriptionruntime.NewRuntime() error = %v", err)
 	}

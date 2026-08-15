@@ -31,8 +31,14 @@ func (s *Service) DiscoverGroupModels(
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
-	if rows.found && normalizeGroupConnectionType(rows.group.ConnectionType) == models.ConnectionTypeSubscription {
-		return s.discoverSubscriptionGroupModels(ctx, rows)
+	if rows.found {
+		bindings, ok := s.channelRegistry.CapabilityBindings(channel.ID(rows.group.ChannelID))
+		if !ok {
+			return ModelDiscoveryResult{}, app_errors.ErrInternalServer
+		}
+		if bindings.ModelDiscovery != "" {
+			return s.discoverSubscriptionGroupModels(ctx, rows)
+		}
 	}
 	target, err := s.mapGroupDiscoveryTarget(rows)
 	if err != nil {
@@ -187,6 +193,9 @@ func (s *Service) mapGroupDiscoveryTarget(
 		canonical, apiKey, err := s.decodeCredential(rows.group, credentialRow)
 		if err != nil {
 			return discoveryTarget{}, err
+		}
+		if normalizeGroupConnectionType(rows.group.ConnectionType) == models.ConnectionTypeSubscription {
+			apiKey = ""
 		}
 		discoveryCredentials = append(discoveryCredentials, discoveryCredential{
 			snapshot: execution.NewCredentialSnapshot(

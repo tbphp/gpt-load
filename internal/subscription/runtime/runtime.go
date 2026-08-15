@@ -152,6 +152,7 @@ func (err *UpstreamHTTPError) Error() string {
 
 type channelRuntime struct {
 	driver      Driver
+	browser     BrowserAuthorizationDriver
 	discovery   ModelDiscovery
 	observation QuotaObservation
 	resetCredit ResetCreditAction
@@ -163,16 +164,30 @@ type Runtime struct {
 	byChannel map[channel.ID]channelRuntime
 }
 
-// NewRuntime compiles all built-in drivers and capabilities against the same
-// channel registry used by state, scheduling and execution.
-func NewRuntime(channels *channel.Registry) (*Runtime, error) {
-	codex := newCodexDriver()
+// Implementations is the explicit composition-root input for subscription behavior.
+type Implementations struct {
+	Drivers            []Driver
+	ModelDiscoveries   []ModelDiscovery
+	QuotaObservations  []QuotaObservation
+	ResetCreditActions []ResetCreditAction
+}
+
+// NewRuntime compiles explicitly supplied drivers and capabilities against the
+// same channel registry used by state, scheduling and execution.
+func NewRuntime(channels *channel.Registry, registrations ...Implementations) (*Runtime, error) {
+	var implementations Implementations
+	for _, registration := range registrations {
+		implementations.Drivers = append(implementations.Drivers, registration.Drivers...)
+		implementations.ModelDiscoveries = append(implementations.ModelDiscoveries, registration.ModelDiscoveries...)
+		implementations.QuotaObservations = append(implementations.QuotaObservations, registration.QuotaObservations...)
+		implementations.ResetCreditActions = append(implementations.ResetCreditActions, registration.ResetCreditActions...)
+	}
 	return compileRuntime(
 		channels,
-		[]Driver{codex},
-		[]ModelDiscovery{codex.modelDiscovery()},
-		[]QuotaObservation{codex.quotaObservation()},
-		[]ResetCreditAction{codex.resetCreditAction()},
+		implementations.Drivers,
+		implementations.ModelDiscoveries,
+		implementations.QuotaObservations,
+		implementations.ResetCreditActions,
 	)
 }
 
@@ -231,7 +246,7 @@ func compileRuntime(
 		}
 		if descriptor.Connection.Type != string(spec.ConnectionSubscription) {
 			if bindings.SubscriptionDriver != "" || bindings.ModelDiscovery != "" ||
-				bindings.QuotaObservation != "" || len(bindings.Actions) != 0 {
+				bindings.QuotaObservation != "" || bindings.ResetCreditAction != "" {
 				return nil, fmt.Errorf("compile subscription runtime: API key channel %q binds subscription capabilities", descriptor.ID)
 			}
 			continue
@@ -241,6 +256,15 @@ func compileRuntime(
 			return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown driver %q", descriptor.ID, bindings.SubscriptionDriver)
 		}
 		compiled := channelRuntime{driver: driver}
+		for _, method := range descriptor.Connection.AuthorizationMethods {
+			if method != channel.AuthorizationBrowserOAuth {
+				continue
+			}
+			compiled.browser, ok = driver.(BrowserAuthorizationDriver)
+			if !ok {
+				return nil, fmt.Errorf("compile subscription runtime: channel %q declares browser OAuth without driver support", descriptor.ID)
+			}
+		}
 		if bindings.ModelDiscovery != "" {
 			compiled.discovery, ok = discoveryByID[spec.ExtensionID(bindings.ModelDiscovery)]
 			if !ok {
@@ -253,15 +277,11 @@ func compileRuntime(
 				return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown quota observation %q", descriptor.ID, bindings.QuotaObservation)
 			}
 		}
-		for _, actionID := range bindings.Actions {
-			action, exists := resetByID[spec.ExtensionID(actionID)]
-			if !exists {
-				return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown action %q", descriptor.ID, actionID)
+		if bindings.ResetCreditAction != "" {
+			compiled.resetCredit, ok = resetByID[spec.ExtensionID(bindings.ResetCreditAction)]
+			if !ok {
+				return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown action %q", descriptor.ID, bindings.ResetCreditAction)
 			}
-			if compiled.resetCredit != nil {
-				return nil, fmt.Errorf("compile subscription runtime: channel %q binds multiple reset-credit actions", descriptor.ID)
-			}
-			compiled.resetCredit = action
 		}
 		result.byChannel[descriptor.ID] = compiled
 	}
@@ -294,12 +314,11 @@ func (runtime *Runtime) Driver(channelID channel.ID) (Driver, bool) {
 
 // BrowserAuthorization resolves the optional interactive authorization driver.
 func (runtime *Runtime) BrowserAuthorization(channelID channel.ID) (BrowserAuthorizationDriver, bool) {
-	driver, ok := runtime.Driver(channelID)
-	if !ok {
+	if runtime == nil {
 		return nil, false
 	}
-	browser, ok := driver.(BrowserAuthorizationDriver)
-	return browser, ok
+	value, ok := runtime.byChannel[channelID]
+	return value.browser, ok && value.browser != nil
 }
 
 // CanonicalCredential validates one channel-bound subscription credential and

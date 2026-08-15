@@ -80,7 +80,7 @@ func TestNormalizeChannelCredentialUsesBoundSubscriptionDriver(t *testing.T) {
 func testCredentialRuntimes(t *testing.T) (*channel.Registry, *subscriptionruntime.Runtime) {
 	t.Helper()
 	channels := channel.NewRegistry()
-	subscriptions, err := subscriptionruntime.NewRuntime(channels)
+	subscriptions, err := subscriptionruntime.NewRuntime(channels, subscriptionruntime.CodexImplementations())
 	if err != nil {
 		t.Fatal(err)
 	}

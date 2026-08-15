@@ -102,7 +102,7 @@ func TestValidatedLoaderRejectsInvalidStoredCredentialShape(t *testing.T) {
 func testSubscriptionRuntime(t *testing.T) (*channel.Registry, *subscriptionruntime.Runtime) {
 	t.Helper()
 	channels := channel.NewRegistry()
-	runtime, err := subscriptionruntime.NewRuntime(channels)
+	runtime, err := subscriptionruntime.NewRuntime(channels, subscriptionruntime.CodexImplementations())
 	if err != nil {
 		t.Fatal(err)
 	}

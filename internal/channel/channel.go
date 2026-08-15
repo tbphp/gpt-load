@@ -62,9 +62,29 @@ type FieldDescriptor struct {
 // ConnectionDescriptor describes the single code-owned credential flow used
 // by a channel. Connection type never selects an execution adapter.
 type ConnectionDescriptor struct {
-	Type                 string   `json:"type"`
-	CredentialInput      string   `json:"credential_input"`
-	AuthorizationMethods []string `json:"authorization_methods,omitempty"`
+	Type                 string                `json:"type"`
+	CredentialInput      string                `json:"credential_input"`
+	AuthorizationMethods []AuthorizationMethod `json:"authorization_methods,omitempty"`
+}
+
+// AuthorizationMethod is one supported subscription credential entry flow.
+type AuthorizationMethod = spec.AuthorizationMethod
+
+const (
+	AuthorizationBrowserOAuth = spec.AuthorizationBrowserOAuth
+	AuthorizationOAuthFile    = spec.AuthorizationOAuthFile
+)
+
+// CredentialAction is one safe account action advertised to the management UI.
+type CredentialAction string
+
+const CredentialActionResetCredit CredentialAction = "reset_credit"
+
+// CapabilityDescriptor is the safe public projection of optional channel behavior.
+type CapabilityDescriptor struct {
+	ModelDiscovery    bool               `json:"model_discovery"`
+	QuotaObservation  bool               `json:"quota_observation"`
+	CredentialActions []CredentialAction `json:"credential_actions"`
 }
 
 // RouteDescriptor is the safe, compiled route projection exposed to the UI.
@@ -89,6 +109,7 @@ type Descriptor struct {
 	ParamFields      []FieldDescriptor    `json:"param_fields"`
 	CredentialFields []FieldDescriptor    `json:"credential_fields"`
 	Connection       ConnectionDescriptor `json:"connection"`
+	Capabilities     CapabilityDescriptor `json:"capabilities"`
 	Routes           []RouteDescriptor    `json:"routes"`
 	ClientProtocols  []protocol.Protocol  `json:"client_protocols"`
 }
@@ -347,9 +368,21 @@ func (r *Registry) CapabilityBindings(id ID) (spec.CapabilityBindings, bool) {
 	if !ok {
 		return spec.CapabilityBindings{}, false
 	}
-	result := definition.capabilities
-	result.Actions = append([]spec.ActionID(nil), result.Actions...)
-	return result, true
+	return definition.capabilities, true
+}
+
+// SupportsAuthorizationMethod reports whether a subscription channel declares one entry flow.
+func (r *Registry) SupportsAuthorizationMethod(id ID, method AuthorizationMethod) bool {
+	descriptor, ok := r.Get(id)
+	if !ok || !method.Valid() {
+		return false
+	}
+	for _, candidate := range descriptor.Connection.AuthorizationMethods {
+		if candidate == method {
+			return true
+		}
+	}
+	return false
 }
 
 // SchedulingPolicy returns immutable scheduling metadata for one channel.
@@ -577,8 +610,7 @@ func newRegistry(definitions []definition) (*Registry, error) {
 		definition.descriptor = cloneDescriptor(definition.descriptor)
 		definition.modes = cloneRouteModes(definition.modes)
 		definition.resolvers = cloneRouteResolvers(definition.resolvers)
-		definition.connection.AuthorizationMethods = append([]string(nil), definition.connection.AuthorizationMethods...)
-		definition.capabilities.Actions = append([]spec.ActionID(nil), definition.capabilities.Actions...)
+		definition.connection.AuthorizationMethods = append([]AuthorizationMethod(nil), definition.connection.AuthorizationMethods...)
 		definition.fixedTargetConfig = append(json.RawMessage(nil), definition.fixedTargetConfig...)
 		registry.byID[id] = definition
 		registry.order = append(registry.order, id)
@@ -656,7 +688,8 @@ func cloneDescriptor(source Descriptor) Descriptor {
 	for index := range source.CredentialFields {
 		source.CredentialFields[index].DefaultValue = cloneStringPointer(source.CredentialFields[index].DefaultValue)
 	}
-	source.Connection.AuthorizationMethods = append([]string{}, source.Connection.AuthorizationMethods...)
+	source.Connection.AuthorizationMethods = append([]AuthorizationMethod{}, source.Connection.AuthorizationMethods...)
+	source.Capabilities.CredentialActions = append([]CredentialAction{}, source.Capabilities.CredentialActions...)
 	source.Routes = append([]RouteDescriptor{}, source.Routes...)
 	for index := range source.Routes {
 		source.Routes[index].PossibleModes = append([]RouteMode{}, source.Routes[index].PossibleModes...)

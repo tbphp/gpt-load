@@ -137,7 +137,9 @@ func (s *Service) ConsumeCredentialResetCredit(
 		credentialID,
 		observationRefreshAfterMutation,
 	)
-	response.Observation = &observation
+	if observation.State != "" {
+		response.Observation = &observation
+	}
 	response.ObservationPending = observationErr != nil
 	return response, nil
 }

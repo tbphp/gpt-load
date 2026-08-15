@@ -161,9 +161,17 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 		got[0] != "browser_oauth" || got[1] != "oauth_file" {
 		t.Fatalf("subscription authorization methods = %#v", got)
 	}
+	if !descriptor.Capabilities.ModelDiscovery || !descriptor.Capabilities.QuotaObservation ||
+		!reflect.DeepEqual(descriptor.Capabilities.CredentialActions, []CredentialAction{CredentialActionResetCredit}) {
+		t.Fatalf("subscription capabilities = %#v", descriptor.Capabilities)
+	}
 	openAI, ok := registry.Get(OpenAI)
 	if !ok || openAI.Connection.Type != "api_key" {
 		t.Fatalf("OpenAI connection = %#v, found = %t", openAI.Connection, ok)
+	}
+	if !openAI.Capabilities.ModelDiscovery || openAI.Capabilities.QuotaObservation ||
+		len(openAI.Capabilities.CredentialActions) != 0 {
+		t.Fatalf("OpenAI capabilities = %#v", openAI.Capabilities)
 	}
 	target, err := registry.Resolve(Codex, nil)
 	if err != nil {
@@ -190,6 +198,13 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 	encoded, err := json.Marshal(descriptor)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var publicDescriptor map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &publicDescriptor); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := publicDescriptor["capabilities"]; !ok {
+		t.Fatalf("Codex descriptor omits safe capabilities: %s", encoded)
 	}
 	for _, internalName := range []string{"CPA", "Bifrost", "executor"} {
 		if strings.Contains(strings.ToLower(string(encoded)), strings.ToLower(internalName)) {

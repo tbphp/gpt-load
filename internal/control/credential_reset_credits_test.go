@@ -52,6 +52,28 @@ func TestConsumeCredentialResetCreditIsDurablyIdempotentAndForcesObservation(t *
 	}
 }
 
+func TestConsumeCredentialResetCreditOmitsInvalidObservationAfterSuccess(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
+		cancel()
+		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil
+	})
+
+	result, err := fixture.service.ConsumeCredentialResetCredit(
+		ctx,
+		groupID,
+		credentialID,
+		resetCreditTestKey,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "succeeded" || !result.ObservationPending || result.Observation != nil {
+		t.Fatalf("result = %#v, want succeeded with pending omitted observation", result)
+	}
+}
+
 func TestConsumeCredentialResetCreditRestoresRuntimeHealth(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 11, 30, 0, 0, time.UTC)

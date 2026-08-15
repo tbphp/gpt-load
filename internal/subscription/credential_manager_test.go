@@ -323,7 +323,7 @@ func newCredentialManagerFixture(
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	subscriptions, err := subscriptionruntime.NewRuntime(channel.NewRegistry())
+	subscriptions, err := subscriptionruntime.NewRuntime(channel.NewRegistry(), subscriptionruntime.CodexImplementations())
 	if err != nil {
 		t.Fatal(err)
 	}

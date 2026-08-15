@@ -12,6 +12,7 @@ import {
   importCredentialStage,
   type CredentialStage,
 } from '@/app/resources/credential-stages'
+import type { ChannelAuthorizationMethod } from '@/app/resources/channels'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
@@ -22,12 +23,13 @@ import PanelHeader from '@/components/ui/PanelHeader.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
 
-const OAUTH_JSON_PLACEHOLDER = '{"type":"codex","access_token":"...","refresh_token":"..."}'
+const OAUTH_JSON_PLACEHOLDER = '{"access_token":"...","refresh_token":"..."}'
 
 const props = withDefaults(
   defineProps<{
     modelValue: CredentialStage[]
     channelId: string
+    authorizationMethods: ChannelAuthorizationMethod[]
     disabled?: boolean
     single?: boolean
     compact?: boolean
@@ -72,6 +74,9 @@ const readyCount = computed(
 const hasAccounts = computed(() => props.modelValue.length > 0)
 const canAdd = computed(() => !props.single || props.modelValue.length === 0)
 const entryBusy = computed(() => props.disabled || Boolean(busyAction.value))
+const supportsBrowserOAuth = computed(() => props.authorizationMethods.includes('browser_oauth'))
+const supportsOAuthFile = computed(() => props.authorizationMethods.includes('oauth_file'))
+const hasEntryMethod = computed(() => supportsBrowserOAuth.value || supportsOAuthFile.value)
 
 function replaceStage(stage: CredentialStage): void {
   const existing = props.modelValue.find((item) => item.stage_id === stage.stage_id)
@@ -212,13 +217,13 @@ watch(
 function openAuthorizationPopup(): Window | null {
   return window.open(
     'about:blank',
-    `gpt-load-codex-oauth-${Date.now()}`,
+    `gpt-load-${props.channelId}-oauth-${Date.now()}`,
     'popup,width=720,height=820,resizable=yes,scrollbars=yes',
   )
 }
 
 async function beginAuthorization(existingPopup?: Window | null): Promise<void> {
-  if (props.disabled || busyAction.value || !canAdd.value) {
+  if (!supportsBrowserOAuth.value || props.disabled || busyAction.value || !canAdd.value) {
     existingPopup?.close()
     return
   }
@@ -256,7 +261,7 @@ async function importText(): Promise<void> {
 }
 
 async function importOAuthJSON(file: File): Promise<void> {
-  if (props.disabled || busyAction.value || !canAdd.value) return
+  if (!supportsOAuthFile.value || props.disabled || busyAction.value || !canAdd.value) return
   feedbackKey.value = ''
   busyAction.value = 'import'
   try {
@@ -303,7 +308,7 @@ function remainingCountdown(stage: CredentialStage): string {
 }
 
 async function restartAuthorization(stage: CredentialStage): Promise<void> {
-  if (props.disabled || busyAction.value) return
+  if (!supportsBrowserOAuth.value || props.disabled || busyAction.value) return
   const popup = openAuthorizationPopup()
   await removeStage(stage)
   // 等父组件把新的 modelValue 回灌进来，否则 single 模式下 canAdd 还是旧值。
@@ -486,6 +491,7 @@ onBeforeUnmount(() => {
         <div v-if="isRecoverable(stage)" class="subscription-stager__recover" role="alert">
           <span>{{ stageErrorMessage(stage) }}</span>
           <AppButton
+            v-if="supportsBrowserOAuth"
             size="compact"
             :disabled="disabled || Boolean(busyAction)"
             :busy="busyAction === 'authorize'"
@@ -570,6 +576,7 @@ onBeforeUnmount(() => {
           </form>
 
           <AppButton
+            v-if="supportsBrowserOAuth"
             class="subscription-stager__restart"
             variant="link"
             size="inline"
@@ -582,8 +589,8 @@ onBeforeUnmount(() => {
       </article>
     </div>
 
-    <div v-if="canAdd" class="subscription-stager__entry">
-      <div class="subscription-stager__entry-primary">
+    <div v-if="canAdd && hasEntryMethod" class="subscription-stager__entry">
+      <div v-if="supportsBrowserOAuth" class="subscription-stager__entry-primary">
         <AppButton
           class="subscription-stager__primary"
           :variant="hasAccounts ? 'secondary' : 'primary'"
@@ -603,9 +610,14 @@ onBeforeUnmount(() => {
       </div>
 
       <DisclosurePanel
-        :summary="t('import.subscription.orImport')"
-        :open="jsonImportOpen"
-        @update:open="jsonImportOpen = $event"
+        v-if="supportsOAuthFile"
+        :summary="
+          supportsBrowserOAuth
+            ? t('import.subscription.orImport')
+            : t('import.subscription.oauthJSONLabel')
+        "
+        :open="!supportsBrowserOAuth || jsonImportOpen"
+        @update:open="jsonImportOpen = supportsBrowserOAuth ? $event : true"
       >
         <div class="subscription-stager__json">
           <FormField
@@ -658,7 +670,12 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 安全说明只在还没连上账号时引导；已有账号后它就只是噪音 -->
-    <InlineFeedback v-if="!hasAccounts" tone="neutral" appearance="ledger-hint" glyph="i">
+    <InlineFeedback
+      v-if="!hasAccounts && hasEntryMethod"
+      tone="neutral"
+      appearance="ledger-hint"
+      glyph="i"
+    >
       {{ t(`import.subscription.securityNotice.${context}`) }}
     </InlineFeedback>
 

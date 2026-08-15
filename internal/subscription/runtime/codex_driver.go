@@ -17,6 +17,18 @@ type codexDriver struct{}
 
 func newCodexDriver() *codexDriver { return &codexDriver{} }
 
+// CodexImplementations returns the concrete subscription behavior assembled by
+// the application composition root.
+func CodexImplementations() Implementations {
+	driver := newCodexDriver()
+	return Implementations{
+		Drivers:            []Driver{driver},
+		ModelDiscoveries:   []ModelDiscovery{driver.modelDiscovery()},
+		QuotaObservations:  []QuotaObservation{driver.quotaObservation()},
+		ResetCreditActions: []ResetCreditAction{driver.resetCreditAction()},
+	}
+}
+
 func (*codexDriver) ID() spec.SubscriptionDriverID { return modules.CodexSubscriptionDriver }
 
 func (*codexDriver) Parse(raw []byte) (Credential, error) {

@@ -103,11 +103,29 @@ const (
 	ConnectionSubscription ConnectionType = "subscription"
 )
 
+// AuthorizationMethod is one supported subscription credential entry flow.
+type AuthorizationMethod string
+
+const (
+	AuthorizationBrowserOAuth AuthorizationMethod = "browser_oauth"
+	AuthorizationOAuthFile    AuthorizationMethod = "oauth_file"
+)
+
+// Valid reports whether the authorization method is part of the public channel contract.
+func (method AuthorizationMethod) Valid() bool {
+	switch method {
+	case AuthorizationBrowserOAuth, AuthorizationOAuthFile:
+		return true
+	default:
+		return false
+	}
+}
+
 // Connection is the single connection contract for a channel.
 type Connection struct {
 	Type                 ConnectionType
 	CredentialInput      string
-	AuthorizationMethods []string
+	AuthorizationMethods []AuthorizationMethod
 }
 
 // EndpointPolicy declares where non-secret target configuration comes from.
@@ -173,9 +191,8 @@ func NewRoute(
 type CapabilityBindings struct {
 	SubscriptionDriver SubscriptionDriverID
 	ModelDiscovery     UtilityID
-	ModelProbe         UtilityID
 	QuotaObservation   UtilityID
-	Actions            []ActionID
+	ResetCreditAction  ActionID
 }
 
 // SchedulingPolicy is immutable channel scheduling metadata.

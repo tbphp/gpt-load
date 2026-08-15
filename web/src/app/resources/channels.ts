@@ -18,11 +18,19 @@ import {
 
 export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
 export type ChannelConnectionType = 'api_key' | 'subscription'
+export type ChannelAuthorizationMethod = 'browser_oauth' | 'oauth_file'
+export type ChannelCredentialAction = 'reset_credit'
 
 export interface ChannelConnectionDto {
   type: ChannelConnectionType
   credential_input: 'batch_text' | 'authorization'
-  authorization_methods: Array<'browser_oauth' | 'oauth_file'>
+  authorization_methods: ChannelAuthorizationMethod[]
+}
+
+export interface ChannelCapabilitiesDto {
+  model_discovery: boolean
+  quota_observation: boolean
+  credential_actions: ChannelCredentialAction[]
 }
 
 export type ChannelRouteMode = 'native' | 'converted'
@@ -67,6 +75,7 @@ export interface ChannelDto {
   param_fields: ChannelFieldDto[]
   credential_fields: ChannelFieldDto[]
   connection: ChannelConnectionDto
+  capabilities: ChannelCapabilitiesDto
   routes: ChannelRouteDto[]
   client_protocols: AccessProtocol[]
 }
@@ -87,6 +96,7 @@ const channelFields = [
   'param_fields',
   'credential_fields',
   'connection',
+  'capabilities',
   'routes',
   'client_protocols',
 ] as const
@@ -104,6 +114,8 @@ const connectionTypes = ['api_key', 'subscription'] as const
 const credentialInputs = ['batch_text', 'authorization'] as const
 const authorizationMethods = ['browser_oauth', 'oauth_file'] as const
 const connectionFields = ['type', 'credential_input', 'authorization_methods'] as const
+const capabilityFields = ['model_discovery', 'quota_observation', 'credential_actions'] as const
+const credentialActions = ['reset_credit'] as const
 const routeFields = [
   'client_protocol',
   'operation',
@@ -183,6 +195,20 @@ function projectConnection(value: unknown): ChannelConnectionDto {
   return { type, credential_input: credentialInput, authorization_methods: methods }
 }
 
+function projectCapabilities(value: unknown): ChannelCapabilitiesDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, capabilityFields)
+  const actions = projectArray(record.credential_actions, (action) =>
+    projectEnum(action, credentialActions),
+  )
+  if (new Set(actions).size !== actions.length) invalidResponse()
+  return {
+    model_discovery: projectBoolean(record.model_discovery),
+    quota_observation: projectBoolean(record.quota_observation),
+    credential_actions: actions,
+  }
+}
+
 function projectRoute(value: unknown): ChannelRouteDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, routeFields)
@@ -213,6 +239,7 @@ function projectChannel(value: unknown): ChannelDto {
   const paramFields = projectArray(record.param_fields, projectChannelField)
   const credentialFields = projectArray(record.credential_fields, projectChannelField)
   const connection = projectConnection(record.connection)
+  const capabilities = projectCapabilities(record.capabilities)
   const routes = projectArray(record.routes, projectRoute)
   const clientProtocols = projectArray(record.client_protocols, (protocol) =>
     projectEnum(protocol, enabledDataProtocols),
@@ -244,6 +271,7 @@ function projectChannel(value: unknown): ChannelDto {
     param_fields: paramFields,
     credential_fields: credentialFields,
     connection,
+    capabilities,
     routes,
     client_protocols: clientProtocols,
   }

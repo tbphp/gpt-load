@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"gpt-load/internal/channel/spec"
+	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
 )
 
 func TestCompilerRejectsExtensionImplementedByAnotherChannelModule(t *testing.T) {
@@ -33,6 +35,80 @@ func TestCompilerRejectsUnreferencedChannelExtension(t *testing.T) {
 
 	if _, err := compileBuiltInModules([]spec.Module{openAI}); err == nil {
 		t.Fatal("compileBuiltInModules() accepted an unreferenced channel extension")
+	}
+}
+
+func TestCompilerRejectsUnknownAuthorizationMethod(t *testing.T) {
+	t.Parallel()
+
+	codex := findModule(t, builtInModules(), Codex)
+	codex.Definition.Connection.AuthorizationMethods = []spec.AuthorizationMethod{"unknown"}
+
+	if _, err := compileBuiltInModules([]spec.Module{codex}); err == nil {
+		t.Fatal("compileBuiltInModules() accepted an unknown authorization method")
+	}
+}
+
+func TestCompilerRejectsQuotaPriorityWithoutObservation(t *testing.T) {
+	t.Parallel()
+
+	codex := findModule(t, builtInModules(), Codex)
+	codex.Definition.Capabilities.QuotaObservation = ""
+
+	if _, err := compileBuiltInModules([]spec.Module{codex}); err == nil {
+		t.Fatal("compileBuiltInModules() accepted quota priority without observation")
+	}
+}
+
+func TestCompilerRejectsSubscriptionCapabilityOnAPIKeyChannel(t *testing.T) {
+	t.Parallel()
+
+	openAI := findModule(t, builtInModules(), OpenAI)
+	openAI.Definition.Capabilities.ModelDiscovery = "subscription_models"
+
+	if _, err := compileBuiltInModules([]spec.Module{openAI}); err == nil {
+		t.Fatal("compileBuiltInModules() accepted a subscription capability on an API key channel")
+	}
+}
+
+func TestResolvedTargetRejectsRouteResolverModeOutsideDeclaredSet(t *testing.T) {
+	t.Parallel()
+
+	openAI := findModule(t, builtInModules(), OpenAI)
+	const resolverID spec.RouteResolverID = "test_out_of_range"
+	for index := range openAI.Definition.Routes {
+		route := &openAI.Definition.Routes[index]
+		if route.ClientProtocol != protocol.OpenAICompletions ||
+			route.Operation != execution.OperationChatCompletion {
+			continue
+		}
+		route.Resolver = resolverID
+		route.PossibleModes = []execution.RouteMode{execution.RouteNative}
+	}
+	openAI.Extensions.RouteResolvers = map[spec.RouteResolverID]spec.RouteResolver{
+		resolverID: func(string, execution.RouteMode) execution.RouteMode {
+			return execution.RouteConverted
+		},
+	}
+
+	definitions, err := compileBuiltInModules([]spec.Module{openAI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := newRegistry(definitions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := registry.Resolve(OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode, ok := target.ModeForModel(
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"gpt-test",
+	); ok {
+		t.Fatalf("ModeForModel() = %q, true; want false for undeclared mode", mode)
 	}
 }
 

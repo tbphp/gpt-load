@@ -12,6 +12,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { CredentialItemDto, CredentialQuotaWindowDto } from '@/api/control/types'
+import type { ChannelAuthorizationMethod, ChannelCapabilitiesDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
@@ -30,6 +31,8 @@ const props = defineProps<{
   detailBusy: boolean
   detailLoaded: boolean
   detailError: string
+  authorizationMethods: ChannelAuthorizationMethod[]
+  capabilities: ChannelCapabilitiesDto
 }>()
 const emit = defineEmits<{
   toggle: [item: CredentialItemDto]
@@ -73,6 +76,11 @@ watch(
 )
 
 const observation = computed(() => props.item.observation)
+const supportsQuotaObservation = computed(() => props.capabilities.quota_observation)
+const supportsResetCredit = computed(() =>
+  props.capabilities.credential_actions.includes('reset_credit'),
+)
+const canReauthorize = computed(() => props.authorizationMethods.length > 0)
 const snapshot = computed(() => observation.value?.snapshot)
 // 最快恢复的额度窗口排在前面；缺少时长的上游窗口保持在最后。
 const quotaWindows = computed(() =>
@@ -163,6 +171,7 @@ const unifiedStatus = computed<UnifiedStatus>(() => {
   if (props.item.effective_status === 'blacklisted') return 'blacklisted'
   if (props.item.effective_status === 'cooldown') return 'cooldown'
   if (
+    supportsQuotaObservation.value &&
     quotaWindows.value.some(
       (window) =>
         window.scope === 'account' && quotaWindowIsCurrent(window) && window.state === 'exhausted',
@@ -349,7 +358,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
         </StatusBadge>
         <div class="subscription-account__actions">
-          <span class="subscription-account__sync-age">
+          <span v-if="supportsQuotaObservation" class="subscription-account__sync-age">
             {{ t('group.credentials.subscription.synced') }}
             <AppRelativeTime
               :instant="observation?.observed_at_ms ?? null"
@@ -359,6 +368,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
             />
           </span>
           <AppButton
+            v-if="supportsQuotaObservation"
             class="subscription-account__sync-button"
             variant="secondary"
             size="compact"
@@ -384,7 +394,12 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               </IconButton>
             </template>
             <div class="subscription-account__menu">
-              <button type="button" :disabled="busy" @click="runMenuAction('reauthorize')">
+              <button
+                v-if="canReauthorize"
+                type="button"
+                :disabled="busy"
+                @click="runMenuAction('reauthorize')"
+              >
                 <LogIn :size="15" aria-hidden="true" />{{
                   t('group.credentials.subscription.reauthorize')
                 }}
@@ -426,12 +441,20 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 
       <div v-if="authIssue" class="subscription-account__alert">
         <span>{{ authIssue }}</span>
-        <AppButton size="compact" :disabled="busy" @click="emit('reauthorize', item)">
+        <AppButton
+          v-if="canReauthorize"
+          size="compact"
+          :disabled="busy"
+          @click="emit('reauthorize', item)"
+        >
           {{ t('group.credentials.subscription.reauthorize') }}
         </AppButton>
       </div>
 
-      <div v-if="quotaWindows.length" class="subscription-account__quotas">
+      <div
+        v-if="supportsQuotaObservation && quotaWindows.length"
+        class="subscription-account__quotas"
+      >
         <div v-for="window in quotaWindows" :key="window.id" class="subscription-account__quota">
           <OverflowTooltip class="subscription-account__quota-name" :content="window.label">
             {{ window.label }}
@@ -477,7 +500,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           </span>
         </div>
       </div>
-      <p v-else class="subscription-account__faint">
+      <p v-else-if="supportsQuotaObservation" class="subscription-account__faint">
         {{ t('group.credentials.subscription.noQuota') }}
       </p>
 
@@ -486,7 +509,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       </p>
 
       <div
-        v-if="resetCreditsUsable"
+        v-if="supportsResetCredit && resetCreditsUsable"
         class="subscription-account__credits"
         :class="{ 'subscription-account__credits--urgent': unifiedStatus === 'quota_exhausted' }"
       >
@@ -580,7 +603,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           </span>
           <SkeletonBlock height="var(--subscription-detail-activity-height)" />
         </div>
-        <div class="subscription-account__skeleton-section">
+        <div v-if="supportsQuotaObservation" class="subscription-account__skeleton-section">
           <span class="subscription-account__skeleton-title">
             <SkeletonBlock width="140px" height="11px" />
           </span>
@@ -637,7 +660,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           </div>
         </section>
 
-        <section class="subscription-account__detail-section">
+        <section v-if="supportsQuotaObservation" class="subscription-account__detail-section">
           <h3>{{ t('group.credentials.subscription.estimate.title') }}</h3>
           <div class="subscription-account__window-table" role="table">
             <div
@@ -725,7 +748,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               <dt>{{ t('group.credentials.detailsFailure') }}</dt>
               <dd>{{ failureLabel }}</dd>
             </dl>
-            <dl>
+            <dl v-if="supportsQuotaObservation">
               <dt>{{ t('group.credentials.subscription.freshUntil') }}</dt>
               <dd>
                 <AppRelativeTime
@@ -751,7 +774,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
               <dd>{{ n(item.consecutive_failure_count) }}</dd>
             </dl>
-            <dl>
+            <dl v-if="supportsQuotaObservation">
               <dt>{{ t('group.credentials.subscription.lastError') }}</dt>
               <dd>{{ observationErrorLabel(observation?.last_error_code) }}</dd>
             </dl>
@@ -768,11 +791,17 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
               </dd>
             </dl>
           </div>
-          <div v-if="constrainedModels.length" class="subscription-account__models">
+          <div
+            v-if="supportsQuotaObservation && constrainedModels.length"
+            class="subscription-account__models"
+          >
             <span>{{ t('group.credentials.subscription.modelConstraints') }}</span>
             <code v-for="model in constrainedModels" :key="model">{{ model }}</code>
           </div>
-          <div v-if="resetCredits.length" class="subscription-account__reset-credit-list">
+          <div
+            v-if="supportsResetCredit && resetCredits.length"
+            class="subscription-account__reset-credit-list"
+          >
             <span>{{ t('group.credentials.subscription.resetCreditExpirations') }}</span>
             <AppRelativeTime
               v-for="credit in resetCredits"

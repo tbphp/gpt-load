@@ -11,7 +11,7 @@ import (
 )
 
 func TestRuntimeCompilesSubscriptionCapabilitiesFromChannelBindings(t *testing.T) {
-	runtime, err := NewRuntime(channel.NewRegistry())
+	runtime, err := NewRuntime(channel.NewRegistry(), CodexImplementations())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +36,26 @@ func TestRuntimeCompilesSubscriptionCapabilitiesFromChannelBindings(t *testing.T
 	action, ok := runtime.ResetCreditAction(channel.Codex)
 	if !ok || action.ID() != modules.CodexResetCreditAction {
 		t.Fatalf("ResetCreditAction(codex) = %#v, %t", action, ok)
+	}
+}
+
+func TestRuntimeRequiresExplicitImplementations(t *testing.T) {
+	if _, err := NewRuntime(channel.NewRegistry()); err == nil {
+		t.Fatal("NewRuntime() compiled provider implementations implicitly")
+	}
+}
+
+func TestRuntimeRejectsDeclaredBrowserAuthorizationWithoutDriverSupport(t *testing.T) {
+	codex := newCodexDriver()
+	_, err := compileRuntime(
+		channel.NewRegistry(),
+		[]Driver{duplicateDriver{id: modules.CodexSubscriptionDriver}},
+		[]ModelDiscovery{codex.modelDiscovery()},
+		[]QuotaObservation{codex.quotaObservation()},
+		[]ResetCreditAction{codex.resetCreditAction()},
+	)
+	if err == nil {
+		t.Fatal("compileRuntime() accepted browser OAuth without a browser authorization driver")
 	}
 }
 

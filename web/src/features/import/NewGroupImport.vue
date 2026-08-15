@@ -320,6 +320,7 @@ const submitBlockedReason = computed(() => {
 })
 const canDiscover = computed(
   () =>
+    selectedChannel.value?.capabilities.model_discovery === true &&
     !payloadLocked.value &&
     !paramsError.value &&
     credentialCount.value > 0 &&
@@ -1231,6 +1232,7 @@ onBeforeUnmount(() => {
             v-if="isSubscription"
             v-model="draft.staged_credentials"
             :channel-id="draft.channel_id"
+            :authorization-methods="selectedChannel?.connection.authorization_methods ?? []"
             context="create"
             :disabled="payloadLocked"
             hide-header
@@ -1280,6 +1282,7 @@ onBeforeUnmount(() => {
             <span>{{ t('import.models.empty') }}</span>
             <div class="new-group-import__models-actions">
               <AppButton
+                v-if="selectedChannel?.capabilities.model_discovery"
                 variant="secondary"
                 size="sm"
                 :busy="discoveryLoading"
@@ -1301,6 +1304,7 @@ onBeforeUnmount(() => {
 
           <div v-if="draft.models.length > 0" class="new-group-import__models-toolbar">
             <AppButton
+              v-if="selectedChannel?.capabilities.model_discovery"
               variant="secondary"
               size="sm"
               :busy="discoveryLoading"

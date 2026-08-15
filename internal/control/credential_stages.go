@@ -104,6 +104,10 @@ func (s *Service) ImportCredentialStage(
 	if s == nil || s.db == nil || s.encryption == nil {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
+	if s.channelRegistry == nil ||
+		!s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationOAuthFile) {
+		return CredentialStageResult{}, app_errors.ErrValidation
+	}
 	driver, err := s.subscriptionDriver(channelID)
 	if err != nil {
 		return CredentialStageResult{}, err
@@ -155,6 +159,10 @@ func (s *Service) BeginCredentialAuthorization(
 	channelID channel.ID,
 ) (CredentialStageResult, error) {
 	if s == nil || s.db == nil || s.encryption == nil {
+		return CredentialStageResult{}, app_errors.ErrValidation
+	}
+	if s.channelRegistry == nil ||
+		!s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationBrowserOAuth) {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
 	if _, err := s.subscriptionDriver(channelID); err != nil {

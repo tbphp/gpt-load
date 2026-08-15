@@ -148,7 +148,7 @@ func BuildContainer() (*dig.Container, error) {
 			manager.SetSnapshotReconciler(providerRuntimeSnapshotReconciler{adapters: adapters})
 			return manager
 		},
-		subscriptionruntime.NewRuntime,
+		newSubscriptionRuntime,
 		subscription.NewCredentialManager,
 		cpaexecutor.NewAdapter,
 		newProviderAdapterRegistry,
@@ -201,6 +201,10 @@ func BuildContainer() (*dig.Container, error) {
 
 type providerRuntimeSnapshotReconciler struct {
 	adapters *provideradapter.Registry
+}
+
+func newSubscriptionRuntime(registry *channel.Registry) (*subscriptionruntime.Runtime, error) {
+	return subscriptionruntime.NewRuntime(registry, subscriptionruntime.CodexImplementations())
 }
 
 func newProviderAdapterRegistry(

@@ -18,22 +18,34 @@ func (s *Service) discoverSubscriptionStageModels(
 	channelID channel.ID,
 	stageID string,
 ) (ModelDiscoveryResult, error) {
-	stage, err := s.loadCredentialStage(ctx, strings.TrimSpace(stageID))
-	if err != nil {
-		return ModelDiscoveryResult{}, err
-	}
-	if stage.Status != models.CredentialStageReady || stage.ChannelID != string(channelID) ||
-		stage.ConnectionType != models.ConnectionTypeSubscription {
-		return ModelDiscoveryResult{}, app_errors.ErrStagedCredentialNotReady
-	}
-	if s.now().UnixMilli() >= stage.ExpiresAtMS {
-		return ModelDiscoveryResult{}, app_errors.ErrStagedCredentialExpired
-	}
-	credential, err := s.decodeStageSubscriptionCredential(channelID, stage)
+	credential, err := s.loadReadySubscriptionStageCredential(ctx, channelID, stageID)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
 	return s.discoverSubscriptionModelsForChannel(ctx, channelID, credential)
+}
+
+func (s *Service) loadReadySubscriptionStageCredential(
+	ctx context.Context,
+	channelID channel.ID,
+	stageID string,
+) (subscriptionruntime.Credential, error) {
+	stage, err := s.loadCredentialStage(ctx, strings.TrimSpace(stageID))
+	if err != nil {
+		return subscriptionruntime.Credential{}, err
+	}
+	if stage.Status != models.CredentialStageReady || stage.ChannelID != string(channelID) ||
+		stage.ConnectionType != models.ConnectionTypeSubscription {
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialNotReady
+	}
+	if s.now().UnixMilli() >= stage.ExpiresAtMS {
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialExpired
+	}
+	credential, err := s.decodeStageSubscriptionCredential(channelID, stage)
+	if err != nil {
+		return subscriptionruntime.Credential{}, err
+	}
+	return credential, nil
 }
 
 func (s *Service) discoverSubscriptionGroupModels(

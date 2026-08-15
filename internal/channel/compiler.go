@@ -112,6 +112,9 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 	if err := validateTargetPolicy(source, params); err != nil {
 		return definition{}, err
 	}
+	if source.Scheduling.QuotaPriority && source.Capabilities.QuotaObservation == "" {
+		return definition{}, fmt.Errorf("channel %q enables quota priority without quota observation", id)
+	}
 
 	fixedBaseURL := ""
 	var fixedTargetConfig json.RawMessage
@@ -136,8 +139,9 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 			Connection: ConnectionDescriptor{
 				Type:                 string(source.Connection.Type),
 				CredentialInput:      source.Connection.CredentialInput,
-				AuthorizationMethods: append([]string(nil), source.Connection.AuthorizationMethods...),
+				AuthorizationMethods: append([]AuthorizationMethod(nil), source.Connection.AuthorizationMethods...),
 			},
+			Capabilities:    publicCapabilities(source.Capabilities, source.Routes),
 			Routes:          publicRoutes,
 			ClientProtocols: orderedProtocols(modes),
 		},
@@ -166,8 +170,9 @@ func validateConnection(source spec.Definition) error {
 		if connection.CredentialInput != "batch_text" || len(connection.AuthorizationMethods) != 0 {
 			return fmt.Errorf("channel %q has invalid API key connection", id)
 		}
-		if source.Capabilities.SubscriptionDriver != "" {
-			return fmt.Errorf("channel %q binds a subscription driver to an API key connection", id)
+		if source.Capabilities.SubscriptionDriver != "" || source.Capabilities.ModelDiscovery != "" ||
+			source.Capabilities.QuotaObservation != "" || source.Capabilities.ResetCreditAction != "" {
+			return fmt.Errorf("channel %q binds subscription capabilities to an API key connection", id)
 		}
 	case spec.ConnectionSubscription:
 		if connection.CredentialInput != "authorization" || len(connection.AuthorizationMethods) == 0 {
@@ -179,10 +184,10 @@ func validateConnection(source spec.Definition) error {
 	default:
 		return fmt.Errorf("channel %q has invalid connection type %q", id, connection.Type)
 	}
-	seen := make(map[string]struct{}, len(connection.AuthorizationMethods))
+	seen := make(map[spec.AuthorizationMethod]struct{}, len(connection.AuthorizationMethods))
 	for _, method := range connection.AuthorizationMethods {
-		if strings.TrimSpace(method) == "" {
-			return fmt.Errorf("channel %q has an empty authorization method", id)
+		if !method.Valid() {
+			return fmt.Errorf("channel %q has invalid authorization method %q", id, method)
 		}
 		if _, duplicate := seen[method]; duplicate {
 			return fmt.Errorf("channel %q has duplicate authorization method %q", id, method)
@@ -327,7 +332,17 @@ func compileRoutes(
 			if _, includesDefault := seenModes[candidate.Mode]; !includesDefault {
 				return nil, nil, nil, fmt.Errorf("channel %q route resolver %q omits its default mode", channelID, candidate.Resolver)
 			}
-			resolvers[key] = resolver
+			allowedModes := make(map[RouteMode]struct{}, len(seenModes))
+			for possible := range seenModes {
+				allowedModes[possible] = struct{}{}
+			}
+			resolvers[key] = func(upstreamModel string, defaultMode execution.RouteMode) execution.RouteMode {
+				resolved := resolver(upstreamModel, defaultMode)
+				if _, allowed := allowedModes[resolved]; !allowed {
+					return ""
+				}
+				return resolved
+			}
 		} else if len(possibleModes) != 0 {
 			return nil, nil, nil, fmt.Errorf("channel %q static route declares possible modes", channelID)
 		}
@@ -420,13 +435,30 @@ func schemaHasField(schema objectSchema, key string, required bool) bool {
 }
 
 func cloneConnection(source spec.Connection) spec.Connection {
-	source.AuthorizationMethods = append([]string(nil), source.AuthorizationMethods...)
+	source.AuthorizationMethods = append([]spec.AuthorizationMethod(nil), source.AuthorizationMethods...)
 	return source
 }
 
 func cloneCapabilityBindings(source spec.CapabilityBindings) spec.CapabilityBindings {
-	source.Actions = append([]spec.ActionID(nil), source.Actions...)
 	return source
+}
+
+func publicCapabilities(source spec.CapabilityBindings, routes []spec.Route) CapabilityDescriptor {
+	result := CapabilityDescriptor{
+		ModelDiscovery:    source.ModelDiscovery != "",
+		QuotaObservation:  source.QuotaObservation != "",
+		CredentialActions: []CredentialAction{},
+	}
+	if source.ResetCreditAction != "" {
+		result.CredentialActions = append(result.CredentialActions, CredentialActionResetCredit)
+	}
+	for _, route := range routes {
+		if route.Operation == execution.OperationListModels {
+			result.ModelDiscovery = true
+			break
+		}
+	}
+	return result
 }
 
 func orderedProtocols(modes map[protocol.Protocol]map[execution.Operation]RouteMode) []protocol.Protocol {

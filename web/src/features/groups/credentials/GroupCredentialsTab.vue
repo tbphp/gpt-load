@@ -16,6 +16,7 @@ import type {
   GroupSummaryDto,
 } from '@/api/control/types'
 import { useCollectionLoading } from '@/app/loading-state'
+import { channelsQueryOptions, type ChannelCapabilitiesDto } from '@/app/resources/channels'
 import {
   batchCredentials,
   cacheCredentialBatch,
@@ -82,6 +83,21 @@ const filters = computed(() => parseCredentialRouteQuery(route.query))
 const routeState = computed(() => parseCredentialRouteState(route.query))
 const credentialsQuery = useQuery(
   credentialCollectionQueryOptions(client, () => props.groupId, filters),
+)
+const channelsQuery = useQuery(channelsQueryOptions(client, ''))
+const channelDescriptor = computed(() =>
+  channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === props.channelId),
+)
+const authorizationMethods = computed(
+  () => channelDescriptor.value?.connection.authorization_methods ?? [],
+)
+const channelCapabilities = computed<ChannelCapabilitiesDto>(
+  () =>
+    channelDescriptor.value?.capabilities ?? {
+      model_discovery: false,
+      quota_observation: false,
+      credential_actions: [],
+    },
 )
 const searchDraft = ref(filters.value.q ?? '')
 const selectedIds = ref(new Set<number>())
@@ -864,7 +880,10 @@ async function runBatch(
       "
     >
       <template #actions>
-        <AppButton v-if="connectionType === 'subscription'" @click="openConnectionWorkspace()">
+        <AppButton
+          v-if="connectionType === 'subscription' && authorizationMethods.length > 0"
+          @click="openConnectionWorkspace()"
+        >
           <Plus :size="16" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
         </AppButton>
         <RouterLink
@@ -902,6 +921,7 @@ async function runBatch(
         <SubscriptionCredentialStager
           v-model="connectionStages"
           :channel-id="channelId"
+          :authorization-methods="authorizationMethods"
           compact
           hide-header
           context="connect"
@@ -1033,7 +1053,10 @@ async function runBatch(
       >
         <template #icon><KeyRound :size="20" /></template>
         <template #actions>
-          <AppButton v-if="connectionType === 'subscription'" @click="openConnectionWorkspace()">
+          <AppButton
+            v-if="connectionType === 'subscription' && authorizationMethods.length > 0"
+            @click="openConnectionWorkspace()"
+          >
             <Plus :size="15" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
           </AppButton>
           <RouterLink
@@ -1071,6 +1094,8 @@ async function runBatch(
             :detail-busy="detailBusy(item.credential_id)"
             :detail-loaded="detailLoaded(item.credential_id)"
             :detail-error="detailError(item.credential_id)"
+            :authorization-methods="authorizationMethods"
+            :capabilities="channelCapabilities"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
             @refresh="refreshObservation"

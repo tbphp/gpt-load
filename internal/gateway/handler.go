@@ -145,7 +145,7 @@ func NewHandler(
 		requestLogSink = telemetry.NoopRequestLogSink{}
 	}
 	channels := channel.NewRegistry()
-	subscriptions, _ := subscriptionruntime.NewRuntime(channels)
+	subscriptions, _ := subscriptionruntime.NewRuntime(channels, subscriptionruntime.CodexImplementations())
 	return &Handler{
 		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
