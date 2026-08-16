@@ -884,8 +884,6 @@ export default {
       },
       pricingMode: {
         fastLabel: 'Fast 模式计价',
-        fastTooltip:
-          'Fast 模式计价\n此请求的参考成本使用 Models.dev 提供的 Fast 模式价格单独计算。',
       },
     },
   },

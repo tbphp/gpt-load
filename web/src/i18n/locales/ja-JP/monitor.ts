@@ -908,8 +908,6 @@ export default {
       },
       pricingMode: {
         fastLabel: 'Fast モード料金',
-        fastTooltip:
-          'Fast モード料金\nこのリクエストの参考コストは、Models.dev が提供する Fast モード価格で個別に計算されています。',
       },
     },
   },

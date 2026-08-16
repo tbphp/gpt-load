@@ -909,8 +909,6 @@ export default {
       },
       pricingMode: {
         fastLabel: 'Fast mode pricing',
-        fastTooltip:
-          "Fast mode pricing\nThis request's estimated cost is calculated separately using the Fast mode prices provided by Models.dev.",
       },
     },
   },
