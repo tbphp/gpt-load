@@ -82,6 +82,51 @@ func TestProjectModelPriceRowDoesNotExposeSlotCompleteness(t *testing.T) {
 	}
 }
 
+func TestProjectModelPriceRowExposesModelsDevFastPrices(t *testing.T) {
+	standardInput := int64(3)
+	record, err := projectModelPriceRow(models.ModelPrice{
+		ID: 1, ChannelID: string(channel.OpenAI), ModelID: "gpt-fast",
+		InputPriceNanoUSDPerMillionTokens: &standardInput,
+	}, priceReferenceSnapshot{references: map[pricing.Identity]referencedPrice{}}, &catalog.Snapshot{
+		Providers: map[string]catalog.Provider{
+			"openai": {
+				ID: "openai",
+				Models: map[string]catalog.Model{
+					"gpt-fast": {
+						ID: "gpt-fast",
+						Cost: &catalog.ModelCost{ModePrices: map[pricing.Mode]pricing.Prices{
+							pricing.ModeFast: {
+								Input:  priceTestValue(7),
+								Output: priceTestValue(11),
+							},
+						}},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(record.dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatal(err)
+	}
+	modes, ok := wire["mode_prices"].(map[string]any)
+	if !ok {
+		t.Fatalf("model price response mode_prices = %#v", wire["mode_prices"])
+	}
+	fast, ok := modes[string(pricing.ModeFast)].(map[string]any)
+	if !ok || fast["input"] != "0.000000007" || fast["output"] != "0.000000011" ||
+		fast["cache_read"] != nil || fast["cache_write"] != nil {
+		t.Fatalf("model price response fast prices = %#v", modes[string(pricing.ModeFast)])
+	}
+}
+
 func TestResetModelPriceChangesOnlySelectedChannelIdentity(t *testing.T) {
 	fixture := newServiceFixture(t)
 	manual := int64(99)

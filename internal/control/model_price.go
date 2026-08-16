@@ -25,24 +25,25 @@ type PriceSlotsDTO struct {
 }
 
 type ModelPriceDTO struct {
-	ID                  uint                       `json:"id"`
-	ChannelID           string                     `json:"channel_id"`
-	ChannelName         string                     `json:"channel_name"`
-	ChannelMark         string                     `json:"channel_mark"`
-	ChannelIcon         string                     `json:"channel_icon"`
-	ModelID             string                     `json:"model_id"`
-	Prices              PriceSlotsDTO              `json:"prices"`
-	PricingStatus       PricingStatus              `json:"pricing_status"`
-	Method              *string                    `json:"method"`
-	MatchedProviderID   *string                    `json:"matched_provider_id"`
-	MatchSource         *ModelPriceMatchSource     `json:"match_source"`
-	Referenced          bool                       `json:"referenced"`
-	ReferenceCount      int                        `json:"reference_count"`
-	ReferenceGroupCount int                        `json:"reference_group_count"`
-	ContextTiers        []ModelPriceContextTierDTO `json:"context_tiers"`
-	UpdatedAtMS         int64                      `json:"updated_at_ms"`
-	CanReset            bool                       `json:"can_reset"`
-	CanDelete           bool                       `json:"can_delete"`
+	ID                  uint                           `json:"id"`
+	ChannelID           string                         `json:"channel_id"`
+	ChannelName         string                         `json:"channel_name"`
+	ChannelMark         string                         `json:"channel_mark"`
+	ChannelIcon         string                         `json:"channel_icon"`
+	ModelID             string                         `json:"model_id"`
+	Prices              PriceSlotsDTO                  `json:"prices"`
+	ModePrices          map[pricing.Mode]PriceSlotsDTO `json:"mode_prices"`
+	PricingStatus       PricingStatus                  `json:"pricing_status"`
+	Method              *string                        `json:"method"`
+	MatchedProviderID   *string                        `json:"matched_provider_id"`
+	MatchSource         *ModelPriceMatchSource         `json:"match_source"`
+	Referenced          bool                           `json:"referenced"`
+	ReferenceCount      int                            `json:"reference_count"`
+	ReferenceGroupCount int                            `json:"reference_group_count"`
+	ContextTiers        []ModelPriceContextTierDTO     `json:"context_tiers"`
+	UpdatedAtMS         int64                          `json:"updated_at_ms"`
+	CanReset            bool                           `json:"can_reset"`
+	CanDelete           bool                           `json:"can_delete"`
 }
 
 // ModelPriceContextTierDTO is one compiled input-quantity price tier. Unlike
@@ -519,6 +520,7 @@ func projectModelPriceRow(
 		ID: row.ID, ChannelID: row.ChannelID, ChannelName: descriptor.Name,
 		ChannelMark: descriptor.Mark, ChannelIcon: descriptor.Icon, ModelID: row.ModelID,
 		Prices:              prices,
+		ModePrices:          projectModePrices(rule.ModePrices),
 		PricingStatus:       status,
 		Method:              modelPriceMethod(row, configured, matchedAutomaticPrice),
 		MatchedProviderID:   matchedProviderID,
@@ -570,17 +572,29 @@ func modelPriceWireDecimalFromPrice(price pricing.Price) *string {
 	return &formatted
 }
 
+func projectPriceSlots(prices pricing.Prices) PriceSlotsDTO {
+	return PriceSlotsDTO{
+		Input:      modelPriceWireDecimalFromPrice(prices.Input),
+		Output:     modelPriceWireDecimalFromPrice(prices.Output),
+		CacheRead:  modelPriceWireDecimalFromPrice(prices.CacheRead),
+		CacheWrite: modelPriceWireDecimalFromPrice(prices.CacheWrite),
+	}
+}
+
+func projectModePrices(modePrices map[pricing.Mode]pricing.Prices) map[pricing.Mode]PriceSlotsDTO {
+	result := make(map[pricing.Mode]PriceSlotsDTO, len(modePrices))
+	for mode, prices := range modePrices {
+		result[mode] = projectPriceSlots(prices)
+	}
+	return result
+}
+
 func projectContextPriceTiers(tiers []pricing.ContextTier) []ModelPriceContextTierDTO {
 	result := make([]ModelPriceContextTierDTO, 0, len(tiers))
 	for _, tier := range tiers {
 		result = append(result, ModelPriceContextTierDTO{
 			ThresholdTokens: tier.InputThresholdTokens,
-			Prices: PriceSlotsDTO{
-				Input:      modelPriceWireDecimalFromPrice(tier.Prices.Input),
-				Output:     modelPriceWireDecimalFromPrice(tier.Prices.Output),
-				CacheRead:  modelPriceWireDecimalFromPrice(tier.Prices.CacheRead),
-				CacheWrite: modelPriceWireDecimalFromPrice(tier.Prices.CacheWrite),
-			},
+			Prices:          projectPriceSlots(tier.Prices),
 		})
 	}
 	return result

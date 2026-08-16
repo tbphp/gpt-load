@@ -315,6 +315,12 @@ const tierRules = computed<TierRule[]>(() => {
   background: var(--color-surface);
 }
 
+.model-price-group:focus-within {
+  border-color: var(--color-focus);
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
 .model-price-group--threshold {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -333,10 +339,11 @@ const tierRules = computed<TierRule[]>(() => {
   border-left: 0;
 }
 
-/* 边框被移除后，用内描边表达 focus 与非法态，避免影响相邻单元格布局。 */
-.model-price-group :deep(.app-text-input:focus-within) {
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
+/* 组合控件统一由外框表达焦点，子输入仅保留单元格分隔线。 */
+.model-price-group :deep(.app-text-input[data-input-shell]:focus-within) {
+  border-color: var(--color-border-subtle);
+  outline: 0;
+  box-shadow: none;
 }
 
 .model-price-group :deep(.app-text-input--invalid) {

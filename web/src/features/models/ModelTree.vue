@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, CircleHelp } from '@lucide/vue'
+import { ChevronRight, CircleHelp, Zap } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -162,11 +162,30 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
               <span class="model-tree__price-label" aria-hidden="true">
                 {{ t(`modelPrices.fields.${field}`) }}
               </span>
-              <span
-                class="model-tree__price"
-                :class="{ 'model-tree__price--empty': entry.prices[field] === null }"
-              >
-                {{ entry.prices[field] ?? t('models.tree.noPrice') }}
+              <span class="model-tree__price-values">
+                <span
+                  class="model-tree__price"
+                  :class="{ 'model-tree__price--empty': entry.prices[field] === null }"
+                >
+                  {{ entry.prices[field] ?? t('models.tree.noPrice') }}
+                </span>
+                <AppTooltip v-if="entry.fastPrices" :content="t('models.tree.fastPrice')">
+                  <span
+                    class="model-tree__fast-price"
+                    tabindex="0"
+                    :aria-label="
+                      t('models.tree.fastPriceValue', {
+                        field: t(`modelPrices.fields.${field}`),
+                        price: entry.fastPrices[field] ?? t('models.tree.noPrice'),
+                      })
+                    "
+                  >
+                    <Zap :size="11" aria-hidden="true" />
+                    <span :class="{ 'model-tree__price--empty': entry.fastPrices[field] === null }">
+                      {{ entry.fastPrices[field] ?? t('models.tree.noPrice') }}
+                    </span>
+                  </span>
+                </AppTooltip>
               </span>
             </div>
 
@@ -464,6 +483,30 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   font-variant-numeric: tabular-nums;
 }
 
+.model-tree__price-values {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+}
+
+.model-tree__fast-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: var(--radius-tag);
+  color: var(--color-text-faint);
+  cursor: help;
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.model-tree__fast-price:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
 .model-tree__price--empty {
   color: var(--color-text-faint);
 }
@@ -565,6 +608,10 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
     display: block;
     color: var(--color-text-faint);
     font-size: var(--text-label-xs);
+  }
+
+  .model-tree__price-values {
+    justify-items: start;
   }
 }
 </style>

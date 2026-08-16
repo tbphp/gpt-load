@@ -9,6 +9,7 @@ export interface ModelUpstreamRow {
   status: ModelPriceRowStatus
   /** 基础价格槽位；null 表示未设置，由视图渲染占位符。 */
   prices: Record<ModelPriceField, string | null>
+  fastPrices: Record<ModelPriceField, string | null> | null
   tierCount: number
 }
 
@@ -30,6 +31,7 @@ function presentUpstream(upstream: ModelUpstreamDto): ModelUpstreamRow {
     upstream,
     status: upstreamStatus(upstream),
     prices,
+    fastPrices: upstream.price.mode_prices.fast ?? null,
     tierCount: upstream.price.context_tiers.length,
   }
 }

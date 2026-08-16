@@ -52,6 +52,7 @@ export interface ModelPriceDto {
   channel_icon: string
   model_id: string
   prices: ModelPriceSlotsDto
+  mode_prices: Record<string, ModelPriceSlotsDto>
   pricing_status: ModelPriceStatus
   method: ModelPriceMethod | null
   matched_provider_id: string | null
@@ -114,6 +115,7 @@ const itemFields = [
   'channel_icon',
   'model_id',
   'prices',
+  'mode_prices',
   'pricing_status',
   'method',
   'matched_provider_id',
@@ -157,6 +159,18 @@ function projectPrices(value: unknown): ModelPriceSlotsDto {
   }
 }
 
+function projectModePrices(value: unknown): Record<string, ModelPriceSlotsDto> {
+  const record = projectRecord(value)
+  const result: Record<string, ModelPriceSlotsDto> = {}
+  for (const [mode, pricesValue] of Object.entries(record)) {
+    if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/u.test(mode) || mode === 'standard') invalidResponse()
+    const prices = projectPrices(pricesValue)
+    if (Object.values(prices).every((slot) => slot === null)) invalidResponse()
+    result[mode] = prices
+  }
+  return result
+}
+
 function projectContextTier(value: unknown): ModelPriceContextTierDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, contextTierFields)
@@ -197,6 +211,7 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     channel_icon: projectIdentityString(record.channel_icon),
     model_id: projectIdentityString(record.model_id),
     prices: projectPrices(record.prices),
+    mode_prices: projectModePrices(record.mode_prices),
     pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),
     method: projectMethod(record.method),
     matched_provider_id:
