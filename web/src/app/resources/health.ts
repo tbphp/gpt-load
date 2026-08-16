@@ -1,9 +1,11 @@
 import { queryOptions } from '@tanstack/vue-query'
+import type { MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
 import type {
   HealthGroupDto,
   HealthProblemCredentialDto,
+  HealthQuotaCredentialDto,
   HealthRecoveryDto,
   HealthCredentialCountsDto,
   RequestLogHealthDto,
@@ -27,6 +29,7 @@ import {
 export type {
   HealthGroupDto,
   HealthProblemCredentialDto,
+  HealthQuotaCredentialDto,
   HealthRecoveryDto,
   HealthCredentialCountsDto,
   RequestLogHealthDto,
@@ -44,7 +47,15 @@ const healthFields = [
   'groups',
   'cooldown_credentials',
   'blacklisted_credentials',
+  'low_quota_credentials',
   'request_log',
+] as const
+const quotaCredentialFields = [
+  'credential_id',
+  'group_id',
+  'group_name',
+  'remaining',
+  'reset_at_ms',
 ] as const
 const problemCredentialFields = [
   'credential_id',
@@ -185,6 +196,27 @@ function projectProblemCredential(value: unknown): HealthProblemCredentialDto {
   }
 }
 
+function projectQuotaCredential(value: unknown): HealthQuotaCredentialDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, quotaCredentialFields)
+  const remaining = record.remaining
+  if (
+    typeof remaining !== 'number' ||
+    !Number.isFinite(remaining) ||
+    remaining < 0 ||
+    remaining > 1
+  ) {
+    invalidResponse()
+  }
+  return {
+    credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
+    group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
+    group_name: projectNonBlankString(record.group_name),
+    remaining,
+    reset_at_ms: projectEpochMilliseconds(record.reset_at_ms),
+  }
+}
+
 function projectRequestLogHealth(value: unknown): RequestLogHealthDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, requestLogFields)
@@ -219,6 +251,7 @@ export function projectRuntimeHealth(value: unknown): RuntimeHealthDto {
     groups: projectArray(record.groups, projectHealthGroup),
     cooldown_credentials: projectArray(record.cooldown_credentials, projectProblemCredential),
     blacklisted_credentials: projectArray(record.blacklisted_credentials, projectProblemCredential),
+    low_quota_credentials: projectArray(record.low_quota_credentials, projectQuotaCredential),
     request_log: projectRequestLogHealth(record.request_log),
   }
 }
@@ -230,7 +263,11 @@ export async function getRuntimeHealth(
   return projectRuntimeHealth(await client.request('/api/health', { method: 'GET', signal }))
 }
 
-export function healthQueryOptions(client: ApiClient, intervalMs?: number) {
+export function healthQueryOptions(
+  client: ApiClient,
+  intervalMs?: number,
+  enabled?: MaybeRefOrGetter<boolean>,
+) {
   return queryOptions({
     queryKey: controlQueryKeys.health(),
     queryFn: ({ signal }) => getRuntimeHealth(client, signal),
@@ -241,5 +278,7 @@ export function healthQueryOptions(client: ApiClient, intervalMs?: number) {
           refetchIntervalInBackground: false,
         }
       : {}),
+    // /api/health 不在 AccessKey 白名单里，调用方需要能按身份关掉这个查询。
+    ...(enabled !== undefined ? { enabled } : {}),
   })
 }

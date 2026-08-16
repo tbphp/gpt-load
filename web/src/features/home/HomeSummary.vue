@@ -2,108 +2,23 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { HomeBaseDto, HomeRange } from '@/app/resources/home'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
-import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
-import StatFigure from '@/components/ui/StatFigure.vue'
-import {
-  formatDuration,
-  formatEstimatedCost,
-  formatInteger,
-  formatLocalInstant,
-  formatLocalTime,
-  formatPercent,
-  formatTokens,
-} from '@/lib/format'
-import { formatCacheHitRate } from '@/lib/cache-rate'
+import type { HomeBaseDto } from '@/app/resources/home'
+import { formatDuration, formatInteger, formatLocalInstant, formatLocalTime } from '@/lib/format'
 
-import type { HomeStatisticsState } from './home-presenter'
-import { homeRangeLabelKey } from './home-range'
+const props = defineProps<{
+  base: HomeBaseDto
+  observedAtMs: number | null
+  uptimeNowMs: number
+}>()
 
-const props = withDefaults(
-  defineProps<{
-    base: HomeBaseDto
-    statisticsState: HomeStatisticsState
-    selectedRange: HomeRange
-    observedAtMs: number | null
-    uptimeNowMs: number
-    loading?: boolean
-  }>(),
-  {
-    loading: false,
-  },
-)
-
-const emit = defineEmits<{ selectRange: [range: HomeRange] }>()
 const { locale, t } = useI18n()
 
-const snapshot = computed(() => {
-  const state = props.statisticsState
-  return state.kind === 'initial' ? null : state.snapshot
-})
-const rangeOptions = computed(() => [
-  { value: '24h', label: t('home.range.last24Hours') },
-  { value: '30d', label: t('home.range.last30Days') },
-])
 const updated = computed(() =>
   props.observedAtMs === null ? '—' : formatLocalTime(props.observedAtMs, locale.value),
 )
 const updatedTitle = computed(() =>
   props.observedAtMs === null ? undefined : formatLocalInstant(props.observedAtMs, locale.value),
 )
-const successDetail = computed(() => {
-  const summary = snapshot.value?.summary
-  if (!summary) return ''
-  const requests = t('home.ledger.requests', {
-    count: formatInteger(summary.request_count, locale.value),
-  })
-  return summary.failure_count === 0
-    ? requests
-    : t('home.ledger.requestsWithFailures', {
-        requests,
-        failures: formatInteger(summary.failure_count, locale.value),
-      })
-})
-const costDetail = computed(() => {
-  const summary = snapshot.value?.summary
-  if (!summary) return ''
-  const tokens = t('home.ledger.tokens', {
-    count: formatTokens(summary.total_tokens, locale.value),
-  })
-  return summary.unpriced_request_count === 0
-    ? tokens
-    : t('home.ledger.tokensWithUnpriced', {
-        tokens,
-        unpriced: formatInteger(summary.unpriced_request_count, locale.value),
-      })
-})
-const cacheDetail = computed(() => {
-  const summary = snapshot.value?.summary
-  if (!summary) return ''
-  return t('home.ledger.cacheTokens', {
-    read: formatTokens(summary.cache_read_tokens, locale.value),
-    input: formatTokens(summary.input_tokens, locale.value),
-  })
-})
-const costDetailExact = computed(() => {
-  const summary = snapshot.value?.summary
-  if (!summary) return ''
-  const tokens = t('home.ledger.tokens', {
-    count: formatInteger(summary.total_tokens, locale.value),
-  })
-  return summary.unpriced_request_count === 0
-    ? tokens
-    : t('home.ledger.tokensWithUnpriced', {
-        tokens,
-        unpriced: formatInteger(summary.unpriced_request_count, locale.value),
-      })
-})
-function rangeLabel(range: HomeRange): string {
-  return t(homeRangeLabelKey(range))
-}
-function selectRange(value: string): void {
-  if (value === '24h' || value === '30d') emit('selectRange', value)
-}
 </script>
 
 <template>
@@ -145,68 +60,6 @@ function selectRange(value: string): void {
       </div>
     </dl>
   </header>
-
-  <section class="home-summary__figures" :aria-busy="loading ? 'true' : undefined">
-    <template v-if="loading || !snapshot">
-      <div class="home-summary__figure home-summary__figure--loading">
-        <SkeletonBlock width="48%" height="0.72rem" />
-        <SkeletonBlock width="62%" height="2.25rem" />
-        <SkeletonBlock width="54%" height="0.75rem" />
-      </div>
-      <div
-        class="home-summary__figure home-summary__figure--secondary home-summary__figure--loading"
-      >
-        <SkeletonBlock width="52%" height="0.72rem" />
-        <SkeletonBlock width="68%" height="2.25rem" />
-        <SkeletonBlock width="58%" height="0.75rem" />
-      </div>
-      <div
-        class="home-summary__figure home-summary__figure--secondary home-summary__figure--loading"
-      >
-        <SkeletonBlock width="52%" height="0.72rem" />
-        <SkeletonBlock width="68%" height="2.25rem" />
-        <SkeletonBlock width="58%" height="0.75rem" />
-      </div>
-    </template>
-    <template v-else>
-      <StatFigure
-        class="home-summary__figure"
-        :label="t('home.ledger.successRate', { range: rangeLabel(snapshot.range) })"
-        :value="
-          formatPercent(snapshot.summary.success_count, snapshot.summary.request_count, locale)
-        "
-        :detail="successDetail"
-      />
-      <StatFigure
-        class="home-summary__figure home-summary__figure--secondary"
-        :label="t('home.ledger.cacheHitRate', { range: rangeLabel(snapshot.range) })"
-        :value="
-          formatCacheHitRate(
-            snapshot.summary.cache_read_tokens,
-            snapshot.summary.input_tokens,
-            locale,
-          )
-        "
-        :detail="cacheDetail"
-      />
-      <StatFigure
-        class="home-summary__figure home-summary__figure--secondary"
-        :label="t('home.ledger.estimatedCost', { range: rangeLabel(snapshot.range) })"
-        :value="formatEstimatedCost(snapshot.summary.estimated_cost_nano_usd, locale)"
-        :detail="costDetail"
-        :detail-title="costDetailExact"
-        :detail-aria-label="costDetailExact"
-      />
-    </template>
-    <SegmentedControl
-      class="home-summary__range"
-      :model-value="selectedRange"
-      :label="t('home.range.label')"
-      :options="rangeOptions"
-      size="compact"
-      @update:model-value="selectRange"
-    />
-  </section>
 </template>
 
 <style scoped>
@@ -278,71 +131,12 @@ function selectRange(value: string): void {
   text-align: left;
 }
 
-.home-summary__figures {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  align-items: start;
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: 22px 0 24px;
-}
-.home-summary__range {
-  flex: none;
-  grid-column: 4;
-}
-.home-summary__figure {
-  border-left: 1px solid var(--color-border-subtle);
-  padding: 0 28px;
-}
-.home-summary__figure:first-child {
-  border-left: 0;
-  padding-left: 0;
-}
-.home-summary__figure--secondary {
-  border-left: 1px solid var(--color-border-subtle);
-}
-.home-summary__figure--loading {
-  display: grid;
-  min-height: 5.5rem;
-  align-content: start;
-  gap: 6px;
-}
-
 @media (max-width: 860px) {
   .home-summary__header {
     align-items: start;
   }
   .home-summary__stamp {
     justify-content: start;
-  }
-  .home-summary__figures {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .home-summary__range {
-    grid-column: 1 / -1;
-    grid-row: 1;
-    justify-self: end;
-    width: max-content;
-    max-width: 100%;
-    margin-bottom: 14px;
-  }
-  .home-summary__figure {
-    grid-row: 2;
-    padding: 0 18px;
-  }
-  .home-summary__figure:first-child {
-    padding-left: 0;
-  }
-}
-
-@media (max-width: 640px) {
-  .home-summary__figures {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .home-summary__figure:nth-child(3) {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    border-left: 0;
-    padding: 16px 0 0;
   }
 }
 </style>

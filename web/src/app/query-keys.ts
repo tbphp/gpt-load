@@ -95,6 +95,7 @@ export const controlQueryKeys = {
     all: ['control', 'logs'] as const,
     list: (filters: RequestLogFilters) =>
       ['control', 'logs', 'list', normalizeRequestLogFilters(filters)] as const,
+    latest: () => ['control', 'logs', 'latest'] as const,
     details: () => ['control', 'logs', 'detail'] as const,
     detail: (requestID: string) => ['control', 'logs', 'detail', requestID] as const,
   },
