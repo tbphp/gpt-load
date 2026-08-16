@@ -66,7 +66,7 @@ type Service struct {
 	discoverSubscriptionModels        func(context.Context, channel.ID, subscriptionruntime.Credential) ([]string, error)
 	observeSubscriptionAccount        func(context.Context, channel.ID, subscriptionruntime.Credential) (subscriptionruntime.Observation, error)
 	consumeSubscriptionResetCredit    func(context.Context, channel.ID, subscriptionruntime.Credential, string) (subscriptionruntime.ResetCreditResult, error)
-	oauthCallback                     *OAuthCallbackServer
+	oauthCallback                     *OAuthCallbackManager
 	now                               func() time.Time
 	publishSnapshot                   func(state.CompileInput) (*state.ConfigSnapshot, error)
 	reconcileRegistryGroup            func(uint, []state.CredentialEntry) (bool, error)
@@ -182,7 +182,9 @@ func NewService(
 			}
 			authorization, err := browser.BeginAuthorization()
 			if err == nil {
-				authorization.LocalCallback = browser.RequiresLocalCallback()
+				if callback, local := subscriptions.LocalCallback(channelID); local {
+					authorization.RedirectURI = callback.RedirectURI
+				}
 			}
 			return authorization, err
 		},
@@ -252,7 +254,7 @@ func NewService(
 	service.applyBatchRegistryMutation = service.applyCredentialBatchRegistryMutation
 	service.restoreBatchRegistryEntries = registry.RestoreGroupCredentialEntriesExact
 	service.registrySnapshot = registry.Snapshot
-	service.oauthCallback = NewOAuthCallbackServer(service)
+	service.oauthCallback = NewOAuthCallbackManager(service)
 	return service
 }
 

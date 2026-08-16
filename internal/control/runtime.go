@@ -80,7 +80,7 @@ type Runtime struct {
 	operationRecovery      operationRecoveryRuntime
 	credentialObservations credentialObservationRuntime
 	catalogSync            catalogSyncRuntime
-	oauthCallback          *OAuthCallbackServer
+	oauthCallback          *OAuthCallbackManager
 	manager                *state.Manager
 	autoWeightInterval     time.Duration
 	validationInterval     time.Duration

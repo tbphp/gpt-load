@@ -197,7 +197,11 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 	}
 	stats := health.NewStatsStore()
 	mutations := health.NewMutationCoordinator()
-	subscriptions, err := subscriptionruntime.NewRuntime(channelRegistry, subscriptionruntime.CodexImplementations())
+	subscriptions, err := subscriptionruntime.NewRuntime(
+		channelRegistry,
+		subscriptionruntime.CodexImplementations(),
+		subscriptionruntime.ClaudeImplementations(),
+	)
 	if err != nil {
 		t.Fatalf("subscriptionruntime.NewRuntime() error = %v", err)
 	}

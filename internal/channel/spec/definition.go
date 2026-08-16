@@ -15,6 +15,7 @@ type ID string
 const (
 	OpenAI           ID = "openai"
 	Codex            ID = "codex"
+	Claude           ID = "claude"
 	Anthropic        ID = "anthropic"
 	Gemini           ID = "gemini"
 	AzureOpenAI      ID = "azure_openai"
@@ -38,6 +39,7 @@ type ProviderKind string
 const (
 	ProviderOpenAI           ProviderKind = "openai"
 	ProviderCodex            ProviderKind = "codex"
+	ProviderClaude           ProviderKind = "claude"
 	ProviderAnthropic        ProviderKind = "anthropic"
 	ProviderGemini           ProviderKind = "gemini"
 	ProviderOpenAICompatible ProviderKind = "openai_compatible"
@@ -50,11 +52,38 @@ const (
 	ProviderXAI              ProviderKind = "xai"
 )
 
+// NoticeID identifies one code-owned, frontend-localized channel notice.
+type NoticeID string
+
+const NoticeClaudeOAuthRisk NoticeID = "claude_oauth_risk"
+
+// Valid reports whether the notice ID is part of the public channel contract.
+func (id NoticeID) Valid() bool {
+	return id == NoticeClaudeOAuthRisk
+}
+
+// NoticeTone controls the bounded presentation style of one channel notice.
+type NoticeTone string
+
+const NoticeToneWarning NoticeTone = "warning"
+
+// Valid reports whether the notice tone is safe for public projection.
+func (tone NoticeTone) Valid() bool {
+	return tone == NoticeToneWarning
+}
+
+// Notice declares safe, non-executable channel guidance.
+type Notice struct {
+	ID   NoticeID
+	Tone NoticeTone
+}
+
 // Valid reports whether the provider adapter key is recognized.
 func (kind ProviderKind) Valid() bool {
 	switch kind {
 	case ProviderOpenAI,
 		ProviderCodex,
+		ProviderClaude,
 		ProviderAnthropic,
 		ProviderGemini,
 		ProviderOpenAICompatible,
@@ -211,6 +240,7 @@ type Definition struct {
 	Icon                string
 	SearchTerms         []string
 	Description         string
+	Notices             []Notice
 	Connection          Connection
 	Params              []Field
 	ParamsNormalizer    ParamsNormalizerID

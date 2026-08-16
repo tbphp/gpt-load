@@ -32,7 +32,7 @@ export default {
       credentials: {
         apiKeyTitle: 'API キーを追加',
         structuredTitle: 'チャネル認証情報を入力',
-        subscriptionTitle: 'ChatGPT アカウントを接続',
+        subscriptionTitle: '{channel} アカウントを接続',
         keyCount: 'キー {count} 件を入力済み',
         credentialCount: '認証情報 {count} 件を入力済み',
         needsAttention: '認証情報の確認が必要です',
@@ -68,7 +68,7 @@ export default {
     existing: {
       title: '対象グループ',
       description:
-        'この入口は API キーグループへの認証情報追加専用です。モデルや設定は変更しません。サブスクリプションは Codex グループの認証情報ページから接続してください。',
+        'この入口は API キーグループへの認証情報追加専用です。モデルや設定は変更しません。サブスクリプションは対応するグループの認証情報ページから接続してください。',
       groupsLoading: 'グループを読み込み中…',
       groupsFailed: 'グループを読み込めません',
       groupsStale: 'グループの更新に失敗したため、キャッシュ結果を表示しています',
@@ -102,21 +102,25 @@ export default {
     },
     subscription: {
       title: 'サブスクリプションアカウントを接続',
-      description: 'ChatGPT でログインするか、既存の auth.json を読み込みます',
+      description: '{channel} でログインするか、既存の OAuth JSON を読み込みます',
+      channelNotice: {
+        claude_oauth_risk:
+          'Claude OAuth は安定した公開 API 契約ではなく、Claude Code 互換プロトコルに依存します。上流の変更による接続停止やアカウントへの影響を、認証前に評価してください。',
+      },
       securityNotice: {
         create:
           'ブラウザーはアクセス認証情報を保存しません。サーバー側で暗号化して保持し、グループ作成時にのみ書き込みます。',
         connect:
           'ブラウザーはアクセス認証情報を保存しません。サーバー側で暗号化して保持し、認証完了後にこのグループへ書き込みます。',
       },
-      authorize: 'ChatGPT でログイン',
-      authorizeHint: 'ChatGPT の認証ページを開き、完了すると自動でここに戻ります',
+      authorize: '{channel} でログイン',
+      authorizeHint: '{channel} の認証ページを開き、完了すると自動でここに戻ります',
       addAnother: 'もう 1 つ接続',
-      authorizeFailed: 'ChatGPT ログインを完了できません',
+      authorizeFailed: '{channel} ログインを完了できません',
       popupBlocked:
         '新しいウィンドウがブロックされました。下の認証リンクから手動で開いてください。',
       waiting: 'ブラウザーでの認証完了を待っています',
-      waitingHelp: '新しいウィンドウで ChatGPT を開きました。完了すると自動で続行します',
+      waitingHelp: '新しいウィンドウで {channel} を開きました。完了すると自動で続行します',
       exchanging: '認証を完了しています…',
       sessionRemaining: '認証セッションの残り時間',
       restart: '認証をやり直す',
@@ -125,23 +129,24 @@ export default {
         connect: '準備完了 — このグループに追加されます',
       },
       manualHint:
-        'ローカル配置では自動的に完了するため操作は不要です。リモート配置（ブラウザーからサーバーの localhost:1455 に到達できない場合）は、下のリンクを開いて認証し、ブラウザーが最後に表示した URL を貼り付けてください。',
+        'ローカル配置では自動的に完了します。リモート配置でブラウザーから {redirectUri} に到達できない場合は、下のリンクで認証し、ブラウザーが最後に表示した完全な URL を貼り付けてください。',
       authorizationLink: '認証リンク',
       copyAuthorization: 'リンクをコピー',
       openAuthorization: '開く',
       callbackLabel: 'ブラウザーが最後に表示した URL',
-      callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
+      callbackEndpointFallback: 'ローカル OAuth コールバック',
+      callbackPlaceholder: 'http://localhost:<port>/callback?code=...&state=...',
       callbackHelp:
         'アドレスバーの URL を一部ではなく全体をコピーして貼り付けてください。そのページが開けなくても問題ありません。',
       submitCallback: '送信',
       callbackFailed: 'この URL は無効、使用済み、または別の認証に属しています',
-      orImport: 'auth.json をお持ちの場合はこちらから読み込み',
-      oauthJSONLabel: 'auth.json の内容',
-      oauthJSONDescription: 'auth.json の内容を貼り付けるか、ローカルファイルを選択します。',
+      orImport: 'OAuth JSON をお持ちの場合はこちらから読み込み',
+      oauthJSONLabel: 'OAuth JSON の内容',
+      oauthJSONDescription: 'OAuth 認証情報 JSON を貼り付けるか、ローカルファイルを選択します。',
       importText: '貼り付けた内容をインポート',
       importFile: 'ローカルファイルを選択',
       importing: 'インポート中…',
-      importFailed: 'auth.json が無効または未対応です',
+      importFailed: 'OAuth JSON が無効または未対応です',
       pollFailed: '認証状態を取得できません。再試行を続けます',
       pollAbandoned: '認証状態を複数回取得できなかったため待機を終了しました。やり直してください',
       cancelFailed: 'サーバーで一時認証をキャンセルできませんでした。時間が経つと失効します',
@@ -154,9 +159,9 @@ export default {
       expires: '有効期限',
       unknown: '不明',
       stageError: {
-        authorizationDenied: 'Codex 認証がキャンセルされました。最初からやり直してください',
-        authorizationFailed: 'Codex 認証を完了できませんでした。最初からやり直してください',
-        exchangeRejected: 'Codex が認証コードを拒否しました。再認証してください',
+        authorizationDenied: '{channel} 認証がキャンセルされました。最初からやり直してください',
+        authorizationFailed: '{channel} 認証を完了できませんでした。最初からやり直してください',
+        exchangeRejected: '{channel} が認証コードを拒否しました。再認証してください',
         exchangeUnknown: '認証交換の結果を確認できません。再認証してください',
         exchangeInterrupted: '認証交換が中断されました。再認証してください',
         refreshIdentityChanged: '更新後のアカウント情報が変わりました。再認証してください',
@@ -291,7 +296,7 @@ export default {
     appendFailed: '選択したグループに認証情報をインポートできません',
     conflict: {
       title: 'このチャネル接続先は既に存在します',
-      titleSubscription: 'Codex のグループは既に存在します',
+      titleSubscription: 'サブスクリプショングループは既に存在します',
       description: '既存グループに認証情報を追加するか、別のグループを作成してください',
       descriptionSubscription:
         '既存グループにアカウントを追加するか、別のグループを作成してください',

@@ -102,6 +102,8 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 			return FailureCategoryAuthenticationRequired
 		case execution.FailureHintRateLimited:
 			return FailureCategoryRateLimited
+		case execution.FailureHintRequestRejected:
+			return FailureCategoryClientError
 		case execution.FailureHintModelUnavailable:
 			return FailureCategoryModelUnavailable
 		case execution.FailureHintHostError:

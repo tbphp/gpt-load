@@ -928,6 +928,51 @@ func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
 	}
 }
 
+func TestHandlerDoesNotRotateOrPenalizeRequestRejected429(t *testing.T) {
+	now := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"error":{"type":"rate_limit_error","message":"Usage credits are required for fast mode."}}`),
+			ExecutionError: &execution.ErrorEvidence{
+				Kind:       execution.ErrorKindHTTP,
+				Hint:       execution.FailureHintRequestRejected,
+				StatusCode: http.StatusTooManyRequests,
+				Type:       "rate_limit_error",
+				Summary:    "Usage credits are required for fast mode.",
+			},
+		},
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
+	}}
+	engine, handler, registry, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
+	recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
+	handler.registry = recording
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.now = func() time.Time { return now }
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests || len(forwarder.inputs) != 1 {
+		t.Fatalf("response/attempts = %d/%d, want 429/1; body=%s", recorder.Code, len(forwarder.inputs), recorder.Body.String())
+	}
+	if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 || recording.blacklistCalls != 0 {
+		t.Fatalf("credential mutations = cooldown:%d failure:%d blacklist:%d, want none",
+			recording.cooldownCalls, recording.incrFailureCalls, recording.blacklistCalls)
+	}
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
+		t.Fatalf("request-rejected credential stats = %#v, want empty", got)
+	}
+}
+
 func TestHandlerRecordsStreamSuccessOnlyAfterCleanTerminal(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -3241,6 +3286,20 @@ func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
 			decision: authRetry, want: true,
 		},
 		{
+			name: "request-scoped rejection is terminal even if a caller supplies retry action", operation: execution.OperationChatCompletion,
+			method: http.MethodPost,
+			result: UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusTooManyRequests,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintRequestRejected,
+					StatusCode: http.StatusTooManyRequests,
+				},
+			},
+			decision: retry,
+		},
+		{
 			name: "subscription authorization failure with unknown replay safety", operation: execution.OperationResponsesCreate,
 			method: http.MethodPost,
 			result: UpstreamResult{
@@ -3357,6 +3416,72 @@ func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testin
 	if forwarder.inputs[0].Credential.ID != forwarder.inputs[1].Credential.ID ||
 		forwarder.inputs[0].ForceCredentialRefresh || !forwarder.inputs[1].ForceCredentialRefresh {
 		t.Fatalf("inputs = %#v", forwarder.inputs)
+	}
+}
+
+func TestSubscriptionExplicit401ForcesRefreshAtMostOncePerRequest(t *testing.T) {
+	expired := UpstreamResult{
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		StatusCode: http.StatusUnauthorized,
+		ExecutionError: &execution.ErrorEvidence{
+			Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
+			Hint:         execution.FailureHintRefreshRequired,
+			ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+			Summary:      "access token expired",
+		},
+	}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		expired,
+		expired,
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: []byte(`{"id":"unexpected-third-attempt","model":"gpt-4o"}`),
+		},
+	}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "placeholder")
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	canonical := `{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-1"}`
+	encrypted, err := handler.encryption.Encrypt(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: encrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	if forwarder.inputs[0].ForceCredentialRefresh || !forwarder.inputs[1].ForceCredentialRefresh {
+		t.Fatalf("refresh attempts = %#v", forwarder.inputs)
 	}
 }
 

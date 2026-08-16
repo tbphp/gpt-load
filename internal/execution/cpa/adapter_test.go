@@ -79,6 +79,15 @@ func (f *fakeExecutor) ExecuteStream(_ context.Context, _ string, credential cod
 	return f.stream, f.err
 }
 
+func setCodexExecutor(t *testing.T, adapter *Adapter, executor codex.Executor) {
+	t.Helper()
+	bridge, ok := adapter.providers[channel.ProviderCodex].(*codexProviderBridge)
+	if !ok {
+		t.Fatal("Codex provider bridge is unavailable")
+	}
+	bridge.executor = executor
+}
+
 func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	preparer := &fakeCredentialPreparer{evidence: &execution.ErrorEvidence{
@@ -87,7 +96,7 @@ func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) 
 	}}
 	executor := &fakeExecutor{}
 	adapter.credentials = preparer
-	adapter.executor = executor
+	setCodexExecutor(t, adapter, executor)
 	spec := validSpec(t, row, keyService)
 	spec.ForceCredentialRefresh = true
 
@@ -102,7 +111,7 @@ func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) 
 
 func TestAdapterKeepsUnknownSubscription401NonReplayable(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access-secret", "refresh-secret", time.Now().Add(time.Hour)))
-	adapter.executor = &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"auth_unavailable","message":"access-secret expired for a@example.com (account-1)"}}`}}
+	setCodexExecutor(t, adapter, &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"auth_unavailable","message":"access-secret expired for a@example.com (account-1)"}}`}})
 	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
 	if result.Error == nil || result.Error.Hint != "" || result.Error.ReplaySafety != execution.ReplaySafetyUnknown {
 		t.Fatalf("error evidence = %#v", result.Error)
@@ -115,7 +124,7 @@ func TestAdapterKeepsUnknownSubscription401NonReplayable(t *testing.T) {
 
 func TestAdapterMapsExplicitExpiredTokenToSafeRefresh(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access-secret", "refresh-secret", time.Now().Add(time.Hour)))
-	adapter.executor = &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"token_expired","message":"access token expired"}}`}}
+	setCodexExecutor(t, adapter, &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"token_expired","message":"access token expired"}}`}})
 	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
 	if result.Error == nil || result.Error.Hint != execution.FailureHintRefreshRequired || result.Error.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
 		t.Fatalf("error evidence = %#v", result.Error)
@@ -155,7 +164,7 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 					"X-Request-Id":     {"upstream-1"},
 				},
 			}}
-			adapter.executor = fake
+			setCodexExecutor(t, adapter, fake)
 			spec := validSpec(t, row, keyService)
 			spec.ClientProtocol = test.protocol
 			spec.Operation = test.operation
@@ -227,7 +236,7 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 			chunks <- codex.ExecuteStreamChunk{Payload: []byte(test.payload)}
 			close(chunks)
 			fake := &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
-			adapter.executor = fake
+			setCodexExecutor(t, adapter, fake)
 			spec := validSpec(t, row, keyService)
 			spec.ClientProtocol = test.protocol
 			spec.Operation = test.operation
@@ -256,7 +265,7 @@ func TestAdapterDoesNotCompleteStreamAfterContextCancellation(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	chunks := make(chan codex.ExecuteStreamChunk)
 	close(chunks)
-	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
 	spec := validSpec(t, row, keyService)
 	spec.ClientProtocol = protocol.OpenAICompletions
 	spec.Operation = execution.OperationChatCompletion
@@ -279,7 +288,7 @@ func TestAdapterDoesNotCompleteStreamAfterContextCancellation(t *testing.T) {
 func TestAdapterUsesFirstByteTimeoutBeforeFirstData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	chunks := make(chan codex.ExecuteStreamChunk, 1)
-	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
 	spec := validSpec(t, row, keyService)
 	spec.Timeouts.FirstByte = 20 * time.Millisecond
 	spec.Timeouts.StreamIdle = 250 * time.Millisecond
@@ -303,7 +312,7 @@ func TestAdapterSwitchesToStreamIdleTimeoutAfterFirstData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	chunks := make(chan codex.ExecuteStreamChunk, 1)
 	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.created","response":{"id":"resp_1"}}`)}
-	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
 	spec := validSpec(t, row, keyService)
 	spec.Timeouts.FirstByte = 200 * time.Millisecond
 	spec.Timeouts.StreamIdle = 20 * time.Millisecond
@@ -327,9 +336,9 @@ func TestAdapterReturnsFirstStreamErrorBeforeReady(t *testing.T) {
 	chunks := make(chan codex.ExecuteStreamChunk, 1)
 	chunks <- codex.ExecuteStreamChunk{Err: statusError{status: http.StatusBadRequest, message: `{"error":{"type":"invalid_request_error","code":"bad_request"}}`}}
 	close(chunks)
-	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{
 		Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks,
-	}}
+	}})
 
 	var events []execution.StreamEvent
 	result := adapter.ExecuteStream(t.Context(), validSpec(t, row, keyService), func(event execution.StreamEvent) error {
@@ -359,7 +368,7 @@ func TestAdapterRewritesStreamModelAliasForEveryProtocol(t *testing.T) {
 			chunks := make(chan codex.ExecuteStreamChunk, 1)
 			chunks <- codex.ExecuteStreamChunk{Payload: []byte(test.payload)}
 			close(chunks)
-			adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
+			setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
 			spec := validSpec(t, row, keyService)
 			spec.ClientProtocol = test.protocol
 			spec.Operation = test.operation
@@ -548,7 +557,7 @@ func TestAdapterStreamsReadyThenFramedData(t *testing.T) {
 	chunks := make(chan codex.ExecuteStreamChunk, 1)
 	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"id":"resp_1"}}`)}
 	close(chunks)
-	adapter.executor = &fakeExecutor{stream: &codex.ExecuteStreamResponse{Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks}}
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks}})
 	var events []execution.StreamEvent
 	result := adapter.ExecuteStream(t.Context(), validSpec(t, row, keyService), func(event execution.StreamEvent) error {
 		events = append(events, event.Clone())
@@ -569,6 +578,20 @@ func (e statusError) StatusCode() int { return e.status }
 
 func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *state.CredentialRegistry, encryption.Service, models.Credential) {
 	t.Helper()
+	credential, err := codex.ParseCredentialJSON(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return newSubscriptionAdapterFixture(t, string(channel.Codex), canonical, credential.AccountID)
+}
+
+func newSubscriptionAdapterFixture(
+	t *testing.T,
+	channelID string,
+	canonical []byte,
+	identity string,
+) (*Adapter, *gorm.DB, *state.CredentialRegistry, encryption.Service, models.Credential) {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{TranslateError: true})
 	if err != nil {
 		t.Fatal(err)
@@ -584,15 +607,11 @@ func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *sta
 	if err != nil {
 		t.Fatal(err)
 	}
-	group := models.Group{Name: "subscription", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true}
+	group := models.Group{Name: "subscription", ChannelID: channelID, ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`), Enabled: true}
 	if err := db.Create(&group).Error; err != nil {
 		t.Fatal(err)
 	}
-	credential, err := codex.ParseCredentialJSON(canonical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	row := models.Credential{GroupID: group.ID, Data: ciphertext, Fingerprint: keyService.Hash(string(canonical)), IdentityFingerprint: keyService.Hash("identity|" + credential.AccountID), SecretVersion: 1, AuthState: models.CredentialAuthStateReady, Status: models.CredentialStatusActive}
+	row := models.Credential{GroupID: group.ID, Data: ciphertext, Fingerprint: keyService.Hash(string(canonical)), IdentityFingerprint: keyService.Hash("identity|" + identity), SecretVersion: 1, AuthState: models.CredentialAuthStateReady, Status: models.CredentialStatusActive}
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +621,11 @@ func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *sta
 		t.Fatal(err)
 	}
 	channels := channel.NewRegistry()
-	subscriptions, err := subscriptionruntime.NewRuntime(channels, subscriptionruntime.CodexImplementations())
+	subscriptions, err := subscriptionruntime.NewRuntime(
+		channels,
+		subscriptionruntime.CodexImplementations(),
+		subscriptionruntime.ClaudeImplementations(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

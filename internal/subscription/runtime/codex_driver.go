@@ -85,11 +85,13 @@ func (*codexDriver) BeginAuthorization() (Authorization, error) {
 	}
 	return Authorization{
 		URL: value.AuthorizationURL, State: value.State, DriverState: state,
-		ExpiresAt: value.ExpiresAt, LocalCallback: true,
+		ExpiresAt: value.ExpiresAt,
 	}, nil
 }
 
-func (*codexDriver) RequiresLocalCallback() bool { return true }
+func (*codexDriver) LocalCallback() (LocalCallbackSpec, bool) {
+	return LocalCallbackSpec{RedirectURI: "http://localhost:1455/auth/callback"}, true
+}
 
 func (*codexDriver) CompleteAuthorization(ctx context.Context, completion AuthorizationCompletion) (Credential, error) {
 	var state codexAuthorizationState

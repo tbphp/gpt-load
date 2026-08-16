@@ -1,0 +1,605 @@
+package embedded
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type claudeRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn claudeRoundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func testClaudeExecutionCredential() ClaudeCredential {
+	return ClaudeCredential{
+		Type: ProviderClaude, AccessToken: "sk-ant-oat-access", RefreshToken: "refresh-secret",
+		AccountUUID: "account-one", OrganizationUUID: "organization-one",
+		DeviceIDs: []string{strings.Repeat("a", 64)},
+	}
+}
+
+const claudeExecutionSSE = "event: message_start\n" +
+	"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-one\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}\n\n" +
+	"event: content_block_start\n" +
+	"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+	"event: content_block_delta\n" +
+	"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
+	"event: content_block_stop\n" +
+	"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+	"event: message_delta\n" +
+	"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n" +
+	"event: message_stop\n" +
+	"data: {\"type\":\"message_stop\"}\n\n"
+
+func TestNewClaudeAuthUsesOAuthMetadataWithoutAPIKeyMode(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	auth := NewClaudeAuth("credential-one", credential, "https://example.test")
+	if auth.ID != "credential-one" || auth.Provider != ProviderClaude ||
+		auth.Attributes["api_key"] != "" || auth.Attributes["base_url"] != "https://example.test" ||
+		auth.Metadata["access_token"] != credential.AccessToken ||
+		auth.Metadata["account_uuid"] != credential.AccountUUID {
+		t.Fatalf("Claude auth = %#v", auth)
+	}
+	deviceIDs, ok := auth.Metadata["claude_device_ids"].([]string)
+	if !ok || len(deviceIDs) != 1 || deviceIDs[0] != credential.DeviceIDs[0] {
+		t.Fatalf("Claude auth device IDs = %#v", auth.Metadata["claude_device_ids"])
+	}
+}
+
+func TestClaudeHTTPExecutorSupportsNativeAndConvertedFormats(t *testing.T) {
+	tests := []struct {
+		name    string
+		format  string
+		payload string
+	}{
+		{name: "anthropic", format: "claude", payload: `{"model":"claude-sonnet-4-5","max_tokens":32,"system":"system rule","messages":[{"role":"user","content":"hello"}]}`},
+		{name: "openai chat", format: "openai", payload: `{"model":"claude-sonnet-4-5","messages":[{"role":"system","content":"system rule"},{"role":"user","content":"hello"}]}`},
+		{name: "openai responses", format: "openai-response", payload: `{"model":"claude-sonnet-4-5","instructions":"system rule","input":"hello"}`},
+		{name: "gemini", format: "gemini", payload: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"systemInstruction":{"parts":[{"text":"system rule"}]}}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var requests int
+			transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				requests++
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if request.URL.Host != "api.anthropic.com" || request.URL.Path != "/v1/messages" ||
+					request.Header.Get("Authorization") != "Bearer sk-ant-oat-access" ||
+					request.Header.Get("X-Api-Key") != "" {
+					t.Fatalf("upstream request = %s headers=%v", request.URL, request.Header)
+				}
+				var upstream map[string]any
+				if json.Unmarshal(body, &upstream) != nil || upstream["model"] != "claude-sonnet-4-5" || upstream["messages"] == nil {
+					t.Fatalf("translated upstream body = %s", body)
+				}
+				responseBody := `{"id":"msg-one","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}`
+				contentType := "application/json"
+				if test.format != "claude" {
+					responseBody = claudeExecutionSSE
+					contentType = "text/event-stream"
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {contentType}},
+					Body:       io.NopCloser(strings.NewReader(responseBody)),
+					Request:    request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			response, err := NewClaudeHTTPExecutor().ExecuteCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+				Model: "claude-sonnet-4-5", Payload: []byte(test.payload), Format: test.format,
+				OriginalRequest: []byte(test.payload),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if requests != 1 || !json.Valid(response.Payload) || !strings.Contains(string(response.Payload), "ok") {
+				t.Fatalf("requests/response = %d/%s", requests, response.Payload)
+			}
+		})
+	}
+}
+
+func TestClaudeHTTPExecutorStreamsAllSupportedFormats(t *testing.T) {
+	tests := []struct {
+		format  string
+		payload string
+	}{
+		{format: "claude", payload: `{"model":"claude-sonnet-4-5","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":true}`},
+		{format: "openai", payload: `{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}],"stream":true}`},
+		{format: "openai-response", payload: `{"model":"claude-sonnet-4-5","input":"hello","stream":true}`},
+		{format: "gemini", payload: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.format, func(t *testing.T) {
+			transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+					Body:       io.NopCloser(strings.NewReader(claudeExecutionSSE)),
+					Request:    request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			stream, err := NewClaudeHTTPExecutor().ExecuteStreamCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+				Model: "claude-sonnet-4-5", Payload: []byte(test.payload), Format: test.format,
+				OriginalRequest: []byte(test.payload),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload bytes.Buffer
+			for chunk := range stream.Chunks {
+				if chunk.Err != nil {
+					t.Fatal(chunk.Err)
+				}
+				payload.Write(chunk.Payload)
+			}
+			if payload.Len() == 0 || !strings.Contains(payload.String(), "ok") {
+				t.Fatalf("stream payload = %q", payload.String())
+			}
+		})
+	}
+}
+
+func TestClaudeHTTPExecutorPreservesRichOpenAIChatSemantics(t *testing.T) {
+	requestPayload := []byte(`{
+		"model":"claude-sonnet-4-5",
+		"max_tokens":16000,
+		"reasoning_effort":"high",
+		"messages":[
+			{"role":"system","content":"system rule"},
+			{"role":"user","content":[
+				{"type":"text","text":"inspect this image"},
+				{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}
+			]}
+		],
+		"tools":[{"type":"function","function":{"name":"inspect_image","description":"inspect","parameters":{"type":"object","properties":{}}}}],
+		"tool_choice":"auto"
+	}`)
+	const richSSE = "event: message_start\n" +
+		"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-rich\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"sig\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"considering\"}}\n\n" +
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tool-one\",\"name\":\"inspect_image\",\"input\":{}}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"detail\\\":\\\"ok\\\"}\"}}\n\n" +
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+	var upstreamBody []byte
+	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		upstreamBody = append([]byte(nil), body...)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(richSSE)),
+			Request:    request,
+		}, nil
+	})
+	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	response, err := NewClaudeHTTPExecutor().ExecuteCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+		Model: "claude-sonnet-4-5", Payload: requestPayload, Format: "openai", OriginalRequest: requestPayload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var upstream struct {
+		System []struct {
+			Text string `json:"text"`
+		} `json:"system"`
+		Messages []struct {
+			Content []struct {
+				Type   string `json:"type"`
+				Source struct {
+					Type      string `json:"type"`
+					MediaType string `json:"media_type"`
+					Data      string `json:"data"`
+				} `json:"source"`
+			} `json:"content"`
+		} `json:"messages"`
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+		Thinking struct {
+			Type         string `json:"type"`
+			BudgetTokens int    `json:"budget_tokens"`
+		} `json:"thinking"`
+	}
+	if err := json.Unmarshal(upstreamBody, &upstream); err != nil {
+		t.Fatalf("decode upstream request: %v; body=%s", err, upstreamBody)
+	}
+	var imageSource struct {
+		Type      string
+		MediaType string
+		Data      string
+	}
+	for _, message := range upstream.Messages {
+		for _, content := range message.Content {
+			if content.Type == "image" {
+				imageSource.Type = content.Source.Type
+				imageSource.MediaType = content.Source.MediaType
+				imageSource.Data = content.Source.Data
+			}
+		}
+	}
+	if !strings.Contains(string(upstreamBody), "system rule") ||
+		imageSource.Type != "base64" || imageSource.MediaType != "image/png" || imageSource.Data != "AAAA" ||
+		len(upstream.Tools) != 1 || !strings.HasSuffix(upstream.Tools[0].Name, "inspect_image") ||
+		upstream.Thinking.Type != "enabled" || upstream.Thinking.BudgetTokens <= 0 {
+		t.Fatalf("rich upstream request = %s", upstreamBody)
+	}
+
+	var downstream struct {
+		Choices []struct {
+			Message struct {
+				Reasoning string `json:"reasoning"`
+				ToolCalls []struct {
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(response.Payload, &downstream); err != nil {
+		t.Fatalf("decode downstream response: %v; body=%s", err, response.Payload)
+	}
+	if len(downstream.Choices) != 1 || downstream.Choices[0].Message.Reasoning != "considering" ||
+		len(downstream.Choices[0].Message.ToolCalls) != 1 ||
+		downstream.Choices[0].Message.ToolCalls[0].Function.Name != "inspect_image" ||
+		downstream.Choices[0].Message.ToolCalls[0].Function.Arguments != `{"detail":"ok"}` ||
+		downstream.Choices[0].FinishReason != "tool_calls" ||
+		downstream.Usage.PromptTokens != 2 || downstream.Usage.CompletionTokens != 3 ||
+		response.AppliedReasoningEffort != "high" {
+		t.Fatalf("rich downstream response = %s; applied=%q", response.Payload, response.AppliedReasoningEffort)
+	}
+}
+
+func TestClaudeHTTPExecutorHonorsRequestCancellation(t *testing.T) {
+	started := make(chan struct{})
+	var requests atomic.Int32
+	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		requests.Add(1)
+		close(started)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	base := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	ctx, cancel := context.WithCancel(base)
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewClaudeHTTPExecutor().ExecuteCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+			Model: "claude-sonnet-4-5", Format: "claude",
+			Payload: []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
+		})
+		done <- err
+	}()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteCanonical() error = %v, want context canceled", err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("upstream requests = %d, want 1", requests.Load())
+	}
+}
+
+func TestClaudeHTTPExecutorSanitizesAndClassifiesFastModeEntitlement429(t *testing.T) {
+	const providerSecret = "provider-secret-body"
+	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Content-Type": {"application/json"}, "Retry-After": {"17"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"type":"error","error":{"type":"rate_limit_error","code":"fast_mode_credits","message":"Usage credits are required for fast mode. ` + providerSecret + `"}}`,
+			)),
+			Request: request,
+		}, nil
+	})
+	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	_, err := NewClaudeHTTPExecutor().ExecuteCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+		Model: "claude-opus-5", Format: "claude",
+		Payload: []byte(`{"model":"claude-opus-5","max_tokens":16,"speed":"fast","messages":[{"role":"user","content":"hello"}]}`),
+	})
+	var executionErr *ClaudeExecutionError
+	if !errors.As(err, &executionErr) || executionErr.StatusCode() != http.StatusTooManyRequests ||
+		!executionErr.IsRequestScoped() || executionErr.ErrorType() != "rate_limit_error" ||
+		executionErr.ErrorCode() != "fast_mode_credits" || executionErr.RetryAfter() == nil ||
+		*executionErr.RetryAfter() != 17*time.Second || strings.Contains(err.Error(), providerSecret) {
+		t.Fatalf("Claude execution error = %#v / %v", executionErr, err)
+	}
+}
+
+func TestParseClaudeCredentialJSONCreatesAndPreservesOneDeviceIdentity(t *testing.T) {
+	raw := []byte(`{
+		"type":"claude",
+		"access_token":"access-secret",
+		"refresh_token":"refresh-secret",
+		"account_uuid":"account-one",
+		"email":"owner@example.com",
+		"expired":"2026-08-16T09:00:00Z"
+	}`)
+	credential, err := ParseClaudeCredentialJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.Type != ProviderClaude || credential.AccountUUID != "account-one" ||
+		len(credential.DeviceIDs) != 1 || len(credential.DeviceIDs[0]) != 64 ||
+		credential.DeviceIDs[0] != strings.ToLower(credential.DeviceIDs[0]) {
+		t.Fatalf("credential = %#v", credential)
+	}
+	canonical, err := json.Marshal(credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reparsed, err := ParseClaudeCredentialJSON(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reparsed.DeviceIDs) != 1 || reparsed.DeviceIDs[0] != credential.DeviceIDs[0] {
+		t.Fatalf("device identity changed: %q -> %q", credential.DeviceIDs, reparsed.DeviceIDs)
+	}
+	expiresAt, known := ClaudeCredentialExpiresAt(reparsed)
+	if !known || !expiresAt.Equal(time.Date(2026, 8, 16, 9, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expires = %s, %t", expiresAt, known)
+	}
+}
+
+func TestParseClaudeCredentialJSONRejectsConfigurationInjection(t *testing.T) {
+	for _, field := range []string{"proxy_url", "headers", "retry", "cooldown", "selector", "weight", "file_path"} {
+		raw := []byte(`{"type":"claude","access_token":"access","refresh_token":"refresh","account_uuid":"account","` + field + `":"injected"}`)
+		if _, err := ParseClaudeCredentialJSON(raw); err == nil {
+			t.Fatalf("ParseClaudeCredentialJSON() accepted %q", field)
+		}
+	}
+}
+
+func TestParseClaudeCredentialJSONRejectsDuplicateSecretFields(t *testing.T) {
+	raw := []byte(`{
+		"type":"claude",
+		"access_token":"first-access",
+		"access_token":"second-access",
+		"refresh_token":"refresh",
+		"account_uuid":"account"
+	}`)
+	if _, err := ParseClaudeCredentialJSON(raw); err == nil {
+		t.Fatal("ParseClaudeCredentialJSON() accepted a duplicate access_token")
+	}
+}
+
+func TestBeginClaudeBrowserAuthorizationUsesFixedPKCECallback(t *testing.T) {
+	authorization, err := BeginClaudeBrowserAuthorization()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(authorization.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	if parsed.Scheme != "https" || authorization.State == "" || authorization.CodeVerifier == "" ||
+		authorization.CodeChallenge == "" || query.Get("state") != authorization.State ||
+		query.Get("redirect_uri") != ClaudeRedirectURI || query.Get("code_challenge") != authorization.CodeChallenge ||
+		query.Get("code_challenge_method") != "S256" {
+		t.Fatalf("authorization = %#v URL=%s", authorization, authorization.AuthorizationURL)
+	}
+}
+
+func TestCompleteClaudeBrowserAuthorizationReturnsCanonicalCredential(t *testing.T) {
+	fixedNow := time.Date(2026, 8, 16, 8, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/token":
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if payload["grant_type"] != "authorization_code" || payload["code"] != "authorization-code" ||
+				payload["state"] != "state-one" || payload["redirect_uri"] != ClaudeRedirectURI ||
+				payload["code_verifier"] != "verifier-one" {
+				t.Errorf("token payload = %#v", payload)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"access_token":"access-one","refresh_token":"refresh-one","expires_in":3600,"account":{"uuid":"account-token","email_address":"token@example.com"},"organization":{"uuid":"org-one","name":"Organization"}}`))
+		case "/profile":
+			if request.Header.Get("Authorization") != "Bearer access-one" {
+				t.Errorf("profile authorization = %q", request.Header.Get("Authorization"))
+			}
+			_, _ = writer.Write([]byte(`{"account":{"uuid":"account-profile","email":"profile@example.com"},"organization":{"uuid":"org-one","name":"Organization"}}`))
+		case "/roles":
+			_, _ = writer.Write([]byte(`[]`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	credential, err := CompleteClaudeBrowserAuthorization(t.Context(), BrowserAuthorizationCompletion{
+		ExpectedState: "state-one", ReturnedState: "state-one", Code: "authorization-code", CodeVerifier: "verifier-one",
+	}, ClaudeOptions{
+		TokenURL: server.URL + "/token", ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+		HTTPClient: server.Client(), Now: func() time.Time { return fixedNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.Type != ProviderClaude || credential.AccessToken != "access-one" || credential.RefreshToken != "refresh-one" ||
+		credential.AccountUUID != "account-profile" || credential.Email != "profile@example.com" ||
+		credential.OrganizationUUID != "org-one" || len(credential.DeviceIDs) != 1 ||
+		credential.LastRefresh != fixedNow.Format(time.RFC3339) ||
+		credential.Expire != fixedNow.Add(time.Hour).Format(time.RFC3339) {
+		t.Fatalf("credential = %#v", credential)
+	}
+}
+
+func TestClaudeTokenEndpointErrorDoesNotExposeResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusBadRequest)
+		_, _ = writer.Write([]byte(`{"error":"invalid_grant","message":"provider-secret-body"}`))
+	}))
+	defer server.Close()
+
+	_, err := CompleteClaudeBrowserAuthorization(t.Context(), BrowserAuthorizationCompletion{
+		ExpectedState: "state-one", ReturnedState: "state-one", Code: "authorization-code", CodeVerifier: "verifier-one",
+	}, ClaudeOptions{TokenURL: server.URL, HTTPClient: server.Client()})
+	var tokenErr *TokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.Code != "invalid_grant" || strings.Contains(err.Error(), "provider-secret-body") {
+		t.Fatalf("token error = %#v, %v", tokenErr, err)
+	}
+}
+
+func TestRefreshClaudeCredentialOncePreservesIdentityAndDevice(t *testing.T) {
+	deviceID := strings.Repeat("a", 64)
+	current := ClaudeCredential{
+		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
+		AccountUUID: "account-one", OrganizationUUID: "org-one", OrganizationName: "Old Organization",
+		Email: "owner@example.com", DeviceIDs: []string{deviceID},
+	}
+	var tokenRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/token":
+			tokenRequests.Add(1)
+			_, _ = writer.Write([]byte(`{"access_token":"new-access","refresh_token":"rotated-refresh","expires_in":1200}`))
+		case "/profile":
+			writer.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	fixedNow := time.Date(2026, 8, 16, 8, 30, 0, 0, time.UTC)
+
+	refreshed, err := RefreshClaudeCredentialOnce(t.Context(), current, ClaudeOptions{
+		TokenURL: server.URL + "/token", ProfileURL: server.URL + "/profile",
+		HTTPClient: server.Client(), Now: func() time.Time { return fixedNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenRequests.Load() != 1 || refreshed.AccessToken != "new-access" || refreshed.RefreshToken != "rotated-refresh" ||
+		refreshed.AccountUUID != current.AccountUUID || refreshed.OrganizationUUID != current.OrganizationUUID ||
+		refreshed.Email != current.Email || len(refreshed.DeviceIDs) != 1 || refreshed.DeviceIDs[0] != deviceID ||
+		refreshed.LastRefresh != fixedNow.Format(time.RFC3339) {
+		t.Fatalf("refreshed = %#v, token requests = %d", refreshed, tokenRequests.Load())
+	}
+}
+
+func TestRefreshClaudeCredentialOnceRejectsIdentityChange(t *testing.T) {
+	current := ClaudeCredential{
+		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
+		AccountUUID: "account-one", OrganizationUUID: "org-one", DeviceIDs: []string{strings.Repeat("b", 64)},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/token":
+			_, _ = writer.Write([]byte(`{"access_token":"new-access","expires_in":1200}`))
+		case "/profile":
+			_, _ = writer.Write([]byte(`{"account":{"uuid":"account-two","email":"other@example.com"},"organization":{"uuid":"org-one"}}`))
+		}
+	}))
+	defer server.Close()
+
+	_, err := RefreshClaudeCredentialOnce(t.Context(), current, ClaudeOptions{
+		TokenURL: server.URL + "/token", ProfileURL: server.URL + "/profile", HTTPClient: server.Client(),
+	})
+	if !errors.Is(err, ErrClaudeCredentialIdentityChanged) {
+		t.Fatalf("refresh identity error = %v", err)
+	}
+}
+
+func TestRefreshClaudeCredentialOnceRejectsOrganizationChange(t *testing.T) {
+	current := ClaudeCredential{
+		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
+		AccountUUID: "account-one", OrganizationUUID: "org-one", DeviceIDs: []string{strings.Repeat("c", 64)},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/token":
+			_, _ = writer.Write([]byte(`{"access_token":"new-access","expires_in":1200}`))
+		case "/profile":
+			_, _ = writer.Write([]byte(`{"account":{"uuid":"account-one"},"organization":{"uuid":"org-two"}}`))
+		}
+	}))
+	defer server.Close()
+
+	_, err := RefreshClaudeCredentialOnce(t.Context(), current, ClaudeOptions{
+		TokenURL: server.URL + "/token", ProfileURL: server.URL + "/profile", HTTPClient: server.Client(),
+	})
+	if !errors.Is(err, ErrClaudeOrganizationIdentityChanged) {
+		t.Fatalf("refresh organization error = %v", err)
+	}
+}
+
+func TestRefreshClaudeCredentialOnceAllowsOrganizationDiscoveryAndKeepsRefreshToken(t *testing.T) {
+	current := ClaudeCredential{
+		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
+		AccountUUID: "account-one", DeviceIDs: []string{strings.Repeat("d", 64)},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/token":
+			_, _ = writer.Write([]byte(`{"access_token":"new-access","expires_in":1200}`))
+		case "/profile":
+			_, _ = writer.Write([]byte(`{"account":{"uuid":"account-one"},"organization":{"uuid":"org-discovered","name":"Organization"}}`))
+		}
+	}))
+	defer server.Close()
+
+	refreshed, err := RefreshClaudeCredentialOnce(t.Context(), current, ClaudeOptions{
+		TokenURL: server.URL + "/token", ProfileURL: server.URL + "/profile", HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.RefreshToken != "old-refresh" || refreshed.OrganizationUUID != "org-discovered" ||
+		refreshed.DeviceIDs[0] != current.DeviceIDs[0] {
+		t.Fatalf("refreshed = %#v", refreshed)
+	}
+}
+
+func TestRefreshClaudeCredentialOnceHonorsCallerCancellation(t *testing.T) {
+	current := ClaudeCredential{
+		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
+		AccountUUID: "account-one", DeviceIDs: []string{strings.Repeat("e", 64)},
+	}
+	client := &http.Client{Transport: claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	started := time.Now()
+	_, err := RefreshClaudeCredentialOnce(ctx, current, ClaudeOptions{TokenURL: "https://platform.claude.test/token", HTTPClient: client})
+	if !errors.Is(err, context.Canceled) || time.Since(started) > time.Second {
+		t.Fatalf("canceled refresh = %v after %s", err, time.Since(started))
+	}
+}

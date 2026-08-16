@@ -2,11 +2,13 @@ module github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded
 
 go 1.26.0
 
-require github.com/router-for-me/CLIProxyAPI/v7 v7.2.130
+require (
+	github.com/andybalholm/brotli v1.0.6
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.130
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
-	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

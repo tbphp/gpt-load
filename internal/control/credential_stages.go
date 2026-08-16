@@ -36,10 +36,10 @@ type CredentialStageResult struct {
 	StageID          string                 `json:"stage_id"`
 	Status           string                 `json:"status"`
 	AuthorizationURL string                 `json:"authorization_url,omitempty"`
+	RedirectURI      string                 `json:"redirect_uri,omitempty"`
 	Account          CredentialStageAccount `json:"account"`
 	ExpiresAtMS      int64                  `json:"expires_at_ms"`
 	ErrorCode        string                 `json:"error_code,omitempty"`
-	LocalCallback    bool                   `json:"-"`
 }
 
 type stagedSubscriptionPayload struct {
@@ -358,8 +358,8 @@ func (s *Service) BeginCredentialAuthorization(
 	}
 	return CredentialStageResult{
 		StageID: row.ID, Status: string(row.Status), AuthorizationURL: authorization.URL,
-		Account: CredentialStageAccount{}, ExpiresAtMS: row.ExpiresAtMS,
-		LocalCallback: authorization.LocalCallback,
+		RedirectURI: authorization.RedirectURI,
+		Account:     CredentialStageAccount{}, ExpiresAtMS: row.ExpiresAtMS,
 	}, nil
 }
 
@@ -370,7 +370,7 @@ func (s *Service) CompleteCredentialAuthorization(
 	returnedState string,
 	code string,
 ) (CredentialStageResult, error) {
-	return s.completeCredentialAuthorization(ctx, "", returnedState, code)
+	return s.completeCredentialAuthorization(ctx, "", "", returnedState, code)
 }
 
 func (s *Service) completeCredentialAuthorizationForStage(
@@ -382,12 +382,22 @@ func (s *Service) completeCredentialAuthorizationForStage(
 	if strings.TrimSpace(stageID) == "" {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
 	}
-	return s.completeCredentialAuthorization(ctx, stageID, returnedState, code)
+	return s.completeCredentialAuthorization(ctx, stageID, "", returnedState, code)
+}
+
+func (s *Service) completeCredentialAuthorizationFromCallback(
+	ctx context.Context,
+	callback subscriptionruntime.LocalCallbackSpec,
+	returnedState string,
+	code string,
+) (CredentialStageResult, error) {
+	return s.completeCredentialAuthorization(ctx, "", callback.RedirectURI, returnedState, code)
 }
 
 func (s *Service) completeCredentialAuthorization(
 	ctx context.Context,
 	stageID string,
+	expectedRedirectURI string,
 	returnedState string,
 	code string,
 ) (CredentialStageResult, error) {
@@ -404,6 +414,9 @@ func (s *Service) completeCredentialAuthorization(
 		}
 		if err := query.Take(&row).Error; err != nil {
 			return err
+		}
+		if !s.credentialStageMatchesCallback(row, expectedRedirectURI) {
+			return app_errors.ErrAuthorizationStateInvalid
 		}
 		if s.now().UnixMilli() >= row.ExpiresAtMS {
 			return app_errors.ErrStagedCredentialExpired
@@ -485,17 +498,32 @@ func (s *Service) completeCredentialAuthorization(
 // FailCredentialAuthorization consumes a provider rejection without retaining
 // its untrusted query text or leaving the Stage pending until expiry.
 func (s *Service) FailCredentialAuthorization(ctx context.Context, returnedState string, providerError string) error {
-	return s.failCredentialAuthorization(ctx, "", returnedState, providerError)
+	return s.failCredentialAuthorization(ctx, "", "", returnedState, providerError)
 }
 
 func (s *Service) failCredentialAuthorizationForStage(ctx context.Context, stageID string, returnedState string, providerError string) error {
 	if strings.TrimSpace(stageID) == "" {
 		return app_errors.ErrAuthorizationStateInvalid
 	}
-	return s.failCredentialAuthorization(ctx, stageID, returnedState, providerError)
+	return s.failCredentialAuthorization(ctx, stageID, "", returnedState, providerError)
 }
 
-func (s *Service) failCredentialAuthorization(ctx context.Context, stageID string, returnedState string, providerError string) error {
+func (s *Service) failCredentialAuthorizationFromCallback(
+	ctx context.Context,
+	callback subscriptionruntime.LocalCallbackSpec,
+	returnedState string,
+	providerError string,
+) error {
+	return s.failCredentialAuthorization(ctx, "", callback.RedirectURI, returnedState, providerError)
+}
+
+func (s *Service) failCredentialAuthorization(
+	ctx context.Context,
+	stageID string,
+	expectedRedirectURI string,
+	returnedState string,
+	providerError string,
+) error {
 	if s == nil || strings.TrimSpace(returnedState) == "" || strings.TrimSpace(providerError) == "" {
 		return app_errors.ErrAuthorizationStateInvalid
 	}
@@ -505,23 +533,93 @@ func (s *Service) failCredentialAuthorization(ctx context.Context, stageID strin
 	}
 	nowMS := s.now().UnixMilli()
 	stateHash := s.encryption.Hash("oauth-state/v1|" + returnedState)
-	query := s.db.WithContext(ctx).Model(&models.CredentialStage{}).
-		Where("oauth_state_hash = ? AND status = ? AND expires_at_ms > ?", stateHash, models.CredentialStagePendingAuthorization, nowMS)
-	if stageID != "" {
-		query = query.Where("id = ?", stageID)
-	}
-	result := query.
-		Updates(map[string]any{
-			"status": models.CredentialStageFailed, "encrypted_payload": "",
-			"oauth_state_hash": nil, "error_code": errorCode, "updated_at_ms": nowMS,
-		})
-	if result.Error != nil {
-		return app_errors.ParseDBError(result.Error)
-	}
-	if result.RowsAffected != 1 {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.CredentialStage
+		query := tx.Where(
+			"oauth_state_hash = ? AND status = ? AND expires_at_ms > ?",
+			stateHash,
+			models.CredentialStagePendingAuthorization,
+			nowMS,
+		)
+		if stageID != "" {
+			query = query.Where("id = ?", stageID)
+		}
+		if err := query.Take(&row).Error; err != nil {
+			return err
+		}
+		if !s.credentialStageMatchesCallback(row, expectedRedirectURI) {
+			return app_errors.ErrAuthorizationStateInvalid
+		}
+		result := tx.Model(&models.CredentialStage{}).
+			Where("id = ? AND oauth_state_hash = ? AND status = ?", row.ID, stateHash, models.CredentialStagePendingAuthorization).
+			Updates(map[string]any{
+				"status": models.CredentialStageFailed, "encrypted_payload": "",
+				"oauth_state_hash": nil, "error_code": errorCode, "updated_at_ms": nowMS,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+	if err != nil {
 		return app_errors.ErrAuthorizationStateInvalid
 	}
 	return nil
+}
+
+func (s *Service) credentialStageMatchesCallback(row models.CredentialStage, expectedRedirectURI string) bool {
+	if expectedRedirectURI == "" {
+		return true
+	}
+	if s == nil || s.subscriptions == nil {
+		return false
+	}
+	callback, ok := s.subscriptions.LocalCallback(channel.ID(row.ChannelID))
+	return ok && callback.RedirectURI == expectedRedirectURI
+}
+
+func (s *Service) CompleteCredentialAuthorizationCallback(
+	ctx context.Context,
+	stageID string,
+	rawCallbackURL string,
+) (CredentialStageResult, error) {
+	if strings.TrimSpace(stageID) == "" {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
+	}
+	row, err := s.loadCredentialStage(ctx, stageID)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	callbackSpec, ok := s.subscriptions.LocalCallback(channel.ID(row.ChannelID))
+	if !ok {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
+	}
+	callback, err := parseManualOAuthCallbackURL(rawCallbackURL, callbackSpec)
+	if err != nil {
+		return CredentialStageResult{}, app_errors.ErrValidation
+	}
+	if callback.ProviderError != "" {
+		if err := s.failCredentialAuthorization(
+			ctx,
+			stageID,
+			callbackSpec.RedirectURI,
+			callback.State,
+			callback.ProviderError,
+		); err != nil {
+			return CredentialStageResult{}, err
+		}
+		return s.GetCredentialStage(ctx, stageID)
+	}
+	return s.completeCredentialAuthorization(
+		ctx,
+		stageID,
+		callbackSpec.RedirectURI,
+		callback.State,
+		callback.Code,
+	)
 }
 
 func (s *Service) GetCredentialStage(ctx context.Context, stageID string) (CredentialStageResult, error) {
@@ -540,10 +638,16 @@ func (s *Service) GetCredentialStage(ctx context.Context, stageID string) (Crede
 	if len(row.SafeSummaryJSON) > 0 {
 		_ = json.Unmarshal(row.SafeSummaryJSON, &account)
 	}
-	return CredentialStageResult{
+	result := CredentialStageResult{
 		StageID: row.ID, Status: string(row.Status), Account: account, ExpiresAtMS: row.ExpiresAtMS,
 		ErrorCode: stageResultErrorCode(row.Status, row.ErrorCode),
-	}, nil
+	}
+	if row.Status == models.CredentialStagePendingAuthorization || row.Status == models.CredentialStageExchanging {
+		if callback, ok := s.subscriptions.LocalCallback(channel.ID(row.ChannelID)); ok {
+			result.RedirectURI = callback.RedirectURI
+		}
+	}
+	return result, nil
 }
 
 func (s *Service) CancelCredentialStage(ctx context.Context, stageID string) error {

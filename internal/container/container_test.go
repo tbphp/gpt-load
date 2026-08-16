@@ -99,6 +99,46 @@ func TestBuildContainerPublishesCodexSubscriptionGroup(t *testing.T) {
 	}
 }
 
+func TestBuildContainerPublishesClaudeSubscriptionGroup(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		channels *channel.Registry,
+		manager *state.Manager,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		_, publishErr := manager.Publish(state.CompileInput{
+			ChannelRegistry: channels,
+			Groups: []state.GroupConfig{{
+				ID: 1, Name: "claude-subscription", ChannelID: channel.Claude,
+				ConnectionType: string(models.ConnectionTypeSubscription),
+				Params:         json.RawMessage(`{}`),
+				Models:         []state.ModelConfig{{ID: "claude-sonnet-4-5"}},
+				Enabled:        true,
+			}},
+		})
+		if publishErr != nil {
+			t.Fatalf("Publish() Claude subscription error = %v", publishErr)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve Claude publication graph: %v", err)
+	}
+}
+
 func TestBuildContainerWiresRequestLogRetentionSnapshotProvider(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())

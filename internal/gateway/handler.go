@@ -145,7 +145,11 @@ func NewHandler(
 		requestLogSink = telemetry.NoopRequestLogSink{}
 	}
 	channels := channel.NewRegistry()
-	subscriptions, _ := subscriptionruntime.NewRuntime(channels, subscriptionruntime.CodexImplementations())
+	subscriptions, _ := subscriptionruntime.NewRuntime(
+		channels,
+		subscriptionruntime.CodexImplementations(),
+		subscriptionruntime.ClaudeImplementations(),
+	)
 	return &Handler{
 		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
@@ -599,6 +603,7 @@ func (handler *Handler) executeAttempts(
 		ref       state.CredentialRef
 	}
 	var refreshRetry *credentialRefreshRetry
+	authRefreshReplayUsed := false
 	for attempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
@@ -616,6 +621,7 @@ func (handler *Handler) executeAttempts(
 				continue
 			}
 			ref = currentRef
+			authRefreshReplayUsed = true
 			forceCredentialRefresh = currentRef.Version <= refreshRetry.ref.Version
 			refreshRetry = nil
 		} else {
@@ -758,7 +764,8 @@ func (handler *Handler) executeAttempts(
 		if result.ExecutionError != nil &&
 			result.ExecutionError.Hint == execution.FailureHintRefreshRequired &&
 			result.ExecutionError.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing &&
-			connection.Normalize(selection.Group.ConnectionType) == connection.Subscription && attempts < maxAttempts {
+			connection.Normalize(selection.Group.ConnectionType) == connection.Subscription &&
+			!authRefreshReplayUsed && attempts < maxAttempts {
 			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
 		}
 		if decision.Action == health.ActionSkipGroup {
@@ -884,6 +891,10 @@ func shouldRetryAcrossCandidates(
 	result UpstreamResult,
 	decision health.Result,
 ) bool {
+	if result.ExecutionError != nil &&
+		result.ExecutionError.Hint == execution.FailureHintRequestRejected {
+		return false
+	}
 	if !decision.ShouldRetry() || result.Committed {
 		return false
 	}

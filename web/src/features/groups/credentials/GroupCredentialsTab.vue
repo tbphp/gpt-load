@@ -91,6 +91,8 @@ const channelDescriptor = computed(() =>
 const authorizationMethods = computed(
   () => channelDescriptor.value?.connection.authorization_methods ?? [],
 )
+const channelName = computed(() => channelDescriptor.value?.name ?? props.channelId)
+const channelNotices = computed(() => channelDescriptor.value?.notices ?? [])
 const channelCapabilities = computed<ChannelCapabilitiesDto>(
   () =>
     channelDescriptor.value?.capabilities ?? {
@@ -921,7 +923,9 @@ async function runBatch(
         <SubscriptionCredentialStager
           v-model="connectionStages"
           :channel-id="channelId"
+          :channel-name="channelName"
           :authorization-methods="authorizationMethods"
+          :notices="channelNotices"
           compact
           hide-header
           context="connect"

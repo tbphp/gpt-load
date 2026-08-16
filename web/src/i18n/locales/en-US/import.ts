@@ -32,7 +32,7 @@ export default {
       credentials: {
         apiKeyTitle: 'Add API keys',
         structuredTitle: 'Enter channel credentials',
-        subscriptionTitle: 'Connect ChatGPT accounts',
+        subscriptionTitle: 'Connect {channel} accounts',
         keyCount: '{count} key(s) entered',
         credentialCount: '{count} credential(s) entered',
         needsAttention: 'Credentials need attention',
@@ -69,7 +69,7 @@ export default {
     existing: {
       title: 'Target Group',
       description:
-        'This flow adds credentials only to API-key Groups without changing models or settings. Connect subscription accounts from the Codex Group credential page.',
+        'This flow adds credentials only to API-key Groups without changing models or settings. Connect subscription accounts from the corresponding Group credential page.',
       groupsLoading: 'Loading Groups…',
       groupsFailed: 'Unable to load Groups',
       groupsStale: 'Group refresh failed; showing cached results',
@@ -104,22 +104,26 @@ export default {
     },
     subscription: {
       title: 'Connect a subscription account',
-      description: 'Sign in with ChatGPT, or import an existing auth.json file',
+      description: 'Sign in with {channel}, or import an existing OAuth JSON file',
+      channelNotice: {
+        claude_oauth_risk:
+          'Claude OAuth relies on a Claude Code compatibility protocol rather than a stable public API contract. Upstream changes may interrupt access or affect the account; evaluate this risk before authorizing.',
+      },
       securityNotice: {
         create:
           'The browser never stores the access credential. The server encrypts and holds it, and only writes it in when the group is created.',
         connect:
           'The browser never stores the access credential. The server encrypts and holds it, and writes it into this group once authorization finishes.',
       },
-      authorize: 'Sign in with ChatGPT',
-      authorizeHint: 'Opens the ChatGPT authorization page and returns here automatically',
+      authorize: 'Sign in with {channel}',
+      authorizeHint: 'Opens the {channel} authorization page and returns here automatically',
       addAnother: 'Connect another account',
-      authorizeFailed: 'Unable to complete ChatGPT sign-in',
+      authorizeFailed: 'Unable to complete {channel} sign-in',
       popupBlocked:
         'The browser blocked the new window. Open the authorization link below instead.',
       waiting: 'Waiting for the browser to finish authorization',
       waitingHelp:
-        'ChatGPT opened in a new window; this page continues automatically when it is done',
+        '{channel} opened in a new window; this page continues automatically when it is done',
       exchanging: 'Finishing authorization…',
       sessionRemaining: 'Authorization session time left',
       restart: 'Start a new authorization',
@@ -128,23 +132,24 @@ export default {
         connect: 'Ready — will join this group',
       },
       manualHint:
-        "A local deployment finishes on its own — nothing to do here. For a remote deployment (your browser cannot reach the server's localhost:1455), open the link below to authorize, then paste back the URL your browser ends on.",
+        'A local deployment finishes on its own. For a remote deployment where the browser cannot reach {redirectUri}, authorize with the link below and paste back the final browser URL.',
       authorizationLink: 'Authorization link',
       copyAuthorization: 'Copy link',
       openAuthorization: 'Open',
       callbackLabel: 'URL your browser ended on',
-      callbackPlaceholder: 'http://localhost:1455/auth/callback?code=...&state=...',
+      callbackEndpointFallback: 'the local OAuth callback',
+      callbackPlaceholder: 'http://localhost:<port>/callback?code=...&state=...',
       callbackHelp:
         'Copy the whole URL from the address bar, not just part of it. It is fine if that page does not load.',
       submitCallback: 'Submit',
       callbackFailed: 'This URL is invalid, already used, or belongs to another authorization',
-      orImport: 'Have an auth.json file? Import it directly',
-      oauthJSONLabel: 'auth.json content',
-      oauthJSONDescription: 'Paste the contents of auth.json, or choose a local file.',
+      orImport: 'Have an OAuth JSON file? Import it directly',
+      oauthJSONLabel: 'OAuth JSON content',
+      oauthJSONDescription: 'Paste the OAuth credential JSON, or choose a local file.',
       importText: 'Import pasted content',
       importFile: 'Choose a local file',
       importing: 'Importing…',
-      importFailed: 'auth.json is invalid or unsupported',
+      importFailed: 'The OAuth JSON is invalid or unsupported',
       pollFailed: 'Authorization status is temporarily unavailable; still retrying',
       pollAbandoned:
         'Authorization status could not be read after several tries; start a new authorization',
@@ -159,9 +164,9 @@ export default {
       expires: 'Expires',
       unknown: 'Unknown',
       stageError: {
-        authorizationDenied: 'Codex authorization was cancelled; start again',
-        authorizationFailed: 'Codex could not finish authorization; start again',
-        exchangeRejected: 'Codex rejected the authorization code; authorize again',
+        authorizationDenied: '{channel} authorization was cancelled; start again',
+        authorizationFailed: '{channel} could not finish authorization; start again',
+        exchangeRejected: '{channel} rejected the authorization code; authorize again',
         exchangeUnknown: 'The authorization exchange outcome is unknown; authorize again',
         exchangeInterrupted: 'The authorization exchange was interrupted; authorize again',
         refreshIdentityChanged: 'The refreshed account identity changed; authorize again',
@@ -295,7 +300,7 @@ export default {
     appendFailed: 'Unable to import credentials into the selected Group',
     conflict: {
       title: 'This channel target already exists',
-      titleSubscription: 'A Codex Group already exists',
+      titleSubscription: 'A subscription Group already exists',
       description: 'Add credentials to an existing Group or create a separate Group',
       descriptionSubscription: 'Add the account to an existing Group, or create a separate Group',
       close: 'Close URL conflict',

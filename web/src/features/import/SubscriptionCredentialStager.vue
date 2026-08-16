@@ -12,7 +12,7 @@ import {
   importCredentialStage,
   type CredentialStage,
 } from '@/app/resources/credential-stages'
-import type { ChannelAuthorizationMethod } from '@/app/resources/channels'
+import type { ChannelAuthorizationMethod, ChannelNoticeDto } from '@/app/resources/channels'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
@@ -29,7 +29,9 @@ const props = withDefaults(
   defineProps<{
     modelValue: CredentialStage[]
     channelId: string
+    channelName?: string
     authorizationMethods: ChannelAuthorizationMethod[]
+    notices?: ChannelNoticeDto[]
     disabled?: boolean
     single?: boolean
     compact?: boolean
@@ -43,6 +45,8 @@ const props = withDefaults(
   }>(),
   {
     disabled: false,
+    channelName: '',
+    notices: () => [],
     single: false,
     compact: false,
     hideHeader: false,
@@ -77,11 +81,16 @@ const entryBusy = computed(() => props.disabled || Boolean(busyAction.value))
 const supportsBrowserOAuth = computed(() => props.authorizationMethods.includes('browser_oauth'))
 const supportsOAuthFile = computed(() => props.authorizationMethods.includes('oauth_file'))
 const hasEntryMethod = computed(() => supportsBrowserOAuth.value || supportsOAuthFile.value)
+const channelLabel = computed(() => props.channelName.trim() || props.channelId)
 
 function replaceStage(stage: CredentialStage): void {
   const existing = props.modelValue.find((item) => item.stage_id === stage.stage_id)
-  const merged = existing?.authorization_url
-    ? { ...stage, authorization_url: stage.authorization_url ?? existing.authorization_url }
+  const merged = existing
+    ? {
+        ...stage,
+        authorization_url: stage.authorization_url ?? existing.authorization_url,
+        redirect_uri: stage.redirect_uri ?? existing.redirect_uri,
+      }
     : stage
   const index = props.modelValue.findIndex((item) => item.stage_id === stage.stage_id)
   emit(
@@ -307,6 +316,16 @@ function remainingCountdown(stage: CredentialStage): string {
   return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
+function callbackEndpoint(stage: CredentialStage): string {
+  return stage.redirect_uri ?? t('import.subscription.callbackEndpointFallback')
+}
+
+function callbackPlaceholder(stage: CredentialStage): string {
+  if (!stage.redirect_uri) return t('import.subscription.callbackPlaceholder')
+  const separator = stage.redirect_uri.includes('?') ? '&' : '?'
+  return `${stage.redirect_uri}${separator}code=...&state=...`
+}
+
 async function restartAuthorization(stage: CredentialStage): Promise<void> {
   if (!supportsBrowserOAuth.value || props.disabled || busyAction.value) return
   const popup = openAuthorizationPopup()
@@ -412,7 +431,7 @@ onBeforeUnmount(() => {
       heading-id="subscription-stager-title"
       :step="step"
       :title="t('import.subscription.title')"
-      :description="t('import.subscription.description')"
+      :description="t('import.subscription.description', { channel: channelLabel })"
     >
       <template v-if="readyCount" #actions>
         <span class="subscription-stager__count">
@@ -420,6 +439,15 @@ onBeforeUnmount(() => {
         </span>
       </template>
     </PanelHeader>
+
+    <InlineFeedback
+      v-for="notice in notices"
+      :key="notice.id"
+      :tone="notice.tone"
+      appearance="ledger"
+    >
+      {{ t(`import.subscription.channelNotice.${notice.id}`) }}
+    </InlineFeedback>
 
     <div v-if="hasAccounts" class="subscription-stager__accounts">
       <article
@@ -443,7 +471,7 @@ onBeforeUnmount(() => {
                   : t('import.subscription.waiting')
               }}
             </strong>
-            <span>{{ t('import.subscription.waitingHelp') }}</span>
+            <span>{{ t('import.subscription.waitingHelp', { channel: channelLabel }) }}</span>
           </div>
           <span
             v-if="stage.status === 'pending_authorization'"
@@ -505,8 +533,8 @@ onBeforeUnmount(() => {
           </AppButton>
         </div>
 
-        <!-- 远程部署时浏览器到不了服务端的 localhost:1455，手动授权是常规路径而
-             不是异常兜底，因此授权链接与回调输入始终展开，不做折叠。 -->
+        <!-- 远程部署时浏览器可能无法访问服务端声明的 loopback callback；手动授权是
+             常规路径而不是异常兜底，因此授权链接与回调输入始终展开。 -->
         <div
           v-if="stage.status === 'pending_authorization' && stage.authorization_url"
           class="subscription-stager__authorization"
@@ -519,7 +547,7 @@ onBeforeUnmount(() => {
             {{ t('import.subscription.popupBlocked') }}
           </InlineFeedback>
           <p class="subscription-stager__manual-hint">
-            {{ t('import.subscription.manualHint') }}
+            {{ t('import.subscription.manualHint', { redirectUri: callbackEndpoint(stage) }) }}
           </p>
 
           <div class="subscription-stager__link-field">
@@ -561,7 +589,7 @@ onBeforeUnmount(() => {
                   autocapitalize="none"
                   spellcheck="false"
                   :disabled="disabled || Boolean(busyAction)"
-                  :placeholder="t('import.subscription.callbackPlaceholder')"
+                  :placeholder="callbackPlaceholder(stage)"
                   :aria-invalid="field.invalid || undefined"
                   :aria-describedby="field.describedBy"
                   @paste="handleCallbackPaste(stage)"
@@ -605,11 +633,13 @@ onBeforeUnmount(() => {
         >
           <Plus v-if="hasAccounts" :size="15" aria-hidden="true" />
           {{
-            hasAccounts ? t('import.subscription.addAnother') : t('import.subscription.authorize')
+            hasAccounts
+              ? t('import.subscription.addAnother')
+              : t('import.subscription.authorize', { channel: channelLabel })
           }}
         </AppButton>
         <span v-if="!hasAccounts" class="subscription-stager__entry-hint">
-          {{ t('import.subscription.authorizeHint') }}
+          {{ t('import.subscription.authorizeHint', { channel: channelLabel }) }}
         </span>
       </div>
 
@@ -684,7 +714,7 @@ onBeforeUnmount(() => {
     </InlineFeedback>
 
     <InlineFeedback v-if="feedbackKey" tone="danger" appearance="ledger">
-      {{ t(feedbackKey) }}
+      {{ t(feedbackKey, { channel: channelLabel }) }}
     </InlineFeedback>
   </section>
 </template>

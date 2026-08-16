@@ -467,6 +467,14 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	if err := (ErrorEvidence{Kind: ErrorKindHTTP, Hint: FailureHint("unknown"), Summary: "safe"}).Validate(); err == nil {
 		t.Fatal("expected unknown failure hint to be rejected")
 	}
+	if err := (ErrorEvidence{
+		Kind:       ErrorKindHTTP,
+		Hint:       FailureHintRequestRejected,
+		StatusCode: http.StatusTooManyRequests,
+		Summary:    "request entitlement rejected",
+	}).Validate(); err != nil {
+		t.Fatalf("request-rejected error evidence Validate() error = %v", err)
+	}
 }
 
 func TestStreamEventValidation(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/platform/utils"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 type Server struct {
@@ -92,8 +93,8 @@ func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
 		writeServiceError(c, "begin_credential_authorization", err)
 		return
 	}
-	if result.LocalCallback && s.service.oauthCallback != nil {
-		if err := s.service.oauthCallback.EnsureStarted(); err != nil {
+	if result.RedirectURI != "" && s.service.oauthCallback != nil {
+		if err := s.service.oauthCallback.EnsureStarted(subscriptionruntime.LocalCallbackSpec{RedirectURI: result.RedirectURI}); err != nil {
 			s.logger.WithField("event", "oauth.callback_start_failed").WithError(err).Warn("OAuth callback listener is unavailable; manual callback remains available")
 		}
 	}
@@ -112,21 +113,12 @@ func (s *Server) handleCredentialAuthorizationCallback(c *gin.Context) {
 		writeServiceError(c, "complete_credential_authorization", mapControlJSONError(err))
 		return
 	}
-	callback, err := parseManualOAuthCallbackURL(request.CallbackURL)
-	if err != nil {
-		writeServiceError(c, "complete_credential_authorization", app_errors.ErrValidation)
-		return
-	}
 	stageID := strings.TrimSpace(c.Param("stage_id"))
-	var result CredentialStageResult
-	if callback.ProviderError != "" {
-		err = s.service.failCredentialAuthorizationForStage(c.Request.Context(), stageID, callback.State, callback.ProviderError)
-		if err == nil {
-			result, err = s.service.GetCredentialStage(c.Request.Context(), stageID)
-		}
-	} else {
-		result, err = s.service.completeCredentialAuthorizationForStage(c.Request.Context(), stageID, callback.State, callback.Code)
-	}
+	result, err := s.service.CompleteCredentialAuthorizationCallback(
+		c.Request.Context(),
+		stageID,
+		request.CallbackURL,
+	)
 	if err != nil {
 		writeServiceError(c, "complete_credential_authorization", err)
 		return

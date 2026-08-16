@@ -33,6 +33,7 @@ export interface CredentialStage {
   stage_id: string
   status: CredentialStageStatus
   authorization_url?: string
+  redirect_uri?: string
   account: CredentialStageAccount
   expires_at_ms: number
   error_code?: string
@@ -48,6 +49,7 @@ const stageFields = [
   'stage_id',
   'status',
   'authorization_url',
+  'redirect_uri',
   'account',
   'expires_at_ms',
   'error_code',
@@ -103,10 +105,13 @@ export function projectCredentialStage(value: unknown): CredentialStage {
   assertNoSecretLikeFields(record, stageFields)
   const authorizationURL =
     record.authorization_url === undefined ? undefined : projectHTTPURL(record.authorization_url)
+  const redirectURI =
+    record.redirect_uri === undefined ? undefined : projectHTTPURL(record.redirect_uri)
   return {
     stage_id: projectStageID(record.stage_id),
     status: projectEnum(record.status, stageStatuses),
     ...(authorizationURL === undefined ? {} : { authorization_url: authorizationURL }),
+    ...(redirectURI === undefined ? {} : { redirect_uri: redirectURI }),
     account: projectAccount(record.account),
     expires_at_ms: projectEpochMilliseconds(record.expires_at_ms),
     ...(record.error_code === undefined

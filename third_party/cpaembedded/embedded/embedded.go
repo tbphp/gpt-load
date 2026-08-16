@@ -633,18 +633,24 @@ func (t noRedirectRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 }
 
 type executionObservation struct {
-	capture bool
-	mu      sync.RWMutex
-	effort  string
+	capture  bool
+	provider string
+	mu       sync.RWMutex
+	effort   string
 }
 
 func newExecutionObservation(request ExecuteRequest) *executionObservation {
+	return newProviderExecutionObservation(request, ProviderCodex)
+}
+
+func newProviderExecutionObservation(request ExecuteRequest, provider string) *executionObservation {
 	body := request.OriginalRequest
 	if len(body) == 0 {
 		body = request.Payload
 	}
 	return &executionObservation{
-		capture: thinking.ExtractReasoningEffort(body, request.Format, request.Model) != "",
+		capture:  thinking.ExtractReasoningEffort(body, request.Format, request.Model) != "",
+		provider: provider,
 	}
 }
 
@@ -662,7 +668,7 @@ func (o *executionObservation) observe(request *http.Request) {
 		clear(body)
 		return
 	}
-	effort := thinking.ExtractTranslatedReasoningEffort(body, ProviderCodex)
+	effort := thinking.ExtractTranslatedReasoningEffort(body, o.provider)
 	clear(body)
 	if effort == "" {
 		return

@@ -26,7 +26,7 @@ import (
 func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	fixture.service.oauthCallback.address = "127.0.0.1:0"
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
 	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
@@ -55,6 +55,9 @@ func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 	}
 	if envelope.Data.StageID == "" || envelope.Data.AuthorizationURL == "" {
 		t.Fatalf("authorization data = %#v", envelope.Data)
+	}
+	if !strings.Contains(response.Body.String(), `"redirect_uri":"http://localhost:1455/auth/callback"`) {
+		t.Fatalf("authorization response omits the compiled callback endpoint: %s", response.Body)
 	}
 
 	get := httptest.NewRequest(http.MethodGet, "/api/credential-stages/"+envelope.Data.StageID, nil)
@@ -99,7 +102,7 @@ func TestBeginCredentialAuthorizationStartsOnlyTheCallbackRequestedByTheDriver(t
 	originalBegin := fixture.service.beginSubscriptionAuthorization
 	fixture.service.beginSubscriptionAuthorization = func(channelID channel.ID) (subscriptionruntime.Authorization, error) {
 		authorization, err := originalBegin(channelID)
-		authorization.LocalCallback = false
+		authorization.RedirectURI = ""
 		return authorization, err
 	}
 	listenerCalled := false
@@ -170,7 +173,9 @@ func TestManualOAuthCallbackCompletesOnlyItsBoundStageOnce(t *testing.T) {
 
 func TestParseManualOAuthCallbackURLRequiresFixedLocalCallback(t *testing.T) {
 	valid := "http://localhost:1455/auth/callback?code=authorization-code&state=state-one"
-	parsed, err := parseManualOAuthCallbackURL(valid)
+	parsed, err := parseManualOAuthCallbackURL(valid, subscriptionruntime.LocalCallbackSpec{
+		RedirectURI: "http://localhost:1455/auth/callback",
+	})
 	if err != nil || parsed.Code != "authorization-code" || parsed.State != "state-one" {
 		t.Fatalf("valid callback = %#v, %v", parsed, err)
 	}
@@ -183,8 +188,58 @@ func TestParseManualOAuthCallbackURLRequiresFixedLocalCallback(t *testing.T) {
 		"http://localhost:1455/auth/callback?code=authorization-code&state=state-one#fragment",
 		"http://localhost:1455/auth/callback?code=authorization-code&state=one&state=two",
 	} {
-		if _, err := parseManualOAuthCallbackURL(callbackURL); err == nil {
+		if _, err := parseManualOAuthCallbackURL(callbackURL, subscriptionruntime.LocalCallbackSpec{
+			RedirectURI: "http://localhost:1455/auth/callback",
+		}); err == nil {
 			t.Fatalf("parseManualOAuthCallbackURL(%q) succeeded", callbackURL)
+		}
+	}
+}
+
+func TestParseManualOAuthCallbackURLUsesDriverCallback(t *testing.T) {
+	claudeCallback := subscriptionruntime.LocalCallbackSpec{
+		RedirectURI: "http://localhost:54545/callback",
+	}
+	parsed, err := parseManualOAuthCallbackURL(
+		"http://localhost:54545/callback?code=authorization-code&state=state-one",
+		claudeCallback,
+	)
+	if err != nil || parsed.Code != "authorization-code" || parsed.State != "state-one" {
+		t.Fatalf("Claude callback = %#v, %v", parsed, err)
+	}
+	if _, err := parseManualOAuthCallbackURL(
+		"http://localhost:1455/auth/callback?code=authorization-code&state=state-one",
+		claudeCallback,
+	); err == nil {
+		t.Fatal("Codex callback succeeded against the Claude callback contract")
+	}
+}
+
+func TestOAuthCallbackServerStartsIndependentDriverEndpoints(t *testing.T) {
+	fixture := newServiceFixture(t)
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
+	callbacks := []subscriptionruntime.LocalCallbackSpec{
+		{RedirectURI: "http://localhost:1455/auth/callback"},
+		{RedirectURI: "http://localhost:54545/callback"},
+	}
+	for _, callback := range callbacks {
+		if err := fixture.service.oauthCallback.EnsureStarted(callback); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
+
+	firstAddr := fixture.service.oauthCallback.Addr(callbacks[0])
+	secondAddr := fixture.service.oauthCallback.Addr(callbacks[1])
+	if firstAddr == "" || secondAddr == "" || firstAddr == secondAddr {
+		t.Fatalf("callback addresses = %q and %q, want independent listeners", firstAddr, secondAddr)
+	}
+	for index, callback := range callbacks {
+		if err := fixture.service.oauthCallback.EnsureStarted(callback); err != nil {
+			t.Fatal(err)
+		}
+		if got := fixture.service.oauthCallback.Addr(callback); got != []string{firstAddr, secondAddr}[index] {
+			t.Fatalf("idempotent callback address = %q", got)
 		}
 	}
 }
@@ -282,14 +337,14 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	setCodexAuthorizationCompletion(t, fixture.service, successfulBrowserCompletion(payload, t))
-	fixture.service.oauthCallback.address = "127.0.0.1:0"
-	fixture.service.oauthCallback.listen = net.Listen
-	if err := fixture.service.oauthCallback.EnsureStarted(); err != nil {
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
+	callbackSpec := subscriptionruntime.LocalCallbackSpec{RedirectURI: "http://localhost:1455/auth/callback"}
+	if err := fixture.service.oauthCallback.EnsureStarted(callbackSpec); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
 
-	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&code=authorization-code&iss=" + url.QueryEscape("https://auth.openai.com")
+	callbackURL := "http://" + fixture.service.oauthCallback.Addr(callbackSpec) + "/auth/callback?state=" + payload.State + "&code=authorization-code&iss=" + url.QueryEscape("https://auth.openai.com")
 	response, body := getOAuthCallbackResponse(t, callbackURL)
 	contentSecurityPolicy := response.Header.Get("Content-Security-Policy")
 	if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" ||
@@ -301,6 +356,44 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 	completed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
 	if err != nil || completed.Status != string(models.CredentialStageReady) {
 		t.Fatalf("completed = %#v, %v", completed, err)
+	}
+}
+
+func TestOAuthCallbackServerRejectsStateFromAnotherDriverEndpoint(t *testing.T) {
+	fixture := newServiceFixture(t)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row models.CredentialStage
+	if err := fixture.db.Take(&row, "id = ?", started.StageID).Error; err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := fixture.encryption.Decrypt(row.EncryptedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload stagedSubscriptionPayload
+	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
+		t.Fatal(err)
+	}
+	setCodexAuthorizationCompletion(t, fixture.service, successfulBrowserCompletion(payload, t))
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
+	claudeCallback := subscriptionruntime.LocalCallbackSpec{RedirectURI: "http://localhost:54545/callback"}
+	if err := fixture.service.oauthCallback.EnsureStarted(claudeCallback); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
+
+	callbackURL := "http://" + fixture.service.oauthCallback.Addr(claudeCallback) +
+		"/callback?state=" + url.QueryEscape(payload.State) + "&code=authorization-code"
+	response, body := getOAuthCallbackResponse(t, callbackURL)
+	if response.StatusCode != http.StatusOK || !strings.Contains(body, "无法识别这次授权") {
+		t.Fatalf("cross-endpoint callback response = %d %s", response.StatusCode, body)
+	}
+	pending, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
+	if err != nil || pending.Status != string(models.CredentialStagePendingAuthorization) {
+		t.Fatalf("cross-endpoint callback consumed stage = %#v, %v", pending, err)
 	}
 }
 
@@ -322,13 +415,14 @@ func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.oauthCallback.address = "127.0.0.1:0"
-	if err := fixture.service.oauthCallback.EnsureStarted(); err != nil {
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
+	callbackSpec := subscriptionruntime.LocalCallbackSpec{RedirectURI: "http://localhost:1455/auth/callback"}
+	if err := fixture.service.oauthCallback.EnsureStarted(callbackSpec); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
 
-	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&error=access_denied"
+	callbackURL := "http://" + fixture.service.oauthCallback.Addr(callbackSpec) + "/auth/callback?state=" + payload.State + "&error=access_denied"
 	response, body := getOAuthCallbackResponse(t, callbackURL)
 	if response.StatusCode != http.StatusOK || response.Header.Get("Location") != "" ||
 		!strings.Contains(body, "授权未完成") || !strings.Contains(body, "关闭") {
@@ -364,13 +458,14 @@ func TestOAuthCallbackExchangeFailureDoesNotOfferConsumedCallbackRetry(t *testin
 	setCodexAuthorizationCompletion(t, fixture.service, func(context.Context, codex.BrowserAuthorizationCompletion) (codex.Credential, error) {
 		return codex.Credential{}, fmt.Errorf("temporary token exchange failure")
 	})
-	fixture.service.oauthCallback.address = "127.0.0.1:0"
-	if err := fixture.service.oauthCallback.EnsureStarted(); err != nil {
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
+	callbackSpec := subscriptionruntime.LocalCallbackSpec{RedirectURI: "http://localhost:1455/auth/callback"}
+	if err := fixture.service.oauthCallback.EnsureStarted(callbackSpec); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
 
-	callbackURL := "http://" + fixture.service.oauthCallback.Addr() + "/auth/callback?state=" + payload.State + "&code=one-time-authorization-code"
+	callbackURL := "http://" + fixture.service.oauthCallback.Addr(callbackSpec) + "/auth/callback?state=" + payload.State + "&code=one-time-authorization-code"
 	response, body := getOAuthCallbackResponse(t, callbackURL)
 	if response.StatusCode != http.StatusOK || !strings.Contains(body, "换取凭据时失败") ||
 		!strings.Contains(body, "不能重复使用") || strings.Contains(body, "copy-callback-url") ||
@@ -402,11 +497,17 @@ func getOAuthCallbackResponse(t *testing.T, callbackURL string) (*http.Response,
 	return response, string(body)
 }
 
+func useEphemeralOAuthCallbackListeners(manager *OAuthCallbackManager) {
+	manager.listen = func(network, _ string) (net.Listener, error) {
+		return net.Listen(network, "127.0.0.1:0")
+	}
+}
+
 func TestNewServerConfiguresOAuthCallbackForWildcardContainerHost(t *testing.T) {
 	fixture := newServiceFixture(t)
 	NewServer(&config.Config{AuthKey: "test-auth-key", Server: config.ServerConfig{Host: "0.0.0.0"}}, fixture.service)
-	if got := fixture.service.oauthCallback.address; got != "0.0.0.0:1455" {
-		t.Fatalf("callback address = %q, want 0.0.0.0:1455", got)
+	if got := fixture.service.oauthCallback.host; got != "0.0.0.0" {
+		t.Fatalf("callback host = %q, want 0.0.0.0", got)
 	}
 }
 

@@ -20,6 +20,13 @@ export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
 export type ChannelConnectionType = 'api_key' | 'subscription'
 export type ChannelAuthorizationMethod = 'browser_oauth' | 'oauth_file'
 export type ChannelCredentialAction = 'reset_credit'
+export type ChannelNoticeID = 'claude_oauth_risk'
+export type ChannelNoticeTone = 'warning'
+
+export interface ChannelNoticeDto {
+  id: ChannelNoticeID
+  tone: ChannelNoticeTone
+}
 
 export interface ChannelConnectionDto {
   type: ChannelConnectionType
@@ -72,6 +79,7 @@ export interface ChannelDto {
   search_terms: string[]
   description: string
   default_base_url: string
+  notices: ChannelNoticeDto[]
   param_fields: ChannelFieldDto[]
   credential_fields: ChannelFieldDto[]
   connection: ChannelConnectionDto
@@ -93,6 +101,7 @@ const channelFields = [
   'search_terms',
   'description',
   'default_base_url',
+  'notices',
   'param_fields',
   'credential_fields',
   'connection',
@@ -116,6 +125,9 @@ const authorizationMethods = ['browser_oauth', 'oauth_file'] as const
 const connectionFields = ['type', 'credential_input', 'authorization_methods'] as const
 const capabilityFields = ['model_discovery', 'quota_observation', 'credential_actions'] as const
 const credentialActions = ['reset_credit'] as const
+const noticeFields = ['id', 'tone'] as const
+const noticeIDs = ['claude_oauth_risk'] as const
+const noticeTones = ['warning'] as const
 const routeFields = [
   'client_protocol',
   'operation',
@@ -209,6 +221,15 @@ function projectCapabilities(value: unknown): ChannelCapabilitiesDto {
   }
 }
 
+function projectNotice(value: unknown): ChannelNoticeDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, noticeFields)
+  return {
+    id: projectEnum(record.id, noticeIDs),
+    tone: projectEnum(record.tone, noticeTones),
+  }
+}
+
 function projectRoute(value: unknown): ChannelRouteDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, routeFields)
@@ -240,6 +261,7 @@ function projectChannel(value: unknown): ChannelDto {
   const credentialFields = projectArray(record.credential_fields, projectChannelField)
   const connection = projectConnection(record.connection)
   const capabilities = projectCapabilities(record.capabilities)
+  const notices = projectArray(record.notices, projectNotice)
   const routes = projectArray(record.routes, projectRoute)
   const clientProtocols = projectArray(record.client_protocols, (protocol) =>
     projectEnum(protocol, enabledDataProtocols),
@@ -255,6 +277,7 @@ function projectChannel(value: unknown): ChannelDto {
     new Set(credentialFields.map(({ key }) => key)).size !== credentialFields.length ||
     new Set(routeKeys).size !== routeKeys.length ||
     credentialFields.some(({ sensitive }) => !sensitive) ||
+    new Set(notices.map(({ id }) => id)).size !== notices.length ||
     new Set(clientProtocols).size !== clientProtocols.length ||
     JSON.stringify(clientProtocols) !== JSON.stringify(derivedProtocols)
   ) {
@@ -268,6 +291,7 @@ function projectChannel(value: unknown): ChannelDto {
     search_terms: projectArray(record.search_terms, (term) => projectString(term)),
     description: projectString(record.description, { allowEmpty: true }),
     default_base_url: projectString(record.default_base_url, { allowEmpty: true }),
+    notices,
     param_fields: paramFields,
     credential_fields: credentialFields,
     connection,

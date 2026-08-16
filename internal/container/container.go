@@ -204,13 +204,17 @@ type providerRuntimeSnapshotReconciler struct {
 }
 
 func newSubscriptionRuntime(registry *channel.Registry) (*subscriptionruntime.Runtime, error) {
-	return subscriptionruntime.NewRuntime(registry, subscriptionruntime.CodexImplementations())
+	return subscriptionruntime.NewRuntime(
+		registry,
+		subscriptionruntime.CodexImplementations(),
+		subscriptionruntime.ClaudeImplementations(),
+	)
 }
 
 func newProviderAdapterRegistry(
 	channels *channel.Registry,
 	bifrost *bifrostexecutor.RuntimeManager,
-	codex *cpaexecutor.Adapter,
+	cpa *cpaexecutor.Adapter,
 ) (*provideradapter.Registry, error) {
 	bindings := []provideradapter.Binding{
 		{ProviderKind: channel.ProviderOpenAI, Adapter: bifrost},
@@ -224,7 +228,8 @@ func newProviderAdapterRegistry(
 		{ProviderKind: channel.ProviderOpenRouter, Adapter: bifrost},
 		{ProviderKind: channel.ProviderGroq, Adapter: bifrost},
 		{ProviderKind: channel.ProviderXAI, Adapter: bifrost},
-		{ProviderKind: channel.ProviderCodex, Adapter: codex},
+		{ProviderKind: channel.ProviderCodex, Adapter: cpa},
+		{ProviderKind: channel.ProviderClaude, Adapter: cpa},
 	}
 	return provideradapter.NewRegistry(channels, bindings)
 }

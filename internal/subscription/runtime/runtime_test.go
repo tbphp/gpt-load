@@ -11,11 +11,11 @@ import (
 )
 
 func TestRuntimeCompilesSubscriptionCapabilitiesFromChannelBindings(t *testing.T) {
-	runtime, err := NewRuntime(channel.NewRegistry(), CodexImplementations())
+	runtime, err := NewRuntime(channel.NewRegistry(), CodexImplementations(), ClaudeImplementations())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := runtime.ChannelIDs(), []channel.ID{channel.Codex}; !reflect.DeepEqual(got, want) {
+	if got, want := runtime.ChannelIDs(), []channel.ID{channel.Claude, channel.Codex}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ChannelIDs() = %v, want %v", got, want)
 	}
 	driver, ok := runtime.Driver(channel.Codex)
@@ -24,6 +24,19 @@ func TestRuntimeCompilesSubscriptionCapabilitiesFromChannelBindings(t *testing.T
 	}
 	if _, ok := runtime.Driver(channel.OpenAI); ok {
 		t.Fatal("Driver(openai) unexpectedly resolved")
+	}
+	claudeDriver, ok := runtime.Driver(channel.Claude)
+	if !ok || claudeDriver.ID() != modules.ClaudeSubscriptionDriver {
+		t.Fatalf("Driver(claude) = %#v, %t", claudeDriver, ok)
+	}
+	if _, ok := runtime.ModelDiscovery(channel.Claude); ok {
+		t.Fatal("ModelDiscovery(claude) unexpectedly resolved")
+	}
+	if _, ok := runtime.QuotaObservation(channel.Claude); ok {
+		t.Fatal("QuotaObservation(claude) unexpectedly resolved")
+	}
+	if _, ok := runtime.ResetCreditAction(channel.Claude); ok {
+		t.Fatal("ResetCreditAction(claude) unexpectedly resolved")
 	}
 	discovery, ok := runtime.ModelDiscovery(channel.Codex)
 	if !ok || discovery.ID() != modules.CodexModelDiscovery {

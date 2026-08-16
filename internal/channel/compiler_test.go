@@ -2,6 +2,7 @@ package channel
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"gpt-load/internal/channel/spec"
@@ -121,6 +122,68 @@ func TestCompilerRejectsEmptyChannelMark(t *testing.T) {
 
 	if _, err := compileBuiltInModules([]spec.Module{openAI}); err == nil {
 		t.Fatal("compileBuiltInModules() accepted an empty channel mark")
+	}
+}
+
+func TestCompilerProjectsTypedChannelNotice(t *testing.T) {
+	t.Parallel()
+
+	openAI := findModule(t, builtInModules(), OpenAI)
+	openAI.Definition.Notices = []spec.Notice{{
+		ID:   spec.NoticeClaudeOAuthRisk,
+		Tone: spec.NoticeToneWarning,
+	}}
+
+	definitions, err := compileBuiltInModules([]spec.Module{openAI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []NoticeDescriptor{{
+		ID:   NoticeClaudeOAuthRisk,
+		Tone: NoticeToneWarning,
+	}}
+	if got := definitions[0].descriptor.Notices; !reflect.DeepEqual(got, want) {
+		t.Fatalf("compiled notices = %#v, want %#v", got, want)
+	}
+}
+
+func TestCompilerRejectsInvalidOrDuplicateChannelNotice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		notices []spec.Notice
+	}{
+		{
+			name: "unknown ID",
+			notices: []spec.Notice{{
+				ID: "unknown_notice", Tone: spec.NoticeToneWarning,
+			}},
+		},
+		{
+			name: "unknown tone",
+			notices: []spec.Notice{{
+				ID: spec.NoticeClaudeOAuthRisk, Tone: "critical",
+			}},
+		},
+		{
+			name: "duplicate",
+			notices: []spec.Notice{
+				{ID: spec.NoticeClaudeOAuthRisk, Tone: spec.NoticeToneWarning},
+				{ID: spec.NoticeClaudeOAuthRisk, Tone: spec.NoticeToneWarning},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			openAI := findModule(t, builtInModules(), OpenAI)
+			openAI.Definition.Notices = test.notices
+			if _, err := compileBuiltInModules([]spec.Module{openAI}); err == nil {
+				t.Fatal("compileBuiltInModules() accepted invalid channel notice")
+			}
+		})
 	}
 }
 

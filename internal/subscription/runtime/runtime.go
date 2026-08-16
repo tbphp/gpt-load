@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"gpt-load/internal/channel"
@@ -73,9 +76,14 @@ type Authorization struct {
 	State       string
 	DriverState []byte
 	ExpiresAt   time.Time
-	// LocalCallback asks the control plane to start its restricted localhost
-	// callback listener for this authorization flow.
-	LocalCallback bool
+	// RedirectURI is populated by the compiled runtime from the driver's fixed
+	// local callback declaration. It is safe to expose with the Stage result.
+	RedirectURI string
+}
+
+// LocalCallbackSpec declares one fixed loopback OAuth redirect endpoint.
+type LocalCallbackSpec struct {
+	RedirectURI string
 }
 
 // AuthorizationCompletion is the provider-neutral callback input.
@@ -101,7 +109,7 @@ type BrowserAuthorizationDriver interface {
 	BeginAuthorization() (Authorization, error)
 	CompleteAuthorization(context.Context, AuthorizationCompletion) (Credential, error)
 	AuthorizationFailureDefinitive(error) bool
-	RequiresLocalCallback() bool
+	LocalCallback() (LocalCallbackSpec, bool)
 }
 
 // ModelDiscovery is a narrow optional subscription capability.
@@ -153,6 +161,7 @@ func (err *UpstreamHTTPError) Error() string {
 type channelRuntime struct {
 	driver      Driver
 	browser     BrowserAuthorizationDriver
+	callback    *LocalCallbackSpec
 	discovery   ModelDiscovery
 	observation QuotaObservation
 	resetCredit ResetCreditAction
@@ -239,6 +248,7 @@ func compileRuntime(
 	}
 
 	result := &Runtime{byChannel: make(map[channel.ID]channelRuntime)}
+	callbackChannels := make(map[string]channel.ID)
 	for _, descriptor := range channels.List() {
 		bindings, ok := channels.CapabilityBindings(descriptor.ID)
 		if !ok {
@@ -264,6 +274,18 @@ func compileRuntime(
 			if !ok {
 				return nil, fmt.Errorf("compile subscription runtime: channel %q declares browser OAuth without driver support", descriptor.ID)
 			}
+			callback, local := compiled.browser.LocalCallback()
+			if local {
+				callback, err = validateLocalCallbackSpec(callback)
+				if err != nil {
+					return nil, fmt.Errorf("compile subscription runtime: channel %q has invalid local callback: %w", descriptor.ID, err)
+				}
+				if owner, duplicate := callbackChannels[callback.RedirectURI]; duplicate {
+					return nil, fmt.Errorf("compile subscription runtime: channels %q and %q share local callback %q", owner, descriptor.ID, callback.RedirectURI)
+				}
+				callbackChannels[callback.RedirectURI] = descriptor.ID
+				compiled.callback = &callback
+			}
 		}
 		if bindings.ModelDiscovery != "" {
 			compiled.discovery, ok = discoveryByID[spec.ExtensionID(bindings.ModelDiscovery)]
@@ -286,6 +308,26 @@ func compileRuntime(
 		result.byChannel[descriptor.ID] = compiled
 	}
 	return result, nil
+}
+
+func validateLocalCallbackSpec(spec LocalCallbackSpec) (LocalCallbackSpec, error) {
+	raw := strings.TrimSpace(spec.RedirectURI)
+	parsed, err := url.Parse(raw)
+	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.Fragment != "" ||
+		parsed.RawQuery != "" || parsed.ForceQuery || !strings.EqualFold(parsed.Scheme, "http") ||
+		!strings.EqualFold(parsed.Hostname(), "localhost") || parsed.Port() == "" ||
+		parsed.Path == "" || !strings.HasPrefix(parsed.Path, "/") || parsed.EscapedPath() != parsed.Path {
+		return LocalCallbackSpec{}, errors.New("redirect URI must be a fixed http://localhost endpoint")
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return LocalCallbackSpec{}, errors.New("redirect URI has an invalid port")
+	}
+	canonical := "http://localhost:" + strconv.Itoa(port) + parsed.Path
+	if raw != canonical {
+		return LocalCallbackSpec{}, errors.New("redirect URI is not canonical")
+	}
+	return LocalCallbackSpec{RedirectURI: canonical}, nil
 }
 
 func indexImplementations[T any](values []T, id func(T) spec.ExtensionID) (map[spec.ExtensionID]T, error) {
@@ -319,6 +361,18 @@ func (runtime *Runtime) BrowserAuthorization(channelID channel.ID) (BrowserAutho
 	}
 	value, ok := runtime.byChannel[channelID]
 	return value.browser, ok && value.browser != nil
+}
+
+// LocalCallback returns the startup-validated fixed callback for a channel.
+func (runtime *Runtime) LocalCallback(channelID channel.ID) (LocalCallbackSpec, bool) {
+	if runtime == nil {
+		return LocalCallbackSpec{}, false
+	}
+	value, ok := runtime.byChannel[channelID]
+	if !ok || value.callback == nil {
+		return LocalCallbackSpec{}, false
+	}
+	return *value.callback, true
 }
 
 // CanonicalCredential validates one channel-bound subscription credential and

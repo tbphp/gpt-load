@@ -14,6 +14,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 	want := []ID{
 		OpenAI,
 		Codex,
+		Claude,
 		Anthropic,
 		Gemini,
 		AzureOpenAI,

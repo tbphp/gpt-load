@@ -23,6 +23,7 @@ type ID = spec.ID
 const (
 	OpenAI           = spec.OpenAI
 	Codex            = spec.Codex
+	Claude           = spec.Claude
 	Anthropic        = spec.Anthropic
 	Gemini           = spec.Gemini
 	AzureOpenAI      = spec.AzureOpenAI
@@ -87,6 +88,22 @@ type CapabilityDescriptor struct {
 	CredentialActions []CredentialAction `json:"credential_actions"`
 }
 
+// NoticeID identifies one frontend-localized channel notice.
+type NoticeID = spec.NoticeID
+
+const NoticeClaudeOAuthRisk = spec.NoticeClaudeOAuthRisk
+
+// NoticeTone is the bounded presentation style of a channel notice.
+type NoticeTone = spec.NoticeTone
+
+const NoticeToneWarning = spec.NoticeToneWarning
+
+// NoticeDescriptor is the safe public projection of one channel notice.
+type NoticeDescriptor struct {
+	ID   NoticeID   `json:"id"`
+	Tone NoticeTone `json:"tone"`
+}
+
 // RouteDescriptor is the safe, compiled route projection exposed to the UI.
 type RouteDescriptor struct {
 	ClientProtocol protocol.Protocol   `json:"client_protocol"`
@@ -107,6 +124,7 @@ type Descriptor struct {
 	Icon             string               `json:"icon"`
 	SearchTerms      []string             `json:"search_terms"`
 	Description      string               `json:"description"`
+	Notices          []NoticeDescriptor   `json:"notices"`
 	ParamFields      []FieldDescriptor    `json:"param_fields"`
 	CredentialFields []FieldDescriptor    `json:"credential_fields"`
 	Connection       ConnectionDescriptor `json:"connection"`
@@ -161,6 +179,7 @@ type ProviderKind = spec.ProviderKind
 const (
 	ProviderOpenAI           = spec.ProviderOpenAI
 	ProviderCodex            = spec.ProviderCodex
+	ProviderClaude           = spec.ProviderClaude
 	ProviderAnthropic        = spec.ProviderAnthropic
 	ProviderGemini           = spec.ProviderGemini
 	ProviderOpenAICompatible = spec.ProviderOpenAICompatible
@@ -709,6 +728,7 @@ func (r *Registry) lookup(id ID) (definition, bool) {
 
 func cloneDescriptor(source Descriptor) Descriptor {
 	source.SearchTerms = append([]string{}, source.SearchTerms...)
+	source.Notices = append([]NoticeDescriptor{}, source.Notices...)
 	source.ParamFields = append([]FieldDescriptor{}, source.ParamFields...)
 	source.CredentialFields = append([]FieldDescriptor{}, source.CredentialFields...)
 	for index := range source.ParamFields {

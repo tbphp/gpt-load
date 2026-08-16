@@ -114,6 +114,7 @@ function isRecoveredStage(value: unknown): boolean {
       'stage_id',
       'status',
       'authorization_url',
+      'redirect_uri',
       'account',
       'expires_at_ms',
       'error_code',
@@ -131,6 +132,7 @@ function isRecoveredStage(value: unknown): boolean {
       'outcome_unknown',
     ].includes(String(value.status)) &&
     (value.authorization_url === undefined || typeof value.authorization_url === 'string') &&
+    (value.redirect_uri === undefined || typeof value.redirect_uri === 'string') &&
     (value.error_code === undefined ||
       (typeof value.error_code === 'string' && /^[a-z0-9_]{1,64}$/u.test(value.error_code))) &&
     isRecord(value.account) &&

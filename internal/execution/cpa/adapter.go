@@ -6,9 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,7 +15,6 @@ import (
 	"unicode/utf8"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
@@ -28,8 +25,6 @@ import (
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/usage"
 )
-
-const codexUpstreamProtocol = protocol.OpenAIResponses
 
 var convertedRepresentationHeaderNames = [...]string{
 	"Content-Encoding",
@@ -46,66 +41,61 @@ var convertedRepresentationHeaderNames = [...]string{
 
 type Adapter struct {
 	credentials credentialPreparer
-	executor    codex.Executor
 	channels    *channel.Registry
+	providers   map[channel.ProviderKind]providerBridge
 }
 
 type credentialPreparer interface {
 	Prepare(context.Context, channel.ID, execution.CredentialSnapshot, bool) (subscriptionruntime.Credential, *execution.ErrorEvidence)
 }
 
-// NewAdapter creates the Codex subscription execution adapter.
+// NewAdapter creates the shared CPA subscription execution adapter.
 func NewAdapter(credentials *subscription.CredentialManager, channels *channel.Registry) *Adapter {
-	return &Adapter{credentials: credentials, executor: codex.NewExecutor(), channels: channels}
+	return &Adapter{
+		credentials: credentials,
+		channels:    channels,
+		providers:   indexProviderBridges(newCodexProviderBridge(), newClaudeProviderBridge()),
+	}
 }
 
-// ValidateRouteCapability reports the fixed execution shapes implemented by
-// the Codex adapter. The Codex channel module remains the product-level author
-// of which of these shapes are enabled.
+// ValidateRouteCapability delegates the implementation bound to ProviderKind.
+// Channel modules remain the product-level authors of the enabled subset.
 func (a *Adapter) ValidateRouteCapability(
 	providerKind channel.ProviderKind,
 	route channel.RouteDescriptor,
 ) error {
 	if a == nil {
-		return fmt.Errorf("Codex adapter is unavailable")
+		return fmt.Errorf("CPA adapter is unavailable")
 	}
-	if providerKind != channel.ProviderCodex {
-		return fmt.Errorf("provider is not implemented by Codex")
+	provider, ok := a.providers[providerKind]
+	if !ok || provider == nil {
+		return fmt.Errorf("provider %q is not implemented by CPA", providerKind)
 	}
-	valid := route.ClientProtocol == protocol.OpenAIResponses &&
-		route.Operation == execution.OperationResponsesCreate &&
-		route.RouteMode == execution.RouteNative
-	if route.ClientProtocol == protocol.OpenAICompletions ||
-		route.ClientProtocol == protocol.Anthropic ||
-		route.ClientProtocol == protocol.Gemini {
-		valid = route.Operation == execution.OperationChatCompletion &&
-			route.RouteMode == execution.RouteConverted
-	}
-	if !valid {
-		return fmt.Errorf("route is not implemented by Codex")
-	}
-	return nil
+	return provider.ValidateRouteCapability(route)
 }
 
 func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execution.AttemptResult {
 	spec = execution.NewAttemptSpec(spec)
-	if err := a.validateSpec(spec); err != nil {
+	provider, err := a.validateSpec(spec)
+	if err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: evidence}
 	}
-	credential, err := codex.ParseCredentialJSON(preparedCredential.Canonical())
+	canonical := preparedCredential.Canonical()
+	credential, err := provider.ParseCredential(canonical)
+	clear(canonical)
 	if err != nil {
 		return unaryNotSent(execution.ErrorKindInternal, "subscription credential adapter mismatch", "", err)
 	}
 	execCtx, cancel := withRequestTimeout(ctx, spec.Timeouts.Request)
 	defer cancel()
-	response, err := a.executor.Execute(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
+	response, err := provider.Execute(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
 	if err != nil {
-		result := unaryExecutionError(execCtx, err, credential)
-		result.UpstreamProtocol = codexUpstreamProtocol
+		result := unaryExecutionError(execCtx, provider, err, credential)
+		result.UpstreamProtocol = provider.UpstreamProtocol()
 		result.AppliedReasoning = appliedReasoning(response.AppliedReasoningEffort)
 		return result
 	}
@@ -113,7 +103,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	headers := convertedResponseHeaders(response.Headers, "application/json")
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamProtocol: codexUpstreamProtocol, AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
+		UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
 		UpstreamRequestID: upstreamRequestID(headers), Usage: usageEvidence(spec.ClientProtocol, body),
 	}
@@ -124,14 +114,17 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	if sink == nil {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "stream sink is required", "")
 	}
-	if err := a.validateSpec(spec); err != nil {
+	provider, err := a.validateSpec(spec)
+	if err != nil {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "")
 	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: evidence}
 	}
-	credential, err := codex.ParseCredentialJSON(preparedCredential.Canonical())
+	canonical := preparedCredential.Canonical()
+	credential, err := provider.ParseCredential(canonical)
+	clear(canonical)
 	if err != nil {
 		return streamNotSent(execution.ErrorKindInternal, "subscription credential adapter mismatch", "")
 	}
@@ -141,16 +134,16 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	defer cancelStream(context.Canceled)
 	firstByte := startFirstByteGate(spec.Timeouts.FirstByte, cancelStream)
 	defer firstByte.stop()
-	response, err := a.executor.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
+	response, err := provider.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
 	if err != nil {
-		result := unaryExecutionError(streamCtx, err, credential)
+		result := unaryExecutionError(streamCtx, provider, err, credential)
 		var applied *reasoning.Config
 		if response != nil {
 			applied = appliedReasoning(response.AppliedReasoningEffort)
 		}
 		return execution.StreamResult{
 			DispatchState: result.DispatchState, ResponseStarted: result.ResponseStarted,
-			UpstreamProtocol: codexUpstreamProtocol, AppliedReasoning: applied,
+			UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: applied,
 			StatusCode: result.StatusCode, Header: result.Header,
 			UpstreamRequestID: result.UpstreamRequestID, Error: result.Error,
 		}
@@ -168,43 +161,43 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		}
 		chunk, ok, idleErr := nextChunk(streamCtx, response.Chunks, idleTimeout)
 		if idleErr != nil {
-			return streamExecutionError(headers, idleErr, credential, applied, ready)
+			return streamExecutionError(streamCtx, provider, headers, idleErr, credential, applied, ready)
 		}
 		if !ok {
 			if err := context.Cause(streamCtx); err != nil {
-				return streamExecutionError(headers, err, credential, applied, ready)
+				return streamExecutionError(streamCtx, provider, headers, err, credential, applied, ready)
 			}
 			if !ready {
-				return streamInternalError(headers, applied, "subscription upstream stream ended without data", false)
+				return streamInternalError(provider.UpstreamProtocol(), headers, applied, "subscription upstream stream ended without data", false)
 			}
 			if spec.ClientProtocol == protocol.OpenAICompletions && !openAIDone {
 				sequence++
 				if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: []byte("data: [DONE]\n\n")}); err != nil {
-					return streamConsumerStopped(headers, applied, ready)
+					return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
 				}
 			}
 			if spec.ClientProtocol == protocol.Gemini && !geminiTerminal {
 				sequence++
 				if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: []byte("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n")}); err != nil {
-					return streamConsumerStopped(headers, applied, ready)
+					return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
 				}
 			}
-			return successfulStreamTerminal(spec, headers, applied)
+			return successfulStreamTerminal(provider.UpstreamProtocol(), spec, headers, applied)
 		}
 		if chunk.Err != nil {
-			return streamExecutionError(headers, chunk.Err, credential, applied, ready)
+			return streamExecutionError(streamCtx, provider, headers, chunk.Err, credential, applied, ready)
 		}
 		if len(chunk.Payload) == 0 {
 			continue
 		}
 		firstByte.stop()
 		if err := context.Cause(streamCtx); err != nil {
-			return streamExecutionError(headers, err, credential, applied, false)
+			return streamExecutionError(streamCtx, provider, headers, err, credential, applied, false)
 		}
 		payload := frameSSE(spec.ClientProtocol, chunk.Payload)
 		payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
 		if rewriteErr != nil {
-			return streamInternalError(headers, applied, "rewrite subscription response model", ready)
+			return streamInternalError(provider.UpstreamProtocol(), headers, applied, "rewrite subscription response model", ready)
 		}
 		if spec.ClientProtocol == protocol.OpenAICompletions && isOpenAIDone(payload) {
 			openAIDone = true
@@ -214,45 +207,52 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		}
 		if !ready {
 			if err := sink(execution.StreamEvent{Kind: execution.StreamEventReady, Sequence: sequence, StatusCode: http.StatusOK, Header: headers}); err != nil {
-				return streamConsumerStopped(headers, applied, false)
+				return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, false)
 			}
 			ready = true
 		}
 		sequence++
 		if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: payload}); err != nil {
-			return streamConsumerStopped(headers, applied, ready)
+			return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
 		}
 	}
 }
 
-func (a *Adapter) validateSpec(spec execution.AttemptSpec) error {
-	if a == nil || a.credentials == nil || a.executor == nil || a.channels == nil {
-		return fmt.Errorf("subscription executor is unavailable")
+func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, error) {
+	if a == nil || a.credentials == nil || a.channels == nil || len(a.providers) == 0 {
+		return nil, fmt.Errorf("subscription executor is unavailable")
 	}
 	if err := spec.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	channelID := channel.ID(spec.ChannelID)
 	providerKind, ok := a.channels.ProviderKind(channelID)
-	if !ok || providerKind != channel.ProviderCodex {
-		return fmt.Errorf("subscription target is not bound to this adapter")
+	if !ok {
+		return nil, fmt.Errorf("subscription target has no provider binding")
+	}
+	provider, ok := a.providers[providerKind]
+	if !ok || provider == nil {
+		return nil, fmt.Errorf("subscription target is not bound to this adapter")
 	}
 	target, err := a.channels.ResolveExecutionTarget(channelID, spec.TargetConfig)
 	if err != nil {
-		return fmt.Errorf("resolve subscription target: %w", err)
+		return nil, fmt.Errorf("resolve subscription target: %w", err)
+	}
+	if target.ProviderKind != providerKind {
+		return nil, fmt.Errorf("subscription target provider binding changed")
 	}
 	mode, ok := target.ModeForModel(spec.ClientProtocol, spec.Operation, spec.UpstreamModel)
 	if !ok || execution.RouteMode(mode) != spec.RouteMode {
-		return fmt.Errorf("subscription route is not declared by the channel")
+		return nil, fmt.Errorf("subscription route is not declared by the channel")
 	}
 	if !json.Valid(spec.Body) {
-		return fmt.Errorf("subscription request body must be JSON")
+		return nil, fmt.Errorf("subscription request body must be JSON")
 	}
-	return nil
+	return provider, nil
 }
 
-func bridgeRequest(spec execution.AttemptSpec) codex.ExecuteRequest {
-	return codex.ExecuteRequest{
+func bridgeRequest(spec execution.AttemptSpec) providerRequest {
+	return providerRequest{
 		Model: spec.UpstreamModel, Payload: append([]byte(nil), spec.Body...),
 		Format: formatFor(spec.ClientProtocol), Headers: spec.Header.Clone(),
 		OriginalRequest: append([]byte(nil), spec.Body...),
@@ -288,106 +288,78 @@ func convertedResponseHeaders(source http.Header, contentType string) http.Heade
 	return headers
 }
 
-func unaryExecutionError(ctx context.Context, err error, credential codex.Credential) execution.AttemptResult {
-	status, evidence := executionErrorEvidence(ctx, err, credential)
+func unaryExecutionError(
+	ctx context.Context,
+	provider providerBridge,
+	err error,
+	credential providerCredential,
+) execution.AttemptResult {
+	status, evidence := provider.ClassifyError(ctx, err, credential)
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: status != 0,
 		StatusCode: status, Error: evidence,
 	}
 }
 
-func streamExecutionError(headers http.Header, err error, credential codex.Credential, applied *reasoning.Config, responseStarted bool) execution.StreamResult {
-	status, evidence := executionErrorEvidence(context.Background(), err, credential)
+func streamExecutionError(
+	ctx context.Context,
+	provider providerBridge,
+	headers http.Header,
+	err error,
+	credential providerCredential,
+	applied *reasoning.Config,
+	responseStarted bool,
+) execution.StreamResult {
+	status, evidence := provider.ClassifyError(ctx, err, credential)
 	responseStarted = responseStarted || status != 0
 	if responseStarted && status == 0 {
 		status = http.StatusOK
 	}
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: responseStarted,
-		UpstreamProtocol: codexUpstreamProtocol, AppliedReasoning: applied, StatusCode: status,
+		UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: applied, StatusCode: status,
 		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Error: evidence,
 	}
 }
 
-func streamInternalError(headers http.Header, applied *reasoning.Config, summary string, responseStarted bool) execution.StreamResult {
+func streamInternalError(
+	upstreamProtocol protocol.Protocol,
+	headers http.Header,
+	applied *reasoning.Config,
+	summary string,
+	responseStarted bool,
+) execution.StreamResult {
 	status := 0
 	if responseStarted {
 		status = http.StatusOK
 	}
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: responseStarted,
-		UpstreamProtocol: codexUpstreamProtocol, AppliedReasoning: applied, StatusCode: status,
+		UpstreamProtocol: upstreamProtocol, AppliedReasoning: applied, StatusCode: status,
 		Header: headers.Clone(), UpstreamRequestID: upstreamRequestID(headers),
 		Error: &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Summary: summary},
 	}
 }
 
-func streamConsumerStopped(headers http.Header, applied *reasoning.Config, responseStarted bool) execution.StreamResult {
+func streamConsumerStopped(
+	upstreamProtocol protocol.Protocol,
+	headers http.Header,
+	applied *reasoning.Config,
+	responseStarted bool,
+) execution.StreamResult {
 	status := 0
 	if responseStarted {
 		status = http.StatusOK
 	}
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: responseStarted,
-		UpstreamProtocol: codexUpstreamProtocol, AppliedReasoning: applied, StatusCode: status,
+		UpstreamProtocol: upstreamProtocol, AppliedReasoning: applied, StatusCode: status,
 		Header: headers.Clone(), UpstreamRequestID: upstreamRequestID(headers),
 		Error: &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled, Summary: "stream consumer stopped"},
 	}
 }
 
-func executionErrorEvidence(ctx context.Context, err error, credential codex.Credential) (int, *execution.ErrorEvidence) {
-	if err == nil {
-		return 0, nil
-	}
-	status := 0
-	if value, ok := err.(interface{ StatusCode() int }); ok {
-		status = value.StatusCode()
-	}
-	kind := execution.ErrorKindTransport
-	if status != 0 {
-		kind = execution.ErrorKindHTTP
-	} else if errors.Is(err, context.DeadlineExceeded) || ctx != nil && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
-		kind = execution.ErrorKindTimeout
-	} else if errors.Is(err, context.Canceled) || ctx != nil && errors.Is(context.Cause(ctx), context.Canceled) {
-		kind = execution.ErrorKindCanceled
-	} else if _, ok := err.(net.Error); ok {
-		kind = execution.ErrorKindTransport
-	}
-	typeValue, codeValue := errorTypeCode(err.Error())
-	evidence := &execution.ErrorEvidence{
-		Kind: kind, StatusCode: status, Type: typeValue, Code: codeValue,
-		Summary: safeErrorSummary(err, credential),
-	}
-	if retry, ok := err.(interface{ RetryAfter() *time.Duration }); ok && retry.RetryAfter() != nil && *retry.RetryAfter() > 0 {
-		evidence.RetryAfter = *retry.RetryAfter()
-	}
-	switch {
-	case status == http.StatusUnauthorized:
-		evidence.ReplaySafety = execution.ReplaySafetyUnknown
-		if explicitAccessTokenExpiration(codeValue) {
-			evidence.Hint = execution.FailureHintRefreshRequired
-			evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
-		}
-	case status == http.StatusTooManyRequests:
-		evidence.Hint = execution.FailureHintRateLimited
-	default:
-		if status >= 500 {
-			evidence.Hint = execution.FailureHintHostError
-		}
-	}
-	return status, evidence
-}
-
-func explicitAccessTokenExpiration(code string) bool {
-	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "token_expired", "access_token_expired", "expired_token":
-		return true
-	default:
-		return false
-	}
-}
-
-func safeErrorSummary(err error, credential codex.Credential) string {
+func safeErrorSummary(err error, redactionValues []string) string {
 	fallback := "subscription upstream request failed"
 	if err == nil {
 		return fallback
@@ -396,14 +368,7 @@ func safeErrorSummary(err error, credential codex.Credential) string {
 	if summary == "" {
 		summary = err.Error()
 	}
-	summary = platformredact.New().String(
-		summary,
-		credential.AccessToken,
-		credential.RefreshToken,
-		credential.IDToken,
-		credential.AccountID,
-		credential.Email,
-	)
+	summary = platformredact.New().String(summary, redactionValues...)
 	summary = strings.Join(strings.Fields(strings.ToValidUTF8(summary, "\uFFFD")), " ")
 	if summary == "" {
 		summary = fallback
@@ -443,10 +408,15 @@ func streamNotSent(kind execution.ErrorKind, summary, code string) execution.Str
 	return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: &execution.ErrorEvidence{Kind: kind, Code: code, Summary: summary}}
 }
 
-func successfulStreamTerminal(spec execution.AttemptSpec, headers http.Header, applied *reasoning.Config) execution.StreamResult {
+func successfulStreamTerminal(
+	upstreamProtocol protocol.Protocol,
+	spec execution.AttemptSpec,
+	headers http.Header,
+	applied *reasoning.Config,
+) execution.StreamResult {
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamProtocol: codexUpstreamProtocol, AppliedReasoning: applied, StatusCode: http.StatusOK,
+		UpstreamProtocol: upstreamProtocol, AppliedReasoning: applied, StatusCode: http.StatusOK,
 		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Model: spec.UpstreamModel,
 	}
 }
@@ -464,13 +434,13 @@ func appliedReasoning(effort string) *reasoning.Config {
 	return &reasoning.Config{Effort: effort}
 }
 
-func nextChunk(ctx context.Context, chunks <-chan codex.ExecuteStreamChunk, timeout time.Duration) (codex.ExecuteStreamChunk, bool, error) {
+func nextChunk(ctx context.Context, chunks <-chan providerStreamChunk, timeout time.Duration) (providerStreamChunk, bool, error) {
 	if timeout <= 0 {
 		select {
 		case chunk, ok := <-chunks:
 			return chunk, ok, nil
 		case <-ctx.Done():
-			return codex.ExecuteStreamChunk{}, false, context.Cause(ctx)
+			return providerStreamChunk{}, false, context.Cause(ctx)
 		}
 	}
 	timer := time.NewTimer(timeout)
@@ -479,9 +449,9 @@ func nextChunk(ctx context.Context, chunks <-chan codex.ExecuteStreamChunk, time
 	case chunk, ok := <-chunks:
 		return chunk, ok, nil
 	case <-ctx.Done():
-		return codex.ExecuteStreamChunk{}, false, context.Cause(ctx)
+		return providerStreamChunk{}, false, context.Cause(ctx)
 	case <-timer.C:
-		return codex.ExecuteStreamChunk{}, false, context.DeadlineExceeded
+		return providerStreamChunk{}, false, context.DeadlineExceeded
 	}
 }
 

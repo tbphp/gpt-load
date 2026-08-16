@@ -107,6 +107,7 @@ function cloneDraft(source: ImportDraft): ImportDraft {
       ...(stage.authorization_url === undefined
         ? {}
         : { authorization_url: stage.authorization_url }),
+      ...(stage.redirect_uri === undefined ? {} : { redirect_uri: stage.redirect_uri }),
       account: { ...stage.account },
       expires_at_ms: stage.expires_at_ms,
       ...(stage.error_code === undefined ? {} : { error_code: stage.error_code }),
@@ -226,9 +227,11 @@ function currentReadyStages(): typeof readyStages.value {
 function replaceStagedCredential(stage: CredentialStage): void {
   const existing = draft.staged_credentials.find((item) => item.stage_id === stage.stage_id)
   if (!existing) return
-  const replacement = existing.authorization_url
-    ? { ...stage, authorization_url: stage.authorization_url ?? existing.authorization_url }
-    : stage
+  const replacement = {
+    ...stage,
+    authorization_url: stage.authorization_url ?? existing.authorization_url,
+    redirect_uri: stage.redirect_uri ?? existing.redirect_uri,
+  }
   draft.staged_credentials = draft.staged_credentials.map((item) =>
     item.stage_id === stage.stage_id ? replacement : item,
   )
@@ -430,6 +433,7 @@ const credentialStepState = computed<ImportStepState>(() => {
   if (credentialCount.value > 0) return 'ready'
   return channelStepState.value === 'ready' ? 'active' : 'pending'
 })
+const subscriptionChannelName = computed(() => selectedChannel.value?.name ?? draft.channel_id)
 const credentialStepTitle = computed(() =>
   t(
     isSubscription.value
@@ -437,6 +441,7 @@ const credentialStepTitle = computed(() =>
       : structuredCredentials.value
         ? 'import.steps.credentials.structuredTitle'
         : 'import.steps.credentials.apiKeyTitle',
+    { channel: subscriptionChannelName.value },
   ),
 )
 const credentialStepDescription = computed(() =>
@@ -446,6 +451,7 @@ const credentialStepDescription = computed(() =>
       : structuredCredentials.value
         ? 'import.credentials.structuredDescription'
         : 'import.credentials.description',
+    { channel: subscriptionChannelName.value },
   ),
 )
 const credentialStepSummary = computed(() => {
@@ -1264,7 +1270,9 @@ onBeforeUnmount(() => {
             v-if="isSubscription"
             v-model="draft.staged_credentials"
             :channel-id="draft.channel_id"
+            :channel-name="subscriptionChannelName"
             :authorization-methods="selectedChannel?.connection.authorization_methods ?? []"
+            :notices="selectedChannel?.notices ?? []"
             context="create"
             :disabled="payloadLocked"
             hide-header

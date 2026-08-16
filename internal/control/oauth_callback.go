@@ -20,9 +20,10 @@ import (
 	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
-const defaultOAuthCallbackAddress = "127.0.0.1:1455"
+const defaultOAuthCallbackHost = "127.0.0.1"
 
 const oauthResultScript = `function closeThisWindow() {
   if (window.opener && !window.opener.closed) window.opener.focus()
@@ -49,122 +50,152 @@ type oauthCallbackParameters struct {
 	ProviderError string
 }
 
-// OAuthCallbackServer owns the restricted localhost callback requested by a
-// compiled subscription driver. It is deliberately separate from the
-// authenticated /api server.
-type OAuthCallbackServer struct {
-	service *Service
-	address string
-	listen  func(string, string) (net.Listener, error)
-
-	mu       sync.Mutex
+type oauthCallbackListener struct {
 	server   *http.Server
 	listener net.Listener
 }
 
-func NewOAuthCallbackServer(service *Service) *OAuthCallbackServer {
-	return &OAuthCallbackServer{service: service, address: defaultOAuthCallbackAddress, listen: net.Listen}
+// OAuthCallbackManager owns the restricted localhost callbacks requested by
+// compiled subscription drivers. They remain deliberately separate from the
+// authenticated /api server.
+type OAuthCallbackManager struct {
+	service *Service
+	host    string
+	listen  func(string, string) (net.Listener, error)
+
+	mu        sync.Mutex
+	listeners map[string]oauthCallbackListener
 }
 
-func (server *OAuthCallbackServer) configureForServerHost(host string) {
-	if server == nil || (host != "0.0.0.0" && host != "::") {
+func NewOAuthCallbackManager(service *Service) *OAuthCallbackManager {
+	return &OAuthCallbackManager{
+		service:   service,
+		host:      defaultOAuthCallbackHost,
+		listen:    net.Listen,
+		listeners: make(map[string]oauthCallbackListener),
+	}
+}
+
+func (manager *OAuthCallbackManager) configureForServerHost(host string) {
+	if manager == nil || (host != "0.0.0.0" && host != "::") {
 		return
 	}
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	if server.listener == nil && server.address == defaultOAuthCallbackAddress {
-		server.address = net.JoinHostPort(host, "1455")
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if len(manager.listeners) == 0 && manager.host == defaultOAuthCallbackHost {
+		manager.host = host
 	}
 }
 
-func (server *OAuthCallbackServer) EnsureStarted() error {
-	if server == nil || server.service == nil {
-		return errors.New("OAuth callback server is unavailable")
+func (manager *OAuthCallbackManager) EnsureStarted(spec subscriptionruntime.LocalCallbackSpec) error {
+	if manager == nil || manager.service == nil {
+		return errors.New("OAuth callback manager is unavailable")
 	}
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	if server.listener != nil {
+	port, path, err := parseLocalCallbackEndpoint(spec)
+	if err != nil {
+		return err
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if _, exists := manager.listeners[spec.RedirectURI]; exists {
 		return nil
 	}
-	listener, err := server.listen("tcp", server.address)
+	listener, err := manager.listen("tcp", net.JoinHostPort(manager.host, port))
 	if err != nil {
 		return err
 	}
 	httpServer := &http.Server{
-		Handler:           http.HandlerFunc(server.serveHTTP),
+		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			manager.serveHTTP(spec, path, writer, request)
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    32 * 1024,
 		ErrorLog:          log.New(io.Discard, "", 0),
 	}
-	server.listener = listener
-	server.server = httpServer
+	manager.listeners[spec.RedirectURI] = oauthCallbackListener{server: httpServer, listener: listener}
 	go func() {
 		if serveErr := httpServer.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			logrus.WithField("event", "oauth.callback_serve_failed").WithError(serveErr).Error("OAuth callback listener stopped")
+			logrus.WithFields(logrus.Fields{
+				"event":        "oauth.callback_serve_failed",
+				"redirect_uri": spec.RedirectURI,
+			}).WithError(serveErr).Error("OAuth callback listener stopped")
 		}
 	}()
 	return nil
 }
 
-func (server *OAuthCallbackServer) Addr() string {
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	if server.listener == nil {
+func (manager *OAuthCallbackManager) Addr(spec subscriptionruntime.LocalCallbackSpec) string {
+	if manager == nil {
 		return ""
 	}
-	return server.listener.Addr().String()
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	listener, ok := manager.listeners[spec.RedirectURI]
+	if !ok {
+		return ""
+	}
+	return listener.listener.Addr().String()
 }
 
-func (server *OAuthCallbackServer) Stop(ctx context.Context) error {
-	if server == nil {
+func (manager *OAuthCallbackManager) Stop(ctx context.Context) error {
+	if manager == nil {
 		return nil
 	}
-	server.mu.Lock()
-	httpServer := server.server
-	server.server = nil
-	server.listener = nil
-	server.mu.Unlock()
-	if httpServer == nil {
-		return nil
+	manager.mu.Lock()
+	listeners := manager.listeners
+	manager.listeners = make(map[string]oauthCallbackListener)
+	manager.mu.Unlock()
+	var shutdownErrors []error
+	for _, listener := range listeners {
+		if err := listener.server.Shutdown(ctx); err != nil {
+			shutdownErrors = append(shutdownErrors, err)
+		}
 	}
-	return httpServer.Shutdown(ctx)
+	return errors.Join(shutdownErrors...)
 }
 
-func (server *OAuthCallbackServer) Run(ctx context.Context) {
-	if server == nil || server.service == nil {
+func (manager *OAuthCallbackManager) Run(ctx context.Context) {
+	if manager == nil || manager.service == nil {
 		return
 	}
 	var pendingChannelIDs []string
-	nowMS := server.service.now().UnixMilli()
-	if err := server.service.db.WithContext(ctx).Model(&models.CredentialStage{}).
+	nowMS := manager.service.now().UnixMilli()
+	if err := manager.service.db.WithContext(ctx).Model(&models.CredentialStage{}).
 		Where("status = ? AND expires_at_ms > ?", models.CredentialStagePendingAuthorization, nowMS).
 		Distinct("channel_id").Order("channel_id ASC").Pluck("channel_id", &pendingChannelIDs).Error; err == nil {
 		for _, rawChannelID := range pendingChannelIDs {
-			browser, ok := subscriptionsBrowser(server.service.subscriptions, channel.ID(rawChannelID))
-			if !ok || !browser.RequiresLocalCallback() {
+			callback, ok := manager.service.subscriptions.LocalCallback(channel.ID(rawChannelID))
+			if !ok {
 				continue
 			}
-			if startErr := server.EnsureStarted(); startErr != nil {
-				logrus.WithField("event", "oauth.callback_start_failed").WithError(startErr).Warn("OAuth callback listener is unavailable")
+			if startErr := manager.EnsureStarted(callback); startErr != nil {
+				logrus.WithFields(logrus.Fields{
+					"event":        "oauth.callback_start_failed",
+					"redirect_uri": callback.RedirectURI,
+				}).WithError(startErr).Warn("OAuth callback listener is unavailable")
 			}
-			break
 		}
 	}
 	<-ctx.Done()
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_ = server.Stop(shutdownContext)
+	_ = manager.Stop(shutdownContext)
 }
 
-func (server *OAuthCallbackServer) serveHTTP(writer http.ResponseWriter, request *http.Request) {
+func (manager *OAuthCallbackManager) serveHTTP(
+	spec subscriptionruntime.LocalCallbackSpec,
+	path string,
+	writer http.ResponseWriter,
+	request *http.Request,
+) {
 	setOAuthCallbackHeaders(writer)
 	if request.Method != http.MethodGet {
 		writer.Header().Set("Allow", http.MethodGet)
 		http.Error(writer, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if request.URL.Path != "/auth/callback" {
+	if request.URL.Path != path {
 		http.NotFound(writer, request)
 		return
 	}
@@ -174,11 +205,24 @@ func (server *OAuthCallbackServer) serveHTTP(writer http.ResponseWriter, request
 		return
 	}
 	if callback.ProviderError != "" {
-		_ = server.service.FailCredentialAuthorization(request.Context(), callback.State, callback.ProviderError)
+		if err := manager.service.failCredentialAuthorizationFromCallback(
+			request.Context(),
+			spec,
+			callback.State,
+			callback.ProviderError,
+		); err != nil {
+			writeOAuthResult(writer, oauthCallbackOutcome{Kind: classifyOAuthCallbackFailure(err)})
+			return
+		}
 		writeOAuthResult(writer, oauthCallbackOutcome{Kind: oauthOutcomeDenied})
 		return
 	}
-	result, err := server.service.CompleteCredentialAuthorization(request.Context(), callback.State, callback.Code)
+	result, err := manager.service.completeCredentialAuthorizationFromCallback(
+		request.Context(),
+		spec,
+		callback.State,
+		callback.Code,
+	)
 	if err != nil {
 		writeOAuthResult(writer, oauthCallbackOutcome{
 			Kind: classifyOAuthCallbackFailure(err),
@@ -202,15 +246,34 @@ func classifyOAuthCallbackFailure(err error) oauthCallbackOutcomeKind {
 	}
 }
 
-func parseManualOAuthCallbackURL(raw string) (oauthCallbackParameters, error) {
+func parseLocalCallbackEndpoint(spec subscriptionruntime.LocalCallbackSpec) (string, string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(spec.RedirectURI))
+	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.Fragment != "" ||
+		parsed.RawQuery != "" || parsed.ForceQuery || !strings.EqualFold(parsed.Scheme, "http") ||
+		!strings.EqualFold(parsed.Hostname(), "localhost") || parsed.Port() == "" ||
+		parsed.Path == "" || parsed.EscapedPath() != parsed.Path {
+		return "", "", errors.New("invalid OAuth callback endpoint")
+	}
+	canonical := "http://localhost:" + parsed.Port() + parsed.Path
+	if spec.RedirectURI != canonical {
+		return "", "", errors.New("invalid OAuth callback endpoint")
+	}
+	return parsed.Port(), parsed.Path, nil
+}
+
+func parseManualOAuthCallbackURL(raw string, spec subscriptionruntime.LocalCallbackSpec) (oauthCallbackParameters, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > 16*1024 {
+		return oauthCallbackParameters{}, errors.New("invalid OAuth callback URL")
+	}
+	expected, err := url.Parse(spec.RedirectURI)
+	if err != nil {
 		return oauthCallbackParameters{}, errors.New("invalid OAuth callback URL")
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || !parsed.IsAbs() || !strings.EqualFold(parsed.Scheme, "http") ||
 		parsed.User != nil || parsed.Fragment != "" || !strings.EqualFold(parsed.Hostname(), "localhost") ||
-		parsed.Port() != "1455" || parsed.EscapedPath() != "/auth/callback" {
+		parsed.Port() != expected.Port() || parsed.EscapedPath() != expected.EscapedPath() {
 		return oauthCallbackParameters{}, errors.New("invalid OAuth callback URL")
 	}
 	return parseOAuthCallbackQuery(parsed.Query())

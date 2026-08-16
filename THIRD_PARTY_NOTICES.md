@@ -26,10 +26,10 @@ The complete Apache License 2.0 text is distributed in
 - License: MIT License
 
 GPT-Load uses a pinned, execution-only embedded adapter around CLIProxyAPI's
-Codex OAuth and HTTP executor code. GPT-Load retains ownership of credential
-storage, account selection, retry, health, affinity, logging, and usage policy;
-the embedded adapter does not use CLIProxyAPI's manager, pool, file store,
-WebSocket executor, fallback, or automatic retry.
+Codex and Claude OAuth and HTTP executor code. GPT-Load retains ownership of
+credential storage, account selection, retry, health, affinity, logging, and
+usage policy; the embedded adapter does not use CLIProxyAPI's manager, pool,
+file store, WebSocket executor, fallback, or automatic retry.
 
 The complete MIT License text is distributed in `LICENSES/MIT.txt`.
 

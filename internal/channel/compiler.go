@@ -83,6 +83,10 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 	if strings.TrimSpace(source.Name) == "" || strings.TrimSpace(source.Mark) == "" {
 		return definition{}, fmt.Errorf("channel %q has incomplete metadata", id)
 	}
+	notices, err := compileNotices(id, source.Notices)
+	if err != nil {
+		return definition{}, err
+	}
 	icon := strings.TrimSpace(source.Icon)
 	if icon == "" {
 		icon = id
@@ -141,6 +145,7 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 			Icon:             icon,
 			SearchTerms:      append([]string(nil), source.SearchTerms...),
 			Description:      source.Description,
+			Notices:          notices,
 			ParamFields:      params.descriptors(),
 			CredentialFields: credentials.descriptors(),
 			Connection: ConnectionDescriptor{
@@ -167,6 +172,25 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 		modes:              modes,
 		resolvers:          resolvers,
 	}, nil
+}
+
+func compileNotices(channelID string, source []spec.Notice) ([]NoticeDescriptor, error) {
+	if len(source) == 0 {
+		return nil, nil
+	}
+	result := make([]NoticeDescriptor, 0, len(source))
+	seen := make(map[spec.NoticeID]struct{}, len(source))
+	for _, notice := range source {
+		if !notice.ID.Valid() || !notice.Tone.Valid() {
+			return nil, fmt.Errorf("channel %q has invalid notice %q/%q", channelID, notice.ID, notice.Tone)
+		}
+		if _, duplicate := seen[notice.ID]; duplicate {
+			return nil, fmt.Errorf("channel %q has duplicate notice %q", channelID, notice.ID)
+		}
+		seen[notice.ID] = struct{}{}
+		result = append(result, NoticeDescriptor{ID: notice.ID, Tone: notice.Tone})
+	}
+	return result, nil
 }
 
 func validateConnection(source spec.Definition) error {

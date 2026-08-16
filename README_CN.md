@@ -49,11 +49,14 @@ GPT-Load 是一个用 Go 构建的自托管多渠道 AI 网关。它通过单个
 - **四种客户端协议**：继续提供 OpenAI Completions、OpenAI Responses、Anthropic Messages 与 Gemini 入口。每个渠道明确声明可原生执行或转换的 operation；不支持的能力组合会在发送前拒绝。
 - **渠道与流量管理**：用户只需搜索并选择代码内置渠道，再填写模型和加密凭据。GPT-Load 继续负责 AccessKey 筛选、跨 Group 的凭据调度、重试决策、健康状态、cooldown、blacklist 与自动权重。
 - **Provider 执行**：官方 Bifrost Core Go SDK 负责不同 Provider 的认证、请求/响应转换、流式、usage 归一化和错误解析。每个逻辑 attempt 由 GPT-Load 固定一个凭据，并关闭 Bifrost 可配置的重试和 fallback。
-- **Codex 订阅**：OpenAI Group 可选择 API Key，或通过浏览器 OAuth/CPA JSON 接入 Codex 订阅账号。订阅账号继续复用 GPT-Load 现有调度、重试、健康、权重和亲和机制；凭据始终加密，账号权益只在用户主动同步时请求上游。
+- **Codex 与 Claude 订阅**：OpenAI Group 可选择 API Key，或通过浏览器 OAuth/CPA JSON 接入 Codex 订阅账号；独立的 Claude 渠道通过浏览器 OAuth/CPA JSON 接入 Claude 订阅账号，原 Anthropic 渠道继续使用 API Key。两类订阅渠道统一复用 GPT-Load 的调度、重试、健康、权重和亲和机制，凭据始终加密。
 - **控制与可观测性**：运行设置、路由检查、健康视图、RequestLog，以及中文、英文、日文管理 UI。
 - **用量与估算成本**：对四种协议中会返回生成 usage 的接口进行采集，提供 24 小时/30 天汇总、明细质量状态、可用时从 Models.dev 同步的精确四槽模型价格，以及用户管理的价格。
 
 M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式出口与公开发布尚未完成。价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
+
+> [!WARNING]
+> Claude 订阅 OAuth 与执行依赖固定版本 CPA 提供的兼容性协议，不属于 Anthropic API Key 契约。上游变更可能需要审查并更新 CPA bridge；生产使用前应通过已授权账号完成真实合同验证。
 
 ## 2.0.0 支持边界
 
@@ -90,7 +93,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 默认 named volume 会保存 SQLite、`auth.key` 和 `encryption.key`。生产环境建议通过受保护的 secret 注入显式 `AUTH_KEY` 与 `ENCRYPTION_KEY`；不要把真实 secret 提交到 `.env`、日志或 issue。MySQL 或 PostgreSQL 的 `DATABASE_DSN` 属于 operator 管理配置，应通过部署 secret/configuration system 提供。
 
-Compose 仅在容器内部监听所有接口，默认仍只发布到宿主 loopback；同时会把 Codex OAuth 客户端固定的回调端口发布到 `127.0.0.1:1455`。除非已有明确的受控网络边界，否则必须保持回环地址。由于该端口由 OAuth 客户端固定，同一宿主机同一时刻只能有一个容器执行浏览器授权。设置 `BIND_ADDRESS=0.0.0.0`、`OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`，或为原生进程设置 `HOST=0.0.0.0`，都属于显式 opt-in；生产环境只能在受控网络边界、TLS reverse proxy 及 ACL/firewall 保护下暴露。
+Compose 仅在容器内部监听所有接口，默认仍只发布到宿主 loopback；同时会把 Codex 与 Claude OAuth 客户端固定的回调端口分别发布到 `127.0.0.1:1455` 和 `127.0.0.1:54545`。除非已有明确的受控网络边界，否则必须保持回环地址。由于端口由 OAuth 客户端固定，同一宿主机同一时刻只能有一个默认 Compose 实例占用它们。Docker、SSH 或远程浏览器场景中，如果浏览器的 `localhost` 无法到达 GPT-Load，可将完整回调 URL 复制到授权弹窗完成流程。设置 `BIND_ADDRESS=0.0.0.0`、`OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`，或为原生进程设置 `HOST=0.0.0.0`，都属于显式 opt-in；生产环境只能在受控网络边界、TLS reverse proxy 及 ACL/firewall 保护下暴露。
 
 ### 原生二进制
 
@@ -207,7 +210,7 @@ Usage/Cost 质量边界：
 |---|---|---|
 | `HOST` | `127.0.0.1` | 原生 HTTP 监听地址；`0.0.0.0` 是显式 opt-in，发布容器仅在内部覆盖为 `0.0.0.0` |
 | `BIND_ADDRESS` | `127.0.0.1` | Compose 宿主机侧发布地址，不是进程配置 |
-| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Compose 中固定 Codex OAuth 回调端口 `1455` 的宿主机发布地址 |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Compose 中固定 Codex（`1455`）与 Claude（`54545`）OAuth 回调端口的宿主机发布地址 |
 | `PORT` | `3001` | HTTP 监听端口 |
 | `DATA_DIR` | `./data` | 原生持久目录；容器内覆盖为 `/app/data` |
 | `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空值选择 managed SQLite；非空值必须使用统一的 `sqlite`、`mysql` 或 `postgres` URL，并由 operator 管理 |

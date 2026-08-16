@@ -11,6 +11,7 @@ func builtInModules() []spec.Module {
 	return []spec.Module{
 		modules.OpenAI(),
 		modules.Codex(),
+		modules.Claude(),
 		modules.Anthropic(),
 		modules.Gemini(),
 		modules.AzureOpenAI(),

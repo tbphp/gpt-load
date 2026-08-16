@@ -99,6 +99,12 @@ jobs:
       - name: Check module graph
         run: go mod tidy -diff
 
+      - name: Check embedded CPA bridge module
+        working-directory: third_party/cpaembedded
+        run: |
+          go mod tidy -diff
+          go vet ./...
+
       - name: Audit Go dependencies
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
@@ -135,6 +141,10 @@ jobs:
 
       - name: Run race-enabled tests
         run: go test -race -count=1 -timeout=15m . ./internal/...
+
+      - name: Run embedded CPA bridge race-enabled tests
+        working-directory: third_party/cpaembedded
+        run: go test -race -count=1 -timeout=15m ./...
 
   database-contract:
     name: Database contract (${{ matrix.driver }})

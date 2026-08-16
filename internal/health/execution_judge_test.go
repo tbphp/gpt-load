@@ -103,6 +103,22 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			},
 		},
 		{
+			name: "request-scoped 429 terminates without credential penalty",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusTooManyRequests,
+				Now:           now,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintRequestRejected,
+					StatusCode: http.StatusTooManyRequests,
+					Type:       "rate_limit_error",
+					Summary:    "usage credits are required for fast mode",
+				},
+			},
+			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
+		},
+		{
 			name: "rate limit falls back to safe response header",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,

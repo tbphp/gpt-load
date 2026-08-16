@@ -91,6 +91,102 @@ func TestLiveCodexContract(t *testing.T) {
 	}
 }
 
+// TestLiveClaudeContract is opt-in because it consumes a real subscription and
+// sends model requests. It never refreshes the credential or logs its contents.
+func TestLiveClaudeContract(t *testing.T) {
+	credentialFile := strings.TrimSpace(os.Getenv("CPA_LIVE_CLAUDE_CREDENTIAL_FILE"))
+	model := strings.TrimSpace(os.Getenv("CPA_LIVE_CLAUDE_MODEL"))
+	if credentialFile == "" && model == "" {
+		t.Skip("CPA_LIVE_CLAUDE_CREDENTIAL_FILE and CPA_LIVE_CLAUDE_MODEL are not set")
+	}
+	if credentialFile == "" {
+		t.Fatal("CPA_LIVE_CLAUDE_CREDENTIAL_FILE is required")
+	}
+	if model == "" {
+		t.Fatal("CPA_LIVE_CLAUDE_MODEL is required")
+	}
+
+	raw, err := os.ReadFile(credentialFile)
+	if err != nil {
+		t.Fatalf("read live Claude credential file: %v", err)
+	}
+	credential, err := ParseClaudeCredentialJSON(raw)
+	clear(raw)
+	if err != nil {
+		t.Fatalf("parse live Claude credential: %v", err)
+	}
+
+	nativePayload, err := json.Marshal(map[string]any{
+		"model":      model,
+		"max_tokens": 16,
+		"messages": []map[string]any{{
+			"role": "user", "content": "Reply exactly OK.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("build live Claude request: %v", err)
+	}
+	responsePayload, err := json.Marshal(map[string]any{
+		"model": model,
+		"input": "Reply exactly OK.",
+		"store": false,
+	})
+	if err != nil {
+		t.Fatalf("build live Claude Responses request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	executor := NewClaudeHTTPExecutor()
+	nativeResponse, err := executor.ExecuteCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
+		Model: model, Format: "claude", Payload: nativePayload, OriginalRequest: nativePayload,
+	})
+	if err != nil {
+		t.Fatalf("execute live native Claude request: %v", err)
+	}
+	if !json.Valid(nativeResponse.Payload) {
+		t.Fatal("live native Claude response is not JSON")
+	}
+
+	convertedResponse, err := executor.ExecuteCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
+		Model: model, Format: "openai-response", Payload: responsePayload, OriginalRequest: responsePayload,
+	})
+	if err != nil {
+		t.Fatalf("execute live Claude Responses request: %v", err)
+	}
+	if !json.Valid(convertedResponse.Payload) {
+		t.Fatal("live Claude Responses result is not JSON")
+	}
+
+	var streamRequest map[string]any
+	if err := json.Unmarshal(nativePayload, &streamRequest); err != nil {
+		t.Fatalf("prepare live Claude stream request: %v", err)
+	}
+	streamRequest["stream"] = true
+	streamPayload, err := json.Marshal(streamRequest)
+	if err != nil {
+		t.Fatalf("build live Claude stream request: %v", err)
+	}
+	stream, err := executor.ExecuteStreamCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
+		Model: model, Format: "claude", Payload: streamPayload, OriginalRequest: streamPayload,
+	})
+	if err != nil {
+		t.Fatalf("start live native Claude stream: %v", err)
+	}
+	chunks := 0
+	for chunk := range stream.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("read live native Claude stream: %v", chunk.Err)
+		}
+		if len(chunk.Payload) > 0 {
+			chunks++
+		}
+	}
+	if chunks == 0 {
+		t.Fatal("live native Claude stream returned no chunks")
+	}
+}
+
 func selectLiveModel(models []Model) string {
 	for _, preferred := range []string{"gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1-codex"} {
 		for _, model := range models {
