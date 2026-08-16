@@ -17,20 +17,12 @@ import {
   type ModelPriceScheduleDraft,
 } from './model-price-form'
 
-const props = withDefaults(
-  defineProps<{
-    modelId: string
-    errors: ModelPriceScheduleErrors
-    pending: boolean
-    failure: string
-    idPrefix?: string
-    showUnpricedConfirmation?: boolean
-  }>(),
-  {
-    idPrefix: 'model-price',
-    showUnpricedConfirmation: true,
-  },
-)
+const props = defineProps<{
+  modelId: string
+  errors: ModelPriceScheduleErrors
+  pending: boolean
+  failure: string
+}>()
 const emit = defineEmits<{
   'add-tier': []
   'remove-tier': [key: string]
@@ -127,7 +119,7 @@ const tierRules = computed<TierRule[]>(() => {
       <div class="model-price-matrix__row">
         <div v-if="tiered" class="model-price-group model-price-group--threshold">
           <AppTextInput
-            :id="`${idPrefix}-default`"
+            id="model-price-default"
             :model-value="t('modelPrices.matrix.baseRow')"
             :label="t('modelPrices.matrix.baseRow')"
             appearance="surface"
@@ -139,7 +131,7 @@ const tierRules = computed<TierRule[]>(() => {
         <div class="model-price-group" role="group" :aria-label="t('modelPrices.matrix.baseRow')">
           <AppTextInput
             v-for="field in modelPriceFields"
-            :id="`${idPrefix}-base-${field}`"
+            :id="`model-price-base-${field}`"
             :key="field"
             v-model="draft.base[field]"
             :label="t(`modelPrices.fields.${field}`)"
@@ -174,7 +166,7 @@ const tierRules = computed<TierRule[]>(() => {
         <div class="model-price-matrix__row">
           <div class="model-price-group model-price-group--threshold">
             <AppTextInput
-              :id="`${idPrefix}-tier-${tier.key}-threshold`"
+              :id="`model-price-tier-${tier.key}-threshold`"
               v-model="tier.threshold"
               :label="t('modelPrices.matrix.thresholdColumn')"
               appearance="surface"
@@ -193,7 +185,7 @@ const tierRules = computed<TierRule[]>(() => {
           >
             <AppTextInput
               v-for="field in modelPriceFields"
-              :id="`${idPrefix}-tier-${tier.key}-${field}`"
+              :id="`model-price-tier-${tier.key}-${field}`"
               :key="field"
               v-model="tier.slots[field]"
               :label="t(`modelPrices.fields.${field}`)"
@@ -244,7 +236,6 @@ const tierRules = computed<TierRule[]>(() => {
   </div>
 
   <AppConfirmDialog
-    v-if="showUnpricedConfirmation"
     appearance="ledger"
     tone="danger"
     :open="unpricedConfirmOpen"

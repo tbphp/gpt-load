@@ -140,7 +140,21 @@ func TestNewTableValidatesPricesAndContextTiers(t *testing.T) {
 		{name: "invalid mode key", rule: Rule{Identity: identity, ModeSchedules: map[Mode]Schedule{Mode("Fast Mode"): {Prices: Prices{Input: fixedPrice(1)}}}}},
 		{name: "mode without price", rule: Rule{Identity: identity, ModeSchedules: map[Mode]Schedule{ModeFast: {}}}},
 		{name: "negative mode price", rule: Rule{Identity: identity, ModeSchedules: map[Mode]Schedule{ModeFast: {Prices: Prices{Input: Price{NanoUSDPerMillion: -1}}}}}},
-		{name: "invalid mode tier", rule: Rule{Identity: identity, ModeSchedules: map[Mode]Schedule{ModeFast: {Prices: Prices{Input: fixedPrice(1)}, ContextTiers: []ContextTier{{InputThresholdTokens: 1}}}}}},
+		{
+			name: "Fast mode tier",
+			rule: Rule{
+				Identity: identity,
+				ModeSchedules: map[Mode]Schedule{
+					ModeFast: {
+						Prices: Prices{Input: fixedPrice(1)},
+						ContextTiers: []ContextTier{{
+							InputThresholdTokens: 1,
+							Prices:               Prices{Input: fixedPrice(2)},
+						}},
+					},
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -170,28 +184,28 @@ func TestTableDeepClonesConstructionAndLookup(t *testing.T) {
 			InputThresholdTokens: 100,
 			Prices:               Prices{Output: fixedPrice(2)},
 		}},
-		ModeSchedules: map[Mode]Schedule{ModeFast: {Prices: Prices{Input: fixedPrice(3)}, ContextTiers: []ContextTier{{InputThresholdTokens: 10, Prices: Prices{Input: fixedPrice(4)}}}}},
+		ModeSchedules: map[Mode]Schedule{Mode("priority"): {Prices: Prices{Input: fixedPrice(3)}, ContextTiers: []ContextTier{{InputThresholdTokens: 10, Prices: Prices{Input: fixedPrice(4)}}}}},
 		IsManual:      true,
 	}}
 	want := rules[0]
 	want.ContextTiers = append([]ContextTier(nil), rules[0].ContextTiers...)
-	want.ModeSchedules = map[Mode]Schedule{ModeFast: rules[0].ModeSchedules[ModeFast]}
-	fastSchedule := want.ModeSchedules[ModeFast]
-	fastSchedule.ContextTiers = append([]ContextTier(nil), fastSchedule.ContextTiers...)
-	want.ModeSchedules[ModeFast] = fastSchedule
+	want.ModeSchedules = map[Mode]Schedule{Mode("priority"): rules[0].ModeSchedules[Mode("priority")]}
+	prioritySchedule := want.ModeSchedules[Mode("priority")]
+	prioritySchedule.ContextTiers = append([]ContextTier(nil), prioritySchedule.ContextTiers...)
+	want.ModeSchedules[Mode("priority")] = prioritySchedule
 	table := mustTable(t, rules...)
 
 	rules[0].Prices.Input = fixedPrice(99)
 	rules[0].ContextTiers[0].InputThresholdTokens = math.MaxInt64
 	rules[0].ContextTiers[0].Prices.Output = fixedPrice(99)
-	rules[0].ModeSchedules[ModeFast] = Schedule{Prices: Prices{Input: fixedPrice(99)}}
+	rules[0].ModeSchedules[Mode("priority")] = Schedule{Prices: Prices{Input: fixedPrice(99)}}
 
 	first, ok := table.Lookup(want.Identity)
 	if !ok || !reflect.DeepEqual(first, want) {
 		t.Fatalf("first Lookup() = %#v, %t, want %#v", first, ok, want)
 	}
 	first.ContextTiers[0].Prices.Output = fixedPrice(77)
-	first.ModeSchedules[ModeFast] = Schedule{Prices: Prices{Input: fixedPrice(77)}}
+	first.ModeSchedules[Mode("priority")] = Schedule{Prices: Prices{Input: fixedPrice(77)}}
 	second, ok := table.Lookup(want.Identity)
 	if !ok || !reflect.DeepEqual(second, want) {
 		t.Fatalf("second Lookup() = %#v, %t, want immutable %#v", second, ok, want)

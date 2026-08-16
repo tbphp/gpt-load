@@ -45,8 +45,8 @@ type ContextTier struct {
 	Prices               Prices
 }
 
-// Schedule is one complete price schedule. Non-standard request modes may
-// define both their own base prices and their own context tiers.
+// Schedule is one complete price schedule. Fast uses only Prices; other
+// canonical modes may define their own context tiers when their source does.
 type Schedule struct {
 	Prices       Prices
 	ContextTiers []ContextTier

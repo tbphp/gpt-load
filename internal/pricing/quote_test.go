@@ -60,10 +60,6 @@ func TestQuoteForModeUsesExactModePriceAndFallsBackToStandard(t *testing.T) {
 		ModeSchedules: map[Mode]Schedule{
 			ModeFast: {
 				Prices: Prices{Input: fixedPrice(7)},
-				ContextTiers: []ContextTier{{
-					InputThresholdTokens: 1,
-					Prices:               Prices{Input: fixedPrice(8)},
-				}},
 			},
 		},
 	})
@@ -73,9 +69,9 @@ func TestQuoteForModeUsesExactModePriceAndFallsBackToStandard(t *testing.T) {
 	}
 
 	fastQuote, fastReceipt := table.QuoteForModeWithReceipt(identity, result, ModeFast)
-	if fastQuote.EstimatedCostNanoUSD != 8 || fastReceipt == nil ||
+	if fastQuote.EstimatedCostNanoUSD != 7 || fastReceipt == nil ||
 		fastReceipt.SchemaVersion != 4 || fastReceipt.PricingMode != ModeFast ||
-		fastReceipt.ContextThresholdTokens == nil || *fastReceipt.ContextThresholdTokens != 1 {
+		fastReceipt.ContextThresholdTokens != nil {
 		t.Fatalf("fast quote/receipt = %#v / %#v", fastQuote, fastReceipt)
 	}
 

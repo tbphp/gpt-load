@@ -115,6 +115,9 @@ func validateRule(rule Rule) error {
 		if !hasSetPrice(schedule.Prices) {
 			return fmt.Errorf("pricing mode %q must set at least one price", mode)
 		}
+		if mode == ModeFast && len(schedule.ContextTiers) > 0 {
+			return fmt.Errorf("Fast pricing mode does not support context tiers")
+		}
 		if err := validateContextTiers(schedule.ContextTiers); err != nil {
 			return fmt.Errorf("pricing mode %q: %w", mode, err)
 		}

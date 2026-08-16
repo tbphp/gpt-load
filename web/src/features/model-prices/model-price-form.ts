@@ -58,10 +58,6 @@ export function createEmptyTierDraft(): ModelPriceTierDraft {
   return { key: crypto.randomUUID(), threshold: '', slots: emptySlotDraft() }
 }
 
-export function createEmptyScheduleDraft(): ModelPriceScheduleDraft {
-  return { base: emptySlotDraft(), tiers: [] }
-}
-
 function createScheduleDraft(schedule?: ModelPriceScheduleDto | null): ModelPriceScheduleDraft {
   return {
     base: {

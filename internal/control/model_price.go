@@ -124,6 +124,9 @@ func (s *Service) UpdateModelPrice(
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
 		}
+		if err := validateModeScheduleSetUnchanged(row, request.ModeSchedules.schedules); err != nil {
+			return err
+		}
 		references, err := loadPriceReferenceSnapshot(tx)
 		if err != nil {
 			return err
@@ -384,6 +387,25 @@ func buildModePriceSchedulesJSON(
 		return nil, fmt.Errorf("validate mode price schedules: %w", app_errors.ErrValidation)
 	}
 	return normalized, nil
+}
+
+func validateModeScheduleSetUnchanged(
+	row models.ModelPrice,
+	requested map[pricing.Mode]ModelPriceScheduleRequest,
+) error {
+	rule, err := persistedPriceRule(row)
+	if err != nil {
+		return fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
+	}
+	if len(rule.ModeSchedules) != len(requested) {
+		return fmt.Errorf("model price mode schedule set cannot be changed: %w", app_errors.ErrValidation)
+	}
+	for mode := range rule.ModeSchedules {
+		if _, exists := requested[mode]; !exists {
+			return fmt.Errorf("model price mode schedule set cannot be changed: %w", app_errors.ErrValidation)
+		}
+	}
+	return nil
 }
 
 func cloneModelPriceValue(value *int64) *int64 {

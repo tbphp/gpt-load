@@ -134,6 +134,9 @@ func NormalizeModePriceSchedules(raw JSON) (JSON, error) {
 		if !priceSlotsHaveValue(*schedule.Prices) {
 			return nil, fmt.Errorf("validate mode price schedules: mode %q has no base price", mode)
 		}
+		if mode == "fast" && len(schedule.ContextPriceTiers) > 0 {
+			return nil, fmt.Errorf("validate mode price schedules: Fast mode does not support context tiers")
+		}
 
 		tiersRaw, err := json.Marshal(schedule.ContextPriceTiers)
 		if err != nil {

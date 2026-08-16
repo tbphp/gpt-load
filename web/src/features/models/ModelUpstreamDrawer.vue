@@ -19,9 +19,10 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import ModelPriceMatrix from '@/features/model-prices/ModelPriceMatrix.vue'
 import ModelPriceResetDialog from '@/features/model-prices/ModelPriceResetDialog.vue'
 import {
-  createEmptyScheduleDraft,
-  type ModelPriceScheduleErrors,
+  type ModelPriceSlotDraft,
+  type ModelPriceSlotErrors,
 } from '@/features/model-prices/model-price-form'
+import ModelPriceSlotsEditor from '@/features/model-prices/ModelPriceSlotsEditor.vue'
 import { useModelPriceEditor } from '@/features/model-prices/use-model-price-editor'
 
 import ModelPriceStatusBadge from './ModelPriceStatusBadge.vue'
@@ -70,16 +71,22 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
 }
 const price = computed(() => detail.value?.price ?? placeholderPrice)
 const editor = useModelPriceEditor(toRef(price))
-const emptyFastDraft = createEmptyScheduleDraft()
-const emptyFastErrors: ModelPriceScheduleErrors = { base: {}, tiers: {} }
-const hasFastSchedule = computed(() => Boolean(editor.draft.value.modeSchedules.fast))
+const emptyFastDraft: ModelPriceSlotDraft = {
+  input: '',
+  output: '',
+  cache_read: '',
+  cache_write: '',
+}
+const emptyFastErrors: ModelPriceSlotErrors = {}
+const hasFastSchedule = computed(() => Boolean(price.value.mode_schedules.fast))
 const fastDraft = computed({
-  get: () => editor.draft.value.modeSchedules.fast ?? emptyFastDraft,
+  get: () => editor.draft.value.modeSchedules.fast?.base ?? emptyFastDraft,
   set: (value) => {
-    editor.draft.value.modeSchedules.fast = value
+    const schedule = editor.draft.value.modeSchedules.fast
+    if (schedule) schedule.base = value
   },
 })
-const fastErrors = computed(() => editor.errors.value.modeSchedules.fast ?? emptyFastErrors)
+const fastErrors = computed(() => editor.errors.value.modeSchedules.fast?.base ?? emptyFastErrors)
 const resetting = ref(false)
 
 async function requestClose(): Promise<void> {
@@ -190,7 +197,7 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
 
       <section class="upstream-drawer__section">
         <h3>
-          {{ t('models.drawer.standardPrices') }}
+          {{ t('models.drawer.prices') }}
           <span class="upstream-drawer__eyebrow">{{ t('modelPrices.matrix.unit') }}</span>
         </h3>
         <ModelPriceMatrix
@@ -204,7 +211,7 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
           @remove-tier="editor.removeTier"
           @confirm-unpriced="editor.confirmUnpricedSave"
         />
-        <div class="upstream-drawer__mode-heading">
+        <div v-if="hasFastSchedule" class="upstream-drawer__mode-heading">
           <h3>
             <span>
               <Zap :size="13" aria-hidden="true" />
@@ -212,33 +219,13 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
             </span>
             <span class="upstream-drawer__eyebrow">{{ t('modelPrices.matrix.unit') }}</span>
           </h3>
-          <AppButton
-            variant="secondary"
-            size="compact"
-            :disabled="editor.pending.value"
-            @click="
-              hasFastSchedule ? editor.removeModeSchedule('fast') : editor.addModeSchedule('fast')
-            "
-          >
-            {{
-              hasFastSchedule
-                ? t('models.drawer.removeFastPrices')
-                : t('models.drawer.addFastPrices')
-            }}
-          </AppButton>
         </div>
-        <ModelPriceMatrix
+        <ModelPriceSlotsEditor
           v-if="hasFastSchedule"
           v-model:draft="fastDraft"
-          v-model:unpriced-confirm-open="editor.unpricedConfirmOpen.value"
           id-prefix="model-price-fast"
-          :show-unpriced-confirmation="false"
-          :model-id="detail.model_id"
           :errors="fastErrors"
           :pending="editor.pending.value"
-          failure=""
-          @add-tier="editor.addTier('fast')"
-          @remove-tier="editor.removeTier($event, 'fast')"
         />
       </section>
 

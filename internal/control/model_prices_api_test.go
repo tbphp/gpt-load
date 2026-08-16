@@ -244,14 +244,14 @@ func TestModelPriceUpdateRequestDecodesModeSchedules(t *testing.T) {
 	request, apiErr := decodeModelPriceUpdateRequestForTest(
 		`{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],` +
 			`"mode_schedules":{"fast":{"prices":{"input":"7","output":null,"cache_read":null,"cache_write":null},` +
-			`"context_tiers":[{"threshold_tokens":272000,"input":"9","output":null,"cache_read":null,"cache_write":null}]}}}`,
+			`"context_tiers":[]}}}`,
 	)
 	if apiErr != nil {
 		t.Fatalf("decode request error = %v", apiErr)
 	}
 	fast, ok := request.ModeSchedules.schedules[pricing.ModeFast]
 	if !ok || !pricePointerEqual(fast.Prices.Input.nanoUSD, int64Pointer(7_000_000_000)) ||
-		len(fast.ContextTiers.tiers) != 1 || fast.ContextTiers.tiers[0].ThresholdTokens.tokens != 272000 {
+		len(fast.ContextTiers.tiers) != 0 {
 		t.Fatalf("decoded fast schedule = %#v, %t", fast, ok)
 	}
 
@@ -259,6 +259,7 @@ func TestModelPriceUpdateRequestDecodesModeSchedules(t *testing.T) {
 		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],"mode_schedules":null}`,
 		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],"mode_schedules":{"standard":{"prices":{"input":"1","output":null,"cache_read":null,"cache_write":null},"context_tiers":[]}}}`,
 		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],"mode_schedules":{"fast":{"prices":{"input":null,"output":null,"cache_read":null,"cache_write":null},"context_tiers":[]}}}`,
+		`{"input":"1","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],"mode_schedules":{"fast":{"prices":{"input":"1","output":null,"cache_read":null,"cache_write":null},"context_tiers":[{"threshold_tokens":1000,"input":"2","output":null,"cache_read":null,"cache_write":null}]}}}`,
 	} {
 		if _, apiErr := decodeModelPriceUpdateRequestForTest(body); apiErr == nil {
 			t.Fatalf("decode request accepted %s", body)

@@ -163,6 +163,9 @@ func (request ModelPriceUpdateRequest) validate() error {
 			schedule.Prices.CacheRead.nanoUSD == nil && schedule.Prices.CacheWrite.nanoUSD == nil {
 			return fmt.Errorf("mode schedule %q has no base price: %w", mode, app_errors.ErrValidation)
 		}
+		if mode == pricing.ModeFast && len(schedule.ContextTiers.tiers) > 0 {
+			return fmt.Errorf("Fast mode does not support context tiers: %w", app_errors.ErrValidation)
+		}
 		for _, tier := range schedule.ContextTiers.tiers {
 			if !tier.ThresholdTokens.present {
 				return fmt.Errorf("mode schedule context tier threshold_tokens is required: %w", app_errors.ErrValidation)

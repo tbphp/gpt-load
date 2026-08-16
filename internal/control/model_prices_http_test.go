@@ -236,11 +236,17 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 	}
 }
 
-func TestModelPriceHTTPUpdatePersistsModeScheduleAsManualRuntimeFact(t *testing.T) {
+func TestModelPriceHTTPUpdateEditsPersistedModeScheduleAsManualRuntimeFact(t *testing.T) {
 	fixture, engine, row := newModelPriceHTTPFixture(t, true)
+	if err := fixture.db.Model(&models.ModelPrice{}).Where("id = ?", row.ID).Update(
+		"mode_price_schedules",
+		models.JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":6,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[]}}`),
+	).Error; err != nil {
+		t.Fatal(err)
+	}
 	body := `{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],` +
 		`"mode_schedules":{"fast":{"prices":{"input":"7","output":null,"cache_read":null,"cache_write":null},` +
-		`"context_tiers":[{"threshold_tokens":1000,"input":"9","output":null,"cache_read":null,"cache_write":null}]}},` +
+		`"context_tiers":[]}},` +
 		`"confirm_unpriced":false}`
 	response := serveModelPriceHTTPRequest(
 		engine, http.MethodPut, fmt.Sprintf("/api/model-prices/%d", row.ID), body, authTestKey,
@@ -266,9 +272,63 @@ func TestModelPriceHTTPUpdatePersistsModeScheduleAsManualRuntimeFact(t *testing.
 		usage.Result{Tokens: usage.Tokens{UncachedInput: 1_000_000}, State: usage.StateComplete},
 		pricing.ModeFast,
 	)
-	if quote.EstimatedCostNanoUSD != 9_000_000_000 {
-		t.Fatalf("fast tier quote = %#v", quote)
+	if quote.EstimatedCostNanoUSD != 7_000_000_000 {
+		t.Fatalf("fast quote = %#v", quote)
 	}
+}
+
+func TestModelPriceHTTPUpdateRejectsModeScheduleKeyChanges(t *testing.T) {
+	t.Run("add unsynchronized Fast schedule", func(t *testing.T) {
+		fixture, engine, row := newModelPriceHTTPFixture(t, true)
+		body := `{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],` +
+			`"mode_schedules":{"fast":{"prices":{"input":"7","output":null,"cache_read":null,"cache_write":null},"context_tiers":[]}},` +
+			`"confirm_unpriced":false}`
+		response := serveModelPriceHTTPRequest(
+			engine, http.MethodPut, fmt.Sprintf("/api/model-prices/%d", row.ID), body, authTestKey,
+		)
+		assertModelPriceHTTPError(t, response, http.StatusBadRequest, "VALIDATION_FAILED", nil)
+
+		var persisted models.ModelPrice
+		if err := fixture.db.First(&persisted, row.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if persisted.IsManual || len(persisted.ModePriceSchedules) != 0 {
+			t.Fatalf("rejected addition mutated model price = %#v", persisted)
+		}
+	})
+
+	t.Run("remove synchronized Fast schedule", func(t *testing.T) {
+		fixture, engine, row := newModelPriceHTTPFixture(t, true)
+		original := models.JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":6,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[]}}`)
+		if err := fixture.db.Model(&models.ModelPrice{}).Where("id = ?", row.ID).
+			Update("mode_price_schedules", original).Error; err != nil {
+			t.Fatal(err)
+		}
+		response := serveModelPriceHTTPRequest(
+			engine,
+			http.MethodPut,
+			fmt.Sprintf("/api/model-prices/%d", row.ID),
+			modelPriceHTTPUpdateBody(`"2"`, "false"),
+			authTestKey,
+		)
+		assertModelPriceHTTPError(t, response, http.StatusBadRequest, "VALIDATION_FAILED", nil)
+
+		var persisted models.ModelPrice
+		if err := fixture.db.First(&persisted, row.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		want, err := models.NormalizeModePriceSchedules(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := models.NormalizeModePriceSchedules(persisted.ModePriceSchedules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if persisted.IsManual || !bytes.Equal(got, want) {
+			t.Fatalf("rejected removal mutated model price = %#v", persisted)
+		}
+	})
 }
 
 func TestModelPriceHTTPUpdateIgnoresIfMatch(t *testing.T) {

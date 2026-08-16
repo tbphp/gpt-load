@@ -6,7 +6,7 @@ import (
 )
 
 func TestNormalizeModePriceSchedulesCanonicalizesCompleteSchedules(t *testing.T) {
-	raw := JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":7,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[{"threshold_tokens":1000,"input_price_nano_usd_per_million_tokens":9,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null}]}}`)
+	raw := JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":7,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[]}}`)
 	normalized, err := NormalizeModePriceSchedules(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -18,9 +18,7 @@ func TestNormalizeModePriceSchedulesCanonicalizesCompleteSchedules(t *testing.T)
 	fast := schedules["fast"]
 	if fast.Prices.InputPriceNanoUSDPerMillionTokens == nil ||
 		*fast.Prices.InputPriceNanoUSDPerMillionTokens != 7 ||
-		len(fast.ContextPriceTiers) != 1 ||
-		fast.ContextPriceTiers[0].InputPriceNanoUSDPerMillionTokens == nil ||
-		*fast.ContextPriceTiers[0].InputPriceNanoUSDPerMillionTokens != 9 {
+		len(fast.ContextPriceTiers) != 0 {
 		t.Fatalf("normalized schedules = %#v", schedules)
 	}
 
@@ -39,6 +37,7 @@ func TestNormalizeModePriceSchedulesRejectsInvalidContracts(t *testing.T) {
 		JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":null,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[]}}`),
 		JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":-1},"context_tiers":[]}}`),
 		JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":1},"context_tiers":[{"threshold_tokens":1}]}}`),
+		JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":1},"context_tiers":[{"threshold_tokens":1,"input_price_nano_usd_per_million_tokens":2}]}}`),
 	} {
 		if _, err := NormalizeModePriceSchedules(raw); err == nil {
 			t.Fatalf("NormalizeModePriceSchedules(%s) error = nil", raw)
