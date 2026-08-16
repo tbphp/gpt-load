@@ -594,24 +594,6 @@ export async function listRequestLogs(
   return projectRequestLogPage(await client.request(path, { method: 'GET', signal }))
 }
 
-/**
- * 取最近一条请求日志作为首页回执。
- *
- * 刻意不走 RequestLogFilters：limit 在那里的类型是分页页大小（20 | 50 | 100），
- * 而这里要的 limit=1 不是合法页大小。不传时间窗口也是刻意的——
- * 无残余谓词时后端沿 idx_request_logs_completed_id 读第一条即停，
- * 加上过滤反而可能落到无索引的列上退化成全表扫描。
- */
-export async function getLatestRequestLog(
-  client: ApiClient,
-  signal?: AbortSignal,
-): Promise<RequestLogItemDto | null> {
-  const page = projectRequestLogPage(
-    await client.request('/api/logs?limit=1', { method: 'GET', signal }),
-  )
-  return page.items[0] ?? null
-}
-
 export async function getRequestLog(
   client: ApiClient,
   requestID: string,
@@ -636,20 +618,6 @@ export function requestLogQueryOptions(
     ]),
     queryFn: ({ signal }) => listRequestLogs(client, toValue(filters), toValue(cursor), signal),
     placeholderData: keepPreviousData,
-  })
-}
-
-/**
- * 首页回执用的轮询。刻意取 30 秒而不是首页统计那种 10 秒：
- * 它是「你刚才那次调用的回执」，不是心跳仪表盘。
- */
-export function latestRequestLogQueryOptions(client: ApiClient) {
-  return queryOptions({
-    queryKey: controlQueryKeys.logs.latest(),
-    queryFn: ({ signal }) => getLatestRequestLog(client, signal),
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: false,
   })
 }
 

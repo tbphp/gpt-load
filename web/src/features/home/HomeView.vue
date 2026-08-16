@@ -8,7 +8,6 @@ import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
 import { healthQueryOptions } from '@/app/resources/health'
 import { homeBaseQueryOptions } from '@/app/resources/home'
-import { latestRequestLogQueryOptions } from '@/app/resources/request-logs'
 import { homeLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -23,7 +22,6 @@ import HomeAttention from './HomeAttention.vue'
 import HomeSpend from './HomeSpend.vue'
 import HomeSummary from './HomeSummary.vue'
 import HomeWelcome from './HomeWelcome.vue'
-import RecentRequest from './RecentRequest.vue'
 import { useHomeStatisticsPresenter } from './home-presenter'
 import {
   isCanonicalHomeRouteQuery,
@@ -39,11 +37,10 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const baseQuery = useQuery(homeBaseQueryOptions(client))
-const latestRequestQuery = useQuery(latestRequestLogQueryOptions(client))
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
 // /api/health 不在 AccessKey 白名单里，必须前端主动 gate，
-// 否则 AccessKey 用户首页会挂一个永远 403 的区块。
-const healthQuery = useQuery(healthQueryOptions(client, 30_000, () => !isAccessKey.value))
+// 否则 AccessKey 用户首页会挂一个永远 403 的区块。首页不轮询，进页面拉一次即可。
+const healthQuery = useQuery(healthQueryOptions(client, undefined, () => !isAccessKey.value))
 const routeState = computed<HomeRouteState>(() => {
   const state = parseHomeRouteQuery(route.query)
   return isAccessKey.value ? { ...state, accessKeyID: undefined } : state
@@ -75,7 +72,6 @@ const baseRefreshing = computed(
   () => baseQuery.data.value !== undefined && baseQuery.isFetching.value,
 )
 const homeRefreshing = computed(() => baseRefreshing.value || statistics.refreshing.value)
-const latestRequestLoading = useStableLoading(() => latestRequestQuery.isPending.value)
 const isEmpty = computed(() => {
   const inventory = baseQuery.data.value?.inventory
   return inventory !== undefined && inventory.group_count === 0 && inventory.credential_count === 0
@@ -191,13 +187,6 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           :self-scoped="isAccessKey"
           @update:selected-access-key-id="selectAccessKey"
           @update:client-id="selectClient"
-        />
-
-        <!-- 紧贴接入面板：它是「你刚复制的这套配置真的跑通了」的回执，被别的块挤开就退化成又一条统计。 -->
-        <RecentRequest
-          :log="latestRequestQuery.data.value ?? null"
-          :loading="latestRequestLoading"
-          :failed="latestRequestQuery.isError.value && latestRequestQuery.data.value === undefined"
         />
 
         <HomeSpend :snapshot="snapshot" :loading="statisticsLoading || statisticsInitialLoading" />

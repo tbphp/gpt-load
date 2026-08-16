@@ -567,8 +567,7 @@ export function homeStatisticsQueryOptions(client: ApiClient, range: MaybeRefOrG
       const queryRange = projectEnum(queryKey[3], ['24h', '30d'] as const)
       return getHomeStatistics(client, queryRange, signal)
     },
-    refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: 'always',
   })
 }

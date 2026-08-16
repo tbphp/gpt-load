@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CircleDollarSign } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -48,16 +49,23 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
 
 <template>
   <section class="home-spend" aria-labelledby="home-spend-title">
-    <div class="home-spend__lead">
-      <h2 id="home-spend-title" class="home-spend__label">
-        {{ t('home.ledger.spend.title') }}
-      </h2>
-      <SkeletonBlock v-if="loading" width="120px" height="1.4rem" />
-      <p v-else class="home-spend__value">{{ totalCost }}</p>
+    <div class="home-spend__header">
+      <div class="home-spend__heading">
+        <CircleDollarSign :size="15" aria-hidden="true" />
+        <h2 id="home-spend-title">{{ t('home.ledger.spend.title') }}</h2>
+      </div>
       <RouterLink class="home-spend__link" :to="monitorLocation({ tab: 'usage', range: '30d' })">
         {{ t('home.ledger.spend.viewDetail') }}
       </RouterLink>
     </div>
+
+    <SkeletonBlock
+      v-if="loading"
+      class="home-spend__value-skeleton"
+      width="140px"
+      height="2.25rem"
+    />
+    <p v-else class="home-spend__value">{{ totalCost }}</p>
 
     <DataTable
       appearance="editorial"
@@ -95,7 +103,7 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
         <tr v-else-if="rows.length === 0">
           <td class="home-spend__empty" colspan="4">{{ t('home.ledger.spend.empty') }}</td>
         </tr>
-        <tr v-for="row in rows" v-else :key="row.model" class="home-spend__row">
+        <tr v-for="row in rows" v-else :key="row.model">
           <td class="home-spend__model">
             <RouterLink
               class="home-spend__model-link"
@@ -129,33 +137,33 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
   padding: 22px 0 4px;
 }
 
-.home-spend__lead {
+.home-spend__header {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 4px;
 }
 
-.home-spend__label {
+.home-spend__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-spend__heading h2 {
   margin: 0;
-  color: var(--color-text-faint);
-  font-family: var(--font-sans);
-  font-size: var(--text-meta);
+  font-family: var(--font-serif);
+  font-size: var(--title-section);
   font-weight: 500;
 }
 
-.home-spend__value {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--title-panel);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+.home-spend__heading svg {
+  color: var(--color-text-faint);
 }
 
 .home-spend__link {
-  margin-left: auto;
   color: var(--color-action);
   font-size: var(--text-meta);
   font-weight: 600;
@@ -164,6 +172,20 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
 
 .home-spend__link:hover {
   text-decoration: underline;
+}
+
+.home-spend__value {
+  margin: 0 0 18px;
+  font-family: var(--font-mono);
+  font-size: var(--stat-value);
+  font-weight: 550;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-spend__value-skeleton {
+  margin-bottom: 18px;
 }
 
 .home-spend__number {
@@ -194,11 +216,5 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
   color: var(--color-text-faint);
   font-size: var(--text-sm);
   padding-block: var(--space-3) !important;
-}
-
-@media (max-width: 560px) {
-  .home-spend__link {
-    margin-left: 0;
-  }
 }
 </style>
