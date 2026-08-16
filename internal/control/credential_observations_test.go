@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/claude"
 	"gpt-load/internal/codex"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestNormalizeCodexObservationKeepsDynamicWindowsAndStableOrder(t *testing.T) {
@@ -42,6 +44,28 @@ func TestNormalizeCodexObservationKeepsDynamicWindowsAndStableOrder(t *testing.T
 	if snapshot.QuotaWindows[0].Label != "gpt-5.2 · 7d" ||
 		snapshot.QuotaWindows[1].Label != "7d" || snapshot.QuotaWindows[2].Label != "5h" {
 		t.Fatalf("window labels = %#v", snapshot.QuotaWindows)
+	}
+}
+
+func TestMapCredentialObservationKeepsSafeAccountSummary(t *testing.T) {
+	createdAt := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC).UnixMilli()
+	row := models.CredentialObservation{
+		CredentialID: 1, ObservationVersion: 1, State: models.CredentialObservationFresh,
+		SnapshotJSON: models.JSON(fmt.Sprintf(`{
+			"plan_summary":{"name":"Team"},
+			"account_summary":{"display_name":"Owner","organization_name":"Example Org","seat_tier":"team_standard","account_created_at_ms":%d},
+			"quota_windows":[]
+		}`, createdAt)),
+	}
+
+	result := mapCredentialObservation(row)
+	if result.Snapshot == nil || result.Snapshot.Account == nil ||
+		result.Snapshot.Account.DisplayName != "Owner" ||
+		result.Snapshot.Account.OrganizationName != "Example Org" ||
+		result.Snapshot.Account.SeatTier != "team_standard" ||
+		result.Snapshot.Account.AccountCreatedAtMS == nil ||
+		*result.Snapshot.Account.AccountCreatedAtMS != createdAt {
+		t.Fatalf("observation = %#v", result)
 	}
 }
 
@@ -200,6 +224,69 @@ func TestRefreshCredentialObservationKeepsUsageWhenResetCreditDetailsFail(t *tes
 	if result.Snapshot == nil || result.Snapshot.ResetCreditsAvailable == nil ||
 		*result.Snapshot.ResetCreditsAvailable != 2 || len(result.Snapshot.ResetCredits) != 0 {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestRefreshClaudeCredentialObservationPublishesAccountAndQuota(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 16, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
+		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"owner@example.com"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("Claude observation"), ChannelID: channel.Claude,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "claude-sonnet-4-6"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var credential models.Credential
+	if err := fixture.db.Take(&credential, "group_id = ?", created.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.observeSubscriptionAccount = func(
+		_ context.Context,
+		channelID channel.ID,
+		credential subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		if channelID != channel.Claude {
+			return subscriptionruntime.Observation{}, errors.New("unexpected subscription channel")
+		}
+		parsed, parseErr := claude.ParseCredentialJSON(credential.Canonical())
+		if parseErr != nil || parsed.AccountUUID != "claude-account" {
+			t.Fatalf("Claude credential = %#v, %v", parsed, parseErr)
+		}
+		utilization := 25.0
+		reset := now.Add(5 * time.Hour).Format(time.RFC3339)
+		extraUsage := true
+		payload, normalizeErr := subscriptionruntime.NormalizeClaudeObservation(claude.AccountObservation{
+			Profile: claude.AccountProfile{
+				DisplayName: "Owner", Email: "owner@example.com", OrganizationName: "Example Org",
+				OrganizationType: "claude_team", SeatTier: "team_standard", ExtraUsageEnabled: &extraUsage,
+			},
+			Usage: claude.Usage{FiveHour: &claude.UsageWindow{Utilization: &utilization, ResetsAt: &reset}},
+		})
+		return subscriptionruntime.Observation{Payload: payload}, normalizeErr
+	}
+
+	result, err := fixture.service.RefreshCredentialObservation(t.Context(), created.GroupID, credential.ID)
+	if err != nil || result.Snapshot == nil || result.Snapshot.Account == nil ||
+		result.Snapshot.Account.DisplayName != "Owner" ||
+		result.Snapshot.Account.OrganizationName != "Example Org" ||
+		result.Snapshot.Plan.Name != "Claude Team" || len(result.Snapshot.QuotaWindows) != 1 ||
+		result.Snapshot.QuotaWindows[0].Utilization == nil ||
+		*result.Snapshot.QuotaWindows[0].Utilization != 0.25 {
+		t.Fatalf("Claude observation = %#v, %v", result, err)
+	}
+	views := fixture.registry.Snapshot()
+	if len(views) != 1 || views[0].QuotaRemaining == nil || *views[0].QuotaRemaining != 0.75 {
+		t.Fatalf("Claude quota runtime = %#v", views)
 	}
 }
 

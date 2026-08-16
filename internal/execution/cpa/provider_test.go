@@ -15,6 +15,11 @@ type requestScopedTestError struct{}
 func (requestScopedTestError) Error() string         { return "request rejected" }
 func (requestScopedTestError) IsRequestScoped() bool { return true }
 
+type credentialScopedTestError bool
+
+func (credentialScopedTestError) Error() string                { return "credential-scoped test error" }
+func (err credentialScopedTestError) IsCredentialScoped() bool { return bool(err) }
+
 type recordingProviderBridge struct {
 	kind           channel.ProviderKind
 	validatedRoute channel.RouteDescriptor
@@ -67,6 +72,24 @@ func TestRequestScopedFailureSurvivesErrorWrapping(t *testing.T) {
 	}
 	if !requestScopedFailure(errors.Join(errors.New("outer"), requestScopedTestError{})) {
 		t.Fatal("wrapped request-scoped error was not detected")
+	}
+}
+
+func TestCredentialScopedFailureSurvivesErrorWrapping(t *testing.T) {
+	for _, test := range []struct {
+		value credentialScopedTestError
+		want  bool
+	}{
+		{value: true, want: true},
+		{value: false, want: false},
+	} {
+		got, known := credentialScopedFailure(errors.Join(errors.New("outer"), test.value))
+		if !known || got != test.want {
+			t.Fatalf("credentialScopedFailure() = %t, %t; want %t, true", got, known, test.want)
+		}
+	}
+	if got, known := credentialScopedFailure(errors.New("plain")); got || known {
+		t.Fatalf("unclassified failure = %t, %t", got, known)
 	}
 }
 

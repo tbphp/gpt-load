@@ -35,12 +35,20 @@ type claudeTokenResponse struct {
 
 type claudeOAuthProfile struct {
 	Account struct {
-		UUID  string `json:"uuid"`
-		Email string `json:"email"`
+		UUID        string `json:"uuid"`
+		Email       string `json:"email"`
+		DisplayName string `json:"display_name"`
+		CreatedAt   string `json:"created_at"`
 	} `json:"account"`
 	Organization struct {
-		UUID string `json:"uuid"`
-		Name string `json:"name"`
+		UUID                  string `json:"uuid"`
+		Name                  string `json:"name"`
+		Type                  string `json:"organization_type"`
+		RateLimitTier         string `json:"rate_limit_tier"`
+		SeatTier              string `json:"seat_tier"`
+		ExtraUsageEnabled     *bool  `json:"has_extra_usage_enabled"`
+		BillingType           string `json:"billing_type"`
+		SubscriptionCreatedAt string `json:"subscription_created_at"`
 	} `json:"organization"`
 }
 

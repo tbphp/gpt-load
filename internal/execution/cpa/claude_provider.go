@@ -168,7 +168,11 @@ func (*claudeProviderBridge) ClassifyError(
 			evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 		}
 	case status == http.StatusTooManyRequests:
-		evidence.Hint = execution.FailureHintRateLimited
+		if credentialScoped, known := credentialScopedFailure(err); known && !credentialScoped {
+			evidence.Hint = execution.FailureHintRequestRejected
+		} else {
+			evidence.Hint = execution.FailureHintRateLimited
+		}
 	case status >= http.StatusInternalServerError:
 		evidence.Hint = execution.FailureHintHostError
 	}

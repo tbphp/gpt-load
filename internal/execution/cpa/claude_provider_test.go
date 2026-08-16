@@ -41,12 +41,13 @@ func (executor *fakeClaudeExecutor) ExecuteStream(
 }
 
 type classifiedClaudeError struct {
-	status        int
-	typeValue     string
-	codeValue     string
-	retryAfter    time.Duration
-	requestScoped bool
-	summary       string
+	status           int
+	typeValue        string
+	codeValue        string
+	retryAfter       time.Duration
+	requestScoped    bool
+	credentialScoped bool
+	summary          string
 }
 
 func (err *classifiedClaudeError) Error() string              { return err.summary }
@@ -54,6 +55,7 @@ func (err *classifiedClaudeError) StatusCode() int            { return err.statu
 func (err *classifiedClaudeError) ErrorType() string          { return err.typeValue }
 func (err *classifiedClaudeError) ErrorCode() string          { return err.codeValue }
 func (err *classifiedClaudeError) IsRequestScoped() bool      { return err.requestScoped }
+func (err *classifiedClaudeError) IsCredentialScoped() bool   { return err.credentialScoped }
 func (err *classifiedClaudeError) RetryAfter() *time.Duration { return &err.retryAfter }
 
 func claudeProviderCredentialForTest(t *testing.T) claudeProviderCredential {
@@ -122,8 +124,14 @@ func TestClaudeProviderMapsExecutionAndRequestScopedErrors(t *testing.T) {
 
 	requestRejected.requestScoped = false
 	_, evidence = bridge.ClassifyError(t.Context(), requestRejected, credential)
+	if evidence == nil || evidence.Hint != execution.FailureHintRequestRejected {
+		t.Fatalf("model-scoped rate-limit evidence = %#v", evidence)
+	}
+
+	requestRejected.credentialScoped = true
+	_, evidence = bridge.ClassifyError(t.Context(), requestRejected, credential)
 	if evidence == nil || evidence.Hint != execution.FailureHintRateLimited {
-		t.Fatalf("real rate-limit evidence = %#v", evidence)
+		t.Fatalf("credential-scoped rate-limit evidence = %#v", evidence)
 	}
 }
 

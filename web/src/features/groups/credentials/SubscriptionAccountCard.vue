@@ -82,6 +82,7 @@ const supportsResetCredit = computed(() =>
 )
 const canReauthorize = computed(() => props.authorizationMethods.length > 0)
 const snapshot = computed(() => observation.value?.snapshot)
+const accountSummary = computed(() => snapshot.value?.account_summary)
 // 最快恢复的额度窗口排在前面；缺少时长的上游窗口保持在最后。
 const quotaWindows = computed(() =>
   [...(snapshot.value?.quota_windows ?? [])].sort((left, right) => {
@@ -114,6 +115,54 @@ const planLabel = computed(() => {
     free: 'Free',
   }
   return labels[normalized] ?? plan
+})
+const accountDetails = computed(() => {
+  const account = accountSummary.value
+  if (!account) return []
+  const rows: Array<{ label: string; value: string }> = []
+  const add = (label: string, value: string | undefined): void => {
+    const normalized = value?.trim()
+    if (normalized) rows.push({ label: t(label), value: normalized })
+  }
+  add('group.credentials.subscription.account.displayName', account.display_name)
+  add('group.credentials.subscription.account.organization', account.organization_name)
+  add('group.credentials.subscription.account.organizationType', account.organization_type)
+  add('group.credentials.subscription.account.organizationRole', account.organization_role)
+  add('group.credentials.subscription.account.workspaceRole', account.workspace_role)
+  add('group.credentials.subscription.account.seatTier', account.seat_tier)
+  add(
+    'group.credentials.subscription.account.organizationRateLimitTier',
+    account.organization_rate_limit_tier,
+  )
+  add('group.credentials.subscription.account.userRateLimitTier', account.user_rate_limit_tier)
+  add('group.credentials.subscription.account.billingType', account.billing_type)
+  if (account.extra_usage_enabled !== undefined) {
+    rows.push({
+      label: t('group.credentials.subscription.account.extraUsage'),
+      value: t(
+        account.extra_usage_enabled
+          ? 'group.credentials.subscription.account.enabled'
+          : 'group.credentials.subscription.account.disabled',
+      ),
+    })
+  }
+  add(
+    'group.credentials.subscription.account.extraUsageDisabledReason',
+    account.extra_usage_disabled_reason,
+  )
+  if (account.account_created_at_ms !== undefined) {
+    rows.push({
+      label: t('group.credentials.subscription.account.createdAt'),
+      value: formatLocalInstant(account.account_created_at_ms, locale.value),
+    })
+  }
+  if (account.subscription_created_at_ms !== undefined) {
+    rows.push({
+      label: t('group.credentials.subscription.account.subscriptionCreatedAt'),
+      value: formatLocalInstant(account.subscription_created_at_ms, locale.value),
+    })
+  }
+  return rows
 })
 const credentialExpiryTooltip = computed(() => {
   const expiresAtMS = props.item.account.expires_at_ms
@@ -625,6 +674,16 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
       </div>
 
       <div v-else class="subscription-account__detail-content">
+        <section v-if="accountDetails.length" class="subscription-account__detail-section">
+          <h3>{{ t('group.credentials.subscription.account.title') }}</h3>
+          <div class="subscription-account__diagnostics">
+            <dl v-for="detail in accountDetails" :key="detail.label">
+              <dt>{{ detail.label }}</dt>
+              <dd>{{ detail.value }}</dd>
+            </dl>
+          </div>
+        </section>
+
         <section class="subscription-account__detail-section">
           <h3>{{ t('group.credentials.subscription.activity') }}</h3>
           <div class="subscription-account__activity">

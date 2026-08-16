@@ -18,6 +18,7 @@ quota policy. This bridge only exposes:
 - Claude browser OAuth challenge creation and one-shot code exchange;
 - strict CPA Claude JSON parsing and stable device identity normalization;
 - one-shot, context-aware Claude token refresh;
+- Claude Code account profile, model entitlement, and usage observation;
 - the stateless Claude HTTP executor and supported protocol translators.
 
 It intentionally excludes CPA Manager, selector, pool, file store, server,
@@ -26,7 +27,7 @@ watcher, WebSocket/Auto executors, fallback, and internal retry loops.
 ## Pinned upstream
 
 - Module: `github.com/router-for-me/CLIProxyAPI/v7`
-- Version: `v7.2.130`
+- Version: `v7.2.133`
 
 The root module consumes this bridge through a local `replace`; releases still
 resolve CPA itself at the exact version recorded in both `go.mod` files and
@@ -62,11 +63,11 @@ The file contents are never logged. Do not use a credential whose refresh token
 is concurrently managed by another service when explicitly testing refresh;
 the live contract test intentionally does not refresh it.
 
-The Claude contract also requires an explicitly selected model because account
-entitlements are not inferred from an API model catalog:
+The Claude contract discovers account entitlements before inference. A model
+override is optional:
 
 ```bash
 CPA_LIVE_CLAUDE_CREDENTIAL_FILE=/absolute/path/to/claude.json \
-CPA_LIVE_CLAUDE_MODEL=claude-model-id \
+CPA_LIVE_CLAUDE_MODEL=optional-claude-model-id \
   go test -count=1 -run '^TestLiveClaudeContract$' ./embedded
 ```

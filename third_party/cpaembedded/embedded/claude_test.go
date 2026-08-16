@@ -21,6 +21,11 @@ func (fn claudeRoundTripperFunc) RoundTrip(request *http.Request) (*http.Respons
 	return fn(request)
 }
 
+type unscopedClaudeExecutionError struct{}
+
+func (unscopedClaudeExecutionError) Error() string   { return "unclassified rate limit" }
+func (unscopedClaudeExecutionError) StatusCode() int { return http.StatusTooManyRequests }
+
 func testClaudeExecutionCredential() ClaudeCredential {
 	return ClaudeCredential{
 		Type: ProviderClaude, AccessToken: "sk-ant-oat-access", RefreshToken: "refresh-secret",
@@ -338,6 +343,60 @@ func TestClaudeHTTPExecutorSanitizesAndClassifiesFastModeEntitlement429(t *testi
 	}
 }
 
+func TestClaudeHTTPExecutorPreservesCredentialScopeForRateLimits(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		headers          http.Header
+		credentialScoped bool
+	}{
+		{
+			name: "unified account limit",
+			headers: http.Header{
+				"Content-Type":                       {"application/json"},
+				"Anthropic-Ratelimit-Unified-Status": {"rejected"},
+			},
+			credentialScoped: true,
+		},
+		{
+			name: "ordinary model limit",
+			headers: http.Header{
+				"Content-Type": {"application/json"},
+			},
+			credentialScoped: false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusTooManyRequests,
+					Header:     test.headers.Clone(),
+					Body: io.NopCloser(strings.NewReader(
+						`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
+					)),
+					Request: request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			_, err := NewClaudeHTTPExecutor().ExecuteCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+				Model: "claude-sonnet-4-5", Format: "claude",
+				Payload: []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
+			})
+			var scoped interface{ IsCredentialScoped() bool }
+			if !errors.As(err, &scoped) || scoped == nil || scoped.IsCredentialScoped() != test.credentialScoped {
+				t.Fatalf("credential scope = %#v / %v; want %t", scoped, err, test.credentialScoped)
+			}
+		})
+	}
+}
+
+func TestNormalizeClaudeExecutionErrorDoesNotInventCredentialScope(t *testing.T) {
+	err := normalizeClaudeExecutionError(unscopedClaudeExecutionError{})
+	var scoped interface{ IsCredentialScoped() bool }
+	if errors.As(err, &scoped) {
+		t.Fatalf("unclassified error gained credential scope: %#v", err)
+	}
+}
+
 func TestParseClaudeCredentialJSONCreatesAndPreservesOneDeviceIdentity(t *testing.T) {
 	raw := []byte(`{
 		"type":"claude",
@@ -601,5 +660,180 @@ func TestRefreshClaudeCredentialOnceHonorsCallerCancellation(t *testing.T) {
 	_, err := RefreshClaudeCredentialOnce(ctx, current, ClaudeOptions{TokenURL: "https://platform.claude.test/token", HTTPClient: client})
 	if !errors.Is(err, context.Canceled) || time.Since(started) > time.Second {
 		t.Fatalf("canceled refresh = %v after %s", err, time.Since(started))
+	}
+}
+
+func TestDiscoverClaudeModelsMergesBootstrapEntitlementsWithRegistry(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/bootstrap" {
+			http.NotFound(writer, request)
+			return
+		}
+		if request.Header.Get("Authorization") != "Bearer "+credential.AccessToken ||
+			request.Header.Get("Anthropic-Beta") != "oauth-2025-04-20" ||
+			!strings.HasPrefix(request.Header.Get("User-Agent"), "claude-code/") ||
+			request.URL.Query().Get("entrypoint") == "" {
+			t.Fatalf("bootstrap request = %s headers=%v", request.URL, request.Header)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+			"additional_model_options":[
+				{"model":"claude-fable-5","name":"Claude Fable 5","description":"account preview"},
+				{"model":"claude-disabled-preview","name":"Disabled","description":"","disabled_reason":"not enabled"}
+			],
+			"model_access":[
+				{"api_name":"claude-sonnet-4-5-20250929","entitled":false},
+				{"api_name":"claude-account-only","entitled":true}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	models, err := DiscoverClaudeModels(t.Context(), credential, ClaudeOptions{
+		BootstrapURL: server.URL + "/bootstrap",
+		HTTPClient:   server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]ClaudeModel, len(models))
+	for _, model := range models {
+		byID[model.ID] = model
+	}
+	for _, expected := range []string{"claude-opus-4-6", "claude-fable-5", "claude-account-only"} {
+		if _, ok := byID[expected]; !ok {
+			t.Fatalf("discovered models missing %q: %#v", expected, models)
+		}
+	}
+	for _, denied := range []string{"claude-sonnet-4-5-20250929", "claude-disabled-preview"} {
+		if _, ok := byID[denied]; ok {
+			t.Fatalf("discovered models retained denied %q: %#v", denied, models)
+		}
+	}
+}
+
+func TestDecodeClaudeJSONObjectRejectsTrailingGarbage(t *testing.T) {
+	var payload map[string]any
+	if err := decodeClaudeJSONObject([]byte(`{} trailing`), &payload); err == nil {
+		t.Fatal("decodeClaudeJSONObject() accepted trailing garbage")
+	}
+}
+
+func TestObserveClaudeAccountCombinesProfileRolesBootstrapAndUsage(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+credential.AccessToken {
+			t.Fatalf("%s authorization = %q", request.URL.Path, request.Header.Get("Authorization"))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/profile":
+			_, _ = writer.Write([]byte(`{
+				"account":{"uuid":"account-one","email":"owner@example.com","display_name":"Owner","created_at":"2025-01-02T03:04:05Z"},
+				"organization":{"uuid":"organization-one","name":"Example Org","organization_type":"claude_team","rate_limit_tier":"org-tier","seat_tier":"team_standard","has_extra_usage_enabled":true,"billing_type":"stripe_subscription","subscription_created_at":"2025-02-03T04:05:06Z"}
+			}`))
+		case "/roles":
+			_, _ = writer.Write([]byte(`{"organization_role":"admin","workspace_role":"member","organization_name":"Example Org"}`))
+		case "/bootstrap":
+			_, _ = writer.Write([]byte(`{"oauth_account":{"account_uuid":"account-one","account_email":"owner@example.com","organization_uuid":"organization-one","organization_name":"Example Org","organization_type":"claude_team","organization_rate_limit_tier":"org-bootstrap-tier","user_rate_limit_tier":"user-tier","seat_tier":"team_standard"}}`))
+		case "/usage":
+			writer.Header().Set("Request-Id", "usage-request-one")
+			_, _ = writer.Write([]byte(`{
+				"five_hour":{"utilization":25,"resets_at":"2026-08-16T10:00:00Z"},
+				"seven_day":{"utilization":40,"resets_at":"2026-08-23T08:00:00Z"},
+				"seven_day_sonnet":{"utilization":50,"resets_at":"2026-08-23T08:00:00Z"},
+				"extra_usage":{"is_enabled":true,"monthly_limit":100,"used_credits":12.5,"utilization":12.5,"currency":"USD"},
+				"limits":[{"kind":"weekly","group":"opus","percent":80,"resets_at":"2026-08-23T08:00:00Z","scope":{"model":{"display_name":"Claude Opus"}}}]
+			}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	observation, err := ObserveClaudeAccount(t.Context(), credential, ClaudeOptions{
+		ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+		BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := observation.Profile
+	if profile.DisplayName != "Owner" || profile.Email != "owner@example.com" ||
+		profile.OrganizationName != "Example Org" || profile.OrganizationRole != "admin" ||
+		profile.WorkspaceRole != "member" || profile.OrganizationType != "claude_team" ||
+		profile.UserRateLimitTier != "user-tier" ||
+		profile.OrganizationRateLimitTier != "org-bootstrap-tier" ||
+		profile.ExtraUsageEnabled == nil || !*profile.ExtraUsageEnabled {
+		t.Fatalf("profile = %#v", profile)
+	}
+	if observation.Usage.FiveHour == nil || observation.Usage.FiveHour.Utilization == nil ||
+		*observation.Usage.FiveHour.Utilization != 25 ||
+		observation.Usage.ExtraUsage == nil || observation.Usage.ExtraUsage.MonthlyLimit == nil ||
+		len(observation.Usage.Limits) != 1 || observation.Header.Get("Request-Id") != "usage-request-one" {
+		t.Fatalf("usage/header = %#v / %v", observation.Usage, observation.Header)
+	}
+}
+
+func TestObserveClaudeAccountRejectsIdentityMismatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/profile":
+			_, _ = writer.Write([]byte(`{"account":{"uuid":"different-account"},"organization":{"uuid":"organization-one"}}`))
+		case "/roles":
+			_, _ = writer.Write([]byte(`{}`))
+		case "/bootstrap":
+			_, _ = writer.Write([]byte(`{}`))
+		case "/usage":
+			_, _ = writer.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+	_, err := ObserveClaudeAccount(t.Context(), testClaudeExecutionCredential(), ClaudeOptions{
+		ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+		BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+		HTTPClient: server.Client(),
+	})
+	if !errors.Is(err, ErrClaudeCredentialIdentityChanged) {
+		t.Fatalf("identity mismatch error = %v", err)
+	}
+}
+
+func TestObserveClaudeAccountKeepsUsageWhenProfileIsUnavailable(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	credential.Email = "owner@example.com"
+	credential.OrganizationName = "Stored Org"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/profile":
+			http.Error(writer, "unavailable", http.StatusServiceUnavailable)
+		case "/roles":
+			_, _ = writer.Write([]byte(`{}`))
+		case "/bootstrap":
+			_, _ = writer.Write([]byte(`{"oauth_account":{"account_uuid":"account-one","organization_uuid":"organization-one","organization_name":"Bootstrap Org","seat_tier":"team_standard"}}`))
+		case "/usage":
+			_, _ = writer.Write([]byte(`{"five_hour":{"utilization":10,"resets_at":"2026-08-16T10:00:00Z"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	observation, err := ObserveClaudeAccount(t.Context(), credential, ClaudeOptions{
+		ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+		BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Profile.Email != credential.Email ||
+		observation.Profile.OrganizationName != "Bootstrap Org" ||
+		observation.Profile.SeatTier != "team_standard" ||
+		observation.Usage.FiveHour == nil {
+		t.Fatalf("observation = %#v", observation)
 	}
 }

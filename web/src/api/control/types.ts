@@ -165,8 +165,26 @@ export interface CredentialObservedWindowUsageDto {
   last_used_at_ms?: number
 }
 
+export interface CredentialObservationAccountSummaryDto {
+  display_name?: string
+  email?: string
+  organization_name?: string
+  organization_type?: string
+  organization_role?: string
+  workspace_role?: string
+  organization_rate_limit_tier?: string
+  user_rate_limit_tier?: string
+  seat_tier?: string
+  billing_type?: string
+  extra_usage_enabled?: boolean
+  extra_usage_disabled_reason?: string
+  account_created_at_ms?: number
+  subscription_created_at_ms?: number
+}
+
 export interface CredentialObservationSnapshotDto {
   plan_summary: { name?: string }
+  account_summary?: CredentialObservationAccountSummaryDto
   quota_windows: CredentialQuotaWindowDto[]
   reset_credits_available?: number
   reset_credits?: CredentialResetCreditDto[]

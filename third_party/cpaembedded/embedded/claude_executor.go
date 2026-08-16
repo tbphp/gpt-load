@@ -29,6 +29,11 @@ type ClaudeExecutionError struct {
 	requestScoped bool
 }
 
+type claudeCredentialScopedExecutionError struct {
+	*ClaudeExecutionError
+	credentialScoped bool
+}
+
 func (e *ClaudeExecutionError) Error() string {
 	if e == nil || e.summary == "" {
 		return "Claude upstream request failed"
@@ -67,6 +72,17 @@ func (e *ClaudeExecutionError) RetryAfter() *time.Duration {
 
 func (e *ClaudeExecutionError) IsRequestScoped() bool {
 	return e != nil && e.requestScoped
+}
+
+func (e *claudeCredentialScopedExecutionError) IsCredentialScoped() bool {
+	return e != nil && e.credentialScoped
+}
+
+func (e *claudeCredentialScopedExecutionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.ClaudeExecutionError
 }
 
 // ClaudeHTTPExecutor is the stateless Claude execution surface exposed to
@@ -238,6 +254,12 @@ func normalizeClaudeExecutionError(err error) error {
 	if errors.As(err, &scoped) && scoped != nil {
 		requestScoped = scoped.IsRequestScoped()
 	}
+	credentialScoped, credentialScopeKnown := false, false
+	var credentialScope interface{ IsCredentialScoped() bool }
+	if errors.As(err, &credentialScope) && credentialScope != nil {
+		credentialScopeKnown = true
+		credentialScoped = credentialScope.IsCredentialScoped()
+	}
 	body := []byte(err.Error())
 	var headers http.Header
 	var direct interface {
@@ -250,11 +272,18 @@ func normalizeClaudeExecutionError(err error) error {
 	}
 	defer clear(body)
 	typeValue, codeValue, providerMessage := claudeExecutionErrorFields(body)
-	return &ClaudeExecutionError{
+	bounded := &ClaudeExecutionError{
 		status: status, typeValue: typeValue, codeValue: codeValue,
 		summary:    claudeExecutionSummary(status, typeValue, providerMessage),
 		retryAfter: claudeRetryAfter(headers), requestScoped: requestScoped,
 	}
+	if credentialScopeKnown {
+		return &claudeCredentialScopedExecutionError{
+			ClaudeExecutionError: bounded,
+			credentialScoped:     credentialScoped,
+		}
+	}
+	return bounded
 }
 
 func claudeExecutionErrorFields(body []byte) (string, string, string) {

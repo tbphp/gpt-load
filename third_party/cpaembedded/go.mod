@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/andybalholm/brotli v1.0.6
-	github.com/router-for-me/CLIProxyAPI/v7 v7.2.130
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.133
 )
 
 require (

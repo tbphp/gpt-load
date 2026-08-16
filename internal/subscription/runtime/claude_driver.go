@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -16,10 +17,15 @@ type claudeDriver struct{}
 
 func newClaudeDriver() *claudeDriver { return &claudeDriver{} }
 
-// ClaudeImplementations returns the Claude subscription lifecycle without
-// model discovery, quota observation, or credential actions.
+// ClaudeImplementations returns the concrete Claude subscription behavior
+// assembled by the application composition root.
 func ClaudeImplementations() Implementations {
-	return Implementations{Drivers: []Driver{newClaudeDriver()}}
+	driver := newClaudeDriver()
+	return Implementations{
+		Drivers:           []Driver{driver},
+		ModelDiscoveries:  []ModelDiscovery{driver.modelDiscovery()},
+		QuotaObservations: []QuotaObservation{driver.quotaObservation()},
+	}
 }
 
 func (*claudeDriver) ID() spec.SubscriptionDriverID { return modules.ClaudeSubscriptionDriver }
@@ -118,6 +124,54 @@ func (*claudeDriver) AuthorizationFailureDefinitive(err error) bool {
 		return false
 	}
 }
+
+func (*claudeDriver) DiscoverModels(ctx context.Context, credential Credential) ([]string, error) {
+	value, err := claude.ParseCredentialJSON(credential.canonical)
+	if err != nil {
+		return nil, err
+	}
+	models, err := claude.ListModels(ctx, value)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(models))
+	for _, model := range models {
+		result = append(result, model.ID)
+	}
+	return result, nil
+}
+
+func (*claudeDriver) Observe(ctx context.Context, credential Credential) (Observation, error) {
+	value, err := claude.ParseCredentialJSON(credential.canonical)
+	if err != nil {
+		return Observation{}, err
+	}
+	observed, err := claude.ObserveAccount(ctx, value)
+	if err != nil {
+		return Observation{}, err
+	}
+	normalized, err := NormalizeClaudeObservation(observed)
+	if err != nil {
+		return Observation{}, fmt.Errorf("%w: %v", ErrObservationPayloadInvalid, err)
+	}
+	return Observation{Payload: normalized, Header: observed.Header.Clone()}, nil
+}
+
+// Go cannot overload ID across the narrow capability interfaces, so wrappers
+// expose each typed ID while sharing the implementation below.
+type claudeModelDiscovery struct{ *claudeDriver }
+type claudeQuotaObservation struct{ *claudeDriver }
+
+func (driver *claudeDriver) modelDiscovery() ModelDiscovery {
+	return claudeModelDiscovery{driver}
+}
+
+func (driver *claudeDriver) quotaObservation() QuotaObservation {
+	return claudeQuotaObservation{driver}
+}
+
+func (claudeModelDiscovery) ID() spec.UtilityID   { return modules.ClaudeModelDiscovery }
+func (claudeQuotaObservation) ID() spec.UtilityID { return modules.ClaudeQuotaObservation }
 
 func claudeRuntimeCredential(value claude.Credential, canonical []byte) Credential {
 	expiresAt, expires := claude.CredentialExpiresAt(value)

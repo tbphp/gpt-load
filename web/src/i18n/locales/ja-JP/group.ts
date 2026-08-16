@@ -363,10 +363,10 @@ export default {
         title: 'アカウント',
         emptyTitle: 'まだアカウントが接続されていません',
         emptyDescription:
-          'ChatGPT のサブスクリプションアカウントを接続すると、リクエストのルーティングを開始できます。',
+          'サブスクリプションアカウントを接続すると、リクエストのルーティングを開始できます。',
         connect: 'アカウントを接続',
         connectDescription:
-          'ChatGPT でログインして認証が完了すると、アカウントは自動的にこのグループへ追加されます。',
+          '上流のサブスクリプションサービスでログインして認証が完了すると、アカウントは自動的にこのグループへ追加されます。',
         reauthorizeDescription:
           '{account} の認証を更新します。新しいログインは同じアカウントである必要があります。',
         confirmConnect: 'アカウントを追加',
@@ -417,6 +417,24 @@ export default {
         lastUsed: '最終利用',
         freshUntil: '情報の有効期限',
         lastError: '最終同期エラー',
+        account: {
+          title: 'アカウント情報',
+          displayName: '表示名',
+          organization: '組織',
+          organizationType: '組織タイプ',
+          organizationRole: '組織ロール',
+          workspaceRole: 'ワークスペースロール',
+          seatTier: 'シート種別',
+          organizationRateLimitTier: '組織利用枠ティア',
+          userRateLimitTier: 'ユーザー利用枠ティア',
+          billingType: '請求タイプ',
+          extraUsage: '追加利用量',
+          extraUsageDisabledReason: '追加利用量の無効理由',
+          enabled: '有効',
+          disabled: '無効',
+          createdAt: 'アカウント作成日時',
+          subscriptionCreatedAt: 'サブスクリプション作成日時',
+        },
         estimate: {
           title: '利用量ウィンドウ',
           window: '期間',
@@ -453,8 +471,8 @@ export default {
             '認証情報の更新を開始できません。しばらくしてから再試行してください。',
         },
         observationError: {
-          upstreamFailed: 'Codex の利用枠情報を取得できません',
-          payloadInvalid: 'Codex から認識できない利用枠情報が返されました',
+          upstreamFailed: '上流のサブスクリプション利用枠情報を取得できません',
+          payloadInvalid: '上流から認識できないサブスクリプション利用枠情報が返されました',
         },
         status: {
           available: '利用可能',

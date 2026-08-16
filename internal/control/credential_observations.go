@@ -28,6 +28,23 @@ type ObservationPlanSummary struct {
 	Name string `json:"name,omitempty"`
 }
 
+type ObservationAccountSummary struct {
+	DisplayName               string `json:"display_name,omitempty"`
+	Email                     string `json:"email,omitempty"`
+	OrganizationName          string `json:"organization_name,omitempty"`
+	OrganizationType          string `json:"organization_type,omitempty"`
+	OrganizationRole          string `json:"organization_role,omitempty"`
+	WorkspaceRole             string `json:"workspace_role,omitempty"`
+	OrganizationRateLimitTier string `json:"organization_rate_limit_tier,omitempty"`
+	UserRateLimitTier         string `json:"user_rate_limit_tier,omitempty"`
+	SeatTier                  string `json:"seat_tier,omitempty"`
+	BillingType               string `json:"billing_type,omitempty"`
+	ExtraUsageEnabled         *bool  `json:"extra_usage_enabled,omitempty"`
+	ExtraUsageDisabledReason  string `json:"extra_usage_disabled_reason,omitempty"`
+	AccountCreatedAtMS        *int64 `json:"account_created_at_ms,omitempty"`
+	SubscriptionCreatedAtMS   *int64 `json:"subscription_created_at_ms,omitempty"`
+}
+
 type ObservationQuotaWindow struct {
 	ID            string                  `json:"id"`
 	Label         string                  `json:"label"`
@@ -61,10 +78,11 @@ type ObservationWindowUsage struct {
 }
 
 type CredentialObservationSnapshot struct {
-	Plan                  ObservationPlanSummary   `json:"plan_summary"`
-	QuotaWindows          []ObservationQuotaWindow `json:"quota_windows"`
-	ResetCreditsAvailable *int64                   `json:"reset_credits_available,omitempty"`
-	ResetCredits          []ObservationResetCredit `json:"reset_credits,omitempty"`
+	Plan                  ObservationPlanSummary     `json:"plan_summary"`
+	Account               *ObservationAccountSummary `json:"account_summary,omitempty"`
+	QuotaWindows          []ObservationQuotaWindow   `json:"quota_windows"`
+	ResetCreditsAvailable *int64                     `json:"reset_credits_available,omitempty"`
+	ResetCredits          []ObservationResetCredit   `json:"reset_credits,omitempty"`
 }
 
 type CredentialObservationResponse struct {

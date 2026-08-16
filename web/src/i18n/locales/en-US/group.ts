@@ -362,10 +362,10 @@ export default {
       subscription: {
         title: 'Accounts',
         emptyTitle: 'No accounts connected yet',
-        emptyDescription: 'Connect a ChatGPT subscription account to begin routing requests.',
+        emptyDescription: 'Connect a subscription account to begin routing requests.',
         connect: 'Connect account',
         connectDescription:
-          'Sign in with ChatGPT; the account joins this group automatically once authorized.',
+          'Sign in with the upstream subscription service; the account joins this group automatically once authorized.',
         reauthorizeDescription:
           'Updating the authorization for {account}. The new sign-in must belong to the same account.',
         confirmConnect: 'Add account',
@@ -414,6 +414,24 @@ export default {
         lastUsed: 'Last used',
         freshUntil: 'Information valid until',
         lastError: 'Last sync error',
+        account: {
+          title: 'Account information',
+          displayName: 'Display name',
+          organization: 'Organization',
+          organizationType: 'Organization type',
+          organizationRole: 'Organization role',
+          workspaceRole: 'Workspace role',
+          seatTier: 'Seat tier',
+          organizationRateLimitTier: 'Organization quota tier',
+          userRateLimitTier: 'User quota tier',
+          billingType: 'Billing type',
+          extraUsage: 'Extra usage',
+          extraUsageDisabledReason: 'Extra usage disabled reason',
+          enabled: 'Enabled',
+          disabled: 'Disabled',
+          createdAt: 'Account created',
+          subscriptionCreatedAt: 'Subscription created',
+        },
         estimate: {
           title: 'Usage windows',
           window: 'Window',
@@ -448,8 +466,8 @@ export default {
           refreshStartFailed: 'The credential refresh could not start. Try again shortly.',
         },
         observationError: {
-          upstreamFailed: 'Unable to read Codex entitlement information',
-          payloadInvalid: 'Codex returned unrecognized entitlement information',
+          upstreamFailed: 'Unable to read upstream subscription entitlement information',
+          payloadInvalid: 'The upstream returned unrecognized subscription entitlement information',
         },
         status: {
           available: 'Available',
