@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/claude"
 	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
@@ -20,6 +21,7 @@ import (
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
@@ -337,6 +339,60 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
 	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "gpt-5.2" {
 		t.Fatalf("result = %#v, %v", result, err)
+	}
+}
+
+func TestClaudeGroupDiscoversModelsAndBecomesAvailableAfterSelection(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
+		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"claude@example.com"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("Claude subscription discovery"), ChannelID: channel.Claude,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := fixture.service.GetGroupSummary(t.Context(), created.GroupID)
+	if err != nil || before.ServiceStatus != GroupCollectionStatusUnavailable || before.ModelCount != 0 {
+		t.Fatalf("summary before discovery = %#v, %v", before, err)
+	}
+
+	fixture.service.discoverSubscriptionModels = func(
+		_ context.Context,
+		channelID channel.ID,
+		credential subscriptionruntime.Credential,
+	) ([]string, error) {
+		if channelID != channel.Claude {
+			return nil, errors.New("unexpected subscription channel")
+		}
+		parsed, parseErr := claude.ParseCredentialJSON(credential.Canonical())
+		if parseErr != nil || parsed.AccountUUID != "claude-account" {
+			t.Fatalf("Claude credential = %#v, %v", parsed, parseErr)
+		}
+		return []string{"claude-sonnet-4-6", "claude-opus-4-6"}, nil
+	}
+	discovered, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
+	if err != nil || len(discovered.Models) != 2 || discovered.Models[0].ID != "claude-sonnet-4-6" {
+		t.Fatalf("discovered models = %#v, %v", discovered, err)
+	}
+	updated, err := fixture.service.UpdateGroupModels(t.Context(), created.GroupID, GroupModelsUpdateRequest{
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{
+			{ID: discovered.Models[0].ID}, {ID: discovered.Models[1].ID},
+		}},
+	})
+	if err != nil || updated.Total != 2 {
+		t.Fatalf("updated models = %#v, %v", updated, err)
+	}
+	after, err := fixture.service.GetGroupSummary(t.Context(), created.GroupID)
+	if err != nil || after.ServiceStatus != GroupCollectionStatusAvailable || after.ModelCount != 2 || after.CredentialCount != 1 {
+		t.Fatalf("summary after selection = %#v, %v", after, err)
 	}
 }
 

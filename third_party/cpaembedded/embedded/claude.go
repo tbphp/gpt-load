@@ -19,6 +19,8 @@ import (
 const (
 	ProviderClaude     = "claude"
 	ClaudeRedirectURI  = claudeauth.RedirectURI
+	ClaudeBootstrapURL = "https://api.anthropic.com/api/claude_cli/bootstrap"
+	ClaudeUsageURL     = "https://api.anthropic.com/api/oauth/usage"
 	claudeLoginTimeout = 5 * time.Minute
 )
 
@@ -46,11 +48,13 @@ type ClaudeCredential struct {
 // ClaudeOptions supplies testable OAuth transport boundaries without changing
 // the production OAuth identity or redirect URI.
 type ClaudeOptions struct {
-	TokenURL   string
-	ProfileURL string
-	RolesURL   string
-	HTTPClient *http.Client
-	Now        func() time.Time
+	TokenURL     string
+	ProfileURL   string
+	RolesURL     string
+	BootstrapURL string
+	UsageURL     string
+	HTTPClient   *http.Client
+	Now          func() time.Time
 }
 
 func ParseClaudeCredentialJSON(raw []byte) (ClaudeCredential, error) {

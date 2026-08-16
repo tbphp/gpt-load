@@ -44,6 +44,20 @@ func TestClaudeModuleDeclaresSubscriptionContract(t *testing.T) {
 	if target.ProviderKind != ProviderClaude || target.CatalogProviderID != "anthropic" {
 		t.Fatalf("Claude target = %#v", target)
 	}
+	bindings, ok := registry.CapabilityBindings(Claude)
+	if !ok {
+		t.Fatal("Claude capability bindings are missing")
+	}
+	if bindings.SubscriptionDriver != modules.ClaudeSubscriptionDriver ||
+		bindings.ModelDiscovery != modules.ClaudeModelDiscovery ||
+		bindings.QuotaObservation != modules.ClaudeQuotaObservation ||
+		bindings.ResetCreditAction != "" {
+		t.Fatalf("Claude capabilities = %#v", bindings)
+	}
+	policy, ok := registry.SchedulingPolicy(Claude)
+	if !ok || !policy.QuotaPriority {
+		t.Fatal("Claude quota-priority scheduling is disabled")
+	}
 	wantRoutes := map[protocol.Protocol]RouteMode{
 		protocol.Anthropic:         RouteNative,
 		protocol.OpenAICompletions: RouteConverted,

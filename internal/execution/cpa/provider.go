@@ -29,6 +29,22 @@ func requestScopedFailure(err error) bool {
 	return errors.As(err, &scoped) && scoped != nil && scoped.IsRequestScoped()
 }
 
+// credentialScopedFailure reports whether a provider explicitly classified a
+// failure as belonging to the selected credential. The second result is false
+// when the provider did not supply this stronger scope signal.
+func credentialScopedFailure(err error) (bool, bool) {
+	if err == nil {
+		return false, false
+	}
+	var scoped interface {
+		IsCredentialScoped() bool
+	}
+	if !errors.As(err, &scoped) || scoped == nil {
+		return false, false
+	}
+	return scoped.IsCredentialScoped(), true
+}
+
 type providerRequest struct {
 	Model           string
 	Payload         []byte

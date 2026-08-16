@@ -29,11 +29,11 @@ func TestRuntimeCompilesSubscriptionCapabilitiesFromChannelBindings(t *testing.T
 	if !ok || claudeDriver.ID() != modules.ClaudeSubscriptionDriver {
 		t.Fatalf("Driver(claude) = %#v, %t", claudeDriver, ok)
 	}
-	if _, ok := runtime.ModelDiscovery(channel.Claude); ok {
-		t.Fatal("ModelDiscovery(claude) unexpectedly resolved")
+	if discovery, ok := runtime.ModelDiscovery(channel.Claude); !ok || discovery.ID() != modules.ClaudeModelDiscovery {
+		t.Fatalf("ModelDiscovery(claude) = %#v, %t", discovery, ok)
 	}
-	if _, ok := runtime.QuotaObservation(channel.Claude); ok {
-		t.Fatal("QuotaObservation(claude) unexpectedly resolved")
+	if observation, ok := runtime.QuotaObservation(channel.Claude); !ok || observation.ID() != modules.ClaudeQuotaObservation {
+		t.Fatalf("QuotaObservation(claude) = %#v, %t", observation, ok)
 	}
 	if _, ok := runtime.ResetCreditAction(channel.Claude); ok {
 		t.Fatal("ResetCreditAction(claude) unexpectedly resolved")

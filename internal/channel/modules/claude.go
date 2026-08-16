@@ -6,7 +6,11 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-const ClaudeSubscriptionDriver spec.SubscriptionDriverID = "claude"
+const (
+	ClaudeSubscriptionDriver spec.SubscriptionDriverID = "claude"
+	ClaudeModelDiscovery     spec.UtilityID            = "claude_models"
+	ClaudeQuotaObservation   spec.UtilityID            = "claude_quota"
+)
 
 // Claude declares the subscription-backed Anthropic OAuth channel.
 func Claude() spec.Module {
@@ -45,8 +49,10 @@ func Claude() spec.Module {
 			},
 			Capabilities: spec.CapabilityBindings{
 				SubscriptionDriver: ClaudeSubscriptionDriver,
+				ModelDiscovery:     ClaudeModelDiscovery,
+				QuotaObservation:   ClaudeQuotaObservation,
 			},
-			Scheduling: spec.SchedulingPolicy{QuotaPriority: false},
+			Scheduling: spec.SchedulingPolicy{QuotaPriority: true},
 		},
 	}
 }

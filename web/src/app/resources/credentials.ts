@@ -146,11 +146,28 @@ const observationFields = [
 ] as const
 const observationSnapshotFields = [
   'plan_summary',
+  'account_summary',
   'quota_windows',
   'reset_credits_available',
   'reset_credits',
 ] as const
 const planFields = ['name'] as const
+const observationAccountFields = [
+  'display_name',
+  'email',
+  'organization_name',
+  'organization_type',
+  'organization_role',
+  'workspace_role',
+  'organization_rate_limit_tier',
+  'user_rate_limit_tier',
+  'seat_tier',
+  'billing_type',
+  'extra_usage_enabled',
+  'extra_usage_disabled_reason',
+  'account_created_at_ms',
+  'subscription_created_at_ms',
+] as const
 const resetCreditFields = ['expires_at_ms'] as const
 const resetCreditConsumeFields = [
   'status',
@@ -343,8 +360,45 @@ function projectObservationSnapshot(value: unknown): CredentialObservationSnapsh
   ) {
     invalidResponse()
   }
+  let accountSummary: CredentialObservationSnapshotDto['account_summary']
+  if (record.account_summary !== undefined) {
+    const accountRecord = projectRecord(record.account_summary)
+    assertNoSecretLikeFields(accountRecord, observationAccountFields)
+    accountSummary = {}
+    for (const field of [
+      'display_name',
+      'email',
+      'organization_name',
+      'organization_type',
+      'organization_role',
+      'workspace_role',
+      'organization_rate_limit_tier',
+      'user_rate_limit_tier',
+      'seat_tier',
+      'billing_type',
+      'extra_usage_disabled_reason',
+    ] as const) {
+      if (accountRecord[field] !== undefined) {
+        accountSummary[field] = projectString(accountRecord[field], { allowEmpty: false })
+      }
+    }
+    if (accountRecord.extra_usage_enabled !== undefined) {
+      accountSummary.extra_usage_enabled = projectBoolean(accountRecord.extra_usage_enabled)
+    }
+    if (accountRecord.account_created_at_ms !== undefined) {
+      accountSummary.account_created_at_ms = projectEpochMilliseconds(
+        accountRecord.account_created_at_ms,
+      )
+    }
+    if (accountRecord.subscription_created_at_ms !== undefined) {
+      accountSummary.subscription_created_at_ms = projectEpochMilliseconds(
+        accountRecord.subscription_created_at_ms,
+      )
+    }
+  }
   return {
     plan_summary: planName === undefined ? {} : { name: planName },
+    ...(accountSummary === undefined ? {} : { account_summary: accountSummary }),
     quota_windows: quotaWindows,
     ...(record.reset_credits_available === undefined
       ? {}

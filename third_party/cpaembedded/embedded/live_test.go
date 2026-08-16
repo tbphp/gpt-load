@@ -96,14 +96,8 @@ func TestLiveCodexContract(t *testing.T) {
 func TestLiveClaudeContract(t *testing.T) {
 	credentialFile := strings.TrimSpace(os.Getenv("CPA_LIVE_CLAUDE_CREDENTIAL_FILE"))
 	model := strings.TrimSpace(os.Getenv("CPA_LIVE_CLAUDE_MODEL"))
-	if credentialFile == "" && model == "" {
-		t.Skip("CPA_LIVE_CLAUDE_CREDENTIAL_FILE and CPA_LIVE_CLAUDE_MODEL are not set")
-	}
 	if credentialFile == "" {
-		t.Fatal("CPA_LIVE_CLAUDE_CREDENTIAL_FILE is required")
-	}
-	if model == "" {
-		t.Fatal("CPA_LIVE_CLAUDE_MODEL is required")
+		t.Skip("CPA_LIVE_CLAUDE_CREDENTIAL_FILE is not set")
 	}
 
 	raw, err := os.ReadFile(credentialFile)
@@ -114,6 +108,26 @@ func TestLiveClaudeContract(t *testing.T) {
 	clear(raw)
 	if err != nil {
 		t.Fatalf("parse live Claude credential: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	models, err := DiscoverClaudeModels(ctx, credential, ClaudeOptions{})
+	if err != nil {
+		t.Fatalf("discover live Claude models: %v", err)
+	}
+	if len(models) == 0 {
+		t.Fatal("live Claude model list is empty")
+	}
+	if model == "" {
+		model = selectLiveClaudeModel(models)
+	}
+	observation, err := ObserveClaudeAccount(ctx, credential, ClaudeOptions{})
+	if err != nil {
+		t.Fatalf("observe live Claude account: %v", err)
+	}
+	if observation.Profile.AccountUUID != credential.AccountUUID {
+		t.Fatal("live Claude observation returned another account")
 	}
 
 	nativePayload, err := json.Marshal(map[string]any{
@@ -135,8 +149,6 @@ func TestLiveClaudeContract(t *testing.T) {
 		t.Fatalf("build live Claude Responses request: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
 	executor := NewClaudeHTTPExecutor()
 	nativeResponse, err := executor.ExecuteCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
 		Model: model, Format: "claude", Payload: nativePayload, OriginalRequest: nativePayload,
@@ -185,6 +197,17 @@ func TestLiveClaudeContract(t *testing.T) {
 	if chunks == 0 {
 		t.Fatal("live native Claude stream returned no chunks")
 	}
+}
+
+func selectLiveClaudeModel(models []ClaudeModel) string {
+	for _, preferred := range []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"} {
+		for _, model := range models {
+			if model.ID == preferred {
+				return model.ID
+			}
+		}
+	}
+	return models[0].ID
 }
 
 func selectLiveModel(models []Model) string {
