@@ -65,7 +65,7 @@ func TestReconcileReferencedPricesUsesChannelModelIdentity(t *testing.T) {
 	}
 }
 
-func TestLoadPriceTableMergesModelsDevModePricesIntoManualStandardRule(t *testing.T) {
+func TestLoadPriceTableDoesNotMergeModelsDevModePricesIntoManualRule(t *testing.T) {
 	fixture := newServiceFixture(t)
 	standard := int64(2)
 	if err := fixture.db.Create(&models.ModelPrice{
@@ -84,8 +84,9 @@ func TestLoadPriceTableMergesModelsDevModePricesIntoManualStandardRule(t *testin
 			}},
 		}},
 	}}
+	fixture.catalogRuntime.Publish(snapshot)
 
-	table, err := loadPriceTable(t.Context(), fixture.db, snapshot)
+	table, err := loadPriceTable(t.Context(), fixture.db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +95,8 @@ func TestLoadPriceTableMergesModelsDevModePricesIntoManualStandardRule(t *testin
 		Tokens: usage.Tokens{UncachedInput: 1_000_000},
 		State:  usage.StateComplete,
 	}, pricing.ModeFast)
-	if quote.EstimatedCostNanoUSD != 7 {
-		t.Fatalf("fast quote = %#v, want Models.dev mode price", quote)
+	if quote.EstimatedCostNanoUSD != 2 {
+		t.Fatalf("fast quote = %#v, want persisted manual standard fallback", quote)
 	}
 }
 
@@ -118,12 +119,12 @@ func priceTestValue(value pricing.NanoUSD) pricing.Price {
 }
 
 func priceTestRowHasValue(row models.ModelPrice) bool {
-	return row.InputPriceNanoUSDPerMillionTokens != nil || row.OutputPriceNanoUSDPerMillionTokens != nil || row.CacheReadPriceNanoUSDPerMillionTokens != nil || row.CacheWritePriceNanoUSDPerMillionTokens != nil || len(row.ContextPriceTiers) != 0
+	return row.InputPriceNanoUSDPerMillionTokens != nil || row.OutputPriceNanoUSDPerMillionTokens != nil || row.CacheReadPriceNanoUSDPerMillionTokens != nil || row.CacheWritePriceNanoUSDPerMillionTokens != nil || len(row.ContextPriceTiers) != 0 || len(row.ModePriceSchedules) != 0
 }
 
 func mustLoadPriceTable(t *testing.T, db *gorm.DB) *pricing.Table {
 	t.Helper()
-	table, err := loadPriceTable(t.Context(), db, nil)
+	table, err := loadPriceTable(t.Context(), db)
 	if err != nil {
 		t.Fatalf("loadPriceTable() error = %v", err)
 	}

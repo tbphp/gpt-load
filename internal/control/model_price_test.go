@@ -82,11 +82,12 @@ func TestProjectModelPriceRowDoesNotExposeSlotCompleteness(t *testing.T) {
 	}
 }
 
-func TestProjectModelPriceRowExposesModelsDevFastPrices(t *testing.T) {
+func TestProjectModelPriceRowExposesPersistedFastSchedule(t *testing.T) {
 	standardInput := int64(3)
 	record, err := projectModelPriceRow(models.ModelPrice{
 		ID: 1, ChannelID: string(channel.OpenAI), ModelID: "gpt-fast",
 		InputPriceNanoUSDPerMillionTokens: &standardInput,
+		ModePriceSchedules:                models.JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":7,"output_price_nano_usd_per_million_tokens":11,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[]}}`),
 	}, priceReferenceSnapshot{references: map[pricing.Identity]referencedPrice{}}, &catalog.Snapshot{
 		Providers: map[string]catalog.Provider{
 			"openai": {
@@ -116,14 +117,24 @@ func TestProjectModelPriceRowExposesModelsDevFastPrices(t *testing.T) {
 	if err := json.Unmarshal(encoded, &wire); err != nil {
 		t.Fatal(err)
 	}
-	modes, ok := wire["mode_prices"].(map[string]any)
-	if !ok {
-		t.Fatalf("model price response mode_prices = %#v", wire["mode_prices"])
+	if _, exists := wire["mode_prices"]; exists {
+		t.Fatalf("model price response exposed obsolete mode_prices: %s", encoded)
 	}
-	fast, ok := modes[string(pricing.ModeFast)].(map[string]any)
+	modes, ok := wire["mode_schedules"].(map[string]any)
+	if !ok {
+		t.Fatalf("model price response mode_schedules = %#v", wire["mode_schedules"])
+	}
+	fastSchedule, ok := modes[string(pricing.ModeFast)].(map[string]any)
+	if !ok {
+		t.Fatalf("fast schedule = %#v", modes[string(pricing.ModeFast)])
+	}
+	fast, ok := fastSchedule["prices"].(map[string]any)
 	if !ok || fast["input"] != "0.000000007" || fast["output"] != "0.000000011" ||
 		fast["cache_read"] != nil || fast["cache_write"] != nil {
-		t.Fatalf("model price response fast prices = %#v", modes[string(pricing.ModeFast)])
+		t.Fatalf("model price response fast prices = %#v", fastSchedule)
+	}
+	if tiers, ok := fastSchedule["context_tiers"].([]any); !ok || len(tiers) != 0 {
+		t.Fatalf("model price response fast tiers = %#v", fastSchedule["context_tiers"])
 	}
 }
 

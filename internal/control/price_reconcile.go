@@ -138,6 +138,7 @@ func newReconciledModelPrice(
 	row.CacheReadPriceNanoUSDPerMillionTokens = desired.CacheReadPriceNanoUSDPerMillionTokens
 	row.CacheWritePriceNanoUSDPerMillionTokens = desired.CacheWritePriceNanoUSDPerMillionTokens
 	row.ContextPriceTiers = desired.ContextPriceTiers
+	row.ModePriceSchedules = desired.ModePriceSchedules
 	return row, nil
 }
 

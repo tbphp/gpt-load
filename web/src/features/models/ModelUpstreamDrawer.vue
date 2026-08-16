@@ -18,7 +18,10 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import ModelPriceMatrix from '@/features/model-prices/ModelPriceMatrix.vue'
 import ModelPriceResetDialog from '@/features/model-prices/ModelPriceResetDialog.vue'
-import { modelPriceFields } from '@/features/model-prices/model-price-form'
+import {
+  createEmptyScheduleDraft,
+  type ModelPriceScheduleErrors,
+} from '@/features/model-prices/model-price-form'
 import { useModelPriceEditor } from '@/features/model-prices/use-model-price-editor'
 
 import ModelPriceStatusBadge from './ModelPriceStatusBadge.vue'
@@ -52,7 +55,7 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
   channel_icon: '',
   model_id: '',
   prices: { input: null, output: null, cache_read: null, cache_write: null },
-  mode_prices: {},
+  mode_schedules: {},
   pricing_status: 'pending',
   method: null,
   matched_provider_id: null,
@@ -66,8 +69,17 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
   can_delete: false,
 }
 const price = computed(() => detail.value?.price ?? placeholderPrice)
-const fastPrices = computed(() => price.value.mode_prices.fast ?? null)
 const editor = useModelPriceEditor(toRef(price))
+const emptyFastDraft = createEmptyScheduleDraft()
+const emptyFastErrors: ModelPriceScheduleErrors = { base: {}, tiers: {} }
+const hasFastSchedule = computed(() => Boolean(editor.draft.value.modeSchedules.fast))
+const fastDraft = computed({
+  get: () => editor.draft.value.modeSchedules.fast ?? emptyFastDraft,
+  set: (value) => {
+    editor.draft.value.modeSchedules.fast = value
+  },
+})
+const fastErrors = computed(() => editor.errors.value.modeSchedules.fast ?? emptyFastErrors)
 const resetting = ref(false)
 
 async function requestClose(): Promise<void> {
@@ -192,21 +204,42 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
           @remove-tier="editor.removeTier"
           @confirm-unpriced="editor.confirmUnpricedSave"
         />
-        <div v-if="fastPrices" class="upstream-drawer__fast-prices">
-          <div class="upstream-drawer__fast-prices-heading">
+        <div class="upstream-drawer__mode-heading">
+          <h3>
             <span>
               <Zap :size="13" aria-hidden="true" />
               {{ t('models.drawer.fastPrices') }}
             </span>
-            <span class="upstream-drawer__eyebrow">{{ t('models.drawer.fastPricesSource') }}</span>
-          </div>
-          <dl>
-            <div v-for="field in modelPriceFields" :key="field">
-              <dt>{{ t(`modelPrices.fields.${field}`) }}</dt>
-              <dd>{{ fastPrices[field] ?? t('models.tree.noPrice') }}</dd>
-            </div>
-          </dl>
+            <span class="upstream-drawer__eyebrow">{{ t('modelPrices.matrix.unit') }}</span>
+          </h3>
+          <AppButton
+            variant="secondary"
+            size="compact"
+            :disabled="editor.pending.value"
+            @click="
+              hasFastSchedule ? editor.removeModeSchedule('fast') : editor.addModeSchedule('fast')
+            "
+          >
+            {{
+              hasFastSchedule
+                ? t('models.drawer.removeFastPrices')
+                : t('models.drawer.addFastPrices')
+            }}
+          </AppButton>
         </div>
+        <ModelPriceMatrix
+          v-if="hasFastSchedule"
+          v-model:draft="fastDraft"
+          v-model:unpriced-confirm-open="editor.unpricedConfirmOpen.value"
+          id-prefix="model-price-fast"
+          :show-unpriced-confirmation="false"
+          :model-id="detail.model_id"
+          :errors="fastErrors"
+          :pending="editor.pending.value"
+          failure=""
+          @add-tier="editor.addTier('fast')"
+          @remove-tier="editor.removeTier($event, 'fast')"
+        />
       </section>
 
       <section class="upstream-drawer__section">
@@ -386,56 +419,25 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   letter-spacing: 0.03em;
 }
 
-.upstream-drawer__fast-prices {
-  display: grid;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: var(--space-2-5);
-}
-
-.upstream-drawer__fast-prices-heading,
-.upstream-drawer__fast-prices-heading > span:first-child {
+.upstream-drawer__mode-heading,
+.upstream-drawer__mode-heading h3,
+.upstream-drawer__mode-heading h3 > span:first-child {
   display: flex;
   align-items: center;
   gap: var(--space-1);
 }
 
-.upstream-drawer__fast-prices-heading {
+.upstream-drawer__mode-heading {
   justify-content: space-between;
   flex-wrap: wrap;
-  color: var(--color-text-muted);
-  font-size: var(--text-meta);
-  font-weight: 600;
 }
 
-.upstream-drawer__fast-prices-heading svg {
-  color: var(--color-text-faint);
-}
-
-.upstream-drawer__fast-prices dl {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
+.upstream-drawer__mode-heading h3 {
   margin: 0;
 }
 
-.upstream-drawer__fast-prices dl > div {
-  display: grid;
-  gap: 2px;
-}
-
-.upstream-drawer__fast-prices dt {
+.upstream-drawer__mode-heading svg {
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.upstream-drawer__fast-prices dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  font-variant-numeric: tabular-nums;
 }
 
 .upstream-drawer__associations {
@@ -512,10 +514,6 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
 
   .upstream-drawer__group {
     justify-content: flex-start;
-  }
-
-  .upstream-drawer__fast-prices dl {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

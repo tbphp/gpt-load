@@ -44,6 +44,11 @@ export interface ModelPriceContextTierDto {
   prices: ModelPriceSlotsDto
 }
 
+export interface ModelPriceScheduleDto {
+  prices: ModelPriceSlotsDto
+  context_tiers: ModelPriceContextTierDto[]
+}
+
 export interface ModelPriceDto {
   id: number
   channel_id: string
@@ -52,7 +57,7 @@ export interface ModelPriceDto {
   channel_icon: string
   model_id: string
   prices: ModelPriceSlotsDto
-  mode_prices: Record<string, ModelPriceSlotsDto>
+  mode_schedules: Record<string, ModelPriceScheduleDto>
   pricing_status: ModelPriceStatus
   method: ModelPriceMethod | null
   matched_provider_id: string | null
@@ -86,12 +91,18 @@ export interface ModelPriceContextTierUpdateRequest {
   cache_write: string | null
 }
 
+export interface ModelPriceScheduleUpdateRequest {
+  prices: ModelPriceSlotsDto
+  context_tiers: ModelPriceContextTierUpdateRequest[]
+}
+
 export interface ModelPriceUpdateRequest {
   input: string | null
   output: string | null
   cache_read: string | null
   cache_write: string | null
   context_tiers: ModelPriceContextTierUpdateRequest[]
+  mode_schedules: Record<string, ModelPriceScheduleUpdateRequest>
   confirm_unpriced: boolean
 }
 
@@ -115,7 +126,7 @@ const itemFields = [
   'channel_icon',
   'model_id',
   'prices',
-  'mode_prices',
+  'mode_schedules',
   'pricing_status',
   'method',
   'matched_provider_id',
@@ -130,7 +141,13 @@ const itemFields = [
 ] as const
 const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 const contextTierFields = ['threshold_tokens', 'prices'] as const
-const updateFields = [...priceFields, 'context_tiers', 'confirm_unpriced'] as const
+const modeScheduleFields = ['prices', 'context_tiers'] as const
+const updateFields = [
+  ...priceFields,
+  'context_tiers',
+  'mode_schedules',
+  'confirm_unpriced',
+] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -159,14 +176,16 @@ function projectPrices(value: unknown): ModelPriceSlotsDto {
   }
 }
 
-function projectModePrices(value: unknown): Record<string, ModelPriceSlotsDto> {
+function projectModeSchedules(value: unknown): Record<string, ModelPriceScheduleDto> {
   const record = projectRecord(value)
-  const result: Record<string, ModelPriceSlotsDto> = {}
-  for (const [mode, pricesValue] of Object.entries(record)) {
+  const result: Record<string, ModelPriceScheduleDto> = {}
+  for (const [mode, scheduleValue] of Object.entries(record)) {
     if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/u.test(mode) || mode === 'standard') invalidResponse()
-    const prices = projectPrices(pricesValue)
+    const schedule = projectRecord(scheduleValue)
+    assertNoSecretLikeFields(schedule, modeScheduleFields)
+    const prices = projectPrices(schedule.prices)
     if (Object.values(prices).every((slot) => slot === null)) invalidResponse()
-    result[mode] = prices
+    result[mode] = { prices, context_tiers: projectContextTiers(schedule.context_tiers) }
   }
   return result
 }
@@ -211,7 +230,7 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     channel_icon: projectIdentityString(record.channel_icon),
     model_id: projectIdentityString(record.model_id),
     prices: projectPrices(record.prices),
-    mode_prices: projectModePrices(record.mode_prices),
+    mode_schedules: projectModeSchedules(record.mode_schedules),
     pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),
     method: projectMethod(record.method),
     matched_provider_id:

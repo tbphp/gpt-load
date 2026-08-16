@@ -163,7 +163,7 @@ func (s *Service) CreateGroupIdempotent(
 			if _, err := state.Compile(input); err != nil {
 				return idempotentMutationResult{}, err
 			}
-			if _, err := loadPriceTable(ctx, tx, catalogSnapshot); err != nil {
+			if _, err := loadPriceTable(ctx, tx); err != nil {
 				return idempotentMutationResult{}, err
 			}
 			result := GroupCreateResult{

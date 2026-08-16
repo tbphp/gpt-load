@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/usage"
 )
 
 func TestModelPriceFinalRoutesRequireManagementAuthentication(t *testing.T) {
@@ -147,6 +148,7 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 	_, engine, row := newModelPriceHTTPFixture(t, true)
 
 	tieredBody := `{"input":"1","output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":false,` +
+		`"mode_schedules":{},` +
 		`"context_tiers":[` +
 		`{"threshold_tokens":1000,"input":"2","output":null,"cache_read":null,"cache_write":null},` +
 		`{"threshold_tokens":272000,"input":"3","output":null,"cache_read":null,"cache_write":null}` +
@@ -195,6 +197,7 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 		{
 			name: "non increasing thresholds",
 			body: `{"input":"1","output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":false,` +
+				`"mode_schedules":{},` +
 				`"context_tiers":[` +
 				`{"threshold_tokens":272000,"input":"3","output":null,"cache_read":null,"cache_write":null},` +
 				`{"threshold_tokens":1000,"input":"2","output":null,"cache_read":null,"cache_write":null}` +
@@ -203,6 +206,7 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 		{
 			name: "tier without any price",
 			body: `{"input":"1","output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":false,` +
+				`"mode_schedules":{},` +
 				`"context_tiers":[{"threshold_tokens":1000,"input":null,"output":null,"cache_read":null,"cache_write":null}]}`,
 		},
 	} {
@@ -229,6 +233,41 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 				t.Fatalf("rejected update mutated tiers = %#v", unchangedItem["context_tiers"])
 			}
 		})
+	}
+}
+
+func TestModelPriceHTTPUpdatePersistsModeScheduleAsManualRuntimeFact(t *testing.T) {
+	fixture, engine, row := newModelPriceHTTPFixture(t, true)
+	body := `{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],` +
+		`"mode_schedules":{"fast":{"prices":{"input":"7","output":null,"cache_read":null,"cache_write":null},` +
+		`"context_tiers":[{"threshold_tokens":1000,"input":"9","output":null,"cache_read":null,"cache_write":null}]}},` +
+		`"confirm_unpriced":false}`
+	response := serveModelPriceHTTPRequest(
+		engine, http.MethodPut, fmt.Sprintf("/api/model-prices/%d", row.ID), body, authTestKey,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("PUT mode schedule status = %d: %s", response.Code, response.Body.String())
+	}
+	data := decodeModelPriceHTTPData(t, response)
+	schedules, ok := data["mode_schedules"].(map[string]any)
+	if !ok || schedules["fast"] == nil {
+		t.Fatalf("mode_schedules = %#v", data["mode_schedules"])
+	}
+
+	var persisted models.ModelPrice
+	if err := fixture.db.First(&persisted, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.IsManual || len(persisted.ModePriceSchedules) == 0 {
+		t.Fatalf("persisted model price = %#v", persisted)
+	}
+	quote := fixture.priceRuntime.Load().QuoteForMode(
+		pricing.Identity{ChannelID: row.ChannelID, ModelID: row.ModelID},
+		usage.Result{Tokens: usage.Tokens{UncachedInput: 1_000_000}, State: usage.StateComplete},
+		pricing.ModeFast,
+	)
+	if quote.EstimatedCostNanoUSD != 9_000_000_000 {
+		t.Fatalf("fast tier quote = %#v", quote)
 	}
 }
 
@@ -537,5 +576,5 @@ func decodeModelPriceHTTPData(
 
 func modelPriceHTTPUpdateBody(input string, confirm string) string {
 	return `{"input":` + input + `,"output":null,"cache_read":null,"cache_write":null,` +
-		`"context_tiers":[],"confirm_unpriced":` + confirm + `}`
+		`"context_tiers":[],"mode_schedules":{},"confirm_unpriced":` + confirm + `}`
 }

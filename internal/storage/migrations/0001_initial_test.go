@@ -51,7 +51,7 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 		"output_price_nano_usd_per_million_tokens",
 		"cache_read_price_nano_usd_per_million_tokens",
 		"cache_write_price_nano_usd_per_million_tokens",
-		"context_price_tiers", "is_manual", "created_at_ms", "updated_at_ms",
+		"context_price_tiers", "mode_price_schedules", "is_manual", "created_at_ms", "updated_at_ms",
 	})
 	assertUniqueIndex(t, db, "model_prices", "idx_model_prices_channel_model", []string{"channel_id", "model_id"})
 
@@ -62,6 +62,7 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 		"cache_read_price_nano_usd_per_million_tokens",
 		"cache_write_price_nano_usd_per_million_tokens",
 		"context_price_tiers",
+		"mode_price_schedules",
 	} {
 		if columns[name].NotNull != 0 {
 			t.Errorf("model_prices.%s notnull = %d, want nullable", name, columns[name].NotNull)

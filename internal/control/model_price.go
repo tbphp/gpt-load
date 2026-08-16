@@ -25,25 +25,30 @@ type PriceSlotsDTO struct {
 }
 
 type ModelPriceDTO struct {
-	ID                  uint                           `json:"id"`
-	ChannelID           string                         `json:"channel_id"`
-	ChannelName         string                         `json:"channel_name"`
-	ChannelMark         string                         `json:"channel_mark"`
-	ChannelIcon         string                         `json:"channel_icon"`
-	ModelID             string                         `json:"model_id"`
-	Prices              PriceSlotsDTO                  `json:"prices"`
-	ModePrices          map[pricing.Mode]PriceSlotsDTO `json:"mode_prices"`
-	PricingStatus       PricingStatus                  `json:"pricing_status"`
-	Method              *string                        `json:"method"`
-	MatchedProviderID   *string                        `json:"matched_provider_id"`
-	MatchSource         *ModelPriceMatchSource         `json:"match_source"`
-	Referenced          bool                           `json:"referenced"`
-	ReferenceCount      int                            `json:"reference_count"`
-	ReferenceGroupCount int                            `json:"reference_group_count"`
-	ContextTiers        []ModelPriceContextTierDTO     `json:"context_tiers"`
-	UpdatedAtMS         int64                          `json:"updated_at_ms"`
-	CanReset            bool                           `json:"can_reset"`
-	CanDelete           bool                           `json:"can_delete"`
+	ID                  uint                                   `json:"id"`
+	ChannelID           string                                 `json:"channel_id"`
+	ChannelName         string                                 `json:"channel_name"`
+	ChannelMark         string                                 `json:"channel_mark"`
+	ChannelIcon         string                                 `json:"channel_icon"`
+	ModelID             string                                 `json:"model_id"`
+	Prices              PriceSlotsDTO                          `json:"prices"`
+	ModeSchedules       map[pricing.Mode]ModelPriceScheduleDTO `json:"mode_schedules"`
+	PricingStatus       PricingStatus                          `json:"pricing_status"`
+	Method              *string                                `json:"method"`
+	MatchedProviderID   *string                                `json:"matched_provider_id"`
+	MatchSource         *ModelPriceMatchSource                 `json:"match_source"`
+	Referenced          bool                                   `json:"referenced"`
+	ReferenceCount      int                                    `json:"reference_count"`
+	ReferenceGroupCount int                                    `json:"reference_group_count"`
+	ContextTiers        []ModelPriceContextTierDTO             `json:"context_tiers"`
+	UpdatedAtMS         int64                                  `json:"updated_at_ms"`
+	CanReset            bool                                   `json:"can_reset"`
+	CanDelete           bool                                   `json:"can_delete"`
+}
+
+type ModelPriceScheduleDTO struct {
+	Prices       PriceSlotsDTO              `json:"prices"`
+	ContextTiers []ModelPriceContextTierDTO `json:"context_tiers"`
 }
 
 // ModelPriceContextTierDTO is one compiled input-quantity price tier. Unlike
@@ -94,6 +99,10 @@ func (s *Service) UpdateModelPrice(
 	if err != nil {
 		return ModelPriceDTO{}, err
 	}
+	modeSchedules, err := buildModePriceSchedulesJSON(request.ModeSchedules.schedules)
+	if err != nil {
+		return ModelPriceDTO{}, err
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -132,6 +141,7 @@ func (s *Service) UpdateModelPrice(
 		desired.CacheReadPriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.CacheRead.nanoUSD)
 		desired.CacheWritePriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.CacheWrite.nanoUSD)
 		desired.ContextPriceTiers = contextTiers
+		desired.ModePriceSchedules = modeSchedules
 		desired.IsManual = true
 		if !modelPriceMutableValuesEqual(row, desired) {
 			updatedAtMS, err := safeEpochMilliseconds(s.now())
@@ -146,6 +156,7 @@ func (s *Service) UpdateModelPrice(
 					"cache_read_price_nano_usd_per_million_tokens":  desired.CacheReadPriceNanoUSDPerMillionTokens,
 					"cache_write_price_nano_usd_per_million_tokens": desired.CacheWritePriceNanoUSDPerMillionTokens,
 					"context_price_tiers":                           desired.ContextPriceTiers,
+					"mode_price_schedules":                          desired.ModePriceSchedules,
 					"is_manual":                                     true,
 					"updated_at_ms":                                 updatedAtMS,
 				}).Error; err != nil {
@@ -155,7 +166,7 @@ func (s *Service) UpdateModelPrice(
 			row = desired
 		}
 
-		table, err = loadPriceTable(ctx, tx, catalogSnapshot)
+		table, err = loadPriceTable(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -226,6 +237,7 @@ func (s *Service) ResetModelPrice(
 					"cache_read_price_nano_usd_per_million_tokens":  desired.CacheReadPriceNanoUSDPerMillionTokens,
 					"cache_write_price_nano_usd_per_million_tokens": desired.CacheWritePriceNanoUSDPerMillionTokens,
 					"context_price_tiers":                           desired.ContextPriceTiers,
+					"mode_price_schedules":                          desired.ModePriceSchedules,
 					"is_manual":                                     false,
 					"updated_at_ms":                                 updatedAtMS,
 				}).Error; err != nil {
@@ -236,11 +248,12 @@ func (s *Service) ResetModelPrice(
 			row.CacheReadPriceNanoUSDPerMillionTokens = desired.CacheReadPriceNanoUSDPerMillionTokens
 			row.CacheWritePriceNanoUSDPerMillionTokens = desired.CacheWritePriceNanoUSDPerMillionTokens
 			row.ContextPriceTiers = desired.ContextPriceTiers
+			row.ModePriceSchedules = desired.ModePriceSchedules
 			row.IsManual = false
 			row.UpdatedAtMS = updatedAtMS
 		}
 
-		table, err = loadPriceTable(ctx, tx, catalogSnapshot)
+		table, err = loadPriceTable(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -280,10 +293,6 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 		return err
 	}
 
-	var catalogSnapshot *catalog.Snapshot
-	if s.catalogRuntime != nil {
-		catalogSnapshot = s.catalogRuntime.Load()
-	}
 	var table *pricing.Table
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		var row models.ModelPrice
@@ -317,7 +326,7 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 		if err := tx.Where("id = ?", id).Delete(&models.ModelPrice{}).Error; err != nil {
 			return fmt.Errorf("delete model price: %w", app_errors.ParseDBError(err))
 		}
-		table, err = loadPriceTable(ctx, tx, catalogSnapshot)
+		table, err = loadPriceTable(ctx, tx)
 		return err
 	})
 	if err != nil {
@@ -328,6 +337,9 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 }
 
 func modelPriceUpdateAllNull(request ModelPriceUpdateRequest) bool {
+	if len(request.ModeSchedules.schedules) > 0 {
+		return false
+	}
 	if request.Input.nanoUSD != nil ||
 		request.Output.nanoUSD != nil ||
 		request.CacheRead.nanoUSD != nil ||
@@ -343,6 +355,35 @@ func modelPriceUpdateAllNull(request ModelPriceUpdateRequest) bool {
 		}
 	}
 	return true
+}
+
+func buildModePriceSchedulesJSON(
+	schedules map[pricing.Mode]ModelPriceScheduleRequest,
+) (models.JSON, error) {
+	if len(schedules) == 0 {
+		return nil, nil
+	}
+	encoded := make(map[string]models.ModePriceSchedule, len(schedules))
+	for mode, schedule := range schedules {
+		encoded[string(mode)] = models.ModePriceSchedule{
+			Prices: models.PriceSlots{
+				InputPriceNanoUSDPerMillionTokens:      cloneModelPriceValue(schedule.Prices.Input.nanoUSD),
+				OutputPriceNanoUSDPerMillionTokens:     cloneModelPriceValue(schedule.Prices.Output.nanoUSD),
+				CacheReadPriceNanoUSDPerMillionTokens:  cloneModelPriceValue(schedule.Prices.CacheRead.nanoUSD),
+				CacheWritePriceNanoUSDPerMillionTokens: cloneModelPriceValue(schedule.Prices.CacheWrite.nanoUSD),
+			},
+			ContextPriceTiers: contextPriceTierModels(schedule.ContextTiers.tiers),
+		}
+	}
+	raw, err := json.Marshal(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("encode mode price schedules: %w", app_errors.ErrInternalServer)
+	}
+	normalized, err := models.NormalizeModePriceSchedules(models.JSON(raw))
+	if err != nil {
+		return nil, fmt.Errorf("validate mode price schedules: %w", app_errors.ErrValidation)
+	}
+	return normalized, nil
 }
 
 func cloneModelPriceValue(value *int64) *int64 {
@@ -362,16 +403,7 @@ func buildContextPriceTiersJSON(tiers []ModelPriceContextTierRequest) (models.JS
 	if len(tiers) == 0 {
 		return nil, nil
 	}
-	encoded := make([]models.ContextPriceTier, 0, len(tiers))
-	for _, tier := range tiers {
-		encoded = append(encoded, models.ContextPriceTier{
-			ThresholdTokens:                        tier.ThresholdTokens.tokens,
-			InputPriceNanoUSDPerMillionTokens:      cloneModelPriceValue(tier.Input.nanoUSD),
-			OutputPriceNanoUSDPerMillionTokens:     cloneModelPriceValue(tier.Output.nanoUSD),
-			CacheReadPriceNanoUSDPerMillionTokens:  cloneModelPriceValue(tier.CacheRead.nanoUSD),
-			CacheWritePriceNanoUSDPerMillionTokens: cloneModelPriceValue(tier.CacheWrite.nanoUSD),
-		})
-	}
+	encoded := contextPriceTierModels(tiers)
 	raw, err := json.Marshal(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("encode context price tiers: %w", app_errors.ErrInternalServer)
@@ -383,10 +415,29 @@ func buildContextPriceTiersJSON(tiers []ModelPriceContextTierRequest) (models.JS
 	return normalized, nil
 }
 
+func contextPriceTierModels(tiers []ModelPriceContextTierRequest) []models.ContextPriceTier {
+	encoded := make([]models.ContextPriceTier, 0, len(tiers))
+	for _, tier := range tiers {
+		encoded = append(encoded, models.ContextPriceTier{
+			ThresholdTokens:                        tier.ThresholdTokens.tokens,
+			InputPriceNanoUSDPerMillionTokens:      cloneModelPriceValue(tier.Input.nanoUSD),
+			OutputPriceNanoUSDPerMillionTokens:     cloneModelPriceValue(tier.Output.nanoUSD),
+			CacheReadPriceNanoUSDPerMillionTokens:  cloneModelPriceValue(tier.CacheRead.nanoUSD),
+			CacheWritePriceNanoUSDPerMillionTokens: cloneModelPriceValue(tier.CacheWrite.nanoUSD),
+		})
+	}
+	return encoded
+}
+
 func modelPriceMutableValuesEqual(left, right models.ModelPrice) bool {
 	leftTiers, leftErr := models.NormalizeContextPriceTiers(left.ContextPriceTiers)
 	rightTiers, rightErr := models.NormalizeContextPriceTiers(right.ContextPriceTiers)
 	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	leftSchedules, leftScheduleErr := models.NormalizeModePriceSchedules(left.ModePriceSchedules)
+	rightSchedules, rightScheduleErr := models.NormalizeModePriceSchedules(right.ModePriceSchedules)
+	if leftScheduleErr != nil || rightScheduleErr != nil {
 		return false
 	}
 	return pricePointerEqual(left.InputPriceNanoUSDPerMillionTokens, right.InputPriceNanoUSDPerMillionTokens) &&
@@ -394,6 +445,7 @@ func modelPriceMutableValuesEqual(left, right models.ModelPrice) bool {
 		pricePointerEqual(left.CacheReadPriceNanoUSDPerMillionTokens, right.CacheReadPriceNanoUSDPerMillionTokens) &&
 		pricePointerEqual(left.CacheWritePriceNanoUSDPerMillionTokens, right.CacheWritePriceNanoUSDPerMillionTokens) &&
 		bytes.Equal(leftTiers, rightTiers) &&
+		bytes.Equal(leftSchedules, rightSchedules) &&
 		left.IsManual == right.IsManual
 }
 
@@ -480,7 +532,7 @@ func projectModelPriceRow(
 	if row.ID == 0 || uint64(row.ID) > uint64(maxSafeInteger) || validateSafeMilliseconds(row.UpdatedAtMS) != nil {
 		return modelPriceListRecord{}, fmt.Errorf("invalid persisted model price wire identity: %w", app_errors.ErrInternalServer)
 	}
-	rule, err := persistedPriceRule(row, catalogSnapshot)
+	rule, err := persistedPriceRule(row)
 	if err != nil {
 		return modelPriceListRecord{}, fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
 	}
@@ -520,7 +572,7 @@ func projectModelPriceRow(
 		ID: row.ID, ChannelID: row.ChannelID, ChannelName: descriptor.Name,
 		ChannelMark: descriptor.Mark, ChannelIcon: descriptor.Icon, ModelID: row.ModelID,
 		Prices:              prices,
-		ModePrices:          projectModePrices(rule.ModePrices),
+		ModeSchedules:       projectModeSchedules(rule.ModeSchedules),
 		PricingStatus:       status,
 		Method:              modelPriceMethod(row, configured, matchedAutomaticPrice),
 		MatchedProviderID:   matchedProviderID,
@@ -581,10 +633,13 @@ func projectPriceSlots(prices pricing.Prices) PriceSlotsDTO {
 	}
 }
 
-func projectModePrices(modePrices map[pricing.Mode]pricing.Prices) map[pricing.Mode]PriceSlotsDTO {
-	result := make(map[pricing.Mode]PriceSlotsDTO, len(modePrices))
-	for mode, prices := range modePrices {
-		result[mode] = projectPriceSlots(prices)
+func projectModeSchedules(schedules map[pricing.Mode]pricing.Schedule) map[pricing.Mode]ModelPriceScheduleDTO {
+	result := make(map[pricing.Mode]ModelPriceScheduleDTO, len(schedules))
+	for mode, schedule := range schedules {
+		result[mode] = ModelPriceScheduleDTO{
+			Prices:       projectPriceSlots(schedule.Prices),
+			ContextTiers: projectContextPriceTiers(schedule.ContextTiers),
+		}
 	}
 	return result
 }

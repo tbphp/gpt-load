@@ -54,12 +54,75 @@ type nullableDecimal struct {
 }
 
 type ModelPriceUpdateRequest struct {
-	Input           nullableDecimal         `json:"input"`
-	Output          nullableDecimal         `json:"output"`
-	CacheRead       nullableDecimal         `json:"cache_read"`
-	CacheWrite      nullableDecimal         `json:"cache_write"`
-	ContextTiers    modelPriceTierListField `json:"context_tiers"`
-	ConfirmUnpriced bool                    `json:"confirm_unpriced"`
+	Input           nullableDecimal                `json:"input"`
+	Output          nullableDecimal                `json:"output"`
+	CacheRead       nullableDecimal                `json:"cache_read"`
+	CacheWrite      nullableDecimal                `json:"cache_write"`
+	ContextTiers    modelPriceTierListField        `json:"context_tiers"`
+	ModeSchedules   modelPriceModeScheduleMapField `json:"mode_schedules"`
+	ConfirmUnpriced bool                           `json:"confirm_unpriced"`
+}
+
+type ModelPriceScheduleRequest struct {
+	Prices       modelPriceSlotsObjectField `json:"prices"`
+	ContextTiers modelPriceTierListField    `json:"context_tiers"`
+}
+
+type modelPriceSlotsObjectField struct {
+	present    bool
+	Input      nullableDecimal
+	Output     nullableDecimal
+	CacheRead  nullableDecimal
+	CacheWrite nullableDecimal
+}
+
+func (field *modelPriceSlotsObjectField) UnmarshalJSON(data []byte) error {
+	field.present = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return fmt.Errorf("mode schedule prices must not be null: %w", app_errors.ErrValidation)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var slots struct {
+		Input      nullableDecimal `json:"input"`
+		Output     nullableDecimal `json:"output"`
+		CacheRead  nullableDecimal `json:"cache_read"`
+		CacheWrite nullableDecimal `json:"cache_write"`
+	}
+	if err := decoder.Decode(&slots); err != nil {
+		return fmt.Errorf("parse mode schedule prices: %w", app_errors.ErrValidation)
+	}
+	if err := requireModelPriceJSONEOF(decoder, "mode schedule prices"); err != nil {
+		return err
+	}
+	field.Input = slots.Input
+	field.Output = slots.Output
+	field.CacheRead = slots.CacheRead
+	field.CacheWrite = slots.CacheWrite
+	return nil
+}
+
+type modelPriceModeScheduleMapField struct {
+	present   bool
+	schedules map[pricing.Mode]ModelPriceScheduleRequest
+}
+
+func (field *modelPriceModeScheduleMapField) UnmarshalJSON(data []byte) error {
+	field.present = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return fmt.Errorf("mode_schedules must not be null: %w", app_errors.ErrValidation)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var schedules map[pricing.Mode]ModelPriceScheduleRequest
+	if err := decoder.Decode(&schedules); err != nil {
+		return fmt.Errorf("parse mode_schedules: %w", app_errors.ErrValidation)
+	}
+	if err := requireModelPriceJSONEOF(decoder, "mode_schedules"); err != nil {
+		return err
+	}
+	field.schedules = schedules
+	return nil
 }
 
 // ModelPriceContextTierRequest is one submitted input-quantity price tier.
@@ -78,13 +141,41 @@ func (request ModelPriceUpdateRequest) validate() error {
 		!request.Output.present ||
 		!request.CacheRead.present ||
 		!request.CacheWrite.present ||
-		!request.ContextTiers.present {
+		!request.ContextTiers.present ||
+		!request.ModeSchedules.present {
 		return fmt.Errorf("all model price slots are required: %w", app_errors.ErrValidation)
 	}
 	for _, tier := range request.ContextTiers.tiers {
 		if !tier.ThresholdTokens.present {
 			return fmt.Errorf("context tier threshold_tokens is required: %w", app_errors.ErrValidation)
 		}
+	}
+	for mode, schedule := range request.ModeSchedules.schedules {
+		if !mode.Valid() || mode == pricing.ModeStandard {
+			return fmt.Errorf("invalid mode schedule %q: %w", mode, app_errors.ErrValidation)
+		}
+		if !schedule.Prices.present || !schedule.Prices.Input.present ||
+			!schedule.Prices.Output.present || !schedule.Prices.CacheRead.present ||
+			!schedule.Prices.CacheWrite.present || !schedule.ContextTiers.present {
+			return fmt.Errorf("mode schedule %q is incomplete: %w", mode, app_errors.ErrValidation)
+		}
+		if schedule.Prices.Input.nanoUSD == nil && schedule.Prices.Output.nanoUSD == nil &&
+			schedule.Prices.CacheRead.nanoUSD == nil && schedule.Prices.CacheWrite.nanoUSD == nil {
+			return fmt.Errorf("mode schedule %q has no base price: %w", mode, app_errors.ErrValidation)
+		}
+		for _, tier := range schedule.ContextTiers.tiers {
+			if !tier.ThresholdTokens.present {
+				return fmt.Errorf("mode schedule context tier threshold_tokens is required: %w", app_errors.ErrValidation)
+			}
+		}
+	}
+	return nil
+}
+
+func requireModelPriceJSONEOF(decoder *json.Decoder, field string) error {
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parse %s: trailing data: %w", field, app_errors.ErrValidation)
 	}
 	return nil
 }
