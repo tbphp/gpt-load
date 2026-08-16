@@ -236,7 +236,7 @@ func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t 
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	oldTable, err := loadPriceTable(t.Context(), fixture.db, nil)
+	oldTable, err := loadPriceTable(t.Context(), fixture.db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1088,6 +1088,8 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 	})
 	oldInput, oldOutput, oldRead, oldWrite := int64(1), int64(2), int64(3), int64(4)
 	oldTiers := models.JSON(`[{"threshold_tokens":128000,"input_price_nano_usd_per_million_tokens":5}]`)
+	oldAutomaticModes := models.JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":6,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[]}}`)
+	manualModes := models.JSON(`{"fast":{"prices":{"input_price_nano_usd_per_million_tokens":77,"output_price_nano_usd_per_million_tokens":null,"cache_read_price_nano_usd_per_million_tokens":null,"cache_write_price_nano_usd_per_million_tokens":null},"context_tiers":[]}}`)
 	manualInput := int64(99)
 	for _, row := range []models.ModelPrice{
 		{
@@ -1098,11 +1100,13 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 			CacheReadPriceNanoUSDPerMillionTokens:  &oldRead,
 			CacheWritePriceNanoUSDPerMillionTokens: &oldWrite,
 			ContextPriceTiers:                      oldTiers, UpdatedAtMS: 111,
+			ModePriceSchedules: oldAutomaticModes,
 		},
 		{
 			ChannelID:                         group.ChannelID,
 			ModelID:                           "manual-group-model",
 			InputPriceNanoUSDPerMillionTokens: &manualInput,
+			ModePriceSchedules:                manualModes,
 			IsManual:                          true, UpdatedAtMS: 112,
 		},
 	} {
@@ -1128,11 +1132,19 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 								Output: priceTestValue(16),
 							},
 						}},
+						ModePrices: map[pricing.Mode]pricing.Prices{
+							pricing.ModeFast: {Input: priceTestValue(18)},
+						},
 					},
 				},
 				"manual-group-model": {
-					ID:   "manual-group-model",
-					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(100)}},
+					ID: "manual-group-model",
+					Cost: &catalog.ModelCost{
+						Prices: pricing.Prices{Input: priceTestValue(100)},
+						ModePrices: map[pricing.Mode]pricing.Prices{
+							pricing.ModeFast: {Input: priceTestValue(200)},
+						},
+					},
 				},
 			},
 		},
@@ -1159,10 +1171,24 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 			*tiers[0].OutputPriceNanoUSDPerMillionTokens != 16 {
 			t.Fatalf("automatic Group tiers = %#v", tiers)
 		}
+		var schedules map[string]models.ModePriceSchedule
+		if err := json.Unmarshal(row.ModePriceSchedules, &schedules); err != nil {
+			t.Fatal(err)
+		}
+		fast := schedules[string(pricing.ModeFast)]
+		if fast.Prices.InputPriceNanoUSDPerMillionTokens == nil ||
+			*fast.Prices.InputPriceNanoUSDPerMillionTokens != 18 {
+			t.Fatalf("automatic Group mode schedules = %#v", schedules)
+		}
 	})
 	assertCatalogPriceRow(t, fixture, "manual-group-model", func(row models.ModelPrice) {
+		wantModes, err := models.NormalizeModePriceSchedules(manualModes)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !row.IsManual || row.InputPriceNanoUSDPerMillionTokens == nil ||
-			*row.InputPriceNanoUSDPerMillionTokens != 99 || row.UpdatedAtMS != 112 {
+			*row.InputPriceNanoUSDPerMillionTokens != 99 || row.UpdatedAtMS != 112 ||
+			!bytes.Equal(row.ModePriceSchedules, wantModes) {
 			t.Fatalf("manual Group row changed: %#v", row)
 		}
 	})
@@ -1255,7 +1281,7 @@ func TestCatalogSyncReconcileFailurePublishesNeitherRuntimeAndKeepsPendingLKG(t 
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	oldTable, err := loadPriceTable(t.Context(), fixture.db, nil)
+	oldTable, err := loadPriceTable(t.Context(), fixture.db)
 	if err != nil {
 		t.Fatal(err)
 	}

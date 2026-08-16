@@ -330,7 +330,7 @@ func (s *Service) writeGroupConfigLocked(
 		if _, err := state.Compile(input); err != nil {
 			return err
 		}
-		priceTable, err := loadPriceTable(ctx, tx, catalogSnapshot)
+		priceTable, err := loadPriceTable(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -467,11 +467,7 @@ func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices boo
 		if entriesErr != nil {
 			return fmt.Errorf("reload committed credentials: %w", entriesErr)
 		}
-		var catalogSnapshot *catalog.Snapshot
-		if s.catalogRuntime != nil {
-			catalogSnapshot = s.catalogRuntime.Load()
-		}
-		priceTable, err = loadPriceTable(ctx, s.db, catalogSnapshot)
+		priceTable, err = loadPriceTable(ctx, s.db)
 		if err != nil {
 			return fmt.Errorf("reload committed prices: %w", err)
 		}

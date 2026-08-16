@@ -30,7 +30,8 @@ func modelPriceHasConfiguredValue(row models.ModelPrice) bool {
 		row.OutputPriceNanoUSDPerMillionTokens != nil ||
 		row.CacheReadPriceNanoUSDPerMillionTokens != nil ||
 		row.CacheWritePriceNanoUSDPerMillionTokens != nil ||
-		len(row.ContextPriceTiers) > 0
+		len(row.ContextPriceTiers) > 0 ||
+		len(row.ModePriceSchedules) > 0
 }
 
 func resolveCandidatePricing(

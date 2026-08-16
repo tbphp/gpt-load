@@ -13,13 +13,13 @@ import {
   modelPriceFields,
   tierDisplayOrder,
   type ModelPriceField,
-  type ModelPriceFormErrors,
-  type ModelPriceDraft,
+  type ModelPriceScheduleErrors,
+  type ModelPriceScheduleDraft,
 } from './model-price-form'
 
 const props = defineProps<{
   modelId: string
-  errors: ModelPriceFormErrors
+  errors: ModelPriceScheduleErrors
   pending: boolean
   failure: string
 }>()
@@ -28,7 +28,7 @@ const emit = defineEmits<{
   'remove-tier': [key: string]
   'confirm-unpriced': []
 }>()
-const draft = defineModel<ModelPriceDraft>('draft', { required: true })
+const draft = defineModel<ModelPriceScheduleDraft>('draft', { required: true })
 const unpricedConfirmOpen = defineModel<boolean>('unpricedConfirmOpen', { required: true })
 const { locale, t } = useI18n()
 

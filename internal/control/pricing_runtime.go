@@ -8,7 +8,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/catalog"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -40,7 +39,6 @@ func (runtime *PriceRuntime) Publish(table *pricing.Table) {
 func loadPriceTable(
 	ctx context.Context,
 	tx *gorm.DB,
-	catalogSnapshot *catalog.Snapshot,
 ) (*pricing.Table, error) {
 	var rows []models.ModelPrice
 	if err := tx.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
@@ -48,7 +46,7 @@ func loadPriceTable(
 	}
 	rules := make([]pricing.Rule, 0, len(rows))
 	for _, row := range rows {
-		rule, err := persistedPriceRule(row, catalogSnapshot)
+		rule, err := persistedPriceRule(row)
 		if err != nil {
 			return nil, fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
 		}
@@ -63,7 +61,6 @@ func loadPriceTable(
 
 func persistedPriceRule(
 	row models.ModelPrice,
-	catalogSnapshot *catalog.Snapshot,
 ) (pricing.Rule, error) {
 	identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
 	if err != nil {
@@ -79,27 +76,56 @@ func persistedPriceRule(
 		},
 		IsManual: row.IsManual,
 	}
-	if match, ok := resolveAutomaticPriceForIdentity(catalogSnapshot, identity); ok &&
-		match.cost != nil && len(match.cost.ModePrices) > 0 {
-		rule.ModePrices = make(map[pricing.Mode]pricing.Prices, len(match.cost.ModePrices))
-		for mode, prices := range match.cost.ModePrices {
-			rule.ModePrices[mode] = prices
-		}
-	}
-	if len(row.ContextPriceTiers) == 0 {
-		return rule, nil
-	}
-	normalized, err := models.NormalizeContextPriceTiers(row.ContextPriceTiers)
+	rule.ContextTiers, err = decodePersistedContextTiers(row.ContextPriceTiers)
 	if err != nil {
 		return pricing.Rule{}, err
 	}
-	var tiers []models.ContextPriceTier
-	if err := json.Unmarshal(normalized, &tiers); err != nil {
+	if len(row.ModePriceSchedules) == 0 {
+		return rule, nil
+	}
+	normalizedSchedules, err := models.NormalizeModePriceSchedules(row.ModePriceSchedules)
+	if err != nil {
 		return pricing.Rule{}, err
 	}
-	rule.ContextTiers = make([]pricing.ContextTier, 0, len(tiers))
+	var schedules map[string]models.ModePriceSchedule
+	if err := json.Unmarshal(normalizedSchedules, &schedules); err != nil {
+		return pricing.Rule{}, err
+	}
+	rule.ModeSchedules = make(map[pricing.Mode]pricing.Schedule, len(schedules))
+	for mode, schedule := range schedules {
+		tiers, err := pricingContextTiersFromStorage(schedule.ContextPriceTiers)
+		if err != nil {
+			return pricing.Rule{}, err
+		}
+		rule.ModeSchedules[pricing.Mode(mode)] = pricing.Schedule{
+			Prices: pricing.Prices{
+				Input:      priceFromStoragePointer(schedule.Prices.InputPriceNanoUSDPerMillionTokens),
+				Output:     priceFromStoragePointer(schedule.Prices.OutputPriceNanoUSDPerMillionTokens),
+				CacheRead:  priceFromStoragePointer(schedule.Prices.CacheReadPriceNanoUSDPerMillionTokens),
+				CacheWrite: priceFromStoragePointer(schedule.Prices.CacheWritePriceNanoUSDPerMillionTokens),
+			},
+			ContextTiers: tiers,
+		}
+	}
+	return rule, nil
+}
+
+func decodePersistedContextTiers(raw models.JSON) ([]pricing.ContextTier, error) {
+	normalized, err := models.NormalizeContextPriceTiers(raw)
+	if err != nil || len(normalized) == 0 {
+		return nil, err
+	}
+	var tiers []models.ContextPriceTier
+	if err := json.Unmarshal(normalized, &tiers); err != nil {
+		return nil, err
+	}
+	return pricingContextTiersFromStorage(tiers)
+}
+
+func pricingContextTiersFromStorage(tiers []models.ContextPriceTier) ([]pricing.ContextTier, error) {
+	result := make([]pricing.ContextTier, 0, len(tiers))
 	for _, tier := range tiers {
-		rule.ContextTiers = append(rule.ContextTiers, pricing.ContextTier{
+		result = append(result, pricing.ContextTier{
 			InputThresholdTokens: tier.ThresholdTokens,
 			Prices: pricing.Prices{
 				Input:      priceFromStoragePointer(tier.InputPriceNanoUSDPerMillionTokens),
@@ -109,7 +135,7 @@ func persistedPriceRule(
 			},
 		})
 	}
-	return rule, nil
+	return result, nil
 }
 
 func priceFromStoragePointer(value *int64) pricing.Price {

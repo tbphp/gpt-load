@@ -72,12 +72,17 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
     { immediate: true },
   )
 
-  function addTier(): void {
-    draft.value.tiers.push(createEmptyTierDraft())
+  function scheduleDraft(mode?: string) {
+    return mode ? draft.value.modeSchedules[mode] : draft.value
   }
 
-  function removeTier(key: string): void {
-    draft.value.tiers = draft.value.tiers.filter((tier) => tier.key !== key)
+  function addTier(mode?: string): void {
+    scheduleDraft(mode)?.tiers.push(createEmptyTierDraft())
+  }
+
+  function removeTier(key: string, mode?: string): void {
+    const schedule = scheduleDraft(mode)
+    if (schedule) schedule.tiers = schedule.tiers.filter((tier) => tier.key !== key)
   }
 
   function failureMessage(error: unknown): string {

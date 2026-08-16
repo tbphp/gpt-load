@@ -45,13 +45,20 @@ type ContextTier struct {
 	Prices               Prices
 }
 
-// Rule is one exact channel and upstream-model price definition.
-type Rule struct {
-	Identity     Identity
+// Schedule is one complete price schedule. Fast uses only Prices; other
+// canonical modes may define their own context tiers when their source does.
+type Schedule struct {
 	Prices       Prices
 	ContextTiers []ContextTier
-	ModePrices   map[Mode]Prices
-	IsManual     bool
+}
+
+// Rule is one exact channel and upstream-model price definition.
+type Rule struct {
+	Identity      Identity
+	Prices        Prices
+	ContextTiers  []ContextTier
+	ModeSchedules map[Mode]Schedule
+	IsManual      bool
 }
 
 // CostState describes whether a usage result can be priced.

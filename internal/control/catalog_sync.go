@@ -627,7 +627,7 @@ func (s *Service) applyCatalogSnapshot(ctx context.Context, snapshot *catalog.Sn
 			return err
 		}
 		var err error
-		table, err = loadPriceTable(ctx, tx, snapshot)
+		table, err = loadPriceTable(ctx, tx)
 		return err
 	})
 	if err != nil {
@@ -701,6 +701,7 @@ func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) er
 				"cache_read_price_nano_usd_per_million_tokens":  desired.CacheReadPriceNanoUSDPerMillionTokens,
 				"cache_write_price_nano_usd_per_million_tokens": desired.CacheWritePriceNanoUSDPerMillionTokens,
 				"context_price_tiers":                           desired.ContextPriceTiers,
+				"mode_price_schedules":                          desired.ModePriceSchedules,
 			}).Error; err != nil {
 			return fmt.Errorf("update automatic model price: %w", app_errors.ParseDBError(err))
 		}
@@ -717,12 +718,49 @@ func automaticCatalogValues(cost *catalog.ModelCost) (models.ModelPrice, error) 
 	row.OutputPriceNanoUSDPerMillionTokens = priceStoragePointer(cost.Prices.Output)
 	row.CacheReadPriceNanoUSDPerMillionTokens = priceStoragePointer(cost.Prices.CacheRead)
 	row.CacheWritePriceNanoUSDPerMillionTokens = priceStoragePointer(cost.Prices.CacheWrite)
-	if len(cost.ContextTiers) == 0 {
-		return row, nil
+	if len(cost.ContextTiers) > 0 {
+		tiers := storageContextTiers(cost.ContextTiers)
+		encoded, err := json.Marshal(tiers)
+		if err != nil {
+			return models.ModelPrice{}, err
+		}
+		row.ContextPriceTiers, err = models.NormalizeContextPriceTiers(models.JSON(encoded))
+		if err != nil {
+			return models.ModelPrice{}, err
+		}
 	}
-	tiers := make([]models.ContextPriceTier, 0, len(cost.ContextTiers))
-	for _, tier := range cost.ContextTiers {
-		tiers = append(tiers, models.ContextPriceTier{
+	if len(cost.ModePrices) > 0 {
+		modeSchedules := make(map[string]models.ModePriceSchedule, len(cost.ModePrices))
+		for mode, prices := range cost.ModePrices {
+			modeSchedules[string(mode)] = models.ModePriceSchedule{
+				Prices: storagePriceSlots(prices),
+			}
+		}
+		encoded, err := json.Marshal(modeSchedules)
+		if err != nil {
+			return models.ModelPrice{}, err
+		}
+		row.ModePriceSchedules, err = models.NormalizeModePriceSchedules(models.JSON(encoded))
+		if err != nil {
+			return models.ModelPrice{}, err
+		}
+	}
+	return row, nil
+}
+
+func storagePriceSlots(prices pricing.Prices) models.PriceSlots {
+	return models.PriceSlots{
+		InputPriceNanoUSDPerMillionTokens:      priceStoragePointer(prices.Input),
+		OutputPriceNanoUSDPerMillionTokens:     priceStoragePointer(prices.Output),
+		CacheReadPriceNanoUSDPerMillionTokens:  priceStoragePointer(prices.CacheRead),
+		CacheWritePriceNanoUSDPerMillionTokens: priceStoragePointer(prices.CacheWrite),
+	}
+}
+
+func storageContextTiers(tiers []pricing.ContextTier) []models.ContextPriceTier {
+	result := make([]models.ContextPriceTier, 0, len(tiers))
+	for _, tier := range tiers {
+		result = append(result, models.ContextPriceTier{
 			ThresholdTokens:                        tier.InputThresholdTokens,
 			InputPriceNanoUSDPerMillionTokens:      priceStoragePointer(tier.Prices.Input),
 			OutputPriceNanoUSDPerMillionTokens:     priceStoragePointer(tier.Prices.Output),
@@ -730,12 +768,7 @@ func automaticCatalogValues(cost *catalog.ModelCost) (models.ModelPrice, error) 
 			CacheWritePriceNanoUSDPerMillionTokens: priceStoragePointer(tier.Prices.CacheWrite),
 		})
 	}
-	encoded, err := json.Marshal(tiers)
-	if err != nil {
-		return models.ModelPrice{}, err
-	}
-	row.ContextPriceTiers, err = models.NormalizeContextPriceTiers(models.JSON(encoded))
-	return row, err
+	return result
 }
 
 func catalogPriceValuesEqual(left, right models.ModelPrice) bool {
@@ -743,7 +776,8 @@ func catalogPriceValuesEqual(left, right models.ModelPrice) bool {
 		pricePointerEqual(left.OutputPriceNanoUSDPerMillionTokens, right.OutputPriceNanoUSDPerMillionTokens) &&
 		pricePointerEqual(left.CacheReadPriceNanoUSDPerMillionTokens, right.CacheReadPriceNanoUSDPerMillionTokens) &&
 		pricePointerEqual(left.CacheWritePriceNanoUSDPerMillionTokens, right.CacheWritePriceNanoUSDPerMillionTokens) &&
-		reflect.DeepEqual([]byte(left.ContextPriceTiers), []byte(right.ContextPriceTiers))
+		reflect.DeepEqual([]byte(left.ContextPriceTiers), []byte(right.ContextPriceTiers)) &&
+		reflect.DeepEqual([]byte(left.ModePriceSchedules), []byte(right.ModePriceSchedules))
 }
 
 func pricePointerEqual(left, right *int64) bool {

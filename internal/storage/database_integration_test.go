@@ -99,6 +99,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		"groups":               {"connection_type"},
 		"credentials":          {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
 		"request_log_attempts": {"upstream_protocol"},
+		"model_prices":         {"mode_price_schedules"},
 	} {
 		for _, column := range columns {
 			if !db.Migrator().HasColumn(table, column) {

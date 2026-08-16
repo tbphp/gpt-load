@@ -57,8 +57,10 @@ func TestQuoteForModeUsesExactModePriceAndFallsBackToStandard(t *testing.T) {
 			InputThresholdTokens: 1,
 			Prices:               Prices{Input: fixedPrice(3)},
 		}},
-		ModePrices: map[Mode]Prices{
-			ModeFast: {Input: fixedPrice(7)},
+		ModeSchedules: map[Mode]Schedule{
+			ModeFast: {
+				Prices: Prices{Input: fixedPrice(7)},
+			},
 		},
 	})
 	result := usage.Result{

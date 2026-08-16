@@ -102,31 +102,24 @@ func validateRule(rule Rule) error {
 	if err := validatePrices(rule.Prices); err != nil {
 		return err
 	}
-	previousThreshold := int64(-1)
-	for _, tier := range rule.ContextTiers {
-		if tier.InputThresholdTokens < 0 {
-			return fmt.Errorf("context tier threshold must be non-negative")
-		}
-		if tier.InputThresholdTokens <= previousThreshold {
-			return fmt.Errorf("context tier thresholds must be strictly increasing")
-		}
-		if err := validatePrices(tier.Prices); err != nil {
-			return err
-		}
-		if !hasSetPrice(tier.Prices) {
-			return fmt.Errorf("context tier must set at least one price")
-		}
-		previousThreshold = tier.InputThresholdTokens
+	if err := validateContextTiers(rule.ContextTiers); err != nil {
+		return err
 	}
-	for mode, prices := range rule.ModePrices {
+	for mode, schedule := range rule.ModeSchedules {
 		if !mode.Valid() || mode == ModeStandard {
 			return fmt.Errorf("invalid non-standard pricing mode %q", mode)
 		}
-		if err := validatePrices(prices); err != nil {
+		if err := validatePrices(schedule.Prices); err != nil {
 			return err
 		}
-		if !hasSetPrice(prices) {
+		if !hasSetPrice(schedule.Prices) {
 			return fmt.Errorf("pricing mode %q must set at least one price", mode)
+		}
+		if mode == ModeFast && len(schedule.ContextTiers) > 0 {
+			return fmt.Errorf("Fast pricing mode does not support context tiers")
+		}
+		if err := validateContextTiers(schedule.ContextTiers); err != nil {
+			return fmt.Errorf("pricing mode %q: %w", mode, err)
 		}
 	}
 	return nil
@@ -242,12 +235,33 @@ func cloneRule(rule Rule) Rule {
 	if rule.ContextTiers != nil {
 		rule.ContextTiers = append([]ContextTier(nil), rule.ContextTiers...)
 	}
-	if rule.ModePrices != nil {
-		modePrices := make(map[Mode]Prices, len(rule.ModePrices))
-		for mode, prices := range rule.ModePrices {
-			modePrices[mode] = prices
+	if rule.ModeSchedules != nil {
+		modeSchedules := make(map[Mode]Schedule, len(rule.ModeSchedules))
+		for mode, schedule := range rule.ModeSchedules {
+			schedule.ContextTiers = append([]ContextTier(nil), schedule.ContextTiers...)
+			modeSchedules[mode] = schedule
 		}
-		rule.ModePrices = modePrices
+		rule.ModeSchedules = modeSchedules
 	}
 	return rule
+}
+
+func validateContextTiers(tiers []ContextTier) error {
+	previousThreshold := int64(-1)
+	for _, tier := range tiers {
+		if tier.InputThresholdTokens < 0 {
+			return fmt.Errorf("context tier threshold must be non-negative")
+		}
+		if tier.InputThresholdTokens <= previousThreshold {
+			return fmt.Errorf("context tier thresholds must be strictly increasing")
+		}
+		if err := validatePrices(tier.Prices); err != nil {
+			return err
+		}
+		if !hasSetPrice(tier.Prices) {
+			return fmt.Errorf("context tier must set at least one price")
+		}
+		previousThreshold = tier.InputThresholdTokens
+	}
+	return nil
 }

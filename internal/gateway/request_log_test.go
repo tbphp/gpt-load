@@ -830,10 +830,12 @@ func mustGatewayPriceTableWithFast(t *testing.T, standard, fast int64) *pricing.
 			Input:  pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(standard), Set: true},
 			Output: pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(standard), Set: true},
 		},
-		ModePrices: map[pricing.Mode]pricing.Prices{
+		ModeSchedules: map[pricing.Mode]pricing.Schedule{
 			pricing.ModeFast: {
-				Input:  pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(fast), Set: true},
-				Output: pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(fast), Set: true},
+				Prices: pricing.Prices{
+					Input:  pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(fast), Set: true},
+					Output: pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(fast), Set: true},
+				},
 			},
 		},
 	}})

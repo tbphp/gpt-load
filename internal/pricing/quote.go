@@ -24,7 +24,7 @@ func (table *Table) QuoteWithReceipt(
 	return table.QuoteForModeWithReceipt(identity, result, ModeStandard)
 }
 
-// QuoteForMode prices a finalized usage result with the matching Models.dev
+// QuoteForMode prices a finalized usage result with the matching persisted
 // mode schedule, falling back to the standard schedule when none exists.
 func (table *Table) QuoteForMode(identity Identity, result usage.Result, mode Mode) Quote {
 	quote, _ := table.QuoteForModeWithReceipt(identity, result, mode)
@@ -32,7 +32,7 @@ func (table *Table) QuoteForMode(identity Identity, result usage.Result, mode Mo
 }
 
 // QuoteForModeWithReceipt freezes the exact mode schedule used. A mode without
-// a matching Models.dev price is indistinguishable from a standard quote.
+// a matching persisted schedule is indistinguishable from a standard quote.
 func (table *Table) QuoteForModeWithReceipt(
 	identity Identity,
 	result usage.Result,
@@ -62,22 +62,22 @@ func (table *Table) QuoteForModeWithReceipt(
 
 	selectedMode := ModeStandard
 	prices := rule.Prices
+	tiers := rule.ContextTiers
 	var selectedThreshold *int64
 	if mode != "" && mode != ModeStandard {
-		if modePrices, exists := rule.ModePrices[mode]; exists {
+		if schedule, exists := rule.ModeSchedules[mode]; exists {
 			selectedMode = mode
-			prices = modePrices
+			prices = schedule.Prices
+			tiers = schedule.ContextTiers
 		}
 	}
-	if selectedMode == ModeStandard {
-		for _, tier := range rule.ContextTiers {
-			if inputTokens < tier.InputThresholdTokens {
-				break
-			}
-			prices = tier.Prices
-			threshold := tier.InputThresholdTokens
-			selectedThreshold = &threshold
+	for _, tier := range tiers {
+		if inputTokens < tier.InputThresholdTokens {
+			break
 		}
+		prices = tier.Prices
+		threshold := tier.InputThresholdTokens
+		selectedThreshold = &threshold
 	}
 
 	components := [...]struct {

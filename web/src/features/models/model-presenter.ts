@@ -31,7 +31,7 @@ function presentUpstream(upstream: ModelUpstreamDto): ModelUpstreamRow {
     upstream,
     status: upstreamStatus(upstream),
     prices,
-    fastPrices: upstream.price.mode_prices.fast ?? null,
+    fastPrices: upstream.price.mode_schedules.fast?.prices ?? null,
     tierCount: upstream.price.context_tiers.length,
   }
 }
