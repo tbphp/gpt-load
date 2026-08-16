@@ -40,14 +40,14 @@ func TestMapEventFreezesChannelCredentialAndExecutionAttempt(t *testing.T) {
 	}
 }
 
-func TestMapEventV3ReceiptMustMatchChannelAndModel(t *testing.T) {
+func TestMapEventCurrentReceiptMustMatchChannelAndModel(t *testing.T) {
 	event := channelScopedEvent(t, "00000000-0000-4000-8000-000000007002")
 	receipt := decodeReceiptJSON(t, event.Usage.Pricing.ReceiptJSON)
 	receipt.Rule.ChannelID = string(channel.Anthropic)
 	event.Usage.Pricing.ReceiptJSON = encodeReceiptJSON(t, receipt)
 	if _, err := mapEvent(redact.New(), event); err == nil ||
 		!strings.Contains(err.Error(), "frozen pricing observation") {
-		t.Fatalf("mapEvent() error = %v, want v3 channel/model mismatch", err)
+		t.Fatalf("mapEvent() error = %v, want current channel/model mismatch", err)
 	}
 
 	event = channelScopedEvent(t, "00000000-0000-4000-8000-000000007003")
@@ -56,7 +56,7 @@ func TestMapEventV3ReceiptMustMatchChannelAndModel(t *testing.T) {
 	event.Usage.Pricing.ReceiptJSON = encodeReceiptJSON(t, receipt)
 	if _, err := mapEvent(redact.New(), event); err == nil ||
 		!strings.Contains(err.Error(), "frozen pricing observation") {
-		t.Fatalf("mapEvent() error = %v, want v3 channel/model mismatch", err)
+		t.Fatalf("mapEvent() error = %v, want current channel/model mismatch", err)
 	}
 }
 
@@ -83,7 +83,7 @@ func TestMapEventSanitizesUpstreamRequestID(t *testing.T) {
 	}
 }
 
-func TestDecodeAttemptRowsAcceptsHistoricalReceiptsButChecksV3Identity(t *testing.T) {
+func TestDecodeAttemptRowsAcceptsHistoricalReceiptsButChecksChannelIdentity(t *testing.T) {
 	for _, schemaVersion := range []int{1, 2} {
 		rule := pricing.ReceiptRule{ModelID: "model-a"}
 		if schemaVersion == 1 {
@@ -112,6 +112,20 @@ func TestDecodeAttemptRowsAcceptsHistoricalReceiptsButChecksV3Identity(t *testin
 	}})
 	if err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("decodeAttemptRows(v3 mismatch) error = %v", err)
+	}
+
+	v4 := emptyReceipt(4, pricing.ReceiptRule{
+		ChannelID: string(channel.Anthropic),
+		ModelID:   "model-a",
+	})
+	_, err = decodeAttemptRows([]models.RequestLogAttempt{{
+		ChannelID:      string(channel.OpenAI),
+		CredentialID:   9,
+		UpstreamModel:  "model-a",
+		PricingReceipt: models.JSON(encodeReceiptJSON(t, v4)),
+	}})
+	if err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("decodeAttemptRows(v4 mismatch) error = %v", err)
 	}
 }
 
@@ -317,7 +331,7 @@ func channelScopedEvent(t *testing.T, requestID string) telemetry.RequestEvent {
 		CostState:            string(pricing.CostStatePriced),
 		PricingCompleteness:  string(pricing.CompletenessComplete),
 		EstimatedCostNanoUSD: 0,
-		ReceiptJSON: encodeReceiptJSON(t, emptyReceipt(3, pricing.ReceiptRule{
+		ReceiptJSON: encodeReceiptJSON(t, emptyReceipt(4, pricing.ReceiptRule{
 			ChannelID: string(channel.OpenAI),
 			ModelID:   event.UpstreamModel,
 		})),
@@ -326,7 +340,7 @@ func channelScopedEvent(t *testing.T, requestID string) telemetry.RequestEvent {
 }
 
 func emptyReceipt(schemaVersion int, rule pricing.ReceiptRule) pricing.Receipt {
-	return pricing.Receipt{
+	receipt := pricing.Receipt{
 		SchemaVersion: schemaVersion,
 		Method:        pricing.ReceiptMethodUnitRateSum,
 		MethodVersion: 1,
@@ -334,6 +348,10 @@ func emptyReceipt(schemaVersion int, rule pricing.ReceiptRule) pricing.Receipt {
 		Rule:          rule,
 		LineItems:     []pricing.ReceiptLine{},
 	}
+	if schemaVersion == 4 {
+		receipt.PricingMode = pricing.ModeStandard
+	}
+	return receipt
 }
 
 func encodeReceiptJSON(t *testing.T, receipt pricing.Receipt) string {

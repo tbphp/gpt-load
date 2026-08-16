@@ -80,9 +80,6 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 	if usageObject == nil {
 		return usage.Patch{Diagnostics: diagnostics}, false
 	}
-	if openAIUnsupportedServiceTier(root) {
-		diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
-	}
 
 	prompt, promptDiagnostics := usageInteger(usageObject, "prompt_tokens", true)
 	diagnostics.Merge(promptDiagnostics)

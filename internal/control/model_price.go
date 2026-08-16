@@ -154,7 +154,7 @@ func (s *Service) UpdateModelPrice(
 			row = desired
 		}
 
-		table, err = loadPriceTable(ctx, tx)
+		table, err = loadPriceTable(ctx, tx, catalogSnapshot)
 		if err != nil {
 			return err
 		}
@@ -239,7 +239,7 @@ func (s *Service) ResetModelPrice(
 			row.UpdatedAtMS = updatedAtMS
 		}
 
-		table, err = loadPriceTable(ctx, tx)
+		table, err = loadPriceTable(ctx, tx, catalogSnapshot)
 		if err != nil {
 			return err
 		}
@@ -279,6 +279,10 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 		return err
 	}
 
+	var catalogSnapshot *catalog.Snapshot
+	if s.catalogRuntime != nil {
+		catalogSnapshot = s.catalogRuntime.Load()
+	}
 	var table *pricing.Table
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		var row models.ModelPrice
@@ -312,7 +316,7 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 		if err := tx.Where("id = ?", id).Delete(&models.ModelPrice{}).Error; err != nil {
 			return fmt.Errorf("delete model price: %w", app_errors.ParseDBError(err))
 		}
-		table, err = loadPriceTable(ctx, tx)
+		table, err = loadPriceTable(ctx, tx, catalogSnapshot)
 		return err
 	})
 	if err != nil {
@@ -475,7 +479,7 @@ func projectModelPriceRow(
 	if row.ID == 0 || uint64(row.ID) > uint64(maxSafeInteger) || validateSafeMilliseconds(row.UpdatedAtMS) != nil {
 		return modelPriceListRecord{}, fmt.Errorf("invalid persisted model price wire identity: %w", app_errors.ErrInternalServer)
 	}
-	rule, err := persistedPriceRule(row)
+	rule, err := persistedPriceRule(row, catalogSnapshot)
 	if err != nil {
 		return modelPriceListRecord{}, fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
 	}

@@ -137,6 +137,7 @@ type Record struct {
 	UsageState              usage.State
 	CostState               pricing.CostState
 	PricingCompleteness     pricing.Completeness
+	PricingMode             pricing.Mode
 	UncachedInputTokens     int64
 	CacheReadTokens         int64
 	CacheWrite5MTokens      int64

@@ -706,8 +706,8 @@ func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *
 	}
 }
 
-func TestHandlerKeepsKnownCostCompleteForUnsupportedPricingMode(t *testing.T) {
-	table := mustGatewayPriceTable(t, 2_000_000_000, true)
+func TestHandlerUsesRequestedFastModeWhenResponseOmitsEffectiveMode(t *testing.T) {
+	table := mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000)
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{
 		StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
 		Usage: usage.Result{
@@ -735,13 +735,72 @@ func TestHandlerKeepsKnownCostCompleteForUnsupportedPricingMode(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("events = %#v, want one", events)
 	}
-	if !events[0].Usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) ||
+	if events[0].Usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) ||
 		withoutPricingReceipt(events[0].Usage.Pricing) != (telemetry.PricingObservation{
 			UpstreamModel: "gpt-4o",
 			CostState:     "priced", PricingCompleteness: "complete",
-			EstimatedCostNanoUSD: 4_000_000_000,
+			EstimatedCostNanoUSD: 10_000_000_000,
 		}) {
-		t.Fatalf("unsupported mode event = %#v", events[0])
+		t.Fatalf("fast mode event = %#v", events[0])
+	}
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &receipt); err != nil ||
+		receipt.PricingMode != pricing.ModeFast {
+		t.Fatalf("fast pricing receipt = %#v, %v", receipt, err)
+	}
+}
+
+func TestHandlerUsesClientRequestPricingMode(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		requestTier string
+		wantCost    int64
+		wantMode    pricing.Mode
+	}{
+		{
+			name:        "requested fast",
+			requestTier: `,"service_tier":"priority"`,
+			wantCost:    10_000_000_000, wantMode: pricing.ModeFast,
+		},
+		{
+			name:        "requested default",
+			requestTier: `,"service_tier":"default"`,
+			wantCost:    4_000_000_000, wantMode: pricing.ModeStandard,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{{
+				StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
+				Usage: usage.Result{
+					State:  usage.StateComplete,
+					Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
+				},
+			}}}
+			sink := &recordingRequestLogSink{}
+			engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+				t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+			)
+			handler.priceTables = &mutableGatewayPriceTableProvider{
+				table: mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000),
+			}
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				strings.NewReader(`{"model":"gpt-4o"`+test.requestTier+`}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			engine.ServeHTTP(httptest.NewRecorder(), request)
+
+			events := sink.snapshot()
+			if len(events) != 1 || events[0].Usage.Pricing.EstimatedCostNanoUSD != test.wantCost {
+				t.Fatalf("events = %#v", events)
+			}
+			var receipt pricing.Receipt
+			if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &receipt); err != nil ||
+				receipt.PricingMode != test.wantMode {
+				t.Fatalf("receipt = %#v, %v", receipt, err)
+			}
+		})
 	}
 }
 
@@ -756,6 +815,27 @@ func mustGatewayPriceTable(t *testing.T, input int64, outputSet bool) *pricing.T
 	table, err := pricing.NewTable([]pricing.Rule{{
 		Identity: pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-4o"},
 		Prices:   prices,
+	}})
+	if err != nil {
+		t.Fatalf("NewTable() error = %v", err)
+	}
+	return table
+}
+
+func mustGatewayPriceTableWithFast(t *testing.T, standard, fast int64) *pricing.Table {
+	t.Helper()
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-4o"},
+		Prices: pricing.Prices{
+			Input:  pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(standard), Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(standard), Set: true},
+		},
+		ModePrices: map[pricing.Mode]pricing.Prices{
+			pricing.ModeFast: {
+				Input:  pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(fast), Set: true},
+				Output: pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(fast), Set: true},
+			},
+		},
 	}})
 	if err != nil {
 		t.Fatalf("NewTable() error = %v", err)

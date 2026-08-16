@@ -223,6 +223,7 @@ func (service *Service) Get(ctx context.Context, requestID string) (Record, erro
 		records[0].Attempts = attempts
 		records[0].RouteMode = finalRouteMode(records[0], attempts)
 		records[0].UpstreamProtocol = finalUpstreamProtocol(records[0], attempts)
+		records[0].PricingMode = finalPricingMode(records[0], attempts)
 		record = records[0]
 		return nil
 	})
@@ -239,22 +240,9 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 		if upstreamProtocol != "" && !upstreamProtocol.Valid() {
 			return nil, fmt.Errorf("decode request log attempt %d: invalid upstream protocol", row.Sequence)
 		}
-		var receipt *pricing.Receipt
-		if len(row.PricingReceipt) > 0 && string(row.PricingReceipt) != "null" {
-			var decoded pricing.Receipt
-			if err := json.Unmarshal(row.PricingReceipt, &decoded); err != nil {
-				return nil, fmt.Errorf("decode request log pricing receipt: %w", err)
-			}
-			if err := pricing.ValidateReceipt(decoded); err != nil {
-				return nil, fmt.Errorf("decode request log pricing receipt: %w", err)
-			}
-			if decoded.SchemaVersion == 3 && decoded.Rule != (pricing.ReceiptRule{
-				ChannelID: row.ChannelID,
-				ModelID:   row.UpstreamModel,
-			}) {
-				return nil, fmt.Errorf("decode request log pricing receipt: v3 identity does not match attempt")
-			}
-			receipt = &decoded
+		receipt, err := decodeAttemptPricingReceipt(row)
+		if err != nil {
+			return nil, err
 		}
 		attempts = append(attempts, Attempt{
 			Sequence:          row.Sequence,
@@ -286,6 +274,26 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 		})
 	}
 	return attempts, nil
+}
+
+func decodeAttemptPricingReceipt(row models.RequestLogAttempt) (*pricing.Receipt, error) {
+	if len(row.PricingReceipt) == 0 || string(row.PricingReceipt) == "null" {
+		return nil, nil
+	}
+	var decoded pricing.Receipt
+	if err := json.Unmarshal(row.PricingReceipt, &decoded); err != nil {
+		return nil, fmt.Errorf("decode request log pricing receipt: %w", err)
+	}
+	if err := pricing.ValidateReceipt(decoded); err != nil {
+		return nil, fmt.Errorf("decode request log pricing receipt: %w", err)
+	}
+	if (decoded.SchemaVersion == 3 || decoded.SchemaVersion == 4) && decoded.Rule != (pricing.ReceiptRule{
+		ChannelID: row.ChannelID,
+		ModelID:   row.UpstreamModel,
+	}) {
+		return nil, fmt.Errorf("decode request log pricing receipt: channel identity does not match attempt")
+	}
+	return &decoded, nil
 }
 
 func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
@@ -421,20 +429,18 @@ func (service *Service) loadFinalExecutionObservations(
 
 	var attempts []models.RequestLogAttempt
 	if err := service.db.WithContext(ctx).
-		Select("request_id", "sequence", "group_id", "channel_id", "credential_id", "route_mode", "upstream_protocol").
+		Select("request_id", "sequence", "group_id", "channel_id", "credential_id", "route_mode", "upstream_protocol", "upstream_model", "pricing_receipt").
 		Where("request_id IN ?", requestIDs).
 		Order("request_id ASC").
 		Order("sequence DESC").
 		Find(&attempts).Error; err != nil {
 		return fmt.Errorf("query request log final execution observations: %w", err)
 	}
-	resolved := make(map[string]struct{}, len(records))
+	executionResolved := make(map[string]struct{}, len(records))
+	pricingResolved := make(map[string]struct{}, len(records))
 	for _, attempt := range attempts {
 		index, ok := recordIndexes[attempt.RequestID]
 		if !ok {
-			continue
-		}
-		if _, ok := resolved[attempt.RequestID]; ok {
 			continue
 		}
 		record := records[index]
@@ -443,17 +449,30 @@ func (service *Service) loadFinalExecutionObservations(
 			record.CredentialID != attempt.CredentialID {
 			continue
 		}
-		resolved[attempt.RequestID] = struct{}{}
-		mode := channel.RouteMode(attempt.RouteMode)
-		if mode != "" && !mode.Valid() {
-			return fmt.Errorf("query request log final execution observations: invalid route mode")
+		if _, ok := executionResolved[attempt.RequestID]; !ok {
+			executionResolved[attempt.RequestID] = struct{}{}
+			mode := channel.RouteMode(attempt.RouteMode)
+			if mode != "" && !mode.Valid() {
+				return fmt.Errorf("query request log final execution observations: invalid route mode")
+			}
+			records[index].RouteMode = mode
+			upstreamProtocol := protocol.Protocol(attempt.UpstreamProtocol)
+			if upstreamProtocol != "" && !upstreamProtocol.Valid() {
+				return fmt.Errorf("query request log final execution observations: invalid upstream protocol")
+			}
+			records[index].UpstreamProtocol = upstreamProtocol
 		}
-		records[index].RouteMode = mode
-		upstreamProtocol := protocol.Protocol(attempt.UpstreamProtocol)
-		if upstreamProtocol != "" && !upstreamProtocol.Valid() {
-			return fmt.Errorf("query request log final execution observations: invalid upstream protocol")
+		if _, ok := pricingResolved[attempt.RequestID]; ok {
+			continue
 		}
-		records[index].UpstreamProtocol = upstreamProtocol
+		receipt, err := decodeAttemptPricingReceipt(attempt)
+		if err != nil {
+			return fmt.Errorf("query request log final execution observations: %w", err)
+		}
+		if receipt != nil {
+			pricingResolved[attempt.RequestID] = struct{}{}
+			records[index].PricingMode = pricingModeForReceipt(receipt)
+		}
 	}
 	return nil
 }
@@ -480,6 +499,29 @@ func finalUpstreamProtocol(record Record, attempts []Attempt) protocol.Protocol 
 		}
 	}
 	return ""
+}
+
+func finalPricingMode(record Record, attempts []Attempt) pricing.Mode {
+	for index := len(attempts) - 1; index >= 0; index-- {
+		attempt := attempts[index]
+		if attempt.GroupID == record.GroupID &&
+			attempt.ChannelID == record.ChannelID &&
+			attempt.CredentialID == record.CredentialID &&
+			attempt.PricingReceipt != nil {
+			return pricingModeForReceipt(attempt.PricingReceipt)
+		}
+	}
+	return ""
+}
+
+func pricingModeForReceipt(receipt *pricing.Receipt) pricing.Mode {
+	if receipt == nil {
+		return ""
+	}
+	if receipt.SchemaVersion < 4 {
+		return pricing.ModeStandard
+	}
+	return receipt.PricingMode
 }
 
 func loadAccessKeyRefs(ctx context.Context, db *gorm.DB, records []Record) error {

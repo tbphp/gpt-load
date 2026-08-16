@@ -36,6 +36,9 @@ func TestRuntimePublishAndLoadDeepCloneEveryMutableLayer(t *testing.T) {
 					},
 					Cost: &ModelCost{
 						Prices: pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 1, Set: true}},
+						ModePrices: map[pricing.Mode]pricing.Prices{
+							pricing.ModeFast: {Input: pricing.Price{NanoUSDPerMillion: 3, Set: true}},
+						},
 						ContextTiers: []pricing.ContextTier{{
 							InputThresholdTokens: 10,
 							Prices:               pricing.Prices{Output: pricing.Price{NanoUSDPerMillion: 2, Set: true}},
@@ -56,6 +59,7 @@ func TestRuntimePublishAndLoadDeepCloneEveryMutableLayer(t *testing.T) {
 	*model.Metadata.OpenWeights = true
 	model.Cost.Prices.Input.NanoUSDPerMillion = 99
 	model.Cost.ContextTiers[0].Prices.Output.NanoUSDPerMillion = 99
+	model.Cost.ModePrices[pricing.ModeFast] = pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 99, Set: true}}
 	provider.Models["gpt-x"] = model
 	provider.Name = "mutated source"
 	source.Providers["openai"] = provider
@@ -71,6 +75,7 @@ func TestRuntimePublishAndLoadDeepCloneEveryMutableLayer(t *testing.T) {
 	*loadedModel.Metadata.OpenWeights = true
 	loadedModel.Cost.Prices.Input.NanoUSDPerMillion = 88
 	loadedModel.Cost.ContextTiers[0].Prices.Output.NanoUSDPerMillion = 88
+	loadedModel.Cost.ModePrices[pricing.ModeFast] = pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 88, Set: true}}
 	loadedProvider.Models["gpt-x"] = loadedModel
 	loadedProvider.Name = "mutated load"
 	first.Providers["openai"] = loadedProvider
@@ -128,7 +133,8 @@ func assertRuntimeSnapshot(t *testing.T, snapshot *Snapshot) {
 		model.Metadata.Limits.Context == nil || *model.Metadata.Limits.Context != 1_000_000 ||
 		model.Metadata.OpenWeights == nil || *model.Metadata.OpenWeights ||
 		model.Cost.Prices.Input.NanoUSDPerMillion != 1 ||
-		model.Cost.ContextTiers[0].Prices.Output.NanoUSDPerMillion != 2 {
+		model.Cost.ContextTiers[0].Prices.Output.NanoUSDPerMillion != 2 ||
+		model.Cost.ModePrices[pricing.ModeFast].Input.NanoUSDPerMillion != 3 {
 		t.Fatalf("runtime snapshot = %#v", snapshot)
 	}
 }

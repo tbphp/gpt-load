@@ -11,6 +11,7 @@ import (
 type ModelCost struct {
 	Prices       pricing.Prices
 	ContextTiers []pricing.ContextTier
+	ModePrices   map[pricing.Mode]pricing.Prices
 }
 
 // ModelCapabilities contains optional Models.dev capability declarations.
@@ -133,6 +134,13 @@ func cloneModel(model Model) Model {
 	if model.Cost != nil {
 		cost := *model.Cost
 		cost.ContextTiers = append([]pricing.ContextTier(nil), cost.ContextTiers...)
+		if cost.ModePrices != nil {
+			modePrices := make(map[pricing.Mode]pricing.Prices, len(cost.ModePrices))
+			for mode, prices := range cost.ModePrices {
+				modePrices[mode] = prices
+			}
+			cost.ModePrices = modePrices
+		}
 		model.Cost = &cost
 	}
 	return model

@@ -90,7 +90,7 @@ func (s *Service) EnsureInitialState(ctx context.Context) error {
 			return err
 		}
 		var err error
-		priceTable, err = loadPriceTable(ctx, tx)
+		priceTable, err = loadPriceTable(ctx, tx, catalogSnapshot)
 		if err != nil {
 			return err
 		}

@@ -3,6 +3,7 @@ package dialect
 import (
 	"testing"
 
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/usage"
 )
@@ -55,27 +56,26 @@ func TestOpenAIInspectRequest(t *testing.T) {
 	}
 }
 
-func TestOpenAIInspectRequestMarksUnsupportedPricingModes(t *testing.T) {
+func TestOpenAIInspectRequestSelectsSupportedPricingModes(t *testing.T) {
 	selected := NewOpenAI()
-	for _, body := range []string{
-		`{"model":"gpt-5","service_tier":"priority"}`,
-		`{"model":"gpt-5","service_tier":"flex"}`,
-		`{"model":"gpt-5","speed":"fast"}`,
-		`{"model":"gpt-5","reasoning":{"mode":"pro"}}`,
+	for _, test := range []struct {
+		body        string
+		mode        pricing.Mode
+		unsupported bool
+	}{
+		{body: `{"model":"gpt-5","service_tier":"priority"}`, mode: pricing.ModeFast},
+		{body: `{"model":"gpt-5","service_tier":"fast"}`, mode: pricing.ModeFast},
+		{body: `{"model":"gpt-5","service_tier":"default"}`, mode: pricing.ModeStandard},
+		{body: `{"model":"gpt-5"}`},
+		{body: `{"model":"gpt-5","service_tier":"auto"}`},
+		{body: `{"model":"gpt-5","service_tier":"flex"}`, unsupported: true},
+		{body: `{"model":"gpt-5","speed":"fast"}`, unsupported: true},
+		{body: `{"model":"gpt-5","reasoning":{"mode":"pro"}}`, unsupported: true},
 	} {
-		metadata, err := selected.InspectRequest(&ParsedRequest{Body: []byte(body)})
-		if err != nil || !metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
-			t.Fatalf("InspectRequest(%s) = %#v, %v", body, metadata, err)
-		}
-	}
-	for _, body := range []string{
-		`{"model":"gpt-5"}`,
-		`{"model":"gpt-5","service_tier":"auto"}`,
-		`{"model":"gpt-5","service_tier":"default"}`,
-	} {
-		metadata, err := selected.InspectRequest(&ParsedRequest{Body: []byte(body)})
-		if err != nil || metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
-			t.Fatalf("InspectRequest(%s) = %#v, %v", body, metadata, err)
+		metadata, err := selected.InspectRequest(&ParsedRequest{Body: []byte(test.body)})
+		if err != nil || metadata.PricingMode != test.mode ||
+			metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) != test.unsupported {
+			t.Fatalf("InspectRequest(%s) = %#v, %v", test.body, metadata, err)
 		}
 	}
 }

@@ -28,6 +28,13 @@ func TestValidateReceiptPreservesVersionedRuleIdentitySemantics(t *testing.T) {
 				ModelID:   "gpt-4.1",
 			}),
 		},
+		{
+			name: "v4 freezes channel model and pricing mode",
+			receipt: validReceipt(4, ReceiptRule{
+				ChannelID: "openai",
+				ModelID:   "gpt-4.1",
+			}),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -59,6 +66,20 @@ func TestValidateReceiptRejectsCrossVersionIdentityReinterpretation(t *testing.T
 	}
 }
 
+func TestValidateReceiptPreservesPricingModeVersionBoundary(t *testing.T) {
+	historical := validReceipt(3, ReceiptRule{ChannelID: "openai", ModelID: "gpt-4.1"})
+	historical.PricingMode = ModeFast
+	if err := ValidateReceipt(historical); err == nil {
+		t.Fatal("ValidateReceipt() accepted a pricing mode in historical v3")
+	}
+
+	current := validReceipt(4, ReceiptRule{ChannelID: "openai", ModelID: "gpt-4.1"})
+	current.PricingMode = Mode("Invalid Mode")
+	if err := ValidateReceipt(current); err == nil {
+		t.Fatal("ValidateReceipt() accepted an invalid v4 pricing mode")
+	}
+}
+
 func TestValidateReceiptV3UsesStrictChannelIDValidation(t *testing.T) {
 	for _, channelID := range []string{
 		"",
@@ -77,7 +98,7 @@ func TestValidateReceiptV3UsesStrictChannelIDValidation(t *testing.T) {
 }
 
 func validReceipt(schemaVersion int, rule ReceiptRule) Receipt {
-	return Receipt{
+	receipt := Receipt{
 		SchemaVersion: schemaVersion,
 		Method:        ReceiptMethodUnitRateSum,
 		MethodVersion: 1,
@@ -85,4 +106,8 @@ func validReceipt(schemaVersion int, rule ReceiptRule) Receipt {
 		Rule:          rule,
 		LineItems:     []ReceiptLine{},
 	}
+	if schemaVersion == 4 {
+		receipt.PricingMode = ModeStandard
+	}
+	return receipt
 }

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"gpt-load/internal/execution"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -24,6 +25,7 @@ type RequestMetadata struct {
 	Operation        execution.Operation
 	RouteRequirement execution.RouteRequirement
 	ObserveUsage     bool
+	PricingMode      pricing.Mode
 	UsageDiagnostics usage.Diagnostics
 	Reasoning        reasoning.Config
 }

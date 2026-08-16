@@ -57,6 +57,7 @@ import LogDetailDrawer from './LogDetailDrawer.vue'
 import LogProtocolConversion from './LogProtocolConversion.vue'
 import LogRouteIdentity from './LogRouteIdentity.vue'
 import LogsFilterForm from './LogsFilterForm.vue'
+import PricingModeIndicator from './PricingModeIndicator.vue'
 import {
   logsMonitorQuery,
   parseLogsMonitorState,
@@ -796,15 +797,18 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.cost')"
           >
-            <OverflowTooltip
-              as="span"
-              :content="costLabel(log)"
-              :class="{
-                'logs-list__state--warning': requestLogCostDisplayState(log) !== 'complete',
-              }"
-            >
-              {{ costLabel(log) }}
-            </OverflowTooltip>
+            <span class="logs-list__cost-line">
+              <OverflowTooltip
+                as="span"
+                :content="costLabel(log)"
+                :class="{
+                  'logs-list__state--warning': requestLogCostDisplayState(log) !== 'complete',
+                }"
+              >
+                {{ costLabel(log) }}
+              </OverflowTooltip>
+              <PricingModeIndicator :mode="log.pricing_mode" />
+            </span>
           </div>
           <div
             class="ledger-record-list__cell logs-list__cell"
@@ -1007,6 +1011,17 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list__protocol-line > :first-child {
+  min-width: 0;
+}
+
+.logs-list__cost-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.logs-list__cost-line > :first-child {
   min-width: 0;
 }
 

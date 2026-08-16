@@ -1,5 +1,14 @@
 package pricing
 
+// Mode identifies the price schedule selected for one request. Mode prices
+// remain provider-neutral and contain no routing behavior.
+type Mode string
+
+const (
+	ModeStandard Mode = "standard"
+	ModeFast     Mode = "fast"
+)
+
 // Price is a USD price per one million tokens. Set distinguishes zero from an
 // unavailable price.
 type Price struct {
@@ -41,6 +50,7 @@ type Rule struct {
 	Identity     Identity
 	Prices       Prices
 	ContextTiers []ContextTier
+	ModePrices   map[Mode]Prices
 	IsManual     bool
 }
 
@@ -100,6 +110,7 @@ type Receipt struct {
 	Method                 string        `json:"method"`
 	MethodVersion          int           `json:"method_version"`
 	Currency               string        `json:"currency"`
+	PricingMode            Mode          `json:"pricing_mode,omitempty"`
 	Rule                   ReceiptRule   `json:"rule"`
 	ContextThresholdTokens *int64        `json:"context_threshold_tokens,omitempty"`
 	LineItems              []ReceiptLine `json:"line_items"`

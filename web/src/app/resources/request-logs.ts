@@ -100,10 +100,11 @@ export interface RequestLogPricingLineDto {
 }
 
 export interface RequestLogPricingReceiptDto {
-  schema_version: 1 | 2 | 3
+  schema_version: 1 | 2 | 3 | 4
   method: 'unit_rate_sum'
   method_version: 1
   currency: 'USD'
+  pricing_mode: string
   rule: { scope_key?: string; channel_id?: string; model_id: string }
   context_threshold_tokens: string | null
   line_items: RequestLogPricingLineDto[]
@@ -169,6 +170,7 @@ export interface RequestLogItemDto {
   usage_state: RequestLogUsageState
   cost_state: RequestLogCostState
   pricing_completeness: RequestLogPricingCompleteness
+  pricing_mode: string | null
   input_tokens: string
   cache_read_tokens: string
   cache_write_5m_tokens: string
@@ -263,6 +265,7 @@ const itemFields = [
   'usage_state',
   'cost_state',
   'pricing_completeness',
+  'pricing_mode',
   'input_tokens',
   'cache_read_tokens',
   'cache_write_5m_tokens',
@@ -279,6 +282,12 @@ function invalidResponse(): never {
 function projectNonBlankString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0) invalidResponse()
+  return result
+}
+
+function projectPricingMode(value: unknown): string {
+  const result = projectNonBlankString(value)
+  if (!/^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/.test(result)) invalidResponse()
   return result
 }
 
@@ -314,6 +323,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     'method',
     'method_version',
     'currency',
+    'pricing_mode',
     'rule',
     'context_threshold_tokens',
     'line_items',
@@ -352,14 +362,15 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
-  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 3 }) as
-    1 | 2 | 3
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 4 }) as
+    1 | 2 | 3 | 4
   const scopeKey = rule.scope_key === undefined ? undefined : projectNonBlankString(rule.scope_key)
   const channelID = rule.channel_id === undefined ? undefined : projectChannelID(rule.channel_id)
   if (
     (schemaVersion === 1 && (scopeKey === undefined || channelID !== undefined)) ||
     (schemaVersion === 2 && (scopeKey !== undefined || channelID !== undefined)) ||
-    (schemaVersion === 3 && (scopeKey !== undefined || channelID === undefined))
+    ((schemaVersion === 3 || schemaVersion === 4) &&
+      (scopeKey !== undefined || channelID === undefined))
   ) {
     invalidResponse()
   }
@@ -368,6 +379,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     method: projectEnum(record.method, ['unit_rate_sum'] as const),
     method_version: projectSafeInteger(record.method_version, { minimum: 1, maximum: 1 }) as 1,
     currency: projectEnum(record.currency, ['USD'] as const),
+    pricing_mode: projectPricingMode(record.pricing_mode),
     rule: {
       ...(scopeKey === undefined ? {} : { scope_key: scopeKey }),
       ...(channelID === undefined ? {} : { channel_id: channelID }),
@@ -543,6 +555,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
+    pricing_mode: record.pricing_mode === null ? null : projectPricingMode(record.pricing_mode),
     ...projectUsageCost(record),
   }
 }

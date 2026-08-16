@@ -136,6 +136,10 @@ func TestNewTableValidatesPricesAndContextTiers(t *testing.T) {
 		{name: "duplicate tier threshold", rule: Rule{Identity: identity, ContextTiers: []ContextTier{{InputThresholdTokens: 1, Prices: Prices{Input: fixedPrice(1)}}, {InputThresholdTokens: 1, Prices: Prices{Output: fixedPrice(1)}}}}},
 		{name: "decreasing tier threshold", rule: Rule{Identity: identity, ContextTiers: []ContextTier{{InputThresholdTokens: 2, Prices: Prices{Input: fixedPrice(1)}}, {InputThresholdTokens: 1, Prices: Prices{Output: fixedPrice(1)}}}}},
 		{name: "negative hidden tier price", rule: Rule{Identity: identity, ContextTiers: []ContextTier{{InputThresholdTokens: 0, Prices: Prices{CacheWrite: Price{NanoUSDPerMillion: -1}}}}}},
+		{name: "standard duplicated as mode", rule: Rule{Identity: identity, ModePrices: map[Mode]Prices{ModeStandard: {Input: fixedPrice(1)}}}},
+		{name: "invalid mode key", rule: Rule{Identity: identity, ModePrices: map[Mode]Prices{Mode("Fast Mode"): {Input: fixedPrice(1)}}}},
+		{name: "mode without price", rule: Rule{Identity: identity, ModePrices: map[Mode]Prices{ModeFast: {}}}},
+		{name: "negative mode price", rule: Rule{Identity: identity, ModePrices: map[Mode]Prices{ModeFast: {Input: Price{NanoUSDPerMillion: -1}}}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -149,6 +153,7 @@ func TestNewTableValidatesPricesAndContextTiers(t *testing.T) {
 		{Identity: identity},
 		{Identity: identity, Prices: Prices{Input: fixedPrice(0)}},
 		{Identity: identity, ContextTiers: []ContextTier{{InputThresholdTokens: 0, Prices: Prices{Input: fixedPrice(0)}}}},
+		{Identity: identity, ModePrices: map[Mode]Prices{ModeFast: {Input: fixedPrice(0)}}},
 	} {
 		if _, err := NewTable([]Rule{rule}); err != nil {
 			t.Fatalf("NewTable() rejected valid rule %#v: %v", rule, err)
@@ -164,21 +169,25 @@ func TestTableDeepClonesConstructionAndLookup(t *testing.T) {
 			InputThresholdTokens: 100,
 			Prices:               Prices{Output: fixedPrice(2)},
 		}},
-		IsManual: true,
+		ModePrices: map[Mode]Prices{ModeFast: {Input: fixedPrice(3)}},
+		IsManual:   true,
 	}}
 	want := rules[0]
 	want.ContextTiers = append([]ContextTier(nil), rules[0].ContextTiers...)
+	want.ModePrices = map[Mode]Prices{ModeFast: rules[0].ModePrices[ModeFast]}
 	table := mustTable(t, rules...)
 
 	rules[0].Prices.Input = fixedPrice(99)
 	rules[0].ContextTiers[0].InputThresholdTokens = math.MaxInt64
 	rules[0].ContextTiers[0].Prices.Output = fixedPrice(99)
+	rules[0].ModePrices[ModeFast] = Prices{Input: fixedPrice(99)}
 
 	first, ok := table.Lookup(want.Identity)
 	if !ok || !reflect.DeepEqual(first, want) {
 		t.Fatalf("first Lookup() = %#v, %t, want %#v", first, ok, want)
 	}
 	first.ContextTiers[0].Prices.Output = fixedPrice(77)
+	first.ModePrices[ModeFast] = Prices{Input: fixedPrice(77)}
 	second, ok := table.Lookup(want.Identity)
 	if !ok || !reflect.DeepEqual(second, want) {
 		t.Fatalf("second Lookup() = %#v, %t, want immutable %#v", second, ok, want)

@@ -906,6 +906,11 @@ export default {
         historicalSchema1: '履歴スコープ',
         historicalSchema2: '履歴グローバル価格',
       },
+      pricingMode: {
+        fastLabel: 'Fast モード料金',
+        fastTooltip:
+          'Fast モード料金\nこのリクエストの参考コストは、Models.dev が提供する Fast モード価格で個別に計算されています。',
+      },
     },
   },
 } as const

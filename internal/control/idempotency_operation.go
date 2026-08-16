@@ -12,6 +12,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/platform/canonicaljson"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
@@ -356,7 +357,11 @@ func (s *Service) recoverOperationLocked(
 		switch stage {
 		case operationStagePricesPublished:
 			var table *pricing.Table
-			table, stageErr = loadPriceTable(ctx, s.db)
+			var catalogSnapshot *catalog.Snapshot
+			if s.catalogRuntime != nil {
+				catalogSnapshot = s.catalogRuntime.Load()
+			}
+			table, stageErr = loadPriceTable(ctx, s.db, catalogSnapshot)
 			if stageErr == nil {
 				s.priceRuntime.Publish(table)
 			}

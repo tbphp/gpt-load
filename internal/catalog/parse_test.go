@@ -97,6 +97,65 @@ func TestParseModelsDevUsesExactDecimalsAndCanonicalTiers(t *testing.T) {
 	}
 }
 
+func TestParseModelsDevRetainsExperimentalModePrices(t *testing.T) {
+	raw := `{
+		"openai": {
+			"id": "openai",
+			"name": "OpenAI",
+			"models": {
+				"gpt-x": {
+					"id": "gpt-x",
+					"name": "GPT X",
+					"cost": {"input": 5, "output": 30},
+					"experimental": {
+						"modes": {
+							"fast": {
+								"cost": {
+									"input": 10,
+									"output": 60,
+									"cache_read": 1,
+									"cache_write": 12.5
+								},
+								"provider": {"body": {"service_tier": "priority"}}
+							},
+							"pro": {"provider": {"body": {"reasoning": {"mode": "pro"}}}}
+						}
+					}
+				},
+				"mode-only": {
+					"id": "mode-only",
+					"name": "Mode Only",
+					"experimental": {
+						"modes": {"fast": {"cost": {"input": 3}}}
+					}
+				}
+			}
+		}
+	}`
+
+	models := mustParse(t, raw).Providers["openai"].Models
+	cost := models["gpt-x"].Cost
+	if cost == nil {
+		t.Fatal("gpt-x cost = nil")
+	}
+	fast, ok := cost.ModePrices[pricing.ModeFast]
+	if !ok {
+		t.Fatalf("mode prices = %#v, want fast", cost.ModePrices)
+	}
+	assertPrice(t, "fast input", fast.Input, 10_000_000_000, true)
+	assertPrice(t, "fast output", fast.Output, 60_000_000_000, true)
+	assertPrice(t, "fast cache read", fast.CacheRead, 1_000_000_000, true)
+	assertPrice(t, "fast cache write", fast.CacheWrite, 12_500_000_000, true)
+	if _, ok := cost.ModePrices[pricing.Mode("pro")]; ok {
+		t.Fatalf("provider-only mode retained as a price = %#v", cost.ModePrices)
+	}
+
+	modeOnly := models["mode-only"].Cost
+	if modeOnly == nil || !modeOnly.ModePrices[pricing.ModeFast].Input.Set {
+		t.Fatalf("mode-only cost = %#v, want retained fast price", modeOnly)
+	}
+}
+
 func TestParseModelsDevRetainsModelMetadata(t *testing.T) {
 	raw := `{
 		"openai": {
@@ -239,6 +298,11 @@ func TestParseModelsDevRejectsInvalidIdentityPricesAndTiers(t *testing.T) {
 		{name: "decreasing tier threshold", raw: validProvider(`{"id":"gpt-x","name":"GPT X","cost":{"tiers":[{"tier":{"type":"context","size":2},"input":1},{"tier":{"type":"context","size":1},"output":2}]}}`)},
 		{name: "tier without supported price", raw: validProvider(`{"id":"gpt-x","name":"GPT X","cost":{"tiers":[{"tier":{"type":"context","size":1},"reasoning":2}]}}`)},
 		{name: "negative tier price", raw: validProvider(`{"id":"gpt-x","name":"GPT X","cost":{"tiers":[{"tier":{"type":"context","size":1},"cache_write":-1}]}}`)},
+		{name: "invalid mode key", raw: validProvider(`{"id":"gpt-x","name":"GPT X","experimental":{"modes":{"Fast Mode":{"cost":{"input":1}}}}}`)},
+		{name: "reserved standard mode", raw: validProvider(`{"id":"gpt-x","name":"GPT X","experimental":{"modes":{"standard":{"cost":{"input":1}}}}}`)},
+		{name: "duplicate mode key", raw: validProvider(`{"id":"gpt-x","name":"GPT X","experimental":{"modes":{"fast":{"cost":{"input":1}},"fast":{"cost":{"input":2}}}}}`)},
+		{name: "mode cost case alias", raw: validProvider(`{"id":"gpt-x","name":"GPT X","experimental":{"modes":{"fast":{"cost":{"input":1},"Cost":{"input":2}}}}}`)},
+		{name: "negative mode price", raw: validProvider(`{"id":"gpt-x","name":"GPT X","experimental":{"modes":{"fast":{"cost":{"input":-1}}}}}`)},
 		{name: "trailing JSON", raw: validProvider(validModel) + `{}`},
 	}
 

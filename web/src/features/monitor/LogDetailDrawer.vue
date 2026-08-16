@@ -32,6 +32,7 @@ import {
   requestLogUsageDisplayState,
 } from './log-format'
 import LogRouteIdentity from './LogRouteIdentity.vue'
+import PricingModeIndicator from './PricingModeIndicator.vue'
 
 const props = defineProps<{
   open: boolean
@@ -85,7 +86,7 @@ const receipt = computed(
 const pricingIdentity = computed(() => {
   const value = receipt.value
   if (!value) return '—'
-  if (value.schema_version === 3) {
+  if (value.schema_version >= 3) {
     return `${value.rule.channel_id} · ${value.rule.model_id}`
   }
   return `${t(`monitor.logs.receipt.historicalSchema${value.schema_version}`)} · ${value.rule.model_id}`
@@ -531,7 +532,10 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div v-if="costDisplayState !== 'unpriced'">
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
-            <dd>{{ costAmountLabel }}</dd>
+            <dd class="log-detail__cost">
+              <span>{{ costAmountLabel }}</span>
+              <PricingModeIndicator :mode="log.pricing_mode" />
+            </dd>
           </div>
           <div
             v-if="
@@ -865,6 +869,12 @@ function toggleAttemptErrorMessage(sequence: number): void {
   gap: 4px;
   font-family: var(--font-mono);
   line-height: 1.6;
+}
+
+.log-detail__cost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .log-model-observation {

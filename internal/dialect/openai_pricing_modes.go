@@ -4,33 +4,38 @@ import (
 	"encoding/json"
 	"strings"
 
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/usage"
 )
 
-func openAIRequestPricingDiagnostics(body []byte) usage.Diagnostics {
+func openAIRequestPricing(body []byte) (pricing.Mode, usage.Diagnostics) {
 	diagnostics := usage.Diagnostics{}
 	root, err := decodeJSONObject(body)
 	if err != nil {
-		return diagnostics
+		return "", diagnostics
 	}
-	if openAIUnsupportedServiceTier(root) ||
-		jsonStringEquals(root, "speed", "fast") ||
+	mode, supported := openAIRequestedPricingMode(root)
+	if !supported || jsonStringEquals(root, "speed", "fast") ||
 		openAIUnsupportedReasoningMode(root) {
 		diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
 	}
-	return diagnostics
+	return mode, diagnostics
 }
 
-func openAIUnsupportedServiceTier(root map[string]json.RawMessage) bool {
+func openAIRequestedPricingMode(root map[string]json.RawMessage) (pricing.Mode, bool) {
 	value, ok := jsonString(root, "service_tier")
 	if !ok {
-		return false
+		return "", true
 	}
-	switch strings.ToLower(value) {
-	case "", "auto", "default":
-		return false
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "", true
+	case "default":
+		return pricing.ModeStandard, true
+	case "fast", "priority":
+		return pricing.ModeFast, true
 	default:
-		return true
+		return "", false
 	}
 }
 

@@ -11,7 +11,7 @@ var (
 
 // Quote prices a finalized usage result without modifying it.
 func (table *Table) Quote(identity Identity, result usage.Result) Quote {
-	quote, _ := table.QuoteWithReceipt(identity, result)
+	quote, _ := table.QuoteForModeWithReceipt(identity, result, ModeStandard)
 	return quote
 }
 
@@ -20,6 +20,23 @@ func (table *Table) Quote(identity Identity, result usage.Result) Quote {
 func (table *Table) QuoteWithReceipt(
 	identity Identity,
 	result usage.Result,
+) (Quote, *Receipt) {
+	return table.QuoteForModeWithReceipt(identity, result, ModeStandard)
+}
+
+// QuoteForMode prices a finalized usage result with the matching Models.dev
+// mode schedule, falling back to the standard schedule when none exists.
+func (table *Table) QuoteForMode(identity Identity, result usage.Result, mode Mode) Quote {
+	quote, _ := table.QuoteForModeWithReceipt(identity, result, mode)
+	return quote
+}
+
+// QuoteForModeWithReceipt freezes the exact mode schedule used. A mode without
+// a matching Models.dev price is indistinguishable from a standard quote.
+func (table *Table) QuoteForModeWithReceipt(
+	identity Identity,
+	result usage.Result,
+	mode Mode,
 ) (Quote, *Receipt) {
 	switch result.State {
 	case usage.StateNotApplicable:
@@ -43,15 +60,24 @@ func (table *Table) QuoteWithReceipt(
 		return unavailableQuote(), nil
 	}
 
+	selectedMode := ModeStandard
 	prices := rule.Prices
 	var selectedThreshold *int64
-	for _, tier := range rule.ContextTiers {
-		if inputTokens < tier.InputThresholdTokens {
-			break
+	if mode != "" && mode != ModeStandard {
+		if modePrices, exists := rule.ModePrices[mode]; exists {
+			selectedMode = mode
+			prices = modePrices
 		}
-		prices = tier.Prices
-		threshold := tier.InputThresholdTokens
-		selectedThreshold = &threshold
+	}
+	if selectedMode == ModeStandard {
+		for _, tier := range rule.ContextTiers {
+			if inputTokens < tier.InputThresholdTokens {
+				break
+			}
+			prices = tier.Prices
+			threshold := tier.InputThresholdTokens
+			selectedThreshold = &threshold
+		}
 	}
 
 	components := [...]struct {
@@ -67,10 +93,11 @@ func (table *Table) QuoteWithReceipt(
 		{code: "output", tokens: result.Tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
 	}
 	receipt := &Receipt{
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 		Method:        ReceiptMethodUnitRateSum,
 		MethodVersion: 1,
 		Currency:      "USD",
+		PricingMode:   selectedMode,
 		Rule: ReceiptRule{
 			ChannelID: identity.ChannelID,
 			ModelID:   identity.ModelID,

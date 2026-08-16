@@ -497,10 +497,11 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	rate := int64(1_000_000_000)
 	amount := int64(1_000_000)
 	receipt := &pricing.Receipt{
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 		Method:        pricing.ReceiptMethodUnitRateSum,
 		MethodVersion: 1,
 		Currency:      "USD",
+		PricingMode:   pricing.ModeFast,
 		Rule: pricing.ReceiptRule{
 			ChannelID: string(channel.OpenAI),
 			ModelID:   "gpt-4.1",
@@ -571,6 +572,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 			RequestID        string `json:"request_id"`
 			Operation        string `json:"operation"`
 			UpstreamProtocol string `json:"upstream_protocol"`
+			PricingMode      string `json:"pricing_mode"`
 			ChannelID        string `json:"channel_id"`
 			CredentialID     uint   `json:"credential_id"`
 			Attempts         []struct {
@@ -589,6 +591,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 				Committed      bool `json:"committed"`
 				PricingReceipt struct {
 					Method       string `json:"method"`
+					PricingMode  string `json:"pricing_mode"`
 					TotalNanoUSD string `json:"total_nano_usd"`
 					Rule         struct {
 						ChannelID string `json:"channel_id"`
@@ -608,6 +611,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	if envelope.Data.RequestID != requestID || envelope.Data.ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Operation != string(execution.OperationChatCompletion) ||
 		envelope.Data.UpstreamProtocol != string(protocol.OpenAICompletions) ||
+		envelope.Data.PricingMode != string(pricing.ModeFast) ||
 		envelope.Data.CredentialID != 99 || len(envelope.Data.Attempts) != 1 ||
 		envelope.Data.Attempts[0].ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Attempts[0].CredentialID != 99 ||
@@ -620,6 +624,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		envelope.Data.Attempts[0].Reasoning.BudgetTokens != "4096" ||
 		!envelope.Data.Attempts[0].ResponseStarted || !envelope.Data.Attempts[0].Committed ||
 		envelope.Data.Attempts[0].PricingReceipt.Method != pricing.ReceiptMethodUnitRateSum ||
+		envelope.Data.Attempts[0].PricingReceipt.PricingMode != string(pricing.ModeFast) ||
 		envelope.Data.Attempts[0].PricingReceipt.Rule.ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Attempts[0].PricingReceipt.Rule.ModelID != "gpt-4.1" ||
 		envelope.Data.Attempts[0].PricingReceipt.TotalNanoUSD != "1000000" ||
@@ -696,6 +701,7 @@ func TestRequestLogPricingReceiptKeepsHistoricalSchemasReadable(t *testing.T) {
 				gotChannelID = *mapped.Rule.ChannelID
 			}
 			if mapped.SchemaVersion != test.receipt.SchemaVersion ||
+				mapped.PricingMode != pricing.ModeStandard ||
 				mapped.Rule.ModelID != test.receipt.Rule.ModelID ||
 				gotScopeKey != test.wantScopeKey || gotChannelID != test.wantChannelID {
 				t.Fatalf("mapped receipt = %#v", mapped)
@@ -721,6 +727,7 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 			UsageState:              usage.StateComplete,
 			CostState:               pricing.CostStatePriced,
 			PricingCompleteness:     pricing.CompletenessComplete,
+			PricingMode:             pricing.ModeFast,
 			UncachedInputTokens:     1,
 			CacheReadTokens:         2,
 			CacheWrite5MTokens:      3,
@@ -743,6 +750,7 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 				UsageState              string  `json:"usage_state"`
 				CostState               string  `json:"cost_state"`
 				PricingCompleteness     string  `json:"pricing_completeness"`
+				PricingMode             *string `json:"pricing_mode"`
 				InputTokens             string  `json:"input_tokens"`
 				CacheReadTokens         string  `json:"cache_read_tokens"`
 				CacheWrite5MTokens      string  `json:"cache_write_5m_tokens"`
@@ -768,6 +776,7 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	if item.GroupID != nil || item.ChannelID != nil || item.CredentialID != nil ||
 		item.UsageState != "complete" || item.CostState != "priced" ||
 		item.PricingCompleteness != "complete" ||
+		item.PricingMode == nil || *item.PricingMode != string(pricing.ModeFast) ||
 		item.InputTokens != "16" || item.CacheReadTokens != "2" ||
 		item.CacheWrite5MTokens != "3" || item.CacheWrite1HTokens != "4" ||
 		item.CacheWriteUnknownTokens != "6" ||
@@ -805,6 +814,7 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 		`"upstream_model":null`,
 		`"upstream_reported_model":null`,
 		`"upstream_protocol":null`,
+		`"pricing_mode":null`,
 		`"model_consistency":"not_applicable"`,
 		`"reasoning":null`,
 	} {
@@ -1034,6 +1044,7 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		UsageState:            usage.StateComplete,
 		CostState:             pricing.CostStatePriced,
 		PricingCompleteness:   pricing.CompletenessComplete,
+		PricingMode:           pricing.ModeFast,
 		UncachedInputTokens:   10,
 		OutputTokens:          2,
 		EstimatedCostNanoUSD:  50,
@@ -1139,6 +1150,7 @@ func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
 		"credential_id":           "null",
 		"route_mode":              "null",
 		"upstream_protocol":       "null",
+		"pricing_mode":            `"fast"`,
 		"attempt_count":           "0",
 	} {
 		if string(item[field]) != want {

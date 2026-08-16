@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/catalog"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -36,14 +37,18 @@ func (runtime *PriceRuntime) Publish(table *pricing.Table) {
 	runtime.current.Store(table)
 }
 
-func loadPriceTable(ctx context.Context, tx *gorm.DB) (*pricing.Table, error) {
+func loadPriceTable(
+	ctx context.Context,
+	tx *gorm.DB,
+	catalogSnapshot *catalog.Snapshot,
+) (*pricing.Table, error) {
 	var rows []models.ModelPrice
 	if err := tx.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load persisted model prices: %w", app_errors.ParseDBError(err))
 	}
 	rules := make([]pricing.Rule, 0, len(rows))
 	for _, row := range rows {
-		rule, err := persistedPriceRule(row)
+		rule, err := persistedPriceRule(row, catalogSnapshot)
 		if err != nil {
 			return nil, fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
 		}
@@ -56,7 +61,10 @@ func loadPriceTable(ctx context.Context, tx *gorm.DB) (*pricing.Table, error) {
 	return table, nil
 }
 
-func persistedPriceRule(row models.ModelPrice) (pricing.Rule, error) {
+func persistedPriceRule(
+	row models.ModelPrice,
+	catalogSnapshot *catalog.Snapshot,
+) (pricing.Rule, error) {
 	identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
 	if err != nil {
 		return pricing.Rule{}, err
@@ -70,6 +78,13 @@ func persistedPriceRule(row models.ModelPrice) (pricing.Rule, error) {
 			CacheWrite: priceFromStoragePointer(row.CacheWritePriceNanoUSDPerMillionTokens),
 		},
 		IsManual: row.IsManual,
+	}
+	if match, ok := resolveAutomaticPriceForIdentity(catalogSnapshot, identity); ok &&
+		match.cost != nil && len(match.cost.ModePrices) > 0 {
+		rule.ModePrices = make(map[pricing.Mode]pricing.Prices, len(match.cost.ModePrices))
+		for mode, prices := range match.cost.ModePrices {
+			rule.ModePrices[mode] = prices
+		}
 	}
 	if len(row.ContextPriceTiers) == 0 {
 		return rule, nil

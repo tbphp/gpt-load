@@ -5,9 +5,17 @@ import "fmt"
 // ValidateReceipt verifies a persisted request-time receipt without consulting
 // the mutable current pricing table.
 func ValidateReceipt(receipt Receipt) error {
-	if (receipt.SchemaVersion != 1 && receipt.SchemaVersion != 2 && receipt.SchemaVersion != 3) ||
+	if (receipt.SchemaVersion != 1 && receipt.SchemaVersion != 2 &&
+		receipt.SchemaVersion != 3 && receipt.SchemaVersion != 4) ||
 		receipt.Method != ReceiptMethodUnitRateSum || receipt.MethodVersion != 1 || receipt.Currency != "USD" {
 		return fmt.Errorf("unsupported pricing receipt contract")
+	}
+	if receipt.SchemaVersion < 4 {
+		if receipt.PricingMode != "" {
+			return fmt.Errorf("historical pricing receipt must not contain a pricing mode")
+		}
+	} else if !receipt.PricingMode.Valid() {
+		return fmt.Errorf("invalid pricing receipt mode")
 	}
 	if err := validateReceiptRule(receipt.Rule, receipt.SchemaVersion); err != nil {
 		return fmt.Errorf("invalid pricing receipt rule: %w", err)

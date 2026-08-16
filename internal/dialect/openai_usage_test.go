@@ -64,10 +64,9 @@ func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
 		},
 		{
-			name:        "effective priority service tier is unsupported",
-			body:        `{"service_tier":"priority","usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130}}`,
-			want:        usage.Tokens{UncachedInput: 100, Output: 30},
-			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
+			name: "response service tier does not affect usage extraction",
+			body: `{"service_tier":"priority","usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130}}`,
+			want: usage.Tokens{UncachedInput: 100, Output: 30},
 		},
 		{
 			name: "cache read and write exceeding prompt are diagnosed",

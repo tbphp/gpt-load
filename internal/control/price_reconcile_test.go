@@ -9,6 +9,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/usage"
 )
 
 func TestReconcileReferencedPricesUsesChannelModelIdentity(t *testing.T) {
@@ -64,6 +65,40 @@ func TestReconcileReferencedPricesUsesChannelModelIdentity(t *testing.T) {
 	}
 }
 
+func TestLoadPriceTableMergesModelsDevModePricesIntoManualStandardRule(t *testing.T) {
+	fixture := newServiceFixture(t)
+	standard := int64(2)
+	if err := fixture.db.Create(&models.ModelPrice{
+		ChannelID: string(channel.OpenAI), ModelID: "gpt-fast",
+		InputPriceNanoUSDPerMillionTokens: &standard,
+		IsManual:                          true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			"gpt-fast": {ID: "gpt-fast", Cost: &catalog.ModelCost{
+				ModePrices: map[pricing.Mode]pricing.Prices{
+					pricing.ModeFast: {Input: priceTestValue(7)},
+				},
+			}},
+		}},
+	}}
+
+	table, err := loadPriceTable(t.Context(), fixture.db, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-fast"}
+	quote := table.QuoteForMode(identity, usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 1_000_000},
+		State:  usage.StateComplete,
+	}, pricing.ModeFast)
+	if quote.EstimatedCostNanoUSD != 7 {
+		t.Fatalf("fast quote = %#v, want Models.dev mode price", quote)
+	}
+}
+
 func createPriceTestGroup(t *testing.T, db *gorm.DB, group models.Group) models.Group {
 	t.Helper()
 	if group.ChannelID == "" {
@@ -88,7 +123,7 @@ func priceTestRowHasValue(row models.ModelPrice) bool {
 
 func mustLoadPriceTable(t *testing.T, db *gorm.DB) *pricing.Table {
 	t.Helper()
-	table, err := loadPriceTable(t.Context(), db)
+	table, err := loadPriceTable(t.Context(), db, nil)
 	if err != nil {
 		t.Fatalf("loadPriceTable() error = %v", err)
 	}

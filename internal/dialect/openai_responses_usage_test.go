@@ -56,13 +56,10 @@ func TestOpenAIResponsesUsageNonStreaming(t *testing.T) {
 			},
 		},
 		{
-			name:  "effective priority service tier is unsupported",
+			name:  "response service tier does not affect usage extraction",
 			body:  `{"service_tier":"priority","usage":{"input_tokens":100,"output_tokens":30,"total_tokens":130}}`,
 			want:  usage.Tokens{UncachedInput: 100, Output: 30},
 			state: usage.StateComplete,
-			diagnostics: []usage.DiagnosticCode{
-				usage.DiagnosticUnsupportedBillableDetail,
-			},
 		},
 		{
 			name:  "cached exceeds input",

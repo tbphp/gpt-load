@@ -135,9 +135,6 @@ func openAIResponsesUsagePatch(
 	if usageObject == nil {
 		return usage.Patch{Final: final, Diagnostics: diagnostics}, false
 	}
-	if openAIUnsupportedServiceTier(root) {
-		diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
-	}
 
 	input, inputDiagnostics := usageInteger(
 		usageObject,

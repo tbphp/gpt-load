@@ -236,7 +236,7 @@ func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t 
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	oldTable, err := loadPriceTable(t.Context(), fixture.db)
+	oldTable, err := loadPriceTable(t.Context(), fixture.db, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1255,7 +1255,7 @@ func TestCatalogSyncReconcileFailurePublishesNeitherRuntimeAndKeepsPendingLKG(t 
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	oldTable, err := loadPriceTable(t.Context(), fixture.db)
+	oldTable, err := loadPriceTable(t.Context(), fixture.db, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

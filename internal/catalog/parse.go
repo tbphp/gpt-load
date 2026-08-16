@@ -22,13 +22,15 @@ var (
 		"id", "name", "description", "family", "attachment", "reasoning",
 		"tool_call", "structured_output", "temperature", "knowledge",
 		"release_date", "last_updated", "modalities", "open_weights", "limit",
-		"status", "cost",
+		"status", "cost", "experimental",
 	}
-	modalityCanonicalFields = []string{"input", "output"}
-	limitCanonicalFields    = []string{"context", "input", "output"}
-	costCanonicalFields     = []string{"input", "output", "cache_read", "cache_write", "tiers"}
-	tierCanonicalFields     = []string{"tier", "input", "output", "cache_read", "cache_write"}
-	tierRuleCanonicalFields = []string{"type", "size"}
+	modalityCanonicalFields     = []string{"input", "output"}
+	limitCanonicalFields        = []string{"context", "input", "output"}
+	costCanonicalFields         = []string{"input", "output", "cache_read", "cache_write", "tiers"}
+	experimentalCanonicalFields = []string{"modes"}
+	modeCanonicalFields         = []string{"cost", "provider"}
+	tierCanonicalFields         = []string{"tier", "input", "output", "cache_read", "cache_write"}
+	tierRuleCanonicalFields     = []string{"type", "size"}
 )
 
 // Parse decodes, validates, and normalizes the retained Models.dev subset.
@@ -144,16 +146,88 @@ func parseModel(key string, raw json.RawMessage) (Model, error) {
 		return Model{}, err
 	}
 	model := Model{ID: id, Name: name, Metadata: metadata}
+	var cost *ModelCost
 	costRaw, hasCost := fields["cost"]
-	if !hasCost || bytes.Equal(bytes.TrimSpace(costRaw), []byte("null")) {
-		return model, nil
+	if hasCost && !bytes.Equal(bytes.TrimSpace(costRaw), []byte("null")) {
+		cost, err = parseCost(costRaw)
+		if err != nil {
+			return Model{}, err
+		}
 	}
-	cost, err := parseCost(costRaw)
+	modePrices, err := parseExperimentalModePrices(fields["experimental"])
 	if err != nil {
 		return Model{}, err
 	}
+	if len(modePrices) > 0 {
+		if cost == nil {
+			cost = &ModelCost{}
+		}
+		cost.ModePrices = modePrices
+	}
 	model.Cost = cost
 	return model, nil
+}
+
+func parseExperimentalModePrices(raw json.RawMessage) (map[pricing.Mode]pricing.Prices, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	fields, err := decodeCanonicalObject(raw, "model experimental", experimentalCanonicalFields)
+	if err != nil {
+		return nil, err
+	}
+	modesRaw, exists := fields["modes"]
+	if !exists || bytes.Equal(bytes.TrimSpace(modesRaw), []byte("null")) {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(modesRaw))
+	decoder.UseNumber()
+	modes, err := decodeUniqueObject(decoder, "experimental modes")
+	if err != nil {
+		return nil, err
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+
+	result := make(map[pricing.Mode]pricing.Prices)
+	for key, rawMode := range modes {
+		mode := pricing.Mode(key)
+		if !mode.Valid() || mode == pricing.ModeStandard {
+			return nil, fmt.Errorf("invalid experimental pricing mode %q", key)
+		}
+		modeFields, err := decodeCanonicalObject(rawMode, "experimental mode", modeCanonicalFields)
+		if err != nil {
+			return nil, fmt.Errorf("mode %q: %w", key, err)
+		}
+		rawCost, exists := modeFields["cost"]
+		if !exists || bytes.Equal(bytes.TrimSpace(rawCost), []byte("null")) {
+			continue
+		}
+		prices, err := parseModePrices(rawCost)
+		if err != nil {
+			return nil, fmt.Errorf("mode %q: %w", key, err)
+		}
+		if hasSetPrice(prices) {
+			result[mode] = prices
+		}
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+func parseModePrices(raw json.RawMessage) (pricing.Prices, error) {
+	fields, err := decodeCanonicalObject(raw, "mode cost", costCanonicalFields)
+	if err != nil {
+		return pricing.Prices{}, err
+	}
+	input, output, cacheRead, cacheWrite, err := decodePriceFields(fields)
+	if err != nil {
+		return pricing.Prices{}, err
+	}
+	return parsePrices(input, output, cacheRead, cacheWrite)
 }
 
 func parseModelMetadata(fields map[string]json.RawMessage) (ModelMetadata, error) {
@@ -750,6 +824,19 @@ func validateModelCost(cost *ModelCost) error {
 			}
 		}
 		previousThreshold = tier.InputThresholdTokens
+	}
+	for mode, prices := range cost.ModePrices {
+		if !mode.Valid() || mode == pricing.ModeStandard {
+			return fmt.Errorf("invalid non-standard pricing mode %q", mode)
+		}
+		if !hasSetPrice(prices) {
+			return fmt.Errorf("pricing mode %q must set at least one price", mode)
+		}
+		for _, price := range [...]pricing.Price{prices.Input, prices.Output, prices.CacheRead, prices.CacheWrite} {
+			if price.NanoUSDPerMillion < 0 {
+				return fmt.Errorf("pricing mode %q price must be non-negative", mode)
+			}
+		}
 	}
 	return nil
 }

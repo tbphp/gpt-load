@@ -11,7 +11,25 @@ const (
 	maxProviderIDBytes = 246
 	maxChannelIDBytes  = 64
 	maxModelIDBytes    = 255
+	maxModeBytes       = 64
 )
+
+// Valid reports whether mode is a canonical Models.dev mode key.
+func (mode Mode) Valid() bool {
+	if len(mode) == 0 || len(mode) > maxModeBytes {
+		return false
+	}
+	for index, character := range []byte(mode) {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' {
+			continue
+		}
+		if index > 0 && index < len(mode)-1 && (character == '-' || character == '_') {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 // ProviderScopeKey builds the canonical scope for a Models.dev provider ID.
 func ProviderScopeKey(providerID string) (string, error) {
@@ -100,6 +118,17 @@ func validateRule(rule Rule) error {
 		}
 		previousThreshold = tier.InputThresholdTokens
 	}
+	for mode, prices := range rule.ModePrices {
+		if !mode.Valid() || mode == ModeStandard {
+			return fmt.Errorf("invalid non-standard pricing mode %q", mode)
+		}
+		if err := validatePrices(prices); err != nil {
+			return err
+		}
+		if !hasSetPrice(prices) {
+			return fmt.Errorf("pricing mode %q must set at least one price", mode)
+		}
+	}
 	return nil
 }
 
@@ -164,7 +193,7 @@ func validateReceiptRule(rule ReceiptRule, schemaVersion int) error {
 			return fmt.Errorf("global receipt must not contain a channel ID")
 		}
 		return nil
-	case 3:
+	case 3, 4:
 		if rule.ScopeKey != "" {
 			return fmt.Errorf("channel receipt must not contain a scope key")
 		}
@@ -212,6 +241,13 @@ func hasSetPrice(prices Prices) bool {
 func cloneRule(rule Rule) Rule {
 	if rule.ContextTiers != nil {
 		rule.ContextTiers = append([]ContextTier(nil), rule.ContextTiers...)
+	}
+	if rule.ModePrices != nil {
+		modePrices := make(map[Mode]Prices, len(rule.ModePrices))
+		for mode, prices := range rule.ModePrices {
+			modePrices[mode] = prices
+		}
+		rule.ModePrices = modePrices
 	}
 	return rule
 }

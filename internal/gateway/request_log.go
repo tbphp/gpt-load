@@ -47,28 +47,29 @@ type frozenAttemptPricing struct {
 }
 
 type requestRecorder struct {
-	sink             telemetry.RequestLogSink
-	requestID        string
-	startedAt        time.Time
-	accessKeyID      uint
-	protocol         protocol.Protocol
-	operation        execution.Operation
-	clientModel      string
-	stream           bool
-	firstResponseMs  *int64
-	reasoning        reasoning.Config
-	usageApplicable  bool
-	usageDiagnostics usage.Diagnostics
-	affinityHit      bool
-	attempts         []telemetry.Attempt
-	attemptPricing   []frozenAttemptPricing
-	pendingPricing   frozenAttemptPricing
-	pricingPending   bool
-	outcome          requestOutcome
-	usage            telemetry.UsageObservation
-	now              func() time.Time
-	redactor         *redact.Redactor
-	emitted          bool
+	sink                 telemetry.RequestLogSink
+	requestID            string
+	startedAt            time.Time
+	accessKeyID          uint
+	protocol             protocol.Protocol
+	operation            execution.Operation
+	clientModel          string
+	stream               bool
+	firstResponseMs      *int64
+	reasoning            reasoning.Config
+	usageApplicable      bool
+	requestedPricingMode pricing.Mode
+	usageDiagnostics     usage.Diagnostics
+	affinityHit          bool
+	attempts             []telemetry.Attempt
+	attemptPricing       []frozenAttemptPricing
+	pendingPricing       frozenAttemptPricing
+	pricingPending       bool
+	outcome              requestOutcome
+	usage                telemetry.UsageObservation
+	now                  func() time.Time
+	redactor             *redact.Redactor
+	emitted              bool
 
 	pendingRetry int
 }
@@ -206,6 +207,12 @@ func (recorder *requestRecorder) recordFirstResponse() {
 func (recorder *requestRecorder) setUsageApplicable(applicable bool) {
 	if recorder != nil {
 		recorder.usageApplicable = applicable
+	}
+}
+
+func (recorder *requestRecorder) setPricingMode(mode pricing.Mode) {
+	if recorder != nil {
+		recorder.requestedPricingMode = mode
 	}
 }
 
@@ -488,7 +495,8 @@ func (recorder *requestRecorder) bindUsage(
 	if attemptIndex < len(recorder.attemptPricing) {
 		frozen = recorder.attemptPricing[attemptIndex]
 	}
-	pricingObservation := quoteFrozenAttempt(frozen, result)
+	pricingMode := effectivePricingMode(recorder.requestedPricingMode)
+	pricingObservation := quoteFrozenAttempt(frozen, result, pricingMode)
 	recorder.usage = telemetry.UsageObservation{
 		Result:          result,
 		GroupID:         attempt.GroupID,
@@ -502,6 +510,7 @@ func (recorder *requestRecorder) bindUsage(
 func quoteFrozenAttempt(
 	frozen frozenAttemptPricing,
 	result usage.Result,
+	pricingMode pricing.Mode,
 ) telemetry.PricingObservation {
 	observation := telemetry.PricingObservation{
 		UpstreamModel:       frozen.upstreamModel,
@@ -516,10 +525,10 @@ func quoteFrozenAttempt(
 	if frozen.table == nil || frozen.upstreamModel == "" {
 		return observation
 	}
-	quote, receipt := frozen.table.QuoteWithReceipt(pricing.Identity{
+	quote, receipt := frozen.table.QuoteForModeWithReceipt(pricing.Identity{
 		ChannelID: frozen.channelID,
 		ModelID:   frozen.upstreamModel,
-	}, result)
+	}, result, pricingMode)
 	observation.CostState = string(quote.State)
 	observation.PricingCompleteness = string(quote.Completeness)
 	observation.EstimatedCostNanoUSD = int64(quote.EstimatedCostNanoUSD)
@@ -529,6 +538,13 @@ func quoteFrozenAttempt(
 		}
 	}
 	return observation
+}
+
+func effectivePricingMode(requestedMode pricing.Mode) pricing.Mode {
+	if requestedMode.Valid() {
+		return requestedMode
+	}
+	return pricing.ModeStandard
 }
 
 func (recorder *requestRecorder) completeTransport(

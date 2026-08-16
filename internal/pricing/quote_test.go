@@ -48,6 +48,44 @@ func TestQuoteUsesHighestEligibleTierAtInclusiveBoundary(t *testing.T) {
 	}
 }
 
+func TestQuoteForModeUsesExactModePriceAndFallsBackToStandard(t *testing.T) {
+	identity := Identity{ChannelID: "openai", ModelID: "gpt-fast"}
+	table := mustTable(t, Rule{
+		Identity: identity,
+		Prices:   Prices{Input: fixedPrice(2)},
+		ContextTiers: []ContextTier{{
+			InputThresholdTokens: 1,
+			Prices:               Prices{Input: fixedPrice(3)},
+		}},
+		ModePrices: map[Mode]Prices{
+			ModeFast: {Input: fixedPrice(7)},
+		},
+	})
+	result := usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 1_000_000},
+		State:  usage.StateComplete,
+	}
+
+	fastQuote, fastReceipt := table.QuoteForModeWithReceipt(identity, result, ModeFast)
+	if fastQuote.EstimatedCostNanoUSD != 7 || fastReceipt == nil ||
+		fastReceipt.SchemaVersion != 4 || fastReceipt.PricingMode != ModeFast ||
+		fastReceipt.ContextThresholdTokens != nil {
+		t.Fatalf("fast quote/receipt = %#v / %#v", fastQuote, fastReceipt)
+	}
+
+	standardQuote, standardReceipt := table.QuoteForModeWithReceipt(
+		identity,
+		result,
+		Mode("unpriced-mode"),
+	)
+	if standardQuote.EstimatedCostNanoUSD != 3 || standardReceipt == nil ||
+		standardReceipt.PricingMode != ModeStandard ||
+		standardReceipt.ContextThresholdTokens == nil ||
+		*standardReceipt.ContextThresholdTokens != 1 {
+		t.Fatalf("fallback quote/receipt = %#v / %#v", standardQuote, standardReceipt)
+	}
+}
+
 func TestQuoteTierReplacesBaseSlotsWithoutFallback(t *testing.T) {
 	identity := Identity{ChannelID: "anthropic", ModelID: "claude-sonnet"}
 	table := mustTable(t, Rule{
@@ -266,14 +304,15 @@ func TestQuoteWithReceiptFreezesExactTieredCalculation(t *testing.T) {
 	}) {
 		t.Fatalf("QuoteWithReceipt() quote = %#v", quote)
 	}
-	if receipt == nil || receipt.SchemaVersion != 3 || receipt.Method != "unit_rate_sum" ||
+	if receipt == nil || receipt.SchemaVersion != 4 || receipt.Method != "unit_rate_sum" ||
 		receipt.MethodVersion != 1 || receipt.Currency != "USD" ||
+		receipt.PricingMode != ModeStandard ||
 		receipt.Rule != (ReceiptRule{ChannelID: identity.ChannelID, ModelID: identity.ModelID}) || receipt.ContextThresholdTokens == nil ||
 		*receipt.ContextThresholdTokens != threshold || receipt.TotalNanoUSD != 27 {
 		t.Fatalf("QuoteWithReceipt() receipt = %#v", receipt)
 	}
 	if err := ValidateReceipt(*receipt); err != nil {
-		t.Fatalf("generated v3 receipt is invalid: %v", err)
+		t.Fatalf("generated v4 receipt is invalid: %v", err)
 	}
 	if got, want := len(receipt.LineItems), 5; got != want {
 		t.Fatalf("receipt line items = %d, want %d: %#v", got, want, receipt.LineItems)

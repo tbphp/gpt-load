@@ -443,6 +443,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	recorder.setStream(metadata.Stream)
 	recorder.setReasoning(metadata.Reasoning)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
+	recorder.setPricingMode(metadata.PricingMode)
 	recorder.setUsageDiagnostics(metadata.UsageDiagnostics)
 
 	allowedCredentialIDs := make(map[uint]struct{}, len(allowedCredentialRefs))

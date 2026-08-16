@@ -627,7 +627,7 @@ func (s *Service) applyCatalogSnapshot(ctx context.Context, snapshot *catalog.Sn
 			return err
 		}
 		var err error
-		table, err = loadPriceTable(ctx, tx)
+		table, err = loadPriceTable(ctx, tx, snapshot)
 		return err
 	})
 	if err != nil {

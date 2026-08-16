@@ -111,6 +111,7 @@ type requestLogPricingReceiptResponse struct {
 	Method                 string                            `json:"method"`
 	MethodVersion          int                               `json:"method_version"`
 	Currency               string                            `json:"currency"`
+	PricingMode            pricing.Mode                      `json:"pricing_mode"`
 	Rule                   requestLogPricingIdentityResponse `json:"rule"`
 	ContextThresholdTokens *string                           `json:"context_threshold_tokens"`
 	LineItems              []requestLogPricingLineResponse   `json:"line_items"`
@@ -145,6 +146,7 @@ type requestLogItemResponse struct {
 	UsageState              usage.State                  `json:"usage_state"`
 	CostState               pricing.CostState            `json:"cost_state"`
 	PricingCompleteness     pricing.Completeness         `json:"pricing_completeness"`
+	PricingMode             *pricing.Mode                `json:"pricing_mode"`
 	InputTokens             string                       `json:"input_tokens"`
 	CacheReadTokens         string                       `json:"cache_read_tokens"`
 	CacheWrite5MTokens      string                       `json:"cache_write_5m_tokens"`
@@ -847,6 +849,10 @@ func mapRequestLogItemResponse(
 	if err != nil {
 		return requestLogItemResponse{}, fmt.Errorf("map request log upstream protocol: %w", err)
 	}
+	pricingMode, err := nullableRequestLogPricingMode(record)
+	if err != nil {
+		return requestLogItemResponse{}, fmt.Errorf("map request log pricing mode: %w", err)
+	}
 	return requestLogItemResponse{
 		RequestID:     record.RequestID,
 		CompletedAtMS: record.CompletedAtMS,
@@ -879,6 +885,7 @@ func mapRequestLogItemResponse(
 		UsageState:              record.UsageState,
 		CostState:               record.CostState,
 		PricingCompleteness:     record.PricingCompleteness,
+		PricingMode:             pricingMode,
 		InputTokens:             strconv.FormatInt(inputTokens, 10),
 		CacheReadTokens:         strconv.FormatInt(record.CacheReadTokens, 10),
 		CacheWrite5MTokens:      strconv.FormatInt(record.CacheWrite5MTokens, 10),
@@ -887,6 +894,32 @@ func mapRequestLogItemResponse(
 		OutputTokens:            strconv.FormatInt(record.OutputTokens, 10),
 		EstimatedCostNanoUSD:    usageCost.estimatedCostNanoUSD,
 	}, nil
+}
+
+func nullableRequestLogPricingMode(record requestlog.Record) (*pricing.Mode, error) {
+	mode := record.PricingMode
+	if mode == "" {
+		for index := len(record.Attempts) - 1; index >= 0; index-- {
+			attempt := record.Attempts[index]
+			if attempt.GroupID == record.GroupID &&
+				attempt.ChannelID == record.ChannelID &&
+				attempt.CredentialID == record.CredentialID &&
+				attempt.PricingReceipt != nil {
+				mode = attempt.PricingReceipt.PricingMode
+				if attempt.PricingReceipt.SchemaVersion < 4 {
+					mode = pricing.ModeStandard
+				}
+				break
+			}
+		}
+	}
+	if mode == "" {
+		return nil, nil
+	}
+	if !mode.Valid() {
+		return nil, fmt.Errorf("invalid pricing mode")
+	}
+	return &mode, nil
 }
 
 func mapRequestLogReasoning(record requestlog.Record) *requestLogReasoningResponse {
@@ -1029,15 +1062,19 @@ func mapRequestLogPricingReceipt(
 		Method:        receipt.Method,
 		MethodVersion: receipt.MethodVersion,
 		Currency:      receipt.Currency,
+		PricingMode:   receipt.PricingMode,
 		Rule:          requestLogPricingIdentityResponse{ModelID: receipt.Rule.ModelID},
 		LineItems:     make([]requestLogPricingLineResponse, 0, len(receipt.LineItems)),
 		TotalNanoUSD:  strconv.FormatInt(receipt.TotalNanoUSD, 10),
+	}
+	if receipt.SchemaVersion < 4 {
+		result.PricingMode = pricing.ModeStandard
 	}
 	if receipt.SchemaVersion == 1 {
 		scopeKey := receipt.Rule.ScopeKey
 		result.Rule.ScopeKey = &scopeKey
 	}
-	if receipt.SchemaVersion == 3 {
+	if receipt.SchemaVersion == 3 || receipt.SchemaVersion == 4 {
 		channelID := channel.ID(receipt.Rule.ChannelID)
 		if _, ok := requestLogChannelRegistry.Get(channelID); !ok {
 			return nil, fmt.Errorf("map request log pricing receipt: unknown channel ID")
