@@ -180,6 +180,30 @@ func TestResolvedTargetPreferredProtocolUsesDeclaredRoutes(t *testing.T) {
 	}
 }
 
+func TestResolvedTargetPreferredRouteModeIsResolved(t *testing.T) {
+	t.Parallel()
+
+	key := routeKey{
+		clientProtocol: protocol.OpenAICompletions,
+		operation:      execution.OperationListModels,
+	}
+	target := ResolvedTarget{
+		modes: map[protocol.Protocol]map[execution.Operation]RouteMode{
+			protocol.OpenAICompletions: {
+				execution.OperationListModels: RouteConverted,
+			},
+		},
+		resolvers: map[routeKey]spec.RouteResolver{
+			key: func(string, execution.RouteMode) execution.RouteMode { return execution.RouteNative },
+		},
+	}
+
+	clientProtocol, mode, ok := target.PreferredRoute(execution.OperationListModels, "")
+	if !ok || clientProtocol != protocol.OpenAICompletions || mode != RouteNative {
+		t.Fatalf("PreferredRoute() = %q, %q, %t; want openai-completions, native, true", clientProtocol, mode, ok)
+	}
+}
+
 func findModule(t *testing.T, all []spec.Module, id spec.ID) spec.Module {
 	t.Helper()
 	for _, candidate := range all {

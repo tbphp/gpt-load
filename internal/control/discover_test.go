@@ -121,6 +121,7 @@ func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
 	setCodexCredentialRefresh(t, fixture.service, func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
 		refreshCalls++
 		credential.AccessToken = "fresh-access"
+		credential.RefreshToken = "fresh-refresh"
 		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
 		return credential, nil
 	})
@@ -130,8 +131,14 @@ func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
 	if err != nil || refreshCalls != 0 {
 		t.Fatalf("ImportCredentialStage() error/calls = %v/%d", err, refreshCalls)
 	}
+	before, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	now = now.Add(6 * time.Minute)
+	discoveryCalls := 0
 	setCodexModelDiscovery(t, fixture.service, func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
+		discoveryCalls++
 		if credential.AccessToken != "fresh-access" {
 			t.Fatalf("model discovery access token = %q, want refreshed token", credential.AccessToken)
 		}
@@ -144,6 +151,49 @@ func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
 	})
 	if err != nil || refreshCalls != 1 || len(result.Models) != 1 {
 		t.Fatalf("DiscoverModels() result/error/calls = %#v/%v/%d", result, err, refreshCalls)
+	}
+	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil || row.Status != models.CredentialStageReady ||
+		row.IdentityFingerprint != before.IdentityFingerprint || row.ExpiresAtMS != before.ExpiresAtMS {
+		t.Fatalf("refreshed stage = %#v, %v", row, err)
+	}
+	var summary CredentialStageAccount
+	if err := json.Unmarshal(row.SafeSummaryJSON, &summary); err != nil || summary.ExpiresAtMS == nil ||
+		*summary.ExpiresAtMS != now.Add(time.Hour).UnixMilli() {
+		t.Fatalf("refreshed stage summary = %#v, %v", summary, err)
+	}
+	stored, err := fixture.service.decodeStageSubscriptionCredential(channel.Codex, row)
+	parsed, parseErr := testCodexCredential(stored)
+	if err != nil || parseErr != nil || parsed.AccessToken != "fresh-access" || parsed.RefreshToken != "fresh-refresh" {
+		t.Fatalf("persisted stage credential = %#v, decode=%v parse=%v", parsed, err, parseErr)
+	}
+	if _, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	}); err != nil || refreshCalls != 1 || discoveryCalls != 2 {
+		t.Fatalf("second DiscoverModels() error/refresh/discovery calls = %v/%d/%d", err, refreshCalls, discoveryCalls)
+	}
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("refreshed-stage"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	var credentialRow models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credentialRow).Error; err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := fixture.encryption.Decrypt(credentialRow.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := codex.ParseCredentialJSON([]byte(plaintext))
+	plaintext = ""
+	if err != nil || credential.AccessToken != "fresh-access" || credential.RefreshToken != "fresh-refresh" {
+		t.Fatalf("consumed credential = %#v, %v", credential, err)
 	}
 }
 
@@ -176,6 +226,92 @@ func TestDiscoverModelsRejectsReadyStageRefreshIdentityChange(t *testing.T) {
 	})
 	if !errors.Is(err, app_errors.ErrCredentialReauthorizationRequired) || discoveryCalls != 0 {
 		t.Fatalf("DiscoverModels() error/calls = %v/%d", err, discoveryCalls)
+	}
+	row, loadErr := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if loadErr != nil || row.Status != models.CredentialStageFailed || row.EncryptedPayload != "" {
+		t.Fatalf("identity-changed stage = %#v, %v", row, loadErr)
+	}
+}
+
+func TestDiscoverModelsMarksReadyStageOutcomeUnknownAfterAmbiguousRefresh(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	setCodexCredentialRefresh(t, fixture.service, func(context.Context, codex.Credential) (codex.Credential, error) {
+		return codex.Credential{}, errors.New("ambiguous refresh")
+	})
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"aging-access","refresh_token":"refresh-token","account_id":"account-unknown","expired":"2026-08-14T08:10:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(6 * time.Minute)
+
+	_, err = fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	})
+	if !errors.Is(err, app_errors.ErrCredentialAuthOutcomeUnknown) {
+		t.Fatalf("DiscoverModels() error = %v, want outcome unknown", err)
+	}
+	row, loadErr := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if loadErr != nil || row.Status != models.CredentialStageOutcomeUnknown || row.EncryptedPayload != "" {
+		t.Fatalf("ambiguous-refresh stage = %#v, %v", row, loadErr)
+	}
+}
+
+func TestReadyStageRefreshExcludesConcurrentConsume(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	setCodexCredentialRefresh(t, fixture.service, func(ctx context.Context, credential codex.Credential) (codex.Credential, error) {
+		close(refreshStarted)
+		select {
+		case <-releaseRefresh:
+		case <-ctx.Done():
+			return codex.Credential{}, ctx.Err()
+		}
+		credential.AccessToken = "fresh-access"
+		credential.RefreshToken = "fresh-refresh"
+		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return credential, nil
+	})
+	setCodexModelDiscovery(t, fixture.service, func(context.Context, codex.Credential) ([]codex.Model, error) {
+		return []codex.Model{{ID: "gpt-5.2"}}, nil
+	})
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"aging-access","refresh_token":"refresh-token","account_id":"account-race","expired":"2026-08-14T08:10:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(6 * time.Minute)
+	discoveryDone := make(chan error, 1)
+	go func() {
+		_, discoverErr := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
+			ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+			StagedCredentialID: stage.StageID,
+		})
+		discoveryDone <- discoverErr
+	}()
+	<-refreshStarted
+
+	_, consumeErr := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("concurrent-stage-consume"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	close(releaseRefresh)
+	discoverErr := <-discoveryDone
+	if !errors.Is(consumeErr, app_errors.ErrStagedCredentialNotReady) {
+		t.Fatalf("concurrent CreateGroup() error = %v, want stage not ready", consumeErr)
+	}
+	if discoverErr != nil {
+		t.Fatalf("DiscoverModels() error = %v", discoverErr)
 	}
 }
 

@@ -221,23 +221,32 @@ func (t ResolvedTarget) ModeForModel(
 	return mode, true
 }
 
-// PreferredProtocol selects one declared route for a utility operation,
+// PreferredRoute selects one declared route for a utility operation,
 // preferring native mode and then canonical protocol order.
+func (t ResolvedTarget) PreferredRoute(
+	operation execution.Operation,
+	upstreamModel string,
+) (protocol.Protocol, RouteMode, bool) {
+	for _, clientProtocol := range protocol.DataPlaneProtocols() {
+		if mode, ok := t.ModeForModel(clientProtocol, operation, upstreamModel); ok && mode == RouteNative {
+			return clientProtocol, mode, true
+		}
+	}
+	for _, clientProtocol := range protocol.DataPlaneProtocols() {
+		if mode, ok := t.ModeForModel(clientProtocol, operation, upstreamModel); ok {
+			return clientProtocol, mode, true
+		}
+	}
+	return "", "", false
+}
+
+// PreferredProtocol selects the protocol of the preferred utility route.
 func (t ResolvedTarget) PreferredProtocol(
 	operation execution.Operation,
 	upstreamModel string,
 ) (protocol.Protocol, bool) {
-	for _, clientProtocol := range protocol.DataPlaneProtocols() {
-		if mode, ok := t.ModeForModel(clientProtocol, operation, upstreamModel); ok && mode == RouteNative {
-			return clientProtocol, true
-		}
-	}
-	for _, clientProtocol := range protocol.DataPlaneProtocols() {
-		if _, ok := t.ModeForModel(clientProtocol, operation, upstreamModel); ok {
-			return clientProtocol, true
-		}
-	}
-	return "", false
+	clientProtocol, _, ok := t.PreferredRoute(operation, upstreamModel)
+	return clientProtocol, ok
 }
 
 // NormalizeVertexGeminiModel returns the Vertex resource ID for a Gemini,

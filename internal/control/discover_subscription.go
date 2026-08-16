@@ -49,7 +49,7 @@ func (s *Service) loadReadySubscriptionStageCredential(
 	if err != nil {
 		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
-	return s.prepareTransientSubscriptionCredential(ctx, channelID, driver, credential)
+	return s.prepareReadySubscriptionStageCredential(ctx, stage, driver, credential)
 }
 
 func (s *Service) discoverSubscriptionGroupModels(

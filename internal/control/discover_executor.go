@@ -56,17 +56,13 @@ func (s *Service) executeModelDiscovery(
 		target.resolvedTarget.ChannelID != target.channelID || len(target.credentials) == 0 {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
-	clientProtocol, supported := target.resolvedTarget.PreferredProtocol(execution.OperationListModels, "")
+	clientProtocol, routeMode, supported := target.resolvedTarget.PreferredRoute(execution.OperationListModels, "")
 	if !supported {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 	clientProtocol, method, path, body, err := utilityRequestShape(clientProtocol, execution.OperationListModels)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
-	}
-	routeMode, supported := target.resolvedTarget.Mode(clientProtocol, execution.OperationListModels)
-	if !supported {
-		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 
 	discoveryCtx, cancel := context.WithTimeout(ctx, s.modelDiscoveryTimeout)

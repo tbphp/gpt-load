@@ -154,6 +154,155 @@ func (s *Service) prepareTransientSubscriptionCredential(
 	return refreshed, nil
 }
 
+func (s *Service) prepareReadySubscriptionStageCredential(
+	ctx context.Context,
+	row models.CredentialStage,
+	driver subscriptionruntime.Driver,
+	credential subscriptionruntime.Credential,
+) (subscriptionruntime.Credential, error) {
+	expiresAt, known := credential.ExpiresAt()
+	if !known || expiresAt.After(s.now().Add(5*time.Minute)) {
+		return credential, nil
+	}
+	if s.refreshSubscriptionCredential == nil {
+		return subscriptionruntime.Credential{}, app_errors.ErrAuthorizationUnavailable
+	}
+	now := s.now().UTC()
+	if now.UnixMilli() >= row.ExpiresAtMS {
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialExpired
+	}
+	claim := s.db.WithContext(ctx).Model(&models.CredentialStage{}).
+		Where(
+			"id = ? AND status = ? AND encrypted_payload = ? AND expires_at_ms > ?",
+			row.ID,
+			models.CredentialStageReady,
+			row.EncryptedPayload,
+			now.UnixMilli(),
+		).
+		Updates(map[string]any{
+			"status":        models.CredentialStageExchanging,
+			"expires_at_ms": now.Add(defaultSubscriptionControlTimeout).UnixMilli(),
+			"error_code":    "", "updated_at_ms": now.UnixMilli(),
+		})
+	if claim.Error != nil {
+		return subscriptionruntime.Credential{}, app_errors.ParseDBError(claim.Error)
+	}
+	if claim.RowsAffected != 1 {
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialNotReady
+	}
+
+	refreshContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+	refreshed, refreshErr := s.refreshSubscriptionCredential(refreshContext, channel.ID(row.ChannelID), credential)
+	cancel()
+	if refreshErr != nil {
+		status := models.CredentialStageOutcomeUnknown
+		code := "credential_refresh_outcome_unknown"
+		apiErr := app_errors.ErrCredentialAuthOutcomeUnknown
+		switch driver.ClassifyRefreshFailure(refreshErr) {
+		case subscriptionruntime.RefreshFailureIdentityChanged:
+			status = models.CredentialStageFailed
+			code = "credential_refresh_identity_changed"
+			apiErr = app_errors.ErrCredentialReauthorizationRequired
+		case subscriptionruntime.RefreshFailureReauthorizationRequired:
+			status = models.CredentialStageFailed
+			code = "credential_refresh_rejected"
+			apiErr = app_errors.ErrCredentialReauthorizationRequired
+		}
+		if err := s.finishCredentialStageRefreshFailure(ctx, row.ID, status, code); err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
+		return subscriptionruntime.Credential{}, apiErr
+	}
+	if refreshed.Identity() == "" || refreshed.Identity() != credential.Identity() ||
+		s.subscriptionIdentityFingerprint(channel.ID(row.ChannelID), refreshed.Identity()) != row.IdentityFingerprint {
+		if err := s.finishCredentialStageRefreshFailure(
+			ctx,
+			row.ID,
+			models.CredentialStageFailed,
+			"credential_refresh_identity_changed",
+		); err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
+		return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
+	}
+	if err := s.finishCredentialStageRefresh(ctx, row, refreshed); err != nil {
+		if finalizeErr := s.finishCredentialStageRefreshFailure(
+			ctx,
+			row.ID,
+			models.CredentialStageOutcomeUnknown,
+			"credential_refresh_persist_failed",
+		); finalizeErr != nil {
+			return subscriptionruntime.Credential{}, app_errors.ErrInternalServer
+		}
+		return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+	}
+	return refreshed, nil
+}
+
+func (s *Service) finishCredentialStageRefresh(
+	ctx context.Context,
+	row models.CredentialStage,
+	credential subscriptionruntime.Credential,
+) error {
+	canonical := credential.Canonical()
+	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: canonical})
+	clear(canonical)
+	if err != nil {
+		return err
+	}
+	ciphertext, err := s.encryption.Encrypt(string(payload))
+	clear(payload)
+	if err != nil {
+		return err
+	}
+	summaryJSON, err := json.Marshal(subscriptionCredentialAccount(credential))
+	if err != nil {
+		return err
+	}
+	finalizeContext, cancel := credentialStageFinalizeContext(ctx)
+	defer cancel()
+	result := s.db.WithContext(finalizeContext).Model(&models.CredentialStage{}).
+		Where("id = ? AND status = ?", row.ID, models.CredentialStageExchanging).
+		Updates(map[string]any{
+			"status": models.CredentialStageReady, "encrypted_payload": ciphertext,
+			"payload_schema_version": stagedSubscriptionSchemaV2,
+			"safe_summary_json":      models.JSON(summaryJSON),
+			"identity_fingerprint":   row.IdentityFingerprint,
+			"expires_at_ms":          row.ExpiresAtMS,
+			"error_code":             "", "updated_at_ms": s.now().UnixMilli(),
+		})
+	if result.Error != nil {
+		return app_errors.ParseDBError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return app_errors.ErrCredentialAuthOutcomeUnknown
+	}
+	return nil
+}
+
+func (s *Service) finishCredentialStageRefreshFailure(
+	ctx context.Context,
+	stageID string,
+	status models.CredentialStageStatus,
+	code string,
+) error {
+	finalizeContext, cancel := credentialStageFinalizeContext(ctx)
+	defer cancel()
+	result := s.db.WithContext(finalizeContext).Model(&models.CredentialStage{}).
+		Where("id = ? AND status = ?", stageID, models.CredentialStageExchanging).
+		Updates(map[string]any{
+			"status": status, "encrypted_payload": "", "oauth_state_hash": nil,
+			"error_code": code, "updated_at_ms": s.now().UnixMilli(),
+		})
+	if result.Error != nil {
+		return app_errors.ParseDBError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return app_errors.ErrInternalServer
+	}
+	return nil
+}
+
 func (s *Service) BeginCredentialAuthorization(
 	ctx context.Context,
 	channelID channel.ID,
