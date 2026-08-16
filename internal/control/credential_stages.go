@@ -160,6 +160,9 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 	driver subscriptionruntime.Driver,
 	credential subscriptionruntime.Credential,
 ) (subscriptionruntime.Credential, error) {
+	if err := ctx.Err(); err != nil {
+		return subscriptionruntime.Credential{}, err
+	}
 	expiresAt, known := credential.ExpiresAt()
 	if !known || expiresAt.After(s.now().Add(5*time.Minute)) {
 		return credential, nil
@@ -191,7 +194,10 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialNotReady
 	}
 
-	refreshContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+	refreshContext, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		defaultSubscriptionControlTimeout,
+	)
 	refreshed, refreshErr := s.refreshSubscriptionCredential(refreshContext, channel.ID(row.ChannelID), credential)
 	cancel()
 	if refreshErr != nil {

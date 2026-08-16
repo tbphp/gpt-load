@@ -362,7 +362,17 @@ export interface RuntimeHealthDto {
   groups: HealthGroupDto[]
   cooldown_credentials: HealthProblemCredentialDto[]
   blacklisted_credentials: HealthProblemCredentialDto[]
+  low_quota_credentials: HealthQuotaCredentialDto[]
   request_log: RequestLogHealthDto
+}
+
+export interface HealthQuotaCredentialDto {
+  credential_id: number
+  group_id: number
+  group_name: string
+  /** 剩余额度比例，0..1 */
+  remaining: number
+  reset_at_ms: number
 }
 
 export interface AccessKeyFiltersDto {

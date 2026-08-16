@@ -57,6 +57,18 @@ type healthProblemCredentialResponse struct {
 	Recovery                healthRecoveryResponse `json:"recovery"`
 }
 
+// healthQuotaCredentialResponse 描述额度即将耗尽的订阅凭据。
+//
+// 刻意不含掩码：调用方（首页「需要处理」）按分组说话，
+// 而生成掩码要对每条凭据逐条解密，为一行提示付这个代价不值得。
+type healthQuotaCredentialResponse struct {
+	CredentialID uint    `json:"credential_id"`
+	GroupID      uint    `json:"group_id"`
+	GroupName    string  `json:"group_name"`
+	Remaining    float64 `json:"remaining"`
+	ResetAtMS    int64   `json:"reset_at_ms"`
+}
+
 type requestLogHealthResponse struct {
 	EnqueuedTotal               uint64 `json:"enqueued_total"`
 	PersistedTotal              uint64 `json:"persisted_total"`
@@ -84,8 +96,13 @@ type runtimeHealthResponse struct {
 	Groups                 []healthGroupResponse             `json:"groups"`
 	CooldownCredentials    []healthProblemCredentialResponse `json:"cooldown_credentials"`
 	BlacklistedCredentials []healthProblemCredentialResponse `json:"blacklisted_credentials"`
+	LowQuotaCredentials    []healthQuotaCredentialResponse   `json:"low_quota_credentials"`
 	RequestLog             requestLogHealthResponse          `json:"request_log"`
 }
+
+// healthLowQuotaRemainingRatio 是「额度快用完」的唯一阈值来源。
+// 与管理 UI 账号卡的 danger 档保持一致，避免同一句结论在两处算出不同答案。
+const healthLowQuotaRemainingRatio = 0.3
 
 type healthBucket string
 
@@ -227,6 +244,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		Groups:                 []healthGroupResponse{},
 		CooldownCredentials:    []healthProblemCredentialResponse{},
 		BlacklistedCredentials: []healthProblemCredentialResponse{},
+		LowQuotaCredentials:    []healthQuotaCredentialResponse{},
 	}
 	groupIDs := make([]uint, 0, len(observation.snapshot.GroupCatalog))
 	for groupID := range observation.snapshot.GroupCatalog {
@@ -247,6 +265,30 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		bucket := classifyHealthKey(group, key, observation.observedAt)
 		addHealthCount(&result.Counts, bucket)
 		addHealthCount(&result.Groups[index].Counts, bucket)
+		// 额度独立于分桶：调度器会跳过额度耗尽的凭据，但 classifyHealthKey 不看额度，
+		// 所以这批凭据在上面仍被计入 available，必须单列出来。
+		// FreshQuotaRemaining 在观测过期或已过重置时刻时返回 nil，过期数字绝不报警。
+		if bucket == healthBucketAvailable || bucket == healthBucketCooldown {
+			if remaining := key.FreshQuotaRemaining(observation.observedAt); remaining != nil &&
+				*remaining <= healthLowQuotaRemainingRatio {
+				resetAtMS, err := safeEpochMilliseconds(key.QuotaResetAt)
+				if err != nil {
+					return runtimeHealthResponse{}, fmt.Errorf(
+						"map low quota credential %d reset_at_ms: %w", key.ID, err,
+					)
+				}
+				result.LowQuotaCredentials = append(
+					result.LowQuotaCredentials,
+					healthQuotaCredentialResponse{
+						CredentialID: key.ID,
+						GroupID:      key.GroupID,
+						GroupName:    group.Name,
+						Remaining:    *remaining,
+						ResetAtMS:    resetAtMS,
+					},
+				)
+			}
+		}
 		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
 			continue
 		}

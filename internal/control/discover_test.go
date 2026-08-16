@@ -315,6 +315,85 @@ func TestReadyStageRefreshExcludesConcurrentConsume(t *testing.T) {
 	}
 }
 
+func TestReadyStageRefreshCancellationBoundary(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	refreshingStage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"aging-access","refresh_token":"refresh-token","account_id":"account-detached","expired":"2026-08-14T08:10:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	preCancelledStage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"aging-access","refresh_token":"refresh-token","account_id":"account-pre-cancelled","expired":"2026-08-14T08:10:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(6 * time.Minute)
+
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	setCodexCredentialRefresh(t, fixture.service, func(ctx context.Context, credential codex.Credential) (codex.Credential, error) {
+		close(refreshStarted)
+		<-releaseRefresh
+		if err := ctx.Err(); err != nil {
+			return codex.Credential{}, err
+		}
+		credential.AccessToken = "fresh-access"
+		credential.RefreshToken = "fresh-refresh"
+		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return credential, nil
+	})
+	setCodexModelDiscovery(t, fixture.service, func(ctx context.Context, _ codex.Credential) ([]codex.Model, error) {
+		return nil, ctx.Err()
+	})
+	discoveryContext, cancelDiscovery := context.WithCancel(context.Background())
+	discoveryDone := make(chan error, 1)
+	go func() {
+		_, discoverErr := fixture.service.DiscoverModels(discoveryContext, ModelDiscoveryRequest{
+			ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+			StagedCredentialID: refreshingStage.StageID,
+		})
+		discoveryDone <- discoverErr
+	}()
+	<-refreshStarted
+	cancelDiscovery()
+	close(releaseRefresh)
+	if discoverErr := <-discoveryDone; discoverErr == nil || errors.Is(discoverErr, app_errors.ErrCredentialAuthOutcomeUnknown) {
+		t.Fatalf("DiscoverModels() error = %v, want post-refresh discovery failure without invalidating the stage", discoverErr)
+	}
+	row, err := fixture.service.loadCredentialStage(t.Context(), refreshingStage.StageID)
+	if err != nil || row.Status != models.CredentialStageReady || row.EncryptedPayload == "" {
+		t.Fatalf("refreshed stage = %#v, %v", row, err)
+	}
+	stored, err := fixture.service.decodeStageSubscriptionCredential(channel.Codex, row)
+	parsed, parseErr := testCodexCredential(stored)
+	if err != nil || parseErr != nil || parsed.AccessToken != "fresh-access" || parsed.RefreshToken != "fresh-refresh" {
+		t.Fatalf("persisted stage credential = %#v, decode=%v parse=%v", parsed, err, parseErr)
+	}
+
+	refreshCalls := 0
+	setCodexCredentialRefresh(t, fixture.service, func(context.Context, codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		return codex.Credential{}, errors.New("refresh must not run")
+	})
+	preClaimContext, cancelPreClaim := context.WithCancel(context.Background())
+	cancelPreClaim()
+	_, err = fixture.service.DiscoverModels(preClaimContext, ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: preCancelledStage.StageID,
+	})
+	if !errors.Is(err, context.Canceled) || refreshCalls != 0 {
+		t.Fatalf("pre-claim DiscoverModels() error/calls = %v/%d", err, refreshCalls)
+	}
+	row, err = fixture.service.loadCredentialStage(t.Context(), preCancelledStage.StageID)
+	if err != nil || row.Status != models.CredentialStageReady || row.EncryptedPayload == "" {
+		t.Fatalf("pre-cancelled stage = %#v, %v", row, err)
+	}
+}
+
 func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 	fixture := newServiceFixture(t)
 	var calls atomic.Int64

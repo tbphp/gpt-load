@@ -6,30 +6,27 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
-import { homeBaseQueryOptions, type HomeRange } from '@/app/resources/home'
+import { healthQueryOptions } from '@/app/resources/health'
+import { homeBaseQueryOptions } from '@/app/resources/home'
 import { homeLocation } from '@/app/route-locations'
-import TrendChart from '@/components/charts/TrendChart.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
-import PageSection from '@/components/layout/PageSection.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 
-import ConsumptionRanking from './ConsumptionRanking.vue'
 import CurrentAccessKeyCard from './CurrentAccessKeyCard.vue'
 import GatewayConnection from './GatewayConnection.vue'
+import HomeAttention from './HomeAttention.vue'
+import HomeSpend from './HomeSpend.vue'
 import HomeSummary from './HomeSummary.vue'
 import HomeWelcome from './HomeWelcome.vue'
-import { homeRangeLabelKey } from './home-range'
 import { useHomeStatisticsPresenter } from './home-presenter'
 import {
   isCanonicalHomeRouteQuery,
   parseHomeRouteQuery,
   serializeHomeRouteQuery,
-  type HomeRankingDimension,
   type HomeRouteState,
 } from './home-route'
 import type { GatewayClientID } from './gateway-clients'
@@ -38,14 +35,18 @@ const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
-const { locale, t } = useI18n()
+const { t } = useI18n()
 const baseQuery = useQuery(homeBaseQueryOptions(client))
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
+// /api/health 不在 AccessKey 白名单里，必须前端主动 gate，
+// 否则 AccessKey 用户首页会挂一个永远 403 的区块。首页不轮询，进页面拉一次即可。
+const healthQuery = useQuery(healthQueryOptions(client, undefined, () => !isAccessKey.value))
 const routeState = computed<HomeRouteState>(() => {
   const state = parseHomeRouteQuery(route.query)
-  return isAccessKey.value ? { ...state, ranking: 'models', accessKeyID: undefined } : state
+  return isAccessKey.value ? { ...state, accessKeyID: undefined } : state
 })
-const statistics = useHomeStatisticsPresenter(client, { initialRange: routeState.value.range })
+// 花费固定看近 30 天：首页不再提供时间旋钮，那个控件本身就是「我是仪表盘」的宣言。
+const statistics = useHomeStatisticsPresenter(client, { initialRange: '30d' })
 const serverClockOffsetMS = ref(0)
 const nowMS = ref(Date.now())
 
@@ -62,26 +63,15 @@ const snapshot = computed(() => {
   const state = statistics.state.value
   return state.kind === 'initial' ? null : state.snapshot
 })
-const homeTrendSeries = computed(() =>
-  (snapshot.value?.series ?? []).map((point) => ({
-    ...point,
-    request_count: point.request_count - point.failure_count,
-  })),
-)
 const statisticsLoading = computed(() => {
   return statistics.state.value.kind === 'initial'
 })
-const statisticsSwitching = computed(() => statistics.state.value.kind === 'switching')
 const baseLoading = useStableLoading(() => baseQuery.isPending.value)
 const statisticsInitialLoading = useStableLoading(statisticsLoading)
-const statisticsTransition = useStableLoading(statisticsSwitching)
 const baseRefreshing = computed(
   () => baseQuery.data.value !== undefined && baseQuery.isFetching.value,
 )
 const homeRefreshing = computed(() => baseRefreshing.value || statistics.refreshing.value)
-const displayedRange = computed(
-  () => statistics.targetRange.value ?? snapshot.value?.range ?? statistics.selectedRange.value,
-)
 const isEmpty = computed(() => {
   const inventory = baseQuery.data.value?.inventory
   return inventory !== undefined && inventory.group_count === 0 && inventory.credential_count === 0
@@ -96,9 +86,7 @@ watch(
   () => route.query,
   (query) => {
     const parsed = parseHomeRouteQuery(query)
-    const state = isAccessKey.value
-      ? { ...parsed, ranking: 'models' as const, accessKeyID: undefined }
-      : parsed
+    const state = isAccessKey.value ? { ...parsed, accessKeyID: undefined } : parsed
     if (!isCanonicalHomeRouteQuery(query, state)) {
       void router.replace(homeLocation(serializeHomeRouteQuery(state)))
     }
@@ -116,23 +104,10 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => routeState.value.range,
-  (range) => statistics.selectRange(range),
-)
-
 function navigate(patch: Partial<HomeRouteState>, replace = false): void {
   const next = { ...routeState.value, ...patch }
   const location = homeLocation(serializeHomeRouteQuery(next))
   void (replace ? router.replace(location) : router.push(location))
-}
-
-function selectRange(range: HomeRange): void {
-  navigate({ range })
-}
-
-function selectRanking(dimension: HomeRankingDimension): void {
-  navigate({ ranking: dimension })
 }
 
 function selectAccessKey(id: number): void {
@@ -142,9 +117,6 @@ function selectAccessKey(id: number): void {
 
 function selectClient(clientID: GatewayClientID): void {
   navigate({ client: clientID })
-}
-function rangeLabel(range: HomeRange): string {
-  return t(homeRangeLabelKey(range))
 }
 
 const uptimeTimer = window.setInterval(() => {
@@ -195,78 +167,17 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
         />
         <HomeSummary
           :base="baseQuery.data.value"
-          :statistics-state="statistics.state.value"
-          :selected-range="statistics.selectedRange.value"
           :observed-at-ms="statistics.lastSuccessfulObservedAtMS.value"
           :uptime-now-ms="uptimeNowMS"
-          :loading="statisticsTransition"
-          @select-range="selectRange"
         />
+
+        <!-- 紧贴事实行：它是那句「X/Y 个凭据可用」的注解，隔开就变成孤立的红条。 -->
+        <HomeAttention v-if="!isAccessKey" :health="healthQuery.data.value ?? null" />
 
         <CurrentAccessKeyCard
           v-if="baseQuery.data.value.current_access_key"
           :access-key="baseQuery.data.value.current_access_key"
         />
-
-        <section class="home-view__statistics-region home-view__statistics-region--trend">
-          <PageSection
-            v-if="snapshot"
-            :title="t('home.ledger.trendTitle', { range: rangeLabel(displayedRange) })"
-          >
-            <SkeletonBlock
-              v-if="statisticsTransition"
-              class="home-view__trend-skeleton"
-              height="auto"
-              :aria-label="t('home.ledger.statisticsLoading')"
-            />
-            <TrendChart
-              v-else
-              :series="homeTrendSeries"
-              :title="t('home.ledger.trendTitle', { range: rangeLabel(snapshot.range) })"
-              :description="t('home.ledger.trendDescription')"
-              :empty-label="t('home.ledger.trendEmpty')"
-              :request-label="t('home.ledger.successLabel')"
-              :failure-label="t('home.ledger.failuresLabel')"
-              :range-start="snapshot.from_ms"
-              :range-end="snapshot.to_ms"
-              :locale="locale"
-            />
-          </PageSection>
-          <PageSection
-            v-else-if="statisticsLoading || statisticsInitialLoading"
-            :title="t('home.ledger.statisticsLoading')"
-            class="home-view__statistics-section"
-          >
-            <SkeletonBlock
-              height="12rem"
-              :concealed="!statisticsInitialLoading"
-              :aria-label="t('home.ledger.statisticsLoading')"
-            />
-          </PageSection>
-        </section>
-
-        <section class="home-view__statistics-region home-view__statistics-region--ranking">
-          <ConsumptionRanking
-            v-if="snapshot"
-            :rankings="snapshot.rankings"
-            :range="rangeLabel(displayedRange)"
-            :dimension="routeState.ranking"
-            :models-only="isAccessKey"
-            :loading="statisticsTransition"
-            @update:dimension="selectRanking"
-          />
-          <PageSection
-            v-else-if="statisticsLoading || statisticsInitialLoading"
-            :title="t('home.ledger.statisticsLoading')"
-            class="home-view__statistics-section"
-          >
-            <SkeletonBlock
-              height="17rem"
-              :concealed="!statisticsInitialLoading"
-              :aria-label="t('home.ledger.statisticsLoading')"
-            />
-          </PageSection>
-        </section>
 
         <GatewayConnection
           :access-keys="baseQuery.data.value.access_keys"
@@ -277,6 +188,8 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           @update:selected-access-key-id="selectAccessKey"
           @update:client-id="selectClient"
         />
+
+        <HomeSpend :snapshot="snapshot" :loading="statisticsLoading || statisticsInitialLoading" />
       </template>
     </LedgerSheet>
   </PageFrame>
@@ -294,18 +207,6 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
   font-family: var(--font-serif);
   font-size: var(--title-panel);
   font-weight: 500;
-}
-
-.home-view__statistics-section :deep(.page-section__content) {
-  min-height: 12rem;
-}
-
-.home-view__statistics-region--trend :deep(.page-section__header) {
-  margin-bottom: 10px;
-}
-
-.home-view__trend-skeleton {
-  aspect-ratio: var(--chart-aspect-ratio);
 }
 
 .home-view__sheet--welcome {

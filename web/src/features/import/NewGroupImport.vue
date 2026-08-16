@@ -11,7 +11,11 @@ import { useToast } from '@/app/toast'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { constrainCollectionSearch } from '@/app/route-query'
 import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
-import { connectGroupCredentials } from '@/app/resources/credential-stages'
+import {
+  connectGroupCredentials,
+  getCredentialStage,
+  type CredentialStage,
+} from '@/app/resources/credential-stages'
 import {
   createGroup,
   discoverModels,
@@ -217,6 +221,32 @@ const readyStages = computed(() =>
 function currentReadyStages(): typeof readyStages.value {
   const now = Date.now()
   return readyStages.value.filter(({ expires_at_ms }) => expires_at_ms > now)
+}
+
+function replaceStagedCredential(stage: CredentialStage): void {
+  const existing = draft.staged_credentials.find((item) => item.stage_id === stage.stage_id)
+  if (!existing) return
+  const replacement = existing.authorization_url
+    ? { ...stage, authorization_url: stage.authorization_url ?? existing.authorization_url }
+    : stage
+  draft.staged_credentials = draft.staged_credentials.map((item) =>
+    item.stage_id === stage.stage_id ? replacement : item,
+  )
+}
+
+async function syncDiscoveryStage(stageID: string, identity: number): Promise<void> {
+  if (!componentActive || !draft.staged_credentials.some((stage) => stage.stage_id === stageID)) {
+    return
+  }
+  try {
+    const stage = await getCredentialStage(api, stageID)
+    if (!componentActive) return
+    replaceStagedCredential(stage)
+  } catch (cause) {
+    if (componentActive && discoveryRequestIdentity === identity) {
+      discoveryErrorKey.value = presentSubscriptionErrorKey(cause, 'common.modelDiscoveryFailed')
+    }
+  }
 }
 
 function expireStaleReadyStages(): void {
@@ -791,6 +821,7 @@ async function runDiscovery(
   controller: AbortController,
   identity: number,
 ): Promise<void> {
+  const stageID = request.staged_credential_id?.trim()
   try {
     const result = await discoverModels(api, request, controller.signal)
     if (discoveryRequestIdentity !== identity || discoveryController !== controller) return
@@ -809,6 +840,7 @@ async function runDiscovery(
         ? presentSubscriptionErrorKey(cause, 'common.modelDiscoveryFailed')
         : 'common.modelDiscoveryFailed'
   } finally {
+    if (stageID) await syncDiscoveryStage(stageID, identity)
     if (discoveryRequestIdentity === identity && discoveryController === controller) {
       discoveryController = undefined
       discoveryLoading.value = false

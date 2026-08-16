@@ -368,6 +368,10 @@ function stageErrorKey(code: string): string {
     authorization_exchange_rejected: 'import.subscription.stageError.exchangeRejected',
     authorization_exchange_unknown: 'import.subscription.stageError.exchangeUnknown',
     authorization_exchange_interrupted: 'import.subscription.stageError.exchangeInterrupted',
+    credential_refresh_identity_changed: 'import.subscription.stageError.refreshIdentityChanged',
+    credential_refresh_rejected: 'import.subscription.stageError.refreshRejected',
+    credential_refresh_outcome_unknown: 'import.subscription.stageError.refreshUnknown',
+    credential_refresh_persist_failed: 'import.subscription.stageError.refreshPersistFailed',
   }
   return known[code] ?? 'import.subscription.stageError.unknown'
 }
