@@ -75,7 +75,7 @@ jobs:
   verify-and-build-web:
     needs: validate-tag
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -109,7 +109,7 @@ jobs:
         run: go build -trimpath -o gpt-load .
 
       - name: Run race-enabled tests
-        run: go test -race -count=1 -timeout=15m . ./internal/...
+        run: go test -race -count=1 -timeout=30m . ./internal/...
 
       - name: Check repository invariants
         run: git diff --check

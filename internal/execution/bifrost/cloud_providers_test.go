@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gpt-load/internal/execution"
 )
@@ -75,6 +76,7 @@ func TestAzureErrorDoesNotExposeStructuredCredentialSecrets(t *testing.T) {
 	spec.ChannelID = "azure_openai"
 	spec.TargetConfig = json.RawMessage(`{"endpoint":"` + server.URL + `"}`)
 	spec.Credential = execution.NewCredentialSnapshot(32, 1, 1, []byte(`{"api_key":"`+azureKey+`"}`))
+	spec.Timeouts.Request = 5 * time.Second
 	spec = freezeTestAttempt(spec)
 	result := runtime.Execute(context.Background(), spec)
 
