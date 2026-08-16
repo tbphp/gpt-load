@@ -268,7 +268,7 @@ postgres://user:password@db.example:5432/gpt_load?sslmode=require
 
 ## ビルドと検証
 
-基準ツール：Go `1.26.5`、Node.js `>=24.11.0`、pnpm `11.17.0`。
+基準ツール：Go `1.26.6`、Node.js `>=24.11.0`、pnpm `11.17.0`。
 
 管理UIを内蔵した単一バイナリをビルドします。
 

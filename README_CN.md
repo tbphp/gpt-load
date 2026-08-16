@@ -267,7 +267,7 @@ postgres://user:password@db.example:5432/gpt_load?sslmode=require
 
 ## 构建与验证
 
-基线：Go `1.26.5`、Node.js `>=24.11.0`、pnpm `11.17.0`。
+基线：Go `1.26.6`、Node.js `>=24.11.0`、pnpm `11.17.0`。
 
 构建内嵌管理 UI 的单二进制：
 

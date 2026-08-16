@@ -60,6 +60,18 @@ func TestCompilerRejectsQuotaPriorityWithoutObservation(t *testing.T) {
 	}
 }
 
+func TestCompilerRejectsResetCreditWithoutObservation(t *testing.T) {
+	t.Parallel()
+
+	codex := findModule(t, builtInModules(), Codex)
+	codex.Definition.Scheduling.QuotaPriority = false
+	codex.Definition.Capabilities.QuotaObservation = ""
+
+	if _, err := compileBuiltInModules([]spec.Module{codex}); err == nil {
+		t.Fatal("compileBuiltInModules() accepted reset credit without observation")
+	}
+}
+
 func TestCompilerRejectsSubscriptionCapabilityOnAPIKeyChannel(t *testing.T) {
 	t.Parallel()
 
@@ -109,6 +121,47 @@ func TestResolvedTargetRejectsRouteResolverModeOutsideDeclaredSet(t *testing.T) 
 		"gpt-test",
 	); ok {
 		t.Fatalf("ModeForModel() = %q, true; want false for undeclared mode", mode)
+	}
+}
+
+func TestResolvedTargetPreferredProtocolUsesDeclaredRoutes(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		modes map[protocol.Protocol]map[execution.Operation]RouteMode
+		want  protocol.Protocol
+	}{
+		{
+			name: "only declared route",
+			modes: map[protocol.Protocol]map[execution.Operation]RouteMode{
+				protocol.OpenAICompletions: {
+					execution.OperationListModels: RouteConverted,
+				},
+			},
+			want: protocol.OpenAICompletions,
+		},
+		{
+			name: "native before converted",
+			modes: map[protocol.Protocol]map[execution.Operation]RouteMode{
+				protocol.OpenAICompletions: {
+					execution.OperationListModels: RouteConverted,
+				},
+				protocol.Anthropic: {
+					execution.OperationListModels: RouteNative,
+				},
+			},
+			want: protocol.Anthropic,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			target := ResolvedTarget{modes: test.modes}
+
+			got, ok := target.PreferredProtocol(execution.OperationListModels, "")
+			if !ok || got != test.want {
+				t.Fatalf("PreferredProtocol() = %q, %t, want %q, true", got, ok, test.want)
+			}
+		})
 	}
 }
 

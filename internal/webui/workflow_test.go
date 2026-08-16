@@ -1448,7 +1448,7 @@ func TestDockerfilePinsBuildAndRuntimeImagesByVersionAndDigest(t *testing.T) {
 	for _, required := range []string{
 		"node:24.18.0-alpine3.24@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd",
 		"pnpm@11.17.0",
-		"golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2",
+		"golang:1.26.6-alpine3.24@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df",
 		"alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
 	} {
 		if !strings.Contains(content, required) {

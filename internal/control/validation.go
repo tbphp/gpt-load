@@ -311,17 +311,7 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 }
 
 func validationProtocol(target channel.ResolvedTarget, model string) (protocol.Protocol, bool) {
-	for _, clientProtocol := range protocol.DataPlaneProtocols() {
-		if mode, ok := target.ModeForModel(clientProtocol, execution.OperationProbe, model); ok && mode == channel.RouteNative {
-			return clientProtocol, true
-		}
-	}
-	for _, clientProtocol := range protocol.DataPlaneProtocols() {
-		if _, ok := target.ModeForModel(clientProtocol, execution.OperationProbe, model); ok {
-			return clientProtocol, true
-		}
-	}
-	return "", false
+	return target.PreferredProtocol(execution.OperationProbe, model)
 }
 
 func computeGroupValidationSignature(

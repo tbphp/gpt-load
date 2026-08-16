@@ -402,6 +402,70 @@ func TestDiscoverGroupModelsSkipsSubscriptionCredentialRequiringAuthorization(t 
 	}
 }
 
+func TestMapGroupDiscoveryTargetRejectsUnreadySubscriptionCredential(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-route-owned", "route-owned@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("route-owned subscription discovery"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.Model(&models.Credential{}).Where("group_id = ?", created.GroupID).
+		Update("auth_state", models.CredentialAuthStateOutcomeUnknown).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows, err := fixture.service.readGroupDiscoverySnapshot(t.Context(), created.GroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = fixture.service.mapGroupDiscoveryTarget(t.Context(), rows)
+	if !errors.Is(err, app_errors.ErrCredentialAuthOutcomeUnknown) {
+		t.Fatalf("mapGroupDiscoveryTarget() error = %v, want ErrCredentialAuthOutcomeUnknown", err)
+	}
+}
+
+func TestMapGroupDiscoveryTargetPreparesSubscriptionCredential(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-route-refresh", "route-refresh@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("route-owned subscription refresh"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareCalls := 0
+	setCodexCredentialPreparer(t, fixture.service, func(_ context.Context, snapshot execution.CredentialSnapshot) (codex.Credential, *execution.ErrorEvidence) {
+		prepareCalls++
+		credential, parseErr := codex.ParseCredentialJSON(snapshot.Data())
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		credential.AccessToken = "route-refreshed-access"
+		return credential, nil
+	})
+	rows, err := fixture.service.readGroupDiscoverySnapshot(t.Context(), created.GroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := fixture.service.mapGroupDiscoveryTarget(t.Context(), rows)
+	if err != nil || prepareCalls != 1 || len(target.credentials) != 1 {
+		t.Fatalf("mapGroupDiscoveryTarget() target/error/calls = %#v/%v/%d", target, err, prepareCalls)
+	}
+	credential, err := codex.ParseCredentialJSON(target.credentials[0].snapshot.Data())
+	if err != nil || credential.AccessToken != "route-refreshed-access" {
+		t.Fatalf("prepared credential = %#v, %v", credential, err)
+	}
+}
+
 func TestDiscoverGroupModelsDoesNotMaskAttemptedSubscriptionFailure(t *testing.T) {
 	fixture := newServiceFixture(t)
 	first := mustImportSubscriptionStage(t, fixture, "account-reauthorize-first", "first@example.com")

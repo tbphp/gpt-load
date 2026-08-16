@@ -119,28 +119,29 @@ func encodeDiscoveryModelsForTest(value protocol.Protocol, models []string) []by
 	return body
 }
 
-func TestNativeOpenAIStyleProvidersUseOpenAIUtilityRequestShape(t *testing.T) {
-	for _, providerKind := range []channel.ProviderKind{
-		channel.ProviderDeepSeek,
-		channel.ProviderOpenRouter,
-		channel.ProviderGroq,
-		channel.ProviderXAI,
+func TestUtilityRequestShapeUsesSelectedProtocol(t *testing.T) {
+	for _, test := range []struct {
+		clientProtocol protocol.Protocol
+		path           string
+	}{
+		{clientProtocol: protocol.OpenAICompletions, path: "/v1/models"},
+		{clientProtocol: protocol.OpenAIResponses, path: "/v1/models"},
+		{clientProtocol: protocol.Anthropic, path: "/v1/models"},
+		{clientProtocol: protocol.Gemini, path: "/v1beta/models"},
 	} {
-		t.Run(string(providerKind), func(t *testing.T) {
+		t.Run(string(test.clientProtocol), func(t *testing.T) {
 			clientProtocol, method, path, body, err := utilityRequestShape(
-				providerKind,
+				test.clientProtocol,
 				execution.OperationListModels,
-				"",
 			)
-			if err != nil || clientProtocol != protocol.OpenAICompletions ||
-				method != http.MethodGet || path != "/v1/models" || body != nil {
+			if err != nil || clientProtocol != test.clientProtocol ||
+				method != http.MethodGet || path != test.path || body != nil {
 				t.Fatalf("ListModels shape = %q %q %q %s, err=%v", clientProtocol, method, path, body, err)
 			}
 
 			if _, _, _, _, err := utilityRequestShape(
-				providerKind,
+				test.clientProtocol,
 				execution.OperationProbe,
-				"model-one",
 			); err == nil {
 				t.Fatal("utilityRequestShape still owns provider Probe wire shape")
 			}

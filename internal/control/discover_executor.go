@@ -56,11 +56,11 @@ func (s *Service) executeModelDiscovery(
 		target.resolvedTarget.ChannelID != target.channelID || len(target.credentials) == 0 {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
-	clientProtocol, method, path, body, err := utilityRequestShape(
-		target.resolvedTarget.ProviderKind,
-		execution.OperationListModels,
-		"",
-	)
+	clientProtocol, supported := target.resolvedTarget.PreferredProtocol(execution.OperationListModels, "")
+	if !supported {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
+	clientProtocol, method, path, body, err := utilityRequestShape(clientProtocol, execution.OperationListModels)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
@@ -167,22 +167,18 @@ func applyControlHeaderRules(rules state.HeaderRules, apiKey string) http.Header
 }
 
 func utilityRequestShape(
-	providerKind channel.ProviderKind,
+	clientProtocol protocol.Protocol,
 	operation execution.Operation,
-	model string,
 ) (protocol.Protocol, string, string, []byte, error) {
 	switch operation {
 	case execution.OperationListModels:
-		switch providerKind {
-		case channel.ProviderOpenAI, channel.ProviderOpenAICompatible,
-			channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
-			return protocol.OpenAICompletions, http.MethodGet, "/v1/models", nil, nil
-		case channel.ProviderAzureOpenAI, channel.ProviderAWSBedrock, channel.ProviderGoogleVertex:
-			return protocol.OpenAICompletions, http.MethodGet, "/v1/models", nil, nil
-		case channel.ProviderAnthropic:
-			return protocol.Anthropic, http.MethodGet, "/v1/models", nil, nil
-		case channel.ProviderGemini:
-			return protocol.Gemini, http.MethodGet, "/v1beta/models", nil, nil
+		switch clientProtocol {
+		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic:
+			return clientProtocol, http.MethodGet, "/v1/models", nil, nil
+		case protocol.Gemini:
+			return clientProtocol, http.MethodGet, "/v1beta/models", nil, nil
+		default:
+			return "", "", "", nil, app_errors.ErrValidation
 		}
 	}
 	return "", "", "", nil, app_errors.ErrValidation

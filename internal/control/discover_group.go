@@ -40,7 +40,7 @@ func (s *Service) DiscoverGroupModels(
 			return s.discoverSubscriptionGroupModels(ctx, rows)
 		}
 	}
-	target, err := s.mapGroupDiscoveryTarget(rows)
+	target, err := s.mapGroupDiscoveryTarget(ctx, rows)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
@@ -72,7 +72,7 @@ func (s *Service) buildGroupDiscoveryTarget(
 	if err != nil {
 		return discoveryTarget{}, err
 	}
-	target, err := s.mapGroupDiscoveryTarget(rows)
+	target, err := s.mapGroupDiscoveryTarget(ctx, rows)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return discoveryTarget{}, parentErr
 	}
@@ -139,8 +139,12 @@ func cloneDiscoveryCredentialRows(rows []models.Credential) []models.Credential 
 }
 
 func (s *Service) mapGroupDiscoveryTarget(
+	ctx context.Context,
 	rows groupDiscoverySnapshotRows,
 ) (discoveryTarget, error) {
+	if err := ctx.Err(); err != nil {
+		return discoveryTarget{}, err
+	}
 	if !rows.found {
 		return discoveryTarget{}, app_errors.ErrResourceNotFound
 	}
@@ -188,14 +192,28 @@ func (s *Service) mapGroupDiscoveryTarget(
 		return discoveryTarget{}, fmt.Errorf("compiled persisted discovery Group is missing: %w", app_errors.ErrInternalServer)
 	}
 
+	connectionType := normalizeGroupConnectionType(rows.group.ConnectionType)
 	discoveryCredentials := make([]discoveryCredential, 0, len(rows.credentials))
+	var preparationErr error
 	for _, credentialRow := range rows.credentials {
-		canonical, apiKey, err := s.decodeCredential(rows.group, credentialRow)
-		if err != nil {
-			return discoveryTarget{}, err
-		}
-		if normalizeGroupConnectionType(rows.group.ConnectionType) == models.ConnectionTypeSubscription {
-			apiKey = ""
+		var canonical []byte
+		apiKey := ""
+		if connectionType == models.ConnectionTypeSubscription {
+			credential, prepareErr := s.prepareStoredSubscriptionCredential(ctx, rows.group, credentialRow)
+			if prepareErr != nil {
+				if err := ctx.Err(); err != nil {
+					return discoveryTarget{}, err
+				}
+				preparationErr = prepareErr
+				continue
+			}
+			canonical = credential.Canonical()
+		} else {
+			var decodeErr error
+			canonical, apiKey, decodeErr = s.decodeCredential(rows.group, credentialRow)
+			if decodeErr != nil {
+				return discoveryTarget{}, decodeErr
+			}
 		}
 		discoveryCredentials = append(discoveryCredentials, discoveryCredential{
 			snapshot: execution.NewCredentialSnapshot(
@@ -206,6 +224,10 @@ func (s *Service) mapGroupDiscoveryTarget(
 			),
 			apiKey: apiKey,
 		})
+		clear(canonical)
+	}
+	if len(discoveryCredentials) == 0 && preparationErr != nil {
+		return discoveryTarget{}, preparationErr
 	}
 	return discoveryTarget{
 		channelID:      channel.ID(rows.group.ChannelID),

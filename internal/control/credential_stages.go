@@ -119,14 +119,14 @@ func (s *Service) ImportCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileInvalid
 	}
-	credential, err = s.prepareImportedSubscriptionCredential(ctx, channelID, driver, credential)
+	credential, err = s.prepareTransientSubscriptionCredential(ctx, channelID, driver, credential)
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
 	return s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential)
 }
 
-func (s *Service) prepareImportedSubscriptionCredential(
+func (s *Service) prepareTransientSubscriptionCredential(
 	ctx context.Context,
 	channelID channel.ID,
 	driver subscriptionruntime.Driver,

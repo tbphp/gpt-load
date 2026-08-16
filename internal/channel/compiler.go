@@ -115,6 +115,9 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 	if source.Scheduling.QuotaPriority && source.Capabilities.QuotaObservation == "" {
 		return definition{}, fmt.Errorf("channel %q enables quota priority without quota observation", id)
 	}
+	if source.Capabilities.ResetCreditAction != "" && source.Capabilities.QuotaObservation == "" {
+		return definition{}, fmt.Errorf("channel %q binds reset credit without quota observation", id)
+	}
 
 	fixedBaseURL := ""
 	var fixedTargetConfig json.RawMessage

@@ -113,6 +113,72 @@ func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
 	}
 }
 
+func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	refreshCalls := 0
+	setCodexCredentialRefresh(t, fixture.service, func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		credential.AccessToken = "fresh-access"
+		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return credential, nil
+	})
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"aging-access","refresh_token":"refresh-token","account_id":"account-aging","expired":"2026-08-14T08:10:00Z"}`,
+	))
+	if err != nil || refreshCalls != 0 {
+		t.Fatalf("ImportCredentialStage() error/calls = %v/%d", err, refreshCalls)
+	}
+	now = now.Add(6 * time.Minute)
+	setCodexModelDiscovery(t, fixture.service, func(_ context.Context, credential codex.Credential) ([]codex.Model, error) {
+		if credential.AccessToken != "fresh-access" {
+			t.Fatalf("model discovery access token = %q, want refreshed token", credential.AccessToken)
+		}
+		return []codex.Model{{ID: "gpt-5.2"}}, nil
+	})
+
+	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	})
+	if err != nil || refreshCalls != 1 || len(result.Models) != 1 {
+		t.Fatalf("DiscoverModels() result/error/calls = %#v/%v/%d", result, err, refreshCalls)
+	}
+}
+
+func TestDiscoverModelsRejectsReadyStageRefreshIdentityChange(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	setCodexCredentialRefresh(t, fixture.service, func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
+		credential.AccountID = "different-account"
+		credential.AccessToken = "different-access"
+		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return credential, nil
+	})
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"aging-access","refresh_token":"refresh-token","account_id":"account-original","expired":"2026-08-14T08:10:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(6 * time.Minute)
+	discoveryCalls := 0
+	setCodexModelDiscovery(t, fixture.service, func(context.Context, codex.Credential) ([]codex.Model, error) {
+		discoveryCalls++
+		return nil, nil
+	})
+
+	_, err = fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	})
+	if !errors.Is(err, app_errors.ErrCredentialReauthorizationRequired) || discoveryCalls != 0 {
+		t.Fatalf("DiscoverModels() error/calls = %v/%d", err, discoveryCalls)
+	}
+}
+
 func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 	fixture := newServiceFixture(t)
 	var calls atomic.Int64
