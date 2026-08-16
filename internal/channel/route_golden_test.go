@@ -10,9 +10,9 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-// TestBuiltInRouteGolden freezes the committed b6cf9481 route behavior before
-// the code-owned channel modules replace the implicit matrix builder. Any
-// deliberate product behavior change must update the relevant row explicitly.
+// TestBuiltInRouteGolden freezes the explicit built-in route contract. It is
+// based on the pre-module behavior with the intentionally unreachable
+// OpenAI Responses model-list routes removed.
 func TestBuiltInRouteGolden(t *testing.T) {
 	t.Parallel()
 
@@ -41,7 +41,7 @@ func TestBuiltInRouteGolden(t *testing.T) {
 	}
 
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(got, "\n"))))
-	const wantDigest = "de6804498975ff2904629369f01ee1a502ecd18ff5cec390cb0c26f7b9a73bd1"
+	const wantDigest = "e5ecfddb89a93d6675a3a9b262c5560cdc19f44782ae97471ce82d9f897ba81d"
 	if digest != wantDigest {
 		t.Fatalf("built-in routes changed: digest = %s, want %s\n%s", digest, wantDigest, strings.Join(got, "\n"))
 	}

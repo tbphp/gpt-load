@@ -508,10 +508,6 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			}
 		}
 		upstreamProtocol := spec.ClientProtocol
-		if spec.Operation == execution.OperationListModels &&
-			(spec.ClientProtocol == protocol.OpenAICompletions || spec.ClientProtocol == protocol.OpenAIResponses) {
-			upstreamProtocol = protocol.OpenAICompletions
-		}
 		return preparedAttempt{
 			provider:         provider,
 			mode:             mode,
@@ -670,7 +666,7 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 			return false
 		}
 		switch spec.ClientProtocol {
-		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic:
+		case protocol.OpenAICompletions, protocol.Anthropic:
 			return spec.Path == "/v1/models"
 		case protocol.Gemini:
 			return spec.Path == "/v1beta/models"

@@ -173,7 +173,7 @@ func utilityRequestShape(
 	switch operation {
 	case execution.OperationListModels:
 		switch clientProtocol {
-		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic:
+		case protocol.OpenAICompletions, protocol.Anthropic:
 			return clientProtocol, http.MethodGet, "/v1/models", nil, nil
 		case protocol.Gemini:
 			return clientProtocol, http.MethodGet, "/v1beta/models", nil, nil
@@ -194,7 +194,7 @@ func parseDiscoveredModelsPage(
 	body []byte,
 ) (discoveredModelsPage, error) {
 	switch clientProtocol {
-	case protocol.OpenAICompletions, protocol.OpenAIResponses:
+	case protocol.OpenAICompletions:
 		var payload struct {
 			Data []struct {
 				ID string `json:"id"`

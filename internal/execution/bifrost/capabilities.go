@@ -35,7 +35,9 @@ func (manager *RuntimeManager) ValidateRouteCapability(
 
 func convertedRouteImplemented(clientProtocol protocol.Protocol, operation execution.Operation) bool {
 	switch operation {
-	case execution.OperationListModels, execution.OperationProbe:
+	case execution.OperationListModels:
+		return clientProtocol != protocol.OpenAIResponses && clientProtocol.Valid()
+	case execution.OperationProbe:
 		return clientProtocol.Valid()
 	case execution.OperationChatCompletion:
 		return clientProtocol == protocol.OpenAICompletions ||
@@ -117,7 +119,6 @@ func standardProtocolOperation(clientProtocol protocol.Protocol, operation execu
 			operation == execution.OperationProbe
 	case protocol.OpenAIResponses:
 		return operation == execution.OperationResponsesCreate ||
-			operation == execution.OperationListModels ||
 			operation == execution.OperationProbe
 	default:
 		return false

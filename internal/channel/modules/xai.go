@@ -37,7 +37,6 @@ func XAI() spec.Module {
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteNative),
-				spec.NewRoute(protocol.OpenAIResponses, execution.OperationListModels, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.Anthropic, execution.OperationListModels, execution.RouteConverted),

@@ -125,7 +125,6 @@ func TestUtilityRequestShapeUsesSelectedProtocol(t *testing.T) {
 		path           string
 	}{
 		{clientProtocol: protocol.OpenAICompletions, path: "/v1/models"},
-		{clientProtocol: protocol.OpenAIResponses, path: "/v1/models"},
 		{clientProtocol: protocol.Anthropic, path: "/v1/models"},
 		{clientProtocol: protocol.Gemini, path: "/v1beta/models"},
 	} {
@@ -146,6 +145,13 @@ func TestUtilityRequestShapeUsesSelectedProtocol(t *testing.T) {
 				t.Fatal("utilityRequestShape still owns provider Probe wire shape")
 			}
 		})
+	}
+
+	if _, _, _, _, err := utilityRequestShape(
+		protocol.OpenAIResponses,
+		execution.OperationListModels,
+	); err == nil {
+		t.Fatal("utilityRequestShape() accepted an OpenAI Responses model-list request")
 	}
 }
 

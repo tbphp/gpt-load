@@ -377,7 +377,9 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 		execution.OperationResponsesInputTokens,
 		execution.OperationResponsesPassthrough:
 		return clientProtocol == protocol.OpenAIResponses
-	case execution.OperationListModels, execution.OperationProbe:
+	case execution.OperationListModels:
+		return clientProtocol != protocol.OpenAIResponses
+	case execution.OperationProbe:
 		return true
 	default:
 		return false

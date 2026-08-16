@@ -83,6 +83,21 @@ func TestCompilerRejectsSubscriptionCapabilityOnAPIKeyChannel(t *testing.T) {
 	}
 }
 
+func TestCompilerRejectsOpenAIResponsesModelListRoute(t *testing.T) {
+	t.Parallel()
+
+	openAI := findModule(t, builtInModules(), OpenAI)
+	openAI.Definition.Routes = []spec.Route{spec.NewRoute(
+		protocol.OpenAIResponses,
+		execution.OperationListModels,
+		execution.RouteNative,
+	)}
+
+	if _, err := compileBuiltInModules([]spec.Module{openAI}); err == nil {
+		t.Fatal("compileBuiltInModules() accepted an OpenAI Responses model-list route")
+	}
+}
+
 func TestResolvedTargetRejectsRouteResolverModeOutsideDeclaredSet(t *testing.T) {
 	t.Parallel()
 

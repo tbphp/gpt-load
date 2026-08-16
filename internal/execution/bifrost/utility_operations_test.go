@@ -31,9 +31,6 @@ func TestOfficialNativeListModelsPreservesWireResponse(t *testing.T) {
 		{name: "openai", channelID: channel.OpenAI, protocol: protocol.OpenAICompletions, path: "/v1/models", body: `{"object":"list","data":[{"id":"gpt-test","object":"model"}],"vendor":{"precise":1.2300}}`, credential: "Authorization", wantUpstream: "/v1/models", wantProtocol: protocol.OpenAICompletions, runtime: func(t *testing.T, base string) *testRuntime {
 			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
 		}},
-		{name: "openai responses models", channelID: channel.OpenAI, protocol: protocol.OpenAIResponses, path: "/v1/models", body: `{"object":"list","data":[{"id":"gpt-test","object":"model"}]}`, credential: "Authorization", wantUpstream: "/v1/models", wantProtocol: protocol.OpenAICompletions, runtime: func(t *testing.T, base string) *testRuntime {
-			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: base})
-		}},
 		{name: "anthropic", channelID: channel.Anthropic, protocol: protocol.Anthropic, path: "/v1/models", body: `{"data":[{"id":"claude-test","type":"model"}],"has_more":false,"vendor":{"precise":1.2300}}`, credential: "X-Api-Key", wantUpstream: "/v1/models", wantProtocol: protocol.Anthropic, runtime: func(t *testing.T, base string) *testRuntime {
 			return newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: base})
 		}},

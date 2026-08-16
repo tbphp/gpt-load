@@ -76,7 +76,7 @@ func encodeListModelsResponse(clientProtocol protocol.Protocol, provider schemas
 	response = sanitizeListModelsResponse(provider, response)
 	var wire any
 	switch clientProtocol {
-	case protocol.OpenAICompletions, protocol.OpenAIResponses:
+	case protocol.OpenAICompletions:
 		converted := openai.ToOpenAIListModelsResponse(response)
 		if converted != nil {
 			converted.Object = "list"
