@@ -104,7 +104,7 @@ export default {
       restoreDefault: '恢复默认',
       inherited: '当前展示的是有效的内置规则；启用覆盖后才可编辑。',
       resetPending: '当前仍显示已发布的显式规则；保存后才会恢复当前版本默认。',
-      replacementWarning: 'Group Header Rules 覆盖会替换整个全局对象，不会逐项合并。',
+      replacementWarning: '分组请求头规则覆盖会替换整个全局对象，不会逐项合并。',
       securityNotice:
         '固定 Header 值属于普通配置；不要保存长期凭证。凭证 Header 必须使用字面量模板 {template}。',
       conflict: '全局 Header Rules 存在并发修改，请选择保留的版本。',

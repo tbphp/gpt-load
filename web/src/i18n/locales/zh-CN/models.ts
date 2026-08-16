@@ -59,7 +59,7 @@ export default {
       open: '查看上游模型 {model} 的详情与价格',
       upstreamCount: '{count} 个上游',
       protocolRestricted: '协议受限',
-      protocolRestrictedHelp: '此 AccessKey 仅可使用以下协议：\n{protocols}',
+      protocolRestrictedHelp: '此访问密钥仅可使用以下协议：\n{protocols}',
       pricingIdentityHelp: '计价身份\n渠道：{channel} ({channelId})\n上游模型：{model}',
       tierCount: '{count} 档',
       noPrice: '—',

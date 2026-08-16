@@ -247,9 +247,9 @@ export default {
         cancel: 'Cancel',
         confirm: 'Delete Group permanently',
         failed: 'Unable to delete the Group.',
-        inUseTitle: 'This Group is referenced by AccessKeys.',
+        inUseTitle: 'This Group is referenced by access keys.',
         inUseDescription: 'Remove these explicit Group references before deleting it:',
-        manageAccessKeys: 'Manage AccessKeys',
+        manageAccessKeys: 'Manage access keys',
       },
     },
     tabs: {

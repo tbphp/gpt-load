@@ -193,7 +193,7 @@ export default {
         empty: '空行',
         duplicates: '重复项',
       },
-      accessKeyWarning: '{count} 行看起来像 GPT-Load AccessKey，请确认后继续',
+      accessKeyWarning: '{count} 行看起来像 GPT-Load 访问密钥，请确认后继续',
       tooMany: '最多可提交 1,000 个非空密钥',
       required: '请先填写至少一条凭据',
       channelCredentialNotice: '这里导入的是渠道 API 密钥；客户端凭证请在“访问密钥”页面创建',

@@ -9,7 +9,7 @@ export default {
     result: '{total} 件中 {shown} 件のクライアントモデルを表示',
     actions: {
       sync: 'カタログと自動価格を同期',
-      configureGroups: 'Group でモデルを追加',
+      configureGroups: 'グループでモデルを追加',
     },
     sync: {
       succeeded: 'モデルカタログと自動価格を同期しました',
@@ -31,14 +31,14 @@ export default {
     filters: {
       region: 'モデルを絞り込む',
       searchLabel: '検索',
-      searchPlaceholder: 'クライアントモデル、上流モデル、Group',
+      searchPlaceholder: 'クライアントモデル、上流モデル、グループ',
       clearSearch: '検索をクリア',
-      groupStatusLabel: 'Group の状態',
+      groupStatusLabel: 'グループの状態',
       pricingStatusLabel: '価格状態',
       reset: '条件をリセット',
       groupStatus: {
-        enabled: '有効な Group',
-        all: 'すべての Group',
+        enabled: '有効なグループ',
+        all: 'すべてのグループ',
       },
       pricingStatus: {
         all: 'すべての価格',
@@ -49,9 +49,9 @@ export default {
     empty: {
       title: '表示できるモデルがありません',
       description:
-        '有効な Group に設定されたモデルはありません。先に Group でモデルを追加してください。',
+        '有効なグループに設定されたモデルはありません。先にグループでモデルを追加してください。',
       noResultsTitle: '条件に一致するモデルがありません',
-      noResultsDescription: '検索、Group の状態、価格状態を変更して再度お試しください',
+      noResultsDescription: '検索、グループの状態、価格状態を変更して再度お試しください',
     },
     tree: {
       label: 'クライアントモデルと上流価格の一覧',
@@ -61,7 +61,7 @@ export default {
       open: '上流モデル {model} の詳細と価格を表示',
       upstreamCount: '上流 {count} 件',
       protocolRestricted: 'プロトコル制限あり',
-      protocolRestrictedHelp: 'この AccessKey で利用できるプロトコル：\n{protocols}',
+      protocolRestrictedHelp: 'このアクセスキーで利用できるプロトコル：\n{protocols}',
       pricingIdentityHelp: '価格識別子\nチャネル：{channel} ({channelId})\n上流モデル：{model}',
       tierCount: '{count} 段',
       noPrice: '—',
@@ -78,20 +78,20 @@ export default {
     drawer: {
       title: '上流モデルの詳細',
       description: '関連情報を確認し、価格を編集します',
-      impact: 'クライアントモデル {clients} 件 · Group {groups} 件',
+      impact: 'クライアントモデル {clients} 件 · グループ {groups} 件',
       specs: '仕様',
       loading: '読み込み中…',
       loadFailed: '上流モデルの詳細を読み込めません',
       sharedImpact:
-        '同じ価格識別子は {references} 件のモデル設定から参照され、クライアントモデル {clients} 件、Group {groups} 件に影響します。保存内容はすべてに反映されます。',
+        '同じ価格識別子は {references} 件のモデル設定から参照され、クライアントモデル {clients} 件、グループ {groups} 件に影響します。保存内容はすべてに反映されます。',
       relationships: '関連',
-      relationshipsHelp: '{count} 件の参照をクライアントモデルと Group ごとに表示します',
+      relationshipsHelp: '{count} 件の参照をクライアントモデルとグループごとに表示します',
       pricingChannel: '価格チャネル',
       upstreamModel: '上流モデル',
       standardPrices: '標準料金',
       fastPrices: 'Fast モード料金',
       fastPricesSource: 'Models.dev · 読み取り専用',
-      group: 'Group',
+      group: 'グループ',
       aliasMapping: 'クライアントモデル {client} から上流モデル {upstream} へのマッピング',
       directMapping: 'クライアントモデル {model} は同名の上流モデルを直接使用',
       updatedAt: '更新',

@@ -78,7 +78,7 @@ export default {
   auth: {
     eyebrow: 'GPT-Load 2.0',
     headline: 'One sign-in, clearly separated access',
-    lead: 'Use AUTH_KEY to manage the gateway, or an AccessKey to view its Home, models, requests, and usage. The server identifies the credential automatically',
+    lead: 'Use AUTH_KEY to manage the gateway, or an access key to view its Home, models, requests, and usage. The server identifies the credential automatically',
     capabilities: {
       1: {
         title: 'Manage channel credentials centrally',
@@ -94,9 +94,9 @@ export default {
       },
     },
     loginTitle: 'Sign in to GPT-Load',
-    loginDescription: 'Enter an AUTH_KEY or AccessKey; the server will identify its access',
+    loginDescription: 'Enter an AUTH_KEY or access key; the server will identify its access',
     keyLabel: 'Sign-in key',
-    keyPlaceholder: 'Enter an AUTH_KEY or AccessKey',
+    keyPlaceholder: 'Enter an AUTH_KEY or access key',
     reveal: 'Show sign-in key',
     conceal: 'Hide sign-in key',
     submit: 'Sign in',
@@ -112,9 +112,9 @@ export default {
     sessionNoteSuffix: ' and cleared on sign-out or authentication failure',
     help: {
       title: 'Which key can I use?',
-      accessKeyTitle: 'AccessKey',
+      accessKeyTitle: 'Access key',
       accessKeyDescription:
-        'Use a distributed data-plane AccessKey to view only its Home, profile, available models, request history, and usage. It cannot change any configuration',
+        'Use a distributed data-plane access key to view only its Home, profile, available models, request history, and usage. It cannot change any configuration',
       environmentTitle: 'Environment variable first',
       environmentDescription:
         'If the instance was started with {key}, use the protected value from your deployment system',
@@ -144,9 +144,9 @@ export default {
     groupDetail: 'Group details',
     menu: 'Menu and preferences',
     preferences: 'Preferences',
-    accessKeyReadOnly: 'AccessKey · Read-only',
+    accessKeyReadOnly: 'Access key · Read-only',
     accessKeyReadOnlyDescription:
-      'Signed in with an AccessKey. Pages and data are limited to this key, and system configuration is read-only.',
+      'Signed in with an access key. Pages and data are limited to this key, and system configuration is read-only.',
     language: 'Language',
     theme: 'Theme',
     localeZh: '简体中文',
@@ -205,7 +205,7 @@ export default {
         eyebrow: 'Current sign-in identity',
         active: 'Active',
         readOnly:
-          'This is an AccessKey read-only view. All data is scoped to this key, and system configuration cannot be changed.',
+          'This is an access key read-only view. All data is scoped to this key, and system configuration cannot be changed.',
         rpm: 'RPM limit',
         rpmValue: '{count} RPM',
         unlimited: 'Unlimited',
@@ -251,18 +251,18 @@ export default {
         keyCopyFailed: 'Unable to copy the access key.',
         configurationCopied: 'Configuration copied',
         configurationCopyFailed: 'Unable to copy the configuration.',
-        noAccessKey: 'Create an AccessKey before connecting a client',
-        createAccessKey: 'Create AccessKey',
+        noAccessKey: 'Create an access key before connecting a client',
+        createAccessKey: 'Create access key',
         openNextChat: 'Import in one click',
         nextChatOpened: 'Opened NextChat',
         nextChatFailed: 'Unable to open NextChat.',
         popupBlocked: 'The browser blocked the NextChat window.',
         nextChatConfirmTitle: 'Open NextChat',
         nextChatConfirmDescription:
-          'Your gateway address and AccessKey will be sent to NextChat in this browser',
+          'Your gateway address and access key will be sent to NextChat in this browser',
         disableFastLink:
           'Known limitation: NextChat silently ignores this setting when disableFastLink is enabled',
-        protocolUnavailable: '{client} requires {protocol} for this AccessKey',
+        protocolUnavailable: '{client} requires {protocol} for this access key',
         clients: {
           label: 'Client',
           nextchat: 'NextChat',

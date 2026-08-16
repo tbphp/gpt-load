@@ -435,6 +435,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 :channel-id="log.channel_id"
                 :channel="finalChannel()"
                 :credential-id="log.credential_id"
+                appearance="plain"
               />
             </dd>
           </div>
@@ -537,6 +538,12 @@ function toggleAttemptErrorMessage(sequence: number): void {
               <PricingModeIndicator :mode="log.pricing_mode" />
             </dd>
           </div>
+          <div v-if="!selfScoped && receipt">
+            <dt>{{ t('monitor.logs.receipt.identity') }}</dt>
+            <dd>
+              <code>{{ pricingIdentity }}</code>
+            </dd>
+          </div>
           <div
             v-if="
               !selfScoped &&
@@ -550,16 +557,6 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dd class="log-detail__formula">
               <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
               <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
-            </dd>
-          </div>
-          <div v-if="!selfScoped && receipt">
-            <dt>{{ t('monitor.logs.receipt.schema') }}</dt>
-            <dd>v{{ receipt.schema_version }}</dd>
-          </div>
-          <div v-if="!selfScoped && receipt">
-            <dt>{{ t('monitor.logs.receipt.identity') }}</dt>
-            <dd>
-              <code>{{ pricingIdentity }}</code>
             </dd>
           </div>
         </dl>
@@ -590,6 +587,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                     :channel-id="attempt.channel_id"
                     :channel="channelDefinition(attempt.channel_id)"
                     :credential-id="attempt.credential_id"
+                    appearance="plain"
                   />
                 </dd>
               </div>
@@ -789,24 +787,6 @@ function toggleAttemptErrorMessage(sequence: number): void {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
   font-weight: 400;
-}
-
-.log-detail__protocol {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-
-.log-detail__route-identity {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.log-detail__route-identity > :first-child {
-  min-width: 0;
 }
 
 .log-detail__wide {

@@ -68,7 +68,7 @@ export default {
       failed: '価格レコードを削除できません',
     },
     errors: {
-      referenced: 'この価格は {groups} Group から {entries} 件参照されています',
+      referenced: 'この価格は {groups} グループから {entries} 件参照されています',
       automaticDeleteForbidden: '自動価格は削除できません。先に手動価格へ変更してください',
     },
   },

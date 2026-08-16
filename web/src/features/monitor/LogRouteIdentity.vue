@@ -6,13 +6,21 @@ import type { ChannelDto } from '@/app/resources/channels'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 
-const props = defineProps<{
-  groupId: number | null
-  groupName?: string | null
-  channelId: string | null
-  channel?: Pick<ChannelDto, 'name' | 'icon' | 'mark'> | null
-  credentialId: number | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    groupId: number | null
+    groupName?: string | null
+    channelId: string | null
+    channel?: Pick<ChannelDto, 'name' | 'icon' | 'mark'> | null
+    credentialId: number | null
+    appearance?: 'compact' | 'plain'
+  }>(),
+  {
+    groupName: undefined,
+    channel: undefined,
+    appearance: 'compact',
+  },
+)
 
 const { t } = useI18n()
 
@@ -58,6 +66,7 @@ const tooltip = computed(() => {
   <AppTooltip :content="tooltip" :disabled="tooltip.length === 0" side="top" align="start">
     <span
       class="log-route-identity"
+      :class="{ 'log-route-identity--plain': props.appearance === 'plain' }"
       :tabindex="tooltip ? 0 : undefined"
       :aria-label="tooltip || undefined"
     >
@@ -98,5 +107,15 @@ const tooltip = computed(() => {
   font-size: var(--text-label-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.log-route-identity--plain .log-route-identity__icon,
+.log-route-identity--plain .log-route-identity__label {
+  font-size: inherit;
+}
+
+.log-route-identity--plain .log-route-identity__label {
+  color: inherit;
+  font-family: inherit;
 }
 </style>

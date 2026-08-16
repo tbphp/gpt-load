@@ -60,7 +60,7 @@ export default {
       open: 'View details and pricing for upstream model {model}',
       upstreamCount: '{count} upstreams',
       protocolRestricted: 'Protocol restricted',
-      protocolRestrictedHelp: 'This AccessKey can use only these protocols:\n{protocols}',
+      protocolRestrictedHelp: 'This access key can use only these protocols:\n{protocols}',
       pricingIdentityHelp:
         'Pricing identity\nChannel: {channel} ({channelId})\nUpstream model: {model}',
       tierCount: '{count} tiers',
