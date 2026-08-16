@@ -33,10 +33,6 @@ runs:
       shell: bash
       run: pnpm --dir web run format
 
-    - name: Type-check web source
-      shell: bash
-      run: pnpm --dir web run type-check
-
     - name: Build embedded web assets
       shell: bash
       run: pnpm --dir web run build

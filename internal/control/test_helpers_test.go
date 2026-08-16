@@ -29,6 +29,7 @@ import (
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
+	"gpt-load/internal/testutil/sqlitetest"
 )
 
 var (
@@ -158,7 +159,7 @@ func initControlI18n(t *testing.T) {
 
 func newServiceFixture(t *testing.T) serviceFixture {
 	t.Helper()
-	return newServiceFixtureWithDSN(t, ":memory:")
+	return newServiceFixtureWithDatabase(t, sqlitetest.OpenMigrated(t))
 }
 
 func mustEnsureInitialPrices(t *testing.T, fixture serviceFixture) {
@@ -179,7 +180,11 @@ func newFileServiceFixture(t *testing.T) (serviceFixture, string) {
 
 func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	t.Helper()
-	db := openControlTestDBWithDSN(t, dsn)
+	return newServiceFixtureWithDatabase(t, openControlTestDBWithDSN(t, dsn))
+}
+
+func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
+	t.Helper()
 	manager := state.NewManager()
 	registry := state.NewCredentialRegistry()
 	channelRegistry := channel.NewRegistry()
@@ -237,6 +242,15 @@ func openControlTestDB(t *testing.T) *gorm.DB {
 
 func openControlTestDBWithDSN(t *testing.T, dsn string) *gorm.DB {
 	t.Helper()
+	db := openControlTestDBWithoutMigration(t, dsn)
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("storage.AutoMigrate() error = %v", err)
+	}
+	return db
+}
+
+func openControlTestDBWithoutMigration(t *testing.T, dsn string) *gorm.DB {
+	t.Helper()
 	db, err := storage.Open(dsn)
 	if err != nil {
 		t.Fatalf("storage.Open(%q) error = %v", dsn, err)
@@ -250,9 +264,6 @@ func openControlTestDBWithDSN(t *testing.T, dsn string) *gorm.DB {
 			t.Errorf("close control test database: %v", err)
 		}
 	})
-	if err := storage.AutoMigrate(db); err != nil {
-		t.Fatalf("storage.AutoMigrate() error = %v", err)
-	}
 	return db
 }
 

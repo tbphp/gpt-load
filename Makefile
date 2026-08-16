@@ -36,7 +36,6 @@ check: _web-deps ## Run source checks and build
 	$(GO) vet ./...
 	$(PNPM) --dir $(WEB_DIR) run lint
 	$(PNPM) --dir $(WEB_DIR) run format
-	$(PNPM) --dir $(WEB_DIR) run type-check
 	$(PNPM) --dir $(WEB_DIR) run build
 	$(GO) build -o $(APP) .
 	$(GO) test -count=1 . ./internal/...

@@ -44,7 +44,6 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 		"pnpm --dir web audit --audit-level high",
 		"pnpm --dir web run lint",
 		"pnpm --dir web run format",
-		"pnpm --dir web run type-check",
 		"pnpm --dir web run build",
 	} {
 		if count := strings.Count(content, command); count != 1 {
@@ -56,9 +55,26 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 		}
 		previousIndex = commandIndex
 	}
+	if strings.Contains(content, "pnpm --dir web run type-check") {
+		t.Fatal("web-ci action duplicates the type-check already run by the build script")
+	}
+	packageJSON := readRepositoryFile(t, "web/package.json")
+	if !strings.Contains(packageJSON, `"build": "pnpm run type-check && vite build"`) {
+		t.Fatal("web build script no longer includes the required type-check")
+	}
 }
 
-func TestBranchCIContainsStaticGoAndRaceEnabledBackendGates(t *testing.T) {
+func TestMakeCheckDoesNotDuplicateWebTypeCheck(t *testing.T) {
+	content := readRepositoryFile(t, "Makefile")
+	if strings.Contains(content, "run type-check") {
+		t.Fatal("make check duplicates the type-check already run by the build script")
+	}
+	if !strings.Contains(content, "run build") {
+		t.Fatal("make check does not build the web application")
+	}
+}
+
+func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	testJob := workflowJobBlock(t, content, "test")
 	workflowGoFormattingScript(t, content, "test")
@@ -69,22 +85,34 @@ func TestBranchCIContainsStaticGoAndRaceEnabledBackendGates(t *testing.T) {
 		{name: "Check module graph", run: "go mod tidy -diff"},
 		{name: "Audit Go dependencies", run: "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./..."},
 		{name: "Run Go vet", run: "go vet ./..."},
-		{name: "Run race-enabled tests", run: "go test -race -count=1 -timeout=30m . ./internal/..."},
 		{name: "Check repository invariants", run: "git diff --check"},
 	} {
 		assertWorkflowGateStep(t, testJob, test.name, test.run)
 	}
-
-	releaseJob := workflowJobBlock(
-		t,
-		readRepositoryFile(t, ".github/workflows/release.yml"),
-		"verify-and-build-web",
-	)
+	if strings.Contains(testJob, "go test -race") {
+		t.Fatal("branch static job still runs race tests serially")
+	}
 	assertWorkflowGateStep(
 		t,
-		releaseJob,
+		workflowJobBlock(t, content, "race-tests"),
 		"Run race-enabled tests",
-		"go test -race -count=1 -timeout=30m . ./internal/...",
+		"go test -race -count=1 -timeout=15m . ./internal/...",
+	)
+
+	releaseContent := readRepositoryFile(t, ".github/workflows/release.yml")
+	releaseVerifyJob := workflowJobBlock(
+		t,
+		releaseContent,
+		"verify-and-build-web",
+	)
+	if strings.Contains(releaseVerifyJob, "go test -race") {
+		t.Fatal("release static job still runs race tests serially")
+	}
+	assertWorkflowGateStep(
+		t,
+		workflowJobBlock(t, releaseContent, "race-tests"),
+		"Run race-enabled tests",
+		"go test -race -count=1 -timeout=15m . ./internal/...",
 	)
 }
 
@@ -500,6 +528,7 @@ func TestReleaseWorkflowGatesSingleReleaseWriterAndImagePublication(t *testing.T
 	for _, dependency := range []string{
 		"validate-tag",
 		"verify-and-build-web",
+		"race-tests",
 		"build-binaries",
 		"package-checksums",
 		"native-artifact-smoke",

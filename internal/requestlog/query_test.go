@@ -16,9 +16,9 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
-	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/testutil/sqlitetest"
 	"gpt-load/internal/usage"
 )
 
@@ -799,23 +799,7 @@ func TestServiceListOmitsAttemptsAndDetailLoadsThem(t *testing.T) {
 
 func openRequestLogQueryDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := storage.Open(":memory:")
-	if err != nil {
-		t.Fatalf("storage.Open() error = %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("db.DB() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Errorf("close request log query database: %v", err)
-		}
-	})
-	if err := storage.AutoMigrate(db); err != nil {
-		t.Fatalf("storage.AutoMigrate() error = %v", err)
-	}
-	return db
+	return sqlitetest.OpenMigrated(t)
 }
 
 func requestLogQueryRow(

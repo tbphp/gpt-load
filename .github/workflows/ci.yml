@@ -14,7 +14,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,11 +47,24 @@ jobs:
       - name: Build backend
         run: go build -o gpt-load .
 
-      - name: Run race-enabled tests
-        run: go test -race -count=1 -timeout=30m . ./internal/...
-
       - name: Check repository invariants
         run: git diff --check
+
+  race-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run race-enabled tests
+        run: go test -race -count=1 -timeout=15m . ./internal/...
 
   database-contract:
     name: Database contract (${{ matrix.driver }})
