@@ -58,8 +58,9 @@ func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) 
 	if err := json.Unmarshal(encodedPrice, &priceWire); err != nil {
 		t.Fatalf("decode upstream price: %v", err)
 	}
-	if priceWire["channel_name"] != "OpenAI Compatible" {
-		t.Fatalf("upstream price channel name = %#v", priceWire["channel_name"])
+	if priceWire["channel_name"] != "OpenAI Compatible" ||
+		priceWire["channel_icon"] != "compatible" || priceWire["channel_mark"] != "OC" {
+		t.Fatalf("upstream price channel identity = %#v", priceWire)
 	}
 	detail, err := fixture.service.GetUpstreamModelDetail(t.Context(), upstream.Price.ID)
 	if err != nil {
@@ -181,6 +182,9 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 	for _, upstream := range shared.UpstreamModels {
 		if len(upstream.RouteGroups) != 1 || len(upstream.AffectedGroups) != 1 {
 			t.Fatalf("channel-scoped shared upstream = %#v", upstream)
+		}
+		if upstream.Price.ChannelIcon == "" || upstream.Price.ChannelMark == "" {
+			t.Fatalf("AccessKey upstream misses channel visual identity: %#v", upstream.Price)
 		}
 		for _, group := range append(upstream.RouteGroups, upstream.AffectedGroups...) {
 			if got := string(group.Params); got != `{}` {

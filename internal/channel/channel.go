@@ -101,8 +101,9 @@ type Descriptor struct {
 	ID   ID     `json:"channel_id"`
 	Name string `json:"name"`
 	Mark string `json:"mark"`
-	// Icon names a frontend-owned icon resource. The frontend falls back to
-	// Mark when Icon is empty or the resource is not bundled.
+	// Icon names a frontend-owned icon resource. The compiler defaults an empty
+	// module value to the channel ID; the frontend falls back to Mark when the
+	// resolved resource is not bundled.
 	Icon             string               `json:"icon"`
 	SearchTerms      []string             `json:"search_terms"`
 	Description      string               `json:"description"`

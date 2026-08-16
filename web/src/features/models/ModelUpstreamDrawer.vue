@@ -46,6 +46,8 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
   id: 0,
   channel_id: '',
   channel_name: '',
+  channel_mark: '',
+  channel_icon: '',
   model_id: '',
   prices: { input: null, output: null, cache_read: null, cache_write: null },
   pricing_status: 'pending',

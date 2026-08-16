@@ -28,6 +28,8 @@ type ModelPriceDTO struct {
 	ID                  uint                       `json:"id"`
 	ChannelID           string                     `json:"channel_id"`
 	ChannelName         string                     `json:"channel_name"`
+	ChannelMark         string                     `json:"channel_mark"`
+	ChannelIcon         string                     `json:"channel_icon"`
 	ModelID             string                     `json:"model_id"`
 	Prices              PriceSlotsDTO              `json:"prices"`
 	PricingStatus       PricingStatus              `json:"pricing_status"`
@@ -510,7 +512,8 @@ func projectModelPriceRow(
 		}
 	}
 	dto := ModelPriceDTO{
-		ID: row.ID, ChannelID: row.ChannelID, ChannelName: descriptor.Name, ModelID: row.ModelID,
+		ID: row.ID, ChannelID: row.ChannelID, ChannelName: descriptor.Name,
+		ChannelMark: descriptor.Mark, ChannelIcon: descriptor.Icon, ModelID: row.ModelID,
 		Prices:              prices,
 		PricingStatus:       status,
 		Method:              modelPriceMethod(row, configured, matchedAutomaticPrice),

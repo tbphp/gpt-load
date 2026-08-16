@@ -98,6 +98,32 @@ func TestCompilerRejectsOpenAIResponsesModelListRoute(t *testing.T) {
 	}
 }
 
+func TestCompilerDefaultsEmptyIconToChannelID(t *testing.T) {
+	t.Parallel()
+
+	openAI := findModule(t, builtInModules(), OpenAI)
+	openAI.Definition.Icon = ""
+
+	definitions, err := compileBuiltInModules([]spec.Module{openAI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := definitions[0].descriptor.Icon; got != string(OpenAI) {
+		t.Fatalf("compiled icon = %q, want %q", got, OpenAI)
+	}
+}
+
+func TestCompilerRejectsEmptyChannelMark(t *testing.T) {
+	t.Parallel()
+
+	openAI := findModule(t, builtInModules(), OpenAI)
+	openAI.Definition.Mark = " "
+
+	if _, err := compileBuiltInModules([]spec.Module{openAI}); err == nil {
+		t.Fatal("compileBuiltInModules() accepted an empty channel mark")
+	}
+}
+
 func TestResolvedTargetRejectsRouteResolverModeOutsideDeclaredSet(t *testing.T) {
 	t.Parallel()
 

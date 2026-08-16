@@ -12,7 +12,7 @@ import type {
   GroupCollectionSort,
   GroupCollectionStatus,
 } from '@/api/control/types'
-import { channelsQueryOptions } from '@/app/resources/channels'
+import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
 import { groupCollectionQueryOptions } from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
 import { useCollectionLoading } from '@/app/loading-state'
@@ -56,6 +56,11 @@ const filters = computed(() => parseGroupCollectionRouteQuery(route.query))
 const searchDraft = ref(filters.value.q ?? '')
 const groupsQuery = useQuery(groupCollectionQueryOptions(client, filters))
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
+const channelsByID = computed<Record<string, ChannelDto>>(() =>
+  Object.fromEntries(
+    (channelsQuery.data.value?.items ?? []).map((channel) => [channel.channel_id, channel]),
+  ),
+)
 const searchDebounce = useDebouncedAction(250)
 
 const data = computed(() => groupsQuery.data.value)
@@ -202,22 +207,11 @@ function credentialHealthLabel(counts: CredentialCounts): string {
 }
 
 function channelName(channelID: string): string {
-  return (
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === channelID)?.name ??
-    channelID
-  )
+  return channelDefinition(channelID)?.name ?? channelID
 }
 
-function channelIcon(channelID: string): string | null {
-  return (
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === channelID)?.icon ?? null
-  )
-}
-
-function channelMark(channelID: string): string | null {
-  return (
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === channelID)?.mark ?? null
-  )
+function channelDefinition(channelID: string): ChannelDto | null {
+  return channelsByID.value[channelID] ?? null
 }
 </script>
 
@@ -416,10 +410,10 @@ function channelMark(channelID: string): string | null {
               <div class="ledger-record-list__cell endpoint" role="cell">
                 <span class="channel-heading">
                   <ChannelIcon
-                    v-if="channelMark(group.channel_id)"
+                    v-if="channelDefinition(group.channel_id)"
                     class="channel-icon"
-                    :icon="channelIcon(group.channel_id) ?? ''"
-                    :mark="channelMark(group.channel_id) ?? ''"
+                    :icon="channelDefinition(group.channel_id)!.icon"
+                    :mark="channelDefinition(group.channel_id)!.mark"
                   />
                   <strong class="channel-name">{{ channelName(group.channel_id) }}</strong>
                 </span>

@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
+import type { ChannelDto } from '@/app/resources/channels'
 import {
   requestLogDetailQueryOptions,
   type RequestLogAttemptDto,
@@ -37,7 +38,7 @@ const props = defineProps<{
   requestId: string | undefined
   selfScoped?: boolean
   groupNames?: Record<number, string>
-  channelNames?: Record<string, string>
+  channels?: Record<string, ChannelDto>
 }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
 const client = useApiClient()
@@ -240,10 +241,13 @@ function finalGroupName(): string | null {
   )
 }
 
-function finalChannelName(): string | null {
-  const channelID = log.value?.channel_id
+function channelDefinition(channelID: string | null | undefined): ChannelDto | null {
   if (!channelID) return null
-  return props.channelNames?.[channelID] ?? null
+  return props.channels?.[channelID] ?? null
+}
+
+function finalChannel(): ChannelDto | null {
+  return channelDefinition(log.value?.channel_id)
 }
 
 function errorMessageNeedsDisclosure(message: string): boolean {
@@ -428,7 +432,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 :group-id="log.group_id"
                 :group-name="finalGroupName()"
                 :channel-id="log.channel_id"
-                :channel-name="finalChannelName()"
+                :channel="finalChannel()"
                 :credential-id="log.credential_id"
               />
             </dd>
@@ -580,9 +584,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                     :group-id="attempt.group_id"
                     :group-name="attempt.group_name"
                     :channel-id="attempt.channel_id"
-                    :channel-name="
-                      attempt.channel_id ? (channelNames?.[attempt.channel_id] ?? null) : null
-                    "
+                    :channel="channelDefinition(attempt.channel_id)"
                     :credential-id="attempt.credential_id"
                   />
                 </dd>

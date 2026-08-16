@@ -24,29 +24,6 @@ const { t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
 
-const channelIconNames: Readonly<Record<string, string>> = {
-  alibaba: 'alibabacloud',
-  anthropic: 'anthropic',
-  aws_bedrock: 'bedrock',
-  azure_openai: 'azure',
-  deepseek: 'deepseek',
-  gemini: 'gemini',
-  google_vertex: 'vertexai',
-  groq: 'groq',
-  moonshotai: 'moonshot',
-  openai: 'openai',
-  openai_compatible: 'compatible',
-  openrouter: 'openrouter',
-  siliconflow: 'siliconcloud',
-  volcengine: 'volcengine',
-  xai: 'xai',
-  zhipuai: 'zhipu',
-}
-
-function channelIconName(channelID: string): string {
-  return channelIconNames[channelID] ?? channelID
-}
-
 function hasProtocolRestriction(protocols: GroupProtocol[]): boolean {
   return props.readOnly === true && protocols.length < enabledDataProtocols.length
 }
@@ -145,8 +122,8 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
                     :aria-label="pricingIdentityTooltip(entry.upstream)"
                   >
                     <ChannelIcon
-                      :icon="channelIconName(entry.upstream.price.channel_id)"
-                      :mark="entry.upstream.price.channel_name.slice(0, 2).toUpperCase()"
+                      :icon="entry.upstream.price.channel_icon"
+                      :mark="entry.upstream.price.channel_mark"
                     />
                   </span>
                 </AppTooltip>

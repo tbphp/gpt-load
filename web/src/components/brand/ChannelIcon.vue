@@ -4,6 +4,8 @@ import { computed } from 'vue'
 import { namespacedChannelIconMarkup, nextChannelIconInstanceId } from './channel-icons'
 
 const props = defineProps<{
+  // Always pass channel-definition metadata. Mapping a ChannelID to an asset
+  // belongs to the channel definition/compiler, never to an individual view.
   icon: string
   mark: string
 }>()

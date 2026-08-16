@@ -80,8 +80,12 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 		strings.HasPrefix(id, "_") || strings.HasSuffix(id, "_") {
 		return definition{}, fmt.Errorf("invalid channel ID %q", id)
 	}
-	if strings.TrimSpace(source.Name) == "" || strings.TrimSpace(source.Icon) == "" {
+	if strings.TrimSpace(source.Name) == "" || strings.TrimSpace(source.Mark) == "" {
 		return definition{}, fmt.Errorf("channel %q has incomplete metadata", id)
+	}
+	icon := strings.TrimSpace(source.Icon)
+	if icon == "" {
+		icon = id
 	}
 	if !source.Provider.ProviderKind.Valid() {
 		return definition{}, fmt.Errorf("channel %q has invalid provider kind %q", id, source.Provider.ProviderKind)
@@ -134,7 +138,7 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 			ID:               source.ID,
 			Name:             source.Name,
 			Mark:             source.Mark,
-			Icon:             source.Icon,
+			Icon:             icon,
 			SearchTerms:      append([]string(nil), source.SearchTerms...),
 			Description:      source.Description,
 			ParamFields:      params.descriptors(),

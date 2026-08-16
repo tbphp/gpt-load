@@ -8,7 +8,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { useCollectionLoading } from '@/app/loading-state'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
-import { listChannels } from '@/app/resources/channels'
+import { listChannels, type ChannelDto } from '@/app/resources/channels'
 import { controlQueryKeys } from '@/app/query-keys'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
@@ -98,9 +98,9 @@ const accessKeyOptionsQuery = useQuery(
 const groupNames = computed<Record<number, string>>(() =>
   Object.fromEntries((groupsQuery.data.value ?? []).map((group) => [group.id, group.name])),
 )
-const channelNames = computed<Record<string, string>>(() =>
+const channelsByID = computed<Record<string, ChannelDto>>(() =>
   Object.fromEntries(
-    (channelsQuery.data.value?.items ?? []).map((channel) => [channel.channel_id, channel.name]),
+    (channelsQuery.data.value?.items ?? []).map((channel) => [channel.channel_id, channel]),
   ),
 )
 const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
@@ -462,28 +462,9 @@ function groupName(log: RequestLogItemDto): string | null {
   return group?.name ?? null
 }
 
-function channelName(log: RequestLogItemDto): string | null {
+function channelDefinition(log: RequestLogItemDto): ChannelDto | null {
   if (log.channel_id === null) return null
-  return (
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === log.channel_id)?.name ??
-    null
-  )
-}
-
-function channelIcon(log: RequestLogItemDto): string | null {
-  if (log.channel_id === null) return null
-  return (
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === log.channel_id)?.icon ??
-    null
-  )
-}
-
-function channelMark(log: RequestLogItemDto): string | null {
-  if (log.channel_id === null) return null
-  return (
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === log.channel_id)?.mark ??
-    null
-  )
+  return channelsByID.value[log.channel_id] ?? null
 }
 
 function responseLabel(log: RequestLogItemDto): string {
@@ -705,9 +686,7 @@ function costLabel(log: RequestLogItemDto): string {
               :group-id="log.group_id"
               :group-name="groupName(log)"
               :channel-id="log.channel_id"
-              :channel-name="channelName(log)"
-              :channel-icon="channelIcon(log)"
-              :channel-mark="channelMark(log)"
+              :channel="channelDefinition(log)"
               :credential-id="log.credential_id"
             />
           </div>
@@ -945,7 +924,7 @@ function costLabel(log: RequestLogItemDto): string {
       :request-id="selectedRequestID"
       :self-scoped="isAccessKey"
       :group-names="groupNames"
-      :channel-names="channelNames"
+      :channels="channelsByID"
       @update:open="setDetailOpen(undefined, $event)"
     />
   </div>

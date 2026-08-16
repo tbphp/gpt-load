@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import type { ChannelDto } from '@/app/resources/channels'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 
@@ -9,9 +10,7 @@ const props = defineProps<{
   groupId: number | null
   groupName?: string | null
   channelId: string | null
-  channelName?: string | null
-  channelIcon?: string | null
-  channelMark?: string | null
+  channel?: Pick<ChannelDto, 'name' | 'icon' | 'mark'> | null
   credentialId: number | null
 }>()
 
@@ -20,7 +19,7 @@ const { t } = useI18n()
 // The icon is what carries the channel identity, so it replaces the channel ID
 // in the label. Callers that pass no icon metadata — or a channel list that
 // failed to load — must keep the ID, otherwise the row only shows G/K.
-const showsIcon = computed(() => Boolean(props.channelMark))
+const showsIcon = computed(() => Boolean(props.channel?.mark))
 
 const compactLabel = computed(() => {
   const parts: string[] = []
@@ -43,7 +42,7 @@ const tooltip = computed(() => {
   if (props.channelId !== null) {
     lines.push(
       t('monitor.logs.routeIdentity.channel', {
-        name: props.channelName?.trim() || '—',
+        name: props.channel?.name.trim() || '—',
         id: props.channelId,
       }),
     )
@@ -65,8 +64,8 @@ const tooltip = computed(() => {
       <ChannelIcon
         v-if="showsIcon"
         class="log-route-identity__icon"
-        :icon="channelIcon ?? ''"
-        :mark="channelMark ?? ''"
+        :icon="channel?.icon ?? ''"
+        :mark="channel?.mark ?? ''"
       />
       <code class="log-route-identity__label">{{ compactLabel }}</code>
     </span>

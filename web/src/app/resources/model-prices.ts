@@ -48,6 +48,8 @@ export interface ModelPriceDto {
   id: number
   channel_id: string
   channel_name: string
+  channel_mark: string
+  channel_icon: string
   model_id: string
   prices: ModelPriceSlotsDto
   pricing_status: ModelPriceStatus
@@ -108,6 +110,8 @@ const itemFields = [
   'id',
   'channel_id',
   'channel_name',
+  'channel_mark',
+  'channel_icon',
   'model_id',
   'prices',
   'pricing_status',
@@ -189,6 +193,8 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     channel_id: projectChannelID(record.channel_id),
     channel_name: projectDisplayString(record.channel_name),
+    channel_mark: projectIdentityString(record.channel_mark),
+    channel_icon: projectIdentityString(record.channel_icon),
     model_id: projectIdentityString(record.model_id),
     prices: projectPrices(record.prices),
     pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),

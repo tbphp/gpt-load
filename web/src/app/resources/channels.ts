@@ -263,8 +263,8 @@ function projectChannel(value: unknown): ChannelDto {
   return {
     channel_id: projectChannelID(record.channel_id),
     name: projectString(record.name),
-    mark: projectString(record.mark, { allowEmpty: true }),
-    icon: projectString(record.icon, { allowEmpty: true }),
+    mark: projectString(record.mark),
+    icon: projectString(record.icon),
     search_terms: projectArray(record.search_terms, (term) => projectString(term)),
     description: projectString(record.description, { allowEmpty: true }),
     default_base_url: projectString(record.default_base_url, { allowEmpty: true }),
