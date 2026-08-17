@@ -2,6 +2,7 @@ package subscriptionruntime
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"gpt-load/internal/claude"
@@ -161,5 +162,34 @@ func TestNormalizeClaudeObservationKeepsQuotaWindowIDsUnique(t *testing.T) {
 	}
 	if len(seen) != 4 {
 		t.Fatalf("quota windows = %s", raw)
+	}
+}
+
+func TestNormalizeClaudeObservationSuppressesDuplicateSessionAndWeeklyLimits(t *testing.T) {
+	reset := "2026-08-18T10:00:00Z"
+	raw, err := NormalizeClaudeObservation(claude.AccountObservation{Usage: claude.Usage{
+		FiveHour: &claude.UsageWindow{Utilization: floatPointer(0), ResetsAt: &reset},
+		SevenDay: &claude.UsageWindow{Utilization: floatPointer(85), ResetsAt: &reset},
+		Limits: []claude.ScopedLimit{
+			{Kind: "rolling", Group: "session", Percent: 0, ResetsAt: &reset},
+			{Kind: "rolling", Group: "weekly", Percent: 85, ResetsAt: &reset},
+			{Kind: "model", Group: "opus", Percent: 40, ModelDisplayName: "Claude Opus"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot struct {
+		Windows []quotaWindow `json:"quota_windows"`
+	}
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(snapshot.Windows))
+	for _, window := range snapshot.Windows {
+		ids = append(ids, window.ID)
+	}
+	if !reflect.DeepEqual(ids, []string{"five_hour", "seven_day", "model_opus"}) {
+		t.Fatalf("quota window IDs = %v", ids)
 	}
 }

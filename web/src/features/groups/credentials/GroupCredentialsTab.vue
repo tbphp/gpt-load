@@ -1098,6 +1098,8 @@ async function runBatch(
             :detail-busy="detailBusy(item.credential_id)"
             :detail-loaded="detailLoaded(item.credential_id)"
             :detail-error="detailError(item.credential_id)"
+            :channel-icon="channelDescriptor?.icon"
+            :channel-mark="channelDescriptor?.mark"
             :authorization-methods="authorizationMethods"
             :capabilities="channelCapabilities"
             @toggle="mutateItem($event, 'toggle')"

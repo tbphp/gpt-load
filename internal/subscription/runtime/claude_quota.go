@@ -67,6 +67,9 @@ func NormalizeClaudeObservation(observation claude.AccountObservation) ([]byte, 
 		if err != nil {
 			return nil, err
 		}
+		if duplicateClaudeStandardWindow(result.QuotaWindows, window) {
+			continue
+		}
 		appendClaudeQuotaWindow(&result.QuotaWindows, seenWindowIDs, window)
 	}
 
@@ -88,6 +91,33 @@ func NormalizeClaudeObservation(observation claude.AccountObservation) ([]byte, 
 		return left.ID < right.ID
 	})
 	return json.Marshal(result)
+}
+
+func duplicateClaudeStandardWindow(existing []quotaWindow, candidate quotaWindow) bool {
+	targetID := ""
+	switch safeID(candidate.Label) {
+	case "session":
+		targetID = "five_hour"
+	case "weekly":
+		targetID = "seven_day"
+	default:
+		return false
+	}
+	for _, window := range existing {
+		if window.ID == targetID && equalOptionalFloat(window.Utilization, candidate.Utilization) &&
+			equalOptionalInt64(window.ResetAtMS, candidate.ResetAtMS) {
+			return true
+		}
+	}
+	return false
+}
+
+func equalOptionalFloat(left, right *float64) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
+}
+
+func equalOptionalInt64(left, right *int64) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func appendClaudeQuotaWindow(windows *[]quotaWindow, seen map[string]int, window quotaWindow) {
