@@ -125,9 +125,11 @@ var ErrObservationPayloadInvalid = errors.New("subscription observation payload 
 // Observation contains the canonical, provider-neutral observation JSON.
 // Headers are retained only for bounded metadata such as retry timing.
 type Observation struct {
-	Payload []byte
-	Header  http.Header
-	Partial bool
+	Payload         []byte
+	Header          http.Header
+	Partial         bool
+	AccountObserved bool
+	QuotaObserved   bool
 }
 
 // QuotaObservation is a narrow optional account observation capability.

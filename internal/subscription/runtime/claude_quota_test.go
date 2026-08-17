@@ -29,7 +29,7 @@ func TestNormalizeClaudeObservationIncludesAccountAndQuotaWindows(t *testing.T) 
 				Utilization: floatPointer(40), ResetsAt: stringPointer("2026-08-23T08:00:00Z"),
 			},
 			ExtraUsage: &claude.ExtraUsage{
-				Enabled: true, MonthlyLimit: floatPointer(100), UsedCredits: floatPointer(12.5),
+				Enabled: boolPointer(true), MonthlyLimit: floatPointer(100), UsedCredits: floatPointer(12.5),
 				Utilization: floatPointer(12.5), Currency: stringPointer("USD"),
 			},
 			Limits: []claude.ScopedLimit{{
@@ -89,7 +89,7 @@ func TestNormalizeClaudeObservationUsesUsageExtraStatus(t *testing.T) {
 	raw, err := NormalizeClaudeObservation(claude.AccountObservation{
 		Profile: claude.AccountProfile{ExtraUsageEnabled: &enabled},
 		Usage: claude.Usage{ExtraUsage: &claude.ExtraUsage{
-			Enabled: false, DisabledReason: &reason,
+			Enabled: boolPointer(false), DisabledReason: &reason,
 		}},
 	})
 	if err != nil {
@@ -106,6 +106,30 @@ func TestNormalizeClaudeObservationUsesUsageExtraStatus(t *testing.T) {
 	}
 	if snapshot.Account.ExtraUsageEnabled == nil || *snapshot.Account.ExtraUsageEnabled ||
 		snapshot.Account.ExtraUsageDisabledReason != reason {
+		t.Fatalf("account summary = %s", raw)
+	}
+}
+
+func TestNormalizeClaudeObservationKeepsProfileExtraStatusWhenUsageOmitsEnabled(t *testing.T) {
+	enabled := true
+	raw, err := NormalizeClaudeObservation(claude.AccountObservation{
+		Profile: claude.AccountProfile{ExtraUsageEnabled: &enabled},
+		Usage: claude.Usage{ExtraUsage: &claude.ExtraUsage{
+			MonthlyLimit: floatPointer(100),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot struct {
+		Account struct {
+			ExtraUsageEnabled *bool `json:"extra_usage_enabled"`
+		} `json:"account_summary"`
+	}
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Account.ExtraUsageEnabled == nil || !*snapshot.Account.ExtraUsageEnabled {
 		t.Fatalf("account summary = %s", raw)
 	}
 }

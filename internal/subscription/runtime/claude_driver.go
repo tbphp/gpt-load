@@ -160,7 +160,9 @@ func (*claudeDriver) Observe(ctx context.Context, credential Credential) (Observ
 	}
 	return Observation{
 		Payload: normalized, Header: observed.Header.Clone(),
-		Partial: len(observed.IncompleteSources) > 0,
+		Partial:         len(observed.IncompleteSources) > 0,
+		AccountObserved: observed.AccountObserved,
+		QuotaObserved:   observed.UsageObserved,
 	}, nil
 }
 

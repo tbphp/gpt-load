@@ -163,7 +163,7 @@ func (*codexDriver) Observe(ctx context.Context, credential Credential) (Observa
 	if err != nil {
 		return Observation{}, fmt.Errorf("%w: %v", ErrObservationPayloadInvalid, err)
 	}
-	return Observation{Payload: normalized, Header: observed.Header.Clone()}, nil
+	return Observation{Payload: normalized, Header: observed.Header.Clone(), QuotaObserved: true}, nil
 }
 
 func (*codexDriver) Consume(ctx context.Context, credential Credential, requestID string) (ResetCreditResult, error) {

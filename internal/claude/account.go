@@ -37,7 +37,7 @@ type UsageWindow struct {
 }
 
 type ExtraUsage struct {
-	Enabled        bool
+	Enabled        *bool
 	MonthlyLimit   *float64
 	UsedCredits    *float64
 	Utilization    *float64
@@ -69,6 +69,8 @@ type AccountObservation struct {
 	Profile           AccountProfile
 	Usage             Usage
 	Header            http.Header
+	AccountObserved   bool
+	UsageObserved     bool
 	IncompleteSources []string
 }
 
@@ -109,6 +111,8 @@ func accountObservationFromBridge(value cpaembedded.ClaudeAccountObservation) Ac
 			ExtraUsageEnabled: cloneBool(profile.ExtraUsageEnabled),
 		},
 		Header:            value.Header.Clone(),
+		AccountObserved:   value.AccountObserved,
+		UsageObserved:     value.UsageObserved,
 		IncompleteSources: append([]string(nil), value.IncompleteSources...),
 	}
 	result.Usage = usageFromBridge(value.Usage)
@@ -126,7 +130,7 @@ func usageFromBridge(value cpaembedded.ClaudeUsage) Usage {
 	}
 	if value.ExtraUsage != nil {
 		result.ExtraUsage = &ExtraUsage{
-			Enabled:        value.ExtraUsage.Enabled,
+			Enabled:        cloneBool(value.ExtraUsage.Enabled),
 			MonthlyLimit:   cloneFloat(value.ExtraUsage.MonthlyLimit),
 			UsedCredits:    cloneFloat(value.ExtraUsage.UsedCredits),
 			Utilization:    cloneFloat(value.ExtraUsage.Utilization),

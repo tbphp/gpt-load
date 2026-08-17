@@ -449,7 +449,9 @@ export default {
           refreshStartFailed: '当前无法开始刷新凭据，请稍后重试。',
         },
         observationError: {
+          accessDenied: '上游拒绝读取订阅权益，请检查账号权限或套餐',
           authorizationFailed: '上游订阅授权已失效，请重新登录账号',
+          partial: '部分上游订阅信息暂不可用，正在保留最近有效额度',
           upstreamFailed: '无法读取上游订阅权益信息',
           payloadInvalid: '上游返回了无法识别的订阅权益信息',
         },

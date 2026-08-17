@@ -57,6 +57,7 @@ type providerResponse struct {
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
+	Local                  bool
 }
 
 type providerStreamResponse struct {
@@ -87,6 +88,13 @@ type providerBridge interface {
 // or expose a provider-specific local estimator; silent fallback is forbidden.
 type providerTokenCounter interface {
 	CountTokens(context.Context, string, providerCredential, providerRequest) (providerResponse, error)
+}
+
+// providerLocalTokenCounter is a deliberately narrow contract for providers
+// whose CountTokens implementation never contacts an upstream service.
+type providerLocalTokenCounter interface {
+	providerTokenCounter
+	ValidateLocalTokenCount(providerRequest) error
 }
 
 func indexProviderBridges(bridges ...providerBridge) map[channel.ProviderKind]providerBridge {

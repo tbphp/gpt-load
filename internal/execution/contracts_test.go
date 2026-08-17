@@ -58,7 +58,7 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		RouteRequirementNative.Allows(RouteConverted) {
 		t.Fatal("route requirement mode policy is invalid")
 	}
-	for _, state := range []DispatchState{DispatchNotSent, DispatchMaybeSent} {
+	for _, state := range []DispatchState{DispatchNotSent, DispatchMaybeSent, DispatchLocal} {
 		if !state.Valid() {
 			t.Fatalf("expected dispatch state %q to be valid", state)
 		}
@@ -447,6 +447,9 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 
 	if err := (AttemptResult{DispatchState: DispatchMaybeSent, ResponseStarted: true, StatusCode: http.StatusOK}).Validate(); err != nil {
 		t.Fatalf("valid AttemptResult.Validate() error = %v", err)
+	}
+	if err := (AttemptResult{DispatchState: DispatchLocal, ResponseStarted: true, StatusCode: http.StatusOK, Body: []byte("local")}).Validate(); err != nil {
+		t.Fatalf("valid local AttemptResult.Validate() error = %v", err)
 	}
 	if err := (StreamResult{DispatchState: DispatchNotSent, Error: &ErrorEvidence{Kind: ErrorKindTransport, Type: "transport", Summary: "dial failed"}}).Validate(); err != nil {
 		t.Fatalf("valid StreamResult.Validate() error = %v", err)

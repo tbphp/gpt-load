@@ -218,17 +218,19 @@ func (s AttemptSpec) Clone() AttemptSpec {
 	return clone
 }
 
-// DispatchState describes whether an attempt may have reached the upstream.
+// DispatchState describes whether an attempt may have reached an upstream or
+// was completed entirely within GPT-Load.
 type DispatchState string
 
 const (
 	DispatchNotSent   DispatchState = "not_sent"
 	DispatchMaybeSent DispatchState = "maybe_sent"
+	DispatchLocal     DispatchState = "local"
 )
 
 // Valid reports whether the dispatch state is recognized.
 func (s DispatchState) Valid() bool {
-	return s == DispatchNotSent || s == DispatchMaybeSent
+	return s == DispatchNotSent || s == DispatchMaybeSent || s == DispatchLocal
 }
 
 // MaxErrorSummaryLength bounds sanitized error messages retained by the contract.

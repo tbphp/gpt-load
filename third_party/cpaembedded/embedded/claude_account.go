@@ -73,7 +73,7 @@ type ClaudeUsageWindow struct {
 
 // ClaudeExtraUsage describes optional paid usage credits.
 type ClaudeExtraUsage struct {
-	Enabled        bool
+	Enabled        *bool
 	MonthlyLimit   *float64
 	UsedCredits    *float64
 	Utilization    *float64
@@ -108,6 +108,8 @@ type ClaudeAccountObservation struct {
 	Profile           ClaudeAccountProfile
 	Usage             ClaudeUsage
 	Header            http.Header
+	AccountObserved   bool
+	UsageObserved     bool
 	IncompleteSources []string
 }
 
@@ -164,10 +166,10 @@ type claudeUsagePayload struct {
 	CinderCove        *claudeUsageWindowPayload `json:"cinder_cove"`
 	ExtraUsage        *claudeExtraUsagePayload  `json:"extra_usage"`
 	Limits            []struct {
-		Kind     string  `json:"kind"`
-		Group    string  `json:"group"`
-		Percent  float64 `json:"percent"`
-		ResetsAt *string `json:"resets_at"`
+		Kind     string   `json:"kind"`
+		Group    string   `json:"group"`
+		Percent  *float64 `json:"percent"`
+		ResetsAt *string  `json:"resets_at"`
 		Scope    *struct {
 			Model *struct {
 				DisplayName string `json:"display_name"`
@@ -310,14 +312,21 @@ func ObserveClaudeAccount(
 	}
 	incomplete := make([]string, 0, 4)
 	successfulSources := 0
+	accountObserved, usageObserved := false, false
 	failedSources, commonHTTPStatus := 0, 0
 	onlyHTTPFailures := true
+	authorizationFailures := 0
+	sawUnauthorized := false
 	recordFailure := func(sourceErr error) {
 		failedSources++
 		var upstream *ClaudeUpstreamHTTPError
 		if sourceErr == nil || !errors.As(sourceErr, &upstream) {
 			onlyHTTPFailures = false
 			return
+		}
+		if upstream.StatusCode == http.StatusUnauthorized || upstream.StatusCode == http.StatusForbidden {
+			authorizationFailures++
+			sawUnauthorized = sawUnauthorized || upstream.StatusCode == http.StatusUnauthorized
 		}
 		if commonHTTPStatus == 0 {
 			commonHTTPStatus = upstream.StatusCode
@@ -336,6 +345,7 @@ func ObserveClaudeAccount(
 		} else {
 			profile = mergeClaudeAccountProfile(profile, observedProfile)
 			successfulSources++
+			accountObserved = true
 		}
 	} else if isClaudeObservationContextError(profileErr) {
 		return ClaudeAccountObservation{}, profileErr
@@ -370,6 +380,7 @@ func ObserveClaudeAccount(
 		}
 		if rolesUsable {
 			successfulSources++
+			accountObserved = true
 		}
 		if !rolesUsable || !rolesComplete {
 			incomplete = append(incomplete, "roles")
@@ -390,6 +401,7 @@ func ObserveClaudeAccount(
 		bootstrapUsable, bootstrapComplete := applyClaudeBootstrapAccount(&profile, bootstrap.OAuthAccount)
 		if bootstrapUsable {
 			successfulSources++
+			accountObserved = true
 		}
 		if !bootstrapUsable || !bootstrapComplete {
 			incomplete = append(incomplete, "bootstrap")
@@ -413,11 +425,19 @@ func ObserveClaudeAccount(
 		recordFailure(err)
 	} else if claudeUsageUsable(usage) {
 		successfulSources++
+		usageObserved = true
 	} else {
 		incomplete = append(incomplete, "usage")
 		recordFailure(nil)
 	}
 	if successfulSources == 0 {
+		if failedSources == 4 && authorizationFailures == failedSources {
+			status := http.StatusForbidden
+			if sawUnauthorized {
+				status = http.StatusUnauthorized
+			}
+			return ClaudeAccountObservation{}, &ClaudeUpstreamHTTPError{StatusCode: status}
+		}
 		if failedSources == 4 && onlyHTTPFailures && commonHTTPStatus != 0 {
 			return ClaudeAccountObservation{}, &ClaudeUpstreamHTTPError{StatusCode: commonHTTPStatus}
 		}
@@ -425,6 +445,7 @@ func ObserveClaudeAccount(
 	}
 	return ClaudeAccountObservation{
 		Profile: profile, Usage: usage, Header: header,
+		AccountObserved: accountObserved, UsageObserved: usageObserved,
 		IncompleteSources: incomplete,
 	}, nil
 }
@@ -711,7 +732,7 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 			return ClaudeUsage{}, err
 		}
 		result.ExtraUsage = &ClaudeExtraUsage{
-			Enabled:      payload.ExtraUsage.Enabled != nil && *payload.ExtraUsage.Enabled,
+			Enabled:      cloneBool(payload.ExtraUsage.Enabled),
 			MonthlyLimit: cloneFloat64(payload.ExtraUsage.MonthlyLimit),
 			UsedCredits:  cloneFloat64(payload.ExtraUsage.UsedCredits),
 			Utilization:  cloneFloat64(payload.ExtraUsage.Utilization),
@@ -723,8 +744,8 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 	}
 	result.Limits = make([]ClaudeScopedLimit, 0, len(payload.Limits))
 	for _, limit := range payload.Limits {
-		if math.IsNaN(limit.Percent) || math.IsInf(limit.Percent, 0) ||
-			limit.Percent < 0 || limit.Percent > 100 {
+		if limit.Percent == nil || math.IsNaN(*limit.Percent) || math.IsInf(*limit.Percent, 0) ||
+			*limit.Percent < 0 || *limit.Percent > 100 {
 			return ClaudeUsage{}, fmt.Errorf("Claude scoped limit percent is invalid")
 		}
 		kind, err := claudeSafeScalar("limit kind", limit.Kind, true)
@@ -739,7 +760,7 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 		if err != nil {
 			return ClaudeUsage{}, err
 		}
-		item := ClaudeScopedLimit{Kind: kind, Group: group, Percent: limit.Percent, ResetsAt: reset}
+		item := ClaudeScopedLimit{Kind: kind, Group: group, Percent: *limit.Percent, ResetsAt: reset}
 		if limit.Scope != nil {
 			if limit.Scope.Model != nil {
 				item.ModelDisplayName, err = claudeSafeScalar(
@@ -765,8 +786,8 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 
 func claudeExtraUsagePayloadUsable(payload *claudeExtraUsagePayload) bool {
 	return payload != nil && (payload.Enabled != nil || payload.MonthlyLimit != nil ||
-		payload.UsedCredits != nil || payload.Utilization != nil || payload.Currency != nil ||
-		payload.DisabledReason != nil)
+		payload.UsedCredits != nil || payload.Utilization != nil ||
+		payload.DisabledReason != nil && strings.TrimSpace(*payload.DisabledReason) != "")
 }
 
 func mapClaudeUsageWindow(name string, payload *claudeUsageWindowPayload) (*ClaudeUsageWindow, error) {
@@ -866,6 +887,14 @@ func claudeOptionalSafeScalar(field string, value *string) (*string, error) {
 }
 
 func cloneFloat64(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneBool(value *bool) *bool {
 	if value == nil {
 		return nil
 	}

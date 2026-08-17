@@ -93,6 +93,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	execCtx, cancel := withRequestTimeout(ctx, spec.Timeouts.Request)
 	defer cancel()
 	var response providerResponse
+	localTokenCount := false
 	if countTokensOperation(spec.Operation) {
 		counter, ok := provider.(providerTokenCounter)
 		if !ok {
@@ -102,6 +103,17 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 				"",
 				nil,
 			)
+		}
+		if local, ok := counter.(providerLocalTokenCounter); ok {
+			localTokenCount = true
+			if err := local.ValidateLocalTokenCount(bridgeRequest(spec)); err != nil {
+				return unaryNotSent(
+					execution.ErrorKindInvalidRequest,
+					"local token count supports only stateless text input",
+					"local_token_count_unsupported_input",
+					err,
+				)
+			}
 		}
 		response, err = counter.CountTokens(
 			execCtx,
@@ -118,6 +130,14 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 		)
 	}
 	if err != nil {
+		if localTokenCount {
+			return unaryNotSent(
+				execution.ErrorKindInternal,
+				"local token count failed",
+				"local_token_count_failed",
+				err,
+			)
+		}
 		result := unaryExecutionError(execCtx, provider, err, credential)
 		if result.Error != nil && execution.UpstreamCountTokensUnsupported(
 			spec.Operation,
@@ -133,8 +153,12 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	}
 	body := append([]byte(nil), response.Payload...)
 	headers := convertedResponseHeaders(response.Headers, "application/json")
+	dispatchState := execution.DispatchMaybeSent
+	if response.Local {
+		dispatchState = execution.DispatchLocal
+	}
 	return execution.AttemptResult{
-		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		DispatchState: dispatchState, ResponseStarted: true,
 		UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
 		UpstreamRequestID: upstreamRequestID(headers), Usage: responseUsage(spec, body),

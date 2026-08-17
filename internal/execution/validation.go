@@ -266,8 +266,8 @@ func validateResultMetadata(
 			return validationError("dispatch_state", "not_sent cannot contain upstream response metadata")
 		}
 	}
-	if responseStarted && dispatchState != DispatchMaybeSent {
-		return validationError("dispatch_state", "response_started requires maybe_sent")
+	if responseStarted && dispatchState != DispatchMaybeSent && dispatchState != DispatchLocal {
+		return validationError("dispatch_state", "response_started requires maybe_sent or local")
 	}
 	if err := validateHeader(header); err != nil {
 		return validationError("header", "contains an invalid name or value")

@@ -2,10 +2,12 @@ package cpa
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"gpt-load/internal/channel"
@@ -26,6 +28,8 @@ func (credential codexProviderCredential) redactionValues() []string {
 type codexProviderBridge struct {
 	executor codex.Executor
 }
+
+const localTokenCountHeader = "X-GPT-Load-Token-Count"
 
 func newCodexProviderBridge() *codexProviderBridge {
 	return &codexProviderBridge{executor: codex.NewExecutor()}
@@ -74,10 +78,183 @@ func (bridge *codexProviderBridge) CountTokens(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 	})
+	headers := response.Headers.Clone()
+	if headers == nil {
+		headers = make(http.Header)
+	}
+	headers.Set(localTokenCountHeader, "local-estimate")
 	return providerResponse{
-		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
+		Payload: append([]byte(nil), response.Payload...), Headers: headers,
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		Local:                  true,
 	}, err
+}
+
+func (*codexProviderBridge) ValidateLocalTokenCount(request providerRequest) error {
+	if !localTokenCountModelSupported(request.Model) {
+		return errors.New("local token count tokenizer is unavailable for model")
+	}
+	var root map[string]any
+	if err := json.Unmarshal(request.Payload, &root); err != nil || root == nil {
+		return errors.New("local token count request is invalid")
+	}
+	switch request.Format {
+	case "openai-response":
+		return validateLocalResponsesTokenCount(root)
+	case "claude":
+		return validateLocalClaudeTokenCount(root)
+	case "gemini":
+		return validateLocalGeminiTokenCount(root)
+	default:
+		return errors.New("local token count request format is unsupported")
+	}
+}
+
+func localTokenCountModelSupported(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gpt-5") || strings.HasPrefix(model, "gpt-4.1") ||
+		strings.HasPrefix(model, "gpt-4o") || strings.HasPrefix(model, "gpt-4") ||
+		strings.HasPrefix(model, "gpt-3.5") || strings.HasPrefix(model, "gpt-3")
+}
+
+func validateLocalResponsesTokenCount(root map[string]any) error {
+	if !onlyLocalTokenCountFields(root, "model", "input", "instructions") {
+		return errors.New("local token count responses fields are unsupported")
+	}
+	if instructions, ok := root["instructions"]; ok && !isString(instructions) {
+		return errors.New("local token count instructions must be text")
+	}
+	return validateLocalResponseInput(root["input"])
+}
+
+func validateLocalResponseInput(value any) error {
+	if value == nil || isString(value) {
+		return nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return errors.New("local token count input must be text or messages")
+	}
+	for _, item := range items {
+		message, ok := item.(map[string]any)
+		if !ok || !onlyLocalTokenCountFields(message, "type", "role", "content") {
+			return errors.New("local token count input item is unsupported")
+		}
+		if kind, exists := message["type"]; exists && (!isString(kind) || kind.(string) != "message") {
+			return errors.New("local token count input item is unsupported")
+		}
+		if role, exists := message["role"]; exists && !isString(role) {
+			return errors.New("local token count message role is invalid")
+		}
+		if err := validateLocalTextContent(message["content"], "input_text", "text"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLocalClaudeTokenCount(root map[string]any) error {
+	if !onlyLocalTokenCountFields(root, "model", "system", "messages") {
+		return errors.New("local token count Claude fields are unsupported")
+	}
+	if system, exists := root["system"]; exists {
+		if err := validateLocalTextContent(system, "text"); err != nil {
+			return err
+		}
+	}
+	messages, exists := root["messages"]
+	if !exists {
+		return nil
+	}
+	items, ok := messages.([]any)
+	if !ok {
+		return errors.New("local token count messages must be an array")
+	}
+	for _, item := range items {
+		message, ok := item.(map[string]any)
+		if !ok || !onlyLocalTokenCountFields(message, "role", "content") {
+			return errors.New("local token count message is unsupported")
+		}
+		if err := validateLocalTextContent(message["content"], "text"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLocalGeminiTokenCount(root map[string]any) error {
+	if !onlyLocalTokenCountFields(root, "contents") {
+		return errors.New("local token count Gemini fields are unsupported")
+	}
+	contents, exists := root["contents"]
+	if !exists {
+		return nil
+	}
+	items, ok := contents.([]any)
+	if !ok {
+		return errors.New("local token count contents must be an array")
+	}
+	for _, item := range items {
+		content, ok := item.(map[string]any)
+		if !ok || !onlyLocalTokenCountFields(content, "role", "parts") {
+			return errors.New("local token count content is unsupported")
+		}
+		parts, ok := content["parts"].([]any)
+		if !ok {
+			return errors.New("local token count parts must be an array")
+		}
+		for _, part := range parts {
+			partObject, ok := part.(map[string]any)
+			if !ok || !onlyLocalTokenCountFields(partObject, "text") || !isString(partObject["text"]) {
+				return errors.New("local token count part is unsupported")
+			}
+		}
+	}
+	return nil
+}
+
+func validateLocalTextContent(value any, allowedTypes ...string) error {
+	if isString(value) {
+		return nil
+	}
+	parts, ok := value.([]any)
+	if !ok {
+		return errors.New("local token count content must be text")
+	}
+	for _, part := range parts {
+		partObject, ok := part.(map[string]any)
+		if !ok || !onlyLocalTokenCountFields(partObject, "type", "text") || !isString(partObject["text"]) {
+			return errors.New("local token count content is unsupported")
+		}
+		kind, ok := partObject["type"].(string)
+		if !ok || !containsLocalTokenCountType(allowedTypes, kind) {
+			return errors.New("local token count content is unsupported")
+		}
+	}
+	return nil
+}
+
+func onlyLocalTokenCountFields(value map[string]any, allowed ...string) bool {
+	for field := range value {
+		if !containsLocalTokenCountType(allowed, field) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsLocalTokenCountType(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func isString(value any) bool {
+	_, ok := value.(string)
+	return ok
 }
 
 func (*codexProviderBridge) ParseCredential(raw []byte) (providerCredential, error) {

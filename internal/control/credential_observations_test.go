@@ -171,11 +171,57 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 		return codex.AccountObservation{}, errors.New("upstream unavailable")
 	})
 	failed, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
-	if err == nil || failed.Snapshot == nil || failed.State != string(models.CredentialObservationError) {
+	if err == nil || failed.Snapshot == nil || failed.State != string(models.CredentialObservationFresh) ||
+		failed.LastErrorCode != "observation_upstream_failed" {
 		t.Fatalf("failed = %#v, %v", failed, err)
 	}
 	if !reflect.DeepEqual(failed.Snapshot, first.Snapshot) {
 		t.Fatalf("LKG changed = %#v / %#v", first.Snapshot, failed.Snapshot)
+	}
+}
+
+func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	resetAt := now.Add(2 * time.Hour).Unix()
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
+			"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":100,"reset_at":%d}}
+		}`, resetAt))}, nil
+	})
+	first, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.State != string(models.CredentialObservationFresh) || first.Snapshot == nil || len(first.Snapshot.QuotaWindows) != 1 || first.FreshUntilMS == nil {
+		t.Fatalf("initial observation = %#v", first)
+	}
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
+		t.Fatalf("exhausted candidates = %#v", candidates)
+	}
+
+	now = now.Add(time.Minute)
+	fixture.service.observeSubscriptionAccount = func(
+		context.Context,
+		channel.ID,
+		subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		return subscriptionruntime.Observation{
+			Payload:         []byte(`{"account_summary":{"display_name":"Updated owner"},"quota_windows":[]}`),
+			Partial:         true,
+			AccountObserved: true,
+		}, nil
+	}
+
+	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil || result.State != string(models.CredentialObservationFresh) ||
+		result.LastErrorCode != "observation_partial" || result.Snapshot == nil ||
+		len(result.Snapshot.QuotaWindows) != 1 {
+		t.Fatalf("partial result = %#v / %#v / %v", result, result.Snapshot, err)
+	}
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
+		t.Fatalf("partial observation cleared quota protection: %#v", candidates)
 	}
 }
 
@@ -245,6 +291,15 @@ func TestRefreshCredentialObservationClassifiesRepeatedAuthorizationFailure(t *t
 		forcedRefreshes != 1 || observationCalls != 2 {
 		t.Fatalf("result/error/refreshes/calls = %#v / %v / %d / %d", result, err, forcedRefreshes, observationCalls)
 	}
+	var stored models.CredentialObservation
+	if err := fixture.db.Where("credential_id = ?", credentialID).Take(&stored).Error; err != nil ||
+		stored.LastAuthRefreshSecretVersion == nil || *stored.LastAuthRefreshSecretVersion != 1 {
+		t.Fatalf("stored observation = %#v / %v", stored, err)
+	}
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil ||
+		forcedRefreshes != 1 || observationCalls != 3 {
+		t.Fatalf("second result/refreshes/calls = %v / %d / %d", err, forcedRefreshes, observationCalls)
+	}
 }
 
 func TestRefreshCredentialObservationClassifiesNonRefreshableHTTPFailure(t *testing.T) {
@@ -253,7 +308,7 @@ func TestRefreshCredentialObservationClassifiesNonRefreshableHTTPFailure(t *test
 		statusCode int
 		errorCode  string
 	}{
-		{name: "forbidden", statusCode: 403, errorCode: "observation_authorization_failed"},
+		{name: "forbidden", statusCode: 403, errorCode: "observation_access_denied"},
 		{name: "server error", statusCode: 500, errorCode: "observation_upstream_failed"},
 	}
 	for _, test := range tests {
@@ -581,8 +636,8 @@ func TestRefreshCredentialObservationPublishesAndClearsQuotaRoutingState(t *test
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil {
 		t.Fatal("forced failed refresh error = nil")
 	}
-	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
-		t.Fatalf("failed observation fallback candidates = %#v", candidates)
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
+		t.Fatalf("failed observation lost quota protection = %#v", candidates)
 	}
 }
 

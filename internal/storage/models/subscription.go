@@ -43,17 +43,18 @@ const (
 )
 
 type CredentialObservation struct {
-	CredentialID        uint                       `gorm:"primaryKey;not null"`
-	Credential          *Credential                `gorm:"foreignKey:CredentialID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	IdentityFingerprint string                     `gorm:"type:varchar(128);not null"`
-	SchemaVersion       uint                       `gorm:"not null;default:1"`
-	ObservationVersion  uint64                     `gorm:"not null;default:1"`
-	SnapshotJSON        JSON                       `gorm:"column:snapshot_json;type:json;not null"`
-	State               CredentialObservationState `gorm:"type:varchar(32);not null"`
-	ObservedAtMS        *int64                     `gorm:"column:observed_at_ms"`
-	FreshUntilMS        *int64                     `gorm:"column:fresh_until_ms"`
-	LastAttemptAtMS     *int64                     `gorm:"column:last_attempt_at_ms"`
-	NextAllowedAtMS     *int64                     `gorm:"column:next_allowed_at_ms"`
-	LastErrorCode       string                     `gorm:"type:varchar(64);not null;default:''"`
-	UpdatedAtMS         int64                      `gorm:"column:updated_at_ms;not null"`
+	CredentialID                 uint                       `gorm:"primaryKey;not null"`
+	Credential                   *Credential                `gorm:"foreignKey:CredentialID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	IdentityFingerprint          string                     `gorm:"type:varchar(128);not null"`
+	SchemaVersion                uint                       `gorm:"not null;default:1"`
+	ObservationVersion           uint64                     `gorm:"not null;default:1"`
+	SnapshotJSON                 JSON                       `gorm:"column:snapshot_json;type:json;not null"`
+	State                        CredentialObservationState `gorm:"type:varchar(32);not null"`
+	ObservedAtMS                 *int64                     `gorm:"column:observed_at_ms"`
+	FreshUntilMS                 *int64                     `gorm:"column:fresh_until_ms"`
+	LastAttemptAtMS              *int64                     `gorm:"column:last_attempt_at_ms"`
+	NextAllowedAtMS              *int64                     `gorm:"column:next_allowed_at_ms"`
+	LastAuthRefreshSecretVersion *uint64                    `gorm:"column:last_auth_refresh_secret_version"`
+	LastErrorCode                string                     `gorm:"type:varchar(64);not null;default:''"`
+	UpdatedAtMS                  int64                      `gorm:"column:updated_at_ms;not null"`
 }

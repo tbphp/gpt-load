@@ -900,7 +900,8 @@ func TestObserveClaudeAccountCombinesProfileRolesBootstrapAndUsage(t *testing.T)
 	if observation.Usage.FiveHour == nil || observation.Usage.FiveHour.Utilization == nil ||
 		*observation.Usage.FiveHour.Utilization != 25 ||
 		observation.Usage.ExtraUsage == nil || observation.Usage.ExtraUsage.MonthlyLimit == nil ||
-		len(observation.Usage.Limits) != 1 || observation.Header.Get("Request-Id") != "usage-request-one" {
+		len(observation.Usage.Limits) != 1 || !observation.AccountObserved || !observation.UsageObserved ||
+		observation.Header.Get("Request-Id") != "usage-request-one" {
 		t.Fatalf("usage/header = %#v / %v", observation.Usage, observation.Header)
 	}
 }
@@ -940,6 +941,28 @@ func TestObserveClaudeAccountFailsWhenEverySourceIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestObserveClaudeAccountClassifiesMixedAuthorizationFailures(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		status := http.StatusForbidden
+		if request.URL.Path == "/profile" || request.URL.Path == "/bootstrap" {
+			status = http.StatusUnauthorized
+		}
+		writer.WriteHeader(status)
+	}))
+	defer server.Close()
+
+	_, err := ObserveClaudeAccount(t.Context(), credential, ClaudeOptions{
+		ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+		BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+		HTTPClient: server.Client(),
+	})
+	var upstream *ClaudeUpstreamHTTPError
+	if !errors.As(err, &upstream) || upstream.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("observation error = %v", err)
+	}
+}
+
 func TestObserveClaudeAccountRejectsSourceWithoutUsableData(t *testing.T) {
 	credential := testClaudeExecutionCredential()
 	tests := []struct {
@@ -952,6 +975,8 @@ func TestObserveClaudeAccountRejectsSourceWithoutUsableData(t *testing.T) {
 		{name: "empty usage", path: "/usage", payload: `{}`},
 		{name: "empty usage window", path: "/usage", payload: `{"five_hour":{}}`},
 		{name: "empty extra usage", path: "/usage", payload: `{"extra_usage":{}}`},
+		{name: "currency-only extra usage", path: "/usage", payload: `{"extra_usage":{"currency":""}}`},
+		{name: "limit without percent", path: "/usage", payload: `{"limits":[{"kind":"weekly","group":"opus"}]}`},
 		{name: "unknown usage schema", path: "/usage", payload: `{"new_unknown_field":"value"}`},
 	}
 	for _, test := range tests {
@@ -1104,7 +1129,7 @@ func TestObserveClaudeAccountKeepsUsageWhenProfileIsUnavailable(t *testing.T) {
 	if observation.Profile.Email != credential.Email ||
 		observation.Profile.OrganizationName != "Bootstrap Org" ||
 		observation.Profile.SeatTier != "team_standard" ||
-		observation.Usage.FiveHour == nil {
+		observation.Usage.FiveHour == nil || !observation.AccountObserved || !observation.UsageObserved {
 		t.Fatalf("observation = %#v", observation)
 	}
 }

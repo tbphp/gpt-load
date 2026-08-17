@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -210,22 +211,26 @@ func TestAdapterCountsCodexTokensForEverySupportedProtocol(t *testing.T) {
 		operation  execution.Operation
 		routeMode  execution.RouteMode
 		wantFormat string
+		body       string
 		response   string
 	}{
 		{
 			name: "OpenAI Responses", protocol: protocol.OpenAIResponses,
 			operation: execution.OperationResponsesInputTokens, routeMode: execution.RouteNative,
-			wantFormat: "openai-response", response: `{"object":"response.input_tokens","input_tokens":7}`,
+			wantFormat: "openai-response", body: `{"model":"gpt-5","input":"hello"}`,
+			response: `{"object":"response.input_tokens","input_tokens":7}`,
 		},
 		{
 			name: "Anthropic", protocol: protocol.Anthropic,
 			operation: execution.OperationCountTokens, routeMode: execution.RouteConverted,
-			wantFormat: "claude", response: `{"input_tokens":7}`,
+			wantFormat: "claude", body: `{"model":"gpt-5","messages":[{"role":"user","content":"hello"}]}`,
+			response: `{"input_tokens":7}`,
 		},
 		{
 			name: "Gemini", protocol: protocol.Gemini,
 			operation: execution.OperationCountTokens, routeMode: execution.RouteConverted,
-			wantFormat: "gemini", response: `{"totalTokens":7}`,
+			wantFormat: "gemini", body: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
+			response: `{"totalTokens":7}`,
 		},
 	}
 	for _, test := range tests {
@@ -237,13 +242,91 @@ func TestAdapterCountsCodexTokensForEverySupportedProtocol(t *testing.T) {
 			spec.ClientProtocol = test.protocol
 			spec.Operation = test.operation
 			spec.RouteMode = test.routeMode
+			spec.Body = []byte(test.body)
 
 			result := adapter.Execute(t.Context(), spec)
-			if result.Error != nil || fake.countCalls != 1 || fake.calls != 0 ||
+			if result.Error != nil || result.DispatchState != execution.DispatchLocal || !result.ResponseStarted ||
+				result.Header.Get(localTokenCountHeader) != "local-estimate" ||
+				fake.countCalls != 1 || fake.calls != 0 ||
 				fake.request.Format != test.wantFormat || string(result.Body) != test.response {
 				t.Fatalf("result=%#v calls=%d countCalls=%d request=%#v", result, fake.calls, fake.countCalls, fake.request)
 			}
 		})
+	}
+}
+
+func TestAdapterRejectsUnsupportedLocalCodexTokenCountInput(t *testing.T) {
+	tests := []struct {
+		name      string
+		protocol  protocol.Protocol
+		operation execution.Operation
+		routeMode execution.RouteMode
+		model     string
+		body      string
+	}{
+		{
+			name: "responses previous response", protocol: protocol.OpenAIResponses,
+			operation: execution.OperationResponsesInputTokens, routeMode: execution.RouteNative,
+			body: `{"model":"gpt-5","previous_response_id":"resp_123","input":"continue"}`,
+		},
+		{
+			name: "responses image", protocol: protocol.OpenAIResponses,
+			operation: execution.OperationResponsesInputTokens, routeMode: execution.RouteNative,
+			body: `{"model":"gpt-5","input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}`,
+		},
+		{
+			name: "anthropic document", protocol: protocol.Anthropic,
+			operation: execution.OperationCountTokens, routeMode: execution.RouteConverted,
+			body: `{"model":"gpt-5","messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","data":"AA=="}}]}]}`,
+		},
+		{
+			name: "gemini inline data", protocol: protocol.Gemini,
+			operation: execution.OperationCountTokens, routeMode: execution.RouteConverted,
+			body: `{"contents":[{"role":"user","parts":[{"inlineData":{"mimeType":"image/png","data":"AA=="}}]}]}`,
+		},
+		{
+			name: "unknown tokenizer model", protocol: protocol.OpenAIResponses,
+			operation: execution.OperationResponsesInputTokens, routeMode: execution.RouteNative,
+			model: "codex-unknown", body: `{"model":"codex-unknown","input":"hello"}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			fake := &fakeExecutor{countResult: codex.ExecuteResponse{Payload: []byte(`{"input_tokens":7}`)}}
+			setCodexExecutor(t, adapter, fake)
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = test.protocol
+			spec.Operation = test.operation
+			spec.RouteMode = test.routeMode
+			spec.Body = []byte(test.body)
+			if test.model != "" {
+				spec.ClientModel, spec.UpstreamModel = test.model, test.model
+			}
+
+			result := adapter.Execute(t.Context(), spec)
+			if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
+				result.Error.Kind != execution.ErrorKindInvalidRequest || result.Error.Code != "local_token_count_unsupported_input" ||
+				fake.countCalls != 0 {
+				t.Fatalf("result=%#v countCalls=%d", result, fake.countCalls)
+			}
+		})
+	}
+}
+
+func TestAdapterMarksLocalCodexTokenCountFailureNotSent(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	fake := &fakeExecutor{err: errors.New("tokenizer failed")}
+	setCodexExecutor(t, adapter, fake)
+	spec := validSpec(t, row, keyService)
+	spec.Operation = execution.OperationResponsesInputTokens
+	spec.Path = "/v1/responses/input_tokens"
+
+	result := adapter.Execute(t.Context(), spec)
+	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindInternal || result.Error.Code != "local_token_count_failed" ||
+		fake.countCalls != 1 {
+		t.Fatalf("result=%#v countCalls=%d", result, fake.countCalls)
 	}
 }
 

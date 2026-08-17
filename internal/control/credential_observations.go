@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	observationRefreshFloor = 5 * time.Minute
-	observationFreshTTL     = time.Hour
+	observationRefreshFloor     = 5 * time.Minute
+	observationFreshTTL         = time.Hour
+	observationAuthRetryBackoff = time.Hour
 )
 
 type ObservationPlanSummary struct {
@@ -204,7 +205,10 @@ func (s *Service) refreshCredentialObservationOnce(
 	defer cancelObserve()
 	channelID := channel.ID(group.ChannelID)
 	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
+	authRefreshVersion := previous.LastAuthRefreshSecretVersion
 	if subscriptionObservationHTTPStatus(observeErr) == http.StatusUnauthorized &&
+		(previous.LastAuthRefreshSecretVersion == nil ||
+			*previous.LastAuthRefreshSecretVersion != credential.SecretVersion) &&
 		s.prepareSubscriptionCredential != nil {
 		preparedCredential, err = s.prepareStoredSubscriptionCredentialWithForce(
 			observeContext,
@@ -215,37 +219,44 @@ func (s *Service) refreshCredentialObservationOnce(
 		if err != nil {
 			return CredentialObservationResponse{}, err
 		}
+		var refreshed models.Credential
+		if err := s.db.WithContext(observeContext).Select("secret_version").First(&refreshed, credential.ID).Error; err != nil {
+			return CredentialObservationResponse{}, app_errors.ParseDBError(err)
+		}
+		version := refreshed.SecretVersion
+		authRefreshVersion = &version
 		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
 	}
 	if observeErr != nil {
 		if errors.Is(observeErr, subscriptionruntime.ErrObservationPayloadInvalid) {
 			return s.recordCredentialObservationFailure(
 				ctx, credential, previous, attemptMS, nextAllowedMS,
-				"observation_payload_invalid", "normalize subscription information",
+				"observation_payload_invalid", "normalize subscription information", nil,
 			)
 		}
 		if status := subscriptionObservationHTTPStatus(observeErr); status == http.StatusUnauthorized ||
 			status == http.StatusForbidden {
+			nextAllowedMS = now.Add(observationAuthRetryBackoff).UnixMilli()
+			code, summary := "observation_authorization_failed", "authorize subscription information"
+			if status == http.StatusForbidden {
+				code, summary = "observation_access_denied", "access subscription information"
+			}
 			return s.recordCredentialObservationFailure(
 				ctx, credential, previous, attemptMS, nextAllowedMS,
-				"observation_authorization_failed", "authorize subscription information",
+				code, summary, authRefreshVersion,
 			)
 		}
 		return s.recordCredentialObservationFailure(
 			ctx, credential, previous, attemptMS, nextAllowedMS,
-			"observation_upstream_failed", "refresh subscription information",
+			"observation_upstream_failed", "refresh subscription information", nil,
 		)
 	}
 	var snapshot CredentialObservationSnapshot
 	if err := json.Unmarshal(observation.Payload, &snapshot); err != nil || snapshot.QuotaWindows == nil {
 		return s.recordCredentialObservationFailure(
 			ctx, credential, previous, attemptMS, nextAllowedMS,
-			"observation_payload_invalid", "normalize subscription information",
+			"observation_payload_invalid", "normalize subscription information", nil,
 		)
-	}
-	encoded, err := json.Marshal(snapshot)
-	if err != nil {
-		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
 	version := previous.ObservationVersion + 1
 	if previous.ObservationVersion == 0 {
@@ -255,11 +266,34 @@ func (s *Service) refreshCredentialObservationOnce(
 	var freshUntilMS *int64
 	lastErrorCode := ""
 	if observation.Partial {
-		state = models.CredentialObservationStale
 		lastErrorCode = "observation_partial"
+		var previousSnapshot CredentialObservationSnapshot
+		previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
+			json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
+		previousQuotaFresh := previousSnapshotOK &&
+			previous.State == models.CredentialObservationFresh &&
+			previous.FreshUntilMS != nil && *previous.FreshUntilMS > attemptMS
+		switch {
+		case !observation.QuotaObserved && previousQuotaFresh:
+			snapshot = previousSnapshot
+			freshUntilMS = previous.FreshUntilMS
+		case observation.QuotaObserved:
+			if !observation.AccountObserved && previousSnapshotOK {
+				snapshot.Plan = previousSnapshot.Plan
+				snapshot.Account = previousSnapshot.Account
+			}
+			value := now.Add(observationFreshTTL).UnixMilli()
+			freshUntilMS = &value
+		default:
+			state = models.CredentialObservationStale
+		}
 	} else {
 		value := now.Add(observationFreshTTL).UnixMilli()
 		freshUntilMS = &value
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
 	row := models.CredentialObservation{
 		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
@@ -293,6 +327,7 @@ func (s *Service) recordCredentialObservationFailure(
 	nextAllowedMS int64,
 	code string,
 	summary string,
+	authRefreshSecretVersion *uint64,
 ) (CredentialObservationResponse, error) {
 	failed := previous
 	failed.CredentialID = credential.ID
@@ -301,11 +336,20 @@ func (s *Service) recordCredentialObservationFailure(
 	if failed.ObservationVersion == 0 {
 		failed.ObservationVersion = 1
 	}
-	failed.State = models.CredentialObservationError
+	if failed.State == models.CredentialObservationFresh && failed.FreshUntilMS != nil &&
+		*failed.FreshUntilMS > attemptMS {
+		failed.State = models.CredentialObservationFresh
+	} else {
+		failed.State = models.CredentialObservationError
+	}
 	failed.LastAttemptAtMS = &attemptMS
 	failed.NextAllowedAtMS = &nextAllowedMS
 	failed.LastErrorCode = code
 	failed.UpdatedAtMS = attemptMS
+	if authRefreshSecretVersion != nil {
+		value := *authRefreshSecretVersion
+		failed.LastAuthRefreshSecretVersion = &value
+	}
 	if len(failed.SnapshotJSON) == 0 {
 		failed.SnapshotJSON = models.JSON(`{}`)
 	}

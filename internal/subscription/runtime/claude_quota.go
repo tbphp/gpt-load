@@ -113,7 +113,9 @@ func normalizeClaudeAccount(profile claude.AccountProfile, extraUsage *claude.Ex
 		ExtraUsageEnabled: cloneBoolPointer(profile.ExtraUsageEnabled),
 	}
 	if extraUsage != nil {
-		result.ExtraUsageEnabled = boolPointerValue(extraUsage.Enabled)
+		if extraUsage.Enabled != nil {
+			result.ExtraUsageEnabled = cloneBoolPointer(extraUsage.Enabled)
+		}
 		if extraUsage.DisabledReason != nil {
 			result.ExtraUsageDisabledReason = strings.TrimSpace(*extraUsage.DisabledReason)
 		}
@@ -223,7 +225,7 @@ func normalizeClaudeExtraUsage(extra *claude.ExtraUsage) (quotaWindow, error) {
 		utilization := math.Min(1, *result.Used / *result.Limit)
 		result.Utilization = &utilization
 	}
-	if extra.Enabled && (result.Limit != nil || result.Utilization != nil) {
+	if extra.Enabled != nil && *extra.Enabled && (result.Limit != nil || result.Utilization != nil) {
 		result.State = "available"
 		if result.Remaining != nil && *result.Remaining <= 0 || result.Utilization != nil && *result.Utilization >= 1 {
 			result.State = "exhausted"

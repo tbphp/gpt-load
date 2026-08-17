@@ -466,8 +466,12 @@ export default {
           refreshStartFailed: 'The credential refresh could not start. Try again shortly.',
         },
         observationError: {
+          accessDenied:
+            'The upstream denied access to subscription information. Check account permissions or plan.',
           authorizationFailed:
             'The upstream subscription authorization is no longer valid. Sign in again.',
+          partial:
+            'Some subscription information is unavailable; the last valid quota is retained.',
           upstreamFailed: 'Unable to read upstream subscription entitlement information',
           payloadInvalid: 'The upstream returned unrecognized subscription entitlement information',
         },
