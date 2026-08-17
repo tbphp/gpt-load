@@ -41,7 +41,7 @@ func TestClaudeModuleDeclaresSubscriptionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target.ProviderKind != ProviderClaude || target.CatalogProviderID != "anthropic" {
+	if target.ProviderKind != ProviderClaude || target.CatalogProviderID != "" {
 		t.Fatalf("Claude target = %#v", target)
 	}
 	bindings, ok := registry.CapabilityBindings(Claude)

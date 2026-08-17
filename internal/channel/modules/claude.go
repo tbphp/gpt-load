@@ -37,9 +37,8 @@ func Claude() spec.Module {
 			Params:      []spec.Field{},
 			Credentials: []spec.Field{},
 			Provider: spec.ProviderBinding{
-				ProviderKind:      spec.ProviderClaude,
-				CatalogProviderID: "anthropic",
-				EndpointPolicy:    spec.EndpointNone,
+				ProviderKind:   spec.ProviderClaude,
+				EndpointPolicy: spec.EndpointNone,
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteNative),
