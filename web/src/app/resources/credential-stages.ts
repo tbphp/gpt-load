@@ -1,8 +1,6 @@
 import type { ApiClient } from '@/api/client'
-import type { CredentialItemDto } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 
-import { projectCredentialItem } from './credentials'
 import {
   assertNoSecretLikeFields,
   projectEpochMilliseconds,
@@ -211,26 +209,4 @@ export async function connectGroupCredentials(
   )
   if (result.group_id !== groupID) invalidResponse()
   return result
-}
-
-export async function reauthorizeGroupCredential(
-  client: ApiClient,
-  groupID: number,
-  credentialID: number,
-  stageID: string,
-  expectedSecretVersion: number,
-  idempotencyKey: string,
-  signal?: AbortSignal,
-): Promise<CredentialItemDto> {
-  return projectCredentialItem(
-    await client.request(`/api/groups/${groupID}/credentials/${credentialID}/reauthorize`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': idempotencyKey },
-      json: {
-        stage_id: projectStageID(stageID),
-        expected_secret_version: projectSafeInteger(expectedSecretVersion, { minimum: 1 }),
-      },
-      signal,
-    }),
-  )
 }

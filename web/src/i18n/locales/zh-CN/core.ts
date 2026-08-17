@@ -34,7 +34,7 @@ export default {
       stageConsumed: '该临时订阅账号已经保存，请重新开始授权',
       stageMismatch: '临时订阅账号与当前目标不匹配',
       duplicateAccount: '该订阅账号已经存在于当前分组',
-      reauthorizationRequired: '该订阅账号需要重新授权',
+      reauthorizationRequired: '该订阅账号需要重新连接或导入凭据',
       outcomeUnknown: '凭据操作结果无法确认，请先重新加载账号状态',
       versionConflict: '账号授权已被其他操作更新，请重新加载后再试',
       resetCreditUnavailable: '当前没有可用的重置卡，请先同步账号信息',

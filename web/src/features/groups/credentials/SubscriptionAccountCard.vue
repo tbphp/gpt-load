@@ -2,9 +2,10 @@
 import {
   CircleCheck,
   CircleOff,
+  Download,
   Ellipsis,
+  KeyRound,
   LoaderCircle,
-  LogIn,
   RefreshCw,
   RotateCcw,
   Trash2,
@@ -13,7 +14,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { CredentialItemDto, CredentialQuotaWindowDto } from '@/api/control/types'
-import type { ChannelAuthorizationMethod, ChannelCapabilitiesDto } from '@/app/resources/channels'
+import type { ChannelCapabilitiesDto } from '@/app/resources/channels'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
@@ -35,7 +36,6 @@ const props = defineProps<{
   detailError: string
   channelIcon?: string
   channelMark?: string
-  authorizationMethods: ChannelAuthorizationMethod[]
   capabilities: ChannelCapabilitiesDto
 }>()
 const emit = defineEmits<{
@@ -44,7 +44,8 @@ const emit = defineEmits<{
   refresh: [item: CredentialItemDto]
   'load-details': [item: CredentialItemDto]
   reset: [item: CredentialItemDto]
-  reauthorize: [item: CredentialItemDto]
+  download: [item: CredentialItemDto]
+  'refresh-credential': [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t } = useI18n()
@@ -84,7 +85,6 @@ const supportsQuotaObservation = computed(() => props.capabilities.quota_observa
 const supportsResetCredit = computed(() =>
   props.capabilities.credential_actions.includes('reset_credit'),
 )
-const canReauthorize = computed(() => props.authorizationMethods.length > 0)
 const snapshot = computed(() => observation.value?.snapshot)
 // 最快恢复的额度窗口排在前面；缺少时长的上游窗口保持在最后。
 const quotaWindows = computed(() =>
@@ -343,11 +343,16 @@ function retryDetails(): void {
   emit('load-details', props.item)
 }
 
-function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'): void {
+function runMenuAction(
+  action: 'download' | 'refresh-credential' | 'toggle' | 'restore' | 'remove',
+): void {
   menuOpen.value = false
   switch (action) {
-    case 'reauthorize':
-      emit('reauthorize', props.item)
+    case 'download':
+      emit('download', props.item)
+      return
+    case 'refresh-credential':
+      emit('refresh-credential', props.item)
       return
     case 'toggle':
       emit('toggle', props.item)
@@ -417,14 +422,18 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
                 </IconButton>
               </template>
               <div class="subscription-account__menu">
+                <button type="button" :disabled="busy" @click="runMenuAction('download')">
+                  <Download :size="15" aria-hidden="true" />{{
+                    t('group.credentials.subscription.download')
+                  }}
+                </button>
                 <button
-                  v-if="canReauthorize"
                   type="button"
-                  :disabled="busy"
-                  @click="runMenuAction('reauthorize')"
+                  :disabled="busy || item.configured_status === 'disabled'"
+                  @click="runMenuAction('refresh-credential')"
                 >
-                  <LogIn :size="15" aria-hidden="true" />{{
-                    t('group.credentials.subscription.reauthorize')
+                  <KeyRound :size="15" aria-hidden="true" />{{
+                    t('group.credentials.subscription.refreshCredential')
                   }}
                 </button>
                 <button type="button" :disabled="busy" @click="runMenuAction('toggle')">
@@ -479,14 +488,6 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 
       <div v-if="authIssue" class="subscription-account__alert">
         <span>{{ authIssue }}</span>
-        <AppButton
-          v-if="canReauthorize"
-          size="compact"
-          :disabled="busy"
-          @click="emit('reauthorize', item)"
-        >
-          {{ t('group.credentials.subscription.reauthorize') }}
-        </AppButton>
       </div>
 
       <div

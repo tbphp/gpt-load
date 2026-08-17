@@ -36,7 +36,7 @@ export default {
       stageConsumed: 'This temporary subscription account was already saved; authorize again',
       stageMismatch: 'The temporary subscription account does not match this target',
       duplicateAccount: 'This subscription account already exists in the Group',
-      reauthorizationRequired: 'This subscription account must be reauthorized',
+      reauthorizationRequired: 'This subscription account must be reconnected or re-imported',
       outcomeUnknown: 'The credential outcome is unknown; reload the account state first',
       versionConflict: 'The authorization changed elsewhere; reload and try again',
       resetCreditUnavailable: 'No reset credit is available; sync the account first',

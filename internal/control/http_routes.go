@@ -254,6 +254,17 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleRefreshGroupCredentialObservation,
 			),
 			controlRoute(
+				"control.group-credentials.refresh",
+				http.MethodPost,
+				"/groups/:group_id/credentials/:credential_id/refresh",
+				s.auditMutation(newMutationDescriptor(
+					"group_credential_refresh",
+					"group_credential",
+					groupCredentialMutationLocator,
+				)),
+				s.handleRefreshGroupCredential,
+			),
+			controlRoute(
 				"control.group-credentials.reset-credit-consume",
 				http.MethodPost,
 				"/groups/:group_id/credentials/:credential_id/reset-credits/consume",
@@ -274,6 +285,17 @@ func (s *Server) HTTPModule() httproute.Module {
 					groupCredentialMutationLocator,
 				)),
 				s.handleRevealGroupCredential,
+			),
+			controlRoute(
+				"control.group-credentials.download",
+				http.MethodPost,
+				"/groups/:group_id/credentials/:credential_id/download",
+				s.auditMutation(newMutationDescriptor(
+					"group_credential_download",
+					"group_credential",
+					groupCredentialMutationLocator,
+				)),
+				s.handleDownloadGroupCredential,
 			),
 			controlRoute(
 				"control.group-credentials.update",
@@ -336,13 +358,6 @@ func (s *Server) HTTPModule() httproute.Module {
 				"/groups/:group_id/credentials/connect",
 				s.auditMutation(newMutationDescriptor("group_credential_connect", "group_credential", groupCredentialsMutationLocator)),
 				s.handleConnectGroupCredentials,
-			),
-			controlRoute(
-				"control.group-credentials.reauthorize",
-				http.MethodPost,
-				"/groups/:group_id/credentials/:credential_id/reauthorize",
-				s.auditMutation(newMutationDescriptor("group_credential_reauthorize", "group_credential", groupCredentialMutationLocator)),
-				s.handleReauthorizeGroupCredential,
 			),
 			controlRoute(
 				"control.group-models.discover",

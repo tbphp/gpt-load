@@ -263,6 +263,11 @@ export interface CredentialRevealDto {
   revealed_at_ms: number
 }
 
+export interface CredentialDownloadDto {
+  filename: string
+  credential: Record<string, unknown>
+}
+
 export interface CredentialSummaryDto {
   total: number
   available: number

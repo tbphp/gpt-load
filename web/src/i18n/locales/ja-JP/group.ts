@@ -367,19 +367,19 @@ export default {
         connect: 'アカウントを接続',
         connectDescription:
           '上流のサブスクリプションサービスでログインして認証が完了すると、アカウントは自動的にこのグループへ追加されます。',
-        reauthorizeDescription:
-          '{account} の認証を更新します。新しいログインは同じアカウントである必要があります。',
         confirmConnect: 'アカウントを追加',
         confirmConnectCount: '{count} 件のアカウントを追加',
         connectFailed: 'このグループにアカウントを追加できません',
         connectSucceeded: '{added} 件のアカウントを接続しました',
         connectDuplicated:
           '{added} 件のアカウントを接続し、既存の {duplicated} 件をスキップしました',
-        reauthorize: '再ログイン',
-        confirmReauthorize: '認証を更新',
-        reauthorizeFailed: 'このアカウントの認証を更新できません',
-        reauthorizeSucceeded: '{account} の認証を更新しました',
         sync: '同期',
+        download: '認証情報をダウンロード',
+        downloadSucceeded: '認証情報ファイルをダウンロードしました',
+        downloadFailed: '認証情報ファイルをダウンロードできません',
+        refreshCredential: '認証情報を更新',
+        refreshCredentialSucceeded: '認証情報を更新しました',
+        refreshCredentialFailed: '認証情報を更新できません',
         dailyWindow: '直近 24 時間',
         dailySuccess: '成功',
         dailyFailure: '失敗',
@@ -455,15 +455,16 @@ export default {
         auth: {
           ready: '認証済み',
           refreshing: '認証情報を更新中',
-          reauthorization_required: '再ログインが必要',
+          reauthorization_required: '再接続または再インポートが必要',
           outcome_unknown: '認証情報の結果不明',
         },
         authError: {
           refreshRejected:
-            'Codex が認証情報の更新を拒否しました。このアカウントを再認証してください。',
+            'Codex が認証情報の更新を拒否しました。このアカウントを再接続または再インポートしてください。',
           identityChanged:
-            '更新した認証情報は別のアカウントに属します。元のアカウントを再認証してください。',
-          outcomeUnknown: '最新の認証情報更新を確認できません。使用前に再認証してください。',
+            '更新した認証情報は別のアカウントに属します。元のアカウントを再接続または再インポートしてください。',
+          outcomeUnknown:
+            '最新の認証情報更新を確認できません。使用前にアカウント状態を再読み込みしてください。',
           persistFailed:
             '新しい認証情報を安全に反映できませんでした。再読み込みしてから再試行してください。',
           runtimeMismatch:

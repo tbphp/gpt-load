@@ -366,18 +366,18 @@ export default {
         connect: 'Connect account',
         connectDescription:
           'Sign in with the upstream subscription service; the account joins this group automatically once authorized.',
-        reauthorizeDescription:
-          'Updating the authorization for {account}. The new sign-in must belong to the same account.',
         confirmConnect: 'Add account',
         confirmConnectCount: 'Add {count} accounts',
         connectFailed: 'Unable to add the account to this group',
         connectSucceeded: 'Connected {added} account(s)',
         connectDuplicated: 'Connected {added} account(s), skipped {duplicated} already present',
-        reauthorize: 'Sign in again',
-        confirmReauthorize: 'Update authorization',
-        reauthorizeFailed: 'Unable to update this account authorization',
-        reauthorizeSucceeded: 'Authorization updated for {account}',
         sync: 'Sync',
+        download: 'Download credential',
+        downloadSucceeded: 'Credential file downloaded',
+        downloadFailed: 'Unable to download the credential file',
+        refreshCredential: 'Refresh credential',
+        refreshCredentialSucceeded: 'Credential refreshed',
+        refreshCredentialFailed: 'Unable to refresh the credential',
         dailyWindow: 'Last 24 hours',
         dailySuccess: 'Success',
         dailyFailure: 'Failure',
@@ -451,15 +451,16 @@ export default {
         auth: {
           ready: 'Authorized',
           refreshing: 'Refreshing credential',
-          reauthorization_required: 'Sign in again required',
+          reauthorization_required: 'Reconnect or re-import required',
           outcome_unknown: 'Credential outcome unknown',
         },
         authError: {
-          refreshRejected: 'Codex rejected the credential refresh. Reauthorize this account.',
+          refreshRejected:
+            'Codex rejected the credential refresh. Reconnect or re-import this account.',
           identityChanged:
-            'The refreshed credential belongs to another account. Reauthorize the original account.',
+            'The refreshed credential belongs to another account. Reconnect or re-import the original account.',
           outcomeUnknown:
-            'The latest credential refresh could not be confirmed. Reauthorize before using it.',
+            'The latest credential refresh could not be confirmed. Reload the account state before using it.',
           persistFailed:
             'The new credential could not be published safely. Reload the account and try again.',
           runtimeMismatch:

@@ -14,6 +14,7 @@ import type {
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
   CredentialDetailDto,
+  CredentialDownloadDto,
   CredentialItemDto,
   CredentialObservationDto,
   CredentialObservationSnapshotDto,
@@ -49,6 +50,7 @@ export type {
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
   CredentialDetailDto,
+  CredentialDownloadDto,
   CredentialItemDto,
   CredentialRecoveryDto,
   CredentialRevealDto,
@@ -105,6 +107,7 @@ const credentialItemFields = [
   'recovery',
 ] as const
 const credentialDetailFields = ['credential', 'observation'] as const
+const credentialDownloadFields = ['filename', 'credential'] as const
 const credentialDailyUsageFields = [
   'window_seconds',
   'success_count',
@@ -236,6 +239,32 @@ function projectObservedWindowUsage(value: unknown): CredentialObservedWindowUsa
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
+}
+
+function projectCredentialJSONValue(value: unknown): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) invalidResponse()
+    return value
+  }
+  if (Array.isArray(value)) return value.map(projectCredentialJSONValue)
+  const record = projectRecord(value)
+  const result: Record<string, unknown> = {}
+  for (const [key, nested] of Object.entries(record)) {
+    if (!/^[a-z][a-z0-9_]*$/u.test(key)) invalidResponse()
+    result[key] = projectCredentialJSONValue(nested)
+  }
+  return result
+}
+
+function projectCredentialJSON(value: unknown): Record<string, unknown> {
+  const projected = projectCredentialJSONValue(value)
+  if (typeof projected !== 'object' || projected === null || Array.isArray(projected)) {
+    invalidResponse()
+  }
+  const result = projected as Record<string, unknown>
+  if (Object.keys(result).length === 0) invalidResponse()
+  return result
 }
 
 function projectMask(value: unknown, connectionType: 'api_key' | 'subscription'): string {
@@ -729,6 +758,32 @@ export async function revealCredential(
   }
 }
 
+function projectCredentialDownload(value: unknown): CredentialDownloadDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, credentialDownloadFields)
+  const filename = projectString(record.filename)
+  if (!/^[a-z0-9][a-z0-9._-]{0,191}\.json$/u.test(filename)) invalidResponse()
+  return {
+    filename,
+    credential: projectCredentialJSON(record.credential),
+  }
+}
+
+export async function downloadCredential(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  signal?: AbortSignal,
+): Promise<CredentialDownloadDto> {
+  return projectCredentialDownload(
+    await client.request(`/api/groups/${groupId}/credentials/${credentialId}/download`, {
+      method: 'POST',
+      json: {},
+      signal,
+    }),
+  )
+}
+
 export async function restoreCredential(
   client: ApiClient,
   groupId: number,
@@ -752,6 +807,21 @@ export async function refreshCredentialObservation(
 ): Promise<CredentialObservationDto> {
   return projectObservation(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/observation-refresh`, {
+      method: 'POST',
+      json: {},
+      signal,
+    }),
+  )
+}
+
+export async function refreshCredential(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  signal?: AbortSignal,
+): Promise<CredentialItemDto> {
+  return projectCredentialItem(
+    await client.request(`/api/groups/${groupId}/credentials/${credentialId}/refresh`, {
       method: 'POST',
       json: {},
       signal,

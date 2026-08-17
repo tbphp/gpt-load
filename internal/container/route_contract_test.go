@@ -109,6 +109,22 @@ func TestBuildContainerExposesUnifiedRouteCatalog(t *testing.T) {
 		},
 		{
 			ModuleName: "control",
+			RouteName:  "control.group-credentials.refresh",
+			Owner:      httproute.OwnerControl,
+			Auth:       httproute.AuthControl,
+			Methods:    []string{http.MethodPost},
+			Path:       "/api/groups/:group_id/credentials/:credential_id/refresh",
+		},
+		{
+			ModuleName: "control",
+			RouteName:  "control.group-credentials.download",
+			Owner:      httproute.OwnerControl,
+			Auth:       httproute.AuthControl,
+			Methods:    []string{http.MethodPost},
+			Path:       "/api/groups/:group_id/credentials/:credential_id/download",
+		},
+		{
+			ModuleName: "control",
 			RouteName:  "control.groups.options",
 			Owner:      httproute.OwnerControl,
 			Auth:       httproute.AuthControl,

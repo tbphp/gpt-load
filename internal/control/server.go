@@ -400,6 +400,28 @@ func (s *Server) handleRefreshGroupCredentialObservation(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleRefreshGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "refresh_group_credential")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "refresh_group_credential")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "refresh_group_credential", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.RefreshGroupCredential(c.Request.Context(), groupID, credentialID)
+	if err != nil {
+		writeServiceError(c, "refresh_group_credential", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleConsumeGroupCredentialResetCredit(c *gin.Context) {
 	groupID, ok := groupID(c, "consume_group_credential_reset_credit")
 	if !ok {
@@ -446,6 +468,28 @@ func (s *Server) handleRevealGroupCredential(c *gin.Context) {
 	result, err := s.service.RevealGroupCredential(c.Request.Context(), groupID, credentialID)
 	if err != nil {
 		writeServiceError(c, "reveal_group_credential", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleDownloadGroupCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "download_group_credential")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "download_group_credential")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "download_group_credential", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.DownloadGroupCredential(c.Request.Context(), groupID, credentialID)
+	if err != nil {
+		writeServiceError(c, "download_group_credential", err)
 		return
 	}
 	setSecretResponseHeaders(c)
@@ -576,34 +620,6 @@ func (s *Server) handleConnectGroupCredentials(c *gin.Context) {
 	)
 	if err != nil {
 		writeServiceError(c, "connect_group_credentials", err)
-		return
-	}
-	response.SuccessI18n(c, "common.success", result)
-}
-
-func (s *Server) handleReauthorizeGroupCredential(c *gin.Context) {
-	groupID, ok := groupID(c, "reauthorize_group_credential")
-	if !ok {
-		return
-	}
-	idempotencyKey, ok := requiredIdempotencyKey(c, "reauthorize_group_credential")
-	if !ok {
-		return
-	}
-	credentialID, ok := credentialID(c, "reauthorize_group_credential")
-	if !ok {
-		return
-	}
-	var request CredentialReauthorizationRequest
-	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "reauthorize_group_credential", mapControlJSONError(err))
-		return
-	}
-	result, err := s.service.ReauthorizeGroupCredentialIdempotent(
-		c.Request.Context(), idempotencyKey, groupID, credentialID, request,
-	)
-	if err != nil {
-		writeServiceError(c, "reauthorize_group_credential", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)

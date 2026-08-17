@@ -33,7 +33,6 @@ const props = withDefaults(
     authorizationMethods: ChannelAuthorizationMethod[]
     notices?: ChannelNoticeDto[]
     disabled?: boolean
-    single?: boolean
     compact?: boolean
     hideHeader?: boolean
     step?: number
@@ -47,7 +46,6 @@ const props = withDefaults(
     disabled: false,
     channelName: '',
     notices: () => [],
-    single: false,
     compact: false,
     hideHeader: false,
     step: undefined,
@@ -76,7 +74,6 @@ const readyCount = computed(
   () => props.modelValue.filter(({ status }) => status === 'ready').length,
 )
 const hasAccounts = computed(() => props.modelValue.length > 0)
-const canAdd = computed(() => !props.single || props.modelValue.length === 0)
 const entryBusy = computed(() => props.disabled || Boolean(busyAction.value))
 const supportsBrowserOAuth = computed(() => props.authorizationMethods.includes('browser_oauth'))
 const supportsOAuthFile = computed(() => props.authorizationMethods.includes('oauth_file'))
@@ -232,7 +229,7 @@ function openAuthorizationPopup(): Window | null {
 }
 
 async function beginAuthorization(existingPopup?: Window | null): Promise<void> {
-  if (!supportsBrowserOAuth.value || props.disabled || busyAction.value || !canAdd.value) {
+  if (!supportsBrowserOAuth.value || props.disabled || busyAction.value) {
     existingPopup?.close()
     return
   }
@@ -270,7 +267,7 @@ async function importText(): Promise<void> {
 }
 
 async function importOAuthJSON(file: File): Promise<void> {
-  if (!supportsOAuthFile.value || props.disabled || busyAction.value || !canAdd.value) return
+  if (!supportsOAuthFile.value || props.disabled || busyAction.value) return
   feedbackKey.value = ''
   busyAction.value = 'import'
   try {
@@ -330,7 +327,6 @@ async function restartAuthorization(stage: CredentialStage): Promise<void> {
   if (!supportsBrowserOAuth.value || props.disabled || busyAction.value) return
   const popup = openAuthorizationPopup()
   await removeStage(stage)
-  // 等父组件把新的 modelValue 回灌进来，否则 single 模式下 canAdd 还是旧值。
   await nextTick()
   await beginAuthorization(popup)
 }
@@ -621,7 +617,7 @@ onBeforeUnmount(() => {
       </article>
     </div>
 
-    <div v-if="canAdd && hasEntryMethod" class="subscription-stager__entry">
+    <div v-if="hasEntryMethod" class="subscription-stager__entry">
       <div v-if="supportsBrowserOAuth" class="subscription-stager__entry-primary">
         <AppButton
           class="subscription-stager__primary"

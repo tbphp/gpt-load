@@ -23,17 +23,15 @@ import {
   cacheCredentialItem,
   consumeCredentialResetCredit,
   credentialCollectionQueryOptions,
+  downloadCredential,
   getCredentialDetail,
   revealCredential,
+  refreshCredential as refreshCredentialRequest,
   restoreCredential,
   refreshCredentialObservation,
   updateCredential,
 } from '@/app/resources/credentials'
-import {
-  connectGroupCredentials,
-  reauthorizeGroupCredential,
-  type CredentialStage,
-} from '@/app/resources/credential-stages'
+import { connectGroupCredentials, type CredentialStage } from '@/app/resources/credential-stages'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
@@ -112,7 +110,6 @@ const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | un
 const resetOperationKeys = new Map<number, string>()
 const connectionWorkspaceOpen = ref(false)
 const connectionStages = ref<CredentialStage[]>([])
-const reauthorizationTarget = ref<CredentialItemDto | null>(null)
 const connectOperationKey = ref<string>()
 // 抽屉打开时列表区被遮住，连接失败的提示必须落在抽屉内部才看得见。
 const connectFeedback = ref('')
@@ -122,12 +119,7 @@ function credentialDisplayName(item: CredentialItemDto): string {
   return item.account.email ?? item.mask
 }
 const connectionWorkspaceDescription = computed(() =>
-  reauthorizationTarget.value
-    ? t('group.credentials.subscription.reauthorizeDescription', {
-        account: credentialDisplayName(reauthorizationTarget.value),
-        id: reauthorizationTarget.value.credential_id,
-      })
-    : t('group.credentials.subscription.connectDescription'),
+  t('group.credentials.subscription.connectDescription'),
 )
 
 const collection = computed(() => credentialsQuery.data.value)
@@ -162,9 +154,7 @@ const singleBusy = computed(() =>
 // 抽屉只关心自己那一次写入。用页面级 singleBusy 会让任意一行在忙时把抽屉
 // 整个锁死，连关闭按钮都点不动。
 const connectBusy = computed(() =>
-  [...pendingOperations.value].some(
-    (key) => key.endsWith(':connect') || key.endsWith(':reauthorize'),
-  ),
+  [...pendingOperations.value].some((key) => key.endsWith(':connect')),
 )
 const dialogBusy = computed(() => {
   const target = deleteTarget.value
@@ -242,7 +232,6 @@ watch(
   () => {
     connectionWorkspaceOpen.value = false
     connectionStages.value = []
-    reauthorizationTarget.value = null
     loadedDetails.value = new Map()
     detailErrors.value = new Map()
   },
@@ -558,6 +547,57 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
   }
 }
 
+async function refreshCredentialToken(item: CredentialItemDto): Promise<void> {
+  if (pending(item.credential_id)) return
+  feedback.value = ''
+  setPending(item.credential_id, 'refresh-credential', true)
+  try {
+    const result = await refreshCredentialRequest(client, props.groupId, item.credential_id)
+    clearDetailState(item.credential_id)
+    await reconcileItem(result, true)
+    toast.show({
+      message: t('group.credentials.subscription.refreshCredentialSucceeded'),
+      tone: 'success',
+    })
+  } catch (cause) {
+    feedback.value = t(
+      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.refreshCredentialFailed'),
+    )
+  } finally {
+    setPending(item.credential_id, 'refresh-credential', false)
+  }
+}
+
+async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
+  if (pending(item.credential_id)) return
+  feedback.value = ''
+  setPending(item.credential_id, 'download', true)
+  try {
+    const result = await downloadCredential(client, props.groupId, item.credential_id)
+    const blob = new Blob([`${JSON.stringify(result.credential, null, 2)}\n`], {
+      type: 'application/json;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = result.filename
+    document.body.append(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    toast.show({
+      message: t('group.credentials.subscription.downloadSucceeded'),
+      tone: 'success',
+    })
+  } catch (cause) {
+    feedback.value = t(
+      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.downloadFailed'),
+    )
+  } finally {
+    setPending(item.credential_id, 'download', false)
+  }
+}
+
 async function loadCredentialUsage(item: CredentialItemDto): Promise<void> {
   if (batchBusy.value || pending(item.credential_id) || detailLoaded(item.credential_id)) return
   const errors = new Map(detailErrors.value)
@@ -645,9 +685,8 @@ watch(
 )
 
 // 抽屉自己管理焦点与滚动，这里只负责重置暂存状态。
-function openConnectionWorkspace(target?: CredentialItemDto): void {
+function openConnectionWorkspace(): void {
   connectionStages.value = []
-  reauthorizationTarget.value = target ?? null
   connectOperationKey.value = undefined
   connectFeedback.value = ''
   autoWrittenSignatures.clear()
@@ -659,7 +698,6 @@ function setConnectionWorkspace(open: boolean): void {
   connectionWorkspaceOpen.value = open
   if (!open) {
     connectionStages.value = []
-    reauthorizationTarget.value = null
     connectOperationKey.value = undefined
     connectFeedback.value = ''
     autoWrittenSignatures.clear()
@@ -683,66 +721,42 @@ async function saveConnectedAccounts(): Promise<void> {
     return
   }
   connectFeedback.value = ''
-  const target = reauthorizationTarget.value
   let succeeded = false
-  setPending(target?.credential_id ?? 0, target ? 'reauthorize' : 'connect', true)
+  setPending(0, 'connect', true)
   try {
-    if (target) {
-      const result = await reauthorizeGroupCredential(
-        client,
-        props.groupId,
-        target.credential_id,
-        ready[0].stage_id,
-        target.secret_version,
-        (connectOperationKey.value ??= crypto.randomUUID()),
-      )
-      await reconcileItem(result, true)
-      toast.show({
-        message: t('group.credentials.subscription.reauthorizeSucceeded', {
-          account: credentialDisplayName(target),
-        }),
-        tone: 'success',
-      })
-    } else {
-      connectOperationKey.value ??= crypto.randomUUID()
-      const result = await connectGroupCredentials(
-        client,
-        props.groupId,
-        ready.map(({ stage_id }) => stage_id),
-        connectOperationKey.value,
-      )
-      await refetchActiveCredentialPage()
-      void queryClient.invalidateQueries({
-        queryKey: controlQueryKeys.groups.summary(props.groupId),
-        exact: true,
-        refetchType: 'active',
-      })
-      toast.show({
-        message: t(
-          result.credentials_duplicated > 0
-            ? 'group.credentials.subscription.connectDuplicated'
-            : 'group.credentials.subscription.connectSucceeded',
-          {
-            added: n(result.credentials_added),
-            duplicated: n(result.credentials_duplicated),
-          },
-        ),
-        tone: result.credentials_added === 0 ? 'warning' : 'success',
-        duration: 4_000,
-      })
-    }
+    connectOperationKey.value ??= crypto.randomUUID()
+    const result = await connectGroupCredentials(
+      client,
+      props.groupId,
+      ready.map(({ stage_id }) => stage_id),
+      connectOperationKey.value,
+    )
+    await refetchActiveCredentialPage()
+    void queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.summary(props.groupId),
+      exact: true,
+      refetchType: 'active',
+    })
+    toast.show({
+      message: t(
+        result.credentials_duplicated > 0
+          ? 'group.credentials.subscription.connectDuplicated'
+          : 'group.credentials.subscription.connectSucceeded',
+        {
+          added: n(result.credentials_added),
+          duplicated: n(result.credentials_duplicated),
+        },
+      ),
+      tone: result.credentials_added === 0 ? 'warning' : 'success',
+      duration: 4_000,
+    })
     succeeded = true
   } catch (cause) {
     connectFeedback.value = t(
-      presentSubscriptionErrorKey(
-        cause,
-        target
-          ? 'group.credentials.subscription.reauthorizeFailed'
-          : 'group.credentials.subscription.connectFailed',
-      ),
+      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.connectFailed'),
     )
   } finally {
-    setPending(target?.credential_id ?? 0, target ? 'reauthorize' : 'connect', false)
+    setPending(0, 'connect', false)
     if (succeeded) setConnectionWorkspace(false)
   }
 }
@@ -905,11 +919,7 @@ async function runBatch(
       v-if="connectionType === 'subscription'"
       appearance="ledger"
       :open="connectionWorkspaceOpen"
-      :title="
-        reauthorizationTarget
-          ? t('group.credentials.subscription.reauthorize')
-          : t('group.credentials.subscription.connect')
-      "
+      :title="t('group.credentials.subscription.connect')"
       :description="connectionWorkspaceDescription"
       show-description
       :close-label="t('common.close')"
@@ -929,7 +939,6 @@ async function runBatch(
           compact
           hide-header
           context="connect"
-          :single="reauthorizationTarget !== null"
           :disabled="connectBusy"
         />
       </div>
@@ -947,13 +956,11 @@ async function runBatch(
           @click="saveConnectedAccounts"
         >
           {{
-            reauthorizationTarget
-              ? t('group.credentials.subscription.confirmReauthorize')
-              : readyConnectionStages.length > 1
-                ? t('group.credentials.subscription.confirmConnectCount', {
-                    count: n(readyConnectionStages.length),
-                  })
-                : t('group.credentials.subscription.confirmConnect')
+            readyConnectionStages.length > 1
+              ? t('group.credentials.subscription.confirmConnectCount', {
+                  count: n(readyConnectionStages.length),
+                })
+              : t('group.credentials.subscription.confirmConnect')
           }}
         </AppButton>
       </template>
@@ -1100,14 +1107,14 @@ async function runBatch(
             :detail-error="detailError(item.credential_id)"
             :channel-icon="channelDescriptor?.icon"
             :channel-mark="channelDescriptor?.mark"
-            :authorization-methods="authorizationMethods"
             :capabilities="channelCapabilities"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
             @refresh="refreshObservation"
             @load-details="loadCredentialUsage"
             @reset="openResetCreditDialog"
-            @reauthorize="openConnectionWorkspace"
+            @download="downloadCredentialFile"
+            @refresh-credential="refreshCredentialToken"
             @remove="
               deleteTarget = {
                 ids: [$event.credential_id],
