@@ -53,10 +53,16 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			resolve: staticRoute(protocol.Anthropic, endpointForward),
 		},
 		{
+			name:    "data.anthropic.count_tokens",
+			methods: []string{http.MethodPost},
+			path:    anthropicMessagesPath + "/count_tokens",
+			resolve: staticRoute(protocol.Anthropic, endpointForward),
+		},
+		{
 			name:          "data.gemini.generate",
 			methods:       []string{http.MethodPost},
 			path:          geminiGenerationPattern,
-			pathValidator: validateGeminiGenerationRequest,
+			pathValidator: validateGeminiRequest,
 			resolve:       staticRoute(protocol.Gemini, endpointForward),
 		},
 		{
@@ -116,10 +122,10 @@ func resolveModelListRoute(request *http.Request) route {
 	return route{Protocol: protocol.OpenAICompletions, Kind: endpointModels}
 }
 
-func validateGeminiGenerationRequest(request *http.Request) bool {
+func validateGeminiRequest(request *http.Request) bool {
 	return request != nil &&
 		request.URL != nil &&
-		geminiGenerationPath(request.URL.Path)
+		geminiRequestPath(request.URL.Path)
 }
 
 func rejectResponsesAfterAuthentication(request *http.Request) bool {
@@ -156,7 +162,7 @@ func locallyRejectedForwardMethod(method string) bool {
 	}
 }
 
-func geminiGenerationPath(path string) bool {
+func geminiRequestPath(path string) bool {
 	const prefix = geminiModelsPath + "/"
 	if !strings.HasPrefix(path, prefix) {
 		return false
@@ -165,7 +171,7 @@ func geminiGenerationPath(path string) bool {
 	if strings.Contains(modelAndAction, "/") {
 		return false
 	}
-	for _, suffix := range []string{":generateContent", ":streamGenerateContent"} {
+	for _, suffix := range []string{":generateContent", ":streamGenerateContent", ":countTokens"} {
 		if model := strings.TrimSuffix(modelAndAction, suffix); model != modelAndAction {
 			return model != ""
 		}

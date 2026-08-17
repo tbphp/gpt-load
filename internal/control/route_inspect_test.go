@@ -169,6 +169,11 @@ func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
+			name:     "count tokens is not an OpenAI Completions operation",
+			body:     `{"protocol":"openai-completions","operation":"count_tokens","route_requirement":"any","external_model":"model","access_key_id":1}`,
+			wantCode: app_errors.ErrValidation.Code,
+		},
+		{
 			name:     "model required by operation",
 			body:     `{"protocol":"openai-responses","operation":"responses_create","route_requirement":"native","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,

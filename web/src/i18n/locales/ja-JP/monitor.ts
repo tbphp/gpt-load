@@ -380,6 +380,7 @@ export default {
         responses_input_items: '入力項目を取得',
         responses_compact: 'Response を圧縮',
         responses_input_tokens: '入力 Token を計算',
+        count_tokens: 'Token を計算',
         responses_passthrough: 'Responses 拡張操作',
       },
       routeRequirements: {
@@ -724,6 +725,7 @@ export default {
         responses_input_items: '入力項目を取得',
         responses_compact: 'Response を圧縮',
         responses_input_tokens: '入力 Token を計算',
+        count_tokens: 'Token を計算',
         responses_passthrough: 'Responses リソースの透過転送',
         list_models: 'モデル一覧',
         probe: 'ヘルスプローブ',

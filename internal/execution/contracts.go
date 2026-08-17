@@ -37,6 +37,7 @@ const (
 	OperationResponsesInputItems  Operation = "responses_input_items"
 	OperationResponsesCompact     Operation = "responses_compact"
 	OperationResponsesInputTokens Operation = "responses_input_tokens"
+	OperationCountTokens          Operation = "count_tokens"
 	OperationResponsesPassthrough Operation = "responses_passthrough"
 	OperationListModels           Operation = "list_models"
 	OperationProbe                Operation = "probe"
@@ -53,6 +54,7 @@ func (o Operation) Valid() bool {
 		OperationResponsesInputItems,
 		OperationResponsesCompact,
 		OperationResponsesInputTokens,
+		OperationCountTokens,
 		OperationResponsesPassthrough,
 		OperationListModels,
 		OperationProbe:

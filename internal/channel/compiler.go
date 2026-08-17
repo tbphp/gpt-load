@@ -396,6 +396,8 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 	switch operation {
 	case execution.OperationChatCompletion:
 		return clientProtocol != protocol.OpenAIResponses
+	case execution.OperationCountTokens:
+		return clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini
 	case execution.OperationResponsesCreate,
 		execution.OperationResponsesRetrieve,
 		execution.OperationResponsesDelete,
@@ -421,7 +423,6 @@ func isResponsesLifecycle(operation execution.Operation) bool {
 		execution.OperationResponsesCancel,
 		execution.OperationResponsesInputItems,
 		execution.OperationResponsesCompact,
-		execution.OperationResponsesInputTokens,
 		execution.OperationResponsesPassthrough:
 		return true
 	default:

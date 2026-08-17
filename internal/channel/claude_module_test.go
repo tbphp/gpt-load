@@ -77,3 +77,45 @@ func TestClaudeModuleDeclaresSubscriptionContract(t *testing.T) {
 		t.Fatal("Claude unexpectedly declares responses compact")
 	}
 }
+
+func TestBuiltInCountTokensRouteMatrix(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	countTokens := execution.OperationCountTokens
+	tests := []struct {
+		channelID      ID
+		clientProtocol protocol.Protocol
+		operation      execution.Operation
+		wantMode       RouteMode
+		want           bool
+	}{
+		{Claude, protocol.Anthropic, countTokens, RouteNative, true},
+		{Claude, protocol.Gemini, countTokens, RouteConverted, true},
+		{Claude, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, RouteConverted, true},
+		{Anthropic, protocol.Anthropic, countTokens, RouteNative, true},
+		{Anthropic, protocol.Gemini, countTokens, RouteConverted, true},
+		{Anthropic, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, RouteConverted, true},
+		{Gemini, protocol.Gemini, countTokens, RouteNative, true},
+		{Gemini, protocol.Anthropic, countTokens, RouteConverted, true},
+		{Gemini, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, RouteConverted, true},
+		{OpenAI, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, RouteNative, true},
+		{OpenAI, protocol.Anthropic, countTokens, RouteConverted, true},
+		{OpenAI, protocol.Gemini, countTokens, RouteConverted, true},
+		{Codex, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, "", false},
+		{Codex, protocol.Anthropic, countTokens, "", false},
+		{Codex, protocol.Gemini, countTokens, "", false},
+	}
+	for _, test := range tests {
+		t.Run(string(test.channelID)+"/"+string(test.clientProtocol)+"/"+string(test.operation), func(t *testing.T) {
+			target, err := registry.Resolve(test.channelID, nil)
+			if err != nil {
+				t.Fatalf("Resolve(%q) error = %v", test.channelID, err)
+			}
+			gotMode, got := target.Mode(test.clientProtocol, test.operation)
+			if got != test.want || gotMode != test.wantMode {
+				t.Fatalf("Mode() = %q, %t; want %q, %t", gotMode, got, test.wantMode, test.want)
+			}
+		})
+	}
+}

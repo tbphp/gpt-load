@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,7 +31,7 @@ func testClaudeExecutionCredential() ClaudeCredential {
 	return ClaudeCredential{
 		Type: ProviderClaude, AccessToken: "sk-ant-oat-access", RefreshToken: "refresh-secret",
 		AccountUUID: "account-one", OrganizationUUID: "organization-one",
-		DeviceIDs: []string{strings.Repeat("a", 64)},
+		DeviceIDs: []string{strings.Repeat("a", 64)}, Expire: "2030-01-01T00:00:00Z",
 	}
 }
 
@@ -115,6 +116,74 @@ func TestClaudeHTTPExecutorSupportsNativeAndConvertedFormats(t *testing.T) {
 			}
 			if requests != 1 || !json.Valid(response.Payload) || !strings.Contains(string(response.Payload), "ok") {
 				t.Fatalf("requests/response = %d/%s", requests, response.Payload)
+			}
+		})
+	}
+}
+
+func TestClaudeHTTPExecutorCountsTokensThroughAnthropicUpstream(t *testing.T) {
+	for _, test := range []struct {
+		format    string
+		payload   string
+		wantField string
+	}{
+		{
+			format: "claude", wantField: `"input_tokens":7`,
+			payload: `{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`,
+		},
+		{
+			format: "openai-response", wantField: `"input_tokens":7`,
+			payload: `{"model":"claude-sonnet-4-5","input":"hello"}`,
+		},
+		{
+			format: "gemini", wantField: `"totalTokens":7`,
+			payload: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
+		},
+	} {
+		t.Run(test.format, func(t *testing.T) {
+			transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if request.URL.Host != "api.anthropic.com" ||
+					request.URL.Path != "/v1/messages/count_tokens" ||
+					request.URL.Query().Get("beta") != "true" ||
+					request.Header.Get("Authorization") != "Bearer sk-ant-oat-access" ||
+					request.Header.Get("X-Api-Key") != "" {
+					t.Fatalf("upstream request = %s headers=%v", request.URL, request.Header)
+				}
+				var upstream map[string]any
+				if json.Unmarshal(body, &upstream) != nil ||
+					upstream["model"] != "claude-sonnet-4-5" || upstream["messages"] == nil {
+					t.Fatalf("translated upstream body = %s", body)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(`{"input_tokens":7}`)),
+					Request:    request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			executor := NewClaudeHTTPExecutor()
+			counter, ok := executor.(interface {
+				CountTokensCanonical(context.Context, string, ClaudeCredential, ExecuteRequest) (ExecuteResponse, error)
+			})
+			if !ok {
+				t.Fatal("Claude HTTP executor does not expose upstream CountTokens")
+			}
+			response, err := counter.CountTokensCanonical(
+				ctx,
+				"credential-one",
+				testClaudeExecutionCredential(),
+				ExecuteRequest{
+					Model: "claude-sonnet-4-5", Payload: []byte(test.payload), Format: test.format,
+					OriginalRequest: []byte(test.payload),
+				},
+			)
+			if err != nil || !strings.Contains(string(response.Payload), test.wantField) {
+				t.Fatalf("CountTokensCanonical() = %s, %v", response.Payload, err)
 			}
 		})
 	}
@@ -338,7 +407,8 @@ func TestClaudeHTTPExecutorSanitizesAndClassifiesFastModeEntitlement429(t *testi
 	if !errors.As(err, &executionErr) || executionErr.StatusCode() != http.StatusTooManyRequests ||
 		!executionErr.IsRequestScoped() || executionErr.ErrorType() != "rate_limit_error" ||
 		executionErr.ErrorCode() != "fast_mode_credits" || executionErr.RetryAfter() == nil ||
-		*executionErr.RetryAfter() != 17*time.Second || strings.Contains(err.Error(), providerSecret) {
+		*executionErr.RetryAfter() < 17*time.Second || *executionErr.RetryAfter() > 2*time.Minute ||
+		strings.Contains(err.Error(), providerSecret) {
 		t.Fatalf("Claude execution error = %#v / %v", executionErr, err)
 	}
 }
@@ -389,6 +459,35 @@ func TestClaudeHTTPExecutorPreservesCredentialScopeForRateLimits(t *testing.T) {
 	}
 }
 
+func TestClaudeHTTPExecutorPreservesUnifiedRateLimitResetBeyondOneHour(t *testing.T) {
+	resetAt := time.Now().Add(5 * time.Hour).Unix()
+	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header: http.Header{
+				"Content-Type":                          {"application/json"},
+				"Anthropic-Ratelimit-Unified-Status":    {"rejected"},
+				"Anthropic-Ratelimit-Unified-5h-Status": {"rejected"},
+				"Anthropic-Ratelimit-Unified-5h-Reset":  {strconv.FormatInt(resetAt, 10)},
+			},
+			Body: io.NopCloser(strings.NewReader(
+				`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
+			)),
+			Request: request,
+		}, nil
+	})
+	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	_, err := NewClaudeHTTPExecutor().ExecuteCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+		Model: "claude-sonnet-4-5", Format: "claude",
+		Payload: []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
+	})
+	var retry interface{ RetryAfter() *time.Duration }
+	if !errors.As(err, &retry) || retry == nil || retry.RetryAfter() == nil ||
+		*retry.RetryAfter() < 4*time.Hour || *retry.RetryAfter() > 6*time.Hour {
+		t.Fatalf("retry after = %#v / %v", retry, err)
+	}
+}
+
 func TestNormalizeClaudeExecutionErrorDoesNotInventCredentialScope(t *testing.T) {
 	err := normalizeClaudeExecutionError(unscopedClaudeExecutionError{})
 	var scoped interface{ IsCredentialScoped() bool }
@@ -429,6 +528,22 @@ func TestParseClaudeCredentialJSONCreatesAndPreservesOneDeviceIdentity(t *testin
 	expiresAt, known := ClaudeCredentialExpiresAt(reparsed)
 	if !known || !expiresAt.Equal(time.Date(2026, 8, 16, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("expires = %s, %t", expiresAt, known)
+	}
+}
+
+func TestParseClaudeCredentialJSONRequiresExpiredTimestamp(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"claude","access_token":"access","refresh_token":"refresh","account_uuid":"account"}`,
+		`{"type":"claude","access_token":"access","refresh_token":"refresh","account_uuid":"account","expired":""}`,
+	} {
+		if _, err := ParseClaudeCredentialJSON([]byte(raw)); err == nil {
+			t.Fatalf("ParseClaudeCredentialJSON() accepted missing expired: %s", raw)
+		}
+	}
+	if _, err := ParseClaudeCredentialJSON([]byte(
+		`{"type":"claude","access_token":"access","refresh_token":"refresh","account_uuid":"account","expired":"2026-08-16T07:00:00Z"}`,
+	)); err != nil {
+		t.Fatalf("ParseClaudeCredentialJSON() rejected an expired but refreshable credential: %v", err)
 	}
 }
 
@@ -540,7 +655,7 @@ func TestRefreshClaudeCredentialOncePreservesIdentityAndDevice(t *testing.T) {
 	current := ClaudeCredential{
 		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
 		AccountUUID: "account-one", OrganizationUUID: "org-one", OrganizationName: "Old Organization",
-		Email: "owner@example.com", DeviceIDs: []string{deviceID},
+		Email: "owner@example.com", DeviceIDs: []string{deviceID}, Expire: "2030-01-01T00:00:00Z",
 	}
 	var tokenRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -576,6 +691,7 @@ func TestRefreshClaudeCredentialOnceRejectsIdentityChange(t *testing.T) {
 	current := ClaudeCredential{
 		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
 		AccountUUID: "account-one", OrganizationUUID: "org-one", DeviceIDs: []string{strings.Repeat("b", 64)},
+		Expire: "2030-01-01T00:00:00Z",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -599,6 +715,7 @@ func TestRefreshClaudeCredentialOnceRejectsOrganizationChange(t *testing.T) {
 	current := ClaudeCredential{
 		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
 		AccountUUID: "account-one", OrganizationUUID: "org-one", DeviceIDs: []string{strings.Repeat("c", 64)},
+		Expire: "2030-01-01T00:00:00Z",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -621,7 +738,7 @@ func TestRefreshClaudeCredentialOnceRejectsOrganizationChange(t *testing.T) {
 func TestRefreshClaudeCredentialOnceAllowsOrganizationDiscoveryAndKeepsRefreshToken(t *testing.T) {
 	current := ClaudeCredential{
 		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
-		AccountUUID: "account-one", DeviceIDs: []string{strings.Repeat("d", 64)},
+		AccountUUID: "account-one", DeviceIDs: []string{strings.Repeat("d", 64)}, Expire: "2030-01-01T00:00:00Z",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -648,7 +765,7 @@ func TestRefreshClaudeCredentialOnceAllowsOrganizationDiscoveryAndKeepsRefreshTo
 func TestRefreshClaudeCredentialOnceHonorsCallerCancellation(t *testing.T) {
 	current := ClaudeCredential{
 		Type: ProviderClaude, AccessToken: "old-access", RefreshToken: "old-refresh",
-		AccountUUID: "account-one", DeviceIDs: []string{strings.Repeat("e", 64)},
+		AccountUUID: "account-one", DeviceIDs: []string{strings.Repeat("e", 64)}, Expire: "2030-01-01T00:00:00Z",
 	}
 	client := &http.Client{Transport: claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
 		<-request.Context().Done()
@@ -678,12 +795,14 @@ func TestDiscoverClaudeModelsMergesBootstrapEntitlementsWithRegistry(t *testing.
 		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(`{
+			"org_model_default":"claude-org-default",
 			"additional_model_options":[
 				{"model":"claude-fable-5","name":"Claude Fable 5","description":"account preview"},
 				{"model":"claude-disabled-preview","name":"Disabled","description":"","disabled_reason":"not enabled"}
 			],
 			"model_access":[
 				{"api_name":"claude-sonnet-4-5-20250929","entitled":false},
+				{"api_name":"claude-disabled-preview","entitled":true},
 				{"api_name":"claude-account-only","entitled":true}
 			]
 		}`))
@@ -701,7 +820,7 @@ func TestDiscoverClaudeModelsMergesBootstrapEntitlementsWithRegistry(t *testing.
 	for _, model := range models {
 		byID[model.ID] = model
 	}
-	for _, expected := range []string{"claude-opus-4-6", "claude-fable-5", "claude-account-only"} {
+	for _, expected := range []string{"claude-opus-4-6", "claude-fable-5", "claude-account-only", "claude-org-default"} {
 		if _, ok := byID[expected]; !ok {
 			t.Fatalf("discovered models missing %q: %#v", expected, models)
 		}
@@ -774,6 +893,71 @@ func TestObserveClaudeAccountCombinesProfileRolesBootstrapAndUsage(t *testing.T)
 		observation.Usage.ExtraUsage == nil || observation.Usage.ExtraUsage.MonthlyLimit == nil ||
 		len(observation.Usage.Limits) != 1 || observation.Header.Get("Request-Id") != "usage-request-one" {
 		t.Fatalf("usage/header = %#v / %v", observation.Usage, observation.Header)
+	}
+}
+
+func TestObserveClaudeAccountKeepsPartialProfileWhenCompanionEndpointsFail(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/profile":
+			_, _ = writer.Write([]byte(`{
+				"account":{"uuid":"account-one","email":"owner@example.com","display_name":"Owner"},
+				"organization":{"uuid":"organization-one","name":"Example Org"}
+			}`))
+		case "/roles", "/usage":
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = writer.Write([]byte(`{"error":"temporarily unavailable"}`))
+		case "/bootstrap":
+			_, _ = writer.Write([]byte(`{"oauth_account":{"account_uuid":"account-one","organization_uuid":"organization-one","seat_tier":"team_standard"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	observation, err := ObserveClaudeAccount(t.Context(), credential, ClaudeOptions{
+		ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+		BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Profile.DisplayName != "Owner" || observation.Profile.OrganizationName != "Example Org" ||
+		observation.Profile.SeatTier != "team_standard" ||
+		strings.Join(observation.IncompleteSources, ",") != "roles,usage" {
+		t.Fatalf("partial observation = %#v", observation)
+	}
+}
+
+func TestObserveClaudeAccountTreatsMissingProfileIdentityAsPartial(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/profile":
+			_, _ = writer.Write([]byte(`{"account":{"email":"owner@example.com"},"organization":{"uuid":"organization-one"}}`))
+		case "/roles", "/bootstrap", "/usage":
+			_, _ = writer.Write([]byte(`{}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	observation, err := ObserveClaudeAccount(t.Context(), credential, ClaudeOptions{
+		ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+		BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+		HTTPClient: server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Profile.AccountUUID != credential.AccountUUID ||
+		strings.Join(observation.IncompleteSources, ",") != "profile" {
+		t.Fatalf("missing identity observation = %#v", observation)
 	}
 }
 

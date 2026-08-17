@@ -119,6 +119,22 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
 		},
 		{
+			name: "unsupported upstream operation terminates without credential penalty",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusNotImplemented,
+				Now:           now,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintRequestRejected,
+					StatusCode: http.StatusNotImplemented,
+					Code:       "unsupported_operation",
+					Summary:    "count tokens is not supported",
+				},
+			},
+			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
+		},
+		{
 			name: "rate limit falls back to safe response header",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,

@@ -66,9 +66,10 @@ type Usage struct {
 }
 
 type AccountObservation struct {
-	Profile AccountProfile
-	Usage   Usage
-	Header  http.Header
+	Profile           AccountProfile
+	Usage             Usage
+	Header            http.Header
+	IncompleteSources []string
 }
 
 func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
@@ -107,7 +108,8 @@ func accountObservationFromBridge(value cpaembedded.ClaudeAccountObservation) Ac
 			BillingType: profile.BillingType, SubscriptionCreatedAt: profile.SubscriptionCreatedAt,
 			ExtraUsageEnabled: cloneBool(profile.ExtraUsageEnabled),
 		},
-		Header: value.Header.Clone(),
+		Header:            value.Header.Clone(),
+		IncompleteSources: append([]string(nil), value.IncompleteSources...),
 	}
 	result.Usage = usageFromBridge(value.Usage)
 	return result

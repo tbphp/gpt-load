@@ -31,17 +31,18 @@ const (
 )
 
 type preparedAttempt struct {
-	provider          schemas.ModelProvider
-	mode              channel.RouteMode
-	upstreamProtocol  protocol.Protocol
-	request           *schemas.BifrostChatRequest
-	responsesRequest  *schemas.BifrostResponsesRequest
-	listModelsRequest *schemas.BifrostListModelsRequest
-	passthrough       *schemas.BifrostPassthroughRequest
-	typedURL          string
-	clientProtocol    protocol.Protocol
-	directKey         schemas.Key
-	secrets           []string
+	provider           schemas.ModelProvider
+	mode               channel.RouteMode
+	upstreamProtocol   protocol.Protocol
+	request            *schemas.BifrostChatRequest
+	responsesRequest   *schemas.BifrostResponsesRequest
+	countTokensRequest *schemas.BifrostResponsesRequest
+	listModelsRequest  *schemas.BifrostListModelsRequest
+	passthrough        *schemas.BifrostPassthroughRequest
+	typedURL           string
+	clientProtocol     protocol.Protocol
+	directKey          schemas.Key
+	secrets            []string
 }
 
 type unarySDKResult struct {
@@ -66,9 +67,20 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 			result.AppliedReasoning = appliedReasoning
 		}
 		result.UpstreamProtocol = prepared.upstreamProtocol
+		if result.Error != nil && execution.UpstreamCountTokensUnsupported(
+			spec.Operation,
+			result.Error.StatusCode,
+			result.Error.Type,
+			result.Error.Code,
+		) {
+			result.Error.Hint = execution.FailureHintRequestRejected
+		}
 	}()
 	if prepared.passthrough != nil {
 		return r.executeNative(parent, spec, prepared)
+	}
+	if prepared.countTokensRequest != nil {
+		return r.executeCountTokens(parent, spec, prepared)
 	}
 	if prepared.responsesRequest != nil {
 		return r.executeConvertedResponses(parent, spec, prepared)
@@ -168,6 +180,12 @@ func (r *Runtime) ExecuteStream(
 	}()
 	if prepared.passthrough != nil {
 		return r.executeNativeStream(parent, spec, prepared, sink)
+	}
+	if prepared.countTokensRequest != nil {
+		return streamFromAttemptFailure(notSentUnaryFailure(
+			execution.ErrorKindInvalidRequest,
+			"count tokens does not support streaming",
+		))
 	}
 	if prepared.responsesRequest != nil {
 		return r.executeConvertedResponsesStream(parent, spec, prepared, sink)
@@ -542,6 +560,39 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			secrets:           secrets,
 		}, nil
 	}
+	if spec.Operation == execution.OperationCountTokens ||
+		spec.Operation == execution.OperationResponsesInputTokens {
+		request, conversionErr := buildConvertedResponsesRequest(spec, provider)
+		if conversionErr != nil {
+			var classified interface{ ConversionCode() string }
+			if errors.As(conversionErr, &classified) {
+				failure := notSentConversionFailure(classified.ConversionCode(), conversionErr.Error())
+				return preparedAttempt{}, &failure
+			}
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, conversionErr.Error())
+			return preparedAttempt{}, &failure
+		}
+		typedURL, upstreamProtocol, targetErr := countTokensTypedTarget(
+			providerKind,
+			targetBaseURL,
+			spec.UpstreamModel,
+			safeQuery,
+		)
+		if targetErr != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid count tokens target")
+			return preparedAttempt{}, &failure
+		}
+		return preparedAttempt{
+			provider:           provider,
+			mode:               mode,
+			upstreamProtocol:   upstreamProtocol,
+			countTokensRequest: request,
+			typedURL:           typedURL,
+			clientProtocol:     spec.ClientProtocol,
+			directKey:          directKey,
+			secrets:            secrets,
+		}, nil
+	}
 	if spec.ClientProtocol != protocol.OpenAICompletions || spec.Operation != execution.OperationChatCompletion {
 		request, conversionErr := buildConvertedResponsesRequest(spec, provider)
 		if conversionErr != nil {
@@ -710,9 +761,17 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 			return validResponsesPassthroughShape(spec, stream)
 		}
 	case protocol.Anthropic:
-		return spec.Operation == execution.OperationChatCompletion && spec.Method == http.MethodPost && spec.Path == "/v1/messages"
+		return spec.Method == http.MethodPost &&
+			((spec.Operation == execution.OperationChatCompletion && spec.Path == "/v1/messages") ||
+				(!stream && spec.Operation == execution.OperationCountTokens && spec.Path == "/v1/messages/count_tokens"))
 	case protocol.Gemini:
-		if spec.Operation != execution.OperationChatCompletion || spec.Method != http.MethodPost {
+		if spec.Method != http.MethodPost {
+			return false
+		}
+		if spec.Operation == execution.OperationCountTokens {
+			return !stream && validGeminiGeneratePath(spec.Path, "countTokens")
+		}
+		if spec.Operation != execution.OperationChatCompletion {
 			return false
 		}
 		action := "generateContent"

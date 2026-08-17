@@ -230,13 +230,22 @@ func (s *Service) refreshCredentialObservationOnce(
 	if previous.ObservationVersion == 0 {
 		version = 1
 	}
-	freshUntilMS := now.Add(observationFreshTTL).UnixMilli()
+	state := models.CredentialObservationFresh
+	var freshUntilMS *int64
+	lastErrorCode := ""
+	if observation.Partial {
+		state = models.CredentialObservationStale
+		lastErrorCode = "observation_partial"
+	} else {
+		value := now.Add(observationFreshTTL).UnixMilli()
+		freshUntilMS = &value
+	}
 	row := models.CredentialObservation{
 		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
 		SchemaVersion: 1, ObservationVersion: version, SnapshotJSON: models.JSON(encoded),
-		State: models.CredentialObservationFresh, ObservedAtMS: &attemptMS,
-		FreshUntilMS: &freshUntilMS, LastAttemptAtMS: &attemptMS, NextAllowedAtMS: &nextAllowedMS,
-		UpdatedAtMS: attemptMS,
+		State: state, ObservedAtMS: &attemptMS,
+		FreshUntilMS: freshUntilMS, LastAttemptAtMS: &attemptMS, NextAllowedAtMS: &nextAllowedMS,
+		LastErrorCode: lastErrorCode, UpdatedAtMS: attemptMS,
 	}
 	if err := s.upsertCredentialObservation(ctx, row); err != nil {
 		return CredentialObservationResponse{}, err

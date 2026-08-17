@@ -33,9 +33,21 @@ func (s *Service) RunCredentialObservationRefresh(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.observationRefreshWake:
+			s.refreshDueCredentialObservations(ctx)
 		case <-ticker.C:
 			s.refreshDueCredentialObservations(ctx)
 		}
+	}
+}
+
+func (s *Service) requestCredentialObservationRefresh() {
+	if s == nil || s.observationRefreshWake == nil {
+		return
+	}
+	select {
+	case s.observationRefreshWake <- struct{}{}:
+	default:
 	}
 }
 

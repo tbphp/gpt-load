@@ -98,6 +98,7 @@ func (s *Service) ConnectGroupCredentialsIdempotent(
 	if err := json.Unmarshal(operationResult.CanonicalResult, &result); err != nil {
 		return CredentialImportResult{}, app_errors.ErrInternalServer
 	}
+	s.requestCredentialObservationRefresh()
 	return result, nil
 }
 
@@ -127,6 +128,7 @@ func (s *Service) ConnectGroupCredentials(
 	if err != nil {
 		return CredentialImportResult{}, err
 	}
+	s.requestCredentialObservationRefresh()
 	return result, nil
 }
 

@@ -18,12 +18,14 @@ func TestClaudeDriverProducesProviderNeutralCredential(t *testing.T) {
 		"refresh_token":"refresh-secret",
 		"account_uuid":"account-one",
 		"organization_uuid":"org-one",
-		"email":"owner@example.com"
+		"email":"owner@example.com",
+		"expired":"2030-01-01T00:00:00Z"
 	}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if credential.Identity() != "account-one" || credential.Account().Email != "owner@example.com" {
+	if credential.Identity() != "account-one" || credential.Account().Email != "owner@example.com" ||
+		!credential.Account().ExpiresAtKnown {
 		t.Fatalf("credential metadata = %q %#v", credential.Identity(), credential.Account())
 	}
 	if got := credential.SecretValues(); !reflect.DeepEqual(got[:2], []string{"access-secret", "refresh-secret"}) {

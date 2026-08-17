@@ -222,6 +222,7 @@ function readProtocol(raw: unknown): AccessProtocol | '' {
 
 function operationsForProtocol(value: AccessProtocol | ''): readonly RouteInspectOperation[] {
   if (value === 'openai-responses') return responsesOperations
+  if (value === 'anthropic' || value === 'gemini') return ['chat_completion', 'count_tokens']
   if (enabledDataProtocols.some((protocol) => protocol === value)) return ['chat_completion']
   return []
 }
@@ -247,7 +248,7 @@ function readRouteRequirement(raw: unknown): RouteInspectRequirement | undefined
 function readOperation(raw: unknown): RouteInspectOperation | undefined {
   return typeof raw === 'string' && responsesOperations.includes(raw as RouteInspectOperation)
     ? (raw as RouteInspectOperation)
-    : raw === 'chat_completion'
+    : raw === 'chat_completion' || raw === 'count_tokens'
       ? raw
       : undefined
 }
@@ -257,7 +258,8 @@ function operationRequiresModel(value: string): boolean {
     value === 'chat_completion' ||
     value === 'responses_create' ||
     value === 'responses_compact' ||
-    value === 'responses_input_tokens'
+    value === 'responses_input_tokens' ||
+    value === 'count_tokens'
   )
 }
 

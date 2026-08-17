@@ -43,9 +43,12 @@ func Claude() spec.Module {
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteNative),
+				spec.NewRoute(protocol.Anthropic, execution.OperationCountTokens, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesInputTokens, execution.RouteConverted),
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.Gemini, execution.OperationCountTokens, execution.RouteConverted),
 			},
 			Capabilities: spec.CapabilityBindings{
 				SubscriptionDriver: ClaudeSubscriptionDriver,

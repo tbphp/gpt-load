@@ -66,7 +66,8 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 	var request *schemas.BifrostResponsesRequest
 	switch spec.ClientProtocol {
 	case protocol.OpenAIResponses:
-		if spec.Operation != execution.OperationResponsesCreate {
+		if spec.Operation != execution.OperationResponsesCreate &&
+			spec.Operation != execution.OperationResponsesInputTokens {
 			return nil, unsupportedTargetConversion("converted Responses operation is not supported")
 		}
 		var wire openai.OpenAIResponsesRequest
@@ -75,7 +76,8 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		}
 		request = wire.ToBifrostResponsesRequest(conversionContext)
 	case protocol.Anthropic:
-		if spec.Operation != execution.OperationChatCompletion {
+		if spec.Operation != execution.OperationChatCompletion &&
+			spec.Operation != execution.OperationCountTokens {
 			return nil, unsupportedTargetConversion("converted Anthropic operation is not supported")
 		}
 		var wire anthropic.AnthropicMessageRequest
@@ -88,15 +90,29 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 		request = wire.ToBifrostResponsesRequest(conversionContext)
 		preserveDeepSeekAnthropicEffort(request, provider, wire.OutputConfig)
 	case protocol.Gemini:
-		if spec.Operation != execution.OperationChatCompletion {
+		if spec.Operation != execution.OperationChatCompletion &&
+			spec.Operation != execution.OperationCountTokens {
 			return nil, unsupportedTargetConversion("converted Gemini operation is not supported")
 		}
-		var wire gemini.GeminiGenerationRequest
-		if err := json.Unmarshal(spec.Body, &wire); err != nil {
-			return nil, fmt.Errorf("invalid Gemini request body")
+		if spec.Operation == execution.OperationCountTokens {
+			var wire gemini.GeminiCountTokensRequest
+			if err := json.Unmarshal(spec.Body, &wire); err != nil {
+				return nil, fmt.Errorf("invalid Gemini count tokens request body")
+			}
+			generation := wire.ToGeminiGenerationRequest()
+			if generation == nil {
+				return nil, fmt.Errorf("invalid Gemini count tokens request body")
+			}
+			generation.Model = spec.ClientModel
+			request = generation.ToBifrostResponsesRequest(conversionContext)
+		} else {
+			var wire gemini.GeminiGenerationRequest
+			if err := json.Unmarshal(spec.Body, &wire); err != nil {
+				return nil, fmt.Errorf("invalid Gemini request body")
+			}
+			wire.Model = spec.ClientModel
+			request = wire.ToBifrostResponsesRequest(conversionContext)
 		}
-		wire.Model = spec.ClientModel
-		request = wire.ToBifrostResponsesRequest(conversionContext)
 	default:
 		return nil, unsupportedTargetConversion("converted protocol is not supported")
 	}
@@ -109,6 +125,123 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 	request.RawRequestBody = nil
 	stripResponsesControlParams(request.Params)
 	return request, nil
+}
+
+type countTokensSDKResult struct {
+	response *schemas.BifrostCountTokensResponse
+	err      *schemas.BifrostError
+}
+
+func (r *Runtime) executeCountTokens(
+	parent context.Context,
+	spec execution.AttemptSpec,
+	prepared preparedAttempt,
+) execution.AttemptResult {
+	requestContext, requestCancel := boundedRequestContext(parent, spec.Timeouts.Request)
+	defer requestCancel()
+	callContext, callCancel := context.WithCancel(requestContext)
+	defer callCancel()
+
+	bifrostContext := r.newSDKContext(callContext, spec, prepared.directKey)
+	enableConvertedWireCapture(bifrostContext, prepared)
+	setTypedRequestURL(bifrostContext, prepared.typedURL)
+	outcomeChannel := make(chan countTokensSDKResult, 1)
+	go func() {
+		response, bifrostError := r.core.CountTokensRequest(bifrostContext, prepared.countTokensRequest)
+		outcomeChannel <- countTokensSDKResult{response: response, err: bifrostError}
+	}()
+
+	var outcome countTokensSDKResult
+	select {
+	case outcome = <-outcomeChannel:
+		if requestContext.Err() != nil {
+			return unaryContextFailure(requestContext, false)
+		}
+	case <-callContext.Done():
+		return unaryContextFailure(requestContext, false)
+	}
+	if outcome.err != nil {
+		return convertedUnaryErrorResult(outcome.err, bifrostContext, prepared.secrets)
+	}
+	if failure := largeUnaryResponseFailure(bifrostContext); failure != nil {
+		return *failure
+	}
+	if outcome.response == nil {
+		return attemptedUnaryFailure(execution.ErrorKindInternal, "execution runtime returned no count tokens response")
+	}
+	headers := responseHeaders(outcome.response.ExtraFields.ProviderResponseHeaders, bifrostContext, false)
+	body, err := encodeCountTokensResponse(prepared.clientProtocol, outcome.response)
+	if err != nil {
+		return startedUnaryFailure(http.StatusOK, headers, execution.ErrorKindInternal, "encode count tokens response")
+	}
+	return execution.AttemptResult{
+		DispatchState:     execution.DispatchMaybeSent,
+		ResponseStarted:   true,
+		StatusCode:        http.StatusOK,
+		Header:            headers,
+		Body:              body,
+		Model:             outcome.response.Model,
+		UpstreamRequestID: upstreamRequestID(headers),
+	}
+}
+
+func encodeCountTokensResponse(
+	clientProtocol protocol.Protocol,
+	response *schemas.BifrostCountTokensResponse,
+) ([]byte, error) {
+	if response == nil {
+		return nil, fmt.Errorf("response is nil")
+	}
+	var wire any
+	switch clientProtocol {
+	case protocol.OpenAIResponses:
+		object := map[string]any{
+			"object":       "response.input_tokens",
+			"input_tokens": response.InputTokens,
+		}
+		if response.InputTokensDetails != nil {
+			object["input_tokens_details"] = response.InputTokensDetails
+		}
+		wire = object
+	case protocol.Anthropic:
+		wire = anthropic.ToAnthropicCountTokensResponse(response)
+	case protocol.Gemini:
+		wire = gemini.ToGeminiCountTokensResponse(response)
+	default:
+		return nil, fmt.Errorf("unsupported count tokens response protocol")
+	}
+	if wire == nil {
+		return nil, fmt.Errorf("count tokens response conversion returned nil")
+	}
+	return json.Marshal(wire)
+}
+
+func countTokensTypedTarget(
+	providerKind channel.ProviderKind,
+	baseURL string,
+	model string,
+	rawQuery string,
+) (string, protocol.Protocol, error) {
+	var resourcePath string
+	var upstreamProtocol protocol.Protocol
+	switch providerKind {
+	case channel.ProviderOpenAI:
+		resourcePath = "/v1/responses/input_tokens"
+		upstreamProtocol = protocol.OpenAIResponses
+	case channel.ProviderAnthropic:
+		resourcePath = "/v1/messages/count_tokens"
+		upstreamProtocol = protocol.Anthropic
+	case channel.ProviderGemini:
+		resourcePath = "/models/" + url.PathEscape(model) + ":countTokens"
+		upstreamProtocol = protocol.Gemini
+	default:
+		return "", "", fmt.Errorf("provider does not support upstream token counting")
+	}
+	if baseURL != "" {
+		target, err := resolveTypedTargetURL(baseURL, resourcePath, rawQuery)
+		return target, upstreamProtocol, err
+	}
+	return appendTypedQuery(resourcePath, rawQuery), upstreamProtocol, nil
 }
 
 func preserveDeepSeekAnthropicEffort(

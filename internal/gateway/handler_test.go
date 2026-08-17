@@ -3300,6 +3300,20 @@ func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
 			decision: retry,
 		},
 		{
+			name: "unsupported count tokens is terminal despite idempotent operation", operation: execution.OperationCountTokens,
+			method: http.MethodPost,
+			result: UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusNotImplemented,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintRequestRejected,
+					StatusCode: http.StatusNotImplemented,
+				},
+			},
+			decision: retry,
+		},
+		{
 			name: "subscription authorization failure with unknown replay safety", operation: execution.OperationResponsesCreate,
 			method: http.MethodPost,
 			result: UpstreamResult{

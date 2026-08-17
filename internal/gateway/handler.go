@@ -928,6 +928,7 @@ func shouldRetryAcrossCandidates(
 	case execution.OperationResponsesRetrieve,
 		execution.OperationResponsesInputItems,
 		execution.OperationResponsesInputTokens,
+		execution.OperationCountTokens,
 		execution.OperationListModels:
 		return true
 	default:

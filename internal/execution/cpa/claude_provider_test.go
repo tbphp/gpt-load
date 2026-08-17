@@ -15,9 +15,21 @@ import (
 
 type fakeClaudeExecutor struct {
 	response       claude.ExecuteResponse
+	countResponse  claude.ExecuteResponse
 	streamResponse *claude.ExecuteStreamResponse
 	err            error
 	requests       []claude.ExecuteRequest
+	countRequests  []claude.ExecuteRequest
+}
+
+func (executor *fakeClaudeExecutor) CountTokens(
+	_ context.Context,
+	_ string,
+	_ claude.Credential,
+	request claude.ExecuteRequest,
+) (claude.ExecuteResponse, error) {
+	executor.countRequests = append(executor.countRequests, request)
+	return executor.countResponse, executor.err
 }
 
 func (executor *fakeClaudeExecutor) Execute(
@@ -64,7 +76,8 @@ func claudeProviderCredentialForTest(t *testing.T) claudeProviderCredential {
 		"type":"claude",
 		"access_token":"sk-ant-oat-access",
 		"refresh_token":"refresh-secret",
-		"account_uuid":"account-one"
+		"account_uuid":"account-one",
+		"expired":"2030-01-01T00:00:00Z"
 	}`))
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +92,9 @@ func TestClaudeProviderValidatesOnlyDeclaredRoutes(t *testing.T) {
 		{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, RouteMode: execution.RouteConverted},
 		{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteMode: execution.RouteConverted},
 		{ClientProtocol: protocol.Gemini, Operation: execution.OperationChatCompletion, RouteMode: execution.RouteConverted},
+		{ClientProtocol: protocol.Anthropic, Operation: execution.OperationCountTokens, RouteMode: execution.RouteNative},
+		{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesInputTokens, RouteMode: execution.RouteConverted},
+		{ClientProtocol: protocol.Gemini, Operation: execution.OperationCountTokens, RouteMode: execution.RouteConverted},
 	}
 	for _, route := range valid {
 		if err := bridge.ValidateRouteCapability(route); err != nil {
@@ -152,6 +168,33 @@ func TestClaudeProviderRequiresExplicitExpiredTokenCodeForReplay(t *testing.T) {
 		}, credential)
 		if evidence == nil || evidence.Hint != test.wantHint || evidence.ReplaySafety != test.wantReplay {
 			t.Fatalf("code %q evidence = %#v", test.code, evidence)
+		}
+	}
+}
+
+func TestClaudeProviderClassifiesUnsupportedCountTokensEvidence(t *testing.T) {
+	bridge := newClaudeProviderBridge()
+	credential := claudeProviderCredentialForTest(t)
+	for _, test := range []struct {
+		status int
+		code   string
+	}{
+		{status: http.StatusNotFound},
+		{status: http.StatusMethodNotAllowed},
+		{status: http.StatusNotImplemented},
+		{status: http.StatusBadRequest, code: "unsupported_operation"},
+	} {
+		_, evidence := bridge.ClassifyError(t.Context(), &classifiedClaudeError{
+			status: test.status, typeValue: "invalid_request_error", codeValue: test.code,
+			summary: "count tokens unsupported",
+		}, credential)
+		if evidence == nil || !execution.UpstreamCountTokensUnsupported(
+			execution.OperationCountTokens,
+			evidence.StatusCode,
+			evidence.Type,
+			evidence.Code,
+		) {
+			t.Fatalf("unsupported evidence = %#v", evidence)
 		}
 	}
 }

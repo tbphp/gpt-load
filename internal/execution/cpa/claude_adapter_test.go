@@ -81,6 +81,76 @@ func TestClaudeAdapterExecutesEveryDeclaredProtocol(t *testing.T) {
 	}
 }
 
+func TestClaudeAdapterCountsTokensThroughProviderBridge(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		protocol  protocol.Protocol
+		operation execution.Operation
+		path      string
+		format    string
+		response  string
+	}{
+		{
+			name: "Anthropic", protocol: protocol.Anthropic, operation: execution.OperationCountTokens,
+			path: "/v1/messages/count_tokens", format: "claude", response: `{"input_tokens":7}`,
+		},
+		{
+			name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesInputTokens,
+			path: "/v1/responses/input_tokens", format: "openai-response",
+			response: `{"object":"response.input_tokens","input_tokens":7}`,
+		},
+		{
+			name: "Gemini", protocol: protocol.Gemini, operation: execution.OperationCountTokens,
+			path: "/v1beta/models/claude-sonnet-4-5:countTokens", format: "gemini",
+			response: `{"totalTokens":7}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, keyService, row := newClaudeAdapterFixture(t)
+			fake := &fakeClaudeExecutor{countResponse: claude.ExecuteResponse{
+				Payload: []byte(test.response), Headers: http.Header{"Request-Id": {"count-one"}},
+			}}
+			setClaudeExecutor(t, adapter, fake)
+			spec := validClaudeSpec(t, row, keyService)
+			spec.ClientProtocol = test.protocol
+			spec.Operation = test.operation
+			spec.Path = test.path
+			spec.Body = []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`)
+			if test.protocol != protocol.Anthropic {
+				spec.RouteMode = execution.RouteConverted
+			}
+
+			result := adapter.Execute(t.Context(), spec)
+			if result.Error != nil || len(fake.requests) != 0 || len(fake.countRequests) != 1 ||
+				fake.countRequests[0].Format != test.format || string(result.Body) != test.response {
+				t.Fatalf("result=%#v requests=%#v countRequests=%#v", result, fake.requests, fake.countRequests)
+			}
+			if result.Usage != nil || result.UpstreamRequestID != "count-one" ||
+				result.UpstreamProtocol != protocol.Anthropic {
+				t.Fatalf("usage/request/protocol = %#v/%q/%q", result.Usage, result.UpstreamRequestID, result.UpstreamProtocol)
+			}
+		})
+	}
+}
+
+func TestClaudeAdapterMarksUnsupportedCountTokensAsRequestRejected(t *testing.T) {
+	adapter, keyService, row := newClaudeAdapterFixture(t)
+	fake := &fakeClaudeExecutor{err: &classifiedClaudeError{
+		status: http.StatusNotImplemented, typeValue: "invalid_request_error",
+		codeValue: "unsupported_operation", summary: "count tokens unsupported",
+	}}
+	setClaudeExecutor(t, adapter, fake)
+	spec := validClaudeSpec(t, row, keyService)
+	spec.Operation = execution.OperationCountTokens
+	spec.Path = "/v1/messages/count_tokens"
+
+	result := adapter.Execute(t.Context(), spec)
+	if result.Error == nil || result.Error.Hint != execution.FailureHintRequestRejected ||
+		result.StatusCode != http.StatusNotImplemented || len(fake.countRequests) != 1 {
+		t.Fatalf("unsupported result = %#v; countRequests=%d", result, len(fake.countRequests))
+	}
+}
+
 func TestClaudeAdapterStreamsEveryDeclaredProtocol(t *testing.T) {
 	tests := []struct {
 		name       string

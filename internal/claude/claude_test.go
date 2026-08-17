@@ -13,18 +13,20 @@ import (
 )
 
 type fakeBridgeExecutionError struct {
-	status        int
-	typeValue     string
-	codeValue     string
-	retryAfter    time.Duration
-	requestScoped bool
+	status           int
+	typeValue        string
+	codeValue        string
+	retryAfter       time.Duration
+	requestScoped    bool
+	credentialScoped bool
 }
 
-func (err *fakeBridgeExecutionError) Error() string         { return "safe Claude error" }
-func (err *fakeBridgeExecutionError) StatusCode() int       { return err.status }
-func (err *fakeBridgeExecutionError) ErrorType() string     { return err.typeValue }
-func (err *fakeBridgeExecutionError) ErrorCode() string     { return err.codeValue }
-func (err *fakeBridgeExecutionError) IsRequestScoped() bool { return err.requestScoped }
+func (err *fakeBridgeExecutionError) Error() string            { return "safe Claude error" }
+func (err *fakeBridgeExecutionError) StatusCode() int          { return err.status }
+func (err *fakeBridgeExecutionError) ErrorType() string        { return err.typeValue }
+func (err *fakeBridgeExecutionError) ErrorCode() string        { return err.codeValue }
+func (err *fakeBridgeExecutionError) IsRequestScoped() bool    { return err.requestScoped }
+func (err *fakeBridgeExecutionError) IsCredentialScoped() bool { return err.credentialScoped }
 func (err *fakeBridgeExecutionError) RetryAfter() *time.Duration {
 	return &err.retryAfter
 }
@@ -35,6 +37,15 @@ type fakeClaudeBridgeExecutor struct {
 }
 
 func (executor *fakeClaudeBridgeExecutor) ExecuteCanonical(
+	context.Context,
+	string,
+	cpaembedded.ClaudeCredential,
+	cpaembedded.ExecuteRequest,
+) (cpaembedded.ExecuteResponse, error) {
+	return executor.response, executor.err
+}
+
+func (executor *fakeClaudeBridgeExecutor) CountTokensCanonical(
 	context.Context,
 	string,
 	cpaembedded.ClaudeCredential,
@@ -103,7 +114,8 @@ func TestExecutorMapsResponsesAndPreservesBoundedClassification(t *testing.T) {
 		"type":"claude",
 		"access_token":"sk-ant-oat-access",
 		"refresh_token":"refresh-secret",
-		"account_uuid":"account-one"
+		"account_uuid":"account-one",
+		"expired":"2030-01-01T00:00:00Z"
 	}`))
 	if err != nil {
 		t.Fatal(err)
@@ -132,6 +144,19 @@ func TestExecutorMapsResponsesAndPreservesBoundedClassification(t *testing.T) {
 		!executionErr.IsRequestScoped() || executionErr.RetryAfter() == nil ||
 		*executionErr.RetryAfter() != 17*time.Second {
 		t.Fatalf("execution error = %#v / %v", executionErr, err)
+	}
+	var credentialScoped interface{ IsCredentialScoped() bool }
+	if !errors.As(err, &credentialScoped) || credentialScoped == nil || credentialScoped.IsCredentialScoped() {
+		t.Fatalf("credential scope was not preserved: %#v / %v", credentialScoped, err)
+	}
+}
+
+func TestAccountObservationPreservesIncompleteSourceMarkers(t *testing.T) {
+	observed := accountObservationFromBridge(cpaembedded.ClaudeAccountObservation{
+		IncompleteSources: []string{"roles", "usage"},
+	})
+	if strings.Join(observed.IncompleteSources, ",") != "roles,usage" {
+		t.Fatalf("incomplete sources = %q", observed.IncompleteSources)
 	}
 }
 

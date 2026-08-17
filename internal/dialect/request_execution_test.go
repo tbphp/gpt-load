@@ -41,6 +41,14 @@ func TestInspectRequestIdentifiesOperationAndNativeRouteRequirement(t *testing.T
 			operation: execution.OperationChatCompletion,
 		},
 		{
+			name:    "Anthropic count tokens",
+			dialect: NewAnthropic(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1/messages/count_tokens", Body: []byte(`{
+				"model":"claude-sonnet-4","messages":[{"role":"user","content":"hello"}]
+			}`)},
+			operation: execution.OperationCountTokens,
+		},
+		{
 			name:    "Gemini generateContent",
 			dialect: NewGemini(),
 			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1beta/models/gemini-2.5-pro:streamGenerateContent", Body: []byte(`{
@@ -49,6 +57,14 @@ func TestInspectRequestIdentifiesOperationAndNativeRouteRequirement(t *testing.T
 				"generationConfig":{"thinkingConfig":{"thinkingLevel":"high"},"responseSchema":{"type":"OBJECT"}}
 			}`)},
 			operation: execution.OperationChatCompletion,
+		},
+		{
+			name:    "Gemini count tokens",
+			dialect: NewGemini(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1beta/models/gemini-2.5-pro:countTokens", Body: []byte(`{
+				"contents":[{"role":"user","parts":[{"text":"hello"}]}]
+			}`)},
+			operation: execution.OperationCountTokens,
 		},
 		{
 			name:    "Responses create stored",
@@ -256,6 +272,44 @@ func TestInspectRequestIdentifiesOperationAndNativeRouteRequirement(t *testing.T
 			wantRequirement := test.requirement.Normalize()
 			if metadata.RouteRequirement != wantRequirement {
 				t.Errorf("RouteRequirement = %q, want %q", metadata.RouteRequirement, wantRequirement)
+			}
+		})
+	}
+}
+
+func TestCountTokensRequestsAreNonStreamingUtilities(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		dialect Dialect
+		request *ParsedRequest
+	}{
+		{
+			name:    "Anthropic",
+			dialect: NewAnthropic(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1/messages/count_tokens", Body: []byte(`{"model":"claude-sonnet-4","stream":true,"messages":[]}`)},
+		},
+		{
+			name:    "Gemini",
+			dialect: NewGemini(),
+			request: &ParsedRequest{Method: http.MethodPost, Path: "/v1beta/models/gemini-2.5-pro:countTokens", Body: []byte(`{"contents":[]}`)},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			metadata, err := test.dialect.InspectRequest(test.request)
+			if err != nil {
+				t.Fatalf("InspectRequest() error = %v", err)
+			}
+			if metadata.Operation != execution.OperationCountTokens {
+				t.Fatalf("Operation = %q, want count_tokens", metadata.Operation)
+			}
+			if metadata.Stream {
+				t.Fatal("CountTokens request was classified as streaming")
+			}
+			if metadata.ObserveUsage {
+				t.Fatal("CountTokens request was classified as generation usage")
 			}
 		})
 	}

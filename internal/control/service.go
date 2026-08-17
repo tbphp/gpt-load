@@ -77,11 +77,12 @@ type Service struct {
 		*models.ControlOperation,
 		operationStage,
 	) error
-	operationRecoveryWake chan struct{}
-	writeMu               sync.RWMutex
-	observationMu         sync.Mutex
-	observationFlights    map[observationFlightKey]*observationFlight
-	observationSemaphore  chan struct{}
+	operationRecoveryWake  chan struct{}
+	writeMu                sync.RWMutex
+	observationMu          sync.Mutex
+	observationFlights     map[observationFlightKey]*observationFlight
+	observationSemaphore   chan struct{}
+	observationRefreshWake chan struct{}
 }
 
 type credentialRuntimeRetirer interface {
@@ -223,10 +224,11 @@ func NewService(
 			}
 			return capability.Consume(ctx, credential, requestID)
 		},
-		now:                   time.Now,
-		operationRecoveryWake: make(chan struct{}, 1),
-		observationFlights:    make(map[observationFlightKey]*observationFlight),
-		observationSemaphore:  make(chan struct{}, 1),
+		now:                    time.Now,
+		operationRecoveryWake:  make(chan struct{}, 1),
+		observationFlights:     make(map[observationFlightKey]*observationFlight),
+		observationSemaphore:   make(chan struct{}, 1),
+		observationRefreshWake: make(chan struct{}, 1),
 	}
 	if subscriptionCredentials != nil {
 		service.prepareSubscriptionCredential = subscriptionCredentials.Prepare

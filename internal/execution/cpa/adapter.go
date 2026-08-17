@@ -92,9 +92,41 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	}
 	execCtx, cancel := withRequestTimeout(ctx, spec.Timeouts.Request)
 	defer cancel()
-	response, err := provider.Execute(execCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
+	var response providerResponse
+	if countTokensOperation(spec.Operation) {
+		counter, ok := provider.(providerTokenCounter)
+		if !ok {
+			return unaryNotSent(
+				execution.ErrorKindInvalidRequest,
+				"subscription provider does not support upstream token counting",
+				"",
+				nil,
+			)
+		}
+		response, err = counter.CountTokens(
+			execCtx,
+			strconv.FormatUint(uint64(spec.Credential.ID), 10),
+			credential,
+			bridgeRequest(spec),
+		)
+	} else {
+		response, err = provider.Execute(
+			execCtx,
+			strconv.FormatUint(uint64(spec.Credential.ID), 10),
+			credential,
+			bridgeRequest(spec),
+		)
+	}
 	if err != nil {
 		result := unaryExecutionError(execCtx, provider, err, credential)
+		if result.Error != nil && execution.UpstreamCountTokensUnsupported(
+			spec.Operation,
+			result.Error.StatusCode,
+			result.Error.Type,
+			result.Error.Code,
+		) {
+			result.Error.Hint = execution.FailureHintRequestRejected
+		}
 		result.UpstreamProtocol = provider.UpstreamProtocol()
 		result.AppliedReasoning = appliedReasoning(response.AppliedReasoningEffort)
 		return result
@@ -105,7 +137,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 		UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
-		UpstreamRequestID: upstreamRequestID(headers), Usage: usageEvidence(spec.ClientProtocol, body),
+		UpstreamRequestID: upstreamRequestID(headers), Usage: responseUsage(spec, body),
 	}
 }
 
@@ -117,6 +149,9 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	provider, err := a.validateSpec(spec)
 	if err != nil {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "")
+	}
+	if countTokensOperation(spec.Operation) {
+		return streamNotSent(execution.ErrorKindInvalidRequest, "count tokens does not support streaming", "")
 	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
@@ -216,6 +251,18 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 			return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
 		}
 	}
+}
+
+func countTokensOperation(operation execution.Operation) bool {
+	return operation == execution.OperationCountTokens ||
+		operation == execution.OperationResponsesInputTokens
+}
+
+func responseUsage(spec execution.AttemptSpec, body []byte) *execution.UsageEvidence {
+	if countTokensOperation(spec.Operation) {
+		return nil
+	}
+	return usageEvidence(spec.ClientProtocol, body)
 }
 
 func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, error) {

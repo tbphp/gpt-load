@@ -126,11 +126,14 @@ Data-plane requests use an AccessKey. Provider-compatible credentials are accept
 |---|---|---|
 | OpenAI | `POST /v1/chat/completions` | Native OpenAI Completions request |
 | OpenAI | `/v1/responses` and `/v1/responses/...` | Native OpenAI Responses namespace; ordinary HTTP methods are forwarded |
+| OpenAI | `POST /v1/responses/input_tokens` | Native upstream input-token count; unsupported providers return their error without local estimation |
 | OpenAI / Anthropic | `GET /v1/models` | OpenAI shape by default; Anthropic shape when `anthropic-version` is present |
 | Anthropic | `POST /v1/messages` | Native Anthropic Messages request |
+| Anthropic | `POST /v1/messages/count_tokens` | Native upstream token count; unsupported providers return their error without local estimation |
 | Gemini | `GET /v1beta/models` | Native Gemini model list |
 | Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini non-streaming generation |
 | Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Gemini streaming generation |
+| Gemini | `POST /v1beta/models/{model}:countTokens` | Native upstream token count; unsupported providers return their error without local estimation |
 
 The AccessKey and runtime configuration select the Group; it is not passed as a URL path segment. The selected channel determines whether an operation is native or converted. Conversion is capability-gated and never treated as arbitrary lossless JSON transformation.
 

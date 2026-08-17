@@ -345,7 +345,7 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 func TestClaudeGroupDiscoversModelsAndBecomesAvailableAfterSelection(t *testing.T) {
 	fixture := newServiceFixture(t)
 	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
-		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"claude@example.com"}`,
+		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"claude@example.com","expired":"2030-01-01T00:00:00Z"}`,
 	))
 	if err != nil {
 		t.Fatal(err)

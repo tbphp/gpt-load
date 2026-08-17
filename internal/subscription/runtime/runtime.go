@@ -127,6 +127,7 @@ var ErrObservationPayloadInvalid = errors.New("subscription observation payload 
 type Observation struct {
 	Payload []byte
 	Header  http.Header
+	Partial bool
 }
 
 // QuotaObservation is a narrow optional account observation capability.

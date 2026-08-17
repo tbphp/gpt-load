@@ -53,6 +53,11 @@ type ExecutionError struct {
 	requestScoped bool
 }
 
+type credentialScopedExecutionError struct {
+	*ExecutionError
+	credentialScoped bool
+}
+
 func (e *ExecutionError) Error() string {
 	if e == nil || e.summary == "" {
 		return "Claude upstream request failed"
@@ -93,9 +98,21 @@ func (e *ExecutionError) IsRequestScoped() bool {
 	return e != nil && e.requestScoped
 }
 
+func (e *credentialScopedExecutionError) IsCredentialScoped() bool {
+	return e != nil && e.credentialScoped
+}
+
+func (e *credentialScopedExecutionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.ExecutionError
+}
+
 // Executor is the isolated CPA execution surface consumed by GPT-Load.
 type Executor interface {
 	Execute(context.Context, string, Credential, ExecuteRequest) (ExecuteResponse, error)
+	CountTokens(context.Context, string, Credential, ExecuteRequest) (ExecuteResponse, error)
 	ExecuteStream(context.Context, string, Credential, ExecuteRequest) (*ExecuteStreamResponse, error)
 }
 
@@ -123,6 +140,23 @@ func (e *executor) Execute(
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+	}, normalizeExecutionError(err)
+}
+
+func (e *executor) CountTokens(
+	ctx context.Context,
+	credentialID string,
+	credential Credential,
+	request ExecuteRequest,
+) (ExecuteResponse, error) {
+	response, err := e.bridge.CountTokensCanonical(
+		ctx,
+		credentialID,
+		credentialToBridge(credential),
+		executeRequestToBridge(request),
+	)
+	return ExecuteResponse{
+		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 	}, normalizeExecutionError(err)
 }
 
@@ -205,9 +239,21 @@ func normalizeExecutionError(err error) error {
 	if errors.As(err, &scoped) && scoped != nil {
 		value.requestScoped = scoped.IsRequestScoped()
 	}
+	credentialScoped, credentialScopeKnown := false, false
+	var credentialScope interface{ IsCredentialScoped() bool }
+	if errors.As(err, &credentialScope) && credentialScope != nil {
+		credentialScopeKnown = true
+		credentialScoped = credentialScope.IsCredentialScoped()
+	}
 	if value.status == 0 && value.typeValue == "" && value.codeValue == "" &&
 		value.retryAfter == 0 && !value.requestScoped {
 		return err
+	}
+	if credentialScopeKnown {
+		return &credentialScopedExecutionError{
+			ExecutionError:   value,
+			credentialScoped: credentialScoped,
+		}
 	}
 	return value
 }

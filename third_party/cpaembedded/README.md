@@ -19,7 +19,7 @@ quota policy. This bridge only exposes:
 - strict CPA Claude JSON parsing and stable device identity normalization;
 - one-shot, context-aware Claude token refresh;
 - Claude Code account profile, model entitlement, and usage observation;
-- the stateless Claude HTTP executor and supported protocol translators.
+- the stateless Claude HTTP executor, upstream CountTokens request, and supported protocol translators.
 
 It intentionally excludes CPA Manager, selector, pool, file store, server,
 watcher, WebSocket/Auto executors, fallback, and internal retry loops.
@@ -63,11 +63,19 @@ The file contents are never logged. Do not use a credential whose refresh token
 is concurrently managed by another service when explicitly testing refresh;
 the live contract test intentionally does not refresh it.
 
-The Claude contract discovers account entitlements before inference. A model
-override is optional:
+The Claude contract requires all account observation sources, discovers account
+entitlements, then exercises unary and streaming Anthropic Messages, OpenAI Chat
+Completions, OpenAI Responses, and Gemini conversions. It also calls the real
+Anthropic CountTokens endpoint for the three CountTokens routes exposed by
+GPT-Load. A model override is optional:
 
 ```bash
 CPA_LIVE_CLAUDE_CREDENTIAL_FILE=/absolute/path/to/claude.json \
 CPA_LIVE_CLAUDE_MODEL=optional-claude-model-id \
   go test -count=1 -run '^TestLiveClaudeContract$' ./embedded
 ```
+
+This live test deliberately does not complete interactive browser OAuth, rotate
+a refresh token, or force real 401/429 responses. Those gates require a disposable
+account and an explicitly supervised run; deterministic bridge tests cover their
+local classification contracts, but do not constitute real-provider evidence.

@@ -45,6 +45,10 @@ func convertedRouteImplemented(clientProtocol protocol.Protocol, operation execu
 			clientProtocol == protocol.Gemini
 	case execution.OperationResponsesCreate:
 		return clientProtocol == protocol.OpenAIResponses
+	case execution.OperationResponsesInputTokens:
+		return clientProtocol == protocol.OpenAIResponses
+	case execution.OperationCountTokens:
+		return clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini
 	default:
 		return false
 	}
@@ -115,6 +119,7 @@ func standardProtocolOperation(clientProtocol protocol.Protocol, operation execu
 	switch clientProtocol {
 	case protocol.OpenAICompletions, protocol.Anthropic, protocol.Gemini:
 		return operation == execution.OperationChatCompletion ||
+			((clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini) && operation == execution.OperationCountTokens) ||
 			operation == execution.OperationListModels ||
 			operation == execution.OperationProbe
 	case protocol.OpenAIResponses:

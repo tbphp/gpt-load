@@ -278,7 +278,8 @@ func appendExecutionTargets(
 			case execution.OperationChatCompletion,
 				execution.OperationResponsesCreate,
 				execution.OperationResponsesCompact,
-				execution.OperationResponsesInputTokens:
+				execution.OperationResponsesInputTokens,
+				execution.OperationCountTokens:
 				for _, model := range group.Models {
 					modelMode, supported := target.ModeForModel(clientProtocol, operation, model.ID)
 					if !supported {

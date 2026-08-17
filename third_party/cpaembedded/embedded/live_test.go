@@ -110,7 +110,7 @@ func TestLiveClaudeContract(t *testing.T) {
 		t.Fatalf("parse live Claude credential: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	models, err := DiscoverClaudeModels(ctx, credential, ClaudeOptions{})
 	if err != nil {
@@ -129,6 +129,9 @@ func TestLiveClaudeContract(t *testing.T) {
 	if observation.Profile.AccountUUID != credential.AccountUUID {
 		t.Fatal("live Claude observation returned another account")
 	}
+	if len(observation.IncompleteSources) > 0 {
+		t.Fatalf("live Claude observation is incomplete: %s", strings.Join(observation.IncompleteSources, ","))
+	}
 
 	nativePayload, err := json.Marshal(map[string]any{
 		"model":      model,
@@ -140,6 +143,15 @@ func TestLiveClaudeContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build live Claude request: %v", err)
 	}
+	nativeCountPayload, err := json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]any{{
+			"role": "user", "content": "Reply exactly OK.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("build live Claude CountTokens request: %v", err)
+	}
 	responsePayload, err := json.Marshal(map[string]any{
 		"model": model,
 		"input": "Reply exactly OK.",
@@ -148,54 +160,106 @@ func TestLiveClaudeContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build live Claude Responses request: %v", err)
 	}
+	chatPayload, err := json.Marshal(map[string]any{
+		"model":    model,
+		"messages": []map[string]any{{"role": "user", "content": "Reply exactly OK."}},
+	})
+	if err != nil {
+		t.Fatalf("build live Claude Chat Completions request: %v", err)
+	}
+	geminiPayload, err := json.Marshal(map[string]any{
+		"contents": []map[string]any{{
+			"role": "user", "parts": []map[string]any{{"text": "Reply exactly OK."}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("build live Claude Gemini request: %v", err)
+	}
 
 	executor := NewClaudeHTTPExecutor()
-	nativeResponse, err := executor.ExecuteCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
-		Model: model, Format: "claude", Payload: nativePayload, OriginalRequest: nativePayload,
-	})
-	if err != nil {
-		t.Fatalf("execute live native Claude request: %v", err)
+	requests := []struct {
+		name        string
+		format      string
+		payload     []byte
+		streamField bool
+	}{
+		{name: "Anthropic Messages", format: "claude", payload: nativePayload, streamField: true},
+		{name: "OpenAI Chat Completions", format: "openai", payload: chatPayload, streamField: true},
+		{name: "OpenAI Responses", format: "openai-response", payload: responsePayload, streamField: true},
+		{name: "Gemini GenerateContent", format: "gemini", payload: geminiPayload},
 	}
-	if !json.Valid(nativeResponse.Payload) {
-		t.Fatal("live native Claude response is not JSON")
+	for _, request := range requests {
+		t.Run(request.name+" unary", func(t *testing.T) {
+			response, executeErr := executor.ExecuteCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
+				Model: model, Format: request.format, Payload: request.payload, OriginalRequest: request.payload,
+			})
+			if executeErr != nil {
+				t.Fatalf("execute live request: %v", executeErr)
+			}
+			if !json.Valid(response.Payload) {
+				t.Fatal("live response is not JSON")
+			}
+		})
+		t.Run(request.name+" stream", func(t *testing.T) {
+			streamPayload := request.payload
+			if request.streamField {
+				var value map[string]any
+				if json.Unmarshal(request.payload, &value) != nil {
+					t.Fatal("prepare live stream request")
+				}
+				value["stream"] = true
+				streamPayload, err = json.Marshal(value)
+				if err != nil {
+					t.Fatalf("build live stream request: %v", err)
+				}
+			}
+			stream, streamErr := executor.ExecuteStreamCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
+				Model: model, Format: request.format, Payload: streamPayload, OriginalRequest: streamPayload,
+			})
+			if streamErr != nil {
+				t.Fatalf("start live stream: %v", streamErr)
+			}
+			chunks := 0
+			for chunk := range stream.Chunks {
+				if chunk.Err != nil {
+					t.Fatalf("read live stream: %v", chunk.Err)
+				}
+				if len(chunk.Payload) > 0 {
+					chunks++
+				}
+			}
+			if chunks == 0 {
+				t.Fatal("live stream returned no chunks")
+			}
+		})
 	}
 
-	convertedResponse, err := executor.ExecuteCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
-		Model: model, Format: "openai-response", Payload: responsePayload, OriginalRequest: responsePayload,
-	})
-	if err != nil {
-		t.Fatalf("execute live Claude Responses request: %v", err)
-	}
-	if !json.Valid(convertedResponse.Payload) {
-		t.Fatal("live Claude Responses result is not JSON")
-	}
-
-	var streamRequest map[string]any
-	if err := json.Unmarshal(nativePayload, &streamRequest); err != nil {
-		t.Fatalf("prepare live Claude stream request: %v", err)
-	}
-	streamRequest["stream"] = true
-	streamPayload, err := json.Marshal(streamRequest)
-	if err != nil {
-		t.Fatalf("build live Claude stream request: %v", err)
-	}
-	stream, err := executor.ExecuteStreamCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
-		Model: model, Format: "claude", Payload: streamPayload, OriginalRequest: streamPayload,
-	})
-	if err != nil {
-		t.Fatalf("start live native Claude stream: %v", err)
-	}
-	chunks := 0
-	for chunk := range stream.Chunks {
-		if chunk.Err != nil {
-			t.Fatalf("read live native Claude stream: %v", chunk.Err)
-		}
-		if len(chunk.Payload) > 0 {
-			chunks++
-		}
-	}
-	if chunks == 0 {
-		t.Fatal("live native Claude stream returned no chunks")
+	for _, request := range []struct {
+		name    string
+		format  string
+		payload []byte
+		field   string
+	}{
+		{name: "Anthropic", format: "claude", payload: nativeCountPayload, field: "input_tokens"},
+		{name: "OpenAI Responses", format: "openai-response", payload: responsePayload, field: "input_tokens"},
+		{name: "Gemini", format: "gemini", payload: geminiPayload, field: "totalTokens"},
+	} {
+		t.Run(request.name+" CountTokens", func(t *testing.T) {
+			response, countErr := executor.CountTokensCanonical(ctx, "live-claude-contract", credential, ExecuteRequest{
+				Model: model, Format: request.format, Payload: request.payload, OriginalRequest: request.payload,
+			})
+			if countErr != nil {
+				t.Fatalf("count live Claude tokens: %v", countErr)
+			}
+			var count map[string]any
+			if json.Unmarshal(response.Payload, &count) != nil {
+				t.Fatal("live CountTokens result is not JSON")
+			}
+			value, ok := count[request.field].(float64)
+			if !ok || value <= 0 {
+				t.Fatalf("live CountTokens result has no positive %s", request.field)
+			}
+		})
 	}
 }
 

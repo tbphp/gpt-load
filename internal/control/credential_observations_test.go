@@ -178,6 +178,65 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 	}
 }
 
+func TestRefreshCredentialObservationPersistsPartialSnapshotAsStale(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	fixture.service.observeSubscriptionAccount = func(
+		context.Context,
+		channel.ID,
+		subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		return subscriptionruntime.Observation{
+			Payload: []byte(`{"plan_summary":{"name":"Claude Team"},"account_summary":{"display_name":"Owner"},"quota_windows":[]}`),
+			Partial: true,
+		}, nil
+	}
+
+	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != string(models.CredentialObservationStale) || result.Snapshot == nil ||
+		result.Snapshot.Account == nil || result.Snapshot.Account.DisplayName != "Owner" ||
+		result.FreshUntilMS != nil || result.LastErrorCode != "observation_partial" {
+		t.Fatalf("partial observation = %#v", result)
+	}
+}
+
+func TestConnectingSubscriptionCredentialWakesObservationRefresh(t *testing.T) {
+	fixture, groupID, _ := newSubscriptionCredentialFixture(t)
+	observedAccounts := make(chan string, 4)
+	setCodexAccountObservation(fixture.service, func(_ context.Context, credential codex.Credential) (codex.AccountObservation, error) {
+		observedAccounts <- credential.AccountID
+		return codex.AccountObservation{Payload: []byte(`{"plan_type":"plus","rate_limit":{}}`)}, nil
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	go fixture.service.RunCredentialObservationRefresh(ctx)
+	select {
+	case accountID := <-observedAccounts:
+		if accountID != "account-observation" {
+			t.Fatalf("initial observed account = %q", accountID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial observation sweep did not finish")
+	}
+
+	stage := mustImportSubscriptionStage(t, fixture, "account-immediate", "immediate@example.com")
+	if _, err := fixture.service.ConnectGroupCredentialsIdempotent(
+		t.Context(), "00000000-0000-4000-8000-000000000001", groupID, []string{stage.StageID},
+	); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case accountID := <-observedAccounts:
+		if accountID != "account-immediate" {
+			t.Fatalf("connected observed account = %q", accountID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("connecting a subscription credential did not wake observation refresh")
+	}
+}
+
 func TestRefreshCredentialObservationEnrichesResetCreditDetails(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
@@ -232,7 +291,7 @@ func TestRefreshClaudeCredentialObservationPublishesAccountAndQuota(t *testing.T
 	now := time.Date(2026, time.August, 16, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
-		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"owner@example.com"}`,
+		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"owner@example.com","expired":"2030-01-01T00:00:00Z"}`,
 	))
 	if err != nil {
 		t.Fatal(err)

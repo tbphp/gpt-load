@@ -82,6 +82,13 @@ type providerBridge interface {
 	ClassifyError(context.Context, error, providerCredential) (int, *execution.ErrorEvidence)
 }
 
+// providerTokenCounter is implemented only by bridges whose CountTokens path
+// is guaranteed to call an upstream provider endpoint. Local estimators do not
+// satisfy this contract.
+type providerTokenCounter interface {
+	CountTokens(context.Context, string, providerCredential, providerRequest) (providerResponse, error)
+}
+
 func indexProviderBridges(bridges ...providerBridge) map[channel.ProviderKind]providerBridge {
 	indexed := make(map[channel.ProviderKind]providerBridge, len(bridges))
 	for _, bridge := range bridges {

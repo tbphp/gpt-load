@@ -142,6 +142,9 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	if len(normalized.models) > 0 && s.catalogSync != nil {
 		s.catalogSync.RequestGroupSync()
 	}
+	if normalized.connectionType == models.ConnectionTypeSubscription {
+		s.requestCredentialObservationRefresh()
+	}
 	return result, nil
 }
 

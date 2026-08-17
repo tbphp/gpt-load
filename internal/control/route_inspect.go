@@ -114,22 +114,26 @@ func routeInspectOperationMatchesProtocol(
 	clientProtocol protocol.Protocol,
 	operation execution.Operation,
 ) bool {
-	if clientProtocol != protocol.OpenAIResponses {
+	switch clientProtocol {
+	case protocol.OpenAICompletions:
 		return operation == execution.OperationChatCompletion
+	case protocol.Anthropic, protocol.Gemini:
+		return operation == execution.OperationChatCompletion ||
+			operation == execution.OperationCountTokens
+	case protocol.OpenAIResponses:
+		switch operation {
+		case execution.OperationResponsesCreate,
+			execution.OperationResponsesRetrieve,
+			execution.OperationResponsesDelete,
+			execution.OperationResponsesCancel,
+			execution.OperationResponsesInputItems,
+			execution.OperationResponsesCompact,
+			execution.OperationResponsesInputTokens,
+			execution.OperationResponsesPassthrough:
+			return true
+		}
 	}
-	switch operation {
-	case execution.OperationResponsesCreate,
-		execution.OperationResponsesRetrieve,
-		execution.OperationResponsesDelete,
-		execution.OperationResponsesCancel,
-		execution.OperationResponsesInputItems,
-		execution.OperationResponsesCompact,
-		execution.OperationResponsesInputTokens,
-		execution.OperationResponsesPassthrough:
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func routeInspectOperationRequiresModel(operation execution.Operation) bool {
@@ -137,7 +141,8 @@ func routeInspectOperationRequiresModel(operation execution.Operation) bool {
 	case execution.OperationChatCompletion,
 		execution.OperationResponsesCreate,
 		execution.OperationResponsesCompact,
-		execution.OperationResponsesInputTokens:
+		execution.OperationResponsesInputTokens,
+		execution.OperationCountTokens:
 		return true
 	default:
 		return false

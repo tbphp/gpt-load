@@ -65,6 +65,8 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 			}
 		}
 		return body, nil
+	case spec.ClientProtocol == protocol.Anthropic && spec.Operation == execution.OperationCountTokens:
+		return sanitizeNativeChatBody(spec.Body, spec.UpstreamModel)
 	case spec.ClientProtocol == protocol.Gemini && spec.Operation == execution.OperationChatCompletion:
 		object, err := decodeNativeJSONObject(spec.Body)
 		if err != nil {
@@ -74,6 +76,15 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		}
 		changed := stripNativeControlFields(object)
 		if !changed {
+			return append([]byte(nil), spec.Body...), nil
+		}
+		return encodeNativeJSONObject(object)
+	case spec.ClientProtocol == protocol.Gemini && spec.Operation == execution.OperationCountTokens:
+		object, err := decodeNativeJSONObject(spec.Body)
+		if err != nil {
+			return append([]byte(nil), spec.Body...), nil
+		}
+		if !stripNativeControlFields(object) {
 			return append([]byte(nil), spec.Body...), nil
 		}
 		return encodeNativeJSONObject(object)

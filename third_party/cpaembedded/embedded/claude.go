@@ -203,6 +203,9 @@ func validateClaudeCredential(credential ClaudeCredential) error {
 	if !claudeauth.HasCanonicalDeviceIDPool(credential.DeviceIDs) {
 		return fmt.Errorf("credential claude_device_ids must contain one canonical device ID")
 	}
+	if credential.Expire == "" {
+		return fmt.Errorf("credential expired is required")
+	}
 	if err := validateTimestamp("expired", credential.Expire); err != nil {
 		return err
 	}

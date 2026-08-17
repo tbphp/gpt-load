@@ -106,6 +106,16 @@ func TestImportCodexOAuthJSONRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestImportClaudeOAuthJSONRequiresExpiredTimestamp(t *testing.T) {
+	fixture := newServiceFixture(t)
+	_, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
+		`{"type":"claude","access_token":"access","refresh_token":"refresh","account_uuid":"account"}`,
+	))
+	if !errors.Is(err, app_errors.ErrOAuthFileInvalid) {
+		t.Fatalf("missing Claude expired error = %v", err)
+	}
+}
+
 func TestBeginBrowserAuthorizationCreatesPendingStage(t *testing.T) {
 	t.Parallel()
 

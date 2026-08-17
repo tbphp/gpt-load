@@ -3,6 +3,7 @@ package dialect
 import (
 	"fmt"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
@@ -27,6 +28,14 @@ func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) 
 	if err != nil {
 		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
+	if req.Path == "/v1/messages/count_tokens" {
+		metadata.Stream = false
+		metadata.ObserveUsage = false
+		metadata.Operation = execution.OperationCountTokens
+		metadata.RouteRequirement = execution.RouteRequirementAny
+		return metadata, nil
+	}
+
 	metadata.ObserveUsage = true
 	metadata.AffinityPrefix = inspectPromptAffinityPrefix(d.Protocol(), req.Body)
 	metadata.Reasoning = inspectAnthropicReasoning(req.Body)

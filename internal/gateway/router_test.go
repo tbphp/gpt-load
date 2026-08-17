@@ -37,6 +37,11 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 			path:    "/v1/messages",
 		},
 		{
+			name:    "data.anthropic.count_tokens",
+			methods: []string{http.MethodPost},
+			path:    "/v1/messages/count_tokens",
+		},
+		{
 			name:    "data.gemini.generate",
 			methods: []string{http.MethodPost},
 			path:    "/v1beta/models/:model_action",
@@ -131,6 +136,12 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 			validPath: true,
 		},
 		{
+			name: "Anthropic count tokens", endpoint: "data.anthropic.count_tokens",
+			method: http.MethodPost, path: "/v1/messages/count_tokens",
+			want:      route{Protocol: protocol.Anthropic, Kind: endpointForward},
+			validPath: true,
+		},
+		{
 			name: "Gemini generate", endpoint: "data.gemini.generate",
 			method: http.MethodPost, path: "/v1beta/models/gemini-2.5-pro:generateContent",
 			want:      route{Protocol: protocol.Gemini, Kind: endpointForward},
@@ -139,6 +150,12 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 		{
 			name: "Gemini stream", endpoint: "data.gemini.generate",
 			method: http.MethodPost, path: "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+			want:      route{Protocol: protocol.Gemini, Kind: endpointForward},
+			validPath: true,
+		},
+		{
+			name: "Gemini count tokens", endpoint: "data.gemini.generate",
+			method: http.MethodPost, path: "/v1beta/models/gemini-2.5-pro:countTokens",
 			want:      route{Protocol: protocol.Gemini, Kind: endpointForward},
 			validPath: true,
 		},

@@ -363,6 +363,7 @@ export default {
         responses_input_items: '读取输入项',
         responses_compact: '压缩 Response',
         responses_input_tokens: '计算输入 Token',
+        count_tokens: '计算 Token',
         responses_passthrough: 'Responses 扩展操作',
       },
       routeRequirements: {
@@ -703,6 +704,7 @@ export default {
         responses_input_items: '获取输入项',
         responses_compact: '压缩 Response',
         responses_input_tokens: '计算输入 Tokens',
+        count_tokens: '计算 Tokens',
         responses_passthrough: 'Responses 资源透传',
         list_models: '列出模型',
         probe: '健康探测',

@@ -125,11 +125,14 @@ curl --fail http://localhost:3001/health
 |---|---|---|
 | OpenAI | `POST /v1/chat/completions` | OpenAI Completions 原生请求 |
 | OpenAI | `/v1/responses` 与 `/v1/responses/...` | OpenAI Responses 原生命名空间；普通 HTTP method 直接转发 |
+| OpenAI | `POST /v1/responses/input_tokens` | 直接请求上游统计输入 Token；上游不支持时原样返回错误，不做本地估算 |
 | OpenAI / Anthropic | `GET /v1/models` | 默认返回 OpenAI 格式；携带 `anthropic-version` 时返回 Anthropic 格式 |
 | Anthropic | `POST /v1/messages` | Anthropic Messages 原生请求 |
+| Anthropic | `POST /v1/messages/count_tokens` | 直接请求上游统计 Token；上游不支持时原样返回错误，不做本地估算 |
 | Gemini | `GET /v1beta/models` | Gemini 原生模型列表 |
 | Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini 非流式生成 |
 | Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Gemini 流式生成 |
+| Gemini | `POST /v1beta/models/{model}:countTokens` | 直接请求上游统计 Token；上游不支持时原样返回错误，不做本地估算 |
 
 Group 由 AccessKey 与运行时配置选择，不作为 URL 路径段传入。被选中的渠道决定一次 operation 使用原生执行还是协议转换；转换必须通过能力门禁，不承诺任意 JSON 的无损互转。
 

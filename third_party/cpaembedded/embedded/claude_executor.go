@@ -89,6 +89,7 @@ func (e *claudeCredentialScopedExecutionError) Unwrap() error {
 // GPT-Load. CPA manager, retry, refresh, storage, and selection are excluded.
 type ClaudeHTTPExecutor interface {
 	ExecuteCanonical(context.Context, string, ClaudeCredential, ExecuteRequest) (ExecuteResponse, error)
+	CountTokensCanonical(context.Context, string, ClaudeCredential, ExecuteRequest) (ExecuteResponse, error)
 	ExecuteStreamCanonical(context.Context, string, ClaudeCredential, ExecuteRequest) (*ExecuteStreamResponse, error)
 }
 
@@ -171,6 +172,35 @@ func (e *claudeHTTPExecutor) ExecuteCanonical(
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: observation.reasoningEffort(),
+	}, nil
+}
+
+func (e *claudeHTTPExecutor) CountTokensCanonical(
+	ctx context.Context,
+	credentialID string,
+	credential ClaudeCredential,
+	request ExecuteRequest,
+) (ExecuteResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := validateClaudeCredential(credential); err != nil {
+		return ExecuteResponse{}, err
+	}
+	format := sdktranslator.FromString(request.Format)
+	auth := NewClaudeAuth(credentialID, credential, "")
+	observation := newProviderExecutionObservation(request, ProviderClaude)
+	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
+	}, cliproxyexecutor.Options{
+		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		SourceFormat: format, ResponseFormat: format,
+	})
+	if err != nil {
+		return ExecuteResponse{}, normalizeClaudeExecutionError(err)
+	}
+	return ExecuteResponse{
+		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 	}, nil
 }
 
@@ -260,6 +290,13 @@ func normalizeClaudeExecutionError(err error) error {
 		credentialScopeKnown = true
 		credentialScoped = credentialScope.IsCredentialScoped()
 	}
+	retryAfter := time.Duration(0)
+	var retry interface{ RetryAfter() *time.Duration }
+	if errors.As(err, &retry) && retry != nil {
+		if value := retry.RetryAfter(); value != nil && *value > 0 {
+			retryAfter = *value
+		}
+	}
 	body := []byte(err.Error())
 	var headers http.Header
 	var direct interface {
@@ -275,7 +312,10 @@ func normalizeClaudeExecutionError(err error) error {
 	bounded := &ClaudeExecutionError{
 		status: status, typeValue: typeValue, codeValue: codeValue,
 		summary:    claudeExecutionSummary(status, typeValue, providerMessage),
-		retryAfter: claudeRetryAfter(headers), requestScoped: requestScoped,
+		retryAfter: retryAfter, requestScoped: requestScoped,
+	}
+	if bounded.retryAfter == 0 {
+		bounded.retryAfter = claudeRetryAfter(headers)
 	}
 	if credentialScopeKnown {
 		return &claudeCredentialScopedExecutionError{

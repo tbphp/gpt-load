@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -90,12 +91,14 @@ type ClaudeUsage struct {
 
 // ClaudeAccountObservation combines account metadata and quota evidence.
 type ClaudeAccountObservation struct {
-	Profile ClaudeAccountProfile
-	Usage   ClaudeUsage
-	Header  http.Header
+	Profile           ClaudeAccountProfile
+	Usage             ClaudeUsage
+	Header            http.Header
+	IncompleteSources []string
 }
 
 type claudeBootstrapResponse struct {
+	OrgModelDefault        string `json:"org_model_default"`
 	AdditionalModelOptions []struct {
 		Model          string  `json:"model"`
 		Name           string  `json:"name"`
@@ -183,6 +186,26 @@ func DiscoverClaudeModels(
 		return nil, fmt.Errorf("Claude bootstrap model list is too large")
 	}
 
+	denied := make(map[string]struct{})
+	for _, option := range bootstrap.AdditionalModelOptions {
+		id, idErr := claudeSafeScalar("additional model id", option.Model, true)
+		if idErr != nil {
+			return nil, idErr
+		}
+		if option.DisabledReason != nil && strings.TrimSpace(*option.DisabledReason) != "" {
+			denied[id] = struct{}{}
+		}
+	}
+	for _, access := range bootstrap.ModelAccess {
+		id, idErr := claudeSafeScalar("model access id", access.APIName, true)
+		if idErr != nil {
+			return nil, idErr
+		}
+		if !access.Entitled {
+			denied[id] = struct{}{}
+		}
+	}
+
 	models := make(map[string]ClaudeModel)
 	for _, model := range registry.GetClaudeModels() {
 		if model == nil {
@@ -194,15 +217,16 @@ func DiscoverClaudeModels(
 		}
 		displayName, _ := claudeSafeScalar("model display name", model.DisplayName, false)
 		description, _ := claudeSafeScalar("model description", model.Description, false)
-		models[id] = ClaudeModel{ID: id, DisplayName: displayName, Description: description}
+		if _, blocked := denied[id]; !blocked {
+			models[id] = ClaudeModel{ID: id, DisplayName: displayName, Description: description}
+		}
 	}
 	for _, option := range bootstrap.AdditionalModelOptions {
 		id, idErr := claudeSafeScalar("additional model id", option.Model, true)
 		if idErr != nil {
 			return nil, idErr
 		}
-		if option.DisabledReason != nil && strings.TrimSpace(*option.DisabledReason) != "" {
-			delete(models, id)
+		if _, blocked := denied[id]; blocked {
 			continue
 		}
 		name, nameErr := claudeSafeScalar("additional model name", option.Name, false)
@@ -221,11 +245,24 @@ func DiscoverClaudeModels(
 			return nil, idErr
 		}
 		if !access.Entitled {
-			delete(models, id)
+			continue
+		}
+		if _, blocked := denied[id]; blocked {
 			continue
 		}
 		if _, exists := models[id]; !exists {
 			models[id] = ClaudeModel{ID: id, DisplayName: id}
+		}
+	}
+	defaultID, err := claudeSafeScalar("organization default model", bootstrap.OrgModelDefault, false)
+	if err != nil {
+		return nil, err
+	}
+	if defaultID != "" {
+		if _, blocked := denied[defaultID]; !blocked {
+			if _, exists := models[defaultID]; !exists {
+				models[defaultID] = ClaudeModel{ID: defaultID, DisplayName: defaultID}
+			}
 		}
 	}
 
@@ -255,42 +292,78 @@ func ObserveClaudeAccount(
 		Email: credential.Email, AccountUUID: credential.AccountUUID,
 		OrganizationUUID: credential.OrganizationUUID, OrganizationName: credential.OrganizationName,
 	}
+	incomplete := make([]string, 0, 4)
 	if profilePayload, profileErr := fetchClaudeOAuthProfile(ctx, options, credential.AccessToken); profileErr == nil {
 		if err := validateClaudeProfileIdentity(credential, profilePayload); err != nil {
 			return ClaudeAccountObservation{}, err
 		}
 		observedProfile, mapErr := mapClaudeAccountProfile(profilePayload)
 		if mapErr != nil {
-			return ClaudeAccountObservation{}, mapErr
+			incomplete = append(incomplete, "profile")
+		} else {
+			profile = mergeClaudeAccountProfile(profile, observedProfile)
 		}
-		profile = mergeClaudeAccountProfile(profile, observedProfile)
+	} else if isClaudeObservationContextError(profileErr) {
+		return ClaudeAccountObservation{}, profileErr
+	} else {
+		incomplete = append(incomplete, "profile")
 	}
 
 	if roles, rolesErr := fetchAndDecodeClaudeRoles(ctx, credential, options); rolesErr == nil {
+		rolesComplete := true
 		if value, valueErr := claudeSafeScalar("organization role", roles.OrganizationRole, false); valueErr == nil {
 			profile.OrganizationRole = value
+		} else {
+			rolesComplete = false
 		}
 		if value, valueErr := claudeSafeScalar("workspace role", roles.WorkspaceRole, false); valueErr == nil {
 			profile.WorkspaceRole = value
+		} else {
+			rolesComplete = false
 		}
 		if value, valueErr := claudeSafeScalar("organization name", roles.OrganizationName, false); valueErr == nil && value != "" {
 			profile.OrganizationName = value
+		} else if valueErr != nil {
+			rolesComplete = false
 		}
+		if !rolesComplete {
+			incomplete = append(incomplete, "roles")
+		}
+	} else if isClaudeObservationContextError(rolesErr) {
+		return ClaudeAccountObservation{}, rolesErr
+	} else {
+		incomplete = append(incomplete, "roles")
 	}
 	if bootstrap, bootstrapErr := fetchClaudeBootstrap(ctx, credential, options); bootstrapErr == nil {
 		if err := validateClaudeBootstrapIdentity(credential, bootstrap); err != nil {
 			return ClaudeAccountObservation{}, err
 		}
 		if bootstrap.OAuthAccount != nil {
-			applyClaudeBootstrapAccount(&profile, bootstrap.OAuthAccount)
+			if !applyClaudeBootstrapAccount(&profile, bootstrap.OAuthAccount) {
+				incomplete = append(incomplete, "bootstrap")
+			}
 		}
+	} else if isClaudeObservationContextError(bootstrapErr) {
+		return ClaudeAccountObservation{}, bootstrapErr
+	} else {
+		incomplete = append(incomplete, "bootstrap")
 	}
 
 	usage, header, err := fetchAndDecodeClaudeUsage(ctx, credential, options)
 	if err != nil {
-		return ClaudeAccountObservation{}, fmt.Errorf("fetch Claude account usage: %w", err)
+		if isClaudeObservationContextError(err) {
+			return ClaudeAccountObservation{}, err
+		}
+		incomplete = append(incomplete, "usage")
 	}
-	return ClaudeAccountObservation{Profile: profile, Usage: usage, Header: header}, nil
+	return ClaudeAccountObservation{
+		Profile: profile, Usage: usage, Header: header,
+		IncompleteSources: incomplete,
+	}, nil
+}
+
+func isClaudeObservationContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func mergeClaudeAccountProfile(base, observed ClaudeAccountProfile) ClaudeAccountProfile {
@@ -459,10 +532,11 @@ func applyClaudeBootstrapAccount(
 		UserRateLimitTier         string `json:"user_rate_limit_tier"`
 		SeatTier                  string `json:"seat_tier"`
 	},
-) {
+) bool {
 	if profile == nil || account == nil {
-		return
+		return true
 	}
+	complete := true
 	for target, value := range map[*string]string{
 		&profile.Email:                     account.AccountEmail,
 		&profile.OrganizationName:          account.OrganizationName,
@@ -473,8 +547,11 @@ func applyClaudeBootstrapAccount(
 	} {
 		if cleaned, err := claudeSafeScalar("bootstrap account field", value, false); err == nil && cleaned != "" {
 			*target = cleaned
+		} else if err != nil {
+			complete = false
 		}
 	}
+	return complete
 }
 
 func validateClaudeProfileIdentity(credential ClaudeCredential, profile claudeOAuthProfile) error {

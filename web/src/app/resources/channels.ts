@@ -50,6 +50,7 @@ export type ChannelOperation =
   | 'responses_input_items'
   | 'responses_compact'
   | 'responses_input_tokens'
+  | 'count_tokens'
   | 'responses_passthrough'
   | 'list_models'
   | 'probe'
@@ -145,6 +146,7 @@ const operations = [
   'responses_input_items',
   'responses_compact',
   'responses_input_tokens',
+  'count_tokens',
   'responses_passthrough',
   'list_models',
   'probe',

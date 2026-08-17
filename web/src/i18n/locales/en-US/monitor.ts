@@ -380,6 +380,7 @@ export default {
         responses_input_items: 'List input items',
         responses_compact: 'Compact Response',
         responses_input_tokens: 'Count input tokens',
+        count_tokens: 'Count tokens',
         responses_passthrough: 'Responses extension operation',
       },
       routeRequirements: {
@@ -724,6 +725,7 @@ export default {
         responses_input_items: 'List input items',
         responses_compact: 'Compact response',
         responses_input_tokens: 'Count input tokens',
+        count_tokens: 'Count tokens',
         responses_passthrough: 'Responses resource passthrough',
         list_models: 'List models',
         probe: 'Health probe',

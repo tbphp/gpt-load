@@ -18,6 +18,7 @@ import (
 func TestOperationAndDispatchEnums(t *testing.T) {
 	operations := []Operation{
 		OperationChatCompletion,
+		OperationCountTokens,
 		OperationResponsesCreate,
 		OperationResponsesRetrieve,
 		OperationResponsesDelete,
@@ -83,6 +84,39 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 	}
 	if ErrorKind("unknown").Valid() {
 		t.Fatal("expected unknown error kind to be invalid")
+	}
+}
+
+func TestUpstreamCountTokensUnsupportedClassification(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		operation Operation
+		status    int
+		typeValue string
+		codeValue string
+		want      bool
+	}{
+		{name: "Anthropic 404", operation: OperationCountTokens, status: http.StatusNotFound, want: true},
+		{name: "Gemini 405", operation: OperationCountTokens, status: http.StatusMethodNotAllowed, want: true},
+		{name: "Responses 501", operation: OperationResponsesInputTokens, status: http.StatusNotImplemented, want: true},
+		{name: "explicit code", operation: OperationCountTokens, status: http.StatusBadRequest, codeValue: "unsupported_operation", want: true},
+		{name: "explicit type", operation: OperationResponsesInputTokens, typeValue: "not_implemented", want: true},
+		{name: "generation 501", operation: OperationChatCompletion, status: http.StatusNotImplemented, want: false},
+		{name: "ordinary count 400", operation: OperationCountTokens, status: http.StatusBadRequest, codeValue: "invalid_request", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := UpstreamCountTokensUnsupported(
+				test.operation,
+				test.status,
+				test.typeValue,
+				test.codeValue,
+			); got != test.want {
+				t.Fatalf("UpstreamCountTokensUnsupported() = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 
@@ -391,7 +425,12 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	if err := responsesCreate.Validate(); err == nil {
 		t.Fatal("expected responses create without a model to be rejected")
 	}
-	for _, operation := range []Operation{OperationResponsesCompact, OperationResponsesInputTokens, OperationProbe} {
+	for _, operation := range []Operation{
+		OperationResponsesCompact,
+		OperationResponsesInputTokens,
+		OperationCountTokens,
+		OperationProbe,
+	} {
 		modelRequired := spec.Clone()
 		modelRequired.Operation = operation
 		modelRequired.UpstreamModel = ""

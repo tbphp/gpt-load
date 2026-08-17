@@ -154,7 +154,10 @@ func (*claudeDriver) Observe(ctx context.Context, credential Credential) (Observ
 	if err != nil {
 		return Observation{}, fmt.Errorf("%w: %v", ErrObservationPayloadInvalid, err)
 	}
-	return Observation{Payload: normalized, Header: observed.Header.Clone()}, nil
+	return Observation{
+		Payload: normalized, Header: observed.Header.Clone(),
+		Partial: len(observed.IncompleteSources) > 0,
+	}, nil
 }
 
 // Go cannot overload ID across the narrow capability interfaces, so wrappers
