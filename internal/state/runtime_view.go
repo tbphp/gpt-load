@@ -22,6 +22,10 @@ type CredentialRuntimeView struct {
 	QuotaFreshUntil    time.Time
 }
 
+func (view CredentialRuntimeView) AuthReady() bool {
+	return view.AuthState.normalize() == CredentialAuthStateReady
+}
+
 func (view CredentialRuntimeView) FreshQuotaRemaining(now time.Time) *float64 {
 	if view.QuotaRemaining == nil || !view.QuotaFreshUntil.After(now) ||
 		!view.QuotaResetAt.After(now) {

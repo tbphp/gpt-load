@@ -277,6 +277,119 @@ func TestInspectEligiblePoolMatchesIteratorInitialWeightedPool(t *testing.T) {
 	}
 }
 
+func TestInspectEligiblePoolMatchesIteratorCredentialAuthorization(t *testing.T) {
+	now := inspectNow()
+	snapshot := inspectSnapshot(t)
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{
+		{
+			ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
+			AuthState: state.CredentialAuthStateReady, WeightAuto: state.DefaultWeight,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "ready", EncryptedValue: "ready",
+		},
+		{
+			ID: 12, GroupID: 1, Status: state.CredentialStatusActive,
+			AuthState: state.CredentialAuthStateRefreshing, WeightAuto: state.DefaultWeight,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "refreshing", EncryptedValue: "refreshing",
+		},
+	}); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+	query := Query{
+		ClientProtocol: protocol.OpenAICompletions,
+		Operation:      execution.OperationChatCompletion,
+		ExternalModel:  modelPointer("public"),
+		AccessKey:      state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}
+	inspection, err := Inspect(snapshot, registry.Snapshot(), query, now)
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	credentials := inspection.Groups[0].Credentials
+	if len(credentials) != 2 || !credentials[0].Available ||
+		credentials[1].Available ||
+		credentials[1].Reason != ReasonCode("credential_auth_unavailable") {
+		t.Fatalf("credential inspections = %#v", credentials)
+	}
+
+	iterator := newWithClock(
+		snapshot,
+		registry,
+		query,
+		rand.New(rand.NewSource(1)),
+		func() time.Time { return now },
+	)
+	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
+	if len(weighted) != 1 || weighted[0].meta.ID != 11 {
+		t.Fatalf("Iterator pool = %#v, want only ready credential 11", weighted)
+	}
+}
+
+func TestInspectEligiblePoolMatchesIteratorQuotaPriority(t *testing.T) {
+	now := inspectNow()
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 7, Name: "codex", ChannelID: channel.Codex, ConnectionType: "subscription",
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-5", Alias: "public"}},
+			Enabled: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{
+		{
+			ID: 71, GroupID: 7, Status: state.CredentialStatusActive,
+			AuthState: state.CredentialAuthStateReady, WeightAuto: state.DefaultWeight,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "low", EncryptedValue: "low",
+		},
+		{
+			ID: 72, GroupID: 7, Status: state.CredentialStatusActive,
+			AuthState: state.CredentialAuthStateReady, WeightAuto: state.DefaultWeight,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "high", EncryptedValue: "high",
+		},
+	}); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+	low, high := 0.2, 0.8
+	resetAt := now.Add(time.Hour)
+	freshUntil := now.Add(30 * time.Minute)
+	if !registry.SetCredentialQuotaObservation(71, &low, resetAt, freshUntil) ||
+		!registry.SetCredentialQuotaObservation(72, &high, resetAt, freshUntil) {
+		t.Fatal("SetCredentialQuotaObservation() = false")
+	}
+	query := Query{
+		ClientProtocol: protocol.OpenAIResponses,
+		Operation:      execution.OperationResponsesCreate,
+		ExternalModel:  modelPointer("public"),
+		AccessKey:      state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}
+	inspection, err := Inspect(snapshot, registry.Snapshot(), query, now)
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	credentials := inspection.Groups[0].Credentials
+	if len(credentials) != 2 || credentials[0].Available ||
+		credentials[0].Reason != ReasonCode("credential_quota_deprioritized") ||
+		!credentials[1].Available {
+		t.Fatalf("credential inspections = %#v", credentials)
+	}
+
+	iterator := newWithClock(
+		snapshot,
+		registry,
+		query,
+		rand.New(rand.NewSource(1)),
+		func() time.Time { return now },
+	)
+	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
+	if len(weighted) != 1 || weighted[0].meta.ID != 72 {
+		t.Fatalf("Iterator pool = %#v, want only highest-quota credential 72", weighted)
+	}
+}
+
 func TestInspectRejectsCatalogRegistryMismatch(t *testing.T) {
 	_, err := Inspect(inspectSnapshot(t), []state.CredentialRuntimeView{{
 		ID: 99, GroupID: 999, Status: state.CredentialStatusActive,

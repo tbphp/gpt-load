@@ -218,29 +218,38 @@ func prioritizeKnownQuota(
 		if !exists || !target.group.QuotaPriority {
 			continue
 		}
-		priority, seen := priorities[candidate.meta.GroupID]
-		if !seen {
-			priority = quotaPriority{eligible: true, known: true}
-		}
-		remaining := candidate.meta.QuotaRemaining
-		if remaining == nil || math.IsNaN(*remaining) || math.IsInf(*remaining, 0) ||
-			*remaining < 0 || *remaining > 1 {
-			priority.known = false
-		} else if *remaining > priority.maximum {
-			priority.maximum = *remaining
-		}
-		priorities[candidate.meta.GroupID] = priority
+		priorities[candidate.meta.GroupID] = observeQuotaPriority(
+			priorities[candidate.meta.GroupID],
+			candidate.meta.QuotaRemaining,
+		)
 	}
 	result := weighted[:0]
 	for _, candidate := range weighted {
 		priority := priorities[candidate.meta.GroupID]
-		if priority.eligible && priority.known &&
-			candidate.meta.QuotaRemaining != nil && *candidate.meta.QuotaRemaining < priority.maximum {
+		if !quotaPriorityAllows(priority, candidate.meta.QuotaRemaining) {
 			continue
 		}
 		result = append(result, candidate)
 	}
 	return result
+}
+
+func observeQuotaPriority(priority quotaPriority, remaining *float64) quotaPriority {
+	if !priority.eligible {
+		priority = quotaPriority{eligible: true, known: true}
+	}
+	if remaining == nil || math.IsNaN(*remaining) || math.IsInf(*remaining, 0) ||
+		*remaining < 0 || *remaining > 1 {
+		priority.known = false
+	} else if *remaining > priority.maximum {
+		priority.maximum = *remaining
+	}
+	return priority
+}
+
+func quotaPriorityAllows(priority quotaPriority, remaining *float64) bool {
+	return !priority.eligible || !priority.known ||
+		remaining == nil || *remaining >= priority.maximum
 }
 
 func (iterator *Iterator) Next() (Selection, error) {

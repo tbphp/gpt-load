@@ -11,7 +11,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 
-type InspectorField = 'protocol' | 'operation' | 'externalModel' | 'accessKey'
+type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
 interface SelectOption {
   value: string
@@ -20,15 +20,10 @@ interface SelectOption {
 
 const props = defineProps<{
   protocol: string
-  operation: string
-  routeRequirement: string
   model: string
   accessKeyId: string
   protocolOptions: SelectOption[]
-  operationOptions: SelectOption[]
-  routeRequirementOptions: SelectOption[]
-  modelRequired: boolean
-  modelAllowed: boolean
+  modelOptions: SelectOption[]
   accessKeyOptions: SelectOption[]
   errors: InspectorErrors
   optionsPending: boolean
@@ -38,8 +33,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   'update:protocol': [value: string]
-  'update:operation': [value: string]
-  'update:routeRequirement': [value: string]
   'update:model': [value: string]
   'update:accessKeyId': [value: string]
   submit: []
@@ -98,27 +91,6 @@ function error(field: InspectorField): string | undefined {
         </FormField>
 
         <FormField
-          id="inspector-operation"
-          size="compact"
-          :label="t('monitor.inspector.form.operation')"
-          :error="error('operation')"
-          required
-        >
-          <template #default="{ describedBy }">
-            <AppSelect
-              id="inspector-operation"
-              :model-value="operation"
-              :label="t('monitor.inspector.form.operation')"
-              :options="operationOptions"
-              :aria-describedby="describedBy"
-              :aria-invalid="error('operation') ? 'true' : undefined"
-              size="compact"
-              @update:model-value="emit('update:operation', $event)"
-            />
-          </template>
-        </FormField>
-
-        <FormField
           id="inspector-protocol"
           size="compact"
           :label="t('monitor.inspector.form.protocol')"
@@ -128,6 +100,7 @@ function error(field: InspectorField): string | undefined {
           <template #default="{ describedBy }">
             <AppSelect
               id="inspector-protocol"
+              class="inspector-form__protocol-select"
               :model-value="protocol"
               :label="t('monitor.inspector.form.protocol')"
               :options="protocolOptions"
@@ -143,40 +116,20 @@ function error(field: InspectorField): string | undefined {
           id="inspector-model"
           size="compact"
           :label="t('monitor.inspector.form.model')"
-          :label-suffix="modelRequired ? undefined : t('monitor.inspector.form.optional')"
           :error="error('externalModel')"
-          :required="modelRequired"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="inspector-model"
-              :value="model"
-              type="text"
-              autocomplete="off"
-              :placeholder="t('monitor.inspector.form.modelPlaceholder')"
-              :aria-describedby="describedBy"
-              :aria-invalid="error('externalModel') ? 'true' : undefined"
-              :disabled="!modelAllowed"
-              @input="emit('update:model', ($event.target as HTMLInputElement).value)"
-            />
-          </template>
-        </FormField>
-
-        <FormField
-          id="inspector-route-requirement"
-          size="compact"
-          :label="t('monitor.inspector.form.routeRequirement')"
           required
         >
           <template #default="{ describedBy }">
             <AppSelect
-              id="inspector-route-requirement"
-              :model-value="routeRequirement"
-              :label="t('monitor.inspector.form.routeRequirement')"
-              :options="routeRequirementOptions"
+              id="inspector-model"
+              class="inspector-form__model-select"
+              :model-value="model"
+              :label="t('monitor.inspector.form.model')"
+              :options="modelOptions"
               :aria-describedby="describedBy"
+              :aria-invalid="error('externalModel') ? 'true' : undefined"
               size="compact"
-              @update:model-value="emit('update:routeRequirement', $event)"
+              @update:model-value="emit('update:model', $event)"
             />
           </template>
         </FormField>
@@ -242,7 +195,8 @@ function error(field: InspectorField): string | undefined {
   font-size: var(--text-meta);
 }
 
-.inspector-form :deep(input) {
+.inspector-form__model-select :deep(.app-select__value),
+.inspector-form__protocol-select :deep(.app-select__value) {
   font-family: var(--font-mono);
 }
 

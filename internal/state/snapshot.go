@@ -127,10 +127,11 @@ type GroupView struct {
 }
 
 type GroupCatalogView struct {
-	ID           uint
-	Name         string
-	Enabled      bool
-	WeightManual *int
+	ID            uint
+	Name          string
+	Enabled       bool
+	QuotaPriority bool
+	WeightManual  *int
 }
 
 type AccessKeyView struct {
@@ -172,10 +173,14 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	}
 
 	for _, group := range input.Groups {
-		snapshot.GroupCatalog[group.ID] = GroupCatalogView{
+		catalogView := GroupCatalogView{
 			ID: group.ID, Name: group.Name, Enabled: group.Enabled,
 			WeightManual: cloneWeight(group.WeightManual),
 		}
+		if policy, ok := input.ChannelRegistry.SchedulingPolicy(group.ChannelID); ok {
+			catalogView.QuotaPriority = policy.QuotaPriority
+		}
+		snapshot.GroupCatalog[group.ID] = catalogView
 		if err := appendExecutionTargets(snapshot.ExecutionRouteCatalog, input.ChannelRegistry, group); err != nil {
 			return nil, err
 		}
@@ -199,9 +204,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			WeightManual:       cloneWeight(group.WeightManual),
 			ConnectionType:     connection.Normalize(group.ConnectionType),
 		}
-		if policy, ok := input.ChannelRegistry.SchedulingPolicy(group.ChannelID); ok {
-			view.QuotaPriority = policy.QuotaPriority
-		}
+		view.QuotaPriority = catalogView.QuotaPriority
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)
 		if err != nil {
 			return nil, fmt.Errorf("compile group %d params: %w", group.ID, err)

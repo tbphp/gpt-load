@@ -363,13 +363,12 @@ export default {
     },
     inspector: {
       title: 'Route inspector',
-      description:
-        'Inspect candidate Groups and credentials by protocol, operation, capabilities, model, and access key.',
+      description: 'Inspect candidate Groups and credentials by protocol, model, and access key.',
       boundary:
-        'Select the operation and capabilities required by the real request. Read-only; no upstream request or token usage.',
+        'Simulates a standard stateless request without conversation content or an affinity hit; Responses uses store:false. Read-only, with no upstream request or token usage.',
       routeModes: {
         native: 'Native',
-        converted: 'Converted',
+        converted: 'Protocol conversion',
       },
       operations: {
         chat_completion: 'Chat completion',
@@ -390,13 +389,17 @@ export default {
         title: 'Simulated request',
         label: 'Route inspector inputs',
         protocol: 'Protocol',
+        selectProtocol: 'Select a protocol',
         operation: 'Operation',
         routeRequirement: 'Route requirement',
         model: 'Client model',
+        selectModel: 'Select a model',
+        missingModelOption: 'No longer available · {model}',
         optional: 'Optional',
         modelPlaceholder: 'Enter a client model',
         modelOptional: 'Optional for protocol-only resource requests.',
         accessKey: 'Access key',
+        selectAccessKey: 'Select an access key',
         accessKeyOption: '{name} · #{id} · {status}',
         missingAccessKeyOption: 'Missing access key · #{id}',
         submit: 'Inspect current route',
@@ -406,13 +409,13 @@ export default {
         disabled: 'Disabled',
       },
       options: {
-        loading: 'Loading access key options…',
-        failed: 'Unable to load access key options.',
+        loading: 'Loading route inspector options…',
+        failed: 'Unable to load route inspector options.',
       },
       errors: {
         protocol: 'Select a valid protocol.',
         operation: 'Select an operation supported by the protocol.',
-        model: 'Enter a valid model when required; resource operations do not accept one.',
+        model: 'Select a model that exists in the current configuration.',
         accessKey: 'Reselect an existing access key.',
         missingDeepLinkAccessKey:
           'The linked access key #{id} no longer exists. Reselect an access key.',
@@ -452,7 +455,7 @@ export default {
       groups: {
         title: 'Candidate Groups',
         description:
-          'Native routes take priority. Shares are calculated only within the route tier currently competing.',
+          'Native routes are tried first, with protocol conversion used only when no native candidate is available. Within a tier, selection is weighted random; rows are sorted by weight, not fixed hit order.',
         count: '{count}',
         tableLabel: 'Candidate Group route explanation',
         completeEmpty:
@@ -460,6 +463,12 @@ export default {
         included: 'Included as candidate',
         excluded: 'Excluded from candidates',
         standby: 'Standby tier',
+        weightedCandidate: 'In weighted selection',
+        fallbackCandidate: 'Used if the upper tier fails',
+        priority: {
+          native: 'P1 · Native',
+          converted: 'P2 · Converted',
+        },
         standbyShare: 'Not currently competing',
         availableTotal: 'Available / total',
         currentTotal: 'Current total',
@@ -467,7 +476,7 @@ export default {
         viewGroup: 'View Group',
         columns: {
           group: 'Group',
-          status: 'Status',
+          status: 'Route tier',
           credentials: 'Credentials',
           weight: 'Effective weight',
           share: 'Weight share',
@@ -527,6 +536,9 @@ export default {
         credential_blacklisted: 'Credential is blacklisted',
         credential_cooldown: 'Credential is cooling down',
         credential_quota_exhausted: 'Subscription quota is exhausted and is skipped until recovery',
+        credential_auth_unavailable: 'Subscription authentication is currently unavailable',
+        credential_quota_deprioritized:
+          'A subscription with more remaining quota is available, so this credential is not competing',
         credential_weight_zero: 'Credential effective weight is zero',
         credential_not_allowed: 'Credential is excluded from this request',
         no_available_credential: 'Group has no currently available credential',

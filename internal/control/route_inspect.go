@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
@@ -16,11 +17,9 @@ import (
 )
 
 type routeInspectRequest struct {
-	Protocol         protocol.Protocol          `json:"protocol"`
-	Operation        execution.Operation        `json:"operation"`
-	RouteRequirement execution.RouteRequirement `json:"route_requirement"`
-	ExternalModel    *string                    `json:"external_model"`
-	AccessKeyID      uint                       `json:"access_key_id"`
+	Protocol      protocol.Protocol `json:"protocol"`
+	ExternalModel string            `json:"external_model"`
+	AccessKeyID   uint              `json:"access_key_id"`
 }
 
 type routeInspectAccessKeyResponse struct {
@@ -77,71 +76,14 @@ func optionalReason(value scheduler.ReasonCode) *scheduler.ReasonCode {
 func validateRouteInspectRequest(request routeInspectRequest) error {
 	if !request.Protocol.DataPlaneEnabled() ||
 		request.AccessKeyID == 0 ||
-		!request.Operation.Valid() ||
-		(request.RouteRequirement != execution.RouteRequirementAny &&
-			request.RouteRequirement != execution.RouteRequirementNative) ||
-		!routeInspectOperationMatchesProtocol(request.Protocol, request.Operation) {
+		!validUsageModel(request.ExternalModel) {
 		return app_errors.ErrValidation
 	}
-	if routeInspectOperationRequiresNativeRoute(request.Operation) &&
-		request.RouteRequirement != execution.RouteRequirementNative {
-		return app_errors.ErrValidation
-	}
-	if request.ExternalModel != nil && !validUsageModel(*request.ExternalModel) {
-		return app_errors.ErrValidation
-	}
-	if routeInspectOperationRequiresModel(request.Operation) != (request.ExternalModel != nil) &&
-		request.Operation != execution.OperationResponsesPassthrough {
+	_, err := dialect.InspectStandardRequest(request.Protocol, request.ExternalModel)
+	if err != nil {
 		return app_errors.ErrValidation
 	}
 	return nil
-}
-
-func routeInspectOperationRequiresNativeRoute(operation execution.Operation) bool {
-	switch operation {
-	case execution.OperationResponsesRetrieve,
-		execution.OperationResponsesDelete,
-		execution.OperationResponsesCancel,
-		execution.OperationResponsesInputItems,
-		execution.OperationResponsesPassthrough:
-		return true
-	default:
-		return false
-	}
-}
-
-func routeInspectOperationMatchesProtocol(
-	clientProtocol protocol.Protocol,
-	operation execution.Operation,
-) bool {
-	if clientProtocol != protocol.OpenAIResponses {
-		return operation == execution.OperationChatCompletion
-	}
-	switch operation {
-	case execution.OperationResponsesCreate,
-		execution.OperationResponsesRetrieve,
-		execution.OperationResponsesDelete,
-		execution.OperationResponsesCancel,
-		execution.OperationResponsesInputItems,
-		execution.OperationResponsesCompact,
-		execution.OperationResponsesInputTokens,
-		execution.OperationResponsesPassthrough:
-		return true
-	default:
-		return false
-	}
-}
-
-func routeInspectOperationRequiresModel(operation execution.Operation) bool {
-	switch operation {
-	case execution.OperationChatCompletion,
-		execution.OperationResponsesCreate,
-		execution.OperationResponsesCompact,
-		execution.OperationResponsesInputTokens:
-		return true
-	default:
-		return false
-	}
 }
 
 func (service *Service) InspectRoute(
@@ -149,6 +91,10 @@ func (service *Service) InspectRoute(
 ) (routeInspectResponse, error) {
 	if err := validateRouteInspectRequest(request); err != nil {
 		return routeInspectResponse{}, err
+	}
+	metadata, err := dialect.InspectStandardRequest(request.Protocol, request.ExternalModel)
+	if err != nil || metadata.Model == nil {
+		return routeInspectResponse{}, app_errors.ErrValidation
 	}
 	observation, err := service.captureRuntimeObservation()
 	if err != nil {
@@ -163,9 +109,9 @@ func (service *Service) InspectRoute(
 		observation.keys,
 		scheduler.Query{
 			ClientProtocol:   request.Protocol,
-			Operation:        request.Operation,
-			RouteRequirement: request.RouteRequirement,
-			ExternalModel:    cloneRouteModel(request.ExternalModel),
+			Operation:        metadata.Operation,
+			RouteRequirement: metadata.RouteRequirement,
+			ExternalModel:    cloneRouteModel(metadata.Model),
 			AccessKey:        accessKey,
 		},
 		observation.observedAt,
@@ -203,7 +149,7 @@ func mapRouteInspectResponse(
 		Protocol:         request.Protocol,
 		Operation:        explanation.Operation,
 		RouteRequirement: explanation.RouteRequirement,
-		ExternalModel:    cloneRouteModel(request.ExternalModel),
+		ExternalModel:    cloneRouteModel(explanation.ExternalModel),
 		AccessKey: routeInspectAccessKeyResponse{
 			ID: accessKey.ID, Name: accessKey.Name, Status: accessKey.Status,
 		},

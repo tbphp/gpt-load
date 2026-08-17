@@ -363,13 +363,12 @@ export default {
     },
     inspector: {
       title: 'ルート検査',
-      description:
-        'プロトコル、操作、必要機能、モデル、アクセスキーから候補グループと認証情報を確認します。',
+      description: 'プロトコル、モデル、アクセスキーから候補グループと認証情報を確認します。',
       boundary:
-        '実際のリクエストに必要な操作と機能を選択してください。読み取り専用で、上流送信や Token 消費はありません。',
+        '会話内容やアフィニティヒットを含まない標準的なステートレスリクエストを模擬します。Responses は store:false を使用します。読み取り専用で、上流送信や Token 消費はありません。',
       routeModes: {
         native: 'ネイティブ',
-        converted: '変換',
+        converted: 'プロトコル変換',
       },
       operations: {
         chat_completion: 'チャット補完',
@@ -390,13 +389,17 @@ export default {
         title: '模擬リクエスト条件',
         label: 'ルート検査の入力',
         protocol: 'プロトコル',
+        selectProtocol: 'プロトコルを選択',
         operation: '操作',
         routeRequirement: 'ルート要件',
         model: 'クライアントモデル',
+        selectModel: 'モデルを選択',
+        missingModelOption: '現在は存在しません · {model}',
         optional: '任意',
         modelPlaceholder: 'クライアントモデルを入力',
         modelOptional: 'プロトコルのみで扱うリソースリクエストでは省略できます。',
         accessKey: 'アクセスキー',
+        selectAccessKey: 'アクセスキーを選択',
         accessKeyOption: '{name} · #{id} · {status}',
         missingAccessKeyOption: '存在しないアクセスキー · #{id}',
         submit: '現在のルートを検査',
@@ -406,13 +409,13 @@ export default {
         disabled: '無効',
       },
       options: {
-        loading: 'アクセスキーの選択肢を読み込み中…',
-        failed: 'アクセスキーの選択肢を読み込めません。',
+        loading: 'ルート検査の選択肢を読み込み中…',
+        failed: 'ルート検査の選択肢を読み込めません。',
       },
       errors: {
         protocol: '有効なプロトコルを選択してください。',
         operation: 'プロトコルに対応する操作を選択してください。',
-        model: '必要な操作では有効なモデルを入力し、リソース操作では空にしてください。',
+        model: '現在の設定に存在するモデルを選択してください。',
         accessKey: '存在するアクセスキーを選び直してください。',
         missingDeepLinkAccessKey:
           'リンクで指定されたアクセスキー #{id} は存在しません。選び直してください。',
@@ -450,7 +453,7 @@ export default {
       groups: {
         title: '候補グループ',
         description:
-          'ネイティブルートを優先し、シェアは現在競合しているルート階層内だけで計算します。',
+          'まずネイティブルートを試し、候補がない場合のみプロトコル変換を使用します。同じ階層では有効ウェイトによる加重ランダムで、一覧はウェイト順ですが固定のヒット順ではありません。',
         count: '{count} 件',
         tableLabel: '候補グループのルート説明',
         completeEmpty:
@@ -458,6 +461,12 @@ export default {
         included: '候補に含まれる',
         excluded: '候補から除外',
         standby: '待機階層',
+        weightedCandidate: '現在の加重対象',
+        fallbackCandidate: '上位階層が無効な場合に使用',
+        priority: {
+          native: 'P1 · ネイティブ',
+          converted: 'P2 · プロトコル変換',
+        },
         standbyShare: '現在は競合対象外',
         availableTotal: '利用可能 / 合計',
         currentTotal: '現在の合計',
@@ -465,7 +474,7 @@ export default {
         viewGroup: 'グループを表示',
         columns: {
           group: 'グループ',
-          status: '状態',
+          status: 'ルート階層',
           credentials: '認証情報',
           weight: '有効ウェイト',
           share: 'ウェイト比率',
@@ -526,6 +535,9 @@ export default {
         credential_cooldown: '認証情報はクールダウン中です',
         credential_quota_exhausted:
           'サブスクリプション枠を使い切ったため、回復まで自動的に除外されます',
+        credential_auth_unavailable: 'サブスクリプション認証を現在利用できません',
+        credential_quota_deprioritized:
+          '残り枠がより多いサブスクリプションがあるため、現在の加重対象外です',
         credential_weight_zero: '認証情報の有効ウェイトがゼロです',
         credential_not_allowed: 'このリクエストから認証情報が除外されました',
         no_available_credential: 'グループに現在利用可能な認証情報がありません',

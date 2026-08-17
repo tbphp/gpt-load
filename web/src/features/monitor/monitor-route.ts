@@ -3,12 +3,6 @@ import type { LocationQueryRaw } from 'vue-router'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { UsageFilters } from '@/app/resources/usage'
 import type { RequestLogFilters } from '@/app/resources/request-logs'
-import {
-  routeInspectOperations,
-  routeInspectRequirements,
-  type RouteInspectOperation,
-  type RouteInspectRequirement,
-} from '@/app/resources/route-inspection'
 import { defaultTimeRange } from '@/lib/time'
 
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
@@ -41,8 +35,6 @@ export interface LogsMonitorState {
 
 export interface InspectorMonitorState {
   protocol?: string
-  operation?: RouteInspectOperation
-  routeRequirement?: RouteInspectRequirement
   externalModel?: string
   accessKeyID?: string
   run: boolean
@@ -171,22 +163,17 @@ export function sameMonitorQuery(left: LocationQueryRaw, right: LocationQueryRaw
 
 export function parseInspectorMonitorState(query: Record<string, unknown>): InspectorMonitorState {
   const protocol = scalarEnum(query.protocol, enabledDataProtocols)
-  const operation = scalarEnum(query.operation, routeInspectOperations)
-  const routeRequirement = scalarEnum(query.route_requirement, routeInspectRequirements)
   const externalModel = scalarText(query.external_model)
   const accessKeyID = scalarPositiveID(query.access_key_id)
 
   return {
     protocol,
-    operation,
-    routeRequirement,
     externalModel,
     accessKeyID,
     run:
       query.run === '1' &&
       protocol !== undefined &&
-      operation !== undefined &&
-      routeRequirement !== undefined &&
+      externalModel !== undefined &&
       accessKeyID !== undefined,
     expandedGroupIDs: parsePositiveIDList(query.expanded_groups),
   }
@@ -196,15 +183,12 @@ export function inspectorMonitorQuery(state: InspectorMonitorState): LocationQue
   const normalized: LocationQueryRaw = { tab: 'inspector' }
 
   if (state.protocol !== undefined) normalized.protocol = state.protocol
-  if (state.operation !== undefined) normalized.operation = state.operation
-  if (state.routeRequirement !== undefined) normalized.route_requirement = state.routeRequirement
   if (state.externalModel !== undefined) normalized.external_model = state.externalModel
   if (state.accessKeyID !== undefined) normalized.access_key_id = state.accessKeyID
   if (
     state.run &&
     state.protocol !== undefined &&
-    state.operation !== undefined &&
-    state.routeRequirement !== undefined &&
+    state.externalModel !== undefined &&
     state.accessKeyID !== undefined
   ) {
     normalized.run = '1'
