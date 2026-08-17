@@ -185,14 +185,11 @@ func (*claudeProviderBridge) ClassifyError(
 		}
 	}
 	switch {
+	case status == http.StatusUnauthorized:
+		evidence.Hint = execution.FailureHintRefreshRequired
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	case requestScopedFailure(err):
 		evidence.Hint = execution.FailureHintRequestRejected
-	case status == http.StatusUnauthorized:
-		evidence.ReplaySafety = execution.ReplaySafetyUnknown
-		if explicitAccessTokenExpiration(codeValue) {
-			evidence.Hint = execution.FailureHintRefreshRequired
-			evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
-		}
 	case status == http.StatusTooManyRequests:
 		if credentialScoped, known := credentialScopedFailure(err); known && !credentialScoped {
 			evidence.Hint = execution.FailureHintRequestRejected

@@ -25,6 +25,10 @@ const (
 	maxClaudeSafeScalarBytes = 512
 )
 
+// ErrClaudeAccountObservationUnavailable means no upstream account source
+// returned a usable observation. Callers retain the last-known-good snapshot.
+var ErrClaudeAccountObservationUnavailable = errors.New("Claude account observation is unavailable")
+
 // ClaudeModel is the safe model metadata returned by Claude account discovery.
 type ClaudeModel struct {
 	ID          string
@@ -293,6 +297,7 @@ func ObserveClaudeAccount(
 		OrganizationUUID: credential.OrganizationUUID, OrganizationName: credential.OrganizationName,
 	}
 	incomplete := make([]string, 0, 4)
+	successfulSources := 0
 	if profilePayload, profileErr := fetchClaudeOAuthProfile(ctx, options, credential.AccessToken); profileErr == nil {
 		if err := validateClaudeProfileIdentity(credential, profilePayload); err != nil {
 			return ClaudeAccountObservation{}, err
@@ -302,6 +307,7 @@ func ObserveClaudeAccount(
 			incomplete = append(incomplete, "profile")
 		} else {
 			profile = mergeClaudeAccountProfile(profile, observedProfile)
+			successfulSources++
 		}
 	} else if isClaudeObservationContextError(profileErr) {
 		return ClaudeAccountObservation{}, profileErr
@@ -310,6 +316,7 @@ func ObserveClaudeAccount(
 	}
 
 	if roles, rolesErr := fetchAndDecodeClaudeRoles(ctx, credential, options); rolesErr == nil {
+		successfulSources++
 		rolesComplete := true
 		if value, valueErr := claudeSafeScalar("organization role", roles.OrganizationRole, false); valueErr == nil {
 			profile.OrganizationRole = value
@@ -338,6 +345,7 @@ func ObserveClaudeAccount(
 		if err := validateClaudeBootstrapIdentity(credential, bootstrap); err != nil {
 			return ClaudeAccountObservation{}, err
 		}
+		successfulSources++
 		if bootstrap.OAuthAccount != nil {
 			if !applyClaudeBootstrapAccount(&profile, bootstrap.OAuthAccount) {
 				incomplete = append(incomplete, "bootstrap")
@@ -355,6 +363,11 @@ func ObserveClaudeAccount(
 			return ClaudeAccountObservation{}, err
 		}
 		incomplete = append(incomplete, "usage")
+	} else {
+		successfulSources++
+	}
+	if successfulSources == 0 {
+		return ClaudeAccountObservation{}, ErrClaudeAccountObservationUnavailable
 	}
 	return ClaudeAccountObservation{
 		Profile: profile, Usage: usage, Header: header,

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"gpt-load/internal/channel"
@@ -151,11 +150,8 @@ func (*codexProviderBridge) ClassifyError(
 	}
 	switch {
 	case status == http.StatusUnauthorized:
-		evidence.ReplaySafety = execution.ReplaySafetyUnknown
-		if explicitAccessTokenExpiration(codeValue) {
-			evidence.Hint = execution.FailureHintRefreshRequired
-			evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
-		}
+		evidence.Hint = execution.FailureHintRefreshRequired
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	case status == http.StatusTooManyRequests:
 		evidence.Hint = execution.FailureHintRateLimited
 	default:
@@ -164,15 +160,6 @@ func (*codexProviderBridge) ClassifyError(
 		}
 	}
 	return status, evidence
-}
-
-func explicitAccessTokenExpiration(code string) bool {
-	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "token_expired", "access_token_expired", "expired_token":
-		return true
-	default:
-		return false
-	}
 }
 
 var _ providerBridge = (*codexProviderBridge)(nil)

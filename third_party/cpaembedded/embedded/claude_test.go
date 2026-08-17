@@ -855,8 +855,17 @@ func TestObserveClaudeAccountCombinesProfileRolesBootstrapAndUsage(t *testing.T)
 		case "/roles":
 			_, _ = writer.Write([]byte(`{"organization_role":"admin","workspace_role":"member","organization_name":"Example Org"}`))
 		case "/bootstrap":
+			if request.Header.Get("Anthropic-Beta") != claudeBootstrapBeta ||
+				request.Header.Get("User-Agent") != claudeBootstrapUserAgent {
+				t.Fatalf("bootstrap headers = %v", request.Header)
+			}
 			_, _ = writer.Write([]byte(`{"oauth_account":{"account_uuid":"account-one","account_email":"owner@example.com","organization_uuid":"organization-one","organization_name":"Example Org","organization_type":"claude_team","organization_rate_limit_tier":"org-bootstrap-tier","user_rate_limit_tier":"user-tier","seat_tier":"team_standard"}}`))
 		case "/usage":
+			if request.Header.Get("Anthropic-Beta") != "" ||
+				request.Header.Get("User-Agent") != "axios/1.15.2" ||
+				request.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("usage headers = %v", request.Header)
+			}
 			writer.Header().Set("Request-Id", "usage-request-one")
 			_, _ = writer.Write([]byte(`{
 				"five_hour":{"utilization":25,"resets_at":"2026-08-16T10:00:00Z"},
@@ -893,6 +902,37 @@ func TestObserveClaudeAccountCombinesProfileRolesBootstrapAndUsage(t *testing.T)
 		observation.Usage.ExtraUsage == nil || observation.Usage.ExtraUsage.MonthlyLimit == nil ||
 		len(observation.Usage.Limits) != 1 || observation.Header.Get("Request-Id") != "usage-request-one" {
 		t.Fatalf("usage/header = %#v / %v", observation.Usage, observation.Header)
+	}
+}
+
+func TestObserveClaudeAccountFailsWhenEverySourceIsUnavailable(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	for _, status := range []int{http.StatusUnauthorized, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				calls++
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(status)
+				_, _ = writer.Write([]byte(`{"error":{"type":"upstream_failure","message":"sensitive upstream detail"}}`))
+			}))
+			defer server.Close()
+
+			_, err := ObserveClaudeAccount(t.Context(), credential, ClaudeOptions{
+				ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+				BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+				HTTPClient: server.Client(),
+			})
+			if err == nil {
+				t.Fatalf("observation error = %v", err)
+			}
+			if calls != 4 {
+				t.Fatalf("observation calls = %d, want 4", calls)
+			}
+			if strings.Contains(err.Error(), "sensitive upstream detail") {
+				t.Fatalf("observation error leaked upstream response: %v", err)
+			}
+		})
 	}
 }
 

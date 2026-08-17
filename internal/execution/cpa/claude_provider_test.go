@@ -151,23 +151,17 @@ func TestClaudeProviderMapsExecutionAndRequestScopedErrors(t *testing.T) {
 	}
 }
 
-func TestClaudeProviderRequiresExplicitExpiredTokenCodeForReplay(t *testing.T) {
+func TestClaudeProviderRefreshesAnyUnauthorizedOAuthRequest(t *testing.T) {
 	bridge := newClaudeProviderBridge()
 	credential := claudeProviderCredentialForTest(t)
-	for _, test := range []struct {
-		code       string
-		wantHint   execution.FailureHint
-		wantReplay execution.ReplaySafety
-	}{
-		{code: "token_expired", wantHint: execution.FailureHintRefreshRequired, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing},
-		{code: "auth_unavailable", wantReplay: execution.ReplaySafetyUnknown},
-	} {
+	for _, code := range []string{"", "auth_unavailable", "token_expired"} {
 		_, evidence := bridge.ClassifyError(t.Context(), &classifiedClaudeError{
 			status: http.StatusUnauthorized, typeValue: "authentication_error",
-			codeValue: test.code, summary: "Claude authorization was rejected",
+			codeValue: code, summary: "Claude authorization was rejected",
 		}, credential)
-		if evidence == nil || evidence.Hint != test.wantHint || evidence.ReplaySafety != test.wantReplay {
-			t.Fatalf("code %q evidence = %#v", test.code, evidence)
+		if evidence == nil || evidence.Hint != execution.FailureHintRefreshRequired ||
+			evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
+			t.Fatalf("code %q evidence = %#v", code, evidence)
 		}
 	}
 }

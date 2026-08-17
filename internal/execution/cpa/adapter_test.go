@@ -109,11 +109,12 @@ func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) 
 	}
 }
 
-func TestAdapterKeepsUnknownSubscription401NonReplayable(t *testing.T) {
+func TestAdapterMapsAnySubscription401ToSafeRefresh(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access-secret", "refresh-secret", time.Now().Add(time.Hour)))
 	setCodexExecutor(t, adapter, &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"auth_unavailable","message":"access-secret expired for a@example.com (account-1)"}}`}})
 	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
-	if result.Error == nil || result.Error.Hint != "" || result.Error.ReplaySafety != execution.ReplaySafetyUnknown {
+	if result.Error == nil || result.Error.Hint != execution.FailureHintRefreshRequired ||
+		result.Error.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
 		t.Fatalf("error evidence = %#v", result.Error)
 	}
 	if result.Error.Summary == "" || strings.Contains(result.Error.Summary, "access-secret") ||
