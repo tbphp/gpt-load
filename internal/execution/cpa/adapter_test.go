@@ -252,6 +252,7 @@ func TestAdapterCountsCodexTokensForEverySupportedProtocol(t *testing.T) {
 
 			result := adapter.Execute(t.Context(), spec)
 			if result.Error != nil || result.DispatchState != execution.DispatchLocal || !result.ResponseStarted ||
+				result.UpstreamProtocol != "" || result.Model != "" || result.UpstreamRequestID != "" ||
 				result.Header.Get(localTokenCountHeader) != "local-estimate" ||
 				preparer.calls != 0 || fake.countCalls != 1 || fake.calls != 0 ||
 				fake.request.Format != test.wantFormat || string(result.Body) != test.response {

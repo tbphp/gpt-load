@@ -167,12 +167,14 @@ func unaryProviderSuccess(
 ) execution.AttemptResult {
 	body := append([]byte(nil), response.Payload...)
 	headers := convertedResponseHeaders(response.Headers, "application/json")
-	dispatchState := execution.DispatchMaybeSent
 	if response.Local {
-		dispatchState = execution.DispatchLocal
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchLocal, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: headers, Body: body,
+		}
 	}
 	return execution.AttemptResult{
-		DispatchState: dispatchState, ResponseStarted: true,
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 		UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
 		UpstreamRequestID: upstreamRequestID(headers), Usage: responseUsage(spec, body),
