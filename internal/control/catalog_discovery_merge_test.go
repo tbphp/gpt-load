@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"gpt-load/internal/antigravity"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/codex"
@@ -99,6 +100,68 @@ func TestClaudeDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.
 	}}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("Claude candidates = %#v, want %#v", got.Models, want)
+	}
+}
+
+func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"google": {
+			ID: "google", Name: "Google", Models: map[string]catalog.Model{
+				"gemini-antigravity": {
+					ID: "gemini-antigravity", Name: "Google catalog name",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				},
+				"google-catalog-only": {
+					ID: "google-catalog-only", Name: "Google catalog only",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
+				},
+			},
+		},
+	}})
+	canonical, err := antigravity.MarshalCredential(antigravity.Credential{
+		Type: "antigravity", AccessToken: "access", RefreshToken: "refresh", AccountID: "google-account",
+		Email: "antigravity@example.com", ProjectID: "project-one", Expire: "2030-01-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, ok := fixture.service.subscriptions.Driver(channel.Antigravity)
+	if !ok {
+		t.Fatal("Antigravity driver is unavailable")
+	}
+	credential, err := driver.Parse(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := fixture.service.persistReadyCredentialStage(t.Context(), channel.Antigravity, "oauth_file", credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.discoverSubscriptionModels = func(
+		_ context.Context,
+		channelID channel.ID,
+		_ subscriptionruntime.Credential,
+	) ([]string, error) {
+		if channelID != channel.Antigravity {
+			t.Fatalf("channel = %q, want Antigravity", channelID)
+		}
+		return []string{"gemini-antigravity"}, nil
+	}
+
+	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Antigravity, StagedCredentialID: stage.StageID, ConnectionType: "subscription",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	google := "Google"
+	want := []ModelCandidate{{
+		ID: "gemini-antigravity", Name: "gemini-antigravity", Sources: []string{"live"},
+		PricingStatus: PricingStatusConfigured, PricingSource: &google,
+	}}
+	if !reflect.DeepEqual(got.Models, want) {
+		t.Fatalf("Antigravity candidates = %#v, want %#v", got.Models, want)
 	}
 }
 

@@ -195,6 +195,9 @@ type AttemptSpec struct {
 	// ForceCredentialRefresh is set only by GPT-Load after a provider explicitly
 	// rejects this selected subscription credential before processing.
 	ForceCredentialRefresh bool `json:"force_credential_refresh,omitempty"`
+	// ContinuityKey is an opaque tenant-scoped value for provider-private
+	// thinking/tool continuity. It is never persisted, logged, or exposed.
+	ContinuityKey string `json:"-"`
 	// TargetConfig is non-secret configuration resolved by the channel registry.
 	TargetConfig json.RawMessage    `json:"target_config,omitempty"`
 	Timeouts     AttemptTimeouts    `json:"timeouts"`

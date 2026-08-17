@@ -327,6 +327,7 @@ func newCredentialManagerFixture(
 		channel.NewRegistry(),
 		subscriptionruntime.CodexImplementations(),
 		subscriptionruntime.ClaudeImplementations(),
+		subscriptionruntime.AntigravityImplementations(),
 	)
 	if err != nil {
 		t.Fatal(err)

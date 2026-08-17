@@ -94,7 +94,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 The named volume preserves the default SQLite database, `auth.key`, and `encryption.key`. Production deployments should inject explicit `AUTH_KEY` and `ENCRYPTION_KEY` values through protected secret handling. Never commit real secrets to `.env`, logs, or issues. A MySQL or PostgreSQL `DATABASE_DSN` is operator-managed and should be supplied through the deployment secret/configuration system.
 
-Compose listens on all interfaces only inside the container while publishing to host loopback by default. It also publishes the provider-fixed OAuth callbacks for Codex on `127.0.0.1:1455` and Claude on `127.0.0.1:54545`; keep both on loopback unless the network boundary is explicitly controlled. Because these callback ports are fixed by their OAuth clients, only one default Compose instance on a host can expose them at a time. In Docker, SSH, or remote-browser deployments where browser `localhost` does not reach GPT-Load, copy the complete callback URL into the authorization dialog. Setting `BIND_ADDRESS=0.0.0.0`, `OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`, or running a native binary with `HOST=0.0.0.0`, is an explicit opt-in. In production, expose either only behind a controlled network boundary with a TLS reverse proxy and ACL/firewall controls.
+Compose listens on all interfaces only inside the container while publishing to host loopback by default. It also publishes the provider-fixed OAuth callbacks for Codex on `127.0.0.1:1455`, Claude on `127.0.0.1:54545`, and Antigravity on `127.0.0.1:51121`; keep all of them on loopback unless the network boundary is explicitly controlled. Because these callback ports are fixed by their OAuth clients, only one default Compose instance on a host can expose them at a time. In Docker, SSH, or remote-browser deployments where browser `localhost` does not reach GPT-Load, copy the complete callback URL into the authorization dialog. Setting `BIND_ADDRESS=0.0.0.0`, `OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`, or running a native binary with `HOST=0.0.0.0`, is an explicit opt-in. In production, expose either only behind a controlled network boundary with a TLS reverse proxy and ACL/firewall controls.
 
 ### Native binary
 
@@ -214,7 +214,7 @@ Usage/Cost quality boundaries:
 |---|---|---|
 | `HOST` | `127.0.0.1` | Native HTTP listen address; `0.0.0.0` is an explicit opt-in. The release container overrides this to `0.0.0.0` internally |
 | `BIND_ADDRESS` | `127.0.0.1` | Compose host-side publish address; not a process setting |
-| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Compose host-side address for the fixed Codex (`1455`) and Claude (`54545`) OAuth callback ports |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Compose host-side address for the fixed Codex (`1455`), Claude (`54545`), and Antigravity (`51121`) OAuth callback ports |
 | `PORT` | `3001` | HTTP listen port |
 | `DATA_DIR` | `./data` | Native persistent directory; the container overrides it to `/app/data` |
 | `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects managed SQLite. Non-empty values use one of `sqlite`, `mysql`, or `postgres` URL forms and are operator-managed |

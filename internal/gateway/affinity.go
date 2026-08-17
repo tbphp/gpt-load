@@ -11,6 +11,7 @@ type requestAffinity struct {
 	key                   affinity.Key
 	observation           affinity.Observation
 	preferredCredentialID uint
+	continuityKey         string
 }
 
 func (handler *Handler) resolveRequestAffinity(
@@ -20,12 +21,7 @@ func (handler *Handler) resolveRequestAffinity(
 	prefix []byte,
 	allowedCredentialRefs map[uint]state.CredentialRef,
 ) requestAffinity {
-	if handler == nil || handler.affinityCache == nil || snapshot == nil ||
-		!handler.affinityCache.Configure(
-			snapshot.Revision,
-			snapshot.Settings.AffinityCapacity,
-			snapshot.Settings.AffinityTTL,
-		) {
+	if handler == nil || snapshot == nil {
 		return requestAffinity{}
 	}
 	key := affinity.DeriveKey(
@@ -34,11 +30,22 @@ func (handler *Handler) resolveRequestAffinity(
 		clientProtocol,
 		prefix,
 	)
-	if !key.Valid() {
-		return requestAffinity{}
+	result := requestAffinity{continuityKey: string(key)}
+	if handler.affinityCache == nil ||
+		!handler.affinityCache.Configure(
+			snapshot.Revision,
+			snapshot.Settings.AffinityCapacity,
+			snapshot.Settings.AffinityTTL,
+		) {
+		return result
 	}
+	if !key.Valid() {
+		return result
+	}
+	result.key = key
 	observation := handler.affinityCache.Lookup(key)
-	resolved := requestAffinity{key: key, observation: observation}
+	resolved := result
+	resolved.observation = observation
 	if !observation.Found() {
 		return resolved
 	}

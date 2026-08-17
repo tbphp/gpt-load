@@ -52,6 +52,6 @@ COPY --from=go-builder /build/gpt-load .
 COPY LICENSE THIRD_PARTY_NOTICES.md /app/licenses/
 COPY LICENSES/Apache-2.0.txt /app/licenses/Apache-2.0.txt
 COPY LICENSES/MIT.txt /app/licenses/MIT.txt
-EXPOSE 3001 1455 54545
+EXPOSE 3001 1455 54545 51121
 USER 10001:10001
 ENTRYPOINT ["/app/gpt-load"]

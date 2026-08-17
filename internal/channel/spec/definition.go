@@ -16,6 +16,7 @@ const (
 	OpenAI           ID = "openai"
 	Codex            ID = "codex"
 	Claude           ID = "claude"
+	Antigravity      ID = "antigravity"
 	Anthropic        ID = "anthropic"
 	Gemini           ID = "gemini"
 	AzureOpenAI      ID = "azure_openai"
@@ -40,6 +41,7 @@ const (
 	ProviderOpenAI           ProviderKind = "openai"
 	ProviderCodex            ProviderKind = "codex"
 	ProviderClaude           ProviderKind = "claude"
+	ProviderAntigravity      ProviderKind = "antigravity"
 	ProviderAnthropic        ProviderKind = "anthropic"
 	ProviderGemini           ProviderKind = "gemini"
 	ProviderOpenAICompatible ProviderKind = "openai_compatible"
@@ -55,11 +57,14 @@ const (
 // NoticeID identifies one code-owned, frontend-localized channel notice.
 type NoticeID string
 
-const NoticeClaudeOAuthRisk NoticeID = "claude_oauth_risk"
+const (
+	NoticeClaudeOAuthRisk      NoticeID = "claude_oauth_risk"
+	NoticeAntigravityOAuthRisk NoticeID = "antigravity_oauth_risk"
+)
 
 // Valid reports whether the notice ID is part of the public channel contract.
 func (id NoticeID) Valid() bool {
-	return id == NoticeClaudeOAuthRisk
+	return id == NoticeClaudeOAuthRisk || id == NoticeAntigravityOAuthRisk
 }
 
 // NoticeTone controls the bounded presentation style of one channel notice.
@@ -84,6 +89,7 @@ func (kind ProviderKind) Valid() bool {
 	case ProviderOpenAI,
 		ProviderCodex,
 		ProviderClaude,
+		ProviderAntigravity,
 		ProviderAnthropic,
 		ProviderGemini,
 		ProviderOpenAICompatible,

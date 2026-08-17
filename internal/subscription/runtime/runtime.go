@@ -102,6 +102,13 @@ type Driver interface {
 	ClassifyRefreshFailure(error) RefreshFailure
 }
 
+// CredentialFileImporter is an optional, narrow preprocessing capability for
+// OAuth file formats that cannot safely provide a canonical credential without
+// one provider-bound verification step. Existing drivers continue to use Parse.
+type CredentialFileImporter interface {
+	ImportCredential(context.Context, []byte) (Credential, error)
+}
+
 // BrowserAuthorizationDriver is implemented only by subscription channels
 // which support interactive browser authorization.
 type BrowserAuthorizationDriver interface {
@@ -391,6 +398,25 @@ func (runtime *Runtime) CanonicalCredential(channelID channel.ID, raw []byte) ([
 		return nil, err
 	}
 	return credential.Canonical(), nil
+}
+
+// ImportCredential prepares one OAuth-file credential for a ready stage. Most
+// channels use Parse directly; a provider that lacks a stable identity in its
+// native file may implement CredentialFileImporter for one bounded enrichment
+// step before any persistence or duplicate check occurs.
+func (runtime *Runtime) ImportCredential(
+	ctx context.Context,
+	channelID channel.ID,
+	raw []byte,
+) (Credential, error) {
+	driver, ok := runtime.Driver(channelID)
+	if !ok {
+		return Credential{}, fmt.Errorf("subscription driver for channel %q is unavailable", channelID)
+	}
+	if importer, ok := driver.(CredentialFileImporter); ok {
+		return importer.ImportCredential(ctx, raw)
+	}
+	return driver.Parse(raw)
 }
 
 func (runtime *Runtime) ModelDiscovery(channelID channel.ID) (ModelDiscovery, bool) {

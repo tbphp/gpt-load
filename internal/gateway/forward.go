@@ -49,6 +49,9 @@ type ForwardInput struct {
 	// ForceCredentialRefresh preserves one explicit provider-auth retry as a
 	// globally counted Attempt on the same selected credential.
 	ForceCredentialRefresh bool
+	// ContinuityKey is an opaque per-tenant replay boundary for provider-private
+	// thinking and tool state. It never crosses the gateway DTO boundary.
+	ContinuityKey string
 }
 
 // UpstreamResult is the gateway's stable view of one logical execution

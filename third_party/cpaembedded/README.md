@@ -1,7 +1,7 @@
 # CPA Embedded Bridge
 
 This nested Go module is GPT-Load's deliberately small bridge to
-CLIProxyAPI (CPA). It exists because the CPA Codex and Claude executors and
+CLIProxyAPI (CPA). It exists because the CPA Codex, Claude, and Antigravity executors and
 OAuth helpers needed by GPT-Load are implemented in CPA `internal` packages and
 cannot be imported from the root `gpt-load` module directly.
 
@@ -20,6 +20,11 @@ quota policy. This bridge only exposes:
 - one-shot, context-aware Claude token refresh;
 - Claude Code account profile, model entitlement, and usage observation;
 - the stateless Claude HTTP executor, upstream CountTokens request, and supported protocol translators.
+- Antigravity browser OAuth, strict native-file enrichment, stable Google account identity,
+  model discovery, and plan/Google One AI credits observation;
+- the execution-only Antigravity HTTP executor, upstream CountTokens request, and supported
+  protocol translators, with CPA refresh, fallback, cooldown, paid-credit fallback, and global
+  signature cache disabled.
 
 It intentionally excludes CPA Manager, selector, pool, file store, server,
 watcher, WebSocket/Auto executors, fallback, and internal retry loops.
@@ -27,7 +32,7 @@ watcher, WebSocket/Auto executors, fallback, and internal retry loops.
 ## Pinned upstream
 
 - Module: `github.com/router-for-me/CLIProxyAPI/v7`
-- Version: `v7.2.133`
+- Version: `v7.2.135`
 
 The root module consumes this bridge through a local `replace`; releases still
 resolve CPA itself at the exact version recorded in both `go.mod` files and
@@ -38,9 +43,8 @@ resolve CPA itself at the exact version recorded in both `go.mod` files and
 CPA upgrades are deliberate compatibility work, not automatic dependency
 bumps:
 
-1. Review upstream changes to Codex and Claude OAuth, token, HTTP executor,
-   translation, headers, device identity, model discovery, and usage observation
-   code.
+1. Review upstream changes to Codex, Claude, and Antigravity OAuth, token, HTTP
+   executor, translation, headers, identity, model discovery, and usage observation code.
 2. Update the CPA version in this module and run `go mod tidy` here.
 3. Fix only bridge compatibility issues; keep the execution-only boundary and
    do not adopt CPA Manager, retry, WebSocket, fallback, or file persistence.
@@ -77,5 +81,12 @@ CPA_LIVE_CLAUDE_MODEL=optional-claude-model-id \
 
 This live test deliberately does not complete interactive browser OAuth, rotate
 a refresh token, or force real 401/429 responses. Those gates require a disposable
-account and an explicitly supervised run; deterministic bridge tests cover their
-local classification contracts, but do not constitute real-provider evidence.
+	account and an explicitly supervised run; deterministic bridge tests cover their
+	local classification contracts, but do not constitute real-provider evidence.
+
+The Antigravity contract requires a disposable credential whose Google account is
+authorized for the service. It verifies dynamic models, account/credits observation,
+all declared unary/streaming protocol routes, and the three upstream CountTokens
+routes. It must also confirm that no paid Google One AI credit type is injected.
+Browser OAuth, refresh-token rotation, deliberate 401/429 responses, and provider
+policy changes remain supervised live gates rather than default test behavior.

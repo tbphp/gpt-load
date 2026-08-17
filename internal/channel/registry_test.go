@@ -16,6 +16,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		OpenAI,
 		Codex,
 		Claude,
+		Antigravity,
 		Anthropic,
 		Gemini,
 		ID("azure_openai"),
@@ -38,8 +39,8 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	if got := descriptorIDs(registry.Search("GeMiNi")); !reflect.DeepEqual(got, []ID{Gemini}) {
 		t.Fatalf("Search(gemini) IDs = %v", got)
 	}
-	if got := descriptorIDs(registry.Search("subscription")); !reflect.DeepEqual(got, []ID{Codex, Claude}) {
-		t.Fatalf("Search(subscription) IDs = %v, want [codex claude]", got)
+	if got := descriptorIDs(registry.Search("subscription")); !reflect.DeepEqual(got, []ID{Codex, Claude, Antigravity}) {
+		t.Fatalf("Search(subscription) IDs = %v, want [codex claude antigravity]", got)
 	}
 	if got := descriptorIDs(registry.Search("compatible")); !reflect.DeepEqual(got, []ID{OpenAICompatible}) {
 		t.Fatalf("Search(compatible) IDs = %v", got)
@@ -63,7 +64,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	first := registry.List()
 	first[0].ClientProtocols[0] = protocol.Protocol("mutated")
 	first[0].ParamFields = append(first[0].ParamFields, FieldDescriptor{Key: "mutated"})
-	vertexIndex := 7
+	vertexIndex := 8
 	if first[vertexIndex].ID != GoogleVertex || first[vertexIndex].ParamFields[0].DefaultValue == nil {
 		t.Fatalf("unexpected Vertex descriptor = %#v", first[vertexIndex])
 	}

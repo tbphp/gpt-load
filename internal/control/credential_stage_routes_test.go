@@ -221,6 +221,7 @@ func TestOAuthCallbackServerStartsIndependentDriverEndpoints(t *testing.T) {
 	callbacks := []subscriptionruntime.LocalCallbackSpec{
 		{RedirectURI: "http://localhost:1455/auth/callback"},
 		{RedirectURI: "http://localhost:54545/callback"},
+		{RedirectURI: "http://localhost:51121/oauth-callback"},
 	}
 	for _, callback := range callbacks {
 		if err := fixture.service.oauthCallback.EnsureStarted(callback); err != nil {
@@ -229,16 +230,23 @@ func TestOAuthCallbackServerStartsIndependentDriverEndpoints(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
 
-	firstAddr := fixture.service.oauthCallback.Addr(callbacks[0])
-	secondAddr := fixture.service.oauthCallback.Addr(callbacks[1])
-	if firstAddr == "" || secondAddr == "" || firstAddr == secondAddr {
-		t.Fatalf("callback addresses = %q and %q, want independent listeners", firstAddr, secondAddr)
+	addresses := make([]string, len(callbacks))
+	seen := make(map[string]struct{}, len(callbacks))
+	for index, callback := range callbacks {
+		addresses[index] = fixture.service.oauthCallback.Addr(callback)
+		if addresses[index] == "" {
+			t.Fatalf("callback %d has no listener address", index)
+		}
+		if _, duplicate := seen[addresses[index]]; duplicate {
+			t.Fatalf("callback listeners share address %q", addresses[index])
+		}
+		seen[addresses[index]] = struct{}{}
 	}
 	for index, callback := range callbacks {
 		if err := fixture.service.oauthCallback.EnsureStarted(callback); err != nil {
 			t.Fatal(err)
 		}
-		if got := fixture.service.oauthCallback.Addr(callback); got != []string{firstAddr, secondAddr}[index] {
+		if got := fixture.service.oauthCallback.Addr(callback); got != addresses[index] {
 			t.Fatalf("idempotent callback address = %q", got)
 		}
 	}
