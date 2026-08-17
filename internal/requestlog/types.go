@@ -138,6 +138,7 @@ type Record struct {
 	CostState               pricing.CostState
 	PricingCompleteness     pricing.Completeness
 	PricingMode             pricing.Mode
+	ContextThresholdTokens  *int64
 	UncachedInputTokens     int64
 	CacheReadTokens         int64
 	CacheWrite5MTokens      int64

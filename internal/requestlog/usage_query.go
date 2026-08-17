@@ -161,8 +161,8 @@ func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 	scope := db.Session(&gorm.Session{NewDB: true}).Model(&models.UsageStat{}).
 		Where("bucket_start_ms >= ? AND bucket_start_ms < ?", input.FromMS, input.ToMS).
 		// Older versions aggregated zero-attempt requests under the unbound
-		// (group_id=0, model='') key. Keep those derived rows invisible until
-		// retention removes them so home and monitor share the new contract.
+		// (group_id=0, model='') key. Keep those derived rows invisible so home
+		// and monitor share the current contract.
 		Where("NOT (group_id = ? AND model = ?)", 0, "")
 	if input.GroupID != nil {
 		scope = scope.Where("group_id = ?", *input.GroupID)

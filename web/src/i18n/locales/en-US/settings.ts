@@ -81,6 +81,7 @@ export default {
       overrideValue: 'Explicit override value',
       defaultSource: 'Built-in default',
       overrideSource: 'Explicit override',
+      pendingRestoreSource: 'Pending restore',
       override: 'Override',
       restoreDefault: 'Restore default',
       resetPending: 'Saving will restore the current version default',
@@ -123,8 +124,7 @@ export default {
     },
     logs: {
       title: 'Logs and maintenance',
-      description:
-        'An hourly maintenance task cleans request logs by retention days; usage aggregation is retained independently for a fixed 35 days.',
+      description: 'An hourly maintenance task cleans request logs by retention days.',
       retention: 'Request-log retention days',
       effectiveValue: '{value} days',
       days: 'days',

@@ -32,15 +32,15 @@ export type RouteInspectReasonCode =
   | 'credential_blacklisted'
   | 'credential_cooldown'
   | 'credential_quota_exhausted'
+  | 'credential_auth_unavailable'
+  | 'credential_quota_deprioritized'
   | 'credential_weight_zero'
   | 'credential_not_allowed'
   | 'no_available_credential'
 
 export interface RouteInspectRequest {
   protocol: AccessProtocol
-  operation: RouteInspectOperation
-  route_requirement: RouteInspectRequirement
-  external_model?: string | null
+  external_model: string
   access_key_id: number
 }
 
@@ -131,6 +131,8 @@ const reasonCodes = [
   'credential_blacklisted',
   'credential_cooldown',
   'credential_quota_exhausted',
+  'credential_auth_unavailable',
+  'credential_quota_deprioritized',
   'credential_weight_zero',
   'credential_not_allowed',
   'no_available_credential',

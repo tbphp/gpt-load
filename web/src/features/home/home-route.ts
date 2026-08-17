@@ -18,14 +18,14 @@ export function parseHomeRouteQuery(query: LocationQuery): HomeRouteState {
   return {
     accessKeyID: parsePositiveRouteInteger(query.access_key_id),
     client:
-      gatewayClients.find(({ id }) => id === rawClient)?.id ?? ('nextchat' as GatewayClientID),
+      gatewayClients.find(({ id }) => id === rawClient)?.id ?? ('cc-switch' as GatewayClientID),
   }
 }
 
 export function serializeHomeRouteQuery(state: HomeRouteState): LocationQueryRaw {
   const query: LocationQueryRaw = {}
   if (state.accessKeyID !== undefined) query.access_key_id = String(state.accessKeyID)
-  if (state.client !== 'nextchat') query.client = state.client
+  if (state.client !== 'cc-switch') query.client = state.client
   return query
 }
 

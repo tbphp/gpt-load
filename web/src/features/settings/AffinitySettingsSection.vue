@@ -115,7 +115,9 @@ const enabledValue = computed(() =>
           :source-label="
             hasOverride('affinity_enabled')
               ? t('settings.runtime.overrideSource')
-              : t('settings.runtime.defaultSource')
+              : pendingRestore('affinity_enabled')
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
           "
           :action-label="
             hasOverride('affinity_enabled')
@@ -123,6 +125,7 @@ const enabledValue = computed(() =>
               : t('settings.runtime.override')
           "
           :overridden="hasOverride('affinity_enabled')"
+          :pending-restore="pendingRestore('affinity_enabled')"
           :disabled="disabled"
           @toggle="toggleOverride('affinity_enabled')"
         >
@@ -164,12 +167,15 @@ const enabledValue = computed(() =>
           :source-label="
             hasOverride(key)
               ? t('settings.runtime.overrideSource')
-              : t('settings.runtime.defaultSource')
+              : pendingRestore(key)
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
           "
           :action-label="
             hasOverride(key) ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
           "
           :overridden="hasOverride(key)"
+          :pending-restore="pendingRestore(key)"
           :divided="key !== 'affinity_capacity'"
           :disabled="disabled"
           @toggle="toggleOverride(key)"
@@ -185,7 +191,7 @@ const enabledValue = computed(() =>
                     :label="
                       t('settings.runtime.valueFor', { field: t(`settings.affinity.${key}`) })
                     "
-                    appearance="sunken"
+                    appearance="surface"
                     size="compact"
                     monospace
                     min="1"
@@ -252,18 +258,14 @@ const enabledValue = computed(() =>
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-sm);
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
 .settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-}
-
-.settings-affinity__rows {
-  border-top: 1px solid var(--color-border-subtle);
+  font-size: var(--text-sm);
 }
 
 .settings-affinity__entry {

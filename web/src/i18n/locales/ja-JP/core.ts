@@ -239,9 +239,13 @@ export default {
       connection: {
         title: 'ゲートウェイへ接続',
         configuration: '設定',
+        connectionInfo: '接続情報',
+        importParameters: 'インポート項目',
         accessKey: 'アクセスキー',
         copyAccessKey: 'アクセスキーをコピー',
         copyConfiguration: '設定をコピー',
+        copyConnectionInfo: '接続情報をコピー',
+        copyImportParameters: 'インポート項目をコピー',
         copied: 'コピーしました',
         copyFailed: '設定をコピーできません。',
         keyCopied: 'アクセスキーをコピーしました',
@@ -250,33 +254,68 @@ export default {
         configurationCopyFailed: '設定をコピーできません。',
         noAccessKey: 'クライアント接続の前にアクセスキーを作成してください',
         createAccessKey: 'アクセスキーを作成',
-        openNextChat: 'ワンクリックでインポート',
-        nextChatOpened: 'NextChat を開きました',
-        nextChatFailed: 'NextChat を開けません。',
-        popupBlocked: 'ブラウザーが NextChat のウィンドウをブロックしました。',
-        nextChatConfirmTitle: 'NextChat を開く',
-        nextChatConfirmDescription:
-          'このブラウザーからゲートウェイアドレスとアクセスキーが NextChat に送信されます',
+        quickImport: 'ワンクリックでインポート',
+        importAndEnable: 'インポートして有効化',
+        openAndImport: '開いてインポート',
+        quickImportRequested: '{client} を開くよう要求しました。アプリ内で確認してください',
+        quickImportFailed: '{client} を開けません。',
+        popupBlocked: 'ブラウザーが {client} のウィンドウをブロックしました。',
+        quickImportConfirmTitle: '{client} を開く',
+        quickImportConfirmDescription:
+          'このブラウザーからゲートウェイアドレスと選択したアクセスキーを {client} に送信します。設定を書き込む前に対象アプリでも確認が求められます',
         disableFastLink:
-          '既知の制限：disableFastLink が有効な場合、NextChat はこの設定を黙って無視します',
+          'NextChat Fast Link は Web 版専用ですが、公式 Web アプリからこのゲートウェイへのクロスオリジン通信は CORS/OPTIONS により制限されます。デスクトップ版も Web リンクから直接開けません。上の設定をコピーして手動入力してください。disableFastLink が有効な場合は設定が無視されます',
         protocolUnavailable:
           'このアクセスキーでは {client} に必要な {protocol} が有効ではありません',
+        targetApplication: '対象アプリ',
+        primaryModel: 'プライマリモデル',
+        required: '必須',
+        modelPlaceholder: 'このアクセスキーで利用可能なモデルを入力',
+        ccSwitchModelRequired:
+          'この対象で利用可能な設定を作るにはモデルの指定が必要です。利用可能なモデルを入力してからインポートしてください',
+        ccSwitchHint:
+          'URL Scheme 対応の CC Switch が必要です。アプリ側でも設定内容の確認が表示されます。ポータブル版または Scheme 未登録の場合は、上の項目を使って手動でプロバイダーを追加してください',
+        newApiHint:
+          'チャネル作成時に先に「New API」タイプを選び、「接続情報を貼り付け」を実行すると、キーとアドレスが自動入力されます。リモートまたはコンテナの New API からこのアドレスへ到達できる必要があります',
+        codexHint:
+          '上の内容をユーザーレベルの ~/.codex/config.toml に追加し、アクセスキーをコピーして Codex を起動する Shell で GPT_LOAD_API_KEY に設定してください。カスタム Provider は Responses API を使用します',
+        cherryStudioHint:
+          'Cherry Studio 公式 URL Scheme でプロバイダー URL とキーを取り込みます。保存前にアプリ側でも確認されます。初回インポート後はモデル画面でモデルを取得または追加してください',
+        claudeCodeHint:
+          'Claude Code を起動する同じ Shell で 3 つの環境変数を設定してください。検出を有効にすると、名前に Claude または Anthropic を含むモデルが /model の「From gateway」に表示されます',
+        openWebUIHint:
+          '管理者設定の Connections → OpenAI で URL と API Key を入力してください。Open WebUI は /models で接続を確認します',
+        clineHint:
+          'Cline の設定で OpenAI Compatible を選び、Base URL と API Key を入力してから実際のモデルを取得または選択してください',
+        curlHint: 'YOUR_MODEL をこのアクセスキーで利用可能なモデルに置き換えてください',
         clients: {
           label: 'クライアント',
+          'cc-switch': 'CC Switch',
+          'new-api': 'New API',
+          codex: 'Codex',
           nextchat: 'NextChat',
           'cherry-studio': 'Cherry Studio',
           'claude-code': 'Claude Code',
+          'open-webui': 'Open WebUI',
+          cline: 'Cline',
           curl: 'curl',
-          more: 'その他',
         },
         clientKinds: {
+          desktopManager: 'デスクトップ管理',
+          gateway: 'ゲートウェイ',
           desktopWeb: 'デスクトップ / Web',
           desktop: 'デスクトップ',
+          web: 'Web',
+          extension: 'エディター拡張',
           commandLine: 'コマンドライン',
           general: '汎用',
         },
-        moreDescription:
-          'その他のクライアントプリセットは順次追加予定です。現在は curl の例を利用できます',
+        ccSwitchTargets: {
+          codex: 'Codex',
+          claude: 'Claude Code',
+          gemini: 'Gemini CLI',
+          opencode: 'OpenCode',
+        },
       },
     },
   },

@@ -11,12 +11,21 @@ import { revealAccessKey } from '@/app/resources/access-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import CopyAction from '@/components/ui/CopyAction.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 
-import { clientConfiguration, gatewayClients, type GatewayClientID } from './gateway-clients'
+import {
+  ccSwitchTargets,
+  clientConfiguration,
+  clientQuickImportURL,
+  clientRequiredProtocol,
+  gatewayClients,
+  type CCSwitchTargetID,
+  type GatewayClientID,
+} from './gateway-clients'
 
 const props = defineProps<{
   accessKeys: HomeBaseDto['access_keys']
@@ -30,7 +39,7 @@ const emit = defineEmits<{
   'update:clientId': [id: GatewayClientID]
 }>()
 
-type ActionTarget = 'key' | 'configuration' | 'nextchat'
+type ActionTarget = 'key' | 'configuration' | 'quick-import'
 type FeedbackKind = 'success' | 'failure' | 'popup-blocked'
 
 interface OperationIdentity {
@@ -52,7 +61,9 @@ const selectedKeyID = computed(() => props.selectedAccessKeyId)
 const activeClient = computed(() => props.clientId)
 const feedback = ref<ActionFeedback | null>(null)
 const actionBusy = ref(false)
-const nextChatConfirmationOpen = ref(false)
+const quickImportConfirmationOpen = ref(false)
+const ccSwitchTargetID = ref<CCSwitchTargetID>('claude')
+const ccSwitchModel = ref('')
 let resetTimer: number | undefined
 let actionController: AbortController | undefined
 let operationSequence = 0
@@ -80,14 +91,46 @@ const currentClient = computed(
   () =>
     gatewayClients.find((candidate) => candidate.id === activeClient.value) ?? gatewayClients[0]!,
 )
+const currentCCSwitchTarget = computed(
+  () =>
+    ccSwitchTargets.find((candidate) => candidate.id === ccSwitchTargetID.value) ??
+    ccSwitchTargets[0]!,
+)
+const currentRequiredProtocol = computed(() =>
+  clientRequiredProtocol(currentClient.value, currentCCSwitchTarget.value),
+)
 const selectedKeySupportsClient = computed(() => {
-  const requiredProtocol = currentClient.value.requiredProtocol
+  const requiredProtocol = currentRequiredProtocol.value
   return Boolean(!requiredProtocol || selectedKey.value?.protocols.includes(requiredProtocol))
 })
+const ccSwitchTargetOptions = computed<SegmentedControlOption[]>(() =>
+  ccSwitchTargets.map((target) => ({
+    value: target.id,
+    label: t(`home.ledger.connection.ccSwitchTargets.${target.id}`),
+    disabled: actionBusy.value || !selectedKey.value?.protocols.includes(target.requiredProtocol),
+  })),
+)
+const quickImportAvailable = computed(() => Boolean(currentClient.value.quickImport))
+const quickImportRequiresModel = computed(
+  () => activeClient.value === 'cc-switch' && currentCCSwitchTarget.value.requiresModel,
+)
+const quickImportReady = computed(
+  () =>
+    quickImportAvailable.value &&
+    selectedKeySupportsClient.value &&
+    (!quickImportRequiresModel.value || Boolean(ccSwitchModel.value.trim())),
+)
 const maskedSnippet = computed(() => {
   const key = selectedKey.value
-  if (!key || activeClient.value === 'more') return ''
-  return clientConfiguration(activeClient.value, origin, key.masked_key)
+  if (!key) return ''
+  return clientConfiguration(
+    activeClient.value,
+    origin,
+    key.masked_key,
+    ccSwitchTargetID.value,
+    ccSwitchModel.value,
+    `GPT-Load · ${key.name}`,
+  )
 })
 const visibleFeedback = computed(() => {
   const current = feedback.value
@@ -120,9 +163,15 @@ const feedbackMessage = computed(() => {
         : 'home.ledger.connection.configurationCopyFailed',
     )
   }
-  if (current.kind === 'success') return t('home.ledger.connection.nextChatOpened')
-  if (current.kind === 'popup-blocked') return t('home.ledger.connection.popupBlocked')
-  return t('home.ledger.connection.nextChatFailed')
+  if (current.kind === 'success') {
+    return t('home.ledger.connection.quickImportRequested', {
+      client: quickImportClientLabel.value,
+    })
+  }
+  if (current.kind === 'popup-blocked') {
+    return t('home.ledger.connection.popupBlocked', { client: quickImportClientLabel.value })
+  }
+  return t('home.ledger.connection.quickImportFailed', { client: quickImportClientLabel.value })
 })
 const configurationCopyState = computed(() =>
   visibleFeedback.value?.target === 'configuration' && visibleFeedback.value.kind === 'success'
@@ -140,12 +189,27 @@ function selectedClientLabel(clientID: GatewayClientID): string {
 }
 
 function selectedClientKind(clientID: GatewayClientID): string {
-  if (clientID === 'nextchat') return t('home.ledger.connection.clientKinds.desktopWeb')
-  if (clientID === 'cherry-studio') return t('home.ledger.connection.clientKinds.desktop')
-  if (clientID === 'claude-code') return t('home.ledger.connection.clientKinds.commandLine')
-  if (clientID === 'curl') return t('home.ledger.connection.clientKinds.general')
-  return ''
+  const kind = gatewayClients.find((candidate) => candidate.id === clientID)?.kind
+  return kind ? t(`home.ledger.connection.clientKinds.${kind}`) : ''
 }
+
+const quickImportClientLabel = computed(() => {
+  const clientLabel = selectedClientLabel(activeClient.value)
+  if (activeClient.value !== 'cc-switch') return clientLabel
+  return `${clientLabel} · ${t(`home.ledger.connection.ccSwitchTargets.${ccSwitchTargetID.value}`)}`
+})
+
+const configurationLanguage = computed(() => {
+  if (activeClient.value === 'new-api') return t('home.ledger.connection.connectionInfo')
+  if (activeClient.value === 'cc-switch') return t('home.ledger.connection.importParameters')
+  return t('home.ledger.connection.configuration')
+})
+
+const copyConfigurationLabel = computed(() => {
+  if (activeClient.value === 'new-api') return t('home.ledger.connection.copyConnectionInfo')
+  if (activeClient.value === 'cc-switch') return t('home.ledger.connection.copyImportParameters')
+  return t('home.ledger.connection.copyConfiguration')
+})
 
 function identityMatches(identity: OperationIdentity): boolean {
   return (
@@ -195,7 +259,7 @@ watch(
   (ids) => {
     if (selectedKeyID.value !== null && ids.includes(selectedKeyID.value)) return
     invalidateSensitiveAction()
-    nextChatConfirmationOpen.value = false
+    quickImportConfirmationOpen.value = false
   },
   { immediate: true },
 )
@@ -203,14 +267,22 @@ watch(
 watch(selectedKeyID, (value, previous) => {
   if (value === previous) return
   invalidateSensitiveAction()
-  nextChatConfirmationOpen.value = false
+  quickImportConfirmationOpen.value = false
+  ccSwitchModel.value = ''
+  selectFirstSupportedCCSwitchTarget()
 })
 
 watch(activeClient, (value, previous) => {
   if (value === previous) return
   invalidateSensitiveAction()
-  nextChatConfirmationOpen.value = false
+  quickImportConfirmationOpen.value = false
 })
+
+watch(
+  () => selectedKey.value?.protocols,
+  () => selectFirstSupportedCCSwitchTarget(),
+  { immediate: true },
+)
 
 function selectKey(value: string): void {
   if (actionBusy.value) return
@@ -224,6 +296,23 @@ function selectClient(value: string): void {
   if (actionBusy.value) return
   const gatewayClient = gatewayClients.find((candidate) => candidate.id === value)
   if (gatewayClient) emit('update:clientId', gatewayClient.id)
+}
+
+function selectCCSwitchTarget(value: string): void {
+  if (actionBusy.value) return
+  const target = ccSwitchTargets.find((candidate) => candidate.id === value)
+  if (!target || !selectedKey.value?.protocols.includes(target.requiredProtocol)) return
+  invalidateSensitiveAction()
+  quickImportConfirmationOpen.value = false
+  ccSwitchTargetID.value = target.id
+  ccSwitchModel.value = ''
+}
+
+function selectFirstSupportedCCSwitchTarget(): void {
+  const protocols = selectedKey.value?.protocols ?? []
+  if (protocols.includes(currentCCSwitchTarget.value.requiredProtocol)) return
+  const supported = ccSwitchTargets.find((target) => protocols.includes(target.requiredProtocol))
+  if (supported) ccSwitchTargetID.value = supported.id
 }
 
 async function withRevealedKey(
@@ -282,13 +371,30 @@ async function copyAccessKey(): Promise<void> {
 
 async function copyClientConfiguration(): Promise<void> {
   const clientID = activeClient.value
-  if (clientID === 'more' || !selectedKeySupportsClient.value) return
+  if (!selectedKeySupportsClient.value) return
+
+  if (clientID === 'codex') {
+    try {
+      await navigator.clipboard.writeText(maskedSnippet.value)
+      setImmediateFeedback('configuration', 'success')
+    } catch {
+      setImmediateFeedback('configuration', 'failure')
+    }
+    return
+  }
 
   await withRevealedKey('configuration', clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
     let configuration: string | undefined
     try {
-      configuration = clientConfiguration(clientID, origin, key)
+      configuration = clientConfiguration(
+        clientID,
+        origin,
+        key,
+        ccSwitchTargetID.value,
+        ccSwitchModel.value,
+        `GPT-Load · ${selectedKey.value?.name ?? ''}`,
+      )
       if (!isCurrent()) return
       await navigator.clipboard.writeText(configuration)
     } finally {
@@ -297,30 +403,37 @@ async function copyClientConfiguration(): Promise<void> {
   })
 }
 
-async function openNextChat(): Promise<void> {
+async function openQuickImport(): Promise<void> {
   const clientID = activeClient.value
-  if (clientID !== 'nextchat' || !selectedKeySupportsClient.value || actionBusy.value) return
+  if (!quickImportReady.value || actionBusy.value) return
 
   const popup = window.open('about:blank', '_blank')
   if (!popup) {
-    setImmediateFeedback('nextchat', 'popup-blocked')
+    setImmediateFeedback('quick-import', 'popup-blocked')
     return
   }
   try {
     popup.opener = null
   } catch {
     popup.close()
-    setImmediateFeedback('nextchat', 'failure')
+    setImmediateFeedback('quick-import', 'failure')
     return
   }
-  nextChatConfirmationOpen.value = false
+  quickImportConfirmationOpen.value = false
 
   let target: string | undefined
-  const opened = await withRevealedKey('nextchat', clientID, (key, isCurrent) => {
+  const opened = await withRevealedKey('quick-import', clientID, (key, isCurrent) => {
     if (!isCurrent()) return
-    target = `https://app.nextchat.club/#/?settings=${encodeURIComponent(
-      JSON.stringify({ key, url: origin }),
-    )}`
+    target =
+      clientQuickImportURL(
+        clientID,
+        origin,
+        key,
+        ccSwitchTargetID.value,
+        ccSwitchModel.value,
+        `GPT-Load · ${selectedKey.value?.name ?? ''}`,
+      ) ?? undefined
+    if (!target) throw new Error('QUICK_IMPORT_UNAVAILABLE')
     if (!isCurrent()) return
     popup.location.replace(target)
   })
@@ -404,53 +517,124 @@ onBeforeUnmount(() => {
             </span>
           </strong>
           <AppButton
-            v-if="activeClient === 'nextchat'"
+            v-if="quickImportAvailable"
             size="compact"
-            :disabled="!selectedKeySupportsClient || actionBusy"
+            :disabled="!quickImportReady || actionBusy"
             :busy="actionBusy"
-            @click="nextChatConfirmationOpen = true"
+            @click="quickImportConfirmationOpen = true"
           >
             <Zap :size="14" aria-hidden="true" />
-            {{ t('home.ledger.connection.openNextChat') }}
+            {{
+              t(
+                activeClient === 'cc-switch'
+                  ? 'home.ledger.connection.importAndEnable'
+                  : 'home.ledger.connection.quickImport',
+              )
+            }}
           </AppButton>
         </header>
 
         <div class="gateway-connection__panel-body">
-          <template v-if="activeClient === 'more'">
-            <p class="gateway-connection__more">
-              {{ t('home.ledger.connection.moreDescription') }}
-            </p>
-          </template>
-          <template v-else>
-            <InlineFeedback v-if="!selectedKeySupportsClient" tone="warning" appearance="hint">
-              {{
-                t('home.ledger.connection.protocolUnavailable', {
-                  client: selectedClientLabel(activeClient),
-                  protocol: currentClient.requiredProtocol,
-                })
-              }}
-            </InlineFeedback>
+          <div v-if="activeClient === 'cc-switch'" class="gateway-connection__cc-switch-options">
+            <div class="gateway-connection__cc-switch-target">
+              <span class="gateway-connection__label">
+                {{ t('home.ledger.connection.targetApplication') }}
+              </span>
+              <SegmentedControl
+                :model-value="ccSwitchTargetID"
+                :label="t('home.ledger.connection.targetApplication')"
+                :options="ccSwitchTargetOptions"
+                appearance="joined"
+                size="touch"
+                scrollable
+                @update:model-value="selectCCSwitchTarget"
+              />
+            </div>
 
-            <CodeBlock
-              :code="maskedSnippet"
-              :language="t('home.ledger.connection.configuration')"
-              appearance="snippet"
-            >
-              <template #action>
-                <CopyAction
-                  :label="t('home.ledger.connection.copyConfiguration')"
-                  :disabled="!selectedKeySupportsClient || actionBusy"
-                  :busy="actionBusy"
-                  :state="configurationCopyState"
-                  @copy="copyClientConfiguration"
-                />
-              </template>
-            </CodeBlock>
+            <div class="gateway-connection__cc-switch-model">
+              <span class="gateway-connection__label">
+                {{ t('home.ledger.connection.primaryModel') }}
+                <span v-if="quickImportRequiresModel">
+                  · {{ t('home.ledger.connection.required') }}
+                </span>
+              </span>
+              <AppTextInput
+                id="cc-switch-primary-model"
+                v-model="ccSwitchModel"
+                :label="t('home.ledger.connection.primaryModel')"
+                :placeholder="t('home.ledger.connection.modelPlaceholder')"
+                :disabled="actionBusy"
+                :maxlength="200"
+                :spellcheck="false"
+                monospace
+                size="touch"
+              />
+            </div>
+          </div>
 
-            <InlineFeedback v-if="activeClient === 'nextchat'" tone="info" appearance="hint">
-              {{ t('home.ledger.connection.disableFastLink') }}
-            </InlineFeedback>
-          </template>
+          <InlineFeedback v-if="!selectedKeySupportsClient" tone="warning" appearance="hint">
+            {{
+              t('home.ledger.connection.protocolUnavailable', {
+                client: quickImportClientLabel,
+                protocol: currentRequiredProtocol,
+              })
+            }}
+          </InlineFeedback>
+
+          <CodeBlock :code="maskedSnippet" :language="configurationLanguage" appearance="snippet">
+            <template #action>
+              <CopyAction
+                :label="copyConfigurationLabel"
+                :disabled="
+                  !selectedKeySupportsClient ||
+                  actionBusy ||
+                  (quickImportRequiresModel && !ccSwitchModel.trim())
+                "
+                :busy="actionBusy"
+                :state="configurationCopyState"
+                @copy="copyClientConfiguration"
+              />
+            </template>
+          </CodeBlock>
+
+          <InlineFeedback
+            v-if="quickImportRequiresModel && !ccSwitchModel.trim()"
+            tone="warning"
+            appearance="hint"
+          >
+            {{ t('home.ledger.connection.ccSwitchModelRequired') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'cc-switch'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.ccSwitchHint') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'new-api'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.newApiHint') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'codex'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.codexHint') }}
+          </InlineFeedback>
+          <InlineFeedback
+            v-else-if="activeClient === 'cherry-studio'"
+            tone="info"
+            appearance="hint"
+          >
+            {{ t('home.ledger.connection.cherryStudioHint') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'nextchat'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.disableFastLink') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'claude-code'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.claudeCodeHint') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'open-webui'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.openWebUIHint') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'cline'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.clineHint') }}
+          </InlineFeedback>
+          <InlineFeedback v-else-if="activeClient === 'curl'" tone="info" appearance="hint">
+            {{ t('home.ledger.connection.curlHint') }}
+          </InlineFeedback>
         </div>
       </div>
     </template>
@@ -465,14 +649,26 @@ onBeforeUnmount(() => {
     </InlineFeedback>
 
     <AppConfirmDialog
-      v-model:open="nextChatConfirmationOpen"
-      :title="t('home.ledger.connection.nextChatConfirmTitle')"
-      :description="t('home.ledger.connection.nextChatConfirmDescription')"
+      v-model:open="quickImportConfirmationOpen"
+      :title="
+        t('home.ledger.connection.quickImportConfirmTitle', { client: quickImportClientLabel })
+      "
+      :description="
+        t('home.ledger.connection.quickImportConfirmDescription', {
+          client: quickImportClientLabel,
+        })
+      "
       :close-label="t('common.close')"
       :cancel-label="t('common.cancel')"
-      :confirm-label="t('home.ledger.connection.openNextChat')"
+      :confirm-label="
+        t(
+          activeClient === 'cc-switch'
+            ? 'home.ledger.connection.importAndEnable'
+            : 'home.ledger.connection.openAndImport',
+        )
+      "
       :pending="actionBusy"
-      @confirm="openNextChat"
+      @confirm="openQuickImport"
     />
   </section>
 </template>
@@ -575,14 +771,30 @@ onBeforeUnmount(() => {
   padding: 14px;
 }
 
-.gateway-connection__more {
-  margin: 4px;
-  border: 1px dashed var(--color-border-control);
-  border-radius: 8px;
-  color: var(--color-text-faint);
-  padding: 26px 18px;
-  font-size: 12.5px;
-  text-align: center;
+.gateway-connection__cc-switch-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr);
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.gateway-connection__cc-switch-target,
+.gateway-connection__cc-switch-model {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.gateway-connection__cc-switch-target :deep(.segmented-control) {
+  width: 100%;
+}
+
+.gateway-connection__cc-switch-target :deep(.segmented-control__list) {
+  width: 100%;
+}
+
+.gateway-connection__cc-switch-target :deep(.segmented-control__trigger) {
+  flex: 1 0 auto;
 }
 
 .gateway-connection__feedback {
@@ -610,6 +822,10 @@ onBeforeUnmount(() => {
 
   .gateway-connection__clients {
     justify-content: flex-start;
+  }
+
+  .gateway-connection__cc-switch-options {
+    grid-template-columns: 1fr;
   }
 }
 </style>

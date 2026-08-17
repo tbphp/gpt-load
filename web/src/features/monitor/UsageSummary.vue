@@ -68,6 +68,7 @@ function inputTokens(): number {
     <article class="usage-kpi usage-kpi--cost">
       <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
       <strong>{{ formattedEstimatedCost() }}</strong>
+      <small>{{ t('monitor.usage.kpi.estimatedCostBasis') }}</small>
     </article>
   </section>
 </template>

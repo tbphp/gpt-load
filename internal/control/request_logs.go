@@ -147,6 +147,7 @@ type requestLogItemResponse struct {
 	CostState               pricing.CostState            `json:"cost_state"`
 	PricingCompleteness     pricing.Completeness         `json:"pricing_completeness"`
 	PricingMode             *pricing.Mode                `json:"pricing_mode"`
+	ContextThresholdTokens  *string                      `json:"context_threshold_tokens"`
 	InputTokens             string                       `json:"input_tokens"`
 	CacheReadTokens         string                       `json:"cache_read_tokens"`
 	CacheWrite5MTokens      string                       `json:"cache_write_5m_tokens"`
@@ -853,6 +854,11 @@ func mapRequestLogItemResponse(
 	if err != nil {
 		return requestLogItemResponse{}, fmt.Errorf("map request log pricing mode: %w", err)
 	}
+	var contextThresholdTokens *string
+	if record.ContextThresholdTokens != nil {
+		value := strconv.FormatInt(*record.ContextThresholdTokens, 10)
+		contextThresholdTokens = &value
+	}
 	return requestLogItemResponse{
 		RequestID:     record.RequestID,
 		CompletedAtMS: record.CompletedAtMS,
@@ -886,6 +892,7 @@ func mapRequestLogItemResponse(
 		CostState:               record.CostState,
 		PricingCompleteness:     record.PricingCompleteness,
 		PricingMode:             pricingMode,
+		ContextThresholdTokens:  contextThresholdTokens,
 		InputTokens:             strconv.FormatInt(inputTokens, 10),
 		CacheReadTokens:         strconv.FormatInt(record.CacheReadTokens, 10),
 		CacheWrite5MTokens:      strconv.FormatInt(record.CacheWrite5MTokens, 10),

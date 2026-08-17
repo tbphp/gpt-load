@@ -39,8 +39,8 @@ const emit = defineEmits<{
   padding: 2px;
   cursor: pointer;
   transition:
-    background-color var(--duration-fast) ease,
-    border-color var(--duration-fast) ease;
+    background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
 }
 
 .app-switch[data-state='checked'] {
@@ -49,13 +49,13 @@ const emit = defineEmits<{
 }
 
 .app-switch:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
 .app-switch:disabled {
   cursor: not-allowed;
-  opacity: var(--opacity-disabled);
+  opacity: 0.55;
 }
 
 .app-switch__thumb {
@@ -65,8 +65,8 @@ const emit = defineEmits<{
   transform: translateX(0);
   border-radius: 50%;
   background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
-  transition: transform var(--duration-fast) ease;
+  box-shadow: var(--shadow-card);
+  transition: transform var(--duration-fast) var(--easing-standard);
 }
 
 .app-switch[data-state='checked'] .app-switch__thumb {

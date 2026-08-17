@@ -123,8 +123,7 @@ export default {
     },
     logs: {
       title: 'ログとメンテナンス',
-      description:
-        'リクエストログは毎時のメンテナンスタスクが保持日数に従って削除します。usage 集計は独立して固定 35 日間保持されます。',
+      description: 'リクエストログは毎時のメンテナンスタスクが保持日数に従って削除します。',
       retention: 'リクエストログ保持日数',
       effectiveValue: '{value} 日',
       days: '日',

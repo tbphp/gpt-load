@@ -133,7 +133,6 @@ func (service *Service) queryCredentialHourlyUsage(
 			return CredentialWindowUsage{}, fmt.Errorf("query latest usage bucket: %w", err)
 		}
 		result.LastUsedAtMS = latest.LastUsedAtMS
-		result.DataComplete = service.hourlyWindowRetained(fullHoursFromMS)
 	}
 
 	boundaryToMS := fullHoursFromMS
@@ -171,11 +170,6 @@ func (service *Service) requestLogWindowRetained(fromMS int64) bool {
 		return false
 	}
 	cutoffMS, err := retentionCutoffMS(service.now().UTC().UnixMilli(), service.retentionPolicy.RequestLogRetentionDays())
-	return err == nil && fromMS >= cutoffMS
-}
-
-func (service *Service) hourlyWindowRetained(fromMS int64) bool {
-	cutoffMS, err := retentionCutoffMS(service.now().UTC().UnixMilli(), usageStatRetentionDays)
 	return err == nil && fromMS >= cutoffMS
 }
 

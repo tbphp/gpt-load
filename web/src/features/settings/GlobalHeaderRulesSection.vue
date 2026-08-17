@@ -6,6 +6,7 @@ import type { HeaderRulesDto } from '@/app/resources/groups'
 import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsMergeConflict } from './settings-response'
@@ -100,10 +101,26 @@ watch(
       </div>
       <div class="settings-headers__meta">
         <span>{{ t('settings.headers.ruleCount', { count: ruleCount }) }}</span>
-        <span>{{
-          overridden ? t('settings.headers.overrideSource') : t('settings.headers.defaultSource')
-        }}</span>
-        <AppButton variant="secondary" size="compact" :disabled="disabled" @click="toggleOverride">
+        <StatusBadge
+          size="compact"
+          :tone="pendingRestore ? 'warning' : overridden ? 'info' : 'neutral'"
+          :icon="pendingRestore ? 'alert' : overridden ? 'edit' : 'check'"
+        >
+          {{
+            pendingRestore
+              ? t('settings.headers.pendingRestoreSource')
+              : overridden
+                ? t('settings.headers.overrideSource')
+                : t('settings.headers.defaultSource')
+          }}
+        </StatusBadge>
+        <AppButton
+          variant="secondary"
+          :tone="overridden ? 'warning' : 'action'"
+          size="compact"
+          :disabled="disabled"
+          @click="toggleOverride"
+        >
           {{ overridden ? t('settings.headers.restoreDefault') : t('settings.headers.override') }}
         </AppButton>
       </div>
@@ -162,14 +179,14 @@ watch(
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-sm);
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
 .settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
+  font-size: var(--text-sm);
 }
 
 .settings-headers__meta {

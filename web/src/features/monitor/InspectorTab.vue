@@ -11,15 +11,13 @@ import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
+import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
   inspectRoute,
-  routeInspectRequirements,
   type RouteInspectCredentialDto,
   type RouteInspectGroupDto,
-  type RouteInspectOperation,
   type RouteInspectReasonCode,
   type RouteInspectRequest,
-  type RouteInspectRequirement,
   type RouteInspectResponseDto,
 } from '@/app/resources/route-inspection'
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
@@ -44,7 +42,7 @@ import {
   type InspectorMonitorState,
 } from './monitor-route'
 
-type InspectorField = 'protocol' | 'operation' | 'externalModel' | 'accessKey'
+type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
 type StatusTone = 'success' | 'warning' | 'danger' | 'neutral'
 
@@ -65,41 +63,18 @@ const knownReasons = new Set<RouteInspectReasonCode>([
   'credential_blacklisted',
   'credential_cooldown',
   'credential_quota_exhausted',
+  'credential_auth_unavailable',
+  'credential_quota_deprioritized',
   'credential_weight_zero',
   'credential_not_allowed',
   'no_available_credential',
 ])
-const responsesOperations: readonly RouteInspectOperation[] = [
-  'responses_create',
-  'responses_retrieve',
-  'responses_delete',
-  'responses_cancel',
-  'responses_input_items',
-  'responses_compact',
-  'responses_input_tokens',
-  'responses_passthrough',
-]
-const nativeRouteOperations = new Set<RouteInspectOperation>([
-  'responses_retrieve',
-  'responses_delete',
-  'responses_cancel',
-  'responses_input_items',
-  'responses_passthrough',
-])
-
 const client = useApiClient()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
 const routeState = computed(() => parseInspectorMonitorState(route.query))
 const draftProtocol = ref(readProtocol(routeState.value.protocol))
-const draftOperation = ref(
-  readOperation(routeState.value.operation) ?? defaultOperation(draftProtocol.value),
-)
-const draftRouteRequirement = ref<RouteInspectRequirement>(
-  readRouteRequirement(routeState.value.routeRequirement) ??
-    defaultRouteRequirement(draftOperation.value),
-)
 const draftModel = ref(readText(routeState.value.externalModel))
 const draftAccessKeyID = ref(readPositiveID(routeState.value.accessKeyID))
 const fieldErrors = ref<InspectorErrors>({})
@@ -119,33 +94,34 @@ let owner = 0
 let controller: AbortController | undefined
 
 const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
-const protocolOptions = computed(() =>
-  enabledDataProtocols.map((value) => ({
-    value,
-    label: value,
-  })),
+const groupOptionsQuery = useQuery(groupOptionsQueryOptions(client))
+const protocolOptions = computed(() => [
+  { value: '', label: t('monitor.inspector.form.selectProtocol') },
+  ...enabledDataProtocols.map((value) => ({ value, label: value })),
+])
+const configuredModels = computed(() =>
+  [...new Set((groupOptionsQuery.data.value ?? []).flatMap((group) => group.models))].sort(
+    (left, right) => left.localeCompare(right),
+  ),
 )
-const availableOperations = computed(() => operationsForProtocol(draftProtocol.value))
-const operationOptions = computed(() =>
-  availableOperations.value.map((value) => ({
-    value,
-    label: t(`monitor.inspector.operations.${value}`),
-  })),
+const missingModelOption = computed(
+  () =>
+    groupOptionsQuery.isSuccess.value &&
+    draftModel.value !== '' &&
+    !configuredModels.value.includes(draftModel.value),
 )
-const routeRequirementOptions = computed(() =>
-  routeInspectRequirements
-    .filter(
-      (value) =>
-        value === 'native' ||
-        !nativeRouteOperations.has(draftOperation.value as RouteInspectOperation),
-    )
-    .map((value) => ({
-      value,
-      label: t(`monitor.inspector.routeRequirements.${value}`),
-    })),
-)
-const modelRequired = computed(() => operationRequiresModel(draftOperation.value))
-const modelAllowed = computed(() => operationAllowsModel(draftOperation.value))
+const modelOptions = computed(() => [
+  { value: '', label: t('monitor.inspector.form.selectModel') },
+  ...(missingModelOption.value
+    ? [
+        {
+          value: draftModel.value,
+          label: t('monitor.inspector.form.missingModelOption', { model: draftModel.value }),
+        },
+      ]
+    : []),
+  ...configuredModels.value.map((model) => ({ value: model, label: model })),
+])
 const missingAccessKeyOption = computed(
   () =>
     accessKeyOptionsQuery.isSuccess.value &&
@@ -163,25 +139,33 @@ const accessKeyOptions = computed(() => {
       status: t(`monitor.inspector.accessKeyStatus.${accessKey.status}`),
     }),
   }))
-  if (!missingAccessKeyOption.value) return options
   return [
-    {
-      value: draftAccessKeyID.value,
-      label: t('monitor.inspector.form.missingAccessKeyOption', {
-        id: draftAccessKeyID.value,
-      }),
-    },
+    { value: '', label: t('monitor.inspector.form.selectAccessKey') },
+    ...(missingAccessKeyOption.value
+      ? [
+          {
+            value: draftAccessKeyID.value,
+            label: t('monitor.inspector.form.missingAccessKeyOption', {
+              id: draftAccessKeyID.value,
+            }),
+          },
+        ]
+      : []),
     ...options,
   ]
 })
+const optionsPending = computed(
+  () => accessKeyOptionsQuery.isPending.value || groupOptionsQuery.isPending.value,
+)
+const optionsFailed = computed(
+  () => accessKeyOptionsQuery.isError.value || groupOptionsQuery.isError.value,
+)
 const inputChanged = computed(() => {
   const previous = submitted.value
   if (!previous) return false
   return (
     draftProtocol.value !== previous.protocol ||
-    draftOperation.value !== previous.operation ||
-    draftRouteRequirement.value !== previous.route_requirement ||
-    draftModel.value !== (previous.external_model ?? '') ||
+    draftModel.value !== previous.external_model ||
     draftAccessKeyID.value !== String(previous.access_key_id)
   )
 })
@@ -190,6 +174,15 @@ const includedGroups = computed(() =>
 )
 const excludedGroups = computed(() =>
   (observation.value?.groups ?? []).filter((group) => !group.included),
+)
+const orderedIncludedGroups = computed(() =>
+  [...includedGroups.value].sort((left, right) => {
+    const routeModeOrder = routeModePriority(left) - routeModePriority(right)
+    if (routeModeOrder !== 0) return routeModeOrder
+    if (left.routable !== right.routable) return left.routable ? -1 : 1
+    const weightOrder = groupEffectiveWeight(right) - groupEffectiveWeight(left)
+    return weightOrder !== 0 ? weightOrder : left.group_id - right.group_id
+  }),
 )
 const activeRouteMode = computed<'native' | 'converted' | null>(() => {
   if (includedGroups.value.some((group) => group.routable && group.route_mode === 'native')) {
@@ -220,53 +213,6 @@ function readProtocol(raw: unknown): AccessProtocol | '' {
     : ''
 }
 
-function operationsForProtocol(value: AccessProtocol | ''): readonly RouteInspectOperation[] {
-  if (value === 'openai-responses') return responsesOperations
-  if (value === 'anthropic' || value === 'gemini') return ['chat_completion', 'count_tokens']
-  if (enabledDataProtocols.some((protocol) => protocol === value)) return ['chat_completion']
-  return []
-}
-
-function defaultOperation(value: AccessProtocol | ''): RouteInspectOperation | '' {
-  return operationsForProtocol(value)[0] ?? ''
-}
-
-function defaultRouteRequirement(operation: RouteInspectOperation | ''): RouteInspectRequirement {
-  return operation === 'responses_create' ||
-    nativeRouteOperations.has(operation as RouteInspectOperation)
-    ? 'native'
-    : 'any'
-}
-
-function readRouteRequirement(raw: unknown): RouteInspectRequirement | undefined {
-  return typeof raw === 'string' &&
-    routeInspectRequirements.includes(raw as RouteInspectRequirement)
-    ? (raw as RouteInspectRequirement)
-    : undefined
-}
-
-function readOperation(raw: unknown): RouteInspectOperation | undefined {
-  return typeof raw === 'string' && responsesOperations.includes(raw as RouteInspectOperation)
-    ? (raw as RouteInspectOperation)
-    : raw === 'chat_completion' || raw === 'count_tokens'
-      ? raw
-      : undefined
-}
-
-function operationRequiresModel(value: string): boolean {
-  return (
-    value === 'chat_completion' ||
-    value === 'responses_create' ||
-    value === 'responses_compact' ||
-    value === 'responses_input_tokens' ||
-    value === 'count_tokens'
-  )
-}
-
-function operationAllowsModel(value: string): boolean {
-  return operationRequiresModel(value) || value === 'responses_passthrough'
-}
-
 function readText(raw: unknown): string {
   return normalizeMonitorText(raw) ?? ''
 }
@@ -281,23 +227,16 @@ watch(
   () =>
     [
       routeState.value.protocol,
-      routeState.value.operation,
-      routeState.value.routeRequirement,
       routeState.value.externalModel,
       routeState.value.accessKeyID,
       routeState.value.run,
     ] as const,
-  ([rawProtocol, rawOperation, rawRouteRequirement, rawModel, rawAccessKeyID, run]) => {
+  ([rawProtocol, rawModel, rawAccessKeyID, run]) => {
     const protocol = readProtocol(rawProtocol)
-    const operation = readOperation(rawOperation) ?? defaultOperation(protocol)
-    const routeRequirement =
-      readRouteRequirement(rawRouteRequirement) ?? defaultRouteRequirement(operation)
     const model = readText(rawModel)
     const accessKeyID = readPositiveID(rawAccessKeyID)
     const fieldsChanged =
       protocol !== draftProtocol.value ||
-      operation !== draftOperation.value ||
-      routeRequirement !== draftRouteRequirement.value ||
       model !== draftModel.value ||
       accessKeyID !== draftAccessKeyID.value
     if (!fieldsChanged && run) return
@@ -306,8 +245,6 @@ watch(
     controller?.abort()
     controller = undefined
     draftProtocol.value = protocol
-    draftOperation.value = operation
-    draftRouteRequirement.value = routeRequirement
     draftModel.value = model
     draftAccessKeyID.value = accessKeyID
     fieldErrors.value = {}
@@ -324,13 +261,10 @@ function validatedRequest(): RouteInspectRequest | undefined {
   if (!enabledDataProtocols.some((protocol) => protocol === draftProtocol.value)) {
     errors.protocol = 'monitor.inspector.errors.protocol'
   }
-  if (!availableOperations.value.includes(draftOperation.value as RouteInspectOperation)) {
-    errors.operation = 'monitor.inspector.errors.operation'
-  }
   if (
-    (modelRequired.value && draftModel.value === '') ||
-    (!modelAllowed.value && draftModel.value !== '') ||
-    (draftModel.value !== '' && !isValidMonitorText(draftModel.value))
+    draftModel.value === '' ||
+    !isValidMonitorText(draftModel.value) ||
+    !configuredModels.value.includes(draftModel.value)
   ) {
     errors.externalModel = 'monitor.inspector.errors.model'
   }
@@ -349,31 +283,14 @@ function validatedRequest(): RouteInspectRequest | undefined {
 
   const request: RouteInspectRequest = {
     protocol: draftProtocol.value as AccessProtocol,
-    operation: draftOperation.value as RouteInspectOperation,
-    route_requirement: draftRouteRequirement.value,
+    external_model: draftModel.value,
     access_key_id: accessKeyID,
   }
-  if (draftModel.value !== '') request.external_model = draftModel.value
   return request
 }
 
 function setDraftProtocol(value: string): void {
   draftProtocol.value = value as AccessProtocol | ''
-  if (
-    !operationsForProtocol(draftProtocol.value).includes(
-      draftOperation.value as RouteInspectOperation,
-    )
-  ) {
-    draftOperation.value = defaultOperation(draftProtocol.value)
-  }
-  draftRouteRequirement.value = defaultRouteRequirement(draftOperation.value)
-  if (!operationAllowsModel(draftOperation.value)) draftModel.value = ''
-}
-
-function setDraftOperation(value: string): void {
-  draftOperation.value = value as RouteInspectOperation | ''
-  draftRouteRequirement.value = defaultRouteRequirement(draftOperation.value)
-  if (!operationAllowsModel(draftOperation.value)) draftModel.value = ''
 }
 
 async function inspect(): Promise<void> {
@@ -382,9 +299,7 @@ async function inspect(): Promise<void> {
 
   const nextState: InspectorMonitorState = {
     protocol: request.protocol,
-    operation: request.operation,
-    routeRequirement: request.route_requirement,
-    externalModel: request.external_model ?? undefined,
+    externalModel: request.external_model,
     accessKeyID: String(request.access_key_id),
     run: true,
     expandedGroupIDs: [],
@@ -393,8 +308,6 @@ async function inspect(): Promise<void> {
   if (
     current.run &&
     current.protocol === nextState.protocol &&
-    current.operation === nextState.operation &&
-    current.routeRequirement === nextState.routeRequirement &&
     current.externalModel === nextState.externalModel &&
     current.accessKeyID === nextState.accessKeyID
   ) {
@@ -444,40 +357,40 @@ watch(
   [
     () => routeState.value.run,
     () => routeState.value.protocol,
-    () => routeState.value.operation,
-    () => routeState.value.routeRequirement,
     () => routeState.value.externalModel,
     () => routeState.value.accessKeyID,
     () => accessKeyOptionsQuery.data.value,
+    () => groupOptionsQuery.data.value,
   ],
   ([run]) => {
     if (!run) return
     const request = validatedRequest()
     if (!request) return
-    if (
-      pending.value &&
-      submitted.value?.protocol === request.protocol &&
-      submitted.value.operation === request.operation &&
-      submitted.value.route_requirement === request.route_requirement &&
-      submitted.value.access_key_id === request.access_key_id &&
-      submitted.value.external_model === request.external_model
-    ) {
+    if (pending.value && sameInspectionRequest(submitted.value, request)) {
       return
     }
-    if (
-      observation.value !== undefined &&
-      submitted.value?.protocol === request.protocol &&
-      submitted.value.operation === request.operation &&
-      submitted.value.route_requirement === request.route_requirement &&
-      submitted.value.access_key_id === request.access_key_id &&
-      submitted.value.external_model === request.external_model
-    ) {
+    if (observation.value !== undefined && sameInspectionRequest(submitted.value, request)) {
       return
     }
     void runInspection(request)
   },
   { immediate: true },
 )
+
+function sameInspectionRequest(
+  left: RouteInspectRequest | undefined,
+  right: RouteInspectRequest,
+): boolean {
+  return (
+    left?.protocol === right.protocol &&
+    left.external_model === right.external_model &&
+    left.access_key_id === right.access_key_id
+  )
+}
+
+function retryOptions(): void {
+  void Promise.all([accessKeyOptionsQuery.refetch(), groupOptionsQuery.refetch()])
+}
 
 function reasonLabel(reason: string | null): string {
   if (reason === null) return t('monitor.inspector.reasons.none')
@@ -507,23 +420,33 @@ function accessKeyStatusTone(status: 'active' | 'disabled'): 'success' | 'neutra
   return status === 'active' ? 'success' : 'neutral'
 }
 
-function groupTone(group: RouteInspectGroupDto): StatusTone {
-  if (!group.routable) return 'danger'
-  return group.route_mode === activeRouteMode.value ? 'success' : 'neutral'
+function routeModePriority(group: RouteInspectGroupDto): number {
+  return group.route_mode === 'native' ? 0 : 1
+}
+
+function routePriorityTone(group: RouteInspectGroupDto): StatusTone {
+  if (!group.routable) return 'neutral'
+  if (group.route_mode !== activeRouteMode.value) return 'neutral'
+  return group.route_mode === 'native' ? 'success' : 'warning'
+}
+
+function routePriorityLabel(group: RouteInspectGroupDto): string {
+  return t(`monitor.inspector.groups.priority.${group.route_mode}`)
 }
 
 function groupStatusLabel(group: RouteInspectGroupDto): string {
   if (!group.routable) return t('monitor.inspector.result.notRoutable')
   return group.route_mode === activeRouteMode.value
-    ? t('monitor.inspector.result.routable')
-    : t('monitor.inspector.groups.standby')
+    ? t('monitor.inspector.groups.weightedCandidate')
+    : t('monitor.inspector.groups.fallbackCandidate')
 }
 
 function credentialTone(credential: RouteInspectCredentialDto): StatusTone {
   if (credential.available) return 'success'
   if (
     credential.reason_code === 'credential_cooldown' ||
-    credential.reason_code === 'credential_quota_exhausted'
+    credential.reason_code === 'credential_quota_exhausted' ||
+    credential.reason_code === 'credential_quota_deprioritized'
   )
     return 'warning'
   if (credential.reason_code === 'credential_blacklisted') return 'danger'
@@ -567,6 +490,14 @@ function candidateCredentialSummary(group: RouteInspectGroupDto): string {
   })
 }
 
+function orderedCredentials(group: RouteInspectGroupDto): RouteInspectCredentialDto[] {
+  return [...group.credentials].sort((left, right) => {
+    if (left.available !== right.available) return left.available ? -1 : 1
+    const weightOrder = right.effective_weight - left.effective_weight
+    return weightOrder !== 0 ? weightOrder : left.credential_id - right.credential_id
+  })
+}
+
 function groupExpanded(groupID: number): boolean {
   return routeState.value.expandedGroupIDs.includes(groupID)
 }
@@ -598,28 +529,21 @@ onBeforeUnmount(() => {
   <div class="inspector-tab">
     <InspectorForm
       :protocol="draftProtocol"
-      :operation="draftOperation"
-      :route-requirement="draftRouteRequirement"
       :model="draftModel"
       :access-key-id="draftAccessKeyID"
       :protocol-options="protocolOptions"
-      :operation-options="operationOptions"
-      :route-requirement-options="routeRequirementOptions"
-      :model-required="modelRequired"
-      :model-allowed="modelAllowed"
+      :model-options="modelOptions"
       :access-key-options="accessKeyOptions"
       :errors="fieldErrors"
-      :options-pending="accessKeyOptionsQuery.isPending.value"
-      :options-failed="accessKeyOptionsQuery.isError.value"
+      :options-pending="optionsPending"
+      :options-failed="optionsFailed"
       :missing-access-key="missingAccessKeyOption"
       :submit-pending="pending"
       @update:protocol="setDraftProtocol"
-      @update:operation="setDraftOperation"
-      @update:route-requirement="draftRouteRequirement = $event as RouteInspectRequirement"
       @update:model="draftModel = $event"
       @update:access-key-id="draftAccessKeyID = $event"
       @submit="inspect"
-      @retry-options="accessKeyOptionsQuery.refetch()"
+      @retry-options="retryOptions"
     />
 
     <div class="inspector-stack">
@@ -807,7 +731,7 @@ onBeforeUnmount(() => {
             class="route-candidate-ledger"
             role="table"
             :aria-label="t('monitor.inspector.groups.tableLabel')"
-            :aria-rowcount="includedGroups.length + 1"
+            :aria-rowcount="orderedIncludedGroups.length + 1"
           >
             <div class="route-candidate-ledger__header" role="row" aria-rowindex="1">
               <span role="columnheader">{{ t('monitor.inspector.groups.columns.group') }}</span>
@@ -821,7 +745,7 @@ onBeforeUnmount(() => {
             </div>
 
             <details
-              v-for="(group, index) in includedGroups"
+              v-for="(group, index) in orderedIncludedGroups"
               :key="group.group_id"
               class="route-candidate"
               role="row"
@@ -836,10 +760,9 @@ onBeforeUnmount(() => {
                   </OverflowTooltip>
                   <OverflowTooltip
                     as="small"
-                    :content="`#${group.group_id} · ${group.channel_id} · ${group.route_mode} · ${modelLabel(group.upstream_model)}`"
+                    :content="`#${group.group_id} · ${group.channel_id} · ${modelLabel(group.upstream_model)}`"
                   >
                     #{{ group.group_id }} · {{ group.channel_id }} ·
-                    {{ t(`monitor.inspector.routeModes.${group.route_mode}`) }} ·
                     {{ modelLabel(group.upstream_model) }}
                   </OverflowTooltip>
                 </div>
@@ -847,9 +770,10 @@ onBeforeUnmount(() => {
                   <span class="route-cell-label">{{
                     t('monitor.inspector.groups.columns.status')
                   }}</span>
-                  <StatusBadge :tone="groupTone(group)" size="compact">
-                    {{ groupStatusLabel(group) }}
+                  <StatusBadge :tone="routePriorityTone(group)" size="compact">
+                    {{ routePriorityLabel(group) }}
                   </StatusBadge>
+                  <small>{{ groupStatusLabel(group) }}</small>
                 </div>
                 <div class="route-candidate__measure" role="cell">
                   <span class="route-cell-label">{{
@@ -942,7 +866,7 @@ onBeforeUnmount(() => {
                   </template>
 
                   <article
-                    v-for="(credential, credentialIndex) in group.credentials"
+                    v-for="(credential, credentialIndex) in orderedCredentials(group)"
                     :key="credential.credential_id"
                     class="ledger-record-list__record route-credential-record"
                     role="row"
@@ -1271,7 +1195,7 @@ onBeforeUnmount(() => {
 .route-candidate__summary {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(170px, 1.35fr) 108px 96px 112px minmax(132px, 0.95fr) 34px;
+  grid-template-columns: minmax(170px, 1.35fr) 128px 96px 112px minmax(132px, 0.95fr) 34px;
   align-items: center;
   column-gap: var(--space-4);
 }
@@ -1325,6 +1249,17 @@ onBeforeUnmount(() => {
 .route-candidate__identity {
   display: grid;
   gap: var(--space-1);
+}
+
+.route-candidate__status {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+}
+
+.route-candidate__status small {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 
 .route-candidate__identity strong,
@@ -1501,7 +1436,7 @@ onBeforeUnmount(() => {
 @media (max-width: 1180px) {
   .route-candidate-ledger__header,
   .route-candidate__summary {
-    grid-template-columns: minmax(160px, 1.3fr) 102px 88px 104px minmax(120px, 0.9fr) 30px;
+    grid-template-columns: minmax(160px, 1.3fr) 120px 88px 104px minmax(120px, 0.9fr) 30px;
     column-gap: var(--space-3);
   }
 }

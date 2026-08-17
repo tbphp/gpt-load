@@ -73,6 +73,7 @@ export default {
       overrideValue: '显式覆盖值',
       defaultSource: '内置默认',
       overrideSource: '显式覆盖',
+      pendingRestoreSource: '待恢复默认',
       override: '覆盖',
       restoreDefault: '恢复默认',
       resetPending: '保存后恢复当前版本默认',
@@ -111,7 +112,7 @@ export default {
     },
     logs: {
       title: '日志与维护',
-      description: '请求日志由每小时维护任务按保留天数清理；usage 聚合独立固定保留 35 天。',
+      description: '请求日志由每小时维护任务按保留天数清理。',
       retention: '请求日志保留天数',
       effectiveValue: '{value} 天',
       days: '天',

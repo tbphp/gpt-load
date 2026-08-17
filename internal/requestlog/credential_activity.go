@@ -66,8 +66,7 @@ func (service *Service) QueryCredentialActivity(
 	}
 	hasHourlyWindow := hourlyFromMS < hourlyToMS
 	hasBoundaryWindow := input.FromMS < boundaryToMS
-	dataComplete := (!hasHourlyWindow || service.hourlyWindowRetained(hourlyFromMS)) &&
-		(!hasBoundaryWindow || service.requestLogWindowRetained(input.FromMS))
+	dataComplete := !hasBoundaryWindow || service.requestLogWindowRetained(input.FromMS)
 
 	result := make(map[uint]CredentialActivity, len(credentialIDs))
 	for _, credentialID := range credentialIDs {

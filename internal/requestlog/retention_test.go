@@ -98,7 +98,7 @@ func TestRetentionSweepDeletesStrictlyOlderRowsInBatches(t *testing.T) {
 	}
 }
 
-func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) {
+func TestRetentionSweepKeepsAggregatesAndExpiresJournalAtFixedThirtyFiveDayBoundary(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := NewService(
 		db,
@@ -106,11 +106,11 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 		staticRetentionPolicy{days: 1},
 	)
 	now := time.Date(2026, time.July, 24, 12, 34, 56, 789_000_000, time.UTC)
-	const usageCutoffMS int64 = 1_781_870_400_000
+	const journalCutoffMS int64 = 1_781_870_400_000
 	for index, bucketStartMS := range []int64{
-		usageCutoffMS - 3_600_000,
-		usageCutoffMS,
-		usageCutoffMS + 3_600_000,
+		journalCutoffMS - 3_600_000,
+		journalCutoffMS,
+		journalCutoffMS + 3_600_000,
 	} {
 		if err := db.Create(&models.UsageStat{
 			BucketStartMS: bucketStartMS,
@@ -132,9 +132,9 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 		bucketStartMS int64
 		applied       bool
 	}{
-		{bucketStartMS: usageCutoffMS - 3_600_000, applied: true},
-		{bucketStartMS: usageCutoffMS, applied: true},
-		{bucketStartMS: usageCutoffMS - 3_600_000, applied: false},
+		{bucketStartMS: journalCutoffMS - 3_600_000, applied: true},
+		{bucketStartMS: journalCutoffMS, applied: true},
+		{bucketStartMS: journalCutoffMS - 3_600_000, applied: false},
 	} {
 		if err := db.Create(&models.UsageAggregationJournal{
 			RequestID:     fmt.Sprintf("00000000-0000-4000-9000-%012d", index),
@@ -156,20 +156,22 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 	if err := db.Order("bucket_start_ms ASC").Find(&remaining).Error; err != nil {
 		t.Fatalf("query remaining UsageStats: %v", err)
 	}
-	if len(remaining) != 2 ||
-		remaining[0].BucketStartMS != usageCutoffMS ||
-		remaining[1].BucketStartMS != usageCutoffMS+3_600_000 {
-		t.Fatalf("remaining UsageStats = %+v, want cutoff and newer integer buckets", remaining)
+	if len(remaining) != 3 ||
+		remaining[0].BucketStartMS != journalCutoffMS-3_600_000 ||
+		remaining[1].BucketStartMS != journalCutoffMS ||
+		remaining[2].BucketStartMS != journalCutoffMS+3_600_000 {
+		t.Fatalf("remaining UsageStats = %+v, want all aggregate buckets", remaining)
 	}
 	var remainingAttempts []models.CredentialAttemptStat
 	if err := db.Order("bucket_start_ms ASC").Find(&remainingAttempts).Error; err != nil {
 		t.Fatalf("query remaining CredentialAttemptStats: %v", err)
 	}
-	if len(remainingAttempts) != 2 ||
-		remainingAttempts[0].BucketStartMS != usageCutoffMS ||
-		remainingAttempts[1].BucketStartMS != usageCutoffMS+3_600_000 {
+	if len(remainingAttempts) != 3 ||
+		remainingAttempts[0].BucketStartMS != journalCutoffMS-3_600_000 ||
+		remainingAttempts[1].BucketStartMS != journalCutoffMS ||
+		remainingAttempts[2].BucketStartMS != journalCutoffMS+3_600_000 {
 		t.Fatalf(
-			"remaining CredentialAttemptStats = %+v, want cutoff and newer buckets",
+			"remaining CredentialAttemptStats = %+v, want all aggregate buckets",
 			remainingAttempts,
 		)
 	}
@@ -177,13 +179,13 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 	if err := db.Order("request_id ASC").Find(&journals).Error; err != nil {
 		t.Fatalf("query remaining UsageAggregationJournals: %v", err)
 	}
-	if len(journals) != 1 || journals[0].BucketStartMS != usageCutoffMS ||
+	if len(journals) != 1 || journals[0].BucketStartMS != journalCutoffMS ||
 		!journals[0].Applied {
 		t.Fatalf("remaining UsageAggregationJournals = %+v", journals)
 	}
 }
 
-func TestRetentionSweepCleansUsageStatsWhenRequestLogDeleteFails(t *testing.T) {
+func TestRetentionSweepKeepsUsageStatsWhenRequestLogDeleteFails(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
@@ -216,10 +218,10 @@ func TestRetentionSweepCleansUsageStatsWhenRequestLogDeleteFails(t *testing.T) {
 		t.Fatalf("count remaining UsageStats: %v", err)
 	}
 	stats := service.Stats()
-	if usageCount != 0 || stats.RetentionDeleteFailureTotal != 1 ||
+	if usageCount != 1 || stats.RetentionDeleteFailureTotal != 1 ||
 		!stats.LastRetentionFailureAt.Equal(now) {
 		t.Fatalf(
-			"remaining usage/Stats = %d/%#v, want 0 and one request-log failure",
+			"remaining usage/Stats = %d/%#v, want 1 and one request-log failure",
 			usageCount,
 			stats,
 		)
@@ -351,65 +353,6 @@ func TestRetentionSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 		}
 	})
 
-	t.Run("usage stat selection failure is tracked", func(t *testing.T) {
-		db := openRequestLogQueryDB(t)
-		service := newRequestLogTestService(db)
-		service.now = func() time.Time { return now }
-		discardRetentionWarnings(service)
-		const callbackName = "test:retention_usage_stat_query_failure"
-		if err := db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-			if tx.Statement.Table == "usage_stats" {
-				tx.AddError(errors.New("forced usage stat retention query failure"))
-			}
-		}); err != nil {
-			t.Fatalf("register query callback: %v", err)
-		}
-
-		service.Sweep(context.Background(), now)
-
-		stats := service.Stats()
-		if stats.RetentionDeleteFailureTotal != 1 ||
-			!stats.LastRetentionFailureAt.Equal(now) {
-			t.Fatalf("Stats() = %#v, want one usage stat selection failure", stats)
-		}
-	})
-
-	t.Run("usage stat delete failure is tracked", func(t *testing.T) {
-		db := openRequestLogQueryDB(t)
-		service := newRequestLogTestService(db)
-		service.now = func() time.Time { return now }
-		discardRetentionWarnings(service)
-		if err := db.Create(&models.UsageStat{
-			BucketStartMS: now.Add(-36 * 24 * time.Hour).UnixMilli(),
-			AccessKeyID:   1,
-			GroupID:       1,
-			Model:         "expired",
-			RequestCount:  1,
-			SuccessCount:  1,
-		}).Error; err != nil {
-			t.Fatalf("create expired UsageStat: %v", err)
-		}
-		const callbackName = "test:retention_usage_stat_delete_failure"
-		if err := db.Callback().Delete().Before("gorm:delete").Register(callbackName, func(tx *gorm.DB) {
-			if tx.Statement.Table == "usage_stats" {
-				tx.AddError(errors.New("forced usage stat retention delete failure"))
-			}
-		}); err != nil {
-			t.Fatalf("register delete callback: %v", err)
-		}
-
-		service.Sweep(context.Background(), now)
-
-		var remaining int64
-		if err := db.Model(&models.UsageStat{}).Count(&remaining).Error; err != nil {
-			t.Fatalf("count remaining UsageStats: %v", err)
-		}
-		stats := service.Stats()
-		if remaining != 1 || stats.RetentionDeleteFailureTotal != 1 ||
-			!stats.LastRetentionFailureAt.Equal(now) {
-			t.Fatalf("remaining/Stats = %d/%#v, want 1 and one delete failure", remaining, stats)
-		}
-	})
 }
 
 func TestRetentionReplayBoundaryKeepsAggregationIdempotentWithoutRequestLog(t *testing.T) {

@@ -348,6 +348,7 @@ func TestRequestLogEndpointRejectsInvalidAdvancedFilters(t *testing.T) {
 func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	completedAt := time.Date(2026, time.July, 24, 12, 0, 0, 123456789, time.UTC)
 	completedAtMS := completedAt.UnixMilli()
+	contextThreshold := int64(272_000)
 	nextCursor := &requestlog.Cursor{
 		CompletedAtMS: completedAtMS,
 		RequestID:     "00000000-0000-4000-8000-000000000502",
@@ -362,25 +363,29 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					AccessKey: requestlog.AccessKeyRef{
 						ID: 41, Name: &currentName,
 					},
-					Protocol:              protocol.OpenAICompletions,
-					Operation:             execution.OperationChatCompletion,
-					UpstreamProtocol:      protocol.OpenAICompletions,
-					ClientModel:           "client-model",
-					UpstreamModel:         "upstream-model",
-					UpstreamReportedModel: "reported-model",
-					ModelConsistency:      telemetry.ModelConsistencyMismatch,
-					Status:                telemetry.RequestStatusSuccess,
-					StatusCode:            200,
-					DurationMs:            1234,
-					AffinityHit:           true,
-					GroupID:               12,
-					ChannelID:             channel.OpenAI,
-					CredentialID:          99,
-					RouteMode:             channel.RouteNative,
-					UsageState:            usage.StateNotApplicable,
-					CostState:             pricing.CostStateNotApplicable,
-					PricingCompleteness:   pricing.CompletenessNotApplicable,
-					AttemptCount:          1,
+					Protocol:               protocol.OpenAICompletions,
+					Operation:              execution.OperationChatCompletion,
+					UpstreamProtocol:       protocol.OpenAICompletions,
+					ClientModel:            "client-model",
+					UpstreamModel:          "upstream-model",
+					UpstreamReportedModel:  "reported-model",
+					ModelConsistency:       telemetry.ModelConsistencyMismatch,
+					Status:                 telemetry.RequestStatusSuccess,
+					StatusCode:             200,
+					DurationMs:             1234,
+					AffinityHit:            true,
+					GroupID:                12,
+					ChannelID:              channel.OpenAI,
+					CredentialID:           99,
+					RouteMode:              channel.RouteNative,
+					UsageState:             usage.StateComplete,
+					CostState:              pricing.CostStatePriced,
+					PricingCompleteness:    pricing.CompletenessComplete,
+					PricingMode:            pricing.ModeStandard,
+					ContextThresholdTokens: &contextThreshold,
+					UncachedInputTokens:    300_000,
+					EstimatedCostNanoUSD:   1_000_000,
+					AttemptCount:           1,
 				}},
 				NextCursor: nextCursor,
 			},
@@ -440,7 +445,9 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		envelope.Data.Items[0]["model_consistency"] != string(telemetry.ModelConsistencyMismatch) ||
 		envelope.Data.Items[0]["route_mode"] != string(channel.RouteNative) ||
 		envelope.Data.Items[0]["operation"] != string(execution.OperationChatCompletion) ||
-		envelope.Data.Items[0]["upstream_protocol"] != string(protocol.OpenAICompletions) {
+		envelope.Data.Items[0]["upstream_protocol"] != string(protocol.OpenAICompletions) ||
+		envelope.Data.Items[0]["pricing_mode"] != string(pricing.ModeStandard) ||
+		envelope.Data.Items[0]["context_threshold_tokens"] != "272000" {
 		t.Fatalf("list item model observation = %#v", envelope.Data.Items[0])
 	}
 	for _, forbidden := range []string{"headers", "body", "url"} {
@@ -496,12 +503,14 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	reasoningBudget := int64(4096)
 	rate := int64(1_000_000_000)
 	amount := int64(1_000_000)
+	contextThreshold := int64(272_000)
 	receipt := &pricing.Receipt{
-		SchemaVersion: 4,
-		Method:        pricing.ReceiptMethodUnitRateSum,
-		MethodVersion: 1,
-		Currency:      "USD",
-		PricingMode:   pricing.ModeFast,
+		SchemaVersion:          4,
+		Method:                 pricing.ReceiptMethodUnitRateSum,
+		MethodVersion:          1,
+		Currency:               "USD",
+		PricingMode:            pricing.ModeStandard,
+		ContextThresholdTokens: &contextThreshold,
 		Rule: pricing.ReceiptRule{
 			ChannelID: string(channel.OpenAI),
 			ModelID:   "gpt-4.1",
@@ -518,22 +527,24 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	}
 	reader := &recordingRequestLogReader{details: map[string]requestlog.Record{
 		requestID: {
-			RequestID:            requestID,
-			CompletedAtMS:        1_784_894_400_000,
-			GroupID:              12,
-			ChannelID:            channel.OpenAI,
-			CredentialID:         99,
-			Protocol:             protocol.OpenAICompletions,
-			Operation:            execution.OperationChatCompletion,
-			UpstreamProtocol:     protocol.OpenAICompletions,
-			Status:               telemetry.RequestStatusSuccess,
-			StatusCode:           http.StatusOK,
-			AttemptCount:         1,
-			UsageState:           usage.StateComplete,
-			CostState:            pricing.CostStatePriced,
-			PricingCompleteness:  pricing.CompletenessComplete,
-			UncachedInputTokens:  1000,
-			EstimatedCostNanoUSD: amount,
+			RequestID:              requestID,
+			CompletedAtMS:          1_784_894_400_000,
+			GroupID:                12,
+			ChannelID:              channel.OpenAI,
+			CredentialID:           99,
+			Protocol:               protocol.OpenAICompletions,
+			Operation:              execution.OperationChatCompletion,
+			UpstreamProtocol:       protocol.OpenAICompletions,
+			Status:                 telemetry.RequestStatusSuccess,
+			StatusCode:             http.StatusOK,
+			AttemptCount:           1,
+			UsageState:             usage.StateComplete,
+			CostState:              pricing.CostStatePriced,
+			PricingCompleteness:    pricing.CompletenessComplete,
+			PricingMode:            pricing.ModeStandard,
+			ContextThresholdTokens: &contextThreshold,
+			UncachedInputTokens:    1000,
+			EstimatedCostNanoUSD:   amount,
 			Attempts: []requestlog.Attempt{{
 				Sequence:          1,
 				GroupID:           12,
@@ -573,6 +584,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 			Operation        string `json:"operation"`
 			UpstreamProtocol string `json:"upstream_protocol"`
 			PricingMode      string `json:"pricing_mode"`
+			ContextThreshold string `json:"context_threshold_tokens"`
 			ChannelID        string `json:"channel_id"`
 			CredentialID     uint   `json:"credential_id"`
 			Attempts         []struct {
@@ -590,10 +602,11 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 				} `json:"reasoning"`
 				Committed      bool `json:"committed"`
 				PricingReceipt struct {
-					Method       string `json:"method"`
-					PricingMode  string `json:"pricing_mode"`
-					TotalNanoUSD string `json:"total_nano_usd"`
-					Rule         struct {
+					Method           string `json:"method"`
+					PricingMode      string `json:"pricing_mode"`
+					ContextThreshold string `json:"context_threshold_tokens"`
+					TotalNanoUSD     string `json:"total_nano_usd"`
+					Rule             struct {
 						ChannelID string `json:"channel_id"`
 						ModelID   string `json:"model_id"`
 					} `json:"rule"`
@@ -611,7 +624,8 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 	if envelope.Data.RequestID != requestID || envelope.Data.ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Operation != string(execution.OperationChatCompletion) ||
 		envelope.Data.UpstreamProtocol != string(protocol.OpenAICompletions) ||
-		envelope.Data.PricingMode != string(pricing.ModeFast) ||
+		envelope.Data.PricingMode != string(pricing.ModeStandard) ||
+		envelope.Data.ContextThreshold != "272000" ||
 		envelope.Data.CredentialID != 99 || len(envelope.Data.Attempts) != 1 ||
 		envelope.Data.Attempts[0].ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Attempts[0].CredentialID != 99 ||
@@ -624,7 +638,8 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		envelope.Data.Attempts[0].Reasoning.BudgetTokens != "4096" ||
 		!envelope.Data.Attempts[0].ResponseStarted || !envelope.Data.Attempts[0].Committed ||
 		envelope.Data.Attempts[0].PricingReceipt.Method != pricing.ReceiptMethodUnitRateSum ||
-		envelope.Data.Attempts[0].PricingReceipt.PricingMode != string(pricing.ModeFast) ||
+		envelope.Data.Attempts[0].PricingReceipt.PricingMode != string(pricing.ModeStandard) ||
+		envelope.Data.Attempts[0].PricingReceipt.ContextThreshold != "272000" ||
 		envelope.Data.Attempts[0].PricingReceipt.Rule.ChannelID != string(channel.OpenAI) ||
 		envelope.Data.Attempts[0].PricingReceipt.Rule.ModelID != "gpt-4.1" ||
 		envelope.Data.Attempts[0].PricingReceipt.TotalNanoUSD != "1000000" ||

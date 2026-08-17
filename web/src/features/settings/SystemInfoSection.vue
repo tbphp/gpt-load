@@ -160,11 +160,16 @@ function databaseLabel(database: DatabaseDriver): string {
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-sm);
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
-.settings-section__heading p,
+.settings-section__heading p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
 .settings-system__security-note {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
@@ -189,7 +194,7 @@ function databaseLabel(database: DatabaseDriver): string {
 .settings-system__definition dt,
 .settings-system__definition dd {
   min-width: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 1px dashed var(--color-border-subtle);
   padding: 10px 0;
 }
 

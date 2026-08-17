@@ -103,10 +103,15 @@ function conflictValue(side: 'mine' | 'latest'): string {
       "
       :value-label="owned || pendingRestore ? undefined : t('settings.runtime.currentEffective')"
       :source-label="
-        owned ? t('settings.runtime.overrideSource') : t('settings.runtime.defaultSource')
+        owned
+          ? t('settings.runtime.overrideSource')
+          : pendingRestore
+            ? t('settings.runtime.pendingRestoreSource')
+            : t('settings.runtime.defaultSource')
       "
       :action-label="owned ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')"
       :overridden="owned"
+      :pending-restore="pendingRestore"
       :divided="false"
       :disabled="disabled"
       @toggle="setOwned(!owned)"
@@ -120,7 +125,7 @@ function conflictValue(side: 'mine' | 'latest'): string {
                 type="number"
                 :model-value="retentionInput"
                 :label="t('settings.runtime.valueFor', { field: t('settings.logs.retention') })"
-                appearance="sunken"
+                appearance="surface"
                 size="compact"
                 monospace
                 min="1"
@@ -174,14 +179,14 @@ function conflictValue(side: 'mine' | 'latest'): string {
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-sm);
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
 .settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
+  font-size: var(--text-sm);
 }
 
 .settings-logs__input {
