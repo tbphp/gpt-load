@@ -22,10 +22,6 @@ func Claude() spec.Module {
 			Icon:        "anthropic",
 			SearchTerms: []string{"subscription", "oauth", "claude", "anthropic"},
 			Description: "Anthropic Claude subscription",
-			Notices: []spec.Notice{{
-				ID:   spec.NoticeClaudeOAuthRisk,
-				Tone: spec.NoticeToneWarning,
-			}},
 			Connection: spec.Connection{
 				Type:            spec.ConnectionSubscription,
 				CredentialInput: "authorization",

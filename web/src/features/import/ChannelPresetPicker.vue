@@ -3,16 +3,21 @@ import { ChevronDown } from '@lucide/vue'
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ChannelDto } from '@/app/resources/channels'
+import type { ChannelConnectionType, ChannelDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
+import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 
-const FEATURED_CHANNEL_IDS = ['openai', 'codex', 'anthropic', 'gemini', 'openai_compatible']
+const MAX_FEATURED_CHANNELS = 4
+const FEATURED_CHANNEL_IDS: Record<ChannelConnectionType, readonly string[]> = {
+  api_key: ['openai', 'anthropic', 'gemini', 'openai_compatible'],
+  subscription: ['codex', 'claude'],
+}
 
 const props = withDefaults(
   defineProps<{
@@ -54,21 +59,69 @@ const activeIndex = ref(0)
 const searchInput = ref<InstanceType<typeof AppSearchInput>>()
 const identity = useId()
 const optionId = (channelID: string) => `${identity}-channel-${channelID}`
+const channelListId = `${identity}-channel-list`
+const activeConnectionType = ref<ChannelConnectionType>(
+  props.selectedChannel?.connection.type ?? 'api_key',
+)
+const lastSelectedChannelIDs = ref<Partial<Record<ChannelConnectionType, string>>>({})
 
 const initialLoading = computed(() => props.loading && props.channels.length === 0)
 const loadFailed = computed(() => props.error && props.channels.length === 0)
 
-const byID = (id: string) => props.channels.find((channel) => channel.channel_id === id)
-const featuredChannels = computed(
-  () => FEATURED_CHANNEL_IDS.map(byID).filter(Boolean) as ChannelDto[],
+function channelsForType(type: ChannelConnectionType): ChannelDto[] {
+  return props.channels.filter((channel) => channel.connection.type === type)
+}
+
+function featuredChannelsForType(type: ChannelConnectionType): ChannelDto[] {
+  const channels = channelsForType(type)
+  const byID = new Map(channels.map((channel) => [channel.channel_id, channel]))
+  const preferredIDs = new Set(FEATURED_CHANNEL_IDS[type])
+  return [
+    ...FEATURED_CHANNEL_IDS[type]
+      .map((channelID) => byID.get(channelID))
+      .filter((channel): channel is ChannelDto => channel !== undefined),
+    ...channels.filter((channel) => !preferredIDs.has(channel.channel_id)),
+  ].slice(0, MAX_FEATURED_CHANNELS)
+}
+
+const connectionTypeOptions = computed<SegmentedControlOption[]>(() => [
+  {
+    value: 'api_key',
+    label: t('import.steps.channel.connectionTypes.apiKey'),
+    disabled: props.disabled || channelsForType('api_key').length === 0,
+  },
+  {
+    value: 'subscription',
+    label: t('import.steps.channel.connectionTypes.subscription'),
+    disabled: props.disabled || channelsForType('subscription').length === 0,
+  },
+])
+const activeChannels = computed(() => channelsForType(activeConnectionType.value))
+const featuredChannels = computed(() => featuredChannelsForType(activeConnectionType.value))
+const featuredChannelIDs = computed(
+  () => new Set(featuredChannels.value.map((channel) => channel.channel_id)),
 )
 const extraChannel = computed(() =>
-  props.selectedChannel && !FEATURED_CHANNEL_IDS.includes(props.selectedChannel.channel_id)
+  props.selectedChannel?.connection.type === activeConnectionType.value &&
+  !featuredChannelIDs.value.has(props.selectedChannel.channel_id)
     ? props.selectedChannel
     : null,
 )
 const otherChannels = computed(() =>
-  props.channels.filter(({ channel_id }) => !FEATURED_CHANNEL_IDS.includes(channel_id)),
+  activeChannels.value.filter((channel) => !featuredChannelIDs.value.has(channel.channel_id)),
+)
+
+watch(
+  () => props.selectedChannel,
+  (channel) => {
+    if (!channel) return
+    activeConnectionType.value = channel.connection.type
+    lastSelectedChannelIDs.value = {
+      ...lastSelectedChannelIDs.value,
+      [channel.connection.type]: channel.channel_id,
+    }
+  },
+  { immediate: true },
 )
 
 function matchChannel(channel: ChannelDto, normalizedQuery: string): ChannelMatch | null {
@@ -97,7 +150,7 @@ const rankedMatches = computed<ChannelMatch[]>(() => {
   if (!normalizedQuery) {
     return otherChannels.value.map((channel) => ({ channel, rank: 0, reason: '' }))
   }
-  return props.channels
+  return activeChannels.value
     .map((channel, index) => ({ index, match: matchChannel(channel, normalizedQuery) }))
     .filter((row): row is { index: number; match: ChannelMatch } => row.match !== null)
     .sort((a, b) => b.match.rank - a.match.rank || a.index - b.index)
@@ -149,8 +202,29 @@ function channelSelected(channel: ChannelDto): boolean {
 
 function choose(channel: ChannelDto): void {
   if (props.disabled) return
+  activeConnectionType.value = channel.connection.type
+  lastSelectedChannelIDs.value = {
+    ...lastSelectedChannelIDs.value,
+    [channel.connection.type]: channel.channel_id,
+  }
   popoverOpen.value = false
   emit('select', channel)
+}
+
+function chooseConnectionType(value: string): void {
+  if (value !== 'api_key' && value !== 'subscription') return
+  const type: ChannelConnectionType = value
+  if (props.disabled || type === activeConnectionType.value) return
+  activeConnectionType.value = type
+  popoverOpen.value = false
+
+  const channels = channelsForType(type)
+  const rememberedID = lastSelectedChannelIDs.value[type]
+  const target =
+    channels.find((channel) => channel.channel_id === rememberedID) ??
+    featuredChannelsForType(type)[0] ??
+    channels[0]
+  if (target) choose(target)
 }
 
 function onSearchKeydown(event: KeyboardEvent): void {
@@ -208,117 +282,143 @@ function onSearchKeydown(event: KeyboardEvent): void {
         </template>
       </InlineFeedback>
 
-      <div v-else class="channel-picker__chips">
-        <button
-          v-for="channel in featuredChannels"
-          :key="channel.channel_id"
-          type="button"
-          class="channel-picker__chip"
-          :class="{ 'channel-picker__chip--selected': channelSelected(channel) }"
-          :disabled="disabled"
-          :aria-pressed="channelSelected(channel)"
-          @click="choose(channel)"
-        >
-          <ChannelIcon :icon="channel.icon" :mark="channel.mark" />
-          <span>{{ channel.name }}</span>
-        </button>
-
-        <template v-if="extraChannel">
-          <span class="channel-picker__divider" aria-hidden="true" />
-          <button
-            type="button"
-            class="channel-picker__chip channel-picker__chip--selected"
-            :disabled="disabled"
-            aria-pressed="true"
-            @click="choose(extraChannel)"
-          >
-            <ChannelIcon :icon="extraChannel.icon" :mark="extraChannel.mark" />
-            <span>{{ extraChannel.name }}</span>
-          </button>
-        </template>
+      <div v-else class="channel-picker__selector">
+        <SegmentedControl
+          :model-value="activeConnectionType"
+          :label="t('import.presets.connectionType')"
+          :options="connectionTypeOptions"
+          :controls-id="channelListId"
+          appearance="drawer"
+          size="sm"
+          @update:model-value="chooseConnectionType"
+        />
 
         <span class="channel-picker__divider" aria-hidden="true" />
 
-        <AppPopover v-model:open="popoverOpen" align="start" content-class="channel-picker__panel">
-          <template #trigger>
-            <button
-              type="button"
-              class="channel-picker__chip channel-picker__chip--more"
-              :disabled="disabled"
-              :aria-expanded="popoverOpen"
-            >
-              <span>{{ t('import.presets.more') }}</span>
-              <ChevronDown
-                class="channel-picker__caret"
-                :class="{ 'channel-picker__caret--open': popoverOpen }"
-                :size="13"
-                aria-hidden="true"
-              />
-            </button>
-          </template>
+        <div :id="channelListId" class="channel-picker__chips">
+          <button
+            v-for="channel in featuredChannels"
+            :key="channel.channel_id"
+            type="button"
+            class="channel-picker__chip"
+            :class="{
+              'channel-picker__chip--subscription': activeConnectionType === 'subscription',
+              'channel-picker__chip--selected': channelSelected(channel),
+            }"
+            :disabled="disabled"
+            :aria-pressed="channelSelected(channel)"
+            @click="choose(channel)"
+          >
+            <ChannelIcon :icon="channel.icon" :mark="channel.mark" />
+            <span>{{ channel.name }}</span>
+          </button>
 
-          <div class="channel-picker__panel-inner">
-            <AppSearchInput
-              ref="searchInput"
-              v-model="query"
-              :label="t('import.presets.search')"
-              :placeholder="t('import.presets.search')"
-              :clear-label="t('import.presets.clearSearch')"
-              :active-descendant="activeOptionId"
-              @keydown="onSearchKeydown"
-            />
+          <span class="channel-picker__divider" aria-hidden="true" />
 
-            <InlineFeedback v-if="rankedMatches.length === 0" tone="neutral" appearance="hint">
-              {{ t('import.presets.noMatches') }}
-            </InlineFeedback>
-            <div
-              v-else
-              class="channel-picker__options"
-              role="listbox"
-              :aria-label="t('import.presets.more')"
-            >
+          <AppPopover
+            v-model:open="popoverOpen"
+            align="start"
+            content-class="channel-picker__panel"
+          >
+            <template #trigger>
               <button
-                v-for="(match, index) in rankedMatches"
-                :id="optionId(match.channel.channel_id)"
-                :key="match.channel.channel_id"
                 type="button"
-                role="option"
-                class="channel-picker__option"
-                :class="{ 'channel-picker__option--active': index === activeIndex }"
-                :aria-selected="channelSelected(match.channel)"
-                @click="choose(match.channel)"
-                @mouseenter="activeIndex = index"
+                class="channel-picker__chip channel-picker__chip--more"
+                :class="{
+                  'channel-picker__chip--subscription': activeConnectionType === 'subscription',
+                  'channel-picker__chip--selected': extraChannel !== null,
+                }"
+                :disabled="disabled"
+                :aria-expanded="popoverOpen"
+                :aria-pressed="extraChannel !== null"
               >
-                <ChannelIcon :icon="match.channel.icon" :mark="match.channel.mark" />
-                <OverflowTooltip
-                  as="span"
-                  class="channel-picker__option-name"
-                  :content="match.channel.name"
-                  :focusable="false"
-                >
-                  <template
-                    v-for="(segment, segIndex) in highlightSegments(match.channel.name, query)"
-                    :key="segIndex"
-                  >
-                    <mark v-if="segment.matched">{{ segment.text }}</mark>
-                    <template v-else>{{ segment.text }}</template>
-                  </template>
-                </OverflowTooltip>
-                <span v-if="match.reason" class="channel-picker__option-reason">
-                  <template
-                    v-for="(segment, segIndex) in highlightSegments(match.reason, query)"
-                    :key="segIndex"
-                  >
-                    <mark v-if="segment.matched">{{ segment.text }}</mark>
-                    <template v-else>{{ segment.text }}</template>
-                  </template>
-                </span>
+                <ChannelIcon
+                  v-if="extraChannel"
+                  :icon="extraChannel.icon"
+                  :mark="extraChannel.mark"
+                />
+                <span>{{ extraChannel?.name ?? t('import.presets.more') }}</span>
+                <ChevronDown
+                  class="channel-picker__caret"
+                  :class="{ 'channel-picker__caret--open': popoverOpen }"
+                  :size="13"
+                  aria-hidden="true"
+                />
               </button>
+            </template>
+
+            <div class="channel-picker__panel-inner">
+              <AppSearchInput
+                ref="searchInput"
+                v-model="query"
+                :label="t('import.presets.search')"
+                :placeholder="t('import.presets.search')"
+                :clear-label="t('import.presets.clearSearch')"
+                :active-descendant="activeOptionId"
+                @keydown="onSearchKeydown"
+              />
+
+              <InlineFeedback v-if="rankedMatches.length === 0" tone="neutral" appearance="hint">
+                {{ t('import.presets.noMatches') }}
+              </InlineFeedback>
+              <div
+                v-else
+                class="channel-picker__options"
+                role="listbox"
+                :aria-label="t('import.presets.more')"
+              >
+                <button
+                  v-for="(match, index) in rankedMatches"
+                  :id="optionId(match.channel.channel_id)"
+                  :key="match.channel.channel_id"
+                  type="button"
+                  role="option"
+                  class="channel-picker__option"
+                  :class="{ 'channel-picker__option--active': index === activeIndex }"
+                  :aria-selected="channelSelected(match.channel)"
+                  @click="choose(match.channel)"
+                  @mouseenter="activeIndex = index"
+                >
+                  <ChannelIcon :icon="match.channel.icon" :mark="match.channel.mark" />
+                  <OverflowTooltip
+                    as="span"
+                    class="channel-picker__option-name"
+                    :content="match.channel.name"
+                    :focusable="false"
+                  >
+                    <template
+                      v-for="(segment, segIndex) in highlightSegments(match.channel.name, query)"
+                      :key="segIndex"
+                    >
+                      <mark v-if="segment.matched">{{ segment.text }}</mark>
+                      <template v-else>{{ segment.text }}</template>
+                    </template>
+                  </OverflowTooltip>
+                  <span v-if="match.reason" class="channel-picker__option-reason">
+                    <template
+                      v-for="(segment, segIndex) in highlightSegments(match.reason, query)"
+                      :key="segIndex"
+                    >
+                      <mark v-if="segment.matched">{{ segment.text }}</mark>
+                      <template v-else>{{ segment.text }}</template>
+                    </template>
+                  </span>
+                </button>
+              </div>
             </div>
-          </div>
-        </AppPopover>
+          </AppPopover>
+        </div>
       </div>
     </div>
+
+    <InlineFeedback
+      v-if="!initialLoading && !loadFailed && activeConnectionType === 'subscription'"
+      class="channel-picker__subscription-risk"
+      tone="warning"
+      appearance="ledger"
+    >
+      {{ t('import.presets.subscriptionRisk') }}
+    </InlineFeedback>
   </section>
 </template>
 
@@ -371,8 +471,17 @@ function onSearchKeydown(event: KeyboardEvent): void {
   position: relative;
 }
 
+.channel-picker__selector {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .channel-picker__chips {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
@@ -404,6 +513,20 @@ function onSearchKeydown(event: KeyboardEvent): void {
   background: var(--color-surface-sunken);
 }
 
+.channel-picker__chip--subscription {
+  border-color: color-mix(in srgb, var(--color-action) 24%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-action-soft) 46%, var(--color-surface));
+}
+
+.channel-picker__chip--subscription:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-action) 42%, var(--color-border-control));
+  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
+}
+
+.channel-picker__chip--subscription:not(.channel-picker__chip--selected) {
+  color: var(--color-text-muted);
+}
+
 .channel-picker__chip:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -424,6 +547,35 @@ function onSearchKeydown(event: KeyboardEvent): void {
 .channel-picker__chip--more[aria-expanded='true'] {
   border-color: var(--color-text-faint);
   background: var(--color-surface-sunken);
+}
+
+.channel-picker__chip--more.channel-picker__chip--subscription[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--color-action) 42%, var(--color-border-control));
+  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
+}
+
+.channel-picker__chip--more.channel-picker__chip--selected,
+.channel-picker__chip--more.channel-picker__chip--selected[aria-expanded='true'] {
+  border-color: var(--color-action);
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.channel-picker__chip--subscription.channel-picker__chip--selected,
+.channel-picker__chip--subscription.channel-picker__chip--selected[aria-expanded='true'] {
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  font-weight: 650;
+}
+
+.channel-picker__chip--subscription.channel-picker__chip--selected:hover:not(:disabled) {
+  border-color: var(--color-action-hover);
+  background: var(--color-action-hover);
+}
+
+.channel-picker__chip--subscription.channel-picker__chip--selected .channel-picker__caret {
+  color: currentColor;
 }
 
 .channel-picker__caret--open {
@@ -508,7 +660,23 @@ function onSearchKeydown(event: KeyboardEvent): void {
   white-space: nowrap;
 }
 
+.channel-picker__subscription-risk {
+  margin-top: var(--space-3);
+}
+
 @media (max-width: 860px) {
+  .channel-picker__selector {
+    align-items: flex-start;
+  }
+
+  .channel-picker__selector > .channel-picker__divider {
+    display: none;
+  }
+
+  .channel-picker__chips {
+    flex-basis: 100%;
+  }
+
   .channel-picker__chip {
     min-height: var(--touch-target);
   }

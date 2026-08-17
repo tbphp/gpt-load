@@ -13,6 +13,9 @@ export default {
       loading: 'Loading channels…',
       loadFailed: 'Unable to load channels',
       channelRequired: 'Select a channel',
+      connectionType: 'Credential type',
+      subscriptionRisk:
+        'Subscription-account access depends on provider authorization flows rather than a stable public API contract. Upstream policy or protocol changes may invalidate authorization, interrupt access, or restrict the account; assess the risks before use.',
     },
     mode: {
       label: 'Import destination',

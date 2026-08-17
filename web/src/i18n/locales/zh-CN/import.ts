@@ -13,6 +13,9 @@ export default {
       loading: '正在加载渠道…',
       loadFailed: '无法加载渠道列表',
       channelRequired: '请选择渠道',
+      connectionType: '凭据类型',
+      subscriptionRisk:
+        '订阅账号接入依赖服务商的授权机制，并非稳定的公开 API 契约；上游规则或协议变化可能导致授权失效、接入中断或账号受限，请在使用前自行评估风险。',
     },
     mode: {
       label: '导入目标',

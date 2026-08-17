@@ -32,9 +32,7 @@ func TestClaudeModuleDeclaresSubscriptionContract(t *testing.T) {
 		}) {
 		t.Fatalf("Claude connection = %#v", descriptor.Connection)
 	}
-	if !reflect.DeepEqual(descriptor.Notices, []NoticeDescriptor{{
-		ID: NoticeClaudeOAuthRisk, Tone: NoticeToneWarning,
-	}}) {
+	if len(descriptor.Notices) != 0 {
 		t.Fatalf("Claude notices = %#v", descriptor.Notices)
 	}
 	target, err := registry.Resolve(Claude, nil)
