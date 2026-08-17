@@ -93,6 +93,23 @@ func TestResolveAutomaticPriceForIdentityTreatsCodexOpenAIPriceAsReference(t *te
 	}
 }
 
+func TestResolveAutomaticPriceForIdentityTreatsClaudeAnthropicPriceAsReference(t *testing.T) {
+	anthropicCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"anthropic": {ID: "anthropic", Models: map[string]catalog.Model{
+			"claude-subscription": {ID: "claude-subscription", Cost: anthropicCost},
+		}},
+	}}
+
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Claude), ModelID: "claude-subscription",
+	})
+	if !ok || match.cost != anthropicCost || match.providerID != "anthropic" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("Claude price reference = %#v, %t", match, ok)
+	}
+}
+
 func TestCompatibleAutomaticPriceUsesGlobalPriority(t *testing.T) {
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}

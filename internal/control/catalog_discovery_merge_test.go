@@ -13,6 +13,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
@@ -49,6 +50,55 @@ func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T
 	}}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("Codex candidates = %#v, want %#v", got.Models, want)
+	}
+}
+
+func TestClaudeDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"anthropic": {
+			ID: "anthropic", Name: "Anthropic", Models: map[string]catalog.Model{
+				"claude-subscription": {
+					ID: "claude-subscription", Name: "Anthropic catalog name",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				},
+				"anthropic-catalog-only": {
+					ID: "anthropic-catalog-only", Name: "Anthropic catalog only",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
+				},
+			},
+		},
+	}})
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
+		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"claude@example.com","expired":"2030-01-01T00:00:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.discoverSubscriptionModels = func(
+		_ context.Context,
+		channelID channel.ID,
+		_ subscriptionruntime.Credential,
+	) ([]string, error) {
+		if channelID != channel.Claude {
+			t.Fatalf("channel = %q, want Claude", channelID)
+		}
+		return []string{"claude-subscription"}, nil
+	}
+
+	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Claude, StagedCredentialID: stage.StageID, ConnectionType: "subscription",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anthropic := "Anthropic"
+	want := []ModelCandidate{{
+		ID: "claude-subscription", Name: "claude-subscription", Sources: []string{"live"},
+		PricingStatus: PricingStatusConfigured, PricingSource: &anthropic,
+	}}
+	if !reflect.DeepEqual(got.Models, want) {
+		t.Fatalf("Claude candidates = %#v, want %#v", got.Models, want)
 	}
 }
 
