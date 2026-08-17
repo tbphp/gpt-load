@@ -19,7 +19,7 @@ func Codex() spec.Module {
 			ID:          spec.Codex,
 			Name:        "Codex",
 			Mark:        "CX",
-			Icon:        "openai",
+			Icon:        "codex",
 			SearchTerms: []string{"subscription", "oauth", "chatgpt"},
 			Description: "OpenAI Codex subscription",
 			Connection: spec.Connection{

@@ -19,7 +19,7 @@ func Claude() spec.Module {
 			ID:          spec.Claude,
 			Name:        "Claude",
 			Mark:        "CL",
-			Icon:        "anthropic",
+			Icon:        "claude",
 			SearchTerms: []string{"subscription", "oauth", "claude", "anthropic"},
 			Description: "Anthropic Claude subscription",
 			Connection: spec.Connection{
