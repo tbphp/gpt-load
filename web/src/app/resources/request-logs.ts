@@ -171,6 +171,7 @@ export interface RequestLogItemDto {
   cost_state: RequestLogCostState
   pricing_completeness: RequestLogPricingCompleteness
   pricing_mode: string | null
+  context_threshold_tokens: string | null
   input_tokens: string
   cache_read_tokens: string
   cache_write_5m_tokens: string
@@ -266,6 +267,7 @@ const itemFields = [
   'cost_state',
   'pricing_completeness',
   'pricing_mode',
+  'context_threshold_tokens',
   'input_tokens',
   'cache_read_tokens',
   'cache_write_5m_tokens',
@@ -556,6 +558,10 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     pricing_mode: record.pricing_mode === null ? null : projectPricingMode(record.pricing_mode),
+    context_threshold_tokens:
+      record.context_threshold_tokens === null
+        ? null
+        : projectNonNegativeInt64String(record.context_threshold_tokens),
     ...projectUsageCost(record),
   }
 }

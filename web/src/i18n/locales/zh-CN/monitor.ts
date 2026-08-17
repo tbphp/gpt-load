@@ -897,6 +897,7 @@ export default {
       },
       pricingMode: {
         fastLabel: 'Fast 模式计价',
+        tierLabel: '命中档位：输入 Token ≥ {threshold}',
       },
     },
   },

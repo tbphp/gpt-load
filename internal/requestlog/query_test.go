@@ -585,6 +585,59 @@ func TestServiceListAndDetailExposeFinalPricingMode(t *testing.T) {
 	}
 }
 
+func TestServiceListAndDetailExposeFinalContextThreshold(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	row := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000217",
+		time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC),
+		71,
+		"client-model",
+		[]Attempt{{
+			Sequence: 1, GroupID: 12, ChannelID: channel.OpenAI, CredentialID: 1,
+			RouteMode: channel.RouteNative, UpstreamProtocol: protocol.OpenAICompletions,
+			UpstreamModel: "tiered-model",
+		}},
+	)
+	row.GroupID = 12
+	row.ChannelID = string(channel.OpenAI)
+	row.CredentialID = 1
+	threshold := int64(272_000)
+	receipt, err := json.Marshal(pricing.Receipt{
+		SchemaVersion:          4,
+		Method:                 pricing.ReceiptMethodUnitRateSum,
+		MethodVersion:          1,
+		Currency:               "USD",
+		PricingMode:            pricing.ModeStandard,
+		ContextThresholdTokens: &threshold,
+		Rule: pricing.ReceiptRule{
+			ChannelID: string(channel.OpenAI),
+			ModelID:   "tiered-model",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.AttemptRows[0].PricingReceipt = receipt
+	createRequestLogQueryRow(t, db, row)
+
+	service := newRequestLogTestService(db)
+	page, err := service.List(context.Background(), ListQuery{Limit: 50})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ContextThresholdTokens == nil ||
+		*page.Items[0].ContextThresholdTokens != threshold {
+		t.Fatalf("List() context threshold = %#v, want %d", page.Items, threshold)
+	}
+	detail, err := service.Get(context.Background(), row.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if detail.ContextThresholdTokens == nil || *detail.ContextThresholdTokens != threshold {
+		t.Fatalf("Get() context threshold = %#v, want %d", detail.ContextThresholdTokens, threshold)
+	}
+}
+
 func TestServiceListAttemptFiltersMustMatchTheSameAttempt(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	row := requestLogQueryRow(

@@ -920,6 +920,7 @@ export default {
       },
       pricingMode: {
         fastLabel: 'Fast mode pricing',
+        tierLabel: 'Matched tier: input tokens ≥ {threshold}',
       },
     },
   },

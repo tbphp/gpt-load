@@ -807,7 +807,10 @@ function costLabel(log: RequestLogItemDto): string {
               >
                 {{ costLabel(log) }}
               </OverflowTooltip>
-              <PricingModeIndicator :mode="log.pricing_mode" />
+              <PricingModeIndicator
+                :mode="log.pricing_mode"
+                :context-threshold-tokens="log.context_threshold_tokens"
+              />
             </span>
           </div>
           <div

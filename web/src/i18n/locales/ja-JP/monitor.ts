@@ -919,6 +919,7 @@ export default {
       },
       pricingMode: {
         fastLabel: 'Fast モード料金',
+        tierLabel: '適用階層：入力 Token ≥ {threshold}',
       },
     },
   },
