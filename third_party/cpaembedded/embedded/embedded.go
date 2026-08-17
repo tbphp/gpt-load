@@ -137,6 +137,7 @@ func (e *UpstreamHTTPError) Error() string {
 // concrete executor and auth types stay inside this nested module.
 type HTTPExecutor interface {
 	ExecuteCanonical(context.Context, string, CodexCredential, ExecuteRequest) (ExecuteResponse, error)
+	CountTokensCanonical(context.Context, string, CodexCredential, ExecuteRequest) (ExecuteResponse, error)
 	ExecuteStreamCanonical(context.Context, string, CodexCredential, ExecuteRequest) (*ExecuteStreamResponse, error)
 }
 
@@ -379,6 +380,55 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: observation.reasoningEffort(),
 	}, nil
+}
+
+func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
+	format := sdktranslator.FromString(request.Format)
+	auth := NewCodexAuth(credentialID, credential, "")
+	observation := newExecutionObservation(request)
+	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
+	}, cliproxyexecutor.Options{
+		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		SourceFormat: format, ResponseFormat: format,
+	})
+	if err != nil {
+		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
+	}
+	payload := append([]byte(nil), response.Payload...)
+	if format == sdktranslator.FormatOpenAIResponse {
+		payload, err = normalizeCodexResponsesTokenCount(payload)
+		if err != nil {
+			return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
+		}
+	}
+	return ExecuteResponse{
+		Payload: payload, Headers: response.Headers.Clone(),
+		AppliedReasoningEffort: observation.reasoningEffort(),
+	}, nil
+}
+
+func normalizeCodexResponsesTokenCount(payload []byte) ([]byte, error) {
+	var envelope struct {
+		Response struct {
+			Usage struct {
+				InputTokens *int64 `json:"input_tokens"`
+			} `json:"usage"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return nil, fmt.Errorf("decode Codex token count: %w", err)
+	}
+	if envelope.Response.Usage.InputTokens == nil || *envelope.Response.Usage.InputTokens < 0 {
+		return nil, fmt.Errorf("decode Codex token count: input_tokens is missing or invalid")
+	}
+	return json.Marshal(struct {
+		Object      string `json:"object"`
+		InputTokens int64  `json:"input_tokens"`
+	}{
+		Object:      "response.input_tokens",
+		InputTokens: *envelope.Response.Usage.InputTokens,
+	})
 }
 
 func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (*ExecuteStreamResponse, error) {

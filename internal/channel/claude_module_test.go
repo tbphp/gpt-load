@@ -102,9 +102,9 @@ func TestBuiltInCountTokensRouteMatrix(t *testing.T) {
 		{OpenAI, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, RouteNative, true},
 		{OpenAI, protocol.Anthropic, countTokens, RouteConverted, true},
 		{OpenAI, protocol.Gemini, countTokens, RouteConverted, true},
-		{Codex, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, "", false},
-		{Codex, protocol.Anthropic, countTokens, "", false},
-		{Codex, protocol.Gemini, countTokens, "", false},
+		{Codex, protocol.OpenAIResponses, execution.OperationResponsesInputTokens, RouteNative, true},
+		{Codex, protocol.Anthropic, countTokens, RouteConverted, true},
+		{Codex, protocol.Gemini, countTokens, RouteConverted, true},
 	}
 	for _, test := range tests {
 		t.Run(string(test.channelID)+"/"+string(test.clientProtocol)+"/"+string(test.operation), func(t *testing.T) {

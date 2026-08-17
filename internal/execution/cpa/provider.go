@@ -82,9 +82,9 @@ type providerBridge interface {
 	ClassifyError(context.Context, error, providerCredential) (int, *execution.ErrorEvidence)
 }
 
-// providerTokenCounter is implemented only by bridges whose CountTokens path
-// is guaranteed to call an upstream provider endpoint. Local estimators do not
-// satisfy this contract.
+// providerTokenCounter is implemented only by bridges with an explicit,
+// provider-owned CountTokens contract. A bridge may call an upstream endpoint
+// or expose a provider-specific local estimator; silent fallback is forbidden.
 type providerTokenCounter interface {
 	CountTokens(context.Context, string, providerCredential, providerRequest) (providerResponse, error)
 }

@@ -41,18 +41,43 @@ func (*codexProviderBridge) UpstreamProtocol() protocol.Protocol {
 
 func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescriptor) error {
 	valid := route.ClientProtocol == protocol.OpenAIResponses &&
-		route.Operation == execution.OperationResponsesCreate &&
+		(route.Operation == execution.OperationResponsesCreate ||
+			route.Operation == execution.OperationResponsesInputTokens) &&
 		route.RouteMode == execution.RouteNative
 	if route.ClientProtocol == protocol.OpenAICompletions ||
 		route.ClientProtocol == protocol.Anthropic ||
 		route.ClientProtocol == protocol.Gemini {
 		valid = route.Operation == execution.OperationChatCompletion &&
 			route.RouteMode == execution.RouteConverted
+		if route.ClientProtocol == protocol.Anthropic || route.ClientProtocol == protocol.Gemini {
+			valid = valid || (route.Operation == execution.OperationCountTokens &&
+				route.RouteMode == execution.RouteConverted)
+		}
 	}
 	if !valid {
 		return fmt.Errorf("route is not implemented by Codex")
 	}
 	return nil
+}
+
+func (bridge *codexProviderBridge) CountTokens(
+	ctx context.Context,
+	credentialID string,
+	credential providerCredential,
+	request providerRequest,
+) (providerResponse, error) {
+	codexCredential, ok := credential.(codexProviderCredential)
+	if !ok || bridge == nil || bridge.executor == nil {
+		return providerResponse{}, errors.New("Codex provider bridge credential mismatch")
+	}
+	response, err := bridge.executor.CountTokens(ctx, credentialID, codexCredential.value, codex.ExecuteRequest{
+		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
+		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+	})
+	return providerResponse{
+		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
+		AppliedReasoningEffort: response.AppliedReasoningEffort,
+	}, err
 }
 
 func (*codexProviderBridge) ParseCredential(raw []byte) (providerCredential, error) {
@@ -163,3 +188,4 @@ func (*codexProviderBridge) ClassifyError(
 }
 
 var _ providerBridge = (*codexProviderBridge)(nil)
+var _ providerTokenCounter = (*codexProviderBridge)(nil)

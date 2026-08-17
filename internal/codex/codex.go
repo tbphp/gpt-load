@@ -246,6 +246,7 @@ type ExecuteStreamChunk struct {
 // Executor is the isolated CPA execution surface consumed by GPT-Load.
 type Executor interface {
 	Execute(context.Context, string, Credential, ExecuteRequest) (ExecuteResponse, error)
+	CountTokens(context.Context, string, Credential, ExecuteRequest) (ExecuteResponse, error)
 	ExecuteStream(context.Context, string, Credential, ExecuteRequest) (*ExecuteStreamResponse, error)
 }
 
@@ -265,6 +266,25 @@ func (e *executor) Execute(
 	request ExecuteRequest,
 ) (ExecuteResponse, error) {
 	response, err := e.bridge.ExecuteCanonical(
+		ctx,
+		credentialID,
+		credentialToBridge(credential),
+		executeRequestToBridge(request),
+	)
+	return ExecuteResponse{
+		Payload:                append([]byte(nil), response.Payload...),
+		Headers:                response.Headers.Clone(),
+		AppliedReasoningEffort: response.AppliedReasoningEffort,
+	}, err
+}
+
+func (e *executor) CountTokens(
+	ctx context.Context,
+	credentialID string,
+	credential Credential,
+	request ExecuteRequest,
+) (ExecuteResponse, error) {
+	response, err := e.bridge.CountTokensCanonical(
 		ctx,
 		credentialID,
 		credentialToBridge(credential),

@@ -72,10 +72,19 @@ func TestCompileSubscriptionPublishesOnlyVerifiedCodexOperations(t *testing.T) {
 	if got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesCreate]["public"]; len(got) != 1 {
 		t.Fatalf("responses create targets = %#v", got)
 	}
+	if got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesInputTokens]["public"]; len(got) != 1 {
+		t.Fatalf("responses input token targets = %#v", got)
+	}
+	if got := snapshot.ExecutionCandidates[protocol.Anthropic][execution.OperationCountTokens]["public"]; len(got) != 1 {
+		t.Fatalf("Anthropic count token targets = %#v", got)
+	}
+	if got := snapshot.ExecutionCandidates[protocol.Gemini][execution.OperationCountTokens]["public"]; len(got) != 1 {
+		t.Fatalf("Gemini count token targets = %#v", got)
+	}
 	for _, operation := range []execution.Operation{
 		execution.OperationResponsesRetrieve, execution.OperationResponsesDelete,
 		execution.OperationResponsesCancel, execution.OperationResponsesCompact,
-		execution.OperationResponsesInputItems, execution.OperationResponsesInputTokens,
+		execution.OperationResponsesInputItems,
 		execution.OperationResponsesPassthrough,
 	} {
 		if got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][operation]; len(got) != 0 {

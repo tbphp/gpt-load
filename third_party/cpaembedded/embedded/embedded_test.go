@@ -347,6 +347,62 @@ func TestCodexHTTPExecutorCanonicalFacadeExecutesOnce(t *testing.T) {
 	var _ HTTPExecutor = executor
 }
 
+func TestCodexHTTPExecutorCanonicalFacadeCountsTokensLocally(t *testing.T) {
+	t.Parallel()
+
+	executor := NewCodexHTTPExecutor()
+	counter, ok := any(executor).(interface {
+		CountTokensCanonical(context.Context, string, CodexCredential, ExecuteRequest) (ExecuteResponse, error)
+	})
+	if !ok {
+		t.Fatal("Codex HTTP executor does not expose local CountTokens")
+	}
+	credential := CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}
+	tests := []struct {
+		name      string
+		format    string
+		payload   string
+		wantField string
+	}{
+		{
+			name: "OpenAI Responses", format: "openai-response",
+			payload: `{"model":"gpt-5.2","input":"hello"}`, wantField: "input_tokens",
+		},
+		{
+			name: "Anthropic", format: "claude",
+			payload: `{"model":"gpt-5.2","messages":[{"role":"user","content":"hello"}]}`, wantField: "input_tokens",
+		},
+		{
+			name: "Gemini", format: "gemini",
+			payload: `{"model":"gpt-5.2","contents":[{"role":"user","parts":[{"text":"hello"}]}]}`, wantField: "totalTokens",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := counter.CountTokensCanonical(
+				t.Context(), "credential-1", credential,
+				ExecuteRequest{Model: "gpt-5.2", Format: test.format, Payload: []byte(test.payload)},
+			)
+			if err != nil {
+				t.Fatalf("CountTokensCanonical() error = %v", err)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(response.Payload, &body); err != nil {
+				t.Fatalf("decode response %q: %v", response.Payload, err)
+			}
+			count, ok := body[test.wantField].(float64)
+			if !ok || count <= 0 {
+				t.Fatalf("CountTokensCanonical() = %s, want positive %q", response.Payload, test.wantField)
+			}
+			if test.format == "openai-response" && body["object"] != "response.input_tokens" {
+				t.Fatalf("OpenAI Responses CountTokens = %s", response.Payload)
+			}
+		})
+	}
+}
+
 func TestCodexHTTPExecutorLoadsSupportedClientTranslators(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -98,7 +98,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 		if !ok {
 			return unaryNotSent(
 				execution.ErrorKindInvalidRequest,
-				"subscription provider does not support upstream token counting",
+				"subscription provider does not support token counting",
 				"",
 				nil,
 			)

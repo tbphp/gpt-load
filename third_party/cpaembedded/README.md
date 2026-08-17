@@ -13,7 +13,7 @@ quota policy. This bridge only exposes:
 - Codex browser OAuth challenge creation and one-shot code exchange;
 - strict CPA Codex JSON parsing;
 - one-shot, context-aware token refresh;
-- the stateless Codex HTTP executor;
+- the stateless Codex HTTP executor and its explicit local CountTokens estimator;
 - one-shot model and usage observation requests.
 - Claude browser OAuth challenge creation and one-shot code exchange;
 - strict CPA Claude JSON parsing and stable device identity normalization;

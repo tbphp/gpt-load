@@ -28,13 +28,15 @@ import (
 )
 
 type fakeExecutor struct {
-	mu      sync.Mutex
-	calls   int
-	last    codex.Credential
-	request codex.ExecuteRequest
-	result  codex.ExecuteResponse
-	err     error
-	stream  *codex.ExecuteStreamResponse
+	mu          sync.Mutex
+	calls       int
+	countCalls  int
+	last        codex.Credential
+	request     codex.ExecuteRequest
+	result      codex.ExecuteResponse
+	countResult codex.ExecuteResponse
+	err         error
+	stream      *codex.ExecuteStreamResponse
 }
 
 type fakeCredentialPreparer struct {
@@ -77,6 +79,15 @@ func (f *fakeExecutor) ExecuteStream(_ context.Context, _ string, credential cod
 	f.last = credential
 	f.request = request
 	return f.stream, f.err
+}
+
+func (f *fakeExecutor) CountTokens(_ context.Context, _ string, credential codex.Credential, request codex.ExecuteRequest) (codex.ExecuteResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.countCalls++
+	f.last = credential
+	f.request = request
+	return f.countResult, f.err
 }
 
 func setCodexExecutor(t *testing.T, adapter *Adapter, executor codex.Executor) {
@@ -187,6 +198,50 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 			}
 			if result.Header.Get("X-Request-Id") != "upstream-1" {
 				t.Fatalf("request ID header = %q", result.Header.Get("X-Request-Id"))
+			}
+		})
+	}
+}
+
+func TestAdapterCountsCodexTokensForEverySupportedProtocol(t *testing.T) {
+	tests := []struct {
+		name       string
+		protocol   protocol.Protocol
+		operation  execution.Operation
+		routeMode  execution.RouteMode
+		wantFormat string
+		response   string
+	}{
+		{
+			name: "OpenAI Responses", protocol: protocol.OpenAIResponses,
+			operation: execution.OperationResponsesInputTokens, routeMode: execution.RouteNative,
+			wantFormat: "openai-response", response: `{"object":"response.input_tokens","input_tokens":7}`,
+		},
+		{
+			name: "Anthropic", protocol: protocol.Anthropic,
+			operation: execution.OperationCountTokens, routeMode: execution.RouteConverted,
+			wantFormat: "claude", response: `{"input_tokens":7}`,
+		},
+		{
+			name: "Gemini", protocol: protocol.Gemini,
+			operation: execution.OperationCountTokens, routeMode: execution.RouteConverted,
+			wantFormat: "gemini", response: `{"totalTokens":7}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			fake := &fakeExecutor{countResult: codex.ExecuteResponse{Payload: []byte(test.response)}}
+			setCodexExecutor(t, adapter, fake)
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = test.protocol
+			spec.Operation = test.operation
+			spec.RouteMode = test.routeMode
+
+			result := adapter.Execute(t.Context(), spec)
+			if result.Error != nil || fake.countCalls != 1 || fake.calls != 0 ||
+				fake.request.Format != test.wantFormat || string(result.Body) != test.response {
+				t.Fatalf("result=%#v calls=%d countCalls=%d request=%#v", result, fake.calls, fake.countCalls, fake.request)
 			}
 		})
 	}

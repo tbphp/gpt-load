@@ -39,8 +39,11 @@ func Codex() spec.Module {
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteNative),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesInputTokens, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.Anthropic, execution.OperationCountTokens, execution.RouteConverted),
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.Gemini, execution.OperationCountTokens, execution.RouteConverted),
 			},
 			Capabilities: spec.CapabilityBindings{
 				SubscriptionDriver: CodexSubscriptionDriver,
