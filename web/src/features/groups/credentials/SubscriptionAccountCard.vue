@@ -369,12 +369,11 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
           />
           <span>{{ planLabel }}</span>
         </span>
-        <StatusBadge :tone="statusTone" size="compact">
+        <StatusBadge class="subscription-account__status" :tone="statusTone" size="compact">
           {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
         </StatusBadge>
         <div class="subscription-account__actions">
           <span v-if="supportsQuotaObservation" class="subscription-account__sync-age">
-            {{ t('group.credentials.subscription.synced') }}
             <AppRelativeTime
               :instant="observation?.observed_at_ms ?? null"
               :locale="locale"
@@ -865,7 +864,9 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   gap: var(--space-2);
 }
 .subscription-account__mail {
+  max-width: 150px;
   min-width: 0;
+  flex: 0 1 150px;
   overflow: hidden;
   margin-right: 2px;
   font-family: var(--font-mono);
@@ -896,6 +897,10 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   color: var(--color-text);
   font-size: 14px;
 }
+.subscription-account__status {
+  flex: none;
+  white-space: nowrap;
+}
 .subscription-account__actions {
   display: flex;
   flex: none;
@@ -910,7 +915,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 }
 .subscription-account__sync-button :deep(.app-button),
 .subscription-account__sync-button.app-button {
-  min-height: 30px;
+  min-height: 24px;
   padding-inline: 10px;
 }
 .subscription-account__spacer {
@@ -1336,12 +1341,6 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   .subscription-account__detail {
     padding-right: 14px;
     padding-left: 14px;
-  }
-  .subscription-account__top {
-    flex-wrap: wrap;
-  }
-  .subscription-account__mail {
-    width: 100%;
   }
   .subscription-account__actions {
     margin-left: auto;
