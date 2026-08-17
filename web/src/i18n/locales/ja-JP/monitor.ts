@@ -253,6 +253,7 @@ export default {
         totalTokens: '報告済みトークン合計',
         persistedWindow: '現在の集計期間',
         estimatedCost: '推定コスト',
+        estimatedCostBasis: '報告済みトークンに基づく推定',
       },
       tokens: {
         title: '報告済みトークン分類',

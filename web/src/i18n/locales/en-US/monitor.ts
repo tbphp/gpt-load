@@ -253,6 +253,7 @@ export default {
         totalTokens: 'Total reported tokens',
         persistedWindow: 'Current reporting window',
         estimatedCost: 'Estimated cost',
+        estimatedCostBasis: 'Based on reported tokens',
       },
       tokens: {
         title: 'Reported token categories',

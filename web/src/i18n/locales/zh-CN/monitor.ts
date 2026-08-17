@@ -245,6 +245,7 @@ export default {
         totalTokens: '已报告 Token 总数',
         persistedWindow: '当前统计窗口',
         estimatedCost: '预估成本',
+        estimatedCostBasis: '基于已报告 Token 估算',
       },
       tokens: {
         title: '已报告 Token 分类',
