@@ -5,6 +5,7 @@ import {
   Ellipsis,
   LoaderCircle,
   LogIn,
+  RefreshCw,
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
@@ -125,6 +126,13 @@ const credentialExpiryTooltip = computed(() => {
   return props.item.auth_state === 'ready'
     ? `${exact}\n${t('group.credentials.subscription.autoRenews')}`
     : exact
+})
+const syncTimeTooltip = computed(() => {
+  const observedAtMS = observation.value?.observed_at_ms
+  if (observedAtMS === undefined || observedAtMS === null) return undefined
+  return t('group.credentials.subscription.syncTime', {
+    time: formatLocalInstant(observedAtMS, locale.value),
+  })
 })
 const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available ?? 0)
 const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
@@ -357,99 +365,115 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   <article class="subscription-account" :class="`subscription-account--${statusTone}`">
     <div class="subscription-account__main">
       <header class="subscription-account__top">
-        <OverflowTooltip class="subscription-account__mail" :content="accountName">
-          {{ accountName }}
-        </OverflowTooltip>
-        <span v-if="planLabel" class="subscription-account__plan">
-          <ChannelIcon
-            v-if="channelIcon && channelMark"
-            class="subscription-account__plan-icon"
-            :icon="channelIcon"
-            :mark="channelMark"
-          />
-          <span>{{ planLabel }}</span>
-        </span>
-        <StatusBadge class="subscription-account__status" :tone="statusTone" size="compact">
-          {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
-        </StatusBadge>
-        <div class="subscription-account__actions">
+        <div class="subscription-account__top-row">
+          <div class="subscription-account__badges">
+            <span v-if="planLabel" class="subscription-account__plan">
+              <ChannelIcon
+                v-if="channelIcon && channelMark"
+                class="subscription-account__plan-icon"
+                :icon="channelIcon"
+                :mark="channelMark"
+              />
+              <span>{{ planLabel }}</span>
+            </span>
+            <StatusBadge class="subscription-account__status" :tone="statusTone" size="compact">
+              {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
+            </StatusBadge>
+          </div>
+          <div class="subscription-account__actions">
+            <AppTooltip
+              v-if="supportsQuotaObservation"
+              :content="t('group.credentials.subscription.sync')"
+            >
+              <IconButton
+                class="subscription-account__sync-button"
+                size="compact"
+                variant="ghost"
+                :label="t('group.credentials.subscription.sync')"
+                :busy="busy"
+                :disabled="item.configured_status === 'disabled'"
+                @click="emit('refresh', item)"
+              >
+                <RefreshCw
+                  :class="{ 'subscription-account__sync-icon--spinning': busy }"
+                  :size="15"
+                  aria-hidden="true"
+                />
+              </IconButton>
+            </AppTooltip>
+            <AppPopover
+              v-model:open="menuOpen"
+              align="end"
+              content-class="app-popover__content--account-menu"
+            >
+              <template #trigger>
+                <IconButton
+                  variant="ghost"
+                  size="compact"
+                  :label="t('group.credentials.subscription.moreActions')"
+                  :disabled="busy"
+                >
+                  <Ellipsis :size="16" aria-hidden="true" />
+                </IconButton>
+              </template>
+              <div class="subscription-account__menu">
+                <button
+                  v-if="canReauthorize"
+                  type="button"
+                  :disabled="busy"
+                  @click="runMenuAction('reauthorize')"
+                >
+                  <LogIn :size="15" aria-hidden="true" />{{
+                    t('group.credentials.subscription.reauthorize')
+                  }}
+                </button>
+                <button type="button" :disabled="busy" @click="runMenuAction('toggle')">
+                  <CircleOff
+                    v-if="item.configured_status === 'active'"
+                    :size="15"
+                    aria-hidden="true"
+                  />
+                  <CircleCheck v-else :size="15" aria-hidden="true" />
+                  {{
+                    item.configured_status === 'active'
+                      ? t('group.credentials.disable')
+                      : t('group.credentials.enable')
+                  }}
+                </button>
+                <button
+                  v-if="isProblem"
+                  type="button"
+                  :disabled="busy"
+                  @click="runMenuAction('restore')"
+                >
+                  <RotateCcw :size="15" aria-hidden="true" />{{ t('group.credentials.restore') }}
+                </button>
+                <div class="subscription-account__menu-divider"></div>
+                <button
+                  type="button"
+                  class="subscription-account__menu-danger"
+                  :disabled="busy"
+                  @click="runMenuAction('remove')"
+                >
+                  <Trash2 :size="15" aria-hidden="true" />{{ t('group.credentials.delete') }}
+                </button>
+              </div>
+            </AppPopover>
+          </div>
+        </div>
+        <div class="subscription-account__top-row">
+          <OverflowTooltip class="subscription-account__mail" :content="accountName">
+            {{ accountName }}
+          </OverflowTooltip>
           <span v-if="supportsQuotaObservation" class="subscription-account__sync-age">
             <AppRelativeTime
               :instant="observation?.observed_at_ms ?? null"
               :locale="locale"
               :empty-label="t('group.credentials.subscription.unknown')"
+              :tooltip-content="syncTimeTooltip"
               hint
             />
           </span>
-          <AppButton
-            v-if="supportsQuotaObservation"
-            class="subscription-account__sync-button"
-            variant="secondary"
-            size="compact"
-            :busy="busy"
-            :disabled="item.configured_status === 'disabled'"
-            @click="emit('refresh', item)"
-          >
-            {{ t('group.credentials.subscription.sync') }}
-          </AppButton>
-          <AppPopover
-            v-model:open="menuOpen"
-            align="end"
-            content-class="app-popover__content--account-menu"
-          >
-            <template #trigger>
-              <IconButton
-                variant="ghost"
-                size="compact"
-                :label="t('group.credentials.subscription.moreActions')"
-                :disabled="busy"
-              >
-                <Ellipsis :size="16" aria-hidden="true" />
-              </IconButton>
-            </template>
-            <div class="subscription-account__menu">
-              <button
-                v-if="canReauthorize"
-                type="button"
-                :disabled="busy"
-                @click="runMenuAction('reauthorize')"
-              >
-                <LogIn :size="15" aria-hidden="true" />{{
-                  t('group.credentials.subscription.reauthorize')
-                }}
-              </button>
-              <button type="button" :disabled="busy" @click="runMenuAction('toggle')">
-                <CircleOff
-                  v-if="item.configured_status === 'active'"
-                  :size="15"
-                  aria-hidden="true"
-                />
-                <CircleCheck v-else :size="15" aria-hidden="true" />
-                {{
-                  item.configured_status === 'active'
-                    ? t('group.credentials.disable')
-                    : t('group.credentials.enable')
-                }}
-              </button>
-              <button
-                v-if="isProblem"
-                type="button"
-                :disabled="busy"
-                @click="runMenuAction('restore')"
-              >
-                <RotateCcw :size="15" aria-hidden="true" />{{ t('group.credentials.restore') }}
-              </button>
-              <div class="subscription-account__menu-divider"></div>
-              <button
-                type="button"
-                class="subscription-account__menu-danger"
-                :disabled="busy"
-                @click="runMenuAction('remove')"
-              >
-                <Trash2 :size="15" aria-hidden="true" />{{ t('group.credentials.delete') }}
-              </button>
-            </div>
-          </AppPopover>
         </div>
       </header>
 
@@ -858,15 +882,25 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   padding: var(--space-3) var(--space-4) 0;
 }
 .subscription-account__top {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.subscription-account__top-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+.subscription-account__badges {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: var(--space-2);
 }
 .subscription-account__mail {
-  max-width: 150px;
   min-width: 0;
-  flex: 0 1 150px;
+  flex: 1 1 auto;
   overflow: hidden;
   margin-right: 2px;
   font-family: var(--font-mono);
@@ -905,18 +939,15 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   display: flex;
   flex: none;
   align-items: center;
-  gap: var(--space-2);
+  gap: 0;
   margin-left: auto;
 }
 .subscription-account__sync-age {
+  flex: none;
+  margin-left: auto;
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
   white-space: nowrap;
-}
-.subscription-account__sync-button :deep(.app-button),
-.subscription-account__sync-button.app-button {
-  min-height: 24px;
-  padding-inline: 10px;
 }
 .subscription-account__spacer {
   flex: 1 1 auto;
@@ -927,9 +958,10 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 }
 .subscription-account__quota {
   display: grid;
-  grid-template-columns: minmax(72px, 98px) minmax(0, 1fr) max-content 64px;
+  grid-template-columns: minmax(72px, 98px) minmax(0, 1fr) 56px 56px;
   align-items: center;
-  gap: var(--space-3);
+  row-gap: var(--space-2);
+  column-gap: var(--space-1);
 }
 .subscription-account__quota-name {
   overflow: hidden;
@@ -941,6 +973,8 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
 }
 .subscription-account__quota-track {
   position: relative;
+  width: 100%;
+  min-width: 0;
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
@@ -977,17 +1011,24 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   );
 }
 .subscription-account__quota-value {
+  min-width: 0;
+  overflow: hidden;
+  padding-left: var(--space-1);
   font-family: var(--font-mono);
   font-size: var(--text-meta);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: left;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .subscription-account__quota-reset {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
   text-align: right;
   white-space: nowrap;
 }
@@ -1346,7 +1387,7 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
     margin-left: auto;
   }
   .subscription-account__quota {
-    grid-template-columns: 68px minmax(0, 1fr) max-content;
+    grid-template-columns: 68px minmax(0, 1fr) 52px;
     gap: var(--space-2);
   }
   .subscription-account__quota-reset {
@@ -1378,7 +1419,8 @@ function runMenuAction(action: 'reauthorize' | 'toggle' | 'restore' | 'remove'):
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .subscription-account__detail-spinner {
+  .subscription-account__detail-spinner,
+  .subscription-account__sync-icon--spinning {
     animation: none;
   }
 }

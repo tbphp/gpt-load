@@ -411,6 +411,7 @@ export default {
         expandDetails: 'Expand statistics',
         collapseDetails: 'Collapse statistics',
         synced: 'Synced',
+        syncTime: 'Sync time\n{time}',
         lastUsed: 'Last used',
         freshUntil: 'Information valid until',
         lastError: 'Last sync error',

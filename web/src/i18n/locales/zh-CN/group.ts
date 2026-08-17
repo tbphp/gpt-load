@@ -399,6 +399,7 @@ export default {
         expandDetails: '展开统计数据',
         collapseDetails: '收起统计数据',
         synced: '同步',
+        syncTime: '同步时间\n{time}',
         lastUsed: '最近使用',
         freshUntil: '信息有效期',
         lastError: '最近同步错误',
