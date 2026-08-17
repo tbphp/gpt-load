@@ -81,6 +81,7 @@ export default {
       overrideValue: 'Explicit override value',
       defaultSource: 'Built-in default',
       overrideSource: 'Explicit override',
+      pendingRestoreSource: 'Pending restore',
       override: 'Override',
       restoreDefault: 'Restore default',
       resetPending: 'Saving will restore the current version default',

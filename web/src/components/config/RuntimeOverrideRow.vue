@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import AppButton from '@/components/ui/AppButton.vue'
+import { computed } from 'vue'
 
-withDefaults(
+import AppButton from '@/components/ui/AppButton.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
+
+const props = withDefaults(
   defineProps<{
     label: string
     detail: string
@@ -12,11 +15,31 @@ withDefaults(
     appearance?: 'default' | 'ledger'
     valueLabel?: string
     divided?: boolean
+    pendingRestore?: boolean
+    locked?: boolean
   }>(),
-  { disabled: false, appearance: 'default', valueLabel: undefined, divided: true },
+  {
+    disabled: false,
+    appearance: 'default',
+    valueLabel: undefined,
+    divided: true,
+    pendingRestore: false,
+    locked: false,
+  },
 )
 
 const emit = defineEmits<{ toggle: [] }>()
+const sourceTone = computed<'neutral' | 'info' | 'warning'>(() => {
+  if (props.locked) return 'neutral'
+  if (props.pendingRestore) return 'warning'
+  return props.overridden ? 'info' : 'neutral'
+})
+const sourceIcon = computed<'check' | 'edit' | 'alert' | 'off'>(() => {
+  if (props.locked) return 'off'
+  if (props.pendingRestore) return 'alert'
+  return props.overridden ? 'edit' : 'check'
+})
+const actionTone = computed<'action' | 'warning'>(() => (props.overridden ? 'warning' : 'action'))
 </script>
 
 <template>
@@ -27,7 +50,14 @@ const emit = defineEmits<{ toggle: [] }>()
     <template v-if="appearance === 'ledger'">
       <div class="runtime-override-row__identity">
         <strong>{{ label }}</strong>
-        <small>{{ sourceLabel }}</small>
+        <StatusBadge
+          class="runtime-override-row__source"
+          size="compact"
+          :tone="sourceTone"
+          :icon="sourceIcon"
+        >
+          {{ sourceLabel }}
+        </StatusBadge>
       </div>
       <div class="runtime-override-row__value">
         <slot v-if="$slots.value" name="value" />
@@ -36,7 +66,13 @@ const emit = defineEmits<{ toggle: [] }>()
           <small v-if="valueLabel">{{ valueLabel }}</small>
         </template>
       </div>
-      <AppButton variant="secondary" size="compact" :disabled="disabled" @click="emit('toggle')">
+      <AppButton
+        variant="secondary"
+        :tone="actionTone"
+        size="compact"
+        :disabled="disabled"
+        @click="emit('toggle')"
+      >
         {{ actionLabel }}
       </AppButton>
     </template>
@@ -45,11 +81,22 @@ const emit = defineEmits<{ toggle: [] }>()
         <strong>{{ label }}</strong>
         <small>{{ detail }}</small>
       </div>
-      <span class="runtime-override-row__source" :data-overridden="overridden || undefined">
+      <StatusBadge
+        class="runtime-override-row__source"
+        size="compact"
+        :tone="sourceTone"
+        :icon="sourceIcon"
+      >
         {{ sourceLabel }}
-      </span>
+      </StatusBadge>
       <div v-if="$slots.value" class="runtime-override-row__value"><slot name="value" /></div>
-      <AppButton variant="secondary" size="lg" :disabled="disabled" @click="emit('toggle')">
+      <AppButton
+        variant="secondary"
+        :tone="actionTone"
+        size="lg"
+        :disabled="disabled"
+        @click="emit('toggle')"
+      >
         {{ actionLabel }}
       </AppButton>
     </template>
@@ -74,18 +121,7 @@ const emit = defineEmits<{ toggle: [] }>()
   color: var(--color-text-muted);
 }
 .runtime-override-row__source {
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding: 4px 8px;
-  font-size: var(--text-label-xs);
-  white-space: nowrap;
-}
-.runtime-override-row__source[data-overridden='true'] {
-  border-color: var(--color-action);
-  background: var(--color-action-soft);
-  color: var(--color-action);
+  justify-self: start;
 }
 .runtime-override-row__value {
   min-width: 112px;

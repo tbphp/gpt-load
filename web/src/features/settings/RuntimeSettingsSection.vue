@@ -132,12 +132,15 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
           :source-label="
             hasOverride(key)
               ? t('settings.runtime.overrideSource')
-              : t('settings.runtime.defaultSource')
+              : isPendingRestore(key)
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
           "
           :action-label="
             hasOverride(key) ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
           "
           :overridden="hasOverride(key)"
+          :pending-restore="isPendingRestore(key)"
           :disabled="disabled"
           @toggle="toggleOverride(key)"
         >
@@ -197,7 +200,9 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
           :source-label="
             hasOverride('inject_usage_options')
               ? t('settings.runtime.overrideSource')
-              : t('settings.runtime.defaultSource')
+              : isPendingRestore('inject_usage_options')
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
           "
           :action-label="
             hasOverride('inject_usage_options')
@@ -205,6 +210,7 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
               : t('settings.runtime.override')
           "
           :overridden="hasOverride('inject_usage_options')"
+          :pending-restore="isPendingRestore('inject_usage_options')"
           :disabled="disabled"
           @toggle="toggleOverride('inject_usage_options')"
         >
@@ -287,7 +293,9 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
               ? t('settings.runtime.environmentSource')
               : hasOverride('models_dev_auto_sync_enabled')
                 ? t('settings.runtime.overrideSource')
-                : t('settings.runtime.defaultSource')
+                : isPendingRestore('models_dev_auto_sync_enabled')
+                  ? t('settings.runtime.pendingRestoreSource')
+                  : t('settings.runtime.defaultSource')
           "
           :action-label="
             hasOverride('models_dev_auto_sync_enabled')
@@ -295,6 +303,11 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
               : t('settings.runtime.override')
           "
           :overridden="hasOverride('models_dev_auto_sync_enabled')"
+          :pending-restore="
+            !isReadOnly('models_dev_auto_sync_enabled') &&
+            isPendingRestore('models_dev_auto_sync_enabled')
+          "
+          :locked="isReadOnly('models_dev_auto_sync_enabled')"
           :divided="false"
           :disabled="disabled || isReadOnly('models_dev_auto_sync_enabled')"
           @toggle="toggleOverride('models_dev_auto_sync_enabled')"

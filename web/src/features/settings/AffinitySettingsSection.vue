@@ -115,7 +115,9 @@ const enabledValue = computed(() =>
           :source-label="
             hasOverride('affinity_enabled')
               ? t('settings.runtime.overrideSource')
-              : t('settings.runtime.defaultSource')
+              : pendingRestore('affinity_enabled')
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
           "
           :action-label="
             hasOverride('affinity_enabled')
@@ -123,6 +125,7 @@ const enabledValue = computed(() =>
               : t('settings.runtime.override')
           "
           :overridden="hasOverride('affinity_enabled')"
+          :pending-restore="pendingRestore('affinity_enabled')"
           :disabled="disabled"
           @toggle="toggleOverride('affinity_enabled')"
         >
@@ -164,12 +167,15 @@ const enabledValue = computed(() =>
           :source-label="
             hasOverride(key)
               ? t('settings.runtime.overrideSource')
-              : t('settings.runtime.defaultSource')
+              : pendingRestore(key)
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
           "
           :action-label="
             hasOverride(key) ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
           "
           :overridden="hasOverride(key)"
+          :pending-restore="pendingRestore(key)"
           :divided="key !== 'affinity_capacity'"
           :disabled="disabled"
           @toggle="toggleOverride(key)"

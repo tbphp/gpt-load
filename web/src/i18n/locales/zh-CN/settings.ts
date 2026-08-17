@@ -73,6 +73,7 @@ export default {
       overrideValue: '显式覆盖值',
       defaultSource: '内置默认',
       overrideSource: '显式覆盖',
+      pendingRestoreSource: '待恢复默认',
       override: '覆盖',
       restoreDefault: '恢复默认',
       resetPending: '保存后恢复当前版本默认',

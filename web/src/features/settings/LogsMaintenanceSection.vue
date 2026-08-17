@@ -103,10 +103,15 @@ function conflictValue(side: 'mine' | 'latest'): string {
       "
       :value-label="owned || pendingRestore ? undefined : t('settings.runtime.currentEffective')"
       :source-label="
-        owned ? t('settings.runtime.overrideSource') : t('settings.runtime.defaultSource')
+        owned
+          ? t('settings.runtime.overrideSource')
+          : pendingRestore
+            ? t('settings.runtime.pendingRestoreSource')
+            : t('settings.runtime.defaultSource')
       "
       :action-label="owned ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')"
       :overridden="owned"
+      :pending-restore="pendingRestore"
       :divided="false"
       :disabled="disabled"
       @toggle="setOwned(!owned)"
