@@ -48,13 +48,13 @@ func TestQuoteUsesHighestEligibleTierAtInclusiveBoundary(t *testing.T) {
 	}
 }
 
-func TestQuoteForModeUsesExactModePriceAndFallsBackToStandard(t *testing.T) {
+func TestQuoteForModePrioritizesContextTierThenFastThenStandard(t *testing.T) {
 	identity := Identity{ChannelID: "openai", ModelID: "gpt-fast"}
 	table := mustTable(t, Rule{
 		Identity: identity,
 		Prices:   Prices{Input: fixedPrice(2)},
 		ContextTiers: []ContextTier{{
-			InputThresholdTokens: 1,
+			InputThresholdTokens: 2_000_000,
 			Prices:               Prices{Input: fixedPrice(3)},
 		}},
 		ModeSchedules: map[Mode]Schedule{
@@ -63,27 +63,38 @@ func TestQuoteForModeUsesExactModePriceAndFallsBackToStandard(t *testing.T) {
 			},
 		},
 	})
-	result := usage.Result{
-		Tokens: usage.Tokens{UncachedInput: 1_000_000},
+	longContextResult := usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 2_000_000},
 		State:  usage.StateComplete,
 	}
 
-	fastQuote, fastReceipt := table.QuoteForModeWithReceipt(identity, result, ModeFast)
+	tierQuote, tierReceipt := table.QuoteForModeWithReceipt(identity, longContextResult, ModeFast)
+	if tierQuote.EstimatedCostNanoUSD != 6 || tierReceipt == nil ||
+		tierReceipt.SchemaVersion != 4 || tierReceipt.PricingMode != ModeStandard ||
+		tierReceipt.ContextThresholdTokens == nil ||
+		*tierReceipt.ContextThresholdTokens != 2_000_000 {
+		t.Fatalf("tier quote/receipt = %#v / %#v", tierQuote, tierReceipt)
+	}
+
+	fastResult := usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 1_000_000},
+		State:  usage.StateComplete,
+	}
+	fastQuote, fastReceipt := table.QuoteForModeWithReceipt(identity, fastResult, ModeFast)
 	if fastQuote.EstimatedCostNanoUSD != 7 || fastReceipt == nil ||
-		fastReceipt.SchemaVersion != 4 || fastReceipt.PricingMode != ModeFast ||
-		fastReceipt.ContextThresholdTokens != nil {
+		fastReceipt.PricingMode != ModeFast || fastReceipt.ContextThresholdTokens != nil {
 		t.Fatalf("fast quote/receipt = %#v / %#v", fastQuote, fastReceipt)
 	}
 
 	standardQuote, standardReceipt := table.QuoteForModeWithReceipt(
 		identity,
-		result,
+		longContextResult,
 		Mode("unpriced-mode"),
 	)
-	if standardQuote.EstimatedCostNanoUSD != 3 || standardReceipt == nil ||
+	if standardQuote.EstimatedCostNanoUSD != 6 || standardReceipt == nil ||
 		standardReceipt.PricingMode != ModeStandard ||
 		standardReceipt.ContextThresholdTokens == nil ||
-		*standardReceipt.ContextThresholdTokens != 1 {
+		*standardReceipt.ContextThresholdTokens != 2_000_000 {
 		t.Fatalf("fallback quote/receipt = %#v / %#v", standardQuote, standardReceipt)
 	}
 }

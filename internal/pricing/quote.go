@@ -24,15 +24,17 @@ func (table *Table) QuoteWithReceipt(
 	return table.QuoteForModeWithReceipt(identity, result, ModeStandard)
 }
 
-// QuoteForMode prices a finalized usage result with the matching persisted
-// mode schedule, falling back to the standard schedule when none exists.
+// QuoteForMode prices a finalized usage result. A matched standard context
+// tier takes precedence over the requested mode schedule, which otherwise
+// falls back to the standard base schedule when unavailable.
 func (table *Table) QuoteForMode(identity Identity, result usage.Result, mode Mode) Quote {
 	quote, _ := table.QuoteForModeWithReceipt(identity, result, mode)
 	return quote
 }
 
-// QuoteForModeWithReceipt freezes the exact mode schedule used. A mode without
-// a matching persisted schedule is indistinguishable from a standard quote.
+// QuoteForModeWithReceipt freezes the exact tier or mode schedule used. A mode
+// without a matching persisted schedule is indistinguishable from a standard
+// quote.
 func (table *Table) QuoteForModeWithReceipt(
 	identity Identity,
 	result usage.Result,
@@ -61,23 +63,16 @@ func (table *Table) QuoteForModeWithReceipt(
 	}
 
 	selectedMode := ModeStandard
-	prices := rule.Prices
-	tiers := rule.ContextTiers
-	var selectedThreshold *int64
-	if mode != "" && mode != ModeStandard {
+	prices, selectedThreshold := selectSchedulePrices(rule.Prices, rule.ContextTiers, inputTokens)
+	if selectedThreshold == nil && mode != "" && mode != ModeStandard {
 		if schedule, exists := rule.ModeSchedules[mode]; exists {
 			selectedMode = mode
-			prices = schedule.Prices
-			tiers = schedule.ContextTiers
+			prices, selectedThreshold = selectSchedulePrices(
+				schedule.Prices,
+				schedule.ContextTiers,
+				inputTokens,
+			)
 		}
-	}
-	for _, tier := range tiers {
-		if inputTokens < tier.InputThresholdTokens {
-			break
-		}
-		prices = tier.Prices
-		threshold := tier.InputThresholdTokens
-		selectedThreshold = &threshold
 	}
 
 	components := [...]struct {
@@ -169,6 +164,24 @@ func (table *Table) QuoteForModeWithReceipt(
 		Completeness:         completeness,
 		EstimatedCostNanoUSD: cost,
 	}, receipt
+}
+
+func selectSchedulePrices(
+	base Prices,
+	tiers []ContextTier,
+	inputTokens int64,
+) (Prices, *int64) {
+	prices := base
+	var selectedThreshold *int64
+	for _, tier := range tiers {
+		if inputTokens < tier.InputThresholdTokens {
+			break
+		}
+		prices = tier.Prices
+		threshold := tier.InputThresholdTokens
+		selectedThreshold = &threshold
+	}
+	return prices, selectedThreshold
 }
 
 func checkedInputTokens(tokens usage.Tokens) (int64, bool) {

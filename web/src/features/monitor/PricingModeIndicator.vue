@@ -1,18 +1,34 @@
 <script setup lang="ts">
-import { Zap } from '@lucide/vue'
+import { ChartNoAxesColumnIncreasing, Zap } from '@lucide/vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 
-defineProps<{
+import { formatLogTokenCount } from './log-format'
+
+const props = defineProps<{
   mode: string | null
+  contextThresholdTokens: string | null
 }>()
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
+const tierLabel = computed(() =>
+  props.contextThresholdTokens === null
+    ? ''
+    : t('monitor.logs.pricingMode.tierLabel', {
+        threshold: formatLogTokenCount(props.contextThresholdTokens, locale.value),
+      }),
+)
 </script>
 
 <template>
-  <AppTooltip v-if="mode === 'fast'" :content="t('monitor.logs.pricingMode.fastLabel')">
+  <AppTooltip v-if="contextThresholdTokens !== null" :content="tierLabel">
+    <span class="pricing-mode-indicator" tabindex="0" :aria-label="tierLabel">
+      <ChartNoAxesColumnIncreasing :size="13" aria-hidden="true" />
+    </span>
+  </AppTooltip>
+  <AppTooltip v-else-if="mode === 'fast'" :content="t('monitor.logs.pricingMode.fastLabel')">
     <span
       class="pricing-mode-indicator"
       tabindex="0"

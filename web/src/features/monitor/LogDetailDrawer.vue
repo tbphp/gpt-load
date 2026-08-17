@@ -535,7 +535,10 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
             <dd class="log-detail__cost">
               <span>{{ costAmountLabel }}</span>
-              <PricingModeIndicator :mode="log.pricing_mode" />
+              <PricingModeIndicator
+                :mode="log.pricing_mode"
+                :context-threshold-tokens="log.context_threshold_tokens"
+              />
             </dd>
           </div>
           <div v-if="!selfScoped && receipt">

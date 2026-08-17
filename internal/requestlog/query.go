@@ -223,7 +223,9 @@ func (service *Service) Get(ctx context.Context, requestID string) (Record, erro
 		records[0].Attempts = attempts
 		records[0].RouteMode = finalRouteMode(records[0], attempts)
 		records[0].UpstreamProtocol = finalUpstreamProtocol(records[0], attempts)
-		records[0].PricingMode = finalPricingMode(records[0], attempts)
+		receipt := finalPricingReceipt(records[0], attempts)
+		records[0].PricingMode = pricingModeForReceipt(receipt)
+		records[0].ContextThresholdTokens = contextThresholdForReceipt(receipt)
 		record = records[0]
 		return nil
 	})
@@ -472,6 +474,7 @@ func (service *Service) loadFinalExecutionObservations(
 		if receipt != nil {
 			pricingResolved[attempt.RequestID] = struct{}{}
 			records[index].PricingMode = pricingModeForReceipt(receipt)
+			records[index].ContextThresholdTokens = contextThresholdForReceipt(receipt)
 		}
 	}
 	return nil
@@ -501,17 +504,17 @@ func finalUpstreamProtocol(record Record, attempts []Attempt) protocol.Protocol 
 	return ""
 }
 
-func finalPricingMode(record Record, attempts []Attempt) pricing.Mode {
+func finalPricingReceipt(record Record, attempts []Attempt) *pricing.Receipt {
 	for index := len(attempts) - 1; index >= 0; index-- {
 		attempt := attempts[index]
 		if attempt.GroupID == record.GroupID &&
 			attempt.ChannelID == record.ChannelID &&
 			attempt.CredentialID == record.CredentialID &&
 			attempt.PricingReceipt != nil {
-			return pricingModeForReceipt(attempt.PricingReceipt)
+			return attempt.PricingReceipt
 		}
 	}
-	return ""
+	return nil
 }
 
 func pricingModeForReceipt(receipt *pricing.Receipt) pricing.Mode {
@@ -522,6 +525,14 @@ func pricingModeForReceipt(receipt *pricing.Receipt) pricing.Mode {
 		return pricing.ModeStandard
 	}
 	return receipt.PricingMode
+}
+
+func contextThresholdForReceipt(receipt *pricing.Receipt) *int64 {
+	if receipt == nil || receipt.ContextThresholdTokens == nil {
+		return nil
+	}
+	value := *receipt.ContextThresholdTokens
+	return &value
 }
 
 func loadAccessKeyRefs(ctx context.Context, db *gorm.DB, records []Record) error {
