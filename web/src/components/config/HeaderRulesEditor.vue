@@ -572,11 +572,11 @@ h3 {
 .header-rules--ledger .header-rule__name,
 .header-rules--ledger .header-rule__value,
 .header-rules--ledger .header-rule__remove-hint {
-  min-height: 36px;
+  min-height: var(--control-xs);
   background: var(--color-surface);
   padding: 6px 9px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 .header-rules--ledger :deep(.compact-field-error input) {
   padding: 6px 9px;
@@ -595,7 +595,7 @@ h3 {
 }
 .header-rules--ledger .header-rule__mode button {
   min-width: 52px;
-  min-height: 34px;
+  min-height: var(--control-xs);
   border: 0;
   border-left: 1px solid var(--color-border-control);
   background: var(--color-surface);

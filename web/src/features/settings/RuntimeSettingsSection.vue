@@ -150,7 +150,7 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
                     type="number"
                     :model-value="String(draft.values[key])"
                     :label="t('settings.runtime.valueFor', { field: t(`settings.runtime.${key}`) })"
-                    appearance="sunken"
+                    appearance="surface"
                     size="compact"
                     monospace
                     min="1"
@@ -391,14 +391,14 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-sm);
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
 .settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
+  font-size: var(--text-sm);
 }
 
 .settings-runtime__conflict {

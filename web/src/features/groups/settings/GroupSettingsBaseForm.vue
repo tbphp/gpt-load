@@ -151,21 +151,18 @@ function setWeightMode(value: string): void {
         </label>
       </template>
     </div>
-    <label class="group-settings__switch-row">
+    <div class="group-settings__switch-row">
       <span class="group-settings__switch-copy">
         <strong>{{ t('group.settings.base.enabled') }}</strong>
         <small>{{ t('group.settings.base.enabledHelp') }}</small>
       </span>
-      <span class="group-settings__switch">
-        <input
-          type="checkbox"
-          :checked="enabled"
-          :disabled="pending"
-          @change="emit('update:enabled', ($event.target as HTMLInputElement).checked)"
-        />
-        <span aria-hidden="true"></span>
-      </span>
-    </label>
+      <AppSwitch
+        :model-value="enabled"
+        :disabled="pending"
+        :label="t('group.settings.base.enabled')"
+        @update:model-value="emit('update:enabled', $event)"
+      />
+    </div>
   </section>
 
   <section v-else id="settings-routing" class="group-settings__section">
@@ -209,7 +206,7 @@ function setWeightMode(value: string): void {
   display: grid;
   gap: 15px;
   scroll-margin-top: 76px;
-  border-top: 1px solid var(--color-border-control);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 17px;
 }
 
@@ -224,7 +221,7 @@ function setWeightMode(value: string): void {
 }
 
 .group-settings__section-heading h3 {
-  font-size: 14px;
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
@@ -270,7 +267,7 @@ function setWeightMode(value: string): void {
 
 .group-settings__field input:not([type='checkbox']) {
   width: 100%;
-  min-height: var(--touch-target);
+  min-height: var(--control-md);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
@@ -279,22 +276,16 @@ function setWeightMode(value: string): void {
   font: inherit;
 }
 
-.group-settings__field input:not([type='checkbox']):focus-visible {
-  border-color: var(--color-action);
-  outline: 2px solid color-mix(in srgb, var(--color-action) 26%, transparent);
-  outline-offset: 1px;
-}
-
 .group-settings__readonly {
   display: flex;
-  min-height: var(--touch-target);
+  min-height: var(--control-md);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   background: var(--color-surface-sunken);
-  padding: 8px var(--space-3);
+  padding: 0 var(--space-3);
 }
 
 .group-settings__readonly strong {
@@ -341,8 +332,6 @@ fieldset {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  border-top: 1px solid var(--color-border-subtle);
-  border-bottom: 1px solid var(--color-border-subtle);
   padding: 8px 2px;
 }
 
@@ -359,65 +348,6 @@ fieldset {
   font-size: 11px;
 }
 
-.group-settings__switch {
-  position: relative;
-  display: inline-flex;
-  width: 42px;
-  height: 24px;
-  flex: none;
-  cursor: pointer;
-}
-
-.group-settings__switch input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.group-settings__switch > span {
-  width: 100%;
-  border: 1px solid var(--color-border-control);
-  border-radius: 999px;
-  background: var(--color-surface-sunken);
-  transition:
-    background-color var(--duration-fast) var(--easing-standard),
-    border-color var(--duration-fast) var(--easing-standard);
-}
-
-.group-settings__switch > span::after {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--color-text-faint);
-  content: '';
-  transition:
-    transform var(--duration-fast) var(--easing-standard),
-    background-color var(--duration-fast) var(--easing-standard);
-}
-
-.group-settings__switch input:checked + span {
-  border-color: var(--color-action);
-  background: var(--color-action);
-}
-
-.group-settings__switch input:checked + span::after {
-  transform: translateX(18px);
-  background: var(--color-action-ink);
-}
-
-.group-settings__switch input:disabled + span {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.group-settings__switch input:focus-visible + span {
-  outline: 2px solid var(--color-action);
-  outline-offset: 2px;
-}
-
 .group-settings__weight-editor {
   display: flex;
   align-items: center;
@@ -426,7 +356,7 @@ fieldset {
 
 .group-settings__field .group-settings__weight-editor > input {
   width: 90px !important;
-  min-height: var(--touch-target);
+  min-height: var(--control-compact);
   flex: 0 0 90px;
 }
 
@@ -449,26 +379,6 @@ fieldset {
 
   .group-settings__field .group-settings__weight-editor > input {
     min-height: var(--touch-target);
-  }
-
-  .group-settings__switch {
-    width: var(--touch-target);
-    height: var(--touch-target);
-  }
-
-  .group-settings__switch > span {
-    position: absolute;
-    top: 10px;
-    right: 0;
-    width: 42px;
-    height: 24px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .group-settings__switch > span,
-  .group-settings__switch > span::after {
-    transition: none;
   }
 }
 </style>

@@ -23,6 +23,8 @@ import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSwitch from '@/components/ui/AppSwitch.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
@@ -267,11 +269,11 @@ function setTimeoutOverride(key: GroupTimeoutKey, enabled: boolean): void {
   draft.value = setGroupConfigOverride(draft.value, key, enabled, saved.value.effective[key])
 }
 
-function setTimeoutValue(key: GroupTimeoutKey, event: Event): void {
+function setTimeoutValue(key: GroupTimeoutKey, value: string): void {
   if (!draft.value) return
   const overrides = {
     ...draft.value.overrides,
-    [key]: Number((event.target as HTMLInputElement).value),
+    [key]: Number(value),
   }
   draft.value = { ...draft.value, overrides }
 }
@@ -463,21 +465,24 @@ onBeforeUnmount(() => {
                   @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
                 >
                   <template v-if="draft.overrides[key] !== undefined" #value>
-                    <label class="group-settings__runtime-input">
-                      <input
+                    <div class="group-settings__runtime-input">
+                      <AppTextInput
                         type="number"
                         min="1"
-                        :aria-label="
+                        :model-value="String(draft.overrides[key])"
+                        :label="
                           t('group.settings.runtime.valueFor', {
                             field: t(`group.settings.runtime.${key}`),
                           })
                         "
-                        :value="draft.overrides[key]"
+                        appearance="surface"
+                        size="compact"
+                        monospace
                         :disabled="mutationPending"
-                        @input="setTimeoutValue(key, $event)"
+                        @update:model-value="setTimeoutValue(key, $event)"
                       />
                       <span aria-hidden="true">{{ t('group.settings.runtime.seconds') }}</span>
-                    </label>
+                    </div>
                   </template>
                 </RuntimeOverrideRow>
               </div>
@@ -504,23 +509,21 @@ onBeforeUnmount(() => {
                   "
                 >
                   <template v-if="draft.overrides.inject_usage_options !== undefined" #value>
-                    <label class="group-settings__boolean-value">
-                      <input
-                        type="checkbox"
-                        :checked="draft.overrides.inject_usage_options"
+                    <div class="group-settings__boolean-value">
+                      <AppSwitch
+                        :model-value="draft.overrides.inject_usage_options"
                         :disabled="mutationPending"
-                        @change="
-                          draft.overrides.inject_usage_options = (
-                            $event.target as HTMLInputElement
-                          ).checked
-                        "
+                        :label="t('group.settings.runtime.inject_usage_options')"
+                        @update:model-value="draft.overrides.inject_usage_options = $event"
                       />
-                      {{
-                        draft.overrides.inject_usage_options
-                          ? t('group.settings.runtime.enabledValue')
-                          : t('group.settings.runtime.disabledValue')
-                      }}
-                    </label>
+                      <span>
+                        {{
+                          draft.overrides.inject_usage_options
+                            ? t('group.settings.runtime.enabledValue')
+                            : t('group.settings.runtime.disabledValue')
+                        }}
+                      </span>
+                    </div>
                   </template>
                 </RuntimeOverrideRow>
               </div>
@@ -678,7 +681,7 @@ small {
   display: grid;
   gap: 15px;
   scroll-margin-top: 76px;
-  border-top: 1px solid var(--color-border-control);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 17px;
 }
 .group-settings__section:first-child {
@@ -690,7 +693,7 @@ small {
   margin: 0;
 }
 .group-settings__section header h3 {
-  font-size: 14px;
+  font-size: var(--text-body);
   font-weight: 650;
 }
 .group-settings__section header p {
@@ -701,20 +704,9 @@ small {
 }
 .group-settings__runtime {
   display: grid;
-  border-top: 1px solid var(--color-border-subtle);
 }
 .group-settings__runtime-row {
   min-width: 0;
-}
-.group-settings__runtime-row input[type='number'] {
-  width: 100%;
-  min-height: var(--control-md);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 0 var(--space-2);
-  font: var(--text-sm) var(--font-mono);
 }
 .group-settings__runtime-input {
   display: flex;
@@ -731,9 +723,11 @@ small {
 }
 .group-settings__boolean-value {
   display: flex;
-  min-height: var(--touch-target);
+  min-height: var(--control-xs);
   align-items: center;
   gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
   white-space: nowrap;
 }
 .group-settings__affinity-row {
@@ -823,10 +817,6 @@ small {
   }
 }
 @media (max-width: 800px) {
-  .group-settings__runtime-row input[type='number'] {
-    min-height: var(--touch-target);
-    font-size: 16px;
-  }
   .group-settings__runtime-input {
     width: min(100%, 220px);
   }

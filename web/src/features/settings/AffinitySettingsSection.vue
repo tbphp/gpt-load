@@ -185,7 +185,7 @@ const enabledValue = computed(() =>
                     :label="
                       t('settings.runtime.valueFor', { field: t(`settings.affinity.${key}`) })
                     "
-                    appearance="sunken"
+                    appearance="surface"
                     size="compact"
                     monospace
                     min="1"
@@ -252,18 +252,14 @@ const enabledValue = computed(() =>
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-sm);
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
 .settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-}
-
-.settings-affinity__rows {
-  border-top: 1px solid var(--color-border-subtle);
+  font-size: var(--text-sm);
 }
 
 .settings-affinity__entry {

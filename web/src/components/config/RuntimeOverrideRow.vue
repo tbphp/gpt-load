@@ -98,7 +98,7 @@ const emit = defineEmits<{ toggle: [] }>()
   padding: 11px 2px;
 }
 .runtime-override-row--ledger.runtime-override-row--divided {
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 1px dashed var(--color-border-subtle);
 }
 .runtime-override-row--ledger .runtime-override-row__identity strong {
   font-size: var(--text-meta);
