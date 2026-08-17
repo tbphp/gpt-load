@@ -270,18 +270,25 @@ func (s *Service) refreshCredentialObservationOnce(
 		var previousSnapshot CredentialObservationSnapshot
 		previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
 			json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
+		if previousSnapshotOK {
+			if observation.AccountObserved {
+				snapshot.Plan = mergeObservationPlanSummary(previousSnapshot.Plan, snapshot.Plan)
+				snapshot.Account = mergeObservationAccountSummary(previousSnapshot.Account, snapshot.Account)
+			} else {
+				snapshot.Plan = previousSnapshot.Plan
+				snapshot.Account = previousSnapshot.Account
+			}
+		}
 		previousQuotaFresh := previousSnapshotOK &&
 			previous.State == models.CredentialObservationFresh &&
 			previous.FreshUntilMS != nil && *previous.FreshUntilMS > attemptMS
 		switch {
 		case !observation.QuotaObserved && previousQuotaFresh:
-			snapshot = previousSnapshot
+			snapshot.QuotaWindows = previousSnapshot.QuotaWindows
+			snapshot.ResetCreditsAvailable = previousSnapshot.ResetCreditsAvailable
+			snapshot.ResetCredits = previousSnapshot.ResetCredits
 			freshUntilMS = previous.FreshUntilMS
 		case observation.QuotaObserved:
-			if !observation.AccountObserved && previousSnapshotOK {
-				snapshot.Plan = previousSnapshot.Plan
-				snapshot.Account = previousSnapshot.Account
-			}
 			value := now.Add(observationFreshTTL).UnixMilli()
 			freshUntilMS = &value
 		default:
@@ -309,6 +316,52 @@ func (s *Service) refreshCredentialObservationOnce(
 	s.applyCredentialQuotaObservation(credentialID, &response)
 	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
 	return response, nil
+}
+
+func mergeObservationPlanSummary(previous, current ObservationPlanSummary) ObservationPlanSummary {
+	if current.Name == "" {
+		current.Name = previous.Name
+	}
+	return current
+}
+
+func mergeObservationAccountSummary(
+	previous *ObservationAccountSummary,
+	current *ObservationAccountSummary,
+) *ObservationAccountSummary {
+	if previous == nil {
+		return current
+	}
+	if current == nil {
+		return previous
+	}
+	merged := *previous
+	for target, value := range map[*string]string{
+		&merged.DisplayName: current.DisplayName, &merged.Email: current.Email,
+		&merged.OrganizationName: current.OrganizationName, &merged.OrganizationType: current.OrganizationType,
+		&merged.OrganizationRole: current.OrganizationRole, &merged.WorkspaceRole: current.WorkspaceRole,
+		&merged.OrganizationRateLimitTier: current.OrganizationRateLimitTier,
+		&merged.UserRateLimitTier:         current.UserRateLimitTier,
+		&merged.SeatTier:                  current.SeatTier,
+		&merged.BillingType:               current.BillingType,
+	} {
+		if value != "" {
+			*target = value
+		}
+	}
+	if current.ExtraUsageEnabled != nil {
+		merged.ExtraUsageEnabled = current.ExtraUsageEnabled
+		merged.ExtraUsageDisabledReason = current.ExtraUsageDisabledReason
+	} else if current.ExtraUsageDisabledReason != "" {
+		merged.ExtraUsageDisabledReason = current.ExtraUsageDisabledReason
+	}
+	if current.AccountCreatedAtMS != nil {
+		merged.AccountCreatedAtMS = current.AccountCreatedAtMS
+	}
+	if current.SubscriptionCreatedAtMS != nil {
+		merged.SubscriptionCreatedAtMS = current.SubscriptionCreatedAtMS
+	}
+	return &merged
 }
 
 func subscriptionObservationHTTPStatus(err error) int {

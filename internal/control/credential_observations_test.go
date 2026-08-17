@@ -217,11 +217,67 @@ func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t 
 	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
 	if err != nil || result.State != string(models.CredentialObservationFresh) ||
 		result.LastErrorCode != "observation_partial" || result.Snapshot == nil ||
+		result.Snapshot.Account == nil || result.Snapshot.Account.DisplayName != "Updated owner" ||
 		len(result.Snapshot.QuotaWindows) != 1 {
 		t.Fatalf("partial result = %#v / %#v / %v", result, result.Snapshot, err)
 	}
 	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
 		t.Fatalf("partial observation cleared quota protection: %#v", candidates)
+	}
+}
+
+func TestRefreshCredentialObservationMergesSparseAccountWithFreshQuota(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.observeSubscriptionAccount = func(
+		context.Context,
+		channel.ID,
+		subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		return subscriptionruntime.Observation{Payload: []byte(`{
+			"plan_summary":{"name":"Claude Team"},
+			"account_summary":{
+				"display_name":"Original owner",
+				"organization_name":"Example Org",
+				"seat_tier":"team_standard",
+				"organization_role":"member",
+				"extra_usage_enabled":true
+			},
+			"quota_windows":[{"id":"five_hour","label":"5h","scope":"account","unit":"percent","utilization":0.9,"state":"available"}]
+		}`)}, nil
+	}
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(time.Minute)
+	fixture.service.observeSubscriptionAccount = func(
+		context.Context,
+		channel.ID,
+		subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		return subscriptionruntime.Observation{
+			Payload: []byte(`{
+				"plan_summary":{},
+				"account_summary":{"organization_role":"admin","extra_usage_enabled":false},
+				"quota_windows":[{"id":"five_hour","label":"5h","scope":"account","unit":"percent","utilization":0.5,"state":"available"}]
+			}`),
+			Partial: true, AccountObserved: true, QuotaObserved: true,
+		}, nil
+	}
+
+	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil || result.Snapshot == nil || result.Snapshot.Account == nil {
+		t.Fatalf("partial result = %#v / %v", result, err)
+	}
+	account := result.Snapshot.Account
+	if result.Snapshot.Plan.Name != "Claude Team" || account.DisplayName != "Original owner" ||
+		account.OrganizationName != "Example Org" || account.SeatTier != "team_standard" ||
+		account.OrganizationRole != "admin" || account.ExtraUsageEnabled == nil || *account.ExtraUsageEnabled ||
+		len(result.Snapshot.QuotaWindows) != 1 || result.Snapshot.QuotaWindows[0].Utilization == nil ||
+		*result.Snapshot.QuotaWindows[0].Utilization != 0.5 {
+		t.Fatalf("merged snapshot = %#v", result.Snapshot)
 	}
 }
 

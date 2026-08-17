@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/storage/dbtx"
 	"gpt-load/internal/storage/models"
@@ -149,11 +150,11 @@ func queryCredentialLatestActivity(
 		query.WriteString(`SELECT ? AS credential_id, (
 			SELECT completed_at_ms
 			FROM request_log_attempts
-			WHERE credential_id = ? AND completed_at_ms < ?
+			WHERE credential_id = ? AND completed_at_ms < ? AND dispatch_state <> ?
 			ORDER BY completed_at_ms DESC
 			LIMIT 1
 		) AS last_used_at_ms`)
-		args = append(args, credentialID, credentialID, toMS)
+		args = append(args, credentialID, credentialID, toMS, string(execution.DispatchLocal))
 	}
 	var rows []credentialLatestActivityRow
 	if err := db.Raw(query.String(), args...).Scan(&rows).Error; err != nil {
@@ -213,6 +214,7 @@ func queryCredentialBoundaryActivity(
 			string(telemetry.FailureCategoryDownstreamCancel),
 		).
 		Where("credential_id IN ?", credentialIDs).
+		Where("dispatch_state <> ?", string(execution.DispatchLocal)).
 		Where("completed_at_ms >= ? AND completed_at_ms < ?", fromMS, toMS).
 		Group("credential_id").
 		Find(&rows).Error; err != nil {

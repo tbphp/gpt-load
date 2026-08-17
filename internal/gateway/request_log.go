@@ -96,12 +96,16 @@ func newRequestRecorder(
 		pendingRetry:    -1,
 		redactor:        redact.New(),
 		usageApplicable: true,
-		usage: telemetry.UsageObservation{
-			Result: usage.Result{State: usage.StateNotApplicable},
-			Pricing: telemetry.PricingObservation{
-				CostState:           string(pricing.CostStateNotApplicable),
-				PricingCompleteness: string(pricing.CompletenessNotApplicable),
-			},
+		usage:           notApplicableUsageObservation(),
+	}
+}
+
+func notApplicableUsageObservation() telemetry.UsageObservation {
+	return telemetry.UsageObservation{
+		Result: usage.Result{State: usage.StateNotApplicable},
+		Pricing: telemetry.PricingObservation{
+			CostState:           string(pricing.CostStateNotApplicable),
+			PricingCompleteness: string(pricing.CompletenessNotApplicable),
 		},
 	}
 }
@@ -481,6 +485,10 @@ func (recorder *requestRecorder) bindUsage(
 		return
 	}
 	attempt := recorder.attempts[attemptIndex]
+	if attempt.DispatchState == execution.DispatchLocal {
+		recorder.usage = notApplicableUsageObservation()
+		return
+	}
 	if attempt.GroupID == 0 || attempt.ChannelID == "" || attempt.CredentialID == 0 || attempt.Sequence < 1 {
 		return
 	}

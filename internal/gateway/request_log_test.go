@@ -495,6 +495,48 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 	}
 }
 
+func TestRequestRecorderLocalAttemptDoesNotBindCredentialUsage(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"req-local-usage",
+		time.Unix(100, 0),
+		9,
+		protocol.OpenAIResponses,
+		func() time.Time { return time.Unix(101, 0) },
+	)
+	index := recorder.appendAttempt(
+		requestLogSelection(12, 22, "local"),
+		UpstreamResult{DispatchState: execution.DispatchLocal, StatusCode: http.StatusOK},
+		telemetry.FailureCategoryOK,
+		telemetry.ActionTerminate,
+		"",
+		"",
+		time.Unix(100, 0),
+		time.Unix(100, 0),
+	)
+	recorder.completeResponse(
+		UpstreamResult{DispatchState: execution.DispatchLocal, StatusCode: http.StatusOK},
+		health.Result{},
+		"gpt-5",
+		index,
+	)
+	recorder.emit()
+
+	event := sink.events[0]
+	wantUsage := telemetry.UsageObservation{
+		Result: usage.Result{State: usage.StateNotApplicable},
+		Pricing: telemetry.PricingObservation{
+			CostState:           string(pricing.CostStateNotApplicable),
+			PricingCompleteness: string(pricing.CompletenessNotApplicable),
+		},
+	}
+	if event.Usage != wantUsage || len(event.Attempts) != 1 ||
+		event.Attempts[0].CredentialID != 22 || event.Attempts[0].DispatchState != execution.DispatchLocal {
+		t.Fatalf("event = %#v", event)
+	}
+}
+
 func TestRequestRecorderDownstreamFailureKeepsBoundUsage(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })

@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -547,12 +548,15 @@ func TestWriteBatchAggregatesCredentialAttemptsByOwnCompletionHour(t *testing.T)
 	db := openRequestLogQueryDB(t)
 	firstHour := time.Date(2026, time.August, 15, 14, 0, 0, 0, time.UTC)
 	row := aggregationRow(aggregationRequestID(90), firstHour.Add(2*time.Hour), 7, "attempt-model")
-	row.AttemptCount = 4
+	row.AttemptCount = 5
+	localAttempt := credentialAttemptRow(row.ID, 5, firstHour.Add(3*time.Minute), 11, telemetry.FailureCategoryOK)
+	localAttempt.DispatchState = string(execution.DispatchLocal)
 	row.AttemptRows = []models.RequestLogAttempt{
 		credentialAttemptRow(row.ID, 1, firstHour.Add(time.Minute), 11, telemetry.FailureCategoryOK),
 		credentialAttemptRow(row.ID, 2, firstHour.Add(2*time.Minute), 11, telemetry.FailureCategoryRateLimited),
 		credentialAttemptRow(row.ID, 3, firstHour.Add(time.Hour+time.Minute), 22, telemetry.FailureCategoryInvalidKey),
 		credentialAttemptRow(row.ID, 4, firstHour.Add(time.Hour+2*time.Minute), 22, telemetry.FailureCategoryDownstreamCancel),
+		localAttempt,
 	}
 
 	writer := &gormBatchWriter{db: db}

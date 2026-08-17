@@ -750,7 +750,8 @@ func (handler *Handler) executeAttempts(
 			return
 		}
 		attemptNow := handler.now()
-		if !stream && !result.ProviderErrorBeforeCommit && result.HasResponse() &&
+		if !stream && result.DispatchState != execution.DispatchLocal &&
+			!result.ProviderErrorBeforeCommit && result.HasResponse() &&
 			result.StatusCode >= http.StatusOK &&
 			result.StatusCode < http.StatusMultipleChoices {
 			handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
@@ -805,7 +806,8 @@ func (handler *Handler) executeAttempts(
 				handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
 				return
 			}
-			if result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
+			if result.DispatchState != execution.DispatchLocal &&
+				result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
 				handler.recordAffinitySuccess(requestAffinity, selection, ref)
 			}
 			return

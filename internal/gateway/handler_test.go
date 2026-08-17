@@ -797,6 +797,14 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 			want: health.CredentialStats{Success: 1},
 		},
 		{
+			name: "local 2xx does not mutate credential health",
+			result: UpstreamResult{
+				DispatchState: execution.DispatchLocal, ResponseStarted: true,
+				StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`),
+			},
+			want: health.CredentialStats{},
+		},
+		{
 			name: "invalid key",
 			result: UpstreamResult{
 				StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: []byte(`{"error":"invalid key"}`),

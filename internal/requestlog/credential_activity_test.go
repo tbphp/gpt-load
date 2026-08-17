@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 )
@@ -51,6 +52,12 @@ func TestQueryCredentialActivityCombinesHourlyStatsAndOldestPartialHour(t *testi
 	latest12 := now.Add(-2 * time.Minute)
 	createCredentialActivityAttempt(t, db, 6, 12, latest12, telemetry.FailureCategoryOK)
 	createCredentialActivityAttempt(t, db, 7, 13, now.Add(-time.Second), telemetry.FailureCategoryOK)
+	createCredentialActivityAttemptWithDispatch(
+		t, db, 8, 11, from.Add(8*time.Minute), telemetry.FailureCategoryOK, execution.DispatchLocal,
+	)
+	createCredentialActivityAttemptWithDispatch(
+		t, db, 9, 11, now.Add(-time.Second), telemetry.FailureCategoryOK, execution.DispatchLocal,
+	)
 
 	queryCount := 0
 	const callbackName = "test:credential_activity_query_count"
@@ -159,10 +166,22 @@ func createCredentialActivityAttempt(
 	completedAt time.Time,
 	category telemetry.FailureCategory,
 ) {
+	createCredentialActivityAttemptWithDispatch(t, db, sequence, credentialID, completedAt, category, "")
+}
+
+func createCredentialActivityAttemptWithDispatch(
+	t *testing.T,
+	db *gorm.DB,
+	sequence int,
+	credentialID uint,
+	completedAt time.Time,
+	category telemetry.FailureCategory,
+	dispatch execution.DispatchState,
+) {
 	t.Helper()
 	id := fmt.Sprintf("00000000-0000-4000-8000-%012d", sequence)
 	row := requestLogQueryRow(id, completedAt, 1, "activity", []Attempt{{
-		CredentialID: credentialID, FailureCategory: category,
+		CredentialID: credentialID, FailureCategory: category, DispatchState: dispatch,
 	}})
 	row.AttemptRows[0].CompletedAtMS = completedAt.UnixMilli()
 	createRequestLogQueryRow(t, db, row)

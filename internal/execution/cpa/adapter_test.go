@@ -43,18 +43,22 @@ type fakeExecutor struct {
 type fakeCredentialPreparer struct {
 	credential subscriptionruntime.Credential
 	evidence   *execution.ErrorEvidence
+	delegate   credentialPreparer
 	calls      int
 	force      bool
 }
 
 func (f *fakeCredentialPreparer) Prepare(
-	_ context.Context,
-	_ channel.ID,
-	_ execution.CredentialSnapshot,
+	ctx context.Context,
+	channelID channel.ID,
+	credential execution.CredentialSnapshot,
 	force bool,
 ) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 	f.calls++
 	f.force = force
+	if f.delegate != nil {
+		return f.delegate.Prepare(ctx, channelID, credential, force)
+	}
 	return f.credential, f.evidence
 }
 
@@ -236,6 +240,8 @@ func TestAdapterCountsCodexTokensForEverySupportedProtocol(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			preparer := &fakeCredentialPreparer{delegate: adapter.credentials}
+			adapter.credentials = preparer
 			fake := &fakeExecutor{countResult: codex.ExecuteResponse{Payload: []byte(test.response)}}
 			setCodexExecutor(t, adapter, fake)
 			spec := validSpec(t, row, keyService)
@@ -247,9 +253,9 @@ func TestAdapterCountsCodexTokensForEverySupportedProtocol(t *testing.T) {
 			result := adapter.Execute(t.Context(), spec)
 			if result.Error != nil || result.DispatchState != execution.DispatchLocal || !result.ResponseStarted ||
 				result.Header.Get(localTokenCountHeader) != "local-estimate" ||
-				fake.countCalls != 1 || fake.calls != 0 ||
+				preparer.calls != 0 || fake.countCalls != 1 || fake.calls != 0 ||
 				fake.request.Format != test.wantFormat || string(result.Body) != test.response {
-				t.Fatalf("result=%#v calls=%d countCalls=%d request=%#v", result, fake.calls, fake.countCalls, fake.request)
+				t.Fatalf("result=%#v prepareCalls=%d calls=%d countCalls=%d request=%#v", result, preparer.calls, fake.calls, fake.countCalls, fake.request)
 			}
 		})
 	}
@@ -293,6 +299,8 @@ func TestAdapterRejectsUnsupportedLocalCodexTokenCountInput(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			preparer := &fakeCredentialPreparer{delegate: adapter.credentials}
+			adapter.credentials = preparer
 			fake := &fakeExecutor{countResult: codex.ExecuteResponse{Payload: []byte(`{"input_tokens":7}`)}}
 			setCodexExecutor(t, adapter, fake)
 			spec := validSpec(t, row, keyService)
@@ -307,8 +315,8 @@ func TestAdapterRejectsUnsupportedLocalCodexTokenCountInput(t *testing.T) {
 			result := adapter.Execute(t.Context(), spec)
 			if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
 				result.Error.Kind != execution.ErrorKindInvalidRequest || result.Error.Code != "local_token_count_unsupported_input" ||
-				fake.countCalls != 0 {
-				t.Fatalf("result=%#v countCalls=%d", result, fake.countCalls)
+				preparer.calls != 0 || fake.countCalls != 0 {
+				t.Fatalf("result=%#v prepareCalls=%d countCalls=%d", result, preparer.calls, fake.countCalls)
 			}
 		})
 	}
@@ -316,6 +324,8 @@ func TestAdapterRejectsUnsupportedLocalCodexTokenCountInput(t *testing.T) {
 
 func TestAdapterMarksLocalCodexTokenCountFailureNotSent(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	preparer := &fakeCredentialPreparer{delegate: adapter.credentials}
+	adapter.credentials = preparer
 	fake := &fakeExecutor{err: errors.New("tokenizer failed")}
 	setCodexExecutor(t, adapter, fake)
 	spec := validSpec(t, row, keyService)
@@ -325,8 +335,8 @@ func TestAdapterMarksLocalCodexTokenCountFailureNotSent(t *testing.T) {
 	result := adapter.Execute(t.Context(), spec)
 	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
 		result.Error.Kind != execution.ErrorKindInternal || result.Error.Code != "local_token_count_failed" ||
-		fake.countCalls != 1 {
-		t.Fatalf("result=%#v countCalls=%d", result, fake.countCalls)
+		preparer.calls != 0 || fake.countCalls != 1 {
+		t.Fatalf("result=%#v prepareCalls=%d countCalls=%d", result, preparer.calls, fake.countCalls)
 	}
 }
 

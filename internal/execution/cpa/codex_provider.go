@@ -64,17 +64,14 @@ func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescripto
 	return nil
 }
 
-func (bridge *codexProviderBridge) CountTokens(
+func (bridge *codexProviderBridge) CountTokensLocal(
 	ctx context.Context,
-	credentialID string,
-	credential providerCredential,
 	request providerRequest,
 ) (providerResponse, error) {
-	codexCredential, ok := credential.(codexProviderCredential)
-	if !ok || bridge == nil || bridge.executor == nil {
-		return providerResponse{}, errors.New("Codex provider bridge credential mismatch")
+	if bridge == nil || bridge.executor == nil {
+		return providerResponse{}, errors.New("Codex provider bridge is unavailable")
 	}
-	response, err := bridge.executor.CountTokens(ctx, credentialID, codexCredential.value, codex.ExecuteRequest{
+	response, err := bridge.executor.CountTokens(ctx, "local-token-count", codex.Credential{}, codex.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 	})
@@ -86,7 +83,6 @@ func (bridge *codexProviderBridge) CountTokens(
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: headers,
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		Local:                  true,
 	}, err
 }
 
@@ -365,4 +361,4 @@ func (*codexProviderBridge) ClassifyError(
 }
 
 var _ providerBridge = (*codexProviderBridge)(nil)
-var _ providerTokenCounter = (*codexProviderBridge)(nil)
+var _ providerLocalTokenCounter = (*codexProviderBridge)(nil)

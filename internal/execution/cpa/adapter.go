@@ -80,6 +80,40 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	if err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
+	request := bridgeRequest(spec)
+	if countTokensOperation(spec.Operation) {
+		if local, ok := provider.(providerLocalTokenCounter); ok {
+			if err := local.ValidateLocalTokenCount(request); err != nil {
+				return unaryNotSent(
+					execution.ErrorKindInvalidRequest,
+					"local token count supports only stateless text input",
+					"local_token_count_unsupported_input",
+					err,
+				)
+			}
+			execCtx, cancel := withRequestTimeout(ctx, spec.Timeouts.Request)
+			defer cancel()
+			response, err := local.CountTokensLocal(execCtx, request)
+			if err != nil {
+				return unaryNotSent(
+					execution.ErrorKindInternal,
+					"local token count failed",
+					"local_token_count_failed",
+					err,
+				)
+			}
+			response.Local = true
+			return unaryProviderSuccess(provider, spec, response)
+		}
+		if _, ok := provider.(providerTokenCounter); !ok {
+			return unaryNotSent(
+				execution.ErrorKindInvalidRequest,
+				"subscription provider does not support token counting",
+				"",
+				nil,
+			)
+		}
+	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: evidence}
@@ -93,51 +127,23 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	execCtx, cancel := withRequestTimeout(ctx, spec.Timeouts.Request)
 	defer cancel()
 	var response providerResponse
-	localTokenCount := false
 	if countTokensOperation(spec.Operation) {
-		counter, ok := provider.(providerTokenCounter)
-		if !ok {
-			return unaryNotSent(
-				execution.ErrorKindInvalidRequest,
-				"subscription provider does not support token counting",
-				"",
-				nil,
-			)
-		}
-		if local, ok := counter.(providerLocalTokenCounter); ok {
-			localTokenCount = true
-			if err := local.ValidateLocalTokenCount(bridgeRequest(spec)); err != nil {
-				return unaryNotSent(
-					execution.ErrorKindInvalidRequest,
-					"local token count supports only stateless text input",
-					"local_token_count_unsupported_input",
-					err,
-				)
-			}
-		}
+		counter := provider.(providerTokenCounter)
 		response, err = counter.CountTokens(
 			execCtx,
 			strconv.FormatUint(uint64(spec.Credential.ID), 10),
 			credential,
-			bridgeRequest(spec),
+			request,
 		)
 	} else {
 		response, err = provider.Execute(
 			execCtx,
 			strconv.FormatUint(uint64(spec.Credential.ID), 10),
 			credential,
-			bridgeRequest(spec),
+			request,
 		)
 	}
 	if err != nil {
-		if localTokenCount {
-			return unaryNotSent(
-				execution.ErrorKindInternal,
-				"local token count failed",
-				"local_token_count_failed",
-				err,
-			)
-		}
 		result := unaryExecutionError(execCtx, provider, err, credential)
 		if result.Error != nil && execution.UpstreamCountTokensUnsupported(
 			spec.Operation,
@@ -151,6 +157,14 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 		result.AppliedReasoning = appliedReasoning(response.AppliedReasoningEffort)
 		return result
 	}
+	return unaryProviderSuccess(provider, spec, response)
+}
+
+func unaryProviderSuccess(
+	provider providerBridge,
+	spec execution.AttemptSpec,
+	response providerResponse,
+) execution.AttemptResult {
 	body := append([]byte(nil), response.Payload...)
 	headers := convertedResponseHeaders(response.Headers, "application/json")
 	dispatchState := execution.DispatchMaybeSent

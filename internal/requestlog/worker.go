@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/dbtx"
@@ -272,6 +273,9 @@ func buildCredentialAttemptStatDeltas(
 	for _, attempt := range attempts {
 		if attempt.CredentialID == 0 {
 			return nil, fmt.Errorf("aggregate credential attempt: credential ID is zero")
+		}
+		if attempt.DispatchState == string(execution.DispatchLocal) {
+			continue
 		}
 		if attempt.FailureCategory == string(telemetry.FailureCategoryDownstreamCancel) {
 			continue

@@ -83,9 +83,8 @@ type providerBridge interface {
 	ClassifyError(context.Context, error, providerCredential) (int, *execution.ErrorEvidence)
 }
 
-// providerTokenCounter is implemented only by bridges with an explicit,
-// provider-owned CountTokens contract. A bridge may call an upstream endpoint
-// or expose a provider-specific local estimator; silent fallback is forbidden.
+// providerTokenCounter is implemented only by bridges with an explicit
+// upstream CountTokens contract.
 type providerTokenCounter interface {
 	CountTokens(context.Context, string, providerCredential, providerRequest) (providerResponse, error)
 }
@@ -93,8 +92,8 @@ type providerTokenCounter interface {
 // providerLocalTokenCounter is a deliberately narrow contract for providers
 // whose CountTokens implementation never contacts an upstream service.
 type providerLocalTokenCounter interface {
-	providerTokenCounter
 	ValidateLocalTokenCount(providerRequest) error
+	CountTokensLocal(context.Context, providerRequest) (providerResponse, error)
 }
 
 func indexProviderBridges(bridges ...providerBridge) map[channel.ProviderKind]providerBridge {

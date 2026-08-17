@@ -47,3 +47,19 @@ func TestNormalizeUpstreamErrorPreservesObservationStatus(t *testing.T) {
 		t.Fatalf("normalized error = %#v / %v", upstream, err)
 	}
 }
+
+func TestExecutorCountsTokensWithoutCredential(t *testing.T) {
+	response, err := NewExecutor().CountTokens(t.Context(), "local-token-count", Credential{}, ExecuteRequest{
+		Model: "gpt-5", Format: "openai-response",
+		Payload: []byte(`{"model":"gpt-5","input":"hello"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		InputTokens int64 `json:"input_tokens"`
+	}
+	if err := json.Unmarshal(response.Payload, &result); err != nil || result.InputTokens <= 0 {
+		t.Fatalf("token count = %s / %v", response.Payload, err)
+	}
+}

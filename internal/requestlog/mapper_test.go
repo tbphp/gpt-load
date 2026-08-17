@@ -209,6 +209,25 @@ func TestMapEventAllowsUnboundNoModelResourceOnlyAsNotApplicable(t *testing.T) {
 	}
 }
 
+func TestMapEventKeepsLocalAttemptButLeavesCredentialUsageUnbound(t *testing.T) {
+	event := testEvent("local-token-count")
+	event.Attempts[0].DispatchState = execution.DispatchLocal
+	event.Usage = telemetry.UsageObservation{
+		Result: usage.Result{State: usage.StateNotApplicable},
+		Pricing: telemetry.PricingObservation{
+			CostState:           string(pricing.CostStateNotApplicable),
+			PricingCompleteness: string(pricing.CompletenessNotApplicable),
+		},
+	}
+
+	row := mustMapEvent(t, redact.New(), event)
+	if row.CredentialID != 0 || row.GroupID != 0 || row.ChannelID != "" ||
+		len(row.AttemptRows) != 1 || row.AttemptRows[0].CredentialID != event.Attempts[0].CredentialID ||
+		row.AttemptRows[0].DispatchState != string(execution.DispatchLocal) {
+		t.Fatalf("local request row = %#v / %#v", row, row.AttemptRows)
+	}
+}
+
 func TestMapEventRejectsPreEpochCompletion(t *testing.T) {
 	event := testEvent("pre-epoch-completion")
 	event.CompletedAt = time.Unix(-1, 0)
