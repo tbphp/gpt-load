@@ -123,8 +123,7 @@ export default {
     },
     logs: {
       title: 'Logs and maintenance',
-      description:
-        'An hourly maintenance task cleans request logs by retention days; usage aggregation is retained independently for a fixed 35 days.',
+      description: 'An hourly maintenance task cleans request logs by retention days.',
       retention: 'Request-log retention days',
       effectiveValue: '{value} days',
       days: 'days',

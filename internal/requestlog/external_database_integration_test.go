@@ -106,9 +106,9 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 		groupID,
 		credentialID,
 		modelID,
-		0,
+		1,
 	)
-	assertExternalCredentialAttemptStat(t, db, row.CompletedAtMS, credentialID, 0)
+	assertExternalCredentialAttemptStat(t, db, row.CompletedAtMS, credentialID, 1)
 	var journals int64
 	if err := db.Model(&models.UsageAggregationJournal{}).
 		Where("request_id = ?", requestID).

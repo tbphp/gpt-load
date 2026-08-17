@@ -111,7 +111,7 @@ export default {
     },
     logs: {
       title: '日志与维护',
-      description: '请求日志由每小时维护任务按保留天数清理；usage 聚合独立固定保留 35 天。',
+      description: '请求日志由每小时维护任务按保留天数清理。',
       retention: '请求日志保留天数',
       effectiveValue: '{value} 天',
       days: '天',

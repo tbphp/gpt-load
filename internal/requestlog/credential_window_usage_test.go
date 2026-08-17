@@ -90,6 +90,31 @@ func TestQueryCredentialWindowUsageUsesHourlyStatsForLongWindow(t *testing.T) {
 	}
 }
 
+func TestQueryCredentialWindowUsageTreatsLongTermHourlyStatsAsRetained(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	credentialID := uint(43)
+	from := now.Add(-40 * 24 * time.Hour)
+	row := usageStat(from, 17, "codex-long-term", 2)
+	row.CredentialID = credentialID
+	createUsageStats(t, db, row)
+
+	result, err := service.QueryCredentialWindowUsage(t.Context(), CredentialWindowUsageQuery{
+		CredentialID: credentialID,
+		FromMS:       from.UnixMilli(),
+		ToMS:         now.UnixMilli(),
+		Source:       CredentialWindowUsageSourceHourlyStats,
+	})
+	if err != nil {
+		t.Fatalf("QueryCredentialWindowUsage() error = %v", err)
+	}
+	if !result.DataComplete || result.RequestCount != 2 || result.UncachedInputTokens != 20 {
+		t.Fatalf("long-term hourly usage = %#v", result)
+	}
+}
+
 func TestQueryCredentialWindowUsageUsesOneReadSnapshot(t *testing.T) {
 	db, dsn := openRequestLogFileDB(t)
 	service := newRequestLogTestService(db)
