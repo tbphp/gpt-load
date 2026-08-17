@@ -276,6 +276,8 @@ const failureLabel = computed(() =>
       }`,
 )
 const observationErrorKeys: Readonly<Record<string, string>> = {
+  observation_authorization_failed:
+    'group.credentials.subscription.observationError.authorizationFailed',
   observation_upstream_failed: 'group.credentials.subscription.observationError.upstreamFailed',
   observation_payload_invalid: 'group.credentials.subscription.observationError.payloadInvalid',
 }

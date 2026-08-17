@@ -471,6 +471,7 @@ export default {
             '認証情報の更新を開始できません。しばらくしてから再試行してください。',
         },
         observationError: {
+          authorizationFailed: '上流のサブスクリプション認証が無効です。再ログインしてください',
           upstreamFailed: '上流のサブスクリプション利用枠情報を取得できません',
           payloadInvalid: '上流から認識できないサブスクリプション利用枠情報が返されました',
         },

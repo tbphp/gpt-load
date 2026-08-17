@@ -148,6 +148,10 @@ func (*codexDriver) Observe(ctx context.Context, credential Credential) (Observa
 	}
 	observed, err := codex.ObserveAccount(ctx, value)
 	if err != nil {
+		var upstream *codex.UpstreamHTTPError
+		if errors.As(err, &upstream) {
+			return Observation{}, &UpstreamHTTPError{StatusCode: upstream.StatusCode}
+		}
 		return Observation{}, err
 	}
 	var detailsPayload []byte

@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/claude"
 	"gpt-load/internal/codex"
+	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
@@ -175,6 +176,118 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 	}
 	if !reflect.DeepEqual(failed.Snapshot, first.Snapshot) {
 		t.Fatalf("LKG changed = %#v / %#v", first.Snapshot, failed.Snapshot)
+	}
+}
+
+func TestRefreshCredentialObservationRetriesOnceAfterUnauthorized(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	originalPrepare := fixture.service.prepareSubscriptionCredential
+	forcedRefreshes := 0
+	fixture.service.prepareSubscriptionCredential = func(
+		ctx context.Context,
+		channelID channel.ID,
+		snapshot execution.CredentialSnapshot,
+		force bool,
+	) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+		if force {
+			forcedRefreshes++
+		}
+		return originalPrepare(ctx, channelID, snapshot, false)
+	}
+	observationCalls := 0
+	fixture.service.observeSubscriptionAccount = func(
+		context.Context,
+		channel.ID,
+		subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		observationCalls++
+		if observationCalls == 1 {
+			return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: 401}
+		}
+		return subscriptionruntime.Observation{Payload: []byte(`{"quota_windows":[]}`)}, nil
+	}
+
+	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil || result.State != string(models.CredentialObservationFresh) ||
+		forcedRefreshes != 1 || observationCalls != 2 {
+		t.Fatalf("result/error/refreshes/calls = %#v / %v / %d / %d", result, err, forcedRefreshes, observationCalls)
+	}
+}
+
+func TestRefreshCredentialObservationClassifiesRepeatedAuthorizationFailure(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	originalPrepare := fixture.service.prepareSubscriptionCredential
+	forcedRefreshes := 0
+	fixture.service.prepareSubscriptionCredential = func(
+		ctx context.Context,
+		channelID channel.ID,
+		snapshot execution.CredentialSnapshot,
+		force bool,
+	) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+		if force {
+			forcedRefreshes++
+		}
+		return originalPrepare(ctx, channelID, snapshot, false)
+	}
+	observationCalls := 0
+	fixture.service.observeSubscriptionAccount = func(
+		context.Context,
+		channel.ID,
+		subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		observationCalls++
+		return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: 401}
+	}
+
+	result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err == nil || result.State != string(models.CredentialObservationError) ||
+		result.LastErrorCode != "observation_authorization_failed" ||
+		forcedRefreshes != 1 || observationCalls != 2 {
+		t.Fatalf("result/error/refreshes/calls = %#v / %v / %d / %d", result, err, forcedRefreshes, observationCalls)
+	}
+}
+
+func TestRefreshCredentialObservationClassifiesNonRefreshableHTTPFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		errorCode  string
+	}{
+		{name: "forbidden", statusCode: 403, errorCode: "observation_authorization_failed"},
+		{name: "server error", statusCode: 500, errorCode: "observation_upstream_failed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+			originalPrepare := fixture.service.prepareSubscriptionCredential
+			forcedRefreshes := 0
+			fixture.service.prepareSubscriptionCredential = func(
+				ctx context.Context,
+				channelID channel.ID,
+				snapshot execution.CredentialSnapshot,
+				force bool,
+			) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+				if force {
+					forcedRefreshes++
+				}
+				return originalPrepare(ctx, channelID, snapshot, false)
+			}
+			observationCalls := 0
+			fixture.service.observeSubscriptionAccount = func(
+				context.Context,
+				channel.ID,
+				subscriptionruntime.Credential,
+			) (subscriptionruntime.Observation, error) {
+				observationCalls++
+				return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: test.statusCode}
+			}
+
+			result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+			if err == nil || result.LastErrorCode != test.errorCode ||
+				forcedRefreshes != 0 || observationCalls != 1 {
+				t.Fatalf("result/error/refreshes/calls = %#v / %v / %d / %d", result, err, forcedRefreshes, observationCalls)
+			}
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -203,11 +204,31 @@ func (s *Service) refreshCredentialObservationOnce(
 	defer cancelObserve()
 	channelID := channel.ID(group.ChannelID)
 	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
+	if subscriptionObservationHTTPStatus(observeErr) == http.StatusUnauthorized &&
+		s.prepareSubscriptionCredential != nil {
+		preparedCredential, err = s.prepareStoredSubscriptionCredentialWithForce(
+			observeContext,
+			group,
+			credential,
+			true,
+		)
+		if err != nil {
+			return CredentialObservationResponse{}, err
+		}
+		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
+	}
 	if observeErr != nil {
 		if errors.Is(observeErr, subscriptionruntime.ErrObservationPayloadInvalid) {
 			return s.recordCredentialObservationFailure(
 				ctx, credential, previous, attemptMS, nextAllowedMS,
 				"observation_payload_invalid", "normalize subscription information",
+			)
+		}
+		if status := subscriptionObservationHTTPStatus(observeErr); status == http.StatusUnauthorized ||
+			status == http.StatusForbidden {
+			return s.recordCredentialObservationFailure(
+				ctx, credential, previous, attemptMS, nextAllowedMS,
+				"observation_authorization_failed", "authorize subscription information",
 			)
 		}
 		return s.recordCredentialObservationFailure(
@@ -254,6 +275,14 @@ func (s *Service) refreshCredentialObservationOnce(
 	s.applyCredentialQuotaObservation(credentialID, &response)
 	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
 	return response, nil
+}
+
+func subscriptionObservationHTTPStatus(err error) int {
+	var upstream *subscriptionruntime.UpstreamHTTPError
+	if errors.As(err, &upstream) && upstream != nil {
+		return upstream.StatusCode
+	}
+	return 0
 }
 
 func (s *Service) recordCredentialObservationFailure(

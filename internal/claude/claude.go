@@ -97,6 +97,14 @@ func (e *TokenEndpointError) Error() string {
 	return fmt.Sprintf("Claude token endpoint returned status %d", e.StatusCode)
 }
 
+type UpstreamHTTPError struct {
+	StatusCode int
+}
+
+func (err *UpstreamHTTPError) Error() string {
+	return fmt.Sprintf("Claude upstream returned status %d", err.StatusCode)
+}
+
 func IsDefinitiveRefreshRejection(code string) bool {
 	return cpaembedded.IsDefinitiveRefreshRejection(code)
 }
@@ -175,6 +183,10 @@ func normalizeAuthorizationError(err error) error {
 	var tokenErr *cpaembedded.TokenEndpointError
 	if errors.As(err, &tokenErr) {
 		return &TokenEndpointError{StatusCode: tokenErr.StatusCode, Code: strings.TrimSpace(tokenErr.Code)}
+	}
+	var upstream *cpaembedded.ClaudeUpstreamHTTPError
+	if errors.As(err, &upstream) {
+		return &UpstreamHTTPError{StatusCode: upstream.StatusCode}
 	}
 	return err
 }

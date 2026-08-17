@@ -929,8 +929,51 @@ func TestObserveClaudeAccountFailsWhenEverySourceIsUnavailable(t *testing.T) {
 			if calls != 4 {
 				t.Fatalf("observation calls = %d, want 4", calls)
 			}
+			var upstream *ClaudeUpstreamHTTPError
+			if !errors.As(err, &upstream) || upstream.StatusCode != status {
+				t.Fatalf("observation error = %v, want status %d", err, status)
+			}
 			if strings.Contains(err.Error(), "sensitive upstream detail") {
 				t.Fatalf("observation error leaked upstream response: %v", err)
+			}
+		})
+	}
+}
+
+func TestObserveClaudeAccountRejectsSourceWithoutUsableData(t *testing.T) {
+	credential := testClaudeExecutionCredential()
+	tests := []struct {
+		name    string
+		path    string
+		payload string
+	}{
+		{name: "empty roles", path: "/roles", payload: `[]`},
+		{name: "empty bootstrap", path: "/bootstrap", payload: `{}`},
+		{name: "empty usage", path: "/usage", payload: `{}`},
+		{name: "empty usage window", path: "/usage", payload: `{"five_hour":{}}`},
+		{name: "empty extra usage", path: "/usage", payload: `{"extra_usage":{}}`},
+		{name: "unknown usage schema", path: "/usage", payload: `{"new_unknown_field":"value"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				if request.URL.Path == test.path {
+					_, _ = writer.Write([]byte(test.payload))
+					return
+				}
+				writer.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = writer.Write([]byte(`{"error":"temporarily unavailable"}`))
+			}))
+			defer server.Close()
+
+			_, err := ObserveClaudeAccount(t.Context(), credential, ClaudeOptions{
+				ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles",
+				BootstrapURL: server.URL + "/bootstrap", UsageURL: server.URL + "/usage",
+				HTTPClient: server.Client(),
+			})
+			if !errors.Is(err, ErrClaudeAccountObservationUnavailable) {
+				t.Fatalf("observation error = %v, want unavailable", err)
 			}
 		})
 	}
@@ -979,8 +1022,12 @@ func TestObserveClaudeAccountTreatsMissingProfileIdentityAsPartial(t *testing.T)
 		switch request.URL.Path {
 		case "/profile":
 			_, _ = writer.Write([]byte(`{"account":{"email":"owner@example.com"},"organization":{"uuid":"organization-one"}}`))
-		case "/roles", "/bootstrap", "/usage":
-			_, _ = writer.Write([]byte(`{}`))
+		case "/roles":
+			_, _ = writer.Write([]byte(`{"organization_role":"member"}`))
+		case "/bootstrap":
+			_, _ = writer.Write([]byte(`{"oauth_account":{"account_uuid":"account-one","organization_uuid":"organization-one"}}`))
+		case "/usage":
+			_, _ = writer.Write([]byte(`{"five_hour":{"utilization":10}}`))
 		default:
 			http.NotFound(writer, request)
 		}

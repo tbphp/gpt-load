@@ -29,6 +29,16 @@ const (
 // returned a usable observation. Callers retain the last-known-good snapshot.
 var ErrClaudeAccountObservationUnavailable = errors.New("Claude account observation is unavailable")
 
+// ClaudeUpstreamHTTPError retains only the status needed to classify Claude
+// companion endpoint failures. Provider response bodies never cross this boundary.
+type ClaudeUpstreamHTTPError struct {
+	StatusCode int
+}
+
+func (err *ClaudeUpstreamHTTPError) Error() string {
+	return fmt.Sprintf("Claude OAuth companion endpoint returned status %d", err.StatusCode)
+}
+
 // ClaudeModel is the safe model metadata returned by Claude account discovery.
 type ClaudeModel struct {
 	ID          string
@@ -136,6 +146,15 @@ type claudeUsageWindowPayload struct {
 	ResetsAt    *string  `json:"resets_at"`
 }
 
+type claudeExtraUsagePayload struct {
+	Enabled        *bool    `json:"is_enabled"`
+	MonthlyLimit   *float64 `json:"monthly_limit"`
+	UsedCredits    *float64 `json:"used_credits"`
+	Utilization    *float64 `json:"utilization"`
+	Currency       *string  `json:"currency"`
+	DisabledReason *string  `json:"disabled_reason"`
+}
+
 type claudeUsagePayload struct {
 	FiveHour          *claudeUsageWindowPayload `json:"five_hour"`
 	SevenDay          *claudeUsageWindowPayload `json:"seven_day"`
@@ -143,15 +162,8 @@ type claudeUsagePayload struct {
 	SevenDayOpus      *claudeUsageWindowPayload `json:"seven_day_opus"`
 	SevenDaySonnet    *claudeUsageWindowPayload `json:"seven_day_sonnet"`
 	CinderCove        *claudeUsageWindowPayload `json:"cinder_cove"`
-	ExtraUsage        *struct {
-		Enabled        bool     `json:"is_enabled"`
-		MonthlyLimit   *float64 `json:"monthly_limit"`
-		UsedCredits    *float64 `json:"used_credits"`
-		Utilization    *float64 `json:"utilization"`
-		Currency       *string  `json:"currency"`
-		DisabledReason *string  `json:"disabled_reason"`
-	} `json:"extra_usage"`
-	Limits []struct {
+	ExtraUsage        *claudeExtraUsagePayload  `json:"extra_usage"`
+	Limits            []struct {
 		Kind     string  `json:"kind"`
 		Group    string  `json:"group"`
 		Percent  float64 `json:"percent"`
@@ -298,6 +310,21 @@ func ObserveClaudeAccount(
 	}
 	incomplete := make([]string, 0, 4)
 	successfulSources := 0
+	failedSources, commonHTTPStatus := 0, 0
+	onlyHTTPFailures := true
+	recordFailure := func(sourceErr error) {
+		failedSources++
+		var upstream *ClaudeUpstreamHTTPError
+		if sourceErr == nil || !errors.As(sourceErr, &upstream) {
+			onlyHTTPFailures = false
+			return
+		}
+		if commonHTTPStatus == 0 {
+			commonHTTPStatus = upstream.StatusCode
+		} else if commonHTTPStatus != upstream.StatusCode {
+			onlyHTTPFailures = false
+		}
+	}
 	if profilePayload, profileErr := fetchClaudeOAuthProfile(ctx, options, credential.AccessToken); profileErr == nil {
 		if err := validateClaudeProfileIdentity(credential, profilePayload); err != nil {
 			return ClaudeAccountObservation{}, err
@@ -305,6 +332,7 @@ func ObserveClaudeAccount(
 		observedProfile, mapErr := mapClaudeAccountProfile(profilePayload)
 		if mapErr != nil {
 			incomplete = append(incomplete, "profile")
+			recordFailure(nil)
 		} else {
 			profile = mergeClaudeAccountProfile(profile, observedProfile)
 			successfulSources++
@@ -313,48 +341,67 @@ func ObserveClaudeAccount(
 		return ClaudeAccountObservation{}, profileErr
 	} else {
 		incomplete = append(incomplete, "profile")
+		recordFailure(profileErr)
 	}
 
 	if roles, rolesErr := fetchAndDecodeClaudeRoles(ctx, credential, options); rolesErr == nil {
-		successfulSources++
-		rolesComplete := true
+		rolesUsable, rolesComplete := false, true
 		if value, valueErr := claudeSafeScalar("organization role", roles.OrganizationRole, false); valueErr == nil {
-			profile.OrganizationRole = value
+			if value != "" {
+				profile.OrganizationRole = value
+				rolesUsable = true
+			}
 		} else {
 			rolesComplete = false
 		}
 		if value, valueErr := claudeSafeScalar("workspace role", roles.WorkspaceRole, false); valueErr == nil {
-			profile.WorkspaceRole = value
+			if value != "" {
+				profile.WorkspaceRole = value
+				rolesUsable = true
+			}
 		} else {
 			rolesComplete = false
 		}
 		if value, valueErr := claudeSafeScalar("organization name", roles.OrganizationName, false); valueErr == nil && value != "" {
 			profile.OrganizationName = value
+			rolesUsable = true
 		} else if valueErr != nil {
 			rolesComplete = false
 		}
-		if !rolesComplete {
+		if rolesUsable {
+			successfulSources++
+		}
+		if !rolesUsable || !rolesComplete {
 			incomplete = append(incomplete, "roles")
+		}
+		if !rolesUsable {
+			recordFailure(nil)
 		}
 	} else if isClaudeObservationContextError(rolesErr) {
 		return ClaudeAccountObservation{}, rolesErr
 	} else {
 		incomplete = append(incomplete, "roles")
+		recordFailure(rolesErr)
 	}
 	if bootstrap, bootstrapErr := fetchClaudeBootstrap(ctx, credential, options); bootstrapErr == nil {
 		if err := validateClaudeBootstrapIdentity(credential, bootstrap); err != nil {
 			return ClaudeAccountObservation{}, err
 		}
-		successfulSources++
-		if bootstrap.OAuthAccount != nil {
-			if !applyClaudeBootstrapAccount(&profile, bootstrap.OAuthAccount) {
-				incomplete = append(incomplete, "bootstrap")
-			}
+		bootstrapUsable, bootstrapComplete := applyClaudeBootstrapAccount(&profile, bootstrap.OAuthAccount)
+		if bootstrapUsable {
+			successfulSources++
+		}
+		if !bootstrapUsable || !bootstrapComplete {
+			incomplete = append(incomplete, "bootstrap")
+		}
+		if !bootstrapUsable {
+			recordFailure(nil)
 		}
 	} else if isClaudeObservationContextError(bootstrapErr) {
 		return ClaudeAccountObservation{}, bootstrapErr
 	} else {
 		incomplete = append(incomplete, "bootstrap")
+		recordFailure(bootstrapErr)
 	}
 
 	usage, header, err := fetchAndDecodeClaudeUsage(ctx, credential, options)
@@ -363,10 +410,17 @@ func ObserveClaudeAccount(
 			return ClaudeAccountObservation{}, err
 		}
 		incomplete = append(incomplete, "usage")
-	} else {
+		recordFailure(err)
+	} else if claudeUsageUsable(usage) {
 		successfulSources++
+	} else {
+		incomplete = append(incomplete, "usage")
+		recordFailure(nil)
 	}
 	if successfulSources == 0 {
+		if failedSources == 4 && onlyHTTPFailures && commonHTTPStatus != 0 {
+			return ClaudeAccountObservation{}, &ClaudeUpstreamHTTPError{StatusCode: commonHTTPStatus}
+		}
 		return ClaudeAccountObservation{}, ErrClaudeAccountObservationUnavailable
 	}
 	return ClaudeAccountObservation{
@@ -545,11 +599,18 @@ func applyClaudeBootstrapAccount(
 		UserRateLimitTier         string `json:"user_rate_limit_tier"`
 		SeatTier                  string `json:"seat_tier"`
 	},
-) bool {
+) (bool, bool) {
 	if profile == nil || account == nil {
-		return true
+		return false, false
 	}
-	complete := true
+	usable, complete := false, true
+	for _, value := range []string{account.AccountUUID, account.OrganizationUUID} {
+		if cleaned, err := claudeSafeScalar("bootstrap account identity", value, false); err != nil {
+			complete = false
+		} else if cleaned != "" {
+			usable = true
+		}
+	}
 	for target, value := range map[*string]string{
 		&profile.Email:                     account.AccountEmail,
 		&profile.OrganizationName:          account.OrganizationName,
@@ -560,11 +621,29 @@ func applyClaudeBootstrapAccount(
 	} {
 		if cleaned, err := claudeSafeScalar("bootstrap account field", value, false); err == nil && cleaned != "" {
 			*target = cleaned
+			usable = true
 		} else if err != nil {
 			complete = false
 		}
 	}
-	return complete
+	return usable, complete
+}
+
+func claudeUsageUsable(usage ClaudeUsage) bool {
+	for _, window := range []*ClaudeUsageWindow{
+		usage.FiveHour,
+		usage.SevenDay,
+		usage.SevenDayOAuthApps,
+		usage.SevenDayOpus,
+		usage.SevenDaySonnet,
+		usage.CinderCove,
+	} {
+		if window != nil && (window.Utilization != nil ||
+			window.ResetsAt != nil && strings.TrimSpace(*window.ResetsAt) != "") {
+			return true
+		}
+	}
+	return usage.ExtraUsage != nil || len(usage.Limits) > 0
 }
 
 func validateClaudeProfileIdentity(credential ClaudeCredential, profile claudeOAuthProfile) error {
@@ -613,7 +692,7 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 	if result.CinderCove, err = mapClaudeUsageWindow("cinder_cove", payload.CinderCove); err != nil {
 		return ClaudeUsage{}, err
 	}
-	if payload.ExtraUsage != nil {
+	if claudeExtraUsagePayloadUsable(payload.ExtraUsage) {
 		for field, value := range map[string]*float64{
 			"monthly_limit": payload.ExtraUsage.MonthlyLimit,
 			"used_credits":  payload.ExtraUsage.UsedCredits,
@@ -632,7 +711,7 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 			return ClaudeUsage{}, err
 		}
 		result.ExtraUsage = &ClaudeExtraUsage{
-			Enabled:      payload.ExtraUsage.Enabled,
+			Enabled:      payload.ExtraUsage.Enabled != nil && *payload.ExtraUsage.Enabled,
 			MonthlyLimit: cloneFloat64(payload.ExtraUsage.MonthlyLimit),
 			UsedCredits:  cloneFloat64(payload.ExtraUsage.UsedCredits),
 			Utilization:  cloneFloat64(payload.ExtraUsage.Utilization),
@@ -682,6 +761,12 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 		result.Limits = append(result.Limits, item)
 	}
 	return result, nil
+}
+
+func claudeExtraUsagePayloadUsable(payload *claudeExtraUsagePayload) bool {
+	return payload != nil && (payload.Enabled != nil || payload.MonthlyLimit != nil ||
+		payload.UsedCredits != nil || payload.Utilization != nil || payload.Currency != nil ||
+		payload.DisabledReason != nil)
 }
 
 func mapClaudeUsageWindow(name string, payload *claudeUsageWindowPayload) (*ClaudeUsageWindow, error) {
@@ -735,7 +820,7 @@ func fetchClaudeOAuthJSONRequest(
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		clear(body)
-		return nil, nil, fmt.Errorf("Claude OAuth companion endpoint returned status %d", response.StatusCode)
+		return nil, nil, &ClaudeUpstreamHTTPError{StatusCode: response.StatusCode}
 	}
 	return body, response.Header.Clone(), nil
 }

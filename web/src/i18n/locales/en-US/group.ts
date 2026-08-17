@@ -466,6 +466,8 @@ export default {
           refreshStartFailed: 'The credential refresh could not start. Try again shortly.',
         },
         observationError: {
+          authorizationFailed:
+            'The upstream subscription authorization is no longer valid. Sign in again.',
           upstreamFailed: 'Unable to read upstream subscription entitlement information',
           payloadInvalid: 'The upstream returned unrecognized subscription entitlement information',
         },

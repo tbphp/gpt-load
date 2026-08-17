@@ -160,4 +160,12 @@ func TestAccountObservationPreservesIncompleteSourceMarkers(t *testing.T) {
 	}
 }
 
+func TestNormalizeAuthorizationErrorPreservesCompanionHTTPStatus(t *testing.T) {
+	err := normalizeAuthorizationError(&cpaembedded.ClaudeUpstreamHTTPError{StatusCode: http.StatusUnauthorized})
+	var upstream *UpstreamHTTPError
+	if !errors.As(err, &upstream) || upstream.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("normalized error = %#v / %v", upstream, err)
+	}
+}
+
 var _ cpaembedded.ClaudeHTTPExecutor = (*fakeClaudeBridgeExecutor)(nil)

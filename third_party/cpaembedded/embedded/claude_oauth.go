@@ -288,7 +288,7 @@ func fetchClaudeOAuthJSON(
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		clear(body)
-		return nil, fmt.Errorf("Claude OAuth companion endpoint returned status %d", response.StatusCode)
+		return nil, &ClaudeUpstreamHTTPError{StatusCode: response.StatusCode}
 	}
 	return body, nil
 }

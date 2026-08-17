@@ -148,6 +148,10 @@ func (*claudeDriver) Observe(ctx context.Context, credential Credential) (Observ
 	}
 	observed, err := claude.ObserveAccount(ctx, value)
 	if err != nil {
+		var upstream *claude.UpstreamHTTPError
+		if errors.As(err, &upstream) {
+			return Observation{}, &UpstreamHTTPError{StatusCode: upstream.StatusCode}
+		}
 		return Observation{}, err
 	}
 	normalized, err := NormalizeClaudeObservation(observed)

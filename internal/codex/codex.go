@@ -182,7 +182,7 @@ func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
 func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
 	value, err := cpaembedded.ObserveCodexAccount(ctx, credentialToBridge(credential), "")
 	if err != nil {
-		return AccountObservation{}, err
+		return AccountObservation{}, normalizeUpstreamError(err)
 	}
 	return AccountObservation{Payload: append([]byte(nil), value.Payload...), Header: value.Header.Clone()}, nil
 }

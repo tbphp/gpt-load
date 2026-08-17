@@ -2,8 +2,11 @@ package codex
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
+
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 )
 
 func TestCredentialRoundTripKeepsCPACompatibleSchema(t *testing.T) {
@@ -34,5 +37,13 @@ func TestCredentialRoundTripKeepsCPACompatibleSchema(t *testing.T) {
 	}
 	if got, want := credential.SecretValues(), []string{"access-token", "refresh-token", "id-token"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("secret values = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeUpstreamErrorPreservesObservationStatus(t *testing.T) {
+	err := normalizeUpstreamError(&cpaembedded.UpstreamHTTPError{Operation: "usage", StatusCode: 401})
+	var upstream *UpstreamHTTPError
+	if !errors.As(err, &upstream) || upstream.StatusCode != 401 || upstream.Operation != "usage" {
+		t.Fatalf("normalized error = %#v / %v", upstream, err)
 	}
 }

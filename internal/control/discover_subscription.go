@@ -87,6 +87,15 @@ func (s *Service) prepareStoredSubscriptionCredential(
 	group models.Group,
 	row models.Credential,
 ) (subscriptionruntime.Credential, error) {
+	return s.prepareStoredSubscriptionCredentialWithForce(ctx, group, row, false)
+}
+
+func (s *Service) prepareStoredSubscriptionCredentialWithForce(
+	ctx context.Context,
+	group models.Group,
+	row models.Credential,
+	forceRefresh bool,
+) (subscriptionruntime.Credential, error) {
 	switch row.AuthState {
 	case "", models.CredentialAuthStateReady:
 	case models.CredentialAuthStateReauthorizationRequired:
@@ -120,7 +129,7 @@ func (s *Service) prepareStoredSubscriptionCredential(
 		groupCollectionCredentialVersion(row.SecretVersion),
 		groupCollectionCredentialIdentity(row.IdentityFingerprint, group),
 		canonical,
-	), false)
+	), forceRefresh)
 	if evidence != nil {
 		return subscriptionruntime.Credential{}, subscriptionPreparationAPIError(evidence)
 	}
