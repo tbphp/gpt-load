@@ -208,6 +208,7 @@ func newSubscriptionRuntime(registry *channel.Registry) (*subscriptionruntime.Ru
 		registry,
 		subscriptionruntime.CodexImplementations(),
 		subscriptionruntime.ClaudeImplementations(),
+		subscriptionruntime.AntigravityImplementations(),
 	)
 }
 
@@ -230,6 +231,7 @@ func newProviderAdapterRegistry(
 		{ProviderKind: channel.ProviderXAI, Adapter: bifrost},
 		{ProviderKind: channel.ProviderCodex, Adapter: cpa},
 		{ProviderKind: channel.ProviderClaude, Adapter: cpa},
+		{ProviderKind: channel.ProviderAntigravity, Adapter: cpa},
 	}
 	return provideradapter.NewRegistry(channels, bindings)
 }

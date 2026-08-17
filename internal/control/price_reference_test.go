@@ -110,6 +110,23 @@ func TestResolveAutomaticPriceForIdentityTreatsClaudeAnthropicPriceAsReference(t
 	}
 }
 
+func TestResolveAutomaticPriceForIdentityTreatsAntigravityGooglePriceAsReference(t *testing.T) {
+	googleCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"google": {ID: "google", Models: map[string]catalog.Model{
+			"gemini-antigravity": {ID: "gemini-antigravity", Cost: googleCost},
+		}},
+	}}
+
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Antigravity), ModelID: "gemini-antigravity",
+	})
+	if !ok || match.cost != googleCost || match.providerID != "google" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("Antigravity price reference = %#v, %t", match, ok)
+	}
+}
+
 func TestCompatibleAutomaticPriceUsesGlobalPriority(t *testing.T) {
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}

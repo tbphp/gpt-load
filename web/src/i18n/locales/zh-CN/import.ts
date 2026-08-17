@@ -105,6 +105,8 @@ export default {
       channelNotice: {
         claude_oauth_risk:
           'Claude OAuth 依赖 Claude Code 的兼容协议，并非稳定的公开 API 契约；上游变化可能导致接入中断或影响账号，请在授权前自行评估风险。',
+        antigravity_oauth_risk:
+          'Antigravity OAuth 依赖 Google OAuth 与可能变化的 Cloud Code 接口；上游策略、权限或实现变化可能导致授权失效、接入中断或账号受限。请仅连接你有权管理的账号，并自行评估风险。',
       },
       securityNotice: {
         create: '浏览器不会保存访问凭据；服务端加密暂存，创建分组时才正式写入。',

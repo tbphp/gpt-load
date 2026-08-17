@@ -111,6 +111,8 @@ export default {
       channelNotice: {
         claude_oauth_risk:
           'Claude OAuth relies on a Claude Code compatibility protocol rather than a stable public API contract. Upstream changes may interrupt access or affect the account; evaluate this risk before authorizing.',
+        antigravity_oauth_risk:
+          'Antigravity OAuth depends on Google OAuth and Cloud Code interfaces that may change. Upstream policy, permission, or implementation changes can invalidate authorization, interrupt access, or affect the account. Connect only accounts you are authorized to manage and evaluate this risk first.',
       },
       securityNotice: {
         create:

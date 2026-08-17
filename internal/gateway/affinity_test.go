@@ -301,6 +301,22 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 	}
 }
 
+func TestHandlerDerivesPrivateContinuityWithoutReenablingDisabledAffinity(t *testing.T) {
+	handler, manager, _ := newHandlerForTest(t, &scriptedForwarder{}, "sk-one")
+	snapshot := manager.Current()
+	snapshot.Settings.AffinityCapacity = 0
+	resolved := handler.resolveRequestAffinity(
+		snapshot,
+		1,
+		protocol.OpenAICompletions,
+		[]byte(`{"v":1,"user":["hello"]}`),
+		map[uint]state.CredentialRef{1: {ID: 1, GroupID: 1, IdentityGeneration: 1}},
+	)
+	if resolved.key.Valid() || resolved.preferredCredentialID != 0 || resolved.continuityKey == "" {
+		t.Fatalf("disabled affinity resolution = %#v", resolved)
+	}
+}
+
 func successfulAffinityResults(count int) []UpstreamResult {
 	results := make([]UpstreamResult, count)
 	for index := range results {

@@ -54,7 +54,11 @@ func NewAdapter(credentials *subscription.CredentialManager, channels *channel.R
 	return &Adapter{
 		credentials: credentials,
 		channels:    channels,
-		providers:   indexProviderBridges(newCodexProviderBridge(), newClaudeProviderBridge()),
+		providers: indexProviderBridges(
+			newCodexProviderBridge(),
+			newClaudeProviderBridge(),
+			newAntigravityProviderBridge(),
+		),
 	}
 }
 
@@ -81,6 +85,16 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
 	request := bridgeRequest(spec)
+	if validator, ok := provider.(providerRequestValidator); ok {
+		if err := validator.ValidateRequest(request); err != nil {
+			return unaryNotSent(
+				execution.ErrorKindInvalidRequest,
+				"subscription request input is not supported",
+				"unsupported_subscription_input",
+				err,
+			)
+		}
+	}
 	if countTokensOperation(spec.Operation) {
 		if local, ok := provider.(providerLocalTokenCounter); ok {
 			if err := local.ValidateLocalTokenCount(request); err != nil {
@@ -193,6 +207,12 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	if countTokensOperation(spec.Operation) {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "count tokens does not support streaming", "")
 	}
+	request := bridgeRequest(spec)
+	if validator, ok := provider.(providerRequestValidator); ok {
+		if err := validator.ValidateRequest(request); err != nil {
+			return streamNotSent(execution.ErrorKindInvalidRequest, "subscription request input is not supported", "unsupported_subscription_input")
+		}
+	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: evidence}
@@ -209,7 +229,7 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	defer cancelStream(context.Canceled)
 	firstByte := startFirstByteGate(spec.Timeouts.FirstByte, cancelStream)
 	defer firstByte.stop()
-	response, err := provider.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, bridgeRequest(spec))
+	response, err := provider.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, request)
 	if err != nil {
 		result := unaryExecutionError(streamCtx, provider, err, credential)
 		var applied *reasoning.Config
@@ -340,9 +360,10 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, erro
 
 func bridgeRequest(spec execution.AttemptSpec) providerRequest {
 	return providerRequest{
-		Model: spec.UpstreamModel, Payload: append([]byte(nil), spec.Body...),
+		AttemptID: spec.AttemptID, Model: spec.UpstreamModel, Payload: append([]byte(nil), spec.Body...),
 		Format: formatFor(spec.ClientProtocol), Headers: spec.Header.Clone(),
 		OriginalRequest: append([]byte(nil), spec.Body...),
+		ContinuityKey:   spec.ContinuityKey,
 	}
 }
 

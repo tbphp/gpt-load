@@ -115,7 +115,7 @@ func (s *Service) ImportCredentialStage(
 	if len(raw) > maxOAuthFileBytes {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileTooLarge
 	}
-	credential, err := driver.Parse(raw)
+	credential, err := s.subscriptions.ImportCredential(ctx, channelID, raw)
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileInvalid
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/antigravity"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
@@ -320,6 +321,33 @@ func TestAdapterRejectsUnsupportedLocalCodexTokenCountInput(t *testing.T) {
 				t.Fatalf("result=%#v prepareCalls=%d countCalls=%d", result, preparer.calls, fake.countCalls)
 			}
 		})
+	}
+}
+
+func TestAdapterRejectsUnsupportedAntigravityInputBeforeCredentialPreparation(t *testing.T) {
+	canonical, err := antigravity.MarshalCredential(antigravity.Credential{
+		Type: "antigravity", AccessToken: "access", RefreshToken: "refresh", AccountID: "google-account-one",
+		Email: "owner@example.com", ProjectID: "project-one", Expire: time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, _, _, keyService, row := newSubscriptionAdapterFixture(t, string(channel.Antigravity), canonical, "google-account-one")
+	preparer := &fakeCredentialPreparer{delegate: adapter.credentials}
+	adapter.credentials = preparer
+	spec := validSpec(t, row, keyService)
+	spec.ChannelID = string(channel.Antigravity)
+	spec.ClientProtocol = protocol.OpenAIResponses
+	spec.Operation = execution.OperationResponsesCreate
+	spec.RouteMode = execution.RouteConverted
+	spec.ClientModel, spec.UpstreamModel = "gemini-live", "gemini-live"
+	spec.Body = []byte(`{"input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}`)
+
+	result := adapter.Execute(t.Context(), spec)
+	if result.DispatchState != execution.DispatchNotSent || result.ResponseStarted || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindInvalidRequest || result.Error.Code != "unsupported_subscription_input" ||
+		preparer.calls != 0 {
+		t.Fatalf("result=%#v prepareCalls=%d", result, preparer.calls)
 	}
 }
 
@@ -775,6 +803,7 @@ func newSubscriptionAdapterFixture(
 		channels,
 		subscriptionruntime.CodexImplementations(),
 		subscriptionruntime.ClaudeImplementations(),
+		subscriptionruntime.AntigravityImplementations(),
 	)
 	if err != nil {
 		t.Fatal(err)

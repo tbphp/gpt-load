@@ -17,7 +17,8 @@ func TestBridgeDependencyStaysBehindSubscriptionProviderBoundaries(t *testing.T)
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		importer, imports, found := strings.Cut(line, "|")
 		if !found || importer == "gpt-load/internal/codex" || strings.HasPrefix(importer, "gpt-load/internal/codex/") ||
-			importer == "gpt-load/internal/claude" || strings.HasPrefix(importer, "gpt-load/internal/claude/") {
+			importer == "gpt-load/internal/claude" || strings.HasPrefix(importer, "gpt-load/internal/claude/") ||
+			importer == "gpt-load/internal/antigravity" || strings.HasPrefix(importer, "gpt-load/internal/antigravity/") {
 			continue
 		}
 		for _, dependency := range strings.Split(imports, ",") {

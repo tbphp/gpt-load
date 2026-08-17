@@ -94,7 +94,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 デフォルトのnamed volumeにはSQLite、`auth.key`、`encryption.key`が保持されます。本番環境では、保護されたsecret処理を通じて明示的な`AUTH_KEY`と`ENCRYPTION_KEY`を注入してください。実際のsecretを`.env`、ログ、issueへコミットしないでください。MySQLまたはPostgreSQLの`DATABASE_DSN`はoperator管理の設定として、デプロイのsecret/configuration systemから渡してください。
 
-Composeはコンテナ内でのみ全インターフェースをlistenし、ホスト側はデフォルトでloopbackにだけ公開します。OAuthクライアント固定のcallback portも、Codexは`127.0.0.1:1455`、Claudeは`127.0.0.1:54545`に公開します。これらのportは固定されているため、同一ホストで公開できるデフォルトComposeインスタンスは同時に1つだけです。Docker、SSH、またはリモートブラウザー環境でブラウザーの`localhost`からGPT-Loadへ到達できない場合は、完全なcallback URLを認証ダイアログに貼り付けて完了できます。`BIND_ADDRESS=0.0.0.0`、`OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`、またはネイティブプロセスの`HOST=0.0.0.0`は明示的なopt-inです。本番では、TLS reverse proxyとACL/firewallを備えた管理下のネットワーク境界の内側でのみ公開してください。
+Composeはコンテナ内でのみ全インターフェースをlistenし、ホスト側はデフォルトでloopbackにだけ公開します。OAuthクライアント固定のcallback portも、Codexは`127.0.0.1:1455`、Claudeは`127.0.0.1:54545`、Antigravityは`127.0.0.1:51121`に公開します。これらのportは固定されているため、同一ホストで公開できるデフォルトComposeインスタンスは同時に1つだけです。Docker、SSH、またはリモートブラウザー環境でブラウザーの`localhost`からGPT-Loadへ到達できない場合は、完全なcallback URLを認証ダイアログに貼り付けて完了できます。`BIND_ADDRESS=0.0.0.0`、`OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`、またはネイティブプロセスの`HOST=0.0.0.0`は明示的なopt-inです。本番では、TLS reverse proxyとACL/firewallを備えた管理下のネットワーク境界の内側でのみ公開してください。
 
 ### ネイティブバイナリ
 
@@ -211,7 +211,7 @@ Usage/Costの品質境界：
 |---|---|---|
 | `HOST` | `127.0.0.1` | ネイティブHTTPリッスンアドレス。`0.0.0.0`は明示的なopt-inで、リリースコンテナは内部だけ`0.0.0.0`に上書き |
 | `BIND_ADDRESS` | `127.0.0.1` | Composeのホスト側公開アドレス。プロセス設定ではない |
-| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Codex（`1455`）とClaude（`54545`）の固定OAuth callback portを公開するComposeホスト側アドレス |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Codex（`1455`）、Claude（`54545`）、Antigravity（`51121`）の固定OAuth callback portを公開するComposeホスト側アドレス |
 | `PORT` | `3001` | HTTPリッスンポート |
 | `DATA_DIR` | `./data` | ネイティブの永続ディレクトリ。コンテナ内では`/app/data`に上書き |
 | `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空ならmanaged SQLiteを選択。非空値は統一された`sqlite`、`mysql`、`postgres` URLで指定し、operatorが管理 |

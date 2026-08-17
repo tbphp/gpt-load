@@ -20,7 +20,7 @@ export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
 export type ChannelConnectionType = 'api_key' | 'subscription'
 export type ChannelAuthorizationMethod = 'browser_oauth' | 'oauth_file'
 export type ChannelCredentialAction = 'reset_credit'
-export type ChannelNoticeID = 'claude_oauth_risk'
+export type ChannelNoticeID = 'claude_oauth_risk' | 'antigravity_oauth_risk'
 export type ChannelNoticeTone = 'warning'
 
 export interface ChannelNoticeDto {
@@ -127,7 +127,7 @@ const connectionFields = ['type', 'credential_input', 'authorization_methods'] a
 const capabilityFields = ['model_discovery', 'quota_observation', 'credential_actions'] as const
 const credentialActions = ['reset_credit'] as const
 const noticeFields = ['id', 'tone'] as const
-const noticeIDs = ['claude_oauth_risk'] as const
+const noticeIDs = ['claude_oauth_risk', 'antigravity_oauth_risk'] as const
 const noticeTones = ['warning'] as const
 const routeFields = [
   'client_protocol',

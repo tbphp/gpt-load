@@ -201,6 +201,7 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 		channelRegistry,
 		subscriptionruntime.CodexImplementations(),
 		subscriptionruntime.ClaudeImplementations(),
+		subscriptionruntime.AntigravityImplementations(),
 	)
 	if err != nil {
 		t.Fatalf("subscriptionruntime.NewRuntime() error = %v", err)

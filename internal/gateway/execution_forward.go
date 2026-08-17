@@ -581,6 +581,7 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 		Body:                   input.Request.Body,
 		IncludeUsage:           input.ObserveUsage && input.Group.InjectUsageOptions,
 		ForceCredentialRefresh: input.ForceCredentialRefresh,
+		ContinuityKey:          input.ContinuityKey,
 		TargetConfig:           input.TargetConfig,
 		Timeouts: execution.AttemptTimeouts{
 			FirstByte:  input.Group.Timeouts.FirstByte,
