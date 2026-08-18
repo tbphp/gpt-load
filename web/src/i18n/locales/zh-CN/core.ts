@@ -278,6 +278,17 @@ export default {
         clineHint:
           '在 Cline 设置中选择 OpenAI Compatible，填入 Base URL 和 API Key，再获取或选择实际模型',
         curlHint: '请将 YOUR_MODEL 替换为此访问密钥可用的模型',
+        selectClient: '选择客户端',
+        searchClients: '搜索客户端',
+        searchClientsPlaceholder: '输入名称搜索',
+        clearSearch: '清空搜索',
+        noClientMatches: '没有匹配的客户端',
+        groups: {
+          commandLine: '命令行',
+          desktop: '桌面应用',
+          web: '网页与扩展',
+          unsupported: '此密钥不支持',
+        },
         clients: {
           label: '客户端',
           'cc-switch': 'CC Switch',

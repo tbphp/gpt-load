@@ -21,47 +21,153 @@ export type GatewayClientKind =
   | 'commandLine'
   | 'general'
 
+/** 目录里的分组，比 kind 粗，避免九个客户端分出八个组。 */
+export type GatewayClientGroup = 'commandLine' | 'desktop' | 'web'
+
 export interface GatewayClient {
   id: GatewayClientID
   kind: GatewayClientKind
+  /**
+   * web/src/assets/clients 或 channels 下的图标名。缺文件时 ChannelIcon
+   * 自动回退到 mark 字母标，与渠道图标同一套机制。
+   */
+  icon: string
+  mark: string
+  /** 搜索时除名称外还能命中的别名。 */
+  searchTerms: readonly string[]
   requiredProtocol?: AccessProtocol
   quickImport?: boolean
+}
+
+export function clientGroup(kind: GatewayClientKind): GatewayClientGroup {
+  switch (kind) {
+    case 'commandLine':
+    case 'general':
+      return 'commandLine'
+    case 'desktopManager':
+    case 'desktop':
+    case 'desktopWeb':
+      return 'desktop'
+    default:
+      return 'web'
+  }
 }
 
 export type CCSwitchTargetID = 'codex' | 'claude' | 'gemini' | 'opencode'
 
 export interface CCSwitchTarget {
   id: CCSwitchTargetID
+  /** 与客户端图标同一套机制：缺文件时回退到 mark 字母标。 */
+  icon: string
+  mark: string
   requiredProtocol: AccessProtocol
   requiresModel: boolean
 }
 
 export const gatewayClients: readonly GatewayClient[] = [
-  { id: 'cc-switch', kind: 'desktopManager', quickImport: true },
-  { id: 'new-api', kind: 'gateway' },
-  { id: 'codex', kind: 'commandLine', requiredProtocol: 'openai-responses' },
+  {
+    id: 'cc-switch',
+    kind: 'desktopManager',
+    icon: 'cc-switch',
+    mark: 'CC',
+    searchTerms: ['ccswitch', 'switch'],
+    quickImport: true,
+  },
+  {
+    id: 'new-api',
+    kind: 'gateway',
+    icon: 'new-api',
+    mark: 'NA',
+    searchTerms: ['newapi', 'oneapi'],
+  },
+  {
+    id: 'codex',
+    kind: 'commandLine',
+    icon: 'codex',
+    mark: 'CX',
+    searchTerms: ['openai', 'cli'],
+    requiredProtocol: 'openai-responses',
+  },
   {
     id: 'nextchat',
     kind: 'desktopWeb',
+    icon: 'nextchat',
+    mark: 'NC',
+    searchTerms: ['nextchat', 'next-web'],
     requiredProtocol: 'openai-completions',
   },
   {
     id: 'cherry-studio',
     kind: 'desktop',
+    icon: 'cherry-studio',
+    mark: 'CS',
+    searchTerms: ['cherry', 'studio'],
     requiredProtocol: 'openai-completions',
     quickImport: true,
   },
-  { id: 'claude-code', kind: 'commandLine', requiredProtocol: 'anthropic' },
-  { id: 'open-webui', kind: 'web', requiredProtocol: 'openai-completions' },
-  { id: 'cline', kind: 'extension', requiredProtocol: 'openai-completions' },
-  { id: 'curl', kind: 'general', requiredProtocol: 'openai-completions' },
+  {
+    id: 'claude-code',
+    kind: 'commandLine',
+    icon: 'claude',
+    mark: 'CD',
+    searchTerms: ['claude', 'anthropic', 'cli'],
+    requiredProtocol: 'anthropic',
+  },
+  {
+    id: 'open-webui',
+    kind: 'web',
+    icon: 'open-webui',
+    mark: 'OW',
+    searchTerms: ['openwebui', 'ollama'],
+    requiredProtocol: 'openai-completions',
+  },
+  {
+    id: 'cline',
+    kind: 'extension',
+    icon: 'cline',
+    mark: 'CL',
+    searchTerms: ['cline', 'roo', 'kilo', 'vscode'],
+    requiredProtocol: 'openai-completions',
+  },
+  {
+    id: 'curl',
+    kind: 'general',
+    icon: 'curl',
+    mark: '>_',
+    searchTerms: ['curl', 'shell', 'http'],
+    requiredProtocol: 'openai-completions',
+  },
 ]
 
 export const ccSwitchTargets: readonly CCSwitchTarget[] = [
-  { id: 'claude', requiredProtocol: 'anthropic', requiresModel: false },
-  { id: 'codex', requiredProtocol: 'openai-responses', requiresModel: true },
-  { id: 'gemini', requiredProtocol: 'gemini', requiresModel: false },
-  { id: 'opencode', requiredProtocol: 'openai-completions', requiresModel: true },
+  {
+    id: 'claude',
+    icon: 'claude',
+    mark: 'CD',
+    requiredProtocol: 'anthropic',
+    requiresModel: false,
+  },
+  {
+    id: 'codex',
+    icon: 'codex',
+    mark: 'CX',
+    requiredProtocol: 'openai-responses',
+    requiresModel: true,
+  },
+  {
+    id: 'gemini',
+    icon: 'gemini-cli',
+    mark: 'GC',
+    requiredProtocol: 'gemini',
+    requiresModel: false,
+  },
+  {
+    id: 'opencode',
+    icon: 'opencode',
+    mark: 'OC',
+    requiredProtocol: 'openai-completions',
+    requiresModel: true,
+  },
 ]
 
 export function clientRequiredProtocol(

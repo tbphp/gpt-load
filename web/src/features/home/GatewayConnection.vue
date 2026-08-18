@@ -15,7 +15,9 @@ import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import CopyAction from '@/components/ui/CopyAction.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
+
+import ClientPicker from './ClientPicker.vue'
 
 import {
   ccSwitchTargets,
@@ -53,8 +55,6 @@ interface ActionFeedback extends OperationIdentity {
   kind: FeedbackKind
 }
 
-const gatewayClientPanelID = 'gateway-client-panel'
-const gatewayClientTabPrefix = 'gateway-client-tab'
 const client = useApiClient()
 const { t } = useI18n()
 const selectedKeyID = computed(() => props.selectedAccessKeyId)
@@ -80,13 +80,6 @@ const selectOptions = computed(() =>
     label: `${accessKey.name} · ${accessKey.masked_key}`,
   })),
 )
-const clientOptions = computed<SegmentedControlOption[]>(() =>
-  gatewayClients.map((gatewayClient) => ({
-    value: gatewayClient.id,
-    label: selectedClientLabel(gatewayClient.id),
-    disabled: actionBusy.value,
-  })),
-)
 const currentClient = computed(
   () =>
     gatewayClients.find((candidate) => candidate.id === activeClient.value) ?? gatewayClients[0]!,
@@ -103,13 +96,6 @@ const selectedKeySupportsClient = computed(() => {
   const requiredProtocol = currentRequiredProtocol.value
   return Boolean(!requiredProtocol || selectedKey.value?.protocols.includes(requiredProtocol))
 })
-const ccSwitchTargetOptions = computed<SegmentedControlOption[]>(() =>
-  ccSwitchTargets.map((target) => ({
-    value: target.id,
-    label: t(`home.ledger.connection.ccSwitchTargets.${target.id}`),
-    disabled: actionBusy.value || !selectedKey.value?.protocols.includes(target.requiredProtocol),
-  })),
-)
 const quickImportAvailable = computed(() => Boolean(currentClient.value.quickImport))
 const quickImportRequiresModel = computed(
   () => activeClient.value === 'cc-switch' && currentCCSwitchTarget.value.requiresModel,
@@ -305,7 +291,7 @@ function selectCCSwitchTarget(value: string): void {
   invalidateSensitiveAction()
   quickImportConfirmationOpen.value = false
   ccSwitchTargetID.value = target.id
-  ccSwitchModel.value = ''
+  // 换目标应用不清空模型：同一个密钥下模型多半通用，清掉等于逼用户重打一遍。
 }
 
 function selectFirstSupportedCCSwitchTarget(): void {
@@ -489,33 +475,26 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="gateway-connection__clients">
-          <SegmentedControl
+          <span id="gateway-client-label" class="gateway-connection__label">
+            {{ t('home.ledger.connection.clients.label') }}
+          </span>
+          <ClientPicker
             :model-value="activeClient"
-            :label="t('home.ledger.connection.clients.label')"
-            :options="clientOptions"
-            :controls-id="gatewayClientPanelID"
-            :id-prefix="gatewayClientTabPrefix"
-            appearance="pills"
-            size="compact"
-            scrollable
+            :protocols="selectedKey.protocols"
+            :disabled="actionBusy"
             @update:model-value="selectClient"
           />
         </div>
       </div>
 
-      <div
-        :id="gatewayClientPanelID"
-        class="gateway-connection__panel"
-        role="tabpanel"
-        :aria-labelledby="`${gatewayClientTabPrefix}-${activeClient}`"
-      >
+      <div class="gateway-connection__panel">
         <header class="gateway-connection__panel-header">
-          <strong>
-            {{ selectedClientLabel(activeClient) }}
+          <span class="gateway-connection__panel-title">
+            <strong>{{ selectedClientLabel(activeClient) }}</strong>
             <span v-if="selectedClientKind(activeClient)">
               {{ selectedClientKind(activeClient) }}
             </span>
-          </strong>
+          </span>
           <AppButton
             v-if="quickImportAvailable"
             size="compact"
@@ -540,15 +519,27 @@ onBeforeUnmount(() => {
               <span class="gateway-connection__label">
                 {{ t('home.ledger.connection.targetApplication') }}
               </span>
-              <SegmentedControl
-                :model-value="ccSwitchTargetID"
-                :label="t('home.ledger.connection.targetApplication')"
-                :options="ccSwitchTargetOptions"
-                appearance="joined"
-                size="touch"
-                scrollable
-                @update:model-value="selectCCSwitchTarget"
-              />
+              <div
+                class="gateway-connection__targets"
+                role="group"
+                :aria-label="t('home.ledger.connection.targetApplication')"
+              >
+                <button
+                  v-for="target in ccSwitchTargets"
+                  :key="target.id"
+                  class="gateway-connection__target"
+                  :class="{
+                    'gateway-connection__target--selected': target.id === ccSwitchTargetID,
+                  }"
+                  type="button"
+                  :disabled="actionBusy || !selectedKey.protocols.includes(target.requiredProtocol)"
+                  :aria-pressed="target.id === ccSwitchTargetID"
+                  @click="selectCCSwitchTarget(target.id)"
+                >
+                  <ChannelIcon :icon="target.icon" :mark="target.mark" />
+                  <span>{{ t(`home.ledger.connection.ccSwitchTargets.${target.id}`) }}</span>
+                </button>
+              </div>
             </div>
 
             <div class="gateway-connection__cc-switch-model">
@@ -567,7 +558,7 @@ onBeforeUnmount(() => {
                 :maxlength="200"
                 :spellcheck="false"
                 monospace
-                size="touch"
+                size="sm"
               />
             </div>
           </div>
@@ -604,13 +595,13 @@ onBeforeUnmount(() => {
           >
             {{ t('home.ledger.connection.ccSwitchModelRequired') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'cc-switch'" tone="info" appearance="hint">
+          <InlineFeedback v-else-if="activeClient === 'cc-switch'" tone="neutral" appearance="hint">
             {{ t('home.ledger.connection.ccSwitchHint') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'new-api'" tone="info" appearance="hint">
+          <InlineFeedback v-else-if="activeClient === 'new-api'" tone="neutral" appearance="hint">
             {{ t('home.ledger.connection.newApiHint') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'codex'" tone="info" appearance="hint">
+          <InlineFeedback v-else-if="activeClient === 'codex'" tone="neutral" appearance="hint">
             {{ t('home.ledger.connection.codexHint') }}
           </InlineFeedback>
           <InlineFeedback
@@ -620,19 +611,27 @@ onBeforeUnmount(() => {
           >
             {{ t('home.ledger.connection.cherryStudioHint') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'nextchat'" tone="info" appearance="hint">
+          <InlineFeedback v-else-if="activeClient === 'nextchat'" tone="neutral" appearance="hint">
             {{ t('home.ledger.connection.disableFastLink') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'claude-code'" tone="info" appearance="hint">
+          <InlineFeedback
+            v-else-if="activeClient === 'claude-code'"
+            tone="neutral"
+            appearance="hint"
+          >
             {{ t('home.ledger.connection.claudeCodeHint') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'open-webui'" tone="info" appearance="hint">
+          <InlineFeedback
+            v-else-if="activeClient === 'open-webui'"
+            tone="neutral"
+            appearance="hint"
+          >
             {{ t('home.ledger.connection.openWebUIHint') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'cline'" tone="info" appearance="hint">
+          <InlineFeedback v-else-if="activeClient === 'cline'" tone="neutral" appearance="hint">
             {{ t('home.ledger.connection.clineHint') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'curl'" tone="info" appearance="hint">
+          <InlineFeedback v-else-if="activeClient === 'curl'" tone="neutral" appearance="hint">
             {{ t('home.ledger.connection.curlHint') }}
           </InlineFeedback>
         </div>
@@ -697,10 +696,10 @@ onBeforeUnmount(() => {
 }
 
 .gateway-connection__toolbar {
-  display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  align-items: end;
-  gap: 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
   margin-top: 18px;
 }
 
@@ -708,6 +707,7 @@ onBeforeUnmount(() => {
   display: grid;
   min-width: 0;
   gap: 6px;
+  flex: 0 1 300px;
 }
 
 .gateway-connection__label {
@@ -718,48 +718,80 @@ onBeforeUnmount(() => {
 .gateway-connection__key-control {
   display: flex;
   min-width: 0;
+  height: var(--control-md);
   overflow: hidden;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
 }
 
+/* 两个字段必须等高，否则并排时一高一低。 */
+.gateway-connection__clients :deep(.client-picker__trigger) {
+  min-height: var(--control-md);
+}
+
+/* 客户端与访问密钥并列成同一行的两个字段，两边都有标签、都左对齐。 */
 .gateway-connection__clients {
-  display: flex;
+  display: grid;
   min-width: 0;
-  justify-content: flex-end;
+  gap: 6px;
 }
 
 .gateway-connection__panel {
+  display: grid;
+  gap: var(--space-3);
   margin-top: 14px;
-  overflow: hidden;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sheet);
   background: var(--color-surface);
+  padding: 12px;
 }
 
+/*
+ * 标题条与监控/健康页的分区标题同款：蓝点 + 加粗标题，底色只比面板深一点点，
+ * 不再是整条灰色 header 压在灰色代码块上。
+ */
 .gateway-connection__panel-header {
   display: flex;
-  min-height: var(--surface-header-min-height);
+  /*
+   * 固定高度：一键导入按钮（30px）加上下内边距正好把标题条撑到 42px，而没有
+   * 按钮的客户端只有 38px。写死成同一个高度，切换客户端时标题条不再跳动。
+   */
+  min-height: var(--control-lg);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
-  padding: 12px 14px;
+  border-radius: var(--radius-tag);
+  background: color-mix(in srgb, var(--color-surface-sunken) 52%, var(--color-surface));
+  padding: 6px 10px;
 }
 
-.gateway-connection__panel-header strong {
+.gateway-connection__panel-title {
   display: inline-flex;
   min-width: 0;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--text-body);
-  font-weight: 600;
+  align-items: center;
+  gap: var(--space-2-5);
 }
 
-.gateway-connection__panel-header strong span {
+.gateway-connection__panel-title::before {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-action);
+  content: '';
+}
+
+.gateway-connection__panel-title strong {
+  min-width: 0;
+  font-size: var(--title-section);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: var(--line-compact);
+}
+
+.gateway-connection__panel-title > span {
   color: var(--color-text-faint);
   font-size: var(--text-sm);
   font-weight: 400;
@@ -767,13 +799,13 @@ onBeforeUnmount(() => {
 
 .gateway-connection__panel-body {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--space-3);
+  padding: 0 2px 2px;
 }
 
 .gateway-connection__cc-switch-options {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr);
+  grid-template-columns: auto minmax(200px, 1fr);
   align-items: end;
   gap: var(--space-3);
 }
@@ -785,16 +817,87 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
-.gateway-connection__cc-switch-target :deep(.segmented-control) {
-  width: 100%;
+/* 主模型输入与目标 chip 必须严格等高，否则并排时高低不齐。 */
+.gateway-connection__cc-switch-model :deep([data-input-shell]) {
+  min-height: var(--control-sm);
+  height: var(--control-sm);
 }
 
-.gateway-connection__cc-switch-target :deep(.segmented-control__list) {
-  width: 100%;
+/* 目标应用与「导入渠道」的渠道选择器同款 chip，视觉语言全站一致。 */
+.gateway-connection__targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
-.gateway-connection__cc-switch-target :deep(.segmented-control__trigger) {
-  flex: 1 0 auto;
+.gateway-connection__target {
+  display: inline-flex;
+  min-height: var(--control-sm);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0 13px;
+  font: inherit;
+  font-size: var(--text-button);
+  font-weight: 560;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+
+.gateway-connection__target:hover:not(:disabled) {
+  border-color: var(--color-text-faint);
+}
+
+.gateway-connection__target:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.gateway-connection__target--selected {
+  border-color: var(--color-action);
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  font-weight: 620;
+}
+
+.gateway-connection__target :deep(.channel-icon) {
+  width: 17px;
+  min-width: 17px;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.gateway-connection__target :deep(.channel-icon--fallback) {
+  width: 17px;
+  min-width: 17px;
+  height: 14px;
+  font-size: 7.5px;
+}
+
+/*
+ * 配置块要一眼看出是代码：统一用深色 code 面，在明暗两种主题下都保持，
+ * 这样它和上方浅色标题条自然分层，不再是「灰底压灰底」。
+ */
+.gateway-connection__panel :deep(.code-block--snippet pre) {
+  border-color: #232830;
+  background: #12151a;
+  line-height: 1.6;
+}
+
+.gateway-connection__panel :deep(.code-block--snippet code) {
+  color: #e8eaec;
+}
+
+.gateway-connection__panel :deep(.code-block__toolbar) {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
 }
 
 .gateway-connection__feedback {
@@ -815,17 +918,20 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 860px) {
-  .gateway-connection__toolbar {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-
-  .gateway-connection__clients {
-    justify-content: flex-start;
+  .gateway-connection__key {
+    flex: 1 1 100%;
   }
 
   .gateway-connection__cc-switch-options {
     grid-template-columns: 1fr;
+  }
+}
+
+/* 桌面收紧了控件高度，窄屏把触控目标还回到 44px。 */
+@media (max-width: 560px) {
+  .gateway-connection__cc-switch-target :deep(.segmented-control__trigger),
+  .gateway-connection__cc-switch-model :deep([data-input-shell]) {
+    min-height: var(--touch-target);
   }
 }
 </style>

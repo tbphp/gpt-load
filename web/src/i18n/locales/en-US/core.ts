@@ -290,6 +290,17 @@ export default {
         clineHint:
           'Choose OpenAI Compatible in Cline settings, enter the base URL and API key, then fetch or select the actual model',
         curlHint: 'Replace YOUR_MODEL with a model available to this access key',
+        selectClient: 'Select a client',
+        searchClients: 'Search clients',
+        searchClientsPlaceholder: 'Type a name',
+        clearSearch: 'Clear search',
+        noClientMatches: 'No matching client',
+        groups: {
+          commandLine: 'Command line',
+          desktop: 'Desktop apps',
+          web: 'Web and extensions',
+          unsupported: 'Not available for this key',
+        },
         clients: {
           label: 'Client',
           'cc-switch': 'CC Switch',

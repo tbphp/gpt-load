@@ -289,6 +289,17 @@ export default {
         clineHint:
           'Cline の設定で OpenAI Compatible を選び、Base URL と API Key を入力してから実際のモデルを取得または選択してください',
         curlHint: 'YOUR_MODEL をこのアクセスキーで利用可能なモデルに置き換えてください',
+        selectClient: 'クライアントを選択',
+        searchClients: 'クライアントを検索',
+        searchClientsPlaceholder: '名前を入力',
+        clearSearch: '検索をクリア',
+        noClientMatches: '一致するクライアントがありません',
+        groups: {
+          commandLine: 'コマンドライン',
+          desktop: 'デスクトップアプリ',
+          web: 'Web と拡張',
+          unsupported: 'このキーでは利用不可',
+        },
         clients: {
           label: 'クライアント',
           'cc-switch': 'CC Switch',
