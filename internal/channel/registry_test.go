@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
@@ -74,6 +75,15 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		second[vertexIndex].ParamFields[0].DefaultValue == nil ||
 		*second[vertexIndex].ParamFields[0].DefaultValue != "global" {
 		t.Fatal("mutating List() output changed registry state")
+	}
+}
+
+func TestBuiltInSubscriptionChannelsUseOnlyGlobalRiskNotice(t *testing.T) {
+	registry := NewRegistry()
+	for _, descriptor := range registry.List() {
+		if descriptor.Connection.Type == string(spec.ConnectionSubscription) && len(descriptor.Notices) != 0 {
+			t.Fatalf("subscription channel %q declares step-level notices: %#v", descriptor.ID, descriptor.Notices)
+		}
 	}
 }
 

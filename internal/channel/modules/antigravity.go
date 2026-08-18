@@ -22,9 +22,6 @@ func Antigravity() spec.Module {
 			Icon:        "antigravity",
 			SearchTerms: []string{"subscription", "oauth", "google", "antigravity"},
 			Description: "Google Antigravity subscription",
-			Notices: []spec.Notice{{
-				ID: spec.NoticeAntigravityOAuthRisk, Tone: spec.NoticeToneWarning,
-			}},
 			Connection: spec.Connection{
 				Type:            spec.ConnectionSubscription,
 				CredentialInput: "authorization",

@@ -32,9 +32,7 @@ func TestAntigravityModuleDeclaresSubscriptionContract(t *testing.T) {
 		}) {
 		t.Fatalf("Antigravity connection = %#v", descriptor.Connection)
 	}
-	if !reflect.DeepEqual(descriptor.Notices, []NoticeDescriptor{{
-		ID: NoticeAntigravityOAuthRisk, Tone: NoticeToneWarning,
-	}}) {
+	if len(descriptor.Notices) != 0 {
 		t.Fatalf("Antigravity notices = %#v", descriptor.Notices)
 	}
 	target, err := registry.Resolve(Antigravity, nil)
