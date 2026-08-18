@@ -1,7 +1,17 @@
 package observation
 
+type PlanLevel string
+
+const (
+	PlanLevelFree     PlanLevel = "free"
+	PlanLevelStandard PlanLevel = "standard"
+	PlanLevelPremium  PlanLevel = "premium"
+	PlanLevelElite    PlanLevel = "elite"
+)
+
 type PlanSummary struct {
-	Name string `json:"name,omitempty"`
+	Name  string    `json:"name,omitempty"`
+	Level PlanLevel `json:"level,omitempty"`
 }
 
 type AccountSummary struct {

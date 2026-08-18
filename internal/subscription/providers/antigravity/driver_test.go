@@ -134,6 +134,9 @@ func TestNormalizeObservationIncludesUpstreamQuotaBuckets(t *testing.T) {
 		window.ResetAtMS == nil || *window.ResetAtMS != 1893456000000 {
 		t.Fatalf("quota window = %#v", window)
 	}
+	if snapshot.Plan.Level != "standard" {
+		t.Fatalf("plan = %#v", snapshot.Plan)
+	}
 }
 
 func TestNormalizeObservationNormalizesClaudeGPTWeeklyWindow(t *testing.T) {

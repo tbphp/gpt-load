@@ -20,7 +20,7 @@ type quotaSnapshot = providerobservation.Snapshot
 // as a balance only; quota windows are copied from the upstream quota summary.
 func NormalizeObservation(email string, observation AccountObservation) ([]byte, error) {
 	result := quotaSnapshot{
-		Plan:         quotaPlanSummary{Name: antigravityPlanName(observation.PlanID)},
+		Plan:         antigravityPlan(observation.PlanID),
 		Account:      &quotaAccountSummary{Email: strings.TrimSpace(email)},
 		QuotaWindows: make([]quotaWindow, 0, len(observation.QuotaGroups)+1),
 	}
@@ -138,15 +138,15 @@ func antigravityQuotaBucketLabel(value string) string {
 	}
 }
 
-func antigravityPlanName(value string) string {
+func antigravityPlan(value string) quotaPlanSummary {
 	normalized := strings.NewReplacer("_", "-", " ", "-").Replace(strings.ToLower(strings.TrimSpace(value)))
 	switch normalized {
 	case "free-tier", "free", "standard":
-		return "Free"
+		return quotaPlanSummary{Name: "Free", Level: providerobservation.PlanLevelFree}
 	case "g1-pro-tier", "pro":
-		return "Pro"
+		return quotaPlanSummary{Name: "Pro", Level: providerobservation.PlanLevelStandard}
 	default:
-		return providerobservation.DisplayName(value)
+		return quotaPlanSummary{Name: providerobservation.DisplayName(value)}
 	}
 }
 

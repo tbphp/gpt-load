@@ -29,7 +29,7 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 		return nil, errors.New("invalid subscription quota observation")
 	}
 	result := quotaSnapshot{QuotaWindows: []quotaWindow{}}
-	result.Plan.Name = codexPlanName(cleanString(firstValue(payload, "plan_type", "planType")))
+	result.Plan = codexPlan(cleanString(firstValue(payload, "plan_type", "planType")))
 	if credits, ok := object(firstValue(payload, "rate_limit_reset_credits", "rateLimitResetCredits")); ok {
 		if value, ok := integer(firstValue(credits, "available_count", "availableCount")); ok {
 			result.ResetCreditsAvailable = &value
@@ -163,19 +163,25 @@ func windowLabel(window map[string]any, fallback, scope string) string {
 	return providerobservation.WindowLabel(subject, seconds)
 }
 
-func codexPlanName(value string) string {
+func codexPlan(value string) quotaPlanSummary {
 	normalized := strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(value)))
 	switch normalized {
 	case "pro":
-		return "Pro 20x"
+		return quotaPlanSummary{Name: "Pro 20x", Level: providerobservation.PlanLevelElite}
 	case "prolite":
-		return "Pro 5x"
-	case "edu":
-		return "Education"
-	case "free", "plus", "team", "business", "enterprise", "education":
-		return providerobservation.DisplayName(normalized)
+		return quotaPlanSummary{Name: "Pro 5x", Level: providerobservation.PlanLevelPremium}
+	case "free":
+		return quotaPlanSummary{Name: "Free", Level: providerobservation.PlanLevelFree}
+	case "plus":
+		return quotaPlanSummary{Name: "Plus", Level: providerobservation.PlanLevelStandard}
+	case "edu", "education":
+		return quotaPlanSummary{Name: "Education", Level: providerobservation.PlanLevelStandard}
+	case "team", "business":
+		return quotaPlanSummary{Name: providerobservation.DisplayName(normalized), Level: providerobservation.PlanLevelPremium}
+	case "enterprise":
+		return quotaPlanSummary{Name: "Enterprise", Level: providerobservation.PlanLevelElite}
 	default:
-		return providerobservation.DisplayName(value)
+		return quotaPlanSummary{Name: providerobservation.DisplayName(value)}
 	}
 }
 

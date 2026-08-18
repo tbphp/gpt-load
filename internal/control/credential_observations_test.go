@@ -21,6 +21,25 @@ import (
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
+func TestObservationPlanSummaryPreservesPresentationLevel(t *testing.T) {
+	var snapshot CredentialObservationSnapshot
+	if err := json.Unmarshal([]byte(`{"plan_summary":{"name":"Team","level":"premium"},"quota_windows":[]}`), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected struct {
+		Plan struct {
+			Level string `json:"level"`
+		} `json:"plan_summary"`
+	}
+	if err := json.Unmarshal(encoded, &projected); err != nil || projected.Plan.Level != "premium" {
+		t.Fatalf("plan level = %q, %v", projected.Plan.Level, err)
+	}
+}
+
 func TestNormalizeCodexObservationKeepsDynamicWindowsAndStableOrder(t *testing.T) {
 	t.Parallel()
 

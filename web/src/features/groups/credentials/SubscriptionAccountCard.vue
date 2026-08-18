@@ -107,6 +107,7 @@ const planLabel = computed(() => {
   const plan = snapshot.value?.plan_summary.name?.trim()
   return plan ?? ''
 })
+const planLevel = computed(() => snapshot.value?.plan_summary.level ?? 'unknown')
 const credentialExpiryTooltip = computed(() => {
   const expiresAtMS = props.item.account.expires_at_ms
   if (expiresAtMS === undefined) return undefined
@@ -365,7 +366,11 @@ function runMenuAction(
       <header class="subscription-account__top">
         <div class="subscription-account__top-row">
           <div class="subscription-account__badges">
-            <span v-if="planLabel" class="subscription-account__plan">
+            <span
+              v-if="planLabel"
+              class="subscription-account__plan"
+              :class="`subscription-account__plan--${planLevel}`"
+            >
               <ChannelIcon
                 v-if="channelIcon && channelMark"
                 class="subscription-account__plan-icon"
@@ -913,14 +918,30 @@ function runMenuAction(
   align-items: center;
   gap: 5px;
   border-radius: var(--radius-tag);
-  background: var(--color-action-soft);
-  color: var(--color-action);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
   padding: 3px 8px;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+}
+.subscription-account__plan--free {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
+}
+.subscription-account__plan--standard {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+.subscription-account__plan--premium {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+.subscription-account__plan--elite {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 .subscription-account__plan-icon {
   width: 14px;

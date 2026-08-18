@@ -29,8 +29,8 @@ func TestNormalizeQuotaNormalizesPlanAndStandardWindows(t *testing.T) {
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Plan.Name != "Pro 20x" {
-		t.Fatalf("plan name = %q", snapshot.Plan.Name)
+	if snapshot.Plan.Name != "Pro 20x" || snapshot.Plan.Level != "elite" {
+		t.Fatalf("plan = %#v", snapshot.Plan)
 	}
 	labels := make([]string, 0, len(snapshot.QuotaWindows))
 	for _, window := range snapshot.QuotaWindows {
@@ -50,7 +50,7 @@ func TestNormalizeQuotaNormalizesProLitePlan(t *testing.T) {
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Plan.Name != "Pro 5x" {
-		t.Fatalf("plan name = %q", snapshot.Plan.Name)
+	if snapshot.Plan.Name != "Pro 5x" || snapshot.Plan.Level != "premium" {
+		t.Fatalf("plan = %#v", snapshot.Plan)
 	}
 }

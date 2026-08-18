@@ -47,7 +47,8 @@ func TestNormalizeObservationIncludesAccountAndQuotaWindows(t *testing.T) {
 			SeatTier         string `json:"seat_tier"`
 		} `json:"account_summary"`
 		Plan struct {
-			Name string `json:"name"`
+			Name  string `json:"name"`
+			Level string `json:"level"`
 		} `json:"plan_summary"`
 		Windows []quotaWindow `json:"quota_windows"`
 	}
@@ -55,7 +56,7 @@ func TestNormalizeObservationIncludesAccountAndQuotaWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if snapshot.Account.DisplayName != "Owner" || snapshot.Account.OrganizationName != "Example Org" ||
-		snapshot.Account.SeatTier != "team_standard" || snapshot.Plan.Name != "Team" ||
+		snapshot.Account.SeatTier != "team_standard" || snapshot.Plan.Name != "Team" || snapshot.Plan.Level != "premium" ||
 		len(snapshot.Windows) != 4 {
 		t.Fatalf("snapshot = %s", raw)
 	}
@@ -250,12 +251,13 @@ func TestNormalizeObservationPreservesScopedLimitKinds(t *testing.T) {
 
 func TestNormalizeObservationUsesRateLimitTierAsPlanFallback(t *testing.T) {
 	tests := []struct {
-		name    string
-		profile AccountProfile
-		want    string
+		name      string
+		profile   AccountProfile
+		want      string
+		wantLevel string
 	}{
-		{name: "organization max", profile: AccountProfile{OrganizationRateLimitTier: "default_claude_max_20x"}, want: "Max"},
-		{name: "user pro", profile: AccountProfile{UserRateLimitTier: "default_claude_pro"}, want: "Pro"},
+		{name: "organization max", profile: AccountProfile{OrganizationRateLimitTier: "default_claude_max_20x"}, want: "Max", wantLevel: "premium"},
+		{name: "user pro", profile: AccountProfile{UserRateLimitTier: "default_claude_pro"}, want: "Pro", wantLevel: "standard"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -267,8 +269,8 @@ func TestNormalizeObservationUsesRateLimitTierAsPlanFallback(t *testing.T) {
 			if err := json.Unmarshal(raw, &snapshot); err != nil {
 				t.Fatal(err)
 			}
-			if snapshot.Plan.Name != test.want {
-				t.Fatalf("plan name = %q, want %q", snapshot.Plan.Name, test.want)
+			if snapshot.Plan.Name != test.want || string(snapshot.Plan.Level) != test.wantLevel {
+				t.Fatalf("plan = %q/%q, want %q/%q", snapshot.Plan.Name, snapshot.Plan.Level, test.want, test.wantLevel)
 			}
 		})
 	}

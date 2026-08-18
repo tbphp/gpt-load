@@ -27,7 +27,8 @@ const (
 )
 
 type ObservationPlanSummary struct {
-	Name string `json:"name,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Level string `json:"level,omitempty"`
 }
 
 type ObservationAccountSummary struct {
@@ -320,7 +321,7 @@ func (s *Service) refreshCredentialObservationOnce(
 
 func mergeObservationPlanSummary(previous, current ObservationPlanSummary) ObservationPlanSummary {
 	if current.Name == "" {
-		current.Name = previous.Name
+		return previous
 	}
 	return current
 }

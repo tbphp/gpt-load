@@ -22,7 +22,7 @@ func NormalizeObservation(observation AccountObservation) ([]byte, error) {
 		return nil, err
 	}
 	result := quotaSnapshot{
-		Plan:         quotaPlanSummary{Name: claudePlanName(observation.Profile)},
+		Plan:         claudePlan(observation.Profile),
 		Account:      account,
 		QuotaWindows: make([]quotaWindow, 0, 7+len(observation.Usage.Limits)),
 	}
@@ -166,7 +166,7 @@ func normalizeClaudeAccount(profile AccountProfile, extraUsage *ExtraUsage) (*qu
 	return result, nil
 }
 
-func claudePlanName(profile AccountProfile) string {
+func claudePlan(profile AccountProfile) quotaPlanSummary {
 	for _, value := range []string{
 		profile.OrganizationType,
 		profile.SeatTier,
@@ -176,18 +176,18 @@ func claudePlanName(profile AccountProfile) string {
 		normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(value)))
 		switch {
 		case strings.Contains(normalized, "enterprise"):
-			return "Enterprise"
+			return quotaPlanSummary{Name: "Enterprise", Level: providerobservation.PlanLevelElite}
 		case strings.Contains(normalized, "team"):
-			return "Team"
+			return quotaPlanSummary{Name: "Team", Level: providerobservation.PlanLevelPremium}
 		case strings.Contains(normalized, "max"):
-			return "Max"
+			return quotaPlanSummary{Name: "Max", Level: providerobservation.PlanLevelPremium}
 		case strings.Contains(normalized, "pro"):
-			return "Pro"
+			return quotaPlanSummary{Name: "Pro", Level: providerobservation.PlanLevelStandard}
 		case strings.Contains(normalized, "free"):
-			return "Free"
+			return quotaPlanSummary{Name: "Free", Level: providerobservation.PlanLevelFree}
 		}
 	}
-	return ""
+	return quotaPlanSummary{}
 }
 
 func claudeWindowScope(id string) string {

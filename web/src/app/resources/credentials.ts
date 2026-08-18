@@ -135,6 +135,7 @@ const connectionTypes = ['api_key', 'subscription'] as const
 const authStates = ['ready', 'refreshing', 'reauthorization_required', 'outcome_unknown'] as const
 const observationStates = ['fresh', 'stale', 'refreshing', 'error', 'unavailable'] as const
 const quotaStates = ['available', 'exhausted', 'unknown'] as const
+const planLevels = ['free', 'standard', 'premium', 'elite'] as const
 const canonicalMask = /^(?:\*{4}|.{4}\*{4}.{4})$/u
 const subscriptionMask = /^(?:[^\s@]{1,64}@[^\s@]{1,255}|Subscription #[1-9]\d*)$/u
 const accountFields = ['email', 'email_mask', 'expires_at_ms', 'last_refresh_at_ms'] as const
@@ -154,7 +155,7 @@ const observationSnapshotFields = [
   'reset_credits_available',
   'reset_credits',
 ] as const
-const planFields = ['name'] as const
+const planFields = ['name', 'level'] as const
 const observationAccountFields = [
   'display_name',
   'email',
@@ -382,6 +383,8 @@ function projectObservationSnapshot(value: unknown): CredentialObservationSnapsh
     planRecord.name === undefined
       ? undefined
       : projectString(planRecord.name, { allowEmpty: false })
+  const planLevel =
+    planRecord.level === undefined ? undefined : projectEnum(planRecord.level, planLevels)
   const quotaWindows = projectArray(record.quota_windows, projectQuotaWindow)
   if (
     new Set(quotaWindows.map(({ id }) => id)).size !== quotaWindows.length ||
@@ -426,7 +429,10 @@ function projectObservationSnapshot(value: unknown): CredentialObservationSnapsh
     }
   }
   return {
-    plan_summary: planName === undefined ? {} : { name: planName },
+    plan_summary: {
+      ...(planName === undefined ? {} : { name: planName }),
+      ...(planLevel === undefined ? {} : { level: planLevel }),
+    },
     ...(accountSummary === undefined ? {} : { account_summary: accountSummary }),
     quota_windows: quotaWindows,
     ...(record.reset_credits_available === undefined

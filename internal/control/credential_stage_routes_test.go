@@ -542,7 +542,7 @@ func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) 
 	refreshResponse := httptest.NewRecorder()
 	engine.ServeHTTP(refreshResponse, refreshRequest)
 	if refreshResponse.Code != http.StatusOK || !strings.Contains(refreshResponse.Body.String(), `"state":"fresh"`) ||
-		!strings.Contains(refreshResponse.Body.String(), `"plan_summary":{"name":"Pro 20x"}`) {
+		!strings.Contains(refreshResponse.Body.String(), `"plan_summary":{"name":"Pro 20x","level":"elite"}`) {
 		t.Fatalf("refresh = %d %s", refreshResponse.Code, refreshResponse.Body)
 	}
 

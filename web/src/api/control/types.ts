@@ -182,8 +182,10 @@ export interface CredentialObservationAccountSummaryDto {
   subscription_created_at_ms?: number
 }
 
+export type CredentialPlanLevel = 'free' | 'standard' | 'premium' | 'elite'
+
 export interface CredentialObservationSnapshotDto {
-  plan_summary: { name?: string }
+  plan_summary: { name?: string; level?: CredentialPlanLevel }
   account_summary?: CredentialObservationAccountSummaryDto
   quota_windows: CredentialQuotaWindowDto[]
   reset_credits_available?: number
