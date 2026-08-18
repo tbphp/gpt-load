@@ -392,6 +392,7 @@ export default {
         modelConstraints: '模型专项限制',
         unknown: '上游未提供',
         remaining: '剩余 {remaining} / {limit}',
+        remainingAmount: '剩余 {remaining}',
         remainingPercent: '剩 {value}%',
         quotaPeriod: '当前周期\n{start} → {end}',
         quotaExhaustedHint: '额度恢复前会自动跳过此账号；信息过期时回退到现有调度。',

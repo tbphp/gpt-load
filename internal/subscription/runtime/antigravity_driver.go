@@ -158,7 +158,9 @@ func (*antigravityDriver) Observe(ctx context.Context, credential Credential) (O
 
 func antigravityObservationCompleteness(observed antigravity.AccountObservation) (bool, bool, bool, error) {
 	accountObserved := strings.TrimSpace(observed.PlanID) != ""
-	quotaObserved := observed.GoogleOneAICredits != nil
+	// A successfully observed plan with no Google One AI credit entry is an
+	// authoritative empty quota result, not a partial observation.
+	quotaObserved := accountObserved || observed.GoogleOneAICredits != nil
 	if !accountObserved && !quotaObserved {
 		return false, false, false, fmt.Errorf("%w: Antigravity account observation has no usable fields", ErrObservationPayloadInvalid)
 	}

@@ -121,8 +121,8 @@ func TestAntigravityObservationCompletenessProtectsLastKnownGoodSections(t *test
 			}, wantAccount: true, wantQuota: true,
 		},
 		{
-			name: "plan only is partial", observation: antigravity.AccountObservation{PlanID: "free-tier"},
-			wantAccount: true, wantPartial: true,
+			name: "plan with no paid credits is complete", observation: antigravity.AccountObservation{PlanID: "free-tier"},
+			wantAccount: true, wantQuota: true,
 		},
 		{
 			name: "credits only is partial", observation: antigravity.AccountObservation{GoogleOneAICredits: credit},

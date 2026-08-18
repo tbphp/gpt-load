@@ -1,6 +1,7 @@
 package cpa
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"gpt-load/internal/antigravity"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/protocol"
 )
 
@@ -158,6 +160,9 @@ func (bridge *antigravityProviderBridge) Execute(
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ContinuityKey: antigravityContinuityScope(request.ContinuityKey, credentialID, request.Model, request.AttemptID),
 	})
+	if err == nil {
+		response.Payload, err = normalizeAntigravityResponseModel(request.Format, response.Payload, request.Model)
+	}
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
@@ -210,6 +215,9 @@ func (bridge *antigravityProviderBridge) ExecuteStream(
 		defer close(chunks)
 		for chunk := range response.Chunks {
 			converted := providerStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Err: chunk.Err}
+			if converted.Err == nil {
+				converted.Payload, converted.Err = normalizeAntigravityResponseModel(request.Format, converted.Payload, request.Model)
+			}
 			select {
 			case chunks <- converted:
 			case <-ctx.Done():
@@ -220,6 +228,76 @@ func (bridge *antigravityProviderBridge) ExecuteStream(
 	return &providerStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks, AppliedReasoningEffort: response.AppliedReasoningEffort,
 	}, nil
+}
+
+func normalizeAntigravityResponseModel(format string, payload []byte, model string) ([]byte, error) {
+	if len(payload) == 0 || strings.TrimSpace(model) == "" {
+		return bytes.Clone(payload), nil
+	}
+	if !antigravityResponseUsesPlaceholderModel(payload) {
+		return bytes.Clone(payload), nil
+	}
+	var clientProtocol protocol.Protocol
+	switch strings.TrimSpace(format) {
+	case "openai":
+		clientProtocol = protocol.OpenAICompletions
+	case "openai-response":
+		clientProtocol = protocol.OpenAIResponses
+	case "claude":
+		clientProtocol = protocol.Anthropic
+	case "gemini":
+		clientProtocol = protocol.Gemini
+	default:
+		return nil, fmt.Errorf("unsupported Antigravity response format")
+	}
+	trimmed := bytes.TrimSpace(payload)
+	if json.Valid(trimmed) {
+		return responsealias.RewriteJSON(clientProtocol, payload, model)
+	}
+	if bytes.Equal(trimmed, []byte("[DONE]")) {
+		return bytes.Clone(payload), nil
+	}
+	return responsealias.RewriteSSE(clientProtocol, payload, model)
+}
+
+func antigravityResponseUsesPlaceholderModel(payload []byte) bool {
+	trimmed := bytes.TrimSpace(payload)
+	if json.Valid(trimmed) {
+		return antigravityJSONUsesPlaceholderModel(trimmed)
+	}
+	for _, line := range bytes.Split(payload, []byte{'\n'}) {
+		line = bytes.TrimSpace(line)
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if json.Valid(data) && antigravityJSONUsesPlaceholderModel(data) {
+			return true
+		}
+	}
+	return false
+}
+
+func antigravityJSONUsesPlaceholderModel(payload []byte) bool {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(payload, &root) != nil || root == nil {
+		return false
+	}
+	if antigravityRawModelIsPlaceholder(root["model"]) || antigravityRawModelIsPlaceholder(root["modelVersion"]) {
+		return true
+	}
+	for _, field := range []string{"message", "response"} {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(root[field], &nested) == nil && antigravityRawModelIsPlaceholder(nested["model"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func antigravityRawModelIsPlaceholder(raw json.RawMessage) bool {
+	var value string
+	return json.Unmarshal(raw, &value) == nil && strings.EqualFold(strings.TrimSpace(value), "gemini-default")
 }
 
 func (*antigravityProviderBridge) ClassifyError(
@@ -260,14 +338,14 @@ func (*antigravityProviderBridge) ClassifyError(
 	case status == http.StatusUnauthorized:
 		evidence.Hint = execution.FailureHintRefreshRequired
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	case status == http.StatusForbidden ||
+		status == http.StatusTooManyRequests && strings.EqualFold(codeValue, "INSUFFICIENT_G1_CREDITS_BALANCE"):
+		evidence.Hint = execution.FailureHintCandidateUnavailable
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	case requestScopedFailure(err):
-		evidence.Hint = execution.FailureHintRequestRejected
-	case status == http.StatusTooManyRequests && strings.EqualFold(codeValue, "INSUFFICIENT_G1_CREDITS_BALANCE"):
 		evidence.Hint = execution.FailureHintRequestRejected
 	case status == http.StatusTooManyRequests:
 		evidence.Hint = execution.FailureHintRateLimited
-	case status == http.StatusForbidden:
-		evidence.Hint = execution.FailureHintRequestRejected
 	case status >= http.StatusInternalServerError:
 		evidence.Hint = execution.FailureHintHostError
 	}

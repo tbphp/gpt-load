@@ -18,6 +18,14 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
 
+type antigravityStatusTestError struct {
+	status int
+	body   string
+}
+
+func (err antigravityStatusTestError) Error() string   { return err.body }
+func (err antigravityStatusTestError) StatusCode() int { return err.status }
+
 func TestParseAntigravityCredentialJSONRequiresCanonicalStableIdentity(t *testing.T) {
 	credential, err := ParseAntigravityCredentialJSON([]byte(`{
 		"type":"antigravity",
@@ -248,6 +256,89 @@ func TestImportAntigravityCredentialEnrichesNativeCPAFile(t *testing.T) {
 	}
 }
 
+func TestImportAntigravityCredentialAcceptsDownloadedCanonicalFile(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/userinfo":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"id":"google-account-one","email":"owner@example.com","verified_email":true}`))
+		case "/load":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"projectId":"verified-project"}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	raw := `{
+		"type":"antigravity",
+		"access_token":"access-secret",
+		"refresh_token":"refresh-secret",
+		"account_id":"google-account-one",
+		"email":"owner@example.com",
+		"project_id":"downloaded-project",
+		"expires_in":3600,
+		"timestamp":1770000000000,
+		"expired":"2030-01-01T00:00:00Z",
+		"last_refresh":"2029-12-31T23:00:00Z"
+	}`
+	options := AntigravityOptions{
+		UserInfoURL: server.URL + "/userinfo", LoadCodeAssistURL: server.URL + "/load", HTTPClient: server.Client(),
+	}
+	credential, err := ImportAntigravityCredential(t.Context(), []byte(raw), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.AccountID != "google-account-one" || credential.ProjectID != "verified-project" {
+		t.Fatalf("credential = %#v", credential)
+	}
+	if _, err := ImportAntigravityCredential(
+		t.Context(),
+		[]byte(strings.Replace(raw, `"account_id":"google-account-one"`, `"account_id":"different-account"`, 1)),
+		options,
+	); err == nil {
+		t.Fatal("ImportAntigravityCredential() accepted a mismatched canonical account ID")
+	}
+}
+
+func TestImportAntigravityCredentialRefreshesAtMostOnce(t *testing.T) {
+	t.Parallel()
+
+	var tokenCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/token":
+			tokenCalls++
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"access_token":"new-access-secret","expires_in":3600}`))
+		case "/userinfo":
+			writer.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := ImportAntigravityCredential(t.Context(), []byte(`{
+		"type":"antigravity",
+		"access_token":"expired-access-secret",
+		"refresh_token":"refresh-secret",
+		"email":"owner@example.com",
+		"expired":"2020-01-01T00:00:00Z"
+	}`), AntigravityOptions{
+		TokenURL: server.URL + "/token", UserInfoURL: server.URL + "/userinfo", HTTPClient: server.Client(),
+	})
+	if err == nil {
+		t.Fatal("ImportAntigravityCredential() error = nil, want userinfo rejection")
+	}
+	if tokenCalls != 1 {
+		t.Fatalf("token calls = %d, want one refresh attempt", tokenCalls)
+	}
+}
+
 func TestParseAntigravityImportedCredentialRequiresBooleanDisabled(t *testing.T) {
 	base := `{"type":"antigravity","access_token":"access-secret","refresh_token":"refresh-secret","email":"owner@example.com","expires_in":3600,"timestamp":1770000000000}`
 	for _, raw := range []string{
@@ -352,6 +443,30 @@ func TestObserveAntigravityAccountDoesNotInventQuota(t *testing.T) {
 	}
 }
 
+func TestObserveAntigravityAccountRejectsMalformedGoogleOneAICredits(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+			"currentTier":{"id":"g1-pro-tier"},
+			"paidTier":{"id":"g1-pro-tier","availableCredits":[
+				{"creditType":"GOOGLE_ONE_AI","minimumCreditAmountForUsage":"50"}
+			]}
+		}`))
+	}))
+	defer server.Close()
+
+	_, err := ObserveAntigravityAccount(t.Context(), AntigravityCredential{
+		Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
+		AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+		Expire: "2030-01-01T00:00:00Z",
+	}, AntigravityOptions{LoadCodeAssistURL: server.URL, HTTPClient: server.Client()})
+	if err == nil {
+		t.Fatal("ObserveAntigravityAccount() error = nil, want malformed credits rejection")
+	}
+}
+
 func TestAntigravityExecutionOnlyBridgeUsesOneFixedUpstreamDispatch(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -440,6 +555,17 @@ func TestAntigravityExecutionOnlyBridgeDoesNotRetryOrKeepPrivateCooldown(t *test
 	}
 	if calls != 2 {
 		t.Fatalf("upstream calls = %d, want one dispatch for each GPT-Load attempt", calls)
+	}
+}
+
+func TestAntigravityForbiddenIsNotMarkedRequestScoped(t *testing.T) {
+	err := normalizeAntigravityExecutionError(antigravityStatusTestError{
+		status: http.StatusForbidden,
+		body:   `{"error":{"status":"PERMISSION_DENIED"}}`,
+	})
+	var scoped interface{ IsRequestScoped() bool }
+	if !errors.As(err, &scoped) || scoped.IsRequestScoped() {
+		t.Fatalf("normalized error = %#v, want non-request-scoped 403", err)
 	}
 }
 

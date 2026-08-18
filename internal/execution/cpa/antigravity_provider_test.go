@@ -11,7 +11,9 @@ import (
 )
 
 type recordingAntigravityExecutor struct {
-	request antigravity.ExecuteRequest
+	request      antigravity.ExecuteRequest
+	response     []byte
+	streamChunks [][]byte
 }
 
 type antigravityClassifiedTestError struct {
@@ -43,7 +45,11 @@ func (executor *recordingAntigravityExecutor) Execute(
 	request antigravity.ExecuteRequest,
 ) (antigravity.ExecuteResponse, error) {
 	executor.request = request
-	return antigravity.ExecuteResponse{Payload: []byte(`{"ok":true}`)}, nil
+	payload := executor.response
+	if payload == nil {
+		payload = []byte(`{"ok":true}`)
+	}
+	return antigravity.ExecuteResponse{Payload: append([]byte(nil), payload...)}, nil
 }
 
 func (executor *recordingAntigravityExecutor) CountTokens(
@@ -55,13 +61,132 @@ func (executor *recordingAntigravityExecutor) CountTokens(
 	return executor.Execute(ctx, credentialID, credential, request)
 }
 
-func (*recordingAntigravityExecutor) ExecuteStream(
-	context.Context,
-	string,
-	antigravity.Credential,
-	antigravity.ExecuteRequest,
+func (executor *recordingAntigravityExecutor) ExecuteStream(
+	ctx context.Context,
+	_ string,
+	_ antigravity.Credential,
+	request antigravity.ExecuteRequest,
 ) (*antigravity.ExecuteStreamResponse, error) {
-	return nil, nil
+	executor.request = request
+	chunks := make(chan antigravity.ExecuteStreamChunk)
+	go func() {
+		defer close(chunks)
+		for _, payload := range executor.streamChunks {
+			select {
+			case chunks <- antigravity.ExecuteStreamChunk{Payload: append([]byte(nil), payload...)}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return &antigravity.ExecuteStreamResponse{Chunks: chunks}, nil
+}
+
+func antigravityProviderTestCredential() antigravityProviderCredential {
+	return antigravityProviderCredential{value: antigravity.Credential{
+		Type: "antigravity", AccessToken: "access", RefreshToken: "refresh", AccountID: "account",
+		Email: "owner@example.com", ProjectID: "project", Expire: "2030-01-01T00:00:00Z",
+	}}
+}
+
+func TestAntigravityProviderNormalizesPlaceholderResponseModels(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+		body   string
+	}{
+		{name: "OpenAI Chat", format: "openai", body: `{"model":"gemini-default","choices":[]}`},
+		{name: "OpenAI Responses", format: "openai-response", body: `{"model":"gemini-default","object":"response"}`},
+		{name: "Anthropic", format: "claude", body: `{"model":"gemini-default","type":"message"}`},
+		{name: "Gemini", format: "gemini", body: `{"modelVersion":"gemini-default","candidates":[]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := &recordingAntigravityExecutor{response: []byte(test.body)}
+			response, err := (&antigravityProviderBridge{executor: executor}).Execute(
+				t.Context(), "17", antigravityProviderTestCredential(),
+				providerRequest{Model: "gemini-3-flash-agent", Payload: []byte(`{}`), Format: test.format},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(response.Payload); !strings.Contains(got, "gemini-3-flash-agent") || strings.Contains(got, "gemini-default") {
+				t.Fatalf("response payload = %s", got)
+			}
+		})
+	}
+}
+
+func TestAntigravityProviderPreservesActualReportedModel(t *testing.T) {
+	executor := &recordingAntigravityExecutor{response: []byte(`{"model":"routed-model","choices":[]}`)}
+	response, err := (&antigravityProviderBridge{executor: executor}).Execute(
+		t.Context(), "17", antigravityProviderTestCredential(),
+		providerRequest{Model: "requested-model", Payload: []byte(`{}`), Format: "openai"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(response.Payload); !strings.Contains(got, "routed-model") || strings.Contains(got, "requested-model") {
+		t.Fatalf("response payload = %s", got)
+	}
+}
+
+func TestAntigravityProviderNormalizesPlaceholderStreamModels(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+		chunk  string
+	}{
+		{name: "OpenAI Chat", format: "openai", chunk: "data: {\"model\":\"gemini-default\",\"choices\":[]}\n\n"},
+		{name: "OpenAI Responses", format: "openai-response", chunk: "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":\"gemini-default\"}}\n\n"},
+		{name: "Anthropic", format: "claude", chunk: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"gemini-default\"}}\n\n"},
+		{name: "Gemini", format: "gemini", chunk: `{"modelVersion":"gemini-default","candidates":[]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := &recordingAntigravityExecutor{streamChunks: [][]byte{[]byte(test.chunk)}}
+			response, err := (&antigravityProviderBridge{executor: executor}).ExecuteStream(
+				t.Context(), "17", antigravityProviderTestCredential(),
+				providerRequest{Model: "gemini-3-flash-agent", Payload: []byte(`{}`), Format: test.format},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload strings.Builder
+			for chunk := range response.Chunks {
+				if chunk.Err != nil {
+					t.Fatal(chunk.Err)
+				}
+				_, _ = payload.Write(chunk.Payload)
+			}
+			if value := payload.String(); !strings.Contains(value, "gemini-3-flash-agent") || strings.Contains(value, "gemini-default") {
+				t.Fatalf("stream payload = %s", value)
+			}
+		})
+	}
+}
+
+func TestAntigravityProviderPreservesActualReportedStreamModel(t *testing.T) {
+	executor := &recordingAntigravityExecutor{streamChunks: [][]byte{
+		[]byte("data: {\"model\":\"routed-model\",\"choices\":[]}\n\n"),
+	}}
+	response, err := (&antigravityProviderBridge{executor: executor}).ExecuteStream(
+		t.Context(), "17", antigravityProviderTestCredential(),
+		providerRequest{Model: "requested-model", Payload: []byte(`{}`), Format: "openai"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload strings.Builder
+	for chunk := range response.Chunks {
+		if chunk.Err != nil {
+			t.Fatal(chunk.Err)
+		}
+		_, _ = payload.Write(chunk.Payload)
+	}
+	if got := payload.String(); !strings.Contains(got, "routed-model") || strings.Contains(got, "requested-model") {
+		t.Fatalf("stream payload = %s", got)
+	}
 }
 
 func TestAntigravityProviderScopesContinuityPerCredentialAndModel(t *testing.T) {
@@ -132,7 +257,7 @@ func TestAntigravityProviderRejectsKnownUnsupportedInputs(t *testing.T) {
 	}
 }
 
-func TestAntigravityProviderTreatsForbiddenAsRequestScoped(t *testing.T) {
+func TestAntigravityProviderTreatsForbiddenAsCandidateUnavailable(t *testing.T) {
 	bridge := &antigravityProviderBridge{}
 	_, evidence := bridge.ClassifyError(t.Context(), statusError{
 		status: 403, message: `{"error":{"status":"PERMISSION_DENIED"}}`,
@@ -140,7 +265,9 @@ func TestAntigravityProviderTreatsForbiddenAsRequestScoped(t *testing.T) {
 		Type: "antigravity", AccessToken: "access", RefreshToken: "refresh", AccountID: "account",
 		Email: "owner@example.com", ProjectID: "project", Expire: "2030-01-01T00:00:00Z",
 	}})
-	if evidence == nil || evidence.Hint != execution.FailureHintRequestRejected || strings.Contains(evidence.Summary, "PERMISSION_DENIED") {
+	if evidence == nil || evidence.Hint != execution.FailureHintCandidateUnavailable ||
+		evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing ||
+		strings.Contains(evidence.Summary, "PERMISSION_DENIED") {
 		t.Fatalf("error evidence = %#v", evidence)
 	}
 }
@@ -163,8 +290,8 @@ func TestAntigravityProviderClassifiesOAuthAndPaidCreditErrorsWithoutCredentialP
 			wantHint: execution.FailureHintRefreshRequired, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing,
 		},
 		{
-			name: "paid credit balance is request scoped", err: antigravityClassifiedTestError{status: 429, typeID: "RESOURCE_EXHAUSTED", code: "INSUFFICIENT_G1_CREDITS_BALANCE"},
-			wantHint: execution.FailureHintRequestRejected,
+			name: "paid credit balance advances to another credential", err: antigravityClassifiedTestError{status: 429, typeID: "RESOURCE_EXHAUSTED", code: "INSUFFICIENT_G1_CREDITS_BALANCE"},
+			wantHint: execution.FailureHintCandidateUnavailable, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing,
 		},
 		{
 			name: "rate limit retains fractional retry delay", err: antigravityRetryAfterTestError{

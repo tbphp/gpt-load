@@ -104,6 +104,8 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 			return FailureCategoryRateLimited
 		case execution.FailureHintRequestRejected:
 			return FailureCategoryClientError
+		case execution.FailureHintCandidateUnavailable:
+			return FailureCategoryModelUnavailable
 		case execution.FailureHintModelUnavailable:
 			return FailureCategoryModelUnavailable
 		case execution.FailureHintHostError:
@@ -156,6 +158,9 @@ func structuredUnsupportedModelClientError(statusCode int, evidence *execution.E
 }
 
 func resultForExecutionCategory(category FailureCategory, attempt ExecutionAttempt) Result {
+	if attempt.Evidence != nil && attempt.Evidence.Hint == execution.FailureHintCandidateUnavailable {
+		return Result{Category: category, Action: ActionRetry}
+	}
 	switch category {
 	case FailureCategoryRateLimited:
 		if attempt.Evidence != nil && attempt.Evidence.RetryAfter > 0 {

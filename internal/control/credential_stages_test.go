@@ -16,6 +16,47 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+type credentialImportStatusError struct{ status int }
+
+func (err credentialImportStatusError) Error() string       { return "credential import upstream failed" }
+func (err credentialImportStatusError) HTTPStatusCode() int { return err.status }
+
+type credentialImportNetworkError struct{}
+
+func (credentialImportNetworkError) Error() string   { return "credential import network failed" }
+func (credentialImportNetworkError) Timeout() bool   { return true }
+func (credentialImportNetworkError) Temporary() bool { return true }
+
+func TestCredentialImportUsesBoundedContextAndClassifiesTransientFailures(t *testing.T) {
+	ctx, cancel := credentialImportContext(t.Context())
+	defer cancel()
+	deadline, known := ctx.Deadline()
+	remaining := time.Until(deadline)
+	if !known || remaining <= 0 || remaining > defaultSubscriptionControlTimeout {
+		t.Fatalf("import context deadline = %v, %t", deadline, known)
+	}
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "invalid file", err: errors.New("invalid schema"), want: app_errors.ErrOAuthFileInvalid},
+		{name: "canceled", err: context.Canceled, want: context.Canceled},
+		{name: "deadline", err: context.DeadlineExceeded, want: app_errors.ErrBadGateway},
+		{name: "network", err: credentialImportNetworkError{}, want: app_errors.ErrBadGateway},
+		{name: "upstream unavailable", err: credentialImportStatusError{status: http.StatusServiceUnavailable}, want: app_errors.ErrBadGateway},
+		{name: "upstream throttled", err: credentialImportStatusError{status: http.StatusTooManyRequests}, want: app_errors.ErrBadGateway},
+		{name: "token rejected", err: credentialImportStatusError{status: http.StatusBadRequest}, want: app_errors.ErrOAuthFileInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := credentialImportAPIError(fmt.Errorf("import credential: %w", test.err)); !errors.Is(got, test.want) {
+				t.Fatalf("credentialImportAPIError() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestImportCodexOAuthJSONCreatesEncryptedReadyStage(t *testing.T) {
 	t.Parallel()
 

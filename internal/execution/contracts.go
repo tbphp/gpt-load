@@ -286,6 +286,7 @@ const (
 	FailureHintReauthorizationRequired FailureHint = "reauthorization_required"
 	FailureHintRateLimited             FailureHint = "rate_limited"
 	FailureHintRequestRejected         FailureHint = "request_rejected"
+	FailureHintCandidateUnavailable    FailureHint = "candidate_unavailable"
 	FailureHintModelUnavailable        FailureHint = "model_unavailable"
 	FailureHintHostError               FailureHint = "host_error"
 )
@@ -295,7 +296,8 @@ func (h FailureHint) Valid() bool {
 	switch h {
 	case "", FailureHintInvalidCredential, FailureHintRefreshRequired,
 		FailureHintReauthorizationRequired, FailureHintRateLimited,
-		FailureHintRequestRejected, FailureHintModelUnavailable, FailureHintHostError:
+		FailureHintRequestRejected, FailureHintCandidateUnavailable,
+		FailureHintModelUnavailable, FailureHintHostError:
 		return true
 	default:
 		return false

@@ -119,6 +119,22 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
 		},
 		{
+			name: "candidate rejection retries without credential penalty",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusForbidden,
+				Now:           now,
+				Evidence: &execution.ErrorEvidence{
+					Kind:         execution.ErrorKindHTTP,
+					Hint:         execution.FailureHintCandidateUnavailable,
+					StatusCode:   http.StatusForbidden,
+					ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+					Summary:      "candidate is unavailable",
+				},
+			},
+			want: Result{Category: FailureCategoryModelUnavailable, Action: ActionRetry},
+		},
+		{
 			name: "unsupported upstream operation terminates without credential penalty",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,

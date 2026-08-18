@@ -429,8 +429,9 @@ func normalizeAntigravityExecutionError(err error) error {
 	typeValue, codeValue := antigravityExecutionErrorFields([]byte(err.Error()))
 	return &AntigravityExecutionError{
 		status: status, typeValue: typeValue, codeValue: codeValue, retryAfter: retryAfter,
-		requestScoped: status >= http.StatusBadRequest && status < http.StatusInternalServerError && status != http.StatusUnauthorized && status != http.StatusTooManyRequests,
-		summary:       antigravityExecutionSummary(status, typeValue, codeValue),
+		requestScoped: status >= http.StatusBadRequest && status < http.StatusInternalServerError &&
+			status != http.StatusUnauthorized && status != http.StatusForbidden && status != http.StatusTooManyRequests,
+		summary: antigravityExecutionSummary(status, typeValue, codeValue),
 	}
 }
 

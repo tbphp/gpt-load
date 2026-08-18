@@ -84,6 +84,13 @@ func (err *TokenEndpointError) Error() string {
 	return fmt.Sprintf("Antigravity token endpoint returned status %d", err.StatusCode)
 }
 
+func (err *TokenEndpointError) HTTPStatusCode() int {
+	if err == nil {
+		return 0
+	}
+	return err.StatusCode
+}
+
 type UpstreamHTTPError struct {
 	Operation  string
 	StatusCode int
@@ -94,6 +101,13 @@ func (err *UpstreamHTTPError) Error() string {
 		return "Antigravity upstream request failed"
 	}
 	return fmt.Sprintf("Antigravity %s endpoint returned status %d", err.Operation, err.StatusCode)
+}
+
+func (err *UpstreamHTTPError) HTTPStatusCode() int {
+	if err == nil {
+		return 0
+	}
+	return err.StatusCode
 }
 
 type Model struct {

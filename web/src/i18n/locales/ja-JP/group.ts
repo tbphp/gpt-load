@@ -405,6 +405,7 @@ export default {
         modelConstraints: 'モデル固有の制限',
         unknown: '未提供',
         remaining: '残り {remaining} / {limit}',
+        remainingAmount: '残り {remaining}',
         remainingPercent: '残り {value}%',
         quotaPeriod: '現在の期間\n{start} → {end}',
         quotaExhaustedHint:

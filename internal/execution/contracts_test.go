@@ -517,6 +517,15 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	}).Validate(); err != nil {
 		t.Fatalf("request-rejected error evidence Validate() error = %v", err)
 	}
+	if err := (ErrorEvidence{
+		Kind:         ErrorKindHTTP,
+		Hint:         FailureHintCandidateUnavailable,
+		StatusCode:   http.StatusForbidden,
+		ReplaySafety: ReplaySafetyRejectedBeforeProcessing,
+		Summary:      "candidate is unavailable",
+	}).Validate(); err != nil {
+		t.Fatalf("candidate-unavailable error evidence Validate() error = %v", err)
+	}
 }
 
 func TestStreamEventValidation(t *testing.T) {

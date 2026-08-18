@@ -77,6 +77,7 @@ type antigravityImportedCredential struct {
 	Type         string `json:"type"`
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+	AccountID    string `json:"account_id,omitempty"`
 	Email        string `json:"email"`
 	ProjectID    string `json:"project_id,omitempty"`
 	ExpiresIn    int64  `json:"expires_in,omitempty"`
@@ -191,13 +192,6 @@ func RefreshAntigravityCredentialOnce(
 	refreshed.Timestamp = now.UnixMilli()
 	refreshed.Expire = now.Add(time.Duration(token.ExpiresIn) * time.Second).Format(time.RFC3339)
 	refreshed.LastRefresh = now.Format(time.RFC3339)
-	if refreshed.ProjectID == "" {
-		projectID, _, projectErr := discoverAntigravityProject(ctx, token.AccessToken, options)
-		if projectErr != nil {
-			return AntigravityCredential{}, fmt.Errorf("discover refreshed Antigravity project: %w", projectErr)
-		}
-		refreshed.ProjectID = projectID
-	}
 	normalizeAntigravityCredential(&refreshed)
 	if err := validateAntigravityCredential(refreshed); err != nil {
 		return AntigravityCredential{}, fmt.Errorf("refresh Antigravity credential: %w", err)
@@ -205,10 +199,9 @@ func RefreshAntigravityCredentialOnce(
 	return refreshed, nil
 }
 
-// ImportAntigravityCredential enriches CPA's native OAuth JSON before it can
-// enter GPT-Load's identity and encrypted-stage lifecycle. disabled is
-// intentionally parsed then discarded: the source instance's local routing
-// choice is not imported as GPT-Load credential state.
+// ImportAntigravityCredential enriches CPA's native OAuth JSON or revalidates
+// a GPT-Load canonical download before it enters the encrypted-stage lifecycle.
+// disabled is intentionally discarded because it is source-instance state.
 func ImportAntigravityCredential(
 	ctx context.Context,
 	raw []byte,
@@ -222,6 +215,7 @@ func ImportAntigravityCredential(
 		return AntigravityCredential{}, err
 	}
 	now := antigravityNow(options)
+	refreshed := false
 	if expiresAt, known := imported.expiresAt(); !known || !expiresAt.After(now.Add(5*time.Minute)) {
 		token, refreshErr := requestAntigravityToken(ctx, url.Values{
 			"grant_type":    {"refresh_token"},
@@ -231,9 +225,10 @@ func ImportAntigravityCredential(
 			return AntigravityCredential{}, fmt.Errorf("refresh imported Antigravity credential: %w", refreshErr)
 		}
 		imported.applyToken(token, now)
+		refreshed = true
 	}
 	identity, err := fetchAntigravityUserInfo(ctx, imported.AccessToken, options)
-	if _, ok := antigravityUnauthorized(err); ok {
+	if _, ok := antigravityUnauthorized(err); ok && !refreshed {
 		token, refreshErr := requestAntigravityToken(ctx, url.Values{
 			"grant_type":    {"refresh_token"},
 			"refresh_token": {imported.RefreshToken},
@@ -249,6 +244,9 @@ func ImportAntigravityCredential(
 	}
 	if !strings.EqualFold(imported.Email, identity.Email) {
 		return AntigravityCredential{}, fmt.Errorf("imported Antigravity email does not match userinfo")
+	}
+	if imported.AccountID != "" && imported.AccountID != identity.ID {
+		return AntigravityCredential{}, fmt.Errorf("imported Antigravity account does not match userinfo")
 	}
 	projectID, _, err := discoverAntigravityProject(ctx, imported.AccessToken, options)
 	if err != nil {
@@ -584,7 +582,7 @@ func parseAntigravityImportedCredential(raw []byte) (antigravityImportedCredenti
 		return antigravityImportedCredential{}, fmt.Errorf("credential JSON size is invalid")
 	}
 	allowed := map[string]struct{}{
-		"type": {}, "access_token": {}, "refresh_token": {}, "email": {}, "project_id": {},
+		"type": {}, "access_token": {}, "refresh_token": {}, "account_id": {}, "email": {}, "project_id": {},
 		"expires_in": {}, "timestamp": {}, "expired": {}, "last_refresh": {}, "disabled": {},
 	}
 	if err := validateClaudeCredentialObject(raw, allowed); err != nil {
@@ -600,6 +598,7 @@ func parseAntigravityImportedCredential(raw []byte) (antigravityImportedCredenti
 	credential.Type = strings.ToLower(strings.TrimSpace(credential.Type))
 	credential.AccessToken = strings.TrimSpace(credential.AccessToken)
 	credential.RefreshToken = strings.TrimSpace(credential.RefreshToken)
+	credential.AccountID = strings.TrimSpace(credential.AccountID)
 	credential.Email = strings.TrimSpace(credential.Email)
 	credential.ProjectID = strings.TrimSpace(credential.ProjectID)
 	credential.Expire = strings.TrimSpace(credential.Expire)
@@ -607,7 +606,7 @@ func parseAntigravityImportedCredential(raw []byte) (antigravityImportedCredenti
 	if credential.Type != ProviderAntigravity || credential.AccessToken == "" || credential.RefreshToken == "" || credential.Email == "" {
 		return antigravityImportedCredential{}, fmt.Errorf("imported Antigravity credential is incomplete")
 	}
-	for _, value := range []string{credential.AccessToken, credential.RefreshToken, credential.Email, credential.ProjectID} {
+	for _, value := range []string{credential.AccessToken, credential.RefreshToken, credential.AccountID, credential.Email, credential.ProjectID} {
 		if len(value) > 16*1024 || strings.ContainsAny(value, "\r\n\x00") {
 			return antigravityImportedCredential{}, fmt.Errorf("imported Antigravity credential is invalid")
 		}

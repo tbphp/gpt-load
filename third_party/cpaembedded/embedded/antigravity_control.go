@@ -143,10 +143,14 @@ func ObserveAntigravityAccount(
 	if planID == "" {
 		planID = currentTierID
 	}
+	credits, err := antigravityGoogleOneAICredits(paidTier)
+	if err != nil {
+		return AntigravityAccountObservation{}, err
+	}
 	return AntigravityAccountObservation{
 		PlanID:             planID,
 		CurrentTierID:      currentTierID,
-		GoogleOneAICredits: antigravityGoogleOneAICredits(paidTier),
+		GoogleOneAICredits: credits,
 	}, nil
 }
 
@@ -190,13 +194,17 @@ func antigravityMapString(payload map[string]any, key string) string {
 	return strings.TrimSpace(value)
 }
 
-func antigravityGoogleOneAICredits(paidTier map[string]any) *AntigravityCredit {
+func antigravityGoogleOneAICredits(paidTier map[string]any) (*AntigravityCredit, error) {
 	if paidTier == nil {
-		return nil
+		return nil, nil
 	}
-	credits, ok := paidTier["availableCredits"].([]any)
+	rawCredits, exists := paidTier["availableCredits"]
+	if !exists || rawCredits == nil {
+		return nil, nil
+	}
+	credits, ok := rawCredits.([]any)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("decode Antigravity Google One AI credits")
 	}
 	for _, raw := range credits {
 		credit, ok := raw.(map[string]any)
@@ -206,11 +214,11 @@ func antigravityGoogleOneAICredits(paidTier map[string]any) *AntigravityCredit {
 		amount, amountOK := antigravityFloat(credit["creditAmount"])
 		minimum, minimumOK := antigravityFloat(credit["minimumCreditAmountForUsage"])
 		if !amountOK || !minimumOK || amount < 0 || minimum < 0 {
-			return nil
+			return nil, fmt.Errorf("decode Antigravity Google One AI credits")
 		}
-		return &AntigravityCredit{Amount: amount, MinimumAmount: minimum}
+		return &AntigravityCredit{Amount: amount, MinimumAmount: minimum}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func antigravityFloat(value any) (float64, bool) {
