@@ -251,6 +251,12 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		// 使用解析后的错误信息更新密钥状态
 		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
 
+		// 自动学习:上游明确"模型权限拒绝" → 将该 (key, model) 定向降权
+		if keypool.IsModelAccessDeniedError(parsedError) {
+			ps.keyProvider.RecordModelDenied(group.ID, apiKey.ID, model)
+			logrus.Infof("Learned: key %d cannot serve model '%s' (group %s)", apiKey.ID, model, group.Name)
+		}
+
 		// 判断是否为最后一次尝试
 		isLastAttempt := retryCount >= cfg.MaxRetries
 		requestType := models.RequestTypeRetry
@@ -277,6 +283,11 @@ func (ps *ProxyServer) executeRequestWithRetry(
 
 	// ps.keyProvider.UpdateStatus(apiKey, group, true) // 请求成功不再重置成功次数，减少IO消耗
 	logrus.Debugf("Request for group %s succeeded on attempt %d with key %s", group.Name, retryCount+1, utils.MaskAPIKey(apiKey.KeyValue))
+
+	// 自动学习:成功服务为该 (key, model) 加分（若此前被误排除可恢复）
+	if model != "" {
+		ps.keyProvider.RecordModelSuccess(group.ID, apiKey.ID, model)
+	}
 
 	// Check if this is a model list request (needs special handling)
 	if shouldInterceptModelList(c.Request.URL.Path, c.Request.Method) {

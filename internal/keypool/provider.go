@@ -27,6 +27,9 @@ type KeyProvider struct {
 
 	// modelCounters 维护 (groupID, model) 维度的轮询计数，用于在过滤后的候选 key 间轮换。
 	modelCounters sync.Map
+
+	// learner 维护 (key, model) 的自动学习排除状态（与配置共同决定路由资格）。
+	learner *modelLearner
 }
 
 // ErrNoKeyForModel 表示组内没有 key 可以服务请求的模型（且确实存在模型限制配置）。
@@ -39,6 +42,7 @@ func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemS
 		store:           store,
 		settingsManager: settingsManager,
 		encryptionSvc:   encryptionSvc,
+		learner:         newModelLearner(),
 	}
 }
 
@@ -95,13 +99,44 @@ func (p *KeyProvider) SelectKeyForGroupModel(groupID uint, model string) (*model
 		return nil, ErrNoKeyForModel
 	}
 
+	// 学习层软过滤：剔除近期被上游判"模型权限拒绝"的 key。
+	// 若学习层剔除导致候选为空，回退到配置层候选（学习层绝不令模型整体不可用）。
+	learned := make([]string, 0, len(eligible))
+	for _, idStr := range eligible {
+		if p.learner.isModelExcluded(groupID, mustParseKeyID(idStr), model) {
+			continue
+		}
+		learned = append(learned, idStr)
+	}
+	if len(learned) == 0 {
+		learned = eligible
+	}
+
 	// 在候选 key 之间轮换：每个 (groupID, model) 一个进程内原子计数。
 	counterKey := fmt.Sprintf("%d:%s", groupID, model)
 	counterAny, _ := p.modelCounters.LoadOrStore(counterKey, &atomic.Uint64{})
 	counter := counterAny.(*atomic.Uint64)
-	idx := counter.Add(1) % uint64(len(eligible))
+	idx := counter.Add(1) % uint64(len(learned))
 
-	return p.apiKeyFromStore(eligible[idx], groupID)
+	return p.apiKeyFromStore(learned[idx], groupID)
+}
+
+// RecordModelDenied 记录一次"模型权限拒绝"，将 (key, model) 定向学习为低分。
+func (p *KeyProvider) RecordModelDenied(groupID, keyID uint, model string) {
+	p.learner.recordModelDenied(groupID, keyID, model)
+}
+
+// RecordModelSuccess 记录一次成功服务，为该 (key, model) 加分。
+func (p *KeyProvider) RecordModelSuccess(groupID, keyID uint, model string) {
+	p.learner.recordModelSuccess(groupID, keyID, model)
+}
+
+func mustParseKeyID(idStr string) uint {
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return uint(id)
 }
 
 // apiKeyFromStore 从 store hash 恢复一个 APIKey（含 allowed_models）。

@@ -6,6 +6,7 @@ import (
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -111,5 +112,89 @@ func TestCanServeModel(t *testing.T) {
 	}
 	if !k.CanServeModel("") {
 		t.Fatal("empty model should always be allowed (e.g. /models)")
+	}
+}
+
+func TestModelLearner(t *testing.T) {
+	l := newModelLearner()
+
+	l.recordModelDenied(1, 902, "deepseek-v4-pro-0813")
+	l.recordModelDenied(1, 902, "deepseek-v4-pro-0813")
+	l.recordModelDenied(1, 902, "deepseek-v4-pro-0813")
+	if !l.isModelExcluded(1, 902, "deepseek-v4-pro-0813") {
+		t.Fatal("key should be excluded after 3 denials")
+	}
+	// 其他模型不受影响
+	if l.isModelExcluded(1, 902, "glm-5.2") {
+		t.Fatal("other model must not be affected")
+	}
+	// 排除过期自动恢复
+	l.mu.Lock()
+	l.table["1:902"]["deepseek-v4-pro-0813"].until = time.Now().Add(-time.Second)
+	l.mu.Unlock()
+	if l.isModelExcluded(1, 902, "deepseek-v4-pro-0813") {
+		t.Fatal("exclusion should expire")
+	}
+}
+
+func TestSelectKeyForGroupModelLearns(t *testing.T) {
+	p := newTestProvider(t)
+	// 组3: 只有两个 key，其中一个反复被拒后应从路由中剔除
+	keys := []models.APIKey{
+		{KeyValue: "sk-L1", Status: models.KeyStatusActive, GroupID: 3},
+		{KeyValue: "sk-L2", Status: models.KeyStatusActive, GroupID: 3},
+	}
+	if err := p.AddKeys(3, keys); err != nil {
+		t.Fatalf("failed to add keys: %v", err)
+	}
+
+	seenDenied := false
+	for i := 0; i < 12; i++ {
+		key, err := p.SelectKeyForGroupModel(3, "deepseek-v4-pro-0813")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if key.KeyValue == "sk-L1" {
+			// 模拟 L1 上游拒绝两次
+			p.RecordModelDenied(3, key.ID, "deepseek-v4-pro-0813")
+			p.RecordModelDenied(3, key.ID, "deepseek-v4-pro-0813")
+		}
+		if key.KeyValue == "sk-L2" {
+			seenDenied = true
+		}
+	}
+	if !seenDenied {
+		t.Fatal("expected alternating keys before exclusion")
+	}
+
+	// 三次拒绝后 L1 应被剔除，只剩 L2
+	for i := 0; i < 5; i++ {
+		key, err := p.SelectKeyForGroupModel(3, "deepseek-v4-pro-0813")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if key.KeyValue == "sk-L1" {
+			// 再补一次拒绝到阈值
+			p.RecordModelDenied(3, key.ID, "deepseek-v4-pro-0813")
+		}
+		// 排除生效后应只见 L2
+		if i >= 1 && key.KeyValue == "sk-L1" {
+			t.Fatalf("learned-excluded key should not be selected")
+		}
+	}
+}
+
+func TestIsModelAccessDeniedError(t *testing.T) {
+	if !IsModelAccessDeniedError("Model access denied.") {
+		t.Fatal("should match Model access denied")
+	}
+	if !IsModelAccessDeniedError("<403> Access to model denied. Please make sure you are eligible for using the model.") {
+		t.Fatal("should match Access to model denied")
+	}
+	if IsModelAccessDeniedError("IP access denied by API-Key restriction.") {
+		t.Fatal("must not match IP restriction")
+	}
+	if IsModelAccessDeniedError("You exceeded your current quota") {
+		t.Fatal("must not match quota errors")
 	}
 }
