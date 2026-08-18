@@ -142,11 +142,13 @@ type HTTPExecutor interface {
 }
 
 type ExecuteRequest struct {
+	AttemptID       string
 	Model           string
 	Payload         []byte
 	Format          string
 	Headers         http.Header
 	OriginalRequest []byte
+	ContinuityKey   string
 }
 
 type ExecuteResponse struct {

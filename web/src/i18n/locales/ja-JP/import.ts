@@ -109,6 +109,8 @@ export default {
       channelNotice: {
         claude_oauth_risk:
           'Claude OAuth は安定した公開 API 契約ではなく、Claude Code 互換プロトコルに依存します。上流の変更による接続停止やアカウントへの影響を、認証前に評価してください。',
+        antigravity_oauth_risk:
+          'Antigravity OAuth は Google OAuth と変更される可能性がある Cloud Code インターフェースに依存します。上流のポリシー、権限、実装の変更により認証失効、接続中断、アカウントへの影響が生じる場合があります。管理権限のあるアカウントだけを接続し、事前にリスクを評価してください。',
       },
       securityNotice: {
         create:

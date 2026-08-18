@@ -981,6 +981,54 @@ func TestHandlerDoesNotRotateOrPenalizeRequestRejected429(t *testing.T) {
 	}
 }
 
+func TestHandlerRetriesCandidateUnavailableWithoutCredentialPenalty(t *testing.T) {
+	now := time.Date(2026, time.August, 18, 9, 0, 0, 0, time.UTC)
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusForbidden,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"error":{"type":"PERMISSION_DENIED"}}`),
+			ExecutionError: &execution.ErrorEvidence{
+				Kind:         execution.ErrorKindHTTP,
+				Hint:         execution.FailureHintCandidateUnavailable,
+				StatusCode:   http.StatusForbidden,
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				Summary:      "candidate is unavailable",
+			},
+		},
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
+	}}
+	engine, handler, registry, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
+	recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
+	handler.registry = recording
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.now = func() time.Time { return now }
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Body.String() != `{"ok":true}` || len(forwarder.inputs) != 2 {
+		t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+	}
+	if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 || recording.blacklistCalls != 0 {
+		t.Fatalf("credential mutations = cooldown:%d failure:%d blacklist:%d, want none",
+			recording.cooldownCalls, recording.incrFailureCalls, recording.blacklistCalls)
+	}
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
+		t.Fatalf("first credential stats = %#v, want empty", got)
+	}
+	if got := stats.Snapshot(2, now); got != (health.CredentialStats{Success: 1}) {
+		t.Fatalf("second credential stats = %#v, want success", got)
+	}
+}
+
 func TestHandlerRecordsStreamSuccessOnlyAfterCleanTerminal(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -3306,6 +3354,22 @@ func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
 				},
 			},
 			decision: retry,
+		},
+		{
+			name: "candidate rejection safely advances to another credential", operation: execution.OperationChatCompletion,
+			method: http.MethodPost,
+			result: UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusForbidden,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:         execution.ErrorKindHTTP,
+					Hint:         execution.FailureHintCandidateUnavailable,
+					StatusCode:   http.StatusForbidden,
+					ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				},
+			},
+			decision: health.Result{Category: health.FailureCategoryModelUnavailable, Action: health.ActionRetry},
+			want:     true,
 		},
 		{
 			name: "unsupported count tokens is terminal despite idempotent operation", operation: execution.OperationCountTokens,

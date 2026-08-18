@@ -402,6 +402,7 @@ export default {
         modelConstraints: 'Model-specific limits',
         unknown: 'Not provided',
         remaining: '{remaining} / {limit} remaining',
+        remainingAmount: '{remaining} remaining',
         remainingPercent: '{value}% left',
         quotaPeriod: 'Current period\n{start} → {end}',
         quotaExhaustedHint:

@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -798,6 +800,25 @@ func executionForwardInput() ForwardInput {
 				Remove: []string{"X-Remove"},
 			},
 		},
+	}
+}
+
+func TestNewExecutionAttemptSpecKeepsContinuityPrivate(t *testing.T) {
+	input := executionForwardInput()
+	input.ContinuityKey = "tenant-scoped-hmac"
+	spec, err := newExecutionAttemptSpec(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.ContinuityKey != input.ContinuityKey {
+		t.Fatalf("ContinuityKey = %q, want %q", spec.ContinuityKey, input.ContinuityKey)
+	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(input.ContinuityKey)) {
+		t.Fatalf("AttemptSpec JSON exposed continuity key: %s", raw)
 	}
 }
 

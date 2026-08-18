@@ -84,6 +84,7 @@ func testCredentialRuntimes(t *testing.T) (*channel.Registry, *subscriptionrunti
 		channels,
 		subscriptionruntime.CodexImplementations(),
 		subscriptionruntime.ClaudeImplementations(),
+		subscriptionruntime.AntigravityImplementations(),
 	)
 	if err != nil {
 		t.Fatal(err)

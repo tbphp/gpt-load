@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +27,34 @@ const (
 	maxOAuthFileBytes           = 64 * 1024
 	stagedSubscriptionSchemaV2  = 2
 )
+
+func credentialImportContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+}
+
+func credentialImportAPIError(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return app_errors.ErrBadGateway
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		return app_errors.ErrBadGateway
+	}
+	var upstream interface{ HTTPStatusCode() int }
+	if errors.As(err, &upstream) && upstream != nil {
+		switch status := upstream.HTTPStatusCode(); {
+		case status == http.StatusRequestTimeout,
+			status == http.StatusTooEarly,
+			status == http.StatusTooManyRequests,
+			status >= http.StatusInternalServerError:
+			return app_errors.ErrBadGateway
+		}
+	}
+	return app_errors.ErrOAuthFileInvalid
+}
 
 type CredentialStageAccount struct {
 	EmailMask       string `json:"email_mask,omitempty"`
@@ -115,9 +145,11 @@ func (s *Service) ImportCredentialStage(
 	if len(raw) > maxOAuthFileBytes {
 		return CredentialStageResult{}, app_errors.ErrOAuthFileTooLarge
 	}
-	credential, err := driver.Parse(raw)
+	importContext, cancelImport := credentialImportContext(ctx)
+	defer cancelImport()
+	credential, err := s.subscriptions.ImportCredential(importContext, channelID, raw)
 	if err != nil {
-		return CredentialStageResult{}, app_errors.ErrOAuthFileInvalid
+		return CredentialStageResult{}, credentialImportAPIError(err)
 	}
 	credential, err = s.prepareTransientSubscriptionCredential(ctx, channelID, driver, credential)
 	if err != nil {

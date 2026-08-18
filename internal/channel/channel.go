@@ -24,6 +24,7 @@ const (
 	OpenAI           = spec.OpenAI
 	Codex            = spec.Codex
 	Claude           = spec.Claude
+	Antigravity      = spec.Antigravity
 	Anthropic        = spec.Anthropic
 	Gemini           = spec.Gemini
 	AzureOpenAI      = spec.AzureOpenAI
@@ -91,7 +92,10 @@ type CapabilityDescriptor struct {
 // NoticeID identifies one frontend-localized channel notice.
 type NoticeID = spec.NoticeID
 
-const NoticeClaudeOAuthRisk = spec.NoticeClaudeOAuthRisk
+const (
+	NoticeClaudeOAuthRisk      = spec.NoticeClaudeOAuthRisk
+	NoticeAntigravityOAuthRisk = spec.NoticeAntigravityOAuthRisk
+)
 
 // NoticeTone is the bounded presentation style of a channel notice.
 type NoticeTone = spec.NoticeTone
@@ -180,6 +184,7 @@ const (
 	ProviderOpenAI           = spec.ProviderOpenAI
 	ProviderCodex            = spec.ProviderCodex
 	ProviderClaude           = spec.ProviderClaude
+	ProviderAntigravity      = spec.ProviderAntigravity
 	ProviderAnthropic        = spec.ProviderAnthropic
 	ProviderGemini           = spec.ProviderGemini
 	ProviderOpenAICompatible = spec.ProviderOpenAICompatible

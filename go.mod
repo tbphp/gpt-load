@@ -26,7 +26,7 @@ require (
 	github.com/pierrec/xxHash v0.1.5 // indirect
 	github.com/redis/go-redis/v9 v9.19.0 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
-	github.com/router-for-me/CLIProxyAPI/v7 v7.2.133 // indirect
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.135 // indirect
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 // indirect
 	github.com/tiktoken-go/tokenizer v0.8.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect

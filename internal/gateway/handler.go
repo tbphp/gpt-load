@@ -149,6 +149,7 @@ func NewHandler(
 		channels,
 		subscriptionruntime.CodexImplementations(),
 		subscriptionruntime.ClaudeImplementations(),
+		subscriptionruntime.AntigravityImplementations(),
 	)
 	return &Handler{
 		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
@@ -690,6 +691,7 @@ func (handler *Handler) executeAttempts(
 				normalizedCredential.payload,
 			),
 			ForceCredentialRefresh: forceCredentialRefresh,
+			ContinuityKey:          requestAffinity.continuityKey,
 			OnFirstResponse: func() {
 				recorder.recordFirstResponse()
 			},

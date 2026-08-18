@@ -106,6 +106,7 @@ func testSubscriptionRuntime(t *testing.T) (*channel.Registry, *subscriptionrunt
 		channels,
 		subscriptionruntime.CodexImplementations(),
 		subscriptionruntime.ClaudeImplementations(),
+		subscriptionruntime.AntigravityImplementations(),
 	)
 	if err != nil {
 		t.Fatal(err)

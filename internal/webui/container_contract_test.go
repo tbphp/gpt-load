@@ -58,7 +58,7 @@ func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
 	if service.Environment["HOST"] != "0.0.0.0" {
 		t.Fatalf("resolved application HOST = %q, want 0.0.0.0", service.Environment["HOST"])
 	}
-	if len(service.Ports) != 3 ||
+	if len(service.Ports) != 4 ||
 		service.Ports[0].Target != 41234 ||
 		service.Ports[0].Published != "41234" ||
 		service.Ports[0].HostIP != "127.0.0.1" ||
@@ -67,8 +67,11 @@ func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
 		service.Ports[1].HostIP != "127.0.0.1" ||
 		service.Ports[2].Target != 54545 ||
 		service.Ports[2].Published != "54545" ||
-		service.Ports[2].HostIP != "127.0.0.1" {
-		t.Fatalf("resolved ports = %#v, want application 41234 and loopback OAuth callbacks 1455/54545", service.Ports)
+		service.Ports[2].HostIP != "127.0.0.1" ||
+		service.Ports[3].Target != 51121 ||
+		service.Ports[3].Published != "51121" ||
+		service.Ports[3].HostIP != "127.0.0.1" {
+		t.Fatalf("resolved ports = %#v, want application 41234 and loopback OAuth callbacks 1455/54545/51121", service.Ports)
 	}
 	if len(service.Healthcheck.Test) != 2 ||
 		!strings.Contains(service.Healthcheck.Test[1], "localhost:41234/health") {
@@ -83,8 +86,8 @@ func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 		t.Fatal("Dockerfile does not contain a final stage")
 	}
 	finalStage := content[finalStageIndex:]
-	if !strings.Contains(finalStage, "EXPOSE 3001 1455 54545") {
-		t.Fatal("Dockerfile final stage does not expose the application and both fixed OAuth callback ports")
+	if !strings.Contains(finalStage, "EXPOSE 3001 1455 54545 51121") {
+		t.Fatal("Dockerfile final stage does not expose the application and all fixed OAuth callback ports")
 	}
 
 	orderedBeforeUser := []string{
@@ -239,7 +242,7 @@ func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
 	if service.Environment["HOST"] != "0.0.0.0" {
 		t.Fatalf("resolved application HOST = %q, want 0.0.0.0", service.Environment["HOST"])
 	}
-	if len(service.Ports) != 3 ||
+	if len(service.Ports) != 4 ||
 		service.Ports[0].Target != 3001 ||
 		service.Ports[0].Published != "3001" ||
 		service.Ports[0].HostIP != "127.0.0.1" ||
@@ -248,8 +251,11 @@ func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
 		service.Ports[1].HostIP != "127.0.0.1" ||
 		service.Ports[2].Target != 54545 ||
 		service.Ports[2].Published != "54545" ||
-		service.Ports[2].HostIP != "127.0.0.1" {
-		t.Fatalf("resolved ports = %#v, want application 3001 and loopback OAuth callbacks 1455/54545", service.Ports)
+		service.Ports[2].HostIP != "127.0.0.1" ||
+		service.Ports[3].Target != 51121 ||
+		service.Ports[3].Published != "51121" ||
+		service.Ports[3].HostIP != "127.0.0.1" {
+		t.Fatalf("resolved ports = %#v, want application 3001 and loopback OAuth callbacks 1455/54545/51121", service.Ports)
 	}
 }
 
@@ -322,7 +328,7 @@ func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testin
 		if service.ContainerName != "" {
 			t.Fatalf("resolved project %s fixes container_name to %q", item.projectName, service.ContainerName)
 		}
-		if len(service.Ports) != 3 ||
+		if len(service.Ports) != 4 ||
 			service.Ports[0].Target != item.targetPort ||
 			service.Ports[0].Published != item.publishedPort ||
 			service.Ports[0].HostIP != "127.0.0.1" ||
@@ -331,7 +337,10 @@ func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testin
 			service.Ports[1].HostIP != "127.0.0.1" ||
 			service.Ports[2].Target != 54545 ||
 			service.Ports[2].Published != "54545" ||
-			service.Ports[2].HostIP != "127.0.0.1" {
+			service.Ports[2].HostIP != "127.0.0.1" ||
+			service.Ports[3].Target != 51121 ||
+			service.Ports[3].Published != "51121" ||
+			service.Ports[3].HostIP != "127.0.0.1" {
 			t.Fatalf("resolved project %s ports = %#v", item.projectName, service.Ports)
 		}
 		wantVolume := item.projectName + "_gpt-load-data"

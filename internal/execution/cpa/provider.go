@@ -46,11 +46,15 @@ func credentialScopedFailure(err error) (bool, bool) {
 }
 
 type providerRequest struct {
+	AttemptID       string
 	Model           string
 	Payload         []byte
 	Format          string
 	Headers         http.Header
 	OriginalRequest []byte
+	// ContinuityKey is a private, tenant-scoped key used only by providers
+	// whose tool/thinking protocol needs an isolated multi-request replay lane.
+	ContinuityKey string
 }
 
 type providerResponse struct {
@@ -87,6 +91,14 @@ type providerBridge interface {
 // upstream CountTokens contract.
 type providerTokenCounter interface {
 	CountTokens(context.Context, string, providerCredential, providerRequest) (providerResponse, error)
+}
+
+// providerRequestValidator is an optional, provider-specific pre-dispatch
+// check. It is intentionally narrow: the shared adapter only needs to reject
+// inputs that a declared route cannot faithfully represent before preparing a
+// subscription credential or sending anything upstream.
+type providerRequestValidator interface {
+	ValidateRequest(providerRequest) error
 }
 
 // providerLocalTokenCounter is a deliberately narrow contract for providers

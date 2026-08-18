@@ -302,6 +302,11 @@ function quotaValueLabel(window: CredentialQuotaWindowDto): string {
       limit: n(window.limit),
     })
   }
+  if (window.remaining !== undefined) {
+    return t('group.credentials.subscription.remainingAmount', {
+      remaining: n(window.remaining),
+    })
+  }
   return t('group.credentials.subscription.unknown')
 }
 
