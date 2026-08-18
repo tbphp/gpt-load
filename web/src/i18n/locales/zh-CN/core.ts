@@ -255,29 +255,12 @@ export default {
         quickImportConfirmTitle: '打开 {client}',
         quickImportConfirmDescription:
           '当前浏览器会将网关地址和所选访问密钥发送给 {client}；目标应用仍会要求你确认后才写入配置',
-        disableFastLink:
-          'NextChat Fast Link 仅适用于网页端，但官方网页与当前网关跨域时会受 CORS/OPTIONS 限制；桌面版也不会被网页链接直接唤起。请复制上方配置手工填写；启用 disableFastLink 时会静默忽略该设置',
         protocolUnavailable: '此访问密钥未开通 {client} 所需的 {protocol}',
         targetApplication: '目标应用',
         primaryModel: '主模型',
         required: '必填',
         modelPlaceholder: '输入此访问密钥可用的模型',
         ccSwitchModelRequired: '该目标需要明确模型才能生成可用配置；请先填写实际可用模型再导入',
-        ccSwitchHint:
-          '需要安装支持 URL Scheme 的 CC Switch；应用会再次展示配置供你确认。便携版或未注册协议时，请按上方参数手工添加供应商',
-        newApiHint:
-          '新建渠道时先选择“New API”类型，再点击“粘贴连接信息”；系统会自动填入密钥和地址。远程或容器中的 New API 必须能够访问该网关地址',
-        codexHint:
-          '将上方内容加入用户级 ~/.codex/config.toml，再复制访问密钥并在启动 Codex 的同一 Shell 中设为 GPT_LOAD_API_KEY；自定义 Provider 使用 Responses API',
-        cherryStudioHint:
-          '使用 Cherry Studio 官方 URL Scheme 导入服务商地址和密钥；应用会在写入前再次确认。首次导入后仍需在模型区拉取或添加模型',
-        claudeCodeHint:
-          '在启动 Claude Code 的同一 Shell 中设置这三个环境变量；开启发现后，名称包含 Claude/Anthropic 的网关模型会出现在 /model 的 From gateway 分组中',
-        openWebUIHint:
-          '在管理员设置的 Connections → OpenAI 中填写 URL 和 API Key；Open WebUI 会通过 /models 校验连接',
-        clineHint:
-          '在 Cline 设置中选择 OpenAI Compatible，填入 Base URL 和 API Key，再获取或选择实际模型',
-        curlHint: '请将 YOUR_MODEL 替换为此访问密钥可用的模型',
         selectClient: '选择客户端',
         searchClients: '搜索客户端',
         searchClientsPlaceholder: '输入名称搜索',
@@ -289,11 +272,67 @@ export default {
           web: '网页与扩展',
           unsupported: '此密钥不支持',
         },
+        copyField: '复制{field}',
+        fieldCopied: '已复制{field}',
+        fieldCopyFailed: '无法复制{field}。',
+        fields: {
+          baseUrl: '接口地址',
+          apiKey: 'API Key',
+        },
+        fieldsTitle: '配置信息',
+        stepsTitle: '接入步骤',
+        steps: {
+          'cc-switch': {
+            s1: '安装并打开 CC Switch，需支持 URL Scheme',
+            s2: '点「导入并启用」，在应用内确认写入',
+            s3: '便携版或协议未注册时，按上方参数手工添加供应商',
+          },
+          'new-api': {
+            s1: '在渠道页新建渠道，类型选择 New API',
+            s2: '点「粘贴连接信息」，自动填入地址与密钥',
+            s3: '容器或远程部署的 New API 需能访问上方网关地址',
+          },
+          codex: {
+            s1: '把上方内容写入 ~/.codex/config.toml',
+            s2: '复制访问密钥，在启动 Codex 的 Shell 里设为 GPT_LOAD_API_KEY',
+            s3: '该自定义 Provider 走 Responses API',
+          },
+          'gemini-cli': {
+            s1: '在启动 Gemini CLI 的同一个 Shell 里执行上方命令',
+            s2: '之后直接运行 gemini 即可使用网关模型',
+          },
+          nextchat: {
+            s1: '在桌面版设置里填入上方接口地址与 API Key',
+            s2: '网页版跨域访问本网关会被 CORS 拦截，请用桌面版',
+          },
+          'cherry-studio': {
+            s1: '点「一键导入」，在应用内确认写入',
+            s2: '或在 设置 → 模型服务 中手动添加，填入上方两项',
+            s3: '首次导入后需在模型区拉取模型',
+          },
+          'claude-code': {
+            s1: '在启动 Claude Code 的同一个 Shell 里执行上方命令',
+            s2: '网关模型会出现在 /model 的 From gateway 分组中',
+          },
+          'open-webui': {
+            s1: '管理员设置 → Connections → OpenAI → 添加连接',
+            s2: '填入上方接口地址与 API Key',
+          },
+          cline: {
+            s1: '在 Cline 设置里选择 OpenAI Compatible',
+            s2: '填入上方两项，再获取或选择实际模型',
+          },
+          curl: {
+            s1: '把命令里的 YOUR_MODEL 换成此密钥可用的模型',
+            s2: '直接粘进终端即可验证连通',
+          },
+        },
         clients: {
           label: '客户端',
           'cc-switch': 'CC Switch',
           'new-api': 'New API',
           codex: 'Codex',
+          'gemini-cli': 'Gemini CLI',
           nextchat: 'NextChat',
           'cherry-studio': 'Cherry Studio',
           'claude-code': 'Claude Code',

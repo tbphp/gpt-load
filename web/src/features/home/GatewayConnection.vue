@@ -22,6 +22,7 @@ import ClientPicker from './ClientPicker.vue'
 import {
   ccSwitchTargets,
   clientConfiguration,
+  clientFields,
   clientQuickImportURL,
   clientRequiredProtocol,
   gatewayClients,
@@ -41,7 +42,7 @@ const emit = defineEmits<{
   'update:clientId': [id: GatewayClientID]
 }>()
 
-type ActionTarget = 'key' | 'configuration' | 'quick-import'
+type ActionTarget = 'key' | 'configuration' | 'quick-import' | 'baseUrl' | 'apiKey'
 type FeedbackKind = 'success' | 'failure' | 'popup-blocked'
 
 interface OperationIdentity {
@@ -118,6 +119,39 @@ const maskedSnippet = computed(() => {
     `GPT-Load · ${key.name}`,
   )
 })
+const clientFieldList = computed(() => {
+  const accessKey = selectedKey.value
+  if (!accessKey || currentClient.value.configKind !== 'fields') return []
+  return clientFields(activeClient.value, origin, accessKey.masked_key)
+})
+
+function fieldCopyState(id: ActionTarget): 'idle' | 'success' {
+  return visibleFeedback.value?.target === id && visibleFeedback.value.kind === 'success'
+    ? 'success'
+    : 'idle'
+}
+
+async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }): Promise<void> {
+  if (!selectedKeySupportsClient.value) return
+  if (!field.secret) {
+    // 非密钥字段不需要解密，直接复制展示值即可。
+    const entry = clientFieldList.value.find((candidate) => candidate.id === field.id)
+    if (!entry) return
+    try {
+      await navigator.clipboard.writeText(entry.value)
+      setImmediateFeedback(field.id, 'success')
+    } catch {
+      setImmediateFeedback(field.id, 'failure')
+    }
+    return
+  }
+  const clientID = activeClient.value
+  await withRevealedKey(field.id, clientID, async (key, isCurrent) => {
+    if (!isCurrent()) return
+    await navigator.clipboard.writeText(key)
+  })
+}
+
 const visibleFeedback = computed(() => {
   const current = feedback.value
   if (
@@ -148,6 +182,12 @@ const feedbackMessage = computed(() => {
         ? 'home.ledger.connection.configurationCopied'
         : 'home.ledger.connection.configurationCopyFailed',
     )
+  }
+  if (current.target === 'baseUrl' || current.target === 'apiKey') {
+    const field = t(`home.ledger.connection.fields.${current.target}`)
+    return current.kind === 'success'
+      ? t('home.ledger.connection.fieldCopied', { field })
+      : t('home.ledger.connection.fieldCopyFailed', { field })
   }
   if (current.kind === 'success') {
     return t('home.ledger.connection.quickImportRequested', {
@@ -572,22 +612,6 @@ onBeforeUnmount(() => {
             }}
           </InlineFeedback>
 
-          <CodeBlock :code="maskedSnippet" :language="configurationLanguage" appearance="snippet">
-            <template #action>
-              <CopyAction
-                :label="copyConfigurationLabel"
-                :disabled="
-                  !selectedKeySupportsClient ||
-                  actionBusy ||
-                  (quickImportRequiresModel && !ccSwitchModel.trim())
-                "
-                :busy="actionBusy"
-                :state="configurationCopyState"
-                @copy="copyClientConfiguration"
-              />
-            </template>
-          </CodeBlock>
-
           <InlineFeedback
             v-if="quickImportRequiresModel && !ccSwitchModel.trim()"
             tone="warning"
@@ -595,45 +619,71 @@ onBeforeUnmount(() => {
           >
             {{ t('home.ledger.connection.ccSwitchModelRequired') }}
           </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'cc-switch'" tone="neutral" appearance="hint">
-            {{ t('home.ledger.connection.ccSwitchHint') }}
-          </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'new-api'" tone="neutral" appearance="hint">
-            {{ t('home.ledger.connection.newApiHint') }}
-          </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'codex'" tone="neutral" appearance="hint">
-            {{ t('home.ledger.connection.codexHint') }}
-          </InlineFeedback>
-          <InlineFeedback
-            v-else-if="activeClient === 'cherry-studio'"
-            tone="info"
-            appearance="hint"
-          >
-            {{ t('home.ledger.connection.cherryStudioHint') }}
-          </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'nextchat'" tone="neutral" appearance="hint">
-            {{ t('home.ledger.connection.disableFastLink') }}
-          </InlineFeedback>
-          <InlineFeedback
-            v-else-if="activeClient === 'claude-code'"
-            tone="neutral"
-            appearance="hint"
-          >
-            {{ t('home.ledger.connection.claudeCodeHint') }}
-          </InlineFeedback>
-          <InlineFeedback
-            v-else-if="activeClient === 'open-webui'"
-            tone="neutral"
-            appearance="hint"
-          >
-            {{ t('home.ledger.connection.openWebUIHint') }}
-          </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'cline'" tone="neutral" appearance="hint">
-            {{ t('home.ledger.connection.clineHint') }}
-          </InlineFeedback>
-          <InlineFeedback v-else-if="activeClient === 'curl'" tone="neutral" appearance="hint">
-            {{ t('home.ledger.connection.curlHint') }}
-          </InlineFeedback>
+
+          <!--
+            左右分栏：左边是可直接拿走的配置，右边是照着做的步骤。没有配置代码
+            的客户端（只在图形界面填值）就让步骤占满整行。
+          -->
+          <div class="gateway-connection__guide">
+            <CodeBlock
+              v-if="currentClient.configKind === 'snippet'"
+              :code="maskedSnippet"
+              :language="configurationLanguage"
+              appearance="snippet"
+            >
+              <template #action>
+                <CopyAction
+                  :label="copyConfigurationLabel"
+                  :disabled="
+                    !selectedKeySupportsClient ||
+                    actionBusy ||
+                    (quickImportRequiresModel && !ccSwitchModel.trim())
+                  "
+                  :busy="actionBusy"
+                  :state="configurationCopyState"
+                  @copy="copyClientConfiguration"
+                />
+              </template>
+            </CodeBlock>
+
+            <!-- 图形界面客户端没有配置文件，但要填的值同样占左列，排版保持一致。 -->
+            <section v-else class="gateway-connection__guide-config">
+              <p class="gateway-connection__guide-caption">
+                {{ t('home.ledger.connection.fieldsTitle') }}
+              </p>
+              <dl class="gateway-connection__fields">
+                <div v-for="field in clientFieldList" :key="field.id">
+                  <dt>{{ t(`home.ledger.connection.fields.${field.id}`) }}</dt>
+                  <dd>
+                    <code>{{ field.value }}</code>
+                    <CopyAction
+                      :label="
+                        t('home.ledger.connection.copyField', {
+                          field: t(`home.ledger.connection.fields.${field.id}`),
+                        })
+                      "
+                      :disabled="!selectedKeySupportsClient || actionBusy"
+                      :busy="field.secret ? actionBusy : false"
+                      :state="fieldCopyState(field.id)"
+                      @copy="copyField(field)"
+                    />
+                  </dd>
+                </div>
+              </dl>
+            </section>
+
+            <section class="gateway-connection__guide-steps">
+              <p class="gateway-connection__guide-caption">
+                {{ t('home.ledger.connection.stepsTitle') }}
+              </p>
+              <ol class="gateway-connection__steps">
+                <li v-for="step in currentClient.steps" :key="step">
+                  <span aria-hidden="true">{{ String(step).padStart(2, '0') }}</span>
+                  <p>{{ t(`home.ledger.connection.steps.${activeClient}.s${step}`) }}</p>
+                </li>
+              </ol>
+            </section>
+          </div>
         </div>
       </div>
     </template>
@@ -817,6 +867,133 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+/* 图形界面客户端的字段清单：值本身要能一眼读到，也能单独复制。 */
+.gateway-connection__guide-config {
+  min-width: 0;
+}
+
+.gateway-connection__fields {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  margin: 0;
+  gap: var(--space-2);
+}
+
+.gateway-connection__fields > div {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.gateway-connection__fields dt {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.gateway-connection__fields dd {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.gateway-connection__fields code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  color: var(--color-code);
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 左右分栏：左列是可直接拿走的配置，右列是照着做的步骤。两列各带一行
+ * caption，顶部才对得齐；顶对齐而非拉伸，避免步骤少时右边留一大片空白。
+ */
+.gateway-connection__guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  /* stretch 让两列等高，短的那一侧由自己的底色补满。 */
+  align-items: stretch;
+  gap: var(--space-4);
+}
+
+/* 两列都是「caption + 主体」，主体撑满剩余高度，两边的框才严丝合缝对齐。 */
+.gateway-connection__guide > * {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.gateway-connection__guide :deep(.code-block--snippet pre) {
+  flex: 1;
+}
+
+.gateway-connection__guide-steps {
+  min-width: 0;
+}
+
+/*
+ * 与代码块 caption 同高同色，两列顶端才在一条线上。24px 取自代码块工具条里
+ * 那颗复制按钮的高度——工具条本身没有 min-height，实际高度由它撑出来。
+ */
+.gateway-connection__guide-caption {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  margin: 0 0 6px;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+/*
+ * 接入步骤：沿用首页欢迎区的 01/02/03 序号语言，浅底与深色代码块分层，
+ * 逐步引导而不是把一整段话砸给用户。
+ */
+.gateway-connection__steps {
+  display: grid;
+  flex: 1;
+  gap: var(--space-2);
+  /* 撑高后步骤仍靠上排列，多出来的高度留给底色，不把行距扯开。 */
+  align-content: start;
+  margin: 0;
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  padding: 11px 13px;
+  list-style: none;
+}
+
+.gateway-connection__steps li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2-5);
+}
+
+.gateway-connection__steps li > span {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.gateway-connection__steps p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--line-editorial);
+}
+
 /* 主模型输入与目标 chip 必须严格等高，否则并排时高低不齐。 */
 .gateway-connection__cc-switch-model :deep([data-input-shell]) {
   min-height: var(--control-sm);
@@ -920,6 +1097,10 @@ onBeforeUnmount(() => {
 @media (max-width: 860px) {
   .gateway-connection__key {
     flex: 1 1 100%;
+  }
+
+  .gateway-connection__guide {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .gateway-connection__cc-switch-options {

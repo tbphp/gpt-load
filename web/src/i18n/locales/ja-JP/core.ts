@@ -264,8 +264,6 @@ export default {
         quickImportConfirmTitle: '{client} を開く',
         quickImportConfirmDescription:
           'このブラウザーからゲートウェイアドレスと選択したアクセスキーを {client} に送信します。設定を書き込む前に対象アプリでも確認が求められます',
-        disableFastLink:
-          'NextChat Fast Link は Web 版専用ですが、公式 Web アプリからこのゲートウェイへのクロスオリジン通信は CORS/OPTIONS により制限されます。デスクトップ版も Web リンクから直接開けません。上の設定をコピーして手動入力してください。disableFastLink が有効な場合は設定が無視されます',
         protocolUnavailable:
           'このアクセスキーでは {client} に必要な {protocol} が有効ではありません',
         targetApplication: '対象アプリ',
@@ -274,21 +272,6 @@ export default {
         modelPlaceholder: 'このアクセスキーで利用可能なモデルを入力',
         ccSwitchModelRequired:
           'この対象で利用可能な設定を作るにはモデルの指定が必要です。利用可能なモデルを入力してからインポートしてください',
-        ccSwitchHint:
-          'URL Scheme 対応の CC Switch が必要です。アプリ側でも設定内容の確認が表示されます。ポータブル版または Scheme 未登録の場合は、上の項目を使って手動でプロバイダーを追加してください',
-        newApiHint:
-          'チャネル作成時に先に「New API」タイプを選び、「接続情報を貼り付け」を実行すると、キーとアドレスが自動入力されます。リモートまたはコンテナの New API からこのアドレスへ到達できる必要があります',
-        codexHint:
-          '上の内容をユーザーレベルの ~/.codex/config.toml に追加し、アクセスキーをコピーして Codex を起動する Shell で GPT_LOAD_API_KEY に設定してください。カスタム Provider は Responses API を使用します',
-        cherryStudioHint:
-          'Cherry Studio 公式 URL Scheme でプロバイダー URL とキーを取り込みます。保存前にアプリ側でも確認されます。初回インポート後はモデル画面でモデルを取得または追加してください',
-        claudeCodeHint:
-          'Claude Code を起動する同じ Shell で 3 つの環境変数を設定してください。検出を有効にすると、名前に Claude または Anthropic を含むモデルが /model の「From gateway」に表示されます',
-        openWebUIHint:
-          '管理者設定の Connections → OpenAI で URL と API Key を入力してください。Open WebUI は /models で接続を確認します',
-        clineHint:
-          'Cline の設定で OpenAI Compatible を選び、Base URL と API Key を入力してから実際のモデルを取得または選択してください',
-        curlHint: 'YOUR_MODEL をこのアクセスキーで利用可能なモデルに置き換えてください',
         selectClient: 'クライアントを選択',
         searchClients: 'クライアントを検索',
         searchClientsPlaceholder: '名前を入力',
@@ -300,11 +283,67 @@ export default {
           web: 'Web と拡張',
           unsupported: 'このキーでは利用不可',
         },
+        copyField: '{field}をコピー',
+        fieldCopied: '{field}をコピーしました',
+        fieldCopyFailed: '{field}をコピーできません。',
+        fields: {
+          baseUrl: 'エンドポイント',
+          apiKey: 'API キー',
+        },
+        fieldsTitle: '接続情報',
+        stepsTitle: '接続手順',
+        steps: {
+          'cc-switch': {
+            s1: 'URL Scheme に対応した CC Switch をインストールして開きます',
+            s2: '「インポートして有効化」を押し、アプリ側で確認します',
+            s3: 'ポータブル版やスキーマ未登録の場合は上のパラメータで手動追加します',
+          },
+          'new-api': {
+            s1: 'チャンネルを新規作成し、種別に New API を選びます',
+            s2: '「接続情報を貼り付け」を押すとアドレスとキーが入ります',
+            s3: 'コンテナやリモートの New API は上のアドレスへ到達できる必要があります',
+          },
+          codex: {
+            s1: '上の内容を ~/.codex/config.toml に追加します',
+            s2: 'アクセスキーをコピーし、Codex を起動するシェルで GPT_LOAD_API_KEY に設定します',
+            s3: 'このカスタム Provider は Responses API を使います',
+          },
+          'gemini-cli': {
+            s1: 'Gemini CLI を起動するシェルで上のコマンドを実行します',
+            s2: 'あとは gemini を実行すればゲートウェイのモデルを利用できます',
+          },
+          nextchat: {
+            s1: 'デスクトップ版の設定に上のエンドポイントと API キーを入力します',
+            s2: 'Web 版はクロスオリジンで CORS に阻まれます。デスクトップ版を使ってください',
+          },
+          'cherry-studio': {
+            s1: '「ワンクリックインポート」を押し、アプリ側で確認します',
+            s2: 'または 設定 → モデルサービス から手動で追加します',
+            s3: '初回インポート後にモデル一覧を取得してください',
+          },
+          'claude-code': {
+            s1: 'Claude Code を起動するシェルで上のコマンドを実行します',
+            s2: 'ゲートウェイのモデルが /model の From gateway に表示されます',
+          },
+          'open-webui': {
+            s1: '管理者設定 → Connections → OpenAI → 接続を追加',
+            s2: '上のエンドポイントと API キーを入力します',
+          },
+          cline: {
+            s1: 'Cline の設定で OpenAI Compatible を選びます',
+            s2: '上の 2 項目を入力し、実際のモデルを選択します',
+          },
+          curl: {
+            s1: 'コマンド内の YOUR_MODEL をこのキーで使えるモデルに置き換えます',
+            s2: 'ターミナルに貼り付けて接続を確認できます',
+          },
+        },
         clients: {
           label: 'クライアント',
           'cc-switch': 'CC Switch',
           'new-api': 'New API',
           codex: 'Codex',
+          'gemini-cli': 'Gemini CLI',
           nextchat: 'NextChat',
           'cherry-studio': 'Cherry Studio',
           'claude-code': 'Claude Code',

@@ -4,6 +4,7 @@ export type GatewayClientID =
   | 'cc-switch'
   | 'new-api'
   | 'codex'
+  | 'gemini-cli'
   | 'nextchat'
   | 'cherry-studio'
   | 'claude-code'
@@ -24,9 +25,25 @@ export type GatewayClientKind =
 /** 目录里的分组，比 kind 粗，避免九个客户端分出八个组。 */
 export type GatewayClientGroup = 'commandLine' | 'desktop' | 'web'
 
+/**
+ * snippet：客户端有真实的配置文件或可粘贴的文本产物。
+ * fields：客户端只有图形设置界面，用户是在表单里逐项填写；把这些值渲染成
+ *   代码块会让人去找一个并不存在的配置文件。
+ */
+export type ClientConfigKind = 'snippet' | 'fields'
+
+export interface ClientField {
+  id: 'baseUrl' | 'apiKey'
+  value: string
+  secret?: boolean
+}
+
 export interface GatewayClient {
   id: GatewayClientID
   kind: GatewayClientKind
+  configKind: ClientConfigKind
+  /** 接入步骤条数，文案键为 steps.<id>.s1 … sN。 */
+  steps: number
   /**
    * web/src/assets/clients 或 channels 下的图标名。缺文件时 ChannelIcon
    * 自动回退到 mark 字母标，与渠道图标同一套机制。
@@ -68,6 +85,8 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'cc-switch',
     kind: 'desktopManager',
+    configKind: 'snippet',
+    steps: 3,
     icon: 'cc-switch',
     mark: 'CC',
     searchTerms: ['ccswitch', 'switch'],
@@ -76,6 +95,8 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'new-api',
     kind: 'gateway',
+    configKind: 'snippet',
+    steps: 3,
     icon: 'new-api',
     mark: 'NA',
     searchTerms: ['newapi', 'oneapi'],
@@ -83,14 +104,28 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'codex',
     kind: 'commandLine',
+    configKind: 'snippet',
+    steps: 3,
     icon: 'codex',
     mark: 'CX',
     searchTerms: ['openai', 'cli'],
     requiredProtocol: 'openai-responses',
   },
   {
+    id: 'gemini-cli',
+    kind: 'commandLine',
+    configKind: 'snippet',
+    steps: 2,
+    icon: 'gemini-cli',
+    mark: 'GC',
+    searchTerms: ['gemini', 'google', 'cli'],
+    requiredProtocol: 'gemini',
+  },
+  {
     id: 'nextchat',
     kind: 'desktopWeb',
+    configKind: 'fields',
+    steps: 2,
     icon: 'nextchat',
     mark: 'NC',
     searchTerms: ['nextchat', 'next-web'],
@@ -99,6 +134,8 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'cherry-studio',
     kind: 'desktop',
+    configKind: 'fields',
+    steps: 3,
     icon: 'cherry-studio',
     mark: 'CS',
     searchTerms: ['cherry', 'studio'],
@@ -108,6 +145,8 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'claude-code',
     kind: 'commandLine',
+    configKind: 'snippet',
+    steps: 2,
     icon: 'claude',
     mark: 'CD',
     searchTerms: ['claude', 'anthropic', 'cli'],
@@ -116,6 +155,8 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'open-webui',
     kind: 'web',
+    configKind: 'fields',
+    steps: 2,
     icon: 'open-webui',
     mark: 'OW',
     searchTerms: ['openwebui', 'ollama'],
@@ -124,6 +165,8 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'cline',
     kind: 'extension',
+    configKind: 'fields',
+    steps: 2,
     icon: 'cline',
     mark: 'CL',
     searchTerms: ['cline', 'roo', 'kilo', 'vscode'],
@@ -132,6 +175,8 @@ export const gatewayClients: readonly GatewayClient[] = [
   {
     id: 'curl',
     kind: 'general',
+    configKind: 'snippet',
+    steps: 2,
     icon: 'curl',
     mark: '>_',
     searchTerms: ['curl', 'shell', 'http'],
@@ -231,6 +276,11 @@ export function clientConfiguration(
         null,
         2,
       )
+    case 'gemini-cli':
+      return [
+        `export GOOGLE_GEMINI_BASE_URL="${origin.replace(/\/+$/, '')}"`,
+        `export GEMINI_API_KEY="${key}"`,
+      ].join('\n')
     case 'claude-code':
       return [
         `export ANTHROPIC_BASE_URL="${origin}"`,
@@ -303,6 +353,33 @@ export function clientQuickImportURL(
     }
     default:
       return null
+  }
+}
+
+/**
+ * 图形界面客户端要填的值。它们没有配置文件，所以不走代码块，
+ * 而是逐项列出、各自可复制。
+ */
+export function clientFields(
+  clientID: GatewayClientID,
+  origin: string,
+  key: string,
+): ClientField[] {
+  switch (clientID) {
+    case 'cherry-studio':
+    case 'open-webui':
+    case 'cline':
+      return [
+        { id: 'baseUrl', value: openAIBaseURL(origin) },
+        { id: 'apiKey', value: key, secret: true },
+      ]
+    case 'nextchat':
+      return [
+        { id: 'baseUrl', value: origin.replace(/\/+$/, '') },
+        { id: 'apiKey', value: key, secret: true },
+      ]
+    default:
+      return []
   }
 }
 

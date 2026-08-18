@@ -266,8 +266,6 @@ export default {
         quickImportConfirmTitle: 'Open {client}',
         quickImportConfirmDescription:
           'This browser will send the gateway address and selected access key to {client}. The target app will still ask you to confirm before saving the configuration',
-        disableFastLink:
-          'NextChat Fast Link is web-only, but the official web app is blocked by CORS/OPTIONS when calling this gateway across origins. The desktop app is not opened by the web link either. Copy the configuration above and enter it manually; disableFastLink silently ignores the setting',
         protocolUnavailable: '{client} requires {protocol} for this access key',
         targetApplication: 'Target application',
         primaryModel: 'Primary model',
@@ -275,21 +273,6 @@ export default {
         modelPlaceholder: 'Enter a model available to this access key',
         ccSwitchModelRequired:
           'This target needs an explicit model to produce a usable configuration. Enter an available model before importing',
-        ccSwitchHint:
-          'Requires CC Switch with URL Scheme support. The app will show the configuration again for confirmation. For portable builds or an unregistered scheme, add the provider manually using the parameters above',
-        newApiHint:
-          'Choose the “New API” channel type first, then select “Paste Connection Info”. The key and address will be filled automatically. A remote or containerized New API must be able to reach this gateway address',
-        codexHint:
-          'Add the content above to user-level ~/.codex/config.toml, then copy the access key and set it as GPT_LOAD_API_KEY in the shell that starts Codex. The custom provider uses the Responses API',
-        cherryStudioHint:
-          'Uses the official Cherry Studio URL Scheme to import the provider URL and key. The app confirms before saving. After the first import, fetch or add models in the model section',
-        claudeCodeHint:
-          'Set all three environment variables in the same shell that starts Claude Code. With discovery enabled, gateway models whose names contain Claude or Anthropic appear under “From gateway” in /model',
-        openWebUIHint:
-          'Enter the URL and API key under Admin Settings → Connections → OpenAI. Open WebUI validates the connection through /models',
-        clineHint:
-          'Choose OpenAI Compatible in Cline settings, enter the base URL and API key, then fetch or select the actual model',
-        curlHint: 'Replace YOUR_MODEL with a model available to this access key',
         selectClient: 'Select a client',
         searchClients: 'Search clients',
         searchClientsPlaceholder: 'Type a name',
@@ -301,11 +284,67 @@ export default {
           web: 'Web and extensions',
           unsupported: 'Not available for this key',
         },
+        copyField: 'Copy {field}',
+        fieldCopied: '{field} copied',
+        fieldCopyFailed: 'Unable to copy the {field}.',
+        fields: {
+          baseUrl: 'Base URL',
+          apiKey: 'API key',
+        },
+        fieldsTitle: 'Connection values',
+        stepsTitle: 'Setup steps',
+        steps: {
+          'cc-switch': {
+            s1: 'Install and open CC Switch with URL Scheme support',
+            s2: 'Click “Import and enable”, then confirm in the app',
+            s3: 'For portable builds or an unregistered scheme, add the provider manually',
+          },
+          'new-api': {
+            s1: 'Create a channel and choose the New API type',
+            s2: 'Click “Paste Connection Info” to fill the address and key',
+            s3: 'A containerized or remote New API must reach the address above',
+          },
+          codex: {
+            s1: 'Add the content above to ~/.codex/config.toml',
+            s2: 'Copy the access key and set it as GPT_LOAD_API_KEY in the Codex shell',
+            s3: 'This custom provider uses the Responses API',
+          },
+          'gemini-cli': {
+            s1: 'Run the commands above in the shell that starts Gemini CLI',
+            s2: 'Then run gemini to use the gateway models',
+          },
+          nextchat: {
+            s1: 'Enter the base URL and API key above in the desktop app settings',
+            s2: 'The web app is blocked by CORS across origins — use the desktop app',
+          },
+          'cherry-studio': {
+            s1: 'Click “One-click import”, then confirm in the app',
+            s2: 'Or add it manually under Settings → Model providers',
+            s3: 'Fetch the models afterwards in the model section',
+          },
+          'claude-code': {
+            s1: 'Run the commands above in the shell that starts Claude Code',
+            s2: 'Gateway models appear under “From gateway” in /model',
+          },
+          'open-webui': {
+            s1: 'Admin Settings → Connections → OpenAI → Add Connection',
+            s2: 'Fill in the base URL and API key above',
+          },
+          cline: {
+            s1: 'Choose OpenAI Compatible in the Cline settings',
+            s2: 'Fill in both values above, then pick the actual model',
+          },
+          curl: {
+            s1: 'Replace YOUR_MODEL with a model available to this key',
+            s2: 'Paste the command into a terminal to verify connectivity',
+          },
+        },
         clients: {
           label: 'Client',
           'cc-switch': 'CC Switch',
           'new-api': 'New API',
           codex: 'Codex',
+          'gemini-cli': 'Gemini CLI',
           nextchat: 'NextChat',
           'cherry-studio': 'Cherry Studio',
           'claude-code': 'Claude Code',
