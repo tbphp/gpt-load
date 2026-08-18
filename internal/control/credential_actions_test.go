@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 
 	"github.com/gin-gonic/gin"

@@ -13,13 +13,14 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -323,12 +324,7 @@ func newCredentialManagerFixture(
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	subscriptions, err := subscriptionruntime.NewRuntime(
-		channel.NewRegistry(),
-		subscriptionruntime.CodexImplementations(),
-		subscriptionruntime.ClaudeImplementations(),
-		subscriptionruntime.AntigravityImplementations(),
-	)
+	subscriptions, err := subscriptionruntime.NewRuntime(channel.NewRegistry(), subscriptionproviders.Implementations()...)
 	if err != nil {
 		t.Fatal(err)
 	}

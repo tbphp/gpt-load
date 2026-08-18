@@ -34,6 +34,7 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/subscription"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/webui"
@@ -204,12 +205,7 @@ type providerRuntimeSnapshotReconciler struct {
 }
 
 func newSubscriptionRuntime(registry *channel.Registry) (*subscriptionruntime.Runtime, error) {
-	return subscriptionruntime.NewRuntime(
-		registry,
-		subscriptionruntime.CodexImplementations(),
-		subscriptionruntime.ClaudeImplementations(),
-		subscriptionruntime.AntigravityImplementations(),
-	)
+	return subscriptionruntime.NewRuntime(registry, subscriptionproviders.Implementations()...)
 }
 
 func newProviderAdapterRegistry(

@@ -6,14 +6,14 @@ import (
 	"reflect"
 	"testing"
 
-	"gpt-load/internal/antigravity"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription/providers/antigravity"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 

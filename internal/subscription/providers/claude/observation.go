@@ -1,4 +1,4 @@
-package subscriptionruntime
+package claude
 
 import (
 	"encoding/json"
@@ -8,10 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"gpt-load/internal/claude"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-func NormalizeClaudeObservation(observation claude.AccountObservation) ([]byte, error) {
+type quotaPlanSummary = providerobservation.PlanSummary
+type quotaAccountSummary = providerobservation.AccountSummary
+type quotaWindow = providerobservation.QuotaWindow
+type quotaSnapshot = providerobservation.Snapshot
+
+func NormalizeObservation(observation AccountObservation) ([]byte, error) {
 	account, err := normalizeClaudeAccount(observation.Profile, observation.Usage.ExtraUsage)
 	if err != nil {
 		return nil, err
@@ -28,13 +33,13 @@ func NormalizeClaudeObservation(observation claude.AccountObservation) ([]byte, 
 		label         string
 		windowSeconds int64
 		primary       bool
-		value         *claude.UsageWindow
+		value         *UsageWindow
 	}{
-		{id: "five_hour", label: "5h", windowSeconds: 5 * 60 * 60, primary: true, value: observation.Usage.FiveHour},
-		{id: "seven_day", label: "7d", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDay},
-		{id: "seven_day_oauth_apps", label: "7d · OAuth apps", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDayOAuthApps},
-		{id: "seven_day_opus", label: "7d · Opus", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDayOpus},
-		{id: "seven_day_sonnet", label: "7d · Sonnet", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDaySonnet},
+		{id: "five_hour", label: "Session", windowSeconds: 5 * 60 * 60, primary: true, value: observation.Usage.FiveHour},
+		{id: "seven_day", label: "Weekly", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDay},
+		{id: "seven_day_oauth_apps", label: "OAuth apps", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDayOAuthApps},
+		{id: "seven_day_opus", label: "Opus", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDayOpus},
+		{id: "seven_day_sonnet", label: "Sonnet", windowSeconds: 7 * 24 * 60 * 60, value: observation.Usage.SevenDaySonnet},
 		{id: "cinder_cove", label: "Cinder Cove", value: observation.Usage.CinderCove},
 	} {
 		if candidate.value == nil {
@@ -95,7 +100,8 @@ func NormalizeClaudeObservation(observation claude.AccountObservation) ([]byte, 
 
 func duplicateClaudeStandardWindow(existing []quotaWindow, candidate quotaWindow) bool {
 	targetID := ""
-	switch safeID(candidate.Label) {
+	subject := strings.TrimSpace(strings.SplitN(candidate.Label, "·", 2)[0])
+	switch providerobservation.SafeID(subject) {
 	case "session":
 		targetID = "five_hour"
 	case "weekly":
@@ -130,7 +136,7 @@ func appendClaudeQuotaWindow(windows *[]quotaWindow, seen map[string]int, window
 	*windows = append(*windows, window)
 }
 
-func normalizeClaudeAccount(profile claude.AccountProfile, extraUsage *claude.ExtraUsage) (*quotaAccountSummary, error) {
+func normalizeClaudeAccount(profile AccountProfile, extraUsage *ExtraUsage) (*quotaAccountSummary, error) {
 	result := &quotaAccountSummary{
 		DisplayName: strings.TrimSpace(profile.DisplayName), Email: strings.TrimSpace(profile.Email),
 		OrganizationName:          strings.TrimSpace(profile.OrganizationName),
@@ -160,8 +166,13 @@ func normalizeClaudeAccount(profile claude.AccountProfile, extraUsage *claude.Ex
 	return result, nil
 }
 
-func claudePlanName(profile claude.AccountProfile) string {
-	for _, value := range []string{profile.OrganizationType, profile.SeatTier} {
+func claudePlanName(profile AccountProfile) string {
+	for _, value := range []string{
+		profile.OrganizationType,
+		profile.SeatTier,
+		profile.OrganizationRateLimitTier,
+		profile.UserRateLimitTier,
+	} {
 		normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(value)))
 		switch {
 		case strings.Contains(normalized, "enterprise"):
@@ -198,7 +209,7 @@ func normalizeClaudePercentageWindow(
 	reset *string,
 ) (quotaWindow, error) {
 	result := quotaWindow{
-		ID: id, Label: label, Scope: scope, Unit: "percent", State: "unknown", IsPrimary: primary,
+		ID: id, Label: providerobservation.WindowLabel(label, windowSeconds), Scope: scope, Unit: "percent", State: "unknown", IsPrimary: primary,
 	}
 	if windowSeconds > 0 {
 		result.WindowSeconds = floatlessIntPointer(windowSeconds)
@@ -222,7 +233,7 @@ func normalizeClaudePercentageWindow(
 	return result, nil
 }
 
-func normalizeClaudeExtraUsage(extra *claude.ExtraUsage) (quotaWindow, error) {
+func normalizeClaudeExtraUsage(extra *ExtraUsage) (quotaWindow, error) {
 	result := quotaWindow{ID: "extra_usage", Label: "Extra usage", Scope: "extra_usage", Unit: "credits", State: "unknown"}
 	if extra.Currency != nil && strings.TrimSpace(*extra.Currency) != "" {
 		result.Unit = strings.ToUpper(strings.TrimSpace(*extra.Currency))
@@ -264,29 +275,49 @@ func normalizeClaudeExtraUsage(extra *claude.ExtraUsage) (quotaWindow, error) {
 	return result, nil
 }
 
-func normalizeClaudeScopedLimit(limit claude.ScopedLimit) (quotaWindow, error) {
-	kind, group := safeID(limit.Kind), safeID(limit.Group)
+func normalizeClaudeScopedLimit(limit ScopedLimit) (quotaWindow, error) {
+	kind, group := providerobservation.SafeID(limit.Kind), providerobservation.SafeID(limit.Group)
 	if kind == "" || group == "" {
 		return quotaWindow{}, fmt.Errorf("Claude scoped limit identifier is invalid")
 	}
 	id := kind + "_" + group
-	label := strings.TrimSpace(limit.ModelDisplayName)
-	scope := "model"
-	if label == "" {
-		label = strings.TrimSpace(limit.SurfaceDisplayName)
-		scope = "surface"
+	scope, displayName := "surface", strings.TrimSpace(limit.SurfaceDisplayName)
+	if modelDisplayName := strings.TrimSpace(limit.ModelDisplayName); modelDisplayName != "" {
+		scope, displayName = "model", modelDisplayName
 	}
+	label := claudeScopedLimitLabel(group, displayName)
 	if label == "" {
-		label = strings.TrimSpace(limit.Group)
+		label = providerobservation.DisplayName(id)
 	}
-	if label == "" {
-		label = id
+	windowSeconds := int64(0)
+	switch {
+	case kind == "weekly" || group == "weekly":
+		windowSeconds = 7 * 24 * 60 * 60
+	case group == "session":
+		windowSeconds = 5 * 60 * 60
 	}
-	window, err := normalizeClaudePercentageWindow(id, label, scope, 0, false, &limit.Percent, limit.ResetsAt)
+	window, err := normalizeClaudePercentageWindow(id, label, scope, windowSeconds, false, &limit.Percent, limit.ResetsAt)
 	if err != nil {
 		return quotaWindow{}, err
 	}
 	return window, nil
+}
+
+func claudeScopedLimitLabel(group, displayName string) string {
+	switch group {
+	case "session":
+		return "Session"
+	case "weekly":
+		return "Weekly"
+	case "opus":
+		return "Opus"
+	case "sonnet":
+		return "Sonnet"
+	}
+	if displayName = strings.TrimSpace(displayName); displayName != "" {
+		return displayName
+	}
+	return providerobservation.DisplayName(group)
 }
 
 func claudeOptionalResetMilliseconds(field string, value *string) (*int64, error) {

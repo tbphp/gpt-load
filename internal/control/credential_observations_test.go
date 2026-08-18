@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/claude"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription/providers/claude"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -33,7 +33,7 @@ func TestNormalizeCodexObservationKeepsDynamicWindowsAndStableOrder(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Plan.Name != "pro" || snapshot.ResetCreditsAvailable == nil || *snapshot.ResetCreditsAvailable != 2 || len(snapshot.QuotaWindows) != 3 {
+	if snapshot.Plan.Name != "Pro 20x" || snapshot.ResetCreditsAvailable == nil || *snapshot.ResetCreditsAvailable != 2 || len(snapshot.QuotaWindows) != 3 {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 	if snapshot.QuotaWindows[0].ID != "gpt-5-2-primary" || snapshot.QuotaWindows[0].State != "exhausted" || !snapshot.QuotaWindows[0].IsPrimary {
@@ -42,8 +42,8 @@ func TestNormalizeCodexObservationKeepsDynamicWindowsAndStableOrder(t *testing.T
 	if snapshot.QuotaWindows[1].ID != "secondary" || snapshot.QuotaWindows[2].ID != "primary" {
 		t.Fatalf("window order = %#v", snapshot.QuotaWindows)
 	}
-	if snapshot.QuotaWindows[0].Label != "gpt-5.2 · 7d" ||
-		snapshot.QuotaWindows[1].Label != "7d" || snapshot.QuotaWindows[2].Label != "5h" {
+	if snapshot.QuotaWindows[0].Label != "GPT 5.2 · 7d" ||
+		snapshot.QuotaWindows[1].Label != "Weekly · 7d" || snapshot.QuotaWindows[2].Label != "Session · 5h" {
 		t.Fatalf("window labels = %#v", snapshot.QuotaWindows)
 	}
 }
@@ -548,7 +548,7 @@ func TestRefreshClaudeCredentialObservationPublishesAccountAndQuota(t *testing.T
 		utilization := 25.0
 		reset := now.Add(5 * time.Hour).Format(time.RFC3339)
 		extraUsage := true
-		payload, normalizeErr := subscriptionruntime.NormalizeClaudeObservation(claude.AccountObservation{
+		payload, normalizeErr := claude.NormalizeObservation(claude.AccountObservation{
 			Profile: claude.AccountProfile{
 				DisplayName: "Owner", Email: "owner@example.com", OrganizationName: "Example Org",
 				OrganizationType: "claude_team", SeatTier: "team_standard", ExtraUsageEnabled: &extraUsage,
@@ -1163,7 +1163,7 @@ func TestSubscriptionCredentialCollectionAndDetailIncludeCachedObservation(t *te
 		t.Fatal(err)
 	}
 	if detail.Credential.CredentialID != credentialID || detail.Observation.Snapshot == nil ||
-		detail.Observation.Snapshot.Plan.Name != "pro" {
+		detail.Observation.Snapshot.Plan.Name != "Pro 20x" {
 		t.Fatalf("detail = %#v", detail)
 	}
 }

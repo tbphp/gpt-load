@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/claude"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription/providers/claude"
 )
 
 func setClaudeExecutor(t *testing.T, adapter *Adapter, executor claude.Executor) {

@@ -107,19 +107,7 @@ const constrainedModels = computed(() =>
 const accountName = computed(() => props.item.account.email ?? props.item.mask)
 const planLabel = computed(() => {
   const plan = snapshot.value?.plan_summary.name?.trim()
-  if (!plan) return ''
-  const normalized = plan.toLowerCase().replaceAll('_', '-').replaceAll(' ', '')
-  const labels: Readonly<Record<string, string>> = {
-    pro: 'Pro 20x',
-    'g1-pro-tier': 'Pro',
-    prolite: 'Pro 5x',
-    'pro-lite': 'Pro 5x',
-    plus: 'Plus',
-    team: 'Team',
-    free: 'Free',
-    'free-tier': 'Free',
-  }
-  return labels[normalized] ?? plan
+  return plan ?? ''
 })
 const credentialExpiryTooltip = computed(() => {
   const expiresAtMS = props.item.account.expires_at_ms

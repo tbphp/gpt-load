@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"gpt-load/internal/codex"
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription/providers/codex"
 )
 
 const resetCreditTestKey = "9f0f4c32-89d2-4bcb-9e19-052940dc2f16"

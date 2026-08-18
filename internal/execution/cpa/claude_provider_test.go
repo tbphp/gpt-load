@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/claude"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/subscription/providers/claude"
 )
 
 type fakeClaudeExecutor struct {

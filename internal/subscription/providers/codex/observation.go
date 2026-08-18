@@ -1,4 +1,4 @@
-package subscriptionruntime
+package codex
 
 import (
 	"bytes"
@@ -9,60 +9,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-type quotaPlanSummary struct {
-	Name string `json:"name,omitempty"`
-}
+type quotaPlanSummary = providerobservation.PlanSummary
+type quotaAccountSummary = providerobservation.AccountSummary
+type quotaWindow = providerobservation.QuotaWindow
+type resetCredit = providerobservation.ResetCredit
+type quotaSnapshot = providerobservation.Snapshot
 
-type quotaAccountSummary struct {
-	DisplayName               string `json:"display_name,omitempty"`
-	Email                     string `json:"email,omitempty"`
-	OrganizationName          string `json:"organization_name,omitempty"`
-	OrganizationType          string `json:"organization_type,omitempty"`
-	OrganizationRole          string `json:"organization_role,omitempty"`
-	WorkspaceRole             string `json:"workspace_role,omitempty"`
-	OrganizationRateLimitTier string `json:"organization_rate_limit_tier,omitempty"`
-	UserRateLimitTier         string `json:"user_rate_limit_tier,omitempty"`
-	SeatTier                  string `json:"seat_tier,omitempty"`
-	BillingType               string `json:"billing_type,omitempty"`
-	ExtraUsageEnabled         *bool  `json:"extra_usage_enabled,omitempty"`
-	ExtraUsageDisabledReason  string `json:"extra_usage_disabled_reason,omitempty"`
-	AccountCreatedAtMS        *int64 `json:"account_created_at_ms,omitempty"`
-	SubscriptionCreatedAtMS   *int64 `json:"subscription_created_at_ms,omitempty"`
-}
-
-type quotaWindow struct {
-	ID            string   `json:"id"`
-	Label         string   `json:"label"`
-	Scope         string   `json:"scope"`
-	Unit          string   `json:"unit"`
-	Used          *float64 `json:"used,omitempty"`
-	Limit         *float64 `json:"limit,omitempty"`
-	Remaining     *float64 `json:"remaining,omitempty"`
-	Utilization   *float64 `json:"utilization,omitempty"`
-	ResetAtMS     *int64   `json:"reset_at_ms,omitempty"`
-	WindowSeconds *int64   `json:"window_seconds,omitempty"`
-	ModelIDs      []string `json:"model_ids,omitempty"`
-	State         string   `json:"state"`
-	IsPrimary     bool     `json:"is_primary,omitempty"`
-}
-
-type resetCredit struct {
-	ExpiresAtMS int64 `json:"expires_at_ms"`
-}
-
-type quotaSnapshot struct {
-	Plan                  quotaPlanSummary     `json:"plan_summary"`
-	Account               *quotaAccountSummary `json:"account_summary,omitempty"`
-	QuotaWindows          []quotaWindow        `json:"quota_windows"`
-	ResetCreditsAvailable *int64               `json:"reset_credits_available,omitempty"`
-	ResetCredits          []resetCredit        `json:"reset_credits,omitempty"`
-}
-
-// NormalizeCodexQuota converts Codex provider payloads into the canonical,
+// NormalizeQuota converts Codex provider payloads into the canonical,
 // provider-neutral observation contract consumed by the control plane.
-func NormalizeCodexQuota(primary, details []byte) ([]byte, error) {
+func NormalizeQuota(primary, details []byte) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(primary))
 	decoder.UseNumber()
 	var payload map[string]any
@@ -70,7 +29,7 @@ func NormalizeCodexQuota(primary, details []byte) ([]byte, error) {
 		return nil, errors.New("invalid subscription quota observation")
 	}
 	result := quotaSnapshot{QuotaWindows: []quotaWindow{}}
-	result.Plan.Name = cleanString(firstValue(payload, "plan_type", "planType"))
+	result.Plan.Name = codexPlanName(cleanString(firstValue(payload, "plan_type", "planType")))
 	if credits, ok := object(firstValue(payload, "rate_limit_reset_credits", "rateLimitResetCredits")); ok {
 		if value, ok := integer(firstValue(credits, "available_count", "availableCount")); ok {
 			result.ResetCreditsAvailable = &value
@@ -93,7 +52,7 @@ func NormalizeCodexQuota(primary, details []byte) ([]byte, error) {
 			if !ok {
 				continue
 			}
-			windows := normalizeRateWindows(rate, safeID(name)+"-", name)
+			windows := normalizeRateWindows(rate, providerobservation.SafeID(name)+"-", name)
 			modelIDs := stringsFrom(firstValue(entry, "model_ids", "modelIds"))
 			for windowIndex := range windows {
 				windows[windowIndex].ModelIDs = append([]string(nil), modelIDs...)
@@ -179,26 +138,45 @@ func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWind
 }
 
 func windowLabel(window map[string]any, fallback, scope string) string {
-	if value := cleanString(firstValue(window, "label", "display_name", "displayName")); value != "" {
-		return value
-	}
-	if seconds, ok := integer(firstValue(window, "limit_window_seconds", "limitWindowSeconds")); ok {
-		duration := strconv.FormatInt(seconds, 10) + "s"
+	seconds, _ := integer(firstValue(window, "limit_window_seconds", "limitWindowSeconds"))
+	if scope == "account" {
+		subject := providerobservation.DisplayName(fallback)
 		switch seconds {
 		case 5 * 60 * 60:
-			duration = "5h"
+			subject = "Session"
 		case 7 * 24 * 60 * 60:
-			duration = "7d"
+			subject = "Weekly"
+		default:
+			switch fallback {
+			case "primary":
+				subject = "Session"
+			case "secondary":
+				subject = "Weekly"
+			}
 		}
-		if scope != "account" {
-			return scope + " · " + duration
-		}
-		return duration
+		return providerobservation.WindowLabel(subject, seconds)
 	}
-	if scope != "account" {
-		return scope + " · " + fallback
+	subject := providerobservation.DisplayName(scope)
+	if subject == "" {
+		subject = providerobservation.DisplayName(fallback)
 	}
-	return fallback
+	return providerobservation.WindowLabel(subject, seconds)
+}
+
+func codexPlanName(value string) string {
+	normalized := strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(value)))
+	switch normalized {
+	case "pro":
+		return "Pro 20x"
+	case "prolite":
+		return "Pro 5x"
+	case "edu":
+		return "Education"
+	case "free", "plus", "team", "business", "enterprise", "education":
+		return providerobservation.DisplayName(normalized)
+	default:
+		return providerobservation.DisplayName(value)
+	}
 }
 
 type resetCreditDetail struct {
@@ -369,17 +347,4 @@ func stringsFrom(value any) []string {
 		result = append(result, value)
 	}
 	return result
-}
-
-func safeID(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	var result strings.Builder
-	for _, character := range value {
-		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' {
-			result.WriteRune(character)
-		} else if result.Len() > 0 && !strings.HasSuffix(result.String(), "-") {
-			result.WriteByte('-')
-		}
-	}
-	return strings.Trim(result.String(), "-")
 }

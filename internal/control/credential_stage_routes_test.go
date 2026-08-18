@@ -17,9 +17,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -542,7 +542,7 @@ func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) 
 	refreshResponse := httptest.NewRecorder()
 	engine.ServeHTTP(refreshResponse, refreshRequest)
 	if refreshResponse.Code != http.StatusOK || !strings.Contains(refreshResponse.Body.String(), `"state":"fresh"`) ||
-		!strings.Contains(refreshResponse.Body.String(), `"plan_summary":{"name":"pro"}`) {
+		!strings.Contains(refreshResponse.Body.String(), `"plan_summary":{"name":"Pro 20x"}`) {
 		t.Fatalf("refresh = %d %s", refreshResponse.Code, refreshResponse.Body)
 	}
 

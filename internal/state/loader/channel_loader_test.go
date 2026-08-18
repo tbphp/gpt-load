@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -102,12 +103,7 @@ func TestValidatedLoaderRejectsInvalidStoredCredentialShape(t *testing.T) {
 func testSubscriptionRuntime(t *testing.T) (*channel.Registry, *subscriptionruntime.Runtime) {
 	t.Helper()
 	channels := channel.NewRegistry()
-	runtime, err := subscriptionruntime.NewRuntime(
-		channels,
-		subscriptionruntime.CodexImplementations(),
-		subscriptionruntime.ClaudeImplementations(),
-		subscriptionruntime.AntigravityImplementations(),
-	)
+	runtime, err := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
 	if err != nil {
 		t.Fatal(err)
 	}
