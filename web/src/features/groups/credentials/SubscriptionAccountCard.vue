@@ -97,10 +97,8 @@ const quotaWindows = computed(() =>
 const accountQuotaWindows = computed(() =>
   quotaWindows.value.filter((window) => window.scope === 'account'),
 )
-const windowSkeletonHeight = computed(() => {
-  const rows = accountQuotaWindows.value.length
-  return rows === 0 ? '32px' : `${24 + rows * 32}px`
-})
+const hasAccountQuotaWindows = computed(() => accountQuotaWindows.value.length > 0)
+const windowSkeletonHeight = computed(() => `${24 + accountQuotaWindows.value.length * 32}px`)
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
@@ -637,7 +635,10 @@ function runMenuAction(
           </span>
           <SkeletonBlock height="var(--subscription-detail-activity-height)" />
         </div>
-        <div v-if="supportsQuotaObservation" class="subscription-account__skeleton-section">
+        <div
+          v-if="supportsQuotaObservation && hasAccountQuotaWindows"
+          class="subscription-account__skeleton-section"
+        >
           <span class="subscription-account__skeleton-title">
             <SkeletonBlock width="140px" height="11px" />
           </span>
@@ -694,7 +695,10 @@ function runMenuAction(
           </div>
         </section>
 
-        <section v-if="supportsQuotaObservation" class="subscription-account__detail-section">
+        <section
+          v-if="supportsQuotaObservation && hasAccountQuotaWindows"
+          class="subscription-account__detail-section"
+        >
           <h3>{{ t('group.credentials.subscription.estimate.title') }}</h3>
           <div class="subscription-account__window-table" role="table">
             <div
@@ -769,9 +773,6 @@ function runMenuAction(
                 }}
               </span>
             </div>
-            <p v-if="accountQuotaWindows.length === 0" class="subscription-account__window-empty">
-              {{ t('group.credentials.subscription.estimate.unavailable') }}
-            </p>
           </div>
         </section>
 
@@ -1299,12 +1300,6 @@ function runMenuAction(
 .subscription-account__window-used {
   color: var(--color-warning);
   font-weight: 650;
-}
-.subscription-account__window-empty {
-  margin: 0;
-  padding: 9px 10px;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
 }
 .subscription-account__diagnostics {
   display: grid;
