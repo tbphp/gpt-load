@@ -127,6 +127,18 @@ func (s *RedisStore) LLen(key string) (int64, error) {
 	return s.client.LLen(context.Background(), s.prefixKey(key)).Result()
 }
 
+// LRange returns a range of elements from the list.
+func (s *RedisStore) LRange(key string, start, stop int64) ([]string, error) {
+	vals, err := s.client.LRange(context.Background(), s.prefixKey(key), start, stop).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return vals, nil
+}
+
 // --- SET operations ---
 
 func (s *RedisStore) SAdd(key string, members ...any) error {

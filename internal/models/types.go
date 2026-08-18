@@ -3,6 +3,7 @@ package models
 import (
 	"gpt-load/internal/failover"
 	"gpt-load/internal/types"
+	"strings"
 	"time"
 
 	"gorm.io/datatypes"
@@ -120,11 +121,38 @@ type APIKey struct {
 	GroupID      uint       `gorm:"not null;index;index:idx_api_keys_group_last_used_id,priority:1" json:"group_id"`
 	Status       string     `gorm:"type:varchar(50);not null;default:'active';index" json:"status"`
 	Notes        string     `gorm:"type:varchar(255);default:''" json:"notes"`
+	AllowedModels string    `gorm:"type:text;not null;default:''" json:"allowed_models"`
 	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
 	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
 	LastUsedAt   *time.Time `gorm:"index:idx_api_keys_group_last_used_id,priority:2" json:"last_used_at"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+// SplitAllowedModels 将逗号分隔的模型列表解析为切片（去空白、去空项）。
+func (k *APIKey) SplitAllowedModels() []string {
+	var out []string
+	for _, m := range strings.Split(k.AllowedModels, ",") {
+		m = strings.TrimSpace(m)
+		if m != "" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// CanServeModel 判断该 key 是否允许服务指定模型。
+// AllowedModels 为空表示不限制（所有模型）。
+func (k *APIKey) CanServeModel(model string) bool {
+	if model == "" || strings.TrimSpace(k.AllowedModels) == "" {
+		return true
+	}
+	for _, m := range k.SplitAllowedModels() {
+		if m == model {
+			return true
+		}
+	}
+	return false
 }
 
 // RequestType 请求类型常量

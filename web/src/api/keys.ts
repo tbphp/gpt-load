@@ -140,6 +140,12 @@ export const keysApi = {
     await http.put(`/keys/${keyId}/notes`, { notes }, { hideMessage: true });
   },
 
+  // 更新密钥可用模型（逗号分隔；空 = 不限制）
+  async updateKeyAllowedModels(keyId: number, allowedModels: string): Promise<APIKey> {
+    const res = await http.put(`/keys/${keyId}/allowed-models`, { allowed_models: allowedModels });
+    return res.data;
+  },
+
   // 测试密钥
   async testKeys(
     group_id: number,

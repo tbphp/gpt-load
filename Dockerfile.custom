@@ -1,0 +1,3 @@
+# 基于官方镜像覆盖自编译二进制（含 allowed_models 模型过滤功能）
+FROM ghcr.sparkcr.cn/tbphp/gpt-load:latest
+COPY out/gpt-load /app/gpt-load

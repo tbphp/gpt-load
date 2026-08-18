@@ -320,6 +320,53 @@ func (s *MemoryStore) LLen(key string) (int64, error) {
 	return int64(len(list)), nil
 }
 
+// LRange returns a range of elements from the list.
+// start and stop are 0-based inclusive indices; negative values count from the end (-1 = last).
+func (s *MemoryStore) LRange(key string, start, stop int64) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rawList, exists := s.data[key]
+	if !exists {
+		return nil, ErrNotFound
+	}
+
+	list, ok := rawList.([]string)
+	if !ok {
+		return nil, fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	if len(list) == 0 {
+		return nil, ErrNotFound
+	}
+
+	// Resolve negative indices relative to list length
+	n := int64(len(list))
+	from := start
+	if from < 0 {
+		from = n + from
+	}
+	to := stop
+	if to < 0 {
+		to = n + to
+	}
+	if from < 0 {
+		from = 0
+	}
+	if to >= n {
+		to = n - 1
+	}
+	if from > to || from >= n {
+		return []string{}, nil
+	}
+
+	out := make([]string, 0, to-from+1)
+	for i := from; i <= to; i++ {
+		out = append(out, list[i])
+	}
+	return out, nil
+}
+
 // --- SET operations ---
 
 // SAdd adds members to a set.

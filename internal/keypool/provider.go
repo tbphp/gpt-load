@@ -11,6 +11,8 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -22,7 +24,13 @@ type KeyProvider struct {
 	store           store.Store
 	settingsManager *config.SystemSettingsManager
 	encryptionSvc   encryption.Service
+
+	// modelCounters 维护 (groupID, model) 维度的轮询计数，用于在过滤后的候选 key 间轮换。
+	modelCounters sync.Map
 }
+
+// ErrNoKeyForModel 表示组内没有 key 可以服务请求的模型（且确实存在模型限制配置）。
+var ErrNoKeyForModel = errors.New("no active key supports the requested model")
 
 // NewProvider 创建一个新的 KeyProvider 实例。
 func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemSettingsManager, encryptionSvc encryption.Service) *KeyProvider {
@@ -47,27 +55,75 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		return nil, fmt.Errorf("failed to rotate key from store: %w", err)
 	}
 
+	return p.apiKeyFromStore(keyIDStr, groupID)
+}
+
+// SelectKeyForGroupModel 为指定分组选择可服务指定模型的一个可用 APIKey。
+// 仅选择 allowed_models 为空（不限制）或包含该模型的 active key；
+// model 为空时退化为 SelectKey 行为（保持向后兼容，如 /models 等无模型请求）。
+// 若组内存在模型限制但无任何 key 匹配，返回 ErrNoKeyForModel。
+func (p *KeyProvider) SelectKeyForGroupModel(groupID uint, model string) (*models.APIKey, error) {
+	if model == "" {
+		return p.SelectKey(groupID)
+	}
+
+	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
+	ids, err := p.store.LRange(activeKeysListKey, 0, -1)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, app_errors.ErrNoActiveKeys
+		}
+		return nil, fmt.Errorf("failed to range key list: %w", err)
+	}
+
+	var eligible []string
+	for _, idStr := range ids {
+		key, kerr := p.apiKeyFromStore(idStr, groupID)
+		if kerr != nil {
+			continue
+		}
+		if key.Status != models.KeyStatusActive {
+			continue
+		}
+		if !key.CanServeModel(model) {
+			continue
+		}
+		eligible = append(eligible, idStr)
+	}
+
+	if len(eligible) == 0 {
+		return nil, ErrNoKeyForModel
+	}
+
+	// 在候选 key 之间轮换：每个 (groupID, model) 一个进程内原子计数。
+	counterKey := fmt.Sprintf("%d:%s", groupID, model)
+	counterAny, _ := p.modelCounters.LoadOrStore(counterKey, &atomic.Uint64{})
+	counter := counterAny.(*atomic.Uint64)
+	idx := counter.Add(1) % uint64(len(eligible))
+
+	return p.apiKeyFromStore(eligible[idx], groupID)
+}
+
+// apiKeyFromStore 从 store hash 恢复一个 APIKey（含 allowed_models）。
+func (p *KeyProvider) apiKeyFromStore(keyIDStr string, groupID uint) (*models.APIKey, error) {
 	keyID, err := strconv.ParseUint(keyIDStr, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse key ID '%s': %w", keyIDStr, err)
 	}
 
-	// 2. Get key details from HASH
 	keyHashKey := fmt.Sprintf("key:%d", keyID)
 	keyDetails, err := p.store.HGetAll(keyHashKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get key details for key ID %d: %w", keyID, err)
 	}
 
-	// 3. Manually unmarshal the map into an APIKey struct
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
 
-	// Decrypt the key value for use by channels
 	encryptedKeyValue := keyDetails["key_string"]
 	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
 	if err != nil {
-		// If decryption fails, try to use the value as-is (backward compatibility for unencrypted keys)
+		// Backward compatibility for unencrypted keys
 		logrus.WithFields(logrus.Fields{
 			"keyID": keyID,
 			"error": err,
@@ -75,16 +131,15 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		decryptedKeyValue = encryptedKeyValue
 	}
 
-	apiKey := &models.APIKey{
-		ID:           uint(keyID),
-		KeyValue:     decryptedKeyValue,
-		Status:       keyDetails["status"],
-		FailureCount: failureCount,
-		GroupID:      groupID,
-		CreatedAt:    time.Unix(createdAt, 0),
-	}
-
-	return apiKey, nil
+	return &models.APIKey{
+		ID:            uint(keyID),
+		KeyValue:      decryptedKeyValue,
+		Status:        keyDetails["status"],
+		FailureCount:  failureCount,
+		GroupID:       groupID,
+		CreatedAt:     time.Unix(createdAt, 0),
+		AllowedModels: keyDetails["allowed_models"],
+	}, nil
 }
 
 // UpdateStatus 异步地提交一个 Key 状态更新任务。
@@ -550,6 +605,12 @@ func (p *KeyProvider) RemoveKeysFromStore(groupID uint, keyIDs []uint) error {
 	return nil
 }
 
+// UpdateAllowedModels 同步更新 store hash 中 key 的 allowed_models（DB 由上层更新）。
+func (p *KeyProvider) UpdateAllowedModels(keyID uint, allowedModels string) error {
+	keyHashKey := fmt.Sprintf("key:%d", keyID)
+	return p.store.HSet(keyHashKey, map[string]any{"allowed_models": allowedModels})
+}
+
 // addKeyToStore is a helper to add a single key to the cache.
 func (p *KeyProvider) addKeyToStore(key *models.APIKey) error {
 	// 1. Store key details in HASH
@@ -631,12 +692,13 @@ func (p *KeyProvider) removeKeyFromStore(keyID, groupID uint) error {
 // apiKeyToMap converts an APIKey model to a map for HSET.
 func (p *KeyProvider) apiKeyToMap(key *models.APIKey) map[string]any {
 	return map[string]any{
-		"id":            fmt.Sprint(key.ID),
-		"key_string":    key.KeyValue,
-		"status":        key.Status,
-		"failure_count": key.FailureCount,
-		"group_id":      key.GroupID,
-		"created_at":    key.CreatedAt.Unix(),
+		"id":             fmt.Sprint(key.ID),
+		"key_string":     key.KeyValue,
+		"status":         key.Status,
+		"failure_count":  key.FailureCount,
+		"group_id":       key.GroupID,
+		"created_at":     key.CreatedAt.Unix(),
+		"allowed_models": key.AllowedModels,
 	}
 }
 

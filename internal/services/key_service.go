@@ -19,6 +19,37 @@ const (
 	chunkSize      = 500
 )
 
+// UpdateKeyAllowedModels 设置单个 key 可服务的模型列表（逗号分隔；空 = 不限制）。
+// 同步更新数据库与 store 缓存，热生效。
+func (s *KeyService) UpdateKeyAllowedModels(keyID uint, allowedModels string) (*models.APIKey, error) {
+	var key models.APIKey
+	if err := s.DB.First(&key, keyID).Error; err != nil {
+		return nil, err
+	}
+
+	normalized := ""
+	if allowedModels != "" {
+		var parts []string
+		for _, m := range strings.Split(allowedModels, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				parts = append(parts, m)
+			}
+		}
+		normalized = strings.Join(parts, ",")
+	}
+
+	if err := s.DB.Model(&key).Update("allowed_models", normalized).Error; err != nil {
+		return nil, err
+	}
+	key.AllowedModels = normalized
+
+	if err := s.KeyProvider.UpdateAllowedModels(keyID, normalized); err != nil {
+		return nil, err
+	}
+	return &key, nil
+}
+
 // AddKeysResult holds the result of adding multiple keys.
 type AddKeysResult struct {
 	AddedCount   int   `json:"added_count"`

@@ -11,6 +11,7 @@ import {
   CopyOutline,
   EyeOffOutline,
   EyeOutline,
+  ListOutline,
   Pencil,
   RemoveCircleOutline,
   Search,
@@ -97,6 +98,38 @@ const deleteDialogShow = ref(false);
 const notesDialogShow = ref(false);
 const editingKey = ref<KeyRow | null>(null);
 const editingNotes = ref("");
+
+// 可用模型编辑相关
+const modelsDialogShow = ref(false);
+const editingModels = ref("");
+
+// 编辑密钥可用模型
+function editKeyModels(key: KeyRow) {
+  editingKey.value = key;
+  editingModels.value = key.allowed_models || "";
+  modelsDialogShow.value = true;
+}
+
+// 保存可用模型
+async function saveKeyModels() {
+  if (!editingKey.value) {
+    return;
+  }
+  try {
+    const normalized = editingModels.value
+      .split(",")
+      .map((m: string) => m.trim())
+      .filter(Boolean)
+      .join(",");
+    const updated = await keysApi.updateKeyAllowedModels(editingKey.value.id, normalized);
+    editingKey.value.allowed_models = updated.allowed_models || "";
+    window.$message.success(t("keys.modelsUpdated"));
+    modelsDialogShow.value = false;
+  } catch (error) {
+    console.error("Update allowed models failed", error);
+    window.$message?.error(t("keys.modelsUpdateFailed"));
+  }
+}
 
 watch(
   () => props.selectedGroup,
@@ -724,6 +757,16 @@ function resetPage() {
                   <n-button
                     size="tiny"
                     text
+                    @click="editKeyModels(key)"
+                    :title="t('keys.editModels')"
+                  >
+                    <template #icon>
+                      <n-icon :component="ListOutline" />
+                    </template>
+                  </n-button>
+                  <n-button
+                    size="tiny"
+                    text
                     @click="toggleKeyVisibility(key)"
                     :title="t('keys.showHide')"
                   >
@@ -738,6 +781,12 @@ function resetPage() {
                   </n-button>
                 </div>
               </div>
+            </div>
+
+            <!-- 可用模型行 -->
+            <div v-if="key.allowed_models" class="key-models-row" :title="t('keys.modelsHint')">
+              <span class="key-models-label">{{ t("keys.modelsLabel") }}:</span>
+              <span class="key-models-value">{{ key.allowed_models }}</span>
             </div>
 
             <!-- 统计信息 + 操作按钮行 -->
@@ -857,6 +906,21 @@ function resetPage() {
     <template #action>
       <n-button @click="notesDialogShow = false">{{ t("common.cancel") }}</n-button>
       <n-button type="primary" @click="saveKeyNotes">{{ t("common.save") }}</n-button>
+    </template>
+  </n-modal>
+
+  <!-- 可用模型编辑对话框 -->
+  <n-modal v-model:show="modelsDialogShow" preset="dialog" :title="t('keys.editKeyModels')">
+    <n-input
+      v-model:value="editingModels"
+      type="textarea"
+      :placeholder="t('keys.enterModels')"
+      :rows="3"
+    />
+    <div class="models-hint">{{ t("keys.modelsHint") }}</div>
+    <template #action>
+      <n-button @click="modelsDialogShow = false">{{ t("common.cancel") }}</n-button>
+      <n-button type="primary" @click="saveKeyModels">{{ t("common.save") }}</n-button>
     </template>
   </n-modal>
 </template>
@@ -1087,6 +1151,33 @@ function resetPage() {
 }
 
 /* 底部统计和按钮行 */
+.key-models-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 0;
+  font-size: 12px;
+  color: var(--text-color-2);
+  overflow: hidden;
+}
+
+.key-models-label {
+  flex-shrink: 0;
+  color: var(--text-color-3);
+}
+
+.key-models-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.models-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-color-3);
+}
+
 .key-bottom {
   display: flex;
   justify-content: space-between;

@@ -122,7 +122,10 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 		WriteBufferSize:       32 * 1024,
 		ReadBufferSize:        32 * 1024,
 		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   15 * time.Second,
+		// 2026-08-18: dashscope-intl 新加坡端点在突发新建 TLS 连接时会黑洞握手(>60s)。
+		// 限并发连接数(HTTP/2 多路复用仍承载全部请求流),并放宽握手超时以容纳 15-20s 级慢完成。
+		MaxConnsPerHost:       10,
+		TLSHandshakeTimeout:   20 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 

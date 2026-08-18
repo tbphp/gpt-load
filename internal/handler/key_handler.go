@@ -544,3 +544,37 @@ func (s *Server) UpdateKeyNotes(c *gin.Context) {
 
 	response.Success(c, nil)
 }
+
+// UpdateKeyAllowedModelsRequest defines the payload for updating a key's allowed models.
+type UpdateKeyAllowedModelsRequest struct {
+	AllowedModels string `json:"allowed_models"`
+}
+
+// UpdateKeyAllowedModels handles setting the allowed models of a specific API key.
+// allowed_models 为逗号分隔的模型名列表；空字符串表示不限制（所有模型）。
+func (s *Server) UpdateKeyAllowedModels(c *gin.Context) {
+	keyIDStr := c.Param("id")
+	keyID, err := strconv.Atoi(keyIDStr)
+	if err != nil || keyID <= 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, "invalid key ID format"))
+		return
+	}
+
+	var req UpdateKeyAllowedModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	key, err := s.KeyService.UpdateKeyAllowedModels(uint(keyID), req.AllowedModels)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, app_errors.ErrResourceNotFound)
+		} else {
+			response.Error(c, app_errors.ParseDBError(err))
+		}
+		return
+	}
+
+	response.Success(c, key)
+}

@@ -20,6 +20,7 @@ export interface APIKey {
   group_id: number;
   key_value: string;
   notes?: string;
+  allowed_models?: string;
   status: KeyStatus;
   request_count: number;
   failure_count: number;

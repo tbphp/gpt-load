@@ -126,14 +126,6 @@ func (ps *ProxyServer) executeRequestWithRetry(
 ) {
 	cfg := group.EffectiveConfig
 
-	apiKey, err := ps.keyProvider.SelectKey(group.ID)
-	if err != nil {
-		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
-		ps.logRequest(c, originalGroup, group, nil, startTime, http.StatusServiceUnavailable, err, isStream, "", channelHandler, bodyBytes, models.RequestTypeFinal)
-		return
-	}
-
 	upstreamURL, err := channelHandler.BuildUpstreamURL(c.Request.URL, originalGroup.Name)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to build upstream URL: %v", err)))
@@ -169,7 +161,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	finalBodyBytes, err := channelHandler.ApplyModelRedirect(req, bodyBytes, group)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, err.Error()))
-		ps.logRequest(c, originalGroup, group, apiKey, startTime, http.StatusBadRequest, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
+		ps.logRequest(c, originalGroup, group, nil, startTime, http.StatusBadRequest, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
 		return
 	}
 
@@ -177,6 +169,23 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	if !bytes.Equal(finalBodyBytes, bodyBytes) {
 		req.Body = io.NopCloser(bytes.NewReader(finalBodyBytes))
 		req.ContentLength = int64(len(finalBodyBytes))
+	}
+
+	// 按请求（重定向后）的模型过滤可用的 key，再路由
+	model := channelHandler.ExtractModel(c, finalBodyBytes)
+	apiKey, err := ps.keyProvider.SelectKeyForGroupModel(group.ID, model)
+	if err != nil {
+		if errors.Is(err, keypool.ErrNoKeyForModel) {
+			errMsg := fmt.Sprintf("No available keys support model '%s' in group '%s'", model, group.Name)
+			logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, errMsg)
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, errMsg))
+			ps.logRequest(c, originalGroup, group, nil, startTime, http.StatusServiceUnavailable, errors.New(errMsg), isStream, "", channelHandler, bodyBytes, models.RequestTypeFinal)
+			return
+		}
+		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
+		ps.logRequest(c, originalGroup, group, nil, startTime, http.StatusServiceUnavailable, err, isStream, "", channelHandler, bodyBytes, models.RequestTypeFinal)
+		return
 	}
 
 	channelHandler.ModifyRequest(req, apiKey, group)

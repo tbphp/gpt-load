@@ -91,9 +91,15 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 	finalURL.RawQuery = endpointURL.RawQuery
 	reqURL := finalURL.String()
 
-	// Use a minimal, low-cost payload for validation
+	// 使用一个低成本的最小 payload 进行校验；
+	// 若 key 配置了 allowed_models，则使用其第一个允许的模型，避免
+	// "未开通 test_model 但开通了其他模型" 的 key 被误判无效。
+	validateModel := ch.TestModel
+	if list := apiKey.SplitAllowedModels(); len(list) > 0 {
+		validateModel = list[0]
+	}
 	payload := gin.H{
-		"model": ch.TestModel,
+		"model": validateModel,
 		"messages": []gin.H{
 			{"role": "user", "content": "hi"},
 		},
