@@ -52,13 +52,14 @@ func (err *AntigravityUpstreamHTTPError) Error() string {
 // AntigravityOptions supplies testable HTTP endpoints and time boundaries. It
 // never changes the fixed OAuth client identity or callback URI.
 type AntigravityOptions struct {
-	TokenURL          string
-	UserInfoURL       string
-	LoadCodeAssistURL string
-	OnboardUserURL    string
-	FetchModelsURL    string
-	HTTPClient        *http.Client
-	Now               func() time.Time
+	TokenURL             string
+	UserInfoURL          string
+	LoadCodeAssistURL    string
+	RetrieveUserQuotaURL string
+	OnboardUserURL       string
+	FetchModelsURL       string
+	HTTPClient           *http.Client
+	Now                  func() time.Time
 }
 
 type antigravityTokenResponse struct {

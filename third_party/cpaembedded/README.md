@@ -21,7 +21,7 @@ quota policy. This bridge only exposes:
 - Claude Code account profile, model entitlement, and usage observation;
 - the stateless Claude HTTP executor, upstream CountTokens request, and supported protocol translators.
 - Antigravity browser OAuth, strict native-file enrichment, stable Google account identity,
-  model discovery, and plan/Google One AI credits observation;
+  model discovery, plan/Google One AI credits observation, and upstream quota-window observation;
 - the execution-only Antigravity HTTP executor, upstream CountTokens request, and supported
   protocol translators, with CPA refresh, fallback, cooldown, paid-credit fallback, and global
   signature cache disabled.

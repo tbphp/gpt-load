@@ -105,6 +105,37 @@ func TestNormalizeAntigravityObservationShowsCreditsWithoutInventingQuota(t *tes
 	}
 }
 
+func TestNormalizeAntigravityObservationIncludesUpstreamQuotaBuckets(t *testing.T) {
+	remaining := 0.75
+	raw, err := NormalizeAntigravityObservation("owner@example.com", antigravity.AccountObservation{
+		PlanID: "g1-pro-tier",
+		QuotaGroups: []antigravity.QuotaGroup{{
+			DisplayName: "Gemini Models",
+			Buckets: []antigravity.QuotaBucket{{
+				ID: "gemini-5h", DisplayName: "Five Hour Limit Remaining", Window: "5h",
+				ResetTime: "2030-01-01T00:00:00Z", RemainingFraction: &remaining,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot quotaSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.QuotaWindows) != 1 {
+		t.Fatalf("quota windows = %#v", snapshot.QuotaWindows)
+	}
+	window := snapshot.QuotaWindows[0]
+	if window.ID != "gemini-5h" || window.Label != "Gemini Models · Five Hour Limit Remaining" ||
+		window.Scope != "account" || window.Unit != "percent" || window.Remaining == nil || *window.Remaining != 75 ||
+		window.Utilization == nil || *window.Utilization != 0.25 || window.WindowSeconds == nil || *window.WindowSeconds != 5*60*60 ||
+		window.ResetAtMS == nil || *window.ResetAtMS != 1893456000000 {
+		t.Fatalf("quota window = %#v", window)
+	}
+}
+
 func TestAntigravityObservationCompletenessProtectsLastKnownGoodSections(t *testing.T) {
 	credit := &antigravity.GoogleOneAICredit{Amount: 100, MinimumAmount: 10}
 	tests := []struct {
@@ -118,15 +149,19 @@ func TestAntigravityObservationCompletenessProtectsLastKnownGoodSections(t *test
 		{
 			name: "complete", observation: antigravity.AccountObservation{
 				PlanID: "google-one-ai", GoogleOneAICredits: credit,
+				QuotaGroups: []antigravity.QuotaGroup{{DisplayName: "Gemini Models", Buckets: []antigravity.QuotaBucket{{ID: "weekly", RemainingFraction: float64Ptr(1)}}}},
 			}, wantAccount: true, wantQuota: true,
 		},
 		{
-			name: "plan with no paid credits is complete", observation: antigravity.AccountObservation{PlanID: "free-tier"},
-			wantAccount: true, wantQuota: true,
+			name: "plan without quota is partial", observation: antigravity.AccountObservation{PlanID: "free-tier"},
+			wantAccount: true, wantPartial: true,
 		},
 		{
-			name: "credits only is partial", observation: antigravity.AccountObservation{GoogleOneAICredits: credit},
-			wantQuota: true, wantPartial: true,
+			name: "plan with credit balance but no quota is partial", observation: antigravity.AccountObservation{
+				PlanID: "g1-pro-tier", GoogleOneAICredits: credit,
+			},
+			wantAccount: true,
+			wantPartial: true,
 		},
 		{name: "empty is payload failure", wantError: true},
 	}
@@ -142,3 +177,5 @@ func TestAntigravityObservationCompletenessProtectsLastKnownGoodSections(t *test
 		})
 	}
 }
+
+func float64Ptr(value float64) *float64 { return &value }

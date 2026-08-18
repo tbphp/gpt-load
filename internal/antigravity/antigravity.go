@@ -122,10 +122,24 @@ type GoogleOneAICredit struct {
 	MinimumAmount float64
 }
 
+type QuotaBucket struct {
+	ID                string
+	DisplayName       string
+	Window            string
+	ResetTime         string
+	RemainingFraction *float64
+}
+
+type QuotaGroup struct {
+	DisplayName string
+	Buckets     []QuotaBucket
+}
+
 type AccountObservation struct {
 	PlanID             string
 	CurrentTierID      string
 	GoogleOneAICredits *GoogleOneAICredit
+	QuotaGroups        []QuotaGroup
 }
 
 func IsDefinitiveRefreshRejection(code string) bool {
@@ -197,7 +211,25 @@ func ObserveAccount(ctx context.Context, credential Credential) (AccountObservat
 			Amount: value.GoogleOneAICredits.Amount, MinimumAmount: value.GoogleOneAICredits.MinimumAmount,
 		}
 	}
+	for _, group := range value.QuotaGroups {
+		mapped := QuotaGroup{DisplayName: group.DisplayName, Buckets: make([]QuotaBucket, 0, len(group.Buckets))}
+		for _, bucket := range group.Buckets {
+			mapped.Buckets = append(mapped.Buckets, QuotaBucket{
+				ID: bucket.ID, DisplayName: bucket.DisplayName, Window: bucket.Window,
+				ResetTime: bucket.ResetTime, RemainingFraction: cloneFloat64(bucket.RemainingFraction),
+			})
+		}
+		result.QuotaGroups = append(result.QuotaGroups, mapped)
+	}
 	return result, nil
+}
+
+func cloneFloat64(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func credentialFromBridge(value cpaembedded.AntigravityCredential) Credential {

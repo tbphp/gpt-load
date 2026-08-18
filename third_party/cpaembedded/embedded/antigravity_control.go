@@ -33,12 +33,29 @@ type AntigravityCredit struct {
 	MinimumAmount float64
 }
 
+// AntigravityQuotaBucket is one upstream account quota bucket. RemainingFraction
+// is the authoritative remaining ratio returned by retrieveUserQuotaSummary.
+type AntigravityQuotaBucket struct {
+	ID                string
+	DisplayName       string
+	Window            string
+	ResetTime         string
+	RemainingFraction *float64
+}
+
+// AntigravityQuotaGroup groups quota buckets by the upstream model family.
+type AntigravityQuotaGroup struct {
+	DisplayName string
+	Buckets     []AntigravityQuotaBucket
+}
+
 // AntigravityAccountObservation is the bounded, control-plane account view
 // consumed by GPT-Load's provider-neutral observation normalizer.
 type AntigravityAccountObservation struct {
 	PlanID             string
 	CurrentTierID      string
 	GoogleOneAICredits *AntigravityCredit
+	QuotaGroups        []AntigravityQuotaGroup
 }
 
 var antigravityExcludedModelIDs = map[string]struct{}{
@@ -106,8 +123,9 @@ func DiscoverAntigravityModels(
 	return models, nil
 }
 
-// ObserveAntigravityAccount reads only plan and display-only Google One AI
-// credit information. It never invents reset windows or utilization values.
+// ObserveAntigravityAccount reads plan, display-only credits, and the
+// provider's account quota buckets. It never invents reset windows or
+// utilization values.
 func ObserveAntigravityAccount(
 	ctx context.Context,
 	credential AntigravityCredential,
@@ -147,11 +165,83 @@ func ObserveAntigravityAccount(
 	if err != nil {
 		return AntigravityAccountObservation{}, err
 	}
+	quotaGroups, err := fetchAntigravityQuotaGroups(ctx, credential, options)
+	if err != nil {
+		return AntigravityAccountObservation{}, err
+	}
 	return AntigravityAccountObservation{
 		PlanID:             planID,
 		CurrentTierID:      currentTierID,
 		GoogleOneAICredits: credits,
+		QuotaGroups:        quotaGroups,
 	}, nil
+}
+
+func fetchAntigravityQuotaGroups(
+	ctx context.Context,
+	credential AntigravityCredential,
+	options AntigravityOptions,
+) ([]AntigravityQuotaGroup, error) {
+	endpoint := strings.TrimSpace(options.RetrieveUserQuotaURL)
+	if endpoint == "" {
+		endpoint = antigravityauth.DailyAPIEndpoint + "/" + antigravityauth.APIVersion + ":retrieveUserQuotaSummary"
+	}
+	payload, err := json.Marshal(map[string]string{"project": credential.ProjectID})
+	if err != nil {
+		return nil, err
+	}
+	defer clear(payload)
+	body, err := fetchAntigravityJSON(ctx, endpoint, credential.AccessToken, payload, "retrieveUserQuotaSummary", options)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(body)
+	var response struct {
+		Groups []struct {
+			DisplayName string `json:"displayName"`
+			Buckets     []struct {
+				BucketID          string   `json:"bucketId"`
+				DisplayName       string   `json:"displayName"`
+				Window            string   `json:"window"`
+				ResetTime         string   `json:"resetTime"`
+				RemainingFraction *float64 `json:"remainingFraction"`
+			} `json:"buckets"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("decode Antigravity quota response")
+	}
+	groups := make([]AntigravityQuotaGroup, 0, len(response.Groups))
+	for _, rawGroup := range response.Groups {
+		groupName := boundedAntigravityDisplayName(rawGroup.DisplayName)
+		if groupName == "" {
+			groupName = "Antigravity"
+		}
+		group := AntigravityQuotaGroup{DisplayName: groupName}
+		for _, rawBucket := range rawGroup.Buckets {
+			id := boundedAntigravityDisplayName(rawBucket.BucketID)
+			if id == "" || rawBucket.RemainingFraction == nil ||
+				math.IsNaN(*rawBucket.RemainingFraction) || math.IsInf(*rawBucket.RemainingFraction, 0) {
+				continue
+			}
+			fraction := math.Max(0, math.Min(1, *rawBucket.RemainingFraction))
+			label := boundedAntigravityDisplayName(rawBucket.DisplayName)
+			if label == "" {
+				label = id
+			}
+			group.Buckets = append(group.Buckets, AntigravityQuotaBucket{
+				ID: id, DisplayName: label, Window: boundedAntigravityDisplayName(rawBucket.Window),
+				ResetTime: boundedAntigravityDisplayName(rawBucket.ResetTime), RemainingFraction: &fraction,
+			})
+		}
+		if len(group.Buckets) > 0 {
+			groups = append(groups, group)
+		}
+	}
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("Antigravity quota response has no usable buckets")
+	}
+	return groups, nil
 }
 
 func validAntigravityModelID(value string) bool {
@@ -214,7 +304,9 @@ func antigravityGoogleOneAICredits(paidTier map[string]any) (*AntigravityCredit,
 		amount, amountOK := antigravityFloat(credit["creditAmount"])
 		minimum, minimumOK := antigravityFloat(credit["minimumCreditAmountForUsage"])
 		if !amountOK || !minimumOK || amount < 0 || minimum < 0 {
-			return nil, fmt.Errorf("decode Antigravity Google One AI credits")
+			// Antigravity omits creditAmount when the paid tier is known but no
+			// displayable credit balance is available.
+			continue
 		}
 		return &AntigravityCredit{Amount: amount, MinimumAmount: minimum}, nil
 	}

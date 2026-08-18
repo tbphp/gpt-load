@@ -415,17 +415,24 @@ func TestObserveAntigravityAccountDoesNotInventQuota(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/load" {
-			http.NotFound(writer, request)
-			return
-		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{
-			"currentTier":{"id":"free-tier"},
-			"paidTier":{"id":"google-one-ai","availableCredits":[
-				{"creditType":"GOOGLE_ONE_AI","creditAmount":"25000","minimumCreditAmountForUsage":"50"}
-			]}
-		}`))
+		switch request.URL.Path {
+		case "/load":
+			_, _ = writer.Write([]byte(`{
+				"currentTier":{"id":"free-tier"},
+				"paidTier":{"id":"google-one-ai","availableCredits":[
+					{"creditType":"GOOGLE_ONE_AI","creditAmount":"25000","minimumCreditAmountForUsage":"50"}
+				]}
+			}`))
+		case "/quota":
+			_, _ = writer.Write([]byte(`{
+				"groups":[{"displayName":"Gemini Models","buckets":[
+					{"bucketId":"gemini-weekly","displayName":"Weekly Limit Remaining","window":"weekly","resetTime":"2030-01-01T00:00:00Z","remainingFraction":0.75}
+				]}]
+			}`))
+		default:
+			http.NotFound(writer, request)
+		}
 	}))
 	defer server.Close()
 
@@ -433,7 +440,9 @@ func TestObserveAntigravityAccountDoesNotInventQuota(t *testing.T) {
 		Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
 		AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
 		Expire: "2030-01-01T00:00:00Z",
-	}, AntigravityOptions{LoadCodeAssistURL: server.URL + "/load", HTTPClient: server.Client()})
+	}, AntigravityOptions{
+		LoadCodeAssistURL: server.URL + "/load", RetrieveUserQuotaURL: server.URL + "/quota", HTTPClient: server.Client(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,29 +450,30 @@ func TestObserveAntigravityAccountDoesNotInventQuota(t *testing.T) {
 		observation.GoogleOneAICredits.Amount != 25000 || observation.GoogleOneAICredits.MinimumAmount != 50 {
 		t.Fatalf("observation = %#v", observation)
 	}
+	if len(observation.QuotaGroups) != 1 || len(observation.QuotaGroups[0].Buckets) != 1 ||
+		observation.QuotaGroups[0].Buckets[0].ID != "gemini-weekly" ||
+		observation.QuotaGroups[0].Buckets[0].RemainingFraction == nil ||
+		*observation.QuotaGroups[0].Buckets[0].RemainingFraction != 0.75 {
+		t.Fatalf("quota groups = %#v", observation.QuotaGroups)
+	}
 }
 
-func TestObserveAntigravityAccountRejectsMalformedGoogleOneAICredits(t *testing.T) {
+func TestAntigravityGoogleOneAICreditsIgnoresUnavailableBalance(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{
-			"currentTier":{"id":"g1-pro-tier"},
-			"paidTier":{"id":"g1-pro-tier","availableCredits":[
-				{"creditType":"GOOGLE_ONE_AI","minimumCreditAmountForUsage":"50"}
-			]}
-		}`))
-	}))
-	defer server.Close()
-
-	_, err := ObserveAntigravityAccount(t.Context(), AntigravityCredential{
-		Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
-		AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
-		Expire: "2030-01-01T00:00:00Z",
-	}, AntigravityOptions{LoadCodeAssistURL: server.URL, HTTPClient: server.Client()})
-	if err == nil {
-		t.Fatal("ObserveAntigravityAccount() error = nil, want malformed credits rejection")
+	credits, err := antigravityGoogleOneAICredits(map[string]any{
+		"availableCredits": []any{
+			map[string]any{
+				"creditType":                  "GOOGLE_ONE_AI",
+				"minimumCreditAmountForUsage": "50",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("antigravityGoogleOneAICredits() error = %v", err)
+	}
+	if credits != nil {
+		t.Fatalf("antigravityGoogleOneAICredits() = %#v, want no known balance", credits)
 	}
 }
 
