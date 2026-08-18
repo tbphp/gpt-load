@@ -18,10 +18,6 @@
 <table>
 <tbody>
 <tr>
-<td width="180"><a href="https://teamorouter.com/?utm_source=gpt_load&utm_medium=referral&utm_campaign=ai_directory"><img src="./screenshot/teamorouter.png" alt="TeamoRouter" width="150"></a></td>
-<td>TeamoRouterによる本プロジェクトへのスポンサー支援に感謝します！TeamoRouterはエンタープライズグレードのAgentic LLM gatewayで、開発者、AIチーム、企業がClaude Code、Codex、Gemini CLI、その他のAI agentsに単一の統合APIからアクセスでき、個別のサブスクリプションは不要で、最大90%の割引を利用できます。OpenAI、Anthropic、Vertex、Azure、AWS Bedrockなどの公式プロバイダーおよび信頼できるパートナーに接続し、検証済みのAgent protocol互換性、リクエストのトレーサビリティ、公式に近いTTFT、99.6% SLA、最大5,000 QPMを提供します。集中請求、チーム管理、BYOK、smart routing、analytics、provider optimization、専属サポートも備えています。Teamo Desktopにより、API key管理や手動設定なしでワンクリックセットアップが可能で、新規ユーザーは<a href="https://teamorouter.com/?utm_source=gpt_load&utm_medium=referral&utm_campaign=ai_directory">こちらのリンク</a>から登録すると初回チャージが10%オフになります。</td>
-</tr>
-<tr>
 <td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
 <td>LINUX DOコミュニティからのサポートに心より感謝いたします！</td>
 </tr>

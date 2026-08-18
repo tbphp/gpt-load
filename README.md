@@ -18,10 +18,6 @@ For detailed documentation, please visit [Official Documentation](https://www.gp
 <table>
 <tbody>
 <tr>
-<td width="180"><a href="https://teamorouter.com/?utm_source=gpt_load&utm_medium=referral&utm_campaign=ai_directory"><img src="./screenshot/teamorouter.png" alt="TeamoRouter" width="150"></a></td>
-<td>Thanks to TeamoRouter for sponsoring this project! TeamoRouter is an enterprise-grade Agentic LLM gateway that lets developers, AI teams, and businesses access Claude Code, Codex, Gemini CLI, and other AI agents through one unified API without separate subscriptions, with discounts of up to 90%. It connects to official providers and trusted partners like OpenAI, Anthropic, Vertex, Azure, and AWS Bedrock, offering verified Agent protocol compatibility, request traceability, near-official TTFT, 99.6% SLA, and up to 5,000 QPM. It also includes centralized billing, team management, BYOK, smart routing, analytics, provider optimization, and dedicated support. Teamo Desktop enables one-click setup with no API key management or manual configuration, and new users can register via <a href="https://teamorouter.com/?utm_source=gpt_load&utm_medium=referral&utm_campaign=ai_directory">this link</a> for 10% off their first top-up.</td>
-</tr>
-<tr>
 <td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
 <td>Thank you very much for the support from the LINUX DO community!</td>
 </tr>
