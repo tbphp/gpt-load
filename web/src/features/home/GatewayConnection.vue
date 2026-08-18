@@ -784,7 +784,7 @@ onBeforeUnmount(() => {
 }
 
 /*
- * 标题条与监控/健康页的分区标题同款：蓝点 + 加粗标题，底色只比面板深一点点，
+ * 标题条与监控/健康页的分区标题同款：加粗标题，底色只比面板深一点点，
  * 不再是整条灰色 header 压在灰色代码块上。
  */
 .gateway-connection__panel-header {
@@ -808,15 +808,6 @@ onBeforeUnmount(() => {
   min-width: 0;
   align-items: center;
   gap: var(--space-2-5);
-}
-
-.gateway-connection__panel-title::before {
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-action);
-  content: '';
 }
 
 .gateway-connection__panel-title strong {
@@ -942,7 +933,7 @@ onBeforeUnmount(() => {
 }
 
 /*
- * 接入步骤：沿用首页欢迎区的 01/02/03 序号语言，浅底与深色代码块分层，
+ * 接入步骤：沿用首页欢迎区的 01/02/03 序号语言，与客户端标题条使用同一底色，
  * 逐步引导而不是把一整段话砸给用户。
  */
 .gateway-connection__steps {
@@ -953,7 +944,7 @@ onBeforeUnmount(() => {
   align-content: start;
   margin: 0;
   border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
+  background: color-mix(in srgb, var(--color-surface-sunken) 52%, var(--color-surface));
   padding: 11px 13px;
   list-style: none;
 }
@@ -1044,18 +1035,15 @@ onBeforeUnmount(() => {
   font-size: 7.5px;
 }
 
-/*
- * 配置块要一眼看出是代码：统一用深色 code 面，在明暗两种主题下都保持，
- * 这样它和上方浅色标题条自然分层，不再是「灰底压灰底」。
- */
+/* 导入参数与接入步骤直接复用客户端标题条底色，保持整块连接说明视觉统一。 */
 .gateway-connection__panel :deep(.code-block--snippet pre) {
-  border-color: #232830;
-  background: #12151a;
+  border: 0;
+  background: color-mix(in srgb, var(--color-surface-sunken) 52%, var(--color-surface));
   line-height: 1.6;
 }
 
 .gateway-connection__panel :deep(.code-block--snippet code) {
-  color: #e8eaec;
+  color: var(--color-text);
 }
 
 .gateway-connection__panel :deep(.code-block__toolbar) {
