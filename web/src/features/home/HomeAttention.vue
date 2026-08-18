@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CircleAlert, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -49,12 +50,14 @@ function quotaPercent(remaining: number): string {
 
     <RouterLink
       v-if="overflowing"
-      class="home-attention__row"
+      class="home-attention__row home-attention__row--danger"
       :to="monitorLocation({ tab: 'health' })"
     >
-      <span class="home-attention__dot" data-tone="danger" aria-hidden="true"></span>
+      <CircleAlert :size="14" aria-hidden="true" />
       <span>{{ t('home.ledger.attention.summary', { count: total }) }}</span>
-      <span class="home-attention__go" aria-hidden="true">→</span>
+      <span class="home-attention__go" aria-hidden="true">
+        {{ t('home.ledger.attention.action') }} →
+      </span>
     </RouterLink>
 
     <template v-else>
@@ -62,13 +65,11 @@ function quotaPercent(remaining: number): string {
         v-for="item in visibleItems"
         :key="`${item.kind}-${item.groupID}`"
         class="home-attention__row"
+        :class="`home-attention__row--${item.kind === 'blacklisted' ? 'danger' : 'warning'}`"
         :to="itemLocation(item.groupID, item.kind)"
       >
-        <span
-          class="home-attention__dot"
-          :data-tone="item.kind === 'blacklisted' ? 'danger' : 'warning'"
-          aria-hidden="true"
-        ></span>
+        <CircleAlert v-if="item.kind === 'blacklisted'" :size="14" aria-hidden="true" />
+        <TriangleAlert v-else :size="14" aria-hidden="true" />
         <span v-if="item.kind === 'blacklisted'">
           {{ t('home.ledger.attention.blacklisted', { group: item.groupName, count: item.value }) }}
         </span>
@@ -86,7 +87,9 @@ function quotaPercent(remaining: number): string {
             :empty-label="''"
           />
         </span>
-        <span class="home-attention__go" aria-hidden="true">→</span>
+        <span class="home-attention__go" aria-hidden="true">
+          {{ t('home.ledger.attention.action') }} →
+        </span>
       </RouterLink>
     </template>
   </section>
@@ -96,36 +99,49 @@ function quotaPercent(remaining: number): string {
 .home-attention {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   padding-top: 14px;
 }
 
+/*
+ * 告警要一眼认出来：按 tone 上底色与描边，配警示图标，回到仓库
+ * 「图标 + 文字 + 颜色」的三重编码。原来只有一个 6px 圆点承载严重度。
+ */
 .home-attention__row {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin-inline: -10px;
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
-  padding: 8px 10px;
-  color: var(--color-text);
+  padding: 8px 11px;
   font-size: var(--text-meta);
-  transition: background-color var(--duration-fast) var(--easing-standard);
+  transition:
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
 }
 
-.home-attention__row:hover {
-  background: var(--color-interactive-hover);
-}
-
-.home-attention__dot {
+.home-attention__row svg {
   flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-danger);
 }
 
-.home-attention__dot[data-tone='warning'] {
-  background: var(--color-warning);
+.home-attention__row--warning {
+  border-color: color-mix(in srgb, var(--color-warning) 30%, var(--color-border-subtle));
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.home-attention__row--danger {
+  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border-subtle));
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.home-attention__row--warning:hover {
+  border-color: var(--color-warning);
+}
+
+.home-attention__row--danger:hover {
+  border-color: var(--color-danger);
 }
 
 .home-attention__quota {
@@ -138,8 +154,7 @@ function quotaPercent(remaining: number): string {
 
 .home-attention__go {
   margin-left: auto;
-  color: var(--color-action);
-  font-family: var(--font-mono);
-  font-weight: 600;
+  font-weight: 650;
+  white-space: nowrap;
 }
 </style>

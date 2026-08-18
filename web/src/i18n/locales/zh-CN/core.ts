@@ -212,6 +212,7 @@ export default {
         blacklisted: '{group} 有 {count} 个凭据已拉黑，需要人工处理',
         lowQuota: '{group} 账号额度剩 {remaining}，重置于',
         summary: '{count} 个凭据需要你处理',
+        action: '处理',
       },
       spend: {
         title: '近 30 天估算',

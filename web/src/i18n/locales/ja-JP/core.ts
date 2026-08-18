@@ -221,6 +221,7 @@ export default {
         blacklisted: '{group} に {count} 件のブラックリスト入り認証情報があります',
         lowQuota: '{group} の残額度は {remaining}、リセットは',
         summary: '{count} 件の認証情報に対応が必要です',
+        action: '対応',
       },
       spend: {
         title: '直近 30 日間の概算',

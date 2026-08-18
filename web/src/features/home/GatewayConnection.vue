@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Layers3, Zap } from '@lucide/vue'
+import { Zap } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -18,6 +18,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 
 import ClientPicker from './ClientPicker.vue'
+import HomeSectionHeading from './HomeSectionHeading.vue'
 
 import {
   ccSwitchTargets,
@@ -475,10 +476,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="gateway-connection" aria-labelledby="gateway-connection-title">
-    <div class="gateway-connection__heading">
-      <Layers3 :size="15" aria-hidden="true" />
-      <h2 id="gateway-connection-title">{{ t('home.ledger.connection.title') }}</h2>
-    </div>
+    <HomeSectionHeading id="gateway-connection-title" :title="t('home.ledger.connection.title')" />
 
     <div v-if="!selectedKey" class="gateway-connection__empty">
       <p>{{ t('home.ledger.connection.noAccessKey') }}</p>
@@ -723,26 +721,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/*
+ * 板块边界：原来板块之间 22px、板块内部 14–18px，只差 4px，眼睛靠邻近关系
+ * 分不出组。这里把板块间距拉到 36px、板块内收到 12px，再补一条细线。
+ */
 .gateway-connection {
-  padding-top: 22px;
-}
-
-.gateway-connection__heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
-}
-
-.gateway-connection__heading h2 {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: var(--title-section);
-  font-weight: 500;
-}
-
-.gateway-connection__heading svg {
-  color: var(--color-text-faint);
+  margin-top: 36px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 20px;
 }
 
 .gateway-connection__toolbar {
@@ -750,7 +736,7 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   gap: 16px;
   flex-wrap: wrap;
-  margin-top: 18px;
+  margin-top: 12px;
 }
 
 .gateway-connection__key {
@@ -790,7 +776,7 @@ onBeforeUnmount(() => {
 .gateway-connection__panel {
   display: grid;
   gap: var(--space-3);
-  margin-top: 14px;
+  margin-top: 12px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sheet);
   background: var(--color-surface);

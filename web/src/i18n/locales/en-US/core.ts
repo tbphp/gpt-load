@@ -223,6 +223,7 @@ export default {
         blacklisted: '{group} has {count} blacklisted credentials that need manual action',
         lowQuota: '{group} has {remaining} quota left, resets',
         summary: '{count} credentials need your attention',
+        action: 'Resolve',
       },
       spend: {
         title: 'Estimated over 30 days',

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { CircleDollarSign } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -8,6 +7,8 @@ import type { HomeStatisticsDto } from '@/app/resources/home'
 import { monitorLocation } from '@/app/route-locations'
 import DataTable from '@/components/ui/DataTable.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+
+import HomeSectionHeading from './HomeSectionHeading.vue'
 import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
 
 const props = withDefaults(
@@ -49,15 +50,13 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
 
 <template>
   <section class="home-spend" aria-labelledby="home-spend-title">
-    <div class="home-spend__header">
-      <div class="home-spend__heading">
-        <CircleDollarSign :size="15" aria-hidden="true" />
-        <h2 id="home-spend-title">{{ t('home.ledger.spend.title') }}</h2>
-      </div>
-      <RouterLink class="home-spend__link" :to="monitorLocation({ tab: 'usage', range: '30d' })">
-        {{ t('home.ledger.spend.viewDetail') }}
-      </RouterLink>
-    </div>
+    <HomeSectionHeading id="home-spend-title" :title="t('home.ledger.spend.title')">
+      <template #actions>
+        <RouterLink class="home-spend__link" :to="monitorLocation({ tab: 'usage', range: '30d' })">
+          {{ t('home.ledger.spend.viewDetail') }}
+        </RouterLink>
+      </template>
+    </HomeSectionHeading>
 
     <SkeletonBlock
       v-if="loading"
@@ -134,33 +133,9 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
 
 <style scoped>
 .home-spend {
-  padding: 22px 0 4px;
-}
-
-.home-spend__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 4px;
-}
-
-.home-spend__heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.home-spend__heading h2 {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: var(--title-section);
-  font-weight: 500;
-}
-
-.home-spend__heading svg {
-  color: var(--color-text-faint);
+  margin-top: 36px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 20px 0 4px;
 }
 
 .home-spend__link {
@@ -175,7 +150,7 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
 }
 
 .home-spend__value {
-  margin: 0 0 18px;
+  margin: 10px 0 16px;
   font-family: var(--font-mono);
   font-size: var(--stat-value);
   font-weight: 550;

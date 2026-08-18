@@ -95,7 +95,8 @@ const models = computed(() =>
 .current-access-key {
   display: grid;
   gap: 14px;
-  border-block: 1px solid var(--color-border-subtle);
+  /* 同上：只留上边线，避免和下一个板块的上边线撞成两条。 */
+  border-top: 1px solid var(--color-border-subtle);
   background: color-mix(in srgb, var(--color-action-soft) 28%, transparent);
   padding: 18px 0;
 }
