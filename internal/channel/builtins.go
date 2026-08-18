@@ -13,6 +13,7 @@ func builtInModules() []spec.Module {
 		modules.Codex(),
 		modules.Claude(),
 		modules.Antigravity(),
+		modules.Grok(),
 		modules.Anthropic(),
 		modules.Gemini(),
 		modules.AzureOpenAI(),

@@ -16,6 +16,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		Codex,
 		Claude,
 		Antigravity,
+		Grok,
 		Anthropic,
 		Gemini,
 		AzureOpenAI,

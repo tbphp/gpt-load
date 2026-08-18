@@ -16,7 +16,7 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := runtime.ChannelIDs(), []channel.ID{channel.Antigravity, channel.Claude, channel.Codex}; !reflect.DeepEqual(got, want) {
+	if got, want := runtime.ChannelIDs(), []channel.ID{channel.Antigravity, channel.Claude, channel.Codex, channel.Grok}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ChannelIDs() = %v, want %v", got, want)
 	}
 	tests := []struct {
@@ -29,6 +29,7 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 		{channel.Codex, string(modules.CodexSubscriptionDriver), string(modules.CodexModelDiscovery), string(modules.CodexQuotaObservation), string(modules.CodexResetCreditAction)},
 		{channel.Claude, string(modules.ClaudeSubscriptionDriver), string(modules.ClaudeModelDiscovery), string(modules.ClaudeQuotaObservation), ""},
 		{channel.Antigravity, string(modules.AntigravitySubscriptionDriver), string(modules.AntigravityModelDiscovery), string(modules.AntigravityQuotaObservation), ""},
+		{channel.Grok, string(modules.GrokSubscriptionDriver), string(modules.GrokModelDiscovery), "", ""},
 	}
 	for _, test := range tests {
 		t.Run(string(test.channelID), func(t *testing.T) {
@@ -41,7 +42,7 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 				t.Fatalf("discovery = %#v/%t", discovery, ok)
 			}
 			observation, ok := runtime.QuotaObservation(test.channelID)
-			if !ok || string(observation.ID()) != test.observationID {
+			if test.observationID == "" && ok || test.observationID != "" && (!ok || string(observation.ID()) != test.observationID) {
 				t.Fatalf("observation = %#v/%t", observation, ok)
 			}
 			action, ok := runtime.ResetCreditAction(test.channelID)
@@ -52,6 +53,12 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 	}
 	if _, ok := runtime.Driver(channel.OpenAI); ok {
 		t.Fatal("Driver(openai) unexpectedly resolved")
+	}
+	if device, ok := runtime.DeviceAuthorization(channel.Grok); !ok || device.ID() != modules.GrokSubscriptionDriver {
+		t.Fatalf("Grok device authorization = %#v/%t", device, ok)
+	}
+	if _, ok := runtime.BrowserAuthorization(channel.Grok); ok {
+		t.Fatal("Grok unexpectedly resolves browser OAuth")
 	}
 }
 

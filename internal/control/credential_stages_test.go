@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription/providers/codex"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 type credentialImportStatusError struct{ status int }
@@ -179,6 +181,253 @@ func TestBeginBrowserAuthorizationCreatesPendingStage(t *testing.T) {
 	}
 	if strings.Contains(row.EncryptedPayload, "code_verifier") {
 		t.Fatal("PKCE payload was stored as plaintext")
+	}
+}
+
+func TestBeginDeviceAuthorizationCreatesEncryptedPendingStage(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.UnixMilli(1_800_000_000_000).UTC()
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.beginDeviceAuthorization = func(ctx context.Context, channelID channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+		if ctx.Err() != nil || channelID != channel.Grok {
+			t.Fatalf("begin device input = %v, %q", ctx.Err(), channelID)
+		}
+		return subscriptionruntime.DeviceAuthorization{
+			VerificationURL: "https://auth.x.ai/device", UserCode: "ABCD-EFGH",
+			DriverState: []byte(`{"device_code":"device-secret"}`),
+			ExpiresAt:   now.Add(20 * time.Minute), PollInterval: 5 * time.Second,
+		}, nil
+	}
+
+	result, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Grok)
+	if err != nil {
+		t.Fatalf("BeginCredentialAuthorization() error = %v", err)
+	}
+	if result.Status != string(models.CredentialStagePendingAuthorization) ||
+		result.AuthorizationMethod != string(channel.AuthorizationDeviceOAuth) ||
+		result.AuthorizationURL != "https://auth.x.ai/device" || result.UserCode != "ABCD-EFGH" ||
+		result.NextPollAtMS != now.Add(5*time.Second).UnixMilli() ||
+		result.ExpiresAtMS != now.Add(20*time.Minute).UnixMilli() {
+		t.Fatalf("device stage result = %#v", result)
+	}
+	var row models.CredentialStage
+	if err := fixture.db.Take(&row, "id = ?", result.StageID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.AuthorizationMethod != string(channel.AuthorizationDeviceOAuth) || row.OAuthStateHash != nil ||
+		row.EncryptedPayload == "" || strings.Contains(row.EncryptedPayload, "device-secret") ||
+		strings.Contains(string(row.SafeSummaryJSON), "device-secret") {
+		t.Fatalf("stored device stage = %#v", row)
+	}
+}
+
+func TestBeginDeviceAuthorizationRejectsUnsafeChallenge(t *testing.T) {
+	now := time.UnixMilli(1_800_000_000_000).UTC()
+	for _, test := range []struct {
+		name         string
+		verification string
+		userCode     string
+		driverState  []byte
+	}{
+		{name: "control character", verification: "https://auth.x.ai/device", userCode: "ABCD\nEFGH", driverState: []byte(`{"device_code":"secret"}`)},
+		{name: "oversized URL", verification: "https://auth.x.ai/" + strings.Repeat("a", 4096), userCode: "ABCD-EFGH", driverState: []byte(`{"device_code":"secret"}`)},
+		{name: "oversized state", verification: "https://auth.x.ai/device", userCode: "ABCD-EFGH", driverState: make([]byte, maxOAuthFileBytes+1)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			fixture.service.now = func() time.Time { return now }
+			fixture.service.beginDeviceAuthorization = func(context.Context, channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+				return subscriptionruntime.DeviceAuthorization{
+					VerificationURL: test.verification,
+					UserCode:        test.userCode,
+					DriverState:     test.driverState,
+					ExpiresAt:       now.Add(20 * time.Minute),
+					PollInterval:    5 * time.Second,
+				}, nil
+			}
+			if _, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Grok); !errors.Is(err, app_errors.ErrAuthorizationUnavailable) {
+				t.Fatalf("BeginCredentialAuthorization() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPollDeviceAuthorizationHonorsIntervalAndPersistsPendingState(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.UnixMilli(1_800_000_000_000).UTC()
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.beginDeviceAuthorization = func(context.Context, channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+		return subscriptionruntime.DeviceAuthorization{
+			VerificationURL: "https://auth.x.ai/device", UserCode: "ABCD-EFGH",
+			DriverState: []byte(`{"device_code":"initial"}`), ExpiresAt: now.Add(20 * time.Minute),
+			PollInterval: 5 * time.Second,
+		}, nil
+	}
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Grok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pollCalls := 0
+	fixture.service.pollDeviceAuthorization = func(_ context.Context, channelID channel.ID, state []byte) (subscriptionruntime.DeviceAuthorizationPoll, error) {
+		pollCalls++
+		var claimed models.CredentialStage
+		if err := fixture.db.Take(&claimed, "id = ?", started.StageID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if claimed.Status != models.CredentialStageExchanging ||
+			claimed.ExpiresAtMS != now.Add(defaultSubscriptionControlTimeout).UnixMilli() {
+			t.Fatalf("claimed device stage = %#v", claimed)
+		}
+		if channelID != channel.Grok || !strings.Contains(string(state), "initial") {
+			t.Fatalf("poll input = %q, %s", channelID, state)
+		}
+		return subscriptionruntime.DeviceAuthorizationPoll{
+			Status: subscriptionruntime.DeviceAuthorizationPending, DriverState: []byte(`{"device_code":"next"}`),
+			PollInterval: 10 * time.Second,
+		}, nil
+	}
+
+	if _, err := fixture.service.PollCredentialDeviceAuthorization(t.Context(), started.StageID); err != nil {
+		t.Fatal(err)
+	}
+	if pollCalls != 0 {
+		t.Fatalf("early poll calls = %d", pollCalls)
+	}
+	now = now.Add(5 * time.Second)
+	pending, err := fixture.service.PollCredentialDeviceAuthorization(t.Context(), started.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Status != string(models.CredentialStagePendingAuthorization) ||
+		pending.NextPollAtMS != now.Add(10*time.Second).UnixMilli() || pollCalls != 1 {
+		t.Fatalf("pending poll = %#v, calls = %d", pending, pollCalls)
+	}
+	var restored models.CredentialStage
+	if err := fixture.db.Take(&restored, "id = ?", started.StageID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if restored.ExpiresAtMS != started.ExpiresAtMS {
+		t.Fatalf("pending device expiry = %d, want %d", restored.ExpiresAtMS, started.ExpiresAtMS)
+	}
+}
+
+func TestPollDeviceAuthorizationConcurrentRequestDoesNotDispatchTwice(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.UnixMilli(1_800_000_000_000).UTC()
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.beginDeviceAuthorization = func(context.Context, channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+		return subscriptionruntime.DeviceAuthorization{
+			VerificationURL: "https://auth.x.ai/device", UserCode: "ABCD-EFGH",
+			DriverState: []byte(`{"device_code":"initial"}`), ExpiresAt: now.Add(20 * time.Minute),
+			PollInterval: time.Second,
+		}, nil
+	}
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Grok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	fixture.service.pollDeviceAuthorization = func(context.Context, channel.ID, []byte) (subscriptionruntime.DeviceAuthorizationPoll, error) {
+		calls.Add(1)
+		close(entered)
+		<-release
+		return subscriptionruntime.DeviceAuthorizationPoll{
+			Status: subscriptionruntime.DeviceAuthorizationPending, PollInterval: 5 * time.Second,
+		}, nil
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, pollErr := fixture.service.PollCredentialDeviceAuthorization(t.Context(), started.StageID)
+		firstDone <- pollErr
+	}()
+	<-entered
+	concurrent, err := fixture.service.PollCredentialDeviceAuthorization(t.Context(), started.StageID)
+	if err != nil || concurrent.Status != string(models.CredentialStageExchanging) || calls.Load() != 1 {
+		t.Fatalf("concurrent poll = %#v, %v, calls=%d", concurrent, err, calls.Load())
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPollDeviceAuthorizationCompletesReadyStage(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.UnixMilli(1_800_000_000_000).UTC()
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.beginDeviceAuthorization = func(context.Context, channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+		return subscriptionruntime.DeviceAuthorization{
+			VerificationURL: "https://auth.x.ai/device", UserCode: "ABCD-EFGH",
+			DriverState: []byte(`{"device_code":"initial"}`), ExpiresAt: now.Add(20 * time.Minute),
+			PollInterval: time.Second,
+		}, nil
+	}
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Grok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.pollDeviceAuthorization = func(context.Context, channel.ID, []byte) (subscriptionruntime.DeviceAuthorizationPoll, error) {
+		credential := subscriptionruntime.NewCredential(
+			[]byte(`{"type":"grok","access_token":"access","refresh_token":"refresh","account_id":"account"}`),
+			"account", subscriptionruntime.Account{Email: "owner@example.com"}, now.Add(time.Hour), true,
+			[]string{"access", "refresh"},
+		)
+		return subscriptionruntime.DeviceAuthorizationPoll{Status: subscriptionruntime.DeviceAuthorizationAuthorized, Credential: credential}, nil
+	}
+	now = now.Add(time.Second)
+	ready, err := fixture.service.PollCredentialDeviceAuthorization(t.Context(), started.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.Status != string(models.CredentialStageReady) || ready.Account.EmailMask == "" {
+		t.Fatalf("ready poll = %#v", ready)
+	}
+}
+
+func TestPollDeviceAuthorizationPersistsTerminalStatesAndClearsSecrets(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		poll      subscriptionruntime.DeviceAuthorizationStatus
+		wantState models.CredentialStageStatus
+		wantCode  string
+	}{
+		{name: "denied", poll: subscriptionruntime.DeviceAuthorizationDenied, wantState: models.CredentialStageFailed, wantCode: "authorization_denied"},
+		{name: "expired", poll: subscriptionruntime.DeviceAuthorizationExpired, wantState: models.CredentialStageExpired, wantCode: "authorization_expired"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			now := time.UnixMilli(1_800_000_000_000).UTC()
+			fixture.service.now = func() time.Time { return now }
+			fixture.service.beginDeviceAuthorization = func(context.Context, channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+				return subscriptionruntime.DeviceAuthorization{
+					VerificationURL: "https://auth.x.ai/device", UserCode: "ABCD-EFGH",
+					DriverState: []byte(`{"device_code":"secret"}`), ExpiresAt: now.Add(20 * time.Minute),
+					PollInterval: time.Second,
+				}, nil
+			}
+			started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Grok)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture.service.pollDeviceAuthorization = func(context.Context, channel.ID, []byte) (subscriptionruntime.DeviceAuthorizationPoll, error) {
+				return subscriptionruntime.DeviceAuthorizationPoll{Status: test.poll}, nil
+			}
+			now = now.Add(time.Second)
+			result, err := fixture.service.PollCredentialDeviceAuthorization(t.Context(), started.StageID)
+			if err != nil || result.Status != string(test.wantState) {
+				t.Fatalf("poll result = %#v, %v", result, err)
+			}
+			var row models.CredentialStage
+			if err := fixture.db.Take(&row, "id = ?", started.StageID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if row.Status != test.wantState || row.ErrorCode != test.wantCode || row.EncryptedPayload != "" {
+				t.Fatalf("terminal device stage = %#v", row)
+			}
+		})
 	}
 }
 

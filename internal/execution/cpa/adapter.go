@@ -58,6 +58,7 @@ func NewAdapter(credentials *subscription.CredentialManager, channels *channel.R
 			newCodexProviderBridge(),
 			newClaudeProviderBridge(),
 			newAntigravityProviderBridge(),
+			newGrokProviderBridge(),
 		),
 	}
 }

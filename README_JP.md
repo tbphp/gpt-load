@@ -45,14 +45,14 @@ GPT-Loadは、Goで構築されたセルフホスト型のマルチチャネルA
 - **4つのクライアントプロトコル**：OpenAI Completions、OpenAI Responses、Anthropic Messages、Geminiの公開エンドポイントを維持します。各チャネルはネイティブまたは変換可能なoperationを明示し、未対応の機能組み合わせは送信前に拒否します。
 - **チャネルとトラフィックの管理**：ユーザーは検索可能なコード定義チャネルを選び、モデルと暗号化認証情報を入力します。GPT-LoadがAccessKeyフィルター、Groupをまたぐ認証情報スケジューリング、リトライ判断、ヘルス、cooldown、blacklist、自動重み付けを所有します。
 - **Provider実行**：公式Bifrost Core Go SDKがProvider固有の認証、request/response変換、streaming、usage正規化、エラー解析を担当します。GPT-Loadは論理attemptごとに1つの認証情報を固定し、Bifrostの設定可能なretryとfallbackを無効にします。
-- **CodexとClaudeのサブスクリプション**：OpenAI GroupではAPI Key、またはブラウザーOAuth/CPA JSONによるCodexアカウントを選択できます。独立したClaudeチャネルはブラウザーOAuth/CPA JSONでClaudeアカウントを受け付け、既存のAnthropicチャネルは引き続きAPI Keyを使用します。両サブスクリプションチャネルはGPT-Loadのスケジューリング、retry、health、weight、affinityを共有し、認証情報は暗号化されます。
+- **サブスクリプションチャネル**：Codex、Claude、Antigravity、Grokは、既存のAPI Keyチャネルとは独立したサブスクリプションチャネルです。Codex、Claude、AntigravityはブラウザーOAuth/CPA JSON、GrokはxAI Device OAuth/CPA JSONを使用し、暗号化された認証情報ライフサイクル、スケジューリング、retry、health、weight、affinityを共通利用します。
 - **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
 - **使用量と推定コスト**：4プロトコルのうち生成usageを返すエンドポイントからusageを取得し、24時間/30日レポート、リクエスト単位の品質状態、利用可能な場合にModels.devから同期する完全一致の4価格スロット、ユーザー管理価格を提供します。
 
 M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル候補に含まれていますが、正式なリリース判断・承認と公開は未完了です。価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
 
 > [!WARNING]
-> ClaudeサブスクリプションのOAuthと実行は、Anthropic API Key契約ではなく、固定バージョンCPAの互換性に敏感な契約に依存します。上流変更時はCPA bridgeのレビューと更新が必要になる可能性があるため、本番利用前に許可されたアカウントで実契約を検証してください。
+> サブスクリプションOAuthの実行は、同ブランドのAPI Key契約ではなく、固定バージョンCPAの互換性に敏感な契約に依存します。上流変更時はCPA bridgeのレビューと更新が必要になる可能性があるため、本番利用前に許可されたアカウントで各チャネルの実契約を検証してください。
 
 ## 2.0.0のサポート境界
 

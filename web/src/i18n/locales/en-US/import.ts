@@ -129,6 +129,9 @@ export default {
       waiting: 'Waiting for the browser to finish authorization',
       waitingHelp:
         '{channel} opened in a new window; this page continues automatically when it is done',
+      deviceWaiting: 'Waiting for device authorization',
+      deviceWaitingHelp:
+        'Enter the user code below on the {channel} authorization page; this page continues automatically',
       exchanging: 'Finishing authorization…',
       sessionRemaining: 'Authorization session time left',
       restart: 'Start a new authorization',
@@ -138,9 +141,13 @@ export default {
       },
       manualHint:
         'A local deployment finishes on its own. For a remote deployment where the browser cannot reach {redirectUri}, authorize with the link below and paste back the final browser URL.',
+      deviceInstructions:
+        'Open the authorization link and enter the user code. Keep this page open; it continues automatically when authorization finishes.',
       authorizationLink: 'Authorization link',
       copyAuthorization: 'Copy link',
       openAuthorization: 'Open',
+      userCode: 'User code',
+      copyUserCode: 'Copy user code',
       callbackLabel: 'URL your browser ended on',
       callbackEndpointFallback: 'the local OAuth callback',
       callbackPlaceholder: 'http://localhost:<port>/callback?code=...&state=...',
@@ -171,6 +178,7 @@ export default {
       stageError: {
         authorizationDenied: '{channel} authorization was cancelled; start again',
         authorizationFailed: '{channel} could not finish authorization; start again',
+        authorizationExpired: 'The device authorization code expired; start again',
         exchangeRejected: '{channel} rejected the authorization code; authorize again',
         exchangeUnknown: 'The authorization exchange outcome is unknown; authorize again',
         exchangeInterrupted: 'The authorization exchange was interrupted; authorize again',

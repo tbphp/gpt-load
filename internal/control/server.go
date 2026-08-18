@@ -127,6 +127,19 @@ func (s *Server) handleCredentialAuthorizationCallback(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handlePollCredentialDeviceAuthorization(c *gin.Context) {
+	result, err := s.service.PollCredentialDeviceAuthorization(
+		c.Request.Context(), strings.TrimSpace(c.Param("stage_id")),
+	)
+	if err != nil {
+		writeServiceError(c, "poll_credential_device_authorization", err)
+		return
+	}
+	setMutationResourceLocator(c, "credential-stage:"+result.StageID)
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleImportCredentialStage(c *gin.Context) {
 	reader, err := c.Request.MultipartReader()
 	if err != nil {

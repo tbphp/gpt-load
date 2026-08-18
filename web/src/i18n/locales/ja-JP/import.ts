@@ -126,6 +126,9 @@ export default {
         '新しいウィンドウがブロックされました。下の認証リンクから手動で開いてください。',
       waiting: 'ブラウザーでの認証完了を待っています',
       waitingHelp: '新しいウィンドウで {channel} を開きました。完了すると自動で続行します',
+      deviceWaiting: 'デバイス認証を待っています',
+      deviceWaitingHelp:
+        '{channel} の認証ページで下のユーザーコードを入力してください。完了すると自動で続行します',
       exchanging: '認証を完了しています…',
       sessionRemaining: '認証セッションの残り時間',
       restart: '認証をやり直す',
@@ -135,9 +138,13 @@ export default {
       },
       manualHint:
         'ローカル配置では自動的に完了します。リモート配置でブラウザーから {redirectUri} に到達できない場合は、下のリンクで認証し、ブラウザーが最後に表示した完全な URL を貼り付けてください。',
+      deviceInstructions:
+        '認証リンクを開いてユーザーコードを入力してください。このページを開いたままにすると、認証完了後に自動で続行します。',
       authorizationLink: '認証リンク',
       copyAuthorization: 'リンクをコピー',
       openAuthorization: '開く',
+      userCode: 'ユーザーコード',
+      copyUserCode: 'ユーザーコードをコピー',
       callbackLabel: 'ブラウザーが最後に表示した URL',
       callbackEndpointFallback: 'ローカル OAuth コールバック',
       callbackPlaceholder: 'http://localhost:<port>/callback?code=...&state=...',
@@ -166,6 +173,8 @@ export default {
       stageError: {
         authorizationDenied: '{channel} 認証がキャンセルされました。最初からやり直してください',
         authorizationFailed: '{channel} 認証を完了できませんでした。最初からやり直してください',
+        authorizationExpired:
+          'デバイス認証コードの有効期限が切れました。最初からやり直してください',
         exchangeRejected: '{channel} が認証コードを拒否しました。再認証してください',
         exchangeUnknown: '認証交換の結果を確認できません。再認証してください',
         exchangeInterrupted: '認証交換が中断されました。再認証してください',

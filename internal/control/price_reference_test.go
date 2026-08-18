@@ -127,6 +127,23 @@ func TestResolveAutomaticPriceForIdentityTreatsAntigravityGooglePriceAsReference
 	}
 }
 
+func TestResolveAutomaticPriceForIdentityTreatsGrokXAIPriceAsReference(t *testing.T) {
+	xaiCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"xai": {ID: "xai", Models: map[string]catalog.Model{
+			"grok-4.3": {ID: "grok-4.3", Cost: xaiCost},
+		}},
+	}}
+
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Grok), ModelID: "grok-4.3",
+	})
+	if !ok || match.cost != xaiCost || match.providerID != "xai" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("Grok price reference = %#v, %t", match, ok)
+	}
+}
+
 func TestCompatibleAutomaticPriceUsesGlobalPriority(t *testing.T) {
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}

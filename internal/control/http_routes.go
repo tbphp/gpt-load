@@ -66,6 +66,13 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleCredentialAuthorizationCallback,
 			),
 			controlRoute(
+				"control.credential-stages.device-poll",
+				http.MethodPost,
+				"/credential-stages/:stage_id/device-poll",
+				s.auditMutation(newMutationDescriptor("credential_stage_device_poll", "credential_stage", credentialStageMutationLocator)),
+				s.handlePollCredentialDeviceAuthorization,
+			),
+			controlRoute(
 				"control.credential-stages.cancel",
 				http.MethodDelete,
 				"/credential-stages/:stage_id",

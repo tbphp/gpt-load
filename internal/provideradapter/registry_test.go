@@ -129,5 +129,6 @@ func completeBindings(bifrost execution.Executor, codex execution.Executor) []Bi
 		{ProviderKind: channel.ProviderCodex, Adapter: codex},
 		{ProviderKind: channel.ProviderClaude, Adapter: codex},
 		{ProviderKind: channel.ProviderAntigravity, Adapter: codex},
+		{ProviderKind: channel.ProviderGrok, Adapter: codex},
 	}
 }

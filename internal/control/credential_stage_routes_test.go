@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -74,6 +75,60 @@ func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 	engine.ServeHTTP(removeResponse, remove)
 	if removeResponse.Code != http.StatusOK {
 		t.Fatalf("delete response = %d %s", removeResponse.Code, removeResponse.Body)
+	}
+}
+
+func TestDeviceAuthorizationRouteReturnsSafeChallengeAndPollsByPOST(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	now := fixture.service.now().UTC()
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.beginDeviceAuthorization = func(context.Context, channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+		return subscriptionruntime.DeviceAuthorization{
+			VerificationURL: "https://auth.x.ai/device", UserCode: "ABCD-EFGH",
+			DriverState: []byte(`{"device_code":"device-secret"}`), ExpiresAt: now.Add(20 * time.Minute),
+			PollInterval: time.Second,
+		}, nil
+	}
+	fixture.service.pollDeviceAuthorization = func(context.Context, channel.ID, []byte) (subscriptionruntime.DeviceAuthorizationPoll, error) {
+		return subscriptionruntime.DeviceAuthorizationPoll{
+			Status:      subscriptionruntime.DeviceAuthorizationPending,
+			DriverState: []byte(`{"device_code":"next-secret"}`), PollInterval: 5 * time.Second,
+		}, nil
+	}
+	listenerCalled := false
+	fixture.service.oauthCallback.listen = func(string, string) (net.Listener, error) {
+		listenerCalled = true
+		return nil, fmt.Errorf("device OAuth must not start a listener")
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/authorizations", strings.NewReader(`{"channel_id":"grok"}`))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || listenerCalled || strings.Contains(response.Body.String(), "device-secret") {
+		t.Fatalf("device begin response = %d %s, listener=%t", response.Code, response.Body, listenerCalled)
+	}
+	var envelope struct {
+		Data CredentialStageResult `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.AuthorizationMethod != string(channel.AuthorizationDeviceOAuth) || envelope.Data.UserCode != "ABCD-EFGH" {
+		t.Fatalf("device challenge = %#v", envelope.Data)
+	}
+
+	now = now.Add(time.Second)
+	poll := httptest.NewRequest(http.MethodPost, "/api/credential-stages/"+envelope.Data.StageID+"/device-poll", nil)
+	poll.Header.Set("Authorization", "Bearer test-auth-key")
+	pollResponse := httptest.NewRecorder()
+	engine.ServeHTTP(pollResponse, poll)
+	if pollResponse.Code != http.StatusOK || strings.Contains(pollResponse.Body.String(), "next-secret") {
+		t.Fatalf("device poll response = %d %s", pollResponse.Code, pollResponse.Body)
 	}
 }
 

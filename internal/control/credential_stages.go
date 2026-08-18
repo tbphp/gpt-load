@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -23,8 +24,11 @@ import (
 const (
 	credentialStageReadyTTL     = 30 * time.Minute
 	credentialStageAuthTTL      = 5 * time.Minute
+	credentialStageDeviceMaxTTL = 30 * time.Minute
 	credentialStageTombstoneTTL = 24 * time.Hour
 	maxOAuthFileBytes           = 64 * 1024
+	maxDeviceAuthorizationURL   = 4096
+	maxDeviceAuthorizationCode  = 128
 	stagedSubscriptionSchemaV2  = 2
 )
 
@@ -63,13 +67,27 @@ type CredentialStageAccount struct {
 }
 
 type CredentialStageResult struct {
-	StageID          string                 `json:"stage_id"`
-	Status           string                 `json:"status"`
-	AuthorizationURL string                 `json:"authorization_url,omitempty"`
-	RedirectURI      string                 `json:"redirect_uri,omitempty"`
-	Account          CredentialStageAccount `json:"account"`
-	ExpiresAtMS      int64                  `json:"expires_at_ms"`
-	ErrorCode        string                 `json:"error_code,omitempty"`
+	StageID             string                 `json:"stage_id"`
+	Status              string                 `json:"status"`
+	AuthorizationMethod string                 `json:"authorization_method,omitempty"`
+	AuthorizationURL    string                 `json:"authorization_url,omitempty"`
+	RedirectURI         string                 `json:"redirect_uri,omitempty"`
+	UserCode            string                 `json:"user_code,omitempty"`
+	NextPollAtMS        int64                  `json:"next_poll_at_ms,omitempty"`
+	Account             CredentialStageAccount `json:"account"`
+	ExpiresAtMS         int64                  `json:"expires_at_ms"`
+	ErrorCode           string                 `json:"error_code,omitempty"`
+}
+
+type credentialStageAuthorizationSummary struct {
+	AuthorizationURL string `json:"authorization_url"`
+	UserCode         string `json:"user_code"`
+	NextPollAtMS     int64  `json:"next_poll_at_ms"`
+	PollIntervalMS   int64  `json:"poll_interval_ms"`
+}
+
+type credentialStageSafeSummary struct {
+	Authorization *credentialStageAuthorizationSummary `json:"authorization,omitempty"`
 }
 
 type stagedSubscriptionPayload struct {
@@ -349,13 +367,25 @@ func (s *Service) BeginCredentialAuthorization(
 	if s == nil || s.db == nil || s.encryption == nil {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
-	if s.channelRegistry == nil ||
-		!s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationBrowserOAuth) {
+	if s.channelRegistry == nil {
 		return CredentialStageResult{}, app_errors.ErrValidation
 	}
 	if _, err := s.subscriptionDriver(channelID); err != nil {
 		return CredentialStageResult{}, err
 	}
+	if s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationBrowserOAuth) {
+		return s.beginBrowserCredentialAuthorization(ctx, channelID)
+	}
+	if s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationDeviceOAuth) {
+		return s.beginDeviceCredentialAuthorization(ctx, channelID)
+	}
+	return CredentialStageResult{}, app_errors.ErrValidation
+}
+
+func (s *Service) beginBrowserCredentialAuthorization(
+	ctx context.Context,
+	channelID channel.ID,
+) (CredentialStageResult, error) {
 	if s.beginSubscriptionAuthorization == nil {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
 	}
@@ -390,10 +420,96 @@ func (s *Service) BeginCredentialAuthorization(
 		return CredentialStageResult{}, app_errors.ParseDBError(err)
 	}
 	return CredentialStageResult{
-		StageID: row.ID, Status: string(row.Status), AuthorizationURL: authorization.URL,
-		RedirectURI: authorization.RedirectURI,
-		Account:     CredentialStageAccount{}, ExpiresAtMS: row.ExpiresAtMS,
+		StageID: row.ID, Status: string(row.Status), AuthorizationMethod: row.AuthorizationMethod,
+		AuthorizationURL: authorization.URL,
+		RedirectURI:      authorization.RedirectURI,
+		Account:          CredentialStageAccount{}, ExpiresAtMS: row.ExpiresAtMS,
 	}, nil
+}
+
+func (s *Service) beginDeviceCredentialAuthorization(
+	ctx context.Context,
+	channelID channel.ID,
+) (CredentialStageResult, error) {
+	if s.beginDeviceAuthorization == nil {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
+	}
+	beginContext, cancelBegin := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+	defer cancelBegin()
+	authorization, err := s.beginDeviceAuthorization(beginContext, channelID)
+	if err != nil {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
+	}
+	now := s.now().UTC()
+	verificationURL := strings.TrimSpace(authorization.VerificationURL)
+	userCode := strings.TrimSpace(authorization.UserCode)
+	parsedURL, parseErr := url.Parse(verificationURL)
+	pollInterval, intervalOK := normalizeDevicePollInterval(authorization.PollInterval)
+	if parseErr != nil || !parsedURL.IsAbs() || parsedURL.Opaque != "" || parsedURL.Host == "" ||
+		!strings.EqualFold(parsedURL.Scheme, "https") || parsedURL.User != nil || parsedURL.Fragment != "" ||
+		len(verificationURL) > maxDeviceAuthorizationURL || !validDeviceAuthorizationCode(userCode) ||
+		len(authorization.DriverState) == 0 || len(authorization.DriverState) > maxOAuthFileBytes ||
+		!intervalOK || !authorization.ExpiresAt.After(now) ||
+		authorization.ExpiresAt.After(now.Add(credentialStageDeviceMaxTTL)) {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
+	}
+	nextPollAtMS := now.Add(pollInterval).UnixMilli()
+	summaryJSON, err := json.Marshal(credentialStageSafeSummary{Authorization: &credentialStageAuthorizationSummary{
+		AuthorizationURL: verificationURL,
+		UserCode:         userCode,
+		NextPollAtMS:     nextPollAtMS,
+		PollIntervalMS:   pollInterval.Milliseconds(),
+	}})
+	if err != nil {
+		return CredentialStageResult{}, app_errors.ErrInternalServer
+	}
+	payload, err := json.Marshal(stagedSubscriptionPayload{DriverState: authorization.DriverState})
+	if err != nil {
+		return CredentialStageResult{}, app_errors.ErrInternalServer
+	}
+	ciphertext, err := s.encryption.Encrypt(string(payload))
+	clear(payload)
+	if err != nil {
+		return CredentialStageResult{}, app_errors.ErrInternalServer
+	}
+	stageID, err := newOperationID(s.random)
+	if err != nil {
+		return CredentialStageResult{}, app_errors.ErrInternalServer
+	}
+	row := models.CredentialStage{
+		ID: stageID, ChannelID: string(channelID), ConnectionType: models.ConnectionTypeSubscription,
+		AuthorizationMethod: string(channel.AuthorizationDeviceOAuth), Status: models.CredentialStagePendingAuthorization,
+		EncryptedPayload: ciphertext, PayloadSchemaVersion: stagedSubscriptionSchemaV2,
+		SafeSummaryJSON: models.JSON(summaryJSON), ExpiresAtMS: authorization.ExpiresAt.UTC().UnixMilli(),
+		CreatedAtMS: now.UnixMilli(), UpdatedAtMS: now.UnixMilli(),
+	}
+	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return CredentialStageResult{}, app_errors.ParseDBError(err)
+	}
+	return CredentialStageResult{
+		StageID: row.ID, Status: string(row.Status), AuthorizationMethod: row.AuthorizationMethod,
+		AuthorizationURL: verificationURL, UserCode: userCode, NextPollAtMS: nextPollAtMS,
+		Account: CredentialStageAccount{}, ExpiresAtMS: row.ExpiresAtMS,
+	}, nil
+}
+
+func normalizeDevicePollInterval(value time.Duration) (time.Duration, bool) {
+	if value < time.Second || value > time.Minute {
+		return 0, false
+	}
+	return value, true
+}
+
+func validDeviceAuthorizationCode(value string) bool {
+	if value == "" || len(value) > maxDeviceAuthorizationCode {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] < 0x20 || value[index] > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 // CompleteCredentialAuthorization atomically claims one pending state before
@@ -655,6 +771,189 @@ func (s *Service) CompleteCredentialAuthorizationCallback(
 	)
 }
 
+// PollCredentialDeviceAuthorization performs at most one provider token poll.
+// Calling it before the advertised interval returns the current Stage without
+// dispatching upstream.
+func (s *Service) PollCredentialDeviceAuthorization(
+	ctx context.Context,
+	stageID string,
+) (CredentialStageResult, error) {
+	if s == nil || s.db == nil || s.encryption == nil || s.pollDeviceAuthorization == nil ||
+		strings.TrimSpace(stageID) == "" {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
+	}
+	row, err := s.loadCredentialStage(ctx, stageID)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	if row.AuthorizationMethod != string(channel.AuthorizationDeviceOAuth) {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
+	}
+	if row.Status == models.CredentialStageExchanging {
+		return s.GetCredentialStage(ctx, stageID)
+	}
+	if row.Status != models.CredentialStagePendingAuthorization {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
+	}
+	now := s.now().UTC()
+	if now.UnixMilli() >= row.ExpiresAtMS {
+		if err := s.expireCredentialStage(ctx, &row); err != nil {
+			return CredentialStageResult{}, app_errors.ParseDBError(err)
+		}
+		return s.GetCredentialStage(ctx, stageID)
+	}
+	_, authorization := decodeCredentialStageSafeSummary(row.SafeSummaryJSON)
+	if authorization == nil {
+		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
+	}
+	if now.UnixMilli() < authorization.NextPollAtMS {
+		return s.GetCredentialStage(ctx, stageID)
+	}
+	claim := s.db.WithContext(ctx).Model(&models.CredentialStage{}).
+		Where(
+			"id = ? AND authorization_method = ? AND status = ? AND expires_at_ms > ?",
+			row.ID, string(channel.AuthorizationDeviceOAuth), models.CredentialStagePendingAuthorization, now.UnixMilli(),
+		).
+		Updates(map[string]any{
+			"status":        models.CredentialStageExchanging,
+			"expires_at_ms": now.Add(defaultSubscriptionControlTimeout).UnixMilli(),
+			"updated_at_ms": now.UnixMilli(),
+		})
+	if claim.Error != nil {
+		return CredentialStageResult{}, app_errors.ParseDBError(claim.Error)
+	}
+	if claim.RowsAffected != 1 {
+		return s.GetCredentialStage(ctx, stageID)
+	}
+	plaintext, err := s.encryption.Decrypt(row.EncryptedPayload)
+	if err != nil {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
+	payload, err := decodeStagedAuthorizationPayload(row.PayloadSchemaVersion, []byte(plaintext))
+	if err != nil || len(payload.DriverState) == 0 {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
+	pollContext, cancelPoll := context.WithTimeout(context.WithoutCancel(ctx), defaultSubscriptionControlTimeout)
+	defer cancelPoll()
+	poll, err := s.pollDeviceAuthorization(pollContext, channel.ID(row.ChannelID), payload.DriverState)
+	if err != nil {
+		if markErr := s.markCredentialStageOutcomeUnknown(ctx, row.ID); markErr != nil {
+			return CredentialStageResult{}, app_errors.ErrInternalServer
+		}
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
+	switch poll.Status {
+	case subscriptionruntime.DeviceAuthorizationPending:
+		return s.finishPendingDeviceAuthorization(ctx, row, payload.DriverState, authorization, poll)
+	case subscriptionruntime.DeviceAuthorizationAuthorized:
+		finalizeContext, cancelFinalize := credentialStageFinalizeContext(ctx)
+		defer cancelFinalize()
+		return s.finishCredentialStageExchange(finalizeContext, row, poll.Credential)
+	case subscriptionruntime.DeviceAuthorizationDenied:
+		if err := s.finishDeviceAuthorizationFailure(ctx, row.ID, models.CredentialStageFailed, "authorization_denied"); err != nil {
+			return CredentialStageResult{}, err
+		}
+		return s.GetCredentialStage(ctx, row.ID)
+	case subscriptionruntime.DeviceAuthorizationExpired:
+		if err := s.finishDeviceAuthorizationFailure(ctx, row.ID, models.CredentialStageExpired, "authorization_expired"); err != nil {
+			return CredentialStageResult{}, err
+		}
+		return s.GetCredentialStage(ctx, row.ID)
+	default:
+		if err := s.markCredentialStageOutcomeUnknown(ctx, row.ID); err != nil {
+			return CredentialStageResult{}, app_errors.ErrInternalServer
+		}
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
+}
+
+func (s *Service) finishPendingDeviceAuthorization(
+	ctx context.Context,
+	row models.CredentialStage,
+	previousDriverState []byte,
+	authorization *credentialStageAuthorizationSummary,
+	poll subscriptionruntime.DeviceAuthorizationPoll,
+) (CredentialStageResult, error) {
+	driverState := poll.DriverState
+	if len(driverState) == 0 {
+		driverState = previousDriverState
+	}
+	if len(driverState) == 0 || len(driverState) > maxOAuthFileBytes {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
+	pollInterval := poll.PollInterval
+	if pollInterval == 0 {
+		pollInterval = time.Duration(authorization.PollIntervalMS) * time.Millisecond
+	}
+	var intervalOK bool
+	pollInterval, intervalOK = normalizeDevicePollInterval(pollInterval)
+	if !intervalOK {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
+	payload, err := json.Marshal(stagedSubscriptionPayload{DriverState: driverState})
+	if err != nil {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrInternalServer
+	}
+	ciphertext, err := s.encryption.Encrypt(string(payload))
+	clear(payload)
+	if err != nil {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrInternalServer
+	}
+	now := s.now().UTC()
+	authorization.NextPollAtMS = now.Add(pollInterval).UnixMilli()
+	authorization.PollIntervalMS = pollInterval.Milliseconds()
+	summaryJSON, err := json.Marshal(credentialStageSafeSummary{Authorization: authorization})
+	if err != nil {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrInternalServer
+	}
+	finalizeContext, cancelFinalize := credentialStageFinalizeContext(ctx)
+	defer cancelFinalize()
+	result := s.db.WithContext(finalizeContext).Model(&models.CredentialStage{}).
+		Where("id = ? AND status = ?", row.ID, models.CredentialStageExchanging).
+		Updates(map[string]any{
+			"status": models.CredentialStagePendingAuthorization, "encrypted_payload": ciphertext,
+			"safe_summary_json": models.JSON(summaryJSON), "expires_at_ms": row.ExpiresAtMS,
+			"updated_at_ms": now.UnixMilli(),
+		})
+	if result.Error != nil {
+		return CredentialStageResult{}, app_errors.ParseDBError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return CredentialStageResult{}, app_errors.ErrCredentialAuthOutcomeUnknown
+	}
+	return s.GetCredentialStage(ctx, row.ID)
+}
+
+func (s *Service) finishDeviceAuthorizationFailure(
+	ctx context.Context,
+	stageID string,
+	status models.CredentialStageStatus,
+	errorCode string,
+) error {
+	finalizeContext, cancelFinalize := credentialStageFinalizeContext(ctx)
+	defer cancelFinalize()
+	result := s.db.WithContext(finalizeContext).Model(&models.CredentialStage{}).
+		Where("id = ? AND status = ?", stageID, models.CredentialStageExchanging).
+		Updates(map[string]any{
+			"status": status, "encrypted_payload": "", "error_code": errorCode,
+			"updated_at_ms": s.now().UnixMilli(),
+		})
+	if result.Error != nil {
+		return app_errors.ParseDBError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return app_errors.ErrCredentialAuthOutcomeUnknown
+	}
+	return nil
+}
+
 func (s *Service) GetCredentialStage(ctx context.Context, stageID string) (CredentialStageResult, error) {
 	row, err := s.loadCredentialStage(ctx, stageID)
 	if err != nil {
@@ -667,13 +966,16 @@ func (s *Service) GetCredentialStage(ctx context.Context, stageID string) (Crede
 			return CredentialStageResult{}, app_errors.ParseDBError(err)
 		}
 	}
-	var account CredentialStageAccount
-	if len(row.SafeSummaryJSON) > 0 {
-		_ = json.Unmarshal(row.SafeSummaryJSON, &account)
-	}
+	account, authorization := decodeCredentialStageSafeSummary(row.SafeSummaryJSON)
 	result := CredentialStageResult{
-		StageID: row.ID, Status: string(row.Status), Account: account, ExpiresAtMS: row.ExpiresAtMS,
+		StageID: row.ID, Status: string(row.Status), AuthorizationMethod: row.AuthorizationMethod,
+		Account: account, ExpiresAtMS: row.ExpiresAtMS,
 		ErrorCode: stageResultErrorCode(row.Status, row.ErrorCode),
+	}
+	if authorization != nil {
+		result.AuthorizationURL = authorization.AuthorizationURL
+		result.UserCode = authorization.UserCode
+		result.NextPollAtMS = authorization.NextPollAtMS
 	}
 	if row.Status == models.CredentialStagePendingAuthorization || row.Status == models.CredentialStageExchanging {
 		if callback, ok := s.subscriptions.LocalCallback(channel.ID(row.ChannelID)); ok {
@@ -681,6 +983,19 @@ func (s *Service) GetCredentialStage(ctx context.Context, stageID string) (Crede
 		}
 	}
 	return result, nil
+}
+
+func decodeCredentialStageSafeSummary(raw []byte) (CredentialStageAccount, *credentialStageAuthorizationSummary) {
+	if len(raw) == 0 {
+		return CredentialStageAccount{}, nil
+	}
+	var safe credentialStageSafeSummary
+	if json.Unmarshal(raw, &safe) == nil && safe.Authorization != nil {
+		return CredentialStageAccount{}, safe.Authorization
+	}
+	var account CredentialStageAccount
+	_ = json.Unmarshal(raw, &account)
+	return account, nil
 }
 
 func (s *Service) CancelCredentialStage(ctx context.Context, stageID string) error {
@@ -741,7 +1056,8 @@ func (s *Service) persistReadyCredentialStage(
 		return CredentialStageResult{}, app_errors.ParseDBError(err)
 	}
 	return CredentialStageResult{
-		StageID: row.ID, Status: string(row.Status), Account: summary, ExpiresAtMS: row.ExpiresAtMS,
+		StageID: row.ID, Status: string(row.Status), AuthorizationMethod: row.AuthorizationMethod,
+		Account: summary, ExpiresAtMS: row.ExpiresAtMS,
 	}, nil
 }
 
@@ -782,7 +1098,8 @@ func (s *Service) finishCredentialStageExchange(
 		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
 	}
 	return CredentialStageResult{
-		StageID: row.ID, Status: string(models.CredentialStageReady), Account: summary, ExpiresAtMS: expiresAtMS,
+		StageID: row.ID, Status: string(models.CredentialStageReady), AuthorizationMethod: row.AuthorizationMethod,
+		Account: summary, ExpiresAtMS: expiresAtMS,
 	}, nil
 }
 

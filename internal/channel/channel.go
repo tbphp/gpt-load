@@ -25,6 +25,7 @@ const (
 	Codex            = spec.Codex
 	Claude           = spec.Claude
 	Antigravity      = spec.Antigravity
+	Grok             = spec.Grok
 	Anthropic        = spec.Anthropic
 	Gemini           = spec.Gemini
 	AzureOpenAI      = spec.AzureOpenAI
@@ -74,6 +75,7 @@ type AuthorizationMethod = spec.AuthorizationMethod
 
 const (
 	AuthorizationBrowserOAuth = spec.AuthorizationBrowserOAuth
+	AuthorizationDeviceOAuth  = spec.AuthorizationDeviceOAuth
 	AuthorizationOAuthFile    = spec.AuthorizationOAuthFile
 )
 
@@ -185,6 +187,7 @@ const (
 	ProviderCodex            = spec.ProviderCodex
 	ProviderClaude           = spec.ProviderClaude
 	ProviderAntigravity      = spec.ProviderAntigravity
+	ProviderGrok             = spec.ProviderGrok
 	ProviderAnthropic        = spec.ProviderAnthropic
 	ProviderGemini           = spec.ProviderGemini
 	ProviderOpenAICompatible = spec.ProviderOpenAICompatible

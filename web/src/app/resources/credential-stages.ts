@@ -30,8 +30,11 @@ export interface CredentialStageAccount {
 export interface CredentialStage {
   stage_id: string
   status: CredentialStageStatus
+  authorization_method?: 'browser_oauth' | 'device_oauth' | 'oauth_file'
   authorization_url?: string
   redirect_uri?: string
+  user_code?: string
+  next_poll_at_ms?: number
   account: CredentialStageAccount
   expires_at_ms: number
   error_code?: string
@@ -46,8 +49,11 @@ export interface CredentialConnectResult {
 const stageFields = [
   'stage_id',
   'status',
+  'authorization_method',
   'authorization_url',
   'redirect_uri',
+  'user_code',
+  'next_poll_at_ms',
   'account',
   'expires_at_ms',
   'error_code',
@@ -63,6 +69,7 @@ const stageStatuses = [
   'expired',
   'outcome_unknown',
 ] as const
+const authorizationMethods = ['browser_oauth', 'device_oauth', 'oauth_file'] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -105,11 +112,27 @@ export function projectCredentialStage(value: unknown): CredentialStage {
     record.authorization_url === undefined ? undefined : projectHTTPURL(record.authorization_url)
   const redirectURI =
     record.redirect_uri === undefined ? undefined : projectHTTPURL(record.redirect_uri)
+  const authorizationMethod =
+    record.authorization_method === undefined
+      ? undefined
+      : projectEnum(record.authorization_method, authorizationMethods)
+  const userCode = record.user_code === undefined ? undefined : projectString(record.user_code)
+  if (
+    userCode !== undefined &&
+    (!/^[\x21-\x7e ]{1,128}$/u.test(userCode) || userCode.trim() !== userCode)
+  ) {
+    invalidResponse()
+  }
   return {
     stage_id: projectStageID(record.stage_id),
     status: projectEnum(record.status, stageStatuses),
+    ...(authorizationMethod === undefined ? {} : { authorization_method: authorizationMethod }),
     ...(authorizationURL === undefined ? {} : { authorization_url: authorizationURL }),
     ...(redirectURI === undefined ? {} : { redirect_uri: redirectURI }),
+    ...(userCode === undefined ? {} : { user_code: userCode }),
+    ...(record.next_poll_at_ms === undefined
+      ? {}
+      : { next_poll_at_ms: projectEpochMilliseconds(record.next_poll_at_ms) }),
     account: projectAccount(record.account),
     expires_at_ms: projectEpochMilliseconds(record.expires_at_ms),
     ...(record.error_code === undefined
@@ -153,6 +176,20 @@ export async function completeCredentialAuthorization(
     await client.request(`/api/credential-stages/${id}/oauth-callback`, {
       method: 'POST',
       json: { callback_url: callbackURL },
+      signal,
+    }),
+  )
+}
+
+export async function pollCredentialDeviceAuthorization(
+  client: ApiClient,
+  stageID: string,
+  signal?: AbortSignal,
+): Promise<CredentialStage> {
+  const id = projectStageID(stageID)
+  return projectCredentialStage(
+    await client.request(`/api/credential-stages/${id}/device-poll`, {
+      method: 'POST',
       signal,
     }),
   )

@@ -10,6 +10,7 @@ import {
   completeCredentialAuthorization,
   getCredentialStage,
   importCredentialStage,
+  pollCredentialDeviceAuthorization,
   type CredentialStage,
 } from '@/app/resources/credential-stages'
 import type { ChannelAuthorizationMethod, ChannelNoticeDto } from '@/app/resources/channels'
@@ -76,8 +77,12 @@ const readyCount = computed(
 const hasAccounts = computed(() => props.modelValue.length > 0)
 const entryBusy = computed(() => props.disabled || Boolean(busyAction.value))
 const supportsBrowserOAuth = computed(() => props.authorizationMethods.includes('browser_oauth'))
+const supportsDeviceOAuth = computed(() => props.authorizationMethods.includes('device_oauth'))
 const supportsOAuthFile = computed(() => props.authorizationMethods.includes('oauth_file'))
-const hasEntryMethod = computed(() => supportsBrowserOAuth.value || supportsOAuthFile.value)
+const supportsInteractiveOAuth = computed(
+  () => supportsBrowserOAuth.value || supportsDeviceOAuth.value,
+)
+const hasEntryMethod = computed(() => supportsInteractiveOAuth.value || supportsOAuthFile.value)
 const channelLabel = computed(() => props.channelName.trim() || props.channelId)
 
 function replaceStage(stage: CredentialStage): void {
@@ -87,6 +92,9 @@ function replaceStage(stage: CredentialStage): void {
         ...stage,
         authorization_url: stage.authorization_url ?? existing.authorization_url,
         redirect_uri: stage.redirect_uri ?? existing.redirect_uri,
+        authorization_method: stage.authorization_method ?? existing.authorization_method,
+        user_code: stage.user_code ?? existing.user_code,
+        next_poll_at_ms: stage.next_poll_at_ms ?? existing.next_poll_at_ms,
       }
     : stage
   const index = props.modelValue.findIndex((item) => item.stage_id === stage.stage_id)
@@ -174,8 +182,15 @@ function schedulePoll(stage: CredentialStage): void {
   const poll = async () => {
     const controller = new AbortController()
     state.controller = controller
+    let polledStage: CredentialStage | undefined
     try {
-      const next = await getCredentialStage(client, stage.stage_id, controller.signal)
+      const current = props.modelValue.find((item) => item.stage_id === stage.stage_id) ?? stage
+      const next =
+        current.authorization_method === 'device_oauth' &&
+        current.status === 'pending_authorization'
+          ? await pollCredentialDeviceAuthorization(client, stage.stage_id, controller.signal)
+          : await getCredentialStage(client, stage.stage_id, controller.signal)
+      polledStage = next
       state.failures = 0
       if (feedbackKey.value === 'import.subscription.pollFailed') feedbackKey.value = ''
       replaceStage(next)
@@ -199,10 +214,23 @@ function schedulePoll(stage: CredentialStage): void {
       state.controller = undefined
     }
     if (polling.has(stage.stage_id)) {
-      state.timer = window.setTimeout(poll, 1_200 * Math.min(state.failures + 1, 4))
+      const latest =
+        polledStage ?? props.modelValue.find((item) => item.stage_id === stage.stage_id)
+      const providerDelay =
+        latest?.authorization_method === 'device_oauth' && latest.next_poll_at_ms
+          ? Math.max(250, latest.next_poll_at_ms - Date.now())
+          : 1_200
+      state.timer = window.setTimeout(
+        poll,
+        state.failures ? 1_200 * Math.min(state.failures + 1, 4) : providerDelay,
+      )
     }
   }
-  state.timer = window.setTimeout(poll, 800)
+  const initialDelay =
+    stage.authorization_method === 'device_oauth' && stage.next_poll_at_ms
+      ? Math.max(250, stage.next_poll_at_ms - Date.now())
+      : 800
+  state.timer = window.setTimeout(poll, initialDelay)
 }
 
 watch(
@@ -229,7 +257,7 @@ function openAuthorizationPopup(): Window | null {
 }
 
 async function beginAuthorization(existingPopup?: Window | null): Promise<void> {
-  if (!supportsBrowserOAuth.value || props.disabled || busyAction.value) {
+  if (!supportsInteractiveOAuth.value || props.disabled || busyAction.value) {
     existingPopup?.close()
     return
   }
@@ -324,7 +352,7 @@ function callbackPlaceholder(stage: CredentialStage): string {
 }
 
 async function restartAuthorization(stage: CredentialStage): Promise<void> {
-  if (!supportsBrowserOAuth.value || props.disabled || busyAction.value) return
+  if (!supportsInteractiveOAuth.value || props.disabled || busyAction.value) return
   const popup = openAuthorizationPopup()
   await removeStage(stage)
   await nextTick()
@@ -380,6 +408,7 @@ function stageErrorKey(code: string): string {
   const known: Readonly<Record<string, string>> = {
     authorization_denied: 'import.subscription.stageError.authorizationDenied',
     authorization_failed: 'import.subscription.stageError.authorizationFailed',
+    authorization_expired: 'import.subscription.stageError.authorizationExpired',
     authorization_exchange_rejected: 'import.subscription.stageError.exchangeRejected',
     authorization_exchange_unknown: 'import.subscription.stageError.exchangeUnknown',
     authorization_exchange_interrupted: 'import.subscription.stageError.exchangeInterrupted',
@@ -464,10 +493,18 @@ onBeforeUnmount(() => {
               {{
                 stage.status === 'exchanging'
                   ? t('import.subscription.exchanging')
-                  : t('import.subscription.waiting')
+                  : stage.authorization_method === 'device_oauth'
+                    ? t('import.subscription.deviceWaiting')
+                    : t('import.subscription.waiting')
               }}
             </strong>
-            <span>{{ t('import.subscription.waitingHelp', { channel: channelLabel }) }}</span>
+            <span>
+              {{
+                stage.authorization_method === 'device_oauth'
+                  ? t('import.subscription.deviceWaitingHelp', { channel: channelLabel })
+                  : t('import.subscription.waitingHelp', { channel: channelLabel })
+              }}
+            </span>
           </div>
           <span
             v-if="stage.status === 'pending_authorization'"
@@ -519,7 +556,7 @@ onBeforeUnmount(() => {
         <div v-if="isRecoverable(stage)" class="subscription-stager__recover" role="alert">
           <span>{{ stageErrorMessage(stage) }}</span>
           <AppButton
-            v-if="supportsBrowserOAuth"
+            v-if="supportsInteractiveOAuth"
             size="compact"
             :disabled="disabled || Boolean(busyAction)"
             :busy="busyAction === 'authorize'"
@@ -543,7 +580,11 @@ onBeforeUnmount(() => {
             {{ t('import.subscription.popupBlocked') }}
           </InlineFeedback>
           <p class="subscription-stager__manual-hint">
-            {{ t('import.subscription.manualHint', { redirectUri: callbackEndpoint(stage) }) }}
+            {{
+              stage.authorization_method === 'device_oauth'
+                ? t('import.subscription.deviceInstructions')
+                : t('import.subscription.manualHint', { redirectUri: callbackEndpoint(stage) })
+            }}
           </p>
 
           <div class="subscription-stager__link-field">
@@ -566,7 +607,30 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <form class="subscription-stager__callback" @submit.prevent="submitCallback(stage)">
+          <div
+            v-if="stage.authorization_method === 'device_oauth' && stage.user_code"
+            class="subscription-stager__link-field"
+          >
+            <span class="subscription-stager__field-label">
+              {{ t('import.subscription.userCode') }}
+            </span>
+            <div class="subscription-stager__device-code">
+              <code>{{ stage.user_code }}</code>
+              <CopyChip
+                layout="icon"
+                :value="stage.user_code"
+                :label="t('import.subscription.copyUserCode')"
+                :success-label="t('common.copied')"
+                :failure-label="t('common.copyFailed')"
+              />
+            </div>
+          </div>
+
+          <form
+            v-if="stage.authorization_method === 'browser_oauth'"
+            class="subscription-stager__callback"
+            @submit.prevent="submitCallback(stage)"
+          >
             <FormField
               :id="`oauth-callback-${stage.stage_id}`"
               :label="t('import.subscription.callbackLabel')"
@@ -604,7 +668,7 @@ onBeforeUnmount(() => {
           </form>
 
           <AppButton
-            v-if="supportsBrowserOAuth"
+            v-if="supportsInteractiveOAuth"
             class="subscription-stager__restart"
             variant="link"
             size="inline"
@@ -618,7 +682,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="hasEntryMethod" class="subscription-stager__entry">
-      <div v-if="supportsBrowserOAuth" class="subscription-stager__entry-primary">
+      <div v-if="supportsInteractiveOAuth" class="subscription-stager__entry-primary">
         <AppButton
           class="subscription-stager__primary"
           :variant="hasAccounts ? 'secondary' : 'primary'"
@@ -642,12 +706,12 @@ onBeforeUnmount(() => {
       <DisclosurePanel
         v-if="supportsOAuthFile"
         :summary="
-          supportsBrowserOAuth
+          supportsInteractiveOAuth
             ? t('import.subscription.orImport')
             : t('import.subscription.oauthJSONLabel')
         "
-        :open="!supportsBrowserOAuth || jsonImportOpen"
-        @update:open="jsonImportOpen = supportsBrowserOAuth ? $event : true"
+        :open="!supportsInteractiveOAuth || jsonImportOpen"
+        @update:open="jsonImportOpen = supportsInteractiveOAuth ? $event : true"
       >
         <div class="subscription-stager__json">
           <FormField
@@ -890,6 +954,25 @@ onBeforeUnmount(() => {
   font-size: var(--text-label-xs);
   font-weight: 600;
   text-decoration: none;
+}
+.subscription-stager__device-code {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto;
+  align-items: center;
+  justify-content: start;
+  gap: var(--space-1);
+}
+.subscription-stager__device-code code {
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  padding: 9px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 .subscription-stager__callback {
   display: grid;

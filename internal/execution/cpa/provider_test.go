@@ -64,6 +64,20 @@ func TestAdapterDelegatesRouteValidationByProviderKind(t *testing.T) {
 	}
 }
 
+func TestAdapterValidatesAllDeclaredGrokRoutes(t *testing.T) {
+	registry := channel.NewRegistry()
+	adapter := NewAdapter(nil, registry)
+	descriptor, ok := registry.Get(channel.Grok)
+	if !ok {
+		t.Fatal("Grok channel is missing")
+	}
+	for _, route := range descriptor.Routes {
+		if err := adapter.ValidateRouteCapability(channel.ProviderGrok, route); err != nil {
+			t.Fatalf("ValidateRouteCapability(%#v) error = %v", route, err)
+		}
+	}
+}
+
 func TestRequestScopedFailureSurvivesErrorWrapping(t *testing.T) {
 	if !requestScopedFailure(errors.New("unrelated: " + requestScopedTestError{}.Error())) {
 		// A string with the same text is deliberately not sufficient.

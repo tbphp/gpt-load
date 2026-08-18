@@ -18,7 +18,7 @@ import {
 
 export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
 export type ChannelConnectionType = 'api_key' | 'subscription'
-export type ChannelAuthorizationMethod = 'browser_oauth' | 'oauth_file'
+export type ChannelAuthorizationMethod = 'browser_oauth' | 'device_oauth' | 'oauth_file'
 export type ChannelCredentialAction = 'reset_credit'
 export type ChannelNoticeID = 'claude_oauth_risk' | 'antigravity_oauth_risk'
 export type ChannelNoticeTone = 'warning'

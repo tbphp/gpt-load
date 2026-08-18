@@ -119,6 +119,43 @@ type BrowserAuthorizationDriver interface {
 	LocalCallback() (LocalCallbackSpec, bool)
 }
 
+// DeviceAuthorization describes one RFC 8628 device challenge. DriverState
+// contains secrets and is persisted only inside the encrypted Stage payload.
+type DeviceAuthorization struct {
+	VerificationURL string
+	UserCode        string
+	DriverState     []byte
+	ExpiresAt       time.Time
+	PollInterval    time.Duration
+}
+
+// DeviceAuthorizationStatus is the bounded result of one token-endpoint poll.
+type DeviceAuthorizationStatus string
+
+const (
+	DeviceAuthorizationPending    DeviceAuthorizationStatus = "pending"
+	DeviceAuthorizationAuthorized DeviceAuthorizationStatus = "authorized"
+	DeviceAuthorizationDenied     DeviceAuthorizationStatus = "denied"
+	DeviceAuthorizationExpired    DeviceAuthorizationStatus = "expired"
+)
+
+// DeviceAuthorizationPoll contains the result of exactly one token request.
+// Pending results may replace DriverState and adjust PollInterval (slow_down).
+type DeviceAuthorizationPoll struct {
+	Status       DeviceAuthorizationStatus
+	Credential   Credential
+	DriverState  []byte
+	PollInterval time.Duration
+}
+
+// DeviceAuthorizationDriver is implemented by subscription channels whose
+// interactive flow uses a device code rather than an OAuth redirect callback.
+type DeviceAuthorizationDriver interface {
+	Driver
+	BeginDeviceAuthorization(context.Context) (DeviceAuthorization, error)
+	PollDeviceAuthorization(context.Context, []byte) (DeviceAuthorizationPoll, error)
+}
+
 // ModelDiscovery is a narrow optional subscription capability.
 type ModelDiscovery interface {
 	ID() spec.UtilityID
@@ -174,6 +211,7 @@ func (err *UpstreamHTTPError) Error() string {
 type channelRuntime struct {
 	driver      Driver
 	browser     BrowserAuthorizationDriver
+	device      DeviceAuthorizationDriver
 	callback    *LocalCallbackSpec
 	discovery   ModelDiscovery
 	observation QuotaObservation
@@ -279,26 +317,37 @@ func compileRuntime(
 			return nil, fmt.Errorf("compile subscription runtime: channel %q references unknown driver %q", descriptor.ID, bindings.SubscriptionDriver)
 		}
 		compiled := channelRuntime{driver: driver}
+		interactiveMethods := 0
 		for _, method := range descriptor.Connection.AuthorizationMethods {
-			if method != channel.AuthorizationBrowserOAuth {
-				continue
-			}
-			compiled.browser, ok = driver.(BrowserAuthorizationDriver)
-			if !ok {
-				return nil, fmt.Errorf("compile subscription runtime: channel %q declares browser OAuth without driver support", descriptor.ID)
-			}
-			callback, local := compiled.browser.LocalCallback()
-			if local {
-				callback, err = validateLocalCallbackSpec(callback)
-				if err != nil {
-					return nil, fmt.Errorf("compile subscription runtime: channel %q has invalid local callback: %w", descriptor.ID, err)
+			switch method {
+			case channel.AuthorizationBrowserOAuth:
+				interactiveMethods++
+				compiled.browser, ok = driver.(BrowserAuthorizationDriver)
+				if !ok {
+					return nil, fmt.Errorf("compile subscription runtime: channel %q declares browser OAuth without driver support", descriptor.ID)
 				}
-				if owner, duplicate := callbackChannels[callback.RedirectURI]; duplicate {
-					return nil, fmt.Errorf("compile subscription runtime: channels %q and %q share local callback %q", owner, descriptor.ID, callback.RedirectURI)
+				callback, local := compiled.browser.LocalCallback()
+				if local {
+					callback, err = validateLocalCallbackSpec(callback)
+					if err != nil {
+						return nil, fmt.Errorf("compile subscription runtime: channel %q has invalid local callback: %w", descriptor.ID, err)
+					}
+					if owner, duplicate := callbackChannels[callback.RedirectURI]; duplicate {
+						return nil, fmt.Errorf("compile subscription runtime: channels %q and %q share local callback %q", owner, descriptor.ID, callback.RedirectURI)
+					}
+					callbackChannels[callback.RedirectURI] = descriptor.ID
+					compiled.callback = &callback
 				}
-				callbackChannels[callback.RedirectURI] = descriptor.ID
-				compiled.callback = &callback
+			case channel.AuthorizationDeviceOAuth:
+				interactiveMethods++
+				compiled.device, ok = driver.(DeviceAuthorizationDriver)
+				if !ok {
+					return nil, fmt.Errorf("compile subscription runtime: channel %q declares device OAuth without driver support", descriptor.ID)
+				}
 			}
+		}
+		if interactiveMethods > 1 {
+			return nil, fmt.Errorf("compile subscription runtime: channel %q declares multiple interactive authorization methods", descriptor.ID)
 		}
 		if bindings.ModelDiscovery != "" {
 			compiled.discovery, ok = discoveryByID[spec.ExtensionID(bindings.ModelDiscovery)]
@@ -374,6 +423,15 @@ func (runtime *Runtime) BrowserAuthorization(channelID channel.ID) (BrowserAutho
 	}
 	value, ok := runtime.byChannel[channelID]
 	return value.browser, ok && value.browser != nil
+}
+
+// DeviceAuthorization resolves the optional device authorization driver.
+func (runtime *Runtime) DeviceAuthorization(channelID channel.ID) (DeviceAuthorizationDriver, bool) {
+	if runtime == nil {
+		return nil, false
+	}
+	value, ok := runtime.byChannel[channelID]
+	return value.device, ok && value.device != nil
 }
 
 // LocalCallback returns the startup-validated fixed callback for a channel.

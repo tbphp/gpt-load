@@ -1,7 +1,7 @@
 # CPA Embedded Bridge
 
 This nested Go module is GPT-Load's deliberately small bridge to
-CLIProxyAPI (CPA). It exists because the CPA Codex, Claude, and Antigravity executors and
+CLIProxyAPI (CPA). It exists because the CPA Codex, Claude, Antigravity, and xAI executors and
 OAuth helpers needed by GPT-Load are implemented in CPA `internal` packages and
 cannot be imported from the root `gpt-load` module directly.
 
@@ -25,6 +25,11 @@ quota policy. This bridge only exposes:
 - the execution-only Antigravity HTTP executor, upstream CountTokens request, and supported
   protocol translators, with CPA refresh, fallback, cooldown, paid-credit fallback, and global
   signature cache disabled.
+- xAI OIDC discovery, one-shot device-code begin/poll, strict native/canonical file enrichment,
+  stable OIDC subject identity, and one-shot context-aware refresh;
+- the execution-only Grok HTTP executor, live OAuth model discovery, explicit local CountTokens
+  estimator, and supported protocol translators, without CPA manager, refresh, retry, fallback,
+  WebSocket, image, or video execution paths.
 
 It intentionally excludes CPA Manager, selector, pool, file store, server,
 watcher, WebSocket/Auto executors, fallback, and internal retry loops.
@@ -43,7 +48,7 @@ resolve CPA itself at the exact version recorded in both `go.mod` files and
 CPA upgrades are deliberate compatibility work, not automatic dependency
 bumps:
 
-1. Review upstream changes to Codex, Claude, and Antigravity OAuth, token, HTTP
+1. Review upstream changes to Codex, Claude, Antigravity, and xAI OAuth, token, HTTP
    executor, translation, headers, identity, model discovery, and usage observation code.
 2. Update the CPA version in this module and run `go mod tidy` here.
 3. Fix only bridge compatibility issues; keep the execution-only boundary and
@@ -97,3 +102,14 @@ CPA_LIVE_ANTIGRAVITY_MODEL=optional-antigravity-model-id \
 
 Browser OAuth, refresh-token rotation, deliberate 401/429 responses, and provider
 policy changes remain supervised live gates rather than default test behavior.
+
+The Grok contract requires a prepared canonical xAI OAuth credential. It verifies live OAuth
+models, all four unary/streaming protocol routes, and the three explicit local CountTokens
+representations. It does not invent an active plan or quota observation because CPA and the
+verified xAI execution surface expose no stable proactive quota endpoint.
+
+```bash
+CPA_LIVE_GROK_CREDENTIAL_FILE=/absolute/path/to/grok.json \
+CPA_LIVE_GROK_MODEL=optional-grok-model-id \
+  go test -count=1 -run '^TestLiveGrokContract$' ./embedded
+```

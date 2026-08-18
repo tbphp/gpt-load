@@ -419,6 +419,122 @@ func selectLiveAntigravityModel(models []AntigravityModel) string {
 	return models[0].ID
 }
 
+// TestLiveGrokContract is opt-in because it consumes a real Grok subscription.
+// It uses a prepared canonical credential and never refreshes or logs it.
+func TestLiveGrokContract(t *testing.T) {
+	credentialFile := strings.TrimSpace(os.Getenv("CPA_LIVE_GROK_CREDENTIAL_FILE"))
+	model := strings.TrimSpace(os.Getenv("CPA_LIVE_GROK_MODEL"))
+	if credentialFile == "" {
+		t.Skip("CPA_LIVE_GROK_CREDENTIAL_FILE is not set")
+	}
+	raw, err := os.ReadFile(credentialFile)
+	if err != nil {
+		t.Fatalf("read live Grok credential file: %v", err)
+	}
+	credential, err := ParseGrokCredentialJSON(raw)
+	clear(raw)
+	if err != nil {
+		t.Fatalf("parse live Grok credential: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	models, err := DiscoverGrokModels(ctx, credential, GrokOptions{})
+	if err != nil {
+		t.Fatalf("discover live Grok models: %v", err)
+	}
+	if len(models) == 0 {
+		t.Fatal("live Grok model list is empty")
+	}
+	if model == "" {
+		model = models[0]
+	}
+	payloads := []struct {
+		name   string
+		format string
+		body   map[string]any
+	}{
+		{name: "OpenAI Responses", format: "openai-response", body: map[string]any{
+			"model": model, "input": "Reply exactly OK.", "store": false,
+		}},
+		{name: "OpenAI Chat Completions", format: "openai", body: map[string]any{
+			"model": model, "messages": []map[string]any{{"role": "user", "content": "Reply exactly OK."}},
+		}},
+		{name: "Anthropic Messages", format: "claude", body: map[string]any{
+			"model": model, "max_tokens": 16,
+			"messages": []map[string]any{{"role": "user", "content": "Reply exactly OK."}},
+		}},
+		{name: "Gemini GenerateContent", format: "gemini", body: map[string]any{
+			"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": "Reply exactly OK."}}}},
+		}},
+	}
+	executor := NewGrokHTTPExecutor()
+	for _, request := range payloads {
+		payload, marshalErr := json.Marshal(request.body)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		t.Run(request.name+" unary", func(t *testing.T) {
+			response, executeErr := executor.ExecuteCanonical(ctx, "live-grok-contract", credential, ExecuteRequest{
+				Model: model, Format: request.format, Payload: payload, OriginalRequest: payload,
+			})
+			if executeErr != nil {
+				t.Fatalf("execute live request: %v", executeErr)
+			}
+			if !json.Valid(response.Payload) {
+				t.Fatal("live response is not JSON")
+			}
+		})
+		t.Run(request.name+" stream", func(t *testing.T) {
+			streamBody := make(map[string]any, len(request.body)+1)
+			for key, value := range request.body {
+				streamBody[key] = value
+			}
+			streamBody["stream"] = true
+			streamPayload, marshalErr := json.Marshal(streamBody)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			stream, streamErr := executor.ExecuteStreamCanonical(ctx, "live-grok-contract", credential, ExecuteRequest{
+				Model: model, Format: request.format, Payload: streamPayload, OriginalRequest: streamPayload,
+			})
+			if streamErr != nil {
+				t.Fatalf("start live stream: %v", streamErr)
+			}
+			chunks := 0
+			for chunk := range stream.Chunks {
+				if chunk.Err != nil {
+					t.Fatalf("read live stream: %v", chunk.Err)
+				}
+				if len(chunk.Payload) > 0 {
+					chunks++
+				}
+			}
+			if chunks == 0 {
+				t.Fatal("live stream returned no chunks")
+			}
+		})
+	}
+	for _, request := range []struct {
+		format string
+		body   map[string]any
+	}{
+		{format: "openai-response", body: payloads[0].body},
+		{format: "claude", body: payloads[2].body},
+		{format: "gemini", body: payloads[3].body},
+	} {
+		payload, marshalErr := json.Marshal(request.body)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		response, countErr := executor.CountTokensCanonical(ctx, ExecuteRequest{
+			Model: model, Format: request.format, Payload: payload, OriginalRequest: payload,
+		})
+		if countErr != nil || !json.Valid(response.Payload) {
+			t.Fatalf("count live Grok tokens: %v / %s", countErr, response.Payload)
+		}
+	}
+}
+
 func selectLiveClaudeModel(models []ClaudeModel) string {
 	for _, preferred := range []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"} {
 		for _, model := range models {

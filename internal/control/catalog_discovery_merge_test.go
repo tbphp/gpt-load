@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription/providers/antigravity"
 	"gpt-load/internal/subscription/providers/codex"
+	"gpt-load/internal/subscription/providers/grok"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -162,6 +163,68 @@ func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *tes
 	}}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("Antigravity candidates = %#v, want %#v", got.Models, want)
+	}
+}
+
+func TestGrokDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"xai": {
+			ID: "xai", Name: "xAI", Models: map[string]catalog.Model{
+				"grok-4.3": {
+					ID: "grok-4.3", Name: "xAI catalog name",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				},
+				"xai-catalog-only": {
+					ID: "xai-catalog-only", Name: "xAI catalog only",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
+				},
+			},
+		},
+	}})
+	canonical, err := grok.MarshalCredential(grok.Credential{
+		Type: grok.Provider, AccessToken: "access", RefreshToken: "refresh", AccountID: "xai-account",
+		Email: "grok@example.com", Expire: "2030-01-01T00:00:00Z", TokenEndpoint: "https://auth.x.ai/oauth/token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, ok := fixture.service.subscriptions.Driver(channel.Grok)
+	if !ok {
+		t.Fatal("Grok driver is unavailable")
+	}
+	credential, err := driver.Parse(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := fixture.service.persistReadyCredentialStage(t.Context(), channel.Grok, "oauth_file", credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.discoverSubscriptionModels = func(
+		_ context.Context,
+		channelID channel.ID,
+		_ subscriptionruntime.Credential,
+	) ([]string, error) {
+		if channelID != channel.Grok {
+			t.Fatalf("channel = %q, want Grok", channelID)
+		}
+		return []string{"grok-4.3"}, nil
+	}
+
+	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Grok, StagedCredentialID: stage.StageID, ConnectionType: "subscription",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xai := "xAI"
+	want := []ModelCandidate{{
+		ID: "grok-4.3", Name: "grok-4.3", Sources: []string{"live"},
+		PricingStatus: PricingStatusConfigured, PricingSource: &xai,
+	}}
+	if !reflect.DeepEqual(got.Models, want) {
+		t.Fatalf("Grok candidates = %#v, want %#v", got.Models, want)
 	}
 }
 

@@ -45,14 +45,14 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 - **Four client protocols:** OpenAI Completions, OpenAI Responses, Anthropic Messages, and Gemini requests keep their public endpoints. Each channel declares its supported native and converted operations; unsupported feature combinations fail before dispatch.
 - **Channel and traffic management:** Users select a searchable code-defined channel, then enter models and encrypted credentials. GPT-Load owns AccessKey filtering, cross-Group credential scheduling, retry decisions, health state, cooldown, blacklist, and automatic weights.
 - **Provider execution:** The official Bifrost Core Go SDK maintains provider-specific authentication, request/response conversion, streaming, normalized usage, and provider errors. GPT-Load pins one selected credential per logical attempt and disables Bifrost's configured retry and fallback policy.
-- **Codex and Claude subscriptions:** OpenAI Groups can use API keys or Codex browser OAuth/CPA JSON accounts. The separate Claude channel accepts Claude browser OAuth/CPA JSON accounts, while the existing Anthropic channel continues to use API keys. Both subscription channels share GPT-Load's scheduling, retry, health, weight, and affinity behavior, and their credentials stay encrypted.
+- **Subscription channels:** Codex, Claude, Antigravity, and Grok are independent subscription-backed channels alongside the existing API-key channels. Codex, Claude, and Antigravity use browser OAuth/CPA JSON; Grok uses xAI device OAuth/CPA JSON. All reuse GPT-Load's encrypted credential lifecycle, scheduling, retry, health, weight, and affinity behavior.
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
 - **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, exact four-slot model prices synchronized from Models.dev where available, and user-managed prices.
 
 The M3 control-plane UI and M4 usage/pricing scope are present in the local candidate, but their formal exit and public release are unfinished. Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
 
 > [!WARNING]
-> Claude subscription OAuth and execution rely on a pinned, compatibility-sensitive CPA contract rather than the Anthropic API-key contract. Upstream changes may require a reviewed CPA bridge update; validate the channel with an authorized account before production use.
+> Subscription OAuth execution relies on pinned, compatibility-sensitive CPA contracts rather than the corresponding API-key contracts. Upstream changes may require a reviewed CPA bridge update; validate each enabled channel with an authorized account before production use.
 
 ## 2.0.0 support boundaries
 

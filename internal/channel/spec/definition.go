@@ -17,6 +17,7 @@ const (
 	Codex            ID = "codex"
 	Claude           ID = "claude"
 	Antigravity      ID = "antigravity"
+	Grok             ID = "grok"
 	Anthropic        ID = "anthropic"
 	Gemini           ID = "gemini"
 	AzureOpenAI      ID = "azure_openai"
@@ -42,6 +43,7 @@ const (
 	ProviderCodex            ProviderKind = "codex"
 	ProviderClaude           ProviderKind = "claude"
 	ProviderAntigravity      ProviderKind = "antigravity"
+	ProviderGrok             ProviderKind = "grok"
 	ProviderAnthropic        ProviderKind = "anthropic"
 	ProviderGemini           ProviderKind = "gemini"
 	ProviderOpenAICompatible ProviderKind = "openai_compatible"
@@ -90,6 +92,7 @@ func (kind ProviderKind) Valid() bool {
 		ProviderCodex,
 		ProviderClaude,
 		ProviderAntigravity,
+		ProviderGrok,
 		ProviderAnthropic,
 		ProviderGemini,
 		ProviderOpenAICompatible,
@@ -143,13 +146,14 @@ type AuthorizationMethod string
 
 const (
 	AuthorizationBrowserOAuth AuthorizationMethod = "browser_oauth"
+	AuthorizationDeviceOAuth  AuthorizationMethod = "device_oauth"
 	AuthorizationOAuthFile    AuthorizationMethod = "oauth_file"
 )
 
 // Valid reports whether the authorization method is part of the public channel contract.
 func (method AuthorizationMethod) Valid() bool {
 	switch method {
-	case AuthorizationBrowserOAuth, AuthorizationOAuthFile:
+	case AuthorizationBrowserOAuth, AuthorizationDeviceOAuth, AuthorizationOAuthFile:
 		return true
 	default:
 		return false

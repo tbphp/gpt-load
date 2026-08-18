@@ -61,6 +61,8 @@ type Service struct {
 	operationRandom                   io.Reader
 	beginSubscriptionAuthorization    func(channel.ID) (subscriptionruntime.Authorization, error)
 	completeSubscriptionAuthorization func(context.Context, channel.ID, subscriptionruntime.AuthorizationCompletion) (subscriptionruntime.Credential, error)
+	beginDeviceAuthorization          func(context.Context, channel.ID) (subscriptionruntime.DeviceAuthorization, error)
+	pollDeviceAuthorization           func(context.Context, channel.ID, []byte) (subscriptionruntime.DeviceAuthorizationPoll, error)
 	refreshSubscriptionCredential     func(context.Context, channel.ID, subscriptionruntime.Credential) (subscriptionruntime.Credential, error)
 	prepareSubscriptionCredential     func(context.Context, channel.ID, execution.CredentialSnapshot, bool) (subscriptionruntime.Credential, *execution.ErrorEvidence)
 	discoverSubscriptionModels        func(context.Context, channel.ID, subscriptionruntime.Credential) ([]string, error)
@@ -196,6 +198,20 @@ func NewService(
 			}
 			return browser.CompleteAuthorization(ctx, completion)
 		},
+		beginDeviceAuthorization: func(ctx context.Context, channelID channel.ID) (subscriptionruntime.DeviceAuthorization, error) {
+			device, ok := subscriptionsDevice(subscriptions, channelID)
+			if !ok {
+				return subscriptionruntime.DeviceAuthorization{}, app_errors.ErrAuthorizationUnavailable
+			}
+			return device.BeginDeviceAuthorization(ctx)
+		},
+		pollDeviceAuthorization: func(ctx context.Context, channelID channel.ID, state []byte) (subscriptionruntime.DeviceAuthorizationPoll, error) {
+			device, ok := subscriptionsDevice(subscriptions, channelID)
+			if !ok {
+				return subscriptionruntime.DeviceAuthorizationPoll{}, app_errors.ErrAuthorizationUnavailable
+			}
+			return device.PollDeviceAuthorization(ctx, state)
+		},
 		refreshSubscriptionCredential: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential) (subscriptionruntime.Credential, error) {
 			driver, ok := subscriptionsDriver(subscriptions, channelID)
 			if !ok {
@@ -272,6 +288,13 @@ func subscriptionsBrowser(runtime *subscriptionruntime.Runtime, channelID channe
 		return nil, false
 	}
 	return runtime.BrowserAuthorization(channelID)
+}
+
+func subscriptionsDevice(runtime *subscriptionruntime.Runtime, channelID channel.ID) (subscriptionruntime.DeviceAuthorizationDriver, bool) {
+	if runtime == nil {
+		return nil, false
+	}
+	return runtime.DeviceAuthorization(channelID)
 }
 
 type configMutationPublication struct {

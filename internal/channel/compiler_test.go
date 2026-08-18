@@ -50,6 +50,20 @@ func TestCompilerRejectsUnknownAuthorizationMethod(t *testing.T) {
 	}
 }
 
+func TestCompilerAcceptsDeviceOAuthAuthorizationMethod(t *testing.T) {
+	t.Parallel()
+
+	codex := findModule(t, builtInModules(), Codex)
+	codex.Definition.Connection.AuthorizationMethods = []spec.AuthorizationMethod{
+		"device_oauth",
+		spec.AuthorizationOAuthFile,
+	}
+
+	if _, err := compileBuiltInModules([]spec.Module{codex}); err != nil {
+		t.Fatalf("compileBuiltInModules() rejected device OAuth: %v", err)
+	}
+}
+
 func TestCompilerRejectsQuotaPriorityWithoutObservation(t *testing.T) {
 	t.Parallel()
 
