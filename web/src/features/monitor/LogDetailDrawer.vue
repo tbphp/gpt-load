@@ -87,7 +87,7 @@ const pricingIdentity = computed(() => {
   const value = receipt.value
   if (!value) return '—'
   if (value.schema_version >= 3) {
-    return `${value.rule.channel_id} · ${value.rule.model_id}`
+    return `${channelName(value.rule.channel_id)} · ${value.rule.model_id}`
   }
   return `${t(`monitor.logs.receipt.historicalSchema${value.schema_version}`)} · ${value.rule.model_id}`
 })
@@ -245,6 +245,11 @@ function finalGroupName(): string | null {
 function channelDefinition(channelID: string | null | undefined): ChannelDto | null {
   if (!channelID) return null
   return props.channels?.[channelID] ?? null
+}
+
+function channelName(channelID: string | null | undefined): string {
+  if (!channelID) return '—'
+  return channelDefinition(channelID)?.name.trim() || channelID
 }
 
 function finalChannel(): ChannelDto | null {

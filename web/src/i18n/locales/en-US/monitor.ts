@@ -705,7 +705,7 @@ export default {
       },
       routeIdentity: {
         group: 'Group: {name} (G{id})',
-        channel: 'Channel: {name} ({id})',
+        channel: 'Channel: {name}',
         credential: 'Credential: K{id}',
       },
       details: 'View details',

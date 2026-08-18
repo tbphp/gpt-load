@@ -24,16 +24,17 @@ const props = withDefaults(
 
 const { t } = useI18n()
 
-// The icon is what carries the channel identity, so it replaces the channel ID
-// in the label. Callers that pass no icon metadata — or a channel list that
-// failed to load — must keep the ID, otherwise the row only shows G/K.
+// Keep the compact route layout icon-first. When icon metadata is unavailable,
+// show the channel name instead; an ID remains the diagnostic fallback while
+// the channel catalog is loading or unavailable.
 const showsIcon = computed(() => Boolean(props.channel?.mark))
+const channelLabel = computed(() => props.channel?.name.trim() || props.channelId || '—')
 
 const compactLabel = computed(() => {
   const parts: string[] = []
   if (props.groupId !== null) parts.push(`G${props.groupId}`)
   if (props.credentialId !== null) parts.push(`K${props.credentialId}`)
-  if (!showsIcon.value && props.channelId !== null) parts.push(props.channelId)
+  if (!showsIcon.value && props.channelId !== null) parts.push(channelLabel.value)
   return parts.join('·') || '—'
 })
 
@@ -50,8 +51,7 @@ const tooltip = computed(() => {
   if (props.channelId !== null) {
     lines.push(
       t('monitor.logs.routeIdentity.channel', {
-        name: props.channel?.name.trim() || '—',
-        id: props.channelId,
+        name: channelLabel.value,
       }),
     )
   }

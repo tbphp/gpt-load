@@ -61,8 +61,7 @@ export default {
       upstreamCount: '{count} upstreams',
       protocolRestricted: 'Protocol restricted',
       protocolRestrictedHelp: 'This access key can use only these protocols:\n{protocols}',
-      pricingIdentityHelp:
-        'Pricing identity\nChannel: {channel} ({channelId})\nUpstream model: {model}',
+      pricingIdentityHelp: 'Pricing identity\nChannel: {channel}\nUpstream model: {model}',
       tierCount: '{count} tiers',
       noPrice: '—',
       fastPrice: 'Fast mode price',

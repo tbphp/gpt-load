@@ -62,7 +62,7 @@ export default {
       upstreamCount: '上流 {count} 件',
       protocolRestricted: 'プロトコル制限あり',
       protocolRestrictedHelp: 'このアクセスキーで利用できるプロトコル：\n{protocols}',
-      pricingIdentityHelp: '価格識別子\nチャネル：{channel} ({channelId})\n上流モデル：{model}',
+      pricingIdentityHelp: '価格識別子\nチャネル：{channel}\n上流モデル：{model}',
       tierCount: '{count} 段',
       noPrice: '—',
       fastPrice: 'Fast モード料金',

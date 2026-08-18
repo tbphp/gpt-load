@@ -11,6 +11,7 @@ import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
+import { channelsQueryOptions } from '@/app/resources/channels'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
   inspectRoute,
@@ -95,6 +96,7 @@ let controller: AbortController | undefined
 
 const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const groupOptionsQuery = useQuery(groupOptionsQueryOptions(client))
+const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const protocolOptions = computed(() => [
   { value: '', label: t('monitor.inspector.form.selectProtocol') },
   ...enabledDataProtocols.map((value) => ({ value, label: value })),
@@ -160,6 +162,11 @@ const optionsPending = computed(
 const optionsFailed = computed(
   () => accessKeyOptionsQuery.isError.value || groupOptionsQuery.isError.value,
 )
+const channelsByID = computed<Record<string, string>>(() =>
+  Object.fromEntries(
+    (channelsQuery.data.value?.items ?? []).map((channel) => [channel.channel_id, channel.name]),
+  ),
+)
 const inputChanged = computed(() => {
   const previous = submitted.value
   if (!previous) return false
@@ -221,6 +228,20 @@ function readPositiveID(raw: unknown): string {
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return ''
   const value = Number(raw)
   return Number.isSafeInteger(value) && value > 0 ? String(value) : ''
+}
+
+function channelName(channelID: string): string {
+  return channelsByID.value[channelID]?.trim() || channelID
+}
+
+function includedGroupIdentity(group: RouteInspectGroupDto): string {
+  return `#${group.group_id} · ${channelName(group.channel_id)} · ${modelLabel(group.upstream_model)}`
+}
+
+function excludedGroupIdentity(group: RouteInspectGroupDto): string {
+  return `#${group.group_id} · ${channelName(group.channel_id)} · ${t(
+    `monitor.inspector.routeModes.${group.route_mode}`,
+  )} · ${modelLabel(group.upstream_model)}`
 }
 
 watch(
@@ -758,12 +779,8 @@ onBeforeUnmount(() => {
                   <OverflowTooltip as="strong" :content="group.group_name">
                     {{ group.group_name }}
                   </OverflowTooltip>
-                  <OverflowTooltip
-                    as="small"
-                    :content="`#${group.group_id} · ${group.channel_id} · ${modelLabel(group.upstream_model)}`"
-                  >
-                    #{{ group.group_id }} · {{ group.channel_id }} ·
-                    {{ modelLabel(group.upstream_model) }}
+                  <OverflowTooltip as="small" :content="includedGroupIdentity(group)">
+                    {{ includedGroupIdentity(group) }}
                   </OverflowTooltip>
                 </div>
                 <div class="route-candidate__status" role="cell">
@@ -998,13 +1015,8 @@ onBeforeUnmount(() => {
                 <OverflowTooltip as="strong" :content="group.group_name">
                   {{ group.group_name }}
                 </OverflowTooltip>
-                <OverflowTooltip
-                  as="small"
-                  :content="`#${group.group_id} · ${group.channel_id} · ${group.route_mode} · ${modelLabel(group.upstream_model)}`"
-                >
-                  #{{ group.group_id }} · {{ group.channel_id }} ·
-                  {{ t(`monitor.inspector.routeModes.${group.route_mode}`) }} ·
-                  {{ modelLabel(group.upstream_model) }}
+                <OverflowTooltip as="small" :content="excludedGroupIdentity(group)">
+                  {{ excludedGroupIdentity(group) }}
                 </OverflowTooltip>
               </div>
               <div class="ledger-record-list__cell" role="cell">

@@ -89,12 +89,7 @@ const channelOptions = () => {
   ) {
     options.push(option(props.draft.channel_id, props.draft.channel_id))
   }
-  return [
-    ...options,
-    ...props.channels.map((channel) =>
-      option(channel.channel_id, `${channel.name} · ${channel.channel_id}`),
-    ),
-  ]
+  return [...options, ...props.channels.map((channel) => option(channel.channel_id, channel.name))]
 }
 
 function error(field: keyof LogFilterDraft): string | undefined {

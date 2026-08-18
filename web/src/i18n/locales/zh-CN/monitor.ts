@@ -686,7 +686,7 @@ export default {
       },
       routeIdentity: {
         group: '分组：{name}（G{id}）',
-        channel: '渠道：{name}（{id}）',
+        channel: '渠道：{name}',
         credential: '凭据：K{id}',
       },
       details: '查看详情',

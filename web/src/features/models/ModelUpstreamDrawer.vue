@@ -9,6 +9,7 @@ import { useStableLoading } from '@/app/loading-state'
 import { getUpstreamModelDetail, type UpstreamModelDetailDto } from '@/app/resources/models'
 import { controlQueryKeys } from '@/app/query-keys'
 import { groupDetailLocation } from '@/app/route-locations'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
@@ -70,6 +71,7 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
   can_delete: false,
 }
 const price = computed(() => detail.value?.price ?? placeholderPrice)
+const channelName = computed(() => price.value.channel_name.trim() || price.value.channel_id || '—')
 const editor = useModelPriceEditor(toRef(price))
 const emptyFastDraft: ModelPriceSlotDraft = {
   input: '',
@@ -167,8 +169,13 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
         <div>
           <dt>{{ t('models.drawer.pricingChannel') }}</dt>
           <dd>
-            <span class="upstream-drawer__channel-name">{{ price.channel_name }}</span>
-            <code class="upstream-drawer__channel-id">{{ price.channel_id }}</code>
+            <ChannelIcon
+              v-if="price.channel_icon || price.channel_mark"
+              class="upstream-drawer__channel-icon"
+              :icon="price.channel_icon"
+              :mark="price.channel_mark"
+            />
+            <span class="upstream-drawer__channel-name">{{ channelName }}</span>
           </dd>
         </div>
         <div>
@@ -367,15 +374,10 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
   font-size: var(--text-body);
 }
 
-.upstream-drawer__identity .upstream-drawer__channel-id {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
-  padding: 1px 5px;
-  color: var(--color-text-muted);
-  line-height: var(--line-compact);
+.upstream-drawer__channel-icon {
+  align-self: center;
+  flex: none;
+  font-size: var(--text-body);
 }
 
 .upstream-drawer__faint {

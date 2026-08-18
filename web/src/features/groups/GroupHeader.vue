@@ -8,6 +8,7 @@ import type { GroupSummaryDto } from '@/app/resources/groups'
 import { useApiClient } from '@/api/client-context'
 import { channelsQueryOptions } from '@/app/resources/channels'
 import { groupsLocation } from '@/app/route-locations'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
@@ -15,11 +16,10 @@ const props = defineProps<{ group: GroupSummaryDto }>()
 const { t } = useI18n()
 const client = useApiClient()
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
-const channelName = computed(
-  () =>
-    channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === props.group.channel_id)
-      ?.name ?? props.group.channel_id,
+const channel = computed(() =>
+  channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === props.group.channel_id),
 )
+const channelName = computed(() => channel.value?.name.trim() || props.group.channel_id)
 </script>
 
 <template>
@@ -38,8 +38,15 @@ const channelName = computed(
       </div>
       <div class="group-header__details">
         <span class="group-header__id">#{{ group.id }}</span>
-        <span class="meta-tag">{{ channelName }}</span>
-        <code class="group-header__channel-id">{{ group.channel_id }}</code>
+        <span class="meta-tag">
+          <ChannelIcon
+            v-if="channel"
+            class="group-header__channel-icon"
+            :icon="channel.icon"
+            :mark="channel.mark"
+          />
+          <span>{{ channelName }}</span>
+        </span>
         <CopyChip
           v-if="group.params.base_url"
           :value="group.params.base_url"
@@ -110,15 +117,15 @@ const channelName = computed(
   display: inline-flex;
   min-height: 24px;
   align-items: center;
+  gap: 5px;
   border: 1px solid var(--color-border-subtle);
   background: var(--color-surface-sunken);
   padding: 3px 7px;
   font-size: var(--text-label-xs);
 }
-.group-header__channel-id {
-  color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-label-xs);
+.group-header__channel-icon {
+  flex: none;
+  font-size: 15px;
 }
 .group-header__details :deep(.copy-chip) {
   max-width: 20rem;

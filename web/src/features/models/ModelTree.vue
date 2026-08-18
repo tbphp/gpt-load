@@ -36,8 +36,7 @@ function protocolRestrictionTooltip(protocols: GroupProtocol[]): string {
 
 function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   return t('models.tree.pricingIdentityHelp', {
-    channel: upstream.price.channel_name,
-    channelId: upstream.price.channel_id,
+    channel: upstream.price.channel_name.trim() || upstream.price.channel_id,
     model: upstream.model_id,
   })
 }

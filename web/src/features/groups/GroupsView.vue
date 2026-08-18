@@ -415,8 +415,14 @@ function channelDefinition(channelID: string): ChannelDto | null {
                     :icon="channelDefinition(group.channel_id)!.icon"
                     :mark="channelDefinition(group.channel_id)!.mark"
                   />
-                  <strong class="channel-name">{{ channelName(group.channel_id) }}</strong>
-                  <code class="channel-id">({{ group.channel_id }})</code>
+                  <OverflowTooltip
+                    as="strong"
+                    class="channel-name"
+                    :content="channelName(group.channel_id)"
+                    :focusable="false"
+                  >
+                    {{ channelName(group.channel_id) }}
+                  </OverflowTooltip>
                 </span>
                 <CopyChip
                   v-if="group.params.base_url"
@@ -544,16 +550,6 @@ function channelDefinition(channelID: string): ChannelDto | null {
 
 .endpoint :deep(.copy-chip-wrap) {
   width: 100%;
-}
-
-.channel-id {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .channel-heading {
