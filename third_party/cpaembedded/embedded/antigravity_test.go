@@ -275,7 +275,7 @@ func TestImportAntigravityCredentialAcceptsDownloadedCanonicalFile(t *testing.T)
 		switch request.URL.Path {
 		case "/userinfo":
 			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"id":"google-account-one","email":"owner@example.com","verified_email":true}`))
+			_, _ = writer.Write([]byte(`{"id":"google-account-one","email":"renamed@example.com","verified_email":true}`))
 		case "/load":
 			writer.Header().Set("Content-Type", "application/json")
 			_, _ = writer.Write([]byte(`{"projectId":"verified-project"}`))
@@ -304,7 +304,8 @@ func TestImportAntigravityCredentialAcceptsDownloadedCanonicalFile(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if credential.AccountID != "google-account-one" || credential.ProjectID != "verified-project" {
+	if credential.AccountID != "google-account-one" || credential.Email != "renamed@example.com" ||
+		credential.ProjectID != "verified-project" {
 		t.Fatalf("credential = %#v", credential)
 	}
 	if _, err := ImportAntigravityCredential(
@@ -313,6 +314,32 @@ func TestImportAntigravityCredentialAcceptsDownloadedCanonicalFile(t *testing.T)
 		options,
 	); err == nil {
 		t.Fatal("ImportAntigravityCredential() accepted a mismatched canonical account ID")
+	}
+}
+
+func TestImportAntigravityCredentialRejectsNativeFileEmailMismatch(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/userinfo" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"id":"google-account-one","email":"renamed@example.com","verified_email":true}`))
+	}))
+	defer server.Close()
+
+	_, err := ImportAntigravityCredential(t.Context(), []byte(`{
+		"type":"antigravity",
+		"access_token":"access-secret",
+		"refresh_token":"refresh-secret",
+		"email":"owner@example.com",
+		"project_id":"project-one",
+		"expired":"2030-01-01T00:00:00Z"
+	}`), AntigravityOptions{UserInfoURL: server.URL + "/userinfo", HTTPClient: server.Client()})
+	if err == nil {
+		t.Fatal("ImportAntigravityCredential() accepted a native file with mismatched email")
 	}
 }
 
@@ -473,7 +500,7 @@ func TestObserveAntigravityAccountDoesNotInventQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observation.PlanID != "google-one-ai" || observation.GoogleOneAICredits == nil ||
+	if observation.PlanID != "google-one-ai" || !observation.CreditsObserved || observation.GoogleOneAICredits == nil ||
 		observation.GoogleOneAICredits.Amount != 25000 || observation.GoogleOneAICredits.MinimumAmount != 50 {
 		t.Fatalf("observation = %#v", observation)
 	}
@@ -482,6 +509,52 @@ func TestObserveAntigravityAccountDoesNotInventQuota(t *testing.T) {
 		observation.QuotaGroups[0].Buckets[0].RemainingFraction == nil ||
 		*observation.QuotaGroups[0].Buckets[0].RemainingFraction != 0.75 {
 		t.Fatalf("quota groups = %#v", observation.QuotaGroups)
+	}
+}
+
+func TestObserveAntigravityAccountDistinguishesEmptyAndMissingCredits(t *testing.T) {
+	tests := []struct {
+		name            string
+		loadResponse    string
+		creditsObserved bool
+	}{
+		{
+			name:            "explicit empty credits",
+			loadResponse:    `{"currentTier":{"id":"free-tier"},"paidTier":{"availableCredits":[]}}`,
+			creditsObserved: true,
+		},
+		{
+			name:            "missing credits field",
+			loadResponse:    `{"currentTier":{"id":"free-tier"},"paidTier":{}}`,
+			creditsObserved: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				switch request.URL.Path {
+				case "/load":
+					_, _ = writer.Write([]byte(test.loadResponse))
+				case "/quota":
+					_, _ = writer.Write([]byte(`{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"weekly","window":"weekly","remainingFraction":1}]}]}`))
+				default:
+					http.NotFound(writer, request)
+				}
+			}))
+			defer server.Close()
+
+			observation, err := ObserveAntigravityAccount(t.Context(), AntigravityCredential{
+				Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
+				AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+				Expire: "2030-01-01T00:00:00Z",
+			}, AntigravityOptions{
+				LoadCodeAssistURL: server.URL + "/load", RetrieveUserQuotaURL: server.URL + "/quota", HTTPClient: server.Client(),
+			})
+			if err != nil || observation.CreditsObserved != test.creditsObserved || observation.GoogleOneAICredits != nil {
+				t.Fatalf("observation = %#v, error = %v", observation, err)
+			}
+		})
 	}
 }
 
@@ -552,7 +625,7 @@ func TestObserveAntigravityAccountPreservesAuthorizationFailureWhenAllSourcesRej
 func TestAntigravityGoogleOneAICreditsIgnoresUnavailableBalance(t *testing.T) {
 	t.Parallel()
 
-	credits, err := antigravityGoogleOneAICredits(map[string]any{
+	credits, observed, err := antigravityGoogleOneAICredits(map[string]any{
 		"availableCredits": []any{
 			map[string]any{
 				"creditType":                  "GOOGLE_ONE_AI",
@@ -563,8 +636,8 @@ func TestAntigravityGoogleOneAICreditsIgnoresUnavailableBalance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("antigravityGoogleOneAICredits() error = %v", err)
 	}
-	if credits != nil {
-		t.Fatalf("antigravityGoogleOneAICredits() = %#v, want no known balance", credits)
+	if credits != nil || observed {
+		t.Fatalf("antigravityGoogleOneAICredits() = %#v/%t, want unavailable balance", credits, observed)
 	}
 }
 
@@ -622,6 +695,69 @@ func TestAntigravityExecutionOnlyBridgeUsesOneFixedUpstreamDispatch(t *testing.T
 	}
 }
 
+func TestAntigravityExecutionOnlyBridgeScopesConnectionsByCredential(t *testing.T) {
+	connections := make(map[string][]string)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		authorization := request.Header.Get("Authorization")
+		connections[authorization] = append(connections[authorization], request.RemoteAddr)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}}`))
+	}))
+	defer server.Close()
+
+	executor := newAntigravityHTTPExecutor(server.URL)
+	request := ExecuteRequest{
+		Model: "gemini-live", Format: "gemini",
+		Payload:         []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+		OriginalRequest: []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+	}
+	credential := func(accessToken string) AntigravityCredential {
+		return AntigravityCredential{
+			Type: ProviderAntigravity, AccessToken: accessToken, RefreshToken: "refresh-secret",
+			AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+			Expire: "2030-01-01T00:00:00Z",
+		}
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := executor.ExecuteCanonical(t.Context(), "credential-one", credential("access-one"), request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := executor.ExecuteCanonical(t.Context(), "credential-two", credential("access-two"), request); err != nil {
+		t.Fatal(err)
+	}
+
+	first := connections["Bearer access-one"]
+	second := connections["Bearer access-two"]
+	if len(first) != 2 || first[0] != first[1] {
+		t.Fatalf("same credential connections = %#v, want one reused connection", first)
+	}
+	if len(second) != 1 || second[0] == first[0] {
+		t.Fatalf("cross-credential connections = %#v / %#v, want isolated pools", first, second)
+	}
+}
+
+func TestAntigravityExecutionOnlyBridgeRejectsRedirects(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Location", "https://example.invalid/redirected")
+		writer.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+
+	_, err := newAntigravityHTTPExecutor(server.URL).ExecuteCanonical(t.Context(), "credential-one", AntigravityCredential{
+		Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
+		AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+		Expire: "2030-01-01T00:00:00Z",
+	}, ExecuteRequest{
+		Model: "gemini-live", Format: "gemini",
+		Payload:         []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+		OriginalRequest: []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+	})
+	if !errors.Is(err, ErrRedirectNotAllowed) {
+		t.Fatalf("error = %v, want redirect rejection", err)
+	}
+}
+
 func TestAntigravityExecutionOnlyBridgeDoesNotRetryOrKeepPrivateCooldown(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -667,6 +803,19 @@ func TestAntigravityForbiddenIsNotMarkedRequestScoped(t *testing.T) {
 	var scoped interface{ IsRequestScoped() bool }
 	if !errors.As(err, &scoped) || scoped.IsRequestScoped() {
 		t.Fatalf("normalized error = %#v, want non-request-scoped 403", err)
+	}
+}
+
+func TestNormalizeAntigravityExecutionErrorPreservesWrappedStatusFields(t *testing.T) {
+	inner := antigravityStatusTestError{
+		status: http.StatusTooManyRequests,
+		body:   `{"error":{"status":"RESOURCE_EXHAUSTED","details":[{"reason":"INSUFFICIENT_G1_CREDITS_BALANCE"}]}}`,
+	}
+	err := normalizeAntigravityExecutionError(fmt.Errorf("execute Antigravity request: %w", inner))
+	var normalized *AntigravityExecutionError
+	if !errors.As(err, &normalized) || normalized.ErrorType() != "RESOURCE_EXHAUSTED" ||
+		normalized.ErrorCode() != "INSUFFICIENT_G1_CREDITS_BALANCE" {
+		t.Fatalf("normalized error = %#v", err)
 	}
 }
 
@@ -900,7 +1049,11 @@ func TestAntigravityExecutionRequestUsesOnlyPrivateContinuityScope(t *testing.T)
 		t.Fatalf("prepared request was corrupted: payload=%q original=%q", prepared.Payload, prepared.OriginalRequest)
 	}
 	contextWithGin := context.WithValue(t.Context(), "gin", "downstream-request-context")
-	if got := newAntigravityHTTPExecutor("").executionContext(contextWithGin, nil).Value("gin"); got != nil {
+	executionCtx, err := newAntigravityHTTPExecutor("").executionContext(contextWithGin, "credential-one", "account-one", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := executionCtx.Value("gin"); got != nil {
 		t.Fatalf("execution context retained downstream gin value: %#v", got)
 	}
 	options := antigravityExecutorOptions(prepared, "gemini", false)

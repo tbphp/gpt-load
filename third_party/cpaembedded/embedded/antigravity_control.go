@@ -59,6 +59,7 @@ type AntigravityAccountObservation struct {
 	GoogleOneAICredits *AntigravityCredit
 	QuotaGroups        []AntigravityQuotaGroup
 	AccountObserved    bool
+	CreditsObserved    bool
 	QuotaObserved      bool
 	IncompleteSources  []string
 }
@@ -140,11 +141,12 @@ func ObserveAntigravityAccount(
 		return AntigravityAccountObservation{}, err
 	}
 	observation := AntigravityAccountObservation{}
-	planID, currentTierID, credits, planErr := fetchAntigravityPlan(ctx, credential, options)
-	if planErr == nil && (planID != "" || credits != nil) {
+	planID, currentTierID, credits, creditsObserved, planErr := fetchAntigravityPlan(ctx, credential, options)
+	if planErr == nil && (planID != "" || creditsObserved) {
 		observation.PlanID = planID
 		observation.CurrentTierID = currentTierID
 		observation.GoogleOneAICredits = credits
+		observation.CreditsObserved = creditsObserved
 		observation.AccountObserved = true
 	} else {
 		if planErr == nil {
@@ -175,24 +177,24 @@ func fetchAntigravityPlan(
 	ctx context.Context,
 	credential AntigravityCredential,
 	options AntigravityOptions,
-) (string, string, *AntigravityCredit, error) {
+) (string, string, *AntigravityCredit, bool, error) {
 	endpoint := strings.TrimSpace(options.LoadCodeAssistURL)
 	if endpoint == "" {
 		endpoint = antigravityauth.APIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist"
 	}
 	payload, err := json.Marshal(map[string]any{"metadata": map[string]string{"ideType": "ANTIGRAVITY"}})
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, false, err
 	}
 	defer clear(payload)
 	body, err := fetchAntigravityJSON(ctx, endpoint, credential.AccessToken, payload, "loadCodeAssist", options)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, false, err
 	}
 	defer clear(body)
 	var response map[string]any
 	if err := json.Unmarshal(body, &response); err != nil || response == nil {
-		return "", "", nil, fmt.Errorf("decode Antigravity loadCodeAssist response")
+		return "", "", nil, false, fmt.Errorf("decode Antigravity loadCodeAssist response")
 	}
 	currentTierID := antigravityNestedID(response, "currentTier")
 	paidTier, paidTierPresent := response["paidTier"].(map[string]any)
@@ -203,11 +205,11 @@ func fetchAntigravityPlan(
 	if planID == "" {
 		planID = currentTierID
 	}
-	credits, err := antigravityGoogleOneAICredits(paidTier)
+	credits, creditsObserved, err := antigravityGoogleOneAICredits(paidTier)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, false, err
 	}
-	return planID, currentTierID, credits, nil
+	return planID, currentTierID, credits, creditsObserved, nil
 }
 
 func antigravityObservationUnavailable(planErr, quotaErr error) error {
@@ -353,18 +355,19 @@ func antigravityMapString(payload map[string]any, key string) string {
 	return strings.TrimSpace(value)
 }
 
-func antigravityGoogleOneAICredits(paidTier map[string]any) (*AntigravityCredit, error) {
+func antigravityGoogleOneAICredits(paidTier map[string]any) (*AntigravityCredit, bool, error) {
 	if paidTier == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	rawCredits, exists := paidTier["availableCredits"]
 	if !exists || rawCredits == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	credits, ok := rawCredits.([]any)
 	if !ok {
-		return nil, fmt.Errorf("decode Antigravity Google One AI credits")
+		return nil, false, fmt.Errorf("decode Antigravity Google One AI credits")
 	}
+	incompleteBalance := false
 	for _, raw := range credits {
 		credit, ok := raw.(map[string]any)
 		if !ok || !strings.EqualFold(antigravityMapString(credit, "creditType"), "GOOGLE_ONE_AI") {
@@ -375,11 +378,15 @@ func antigravityGoogleOneAICredits(paidTier map[string]any) (*AntigravityCredit,
 		if !amountOK || !minimumOK || amount < 0 || minimum < 0 {
 			// Antigravity omits creditAmount when the paid tier is known but no
 			// displayable credit balance is available.
+			incompleteBalance = true
 			continue
 		}
-		return &AntigravityCredit{Amount: amount, MinimumAmount: minimum}, nil
+		return &AntigravityCredit{Amount: amount, MinimumAmount: minimum}, true, nil
 	}
-	return nil, nil
+	if incompleteBalance {
+		return nil, false, nil
+	}
+	return nil, true, nil
 }
 
 func antigravityFloat(value any) (float64, bool) {

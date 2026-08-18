@@ -154,9 +154,18 @@ func (*antigravityDriver) Observe(ctx context.Context, credential subscriptionru
 	if err != nil {
 		return subscriptionruntime.Observation{}, fmt.Errorf("%w: %v", subscriptionruntime.ErrObservationPayloadInvalid, err)
 	}
+	creditsObserved := observed.CreditsObserved || observed.GoogleOneAICredits != nil
+	observedQuotaScopes := make([]string, 0, 2)
+	if creditsObserved {
+		observedQuotaScopes = append(observedQuotaScopes, quotaScopeCredits)
+	}
+	if quotaObserved {
+		observedQuotaScopes = append(observedQuotaScopes, quotaScopeModel)
+	}
 	return subscriptionruntime.Observation{
 		Payload: normalized, Partial: partial,
 		AccountObserved: accountObserved, QuotaObserved: quotaObserved,
+		ObservedQuotaScopes: observedQuotaScopes,
 	}, nil
 }
 

@@ -2,6 +2,7 @@ package antigravity
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -147,8 +148,8 @@ func normalizeExecutionError(err error) error {
 	if err == nil {
 		return nil
 	}
-	bridge, ok := err.(*cpaembedded.AntigravityExecutionError)
-	if !ok || bridge == nil {
+	var bridge *cpaembedded.AntigravityExecutionError
+	if !errors.As(err, &bridge) || bridge == nil {
 		return err
 	}
 	result := &ExecutionError{

@@ -208,6 +208,11 @@ func TestAntigravityObservationCompletenessProtectsLastKnownGoodSections(t *test
 			}, wantAccount: true, wantQuota: true,
 		},
 		{
+			name: "free plan without credits is complete", observation: AccountObservation{
+				PlanID: "free-tier", QuotaObserved: true,
+			}, wantAccount: true, wantQuota: true,
+		},
+		{
 			name: "plan without quota is partial", observation: AccountObservation{PlanID: "free-tier"},
 			wantAccount: true, wantPartial: true,
 		},

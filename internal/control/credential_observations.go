@@ -266,11 +266,14 @@ func (s *Service) refreshCredentialObservationOnce(
 	state := models.CredentialObservationFresh
 	var freshUntilMS *int64
 	lastErrorCode := ""
+	var previousSnapshot CredentialObservationSnapshot
+	previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
+		json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
+	previousQuotaFresh := previousSnapshotOK &&
+		previous.State == models.CredentialObservationFresh &&
+		previous.FreshUntilMS != nil && *previous.FreshUntilMS > attemptMS
 	if observation.Partial {
 		lastErrorCode = "observation_partial"
-		var previousSnapshot CredentialObservationSnapshot
-		previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
-			json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
 		if previousSnapshotOK {
 			if observation.AccountObserved {
 				snapshot.Plan = mergeObservationPlanSummary(previousSnapshot.Plan, snapshot.Plan)
@@ -280,22 +283,37 @@ func (s *Service) refreshCredentialObservationOnce(
 				snapshot.Account = previousSnapshot.Account
 			}
 		}
-		previousQuotaFresh := previousSnapshotOK &&
-			previous.State == models.CredentialObservationFresh &&
-			previous.FreshUntilMS != nil && *previous.FreshUntilMS > attemptMS
+	}
+	switch {
+	case len(observation.ObservedQuotaScopes) > 0:
+		currentQuotaData := observation.QuotaObserved || len(snapshot.QuotaWindows) > 0
+		var previousQuotaWindows []ObservationQuotaWindow
+		if previousQuotaFresh {
+			previousQuotaWindows = previousSnapshot.QuotaWindows
+		}
+		var preservedPrevious bool
+		snapshot.QuotaWindows, preservedPrevious = mergeObservationQuotaWindows(
+			previousQuotaWindows,
+			snapshot.QuotaWindows,
+			observation.ObservedQuotaScopes,
+		)
 		switch {
-		case !observation.QuotaObserved && previousQuotaFresh:
-			snapshot.QuotaWindows = previousSnapshot.QuotaWindows
-			snapshot.ResetCreditsAvailable = previousSnapshot.ResetCreditsAvailable
-			snapshot.ResetCredits = previousSnapshot.ResetCredits
+		case preservedPrevious:
 			freshUntilMS = previous.FreshUntilMS
-		case observation.QuotaObserved:
+		case !observation.Partial || currentQuotaData:
 			value := now.Add(observationFreshTTL).UnixMilli()
 			freshUntilMS = &value
 		default:
 			state = models.CredentialObservationStale
 		}
-	} else {
+	case observation.Partial && !observation.QuotaObserved && previousQuotaFresh:
+		snapshot.QuotaWindows = previousSnapshot.QuotaWindows
+		snapshot.ResetCreditsAvailable = previousSnapshot.ResetCreditsAvailable
+		snapshot.ResetCredits = previousSnapshot.ResetCredits
+		freshUntilMS = previous.FreshUntilMS
+	case observation.Partial && !observation.QuotaObserved:
+		state = models.CredentialObservationStale
+	default:
 		value := now.Add(observationFreshTTL).UnixMilli()
 		freshUntilMS = &value
 	}
@@ -363,6 +381,50 @@ func mergeObservationAccountSummary(
 		merged.SubscriptionCreatedAtMS = current.SubscriptionCreatedAtMS
 	}
 	return &merged
+}
+
+func mergeObservationQuotaWindows(
+	previous []ObservationQuotaWindow,
+	current []ObservationQuotaWindow,
+	observedScopes []string,
+) ([]ObservationQuotaWindow, bool) {
+	covered := make(map[string]struct{}, len(observedScopes))
+	for _, scope := range observedScopes {
+		if scope != "" {
+			covered[scope] = struct{}{}
+		}
+	}
+	merged := make([]ObservationQuotaWindow, 0, len(previous)+len(current))
+	primary := -1
+	for _, window := range current {
+		if _, ok := covered[window.Scope]; !ok {
+			continue
+		}
+		if primary < 0 && window.IsPrimary {
+			primary = len(merged)
+		}
+		window.IsPrimary = false
+		merged = append(merged, window)
+	}
+	preservedPrevious := false
+	for _, window := range previous {
+		if _, ok := covered[window.Scope]; ok {
+			continue
+		}
+		if primary < 0 && window.IsPrimary {
+			primary = len(merged)
+		}
+		window.IsPrimary = false
+		merged = append(merged, window)
+		preservedPrevious = true
+	}
+	if primary < 0 && len(merged) > 0 {
+		primary = 0
+	}
+	if primary >= 0 {
+		merged[primary].IsPrimary = true
+	}
+	return merged, preservedPrevious
 }
 
 func subscriptionUpstreamHTTPStatus(err error) int {

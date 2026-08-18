@@ -243,11 +243,12 @@ func ImportAntigravityCredential(
 	if err != nil {
 		return AntigravityCredential{}, fmt.Errorf("verify imported Antigravity identity: %w", err)
 	}
-	if !strings.EqualFold(imported.Email, identity.Email) {
+	if imported.AccountID != "" {
+		if imported.AccountID != identity.ID {
+			return AntigravityCredential{}, fmt.Errorf("imported Antigravity account does not match userinfo")
+		}
+	} else if !strings.EqualFold(imported.Email, identity.Email) {
 		return AntigravityCredential{}, fmt.Errorf("imported Antigravity email does not match userinfo")
-	}
-	if imported.AccountID != "" && imported.AccountID != identity.ID {
-		return AntigravityCredential{}, fmt.Errorf("imported Antigravity account does not match userinfo")
 	}
 	projectID, _, err := discoverAntigravityProject(ctx, imported.AccessToken, options)
 	if err != nil {

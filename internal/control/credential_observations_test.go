@@ -300,6 +300,102 @@ func TestRefreshCredentialObservationMergesSparseAccountWithFreshQuota(t *testin
 	}
 }
 
+func TestRefreshCredentialObservationMergesCoveredQuotaScopes(t *testing.T) {
+	tests := []struct {
+		name          string
+		observation   subscriptionruntime.Observation
+		wantRemaining map[string]float64
+	}{
+		{
+			name: "new credits preserve model quota",
+			observation: subscriptionruntime.Observation{
+				Payload: []byte(`{
+					"plan_summary":{"name":"Pro"},
+					"quota_windows":[{"id":"google_one_ai","label":"Credits","scope":"credits","unit":"credits","remaining":50,"state":"available","is_primary":true}]
+				}`),
+				Partial: true, AccountObserved: true, ObservedQuotaScopes: []string{"credits"},
+			},
+			wantRemaining: map[string]float64{"google_one_ai": 50, "model-a": 75},
+		},
+		{
+			name: "new model quota preserves credits",
+			observation: subscriptionruntime.Observation{
+				Payload: []byte(`{
+					"plan_summary":{},
+					"quota_windows":[{"id":"model-b","label":"Model B","scope":"model","unit":"percent","remaining":25,"state":"available","is_primary":true}]
+				}`),
+				Partial: true, QuotaObserved: true, ObservedQuotaScopes: []string{"model"},
+			},
+			wantRemaining: map[string]float64{"google_one_ai": 100, "model-b": 25},
+		},
+		{
+			name: "complete model coverage preserves unobserved credits",
+			observation: subscriptionruntime.Observation{
+				Payload: []byte(`{
+					"plan_summary":{"name":"Free"},
+					"quota_windows":[{"id":"model-b","label":"Model B","scope":"model","unit":"percent","remaining":25,"state":"available","is_primary":true}]
+				}`),
+				AccountObserved: true, QuotaObserved: true, ObservedQuotaScopes: []string{"model"},
+			},
+			wantRemaining: map[string]float64{"google_one_ai": 100, "model-b": 25},
+		},
+		{
+			name: "explicit empty credits clear old balance",
+			observation: subscriptionruntime.Observation{
+				Payload: []byte(`{"plan_summary":{"name":"Free"},"quota_windows":[]}`),
+				Partial: true, AccountObserved: true, ObservedQuotaScopes: []string{"credits"},
+			},
+			wantRemaining: map[string]float64{"model-a": 75},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+			now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
+			fixture.service.now = func() time.Time { return now }
+			fixture.service.observeSubscriptionAccount = func(
+				context.Context,
+				channel.ID,
+				subscriptionruntime.Credential,
+			) (subscriptionruntime.Observation, error) {
+				return subscriptionruntime.Observation{Payload: []byte(`{
+					"plan_summary":{"name":"Pro"},
+					"quota_windows":[
+						{"id":"google_one_ai","label":"Credits","scope":"credits","unit":"credits","remaining":100,"state":"available","is_primary":true},
+						{"id":"model-a","label":"Model A","scope":"model","unit":"percent","remaining":75,"state":"available"}
+					]
+				}`)}, nil
+			}
+			first, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+			if err != nil || first.FreshUntilMS == nil {
+				t.Fatalf("initial observation = %#v, %v", first, err)
+			}
+
+			now = now.Add(time.Minute)
+			fixture.service.observeSubscriptionAccount = func(
+				context.Context,
+				channel.ID,
+				subscriptionruntime.Credential,
+			) (subscriptionruntime.Observation, error) {
+				return test.observation, nil
+			}
+			result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+			if err != nil || result.Snapshot == nil || result.FreshUntilMS == nil || *result.FreshUntilMS != *first.FreshUntilMS {
+				t.Fatalf("merged observation = %#v, %v", result, err)
+			}
+			got := make(map[string]float64, len(result.Snapshot.QuotaWindows))
+			for _, window := range result.Snapshot.QuotaWindows {
+				if window.Remaining != nil {
+					got[window.ID] = *window.Remaining
+				}
+			}
+			if !reflect.DeepEqual(got, test.wantRemaining) {
+				t.Fatalf("remaining = %#v, want %#v", got, test.wantRemaining)
+			}
+		})
+	}
+}
+
 func TestRefreshCredentialObservationRetriesOnceAfterUnauthorized(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	originalPrepare := fixture.service.prepareSubscriptionCredential

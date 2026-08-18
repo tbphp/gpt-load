@@ -141,6 +141,7 @@ type AccountObservation struct {
 	GoogleOneAICredits *GoogleOneAICredit
 	QuotaGroups        []QuotaGroup
 	AccountObserved    bool
+	CreditsObserved    bool
 	QuotaObserved      bool
 	IncompleteSources  []string
 }
@@ -210,7 +211,8 @@ func ObserveAccount(ctx context.Context, credential Credential) (AccountObservat
 	}
 	result := AccountObservation{
 		PlanID: value.PlanID, CurrentTierID: value.CurrentTierID,
-		AccountObserved: value.AccountObserved, QuotaObserved: value.QuotaObserved,
+		AccountObserved: value.AccountObserved, CreditsObserved: value.CreditsObserved,
+		QuotaObserved:     value.QuotaObserved,
 		IncompleteSources: append([]string(nil), value.IncompleteSources...),
 	}
 	if value.GoogleOneAICredits != nil {

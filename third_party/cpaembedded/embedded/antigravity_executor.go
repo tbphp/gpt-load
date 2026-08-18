@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
 	internalcache "github.com/router-for-me/CLIProxyAPI/v7/internal/cache"
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	internalexecutor "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
@@ -154,7 +154,11 @@ func (executor *antigravityHTTPExecutor) ExecuteCanonical(
 	format := sdktranslator.FromString(request.Format)
 	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
 	observation := newProviderExecutionObservation(request, ProviderAntigravity)
-	response, err := executor.inner.Execute(executor.executionContext(ctx, observation), auth, cliproxyexecutor.Request{
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, observation)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
+	response, err := executor.inner.Execute(executionCtx, auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, false))
 	if err != nil {
@@ -181,7 +185,11 @@ func (executor *antigravityHTTPExecutor) CountTokensCanonical(
 	request = prepareAntigravityExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
-	response, err := executor.inner.CountTokens(executor.executionContext(ctx, nil), auth, cliproxyexecutor.Request{
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, nil)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
+	response, err := executor.inner.CountTokens(executionCtx, auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, false))
 	if err != nil {
@@ -208,7 +216,11 @@ func (executor *antigravityHTTPExecutor) ExecuteStreamCanonical(
 	format := sdktranslator.FromString(request.Format)
 	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
 	observation := newProviderExecutionObservation(request, ProviderAntigravity)
-	response, err := executor.inner.ExecuteStream(executor.executionContext(ctx, observation), auth, cliproxyexecutor.Request{
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, observation)
+	if err != nil {
+		return nil, err
+	}
+	response, err := executor.inner.ExecuteStream(executionCtx, auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, true))
 	if err != nil {
@@ -370,9 +382,15 @@ func normalizeAntigravityCountTokens(format string, raw []byte) []byte {
 	return encoded
 }
 
-var (
-	antigravityExecutionTransportOnce sync.Once
-	antigravityExecutionTransport     *http.Transport
+const antigravityExecutionTransportCacheCapacity = 8192
+
+type antigravityExecutionTransportKey struct {
+	credential string
+	baseURL    string
+}
+
+var antigravityExecutionTransports = helps.NewTransportCache[antigravityExecutionTransportKey](
+	antigravityExecutionTransportCacheCapacity,
 )
 
 type antigravityExecutionContext struct{ context.Context }
@@ -384,9 +402,22 @@ func (ctx antigravityExecutionContext) Value(key any) any {
 	return ctx.Context.Value(key)
 }
 
-func (executor *antigravityHTTPExecutor) executionContext(ctx context.Context, observation *executionObservation) context.Context {
+func (executor *antigravityHTTPExecutor) executionContext(
+	ctx context.Context,
+	credentialID string,
+	accountID string,
+	observation *executionObservation,
+) (context.Context, error) {
 	ctx = antigravityExecutionContext{Context: ctx}
-	antigravityExecutionTransportOnce.Do(func() {
+	credentialScope := strings.TrimSpace(credentialID)
+	if credentialScope == "" {
+		credentialScope = strings.TrimSpace(accountID)
+	}
+	if credentialScope == "" {
+		credentialScope = "anonymous"
+	}
+	key := antigravityExecutionTransportKey{credential: credentialScope, baseURL: executor.baseURL}
+	transport, err := antigravityExecutionTransports.Get(key, func() (*http.Transport, error) {
 		base, ok := http.DefaultTransport.(*http.Transport)
 		if !ok || base == nil {
 			base = &http.Transport{}
@@ -400,11 +431,23 @@ func (executor *antigravityHTTPExecutor) executionContext(ctx context.Context, o
 			transport.TLSClientConfig = transport.TLSClientConfig.Clone()
 		}
 		transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
-		antigravityExecutionTransport = transport
+		if transport.MaxIdleConnsPerHost >= 0 && transport.MaxIdleConnsPerHost < 100 {
+			transport.MaxIdleConnsPerHost = 100
+		}
+		if transport.MaxIdleConns > 0 && transport.MaxIdleConns < transport.MaxIdleConnsPerHost {
+			transport.MaxIdleConns = transport.MaxIdleConnsPerHost
+		}
+		if transport.IdleConnTimeout > 0 && transport.IdleConnTimeout < 10*time.Minute {
+			transport.IdleConnTimeout = 10 * time.Minute
+		}
+		return transport, nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("prepare Antigravity execution transport: %w", err)
+	}
 	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{
-		base: antigravityExecutionTransport, observation: observation,
-	})
+		base: transport, observation: observation,
+	}), nil
 }
 
 func normalizeAntigravityExecutionError(err error) error {
@@ -412,7 +455,10 @@ func normalizeAntigravityExecutionError(err error) error {
 		return err
 	}
 	status := 0
-	var statusError interface{ StatusCode() int }
+	var statusError interface {
+		error
+		StatusCode() int
+	}
 	if errors.As(err, &statusError) && statusError != nil {
 		status = statusError.StatusCode()
 	}
@@ -426,7 +472,7 @@ func normalizeAntigravityExecutionError(err error) error {
 			retryAfter = *value
 		}
 	}
-	typeValue, codeValue := antigravityExecutionErrorFields([]byte(err.Error()))
+	typeValue, codeValue := antigravityExecutionErrorFields([]byte(statusError.Error()))
 	return &AntigravityExecutionError{
 		status: status, typeValue: typeValue, codeValue: codeValue, retryAfter: retryAfter,
 		requestScoped: status >= http.StatusBadRequest && status < http.StatusInternalServerError &&

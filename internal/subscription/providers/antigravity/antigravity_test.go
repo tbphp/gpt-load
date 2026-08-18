@@ -1,8 +1,12 @@
 package antigravity
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"testing"
+
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 )
 
 func TestParseCredentialJSONProducesCanonicalAntigravityCredential(t *testing.T) {
@@ -25,5 +29,14 @@ func TestParseCredentialJSONProducesCanonicalAntigravityCredential(t *testing.T)
 		"access-secret", "refresh-secret", "google-account-one", "owner@example.com", "project-one",
 	}) {
 		t.Fatalf("SecretValues() = %q", got)
+	}
+}
+
+func TestNormalizeExecutionErrorRecognizesWrappedBridgeError(t *testing.T) {
+	bridge := &cpaembedded.AntigravityExecutionError{}
+	normalized := normalizeExecutionError(fmt.Errorf("execute Antigravity request: %w", bridge))
+	var executionError *ExecutionError
+	if !errors.As(normalized, &executionError) {
+		t.Fatalf("normalizeExecutionError() = %T, want *ExecutionError", normalized)
 	}
 }

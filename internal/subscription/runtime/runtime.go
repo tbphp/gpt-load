@@ -137,6 +137,9 @@ type Observation struct {
 	Partial         bool
 	AccountObserved bool
 	QuotaObserved   bool
+	// ObservedQuotaScopes lists quota scopes whose current payload is authoritative.
+	// Unlisted scopes may retain a still-fresh previous observation.
+	ObservedQuotaScopes []string
 }
 
 // QuotaObservation is a narrow optional account observation capability.

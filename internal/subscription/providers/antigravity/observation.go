@@ -15,6 +15,11 @@ type quotaAccountSummary = providerobservation.AccountSummary
 type quotaWindow = providerobservation.QuotaWindow
 type quotaSnapshot = providerobservation.Snapshot
 
+const (
+	quotaScopeCredits = "credits"
+	quotaScopeModel   = "model"
+)
+
 // NormalizeObservation creates the same provider-neutral snapshot
 // shape used by other subscription channels. Google One AI credits are shown
 // as a balance only; quota windows are copied from the upstream quota summary.
@@ -35,7 +40,7 @@ func NormalizeObservation(email string, observation AccountObservation) ([]byte,
 			state = "exhausted"
 		}
 		result.QuotaWindows = append(result.QuotaWindows, quotaWindow{
-			ID: "google_one_ai", Label: "Google One AI", Scope: "credits", Unit: "credits",
+			ID: "google_one_ai", Label: "Google One AI", Scope: quotaScopeCredits, Unit: "credits",
 			Remaining: &remaining, State: state,
 		})
 	}
@@ -93,7 +98,7 @@ func normalizeAntigravityQuotaBucket(
 	seconds := antigravityQuotaWindowSeconds(bucket.Window)
 	label := antigravityQuotaLabel(groupName, bucket, seconds)
 	window := quotaWindow{
-		ID: id, Label: label, Scope: "model", Unit: "percent", State: state,
+		ID: id, Label: label, Scope: quotaScopeModel, Unit: "percent", State: state,
 		Used: &used, Limit: &limit, Remaining: &remaining, Utilization: &utilization,
 	}
 	if seconds > 0 {
