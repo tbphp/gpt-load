@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { formatISOInstant, formatLocalInstant, formatRelativeInstant } from '@/lib/format'
 import { currentTimeZone } from '@/lib/time'
@@ -41,10 +41,17 @@ const absolute = computed(() =>
 const relative = computed(() =>
   props.instant === null
     ? props.emptyLabel
-    : formatRelativeInstant(props.instant, now.value, props.locale),
+    : formatRelativeInstant(props.instant, now.value, props.locale, props.timeZone),
 )
 const resolvedTooltipContent = computed(() => props.tooltipContent ?? absolute.value)
 let timer: number | undefined
+
+watch(
+  () => [props.instant, props.timeZone] as const,
+  () => {
+    now.value = Date.now()
+  },
+)
 
 onMounted(() => {
   timer = window.setInterval(() => {

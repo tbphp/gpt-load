@@ -85,10 +85,14 @@ export function formatDuration(startedAtMs: number, nowMs: number, locale: strin
   return `${minutes}m`
 }
 
-export function formatRelativeInstant(ms: number, nowMs: number, locale: string): string {
+export function formatRelativeInstant(
+  ms: number,
+  nowMs: number,
+  locale: string,
+  timeZone = currentTimeZone(),
+): string {
   if (!Number.isSafeInteger(ms) || !Number.isSafeInteger(nowMs)) return '—'
-  // Signed: negative delta reads as "N ago", positive as "in N" — callers may
-  // pass either a past instant (last sync) or a future one (reset time, expiry).
+  // 负值表示过去，正值表示未来；短时长优先显示小时/分钟，避免跨午夜就跳成「昨天」或「明天」。
   const deltaSeconds = Math.floor((ms - nowMs) / 1_000)
   const absSeconds = Math.abs(deltaSeconds)
   let value: number
@@ -104,7 +108,11 @@ export function formatRelativeInstant(ms: number, nowMs: number, locale: string)
     value = Math.floor(absSeconds / 3_600)
     unit = 'hour'
   } else if (absSeconds < 2_592_000) {
-    value = Math.floor(absSeconds / 86_400)
+    const calendarDays = calendarDayDifference(ms, nowMs, timeZone)
+    value =
+      calendarDays === undefined || calendarDays === 0
+        ? Math.floor(absSeconds / 86_400)
+        : Math.abs(calendarDays)
     unit = 'day'
   } else if (absSeconds < 31_536_000) {
     value = Math.floor(absSeconds / 2_592_000)
@@ -120,7 +128,55 @@ export function formatRelativeInstant(ms: number, nowMs: number, locale: string)
       unit,
     )
   } catch {
-    return formatLocalInstant(ms, locale)
+    return formatLocalInstant(ms, locale, { timeZone })
+  }
+}
+
+function calendarDayDifference(
+  targetMs: number,
+  baseMs: number,
+  timeZone: string,
+): number | undefined {
+  const targetDay = calendarDayIndex(targetMs, timeZone)
+  const baseDay = calendarDayIndex(baseMs, timeZone)
+  if (targetDay === undefined || baseDay === undefined) return undefined
+  return targetDay - baseDay
+}
+
+function calendarDayIndex(ms: number, timeZone: string): number | undefined {
+  const date = validDate(ms)
+  if (!date) return undefined
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA-u-nu-latn', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone,
+    }).formatToParts(date)
+    const values = new Map(parts.map((part) => [part.type, part.value]))
+    const year = Number(values.get('year'))
+    const month = Number(values.get('month'))
+    const day = Number(values.get('day'))
+    if (
+      !Number.isInteger(year) ||
+      !Number.isInteger(month) ||
+      !Number.isInteger(day) ||
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > 31
+    ) {
+      return undefined
+    }
+
+    const calendarDate = new Date(0)
+    calendarDate.setUTCFullYear(year, month - 1, day)
+    calendarDate.setUTCHours(0, 0, 0, 0)
+    return calendarDate.getTime() / 86_400_000
+  } catch {
+    // 无效时区时回退到与绝对时间格式化相同的 UTC 基准。
+    return Math.floor(ms / 86_400_000)
   }
 }
 
