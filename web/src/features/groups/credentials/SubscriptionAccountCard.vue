@@ -361,7 +361,13 @@ function runMenuAction(
 </script>
 
 <template>
-  <article class="subscription-account" :class="`subscription-account--${statusTone}`">
+  <article
+    class="subscription-account"
+    :class="[
+      `subscription-account--${statusTone}`,
+      { 'subscription-account--disabled': unifiedStatus === 'disabled' },
+    ]"
+  >
     <div class="subscription-account__main">
       <header class="subscription-account__top">
         <div class="subscription-account__top-row">
@@ -379,7 +385,12 @@ function runMenuAction(
               />
               <span>{{ planLabel }}</span>
             </span>
-            <StatusBadge class="subscription-account__status" :tone="statusTone" size="compact">
+            <StatusBadge
+              class="subscription-account__status"
+              :tone="statusTone"
+              :icon="unifiedStatus === 'disabled' ? 'off' : undefined"
+              size="compact"
+            >
               {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
             </StatusBadge>
           </div>
@@ -877,6 +888,18 @@ function runMenuAction(
 }
 .subscription-account--danger {
   border-left-color: var(--color-danger);
+}
+.subscription-account--disabled {
+  border-color: var(--color-border-control);
+  border-left-color: var(--color-neutral);
+  box-shadow: none;
+}
+.subscription-account--disabled .subscription-account__status {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-neutral) 28%, transparent);
+}
+.subscription-account--disabled .subscription-account__quota-track {
+  filter: grayscale(1);
+  opacity: 0.58;
 }
 .subscription-account__main {
   display: grid;
