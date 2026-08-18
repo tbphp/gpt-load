@@ -31,6 +31,7 @@ func TestParseCodexCredentialJSON(t *testing.T) {
 		"expired":"2026-08-14T00:00:00Z",
 		"last_refresh":"2026-08-13T00:00:00Z",
 		"disabled":false,
+		"prefix":"team-a",
 		"note":"ignored",
 		"websockets":true
 	}`)
@@ -52,8 +53,25 @@ func TestParseCodexCredentialJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	if strings.Contains(string(encoded), "note") || strings.Contains(string(encoded), "websockets") {
-		t.Fatalf("canonical credential retained CPA controls: %s", encoded)
+	for _, field := range []string{"disabled", "prefix", "note", "websockets"} {
+		if strings.Contains(string(encoded), field) {
+			t.Fatalf("canonical credential retained CPA control %q: %s", field, encoded)
+		}
+	}
+}
+
+func TestParseCodexCredentialJSONRejectsMalformedCPAControlMetadata(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{
+		"type":"codex",
+		"access_token":"access-secret",
+		"refresh_token":"refresh-secret",
+		"account_id":"account-123",
+		"prefix":{"unexpected":true}
+	}`)
+	if _, err := ParseCodexCredentialJSON(raw); err == nil {
+		t.Fatal("ParseCodexCredentialJSON() accepted malformed CPA prefix metadata")
 	}
 }
 

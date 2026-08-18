@@ -243,7 +243,10 @@ func TestImportAntigravityCredentialEnrichesNativeCPAFile(t *testing.T) {
 		"expires_in":3600,
 		"timestamp":1770000000000,
 		"expired":"2030-01-01T00:00:00Z",
-		"disabled":false
+		"disabled":false,
+		"prefix":"team-a",
+		"note":"source note",
+		"websockets":false
 	}`), AntigravityOptions{
 		UserInfoURL: server.URL + "/userinfo", LoadCodeAssistURL: server.URL + "/load", HTTPClient: server.Client(),
 	})
@@ -253,6 +256,15 @@ func TestImportAntigravityCredentialEnrichesNativeCPAFile(t *testing.T) {
 	if credential.AccountID != "google-account-one" || credential.ProjectID != "verified-project" ||
 		credential.Email != "owner@example.com" {
 		t.Fatalf("credential = %#v", credential)
+	}
+	canonical, err := MarshalAntigravityCredential(credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"disabled", "prefix", "note", "websockets"} {
+		if strings.Contains(string(canonical), field) {
+			t.Fatalf("canonical credential retained CPA control %q: %s", field, canonical)
+		}
 	}
 }
 
@@ -348,6 +360,21 @@ func TestParseAntigravityImportedCredentialRequiresBooleanDisabled(t *testing.T)
 		if _, err := parseAntigravityImportedCredential([]byte(raw)); err == nil {
 			t.Fatalf("parseAntigravityImportedCredential(%s) error = nil", raw)
 		}
+	}
+}
+
+func TestParseAntigravityImportedCredentialRejectsMalformedCPAControlMetadata(t *testing.T) {
+	raw := []byte(`{
+		"type":"antigravity",
+		"access_token":"access-secret",
+		"refresh_token":"refresh-secret",
+		"email":"owner@example.com",
+		"expires_in":3600,
+		"timestamp":1770000000000,
+		"prefix":123
+	}`)
+	if _, err := parseAntigravityImportedCredential(raw); err == nil {
+		t.Fatal("parseAntigravityImportedCredential() accepted malformed CPA prefix metadata")
 	}
 }
 

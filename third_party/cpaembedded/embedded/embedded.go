@@ -267,6 +267,9 @@ func ParseCodexCredentialJSON(raw []byte) (CodexCredential, error) {
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return CodexCredential{}, fmt.Errorf("credential must be one JSON object")
 	}
+	if err := validateCPAAuthFileControlMetadata(raw); err != nil {
+		return CodexCredential{}, err
+	}
 	for _, forbidden := range []string{
 		"proxy", "proxy_url", "headers", "request_retry", "retry", "cooldown",
 		"model_alias", "model_aliases", "aliases",

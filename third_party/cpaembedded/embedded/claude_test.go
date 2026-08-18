@@ -556,6 +556,47 @@ func TestParseClaudeCredentialJSONRejectsConfigurationInjection(t *testing.T) {
 	}
 }
 
+func TestParseClaudeCredentialJSONDiscardsCPAControlMetadata(t *testing.T) {
+	raw := []byte(`{
+		"type":"claude",
+		"access_token":"access",
+		"refresh_token":"refresh",
+		"account_uuid":"account",
+		"expired":"2030-01-01T00:00:00Z",
+		"disabled":false,
+		"prefix":"team-a",
+		"note":"source note",
+		"websockets":false
+	}`)
+	credential, err := ParseClaudeCredentialJSON(raw)
+	if err != nil {
+		t.Fatalf("ParseClaudeCredentialJSON() error = %v", err)
+	}
+	canonical, err := json.Marshal(credential)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	for _, field := range []string{"disabled", "prefix", "note", "websockets"} {
+		if strings.Contains(string(canonical), field) {
+			t.Fatalf("canonical credential retained CPA control %q: %s", field, canonical)
+		}
+	}
+}
+
+func TestParseClaudeCredentialJSONRejectsMalformedCPAControlMetadata(t *testing.T) {
+	raw := []byte(`{
+		"type":"claude",
+		"access_token":"access",
+		"refresh_token":"refresh",
+		"account_uuid":"account",
+		"expired":"2030-01-01T00:00:00Z",
+		"disabled":"false"
+	}`)
+	if _, err := ParseClaudeCredentialJSON(raw); err == nil {
+		t.Fatal("ParseClaudeCredentialJSON() accepted malformed CPA disabled metadata")
+	}
+}
+
 func TestParseClaudeCredentialJSONRejectsDuplicateSecretFields(t *testing.T) {
 	raw := []byte(`{
 		"type":"claude",

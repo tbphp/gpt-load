@@ -67,7 +67,11 @@ func ParseClaudeCredentialJSON(raw []byte) (ClaudeCredential, error) {
 		"organization_uuid": {}, "organization_name": {},
 		"claude_device_ids": {}, "expired": {},
 	}
+	allowCPAAuthFileControlFields(allowed)
 	if err := validateClaudeCredentialObject(raw, allowed); err != nil {
+		return ClaudeCredential{}, err
+	}
+	if err := validateCPAAuthFileControlMetadata(raw); err != nil {
 		return ClaudeCredential{}, err
 	}
 	var credential ClaudeCredential

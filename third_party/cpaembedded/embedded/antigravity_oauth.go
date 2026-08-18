@@ -584,12 +584,13 @@ func parseAntigravityImportedCredential(raw []byte) (antigravityImportedCredenti
 	}
 	allowed := map[string]struct{}{
 		"type": {}, "access_token": {}, "refresh_token": {}, "account_id": {}, "email": {}, "project_id": {},
-		"expires_in": {}, "timestamp": {}, "expired": {}, "last_refresh": {}, "disabled": {},
+		"expires_in": {}, "timestamp": {}, "expired": {}, "last_refresh": {},
 	}
+	allowCPAAuthFileControlFields(allowed)
 	if err := validateClaudeCredentialObject(raw, allowed); err != nil {
 		return antigravityImportedCredential{}, err
 	}
-	if err := validateAntigravityImportedDisabled(raw); err != nil {
+	if err := validateCPAAuthFileControlMetadata(raw); err != nil {
 		return antigravityImportedCredential{}, err
 	}
 	var credential antigravityImportedCredential
@@ -624,25 +625,6 @@ func parseAntigravityImportedCredential(raw []byte) (antigravityImportedCredenti
 			Add(time.Duration(credential.ExpiresIn) * time.Second).UTC().Format(time.RFC3339)
 	}
 	return credential, nil
-}
-
-func validateAntigravityImportedDisabled(raw []byte) error {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return fmt.Errorf("decode imported Antigravity credential: %w", err)
-	}
-	value, present := fields["disabled"]
-	if !present {
-		return nil
-	}
-	if strings.EqualFold(strings.TrimSpace(string(value)), "null") {
-		return fmt.Errorf("imported Antigravity credential disabled is invalid")
-	}
-	var disabled bool
-	if err := json.Unmarshal(value, &disabled); err != nil {
-		return fmt.Errorf("imported Antigravity credential disabled is invalid")
-	}
-	return nil
 }
 
 func (credential antigravityImportedCredential) expiresAt() (time.Time, bool) {
