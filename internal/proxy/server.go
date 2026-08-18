@@ -240,6 +240,12 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			errorBody = handleGzipCompression(resp, errorBody)
 			errorMessage = string(errorBody)
 			parsedError = app_errors.ParseUpstreamError(errorBody)
+			// 上游流式连接上对无权限/欠费账号可能返回空响应体:
+			// 兜底成可读文本,避免日志与客户端出现"空消息 400/5xx"。
+			if len(bytes.TrimSpace(errorBody)) == 0 {
+				errorMessage = fmt.Sprintf("upstream returned %d with empty body", statusCode)
+				parsedError = errorMessage
+			}
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
 		}
 
@@ -285,8 +291,31 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	logrus.Debugf("Request for group %s succeeded on attempt %d with key %s", group.Name, retryCount+1, utils.MaskAPIKey(apiKey.KeyValue))
 
 	// 自动学习:成功服务为该 (key, model) 加分（若此前被误排除可恢复）
-	if model != "" {
+	if model != "" && resp.StatusCode < 400 {
 		ps.keyProvider.RecordModelSuccess(group.ID, apiKey.ID, model)
+	}
+
+	// 4xx/5xx 走透传路径(不在 failover 列表中的状态码)时,缓冲 body 解析错误文本,
+	// 记入 request_logs,避免"空消息 400/500";响应仍原样透传给客户端。
+	var passthroughErr error
+	if resp.StatusCode >= 400 {
+		if !isStream {
+			rawBody, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				passthroughErr = fmt.Errorf("failed to read upstream error body: %w", readErr)
+			} else {
+				// 解析用解压副本;透传用原始字节,与原 Content-Encoding 头一致
+				parsed := app_errors.ParseUpstreamError(handleGzipCompression(resp, rawBody))
+				if len(bytes.TrimSpace([]byte(parsed))) == 0 {
+					parsed = fmt.Sprintf("upstream returned %d with empty body", resp.StatusCode)
+				}
+				passthroughErr = errors.New(parsed)
+				// 复原原始 body 供 handleNormalResponse 原样透传
+				resp.Body = io.NopCloser(bytes.NewReader(rawBody))
+			}
+		} else {
+			passthroughErr = fmt.Errorf("upstream returned %d (streaming)", resp.StatusCode)
+		}
 	}
 
 	// Check if this is a model list request (needs special handling)
@@ -307,7 +336,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		}
 	}
 
-	ps.logRequest(c, originalGroup, group, apiKey, startTime, resp.StatusCode, nil, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
+	ps.logRequest(c, originalGroup, group, apiKey, startTime, resp.StatusCode, passthroughErr, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
 }
 
 func shouldFailoverOnStatusCode(statusCode int, group *models.Group) bool {
