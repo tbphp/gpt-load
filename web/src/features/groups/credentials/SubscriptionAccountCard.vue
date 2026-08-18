@@ -999,7 +999,7 @@ function runMenuAction(
 }
 .subscription-account__quota {
   display: grid;
-  grid-template-columns: minmax(72px, 98px) minmax(0, 1fr) 56px 56px;
+  grid-template-columns: minmax(72px, 98px) minmax(0, 1fr) 88px 56px;
   align-items: center;
   row-gap: var(--space-2);
   column-gap: var(--space-1);
@@ -1056,7 +1056,7 @@ function runMenuAction(
   overflow: hidden;
   padding-left: var(--space-1);
   font-family: var(--font-mono);
-  font-size: var(--text-meta);
+  font-size: var(--text-sm);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   text-align: left;
@@ -1422,7 +1422,7 @@ function runMenuAction(
     margin-left: auto;
   }
   .subscription-account__quota {
-    grid-template-columns: 68px minmax(0, 1fr) 52px;
+    grid-template-columns: 68px minmax(0, 1fr) 76px;
     gap: var(--space-2);
   }
   .subscription-account__quota-reset {
