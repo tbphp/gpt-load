@@ -562,7 +562,7 @@ func TestRefreshClaudeCredentialObservationPublishesAccountAndQuota(t *testing.T
 	if err != nil || result.Snapshot == nil || result.Snapshot.Account == nil ||
 		result.Snapshot.Account.DisplayName != "Owner" ||
 		result.Snapshot.Account.OrganizationName != "Example Org" ||
-		result.Snapshot.Plan.Name != "Claude Team" || len(result.Snapshot.QuotaWindows) != 1 ||
+		result.Snapshot.Plan.Name != "Team" || len(result.Snapshot.QuotaWindows) != 1 ||
 		result.Snapshot.QuotaWindows[0].Utilization == nil ||
 		*result.Snapshot.QuotaWindows[0].Utilization != 0.25 {
 		t.Fatalf("Claude observation = %#v, %v", result, err)
@@ -719,6 +719,28 @@ func TestApplyCredentialQuotaObservationUsesBottleneckReset(t *testing.T) {
 	views := fixture.registry.Snapshot()
 	if len(views) != 1 || !views[0].QuotaResetAt.Equal(time.UnixMilli(bottleneckReset)) {
 		t.Fatalf("quota runtime views = %#v, want bottleneck reset %v", views, time.UnixMilli(bottleneckReset))
+	}
+}
+
+func TestApplyCredentialQuotaObservationDoesNotBlockAccountForModelGroupExhaustion(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	resetAt := now.Add(7 * 24 * time.Hour).UnixMilli()
+	freshUntil := now.Add(time.Hour).UnixMilli()
+	exhausted := 1.0
+	response := CredentialObservationResponse{
+		State:        string(models.CredentialObservationFresh),
+		FreshUntilMS: &freshUntil,
+		Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{{
+			ID: "gemini-weekly", Scope: "model", Utilization: &exhausted,
+			ResetAtMS: &resetAt, State: "exhausted",
+		}}},
+	}
+
+	fixture.service.applyCredentialQuotaObservation(credentialID, &response)
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
+		t.Fatalf("model-group quota blocked whole credential: %#v", candidates)
 	}
 }
 

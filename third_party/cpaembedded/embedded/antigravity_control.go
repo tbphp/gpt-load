@@ -3,8 +3,10 @@ package embedded
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,6 +58,9 @@ type AntigravityAccountObservation struct {
 	CurrentTierID      string
 	GoogleOneAICredits *AntigravityCredit
 	QuotaGroups        []AntigravityQuotaGroup
+	AccountObserved    bool
+	QuotaObserved      bool
+	IncompleteSources  []string
 }
 
 var antigravityExcludedModelIDs = map[string]struct{}{
@@ -134,23 +139,60 @@ func ObserveAntigravityAccount(
 	if err := validateAntigravityCredential(credential); err != nil {
 		return AntigravityAccountObservation{}, err
 	}
+	observation := AntigravityAccountObservation{}
+	planID, currentTierID, credits, planErr := fetchAntigravityPlan(ctx, credential, options)
+	if planErr == nil && (planID != "" || credits != nil) {
+		observation.PlanID = planID
+		observation.CurrentTierID = currentTierID
+		observation.GoogleOneAICredits = credits
+		observation.AccountObserved = true
+	} else {
+		if planErr == nil {
+			planErr = fmt.Errorf("Antigravity plan response has no usable fields")
+		}
+		observation.IncompleteSources = append(observation.IncompleteSources, "plan")
+	}
+	if err := ctx.Err(); err != nil {
+		return AntigravityAccountObservation{}, err
+	}
+	quotaGroups, quotaErr := fetchAntigravityQuotaGroups(ctx, credential, options)
+	if quotaErr == nil {
+		observation.QuotaGroups = quotaGroups
+		observation.QuotaObserved = true
+	} else {
+		observation.IncompleteSources = append(observation.IncompleteSources, "quota")
+	}
+	if err := ctx.Err(); err != nil {
+		return AntigravityAccountObservation{}, err
+	}
+	if !observation.AccountObserved && !observation.QuotaObserved {
+		return AntigravityAccountObservation{}, antigravityObservationUnavailable(planErr, quotaErr)
+	}
+	return observation, nil
+}
+
+func fetchAntigravityPlan(
+	ctx context.Context,
+	credential AntigravityCredential,
+	options AntigravityOptions,
+) (string, string, *AntigravityCredit, error) {
 	endpoint := strings.TrimSpace(options.LoadCodeAssistURL)
 	if endpoint == "" {
 		endpoint = antigravityauth.APIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist"
 	}
 	payload, err := json.Marshal(map[string]any{"metadata": map[string]string{"ideType": "ANTIGRAVITY"}})
 	if err != nil {
-		return AntigravityAccountObservation{}, err
+		return "", "", nil, err
 	}
 	defer clear(payload)
 	body, err := fetchAntigravityJSON(ctx, endpoint, credential.AccessToken, payload, "loadCodeAssist", options)
 	if err != nil {
-		return AntigravityAccountObservation{}, err
+		return "", "", nil, err
 	}
 	defer clear(body)
 	var response map[string]any
 	if err := json.Unmarshal(body, &response); err != nil || response == nil {
-		return AntigravityAccountObservation{}, fmt.Errorf("decode Antigravity loadCodeAssist response")
+		return "", "", nil, fmt.Errorf("decode Antigravity loadCodeAssist response")
 	}
 	currentTierID := antigravityNestedID(response, "currentTier")
 	paidTier, paidTierPresent := response["paidTier"].(map[string]any)
@@ -163,18 +205,45 @@ func ObserveAntigravityAccount(
 	}
 	credits, err := antigravityGoogleOneAICredits(paidTier)
 	if err != nil {
-		return AntigravityAccountObservation{}, err
+		return "", "", nil, err
 	}
-	quotaGroups, err := fetchAntigravityQuotaGroups(ctx, credential, options)
-	if err != nil {
-		return AntigravityAccountObservation{}, err
+	return planID, currentTierID, credits, nil
+}
+
+func antigravityObservationUnavailable(planErr, quotaErr error) error {
+	errorsBySource := []error{planErr, quotaErr}
+	status := 0
+	allHTTP := true
+	allAuthorization := true
+	for _, err := range errorsBySource {
+		var upstream *AntigravityUpstreamHTTPError
+		if !errors.As(err, &upstream) || upstream == nil {
+			allHTTP = false
+			allAuthorization = false
+			continue
+		}
+		if status == 0 {
+			status = upstream.StatusCode
+		} else if status != upstream.StatusCode {
+			status = -1
+		}
+		if upstream.StatusCode != http.StatusUnauthorized && upstream.StatusCode != http.StatusForbidden {
+			allAuthorization = false
+		}
 	}
-	return AntigravityAccountObservation{
-		PlanID:             planID,
-		CurrentTierID:      currentTierID,
-		GoogleOneAICredits: credits,
-		QuotaGroups:        quotaGroups,
-	}, nil
+	if allAuthorization {
+		for _, err := range errorsBySource {
+			var upstream *AntigravityUpstreamHTTPError
+			if errors.As(err, &upstream) && upstream.StatusCode == http.StatusUnauthorized {
+				return &AntigravityUpstreamHTTPError{Operation: "account observation", StatusCode: http.StatusUnauthorized}
+			}
+		}
+		return &AntigravityUpstreamHTTPError{Operation: "account observation", StatusCode: http.StatusForbidden}
+	}
+	if allHTTP && status > 0 {
+		return &AntigravityUpstreamHTTPError{Operation: "account observation", StatusCode: status}
+	}
+	return fmt.Errorf("Antigravity account observation is unavailable")
 }
 
 func fetchAntigravityQuotaGroups(

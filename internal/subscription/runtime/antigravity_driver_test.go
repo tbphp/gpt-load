@@ -129,7 +129,7 @@ func TestNormalizeAntigravityObservationIncludesUpstreamQuotaBuckets(t *testing.
 	}
 	window := snapshot.QuotaWindows[0]
 	if window.ID != "gemini-5h" || window.Label != "Gemini Models · Five Hour Limit Remaining" ||
-		window.Scope != "account" || window.Unit != "percent" || window.Remaining == nil || *window.Remaining != 75 ||
+		window.Scope != "model" || window.Unit != "percent" || window.Remaining == nil || *window.Remaining != 75 ||
 		window.Utilization == nil || *window.Utilization != 0.25 || window.WindowSeconds == nil || *window.WindowSeconds != 5*60*60 ||
 		window.ResetAtMS == nil || *window.ResetAtMS != 1893456000000 {
 		t.Fatalf("quota window = %#v", window)

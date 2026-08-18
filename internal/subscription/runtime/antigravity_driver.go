@@ -120,6 +120,10 @@ func (*antigravityDriver) DiscoverModels(ctx context.Context, credential Credent
 	}
 	models, err := antigravity.ListModels(ctx, value)
 	if err != nil {
+		var upstream *antigravity.UpstreamHTTPError
+		if errors.As(err, &upstream) {
+			return nil, &UpstreamHTTPError{StatusCode: upstream.StatusCode}
+		}
 		return nil, err
 	}
 	result := make([]string, 0, len(models))
@@ -157,12 +161,14 @@ func (*antigravityDriver) Observe(ctx context.Context, credential Credential) (O
 }
 
 func antigravityObservationCompleteness(observed antigravity.AccountObservation) (bool, bool, bool, error) {
-	accountObserved := strings.TrimSpace(observed.PlanID) != ""
-	quotaObserved := len(observed.QuotaGroups) > 0
+	accountObserved := observed.AccountObserved || strings.TrimSpace(observed.PlanID) != ""
+	quotaObserved := observed.QuotaObserved || len(observed.QuotaGroups) > 0
 	if !accountObserved && !quotaObserved {
 		return false, false, false, fmt.Errorf("%w: Antigravity account observation has no usable fields", ErrObservationPayloadInvalid)
 	}
-	return accountObserved, quotaObserved, !accountObserved || !quotaObserved, nil
+	return accountObserved, quotaObserved,
+		len(observed.IncompleteSources) > 0 || !accountObserved || !quotaObserved,
+		nil
 }
 
 type antigravityModelDiscovery struct{ *antigravityDriver }

@@ -458,6 +458,70 @@ func TestObserveAntigravityAccountDoesNotInventQuota(t *testing.T) {
 	}
 }
 
+func TestObserveAntigravityAccountKeepsSuccessfulPartialSource(t *testing.T) {
+	tests := []struct {
+		name                string
+		loadStatus          int
+		quotaStatus         int
+		wantAccountObserved bool
+		wantQuotaObserved   bool
+	}{
+		{name: "quota survives plan failure", loadStatus: http.StatusServiceUnavailable, quotaStatus: http.StatusOK, wantQuotaObserved: true},
+		{name: "plan survives quota failure", loadStatus: http.StatusOK, quotaStatus: http.StatusServiceUnavailable, wantAccountObserved: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				switch request.URL.Path {
+				case "/load":
+					writer.WriteHeader(test.loadStatus)
+					if test.loadStatus == http.StatusOK {
+						_, _ = writer.Write([]byte(`{"currentTier":{"id":"free-tier"}}`))
+					}
+				case "/quota":
+					writer.WriteHeader(test.quotaStatus)
+					if test.quotaStatus == http.StatusOK {
+						_, _ = writer.Write([]byte(`{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"weekly","window":"weekly","resetTime":"2030-01-01T00:00:00Z","remainingFraction":0.5}]}]}`))
+					}
+				}
+			}))
+			defer server.Close()
+
+			observation, err := ObserveAntigravityAccount(t.Context(), AntigravityCredential{
+				Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
+				AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+				Expire: "2030-01-01T00:00:00Z",
+			}, AntigravityOptions{
+				LoadCodeAssistURL: server.URL + "/load", RetrieveUserQuotaURL: server.URL + "/quota", HTTPClient: server.Client(),
+			})
+			if err != nil || observation.AccountObserved != test.wantAccountObserved ||
+				observation.QuotaObserved != test.wantQuotaObserved || len(observation.IncompleteSources) != 1 {
+				t.Fatalf("observation = %#v, error = %v", observation, err)
+			}
+		})
+	}
+}
+
+func TestObserveAntigravityAccountPreservesAuthorizationFailureWhenAllSourcesReject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	_, err := ObserveAntigravityAccount(t.Context(), AntigravityCredential{
+		Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
+		AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+		Expire: "2030-01-01T00:00:00Z",
+	}, AntigravityOptions{
+		LoadCodeAssistURL: server.URL + "/load", RetrieveUserQuotaURL: server.URL + "/quota", HTTPClient: server.Client(),
+	})
+	var upstream *AntigravityUpstreamHTTPError
+	if !errors.As(err, &upstream) || upstream.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("error = %v, want bounded 401", err)
+	}
+}
+
 func TestAntigravityGoogleOneAICreditsIgnoresUnavailableBalance(t *testing.T) {
 	t.Parallel()
 

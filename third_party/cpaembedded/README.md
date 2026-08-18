@@ -88,5 +88,12 @@ The Antigravity contract requires a disposable credential whose Google account i
 authorized for the service. It verifies dynamic models, account/credits observation,
 all declared unary/streaming protocol routes, and the three upstream CountTokens
 routes. It must also confirm that no paid Google One AI credit type is injected.
+
+```bash
+CPA_LIVE_ANTIGRAVITY_CREDENTIAL_FILE=/absolute/path/to/antigravity.json \
+CPA_LIVE_ANTIGRAVITY_MODEL=optional-antigravity-model-id \
+  go test -count=1 -run '^TestLiveAntigravityContract$' ./embedded
+```
+
 Browser OAuth, refresh-token rotation, deliberate 401/429 responses, and provider
 policy changes remain supervised live gates rather than default test behavior.

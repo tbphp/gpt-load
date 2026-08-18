@@ -191,12 +191,13 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 	row models.CredentialStage,
 	driver subscriptionruntime.Driver,
 	credential subscriptionruntime.Credential,
+	forceRefresh bool,
 ) (subscriptionruntime.Credential, error) {
 	if err := ctx.Err(); err != nil {
 		return subscriptionruntime.Credential{}, err
 	}
 	expiresAt, known := credential.ExpiresAt()
-	if !known || expiresAt.After(s.now().Add(5*time.Minute)) {
+	if !forceRefresh && (!known || expiresAt.After(s.now().Add(5*time.Minute))) {
 		return credential, nil
 	}
 	if s.refreshSubscriptionCredential == nil {

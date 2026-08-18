@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -427,6 +428,53 @@ func TestDiscoverGroupModelsPreparesSubscriptionCredential(t *testing.T) {
 
 	if _, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID); err != nil || prepareCalls != 1 {
 		t.Fatalf("DiscoverGroupModels() error/calls = %v/%d", err, prepareCalls)
+	}
+}
+
+func TestDiscoverGroupModelsRefreshesSameCredentialOnceAfterUnauthorized(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage := mustImportSubscriptionStage(t, fixture, "account-model-refresh", "model-refresh@example.com")
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("subscription discovery auth refresh"), ChannelID: channel.Codex,
+		ConnectionType:      models.ConnectionTypeSubscription,
+		Models:              optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-5.2"}}},
+		StagedCredentialIDs: []string{stage.StageID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forces []bool
+	fixture.service.prepareSubscriptionCredential = func(_ context.Context, _ channel.ID, snapshot execution.CredentialSnapshot, force bool) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+		forces = append(forces, force)
+		parsed, parseErr := codex.ParseCredentialJSON(snapshot.Data())
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		if force {
+			parsed.AccessToken = "fresh-access"
+		}
+		credential, convertErr := testRuntimeCredential(fixture.service, parsed)
+		if convertErr != nil {
+			t.Fatal(convertErr)
+		}
+		return credential, nil
+	}
+	discoveryCalls := 0
+	fixture.service.discoverSubscriptionModels = func(_ context.Context, _ channel.ID, credential subscriptionruntime.Credential) ([]string, error) {
+		discoveryCalls++
+		parsed, parseErr := codex.ParseCredentialJSON(credential.Canonical())
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		if parsed.AccessToken != "fresh-access" {
+			return nil, &subscriptionruntime.UpstreamHTTPError{StatusCode: http.StatusUnauthorized}
+		}
+		return []string{"gpt-5.2"}, nil
+	}
+
+	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
+	if err != nil || !reflect.DeepEqual(forces, []bool{false, true}) || discoveryCalls != 2 || len(result.Models) != 1 {
+		t.Fatalf("result/error/forces/discovery = %#v/%v/%v/%d", result, err, forces, discoveryCalls)
 	}
 }
 

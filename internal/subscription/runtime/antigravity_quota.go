@@ -93,7 +93,7 @@ func normalizeAntigravityQuotaBucket(
 		label = groupName + " · " + label
 	}
 	window := quotaWindow{
-		ID: id, Label: label, Scope: "account", Unit: "percent", State: state,
+		ID: id, Label: label, Scope: "model", Unit: "percent", State: state,
 		Used: &used, Limit: &limit, Remaining: &remaining, Utilization: &utilization,
 	}
 	if seconds := antigravityQuotaWindowSeconds(bucket.Window); seconds > 0 {

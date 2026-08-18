@@ -206,7 +206,7 @@ func (s *Service) refreshCredentialObservationOnce(
 	channelID := channel.ID(group.ChannelID)
 	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
 	authRefreshVersion := previous.LastAuthRefreshSecretVersion
-	if subscriptionObservationHTTPStatus(observeErr) == http.StatusUnauthorized &&
+	if subscriptionUpstreamHTTPStatus(observeErr) == http.StatusUnauthorized &&
 		(previous.LastAuthRefreshSecretVersion == nil ||
 			*previous.LastAuthRefreshSecretVersion != credential.SecretVersion) &&
 		s.prepareSubscriptionCredential != nil {
@@ -234,7 +234,7 @@ func (s *Service) refreshCredentialObservationOnce(
 				"observation_payload_invalid", "normalize subscription information", nil,
 			)
 		}
-		if status := subscriptionObservationHTTPStatus(observeErr); status == http.StatusUnauthorized ||
+		if status := subscriptionUpstreamHTTPStatus(observeErr); status == http.StatusUnauthorized ||
 			status == http.StatusForbidden {
 			nextAllowedMS = now.Add(observationAuthRetryBackoff).UnixMilli()
 			code, summary := "observation_authorization_failed", "authorize subscription information"
@@ -364,7 +364,7 @@ func mergeObservationAccountSummary(
 	return &merged
 }
 
-func subscriptionObservationHTTPStatus(err error) int {
+func subscriptionUpstreamHTTPStatus(err error) int {
 	var upstream *subscriptionruntime.UpstreamHTTPError
 	if errors.As(err, &upstream) && upstream != nil {
 		return upstream.StatusCode

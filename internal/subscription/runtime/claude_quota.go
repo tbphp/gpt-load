@@ -165,15 +165,15 @@ func claudePlanName(profile claude.AccountProfile) string {
 		normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(value)))
 		switch {
 		case strings.Contains(normalized, "enterprise"):
-			return "Claude Enterprise"
+			return "Enterprise"
 		case strings.Contains(normalized, "team"):
-			return "Claude Team"
+			return "Team"
 		case strings.Contains(normalized, "max"):
-			return "Claude Max"
+			return "Max"
 		case strings.Contains(normalized, "pro"):
-			return "Claude Pro"
+			return "Pro"
 		case strings.Contains(normalized, "free"):
-			return "Claude Free"
+			return "Free"
 		}
 	}
 	return ""

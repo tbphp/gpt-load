@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"gpt-load/internal/channel"
@@ -22,7 +23,39 @@ func (s *Service) discoverSubscriptionStageModels(
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
+	result, err := s.discoverSubscriptionModelsForChannel(ctx, channelID, credential)
+	if subscriptionUpstreamHTTPStatus(err) != http.StatusUnauthorized {
+		return result, err
+	}
+	credential, err = s.forceRefreshReadySubscriptionStageCredential(ctx, channelID, stageID)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
+	}
 	return s.discoverSubscriptionModelsForChannel(ctx, channelID, credential)
+}
+
+func (s *Service) forceRefreshReadySubscriptionStageCredential(
+	ctx context.Context,
+	channelID channel.ID,
+	stageID string,
+) (subscriptionruntime.Credential, error) {
+	stage, err := s.loadCredentialStage(ctx, strings.TrimSpace(stageID))
+	if err != nil {
+		return subscriptionruntime.Credential{}, err
+	}
+	if stage.Status != models.CredentialStageReady || stage.ChannelID != string(channelID) ||
+		stage.ConnectionType != models.ConnectionTypeSubscription {
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialNotReady
+	}
+	credential, err := s.decodeStageSubscriptionCredential(channelID, stage)
+	if err != nil {
+		return subscriptionruntime.Credential{}, err
+	}
+	driver, err := s.subscriptionDriver(channelID)
+	if err != nil {
+		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialMismatch
+	}
+	return s.prepareReadySubscriptionStageCredential(ctx, stage, driver, credential, true)
 }
 
 func (s *Service) loadReadySubscriptionStageCredential(
@@ -49,7 +82,7 @@ func (s *Service) loadReadySubscriptionStageCredential(
 	if err != nil {
 		return subscriptionruntime.Credential{}, app_errors.ErrStagedCredentialMismatch
 	}
-	return s.prepareReadySubscriptionStageCredential(ctx, stage, driver, credential)
+	return s.prepareReadySubscriptionStageCredential(ctx, stage, driver, credential, false)
 }
 
 func (s *Service) discoverSubscriptionGroupModels(
@@ -71,6 +104,17 @@ func (s *Service) discoverSubscriptionGroupModels(
 		result, err := s.discoverSubscriptionModelsForChannel(ctx, channel.ID(rows.group.ChannelID), credential)
 		if err == nil {
 			return result, nil
+		}
+		if subscriptionUpstreamHTTPStatus(err) == http.StatusUnauthorized {
+			credential, prepareErr := s.prepareStoredSubscriptionCredentialWithForce(ctx, rows.group, row, true)
+			if prepareErr != nil {
+				preparationErr = prepareErr
+				continue
+			}
+			result, err = s.discoverSubscriptionModelsForChannel(ctx, channel.ID(rows.group.ChannelID), credential)
+			if err == nil {
+				return result, nil
+			}
 		}
 		if ctx.Err() != nil {
 			return ModelDiscoveryResult{}, ctx.Err()
@@ -170,6 +214,13 @@ func (s *Service) discoverSubscriptionModelsForChannel(
 	defer cancel()
 	ids, err := s.discoverSubscriptionModels(discoveryContext, channelID, credential)
 	if err != nil {
+		if status := subscriptionUpstreamHTTPStatus(err); status != 0 {
+			return ModelDiscoveryResult{}, fmt.Errorf(
+				"discover upstream models: %w: %w",
+				app_errors.ErrBadGateway,
+				&subscriptionruntime.UpstreamHTTPError{StatusCode: status},
+			)
+		}
 		return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
 	}
 	target := discoveryTarget{channelID: channelID}

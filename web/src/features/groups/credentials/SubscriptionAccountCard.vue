@@ -111,11 +111,13 @@ const planLabel = computed(() => {
   const normalized = plan.toLowerCase().replaceAll('_', '-').replaceAll(' ', '')
   const labels: Readonly<Record<string, string>> = {
     pro: 'Pro 20x',
+    'g1-pro-tier': 'Pro',
     prolite: 'Pro 5x',
     'pro-lite': 'Pro 5x',
     plus: 'Plus',
     team: 'Team',
     free: 'Free',
+    'free-tier': 'Free',
   }
   return labels[normalized] ?? plan
 })

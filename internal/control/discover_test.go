@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestDiscoverModelsUsesSystemDefaultsAndNormalizesSuccessfulResult(t *testing.T) {
@@ -230,6 +231,43 @@ func TestDiscoverModelsRejectsReadyStageRefreshIdentityChange(t *testing.T) {
 	row, loadErr := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
 	if loadErr != nil || row.Status != models.CredentialStageFailed || row.EncryptedPayload != "" {
 		t.Fatalf("identity-changed stage = %#v, %v", row, loadErr)
+	}
+}
+
+func TestDiscoverModelsRefreshesReadyStageOnceAfterUnauthorized(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"stale-access","refresh_token":"refresh-token","account_id":"account-discovery-refresh","expired":"2030-01-01T00:00:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshCalls := 0
+	setCodexCredentialRefresh(t, fixture.service, func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		credential.AccessToken = "fresh-access"
+		credential.Expire = "2030-01-01T01:00:00Z"
+		return credential, nil
+	})
+	discoveryCalls := 0
+	fixture.service.discoverSubscriptionModels = func(_ context.Context, _ channel.ID, credential subscriptionruntime.Credential) ([]string, error) {
+		discoveryCalls++
+		parsed, parseErr := codex.ParseCredentialJSON(credential.Canonical())
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		if parsed.AccessToken == "stale-access" {
+			return nil, &subscriptionruntime.UpstreamHTTPError{StatusCode: http.StatusUnauthorized}
+		}
+		return []string{"gpt-5.2"}, nil
+	}
+
+	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	})
+	if err != nil || refreshCalls != 1 || discoveryCalls != 2 || len(result.Models) != 1 {
+		t.Fatalf("result/error/refresh/discovery = %#v/%v/%d/%d", result, err, refreshCalls, discoveryCalls)
 	}
 }
 

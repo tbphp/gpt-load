@@ -140,6 +140,9 @@ type AccountObservation struct {
 	CurrentTierID      string
 	GoogleOneAICredits *GoogleOneAICredit
 	QuotaGroups        []QuotaGroup
+	AccountObserved    bool
+	QuotaObserved      bool
+	IncompleteSources  []string
 }
 
 func IsDefinitiveRefreshRejection(code string) bool {
@@ -205,7 +208,11 @@ func ObserveAccount(ctx context.Context, credential Credential) (AccountObservat
 	if err != nil {
 		return AccountObservation{}, normalizeError(err)
 	}
-	result := AccountObservation{PlanID: value.PlanID, CurrentTierID: value.CurrentTierID}
+	result := AccountObservation{
+		PlanID: value.PlanID, CurrentTierID: value.CurrentTierID,
+		AccountObserved: value.AccountObserved, QuotaObserved: value.QuotaObserved,
+		IncompleteSources: append([]string(nil), value.IncompleteSources...),
+	}
 	if value.GoogleOneAICredits != nil {
 		result.GoogleOneAICredits = &GoogleOneAICredit{
 			Amount: value.GoogleOneAICredits.Amount, MinimumAmount: value.GoogleOneAICredits.MinimumAmount,

@@ -132,6 +132,10 @@ func (*claudeDriver) DiscoverModels(ctx context.Context, credential Credential) 
 	}
 	models, err := claude.ListModels(ctx, value)
 	if err != nil {
+		var upstream *claude.UpstreamHTTPError
+		if errors.As(err, &upstream) {
+			return nil, &UpstreamHTTPError{StatusCode: upstream.StatusCode}
+		}
 		return nil, err
 	}
 	result := make([]string, 0, len(models))

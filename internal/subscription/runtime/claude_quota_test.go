@@ -57,7 +57,7 @@ func TestNormalizeClaudeObservationIncludesAccountAndQuotaWindows(t *testing.T) 
 		t.Fatal(err)
 	}
 	if snapshot.Account.DisplayName != "Owner" || snapshot.Account.OrganizationName != "Example Org" ||
-		snapshot.Account.SeatTier != "team_standard" || snapshot.Plan.Name != "Claude Team" ||
+		snapshot.Account.SeatTier != "team_standard" || snapshot.Plan.Name != "Team" ||
 		len(snapshot.Windows) != 4 {
 		t.Fatalf("snapshot = %s", raw)
 	}
