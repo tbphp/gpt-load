@@ -30,7 +30,7 @@ func TestGrokDriverProducesProviderNeutralCredential(t *testing.T) {
 	}
 }
 
-func TestGrokDriverDeclaresDeviceOAuthImporterAndModelDiscovery(t *testing.T) {
+func TestGrokDriverDeclaresDeviceOAuthImporterModelAndQuotaDiscovery(t *testing.T) {
 	driver := newGrokDriver()
 	if _, ok := any(driver).(subscriptionruntime.DeviceAuthorizationDriver); !ok {
 		t.Fatal("Grok driver does not implement DeviceAuthorizationDriver")
@@ -41,7 +41,8 @@ func TestGrokDriverDeclaresDeviceOAuthImporterAndModelDiscovery(t *testing.T) {
 	implementations := Implementations()
 	if len(implementations.Drivers) != 1 || implementations.Drivers[0].ID() != modules.GrokSubscriptionDriver ||
 		len(implementations.ModelDiscoveries) != 1 || implementations.ModelDiscoveries[0].ID() != modules.GrokModelDiscovery ||
-		len(implementations.QuotaObservations) != 0 || len(implementations.ResetCreditActions) != 0 {
+		len(implementations.QuotaObservations) != 1 || implementations.QuotaObservations[0].ID() != modules.GrokQuotaObservation ||
+		len(implementations.ResetCreditActions) != 0 {
 		t.Fatalf("implementations = %#v", implementations)
 	}
 }
@@ -56,6 +57,13 @@ func TestGrokDriverClassifiesRefreshFailures(t *testing.T) {
 	}
 	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got != subscriptionruntime.RefreshFailureOutcomeUnknown {
 		t.Fatalf("network classification = %v", got)
+	}
+}
+
+func TestGrokObservationScopesRemainIndependent(t *testing.T) {
+	observed := AccountObservation{AccountQuotaObserved: true, CreditQuotaObserved: true}
+	if got := grokObservedQuotaScopes(observed); !reflect.DeepEqual(got, []string{quotaScopeAccount, quotaScopeCredits}) {
+		t.Fatalf("scopes = %v", got)
 	}
 }
 

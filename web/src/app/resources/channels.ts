@@ -18,7 +18,8 @@ import {
 
 export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
 export type ChannelConnectionType = 'api_key' | 'subscription'
-export type ChannelAuthorizationMethod = 'browser_oauth' | 'device_oauth' | 'oauth_file'
+const authorizationMethods = ['browser_oauth', 'device_oauth', 'oauth_file'] as const
+export type ChannelAuthorizationMethod = (typeof authorizationMethods)[number]
 export type ChannelCredentialAction = 'reset_credit'
 export type ChannelNoticeID = 'claude_oauth_risk' | 'antigravity_oauth_risk'
 export type ChannelNoticeTone = 'warning'
@@ -122,7 +123,6 @@ const listFields = ['items', 'total'] as const
 const inputKinds = ['text', 'url', 'secret'] as const
 const connectionTypes = ['api_key', 'subscription'] as const
 const credentialInputs = ['batch_text', 'authorization'] as const
-const authorizationMethods = ['browser_oauth', 'oauth_file'] as const
 const connectionFields = ['type', 'credential_input', 'authorization_methods'] as const
 const capabilityFields = ['model_discovery', 'quota_observation', 'credential_actions'] as const
 const credentialActions = ['reset_credit'] as const

@@ -29,7 +29,7 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 		{channel.Codex, string(modules.CodexSubscriptionDriver), string(modules.CodexModelDiscovery), string(modules.CodexQuotaObservation), string(modules.CodexResetCreditAction)},
 		{channel.Claude, string(modules.ClaudeSubscriptionDriver), string(modules.ClaudeModelDiscovery), string(modules.ClaudeQuotaObservation), ""},
 		{channel.Antigravity, string(modules.AntigravitySubscriptionDriver), string(modules.AntigravityModelDiscovery), string(modules.AntigravityQuotaObservation), ""},
-		{channel.Grok, string(modules.GrokSubscriptionDriver), string(modules.GrokModelDiscovery), "", ""},
+		{channel.Grok, string(modules.GrokSubscriptionDriver), string(modules.GrokModelDiscovery), string(modules.GrokQuotaObservation), ""},
 	}
 	for _, test := range tests {
 		t.Run(string(test.channelID), func(t *testing.T) {

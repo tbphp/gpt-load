@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -16,7 +17,11 @@ import (
 
 const Provider = cpaembedded.ProviderGrok
 
-var ErrCredentialIdentityChanged = errors.New("refreshed grok credential identity changed")
+var (
+	ErrCredentialIdentityChanged        = errors.New("refreshed grok credential identity changed")
+	ErrAccountObservationUnavailable    = errors.New("Grok account observation is unavailable")
+	ErrAccountObservationPayloadInvalid = errors.New("Grok account observation payload is invalid")
+)
 
 type Credential struct {
 	Type          string `json:"type"`
@@ -85,6 +90,36 @@ func (err *TokenEndpointError) HTTPStatusCode() int {
 type UpstreamHTTPError struct {
 	Operation  string
 	StatusCode int
+}
+
+type ProductUsage struct {
+	Product      string
+	UsagePercent *float64
+}
+
+type BillingObservation struct {
+	PeriodType         string
+	PeriodStart        string
+	PeriodEnd          string
+	UsagePercent       *float64
+	ProductUsage       []ProductUsage
+	MonthlyLimitCents  *float64
+	UsedCents          *float64
+	OnDemandCapCents   *float64
+	OnDemandUsedCents  *float64
+	BillingPeriodStart string
+	BillingPeriodEnd   string
+}
+
+type AccountObservation struct {
+	Billing              BillingObservation
+	Tier                 *int
+	Header               http.Header
+	AccountObserved      bool
+	AccountQuotaObserved bool
+	SurfaceQuotaObserved bool
+	CreditQuotaObserved  bool
+	IncompleteSources    []string
 }
 
 func (err *UpstreamHTTPError) Error() string {
@@ -169,6 +204,33 @@ func ListModels(ctx context.Context, credential Credential) ([]string, error) {
 	return append([]string(nil), values...), nil
 }
 
+func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
+	value, err := cpaembedded.ObserveGrokAccount(ctx, credentialToBridge(credential), cpaembedded.GrokOptions{})
+	if err != nil {
+		return AccountObservation{}, normalizeError(err)
+	}
+	products := make([]ProductUsage, 0, len(value.Billing.ProductUsage))
+	for _, product := range value.Billing.ProductUsage {
+		products = append(products, ProductUsage{Product: product.Product, UsagePercent: product.UsagePercent})
+	}
+	return AccountObservation{
+		Billing: BillingObservation{
+			PeriodType: value.Billing.PeriodType, PeriodStart: value.Billing.PeriodStart,
+			PeriodEnd: value.Billing.PeriodEnd, UsagePercent: value.Billing.UsagePercent,
+			ProductUsage: products, MonthlyLimitCents: value.Billing.MonthlyLimitCents,
+			UsedCents: value.Billing.UsedCents, OnDemandCapCents: value.Billing.OnDemandCapCents,
+			OnDemandUsedCents:  value.Billing.OnDemandUsedCents,
+			BillingPeriodStart: value.Billing.BillingPeriodStart,
+			BillingPeriodEnd:   value.Billing.BillingPeriodEnd,
+		},
+		Tier: value.Tier, Header: value.Header.Clone(), AccountObserved: value.AccountObserved,
+		AccountQuotaObserved: value.AccountQuotaObserved,
+		SurfaceQuotaObserved: value.SurfaceQuotaObserved,
+		CreditQuotaObserved:  value.CreditQuotaObserved,
+		IncompleteSources:    append([]string(nil), value.IncompleteSources...),
+	}, nil
+}
+
 func IsDefinitiveRefreshRejection(code string) bool {
 	switch strings.ToLower(strings.TrimSpace(code)) {
 	case "invalid_grant", "refresh_token_expired", "refresh_token_revoked", "access_denied":
@@ -224,6 +286,12 @@ func normalizeError(err error) error {
 	var upstream *cpaembedded.GrokUpstreamHTTPError
 	if errors.As(err, &upstream) {
 		return &UpstreamHTTPError{Operation: strings.TrimSpace(upstream.Operation), StatusCode: upstream.StatusCode}
+	}
+	if errors.Is(err, cpaembedded.ErrGrokAccountObservationPayloadInvalid) {
+		return ErrAccountObservationPayloadInvalid
+	}
+	if errors.Is(err, cpaembedded.ErrGrokAccountObservationUnavailable) {
+		return ErrAccountObservationUnavailable
 	}
 	return err
 }

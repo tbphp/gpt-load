@@ -38,6 +38,7 @@ func TestGrokProviderClassifiesOAuthAndQuotaFailures(t *testing.T) {
 	}{
 		{name: "unauthorized", err: grokProviderTestError{status: http.StatusUnauthorized}, hint: execution.FailureHintRefreshRequired, replay: execution.ReplaySafetyRejectedBeforeProcessing},
 		{name: "forbidden", err: grokProviderTestError{status: http.StatusForbidden}, hint: execution.FailureHintCandidateUnavailable, replay: execution.ReplaySafetyRejectedBeforeProcessing},
+		{name: "payment required", err: grokProviderTestError{status: http.StatusPaymentRequired}, hint: execution.FailureHintCandidateUnavailable, replay: execution.ReplaySafetyRejectedBeforeProcessing},
 		{name: "invalid request", err: grokProviderTestError{status: http.StatusBadRequest}, hint: execution.FailureHintRequestRejected},
 		{name: "free usage", err: grokProviderTestError{status: http.StatusTooManyRequests, code: "subscription:free-usage-exhausted", retry: 24 * time.Hour}, hint: execution.FailureHintRateLimited},
 		{name: "host", err: grokProviderTestError{status: http.StatusServiceUnavailable}, hint: execution.FailureHintHostError},

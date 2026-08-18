@@ -445,6 +445,13 @@ func TestLiveGrokContract(t *testing.T) {
 	if len(models) == 0 {
 		t.Fatal("live Grok model list is empty")
 	}
+	observation, err := ObserveGrokAccount(ctx, credential, GrokOptions{})
+	if err != nil {
+		t.Fatalf("observe live Grok account: %v", err)
+	}
+	if !observation.AccountQuotaObserved && !observation.SurfaceQuotaObserved && !observation.CreditQuotaObserved {
+		t.Fatal("live Grok observation returned no quota or billing scope")
+	}
 	if model == "" {
 		model = models[0]
 	}

@@ -27,8 +27,9 @@ quota policy. This bridge only exposes:
   signature cache disabled.
 - xAI OIDC discovery, one-shot device-code begin/poll, strict native/canonical file enrichment,
   stable OIDC subject identity, and one-shot context-aware refresh;
-- the execution-only Grok HTTP executor, live OAuth model discovery, explicit local CountTokens
-  estimator, and supported protocol translators, without CPA manager, refresh, retry, fallback,
+- the execution-only Grok HTTP executor, live OAuth model discovery, proactive billing
+  observation, explicit local CountTokens estimator, and supported protocol
+  translators, without CPA manager, refresh, retry, fallback,
   WebSocket, image, or video execution paths.
 
 It intentionally excludes CPA Manager, selector, pool, file store, server,
@@ -104,9 +105,8 @@ Browser OAuth, refresh-token rotation, deliberate 401/429 responses, and provide
 policy changes remain supervised live gates rather than default test behavior.
 
 The Grok contract requires a prepared canonical xAI OAuth credential. It verifies live OAuth
-models, all four unary/streaming protocol routes, and the three explicit local CountTokens
-representations. It does not invent an active plan or quota observation because CPA and the
-verified xAI execution surface expose no stable proactive quota endpoint.
+models, weekly/monthly billing observation, all four unary/streaming protocol routes, and the
+three explicit local CountTokens representations.
 
 ```bash
 CPA_LIVE_GROK_CREDENTIAL_FILE=/absolute/path/to/grok.json \

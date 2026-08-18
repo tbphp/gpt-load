@@ -33,11 +33,13 @@ type GrokCredential struct {
 // GrokOptions provides test-only endpoint/clock seams. Production callers use
 // zero values so all endpoints come from xAI's fixed issuer discovery.
 type GrokOptions struct {
-	DiscoveryURL string
-	UserInfoURL  string
-	ModelsURL    string
-	HTTPClient   *http.Client
-	Now          func() time.Time
+	DiscoveryURL      string
+	UserInfoURL       string
+	ModelsURL         string
+	BillingWeeklyURL  string
+	BillingMonthlyURL string
+	HTTPClient        *http.Client
+	Now               func() time.Time
 }
 
 type GrokDeviceState struct {
@@ -220,6 +222,8 @@ func grokAllowsTestEndpoints(options GrokOptions) bool {
 	return strings.TrimSpace(options.DiscoveryURL) != "" ||
 		strings.TrimSpace(options.UserInfoURL) != "" ||
 		strings.TrimSpace(options.ModelsURL) != "" ||
+		strings.TrimSpace(options.BillingWeeklyURL) != "" ||
+		strings.TrimSpace(options.BillingMonthlyURL) != "" ||
 		options.HTTPClient != nil
 }
 

@@ -9,6 +9,7 @@ import (
 const (
 	GrokSubscriptionDriver spec.SubscriptionDriverID = "grok"
 	GrokModelDiscovery     spec.UtilityID            = "grok_models"
+	GrokQuotaObservation   spec.UtilityID            = "grok_quota"
 )
 
 // Grok declares the subscription-backed xAI OAuth channel.
@@ -46,7 +47,8 @@ func Grok() spec.Module {
 		Capabilities: spec.CapabilityBindings{
 			SubscriptionDriver: GrokSubscriptionDriver,
 			ModelDiscovery:     GrokModelDiscovery,
+			QuotaObservation:   GrokQuotaObservation,
 		},
-		Scheduling: spec.SchedulingPolicy{QuotaPriority: false},
+		Scheduling: spec.SchedulingPolicy{QuotaPriority: true},
 	}}
 }

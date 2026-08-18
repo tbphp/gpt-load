@@ -3,6 +3,7 @@ package grok
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -18,8 +19,9 @@ func newGrokDriver() *grokDriver { return &grokDriver{} }
 func Implementations() subscriptionruntime.Implementations {
 	driver := newGrokDriver()
 	return subscriptionruntime.Implementations{
-		Drivers:          []subscriptionruntime.Driver{driver},
-		ModelDiscoveries: []subscriptionruntime.ModelDiscovery{grokModelDiscovery{driver}},
+		Drivers:           []subscriptionruntime.Driver{driver},
+		ModelDiscoveries:  []subscriptionruntime.ModelDiscovery{grokModelDiscovery{driver}},
+		QuotaObservations: []subscriptionruntime.QuotaObservation{grokQuotaObservation{driver}},
 	}
 }
 
@@ -141,6 +143,53 @@ func (*grokDriver) DiscoverModels(ctx context.Context, credential subscriptionru
 	}
 	return models, nil
 }
+
+func (*grokDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+	value, err := ParseCredentialJSON(credential.Canonical())
+	if err != nil {
+		return subscriptionruntime.Observation{}, err
+	}
+	observed, err := ObserveAccount(ctx, value)
+	if err != nil {
+		var upstream *UpstreamHTTPError
+		if errors.As(err, &upstream) {
+			return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: upstream.StatusCode}
+		}
+		if errors.Is(err, ErrAccountObservationPayloadInvalid) {
+			return subscriptionruntime.Observation{}, subscriptionruntime.ErrObservationPayloadInvalid
+		}
+		return subscriptionruntime.Observation{}, err
+	}
+	normalized, err := NormalizeObservation(value.Email, observed)
+	if err != nil {
+		return subscriptionruntime.Observation{}, fmt.Errorf("%w: %v", subscriptionruntime.ErrObservationPayloadInvalid, err)
+	}
+	observedScopes := grokObservedQuotaScopes(observed)
+	quotaObserved := len(observedScopes) > 0
+	return subscriptionruntime.Observation{
+		Payload: normalized, Header: observed.Header.Clone(), Partial: len(observed.IncompleteSources) > 0,
+		AccountObserved: observed.AccountObserved, QuotaObserved: quotaObserved,
+		ObservedQuotaScopes: observedScopes,
+	}, nil
+}
+
+func grokObservedQuotaScopes(observed AccountObservation) []string {
+	scopes := make([]string, 0, 3)
+	if observed.AccountQuotaObserved {
+		scopes = append(scopes, quotaScopeAccount)
+	}
+	if observed.SurfaceQuotaObserved {
+		scopes = append(scopes, quotaScopeSurface)
+	}
+	if observed.CreditQuotaObserved {
+		scopes = append(scopes, quotaScopeCredits)
+	}
+	return scopes
+}
+
+type grokQuotaObservation struct{ *grokDriver }
+
+func (grokQuotaObservation) ID() spec.UtilityID { return modules.GrokQuotaObservation }
 
 func grokRuntimeCredential(value Credential, canonical []byte) subscriptionruntime.Credential {
 	expiresAt, expires := CredentialExpiresAt(value)
