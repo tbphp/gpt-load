@@ -65,9 +65,10 @@ func TestNormalizeObservationIncludesAccountAndQuotaWindows(t *testing.T) {
 		byID[window.ID] = window
 	}
 	if byID["five_hour"].Utilization == nil || *byID["five_hour"].Utilization != 0.25 ||
-		byID["five_hour"].Label != "Session · 5h" ||
+		byID["five_hour"].Label != "5h" || byID["five_hour"].LabelKey != "session" ||
 		byID["five_hour"].ResetAtMS == nil || !byID["five_hour"].IsPrimary ||
-		byID["seven_day"].Label != "Weekly · 7d" ||
+		byID["seven_day"].Label != "7d" || byID["seven_day"].LabelKey != "weekly" ||
+		byID["extra_usage"].LabelKey != "extra_usage" ||
 		byID["extra_usage"].Remaining == nil || *byID["extra_usage"].Remaining != 87.5 ||
 		byID["weekly_opus"].Label != "Opus · 7d" ||
 		byID["weekly_opus"].Utilization == nil || *byID["weekly_opus"].Utilization != 0.8 {
@@ -214,7 +215,7 @@ func TestNormalizeObservationInfersPeriodsForScopedSessionAndWeeklyWindows(t *te
 	for _, window := range snapshot.Windows {
 		labels = append(labels, window.Label)
 	}
-	if !reflect.DeepEqual(labels, []string{"Session · 5h", "Weekly · 7d"}) {
+	if !reflect.DeepEqual(labels, []string{"5h", "7d"}) {
 		t.Fatalf("quota window labels = %q", labels)
 	}
 }
@@ -243,6 +244,9 @@ func TestNormalizeObservationPreservesScopedLimitKinds(t *testing.T) {
 	}
 	if surface := byID["weekly_oauth-apps"]; surface.Scope != "surface" || surface.Label != "OAuth apps · 7d" {
 		t.Fatalf("surface window = %#v", surface)
+	}
+	if byID["weekly_oauth-apps"].LabelKey != "oauth_apps" {
+		t.Fatalf("surface label key = %#v", byID["weekly_oauth-apps"])
 	}
 	if model := byID["weekly_special"]; model.Scope != "model" || model.Label != "Claude Special · 7d" {
 		t.Fatalf("custom model window = %#v", model)

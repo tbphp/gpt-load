@@ -102,6 +102,15 @@ const windowSkeletonHeight = computed(() => `${24 + accountQuotaWindows.value.le
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
+
+const quotaSubjectKeys: Readonly<Record<string, string>> = {
+  session: 'group.credentials.subscription.quotaLabels.session',
+  weekly: 'group.credentials.subscription.quotaLabels.weekly',
+  'extra usage': 'group.credentials.subscription.quotaLabels.extraUsage',
+  'included usage': 'group.credentials.subscription.quotaLabels.includedUsage',
+  'pay as you go': 'group.credentials.subscription.quotaLabels.payAsYouGo',
+  'oauth apps': 'group.credentials.subscription.quotaLabels.oauthApps',
+}
 const accountName = computed(() => props.item.account.email ?? props.item.mask)
 const planLabel = computed(() => {
   const plan = snapshot.value?.plan_summary.name?.trim()
@@ -148,6 +157,47 @@ const isProblem = computed(
 function quotaWindowIsCurrent(window: CredentialQuotaWindowDto): boolean {
   if (!observationIsCurrent.value) return false
   return window.reset_at_ms === undefined || window.reset_at_ms > nowMs.value
+}
+
+function quotaWindowPeriodLabel(seconds: number | undefined): string {
+  if (seconds === undefined || !Number.isSafeInteger(seconds) || seconds <= 0) return ''
+  const day = 24 * 60 * 60
+  const hour = 60 * 60
+  const minute = 60
+  if (seconds % day === 0) return `${seconds / day}d`
+  if (seconds % hour === 0) return `${seconds / hour}h`
+  if (seconds % minute === 0) return `${seconds / minute}min`
+  return `${seconds}s`
+}
+
+function normalizedQuotaLabelPart(value: string): string {
+  return value.trim().toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ')
+}
+
+function quotaWindowLabel(window: CredentialQuotaWindowDto): string {
+  const period = quotaWindowPeriodLabel(window.window_seconds)
+  if (period && window.scope === 'account') return period
+
+  if (window.label_key) {
+    const subject = t(`group.credentials.subscription.quotaLabels.${window.label_key}`)
+    return window.label_key === 'oauth_apps' && period ? `${subject} · ${period}` : subject
+  }
+
+  const parts = window.label
+    .split('·')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length === 0) return period
+
+  const firstPart = normalizedQuotaLabelPart(parts[0] ?? '')
+  if (period && (firstPart === 'session' || firstPart === 'weekly')) return period
+
+  return parts
+    .map((part) => {
+      const key = quotaSubjectKeys[normalizedQuotaLabelPart(part)]
+      return key ? t(key) : part
+    })
+    .join(' · ')
 }
 
 type UnifiedStatus =
@@ -504,8 +554,11 @@ function runMenuAction(
         class="subscription-account__quotas"
       >
         <div v-for="window in quotaWindows" :key="window.id" class="subscription-account__quota">
-          <OverflowTooltip class="subscription-account__quota-name" :content="window.label">
-            {{ window.label }}
+          <OverflowTooltip
+            class="subscription-account__quota-name"
+            :content="quotaWindowLabel(window)"
+          >
+            {{ quotaWindowLabel(window) }}
           </OverflowTooltip>
           <span
             v-if="remainingPercent(window) !== undefined"
@@ -514,7 +567,7 @@ function runMenuAction(
               quotaTone(window) ? `subscription-account__quota-track--${quotaTone(window)}` : ''
             "
             role="progressbar"
-            :aria-label="window.label"
+            :aria-label="quotaWindowLabel(window)"
             :aria-valuenow="remainingPercent(window)"
             :aria-valuetext="quotaValueLabel(window)"
             aria-valuemin="0"
@@ -532,7 +585,7 @@ function runMenuAction(
             v-else
             class="subscription-account__quota-track subscription-account__quota-track--unknown"
             role="img"
-            :aria-label="`${window.label}: ${quotaValueLabel(window)}`"
+            :aria-label="`${quotaWindowLabel(window)}: ${quotaValueLabel(window)}`"
           />
           <span class="subscription-account__quota-value">{{ quotaValueLabel(window) }}</span>
           <span class="subscription-account__quota-reset">
@@ -745,10 +798,10 @@ function runMenuAction(
             >
               <OverflowTooltip
                 class="subscription-account__window-name"
-                :content="window.label"
+                :content="quotaWindowLabel(window)"
                 role="cell"
               >
-                {{ window.label }}
+                {{ quotaWindowLabel(window) }}
               </OverflowTooltip>
               <span
                 class="subscription-account__window-value subscription-account__window-used"

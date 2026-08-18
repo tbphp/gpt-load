@@ -31,12 +31,13 @@ func NormalizeObservation(email string, observation AccountObservation) ([]byte,
 	}
 	if observation.AccountQuotaObserved && (observation.Billing.UsagePercent != nil || periodEnd != nil) {
 		window, err := grokPercentWindow(
-			"weekly", providerobservation.WindowLabel("Weekly", windowSeconds), quotaScopeAccount,
+			"weekly", providerobservation.PeriodLabel(windowSeconds), quotaScopeAccount,
 			observation.Billing.UsagePercent, periodEnd, windowSeconds,
 		)
 		if err != nil {
 			return nil, err
 		}
+		window.LabelKey = providerobservation.QuotaLabelWeekly
 		window.IsPrimary = true
 		result.QuotaWindows = append(result.QuotaWindows, window)
 	}
@@ -166,6 +167,12 @@ func grokCreditWindow(
 		return nil
 	}
 	window := &providerobservation.QuotaWindow{ID: id, Label: label, Scope: quotaScopeCredits, Unit: "usd", State: "unknown"}
+	switch id {
+	case "included_usage":
+		window.LabelKey = providerobservation.QuotaLabelIncludedUsage
+	case "pay_as_you_go":
+		window.LabelKey = providerobservation.QuotaLabelPayAsYouGo
+	}
 	if usedCents != nil {
 		used := *usedCents / 100
 		window.Used = &used

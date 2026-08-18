@@ -51,6 +51,7 @@ type ObservationAccountSummary struct {
 type ObservationQuotaWindow struct {
 	ID            string                  `json:"id"`
 	Label         string                  `json:"label"`
+	LabelKey      string                  `json:"label_key,omitempty"`
 	Scope         string                  `json:"scope"`
 	Unit          string                  `json:"unit"`
 	Used          *float64                `json:"used,omitempty"`

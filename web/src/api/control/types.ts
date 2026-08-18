@@ -136,6 +136,7 @@ export interface CredentialAccountDto {
 export interface CredentialQuotaWindowDto {
   id: string
   label: string
+  label_key?: CredentialQuotaLabelKey
   scope: string
   unit: string
   used?: number
@@ -149,6 +150,9 @@ export interface CredentialQuotaWindowDto {
   is_primary?: boolean
   observed_usage?: CredentialObservedWindowUsageDto
 }
+
+export type CredentialQuotaLabelKey =
+  'session' | 'weekly' | 'extra_usage' | 'included_usage' | 'pay_as_you_go' | 'oauth_apps'
 
 export interface CredentialObservedWindowUsageDto {
   window_start_ms: number

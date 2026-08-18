@@ -108,7 +108,10 @@ func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWind
 		if !ok {
 			continue
 		}
-		item := quotaWindow{ID: prefix + name, Label: windowLabel(window, name, scope), Scope: scope, Unit: "percent", State: "unknown"}
+		item := quotaWindow{
+			ID: prefix + name, Label: windowLabel(window, name, scope), LabelKey: codexWindowLabelKey(name, scope),
+			Scope: scope, Unit: "percent", State: "unknown",
+		}
 		if used, ok := number(firstValue(window, "used_percent", "usedPercent")); ok {
 			used = math.Max(0, math.Min(100, used))
 			limit, remaining, utilization := 100.0, 100-used, used/100
@@ -137,9 +140,26 @@ func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWind
 	return result
 }
 
+func codexWindowLabelKey(fallback, scope string) string {
+	if scope != "account" {
+		return ""
+	}
+	switch fallback {
+	case "primary":
+		return providerobservation.QuotaLabelSession
+	case "secondary":
+		return providerobservation.QuotaLabelWeekly
+	default:
+		return ""
+	}
+}
+
 func windowLabel(window map[string]any, fallback, scope string) string {
 	seconds, _ := integer(firstValue(window, "limit_window_seconds", "limitWindowSeconds"))
 	if scope == "account" {
+		if period := providerobservation.PeriodLabel(seconds); period != "" {
+			return period
+		}
 		subject := providerobservation.DisplayName(fallback)
 		switch seconds {
 		case 5 * 60 * 60:

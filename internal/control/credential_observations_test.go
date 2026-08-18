@@ -62,7 +62,8 @@ func TestNormalizeCodexObservationKeepsDynamicWindowsAndStableOrder(t *testing.T
 		t.Fatalf("window order = %#v", snapshot.QuotaWindows)
 	}
 	if snapshot.QuotaWindows[0].Label != "GPT 5.2 · 7d" ||
-		snapshot.QuotaWindows[1].Label != "Weekly · 7d" || snapshot.QuotaWindows[2].Label != "Session · 5h" {
+		snapshot.QuotaWindows[1].Label != "7d" || snapshot.QuotaWindows[1].LabelKey != "weekly" ||
+		snapshot.QuotaWindows[2].Label != "5h" || snapshot.QuotaWindows[2].LabelKey != "session" {
 		t.Fatalf("window labels = %#v", snapshot.QuotaWindows)
 	}
 }

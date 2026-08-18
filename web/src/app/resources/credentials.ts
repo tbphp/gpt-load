@@ -184,6 +184,7 @@ const resetCreditConsumeFields = [
 const quotaWindowFields = [
   'id',
   'label',
+  'label_key',
   'scope',
   'unit',
   'used',
@@ -196,6 +197,14 @@ const quotaWindowFields = [
   'state',
   'is_primary',
   'observed_usage',
+] as const
+const quotaLabelKeys = [
+  'session',
+  'weekly',
+  'extra_usage',
+  'included_usage',
+  'pay_as_you_go',
+  'oauth_apps',
 ] as const
 const observedWindowUsageFields = [
   'window_start_ms',
@@ -349,6 +358,9 @@ function projectQuotaWindow(value: unknown): CredentialQuotaWindowDto {
   return {
     id,
     label,
+    ...(record.label_key === undefined
+      ? {}
+      : { label_key: projectEnum(record.label_key, quotaLabelKeys) }),
     scope,
     unit,
     ...(used === undefined ? {} : { used }),

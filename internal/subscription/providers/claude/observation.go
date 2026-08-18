@@ -102,9 +102,9 @@ func duplicateClaudeStandardWindow(existing []quotaWindow, candidate quotaWindow
 	targetID := ""
 	subject := strings.TrimSpace(strings.SplitN(candidate.Label, "·", 2)[0])
 	switch providerobservation.SafeID(subject) {
-	case "session":
+	case "session", "5h":
 		targetID = "five_hour"
-	case "weekly":
+	case "weekly", "7d":
 		targetID = "seven_day"
 	default:
 		return false
@@ -209,7 +209,8 @@ func normalizeClaudePercentageWindow(
 	reset *string,
 ) (quotaWindow, error) {
 	result := quotaWindow{
-		ID: id, Label: providerobservation.WindowLabel(label, windowSeconds), Scope: scope, Unit: "percent", State: "unknown", IsPrimary: primary,
+		ID: id, Label: claudeQuotaWindowLabel(label, windowSeconds), LabelKey: claudeQuotaLabelKey(label),
+		Scope: scope, Unit: "percent", State: "unknown", IsPrimary: primary,
 	}
 	if windowSeconds > 0 {
 		result.WindowSeconds = floatlessIntPointer(windowSeconds)
@@ -233,8 +234,34 @@ func normalizeClaudePercentageWindow(
 	return result, nil
 }
 
+func claudeQuotaLabelKey(label string) string {
+	switch providerobservation.SafeID(label) {
+	case "session":
+		return providerobservation.QuotaLabelSession
+	case "weekly":
+		return providerobservation.QuotaLabelWeekly
+	case "oauth-apps":
+		return providerobservation.QuotaLabelOAuthApps
+	default:
+		return ""
+	}
+}
+
+func claudeQuotaWindowLabel(label string, windowSeconds int64) string {
+	if windowSeconds > 0 {
+		switch providerobservation.SafeID(label) {
+		case "session", "weekly":
+			return providerobservation.PeriodLabel(windowSeconds)
+		}
+	}
+	return providerobservation.WindowLabel(label, windowSeconds)
+}
+
 func normalizeClaudeExtraUsage(extra *ExtraUsage) (quotaWindow, error) {
-	result := quotaWindow{ID: "extra_usage", Label: "Extra usage", Scope: "extra_usage", Unit: "credits", State: "unknown"}
+	result := quotaWindow{
+		ID: "extra_usage", Label: "Extra usage", LabelKey: providerobservation.QuotaLabelExtraUsage,
+		Scope: "extra_usage", Unit: "credits", State: "unknown",
+	}
 	if extra.Currency != nil && strings.TrimSpace(*extra.Currency) != "" {
 		result.Unit = strings.ToUpper(strings.TrimSpace(*extra.Currency))
 	}

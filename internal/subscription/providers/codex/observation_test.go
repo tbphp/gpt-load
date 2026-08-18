@@ -33,11 +33,14 @@ func TestNormalizeQuotaNormalizesPlanAndStandardWindows(t *testing.T) {
 		t.Fatalf("plan = %#v", snapshot.Plan)
 	}
 	labels := make([]string, 0, len(snapshot.QuotaWindows))
+	labelKeys := make([]string, 0, len(snapshot.QuotaWindows))
 	for _, window := range snapshot.QuotaWindows {
 		labels = append(labels, window.Label)
+		labelKeys = append(labelKeys, window.LabelKey)
 	}
-	if !reflect.DeepEqual(labels, []string{"Weekly · 7d", "Session · 5h"}) {
-		t.Fatalf("window labels = %q", labels)
+	if !reflect.DeepEqual(labels, []string{"7d", "5h"}) ||
+		!reflect.DeepEqual(labelKeys, []string{"weekly", "session"}) {
+		t.Fatalf("window labels = %q, keys = %q", labels, labelKeys)
 	}
 }
 

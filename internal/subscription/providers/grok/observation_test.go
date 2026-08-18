@@ -39,9 +39,10 @@ func TestNormalizeObservationBuildsPlanAndDisplayReadyWindows(t *testing.T) {
 	for _, window := range snapshot.QuotaWindows {
 		windows[window.ID] = window
 	}
-	if windows["weekly"].Label != "Weekly · 7d" || windows["weekly"].Scope != quotaScopeAccount ||
+	if windows["weekly"].Label != "7d" || windows["weekly"].LabelKey != "weekly" || windows["weekly"].Scope != quotaScopeAccount ||
 		windows["grokbuild"].Label != "Grok Build · 7d" || windows["grokbuild"].Scope != quotaScopeSurface ||
-		windows["included_usage"].Scope != quotaScopeCredits || windows["pay_as_you_go"].Scope != quotaScopeCredits {
+		windows["included_usage"].LabelKey != "included_usage" || windows["included_usage"].Scope != quotaScopeCredits ||
+		windows["pay_as_you_go"].LabelKey != "pay_as_you_go" || windows["pay_as_you_go"].Scope != quotaScopeCredits {
 		t.Fatalf("quota windows = %#v", snapshot.QuotaWindows)
 	}
 }
