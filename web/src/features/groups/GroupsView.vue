@@ -416,8 +416,8 @@ function channelDefinition(channelID: string): ChannelDto | null {
                     :mark="channelDefinition(group.channel_id)!.mark"
                   />
                   <strong class="channel-name">{{ channelName(group.channel_id) }}</strong>
+                  <code class="channel-id">({{ group.channel_id }})</code>
                 </span>
-                <code class="channel-id">{{ group.channel_id }}</code>
                 <CopyChip
                   v-if="group.params.base_url"
                   :value="group.params.base_url"
@@ -547,27 +547,37 @@ function channelDefinition(channelID: string): ChannelDto | null {
 }
 
 .channel-id {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
-  overflow-wrap: anywhere;
+  font-size: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .channel-heading {
   display: flex;
+  width: 100%;
   min-width: 0;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
 }
 
 .channel-icon {
   flex: none;
-  font-size: var(--text-sm);
+  font-size: 18px;
 }
 
 .channel-name {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text);
-  font-size: var(--text-sm);
+  font-size: var(--title-section);
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-count {
