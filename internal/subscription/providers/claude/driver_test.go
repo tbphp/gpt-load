@@ -1,4 +1,4 @@
-package subscriptionruntime
+package claude
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"gpt-load/internal/channel/modules"
-	"gpt-load/internal/claude"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestClaudeDriverProducesProviderNeutralCredential(t *testing.T) {
@@ -43,7 +43,7 @@ func TestClaudeDriverDeclaresFixedCallbackAndEncryptedPKCEState(t *testing.T) {
 		t.Fatal(err)
 	}
 	callback, local := driver.LocalCallback()
-	if !local || callback.RedirectURI != claude.RedirectURI || authorization.State == "" || len(authorization.DriverState) == 0 {
+	if !local || callback.RedirectURI != RedirectURI || authorization.State == "" || len(authorization.DriverState) == 0 {
 		t.Fatalf("authorization = %#v callback=%#v/%t", authorization, callback, local)
 	}
 	if strings.Contains(authorization.URL, string(authorization.DriverState)) {
@@ -53,22 +53,22 @@ func TestClaudeDriverDeclaresFixedCallbackAndEncryptedPKCEState(t *testing.T) {
 
 func TestClaudeDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newClaudeDriver()
-	if got := driver.ClassifyRefreshFailure(claude.ErrCredentialIdentityChanged); got != RefreshFailureIdentityChanged {
+	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
 		t.Fatalf("identity failure = %v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(claude.ErrOrganizationIdentityChanged); got != RefreshFailureIdentityChanged {
+	if got := driver.ClassifyRefreshFailure(ErrOrganizationIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
 		t.Fatalf("organization failure = %v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&claude.TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != RefreshFailureReauthorizationRequired {
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != subscriptionruntime.RefreshFailureReauthorizationRequired {
 		t.Fatalf("invalid grant = %v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(errors.New("temporary failure")); got != RefreshFailureOutcomeUnknown {
+	if got := driver.ClassifyRefreshFailure(errors.New("temporary failure")); got != subscriptionruntime.RefreshFailureOutcomeUnknown {
 		t.Fatalf("temporary failure = %v", got)
 	}
 }
 
 func TestClaudeImplementationsExposeCompleteReadOnlyCapabilities(t *testing.T) {
-	implementations := ClaudeImplementations()
+	implementations := Implementations()
 	if len(implementations.Drivers) != 1 || implementations.Drivers[0].ID() != modules.ClaudeSubscriptionDriver ||
 		len(implementations.ModelDiscoveries) != 1 ||
 		implementations.ModelDiscoveries[0].ID() != modules.ClaudeModelDiscovery ||

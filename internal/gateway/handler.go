@@ -30,6 +30,7 @@ import (
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/telemetry"
 )
@@ -145,12 +146,7 @@ func NewHandler(
 		requestLogSink = telemetry.NoopRequestLogSink{}
 	}
 	channels := channel.NewRegistry()
-	subscriptions, _ := subscriptionruntime.NewRuntime(
-		channels,
-		subscriptionruntime.CodexImplementations(),
-		subscriptionruntime.ClaudeImplementations(),
-		subscriptionruntime.AntigravityImplementations(),
-	)
+	subscriptions, _ := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
 	return &Handler{
 		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,

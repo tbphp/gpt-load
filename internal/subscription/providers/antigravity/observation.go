@@ -1,4 +1,4 @@
-package subscriptionruntime
+package antigravity
 
 import (
 	"encoding/json"
@@ -7,15 +7,20 @@ import (
 	"strings"
 	"time"
 
-	"gpt-load/internal/antigravity"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-// NormalizeAntigravityObservation creates the same provider-neutral snapshot
+type quotaPlanSummary = providerobservation.PlanSummary
+type quotaAccountSummary = providerobservation.AccountSummary
+type quotaWindow = providerobservation.QuotaWindow
+type quotaSnapshot = providerobservation.Snapshot
+
+// NormalizeObservation creates the same provider-neutral snapshot
 // shape used by other subscription channels. Google One AI credits are shown
 // as a balance only; quota windows are copied from the upstream quota summary.
-func NormalizeAntigravityObservation(email string, observation antigravity.AccountObservation) ([]byte, error) {
+func NormalizeObservation(email string, observation AccountObservation) ([]byte, error) {
 	result := quotaSnapshot{
-		Plan:         quotaPlanSummary{Name: strings.TrimSpace(observation.PlanID)},
+		Plan:         quotaPlanSummary{Name: antigravityPlanName(observation.PlanID)},
 		Account:      &quotaAccountSummary{Email: strings.TrimSpace(email)},
 		QuotaWindows: make([]quotaWindow, 0, len(observation.QuotaGroups)+1),
 	}
@@ -59,7 +64,7 @@ func NormalizeAntigravityObservation(email string, observation antigravity.Accou
 
 func normalizeAntigravityQuotaBucket(
 	groupName string,
-	bucket antigravity.QuotaBucket,
+	bucket QuotaBucket,
 	seenIDs map[string]struct{},
 ) (quotaWindow, error) {
 	id := strings.TrimSpace(bucket.ID)
@@ -85,24 +90,76 @@ func normalizeAntigravityQuotaBucket(
 	if remaining <= 0 {
 		state = "exhausted"
 	}
-	label := strings.TrimSpace(bucket.DisplayName)
-	if label == "" {
-		label = id
-	}
-	if groupName != "" {
-		label = groupName + " · " + label
-	}
+	seconds := antigravityQuotaWindowSeconds(bucket.Window)
+	label := antigravityQuotaLabel(groupName, bucket, seconds)
 	window := quotaWindow{
 		ID: id, Label: label, Scope: "model", Unit: "percent", State: state,
 		Used: &used, Limit: &limit, Remaining: &remaining, Utilization: &utilization,
 	}
-	if seconds := antigravityQuotaWindowSeconds(bucket.Window); seconds > 0 {
+	if seconds > 0 {
 		window.WindowSeconds = &seconds
 	}
 	if resetAt := antigravityQuotaResetAt(bucket.ResetTime); resetAt > 0 {
 		window.ResetAtMS = &resetAt
 	}
 	return window, nil
+}
+
+func antigravityQuotaLabel(groupName string, bucket QuotaBucket, seconds int64) string {
+	groupLabel := antigravityQuotaSubject(groupName)
+	if seconds > 0 {
+		return providerobservation.WindowLabel(groupLabel, seconds)
+	}
+	bucketLabel := antigravityQuotaBucketLabel(bucket.DisplayName)
+	if bucketLabel == "" {
+		bucketLabel = antigravityQuotaBucketLabel(bucket.ID)
+	}
+	if groupLabel == "" {
+		return bucketLabel
+	}
+	if bucketLabel == "" || strings.EqualFold(groupLabel, bucketLabel) {
+		return groupLabel
+	}
+	return groupLabel + " · " + bucketLabel
+}
+
+func antigravityQuotaBucketLabel(value string) string {
+	normalized := providerobservation.SafeID(value)
+	switch {
+	case normalized == "weekly" || strings.HasPrefix(normalized, "weekly-"):
+		return "Weekly"
+	case normalized == "five-hour" || strings.HasPrefix(normalized, "five-hour-"),
+		normalized == "5-hour" || strings.HasPrefix(normalized, "5-hour-"),
+		normalized == "5h" || strings.HasPrefix(normalized, "5h-"),
+		normalized == "session" || strings.HasPrefix(normalized, "session-"):
+		return "Session"
+	default:
+		return providerobservation.DisplayName(value)
+	}
+}
+
+func antigravityPlanName(value string) string {
+	normalized := strings.NewReplacer("_", "-", " ", "-").Replace(strings.ToLower(strings.TrimSpace(value)))
+	switch normalized {
+	case "free-tier", "free", "standard":
+		return "Free"
+	case "g1-pro-tier", "pro":
+		return "Pro"
+	default:
+		return providerobservation.DisplayName(value)
+	}
+}
+
+func antigravityQuotaSubject(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.Contains(normalized, "gemini"):
+		return "Gemini"
+	case strings.Contains(normalized, "claude") || strings.Contains(normalized, "gpt"):
+		return "Claude/GPT"
+	default:
+		return providerobservation.DisplayName(value)
+	}
 }
 
 func antigravityQuotaWindowSeconds(raw string) int64 {

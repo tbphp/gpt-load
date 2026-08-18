@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"gpt-load/internal/antigravity"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/subscription/providers/antigravity"
 )
 
 type antigravityProviderCredential struct{ value antigravity.Credential }

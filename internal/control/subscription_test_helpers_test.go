@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -245,7 +245,7 @@ func codexTestVerifier(raw json.RawMessage) string {
 // These adapters keep provider fixture payloads in control tests while making
 // the production normalization boundary live exclusively in the Codex driver.
 func normalizeCodexObservation(raw []byte) (CredentialObservationSnapshot, error) {
-	encoded, err := subscriptionruntime.NormalizeCodexQuota(raw, nil)
+	encoded, err := codex.NormalizeQuota(raw, nil)
 	if err != nil {
 		return CredentialObservationSnapshot{}, err
 	}
@@ -255,7 +255,7 @@ func normalizeCodexObservation(raw []byte) (CredentialObservationSnapshot, error
 }
 
 func normalizeCodexResetCreditDetails(raw []byte) (*int64, []ObservationResetCredit, bool, error) {
-	encoded, err := subscriptionruntime.NormalizeCodexQuota([]byte(`{}`), raw)
+	encoded, err := codex.NormalizeQuota([]byte(`{}`), raw)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -267,7 +267,7 @@ func normalizeCodexResetCreditDetails(raw []byte) (*int64, []ObservationResetCre
 }
 
 func normalizeResetCreditConsumeResult(raw []byte) (storedResetCreditResult, error) {
-	result, err := subscriptionruntime.NormalizeCodexResetCreditResult(raw)
+	result, err := codex.NormalizeResetCreditResult(raw)
 	if err != nil {
 		return storedResetCreditResult{}, err
 	}

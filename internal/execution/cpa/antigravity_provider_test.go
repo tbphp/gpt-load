@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"gpt-load/internal/antigravity"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/subscription/providers/antigravity"
 )
 
 type recordingAntigravityExecutor struct {

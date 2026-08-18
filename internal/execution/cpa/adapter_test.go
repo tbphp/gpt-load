@@ -15,9 +15,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"gpt-load/internal/antigravity"
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
@@ -26,6 +24,9 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
+	"gpt-load/internal/subscription/providers/antigravity"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -799,12 +800,7 @@ func newSubscriptionAdapterFixture(
 		t.Fatal(err)
 	}
 	channels := channel.NewRegistry()
-	subscriptions, err := subscriptionruntime.NewRuntime(
-		channels,
-		subscriptionruntime.CodexImplementations(),
-		subscriptionruntime.ClaudeImplementations(),
-		subscriptionruntime.AntigravityImplementations(),
-	)
+	subscriptions, err := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
 	if err != nil {
 		t.Fatal(err)
 	}

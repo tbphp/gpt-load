@@ -28,6 +28,7 @@ import (
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/testutil/sqlitetest"
 )
@@ -197,12 +198,7 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 	}
 	stats := health.NewStatsStore()
 	mutations := health.NewMutationCoordinator()
-	subscriptions, err := subscriptionruntime.NewRuntime(
-		channelRegistry,
-		subscriptionruntime.CodexImplementations(),
-		subscriptionruntime.ClaudeImplementations(),
-		subscriptionruntime.AntigravityImplementations(),
-	)
+	subscriptions, err := subscriptionruntime.NewRuntime(channelRegistry, subscriptionproviders.Implementations()...)
 	if err != nil {
 		t.Fatalf("subscriptionruntime.NewRuntime() error = %v", err)
 	}

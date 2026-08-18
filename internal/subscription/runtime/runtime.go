@@ -35,7 +35,7 @@ type Account struct {
 	LastRefreshKnown bool
 }
 
-func newCredential(canonical []byte, identity string, account Account, expiresAt time.Time, expires bool, secrets []string) Credential {
+func NewCredential(canonical []byte, identity string, account Account, expiresAt time.Time, expires bool, secrets []string) Credential {
 	return Credential{
 		canonical: append([]byte(nil), canonical...), identity: identity, account: account,
 		expiresAt: expiresAt, expires: expires, secretValues: append([]string(nil), secrets...),

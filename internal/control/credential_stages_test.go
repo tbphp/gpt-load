@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription/providers/codex"
 )
 
 type credentialImportStatusError struct{ status int }

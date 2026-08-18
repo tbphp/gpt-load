@@ -14,14 +14,14 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/claude"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/subscription/providers/claude"
+	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 

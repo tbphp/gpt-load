@@ -1,4 +1,4 @@
-package subscriptionruntime
+package antigravity
 
 import (
 	"encoding/json"
@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"gpt-load/internal/antigravity"
 	"gpt-load/internal/channel/modules"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestAntigravityDriverProducesProviderNeutralCredential(t *testing.T) {
@@ -41,26 +41,26 @@ func TestAntigravityDriverDeclaresCallbackAndImporter(t *testing.T) {
 	if !local || callback.RedirectURI != "http://localhost:51121/oauth-callback" {
 		t.Fatalf("callback = %#v/%t", callback, local)
 	}
-	if _, ok := any(driver).(CredentialFileImporter); !ok {
+	if _, ok := any(driver).(subscriptionruntime.CredentialFileImporter); !ok {
 		t.Fatal("Antigravity driver does not implement CredentialFileImporter")
 	}
 }
 
 func TestAntigravityDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newAntigravityDriver()
-	if got := driver.ClassifyRefreshFailure(antigravity.ErrCredentialIdentityChanged); got != RefreshFailureIdentityChanged {
+	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
 		t.Fatalf("identity changed classification = %v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&antigravity.TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != RefreshFailureReauthorizationRequired {
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != subscriptionruntime.RefreshFailureReauthorizationRequired {
 		t.Fatalf("invalid_grant classification = %v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got != RefreshFailureOutcomeUnknown {
+	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got != subscriptionruntime.RefreshFailureOutcomeUnknown {
 		t.Fatalf("network classification = %v", got)
 	}
 }
 
 func TestAntigravityImplementationsExposeCompleteReadOnlyCapabilities(t *testing.T) {
-	implementations := AntigravityImplementations()
+	implementations := Implementations()
 	if len(implementations.Drivers) != 1 || implementations.Drivers[0].ID() != modules.AntigravitySubscriptionDriver ||
 		len(implementations.ModelDiscoveries) != 1 ||
 		implementations.ModelDiscoveries[0].ID() != modules.AntigravityModelDiscovery ||
@@ -71,10 +71,10 @@ func TestAntigravityImplementationsExposeCompleteReadOnlyCapabilities(t *testing
 	}
 }
 
-func TestNormalizeAntigravityObservationShowsCreditsWithoutInventingQuota(t *testing.T) {
-	raw, err := NormalizeAntigravityObservation("owner@example.com", antigravity.AccountObservation{
+func TestNormalizeObservationShowsCreditsWithoutInventingQuota(t *testing.T) {
+	raw, err := NormalizeObservation("owner@example.com", AccountObservation{
 		PlanID: "google-one-ai",
-		GoogleOneAICredits: &antigravity.GoogleOneAICredit{
+		GoogleOneAICredits: &GoogleOneAICredit{
 			Amount: 25000, MinimumAmount: 50,
 		},
 	})
@@ -85,7 +85,7 @@ func TestNormalizeAntigravityObservationShowsCreditsWithoutInventingQuota(t *tes
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Plan.Name != "google-one-ai" || snapshot.Account == nil || snapshot.Account.Email != "owner@example.com" ||
+	if snapshot.Plan.Name != "Google One AI" || snapshot.Account == nil || snapshot.Account.Email != "owner@example.com" ||
 		len(snapshot.QuotaWindows) != 1 {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
@@ -96,22 +96,22 @@ func TestNormalizeAntigravityObservationShowsCreditsWithoutInventingQuota(t *tes
 		t.Fatalf("credit window = %#v", window)
 	}
 
-	empty, err := NormalizeAntigravityObservation("owner@example.com", antigravity.AccountObservation{PlanID: "free-tier"})
+	empty, err := NormalizeObservation("owner@example.com", AccountObservation{PlanID: "free-tier"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(empty, &snapshot); err != nil || len(snapshot.QuotaWindows) != 0 {
+	if err := json.Unmarshal(empty, &snapshot); err != nil || snapshot.Plan.Name != "Free" || len(snapshot.QuotaWindows) != 0 {
 		t.Fatalf("missing credit snapshot = %#v, %v", snapshot, err)
 	}
 }
 
-func TestNormalizeAntigravityObservationIncludesUpstreamQuotaBuckets(t *testing.T) {
+func TestNormalizeObservationIncludesUpstreamQuotaBuckets(t *testing.T) {
 	remaining := 0.75
-	raw, err := NormalizeAntigravityObservation("owner@example.com", antigravity.AccountObservation{
+	raw, err := NormalizeObservation("owner@example.com", AccountObservation{
 		PlanID: "g1-pro-tier",
-		QuotaGroups: []antigravity.QuotaGroup{{
+		QuotaGroups: []QuotaGroup{{
 			DisplayName: "Gemini Models",
-			Buckets: []antigravity.QuotaBucket{{
+			Buckets: []QuotaBucket{{
 				ID: "gemini-5h", DisplayName: "Five Hour Limit Remaining", Window: "5h",
 				ResetTime: "2030-01-01T00:00:00Z", RemainingFraction: &remaining,
 			}},
@@ -128,7 +128,7 @@ func TestNormalizeAntigravityObservationIncludesUpstreamQuotaBuckets(t *testing.
 		t.Fatalf("quota windows = %#v", snapshot.QuotaWindows)
 	}
 	window := snapshot.QuotaWindows[0]
-	if window.ID != "gemini-5h" || window.Label != "Gemini Models · Five Hour Limit Remaining" ||
+	if snapshot.Plan.Name != "Pro" || window.ID != "gemini-5h" || window.Label != "Gemini · 5h" ||
 		window.Scope != "model" || window.Unit != "percent" || window.Remaining == nil || *window.Remaining != 75 ||
 		window.Utilization == nil || *window.Utilization != 0.25 || window.WindowSeconds == nil || *window.WindowSeconds != 5*60*60 ||
 		window.ResetAtMS == nil || *window.ResetAtMS != 1893456000000 {
@@ -136,28 +136,80 @@ func TestNormalizeAntigravityObservationIncludesUpstreamQuotaBuckets(t *testing.
 	}
 }
 
+func TestNormalizeObservationNormalizesClaudeGPTWeeklyWindow(t *testing.T) {
+	remaining := 1.0
+	raw, err := NormalizeObservation("owner@example.com", AccountObservation{
+		PlanID: "g1-pro-tier",
+		QuotaGroups: []QuotaGroup{{
+			DisplayName: "Claude and GPT Models",
+			Buckets: []QuotaBucket{{
+				ID: "claude-gpt-weekly", DisplayName: "Weekly Limit Remaining", Window: "weekly",
+				RemainingFraction: &remaining,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot quotaSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.QuotaWindows) != 1 || snapshot.QuotaWindows[0].Label != "Claude/GPT · 7d" {
+		t.Fatalf("quota windows = %#v", snapshot.QuotaWindows)
+	}
+}
+
+func TestNormalizeObservationKeepsUnknownWindowLabelsDistinct(t *testing.T) {
+	remaining := 1.0
+	raw, err := NormalizeObservation("owner@example.com", AccountObservation{
+		PlanID: "free-tier",
+		QuotaGroups: []QuotaGroup{{
+			DisplayName: "Gemini Models",
+			Buckets: []QuotaBucket{
+				{ID: "weekly", DisplayName: "Weekly Limit Remaining", RemainingFraction: &remaining},
+				{ID: "burst", DisplayName: "Experimental Burst", RemainingFraction: &remaining},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot quotaSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]string, len(snapshot.QuotaWindows))
+	for _, window := range snapshot.QuotaWindows {
+		byID[window.ID] = window.Label
+	}
+	if byID["weekly"] != "Gemini · Weekly" || byID["burst"] != "Gemini · Experimental Burst" {
+		t.Fatalf("quota labels = %#v", byID)
+	}
+}
+
 func TestAntigravityObservationCompletenessProtectsLastKnownGoodSections(t *testing.T) {
-	credit := &antigravity.GoogleOneAICredit{Amount: 100, MinimumAmount: 10}
+	credit := &GoogleOneAICredit{Amount: 100, MinimumAmount: 10}
 	tests := []struct {
 		name        string
-		observation antigravity.AccountObservation
+		observation AccountObservation
 		wantAccount bool
 		wantQuota   bool
 		wantPartial bool
 		wantError   bool
 	}{
 		{
-			name: "complete", observation: antigravity.AccountObservation{
+			name: "complete", observation: AccountObservation{
 				PlanID: "google-one-ai", GoogleOneAICredits: credit,
-				QuotaGroups: []antigravity.QuotaGroup{{DisplayName: "Gemini Models", Buckets: []antigravity.QuotaBucket{{ID: "weekly", RemainingFraction: float64Ptr(1)}}}},
+				QuotaGroups: []QuotaGroup{{DisplayName: "Gemini Models", Buckets: []QuotaBucket{{ID: "weekly", RemainingFraction: float64Ptr(1)}}}},
 			}, wantAccount: true, wantQuota: true,
 		},
 		{
-			name: "plan without quota is partial", observation: antigravity.AccountObservation{PlanID: "free-tier"},
+			name: "plan without quota is partial", observation: AccountObservation{PlanID: "free-tier"},
 			wantAccount: true, wantPartial: true,
 		},
 		{
-			name: "plan with credit balance but no quota is partial", observation: antigravity.AccountObservation{
+			name: "plan with credit balance but no quota is partial", observation: AccountObservation{
 				PlanID: "g1-pro-tier", GoogleOneAICredits: credit,
 			},
 			wantAccount: true,
@@ -171,7 +223,7 @@ func TestAntigravityObservationCompletenessProtectsLastKnownGoodSections(t *test
 			if (err != nil) != test.wantError || account != test.wantAccount || quota != test.wantQuota || partial != test.wantPartial {
 				t.Fatalf("completeness = %t/%t/%t, %v", account, quota, partial, err)
 			}
-			if test.wantError && !errors.Is(err, ErrObservationPayloadInvalid) {
+			if test.wantError && !errors.Is(err, subscriptionruntime.ErrObservationPayloadInvalid) {
 				t.Fatalf("error = %v, want ErrObservationPayloadInvalid", err)
 			}
 		})

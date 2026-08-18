@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/codex"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/subscription/providers/codex"
 )
 
 type codexProviderCredential struct {

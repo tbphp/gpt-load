@@ -9,6 +9,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -80,12 +81,7 @@ func TestNormalizeChannelCredentialUsesBoundSubscriptionDriver(t *testing.T) {
 func testCredentialRuntimes(t *testing.T) (*channel.Registry, *subscriptionruntime.Runtime) {
 	t.Helper()
 	channels := channel.NewRegistry()
-	subscriptions, err := subscriptionruntime.NewRuntime(
-		channels,
-		subscriptionruntime.CodexImplementations(),
-		subscriptionruntime.ClaudeImplementations(),
-		subscriptionruntime.AntigravityImplementations(),
-	)
+	subscriptions, err := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
 	if err != nil {
 		t.Fatal(err)
 	}
