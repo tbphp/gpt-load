@@ -1342,9 +1342,13 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 		"GetConsoleCP",
 		"AllocConsole",
 		"ERROR_ACCESS_DENIED",
+		"WaitForSingleObject",
+		"GetExitCodeProcess",
 		"$process.WaitForExit(15000)",
-		"$process.ExitCode -ne 0",
+		"$exitCode = $process.GetExitCode()",
+		"if ($exitCode -ne 0)",
 		"if (-not $process.HasExited)",
+		"$process.Dispose()",
 	} {
 		if !strings.Contains(nativeImplementation, required) {
 			t.Fatalf("native smoke does not contain %q", required)
@@ -1376,6 +1380,9 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 	}
 	if strings.Contains(nativeImplementation, "CREATE_NEW_CONSOLE") {
 		t.Fatal("Windows native smoke gives the child a separate console that cannot receive the targeted CTRL_BREAK")
+	}
+	if strings.Contains(nativePowerShellImplementation, "Process.GetProcessById") {
+		t.Fatal("Windows native smoke closes the original process handle and reopens the process by ID")
 	}
 }
 
@@ -1446,21 +1453,51 @@ func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
 	}
 }
 
+func TestReleaseDockerSmokeUsesIsolatedFakeUpstreamNetwork(t *testing.T) {
+	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
+	for _, required := range []string{
+		`fake_container="gpt-load-release-fake-${suffix}"`,
+		`network="gpt-load-release-network-${suffix}"`,
+		`fake_alias="fake-upstream"`,
+		`docker network create "${network}"`,
+		`--network-alias "${fake_alias}"`,
+		`exec nc -lk -p 8080 -e /tmp/respond`,
+		`"http://${fake_alias}:8080/v1"`,
+		`docker network rm "${network}"`,
+		"release Docker smoke failed at stage %s; captured output withheld to protect credentials",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("release Docker smoke does not contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"host.docker.internal",
+		"fake_upstream.py",
+		"RELEASE_SMOKE_FAKE_PORT",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("release Docker smoke retains host-dependent fake upstream contract %q", forbidden)
+		}
+	}
+}
+
 func TestReleaseDockerSmokeDefersOwnedResourceCleanupUntilAfterConflictChecks(t *testing.T) {
 	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
 	tempTrapIndex := strings.Index(script, "trap cleanup_temp EXIT")
-	containerCheckIndex := strings.Index(script, `for target in "${container}" "${probe}"; do`)
-	conflictExitIndex := strings.Index(script, "task image or volume already exists")
+	containerCheckIndex := strings.Index(script, `for target in "${container}" "${probe}" "${fake_container}"; do`)
+	conflictExitIndex := strings.Index(script, "task owned Docker resource already exists")
 	fullTrapIndex := strings.Index(script, "trap cleanup EXIT")
-	workStartIndex := strings.Index(script, `cat >"${task_tmp}/fake_upstream.py"`)
+	workStartIndex := strings.Index(script, `if [[ -n "${source_image}" ]]; then`)
 	preflightExitIndex := -1
-	if workStartIndex >= 0 {
-		preflightExitIndex = strings.LastIndex(script[:workStartIndex], "exit 1")
+	if conflictExitIndex >= 0 {
+		if offset := strings.Index(script[conflictExitIndex:], "exit 1"); offset >= 0 {
+			preflightExitIndex = conflictExitIndex + offset
+		}
 	}
 	for name, index := range map[string]int{
 		"temporary cleanup trap":        tempTrapIndex,
 		"container conflict check":      containerCheckIndex,
-		"image or volume conflict exit": conflictExitIndex,
+		"owned resource conflict exit":  conflictExitIndex,
 		"completed conflict exit":       preflightExitIndex,
 		"owned-resource cleanup trap":   fullTrapIndex,
 		"owned-resource work":           workStartIndex,

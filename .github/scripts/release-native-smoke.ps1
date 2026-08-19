@@ -51,15 +51,27 @@ function Assert-CurrentUserOnlyAcl {
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public static class ReleaseNativeProcess
+public sealed class ReleaseNativeProcess : IDisposable
 {
     private const uint CREATE_NEW_PROCESS_GROUP = 0x00000200;
     private const uint CTRL_BREAK_EVENT = 1;
     private const int ERROR_ACCESS_DENIED = 5;
+    private const uint WAIT_OBJECT_0 = 0x00000000;
+    private const uint WAIT_TIMEOUT = 0x00000102;
+    private const uint WAIT_FAILED = 0xffffffff;
+
+    private IntPtr processHandle;
+
+    private ReleaseNativeProcess(IntPtr processHandle, int processId)
+    {
+        this.processHandle = processHandle;
+        Id = processId;
+    }
+
+    public int Id { get; private set; }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct STARTUPINFO
@@ -118,6 +130,17 @@ public static class ReleaseNativeProcess
         uint processGroupId);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(
+        IntPtr handle,
+        uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetExitCodeProcess(
+        IntPtr process,
+        out uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint GetConsoleCP();
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -141,7 +164,7 @@ public static class ReleaseNativeProcess
         }
     }
 
-    public static Process Start(string path)
+    public static ReleaseNativeProcess Start(string path)
     {
         EnsureConsole();
         var startupInfo = new STARTUPINFO {
@@ -163,22 +186,71 @@ public static class ReleaseNativeProcess
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
         }
-        try
+        CloseHandle(processInformation.hThread);
+        return new ReleaseNativeProcess(
+            processInformation.hProcess,
+            (int)processInformation.dwProcessId);
+    }
+
+    public void SendCtrlBreak()
+    {
+        if (!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, (uint)Id))
         {
-            return Process.GetProcessById((int)processInformation.dwProcessId);
-        }
-        finally
-        {
-            CloseHandle(processInformation.hThread);
-            CloseHandle(processInformation.hProcess);
+            throw new Win32Exception(Marshal.GetLastWin32Error());
         }
     }
 
-    public static void SendCtrlBreak(int processGroupId)
+    public bool WaitForExit(int milliseconds)
     {
-        if (!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, (uint)processGroupId))
+        EnsureNotDisposed();
+        var result = WaitForSingleObject(processHandle, (uint)milliseconds);
+        if (result == WAIT_OBJECT_0)
+        {
+            return true;
+        }
+        if (result == WAIT_TIMEOUT)
+        {
+            return false;
+        }
+        if (result == WAIT_FAILED)
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        throw new InvalidOperationException("unexpected process wait result: " + result);
+    }
+
+    public bool HasExited
+    {
+        get { return WaitForExit(0); }
+    }
+
+    public int GetExitCode()
+    {
+        EnsureNotDisposed();
+        uint exitCode;
+        if (!GetExitCodeProcess(processHandle, out exitCode))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return unchecked((int)exitCode);
+    }
+
+    public void Dispose()
+    {
+        if (processHandle == IntPtr.Zero)
+        {
+            return;
+        }
+        CloseHandle(processHandle);
+        processHandle = IntPtr.Zero;
+        GC.SuppressFinalize(this);
+    }
+
+    private void EnsureNotDisposed()
+    {
+        if (processHandle == IntPtr.Zero)
+        {
+            throw new ObjectDisposedException("ReleaseNativeProcess");
         }
     }
 }
@@ -256,12 +328,13 @@ try {
       -RequireProtected $target.RequireProtected
   }
 
-  [ReleaseNativeProcess]::SendCtrlBreak($process.Id)
+  $process.SendCtrlBreak()
   if (-not $process.WaitForExit(15000)) {
     throw "graceful shutdown timed out"
   }
-  if ($process.ExitCode -ne 0) {
-    throw "graceful shutdown exited with code $($process.ExitCode)"
+  $exitCode = $process.GetExitCode()
+  if ($exitCode -ne 0) {
+    throw "graceful shutdown exited with code $exitCode"
   }
 
   $afterHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
@@ -272,5 +345,6 @@ try {
     Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
     $process.WaitForExit(5000) | Out-Null
   }
+  $process.Dispose()
   Remove-Item -Recurse -Force $dataDir -ErrorAction SilentlyContinue
 }

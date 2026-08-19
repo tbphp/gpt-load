@@ -16,12 +16,14 @@ esac
 image="gpt-load-release-smoke:${suffix}"
 container="gpt-load-release-smoke-${suffix}"
 probe="gpt-load-release-probe-${suffix}"
+fake_container="gpt-load-release-fake-${suffix}"
+fake_alias="fake-upstream"
 volume="gpt-load-release-smoke-${suffix}"
+network="gpt-load-release-network-${suffix}"
 app_port="${RELEASE_SMOKE_APP_PORT:-39413}"
-fake_port="${RELEASE_SMOKE_FAKE_PORT:-39414}"
 base_url="http://127.0.0.1:${app_port}"
 task_tmp="$(mktemp -d)"
-fake_pid=
+smoke_stage="preflight"
 
 exec 3>&1 4>&2
 exec >"${task_tmp}/smoke.stdout" 2>"${task_tmp}/smoke.stderr"
@@ -30,81 +32,70 @@ cleanup_temp() {
   local exit_code=$?
   rm -rf "${task_tmp}"
   if ((exit_code != 0)); then
-    printf 'release Docker smoke failed; captured output withheld to protect credentials\n' >&4
+    printf 'release Docker smoke failed at stage %s; captured output withheld to protect credentials\n' \
+      "${smoke_stage}" >&4
   fi
 }
 trap cleanup_temp EXIT
 
-for target in "${container}" "${probe}"; do
+for target in "${container}" "${probe}" "${fake_container}"; do
   if docker container inspect "${target}" >/dev/null 2>&1; then
     printf 'task container already exists: %s\n' "${target}" >&4
     exit 1
   fi
 done
 if docker image inspect "${image}" >/dev/null 2>&1 ||
-  docker volume inspect "${volume}" >/dev/null 2>&1; then
-  printf 'task image or volume already exists\n' >&4
+  docker volume inspect "${volume}" >/dev/null 2>&1 ||
+  docker network inspect "${network}" >/dev/null 2>&1; then
+  printf 'task owned Docker resource already exists\n' >&4
   exit 1
 fi
 
 cleanup() {
   local exit_code=$?
-  if [[ -n "${fake_pid}" ]]; then
-    kill "${fake_pid}" >/dev/null 2>&1 || true
-    wait "${fake_pid}" >/dev/null 2>&1 || true
-  fi
-  docker rm -f "${container}" "${probe}" >/dev/null 2>&1 || true
+  docker rm -f "${container}" "${probe}" "${fake_container}" >/dev/null 2>&1 || true
   docker volume rm "${volume}" >/dev/null 2>&1 || true
+  docker network rm "${network}" >/dev/null 2>&1 || true
   docker image rm "${image}" >/dev/null 2>&1 || true
   rm -rf "${task_tmp}"
   if ((exit_code != 0)); then
-    printf 'release Docker smoke failed; captured output withheld to protect credentials\n' >&4
+    printf 'release Docker smoke failed at stage %s; captured output withheld to protect credentials\n' \
+      "${smoke_stage}" >&4
   fi
 }
 trap cleanup EXIT
 
-cat >"${task_tmp}/fake_upstream.py" <<'PY'
-import json
-import os
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+cat >"${task_tmp}/fake-response.json" <<'JSON'
+{"id":"task13-complete-usage","object":"chat.completion","created":1785100000,"model":"task13-release-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}
+JSON
+cat >"${task_tmp}/fake-respond.sh" <<'SH'
+#!/bin/sh
+content_length=0
+while IFS= read -r line; do
+  case "${line}" in
+    [Cc]ontent-[Ll]ength:*)
+      content_length="$(printf '%s' "${line#*:}" | tr -d '[:space:]')"
+      ;;
+    "$(printf '\r')" | "")
+      break
+      ;;
+  esac
+done
+case "${content_length}" in
+  "" | *[!0-9]*) content_length=0 ;;
+esac
+if [ "${content_length}" -gt 0 ]; then
+  dd bs=1 count="${content_length}" of=/dev/null 2>/dev/null
+fi
+response_length="$(wc -c </tmp/response.json)"
+printf 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %s\r\nConnection: close\r\n\r\n' \
+  "${response_length}"
+cat /tmp/response.json
+SH
+chmod 0444 "${task_tmp}/fake-response.json"
+chmod 0555 "${task_tmp}/fake-respond.sh"
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *_):
-        return
-
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length", "0"))
-        if length:
-            self.rfile.read(length)
-        body = {
-            "id": "task13-complete-usage",
-            "object": "chat.completion",
-            "created": 1785100000,
-            "model": "task13-release-model",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop",
-            }],
-            "usage": {
-                "prompt_tokens": 7,
-                "completion_tokens": 5,
-                "total_tokens": 12,
-            },
-        }
-        encoded = json.dumps(body, separators=(",", ":")).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
-
-ThreadingHTTPServer(("0.0.0.0", int(os.environ["FAKE_PORT"])), Handler).serve_forever()
-PY
-FAKE_PORT="${fake_port}" python3 "${task_tmp}/fake_upstream.py" \
-  >"${task_tmp}/fake.stdout" 2>"${task_tmp}/fake.stderr" &
-fake_pid=$!
-
+smoke_stage="detect-platform"
 docker_arch="$(docker info --format '{{.Architecture}}')"
 case "${docker_arch}" in
   arm64 | aarch64)
@@ -119,6 +110,7 @@ case "${docker_arch}" in
     ;;
 esac
 
+smoke_stage="build-image"
 if [[ -n "${source_image}" ]]; then
   test "${source_image}" != "${image}"
   docker pull --platform "${platform}" "${source_image}"
@@ -129,6 +121,7 @@ else
     --build-arg "VERSION=${release_version}" \
     -t "${image}" .
 fi
+smoke_stage="scan-image"
 docker run --rm \
   --volume /var/run/docker.sock:/var/run/docker.sock \
   "${trivy_image}" image \
@@ -142,6 +135,8 @@ test "$(docker image inspect -f '{{.Config.User}}' "${image}")" = "10001:10001"
 docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${image}" |
   grep -Fx 'HOST=0.0.0.0' >/dev/null
 
+smoke_stage="probe-container-filesystem"
+docker network create "${network}" >/dev/null
 docker volume create "${volume}" >/dev/null
 docker run --name "${probe}" \
   --volume "${volume}:/app/data" \
@@ -159,10 +154,29 @@ docker run --name "${probe}" \
   '
 docker rm "${probe}" >/dev/null
 
+smoke_stage="start-fake-upstream"
+docker run -d \
+  --name "${fake_container}" \
+  --network "${network}" \
+  --network-alias "${fake_alias}" \
+  --volume "${task_tmp}/fake-response.json:/tmp/response.json:ro" \
+  --volume "${task_tmp}/fake-respond.sh:/tmp/respond:ro" \
+  --entrypoint /bin/sh \
+  "${image}" -ceu 'exec nc -lk -p 8080 -e /tmp/respond' >/dev/null
+fake_ready=false
+for _ in $(seq 1 40); do
+  if docker exec "${fake_container}" nc -z 127.0.0.1 8080; then
+    fake_ready=true
+    break
+  fi
+  sleep 0.25
+done
+test "${fake_ready}" = true
+
 start_container() {
   docker run -d \
     --name "${container}" \
-    --add-host host.docker.internal:host-gateway \
+    --network "${network}" \
     --publish "${app_port}:3001" \
     --volume "${volume}:/app/data" \
     "${image}" >/dev/null
@@ -203,8 +217,10 @@ api_write() {
     "${base_url}${path}"
 }
 
+smoke_stage="start-first-container"
 start_container
 wait_for_health
+smoke_stage="verify-first-container"
 first_container_id="$(docker inspect -f '{{.Id}}' "${container}")"
 test "$(docker exec "${container}" id -u):$(docker exec "${container}" id -g)" = "10001:10001"
 test "$(docker exec "${container}" printenv DATA_DIR)" = "/app/data"
@@ -238,6 +254,7 @@ test "$(
 api_get "/api/usage?range=24h" >"${task_tmp}/usage-empty.json"
 api_get "/api/model-prices" >"${task_tmp}/prices-empty.json"
 
+smoke_stage="create-group"
 credential_secret="task13-credential-${suffix}-$(openssl rand -hex 12)"
 group_idempotency_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 group_response="$(
@@ -252,7 +269,7 @@ group_response="$(
         credentials:process.argv[2],
         confirm_same_target:false,
       }));
-    ' "http://host.docker.internal:${fake_port}/v1" "${credential_secret}"
+    ' "http://${fake_alias}:8080/v1" "${credential_secret}"
   )" "${group_idempotency_key}"
 )"
 group_id="$(
@@ -291,6 +308,7 @@ model_price_id="$(
 unset model_price_list
 test -n "${model_price_id}"
 
+smoke_stage="configure-model-price"
 api_write PUT "/api/model-prices/${model_price_id}" '{
   "input":"1",
   "output":"2",
@@ -299,6 +317,7 @@ api_write PUT "/api/model-prices/${model_price_id}" '{
   "confirm_unpriced":false
 }' >"${task_tmp}/price-update.json"
 
+smoke_stage="create-access-key"
 access_key_idempotency_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 access_response="$(
   api_write POST "/api/access-keys" '{"name":"Task13 Release Smoke Access"}' \
@@ -315,6 +334,7 @@ access_key="$(
 unset access_response
 test -n "${access_key}"
 
+smoke_stage="forward-data-plane-request"
 curl -fsS \
   -H "Authorization: Bearer ${access_key}" \
   -H "Content-Type: application/json" \
@@ -330,6 +350,7 @@ node -e '
   if(value.usage.prompt_tokens!==7||value.usage.completion_tokens!==5) process.exit(1);
 ' "${task_tmp}/data-response.json"
 
+smoke_stage="verify-usage"
 usage_complete=false
 for _ in $(seq 1 80); do
   api_get "/api/usage?range=24h" >"${task_tmp}/usage-first.json"
@@ -353,14 +374,17 @@ for asset in auth.key encryption.key gpt-load.db gpt-load.db-wal gpt-load.db-shm
   test "$(docker exec "${container}" stat -c '%a' "/app/data/${asset}")" = "600"
 done
 
+smoke_stage="stop-first-container"
 docker stop --time 15 "${container}" >/dev/null
 docker logs "${container}" >"${task_tmp}/container-first.log" 2>&1
 test "$(docker inspect -f '{{.State.ExitCode}}' "${container}")" = "0"
 test "$(docker inspect -f '{{.State.OOMKilled}}' "${container}")" = "false"
 docker rm "${container}" >/dev/null
 
+smoke_stage="restart-container"
 start_container
 wait_for_health
+smoke_stage="verify-restored-state"
 second_container_id="$(docker inspect -f '{{.Id}}' "${container}")"
 test "${first_container_id}" != "${second_container_id}"
 restored_auth_key="$(docker exec "${container}" cat /app/data/auth.key)"
@@ -421,10 +445,12 @@ curl -fsS \
   -H "Authorization: Bearer ${access_key}" \
   "${base_url}/v1/models" >"${task_tmp}/models-second.json"
 
+smoke_stage="stop-second-container"
 docker stop --time 15 "${container}" >/dev/null
 docker logs "${container}" >"${task_tmp}/container-second.log" 2>&1
 test "$(docker inspect -f '{{.State.ExitCode}}' "${container}")" = "0"
 
+smoke_stage="verify-secret-free-artifacts"
 summary_file="${task_tmp}/summary.txt"
 {
   printf 'platform=%s\n' "${platform}"
