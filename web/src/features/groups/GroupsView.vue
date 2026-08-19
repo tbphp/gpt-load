@@ -474,10 +474,10 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                   >
                     <KeyRound
                       v-if="group.connection_type === 'api_key'"
-                      :size="12"
+                      :size="10"
                       aria-hidden="true"
                     />
-                    <UserRound v-else :size="12" aria-hidden="true" />
+                    <UserRound v-else :size="10" aria-hidden="true" />
                     {{ connectionTypeLabel(group.connection_type) }}
                   </span>
                 </span>
@@ -635,29 +635,27 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 
 .connection-type-badge {
   display: inline-flex;
-  min-height: 22px;
+  min-height: 19px;
   flex: none;
   align-items: center;
-  gap: 4px;
-  border: 1px solid var(--color-border-subtle);
+  gap: 3px;
+  border: 0;
   border-radius: var(--radius-tag);
-  padding: 2px 6px;
+  padding: 1px 5px;
   font-size: var(--text-label-xs);
-  font-weight: 600;
-  line-height: 1;
+  font-weight: 550;
+  line-height: var(--line-compact);
   white-space: nowrap;
 }
 
 .connection-type-badge--api-key {
-  border-color: color-mix(in srgb, var(--color-info) 28%, var(--color-border-subtle));
-  background: var(--color-info-bg);
+  background: color-mix(in srgb, var(--color-info) 14%, transparent);
   color: var(--color-info);
 }
 
 .connection-type-badge--subscription {
-  border-color: color-mix(in srgb, var(--color-action) 28%, var(--color-border-subtle));
-  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
-  color: var(--color-action);
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
 }
 
 .connection-type-badge svg {
