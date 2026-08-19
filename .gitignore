@@ -211,3 +211,5 @@ run-local.sh
 start-local.sh
 dev-setup.sh
 data/
+out/
+Dockerfile.custom
