@@ -1,299 +1,278 @@
+<div align="center">
+
+<img src="./web/public/favicon.svg" alt="GPT-Load" width="96">
+
 # GPT-Load
 
-English | [中文](README_CN.md) | [日本語](README_JP.md)
+**A self-hosted AI gateway for multi-channel, multi-credential setups**
+
+API keys, subscription accounts, traffic scheduling, failure handling, request logs, and usage accounting — behind a single entry point.
+
+English · [中文](README_CN.md) · [日本語](README_JP.md)
 
 [![Release](https://img.shields.io/github/v/release/tbphp/gpt-load)](https://github.com/tbphp/gpt-load/releases)
-![Go Version](https://img.shields.io/badge/Go-1.26-blue.svg)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-GPT-Load is a self-hosted multi-provider AI gateway written in Go. A single binary with an embedded admin UI manages channel presets and encrypted credentials while exposing OpenAI, Anthropic, and Gemini-compatible client endpoints.
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
+<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
 
-For the maintained 1.4.x release documentation, visit the [official documentation](https://www.gpt-load.com/docs?lang=en).
+</div>
 
-<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp%2Fgpt-load | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+---
 
-## Sponsors
+Your application only needs one base URL and one AccessKey. Providers, accounts, credentials, models, and routing policy are all configured in the management UI.
+
+```mermaid
+flowchart LR
+    C["Application / AI client"]
+    G["GPT-Load<br/>————————<br/>Native protocol entry<br/>Scheduling · Retry · Health isolation<br/>Logs · Usage · Cost estimates"]
+    U1["Official APIs"]
+    U2["Cloud platforms"]
+    U3["Compatible relays"]
+    U4["Subscription accounts"]
+
+    C -->|"One base URL<br/>One AccessKey"| G
+    G --> U1
+    G --> U2
+    G --> U3
+    G --> U4
+```
+
+## Why GPT-Load
+
+- **One gateway for many upstreams** — Official APIs, cloud platforms, popular model services, and OpenAI-compatible relays are all managed in one place.
+- **API keys and subscription accounts share one mechanism** — Subscription channels like Codex, Claude, Antigravity, and Grok use the same credential management, scheduling, and health system as API key channels.
+- **Get the most out of a credential pool** — Multi-credential scheduling, automatic weighting, retries, cooldown, blacklisting, and session affinity reduce the impact of a single overloaded or failing credential.
+- **Clients keep their native protocol** — Applications keep using OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or the Gemini native API without code changes.
+- **Every call is visible** — Health state, route inspection, request logs, usage rollups, and per-model cost estimates make problems and consumption easy to trace.
+- **Simple to deploy, your data stays yours** — The management UI is embedded in a single Go binary; SQLite by default, MySQL or PostgreSQL optional; channel credentials are encrypted at rest locally.
+
+<!-- 【TODO: management UI screenshots】
+     Once available, insert a "## Screenshots" section here. 2–3 images, ~1400px wide,
+     light theme, with every real key/account/domain redacted:
+     a) dashboard (traffic + health) b) channels and credentials (showing multiple
+     credentials) c) usage and cost. Insert into all three README languages. -->
+
+## Scope
+
+### Client protocols
+
+| Protocol | Main entry |
+|---|---|
+| OpenAI Chat Completions | `POST /v1/chat/completions` |
+| OpenAI Responses | `/v1/responses` and its resource paths |
+| Anthropic Messages | `POST /v1/messages` |
+| Gemini | `/v1beta/models/...` |
+
+Each channel declares exactly which protocols and capabilities it can execute. GPT-Load converts between supported capabilities, but it is not a general-purpose any-protocol, any-JSON translator.
+
+### Built-in channels
+
+<details>
+<summary>Show all 20 built-in channels</summary>
+
+- **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
+- **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Groq
+- **Subscription** — Codex, Claude, Antigravity, Grok
+- **Custom** — OpenAI Compatible (any compatible relay)
+
+</details>
+
+## Quick start
+
+### 1. Start the service
+
+Requires Docker and Docker Compose.
+
+```bash
+git clone --depth 1 --branch v2 https://github.com/tbphp/gpt-load.git
+cd gpt-load
+
+cp .env.example .env
+docker compose up -d
+```
+
+Confirm the service is up:
+
+```bash
+curl --fail http://127.0.0.1:3001/health
+```
+
+The first start generates a management key. Read it and store it safely:
+
+```bash
+docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
+```
+
+Open <http://127.0.0.1:3001> and sign in to the console with that key.
+
+> You can also set `AUTH_KEY` explicitly in `.env` before starting. By default the service listens on the loopback address only and is not exposed to the internet.
+
+### 2. Initial configuration
+
+The console has three configuration layers:
+
+```mermaid
+flowchart LR
+    A["① Channel<br/>Add API keys<br/>or complete OAuth"] --> B["② Group<br/>Pick a channel<br/>Set models and policy"] --> C["③ AccessKey<br/>Pick groups and protocols<br/>Hand it to your app"]
+```
+
+1. **Add a channel** — Choose an upstream service and add one or more API keys. For subscription channels, complete the OAuth flow or import credentials as prompted.
+2. **Create a group** — Pick a channel, then configure available models and runtime policy.
+3. **Create an AccessKey** — Set the groups and client protocols it may use, then give the generated AccessKey to your application.
+
+<details>
+<summary>OAuth callback ports for subscription channels</summary>
+
+The Codex, Claude, and Antigravity OAuth clients use fixed callback ports. Compose publishes them to `127.0.0.1:1455`, `127.0.0.1:54545`, and `127.0.0.1:51121` respectively. Because the ports are fixed by the upstream clients, only one default Compose instance can run on a host at a time.
+
+When working over SSH or from a remote browser, the browser's `localhost` may not reach GPT-Load — paste the full callback URL into the authorization dialog to finish the flow.
+
+</details>
+
+### 3. Send your first request
+
+Replace the AccessKey and model ID with the real values from your console:
+
+```bash
+export GPT_LOAD_ACCESS_KEY="your-access-key"
+
+curl http://127.0.0.1:3001/v1/chat/completions \
+  -H "Authorization: Bearer ${GPT_LOAD_ACCESS_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model-id",
+    "messages": [{ "role": "user", "content": "Hello, introduce yourself." }]
+  }'
+```
+
+## Using existing clients
+
+For the OpenAI SDK or any OpenAI-compatible client, two settings usually change:
+
+```text
+Base URL: http://127.0.0.1:3001/v1
+API Key:  the AccessKey created in GPT-Load
+```
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:3001/v1",
+    api_key="your-access-key",
+)
+
+response = client.responses.create(
+    model="your-model-id",
+    input="Hello",
+    store=False,
+)
+
+print(response.output_text)
+```
+
+Anthropic clients use `/v1/messages` and Gemini clients use `/v1beta/models/...`. Authenticate the way each client normally does: `Authorization: Bearer`, `x-api-key`, `x-goog-api-key`, or Gemini's `key` query parameter.
+
+## Deployment and data
+
+Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.
+
+> [!IMPORTANT]
+> `encryption.key` decrypts channel credentials. When backing up or migrating, the database and the key **must be kept together**. Once the key is lost or replaced, existing encrypted credentials cannot be recovered, and this version does not support master key rotation.
+
+For an external database, use the unified `DATABASE_DSN` to connect SQLite, MySQL, or PostgreSQL:
+
+```text
+mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
+postgres://user:password@db.example:5432/gpt_load?sslmode=require
+```
+
+See [`.env.example`](.env.example) for the full configuration reference.
+
+Common operations:
+
+```bash
+docker compose logs -f      # view logs
+docker compose pull && docker compose up -d   # update to the latest 2.x image
+docker compose stop         # stop the service
+```
+
+The official 2.x Compose file uses `ghcr.io/tbphp/gpt-load:2` and does not rely on the `latest` tag.
+
+<details>
+<summary>Using a native binary</summary>
+
+Download the build for your platform from [GitHub Releases](https://github.com/tbphp/gpt-load/releases), and verify it against the bundled `SHA256SUMS` first:
+
+```bash
+chmod +x ./gpt-load-linux-amd64
+mkdir -p ./data
+
+HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
+```
+
+Then open <http://127.0.0.1:3001>. Builds are provided for five targets across Linux, macOS (amd64 / arm64), and Windows.
+
+</details>
+
+## Before you go to production
+
+- The service listens on `127.0.0.1` only by default. For remote access, expose it through a controlled network or a TLS reverse proxy, and configure ACLs and firewall rules.
+- Manage `AUTH_KEY` and `ENCRYPTION_KEY` carefully. Never commit real keys to a repository, log, screenshot, or public issue.
+- 2.0 is designed for a **single application instance**. Instances do not share state, so horizontal scaling is not supported.
+- Usage and cost are **estimates** derived from upstream responses. They support operational analysis and capacity planning, and do not equal a provider invoice or a financial reconciliation.
+- Subscription channels depend on upstream OAuth and compatibility protocols and may change as upstreams change. Only connect accounts you are entitled to use, and follow each provider's terms.
+- In OpenAI Responses, stateful requests relying on `previous_response_id`, `conversation`, or an existing resource ID are only reliable with a single credential, or with an upstream that shares resources across credentials.
+
+## Moving from 1.x
+
+> [!WARNING]
+> GPT-Load 2.0 is a complete rewrite. It **cannot** open, import, or migrate 1.x data in place.
+
+Deploy 2.0 with its own database, `DATA_DIR`, port, and Docker volume. Cut traffic over only after verification, and keep the original 1.x deployment until the rollback window closes. Documentation for the 1.4.x maintenance line is at the [official docs](https://www.gpt-load.com/docs).
+
+## Open-source dependencies
+
+Some of GPT-Load's capabilities build on these projects, with thanks:
+
+| Project | Role | License |
+|---|---|---|
+| [Bifrost Core](https://github.com/maximhq/bifrost) | Provider authentication, request/response conversion, streaming, usage normalization | Apache-2.0 |
+| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | OAuth and execution adapter for subscription channels | MIT |
+| [Lobe Icons](https://github.com/lobehub/lobe-icons) | Channel brand icons in the management UI | MIT |
+
+GPT-Load owns credential storage, account selection, scheduling, retry, health, affinity, logging, and usage policy. Third-party notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), full license texts in [`LICENSES/`](LICENSES/), and each release ships a CycloneDX SBOM covering the Go dependency graph.
+
+Channel icons identify their respective upstream providers. All trademarks belong to their owners; this project is not affiliated with or endorsed by them.
+
+## Feedback and contributing
+
+For problems or feature ideas, open a [GitHub Issue](https://github.com/tbphp/gpt-load/issues). Report security vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+
+If GPT-Load is useful to you, a star is appreciated.
+
+## Sponsors and support
 
 <table>
 <tbody>
 <tr>
-<td width="180"><a href="https://openai.com/"><img src="./web/src/assets/channels/openai.svg" alt="OpenAI" width="150" height="50"></a></td>
-<td>Thanks to OpenAI for sponsoring this project!</td>
+<td width="180" align="center"><a href="https://openai.com/"><img src="./screenshot/sponsor-openai.svg" alt="OpenAI" width="56"></a></td>
+<td>Thanks to OpenAI for sponsoring this project.</td>
 </tr>
 <tr>
 <td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
-<td>Thank you very much for the support from the LINUX DO community!</td>
+<td>Thanks to the LINUX DO community for their support.</td>
 </tr>
 <tr>
-<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean Referral Badge" width="150"></a></td>
+<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
 <td>This project is supported by DigitalOcean.</td>
 </tr>
 </tbody>
 </table>
 
-## About 2.0
+## License
 
-> [!IMPORTANT]
-> GPT-Load 2.0 is a greenfield rewrite. It cannot open, import, or migrate 1.x data, and it does not support data created by earlier 2.x development builds outside the published compatibility contract. Deploy 2.0 with a new, dedicated database, `DATA_DIR`, and encryption key.
-
-Official 2.x container releases use explicit `2`, `2.0`, and exact-version tags such as `v2.0.0`. The release workflow does not move the container tag `latest`; select a 2.x tag or immutable digest explicitly.
-
-## 2.0 capabilities
-
-- **Two planes:** provider-native paths on the data plane; management APIs under `/api`, with the admin UI embedded in the same Go binary.
-- **Four client protocols:** OpenAI Completions, OpenAI Responses, Anthropic Messages, and Gemini requests keep their public endpoints. Each channel declares its supported native and converted operations; unsupported feature combinations fail before dispatch.
-- **Channel and traffic management:** Users select a searchable code-defined channel, then enter models and encrypted credentials. GPT-Load owns AccessKey filtering, cross-Group credential scheduling, retry decisions, health state, cooldown, blacklist, and automatic weights.
-- **Provider execution:** The official Bifrost Core Go SDK maintains provider-specific authentication, request/response conversion, streaming, normalized usage, and provider errors. GPT-Load pins one selected credential per logical attempt and disables Bifrost's configured retry and fallback policy.
-- **Subscription channels:** Codex, Claude, Antigravity, and Grok are independent subscription-backed channels alongside the existing API-key channels. Codex, Claude, and Antigravity use browser OAuth/CPA JSON; Grok uses xAI device OAuth/CPA JSON. All reuse GPT-Load's encrypted credential lifecycle, scheduling, retry, health, weight, and affinity behavior.
-- **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
-- **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, exact four-slot model prices synchronized from Models.dev where available, and user-managed prices.
-
-Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
-
-> [!WARNING]
-> Subscription OAuth execution relies on pinned, compatibility-sensitive CPA contracts rather than the corresponding API-key contracts. Upstream changes may require a reviewed CPA bridge update; validate each enabled channel with an authorized account before production use.
-
-## 2.0.0 support boundaries
-
-- Correctness is guaranteed for a **single application instance** only; multi-instance coordination is not supported.
-- Supports SQLite, MySQL, and PostgreSQL through one unified `DATABASE_DSN` configuration. The current release targets the latest stable versions of these three engines; other database products are not supported.
-- The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
-- Client protocol filters use `openai-completions`, `openai-responses`, `anthropic`, or `gemini`. A Group stores one `channel_id`; the code-owned channel preset determines provider behavior, accepted client protocols, credential schema, discovery, and Models.dev mapping.
-- OpenAI Responses create requests can use process-local, best-effort prompt-prefix soft affinity. This is not persistent resource binding: requests using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one Credential or an upstream that shares resource storage across Credentials. Otherwise the selected upstream may return a resource-not-found error.
-- Channel credentials must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
-- There is no automatic migration or reverse synchronization from 1.x or unsupported pre-release 2.x schemas. Start 2.0 with a new database; supported later 2.x upgrades follow the numbered migration chain and the applicable release notes.
-- There is no online billing reconciliation, online backup API, or backup CLI. Models.dev synchronization supplies estimation metadata only; it is not a provider bill or invoice.
-
-## Quick start
-
-### Docker Compose
-
-The official 2.x Compose configuration uses `ghcr.io/tbphp/gpt-load:2`, container path `/app/data`, and the `gpt-load-data` named volume. It never uses `latest`. Review the resolved configuration before starting the service:
-
-```console
-cp .env.example .env
-docker compose config
-```
-
-Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets the **container** environment to `HOST=0.0.0.0` and `DATA_DIR=/app/data`, leaves `DATABASE_DSN` empty/absent so the process selects managed `/app/data/gpt-load.db`, publishes the **host** side on `${BIND_ADDRESS:-127.0.0.1}`, and mounts a named volume at `/app/data`. The service has no fixed `container_name`, so Compose project names provide instance isolation.
-
-After confirming the configuration:
-
-```console
-docker compose up -d
-curl --fail http://localhost:3001/health
-# If AUTH_KEY was generated on first boot, read it once in a secure terminal
-# and immediately store it in a secret manager.
-docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
-```
-
-The named volume preserves the default SQLite database, `auth.key`, and `encryption.key`. Production deployments should inject explicit `AUTH_KEY` and `ENCRYPTION_KEY` values through protected secret handling. Never commit real secrets to `.env`, logs, or issues. A MySQL or PostgreSQL `DATABASE_DSN` is operator-managed and should be supplied through the deployment secret/configuration system.
-
-Compose listens on all interfaces only inside the container while publishing to host loopback by default. It also publishes the provider-fixed OAuth callbacks for Codex on `127.0.0.1:1455`, Claude on `127.0.0.1:54545`, and Antigravity on `127.0.0.1:51121`; keep all of them on loopback unless the network boundary is explicitly controlled. Because these callback ports are fixed by their OAuth clients, only one default Compose instance on a host can expose them at a time. In Docker, SSH, or remote-browser deployments where browser `localhost` does not reach GPT-Load, copy the complete callback URL into the authorization dialog. Setting `BIND_ADDRESS=0.0.0.0`, `OAUTH_CALLBACK_BIND_ADDRESS=0.0.0.0`, or running a native binary with `HOST=0.0.0.0`, is an explicit opt-in. In production, expose either only behind a controlled network boundary with a TLS reverse proxy and ACL/firewall controls.
-
-### Native binary
-
-Download the platform-matching artifact from the corresponding [GitHub Release](https://github.com/tbphp/gpt-load/releases) and verify it against `SHA256SUMS` before running it.
-
-Linux amd64 example:
-
-```console
-chmod +x ./gpt-load-linux-amd64
-mkdir -p ./data
-HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
-```
-
-In another terminal:
-
-```console
-curl --fail http://localhost:3001/health
-```
-
-Then open <http://localhost:3001> in a browser.
-
-`AUTH_KEY` and `ENCRYPTION_KEY` may both be supplied explicitly. When left empty, first boot creates and reuses `${DATA_DIR}/auth.key` and `${DATA_DIR}/encryption.key`, respectively. The application logs generated file paths, never their secret contents.
-
-## Native data plane
-
-Data-plane requests use an AccessKey. Provider-compatible credentials are accepted through `Authorization: Bearer`, `x-api-key`, `x-goog-api-key`, or Gemini's `key` query parameter as appropriate.
-
-| Provider | Method and path | Behavior |
-|---|---|---|
-| OpenAI | `POST /v1/chat/completions` | Native OpenAI Completions request |
-| OpenAI | `/v1/responses` and `/v1/responses/...` | Native OpenAI Responses namespace; ordinary HTTP methods are forwarded |
-| OpenAI | `POST /v1/responses/input_tokens` | Native upstream input-token count; unsupported providers return their error without local estimation |
-| OpenAI / Anthropic | `GET /v1/models` | OpenAI shape by default; Anthropic shape when `anthropic-version` is present |
-| Anthropic | `POST /v1/messages` | Native Anthropic Messages request |
-| Anthropic | `POST /v1/messages/count_tokens` | Native upstream token count; unsupported providers return their error without local estimation |
-| Gemini | `GET /v1beta/models` | Native Gemini model list |
-| Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini non-streaming generation |
-| Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Gemini streaming generation |
-| Gemini | `POST /v1beta/models/{model}:countTokens` | Native upstream token count; unsupported providers return their error without local estimation |
-
-The AccessKey and runtime configuration select the Group; it is not passed as a URL path segment. The selected channel determines whether an operation is native or converted. Conversion is capability-gated and never treated as arbitrary lossless JSON transformation.
-
-The canonical client protocol filter values and display names are:
-
-| Configuration value | Display name |
-|---|---|
-| `openai-completions` | OpenAI Completions |
-| `openai-responses` | OpenAI Responses |
-| `anthropic` | Anthropic |
-| `gemini` | Gemini |
-
-The built-in `openai` channel supports both OpenAI client protocols. Other official, curated, compatible, and cloud channels expose only the operations and features declared by their code-owned presets; users do not configure protocol checkboxes per Group.
-
-Responses routing uses the namespace boundary, not a per-resource allowlist. After AccessKey authentication, `/v1/responses` and its ordinary subpaths are sent through the same scheduler and execution pipeline. Decoded `.` or `..` path segments are rejected locally so normalization or redirects cannot escape the authorized namespace. `OPTIONS`, `CONNECT`, and `TRACE` are also rejected locally; other methods, including `GET`, `POST`, `DELETE`, and `HEAD`, are forwarded. Paths and queries are preserved within Go URL normalization: decoded `URL.Path` is re-encoded and `RawPath` is not retained. GPT-Load does not search other Credentials for a resource ID; the selected upstream's response, including a resource-not-found error, is returned through the normal response-safety boundary.
-
-A Group whose channel supports Responses may keep an empty model list and still serve model-free Responses resource endpoints. Requests that include a model, including ordinary create requests, still require a configured model route.
-
-> [!WARNING]
-> 2.0 provides best-effort prompt-prefix soft affinity for Responses create requests, but it does not bind an upstream resource ID to its original Group or Credential. Stateful requests using `previous_response_id` or `conversation`, and resource operations on an earlier response ID, may still reach another target and receive an upstream 404. For resource-bound flows, use a single Credential, stateless item replay with `store: false`, or an upstream with shared resource storage.
-
-Responses create and compact requests participate in usage extraction. Retrieve, delete, cancel, input-items, input-token-count, and unknown extension subpaths are recorded with usage `not_applicable`. Discovery and validation are selected by the channel preset rather than by user-configured protocol checkboxes.
-
-OpenAI Completions example:
-
-```console
-curl http://127.0.0.1:3001/v1/chat/completions \
-  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"<MODEL_ID>","messages":[{"role":"user","content":"Hello"}]}'
-```
-
-Responses example:
-
-```console
-curl http://127.0.0.1:3001/v1/responses \
-  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"<MODEL_ID>","input":"Hello","store":false}'
-```
-
-The official OpenAI SDK can use the same native endpoint:
-
-```python
-import os
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:3001/v1",
-    api_key=os.environ["GPT_LOAD_ACCESS_KEY"],
-)
-response = client.responses.create(
-    model="<MODEL_ID>",
-    input="Hello",
-    store=False,
-)
-print(response.output_text)
-```
-
-## Management, usage, and cost
-
-The admin UI is served at `/`, and management APIs are under `/api`; both use `AUTH_KEY`. The UI covers the searchable channel directory, Groups, encrypted credentials, AccessKeys, runtime settings, health, logs, route inspection, Usage, and model-price management. Current code and UI are the management API reference; this README intentionally avoids copying a route list that can drift.
-
-Automatic catalog synchronization is enabled by default and uses the control plane to fetch the fixed endpoint `https://models.dev/api.json`; startup remains asynchronous and can use the durable last-known-good catalog. Manual synchronization remains available. Data-plane requests never contact Models.dev.
-
-Usage/Cost quality boundaries:
-
-- `complete` and `partial` usage contribute their known token dimensions; `missing` usage contributes only request and quality counts.
-- `priced` requests contribute their known estimated cost. `pricing_partial` retains the calculable portion while reporting incomplete price coverage; `unpriced` requests are never assigned guessed prices.
-- A clean EOF on a stream does not guarantee complete usage, and compatible relays may omit the provider's official terminal usage.
-- Prices match the exact `(channel_id, upstream model)` identity. Models.dev is the sole automatic source; explicit user overrides and the existing fallback rules remain available. The four flat slots are input, output, cache read, and cache write; an explicit zero means free, while an unset slot remains unavailable.
-- Price changes affect future writes only. Historical RequestLog and UsageStat rows are not recalculated.
-- Current-process dropped/write-failure counters and durable database-window aggregates have different scopes.
-
-## Core configuration
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `HOST` | `127.0.0.1` | Native HTTP listen address; `0.0.0.0` is an explicit opt-in. The release container overrides this to `0.0.0.0` internally |
-| `BIND_ADDRESS` | `127.0.0.1` | Compose host-side publish address; not a process setting |
-| `OAUTH_CALLBACK_BIND_ADDRESS` | `127.0.0.1` | Compose host-side address for the fixed Codex (`1455`), Claude (`54545`), and Antigravity (`51121`) OAuth callback ports |
-| `PORT` | `3001` | HTTP listen port |
-| `DATA_DIR` | `./data` | Native persistent directory; the container overrides it to `/app/data` |
-| `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects managed SQLite. Non-empty values use one of `sqlite`, `mysql`, or `postgres` URL forms and are operator-managed |
-| `AUTH_KEY` | generated keyfile | Management bearer credential; an explicit value cannot contain whitespace; otherwise reads or creates `${DATA_DIR}/auth.key` |
-| `ENCRYPTION_KEY` | generated keyfile | Master key for encrypted channel credentials; otherwise reads or creates `${DATA_DIR}/encryption.key` |
-| `MODELS_DEV_AUTO_SYNC_ENABLED` | unset | Optional strict boolean override for Models.dev automatic synchronization; unset uses the runtime setting, which defaults to enabled |
-| `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | Graceful shutdown timeout in seconds |
-| `READ_TIMEOUT` | `60` | Maximum time to read a complete request, in seconds |
-| `IDLE_TIMEOUT` | `120` | Keep-alive idle timeout in seconds |
-| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose stop budget; must exceed the application shutdown timeout |
-| `LOG_LEVEL` | `info` | Application log level |
-| `LOG_FORMAT` | `text` | Log format: `text` or `json` |
-
-See [`.env.example`](.env.example) for the complete process configuration. Native-response/stream-first-event, total-request, and stream-idle timeouts plus RequestLog retention are runtime settings managed through the admin UI/API, not additional environment variables. Buffered converted unary calls use the total-request timeout because the SDK does not expose a response-start signal.
-
-`DATABASE_DSN` uses one common URL contract; do not add a separate database type variable or engine-specific application settings. Examples:
-
-```text
-sqlite:///var/lib/gpt-load.db
-mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
-postgres://user:password@db.example:5432/gpt_load?sslmode=require
-```
-
-The empty value is the only application-managed database mode. A non-empty SQLite path/URL and all MySQL/PostgreSQL URLs are external, operator-managed values.
-
-## Persistence and security
-
-- Database ownership follows only the raw `DATABASE_DSN`: empty means the managed SQLite DB/WAL/SHM under `${DATA_DIR}`; every non-empty value means an external, operator-owned database that GPT-Load does not mkdir, chmod, or create database users for and that must be backed up separately.
-- Secret ownership is independent of database ownership. For each secret, `/api/system/info` reports `key_file` or `environment`: archive a reported `key_file` (`auth.key` or `encryption.key`) from `DATA_DIR` regardless of the database source, or restore an `environment` secret separately from the protected external secret system.
-- On POSIX, managed `${DATA_DIR}` is restricted to `0700` and managed DB/WAL/SHM plus application-created key files to `0600`. Windows uses current-user-only ACLs.
-- Losing the matching `encryption.key`, from either source, makes encrypted channel credentials unrecoverable. 2.0.0 has no automatic repair or master-key rotation.
-- Managed SQLite uses WAL. Before backing it up, stop incoming traffic and wait for a clean exit: use `SIGTERM` on POSIX, or Ctrl+C, Ctrl+Break, or the service manager's stop action on Windows. External MySQL/PostgreSQL backups must follow the operator's engine-native backup procedure.
-- Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or channel credentials into logs, public issues, screenshots, or ordinary backup manifests.
-
-### Public operations baseline
-
-This checklist is self-contained and does not require access to the project's private Notion workspace:
-
-1. Determine the database source and location from the actual environment, service, or container configuration, then call authenticated `GET /api/system/info` to record the selected database driver and each secret's safe source/path metadata without recording secret values. The endpoint deliberately omits the database DSN, credentials, and location.
-2. Stop incoming traffic and wait for a clean process exit using the POSIX or Windows mechanism above. With Compose, run `docker compose stop` and confirm the service container is stopped.
-3. Build the complete recovery set across both independent axes: archive managed DB/WAL/SHM when `DATABASE_DSN` is empty, or back up the external DB with its operator procedure when non-empty; for both database cases, archive every `key_file` reported for auth/encryption and recover every `environment` secret from its protected external secret system. Use unique archive names, refuse overwrite, restrict access, and record SHA-256.
-4. Restore both the database and secret sides with the exact same binary or image into an empty target. Verify checksums first and restore the exact matching encryption key; never combine restore with an upgrade.
-5. Start the restored instance and verify `/health`, `/api/system/info`, Groups, AccessKeys, model prices, Usage, RequestLog, and a real data-plane canary. For managed SQLite, stop the instance and require `PRAGMA quick_check` to return `ok`; for MySQL/PostgreSQL, use the operator's native consistency check.
-
-2.0.0 has no backup CLI or encryption-key rotation. Never replace the encryption key for an existing database.
-
-## Moving from 1.x
-
-2.0 cannot open, import, or upgrade a 1.x database in place, and it must not reuse a 1.x `DATA_DIR`. The recommended flow is:
-
-1. Keep 1.x running and verify that its backup can be restored.
-2. Give 2.0 a separate port, `DATA_DIR`, database, and Compose project/named volume. Do not share any of these with 1.x.
-3. Manually rebuild the minimum Groups, channel credentials, AccessKeys, and rules; validate the required client protocols, logs, and usage/cost in isolation.
-4. Move entry traffic during a maintenance window or small rollout. On failure, stop 2.0 and switch back to the original 1.x deployment; do not reverse-import new 2.0 data.
-
-`latest` is not a safe 1.x-to-2.0 upgrade channel. Use the public operations baseline above for backup and restore, and keep the original 1.x deployment and data intact until the rollback window closes.
-
-## Build and verification
-
-Baseline tools: Go `1.26.6`, Node.js `>=24.11.0`, and pnpm `11.17.0`.
-
-Build the single binary with its embedded admin UI:
-
-```console
-make build
-```
-
-Full local quality gates:
-
-```console
-make check
-```
-
-Frontend unit tests and browser E2E tests are not part of the project workflow. Frontend verification consists of dependency installation, linting, formatting, type-checking, and building.
-
-Official 2.0 releases provide five native raw binaries plus `SHA256SUMS`, a CycloneDX SBOM, and project/third-party license notices:
-
-- `gpt-load-linux-amd64`
-- `gpt-load-linux-arm64`
-- `gpt-load-macos-amd64`
-- `gpt-load-macos-arm64`
-- `gpt-load-windows-amd64.exe`
-
-## License and security
-
-GPT-Load is released under the [MIT License](LICENSE). Distributed third-party notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with license texts under [`LICENSES/`](LICENSES/). Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+GPT-Load is released under the [MIT License](LICENSE).

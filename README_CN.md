@@ -1,9 +1,6 @@
 <div align="center">
 
-<!-- 【外部资源 1｜项目 Logo】
-     建议：宽 120–160px 的方形或横版 logo，深浅色背景下都清晰。
-     制作完成后放到 ./screenshot/logo.png（或 web/src/assets/logo.svg），替换下面这行。 -->
-<img src="./screenshot/logo.png" alt="GPT-Load" width="120">
+<img src="./web/public/favicon.svg" alt="GPT-Load" width="96">
 
 # GPT-Load
 
@@ -27,24 +24,20 @@
 
 应用只需要配置一个地址和一个 AccessKey。后面的服务商、账号、凭据、模型与路由策略，全部在管理界面里完成。
 
-<!-- 【外部资源 2｜架构示意图】（推荐，替换下方 ASCII 图）
-     建议内容：左侧「应用 / AI 客户端」→ 中间 GPT-Load（内含：凭据池管理、调度与重试、健康检查、日志与用量）→ 右侧多个上游（官方 API / 云平台 / 兼容中转 / 订阅账号）。
-     要点：突出「一个 Base URL + 一个 AccessKey」进、「多渠道多凭据」出。建议宽 900px，深浅色背景各一版更佳。
-     完成后放到 ./screenshot/architecture.png，并把下面的代码块替换成图片引用。 -->
+```mermaid
+flowchart LR
+    C["应用 / AI 客户端"]
+    G["GPT-Load<br/>————————<br/>原生协议入口<br/>凭据调度 · 重试 · 健康隔离<br/>日志 · 用量 · 成本估算"]
+    U1["官方 API"]
+    U2["云平台"]
+    U3["兼容中转"]
+    U4["订阅账号"]
 
-```text
-应用 / AI 客户端
-        │
-        │  一个 Base URL + 一个 AccessKey
-        ▼
-     GPT-Load
-        ├─ API Key 与订阅账号统一管理
-        ├─ 凭据调度、重试、健康检查与故障隔离
-        ├─ 请求日志、用量汇总与成本估算
-        └─ OpenAI / Anthropic / Gemini 原生协议入口
-        │
-        ▼
-官方 API、云平台、兼容中转与订阅渠道
+    C -->|"一个 Base URL<br/>一个 AccessKey"| G
+    G --> U1
+    G --> U2
+    G --> U3
+    G --> U4
 ```
 
 ## 为什么选择 GPT-Load
@@ -56,19 +49,11 @@
 - **每一次调用都看得见** — 健康状态、路由检查、请求日志、用量汇总与模型成本估算，便于定位问题和评估消耗。
 - **部署简单、数据自持** — 管理界面内嵌在单个 Go 二进制中；默认 SQLite，也可连接 MySQL 或 PostgreSQL；渠道凭据本地加密保存。
 
-## 界面预览
-
-<!-- 【外部资源 3｜管理界面截图】（推荐）
-     建议 2–4 张，宽 1400px 左右，浅色主题，注意打码所有真实密钥、账号与域名：
-       a) 仪表盘 / 首页概览（能看到调用量与健康状态）
-       b) 渠道与凭据管理（体现「多凭据」和「加密保存」）
-       c) 用量与成本页面（体现统计能力）
-       d) 请求日志（可选）
-     完成后放到 ./screenshot/ 下，替换下面的占位。若只准备一张，保留仪表盘即可。 -->
-
-| 仪表盘 | 用量与成本 |
-|---|---|
-| <img src="./screenshot/dashboard.png" alt="仪表盘"> | <img src="./screenshot/usage.png" alt="用量与成本"> |
+<!-- 【待补：管理界面截图】
+     补图后在此处插入「## 界面预览」章节。建议 2–3 张，宽 1400px、浅色主题，
+     打码所有真实密钥/账号/域名：a) 仪表盘（调用量 + 健康状态）
+     b) 渠道与凭据管理（体现多凭据）c) 用量与成本。
+     三语 README 需同步插入。 -->
 
 ## 支持范围
 
@@ -129,13 +114,9 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 控制台里的配置关系是三层：
 
-<!-- 【外部资源 4｜配置流程图】（可选，锦上添花）
-     建议内容：三步流程「① 添加渠道（填入 API Key / 完成 OAuth 授权）→ ② 创建 Group（选渠道、配模型与策略）→ ③ 创建 AccessKey（选 Group 与协议，交给应用）」。
-     建议横版、宽 900px。完成后放到 ./screenshot/setup-flow.png 并替换下面的代码块。 -->
-
-```text
-渠道 ──→ Group ──→ AccessKey
-凭据池     模型与策略    给应用用的密钥
+```mermaid
+flowchart LR
+    A["① 渠道<br/>填 API Key<br/>或 OAuth 授权"] --> B["② Group<br/>选渠道<br/>配模型与策略"] --> C["③ AccessKey<br/>选 Group 与协议<br/>交给应用"]
 ```
 
 1. **添加渠道** — 选择上游服务，填入一个或多个 API Key；订阅渠道按界面提示完成 OAuth 授权或导入凭据。
@@ -278,11 +259,7 @@ GPT-Load 自身负责凭据存储、账号选择、调度、重试、健康、�
 <table>
 <tbody>
 <tr>
-<!-- 【外部资源 5｜赞助商 Logo】
-     当前这里引用的是管理界面里的渠道图标（第三方重绘版本）。
-     由于此处表达的是「赞助 / 合作关系」而非「识别渠道」，建议改用 OpenAI 官方品牌资产，
-     放到 ./screenshot/sponsor-openai.svg 后替换下面的 img src。 -->
-<td width="180"><a href="https://openai.com/"><img src="./web/src/assets/channels/openai.svg" alt="OpenAI" width="150" height="50"></a></td>
+<td width="180" align="center"><a href="https://openai.com/"><img src="./screenshot/sponsor-openai.svg" alt="OpenAI" width="56"></a></td>
 <td>感谢 OpenAI 对本项目的赞助支持。</td>
 </tr>
 <tr>
