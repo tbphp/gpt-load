@@ -15,6 +15,7 @@ type initialGroup struct {
 	ID              uint        `gorm:"primaryKey;autoIncrement"`
 	Name            string      `gorm:"type:varchar(255);not null;uniqueIndex"`
 	ChannelID       string      `gorm:"type:varchar(64);not null"`
+	ConnectionType  string      `gorm:"type:varchar(32);not null;default:'api_key';check:chk_group_connection_type,connection_type IN ('api_key','subscription')"`
 	Params          initialJSON `gorm:"type:json;not null"`
 	Models          initialJSON `gorm:"type:json;not null"`
 	WeightManual    *int
@@ -29,15 +30,19 @@ type initialGroup struct {
 func (initialGroup) TableName() string { return "groups" }
 
 type initialCredential struct {
-	ID           uint   `gorm:"primaryKey;autoIncrement"`
-	GroupID      uint   `gorm:"not null;uniqueIndex:idx_credentials_group_fingerprint,priority:1"`
-	Data         string `gorm:"type:text;not null"`
-	Fingerprint  string `gorm:"type:varchar(128);not null;uniqueIndex:idx_credentials_group_fingerprint,priority:2"`
-	Status       string `gorm:"type:varchar(32);not null;default:'active';check:chk_credential_status,status IN ('active','disabled')"`
-	WeightManual *int
-	Group        *initialGroup `gorm:"foreignKey:GroupID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	CreatedAtMS  int64         `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_credential_created_at,created_at_ms >= 0"`
-	UpdatedAtMS  int64         `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_credential_updated_at,updated_at_ms >= 0"`
+	ID                  uint   `gorm:"primaryKey;autoIncrement"`
+	GroupID             uint   `gorm:"not null;uniqueIndex:idx_credentials_group_fingerprint,priority:1;uniqueIndex:idx_credentials_group_identity,priority:1"`
+	Data                string `gorm:"type:text;not null"`
+	Fingerprint         string `gorm:"type:varchar(128);not null;uniqueIndex:idx_credentials_group_fingerprint,priority:2"`
+	IdentityFingerprint string `gorm:"type:varchar(128);not null;default:'';uniqueIndex:idx_credentials_group_identity,priority:2"`
+	SecretVersion       uint64 `gorm:"not null;default:1;check:chk_credential_secret_version,secret_version > 0"`
+	AuthState           string `gorm:"type:varchar(32);not null;default:'ready';check:chk_credential_auth_state,auth_state IN ('ready','refreshing','reauthorization_required','outcome_unknown')"`
+	AuthErrorCode       string `gorm:"type:varchar(64);not null;default:''"`
+	Status              string `gorm:"type:varchar(32);not null;default:'active';check:chk_credential_status,status IN ('active','disabled')"`
+	WeightManual        *int
+	Group               *initialGroup `gorm:"foreignKey:GroupID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	CreatedAtMS         int64         `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_credential_created_at,created_at_ms >= 0"`
+	UpdatedAtMS         int64         `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_credential_updated_at,updated_at_ms >= 0"`
 }
 
 func (initialCredential) TableName() string { return "credentials" }
@@ -60,12 +65,12 @@ type initialAccessKey struct {
 func (initialAccessKey) TableName() string { return "access_keys" }
 
 type initialRequestLog struct {
-	ID                      string                     `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_completed_id,priority:2,sort:desc;index:idx_request_logs_access_completed_id,priority:3,sort:desc;index:idx_request_logs_status_completed_id,priority:3,sort:desc;index:idx_request_logs_model_completed_id,priority:3,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:3,sort:desc"`
-	CompletedAtMS           int64                      `gorm:"column:completed_at_ms;not null;check:chk_request_log_completed_at,completed_at_ms >= 0;index:idx_request_logs_completed_id,priority:1,sort:desc;index:idx_request_logs_access_completed_id,priority:2,sort:desc;index:idx_request_logs_status_completed_id,priority:2,sort:desc;index:idx_request_logs_model_completed_id,priority:2,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:2,sort:desc"`
+	ID                      string                     `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_completed_id,priority:2,sort:desc;index:idx_request_logs_access_completed_id,priority:3,sort:desc;index:idx_request_logs_status_completed_id,priority:3,sort:desc;index:idx_request_logs_model_completed_id,priority:3,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:3,sort:desc;index:idx_request_logs_credential_completed_id,priority:3,sort:desc"`
+	CompletedAtMS           int64                      `gorm:"column:completed_at_ms;not null;check:chk_request_log_completed_at,completed_at_ms >= 0;index:idx_request_logs_completed_id,priority:1,sort:desc;index:idx_request_logs_access_completed_id,priority:2,sort:desc;index:idx_request_logs_status_completed_id,priority:2,sort:desc;index:idx_request_logs_model_completed_id,priority:2,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:2,sort:desc;index:idx_request_logs_credential_completed_id,priority:2,sort:desc"`
 	AccessKeyID             uint                       `gorm:"not null;index:idx_request_logs_access_completed_id,priority:1"`
 	GroupID                 uint                       `gorm:"not null;default:0"`
 	ChannelID               string                     `gorm:"type:varchar(64);not null;default:''"`
-	CredentialID            uint                       `gorm:"not null;default:0"`
+	CredentialID            uint                       `gorm:"not null;default:0;index:idx_request_logs_credential_completed_id,priority:1"`
 	Protocol                string                     `gorm:"type:varchar(32);not null"`
 	Operation               string                     `gorm:"type:varchar(64);not null;default:''"`
 	ClientModel             string                     `gorm:"type:varchar(255);not null;index:idx_request_logs_model_completed_id,priority:1"`
@@ -113,7 +118,7 @@ type initialRequestLogAttempt struct {
 	UpstreamRequestID     string             `gorm:"type:varchar(255);not null;default:''"`
 	DispatchState         string             `gorm:"type:varchar(32);not null;default:''"`
 	ResponseStarted       bool               `gorm:"not null;default:false"`
-	UpstreamAPI           string             `gorm:"type:varchar(64);not null;default:''"`
+	UpstreamProtocol      string             `gorm:"type:varchar(32);not null;default:''"`
 	ReasoningMode         string             `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningEffort       string             `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningBudgetTokens *int64             `gorm:"column:reasoning_budget_tokens"`
@@ -160,11 +165,11 @@ func (initialUsageAggregationJournal) TableName() string { return "usage_aggrega
 
 type initialUsageStat struct {
 	ID                      uint   `gorm:"primaryKey;autoIncrement"`
-	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null;check:chk_usage_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_usage_stats_identity,priority:1"`
+	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null;check:chk_usage_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_usage_stats_identity,priority:1;index:idx_usage_stats_credential_bucket,priority:2"`
 	AccessKeyID             uint   `gorm:"not null;uniqueIndex:idx_usage_stats_identity,priority:2"`
 	ChannelID               string `gorm:"type:varchar(64);not null;default:'';uniqueIndex:idx_usage_stats_identity,priority:3"`
 	GroupID                 uint   `gorm:"not null;uniqueIndex:idx_usage_stats_identity,priority:4"`
-	CredentialID            uint   `gorm:"not null;default:0;uniqueIndex:idx_usage_stats_identity,priority:5"`
+	CredentialID            uint   `gorm:"not null;default:0;uniqueIndex:idx_usage_stats_identity,priority:5;index:idx_usage_stats_credential_bucket,priority:1"`
 	Model                   string `gorm:"type:varchar(255);not null;uniqueIndex:idx_usage_stats_identity,priority:6"`
 	RequestCount            int64  `gorm:"not null;default:0;check:chk_usage_stat_request_count,request_count >= 0;check:chk_usage_stat_request_outcome,request_count = success_count + failure_count"`
 	SuccessCount            int64  `gorm:"not null;default:0;check:chk_usage_stat_success_count,success_count >= 0"`
@@ -193,6 +198,7 @@ type initialModelPrice struct {
 	CacheReadPriceNanoUSDPerMillionTokens  *int64      `gorm:"column:cache_read_price_nano_usd_per_million_tokens;check:chk_model_price_cache_read_nano,cache_read_price_nano_usd_per_million_tokens IS NULL OR cache_read_price_nano_usd_per_million_tokens >= 0"`
 	CacheWritePriceNanoUSDPerMillionTokens *int64      `gorm:"column:cache_write_price_nano_usd_per_million_tokens;check:chk_model_price_cache_write_nano,cache_write_price_nano_usd_per_million_tokens IS NULL OR cache_write_price_nano_usd_per_million_tokens >= 0"`
 	ContextPriceTiers                      initialJSON `gorm:"type:json"`
+	ModePriceSchedules                     initialJSON `gorm:"column:mode_price_schedules;type:json"`
 	IsManual                               bool        `gorm:"not null;default:false"`
 	CreatedAtMS                            int64       `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_model_price_created_at,created_at_ms >= 0"`
 	UpdatedAtMS                            int64       `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_model_price_updated_at,updated_at_ms >= 0"`
@@ -242,6 +248,74 @@ type initialControlOperation struct {
 
 func (initialControlOperation) TableName() string { return "control_operations" }
 
+type initialCredentialStage struct {
+	ID                   string      `gorm:"type:varchar(36);primaryKey;not null"`
+	ChannelID            string      `gorm:"type:varchar(64);not null"`
+	ConnectionType       string      `gorm:"type:varchar(32);not null;check:chk_credential_stage_connection_type,connection_type = 'subscription'"`
+	AuthorizationMethod  string      `gorm:"type:varchar(32);not null;check:chk_credential_stage_authorization_method,authorization_method IN ('browser_oauth','device_oauth','oauth_file')"`
+	Status               string      `gorm:"type:varchar(32);not null;check:chk_credential_stage_status,status IN ('pending_authorization','exchanging','ready','consumed','failed','cancelled','expired','outcome_unknown');index:idx_credential_stages_status_expires,priority:1"`
+	EncryptedPayload     string      `gorm:"type:text;not null"`
+	PayloadSchemaVersion uint        `gorm:"not null;default:1;check:chk_credential_stage_payload_schema,payload_schema_version > 0"`
+	SafeSummaryJSON      initialJSON `gorm:"column:safe_summary_json;type:json;not null"`
+	IdentityFingerprint  string      `gorm:"type:varchar(128);not null;default:''"`
+	OAuthStateHash       *string     `gorm:"column:oauth_state_hash;type:varchar(128);uniqueIndex:idx_credential_stages_oauth_state"`
+	ExpiresAtMS          int64       `gorm:"column:expires_at_ms;not null;check:chk_credential_stage_expires_at,expires_at_ms >= 0;index:idx_credential_stages_status_expires,priority:2"`
+	ConsumedAtMS         *int64      `gorm:"column:consumed_at_ms;check:chk_credential_stage_consumed_at,consumed_at_ms IS NULL OR consumed_at_ms >= 0"`
+	ConsumedGroupID      *uint
+	ErrorCode            string `gorm:"type:varchar(64);not null;default:''"`
+	CreatedAtMS          int64  `gorm:"column:created_at_ms;not null;check:chk_credential_stage_created_at,created_at_ms >= 0"`
+	UpdatedAtMS          int64  `gorm:"column:updated_at_ms;not null;check:chk_credential_stage_updated_at,updated_at_ms >= 0;index:idx_credential_stages_status_expires,priority:3"`
+}
+
+func (initialCredentialStage) TableName() string { return "credential_stages" }
+
+type initialCredentialObservation struct {
+	CredentialID                 uint               `gorm:"primaryKey;not null"`
+	Credential                   *initialCredential `gorm:"foreignKey:CredentialID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	IdentityFingerprint          string             `gorm:"type:varchar(128);not null"`
+	SchemaVersion                uint               `gorm:"not null;default:1;check:chk_credential_observation_schema,schema_version > 0"`
+	ObservationVersion           uint64             `gorm:"not null;default:1;check:chk_credential_observation_version,observation_version > 0"`
+	SnapshotJSON                 initialJSON        `gorm:"column:snapshot_json;type:json;not null"`
+	State                        string             `gorm:"type:varchar(32);not null;check:chk_credential_observation_state,state IN ('fresh','stale','refreshing','error','unavailable')"`
+	ObservedAtMS                 *int64             `gorm:"column:observed_at_ms;check:chk_credential_observation_observed_at,observed_at_ms IS NULL OR observed_at_ms >= 0"`
+	FreshUntilMS                 *int64             `gorm:"column:fresh_until_ms;check:chk_credential_observation_fresh_until,fresh_until_ms IS NULL OR fresh_until_ms >= 0"`
+	LastAttemptAtMS              *int64             `gorm:"column:last_attempt_at_ms;check:chk_credential_observation_last_attempt,last_attempt_at_ms IS NULL OR last_attempt_at_ms >= 0"`
+	NextAllowedAtMS              *int64             `gorm:"column:next_allowed_at_ms;check:chk_credential_observation_next_allowed,next_allowed_at_ms IS NULL OR next_allowed_at_ms >= 0"`
+	LastAuthRefreshSecretVersion *uint64            `gorm:"column:last_auth_refresh_secret_version"`
+	LastErrorCode                string             `gorm:"type:varchar(64);not null;default:''"`
+	UpdatedAtMS                  int64              `gorm:"column:updated_at_ms;not null;check:chk_credential_observation_updated_at,updated_at_ms >= 0"`
+}
+
+func (initialCredentialObservation) TableName() string { return "credential_observations" }
+
+type initialCredentialResetOperation struct {
+	IdempotencyKey  string      `gorm:"column:idempotency_key;type:char(36);primaryKey;not null"`
+	RequestDigest   []byte      `gorm:"column:request_digest;not null"`
+	GroupID         uint        `gorm:"column:group_id;not null;index:idx_credential_reset_operations_credential,priority:1"`
+	CredentialID    uint        `gorm:"column:credential_id;not null;index:idx_credential_reset_operations_credential,priority:2"`
+	RedeemRequestID string      `gorm:"column:redeem_request_id;type:char(36);not null;uniqueIndex"`
+	State           string      `gorm:"type:varchar(32);not null;check:chk_credential_reset_operation_state,state IN ('prepared','succeeded','rejected','outcome_unknown')"`
+	ResultJSON      initialJSON `gorm:"column:result_json;type:json"`
+	ErrorCode       string      `gorm:"column:error_code;type:varchar(64);not null;default:''"`
+	CreatedAtMS     int64       `gorm:"column:created_at_ms;not null;check:chk_credential_reset_operation_created_at,created_at_ms >= 0"`
+	UpdatedAtMS     int64       `gorm:"column:updated_at_ms;not null;check:chk_credential_reset_operation_updated_at,updated_at_ms >= 0"`
+	CompletedAtMS   *int64      `gorm:"column:completed_at_ms;check:chk_credential_reset_operation_completed_at,completed_at_ms IS NULL OR completed_at_ms >= 0"`
+}
+
+func (initialCredentialResetOperation) TableName() string {
+	return "credential_reset_operations"
+}
+
+type initialCredentialAttemptStat struct {
+	ID            uint  `gorm:"primaryKey;autoIncrement;index:idx_credential_attempt_stats_bucket_id,priority:2"`
+	CredentialID  uint  `gorm:"not null;check:chk_credential_attempt_stat_credential,credential_id > 0;uniqueIndex:idx_credential_attempt_stats_identity,priority:1"`
+	BucketStartMS int64 `gorm:"column:bucket_start_ms;not null;check:chk_credential_attempt_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_credential_attempt_stats_identity,priority:2;index:idx_credential_attempt_stats_bucket_id,priority:1"`
+	SuccessCount  int64 `gorm:"not null;default:0;check:chk_credential_attempt_stat_success_count,success_count >= 0"`
+	FailureCount  int64 `gorm:"not null;default:0;check:chk_credential_attempt_stat_failure_count,failure_count >= 0"`
+}
+
+func (initialCredentialAttemptStat) TableName() string { return "credential_attempt_stats" }
+
 // ID0001 is the immutable identifier of the first GPT-Load 2.0 migration.
 const ID0001 = "0001_initial"
 
@@ -276,6 +350,10 @@ func SchemaModels0001() []any {
 		&initialSystemSetting{},
 		&initialJob{},
 		&initialControlOperation{},
+		&initialCredentialStage{},
+		&initialCredentialObservation{},
+		&initialCredentialResetOperation{},
+		&initialCredentialAttemptStat{},
 	}
 }
 
@@ -293,6 +371,10 @@ func TableNames0001() []string {
 		"system_settings",
 		"jobs",
 		"control_operations",
+		"credential_stages",
+		"credential_observations",
+		"credential_reset_operations",
+		"credential_attempt_stats",
 	}
 }
 

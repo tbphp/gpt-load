@@ -21,7 +21,7 @@ type initialColumn struct {
 	DefaultValue *string `gorm:"column:dflt_value"`
 }
 
-func TestFrozenInitialMigrationRetainsLegacyUpstreamAPIColumn(t *testing.T) {
+func TestBeta1InitialMigrationCreatesCompleteFinalSchema(t *testing.T) {
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatalf("Up0001() error = %v", err)
@@ -29,11 +29,109 @@ func TestFrozenInitialMigrationRetainsLegacyUpstreamAPIColumn(t *testing.T) {
 	if err := migrations.Validate0001(db); err != nil {
 		t.Fatalf("Validate0001() error = %v", err)
 	}
-	if !db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
-		t.Fatal("frozen 0001 upstream_api column is missing")
+	wantTables := []string{
+		"groups",
+		"credentials",
+		"access_keys",
+		"request_logs",
+		"request_log_attempts",
+		"usage_aggregation_journal",
+		"usage_stats",
+		"model_prices",
+		"system_settings",
+		"jobs",
+		"control_operations",
+		"credential_stages",
+		"credential_observations",
+		"credential_reset_operations",
+		"credential_attempt_stats",
 	}
-	if db.Migrator().HasColumn("request_log_attempts", "upstream_protocol") {
-		t.Fatal("frozen 0001 unexpectedly contains upstream_protocol")
+	if got := migrations.TableNames0001(); !reflect.DeepEqual(got, wantTables) {
+		t.Fatalf("TableNames0001() = %v, want %v", got, wantTables)
+	}
+	for _, table := range wantTables {
+		if !db.Migrator().HasTable(table) {
+			t.Errorf("Beta.1 initial migration did not create table %q", table)
+		}
+	}
+
+	for table, columns := range map[string][]string{
+		"groups":                  {"connection_type"},
+		"credentials":             {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
+		"request_log_attempts":    {"upstream_protocol"},
+		"model_prices":            {"mode_price_schedules"},
+		"credential_observations": {"last_auth_refresh_secret_version"},
+	} {
+		assertColumns(t, db, table, columns)
+	}
+	if db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
+		t.Fatal("Beta.1 initial migration retains legacy request_log_attempts.upstream_api")
+	}
+	for table, indexes := range map[string][]string{
+		"credentials":              {"idx_credentials_group_identity"},
+		"request_logs":             {"idx_request_logs_credential_completed_id"},
+		"usage_stats":              {"idx_usage_stats_credential_bucket"},
+		"credential_attempt_stats": {"idx_credential_attempt_stats_identity", "idx_credential_attempt_stats_bucket_id"},
+	} {
+		for _, index := range indexes {
+			if !db.Migrator().HasIndex(table, index) {
+				t.Errorf("Beta.1 initial migration did not create index %q on %q", index, table)
+			}
+		}
+	}
+
+	for index, method := range []string{"browser_oauth", "device_oauth", "oauth_file"} {
+		if err := insertBeta1CredentialStage(db, fmt.Sprintf("stage-%d", index), method); err != nil {
+			t.Errorf("Beta.1 authorization method %q was rejected: %v", method, err)
+		}
+	}
+	if err := insertBeta1CredentialStage(db, "stage-invalid", "unsupported"); err == nil {
+		t.Fatal("Beta.1 initial migration accepted an unsupported authorization method")
+	}
+	if err := db.Exec(`INSERT INTO groups (
+		name, channel_id, connection_type, params, models, enabled, created_at_ms, updated_at_ms
+	) VALUES ('invalid', 'openai', 'other', '{}', '[]', true, 1, 1)`).Error; err == nil {
+		t.Fatal("Beta.1 initial migration accepted an unsupported connection type")
+	}
+}
+
+func insertBeta1CredentialStage(db *gorm.DB, id, method string) error {
+	return db.Exec(`INSERT INTO credential_stages (
+		id, channel_id, connection_type, authorization_method, status,
+		encrypted_payload, payload_schema_version, safe_summary_json,
+		identity_fingerprint, expires_at_ms, error_code, created_at_ms, updated_at_ms
+	) VALUES (?, 'grok', 'subscription', ?, 'pending_authorization',
+		'encrypted', 1, '{}', '', 100, '', 1, 1)`, id, method).Error
+}
+
+func TestBeta1InitialMigrationCascadesCredentialObservations(t *testing.T) {
+	db := openMigratedInitialTestDatabase(t)
+	if err := db.Exec(`INSERT INTO groups (
+		id, name, channel_id, connection_type, params, models, enabled, created_at_ms, updated_at_ms
+	) VALUES (1, 'subscription', 'openai', 'subscription', '{}', '[]', true, 1, 1)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO credentials (
+		id, group_id, data, fingerprint, identity_fingerprint, secret_version,
+		auth_state, auth_error_code, status, created_at_ms, updated_at_ms
+	) VALUES (1, 1, 'cipher', 'secret', 'account', 1, 'ready', '', 'active', 1, 1)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO credential_observations (
+		credential_id, identity_fingerprint, schema_version, observation_version,
+		snapshot_json, state, last_error_code, updated_at_ms
+	) VALUES (1, 'account', 1, 1, '{}', 'fresh', '', 1)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`DELETE FROM credentials WHERE id = 1`).Error; err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := db.Table("credential_observations").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("credential observation count = %d, want 0", count)
 	}
 }
 
@@ -536,7 +634,7 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateDoesNotReapplyCompletedMigrationForChangedTable(t *testing.T) {
+func TestAutoMigrateRejectsChangedTableForCompletedMigration(t *testing.T) {
 	db := openMigratedInitialTestDatabase(t)
 	if err := db.Exec(`ALTER TABLE usage_stats RENAME TO usage_stats_checked`).Error; err != nil {
 		t.Fatal(err)
@@ -548,18 +646,23 @@ func TestAutoMigrateDoesNotReapplyCompletedMigrationForChangedTable(t *testing.T
 	if err := db.Exec(`DROP TABLE usage_stats_checked`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.AutoMigrate(db); err != nil {
-		t.Fatalf("AutoMigrate() error = %v", err)
+	err := storage.AutoMigrate(db)
+	if err == nil || !strings.Contains(err.Error(), "validate applied migration 0001_initial") {
+		t.Fatalf("AutoMigrate() error = %v, want completed migration drift rejection", err)
 	}
 }
 
-func TestAutoMigrateDoesNotReapplyCompletedMigrationForMissingIndex(t *testing.T) {
+func TestAutoMigrateRejectsMissingIndexForCompletedMigration(t *testing.T) {
 	db := openMigratedInitialTestDatabase(t)
 	if err := db.Exec("DROP INDEX idx_model_prices_channel_model").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.AutoMigrate(db); err != nil {
-		t.Fatalf("AutoMigrate() error = %v", err)
+	err := storage.AutoMigrate(db)
+	if err == nil || !strings.Contains(err.Error(), "validate applied migration 0001_initial") {
+		t.Fatalf("AutoMigrate() error = %v, want completed migration drift rejection", err)
+	}
+	if db.Migrator().HasIndex("model_prices", "idx_model_prices_channel_model") {
+		t.Fatal("AutoMigrate() recreated an index owned by a completed migration")
 	}
 }
 

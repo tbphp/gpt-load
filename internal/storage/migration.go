@@ -40,54 +40,6 @@ var migrations = []migration{
 		Validate:            migrationfiles.Validate0001,
 		ValidateRecoverable: migrationfiles.ValidateRecoverable0001,
 	},
-	{
-		ID:                  migrationfiles.ID0002,
-		Up:                  migrationfiles.Up0002,
-		Validate:            migrationfiles.Validate0002,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0002,
-	},
-	{
-		ID:                  migrationfiles.ID0003,
-		Up:                  migrationfiles.Up0003,
-		Validate:            migrationfiles.Validate0003,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0003,
-	},
-	{
-		ID:                  migrationfiles.ID0004,
-		Up:                  migrationfiles.Up0004,
-		Validate:            migrationfiles.Validate0004,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0004,
-	},
-	{
-		ID:                  migrationfiles.ID0005,
-		Up:                  migrationfiles.Up0005,
-		Validate:            migrationfiles.Validate0005,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0005,
-	},
-	{
-		ID:                  migrationfiles.ID0006,
-		Up:                  migrationfiles.Up0006,
-		Validate:            migrationfiles.Validate0006,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0006,
-	},
-	{
-		ID:                  migrationfiles.ID0007,
-		Up:                  migrationfiles.Up0007,
-		Validate:            migrationfiles.Validate0007,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0007,
-	},
-	{
-		ID:                  migrationfiles.ID0008,
-		Up:                  migrationfiles.Up0008,
-		Validate:            migrationfiles.Validate0008,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0008,
-	},
-	{
-		ID:                  migrationfiles.ID0009,
-		Up:                  migrationfiles.Up0009,
-		Validate:            migrationfiles.Validate0009,
-		ValidateRecoverable: migrationfiles.ValidateRecoverable0009,
-	},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -203,6 +155,11 @@ func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransac
 				continue
 			}
 			return fmt.Errorf("initialize database schema: empty migration ledger beside existing tables")
+		}
+	}
+	for index, id := range applied {
+		if err := entries[index].Validate(db); err != nil {
+			return fmt.Errorf("validate applied migration %s: %w", id, err)
 		}
 	}
 
