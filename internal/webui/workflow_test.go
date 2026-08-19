@@ -161,6 +161,41 @@ func TestWorkflowsPinExternalActionsAndHostedRunners(t *testing.T) {
 	}
 }
 
+func TestBranchWorkflowCancelsSupersededRuns(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/ci.yml")
+	concurrency := workflowTopLevelBlock(t, content, "concurrency")
+	for _, required := range []string{
+		`group: v2-ci-${{ github.event.pull_request.number || github.ref }}`,
+		"cancel-in-progress: true",
+	} {
+		if !strings.Contains(concurrency, required) {
+			t.Fatalf("branch CI concurrency does not contain %q:\n%s", required, concurrency)
+		}
+	}
+}
+
+func TestWorkflowsDisableCheckoutCredentialPersistence(t *testing.T) {
+	for _, name := range []string{
+		".github/workflows/ci.yml",
+		".github/workflows/release.yml",
+	} {
+		content := readRepositoryFile(t, name)
+		checkoutCount := strings.Count(content, "uses: "+checkoutActionRef)
+		disabledCount := strings.Count(content, "persist-credentials: false")
+		if checkoutCount == 0 {
+			t.Fatalf("%s does not contain a checkout action", name)
+		}
+		if disabledCount != checkoutCount {
+			t.Fatalf(
+				"%s disables checkout credential persistence %d times, want %d",
+				name,
+				disabledCount,
+				checkoutCount,
+			)
+		}
+	}
+}
+
 func TestGoFormattingScriptsFailClosed(t *testing.T) {
 	for _, workflow := range []struct {
 		name string
@@ -253,7 +288,7 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			valid: true,
 			wantOutput: []string{
 				"version=v2.0.0", "prerelease=false", "image_exact=v2.0.0",
-				"image_minor=2.0", "image_major=2",
+				"image_minor=2.0", "image_major=2", "beta=false",
 			},
 		},
 		{
@@ -261,7 +296,15 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			valid: true,
 			wantOutput: []string{
 				"version=v2.0.0-rc.1", "prerelease=true", "image_exact=v2.0.0-rc.1",
-				"image_minor=2.0", "image_major=2",
+				"image_minor=2.0", "image_major=2", "beta=false",
+			},
+		},
+		{
+			tag:   "v2.0.0-beta.1",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.0.0-beta.1", "prerelease=true", "image_exact=v2.0.0-beta.1",
+				"image_minor=2.0", "image_major=2", "beta=true",
 			},
 		},
 		{
@@ -270,6 +313,7 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			wantOutput: []string{
 				"version=v2.10.3-alpha-1.0", "prerelease=true",
 				"image_exact=v2.10.3-alpha-1.0", "image_minor=2.10", "image_major=2",
+				"beta=false",
 			},
 		},
 		{tag: "v2.0.0.1", valid: false},
@@ -873,6 +917,70 @@ func TestReleaseWorkflowUpdatesAliasesOnlyAfterExactVerification(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	validateJob := workflowJobBlock(t, content, "validate-tag")
+	if !strings.Contains(validateJob, "beta: ${{ steps.tag.outputs.beta }}") {
+		t.Fatalf("tag validation does not expose the beta channel decision:\n%s", validateJob)
+	}
+
+	imageJob := workflowJobBlock(t, content, "publish-images")
+	exactVerification := strings.Index(imageJob, "name: Verify exact published images")
+	betaUpdate := strings.Index(imageJob, "name: Update beta channel alias")
+	if exactVerification < 0 || betaUpdate < 0 || exactVerification >= betaUpdate {
+		t.Fatalf(
+			"beta alias update is not ordered after exact verification: exact=%d beta=%d\n%s",
+			exactVerification,
+			betaUpdate,
+			imageJob,
+		)
+	}
+	betaStep := workflowStepBlock(t, imageJob, "Update beta channel alias")
+	for _, required := range []string{
+		"needs.publication-preflight.outputs.write_mode == 'publish'",
+		"needs.validate-tag.outputs.beta == 'true'",
+		"docker buildx imagetools create",
+		`exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"`,
+		`--tag "${repository}:v2beta"`,
+	} {
+		if !strings.Contains(betaStep, required) {
+			t.Fatalf("beta alias update does not contain %q:\n%s", required, betaStep)
+		}
+	}
+
+	verification := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "post-publish-verify"),
+		"Verify published image manifests",
+	)
+	for _, required := range []string{
+		`needs.validate-tag.outputs.beta`,
+		`"${repository}:v2beta"`,
+		"beta_digest",
+		`test "${beta_digest}" = "${exact_digest}"`,
+	} {
+		if !strings.Contains(verification, required) {
+			t.Fatalf("beta alias verification does not contain %q:\n%s", required, verification)
+		}
+	}
+
+	reconciliation := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "reconcile-publication"),
+		"Summarize exact publication inventory and job results",
+	)
+	for _, required := range []string{
+		"ghcr.io/tbphp/gpt-load:v2beta",
+		"tbphp/gpt-load:v2beta",
+		"GHCR v2beta inventory",
+		"Docker Hub v2beta inventory",
+	} {
+		if !strings.Contains(reconciliation, required) {
+			t.Fatalf("publication reconciliation does not contain %q:\n%s", required, reconciliation)
+		}
+	}
+}
+
 func TestReleaseWorkflowConsistentRerunIsVerifyOnly(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	for _, test := range []struct {
@@ -887,7 +995,7 @@ func TestReleaseWorkflowConsistentRerunIsVerifyOnly(t *testing.T) {
 		},
 		{
 			job:  "publish-github",
-			step: "Publish one GitHub Release",
+			step: "Create or update GitHub Release draft",
 			call: githubReleaseActionRef,
 		},
 	} {
@@ -984,7 +1092,7 @@ func TestReleaseWorkflowReconciliationIsReadOnly(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowPublishesStable2xTagsWithoutLatest(t *testing.T) {
+func TestReleaseWorkflowPreparesDraftsWithoutLatest(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	imageJob := workflowJobBlock(t, content, "publish-images")
 	for _, required := range []string{
@@ -1006,6 +1114,69 @@ func TestReleaseWorkflowPublishesStable2xTagsWithoutLatest(t *testing.T) {
 	if strings.Contains(strings.ToLower(imageJob), "latest") {
 		t.Fatalf("image publication job contains latest:\n%s", imageJob)
 	}
+
+	githubJob := workflowJobBlock(t, content, "publish-github")
+	draftStep := workflowStepBlock(t, githubJob, "Create or update GitHub Release draft")
+	for _, required := range []string{
+		"draft: true",
+		"prerelease: ${{ needs.validate-tag.outputs.prerelease }}",
+		"make_latest: false",
+		"generate_release_notes: true",
+	} {
+		if !strings.Contains(draftStep, required) {
+			t.Fatalf("GitHub Release draft does not contain %q:\n%s", required, draftStep)
+		}
+	}
+	for _, forbidden := range []string{
+		"draft: false",
+		"Publish one GitHub Release",
+	} {
+		if strings.Contains(githubJob, forbidden) {
+			t.Fatalf("GitHub Release draft job contains direct publication contract %q:\n%s", forbidden, githubJob)
+		}
+	}
+	for _, verification := range []struct {
+		job  string
+		step string
+	}{
+		{job: "publish-github", step: "Verify existing GitHub Release"},
+		{job: "post-publish-verify", step: "Verify GitHub Release channel metadata"},
+	} {
+		step := workflowStepBlock(
+			t,
+			workflowJobBlock(t, content, verification.job),
+			verification.step,
+		)
+		for _, required := range []string{
+			`test "$(jq -r '.isDraft' <<<"${metadata}")" = "true"`,
+			`test "$(jq -r '.isPrerelease' <<<"${metadata}")" = \`,
+			`repos/${GITHUB_REPOSITORY}/releases/latest`,
+			`test "${latest_tag}" != "${GITHUB_REF_NAME}"`,
+		} {
+			if !strings.Contains(step, required) {
+				t.Fatalf("%s does not contain %q:\n%s", verification.step, required, step)
+			}
+		}
+	}
+
+	inventoryStep := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "publication-preflight"),
+		"Inventory publication channels",
+	)
+	for _, required := range []string{
+		"gh release view",
+		"--json databaseId,targetCommitish,isDraft,isPrerelease,assets",
+		`test "${github_draft}" = "true"`,
+		`test "${github_prerelease}" = \`,
+	} {
+		if !strings.Contains(inventoryStep, required) {
+			t.Fatalf("draft-aware publication inventory does not contain %q:\n%s", required, inventoryStep)
+		}
+	}
+	if strings.Contains(inventoryStep, "/releases/tags/") {
+		t.Fatalf("publication inventory uses an endpoint that cannot discover drafts:\n%s", inventoryStep)
+	}
 }
 
 func TestReleaseWorkflowIncludesCompleteS5Notes(t *testing.T) {
@@ -1020,15 +1191,18 @@ func TestReleaseWorkflowIncludesCompleteS5Notes(t *testing.T) {
 		"Stop cleanly",
 		"`-wal`/`-shm`",
 		"recovery set",
+		"v2beta",
 		"missing",
 		"partial",
 		"unpriced",
 		"compatible upstream",
 		"encryption key rotation",
-		"2026-07-27",
-		"https://developers.openai.com/api/docs/pricing",
-		"https://platform.claude.com/docs/en/about-claude/pricing",
-		"https://ai.google.dev/gemini-api/docs/pricing",
+		"New 2.x deployments",
+		"supported 2.x installations",
+		"version-specific release notes",
+		"embedded official catalog",
+		"Models.dev",
+		"explicit user overrides",
 		"unified data/control dual-plane architecture",
 		"Groups",
 		"AccessKeys",
@@ -1040,6 +1214,72 @@ func TestReleaseWorkflowIncludesCompleteS5Notes(t *testing.T) {
 	}
 	if strings.Contains(releaseJob, "app.notion.com") {
 		t.Fatalf("public release notes depend on a private Notion page:\n%s", releaseJob)
+	}
+	for _, stale := range []string{
+		"Earlier pre-release 2.x databases are not supported",
+		"Models.dev is the sole automatic price source",
+		"Built-in prices were reviewed on",
+		"GPT-Load 2.0.0 does not support encryption key rotation",
+	} {
+		if strings.Contains(releaseJob, stale) {
+			t.Fatalf("release notes contain stale statement %q:\n%s", stale, releaseJob)
+		}
+	}
+}
+
+func TestCommunityTemplatesCaptureVersionCompatibilityAndSecretSafety(t *testing.T) {
+	bug := readRepositoryFile(t, ".github/ISSUE_TEMPLATE/bug_report.md")
+	for _, required := range []string{
+		"当前主版本线的最新补丁版本",
+		"GPT-Load 版本",
+		"1.x 或 2.x",
+		"部署方式",
+		"操作系统与架构",
+		"数据库",
+		"客户端协议",
+		"实际结果及脱敏日志",
+		"AUTH_KEY",
+		"ENCRYPTION_KEY",
+		"AccessKey",
+	} {
+		if !strings.Contains(bug, required) {
+			t.Fatalf("bug report template does not contain %q", required)
+		}
+	}
+
+	feature := readRepositoryFile(t, ".github/ISSUE_TEMPLATE/feature_request.md")
+	for _, required := range []string{
+		"当前主版本线的最新补丁版本",
+		"目标版本线",
+		"1.x 维护线或 2.x",
+		"应用场景",
+		"兼容性、数据与安全影响",
+		"不要提交任何凭据或令牌",
+	} {
+		if !strings.Contains(feature, required) {
+			t.Fatalf("feature request template does not contain %q", required)
+		}
+	}
+
+	pullRequest := readRepositoryFile(t, ".github/pull_request_template.md")
+	for _, heading := range []string{
+		"### 关联 Issue / Related Issue",
+		"### 变更内容 / Change Content",
+		"### 自查清单 / Checklist",
+	} {
+		if count := strings.Count(pullRequest, heading); count != 1 {
+			t.Fatalf("pull request template contains heading %q %d times, want once", heading, count)
+		}
+	}
+	for _, required := range []string{
+		"make check",
+		"未包含无关改动",
+		"敏感信息",
+		"兼容性或数据迁移",
+	} {
+		if !strings.Contains(pullRequest, required) {
+			t.Fatalf("pull request template does not contain %q", required)
+		}
 	}
 }
 
@@ -1220,7 +1460,7 @@ func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t
 	inventoryJob := workflowJobBlock(t, content, "post-publish-verify")
 	for _, required := range []string{
 		"gh release download",
-		"public-release",
+		"draft-release",
 		"SHA256SUMS",
 		"sha256sum --check",
 		"asset_count",

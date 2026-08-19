@@ -353,7 +353,7 @@ func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testin
 	}
 }
 
-func TestComposeResolvesNamedVolumeContainerPathsAndStableImage(t *testing.T) {
+func TestComposeResolvesNamedVolumeContainerPathsAndBetaChannelImage(t *testing.T) {
 	t.Setenv("DATA_DIR", "/host/path/must-not-reach-container")
 	t.Setenv("DATABASE_DSN", "/host/database/must-not-reach-container.db")
 
@@ -401,8 +401,8 @@ func TestComposeResolvesNamedVolumeContainerPathsAndStableImage(t *testing.T) {
 	if !ok {
 		t.Fatal("resolved Compose lacks gpt-load service")
 	}
-	if service.Image != "ghcr.io/tbphp/gpt-load:2" {
-		t.Fatalf("resolved image = %q, want ghcr.io/tbphp/gpt-load:2", service.Image)
+	if service.Image != "ghcr.io/tbphp/gpt-load:v2beta" {
+		t.Fatalf("resolved image = %q, want ghcr.io/tbphp/gpt-load:v2beta", service.Image)
 	}
 	if service.Environment["DATA_DIR"] != "/app/data" {
 		t.Fatalf("resolved DATA_DIR = %q, want /app/data", service.Environment["DATA_DIR"])

@@ -22,10 +22,12 @@ jobs:
       image_exact: ${{ steps.tag.outputs.image_exact }}
       image_minor: ${{ steps.tag.outputs.image_minor }}
       image_major: ${{ steps.tag.outputs.image_major }}
+      beta: ${{ steps.tag.outputs.beta }}
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Validate strict 2.x SemVer tag
@@ -43,9 +45,14 @@ jobs:
           version="${tag#v}"
           core="${version%%-*}"
           prerelease=false
+          beta=false
           if [[ "${version}" == *-* ]]; then
             prerelease=true
             prerelease_value="${version#*-}"
+            if [[ "${prerelease_value}" == "beta" ||
+              "${prerelease_value}" == beta.* ]]; then
+              beta=true
+            fi
             IFS='.' read -r -a identifiers <<<"${prerelease_value}"
             for identifier in "${identifiers[@]}"; do
               if [[ "${identifier}" =~ ^[0-9]+$ ]] &&
@@ -64,6 +71,7 @@ jobs:
             printf 'image_exact=%s\n' "${tag}"
             printf 'image_minor=%s.%s\n' "${major}" "${minor}"
             printf 'image_major=%s\n' "${major}"
+            printf 'beta=%s\n' "${beta}"
           } >>"${GITHUB_OUTPUT}"
           # release-tag-validation:end
 
@@ -79,6 +87,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Validate and build web UI
         uses: ./.github/actions/web-ci
@@ -132,6 +142,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -187,6 +199,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -226,6 +240,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download verified web dist
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -265,6 +281,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -333,6 +351,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download complete release assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -369,6 +389,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Build and smoke local image
         shell: bash
@@ -411,6 +433,7 @@ jobs:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Download complete release assets
@@ -495,15 +518,32 @@ jobs:
           set -euo pipefail
 
           github_state=absent
+          github_release_id=
           github_target_sha=
           github_assets=absent
-          if gh api \
-            "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+          github_draft=
+          github_prerelease=
+          if gh release view "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json databaseId,targetCommitish,isDraft,isPrerelease,assets \
             >/tmp/existing-release.json 2>/tmp/existing-release.error; then
             github_state=present
-            github_target_sha="$(
-              jq -r '.target_commitish // empty' /tmp/existing-release.json
+            github_release_id="$(
+              jq -r '.databaseId // empty' /tmp/existing-release.json
             )"
+            github_target_sha="$(
+              jq -r '.targetCommitish // empty' /tmp/existing-release.json
+            )"
+            github_draft="$(
+              jq -r '.isDraft' /tmp/existing-release.json
+            )"
+            github_prerelease="$(
+              jq -r '.isPrerelease' /tmp/existing-release.json
+            )"
+            [[ "${github_release_id}" =~ ^[1-9][0-9]*$ ]]
+            test "${github_draft}" = "true"
+            test "${github_prerelease}" = \
+              "${{ needs.validate-tag.outputs.prerelease }}"
             jq -r '.assets[].name' /tmp/existing-release.json |
               sort >/tmp/existing-release-assets
             if cmp \
@@ -605,7 +645,7 @@ jobs:
               "${dockerhub_latest_digest}"
           } >>"${GITHUB_OUTPUT}"
           printf '%s\n' \
-            "github=${github_state}/${github_target_sha}/${github_assets}" \
+            "github=${github_state}/${github_target_sha}/${github_assets}/${github_draft}/${github_prerelease}" \
             "ghcr=${ghcr_state}/${ghcr_digest}/${ghcr_revision}" \
             "dockerhub=${dockerhub_state}/${dockerhub_digest}/${dockerhub_revision}" \
             "ghcr_latest=${ghcr_latest_digest}" \
@@ -662,6 +702,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up QEMU
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
@@ -758,6 +800,18 @@ jobs:
           test -n "${ghcr_exact_digest}"
           test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
 
+      - name: Update beta channel alias
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' && needs.validate-tag.outputs.beta == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repository in ghcr.io/tbphp/gpt-load tbphp/gpt-load; do
+            exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"
+            docker buildx imagetools create \
+              --tag "${repository}:v2beta" \
+              "${exact}"
+          done
+
       - name: Update stable major and minor aliases
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' && needs.validate-tag.outputs.prerelease == 'false' }}
         shell: bash
@@ -800,13 +854,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          target="$(
+          metadata="$(
             gh release view "${GITHUB_REF_NAME}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --json targetCommitish \
-              --jq '.targetCommitish'
+              --json targetCommitish,isDraft,isPrerelease
           )"
-          test "${target}" = "${GITHUB_SHA}"
+          test "$(jq -r '.targetCommitish' <<<"${metadata}")" = "${GITHUB_SHA}"
+          test "$(jq -r '.isDraft' <<<"${metadata}")" = "true"
+          test "$(jq -r '.isPrerelease' <<<"${metadata}")" = \
+            "${{ needs.validate-tag.outputs.prerelease }}"
+
+          if latest_tag="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/releases/latest" \
+              --jq '.tag_name' 2>/tmp/latest-release.error
+          )"; then
+            test "${latest_tag}" != "${GITHUB_REF_NAME}"
+          elif ! grep -Eqi \
+            'HTTP 404|Not Found' \
+            /tmp/latest-release.error; then
+            cat /tmp/latest-release.error >&2
+            exit 1
+          fi
+
           rm -rf existing-release
           mkdir existing-release
           gh release download "${GITHUB_REF_NAME}" \
@@ -818,13 +888,16 @@ jobs:
             sha256sum --check ../release/SHA256SUMS
           )
 
-      - name: Publish one GitHub Release
+      - name: Create or update GitHub Release draft
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           name: GPT-Load ${{ github.ref_name }}
           target_commitish: ${{ github.sha }}
+          draft: true
           prerelease: ${{ needs.validate-tag.outputs.prerelease }}
+          make_latest: false
+          generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
             release/gpt-load-linux-amd64
@@ -840,8 +913,9 @@ jobs:
           body: |
             GPT-Load 2.x is a greenfield rewrite and is not data-compatible with 1.x.
             Do not open a 1.x database with this release; rebuild configuration and cut over manually.
-            Earlier pre-release 2.x databases are not supported. Start this release with an empty
-            dedicated database and a matching new encryption key.
+            New 2.x deployments must start with an empty dedicated database and a matching new
+            encryption key. Existing supported 2.x installations must preserve their matching key
+            files and follow the version-specific release notes before upgrading.
 
             This release provides OpenAI, Anthropic, and Gemini client protocol gateways backed
             by channel presets for official, compatible, Azure OpenAI, AWS Bedrock, and Google
@@ -855,9 +929,11 @@ jobs:
             provider SDK executes one selected logical attempt and performs supported protocol
             conversion; its name is not part of persisted domain identities.
 
-            Docker runs as a fixed non-root user with a named volume. The 2.x image channels
-            do not move `latest`. Stop cleanly, then back up the selected database using its
-            engine-native procedure and keep auth/encryption key files with the recovery set.
+            Docker runs as a fixed non-root user with a named volume. Verified Beta images move
+            the shared `v2beta` channel while retaining the exact version tag; stable releases
+            move only their major/minor aliases. No 2.x release moves `latest`. Stop cleanly,
+            then back up the selected database using its engine-native procedure and keep
+            auth/encryption key files with the recovery set.
             Managed SQLite also requires its `-wal`/`-shm` sidecars. Usage and cost are best-effort
             estimates, not a billing ledger or provider invoice.
 
@@ -870,18 +946,16 @@ jobs:
 
             Usage quality can be `missing`, `partial`, or `unpriced`; a compatible upstream may
             never provide authoritative terminal usage. Cost remains an estimate, not a provider
-            bill. GPT-Load 2.0.0 does not support encryption key rotation.
+            bill. The current 2.x line does not support encryption key rotation.
 
-            Models.dev is the sole automatic price source. Prices are resolved by exact
-            `channel_id + model_id`, may be overridden explicitly, and remain estimates.
+            The automatic model catalog combines an embedded official catalog with Models.dev;
+            embedded official records take precedence while other Models.dev records remain
+            available. Prices resolve by exact `channel_id + model_id`; explicit user overrides
+            remain available, and all costs remain estimates.
 
             GPT-Load keeps a unified data/control dual-plane architecture: Groups select a
             channel and credentials, AccessKeys authorize data-plane access, and model discovery
-            imports available models from the selected channel. Built-in prices were reviewed on
-            2026-07-27 against the official
-            [OpenAI](https://developers.openai.com/api/docs/pricing),
-            [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and
-            [Gemini](https://ai.google.dev/gemini-api/docs/pricing) sources.
+            imports available models from the selected channel.
 
   post-publish-native-smoke:
     needs:
@@ -908,34 +982,36 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Download published GitHub Release assets
+      - name: Download draft GitHub Release assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p public-release
+          mkdir -p draft-release
           gh release download "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --dir public-release
+            --dir draft-release
 
-      - name: Smoke published POSIX native artifact
+      - name: Smoke drafted POSIX native artifact
         if: runner.os != 'Windows'
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/public-release/${{ matrix.filename }}
-          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/public-release/SHA256SUMS
+          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/draft-release/${{ matrix.filename }}
+          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/draft-release/SHA256SUMS
         run: .github/scripts/release-native-smoke.sh
 
-      - name: Smoke published Windows native artifact
+      - name: Smoke drafted Windows native artifact
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/public-release/${{ matrix.filename }}
-          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/public-release/SHA256SUMS
+          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/draft-release/${{ matrix.filename }}
+          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/draft-release/SHA256SUMS
         run: .github/scripts/release-native-smoke.ps1
 
   post-publish-verify:
@@ -953,6 +1029,8 @@ jobs:
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download and verify exact GitHub Release asset inventory
         env:
@@ -960,10 +1038,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p public-release
+          mkdir -p draft-release
           gh release download "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --dir public-release
+            --dir draft-release
 
           cat >/tmp/expected-release-assets <<'ASSETS'
           Apache-2.0.txt
@@ -977,19 +1055,48 @@ jobs:
           gpt-load-macos-arm64
           gpt-load-windows-amd64.exe
           ASSETS
-          find public-release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
+          find draft-release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
             sort >/tmp/actual-release-assets
           asset_count="$(wc -l </tmp/actual-release-assets | tr -d ' ')"
           test "${asset_count}" = "10"
           cmp /tmp/expected-release-assets /tmp/actual-release-assets
 
-          cd public-release
+          cd draft-release
           test "$(wc -l <SHA256SUMS | tr -d ' ')" = "9"
           awk '{print $2}' SHA256SUMS | sort >/tmp/checksummed-release-assets
           grep -v '^SHA256SUMS$' /tmp/expected-release-assets \
             >/tmp/expected-checksummed-release-assets
           cmp /tmp/expected-checksummed-release-assets /tmp/checksummed-release-assets
           sha256sum --check SHA256SUMS
+
+      - name: Verify GitHub Release channel metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$(
+            gh release view "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json targetCommitish,isDraft,isPrerelease
+          )"
+          test "$(jq -r '.targetCommitish' <<<"${metadata}")" = "${GITHUB_SHA}"
+          test "$(jq -r '.isDraft' <<<"${metadata}")" = "true"
+          test "$(jq -r '.isPrerelease' <<<"${metadata}")" = \
+            "${{ needs.validate-tag.outputs.prerelease }}"
+
+          if latest_tag="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/releases/latest" \
+              --jq '.tag_name' 2>/tmp/latest-release.error
+          )"; then
+            test "${latest_tag}" != "${GITHUB_REF_NAME}"
+          elif ! grep -Eqi \
+            'HTTP 404|Not Found' \
+            /tmp/latest-release.error; then
+            cat /tmp/latest-release.error >&2
+            exit 1
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
@@ -1048,6 +1155,14 @@ jobs:
             test "${latest_digest}" = "${expected_latest_digest}"
             test "${latest_digest}" != "${exact_digest}"
 
+            if [[ "${{ needs.validate-tag.outputs.beta }}" == "true" ]]; then
+              beta_digest="$(
+                .github/scripts/release-image-digest.sh \
+                  "${repository}:v2beta"
+              )"
+              test "${beta_digest}" = "${exact_digest}"
+            fi
+
             if [[ "${{ needs.validate-tag.outputs.prerelease }}" == "false" ]]; then
               for alias in \
                 "${{ needs.validate-tag.outputs.image_minor }}" \
@@ -1097,6 +1212,8 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx for read-only reconciliation
         if: ${{ always() }}
@@ -1191,18 +1308,28 @@ jobs:
             read_image_inventory \
               "tbphp/gpt-load:${GITHUB_REF_NAME}"
           )"
+          ghcr_beta_inventory="$(
+            read_image_inventory ghcr.io/tbphp/gpt-load:v2beta
+          )"
+          dockerhub_beta_inventory="$(
+            read_image_inventory tbphp/gpt-load:v2beta
+          )"
 
           {
             printf '## Publication reconciliation\n\n'
             printf -- '- preflight: `%s`\n' "${PREFLIGHT_RESULT}"
             printf -- '- image writer: `%s`\n' "${IMAGE_WRITER_RESULT}"
             printf -- '- GitHub writer: `%s`\n' "${GITHUB_WRITER_RESULT}"
-            printf -- '- published native smoke: `%s`\n' "${NATIVE_POST_RESULT}"
-            printf -- '- post-publish verification: `%s`\n' "${VERIFY_POST_RESULT}"
+            printf -- '- draft native smoke: `%s`\n' "${NATIVE_POST_RESULT}"
+            printf -- '- draft and image verification: `%s`\n' "${VERIFY_POST_RESULT}"
             printf -- '- GitHub exact inventory: `%s`\n' "${github_inventory}"
             printf -- '- GHCR exact inventory: `%s`\n' "${ghcr_inventory}"
             printf -- '- Docker Hub exact inventory: `%s`\n' \
               "${dockerhub_inventory}"
+            printf -- '- GHCR v2beta inventory: `%s`\n' \
+              "${ghcr_beta_inventory}"
+            printf -- '- Docker Hub v2beta inventory: `%s`\n' \
+              "${dockerhub_beta_inventory}"
             printf '\nmanual recovery: inspect the exact inventories and job logs; '
             printf 'do not assume cross-system atomic rollback.\n'
           } >>"${GITHUB_STEP_SUMMARY}"

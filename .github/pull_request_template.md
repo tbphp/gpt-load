@@ -12,5 +12,8 @@ Closes #
 
 
 ### 自查清单 / Checklist
-- [ ] 我已在本地测试过我的变更。 / I have tested my changes locally.
-- [ ] 我已更新了必要的文档。 / I have updated the necessary documentation.
+- [ ] 我已运行 `make check`，或在说明中写明无法运行的原因和未验证范围。 / I ran `make check`, or documented why it could not run and what remains unverified.
+- [ ] 本 PR 范围聚焦，未包含无关改动。 / This PR is focused and contains no unrelated changes.
+- [ ] 我已更新必要的公开文档或发布说明。 / I updated any required public documentation or release notes.
+- [ ] 我已确认提交、日志和测试数据不包含敏感信息。 / I confirmed that commits, logs, and fixtures contain no sensitive data.
+- [ ] 如适用，我已说明兼容性或数据迁移影响。 / Where applicable, I documented compatibility or data-migration impact.
