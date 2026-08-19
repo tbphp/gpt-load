@@ -289,6 +289,9 @@ func (observer *streamEventObserver) observeError(payload []byte, summary string
 func (observer *streamEventObserver) observeUsageEvent(
 	event dialect.StreamEvent,
 ) {
+	if bytes.Equal(bytes.TrimSpace(event.Payload), []byte("[DONE]")) {
+		return
+	}
 	if observer != nil && observer.usage != nil {
 		observer.usage.observeEvent(event)
 	}

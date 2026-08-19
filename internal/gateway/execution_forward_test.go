@@ -233,6 +233,50 @@ func TestExecutionForwarderCommitsSuccessfulStreamOnlyOnFirstData(t *testing.T) 
 	}
 }
 
+func TestExecutionForwarderIgnoresOpenAIDoneForUsageCapture(t *testing.T) {
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		for _, event := range []execution.StreamEvent{
+			{
+				Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+				Header: http.Header{"Content-Type": {"text/event-stream"}},
+			},
+			{
+				Sequence: 2, Kind: execution.StreamEventData,
+				Data: []byte("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":6}}\n\n"),
+			},
+			{
+				Sequence: 3, Kind: execution.StreamEventData,
+				Data: []byte("data: [DONE]\n\n"),
+			},
+		} {
+			if err := sink(event); err != nil {
+				t.Fatalf("stream sink: %v", err)
+			}
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}
+	}}
+	forwarder := NewExecutionForwarder(executor)
+	input := executionForwardInput()
+	input.ObserveUsage = true
+
+	result := forwarder.ForwardStream(context.Background(), input, httptest.NewRecorder())
+	if result.Err != nil || result.Usage.State != usage.StateComplete ||
+		result.Usage.Tokens != (usage.Tokens{UncachedInput: 100, Output: 6}) ||
+		result.Usage.Diagnostics.Has(usage.DiagnosticInvalidPayload) {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	if failures := forwarder.usageCapture.failureTotal.Load(); failures != 0 {
+		t.Fatalf("usage capture failures = %d, want 0", failures)
+	}
+}
+
 func TestExecutionForwarderClassifiesOpenAIResponsesStreamLifecycle(t *testing.T) {
 	t.Parallel()
 
