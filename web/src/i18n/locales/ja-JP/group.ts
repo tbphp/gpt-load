@@ -25,6 +25,12 @@ export default {
         sortLabel: '並び順',
         reset: '条件をリセット',
       },
+      connectionType: {
+        label: '接続方式',
+        all: 'すべての接続方式',
+        apiKey: 'API キー',
+        subscription: 'サブスクリプションアカウント',
+      },
       sort: {
         status: 'ステータス優先',
         name: '名前 A–Z',

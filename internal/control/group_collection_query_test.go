@@ -113,6 +113,26 @@ func TestGroupCollectionQueryMatchesUnicodeSimpleFoldAndSortsWithIt(t *testing.T
 	}
 }
 
+func TestGroupCollectionQueryFiltersByConnectionType(t *testing.T) {
+	subscription := models.ConnectionTypeSubscription
+	records := []groupCollectionRecord{
+		groupCollectionQueryRecord(1, "API key", GroupCollectionStatusAvailable, "https://api-key.example", nil, 1, 100),
+		groupCollectionQueryRecord(2, "Subscription", GroupCollectionStatusAvailable, "https://subscription.example", nil, 1, 200),
+		groupCollectionQueryRecord(3, "Another API key", GroupCollectionStatusUnavailable, "https://another-api-key.example", nil, 1, 300),
+	}
+	records[1].ConnectionType = subscription
+
+	result := queryGroupCollectionRecords(1_700, records, GroupCollectionQuery{
+		ConnectionType: &subscription, Sort: GroupCollectionSortName, Page: 1, PageSize: 20,
+	})
+	if got, want := groupCollectionItemIDs(result.Items), []uint{2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("connection type filter item IDs = %#v, want %#v", got, want)
+	}
+	if got, want := result.Pagination.TotalItems, int64(1); got != want {
+		t.Fatalf("connection type filter total items = %d, want %d", got, want)
+	}
+}
+
 func TestGroupCollectionQueryCombinesFiltersAndSummarizesCompleteCollection(t *testing.T) {
 	available := GroupCollectionStatusAvailable
 	records := []groupCollectionRecord{
@@ -316,7 +336,8 @@ func groupCollectionQueryRecord(
 	return groupCollectionRecord{
 		GroupCollectionItem: GroupCollectionItem{
 			ID: id, Name: name, Status: status, ChannelID: channelID,
-			Params: params, ModelCount: 7,
+			ConnectionType: models.ConnectionTypeAPIKey,
+			Params:         params, ModelCount: 7,
 			CredentialCounts: GroupCollectionCredentialCounts{Total: keys},
 		},
 		CreatedAtMS: createdAtMS,

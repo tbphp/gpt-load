@@ -25,6 +25,12 @@ export default {
         sortLabel: '排序',
         reset: '重置条件',
       },
+      connectionType: {
+        label: '渠道类型',
+        all: '全部渠道类型',
+        apiKey: 'API 密钥',
+        subscription: '订阅账号',
+      },
       sort: {
         status: '状态优先',
         name: '名称 A–Z',

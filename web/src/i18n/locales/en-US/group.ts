@@ -25,6 +25,12 @@ export default {
         sortLabel: 'Sort',
         reset: 'Reset filters',
       },
+      connectionType: {
+        label: 'Connection type',
+        all: 'All connection types',
+        apiKey: 'API key',
+        subscription: 'Subscription account',
+      },
       sort: {
         status: 'Status first',
         name: 'Name A–Z',

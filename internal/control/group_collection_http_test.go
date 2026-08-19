@@ -20,6 +20,7 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 	available := GroupCollectionStatusAvailable
 	unavailable := GroupCollectionStatusUnavailable
 	disabled := GroupCollectionStatusDisabled
+	subscription := models.ConnectionTypeSubscription
 	q200 := strings.Repeat("猫", 200)
 
 	tests := []struct {
@@ -77,6 +78,13 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 			},
 		},
 		{
+			name:     "connection type subscription",
+			rawQuery: "connection_type=subscription",
+			want: GroupCollectionQuery{
+				ConnectionType: &subscription, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+			},
+		},
+		{
 			name:     "sort status",
 			rawQuery: "sort=status",
 			want: GroupCollectionQuery{
@@ -127,9 +135,9 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 		},
 		{
 			name:     "all fields combine",
-			rawQuery: "q=+alpha+&status=available&sort=created&page=2&page_size=100",
+			rawQuery: "q=+alpha+&status=available&connection_type=subscription&sort=created&page=2&page_size=100",
 			want: GroupCollectionQuery{
-				Query: "alpha", Status: &available,
+				Query: "alpha", Status: &available, ConnectionType: &subscription,
 				Sort: GroupCollectionSortCreated, Page: 2, PageSize: 100,
 			},
 		},
@@ -157,6 +165,7 @@ func TestParseGroupCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 		{name: "unknown key", rawQuery: "unknown=1"},
 		{name: "q repeated", rawQuery: "q=one&q=two"},
 		{name: "status repeated", rawQuery: "status=available&status=disabled"},
+		{name: "connection type repeated", rawQuery: "connection_type=api_key&connection_type=subscription"},
 		{name: "protocol repeated", rawQuery: "protocol=anthropic&protocol=gemini"},
 		{name: "sort repeated", rawQuery: "sort=name&sort=keys"},
 		{name: "page repeated", rawQuery: "page=1&page=2"},
@@ -165,6 +174,8 @@ func TestParseGroupCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 		{name: "status empty", rawQuery: "status="},
 		{name: "status all", rawQuery: "status=all"},
 		{name: "status unknown", rawQuery: "status=healthy"},
+		{name: "connection type empty", rawQuery: "connection_type="},
+		{name: "connection type unknown", rawQuery: "connection_type=oauth"},
 		{name: "protocol empty", rawQuery: "protocol="},
 		{name: "protocol unknown", rawQuery: "protocol=openai"},
 		{name: "sort empty", rawQuery: "sort="},
@@ -222,6 +233,10 @@ func assertGroupCollectionQueryEqual(
 	if (got.Status == nil) != (want.Status == nil) ||
 		got.Status != nil && *got.Status != *want.Status {
 		t.Fatalf("query status = %#v, want %#v", got.Status, want.Status)
+	}
+	if (got.ConnectionType == nil) != (want.ConnectionType == nil) ||
+		got.ConnectionType != nil && *got.ConnectionType != *want.ConnectionType {
+		t.Fatalf("query connection type = %#v, want %#v", got.ConnectionType, want.ConnectionType)
 	}
 }
 

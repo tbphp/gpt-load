@@ -557,6 +557,9 @@ export async function listGroupCollection(
   params.set('page_size', String(normalized.page_size))
   if (normalized.q !== undefined) params.set('q', normalized.q)
   if (normalized.status !== undefined) params.set('status', normalized.status)
+  if (normalized.connection_type !== undefined) {
+    params.set('connection_type', normalized.connection_type)
+  }
   const result = projectGroupCollection(
     await client.request(`/api/groups?${params.toString()}`, { method: 'GET', signal }),
   )
