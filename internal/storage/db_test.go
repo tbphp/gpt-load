@@ -615,17 +615,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	wantMigrationIDs := []string{
-		"0001_initial",
-		"0002_subscription_connections",
-		"0003_codex_channel",
-		"0004_subscription_runtime",
-		"0005_credential_attempt_stats",
-		"0006_upstream_protocol",
-		"0007_model_price_mode_schedules",
-		"0008_observation_auth_refresh",
-		"0009_device_oauth",
-	}
+	wantMigrationIDs := []string{"0001_initial"}
 	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
 		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)
 	}
@@ -676,6 +666,43 @@ func TestAutoMigrateRejectsRetiredV2MigrationLedgers(t *testing.T) {
 				t.Fatal("AutoMigrate() modified a retired v2 database")
 			}
 		})
+	}
+}
+
+func TestAutoMigrateRejectsAppliedMigrationWithIncompleteSchema(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	if err := db.Exec(`CREATE TABLE schema_migrations (
+		id varchar(255) PRIMARY KEY NOT NULL
+	)`).Error; err != nil {
+		t.Fatalf("create migration ledger: %v", err)
+	}
+	if err := db.Exec("INSERT INTO schema_migrations(id) VALUES ('0001_initial')").Error; err != nil {
+		t.Fatalf("seed migration ledger: %v", err)
+	}
+	if err := db.Exec(`CREATE TABLE groups (
+		id integer PRIMARY KEY,
+		name varchar(255) NOT NULL,
+		channel_id varchar(64) NOT NULL
+	)`).Error; err != nil {
+		t.Fatalf("create incomplete pre-Beta schema: %v", err)
+	}
+
+	err = storage.AutoMigrate(db)
+	if err == nil || !strings.Contains(err.Error(), "validate applied migration 0001_initial") {
+		t.Fatalf("AutoMigrate() error = %v, want incomplete applied migration rejection", err)
 	}
 }
 

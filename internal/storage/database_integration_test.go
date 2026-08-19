@@ -96,10 +96,11 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		}
 	}
 	for table, columns := range map[string][]string{
-		"groups":               {"connection_type"},
-		"credentials":          {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
-		"request_log_attempts": {"upstream_protocol"},
-		"model_prices":         {"mode_price_schedules"},
+		"groups":                  {"connection_type"},
+		"credentials":             {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
+		"request_log_attempts":    {"upstream_protocol"},
+		"model_prices":            {"mode_price_schedules"},
+		"credential_observations": {"last_auth_refresh_secret_version"},
 	} {
 		for _, column := range columns {
 			if !db.Migrator().HasColumn(table, column) {
@@ -108,7 +109,14 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		}
 	}
 	if db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
-		t.Fatal("request_log_attempts.upstream_api remains after the complete migration chain")
+		t.Fatal("request_log_attempts.upstream_api remains in the Beta.1 initial schema")
+	}
+	var migrationIDs []string
+	if err := db.Table("schema_migrations").Order("id").Pluck("id", &migrationIDs).Error; err != nil {
+		t.Fatalf("read migration ledger: %v", err)
+	}
+	if len(migrationIDs) != 1 || migrationIDs[0] != "0001_initial" {
+		t.Fatalf("migration ledger = %v, want [0001_initial]", migrationIDs)
 	}
 
 	suffix := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
@@ -129,7 +137,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	}
 	stage := models.CredentialStage{
 		ID: fmt.Sprintf("stage-%d", time.Now().UnixNano()), ChannelID: "codex",
-		ConnectionType: models.ConnectionTypeSubscription, AuthorizationMethod: "oauth_file",
+		ConnectionType: models.ConnectionTypeSubscription, AuthorizationMethod: "device_oauth",
 		Status: models.CredentialStageReady, EncryptedPayload: "encrypted-stage-data",
 		PayloadSchemaVersion: 1, SafeSummaryJSON: models.JSON(`{"email_mask":"a***z@example.com"}`),
 		IdentityFingerprint: "integration-stage-identity", ExpiresAtMS: time.Now().Add(time.Minute).UnixMilli(),
