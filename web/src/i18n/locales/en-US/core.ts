@@ -161,6 +161,8 @@ export default {
     useSystemTheme: 'Use system theme',
     useLightTheme: 'Use light theme',
     useDarkTheme: 'Use dark theme',
+    projectCommunity: 'Project & community',
+    starInvitation: 'If GPT-Load is useful to you, a GitHub star is appreciated.',
     signOut: 'Sign out',
     placeholderDescription: 'This management feature will arrive in a later task in this stage.',
     backHome: 'Back to Home',
@@ -184,6 +186,9 @@ export default {
       factModels: 'models',
       updated: 'Updated',
       version: 'Version',
+      updateAvailableLabel: 'Version {version} is available; open the release notes',
+      updateAvailableTooltip:
+        'Version {latest} is available\nCurrent version {current}\nPublished {published}\nOpen the release notes',
       uptime: 'Uptime',
       tokens: '{count} tokens',
       welcomeTitle: 'Welcome to GPT-Load',

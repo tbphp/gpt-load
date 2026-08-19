@@ -155,7 +155,10 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
         />
       </section>
 
-      <HomeWelcome v-else-if="isEmpty && !isAccessKey" />
+      <HomeWelcome
+        v-else-if="isEmpty && !isAccessKey && baseQuery.data.value"
+        :base="baseQuery.data.value"
+      />
 
       <template v-else-if="baseQuery.data.value">
         <QueryFeedback

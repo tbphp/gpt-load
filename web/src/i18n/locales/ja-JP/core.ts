@@ -160,6 +160,8 @@ export default {
     useSystemTheme: 'システムテーマを使用',
     useLightTheme: 'ライトテーマを使用',
     useDarkTheme: 'ダークテーマを使用',
+    projectCommunity: 'プロジェクトとコミュニティ',
+    starInvitation: 'GPT-Load が役に立ったら、GitHub で Star をお願いします。',
     signOut: 'ログアウト',
     placeholderDescription: 'この管理機能は、このステージの後続タスクで実装されます。',
     backHome: 'ホームへ戻る',
@@ -183,6 +185,9 @@ export default {
       factModels: '個のモデル',
       updated: '更新',
       version: 'バージョン',
+      updateAvailableLabel: '新しいバージョン {version} があります。リリースノートを開く',
+      updateAvailableTooltip:
+        '新しいバージョン {latest} があります\n現在のバージョン {current}\n公開日時 {published}\nリリースノートを開く',
       uptime: '稼働時間',
       tokens: '{count} tokens',
       welcomeTitle: 'GPT-Load へようこそ',

@@ -179,6 +179,38 @@ type controlledOperationRecovery struct {
 	returned chan struct{}
 }
 
+type controlledReleaseCheckRuntime struct {
+	started  chan struct{}
+	returned chan struct{}
+}
+
+func (runtime *controlledReleaseCheckRuntime) Run(ctx context.Context) {
+	close(runtime.started)
+	<-ctx.Done()
+	close(runtime.returned)
+}
+
+func TestRuntimeRunsReleaseCheckerUntilCancellation(t *testing.T) {
+	releaseRuntime := &controlledReleaseCheckRuntime{
+		started:  make(chan struct{}),
+		returned: make(chan struct{}),
+	}
+	runtime, _, _, created := newRuntimeHarness(
+		newFakeAutoWeightRegistry(1),
+		health.NewStatsStore(),
+		newFakeValidationSweep(false),
+		time.Now,
+	)
+	runtime.releaseCheck = releaseRuntime
+
+	cancel, done := startRuntime(t, runtime)
+	awaitTickers(t, created)
+	awaitSignal(t, releaseRuntime.started)
+	cancel()
+	awaitSignal(t, releaseRuntime.returned)
+	awaitSignal(t, done)
+}
+
 type controlledStageCleaner struct {
 	calls chan time.Time
 }

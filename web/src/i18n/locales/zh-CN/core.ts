@@ -154,6 +154,8 @@ export default {
     useSystemTheme: '使用系统主题',
     useLightTheme: '使用浅色主题',
     useDarkTheme: '使用深色主题',
+    projectCommunity: '项目与社区',
+    starInvitation: '如果 GPT-Load 对你有帮助，欢迎在 GitHub 点个 Star。',
     signOut: '退出登录',
     placeholderDescription: '该管理功能将在当前实施阶段的后续任务中完成。',
     backHome: '返回首页',
@@ -177,6 +179,9 @@ export default {
       factModels: '个模型',
       updated: '更新',
       version: '版本',
+      updateAvailableLabel: '发现新版本 {version}，点击查看发布说明',
+      updateAvailableTooltip:
+        '发现新版本 {latest}\n当前版本 {current}\n发布于 {published}\n点击查看发布说明',
       uptime: '已运行',
       tokens: '{count} tokens',
       welcomeTitle: '欢迎使用 GPT-Load',

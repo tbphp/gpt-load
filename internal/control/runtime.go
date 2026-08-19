@@ -12,6 +12,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/releasecheck"
 	"gpt-load/internal/state"
 )
 
@@ -40,6 +41,10 @@ type credentialObservationRuntime interface {
 }
 
 type catalogSyncRuntime interface {
+	Run(context.Context)
+}
+
+type releaseCheckRuntime interface {
 	Run(context.Context)
 }
 
@@ -80,6 +85,7 @@ type Runtime struct {
 	operationRecovery      operationRecoveryRuntime
 	credentialObservations credentialObservationRuntime
 	catalogSync            catalogSyncRuntime
+	releaseCheck           releaseCheckRuntime
 	oauthCallback          *OAuthCallbackManager
 	manager                *state.Manager
 	autoWeightInterval     time.Duration
@@ -100,6 +106,7 @@ func NewRuntime(
 	requestLogCleaner RequestLogCleaner,
 	operationRecovery *Service,
 	catalogSync *CatalogSyncCoordinator,
+	releaseChecker *releasecheck.Checker,
 ) *Runtime {
 	runtime := &Runtime{
 		registry:               registry,
@@ -110,6 +117,7 @@ func NewRuntime(
 		operationRecovery:      operationRecovery,
 		credentialObservations: operationRecovery,
 		catalogSync:            catalogSync,
+		releaseCheck:           releaseChecker,
 		manager:                manager,
 		autoWeightInterval:     autoWeightInterval,
 		validationInterval:     defaultValidationInterval,
@@ -181,6 +189,13 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		go func() {
 			defer wait.Done()
 			runtime.catalogSync.Run(ctx)
+		}()
+	}
+	if runtime.releaseCheck != nil {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			runtime.releaseCheck.Run(ctx)
 		}()
 	}
 	if runtime.oauthCallback != nil {

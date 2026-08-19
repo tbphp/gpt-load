@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { Languages, LogOut, Menu, Monitor, Moon, Sun } from '@lucide/vue'
+import {
+  Code2,
+  ExternalLink,
+  Languages,
+  LogOut,
+  Menu,
+  MessageCircle,
+  Monitor,
+  Moon,
+  Star,
+  Sun,
+} from '@lucide/vue'
 import { useId, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -33,6 +44,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const open = ref(false)
 const identity = useId()
+const githubURL = 'https://github.com/tbphp/gpt-load'
+const telegramURL = 'https://t.me/+GHpy5SwEllg3MTUx'
 const localeOptions: Array<{ value: AppLocale; labelKey: string; compactLabelKey: string }> = [
   { value: 'zh-CN', labelKey: 'shell.localeZh', compactLabelKey: 'shell.localeZhShort' },
   { value: 'en-US', labelKey: 'shell.localeEn', compactLabelKey: 'shell.localeEnShort' },
@@ -124,6 +137,38 @@ function close(): void {
             <span>{{ t(option.compactLabelKey) }}</span>
           </label>
         </div>
+      </div>
+      <div class="preferences-panel__divider"></div>
+      <div class="preferences-panel__group">
+        <span class="preferences-panel__label">{{ t('shell.projectCommunity') }}</span>
+        <div class="preferences-panel__project-links">
+          <a
+            class="preferences-panel__action"
+            :href="githubURL"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click="close"
+          >
+            <Code2 :size="15" aria-hidden="true" />
+            <span>GitHub</span>
+            <ExternalLink class="preferences-panel__external" :size="13" aria-hidden="true" />
+          </a>
+          <a
+            class="preferences-panel__action"
+            :href="telegramURL"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click="close"
+          >
+            <MessageCircle :size="15" aria-hidden="true" />
+            <span>Telegram</span>
+            <ExternalLink class="preferences-panel__external" :size="13" aria-hidden="true" />
+          </a>
+        </div>
+        <p class="preferences-panel__star">
+          <Star :size="13" aria-hidden="true" />
+          <span>{{ t('shell.starInvitation') }}</span>
+        </p>
       </div>
       <div v-if="showSignOut" class="preferences-panel__divider"></div>
       <button v-if="showSignOut" class="preferences-panel__action" type="button" @click="signOut">
@@ -274,6 +319,32 @@ function close(): void {
 
 .preferences-panel__action:hover {
   background: var(--color-surface-sunken);
+}
+
+.preferences-panel__project-links {
+  display: grid;
+  gap: 2px;
+}
+
+.preferences-panel__external {
+  margin-left: auto;
+  color: var(--color-text-faint);
+}
+
+.preferences-panel__star {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  color: var(--color-text-faint);
+  padding: 1px 6px 0;
+  font-size: var(--text-label-xs);
+  line-height: var(--line-normal);
+}
+
+.preferences-panel__star svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .app-popover__content.app-popover__content--preferences {

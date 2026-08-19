@@ -28,6 +28,11 @@ export interface HomeBaseDto {
   server_now_ms: number
   started_at_ms: number
   version: string
+  update: {
+    version: string
+    release_url: string
+    published_at_ms: number
+  } | null
   inventory: {
     group_count: number
     credential_count: number
@@ -113,6 +118,7 @@ const homeBaseFields = [
   'server_now_ms',
   'started_at_ms',
   'version',
+  'update',
   'inventory',
   'access_keys',
   'current_access_key',
@@ -124,6 +130,7 @@ const inventoryFields = [
   'model_count',
 ] as const
 const accessKeyFields = ['id', 'name', 'masked_key', 'protocols'] as const
+const updateFields = ['version', 'release_url', 'published_at_ms'] as const
 const statisticsFields = [
   'range',
   'granularity',
@@ -206,6 +213,37 @@ function projectHomeAccessKey(value: unknown): HomeBaseDto['access_keys'][number
   }
 }
 
+function projectHomeUpdate(value: unknown): HomeBaseDto['update'] {
+  if (value === null) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, updateFields)
+  const version = projectNonBlankTrimmedString(record.version)
+  const releaseURL = projectNonBlankTrimmedString(record.release_url)
+  let parsed: URL
+  try {
+    parsed = new URL(releaseURL)
+  } catch {
+    return invalidResponse()
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.hostname !== 'github.com' ||
+    parsed.port !== '' ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    parsed.pathname !== `/tbphp/gpt-load/releases/tag/${version}`
+  ) {
+    invalidResponse()
+  }
+  return {
+    version,
+    release_url: releaseURL,
+    published_at_ms: projectEpochMilliseconds(record.published_at_ms),
+  }
+}
+
 export function projectHomeBase(value: unknown): HomeBaseDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, homeBaseFields)
@@ -222,6 +260,7 @@ export function projectHomeBase(value: unknown): HomeBaseDto {
     server_now_ms: serverNowMS,
     started_at_ms: startedAtMS,
     version: projectNonBlankTrimmedString(record.version),
+    update: projectHomeUpdate(record.update),
     inventory: projectHomeInventory(record.inventory),
     access_keys: accessKeys,
     current_access_key:
@@ -555,6 +594,8 @@ export function homeBaseQueryOptions(client: ApiClient) {
     queryFn: ({ signal }) => getHomeBase(client, signal),
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnMount: 'always',
+    refetchInterval: 5 * 60 * 1_000,
+    refetchIntervalInBackground: false,
   })
 }
 

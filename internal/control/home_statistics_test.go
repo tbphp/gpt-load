@@ -56,6 +56,7 @@ func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
 			ServerNowMS      int64                    `json:"server_now_ms"`
 			StartedAtMS      int64                    `json:"started_at_ms"`
 			Version          string                   `json:"version"`
+			Update           *homeUpdateResponse      `json:"update"`
 			Inventory        HomeInventory            `json:"inventory"`
 			AccessKeys       []HomeAccessKey          `json:"access_keys"`
 			CurrentAccessKey *AccessKeyCollectionItem `json:"current_access_key"`
@@ -68,6 +69,7 @@ func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
 		envelope.Data.ServerNowMS != now.UnixMilli() ||
 		envelope.Data.StartedAtMS != startedAt.UnixMilli() ||
 		envelope.Data.Version != version.Version ||
+		envelope.Data.Update != nil ||
 		envelope.Data.Inventory != (HomeInventory{}) ||
 		envelope.Data.AccessKeys == nil ||
 		len(envelope.Data.AccessKeys) != 0 ||
@@ -81,6 +83,7 @@ func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
 			"server_now_ms",
 			"started_at_ms",
 			"version",
+			"update",
 			"inventory",
 			"access_keys",
 			"current_access_key",

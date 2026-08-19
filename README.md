@@ -262,6 +262,8 @@ Channel icons identify their respective upstream providers. All trademarks belon
 
 For problems or feature ideas, open a [GitHub Issue](https://github.com/tbphp/gpt-load/issues). Report security vulnerabilities through the process in [SECURITY.md](SECURITY.md).
 
+For community chat and usage discussion, join the [Telegram group](https://t.me/+GHpy5SwEllg3MTUx).
+
 If GPT-Load is useful to you, a star is appreciated.
 
 ## Sponsors and support
