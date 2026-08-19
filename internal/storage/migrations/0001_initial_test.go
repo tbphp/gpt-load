@@ -234,21 +234,19 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialSchema(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateRejectsLegacySchemaInfoDatabase(t *testing.T) {
-	for _, version := range []uint{1, 2, 3, 4} {
-		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
-			db := openInitialTestDatabase(t)
-			if err := db.Exec("CREATE TABLE schema_info (version integer PRIMARY KEY)").Error; err != nil {
-				t.Fatal(err)
-			}
-			if err := db.Exec("INSERT INTO schema_info(version) VALUES (?)", version).Error; err != nil {
-				t.Fatal(err)
-			}
-			if err := storage.AutoMigrate(db); err == nil ||
-				!strings.Contains(err.Error(), "without schema_migrations") {
-				t.Fatalf("AutoMigrate() error = %v", err)
-			}
-		})
+func TestAutoMigrateAllowsUnrelatedSchemaInfoTable(t *testing.T) {
+	db := openInitialTestDatabase(t)
+	if err := db.Exec("CREATE TABLE schema_info (version integer PRIMARY KEY)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO schema_info(version) VALUES (1)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate() error = %v, want unrelated table to be ignored", err)
+	}
+	if !db.Migrator().HasTable("schema_info") {
+		t.Fatal("AutoMigrate() removed the unrelated schema_info table")
 	}
 }
 

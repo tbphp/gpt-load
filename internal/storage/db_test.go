@@ -220,8 +220,8 @@ func TestOpenWithSourceExternalRejectsMissingParentWithoutCreation(t *testing.T)
 	}
 }
 
-func TestOpenRejectsLegacyFileBeforeRuntimePragmas(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.db")
+func TestOpenAllowsUnversionedFileWithExternalTables(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "external-tables.db")
 	db, err := storage.Open(path)
 	if err != nil {
 		t.Fatalf("create database: %v", err)
@@ -243,13 +243,20 @@ func TestOpenRejectsLegacyFileBeforeRuntimePragmas(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := storage.Open(path); err == nil || !strings.Contains(err.Error(), "without schema_migrations") {
-		t.Fatalf("Open(legacy database) error = %v, want legacy database rejection", err)
+	reopened, err := storage.Open(path)
+	if err != nil {
+		t.Fatalf("Open(database with external table) error = %v, want success", err)
 	}
-	for _, suffix := range []string{"-wal", "-shm"} {
-		if _, err := os.Stat(path + suffix); !os.IsNotExist(err) {
-			t.Fatalf("legacy preflight created %s", path+suffix)
-		}
+	reopenedSQL, err := reopened.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopenedSQL.Close() })
+	if err := storage.AutoMigrate(reopened); err != nil {
+		t.Fatalf("AutoMigrate(database with external table) error = %v", err)
+	}
+	if !reopened.Migrator().HasTable("legacy_data") {
+		t.Fatal("AutoMigrate() removed the external table")
 	}
 }
 
@@ -706,7 +713,7 @@ func TestAutoMigrateRejectsAppliedMigrationWithIncompleteSchema(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateRejectsEmptyLedgerBesideExistingApplicationTables(t *testing.T) {
+func TestAutoMigrateAllowsEmptyLedgerBesideExistingExternalTables(t *testing.T) {
 	t.Parallel()
 
 	db, err := storage.Open(":memory:")
@@ -733,11 +740,14 @@ func TestAutoMigrateRejectsEmptyLedgerBesideExistingApplicationTables(t *testing
 	}
 
 	err = storage.AutoMigrate(db)
-	if err == nil || !strings.Contains(err.Error(), "empty migration ledger beside existing tables") {
-		t.Fatalf("AutoMigrate() error = %v, want existing table rejection", err)
+	if err != nil {
+		t.Fatalf("AutoMigrate() error = %v, want success with external table", err)
 	}
-	if db.Migrator().HasTable("groups") {
-		t.Fatal("AutoMigrate() modified a database containing pre-existing tables")
+	if !db.Migrator().HasTable("groups") {
+		t.Fatal("AutoMigrate() did not create the application schema")
+	}
+	if !db.Migrator().HasTable("legacy_data") {
+		t.Fatal("AutoMigrate() removed the external table")
 	}
 }
 
@@ -904,7 +914,7 @@ func TestAutoMigrateAllowsDuplicateChannelTargets(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateRejectsNonEmptyDatabaseWithoutMigrationLedger(t *testing.T) {
+func TestAutoMigrateAllowsUnversionedDatabaseWithExternalTables(t *testing.T) {
 	t.Parallel()
 
 	db, err := storage.Open(":memory:")
@@ -926,17 +936,44 @@ func TestAutoMigrateRejectsNonEmptyDatabaseWithoutMigrationLedger(t *testing.T) 
 	}
 
 	err = storage.AutoMigrate(db)
-	if err == nil {
-		t.Fatal("AutoMigrate() error = nil, want rejection for an unversioned non-empty database")
+	if err != nil {
+		t.Fatalf("AutoMigrate() error = %v, want success for an unversioned database with external tables", err)
 	}
-	if !strings.Contains(err.Error(), "non-empty database without schema_migrations") {
-		t.Fatalf("AutoMigrate() error = %q, want unversioned non-empty database error", err)
-	}
-	if db.Migrator().HasTable("groups") {
-		t.Fatal("AutoMigrate() created groups in an unversioned non-empty database")
+	if !db.Migrator().HasTable("groups") {
+		t.Fatal("AutoMigrate() did not create the application schema")
 	}
 	if !db.Migrator().HasTable("legacy_data") {
-		t.Fatal("AutoMigrate() removed the pre-existing legacy table")
+		t.Fatal("AutoMigrate() removed the external table")
+	}
+}
+
+func TestAutoMigrateRejectsFirstInitializationWithExistingGroups(t *testing.T) {
+	t.Parallel()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	if err := db.Exec("CREATE TABLE groups (id INTEGER PRIMARY KEY)").Error; err != nil {
+		t.Fatalf("create existing groups table: %v", err)
+	}
+
+	err = storage.AutoMigrate(db)
+	if err == nil || !strings.Contains(err.Error(), "groups table already exists") {
+		t.Fatalf("AutoMigrate() error = %v, want existing groups rejection", err)
+	}
+	if db.Migrator().HasTable("schema_migrations") {
+		t.Fatal("AutoMigrate() created the migration ledger after rejecting initial groups table")
 	}
 }
 

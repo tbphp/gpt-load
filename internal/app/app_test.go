@@ -525,16 +525,16 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	}
 }
 
-func TestAppStartRejectsDatabaseWithoutMigrationLedgerBeforeRuntimeLoad(t *testing.T) {
+func TestAppStartRejectsFirstInitializationWithExistingGroupsBeforeRuntimeLoad(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
 	for _, statement := range []string{
-		`CREATE TABLE legacy_data (id integer PRIMARY KEY)`,
+		`CREATE TABLE groups (id integer PRIMARY KEY)`,
 	} {
 		if err := db.Exec(statement).Error; err != nil {
-			t.Fatalf("create schema v1 fixture: %v", err)
+			t.Fatalf("create existing groups fixture: %v", err)
 		}
 	}
 	runtimeLoadCalled := false
@@ -553,8 +553,8 @@ func TestAppStartRejectsDatabaseWithoutMigrationLedgerBeforeRuntimeLoad(t *testi
 	cleanupApp(t, application)
 
 	err = application.Start()
-	if err == nil || !strings.Contains(err.Error(), "without schema_migrations") {
-		t.Fatalf("Start() error = %v, want legacy database rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "groups table already exists") {
+		t.Fatalf("Start() error = %v, want existing groups rejection", err)
 	}
 	if runtimeLoadCalled {
 		t.Fatal("runtime state loaded after legacy schema rejection")

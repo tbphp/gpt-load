@@ -422,28 +422,18 @@ func initialSchemaDefinitions(db *gorm.DB) ([]initialSchemaDefinition, error) {
 	return definitions, nil
 }
 
-// ValidateRecoverable0001 rejects an unsafe partial MySQL initialization.
+// ValidateRecoverable0001 rejects unsafe partial MySQL initialization while
+// ignoring tables owned by external applications or database extensions.
 func ValidateRecoverable0001(db *gorm.DB) error {
 	definitions, err := initialSchemaDefinitions(db)
 	if err != nil {
 		return err
 	}
-	byTable := make(map[string]initialSchemaDefinition, len(definitions))
 	for _, definition := range definitions {
-		byTable[strings.ToLower(definition.table)] = definition
-	}
-	tables, err := db.Migrator().GetTables()
-	if err != nil {
-		return fmt.Errorf("list interrupted baseline tables: %w", err)
-	}
-	for _, table := range tables {
-		if strings.EqualFold(table, "schema_migrations") || isSystemTable(db, table) {
+		if !db.Migrator().HasTable(definition.model) {
 			continue
 		}
-		definition, known := byTable[strings.ToLower(table)]
-		if !known {
-			return fmt.Errorf("unexpected table %q", table)
-		}
+		table := definition.table
 		var count int64
 		if err := db.Table(table).Count(&count).Error; err != nil {
 			return fmt.Errorf("count interrupted baseline table %q: %w", table, err)
@@ -462,12 +452,6 @@ func ValidateRecoverable0001(db *gorm.DB) error {
 		}
 	}
 	return nil
-}
-
-func isSystemTable(db *gorm.DB, table string) bool {
-	return db != nil && db.Dialector != nil &&
-		strings.EqualFold(db.Dialector.Name(), "sqlite") &&
-		strings.HasPrefix(strings.ToLower(table), "sqlite_")
 }
 
 // Validate0001 verifies the tables, columns, indexes, and constraints owned by 0001.

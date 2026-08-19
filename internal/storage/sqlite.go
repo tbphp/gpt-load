@@ -79,8 +79,9 @@ func openSQLite(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
 	return db, nil
 }
 
-// rejectExistingDatabaseWithoutMigrationLedger inspects an existing file with
-// SQLite read-only mode before runtime pragmas can change journal state.
+// rejectExistingDatabaseWithoutMigrationLedger inspects the first-install
+// sentinel with SQLite read-only mode before runtime pragmas can change
+// journal state. External tables are intentionally not enumerated.
 func rejectExistingDatabaseWithoutMigrationLedger(target sqliteTarget) error {
 	if !target.fileBacked {
 		return nil
@@ -115,19 +116,14 @@ func rejectExistingDatabaseWithoutMigrationLedger(target sqliteTarget) error {
 	}
 	defer func() { _ = sqlDB.Close() }()
 
-	tables, err := db.Migrator().GetTables()
-	if err != nil {
-		return fmt.Errorf("inspect existing SQLite tables before migration: %w", err)
+	if db.Migrator().HasTable(migrationLedgerTable) {
+		return nil
 	}
-	for _, table := range tables {
-		if table == migrationLedgerTable {
-			return nil
-		}
-	}
-	for _, table := range tables {
-		if !strings.HasPrefix(table, "sqlite_") {
-			return fmt.Errorf("open SQLite database: non-empty database without schema_migrations")
-		}
+	if db.Migrator().HasTable(initialSchemaSentinelTable) {
+		return fmt.Errorf(
+			"open SQLite database: %s table already exists",
+			initialSchemaSentinelTable,
+		)
 	}
 	return nil
 }

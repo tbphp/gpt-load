@@ -14,7 +14,10 @@ import (
 	migrationfiles "gpt-load/internal/storage/migrations"
 )
 
-const migrationLedgerTable = "schema_migrations"
+const (
+	migrationLedgerTable       = "schema_migrations"
+	initialSchemaSentinelTable = "groups"
+)
 
 var migrationIDPattern = regexp.MustCompile(`^(\d{4})_[a-z0-9]+(?:_[a-z0-9]+)*$`)
 
@@ -111,16 +114,13 @@ func validateMigrationRegistry(entries []migration) error {
 }
 
 func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransactions bool) error {
-
-	if !db.Migrator().HasTable(migrationLedgerTable) {
-		tables, err := db.Migrator().GetTables()
-		if err != nil {
-			return fmt.Errorf("list database tables: %w", err)
-		}
-		for _, table := range tables {
-			if !isDatabaseSystemTable(db, table) {
-				return fmt.Errorf("initialize database schema: non-empty database without schema_migrations")
-			}
+	hadMigrationLedger := db.Migrator().HasTable(migrationLedgerTable)
+	if !hadMigrationLedger {
+		if db.Migrator().HasTable(initialSchemaSentinelTable) {
+			return fmt.Errorf(
+				"initialize database schema: %s table already exists",
+				initialSchemaSentinelTable,
+			)
 		}
 		if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 			return fmt.Errorf("create schema_migrations: %w", err)
@@ -131,30 +131,16 @@ func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransac
 	if err := db.Table(migrationLedgerTable).Order("id ASC").Pluck("id", &applied).Error; err != nil {
 		return fmt.Errorf("read schema_migrations: %w", err)
 	}
-	resumeMarker := false
 	if len(applied) > 0 {
 		lastIndex := len(applied) - 1
 		if lastIndex < len(entries) &&
 			applied[lastIndex] == migrationResumeMarker(entries[lastIndex].ID) {
-			resumeMarker = true
 			applied = applied[:lastIndex]
 		}
 	}
 	for index, id := range applied {
 		if index >= len(entries) || entries[index].ID != id {
 			return fmt.Errorf("schema_migrations contains unknown or non-contiguous migration %q", id)
-		}
-	}
-	if len(applied) == 0 && !resumeMarker {
-		tables, err := db.Migrator().GetTables()
-		if err != nil {
-			return fmt.Errorf("list database tables before baseline migration: %w", err)
-		}
-		for _, table := range tables {
-			if strings.EqualFold(table, migrationLedgerTable) || isDatabaseSystemTable(db, table) {
-				continue
-			}
-			return fmt.Errorf("initialize database schema: empty migration ledger beside existing tables")
 		}
 	}
 	for index, id := range applied {
@@ -201,16 +187,6 @@ func applyMigration(db *gorm.DB, entry migration, useMigrationTransactions bool)
 		return err
 	}
 	return nil
-}
-
-func isDatabaseSystemTable(db *gorm.DB, table string) bool {
-	if db == nil || db.Dialector == nil {
-		return false
-	}
-	if strings.EqualFold(db.Dialector.Name(), "sqlite") {
-		return strings.HasPrefix(strings.ToLower(table), "sqlite_")
-	}
-	return false
 }
 
 // AutoMigrate applies every pending migration before the application starts.

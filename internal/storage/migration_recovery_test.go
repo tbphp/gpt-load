@@ -45,7 +45,7 @@ func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
 		setup func(*testing.T, internalMigrationDB)
 	}{
 		{
-			name: "unknown table",
+			name: "external table",
 			setup: func(t *testing.T, db internalMigrationDB) {
 				t.Helper()
 				if err := db.Exec("CREATE TABLE foreign_data (id integer PRIMARY KEY)").Error; err != nil {
@@ -90,6 +90,15 @@ func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
 			test.setup(t, internalMigrationDB{db})
 
 			err := applyMySQLMigration(db, migrations[0])
+			if test.name == "external table" {
+				if err != nil {
+					t.Fatalf("applyMySQLMigration() error = %v, want external table to be ignored", err)
+				}
+				if !db.Migrator().HasTable("foreign_data") {
+					t.Fatal("migration removed the external table")
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), "unsafe interrupted migration") {
 				t.Fatalf("applyMySQLMigration() error = %v, want unsafe interrupted migration", err)
 			}
