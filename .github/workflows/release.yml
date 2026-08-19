@@ -767,6 +767,10 @@ jobs:
     needs:
       - validate-tag
       - publication-preflight
+    # GitHub Actions 的默认 job 条件会沿整条依赖链传播 skip：只要 race-tests 等
+    # 间接祖先因 CI 结论复用而 skipped，publish-images 也会被默认条件连带跳过，
+    # 即便这里列出的直接 needs 全部成功。显式条件只看直接 needs，绕开这个传播。
+    if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -894,6 +898,8 @@ jobs:
       - validate-tag
       - publication-preflight
       - publish-images
+    # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
+    if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-images.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -984,6 +990,8 @@ jobs:
     needs:
       - validate-tag
       - publish-images
+    # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
+    if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publish-images.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1018,6 +1026,8 @@ jobs:
       - publication-preflight
       - publish-github
       - publish-images
+    # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
+    if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-github.result == 'success' && needs.publish-images.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

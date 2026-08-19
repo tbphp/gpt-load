@@ -2196,6 +2196,87 @@ func TestReleaseWorkflowSkipsOnlyCIProvenGatesAndStillFailsClosed(t *testing.T) 
 	}
 }
 
+func TestReleaseWorkflowJobsDownstreamOfSkippableGatesOverrideDefaultCondition(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+
+	jobNamePattern := regexp.MustCompile(`(?m)^  ([A-Za-z][\w-]*):\n`)
+	var jobNames []string
+	for _, match := range jobNamePattern.FindAllStringSubmatch(content, -1) {
+		jobNames = append(jobNames, match[1])
+	}
+	if len(jobNames) < 10 {
+		t.Fatalf("found only %d jobs, job name pattern likely broken", len(jobNames))
+	}
+
+	singleNeeds := regexp.MustCompile(`(?m)^    needs: (\S+)$`)
+	listNeedsItem := regexp.MustCompile(`(?m)^      - (\S+)$`)
+
+	needsOf := make(map[string][]string, len(jobNames))
+	for _, name := range jobNames {
+		job := workflowJobBlock(t, content, name)
+		if match := singleNeeds.FindStringSubmatch(job); match != nil {
+			needsOf[name] = []string{match[1]}
+			continue
+		}
+		needsHeader := strings.Index(job, "\n    needs:\n")
+		if needsHeader < 0 {
+			continue
+		}
+		var needs []string
+		for _, line := range strings.Split(job[needsHeader:], "\n") {
+			if match := listNeedsItem.FindStringSubmatch(line); match != nil {
+				needs = append(needs, match[1])
+				continue
+			}
+			if line != "" && !strings.HasPrefix(line, "      - ") && strings.TrimSpace(line) != "needs:" {
+				break
+			}
+		}
+		needsOf[name] = needs
+	}
+
+	// GitHub Actions 的默认 job 条件会沿整条依赖链传播 skip：只要某个间接祖先
+	// 因 CI 结论复用等机制变成 skipped，默认条件就会让当前 job 也被跳过，即使
+	// 它自己列出的直接 needs 全部成功（beta.8 的真实回归：publication-preflight
+	// 成功了，但下游 publish-images/publish-github/... 仍被跳过）。凡是这条链上
+	// 存在会被跳过的祖先的 job，都必须自己写显式 if，绕开默认条件的传播。
+	skippable := map[string]bool{"race-tests": true, "race-cpa": true, "database-contract": true}
+	var ancestors func(name string, seen map[string]bool)
+	ancestors = func(name string, seen map[string]bool) {
+		for _, dep := range needsOf[name] {
+			if !seen[dep] {
+				seen[dep] = true
+				ancestors(dep, seen)
+			}
+		}
+	}
+
+	jobIfPattern := regexp.MustCompile(`(?m)^    if:`)
+	for _, name := range jobNames {
+		seen := map[string]bool{}
+		ancestors(name, seen)
+		hasSkippableAncestor := false
+		for gate := range skippable {
+			if seen[gate] {
+				hasSkippableAncestor = true
+				break
+			}
+		}
+		if !hasSkippableAncestor {
+			continue
+		}
+		job := workflowJobBlock(t, content, name)
+		if !jobIfPattern.MatchString(job) {
+			t.Fatalf(
+				"%s has a skippable ancestor gate but no job-level if to override "+
+					"the default skip-propagation condition:\n%s",
+				name,
+				job,
+			)
+		}
+	}
+}
+
 func TestReleaseAssetManifestIsTheSingleSourceOfTruth(t *testing.T) {
 	manifest := readRepositoryFile(t, ".github/release-assets.txt")
 	var assets []string
