@@ -52,8 +52,8 @@ func TestLiveGrokObservationContract(t *testing.T) {
 		}
 		if window.Scope == quotaScopeAccount {
 			hasAccountWindow = true
-			if window.ResetAtMS == nil {
-				t.Fatalf("live Grok account quota lacks reset: %#v", window)
+			if window.ResetAtMS == nil || window.Utilization == nil {
+				t.Fatalf("live Grok account quota lacks utilization or reset: %#v", window)
 			}
 		}
 		hasCreditWindow = hasCreditWindow || window.Scope == quotaScopeCredits

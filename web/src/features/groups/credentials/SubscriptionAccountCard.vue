@@ -13,7 +13,11 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { CredentialItemDto, CredentialQuotaWindowDto } from '@/api/control/types'
+import type {
+  CredentialItemDto,
+  CredentialQuotaLabelKey,
+  CredentialQuotaWindowDto,
+} from '@/api/control/types'
 import type { ChannelCapabilitiesDto } from '@/app/resources/channels'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -48,7 +52,7 @@ const emit = defineEmits<{
   'refresh-credential': [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
-const { locale, n, t } = useI18n()
+const { locale, n, t, te } = useI18n()
 const menuOpen = ref(false)
 const detailsExpanded = ref(false)
 const nowMs = ref(Date.now())
@@ -103,13 +107,13 @@ const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
 
-const quotaSubjectKeys: Readonly<Record<string, string>> = {
-  session: 'group.credentials.subscription.quotaLabels.session',
-  weekly: 'group.credentials.subscription.quotaLabels.weekly',
-  'extra usage': 'group.credentials.subscription.quotaLabels.extraUsage',
-  'included usage': 'group.credentials.subscription.quotaLabels.includedUsage',
-  'pay as you go': 'group.credentials.subscription.quotaLabels.payAsYouGo',
-  'oauth apps': 'group.credentials.subscription.quotaLabels.oauthApps',
+const quotaSubjectKeys: Readonly<Record<string, CredentialQuotaLabelKey>> = {
+  session: 'session',
+  weekly: 'weekly',
+  'extra usage': 'extra_usage',
+  'included usage': 'included_usage',
+  'pay as you go': 'pay_as_you_go',
+  'oauth apps': 'oauth_apps',
 }
 const accountName = computed(() => props.item.account.email ?? props.item.mask)
 const planLabel = computed(() => {
@@ -174,12 +178,17 @@ function normalizedQuotaLabelPart(value: string): string {
   return value.trim().toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ')
 }
 
+function translatedQuotaLabel(labelKey: CredentialQuotaLabelKey, fallback: string): string {
+  const key = `group.credentials.subscription.quotaLabels.${labelKey}`
+  return te(key) ? t(key) : fallback
+}
+
 function quotaWindowLabel(window: CredentialQuotaWindowDto): string {
   const period = quotaWindowPeriodLabel(window.window_seconds)
   if (period && window.scope === 'account') return period
 
   if (window.label_key) {
-    const subject = t(`group.credentials.subscription.quotaLabels.${window.label_key}`)
+    const subject = translatedQuotaLabel(window.label_key, window.label)
     return window.label_key === 'oauth_apps' && period ? `${subject} · ${period}` : subject
   }
 
@@ -194,8 +203,8 @@ function quotaWindowLabel(window: CredentialQuotaWindowDto): string {
 
   return parts
     .map((part) => {
-      const key = quotaSubjectKeys[normalizedQuotaLabelPart(part)]
-      return key ? t(key) : part
+      const labelKey = quotaSubjectKeys[normalizedQuotaLabelPart(part)]
+      return labelKey ? translatedQuotaLabel(labelKey, part) : part
     })
     .join(' · ')
 }

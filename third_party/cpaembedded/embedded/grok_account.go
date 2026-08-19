@@ -187,14 +187,14 @@ func fetchGrokBilling(
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return grokBillingResult{err: &GrokUpstreamHTTPError{Operation: "billing", StatusCode: response.StatusCode}}
 	}
-	billing, presence, err := decodeGrokBilling(body)
+	billing, presence, err := decodeGrokBilling(body, grokNow(options))
 	if err != nil {
 		return grokBillingResult{err: err}
 	}
 	return grokBillingResult{billing: billing, presence: presence, header: response.Header.Clone()}
 }
 
-func decodeGrokBilling(body []byte) (GrokBillingObservation, grokBillingPresence, error) {
+func decodeGrokBilling(body []byte, now time.Time) (GrokBillingObservation, grokBillingPresence, error) {
 	root, err := decodeGrokJSONObject(body)
 	if err != nil {
 		return GrokBillingObservation{}, grokBillingPresence{}, ErrGrokAccountObservationPayloadInvalid
@@ -209,6 +209,7 @@ func decodeGrokBilling(body []byte) (GrokBillingObservation, grokBillingPresence
 	}
 	var billing GrokBillingObservation
 	var presence grokBillingPresence
+	unifiedBilling := false
 	if raw, exists := grokRawField(config, "currentPeriod", "current_period"); exists {
 		period, usable, periodErr := decodeGrokPeriod(raw)
 		if periodErr != nil {
@@ -239,6 +240,12 @@ func decodeGrokBilling(body []byte) (GrokBillingObservation, grokBillingPresence
 		billing.ProductUsage = values
 		presence.surface = true
 		presence.products = true
+	}
+	if raw, exists := grokRawField(config, "isUnifiedBillingUser", "is_unified_billing_user"); exists &&
+		!bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		if err := json.Unmarshal(raw, &unifiedBilling); err != nil {
+			return GrokBillingObservation{}, grokBillingPresence{}, ErrGrokAccountObservationPayloadInvalid
+		}
 	}
 	for _, field := range []struct {
 		names    []string
@@ -278,10 +285,30 @@ func decodeGrokBilling(body []byte) (GrokBillingObservation, grokBillingPresence
 			presence.credits = true
 		}
 	}
+	if !presence.usage && unifiedBilling && grokConfirmedActiveWeeklyPeriod(billing, now) {
+		zero := 0.0
+		billing.UsagePercent = &zero
+		presence.account = true
+		presence.usage = true
+	}
 	if !presence.account && !presence.surface && !presence.credits {
 		return GrokBillingObservation{}, grokBillingPresence{}, ErrGrokAccountObservationPayloadInvalid
 	}
 	return billing, presence, nil
+}
+
+func grokConfirmedActiveWeeklyPeriod(billing GrokBillingObservation, now time.Time) bool {
+	periodType := strings.ToLower(strings.TrimSpace(billing.PeriodType))
+	if periodType != "weekly" && !strings.HasSuffix(periodType, "_weekly") {
+		return false
+	}
+	periodStart, errStart := time.Parse(time.RFC3339, billing.PeriodStart)
+	periodEnd, errEnd := time.Parse(time.RFC3339, billing.PeriodEnd)
+	billingStart, errBillingStart := time.Parse(time.RFC3339, billing.BillingPeriodStart)
+	billingEnd, errBillingEnd := time.Parse(time.RFC3339, billing.BillingPeriodEnd)
+	return errStart == nil && errEnd == nil && errBillingStart == nil && errBillingEnd == nil &&
+		periodEnd.After(now) && periodEnd.After(periodStart) &&
+		periodStart.Equal(billingStart) && periodEnd.Equal(billingEnd)
 }
 
 func decodeGrokJSONObject(raw []byte) (map[string]json.RawMessage, error) {

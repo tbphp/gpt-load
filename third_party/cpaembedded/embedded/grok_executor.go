@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	internalexecutor "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
@@ -192,9 +193,19 @@ func grokExecutorOptions(request ExecuteRequest, format sdktranslator.Format, st
 		SourceFormat:    format, ResponseFormat: format,
 	}
 	if scope := strings.TrimSpace(request.ContinuityKey); scope != "" {
-		options.Metadata = map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: scope}
+		options.Metadata = map[string]any{
+			cliproxyexecutor.ExecutionSessionMetadataKey: grokConversationID(scope),
+		}
 	}
 	return options
+}
+
+func grokConversationID(scope string) string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return ""
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("gpt-load-grok\x00"+scope)).String()
 }
 
 func prepareGrokExecutionRequest(request ExecuteRequest) ExecuteRequest {

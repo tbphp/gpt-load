@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestObserveGrokAccountCombinesWeeklyAndMonthlyBilling(t *testing.T) {
@@ -70,6 +71,54 @@ func TestObserveGrokAccountReturnsPartialWhenOneBillingSourceFails(t *testing.T)
 	if !observed.AccountQuotaObserved || observed.CreditQuotaObserved ||
 		!reflect.DeepEqual(observed.IncompleteSources, []string{"monthly"}) {
 		t.Fatalf("partial observation = %#v", observed)
+	}
+}
+
+func TestObserveGrokAccountInfersZeroUsageForActiveUnifiedWeeklyPeriod(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/weekly" {
+			_, _ = w.Write([]byte(`{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-15T00:00:00+00:00","end":"2026-08-22T00:00:00+00:00"},"billingPeriodStart":"2026-08-15T00:00:00+00:00","billingPeriodEnd":"2026-08-22T00:00:00+00:00","isUnifiedBillingUser":true}}`))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	observed, err := ObserveGrokAccount(t.Context(), testGrokAccountCredential(), GrokOptions{
+		BillingWeeklyURL: server.URL + "/weekly", BillingMonthlyURL: server.URL + "/monthly",
+		HTTPClient: server.Client(), Now: func() time.Time {
+			return time.Date(2026, time.August, 19, 0, 0, 0, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observed.AccountQuotaObserved || observed.Billing.UsagePercent == nil ||
+		*observed.Billing.UsagePercent != 0 ||
+		!reflect.DeepEqual(observed.IncompleteSources, []string{"monthly"}) {
+		t.Fatalf("observation = %#v", observed)
+	}
+}
+
+func TestDecodeGrokBillingDoesNotInferZeroWithoutConfirmedActiveUnifiedPeriod(t *testing.T) {
+	now := time.Date(2026, time.August, 19, 0, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "not unified", body: `{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-15T00:00:00Z","end":"2026-08-22T00:00:00Z"},"billingPeriodStart":"2026-08-15T00:00:00Z","billingPeriodEnd":"2026-08-22T00:00:00Z"}}`},
+		{name: "bounds differ", body: `{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-15T00:00:00Z","end":"2026-08-22T00:00:00Z"},"billingPeriodStart":"2026-08-01T00:00:00Z","billingPeriodEnd":"2026-09-01T00:00:00Z","isUnifiedBillingUser":true}}`},
+		{name: "period expired", body: `{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-01T00:00:00Z","end":"2026-08-08T00:00:00Z"},"billingPeriodStart":"2026-08-01T00:00:00Z","billingPeriodEnd":"2026-08-08T00:00:00Z","isUnifiedBillingUser":true}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			billing, _, err := decodeGrokBilling([]byte(test.body), now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if billing.UsagePercent != nil {
+				t.Fatalf("usage percent = %v", *billing.UsagePercent)
+			}
+		})
 	}
 }
 

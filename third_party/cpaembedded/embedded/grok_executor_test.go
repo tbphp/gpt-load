@@ -78,6 +78,32 @@ func TestGrokExecutorConvertsFourProtocolsUnaryAndStream(t *testing.T) {
 	}
 }
 
+func TestGrokExecutorUsesHeaderSafeConversationIDForOpaqueContinuity(t *testing.T) {
+	var conversationID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conversationID = r.Header.Get("x-grok-conv-id")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.completed\n"))
+		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"grok-4.6","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}` + "\n\n"))
+	}))
+	defer server.Close()
+
+	payload := []byte(`{"model":"grok-4.6","input":"hi"}`)
+	_, err := testGrokHTTPExecutor(server.URL).ExecuteCanonical(
+		t.Context(), "credential-1", testGrokExecutionCredential(), ExecuteRequest{
+			AttemptID: "attempt-1", Model: "grok-4.6", Format: "openai-response",
+			Payload: payload, OriginalRequest: payload,
+			ContinuityKey: "tenant\x00credential-1\x00grok-4.6",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conversationID) != 36 || strings.ContainsAny(conversationID, "\r\n\x00") {
+		t.Fatalf("conversation ID = %q", conversationID)
+	}
+}
+
 func TestGrokExecutorCountsTokensLocally(t *testing.T) {
 	executor := NewGrokHTTPExecutor()
 	for _, test := range []struct {

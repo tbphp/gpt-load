@@ -475,6 +475,7 @@ func TestLiveGrokContract(t *testing.T) {
 		}},
 	}
 	executor := NewGrokHTTPExecutor()
+	continuityKey := "live-tenant\x00live-credential\x00" + model
 	for _, request := range payloads {
 		payload, marshalErr := json.Marshal(request.body)
 		if marshalErr != nil {
@@ -483,6 +484,7 @@ func TestLiveGrokContract(t *testing.T) {
 		t.Run(request.name+" unary", func(t *testing.T) {
 			response, executeErr := executor.ExecuteCanonical(ctx, "live-grok-contract", credential, ExecuteRequest{
 				Model: model, Format: request.format, Payload: payload, OriginalRequest: payload,
+				ContinuityKey: continuityKey,
 			})
 			if executeErr != nil {
 				t.Fatalf("execute live request: %v", executeErr)
@@ -503,6 +505,7 @@ func TestLiveGrokContract(t *testing.T) {
 			}
 			stream, streamErr := executor.ExecuteStreamCanonical(ctx, "live-grok-contract", credential, ExecuteRequest{
 				Model: model, Format: request.format, Payload: streamPayload, OriginalRequest: streamPayload,
+				ContinuityKey: continuityKey,
 			})
 			if streamErr != nil {
 				t.Fatalf("start live stream: %v", streamErr)
