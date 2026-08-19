@@ -624,6 +624,21 @@ func TestReleaseWorkflowGatesSingleReleaseWriterAndImagePublication(t *testing.T
 	}
 }
 
+func TestReleaseWorkflowDraftReadersRequestPushVisibility(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	for _, jobName := range []string{
+		"publication-preflight",
+		"post-publish-native-smoke",
+		"post-publish-verify",
+		"reconcile-publication",
+	} {
+		job := workflowJobBlock(t, content, jobName)
+		if !strings.Contains(job, "contents: write") {
+			t.Fatalf("%s cannot discover Draft Releases without push visibility:\n%s", jobName, job)
+		}
+	}
+}
+
 func TestReleaseWorkflowUsesOneSharedPublicationPreflight(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	if count := strings.Count(content, "  publication-preflight:"); count != 1 {
@@ -1087,11 +1102,11 @@ func TestReleaseWorkflowAlwaysReconcilesWriterAndPostPublishResults(t *testing.T
 	}
 }
 
-func TestReleaseWorkflowReconciliationIsReadOnly(t *testing.T) {
+func TestReleaseWorkflowReconciliationHasNoWriteOperations(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	job := workflowJobBlock(t, content, "reconcile-publication")
 	for _, required := range []string{
-		"contents: read",
+		"contents: write",
 		"packages: read",
 		"DOCKERHUB_READ_TOKEN",
 		"manual recovery",
@@ -1104,7 +1119,6 @@ func TestReleaseWorkflowReconciliationIsReadOnly(t *testing.T) {
 	}
 	lower := strings.ToLower(job)
 	for _, forbidden := range []string{
-		"contents: write",
 		"packages: write",
 		"softprops/action-gh-release",
 		"docker/build-push-action",

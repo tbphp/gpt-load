@@ -469,7 +469,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
-      contents: read
+      # Draft Releases are visible only to identities with push access.
+      contents: write
       packages: read
     outputs:
       publication_state: ${{ steps.classify.outputs.publication_state }}
@@ -1023,7 +1024,8 @@ jobs:
       - publish-images
     timeout-minutes: 15
     permissions:
-      contents: read
+      # Draft Releases are visible only to identities with push access.
+      contents: write
     strategy:
       fail-fast: true
       max-parallel: 5
@@ -1133,7 +1135,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
-      contents: read
+      # Draft Releases are visible only to identities with push access.
+      contents: write
       packages: read
     steps:
       - name: Checkout tag commit
@@ -1301,7 +1304,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: read
+      # Draft Releases are visible only to identities with push access.
+      contents: write
       packages: read
     steps:
       - name: Checkout tag commit for read-only reconciliation
