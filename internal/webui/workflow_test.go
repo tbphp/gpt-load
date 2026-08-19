@@ -638,7 +638,7 @@ func TestReleaseWorkflowUsesOneSharedPublicationPreflight(t *testing.T) {
 		"name: release-assets",
 		"sha256sum --check SHA256SUMS",
 		"git merge-base --is-ancestor",
-		"DOCKERHUB_READ_TOKEN",
+		"DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN || secrets.DOCKERHUB_TOKEN }}",
 		"DOCKERHUB_TOKEN",
 		"ghcr.io/tbphp/gpt-load:latest",
 		"tbphp/gpt-load:latest",
@@ -1660,14 +1660,14 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 		for _, required := range []string{
 			"Log in to Docker Hub",
 			"username: ${{ secrets.DOCKERHUB_USERNAME }}",
-			"password: ${{ secrets.DOCKERHUB_READ_TOKEN }}",
+			"password: ${{ secrets.DOCKERHUB_READ_TOKEN || secrets.DOCKERHUB_TOKEN }}",
 		} {
 			if !strings.Contains(block, required) {
 				t.Fatalf("%s does not contain authenticated Docker Hub read %q", name, required)
 			}
 		}
 		if strings.Contains(block, "password: ${{ secrets.DOCKERHUB_TOKEN }}") {
-			t.Fatalf("%s exposes the Docker Hub write token to a read-only job", name)
+			t.Fatalf("%s bypasses the optional Docker Hub read-only token", name)
 		}
 	}
 	imageReadLogin := workflowStepBlock(
@@ -1677,14 +1677,14 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 	)
 	for _, required := range []string{
 		"write_mode == 'verify'",
-		"password: ${{ secrets.DOCKERHUB_READ_TOKEN }}",
+		"password: ${{ secrets.DOCKERHUB_READ_TOKEN || secrets.DOCKERHUB_TOKEN }}",
 	} {
 		if !strings.Contains(imageReadLogin, required) {
 			t.Fatalf("consistent image verification login does not contain %q", required)
 		}
 	}
-	if strings.Contains(imageReadLogin, "DOCKERHUB_TOKEN }}") {
-		t.Fatal("consistent image verification receives the Docker Hub write token")
+	if strings.Contains(imageReadLogin, "password: ${{ secrets.DOCKERHUB_TOKEN }}") {
+		t.Fatal("consistent image verification bypasses the optional read-only token")
 	}
 	imageWriteLogin := workflowStepBlock(
 		t,
