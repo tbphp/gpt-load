@@ -126,9 +126,14 @@ func (p *KeyProvider) RecordModelDenied(groupID, keyID uint, model string) {
 	p.learner.recordModelDenied(groupID, keyID, model)
 }
 
-// RecordModelSuccess 记录一次成功服务，为该 (key, model) 加分。
+// RecordModelSuccess 记录一次成功服务,清零该 (key, model) 的连续拒绝计数。
 func (p *KeyProvider) RecordModelSuccess(groupID, keyID uint, model string) {
 	p.learner.recordModelSuccess(groupID, keyID, model)
+}
+
+// StrikesOf 返回 (key, model) 的连续拒绝计数(日志用)。
+func (p *KeyProvider) StrikesOf(groupID, keyID uint, model string) int {
+	return p.learner.strikesOf(groupID, keyID, model)
 }
 
 func mustParseKeyID(idStr string) uint {

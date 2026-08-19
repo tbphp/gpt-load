@@ -118,23 +118,54 @@ func TestCanServeModel(t *testing.T) {
 func TestModelLearner(t *testing.T) {
 	l := newModelLearner()
 
+	// 第 1 次拒绝不排除;第 2 次进入排除(基准 30 分钟)
 	l.recordModelDenied(1, 902, "deepseek-v4-pro-0813")
-	l.recordModelDenied(1, 902, "deepseek-v4-pro-0813")
+	if l.isModelExcluded(1, 902, "deepseek-v4-pro-0813") {
+		t.Fatal("first denial must not exclude")
+	}
 	l.recordModelDenied(1, 902, "deepseek-v4-pro-0813")
 	if !l.isModelExcluded(1, 902, "deepseek-v4-pro-0813") {
-		t.Fatal("key should be excluded after 3 denials")
+		t.Fatal("key should be excluded after 2 denials")
 	}
 	// 其他模型不受影响
 	if l.isModelExcluded(1, 902, "glm-5.2") {
 		t.Fatal("other model must not be affected")
 	}
-	// 排除过期自动恢复
+
+	// 首次排除时长 = 基准 30 分钟
 	l.mu.Lock()
-	l.table["1:902"]["deepseek-v4-pro-0813"].until = time.Now().Add(-time.Second)
+	e0 := l.table["1:902"]["deepseek-v4-pro-0813"]
+	first := e0.until
+	l.mu.Unlock()
+	if d := time.Until(first); d < 29*time.Minute || d > 30*time.Minute+time.Second {
+		t.Fatalf("first exclusion duration wrong: %v", d)
+	}
+
+	// 过期后解除;再犯一次 → strikes=3,排除时长翻倍(60 分钟)
+	l.mu.Lock()
+	e0.until = time.Now().Add(-time.Second)
 	l.mu.Unlock()
 	if l.isModelExcluded(1, 902, "deepseek-v4-pro-0813") {
 		t.Fatal("exclusion should expire")
 	}
+	l.recordModelDenied(1, 902, "deepseek-v4-pro-0813")
+	l.mu.Lock()
+	e1 := l.table["1:902"]["deepseek-v4-pro-0813"]
+	l.mu.Unlock()
+	if d := time.Until(e1.until); d < 59*time.Minute || d > 60*time.Minute+time.Second {
+		t.Fatalf("escalated exclusion duration wrong (strikes=%d): %v", e1.strikes, d)
+	}
+
+	// 成功后清零
+	l.recordModelSuccess(1, 902, "deepseek-v4-pro-0813")
+	if l.isModelExcluded(1, 902, "deepseek-v4-pro-0813") {
+		t.Fatal("success must clear exclusion")
+	}
+	l.mu.Lock()
+	if e1.strikes != 0 {
+		t.Fatalf("strikes should reset after success, got %d", e1.strikes)
+	}
+	l.mu.Unlock()
 }
 
 func TestSelectKeyForGroupModelLearns(t *testing.T) {

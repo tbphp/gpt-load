@@ -257,10 +257,11 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		// 使用解析后的错误信息更新密钥状态
 		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
 
-		// 自动学习:上游明确"模型权限拒绝" → 将该 (key, model) 定向降权
+		// 自动学习:上游明确"模型权限拒绝" → 记录连续拒绝、指数退避排除
 		if keypool.IsModelAccessDeniedError(parsedError) {
 			ps.keyProvider.RecordModelDenied(group.ID, apiKey.ID, model)
-			logrus.Infof("Learned: key %d cannot serve model '%s' (group %s)", apiKey.ID, model, group.Name)
+			logrus.Infof("Learned: key %d cannot serve model '%s' (group %s, strikes=%d)",
+				apiKey.ID, model, group.Name, ps.keyProvider.StrikesOf(group.ID, apiKey.ID, model))
 		}
 
 		// 判断是否为最后一次尝试
