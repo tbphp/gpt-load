@@ -98,14 +98,27 @@ func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 		"Run race-enabled tests",
 		"go test -race -count=1 -timeout=15m . ./internal/...",
 	)
+	branchCPA := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "race-cpa"),
+		"Run embedded CPA bridge race-enabled tests",
+	)
+	for _, required := range []string{
+		"working-directory: third_party/cpaembedded",
+		"run: go test -race -count=1 -timeout=15m ./...",
+	} {
+		if !strings.Contains(branchCPA, required) {
+			t.Fatalf("branch CPA race gate does not contain %q:\n%s", required, branchCPA)
+		}
+	}
 
 	releaseContent := readRepositoryFile(t, ".github/workflows/release.yml")
-	releaseVerifyJob := workflowJobBlock(
+	releaseStaticJob := workflowJobBlock(
 		t,
 		releaseContent,
-		"verify-and-build-web",
+		"static-checks",
 	)
-	if strings.Contains(releaseVerifyJob, "go test -race") {
+	if strings.Contains(releaseStaticJob, "go test -race") {
 		t.Fatal("release static job still runs race tests serially")
 	}
 	assertWorkflowGateStep(
@@ -114,6 +127,19 @@ func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 		"Run race-enabled tests",
 		"go test -race -count=1 -timeout=15m . ./internal/...",
 	)
+	releaseCPA := workflowStepBlock(
+		t,
+		workflowJobBlock(t, releaseContent, "race-cpa"),
+		"Run embedded CPA bridge race-enabled tests",
+	)
+	for _, required := range []string{
+		"working-directory: third_party/cpaembedded",
+		"run: go test -race -count=1 -timeout=15m ./...",
+	} {
+		if !strings.Contains(releaseCPA, required) {
+			t.Fatalf("release CPA race gate does not contain %q:\n%s", required, releaseCPA)
+		}
+	}
 }
 
 func TestWindowsCIExecutesManagedStorageACLTests(t *testing.T) {
@@ -203,7 +229,7 @@ func TestGoFormattingScriptsFailClosed(t *testing.T) {
 		job  string
 	}{
 		{name: "branch", file: ".github/workflows/ci.yml", job: "test"},
-		{name: "release", file: ".github/workflows/release.yml", job: "verify-and-build-web"},
+		{name: "release", file: ".github/workflows/release.yml", job: "static-checks"},
 	} {
 		t.Run(workflow.name, func(t *testing.T) {
 			script := workflowGoFormattingScript(
@@ -519,7 +545,7 @@ func TestReleasePublicationStateClassifiesFreshConsistentConflictAndPartial(t *t
 
 func TestReleaseWorkflowDoesNotRequireUntrackedAgentInstructionFiles(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
-	verifyJob := workflowJobBlock(t, content, "verify-and-build-web")
+	verifyJob := workflowJobBlock(t, content, "static-checks")
 	if !strings.Contains(verifyJob, "git diff --check") {
 		t.Fatal("release verification does not run git diff --check")
 	}
@@ -572,7 +598,9 @@ func TestReleaseWorkflowGatesSingleReleaseWriterAndImagePublication(t *testing.T
 	for _, dependency := range []string{
 		"validate-tag",
 		"verify-and-build-web",
+		"static-checks",
 		"race-tests",
+		"race-cpa",
 		"build-binaries",
 		"package-checksums",
 		"native-artifact-smoke",
@@ -1518,10 +1546,6 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 	postPublish := workflowJobBlock(t, content, "post-publish-verify")
 	for _, required := range []string{
 		"publication-preflight",
-		"RELEASE_SMOKE_SOURCE_IMAGE",
-		`ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}`,
-		`tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}`,
-		".github/scripts/release-docker-smoke.sh",
 		".github/scripts/release-image-digest.sh",
 		"ghcr_latest_digest",
 		"dockerhub_latest_digest",
@@ -1530,9 +1554,22 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 			t.Fatalf("published image runtime verification does not contain %q:\n%s", required, postPublish)
 		}
 	}
+	runtimeSmoke := workflowJobBlock(t, content, "post-publish-image-smoke")
+	for _, required := range []string{
+		"RELEASE_SMOKE_SOURCE_IMAGE",
+		"ghcr.io/tbphp/gpt-load",
+		"tbphp/gpt-load",
+		"needs.validate-tag.outputs.image_exact",
+		".github/scripts/release-docker-smoke.sh",
+	} {
+		if !strings.Contains(runtimeSmoke, required) {
+			t.Fatalf("published image runtime smoke does not contain %q:\n%s", required, runtimeSmoke)
+		}
+	}
 	for name, block := range map[string]string{
 		"publication-preflight": snapshotJob,
 		"post-publish-verify":   postPublish,
+		"published-image-smoke": runtimeSmoke,
 	} {
 		for _, required := range []string{
 			"Log in to Docker Hub",
