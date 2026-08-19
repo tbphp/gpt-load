@@ -1298,51 +1298,67 @@ func TestReleaseWorkflowPreparesDraftsWithoutLatest(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowIncludesCompleteS5Notes(t *testing.T) {
+func TestReleaseWorkflowKeepsReleaseNotesConciseAndWarnsAboutDataIncompatibility(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	releaseJob := workflowJobBlock(t, content, "publish-github")
+	draftStep := workflowStepBlock(t, releaseJob, "Create or update GitHub Release draft")
+
+	// generate_release_notes 已经从 commit 历史生成"本次变更"部分，手写 body
+	// 只需要保留一次性读不到就可能造成数据损坏的警告，其余标准运维信息
+	// （备份、tag 语义、usage 是 estimate 等）都是跨版本不变的事实，交给 README
+	// 作单一事实源，不在每个 release 里复述一遍。
+	if !strings.Contains(draftStep, "generate_release_notes: true") {
+		t.Fatalf("release draft no longer generates notes from commit history:\n%s", draftStep)
+	}
+
+	bodyStart := strings.Index(draftStep, "body: |")
+	if bodyStart < 0 {
+		t.Fatalf("release draft step has no body:\n%s", draftStep)
+	}
+	body := draftStep[bodyStart:]
+
+	// 面向中文用户众多的社区，body 先给一段英文，再给对应的中文翻译；
+	// 两段必须表达同一条警告，不能只翻一半或改变语义。
+	paragraphs := strings.SplitN(body, "\n\n", 2)
+	if len(paragraphs) != 2 {
+		t.Fatalf("release notes are not split into exactly one English and one Chinese paragraph:\n%s", body)
+	}
+	english, chinese := paragraphs[0], paragraphs[1]
+
 	for _, required := range []string{
-		"public operations baseline",
-		"1.x cutover and rollback",
-		"https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline",
-		"five raw binaries",
-		"SHA256SUMS",
-		"Stop cleanly",
-		"`-wal`/`-shm`",
-		"recovery set",
-		"v2beta",
-		"missing",
-		"partial",
-		"unpriced",
-		"compatible upstream",
-		"encryption key rotation",
-		"New 2.x deployments",
-		"supported 2.x installations",
-		"version-specific release notes",
-		"embedded official catalog",
-		"Models.dev",
-		"explicit user overrides",
-		"unified data/control dual-plane architecture",
-		"Groups",
-		"AccessKeys",
-		"model discovery",
+		"not compatible with 1.x",
+		"do not open a",
+		"1.x database",
+		"encryption.key",
+		"https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md",
 	} {
-		if !strings.Contains(releaseJob, required) {
-			t.Fatalf("release notes do not contain %q:\n%s", required, releaseJob)
+		if !strings.Contains(english, required) {
+			t.Fatalf("English release notes do not contain %q:\n%s", required, english)
 		}
 	}
-	if strings.Contains(releaseJob, "app.notion.com") {
-		t.Fatalf("public release notes depend on a private Notion page:\n%s", releaseJob)
-	}
-	for _, stale := range []string{
-		"Earlier pre-release 2.x databases are not supported",
-		"Models.dev is the sole automatic price source",
-		"Built-in prices were reviewed on",
-		"GPT-Load 2.0.0 does not support encryption key rotation",
+	for _, required := range []string{
+		"1.x 数据不兼容",
+		"1.x 数据库",
+		"encryption.key",
+		"README",
 	} {
-		if strings.Contains(releaseJob, stale) {
-			t.Fatalf("release notes contain stale statement %q:\n%s", stale, releaseJob)
+		if !strings.Contains(chinese, required) {
+			t.Fatalf("Chinese release notes do not contain %q:\n%s", required, chinese)
 		}
+	}
+	if strings.Contains(body, "app.notion.com") {
+		t.Fatalf("public release notes depend on a private Notion page:\n%s", body)
+	}
+	// README 没有 "public operations baseline" 锚点，链接目标必须真实存在。
+	if strings.Contains(body, "#public-operations-baseline") {
+		t.Fatalf("release notes link to a heading README does not have:\n%s", body)
+	}
+
+	// 手写 body 只保留数据不兼容这一条警告（英文 + 中文各一段）；部署、备份、
+	// tag 语义、usage 估算等标准信息一律不在这里重复，回归就说明有内容又被
+	// 搬回了每次发布都要复述的老路。用 rune 计数而非词数，因为中文没有空格分词。
+	if runeCount := len([]rune(body)); runeCount > 700 {
+		t.Fatalf("release notes body has %d runes, want at most 700:\n%s", runeCount, body)
 	}
 }
 

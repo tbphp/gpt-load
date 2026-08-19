@@ -966,51 +966,16 @@ jobs:
           # 目录内容已由上面的清单校验锁定为 .github/release-assets.txt 的全集。
           files: release/*
           body: |
-            GPT-Load 2.x is a greenfield rewrite and is not data-compatible with 1.x.
-            Do not open a 1.x database with this release; rebuild configuration and cut over manually.
-            New 2.x deployments must start with an empty dedicated database and a matching new
-            encryption key. Existing supported 2.x installations must preserve their matching key
-            files and follow the version-specific release notes before upgrading.
+            GPT-Load 2.x is a rewrite and is not compatible with 1.x data — do not open a
+            1.x database with this release. Start 2.x from an empty database and a new
+            `encryption.key`; verify, then cut traffic over manually. See the
+            [README](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md)
+            for deployment, backup, and 1.x cutover details.
 
-            This release provides OpenAI, Anthropic, and Gemini client protocol gateways backed
-            by channel presets for official, compatible, Azure OpenAI, AWS Bedrock, and Google
-            Vertex targets. It includes an embedded management UI, scheduling and health controls,
-            request logs, usage estimates, and model price management. It is single-instance and
-            supports SQLite, MySQL, and PostgreSQL through one unified DATABASE_DSN contract.
-
-            GPT-Load remains the routing owner: Groups select a code-defined channel and hold
-            encrypted credentials, AccessKeys authorize data-plane access, and GPT-Load performs
-            candidate selection, retry policy, health tracking, logging, and pricing. The embedded
-            provider SDK executes one selected logical attempt and performs supported protocol
-            conversion; its name is not part of persisted domain identities.
-
-            Docker runs as a fixed non-root user with a named volume. Verified Beta images move
-            the shared `v2beta` channel while retaining the exact version tag; stable releases
-            move only their major/minor aliases. No 2.x release moves `latest`. Stop cleanly,
-            then back up the selected database using its engine-native procedure and keep
-            auth/encryption key files with the recovery set.
-            Managed SQLite also requires its `-wal`/`-shm` sidecars. Usage and cost are best-effort
-            estimates, not a billing ledger or provider invoice.
-
-            Follow the [public operations baseline](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline)
-            for deployment, backup/restore, and 1.x cutover and rollback.
-            This release contains five raw binaries, `SHA256SUMS`, a CycloneDX SBOM,
-            and the project and third-party license notices.
-            If publication stops between channels, inspect the reconciliation inventory and
-            recover manually; the workflow does not claim cross-system atomic rollback.
-
-            Usage quality can be `missing`, `partial`, or `unpriced`; a compatible upstream may
-            never provide authoritative terminal usage. Cost remains an estimate, not a provider
-            bill. The current 2.x line does not support encryption key rotation.
-
-            The automatic model catalog combines an embedded official catalog with Models.dev;
-            embedded official records take precedence while other Models.dev records remain
-            available. Prices resolve by exact `channel_id + model_id`; explicit user overrides
-            remain available, and all costs remain estimates.
-
-            GPT-Load keeps a unified data/control dual-plane architecture: Groups select a
-            channel and credentials, AccessKeys authorize data-plane access, and model discovery
-            imports available models from the selected channel.
+            GPT-Load 2.x 是全新重写版本，与 1.x 数据不兼容 — 请勿使用本版本打开 1.x 数据库。
+            请以全新数据库和新的 `encryption.key` 部署 2.x，验证无误后再手动切换流量。
+            部署、备份及 1.x 切换详情见
+            [README](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md)。
 
   post-publish-image-smoke:
     # GHCR 与 Docker Hub 的 exact tag 已在 publish-images 断言为同一 digest，
