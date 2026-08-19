@@ -314,6 +314,8 @@ api_write PUT "/api/model-prices/${model_price_id}" '{
   "output":"2",
   "cache_read":"3",
   "cache_write":"4",
+  "context_tiers":[],
+  "mode_schedules":{},
   "confirm_unpriced":false
 }' >"${task_tmp}/price-update.json"
 

@@ -1481,6 +1481,32 @@ func TestReleaseDockerSmokeUsesIsolatedFakeUpstreamNetwork(t *testing.T) {
 	}
 }
 
+func TestReleaseDockerSmokeUsesCompleteModelPriceReplacement(t *testing.T) {
+	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
+	start := strings.Index(script, `api_write PUT "/api/model-prices/${model_price_id}"`)
+	if start < 0 {
+		t.Fatal("release Docker smoke does not update the selected model price")
+	}
+	endOffset := strings.Index(script[start:], `>"${task_tmp}/price-update.json"`)
+	if endOffset < 0 {
+		t.Fatal("release Docker smoke model price update has no response target")
+	}
+	request := script[start : start+endOffset]
+	for _, required := range []string{
+		`"input":"1"`,
+		`"output":"2"`,
+		`"cache_read":"3"`,
+		`"cache_write":"4"`,
+		`"context_tiers":[]`,
+		`"mode_schedules":{}`,
+		`"confirm_unpriced":false`,
+	} {
+		if !strings.Contains(request, required) {
+			t.Fatalf("release Docker smoke model price replacement does not contain %q", required)
+		}
+	}
+}
+
 func TestReleaseDockerSmokeDefersOwnedResourceCleanupUntilAfterConflictChecks(t *testing.T) {
 	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
 	tempTrapIndex := strings.Index(script, "trap cleanup_temp EXIT")
@@ -1495,12 +1521,12 @@ func TestReleaseDockerSmokeDefersOwnedResourceCleanupUntilAfterConflictChecks(t 
 		}
 	}
 	for name, index := range map[string]int{
-		"temporary cleanup trap":        tempTrapIndex,
-		"container conflict check":      containerCheckIndex,
-		"owned resource conflict exit":  conflictExitIndex,
-		"completed conflict exit":       preflightExitIndex,
-		"owned-resource cleanup trap":   fullTrapIndex,
-		"owned-resource work":           workStartIndex,
+		"temporary cleanup trap":       tempTrapIndex,
+		"container conflict check":     containerCheckIndex,
+		"owned resource conflict exit": conflictExitIndex,
+		"completed conflict exit":      preflightExitIndex,
+		"owned-resource cleanup trap":  fullTrapIndex,
+		"owned-resource work":          workStartIndex,
 	} {
 		if index < 0 {
 			t.Fatalf("release Docker smoke is missing %s", name)
