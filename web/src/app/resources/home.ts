@@ -6,7 +6,6 @@ import type { AccessKeyCollectionItemDto, AccessProtocol } from '@/api/control/t
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
-import { isCanonicalMaskedAccessKey } from '@/lib/access-key-mask'
 
 import { projectAccessKeyCollectionItem } from './access-keys'
 
@@ -195,7 +194,6 @@ function projectHomeAccessKey(value: unknown): HomeBaseDto['access_keys'][number
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, accessKeyFields)
   const maskedKey = projectString(record.masked_key)
-  if (!isCanonicalMaskedAccessKey(maskedKey)) invalidResponse()
   const protocols = projectArray(record.protocols, (protocol) =>
     projectEnum(protocol, knownAccessProtocols),
   )

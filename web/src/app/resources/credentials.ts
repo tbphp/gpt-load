@@ -136,8 +136,6 @@ const authStates = ['ready', 'refreshing', 'reauthorization_required', 'outcome_
 const observationStates = ['fresh', 'stale', 'refreshing', 'error', 'unavailable'] as const
 const quotaStates = ['available', 'exhausted', 'unknown'] as const
 const planLevels = ['free', 'standard', 'premium', 'elite'] as const
-const canonicalMask = /^(?:\*{4}|.{4}\*{4}.{4})$/u
-const subscriptionMask = /^(?:[^\s@]{1,64}@[^\s@]{1,255}|Subscription #[1-9]\d*)$/u
 const accountFields = ['email', 'email_mask', 'expires_at_ms', 'last_refresh_at_ms'] as const
 const observationFields = [
   'state',
@@ -277,15 +275,8 @@ function projectCredentialJSON(value: unknown): Record<string, unknown> {
   return result
 }
 
-function projectMask(value: unknown, connectionType: 'api_key' | 'subscription'): string {
-  const mask = projectString(value)
-  if (
-    (connectionType === 'api_key' && !canonicalMask.test(mask)) ||
-    (connectionType === 'subscription' && !subscriptionMask.test(mask))
-  ) {
-    invalidResponse()
-  }
-  return mask
+function projectMask(value: unknown): string {
+  return projectString(value)
 }
 
 function projectAccount(
@@ -296,13 +287,7 @@ function projectAccount(
   assertNoSecretLikeFields(record, accountFields)
   const email = record.email === undefined ? undefined : projectString(record.email)
   const emailMask = record.email_mask === undefined ? undefined : projectString(record.email_mask)
-  if (
-    (connectionType === 'api_key' && (email !== undefined || emailMask !== undefined)) ||
-    (email !== undefined &&
-      (!subscriptionMask.test(email) || email.startsWith('Subscription #'))) ||
-    (emailMask !== undefined &&
-      (!subscriptionMask.test(emailMask) || emailMask.startsWith('Subscription #')))
-  ) {
+  if (connectionType === 'api_key' && (email !== undefined || emailMask !== undefined)) {
     invalidResponse()
   }
   return {
@@ -541,7 +526,7 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     connection_type: connectionType,
     secret_version: projectSafeInteger(record.secret_version, { minimum: 1 }),
-    mask: projectMask(record.mask, connectionType),
+    mask: projectMask(record.mask),
     account: projectAccount(record.account, connectionType),
     auth_state: projectEnum(record.auth_state, authStates),
     ...(record.auth_error_code === undefined

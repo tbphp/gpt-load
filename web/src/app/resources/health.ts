@@ -100,8 +100,6 @@ const problemFailureCategories = [
   'downstream_cancel',
   'ambiguous',
 ] as const
-const longMaskPattern = /^.{4}\*{4}.{4}$/u
-
 function invalidResponse(): never {
   throw new InvalidResponseError()
 }
@@ -110,12 +108,6 @@ function projectNonBlankString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0) invalidResponse()
   return result
-}
-
-function projectHealthCredentialMask(value: unknown): string {
-  const mask = projectString(value)
-  if (mask !== '****' && !longMaskPattern.test(mask)) invalidResponse()
-  return mask
 }
 
 export function projectHealthCounts(value: unknown): HealthCredentialCountsDto {
@@ -187,7 +179,7 @@ function projectProblemCredential(value: unknown): HealthProblemCredentialDto {
         : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 }),
     weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
     recovery,
-    mask: projectHealthCredentialMask(record.mask),
+    mask: projectString(record.mask),
     last_failure_category: projectEnum(record.last_failure_category, problemFailureCategories),
     last_status_code:
       record.last_status_code === null

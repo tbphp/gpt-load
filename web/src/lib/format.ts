@@ -1,7 +1,5 @@
 import { currentTimeZone } from './time'
 
-export { formatMaskedAccessKey } from './access-key-mask'
-
 const NANO_USD_PER_USD = 1_000_000_000n
 const NANO_USD_PER_MICRO_USD = 1_000n
 

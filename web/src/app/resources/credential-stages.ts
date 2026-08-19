@@ -85,9 +85,6 @@ function projectAccount(value: unknown): CredentialStageAccount {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, accountFields)
   const emailMask = record.email_mask === undefined ? undefined : projectString(record.email_mask)
-  if (emailMask !== undefined && (emailMask.length > 320 || /\s/u.test(emailMask))) {
-    invalidResponse()
-  }
   return {
     ...(emailMask === undefined ? {} : { email_mask: emailMask }),
     ...(record.expires_at_ms === undefined
