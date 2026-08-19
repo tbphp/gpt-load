@@ -17,9 +17,9 @@ export default {
       user_set: 'Manual price',
     },
     source: {
-      channel_catalog_provider: 'Price from Models.dev · {provider}',
+      channel_catalog_provider: 'Preset price catalog · {provider}',
       provider_priority_fallback:
-        'No exact catalog price for this channel; using Models.dev · {provider} as reference',
+        'No exact price; using preset price catalog · {provider} as reference',
     },
     matrix: {
       heading: 'Price',

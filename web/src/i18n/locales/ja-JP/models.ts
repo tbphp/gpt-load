@@ -4,8 +4,7 @@ export default {
     loading: 'モデルを読み込み中…',
     loadFailed: 'モデルを読み込めません',
     stale: 'バックグラウンド更新に失敗したため、現在のモデル情報は古い可能性があります',
-    context:
-      '価格は今後のコスト概算用の USD / 100 万 tokens であり、上流の実際の請求額ではありません',
+    context: 'プリセット価格は Models.dev より優先 · USD / 100 万 Token · 概算のみ',
     result: '{total} 件中 {shown} 件のクライアントモデルを表示',
     actions: {
       sync: 'カタログと自動価格を同期',
@@ -22,9 +21,9 @@ export default {
       unit: 'USD / 100 万 tokens · 概算のみ',
     },
     catalog: {
-      available: 'Models.dev カタログ利用可能',
-      stale: '同期失敗・前回成功したカタログを使用中',
-      unavailable: 'Models.dev カタログ利用不可',
+      available: 'プリセット価格カタログ利用可能',
+      stale: 'Models.dev の同期に失敗・現在の価格カタログを使用中',
+      unavailable: '価格カタログ利用不可',
       lastSuccess: '最終同期',
       lastCheck: '最終確認',
     },
@@ -101,8 +100,8 @@ export default {
     detail: {
       groupDisabled: '無効',
       catalogReference: {
-        actual_provider: 'Models.dev 対応プロバイダー · {provider}',
-        reference_provider: 'Models.dev 参照プロバイダー · {provider}',
+        actual_provider: '価格カタログ対応プロバイダー · {provider}',
+        reference_provider: '価格カタログ参照プロバイダー · {provider}',
       },
       specs: {
         context: 'コンテキスト',

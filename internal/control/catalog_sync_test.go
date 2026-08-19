@@ -285,10 +285,13 @@ func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t 
 	}
 }
 
-func TestCatalogBootstrapLoadsLKGAndTreatsMissingOrCorruptAsEmpty(t *testing.T) {
+func TestCatalogBootstrapLoadsLKGAndFallsBackToOfficialCatalog(t *testing.T) {
 	missing := loadCatalogBootstrap(filepath.Join(t.TempDir(), "missing.json"))
-	if missing.HasLKG || missing.Runtime == nil || missing.Runtime.Load() != nil {
-		t.Fatalf("missing bootstrap = %#v, want empty runtime", missing)
+	if missing.HasLKG || missing.Runtime == nil || missing.Runtime.Load() == nil {
+		t.Fatalf("missing bootstrap = %#v, want official-only runtime", missing)
+	}
+	if _, ok := missing.Runtime.Load().Providers["volcengine"]; !ok {
+		t.Fatal("missing bootstrap did not publish official Volcengine catalog")
 	}
 
 	corruptPath := filepath.Join(t.TempDir(), "catalog.json")
@@ -296,8 +299,11 @@ func TestCatalogBootstrapLoadsLKGAndTreatsMissingOrCorruptAsEmpty(t *testing.T) 
 		t.Fatal(err)
 	}
 	corrupt := loadCatalogBootstrap(corruptPath)
-	if corrupt.HasLKG || corrupt.Runtime == nil || corrupt.Runtime.Load() != nil {
-		t.Fatalf("corrupt bootstrap = %#v, want empty runtime", corrupt)
+	if corrupt.HasLKG || corrupt.Runtime == nil || corrupt.Runtime.Load() == nil {
+		t.Fatalf("corrupt bootstrap = %#v, want official-only runtime", corrupt)
+	}
+	if _, ok := corrupt.Runtime.Load().Providers["volcengine"]; !ok {
+		t.Fatal("corrupt bootstrap did not publish official Volcengine catalog")
 	}
 	if got, err := os.ReadFile(corruptPath); err != nil || string(got) != "not-json" {
 		t.Fatalf("corrupt cache was changed during bootstrap: %q, %v", got, err)
@@ -1365,6 +1371,10 @@ func catalogResultFixture(
 		panic(err)
 	}
 	snapshot, err := catalog.Parse(bytes.NewReader(raw))
+	if err != nil {
+		panic(err)
+	}
+	snapshot, err = catalog.MergeOfficial(snapshot)
 	if err != nil {
 		panic(err)
 	}

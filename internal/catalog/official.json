@@ -1,0 +1,312 @@
+{
+  "volcengine": {
+    "id": "volcengine",
+    "name": "Volcengine Ark",
+    "api": "",
+    "npm": null,
+    "models": {
+      "doubao-seed-evolving": {
+        "id": "doubao-seed-evolving",
+        "name": "Doubao Seed Evolving",
+        "family": "doubao-seed",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.889902497,
+          "output": 4.449512486,
+          "cache_read": 0.177980499
+        }
+      },
+      "doubao-seed-2-1-pro-260628": {
+        "id": "doubao-seed-2-1-pro-260628",
+        "name": "Doubao Seed 2.1 Pro",
+        "family": "doubao-seed",
+        "release_date": "2026-06-28",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.889902497,
+          "output": 4.449512486,
+          "cache_read": 0.177980499
+        }
+      },
+      "doubao-seed-2-1-turbo-260628": {
+        "id": "doubao-seed-2-1-turbo-260628",
+        "name": "Doubao Seed 2.1 Turbo",
+        "family": "doubao-seed",
+        "release_date": "2026-06-28",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.444951249,
+          "output": 2.224756243,
+          "cache_read": 0.08899025
+        }
+      },
+      "doubao-seed-2-0-pro-260215": {
+        "id": "doubao-seed-2-0-pro-260215",
+        "name": "Doubao Seed 2.0 Pro",
+        "family": "doubao-seed",
+        "release_date": "2026-02-15",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.474614665,
+          "output": 2.373073326,
+          "cache_read": 0.094922933,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.711921998,
+              "output": 3.559609989,
+              "cache_read": 0.1423844
+            },
+            {
+              "tier": { "type": "context", "size": 128001 },
+              "input": 1.423843995,
+              "output": 7.119219977,
+              "cache_read": 0.284768799
+            }
+          ]
+        }
+      },
+      "doubao-seed-2-0-lite-260428": {
+        "id": "doubao-seed-2-0-lite-260428",
+        "name": "Doubao Seed 2.0 Lite",
+        "family": "doubao-seed",
+        "release_date": "2026-04-28",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.08899025,
+          "output": 0.533941498,
+          "cache_read": 0.01779805,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.133485375,
+              "output": 0.800912247,
+              "cache_read": 0.026697075
+            },
+            {
+              "tier": { "type": "context", "size": 128001 },
+              "input": 0.266970749,
+              "output": 1.601824495,
+              "cache_read": 0.05339415
+            }
+          ]
+        }
+      },
+      "doubao-seed-2-0-lite-260215": {
+        "id": "doubao-seed-2-0-lite-260215",
+        "name": "Doubao Seed 2.0 Lite",
+        "family": "doubao-seed",
+        "release_date": "2026-02-15",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.08899025,
+          "output": 0.533941498,
+          "cache_read": 0.01779805,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.133485375,
+              "output": 0.800912247,
+              "cache_read": 0.026697075
+            },
+            {
+              "tier": { "type": "context", "size": 128001 },
+              "input": 0.266970749,
+              "output": 1.601824495,
+              "cache_read": 0.05339415
+            }
+          ]
+        }
+      },
+      "doubao-seed-2-0-mini-260428": {
+        "id": "doubao-seed-2-0-mini-260428",
+        "name": "Doubao Seed 2.0 Mini",
+        "family": "doubao-seed",
+        "release_date": "2026-04-28",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.029663417,
+          "output": 0.296634166,
+          "cache_read": 0.005932683,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.059326833,
+              "output": 0.593268331,
+              "cache_read": 0.011865367
+            },
+            {
+              "tier": { "type": "context", "size": 128001 },
+              "input": 0.118653666,
+              "output": 1.186536663,
+              "cache_read": 0.023730733
+            }
+          ]
+        }
+      },
+      "doubao-seed-2-0-mini-260215": {
+        "id": "doubao-seed-2-0-mini-260215",
+        "name": "Doubao Seed 2.0 Mini",
+        "family": "doubao-seed",
+        "release_date": "2026-02-15",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.029663417,
+          "output": 0.296634166,
+          "cache_read": 0.005932683,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.059326833,
+              "output": 0.593268331,
+              "cache_read": 0.011865367
+            },
+            {
+              "tier": { "type": "context", "size": 128001 },
+              "input": 0.118653666,
+              "output": 1.186536663,
+              "cache_read": 0.023730733
+            }
+          ]
+        }
+      },
+      "doubao-seed-2-0-code-preview-260215": {
+        "id": "doubao-seed-2-0-code-preview-260215",
+        "name": "Doubao Seed 2.0 Code Preview",
+        "family": "doubao-seed",
+        "release_date": "2026-02-15",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.474614665,
+          "output": 2.373073326,
+          "cache_read": 0.094922933,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.711921998,
+              "output": 3.559609989,
+              "cache_read": 0.1423844
+            },
+            {
+              "tier": { "type": "context", "size": 128001 },
+              "input": 1.423843995,
+              "output": 7.119219977,
+              "cache_read": 0.284768799
+            }
+          ]
+        }
+      },
+      "doubao-seed-character-260628": {
+        "id": "doubao-seed-character-260628",
+        "name": "Doubao Seed Character",
+        "family": "doubao-seed",
+        "release_date": "2026-06-28",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.118653666,
+          "output": 0.296634166,
+          "cache_read": 0.023730733,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.177980499,
+              "output": 0.889902497,
+              "cache_read": 0.023730733
+            }
+          ]
+        }
+      },
+      "doubao-seed-character-251128": {
+        "id": "doubao-seed-character-251128",
+        "name": "Doubao Seed Character",
+        "family": "doubao-seed",
+        "release_date": "2025-11-28",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.118653666,
+          "output": 0.296634166,
+          "cache_read": 0.023730733,
+          "tiers": [
+            {
+              "tier": { "type": "context", "size": 32001 },
+              "input": 0.177980499,
+              "output": 0.889902497,
+              "cache_read": 0.023730733
+            }
+          ]
+        }
+      },
+      "doubao-seed-translation-250915": {
+        "id": "doubao-seed-translation-250915",
+        "name": "Doubao Seed Translation",
+        "family": "doubao-seed",
+        "release_date": "2025-09-15",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.177980499,
+          "output": 0.533941498
+        }
+      },
+      "glm-5-2-260617": {
+        "id": "glm-5-2-260617",
+        "name": "GLM 5.2",
+        "family": "glm",
+        "release_date": "2026-06-17",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 1.186536663,
+          "output": 4.15287832,
+          "cache_read": 0.296634166
+        }
+      },
+      "deepseek-v4-pro-ga-260813": {
+        "id": "deepseek-v4-pro-ga-260813",
+        "name": "DeepSeek V4 Pro GA",
+        "family": "deepseek",
+        "release_date": "2026-08-13",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 1.334853746,
+          "output": 4.004561237,
+          "cache_read": 0.044495125
+        }
+      },
+      "deepseek-v4-flash-ga-260731": {
+        "id": "deepseek-v4-flash-ga-260731",
+        "name": "DeepSeek V4 Flash GA",
+        "family": "deepseek",
+        "release_date": "2026-07-31",
+        "last_updated": "2026-08-21",
+        "cost": {
+          "input": 0.444951249,
+          "output": 1.334853746,
+          "cache_read": 0.014831708
+        }
+      },
+      "deepseek-v4-pro-260425": {
+        "id": "deepseek-v4-pro-260425",
+        "name": "DeepSeek V4 Pro",
+        "family": "deepseek",
+        "release_date": "2026-04-25",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 1.779804994,
+          "output": 3.559609989,
+          "cache_read": 0.148317083
+        }
+      },
+      "deepseek-v4-flash-260425": {
+        "id": "deepseek-v4-flash-260425",
+        "name": "DeepSeek V4 Flash",
+        "family": "deepseek",
+        "release_date": "2026-04-25",
+        "last_updated": "2026-08-17",
+        "cost": {
+          "input": 0.148317083,
+          "output": 0.296634166,
+          "cache_read": 0.029663417
+        }
+      }
+    }
+  }
+}

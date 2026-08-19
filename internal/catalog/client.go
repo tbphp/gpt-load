@@ -98,9 +98,13 @@ func (client *Client) Sync(ctx context.Context, previous Metadata) (SyncResult, 
 	if int64(len(raw)) > maxCatalogBodyBytes {
 		return SyncResult{}, fmt.Errorf("Models.dev catalog exceeds 32 MiB limit")
 	}
-	snapshot, err := Parse(bytes.NewReader(raw))
+	modelsDevSnapshot, err := Parse(bytes.NewReader(raw))
 	if err != nil {
 		return SyncResult{}, fmt.Errorf("parse Models.dev catalog: %w", err)
+	}
+	snapshot, err := MergeOfficial(modelsDevSnapshot)
+	if err != nil {
+		return SyncResult{}, err
 	}
 	metadata := Metadata{
 		ETag:                    response.Header.Get("ETag"),

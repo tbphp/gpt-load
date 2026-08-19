@@ -1,4 +1,4 @@
-// Package catalog loads and publishes the validated Models.dev model catalog.
+// Package catalog loads, merges, and publishes validated model catalogs.
 package catalog
 
 import (
@@ -14,7 +14,7 @@ type ModelCost struct {
 	ModePrices   map[pricing.Mode]pricing.Prices
 }
 
-// ModelCapabilities contains optional Models.dev capability declarations.
+// ModelCapabilities contains optional catalog capability declarations.
 // Nil distinguishes an omitted declaration from an explicit false value.
 type ModelCapabilities struct {
 	Attachment       *bool
@@ -25,21 +25,21 @@ type ModelCapabilities struct {
 }
 
 // ModelModalities contains the ordered input and output modalities retained
-// from Models.dev.
+// from a catalog source.
 type ModelModalities struct {
 	Input  []string
 	Output []string
 }
 
-// ModelLimits contains optional token limits retained from Models.dev.
+// ModelLimits contains optional token limits retained from a catalog source.
 type ModelLimits struct {
 	Context *int64
 	Input   *int64
 	Output  *int64
 }
 
-// ModelMetadata is the display-only Models.dev metadata retained for one
-// model. It never changes routing, protocol support, or pricing behavior.
+// ModelMetadata is the display-only catalog metadata retained for one model.
+// It never changes routing, protocol support, or pricing behavior.
 type ModelMetadata struct {
 	Description  string
 	Family       string
@@ -53,8 +53,8 @@ type ModelMetadata struct {
 	Status       string
 }
 
-// Model is the retained Models.dev model identity, display metadata, and
-// optional price data.
+// Model is the retained catalog model identity, display metadata, and optional
+// price data.
 type Model struct {
 	ID       string
 	Name     string
@@ -62,7 +62,7 @@ type Model struct {
 	Cost     *ModelCost
 }
 
-// Provider is the retained Models.dev provider identity and model map.
+// Provider is the retained catalog provider identity and model map.
 type Provider struct {
 	ID     string
 	Name   string

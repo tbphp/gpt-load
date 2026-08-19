@@ -17,8 +17,8 @@ export default {
       user_set: '手动价格',
     },
     source: {
-      channel_catalog_provider: '价格来自 Models.dev · {provider}',
-      provider_priority_fallback: '该渠道无精确目录价格，参考 Models.dev · {provider}',
+      channel_catalog_provider: '预设价格目录 · {provider}',
+      provider_priority_fallback: '无精确价格，参考预设价格目录 · {provider}',
     },
     matrix: {
       heading: '价格',

@@ -443,6 +443,10 @@ func assertNoCatalogTemporaryFiles(t *testing.T, directory string) {
 func validSyncResult(t *testing.T) SyncResult {
 	t.Helper()
 	raw := json.RawMessage(`{"openai":{"id":"openai","name":"OpenAI","models":{"gpt-x":{"id":"gpt-x","name":"GPT X","description":"General model","attachment":true,"modalities":{"input":["text","image"],"output":["text"]},"limit":{"context":1000000,"output":100000},"cost":{"input":0.000000001}}}}}`)
+	snapshot, err := MergeOfficial(mustParse(t, string(raw)))
+	if err != nil {
+		t.Fatalf("MergeOfficial() error = %v", err)
+	}
 	return SyncResult{
 		Metadata: Metadata{
 			ETag:                    `"catalog-v1"`,
@@ -451,6 +455,6 @@ func validSyncResult(t *testing.T) SyncResult {
 			SuccessfulFetchAtMillis: 1_754_180_400_123,
 		},
 		RawJSON:  raw,
-		Snapshot: mustParse(t, string(raw)),
+		Snapshot: snapshot,
 	}
 }

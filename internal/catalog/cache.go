@@ -92,9 +92,13 @@ func LoadCache(path string) (CachedCatalog, error) {
 	if len(document.Raw) == 0 || int64(len(document.Raw)) > maxCatalogBodyBytes {
 		return CachedCatalog{}, fmt.Errorf("catalog cache raw document is missing or oversized")
 	}
-	snapshot, err := Parse(bytes.NewReader(document.Raw))
+	modelsDevSnapshot, err := Parse(bytes.NewReader(document.Raw))
 	if err != nil {
 		return CachedCatalog{}, fmt.Errorf("parse cached Models.dev catalog: %w", err)
+	}
+	snapshot, err := MergeOfficial(modelsDevSnapshot)
+	if err != nil {
+		return CachedCatalog{}, err
 	}
 	return CachedCatalog{
 		Metadata: metadata,
@@ -227,9 +231,13 @@ func cacheDocumentForResult(result SyncResult) (cacheDocument, error) {
 	if err := validateMetadata(result.Metadata, true); err != nil {
 		return cacheDocument{}, err
 	}
-	reparsed, err := Parse(bytes.NewReader(result.RawJSON))
+	modelsDevSnapshot, err := Parse(bytes.NewReader(result.RawJSON))
 	if err != nil {
 		return cacheDocument{}, fmt.Errorf("revalidate Models.dev catalog: %w", err)
+	}
+	reparsed, err := MergeOfficial(modelsDevSnapshot)
+	if err != nil {
+		return cacheDocument{}, err
 	}
 	if !reflect.DeepEqual(reparsed, result.Snapshot) {
 		return cacheDocument{}, fmt.Errorf("catalog raw document and snapshot are inconsistent")

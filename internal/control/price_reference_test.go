@@ -42,6 +42,22 @@ func TestResolveAutomaticPriceForIdentityUsesOfficialChannelCatalogProvider(t *t
 	}
 }
 
+func TestResolveAutomaticPriceForIdentityUsesVolcengineOfficialSupplement(t *testing.T) {
+	snapshot, err := catalog.MergeOfficial(&catalog.Snapshot{})
+	if err != nil {
+		t.Fatalf("MergeOfficial() error = %v", err)
+	}
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Volcengine), ModelID: "doubao-seed-2-1-pro-260628",
+	})
+	if !ok || match.providerID != "volcengine" ||
+		match.source != ModelPriceMatchSourceChannelCatalogProvider || match.cost == nil ||
+		!match.cost.Prices.Input.Set ||
+		match.cost.Prices.Input.NanoUSDPerMillion != 889_902_497 {
+		t.Fatalf("Volcengine official price match = %#v, %t", match, ok)
+	}
+}
+
 func TestResolveAutomaticPriceForIdentityFallsBackWhenChannelCatalogProviderMisses(t *testing.T) {
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{

@@ -38,7 +38,13 @@ func TestNewClientUsesFixedManagedTransportContract(t *testing.T) {
 }
 
 func TestClientSyncSendsConditionalHeadersAndReturnsValidated200(t *testing.T) {
-	raw := []byte(`{"openai":{"id":"openai","name":"OpenAI","models":{}}}`)
+	raw := []byte(`{
+		"openai":{"id":"openai","name":"OpenAI","models":{}},
+		"volcengine":{"id":"volcengine","name":"Models.dev Volcengine","models":{
+			"doubao-seed-2-0-pro-260215":{"id":"doubao-seed-2-0-pro-260215","name":"Upstream collision","cost":{"input":99,"cache_write":7}},
+			"models-dev-only":{"id":"models-dev-only","name":"Models.dev only","cost":{"input":1}}
+		}}
+	}`)
 	body := &trackedReadCloser{Reader: strings.NewReader(string(raw))}
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodGet || request.URL.String() != "https://catalog.test/api.json" {
@@ -74,6 +80,25 @@ func TestClientSyncSendsConditionalHeadersAndReturnsValidated200(t *testing.T) {
 	}
 	if result.NotModified || result.Snapshot == nil || result.Snapshot.Providers["openai"].Name != "OpenAI" {
 		t.Fatalf("Sync() result = %#v", result)
+	}
+	volcengine := result.Snapshot.Providers["volcengine"]
+	if volcengine.Name != "Volcengine Ark" {
+		t.Fatalf("merged Volcengine provider = %#v", volcengine)
+	}
+	if _, ok := volcengine.Models["models-dev-only"]; !ok {
+		t.Fatal("Models.dev-only Volcengine model was not retained")
+	}
+	official := volcengine.Models["doubao-seed-2-0-pro-260215"]
+	if official.Name != "Doubao Seed 2.0 Pro" || official.Cost == nil {
+		t.Fatalf("official Volcengine model = %#v", official)
+	}
+	assertPrice(t, "official input", official.Cost.Prices.Input, 474_614_665, true)
+	assertPrice(t, "official cache read", official.Cost.Prices.CacheRead, 94_922_933, true)
+	assertPrice(t, "official cache write", official.Cost.Prices.CacheWrite, 0, false)
+	if len(official.Cost.ContextTiers) != 2 ||
+		official.Cost.ContextTiers[0].InputThresholdTokens != 32_001 ||
+		official.Cost.ContextTiers[1].InputThresholdTokens != 128_001 {
+		t.Fatalf("official context tiers = %#v", official.Cost.ContextTiers)
 	}
 	if string(result.RawJSON) != string(raw) {
 		t.Fatalf("raw JSON = %s, want %s", result.RawJSON, raw)

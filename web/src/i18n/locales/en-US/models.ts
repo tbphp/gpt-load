@@ -4,8 +4,7 @@ export default {
     loading: 'Loading models…',
     loadFailed: 'Unable to load models',
     stale: 'The current model information may be stale because the background refresh failed',
-    context:
-      'Prices use USD per 1M tokens for future cost estimates only; they are not actual upstream billing',
+    context: 'Preset prices take priority over Models.dev · USD / 1M tokens · estimates only',
     result: 'Showing {shown} of {total} client models',
     actions: {
       sync: 'Sync catalog and automatic prices',
@@ -22,9 +21,9 @@ export default {
       unit: 'USD / 1M tokens · estimate only',
     },
     catalog: {
-      available: 'Models.dev catalog available',
-      stale: 'Sync failed; using the last successful catalog',
-      unavailable: 'Models.dev catalog unavailable',
+      available: 'Preset price catalog available',
+      stale: 'Models.dev sync failed; using the current price catalog',
+      unavailable: 'Price catalog unavailable',
       lastSuccess: 'Last sync',
       lastCheck: 'Last check',
     },
@@ -100,8 +99,8 @@ export default {
     detail: {
       groupDisabled: 'Disabled',
       catalogReference: {
-        actual_provider: 'Models.dev exact provider · {provider}',
-        reference_provider: 'Models.dev reference provider · {provider}',
+        actual_provider: 'Price catalog provider · {provider}',
+        reference_provider: 'Price catalog reference provider · {provider}',
       },
       specs: {
         context: 'Context',

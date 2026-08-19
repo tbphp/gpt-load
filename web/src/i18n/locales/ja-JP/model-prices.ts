@@ -17,9 +17,9 @@ export default {
       user_set: '手動価格',
     },
     source: {
-      channel_catalog_provider: 'Models.dev · {provider} の価格',
+      channel_catalog_provider: 'プリセット価格カタログ · {provider}',
       provider_priority_fallback:
-        'このチャネルに完全一致するカタログ価格がないため、Models.dev · {provider} を参照',
+        '完全一致する価格なし・プリセット価格カタログ · {provider} を参照',
     },
     matrix: {
       heading: '価格',

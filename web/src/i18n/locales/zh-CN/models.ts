@@ -4,7 +4,7 @@ export default {
     loading: '正在加载模型…',
     loadFailed: '无法加载模型',
     stale: '后台刷新失败，当前模型信息可能已过期',
-    context: '价格单位为 USD / 1M tokens，仅用于后续成本估算，不代表上游渠道实际收费',
+    context: '预设价格优先于 Models.dev；USD / 1M Token，仅供估算',
     result: '显示 {shown} / {total} 个客户端模型',
     actions: {
       sync: '同步目录与自动价格',
@@ -21,9 +21,9 @@ export default {
       unit: 'USD / 百万 Token · 仅估算',
     },
     catalog: {
-      available: 'Models.dev 目录可用',
-      stale: '同步失败，使用上次成功目录',
-      unavailable: 'Models.dev 目录不可用',
+      available: '预设价格目录可用',
+      stale: 'Models.dev 同步失败，使用当前价格目录',
+      unavailable: '价格目录不可用',
       lastSuccess: '最近同步',
       lastCheck: '最近检查',
     },
@@ -99,8 +99,8 @@ export default {
     detail: {
       groupDisabled: '已停用',
       catalogReference: {
-        actual_provider: 'Models.dev 对应供应商 · {provider}',
-        reference_provider: 'Models.dev 参考供应商 · {provider}',
+        actual_provider: '价格目录对应供应商 · {provider}',
+        reference_provider: '价格目录参考供应商 · {provider}',
       },
       specs: {
         context: '上下文',

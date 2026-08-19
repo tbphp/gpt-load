@@ -33,7 +33,7 @@ var (
 	tierRuleCanonicalFields     = []string{"type", "size"}
 )
 
-// Parse decodes, validates, and normalizes the retained Models.dev subset.
+// Parse decodes, validates, and normalizes the retained Models.dev-compatible subset.
 func Parse(reader io.Reader) (*Snapshot, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("catalog reader is required")

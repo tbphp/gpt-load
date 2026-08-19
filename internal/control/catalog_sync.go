@@ -52,16 +52,26 @@ func loadCatalogBootstrap(cachePath string) *CatalogBootstrap {
 		Runtime:   &catalog.Runtime{},
 		CachePath: cachePath,
 	}
+	bootstrapOutcome := "empty"
+	official, officialErr := catalog.OfficialSnapshot()
+	if officialErr != nil {
+		logrus.WithField("component", "official_catalog").Error(
+			"Embedded official catalog is unavailable",
+		)
+	} else {
+		bootstrap.Runtime.Publish(official)
+		bootstrapOutcome = "official_only"
+	}
 	cached, err := catalog.LoadCache(cachePath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			logrus.WithField("component", "models_dev_catalog").Warn(
-				"Models.dev catalog cache is unavailable; starting with an empty catalog",
+				"Models.dev catalog cache is unavailable; starting with the official catalog only",
 			)
 		}
 		logrus.WithFields(logrus.Fields{
 			"event":   "startup.catalog_load",
-			"outcome": "empty",
+			"outcome": bootstrapOutcome,
 		}).Info("catalog runtime loaded")
 		return bootstrap
 	}
@@ -185,8 +195,9 @@ func newCatalogSyncCoordinator(
 	return coordinator
 }
 
-// NewCatalogBootstrap loads the durable last-known-good catalog without doing
-// network I/O. Missing or invalid cache files result in an empty runtime.
+// NewCatalogBootstrap merges the embedded official catalog with the durable
+// Models.dev last-known-good catalog without doing network I/O. Missing or
+// invalid cache files retain the official catalog generation.
 func NewCatalogBootstrap(cfg *config.Config) *CatalogBootstrap {
 	dataDir := "."
 	if cfg != nil && cfg.DataDir != "" {
