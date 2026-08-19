@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert } from '@lucide/vue'
+import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -7,6 +7,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import type {
+  ConnectionType,
   CredentialCounts,
   GroupCollectionFilters,
   GroupCollectionSort,
@@ -65,7 +66,10 @@ const searchDebounce = useDebouncedAction(250)
 
 const data = computed(() => groupsQuery.data.value)
 const hasFilterCriteria = computed(
-  () => filters.value.q !== undefined || filters.value.status !== undefined,
+  () =>
+    filters.value.q !== undefined ||
+    filters.value.status !== undefined ||
+    filters.value.connection_type !== undefined,
 )
 const hasChangedConditions = computed(
   () => hasFilterCriteria.value || filters.value.sort !== 'status',
@@ -92,6 +96,11 @@ const sortSelectOptions = computed(() =>
     label: t(`groups.collection.sort.${sort}`),
   })),
 )
+const connectionTypeSelectOptions = computed(() => [
+  { value: '', label: t('groups.collection.connectionType.all') },
+  { value: 'api_key', label: t('groups.collection.connectionType.apiKey') },
+  { value: 'subscription', label: t('groups.collection.connectionType.subscription') },
+])
 const statusSummaryItems = computed(() => {
   const summary = data.value?.summary
   if (!summary) return []
@@ -160,7 +169,7 @@ function routeWithFilters(next: GroupCollectionFilters, replace = false): void {
 }
 
 function updateConditions(
-  patch: Partial<Pick<GroupCollectionFilters, 'q' | 'status' | 'sort'>>,
+  patch: Partial<Pick<GroupCollectionFilters, 'q' | 'status' | 'connection_type' | 'sort'>>,
 ): void {
   const q = constrainGroupCollectionSearchQuery(searchDraft.value)
   routeWithFilters({ ...filters.value, q, ...patch, page: 1 })
@@ -180,6 +189,15 @@ function clearSearch(): void {
 
 function setStatus(status: string | undefined): void {
   updateConditions({ status: status as GroupCollectionStatus | undefined })
+}
+
+function setConnectionType(value: string): void {
+  if (value === '') {
+    updateConditions({ connection_type: undefined })
+    return
+  }
+  if (value !== 'api_key' && value !== 'subscription') return
+  updateConditions({ connection_type: value as ConnectionType })
 }
 
 function setSort(value: string): void {
@@ -212,6 +230,20 @@ function channelName(channelID: string): string {
 
 function channelDefinition(channelID: string): ChannelDto | null {
   return channelsByID.value[channelID] ?? null
+}
+
+function connectionTypeLabel(type: ConnectionType): string {
+  return t(
+    type === 'api_key'
+      ? 'groups.collection.connectionType.apiKey'
+      : 'groups.collection.connectionType.subscription',
+  )
+}
+
+function connectionTypeBadgeClass(type: ConnectionType): string {
+  return type === 'api_key'
+    ? 'connection-type-badge--api-key'
+    : 'connection-type-badge--subscription'
 }
 </script>
 
@@ -296,6 +328,19 @@ function channelDefinition(channelID: string): ChannelDto | null {
                 :clear-label="t('groups.collection.filters.clearSearch')"
                 @update:model-value="scheduleSearch"
                 @clear="clearSearch"
+              />
+            </label>
+
+            <label class="collection-filter-field">
+              <span class="collection-filter-label">
+                {{ t('groups.collection.connectionType.label') }}
+              </span>
+              <AppSelect
+                size="compact"
+                :label="t('groups.collection.connectionType.label')"
+                :model-value="filters.connection_type ?? ''"
+                :options="connectionTypeSelectOptions"
+                @update:model-value="setConnectionType"
               />
             </label>
 
@@ -423,6 +468,18 @@ function channelDefinition(channelID: string): ChannelDto | null {
                   >
                     {{ channelName(group.channel_id) }}
                   </OverflowTooltip>
+                  <span
+                    class="connection-type-badge"
+                    :class="connectionTypeBadgeClass(group.connection_type)"
+                  >
+                    <KeyRound
+                      v-if="group.connection_type === 'api_key'"
+                      :size="12"
+                      aria-hidden="true"
+                    />
+                    <UserRound v-else :size="12" aria-hidden="true" />
+                    {{ connectionTypeLabel(group.connection_type) }}
+                  </span>
                 </span>
                 <CopyChip
                   v-if="group.params.base_url"
@@ -574,6 +631,37 @@ function channelDefinition(channelID: string): ChannelDto | null {
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.connection-type-badge {
+  display: inline-flex;
+  min-height: 22px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-tag);
+  padding: 2px 6px;
+  font-size: var(--text-label-xs);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.connection-type-badge--api-key {
+  border-color: color-mix(in srgb, var(--color-info) 28%, var(--color-border-subtle));
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.connection-type-badge--subscription {
+  border-color: color-mix(in srgb, var(--color-action) 28%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
+  color: var(--color-action);
+}
+
+.connection-type-badge svg {
+  flex: none;
 }
 
 .model-count {

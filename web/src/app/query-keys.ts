@@ -21,6 +21,7 @@ export function normalizeGroupCollectionFilters(
   const query = filters.q?.trim()
   if (query) normalized.q = query
   if (filters.status !== undefined) normalized.status = filters.status
+  if (filters.connection_type !== undefined) normalized.connection_type = filters.connection_type
   return normalized
 }
 

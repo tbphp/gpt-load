@@ -21,6 +21,7 @@ export type ConnectionType = 'api_key' | 'subscription'
 export interface GroupCollectionFilters {
   q?: string
   status?: GroupCollectionStatus
+  connection_type?: ConnectionType
   sort: GroupCollectionSort
   page: number
   page_size: 20
