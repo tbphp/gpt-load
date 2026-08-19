@@ -32,12 +32,12 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 </tbody>
 </table>
 
-## 2.0 release status
+## About 2.0
 
-> [!WARNING]
-> 2.0 is a **pre-release local candidate**. M3/M4 candidate code and retained local verification evidence exist, but release exit and publication are not complete. No `v2.0.0` tag, GitHub Release, public binary, or public container image has been verified as available. A checkout or branch is not release evidence.
+> [!IMPORTANT]
+> GPT-Load 2.0 is a greenfield rewrite. It cannot open, import, or migrate 1.x data, and it does not support data created by earlier 2.x development builds outside the published compatibility contract. Deploy 2.0 with a new, dedicated database, `DATA_DIR`, and encryption key.
 
-2.0 is a greenfield rewrite whose data is incompatible with 1.x and earlier pre-release 2.x builds. During pre-release development, use an empty dedicated database with a matching new encryption key. `main` remains the 1.4.x maintenance line. The release contract reserves explicit `2`, `2.0`, and `v2.0.0` container tags and does not move `latest` automatically; these names do not imply that images have been published.
+Official 2.x container releases use explicit `2`, `2.0`, and exact-version tags such as `v2.0.0`. The release workflow does not move the container tag `latest`; select a 2.x tag or immutable digest explicitly.
 
 ## 2.0 capabilities
 
@@ -49,7 +49,7 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
 - **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, exact four-slot model prices synchronized from Models.dev where available, and user-managed prices.
 
-The M3 control-plane UI and M4 usage/pricing scope are present in the local candidate, but their formal exit and public release are unfinished. Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
+Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
 
 > [!WARNING]
 > Subscription OAuth execution relies on pinned, compatibility-sensitive CPA contracts rather than the corresponding API-key contracts. Upstream changes may require a reviewed CPA bridge update; validate each enabled channel with an authorized account before production use.
@@ -60,25 +60,25 @@ The M3 control-plane UI and M4 usage/pricing scope are present in the local cand
 - Supports SQLite, MySQL, and PostgreSQL through one unified `DATABASE_DSN` configuration. The current release targets the latest stable versions of these three engines; other database products are not supported.
 - The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
 - Client protocol filters use `openai-completions`, `openai-responses`, `anthropic`, or `gemini`. A Group stores one `channel_id`; the code-owned channel preset determines provider behavior, accepted client protocols, credential schema, discovery, and Models.dev mapping.
-- OpenAI Responses resource routing has no Key affinity. Stateful turns using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one upstream Key or an upstream that shares resource storage across Keys. Otherwise the selected upstream may return a resource-not-found error.
+- OpenAI Responses create requests can use process-local, best-effort prompt-prefix soft affinity. This is not persistent resource binding: requests using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one Credential or an upstream that shares resource storage across Credentials. Otherwise the selected upstream may return a resource-not-found error.
 - Channel credentials must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
-- There is no automatic migration or reverse synchronization from 1.x or earlier pre-release 2.x schemas. The current baseline initializes an empty database; future schema changes will append migrations from this baseline.
+- There is no automatic migration or reverse synchronization from 1.x or unsupported pre-release 2.x schemas. Start 2.0 with a new database; supported later 2.x upgrades follow the numbered migration chain and the applicable release notes.
 - There is no online billing reconciliation, online backup API, or backup CLI. Models.dev synchronization supplies estimation metadata only; it is not a provider bill or invoice.
 
 ## Quick start
 
 ### Docker Compose
 
-The candidate 2.x Compose contract references `ghcr.io/tbphp/gpt-load:2`, container path `/app/data`, and the `gpt-load-data` named volume. This is a local contract, not proof that the image is publicly available. It never uses `latest`. Check the current checkout first:
+The official 2.x Compose configuration uses `ghcr.io/tbphp/gpt-load:2`, container path `/app/data`, and the `gpt-load-data` named volume. It never uses `latest`. Review the resolved configuration before starting the service:
 
 ```console
 cp .env.example .env
 docker compose config
 ```
 
-Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets the **container** environment to `HOST=0.0.0.0` and `DATA_DIR=/app/data`, leaves `DATABASE_DSN` empty/absent so the process selects managed `/app/data/gpt-load.db`, publishes the **host** side on `${BIND_ADDRESS:-127.0.0.1}`, and mounts a named volume at `/app/data`. The service has no fixed `container_name`, so Compose project names provide instance isolation. If the public image is unavailable, use the commented local build override instead of assuming it was published.
+Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets the **container** environment to `HOST=0.0.0.0` and `DATA_DIR=/app/data`, leaves `DATABASE_DSN` empty/absent so the process selects managed `/app/data/gpt-load.db`, publishes the **host** side on `${BIND_ADDRESS:-127.0.0.1}`, and mounts a named volume at `/app/data`. The service has no fixed `container_name`, so Compose project names provide instance isolation.
 
-After those preconditions and image/build availability are met:
+After confirming the configuration:
 
 ```console
 docker compose up -d
@@ -94,7 +94,7 @@ Compose listens on all interfaces only inside the container while publishing to 
 
 ### Native binary
 
-After publication, download the platform-matching artifact from the GitHub Release and verify it against `SHA256SUMS`. Until release assets actually exist, build from the current checkout as shown under “Build and verification”; do not assume that an artifact has been published.
+Download the platform-matching artifact from the corresponding [GitHub Release](https://github.com/tbphp/gpt-load/releases) and verify it against `SHA256SUMS` before running it.
 
 Linux amd64 example:
 
@@ -149,7 +149,7 @@ Responses routing uses the namespace boundary, not a per-resource allowlist. Aft
 A Group whose channel supports Responses may keep an empty model list and still serve model-free Responses resource endpoints. Requests that include a model, including ordinary create requests, still require a configured model route.
 
 > [!WARNING]
-> 2.0.0 does not implement Responses affinity. Stateful multi-turn requests using `previous_response_id` or `conversation`, and resource operations on an earlier response ID, may reach a different Group/Credential and receive an upstream 404. Use a single Credential, stateless item replay with `store: false`, or an upstream with shared resource storage until affinity is implemented.
+> 2.0 provides best-effort prompt-prefix soft affinity for Responses create requests, but it does not bind an upstream resource ID to its original Group or Credential. Stateful requests using `previous_response_id` or `conversation`, and resource operations on an earlier response ID, may still reach another target and receive an upstream 404. For resource-bound flows, use a single Credential, stateless item replay with `store: false`, or an upstream with shared resource storage.
 
 Responses create and compact requests participate in usage extraction. Retrieve, delete, cancel, input-items, input-token-count, and unknown extension subpaths are recorded with usage `not_applicable`. Discovery and validation are selected by the channel preset rather than by user-configured protocol checkboxes.
 
@@ -240,7 +240,7 @@ The empty value is the only application-managed database mode. A non-empty SQLit
 
 - Database ownership follows only the raw `DATABASE_DSN`: empty means the managed SQLite DB/WAL/SHM under `${DATA_DIR}`; every non-empty value means an external, operator-owned database that GPT-Load does not mkdir, chmod, or create database users for and that must be backed up separately.
 - Secret ownership is independent of database ownership. For each secret, `/api/system/info` reports `key_file` or `environment`: archive a reported `key_file` (`auth.key` or `encryption.key`) from `DATA_DIR` regardless of the database source, or restore an `environment` secret separately from the protected external secret system.
-- On POSIX, managed `${DATA_DIR}` is restricted to `0700` and managed DB/WAL/SHM plus application-created key files to `0600`. Windows uses current-user-only ACLs, but the Windows runtime stop/ACL gate has not been executed for this candidate.
+- On POSIX, managed `${DATA_DIR}` is restricted to `0700` and managed DB/WAL/SHM plus application-created key files to `0600`. Windows uses current-user-only ACLs.
 - Losing the matching `encryption.key`, from either source, makes encrypted channel credentials unrecoverable. 2.0.0 has no automatic repair or master-key rotation.
 - Managed SQLite uses WAL. Before backing it up, stop incoming traffic and wait for a clean exit: use `SIGTERM` on POSIX, or Ctrl+C, Ctrl+Break, or the service manager's stop action on Windows. External MySQL/PostgreSQL backups must follow the operator's engine-native backup procedure.
 - Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or channel credentials into logs, public issues, screenshots, or ordinary backup manifests.
@@ -286,15 +286,13 @@ make check
 
 Frontend unit tests and browser E2E tests are not part of the project workflow. Frontend verification consists of dependency installation, linting, formatting, type-checking, and building.
 
-2.0.0 is expected to provide five native raw binaries plus `SHA256SUMS`, a CycloneDX SBOM, and project/third-party license notices:
+Official 2.0 releases provide five native raw binaries plus `SHA256SUMS`, a CycloneDX SBOM, and project/third-party license notices:
 
 - `gpt-load-linux-amd64`
 - `gpt-load-linux-arm64`
 - `gpt-load-macos-amd64`
 - `gpt-load-macos-arm64`
 - `gpt-load-windows-amd64.exe`
-
-These are the expected names in the release contract, not a claim that a downloadable GitHub Release already exists.
 
 ## License and security
 

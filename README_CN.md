@@ -32,12 +32,12 @@ GPT-Load 是一个用 Go 构建的自托管多渠道 AI 网关。它通过单个
 </tbody>
 </table>
 
-## 2.0 发布状态
+## 关于 2.0
 
-> [!WARNING]
-> 2.0 当前是**发布前本地候选**。M3/M4 候选代码及本地验证留存证据已经存在，但正式出口和发布仍未完成；目前没有证据表明 `v2.0.0` tag、GitHub Release、公开二进制或公开容器镜像已经可用。checkout 或分支状态不能作为发布证据。
+> [!IMPORTANT]
+> GPT-Load 2.0 是彻底重写的新版本。它无法打开、导入或迁移 1.x 数据，也不支持正式兼容范围之外的早期 2.x 开发版本数据。部署 2.0 时必须使用全新且独立的数据库、`DATA_DIR` 和 encryption key。
 
-2.0 是与 1.x 及早期预发布 2.x 数据均不兼容的 greenfield rewrite。预发布开发阶段必须使用空的独立数据库和匹配的新 encryption key。`main` 继续承载 1.4.x 维护线。发布契约预留显式的 `2`、`2.0`、`v2.0.0` 容器 tag，且不会自动移动 `latest`；这些名称本身不代表镜像已经发布。
+官方 2.x 容器发布使用明确的 `2`、`2.0` 和 `v2.0.0` 等精确版本 tag。发布流程不会移动容器 `latest` tag；部署时应显式选择 2.x tag 或不可变 digest。
 
 ## 2.0 能力
 
@@ -49,7 +49,7 @@ GPT-Load 是一个用 Go 构建的自托管多渠道 AI 网关。它通过单个
 - **控制与可观测性**：运行设置、路由检查、健康视图、RequestLog，以及中文、英文、日文管理 UI。
 - **用量与估算成本**：对四种协议中会返回生成 usage 的接口进行采集，提供 24 小时/30 天汇总、明细质量状态、可用时从 Models.dev 同步的精确四槽模型价格，以及用户管理的价格。
 
-M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式出口与公开发布尚未完成。价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
+价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
 
 > [!WARNING]
 > 订阅 OAuth 执行依赖固定版本 CPA 提供的兼容性协议，不属于同品牌 API Key 契约。上游变更可能需要审查并更新 CPA bridge；生产使用前应通过已授权账号完成各渠道真实合同验证。
@@ -60,25 +60,25 @@ M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式�
 - 通过统一的 `DATABASE_DSN` 同时支持 SQLite、MySQL 和 PostgreSQL；当前版本面向这三种数据库的最新稳定版，不支持其他数据库产品。
 - Group 由 AccessKey 和运行时配置选择，不出现在数据面 URL 中。
 - AccessKey 的客户端协议筛选使用 `openai-completions`、`openai-responses`、`anthropic`、`gemini`。Group 只保存一个 `channel_id`；代码中的渠道预设统一决定 Provider 行为、客户端协议、凭据结构、模型发现与 Models.dev 映射。
-- OpenAI Responses 资源路由暂时没有 Credential 亲和。使用 `previous_response_id` 或 `conversation` 的有状态多轮，以及后续 retrieve/delete/cancel/input-items 请求，只有在单 Credential 或上游跨 Credential 共享资源存储时才可靠；否则可能由被选中的上游返回资源不存在。
+- OpenAI Responses create 请求可以使用进程内、best-effort 的提示前缀软亲和，但这不是持久资源绑定。使用 `previous_response_id` 或 `conversation` 的有状态请求，以及后续 retrieve/delete/cancel/input-items 请求，只有在单 Credential 或上游跨 Credential 共享资源存储时才可靠；否则可能由被选中的上游返回资源不存在。
 - 渠道凭据必须静态加密，不允许明文回退；2.0.0 不支持主密钥轮换，`migrate-keys` 仍是明确失败的延后命令。
-- 不支持从 1.x 或早期预发布 2.x schema 自动迁移或反向同步。当前基线只初始化空数据库；后续结构变更从该基线继续追加迁移。
+- 不支持从 1.x 或不受支持的早期 2.x 预发布 schema 自动迁移或反向同步。2.0 必须从新数据库开始；后续受支持的 2.x 升级按照有序迁移链和对应 Release Note 执行。
 - 不提供在线账单对账、在线备份 API 或备份 CLI。Models.dev 同步只提供估算元数据，不是服务商账单或发票。
 
 ## 快速开始
 
 ### Docker Compose
 
-当前 2.x Compose 候选契约引用 `ghcr.io/tbphp/gpt-load:2`、容器内 `/app/data` 和 named volume `gpt-load-data`。这只是本地契约，不证明公开镜像已经可用；契约不使用 `latest`。执行前先检查当前 checkout：
+官方 2.x Compose 配置使用 `ghcr.io/tbphp/gpt-load:2`、容器内 `/app/data` 和 named volume `gpt-load-data`，并且不使用 `latest`。启动服务前先检查解析后的配置：
 
 ```console
 cp .env.example .env
 docker compose config
 ```
 
-只有当解析结果满足以下条件时才继续：image 为 `ghcr.io/tbphp/gpt-load:2`；**容器内**环境为 `HOST=0.0.0.0`、`DATA_DIR=/app/data`；`DATABASE_DSN` 保持空/未设置，由进程在运行时选择 managed `/app/data/gpt-load.db`；**宿主机**发布地址为 `${BIND_ADDRESS:-127.0.0.1}`；`/app/data` 使用 named volume。服务不固定 `container_name`，不同实例通过 Compose project name 隔离。若公开镜像不可用，应启用注释中的本地 build override，不能假定镜像已经发布。
+只有当解析结果满足以下条件时才继续：image 为 `ghcr.io/tbphp/gpt-load:2`；**容器内**环境为 `HOST=0.0.0.0`、`DATA_DIR=/app/data`；`DATABASE_DSN` 保持空/未设置，由进程在运行时选择 managed `/app/data/gpt-load.db`；**宿主机**发布地址为 `${BIND_ADDRESS:-127.0.0.1}`；`/app/data` 使用 named volume。服务不固定 `container_name`，不同实例通过 Compose project name 隔离。
 
-满足上述配置及 image/build 可用性前置条件后：
+确认配置后：
 
 ```console
 docker compose up -d
@@ -93,7 +93,7 @@ Compose 仅在容器内部监听所有接口，默认仍只发布到宿主 loopb
 
 ### 原生二进制
 
-公开发布后，从 GitHub Release 下载与平台匹配的 artifact，并先校验 `SHA256SUMS`。在 release artifact 尚未出现前，可按“构建与验证”从当前 checkout 构建；不要假定文件已经发布。
+从对应的 [GitHub Release](https://github.com/tbphp/gpt-load/releases) 下载与平台匹配的 artifact，并在运行前使用 `SHA256SUMS` 完成校验。
 
 以下以 Linux amd64 artifact 为例：
 
@@ -148,7 +148,7 @@ Responses 路由按命名空间边界匹配，不维护资源接口白名单。A
 渠道支持 Responses 的 Group 可以不配置模型，并继续服务不含 model 的 Responses 资源接口；含 model 的请求（包括常规 create）仍需存在可匹配的模型路由。
 
 > [!WARNING]
-> 2.0.0 尚未实现 Responses 亲和。携带 `previous_response_id` 或 `conversation` 的有状态多轮，以及对既有 response ID 的资源操作，可能命中不同 Group/Credential 并收到上游 404。在亲和完成前，请使用单 Credential、`store: false` 的无状态 item replay，或使用跨 Credential 共享资源存储的上游。
+> 2.0 为 Responses create 请求提供 best-effort 的提示前缀软亲和，但不会把上游资源 ID 与原始 Group 或 Credential 绑定。携带 `previous_response_id` 或 `conversation` 的有状态请求，以及对既有 response ID 的资源操作，仍可能命中其他目标并收到上游 404。需要资源绑定时，请使用单 Credential、`store: false` 的无状态 item replay，或使用跨 Credential 共享资源存储的上游。
 
 Responses create 与 compact 请求参与 usage 抽取；retrieve、delete、cancel、input-items、input-token-count 及未知扩展子路径在 RequestLog 中记录为 usage `not_applicable`。模型发现与验活由渠道预设决定，不再依赖用户选择协议。
 
@@ -239,7 +239,7 @@ postgres://user:password@db.example:5432/gpt_load?sslmode=require
 
 - 数据库归属只由 raw `DATABASE_DSN` 决定：空值表示 `${DATA_DIR}` 下 managed SQLite DB/WAL/SHM；任何非空值都表示 operator 管理的 external 数据库，GPT-Load 不为其 mkdir、chmod、创建数据库或用户，必须单独备份。
 - secret 归属与数据库归属相互独立。`/api/system/info` 会分别报告 secret source：无论数据库是哪种 source，`key_file` 都必须归档 `DATA_DIR` 中对应的 `auth.key` / `encryption.key`；`environment` 则必须从受保护的外部 secret system 单独恢复。
-- POSIX 下 managed `${DATA_DIR}` 权限收紧为 `0700`，managed DB/WAL/SHM 及应用创建的 key 文件为 `0600`。Windows 使用当前用户专属 ACL，但当前候选尚未执行 Windows runtime 停机/ACL 门禁。
+- POSIX 下 managed `${DATA_DIR}` 权限收紧为 `0700`，managed DB/WAL/SHM 及应用创建的 key 文件为 `0600`。Windows 使用当前用户专属 ACL。
 - 无论来自哪种 source，丢失匹配的 `encryption.key` 都会使已加密渠道凭据无法恢复。2.0.0 没有自动修复或主密钥轮换。
 - Managed SQLite 使用 WAL。备份前先停止入口流量并等待 clean exit：POSIX 使用 `SIGTERM`，Windows 使用 Ctrl+C、Ctrl+Break 或 service manager stop。MySQL/PostgreSQL 必须按 operator 的数据库原生备份流程执行。
 - 不要把 AUTH_KEY、ENCRYPTION_KEY、AccessKey 或渠道凭据粘贴到日志、公开 issue、截图或普通备份清单中。
@@ -285,15 +285,13 @@ make check
 
 项目工作流不包含前端单元测试或浏览器 E2E；前端验证范围为依赖安装、lint、format、type-check 与 build。
 
-2.0.0 预期提供五个原生 raw binary，以及 `SHA256SUMS`、CycloneDX SBOM、项目和第三方许可证声明：
+官方 2.0 Release 提供五个原生 raw binary，以及 `SHA256SUMS`、CycloneDX SBOM、项目和第三方许可证声明：
 
 - `gpt-load-linux-amd64`
 - `gpt-load-linux-arm64`
 - `gpt-load-macos-amd64`
 - `gpt-load-macos-arm64`
 - `gpt-load-windows-amd64.exe`
-
-这些是发布契约中的预期名称，不代表当前已经存在可下载的 GitHub Release。
 
 ## 许可证与安全
 

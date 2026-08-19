@@ -32,12 +32,12 @@ GPT-Loadは、Goで構築されたセルフホスト型のマルチチャネルA
 </tbody>
 </table>
 
-## 2.0のリリース状況
+## 2.0について
 
-> [!WARNING]
-> 2.0は現在、**プレリリースのローカル候補**です。M3/M4の候補コードとローカル検証の保存済み証跡はありますが、正式なリリース判断・承認と公開は完了していません。`v2.0.0`タグ、GitHub Release、公開バイナリ、公開コンテナイメージが利用可能だと確認できる証拠はありません。checkoutやブランチの状態はリリースの証拠にはなりません。
+> [!IMPORTANT]
+> GPT-Load 2.0は全面的に書き直された新しいバージョンです。1.xのデータを開く、インポートする、移行することはできず、公開された互換性契約の対象外である初期2.x開発版のデータにも対応しません。2.0は、新しい専用データベース、`DATA_DIR`、encryption keyを使ってデプロイしてください。
 
-2.0は1.xおよび以前のプレリリース2.xとデータ互換性のないgreenfield rewriteです。プレリリース開発中は、空の専用データベースと対応する新しいencryption keyを使用してください。`main`は引き続き1.4.xメンテナンスラインを提供します。リリース契約では明示的な`2`、`2.0`、`v2.0.0`コンテナタグを予約し、`latest`を自動更新しませんが、これらの名前自体はイメージの公開を意味しません。
+公式2.xコンテナリリースは、`2`、`2.0`、`v2.0.0`などの明示的なバージョンタグを使用します。リリースワークフローはコンテナの`latest`タグを移動しません。デプロイ時は2.xタグまたは不変のdigestを明示的に選択してください。
 
 ## 2.0の機能
 
@@ -49,7 +49,7 @@ GPT-Loadは、Goで構築されたセルフホスト型のマルチチャネルA
 - **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
 - **使用量と推定コスト**：4プロトコルのうち生成usageを返すエンドポイントからusageを取得し、24時間/30日レポート、リクエスト単位の品質状態、利用可能な場合にModels.devから同期する完全一致の4価格スロット、ユーザー管理価格を提供します。
 
-M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル候補に含まれていますが、正式なリリース判断・承認と公開は未完了です。価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
+価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
 
 > [!WARNING]
 > サブスクリプションOAuthの実行は、同ブランドのAPI Key契約ではなく、固定バージョンCPAの互換性に敏感な契約に依存します。上流変更時はCPA bridgeのレビューと更新が必要になる可能性があるため、本番利用前に許可されたアカウントで各チャネルの実契約を検証してください。
@@ -60,25 +60,25 @@ M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル�
 - 統一された `DATABASE_DSN` で SQLite、MySQL、PostgreSQL をサポートします。現在のリリースはこの3種類の最新安定版を対象とし、その他のデータベース製品には対応しません。
 - GroupはAccessKeyとランタイム設定で選択され、データプレーンURLには含まれません。
 - AccessKeyのクライアントプロトコルフィルターは`openai-completions`、`openai-responses`、`anthropic`、`gemini`を使用します。Groupは1つの`channel_id`だけを保存し、コード定義プリセットがProvider動作、クライアントプロトコル、認証情報schema、モデル検出、Models.dev対応を決定します。
-- OpenAI ResponsesのリソースルーティングにはCredential affinityがありません。`previous_response_id`または`conversation`を使うステートフルな複数ターンと、後続のretrieve/delete/cancel/input-itemsは、Credentialが1つの場合、または上流がCredential間でリソースストレージを共有する場合だけ確実です。それ以外では、選択された上流からresource-not-foundが返る可能性があります。
+- OpenAI Responsesのcreate要求では、プロセス内のbest-effortなプロンプトプレフィックスsoft affinityを利用できますが、永続的なリソースバインディングではありません。`previous_response_id`または`conversation`を使うステートフルな要求と、後続のretrieve/delete/cancel/input-itemsは、Credentialが1つの場合、または上流がCredential間でリソースストレージを共有する場合だけ確実です。それ以外では、選択された上流からresource-not-foundが返る可能性があります。
 - チャネル認証情報は必ず保存時に暗号化され、平文へのフォールバックはありません。2.0.0はマスターキーのローテーションに対応せず、`migrate-keys`は明示的に失敗する延期コマンドのままです。
-- 1.xまたは以前のプレリリース2.x schemaからの自動移行や逆同期には対応しません。現在のベースラインは空のデータベースだけを初期化し、今後のschema変更はこのベースラインからmigrationを追加します。
+- 1.xまたはサポート対象外の初期2.xプレリリースschemaからの自動移行や逆同期には対応しません。2.0は新しいデータベースから開始し、以後サポートされる2.xアップグレードは番号付きmigrationチェーンと該当Release Noteに従います。
 - オンライン請求照合、オンラインバックアップAPI、バックアップCLIは提供しません。Models.dev同期が提供するのは推定用メタデータだけで、プロバイダー請求書やインボイスではありません。
 
 ## クイックスタート
 
 ### Docker Compose
 
-現在の2.x Compose候補契約は`ghcr.io/tbphp/gpt-load:2`、コンテナ内パス`/app/data`、named volume `gpt-load-data`を参照します。これはローカル契約であり、公開イメージが利用可能であることの証拠ではありません。契約は`latest`を使用しません。まず現在のcheckoutを確認します。
+公式2.x Compose設定は、`ghcr.io/tbphp/gpt-load:2`、コンテナ内パス`/app/data`、named volume `gpt-load-data`を使用し、`latest`は使用しません。サービスを起動する前に、解決後の設定を確認してください。
 
 ```console
 cp .env.example .env
 docker compose config
 ```
 
-解決後の設定が次を満たす場合だけ続行してください。imageは`ghcr.io/tbphp/gpt-load:2`、**コンテナ内**環境は`HOST=0.0.0.0`と`DATA_DIR=/app/data`、`DATABASE_DSN`は空または未設定のままでプロセスがmanaged `/app/data/gpt-load.db`を選択し、**ホスト側**は`${BIND_ADDRESS:-127.0.0.1}`に公開され、`/app/data`にはnamed volumeがマウントされます。固定`container_name`はなく、Compose project nameでインスタンスを分離します。公開イメージが利用できない場合は、公開済みと仮定せず、コメントされたローカルbuild overrideを使用してください。
+解決後の設定が次を満たす場合だけ続行してください。imageは`ghcr.io/tbphp/gpt-load:2`、**コンテナ内**環境は`HOST=0.0.0.0`と`DATA_DIR=/app/data`、`DATABASE_DSN`は空または未設定のままでプロセスがmanaged `/app/data/gpt-load.db`を選択し、**ホスト側**は`${BIND_ADDRESS:-127.0.0.1}`に公開され、`/app/data`にはnamed volumeがマウントされます。固定`container_name`はなく、Compose project nameでインスタンスを分離します。
 
-上記の設定とimage/buildの可用性を確認した後：
+設定を確認した後：
 
 ```console
 docker compose up -d
@@ -94,7 +94,7 @@ Composeはコンテナ内でのみ全インターフェースをlistenし、ホ�
 
 ### ネイティブバイナリ
 
-公開後、GitHub Releaseからプラットフォームに合うartifactをダウンロードし、`SHA256SUMS`で検証します。release artifactが実際に存在するまでは、「ビルドと検証」に従って現在のcheckoutからビルドし、既に公開済みと仮定しないでください。
+該当する[GitHub Release](https://github.com/tbphp/gpt-load/releases)からプラットフォームに合うartifactをダウンロードし、実行前に`SHA256SUMS`で検証してください。
 
 Linux amd64の例：
 
@@ -146,7 +146,7 @@ Responsesルーティングはリソースごとのallowlistではなく、名�
 ResponsesをサポートするチャネルのGroupはモデル一覧が空でも、modelを含まないResponsesリソースAPIを処理できます。通常のcreateを含むmodel付き要求には、引き続き一致するモデルルートが必要です。
 
 > [!WARNING]
-> 2.0.0はResponses affinityを実装していません。`previous_response_id`または`conversation`を使うステートフルな複数ターン、および既存response IDへのリソース操作は、別のGroup/Credentialに到達して上流404を受ける場合があります。affinity実装までは、単一Credential、`store: false`によるステートレスなitem replay、またはCredential間でリソースストレージを共有する上流を使用してください。
+> 2.0はResponses create要求にbest-effortのプロンプトプレフィックスsoft affinityを提供しますが、上流リソースIDを元のGroupまたはCredentialへ結び付けません。`previous_response_id`または`conversation`を使うステートフルな要求、および既存response IDへのリソース操作は、別の対象に到達して上流404を受ける場合があります。リソースバインディングが必要な場合は、単一Credential、`store: false`によるステートレスなitem replay、またはCredential間でリソースストレージを共有する上流を使用してください。
 
 Responsesのcreateとcompactはusage抽出の対象です。retrieve、delete、cancel、input-items、input-token-count、不明な拡張サブパスはRequestLogでusage `not_applicable`として記録されます。モデル検出とvalidationはユーザーのプロトコル選択ではなく、チャネルプリセットが決定します。
 
@@ -237,7 +237,7 @@ postgres://user:password@db.example:5432/gpt_load?sslmode=require
 
 - データベースの所有区分はraw `DATABASE_DSN`だけで決まります。空なら`${DATA_DIR}`配下のmanaged SQLite DB/WAL/SHM、非空ならoperator所有のexternalデータベースです。GPT-Loadはexternalに対してmkdir、chmod、データベースやユーザー作成を行わず、operatorが別途バックアップします。
 - secretの所有区分はデータベースとは独立しています。`/api/system/info`がsecretごとにsourceを返します。データベースのsourceにかかわらず、`key_file`なら`DATA_DIR`内の対応する`auth.key` / `encryption.key`をアーカイブし、`environment`なら保護された外部secret systemから別途復元します。
-- POSIXではmanaged `${DATA_DIR}`を`0700`、managed DB/WAL/SHMとアプリケーションが作成したkeyファイルを`0600`に制限します。Windowsでは実行ユーザー専用ACLを使用しますが、この候補についてWindows runtimeの停止/ACLゲートは未実行です。
+- POSIXではmanaged `${DATA_DIR}`を`0700`、managed DB/WAL/SHMとアプリケーションが作成したkeyファイルを`0600`に制限します。Windowsでは実行ユーザー専用ACLを使用します。
 - sourceにかかわらず、対応する`encryption.key`を失うと、暗号化済みのチャネル認証情報は復旧できません。2.0.0には自動修復やマスターキーのローテーションがありません。
 - Managed SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、clean exitを待ちます。POSIXでは`SIGTERM`、WindowsではCtrl+C、Ctrl+Break、またはservice managerの停止操作を使用します。MySQL/PostgreSQLはoperatorのデータベースネイティブなバックアップ手順に従います。
 - AUTH_KEY、ENCRYPTION_KEY、AccessKey、チャネル認証情報をログ、公開issue、スクリーンショット、通常のバックアップ一覧に貼り付けないでください。
@@ -283,15 +283,13 @@ make check
 
 プロジェクトのワークフローには、フロントエンドのユニットテストとブラウザE2Eテストを含めません。フロントエンドの検証範囲は、依存関係のインストール、lint、format、type-check、buildです。
 
-2.0.0では5つのネイティブraw binaryに加え、`SHA256SUMS`、CycloneDX SBOM、プロジェクトと第三者ライセンス通知を提供する予定です。
+公式2.0 Releaseは、5つのネイティブraw binaryに加え、`SHA256SUMS`、CycloneDX SBOM、プロジェクトと第三者ライセンス通知を提供します。
 
 - `gpt-load-linux-amd64`
 - `gpt-load-linux-arm64`
 - `gpt-load-macos-amd64`
 - `gpt-load-macos-arm64`
 - `gpt-load-windows-amd64.exe`
-
-これらはリリース契約上の予定名であり、ダウンロード可能なGitHub Releaseが現時点で存在するという主張ではありません。
 
 ## ライセンスとセキュリティ
 
