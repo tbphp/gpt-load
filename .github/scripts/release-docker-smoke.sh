@@ -151,6 +151,8 @@ docker run --name "${probe}" \
     test -r /app/licenses/LICENSE
     test -r /app/licenses/THIRD_PARTY_NOTICES.md
     test -r /app/licenses/Apache-2.0.txt
+    test -r /app/licenses/MIT.txt
+    test -r /app/licenses/MPL-2.0.txt
     printf canary >/app/data/release-write-canary
     test "$(cat /app/data/release-write-canary)" = canary
     rm /app/data/release-write-canary

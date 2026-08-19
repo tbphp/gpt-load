@@ -192,6 +192,7 @@ func TestDockerfileDistributesDeclaredThirdPartyLicenseTexts(t *testing.T) {
 	for _, required := range []string{
 		"COPY LICENSES/Apache-2.0.txt /app/licenses/Apache-2.0.txt",
 		"COPY LICENSES/MIT.txt /app/licenses/MIT.txt",
+		"COPY LICENSES/MPL-2.0.txt /app/licenses/MPL-2.0.txt",
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("Dockerfile does not distribute declared license text %q", required)

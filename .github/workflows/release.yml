@@ -302,6 +302,8 @@ jobs:
           cp LICENSE release/LICENSE
           cp THIRD_PARTY_NOTICES.md release/THIRD_PARTY_NOTICES.md
           cp LICENSES/Apache-2.0.txt release/Apache-2.0.txt
+          cp LICENSES/MIT.txt release/MIT.txt
+          cp LICENSES/MPL-2.0.txt release/MPL-2.0.txt
           go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0 \
             mod -json -noserial -notimestamp -output release/bom.cdx.json .
 
@@ -311,6 +313,8 @@ jobs:
           sha256sum \
             Apache-2.0.txt \
             LICENSE \
+            MIT.txt \
+            MPL-2.0.txt \
             THIRD_PARTY_NOTICES.md \
             bom.cdx.json \
             gpt-load-linux-amd64 \
@@ -454,6 +458,8 @@ jobs:
           cat >/tmp/expected-release-assets <<'ASSETS'
           Apache-2.0.txt
           LICENSE
+          MIT.txt
+          MPL-2.0.txt
           SHA256SUMS
           THIRD_PARTY_NOTICES.md
           bom.cdx.json
@@ -467,7 +473,7 @@ jobs:
             sort >/tmp/current-run-release-assets
           cmp /tmp/expected-release-assets /tmp/current-run-release-assets
           cd release
-          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "9"
+          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "11"
           sha256sum --check SHA256SUMS
 
       - name: Require publication credentials and verify read access
@@ -907,6 +913,8 @@ jobs:
             release/gpt-load-windows-amd64.exe
             release/Apache-2.0.txt
             release/LICENSE
+            release/MIT.txt
+            release/MPL-2.0.txt
             release/THIRD_PARTY_NOTICES.md
             release/bom.cdx.json
             release/SHA256SUMS
@@ -1046,6 +1054,8 @@ jobs:
           cat >/tmp/expected-release-assets <<'ASSETS'
           Apache-2.0.txt
           LICENSE
+          MIT.txt
+          MPL-2.0.txt
           SHA256SUMS
           THIRD_PARTY_NOTICES.md
           bom.cdx.json
@@ -1058,11 +1068,11 @@ jobs:
           find draft-release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
             sort >/tmp/actual-release-assets
           asset_count="$(wc -l </tmp/actual-release-assets | tr -d ' ')"
-          test "${asset_count}" = "10"
+          test "${asset_count}" = "12"
           cmp /tmp/expected-release-assets /tmp/actual-release-assets
 
           cd draft-release
-          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "9"
+          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "11"
           awk '{print $2}' SHA256SUMS | sort >/tmp/checksummed-release-assets
           grep -v '^SHA256SUMS$' /tmp/expected-release-assets \
             >/tmp/expected-checksummed-release-assets

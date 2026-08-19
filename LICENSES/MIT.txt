@@ -1,6 +1,23 @@
 MIT License
 
-Copyright (c) 2023 LobeHub
+The following copyright notices apply to the MIT-licensed third-party components
+distributed with GPT-Load. GPT-Load's own copyright and license are in the
+repository root LICENSE.
+
+CLIProxyAPI (github.com/router-for-me/CLIProxyAPI):
+
+    Copyright (c) 2025-2005.9 Luis Pater
+    Copyright (c) 2025.9-present Router-For.ME
+
+fasthttp (github.com/valyala/fasthttp, including the github.com/tbphp/fasthttp
+fork built into GPT-Load):
+
+    Copyright (c) 2015-present Aliaksandr Valialkin, VertaMedia, Kirill Danshin,
+    Erik Dubbelboer, FastHTTP Authors
+
+Lobe Icons (github.com/lobehub/lobe-icons):
+
+    Copyright (c) 2023 LobeHub
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

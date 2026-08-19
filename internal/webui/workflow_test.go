@@ -1464,7 +1464,7 @@ func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t
 		"SHA256SUMS",
 		"sha256sum --check",
 		"asset_count",
-		`test "${asset_count}" = "10"`,
+		`test "${asset_count}" = "12"`,
 	} {
 		if !strings.Contains(inventoryJob, required) {
 			t.Fatalf("post-publish asset inventory does not contain %q:\n%s", required, inventoryJob)
