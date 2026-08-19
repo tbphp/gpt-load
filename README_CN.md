@@ -49,11 +49,20 @@ flowchart LR
 - **每一次调用都看得见** — 健康状态、路由检查、请求日志、用量汇总与模型成本估算，便于定位问题和评估消耗。
 - **部署简单、数据自持** — 管理界面内嵌在单个 Go 二进制中；默认 SQLite，也可连接 MySQL 或 PostgreSQL；渠道凭据本地加密保存。
 
-<!-- 【待补：管理界面截图】
-     补图后在此处插入「## 界面预览」章节。建议 2–3 张，宽 1400px、浅色主题，
-     打码所有真实密钥/账号/域名：a) 仪表盘（调用量 + 健康状态）
-     b) 渠道与凭据管理（体现多凭据）c) 用量与成本。
-     三语 README 需同步插入。 -->
+## 界面预览
+
+**首页** — 分组与凭据概览、客户端一键接入、近 30 天成本估算
+
+<img src="./screenshot/screenshot1.png" alt="GPT-Load 首页">
+
+**监控** — 请求量、缓存率、Token 分类、成本估算与用量质量
+
+<img src="./screenshot/screenshot2.png" alt="GPT-Load 监控">
+
+<!-- 【待补：订阅渠道详情截图】
+     screenshot3.png 展示订阅账号的配额窗口与诊断信息，是订阅渠道的核心卖点，
+     但账号卡片上有真实邮箱明文，需替换为示例邮箱后重截或打码。
+     处理好后在此处插入，三语 README 同步。 -->
 
 ## 支持范围
 
@@ -200,7 +209,7 @@ docker compose pull && docker compose up -d   # 更新到最新 2.x 镜像
 docker compose stop         # 停止服务
 ```
 
-官方 2.x Compose 使用 `ghcr.io/tbphp/gpt-load:2`，不依赖 `latest` 标签。
+官方 2.x Compose 使用 `ghcr.io/tbphp/gpt-load:v2beta`，不依赖 `latest` 标签。
 
 <details>
 <summary>使用原生二进制</summary>

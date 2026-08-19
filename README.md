@@ -49,11 +49,21 @@ flowchart LR
 - **Every call is visible** — Health state, route inspection, request logs, usage rollups, and per-model cost estimates make problems and consumption easy to trace.
 - **Simple to deploy, your data stays yours** — The management UI is embedded in a single Go binary; SQLite by default, MySQL or PostgreSQL optional; channel credentials are encrypted at rest locally.
 
-<!-- 【TODO: management UI screenshots】
-     Once available, insert a "## Screenshots" section here. 2–3 images, ~1400px wide,
-     light theme, with every real key/account/domain redacted:
-     a) dashboard (traffic + health) b) channels and credentials (showing multiple
-     credentials) c) usage and cost. Insert into all three README languages. -->
+## Screenshots
+
+**Home** — Groups and credentials at a glance, one-click client setup, 30-day cost estimate
+
+<img src="./screenshot/screenshot1.png" alt="GPT-Load home">
+
+**Monitoring** — Request volume, cache rate, token breakdown, cost estimates, usage quality
+
+<img src="./screenshot/screenshot2.png" alt="GPT-Load monitoring">
+
+<!-- 【TODO: subscription channel screenshot】
+     screenshot3.png shows subscription quota windows and diagnostics, a core
+     selling point, but the account card contains a real email address in plain
+     text. Replace it with a sample address and re-shoot, or redact it.
+     Insert here once handled; keep all three languages in sync. -->
 
 ## Scope
 
@@ -200,7 +210,7 @@ docker compose pull && docker compose up -d   # update to the latest 2.x image
 docker compose stop         # stop the service
 ```
 
-The official 2.x Compose file uses `ghcr.io/tbphp/gpt-load:2` and does not rely on the `latest` tag.
+The official 2.x Compose file uses `ghcr.io/tbphp/gpt-load:v2beta` and does not rely on the `latest` tag.
 
 <details>
 <summary>Using a native binary</summary>
