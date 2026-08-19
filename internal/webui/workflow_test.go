@@ -1379,6 +1379,28 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 	}
 }
 
+func TestWindowsNativeSmokeMatchesManagedStorageACLContract(t *testing.T) {
+	script := readRepositoryFile(t, ".github/scripts/release-native-smoke.ps1")
+	for _, required := range []string{
+		"Assert-CurrentUserOnlyAcl",
+		"[bool]$RequireProtected",
+		"if ($RequireProtected -and -not $acl.AreAccessRulesProtected)",
+		"$_.IsInherited",
+		"managed path DACL is neither protected nor inherited: $Path",
+		"@{ Path = $dataDir; RequireProtected = $true }",
+		"@{ Path = $authFile; RequireProtected = $true }",
+		"@{ Path = $encryptionFile; RequireProtected = $true }",
+		"@{ Path = $databaseFile; RequireProtected = $false }",
+		"@{ Path = $walFile; RequireProtected = $false }",
+		"@{ Path = $shmFile; RequireProtected = $false }",
+		"-RequireProtected $target.RequireProtected",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("Windows native smoke does not contain %q", required)
+		}
+	}
+}
+
 func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	dockerJob := workflowJobBlock(t, content, "docker-smoke")
@@ -1399,6 +1421,7 @@ func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
 		"/api/usage",
 		"/api/model-prices",
 		"/api/groups",
+		"connection_type:\"api_key\"",
 		"/api/access-keys",
 		"value.data.items.some(item=>item.name===\"Task13 Release Smoke Access\")",
 		"/v1/chat/completions",

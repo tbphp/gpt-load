@@ -10,33 +10,40 @@ foreach ($required in @($binary, $checksumFile, $releaseVersion)) {
   }
 }
 
-function Assert-CurrentUserOnlyProtectedAcl {
+function Assert-CurrentUserOnlyAcl {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)]
-    [System.Security.Principal.SecurityIdentifier]$CurrentSid
+    [System.Security.Principal.SecurityIdentifier]$CurrentSid,
+    [Parameter(Mandatory = $true)][bool]$RequireProtected
   )
 
   $acl = Get-Acl $Path
-  if (-not $acl.AreAccessRulesProtected) {
-    throw "managed path DACL inherits rules"
+  if ($RequireProtected -and -not $acl.AreAccessRulesProtected) {
+    throw "managed path DACL inherits rules: $Path"
   }
   $rules = @($acl.Access)
   if ($rules.Count -eq 0) {
-    throw "managed path DACL has no access rule"
+    throw "managed path DACL has no access rule: $Path"
   }
   $allowRules = @($rules | Where-Object {
     $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
   })
   if ($allowRules.Count -eq 0) {
-    throw "managed path DACL has no allow rule"
+    throw "managed path DACL has no allow rule: $Path"
+  }
+  if (-not $acl.AreAccessRulesProtected) {
+    $inheritedRules = @($rules | Where-Object { $_.IsInherited })
+    if ($inheritedRules.Count -eq 0) {
+      throw "managed path DACL is neither protected nor inherited: $Path"
+    }
   }
   foreach ($rule in $rules) {
     $sid = $rule.IdentityReference.Translate(
       [System.Security.Principal.SecurityIdentifier]
     )
     if ($sid.Value -ne $CurrentSid.Value) {
-      throw "managed path DACL references another principal"
+      throw "managed path DACL references another principal: $Path"
     }
   }
 }
@@ -235,15 +242,18 @@ try {
     if (-not (Test-Path $file)) { throw "missing SQLite recovery file: $file" }
   }
   $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-  foreach ($path in @(
-    $dataDir,
-    $authFile,
-    $encryptionFile,
-    $databaseFile,
-    $walFile,
-    $shmFile
+  foreach ($target in @(
+    @{ Path = $dataDir; RequireProtected = $true },
+    @{ Path = $authFile; RequireProtected = $true },
+    @{ Path = $encryptionFile; RequireProtected = $true },
+    @{ Path = $databaseFile; RequireProtected = $false },
+    @{ Path = $walFile; RequireProtected = $false },
+    @{ Path = $shmFile; RequireProtected = $false }
   )) {
-    Assert-CurrentUserOnlyProtectedAcl -Path $path -CurrentSid $currentSid
+    Assert-CurrentUserOnlyAcl `
+      -Path $target.Path `
+      -CurrentSid $currentSid `
+      -RequireProtected $target.RequireProtected
   }
 
   [ReleaseNativeProcess]::SendCtrlBreak($process.Id)

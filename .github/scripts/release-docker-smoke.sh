@@ -246,6 +246,7 @@ group_response="$(
       process.stdout.write(JSON.stringify({
         name:"Task13 Release Smoke Group",
         channel_id:"openai_compatible",
+        connection_type:"api_key",
         params:{base_url:process.argv[1]},
         models:[{id:"task13-release-model",alias:"",alias_enabled:false}],
         credentials:process.argv[2],
