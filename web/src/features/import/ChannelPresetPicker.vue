@@ -313,9 +313,14 @@ function onSearchKeydown(event: KeyboardEvent): void {
             <span>{{ channel.name }}</span>
           </button>
 
-          <span class="channel-picker__divider" aria-hidden="true" />
+          <span
+            v-if="activeConnectionType === 'api_key'"
+            class="channel-picker__divider"
+            aria-hidden="true"
+          />
 
           <AppPopover
+            v-if="activeConnectionType === 'api_key'"
             v-model:open="popoverOpen"
             align="start"
             content-class="channel-picker__panel"
@@ -324,10 +329,7 @@ function onSearchKeydown(event: KeyboardEvent): void {
               <button
                 type="button"
                 class="channel-picker__chip channel-picker__chip--more"
-                :class="{
-                  'channel-picker__chip--subscription': activeConnectionType === 'subscription',
-                  'channel-picker__chip--selected': extraChannel !== null,
-                }"
+                :class="{ 'channel-picker__chip--selected': extraChannel !== null }"
                 :disabled="disabled"
                 :aria-expanded="popoverOpen"
                 :aria-pressed="extraChannel !== null"
