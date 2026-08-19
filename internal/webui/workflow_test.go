@@ -1,11 +1,14 @@
 package webui
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -41,7 +44,7 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 	previousIndex := -1
 	for _, command := range []string{
 		"pnpm --dir web install --frozen-lockfile",
-		"pnpm --dir web audit --audit-level high",
+		"pnpm --dir web audit --prod --audit-level high",
 		"pnpm --dir web run lint",
 		"pnpm --dir web run format",
 		"pnpm --dir web run build",
@@ -57,6 +60,10 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 	}
 	if strings.Contains(content, "pnpm --dir web run type-check") {
 		t.Fatal("web-ci action duplicates the type-check already run by the build script")
+	}
+	// devDependencies 不进入 internal/webui/dist，审计它们只会让发布被无关 CVE 阻断。
+	if strings.Contains(content, "pnpm --dir web audit --audit-level") {
+		t.Fatal("web-ci action audits devDependencies that never reach the release artifact")
 	}
 	packageJSON := readRepositoryFile(t, "web/package.json")
 	if !strings.Contains(packageJSON, `"build": "pnpm run type-check && vite build"`) {
@@ -628,7 +635,6 @@ func TestReleaseWorkflowDraftReadersRequestPushVisibility(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	for _, jobName := range []string{
 		"publication-preflight",
-		"post-publish-native-smoke",
 		"post-publish-verify",
 		"reconcile-publication",
 	} {
@@ -651,7 +657,7 @@ func TestReleaseWorkflowUsesOneSharedPublicationPreflight(t *testing.T) {
 	preflight := workflowJobBlock(t, content, "publication-preflight")
 	for _, required := range []string{
 		"name: release-assets",
-		"sha256sum --check SHA256SUMS",
+		".github/scripts/release-verify-assets.sh release",
 		"git merge-base --is-ancestor",
 		"DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN || secrets.DOCKERHUB_TOKEN }}",
 		"DOCKERHUB_TOKEN",
@@ -688,44 +694,111 @@ func TestReleaseWorkflowUsesTrustedCurrentRunChecksumForExistingRelease(t *testi
 			job:  "publish-github",
 			step: "Verify existing GitHub Release",
 		},
+		{
+			job:  "post-publish-verify",
+			step: "Download and verify exact GitHub Release asset inventory",
+		},
 	} {
 		step := workflowStepBlock(
 			t,
 			workflowJobBlock(t, content, test.job),
 			test.step,
 		)
-		compare := strings.Index(
-			step,
-			"cmp release/SHA256SUMS existing-release/SHA256SUMS",
-		)
-		trustedCheck := strings.Index(
-			step,
-			"sha256sum --check ../release/SHA256SUMS",
-		)
-		if compare < 0 || trustedCheck < 0 || compare >= trustedCheck {
-			t.Fatalf(
-				"%s does not compare the checksum identity before using the trusted checksum: cmp=%d check=%d\n%s",
-				test.step,
-				compare,
-				trustedCheck,
-				step,
-			)
+		for _, required := range []string{
+			".github/scripts/release-verify-assets.sh",
+			"release/SHA256SUMS",
+		} {
+			if !strings.Contains(step, required) {
+				t.Fatalf(
+					"%s does not verify downloaded assets against the current-run checksum %q:\n%s",
+					test.step,
+					required,
+					step,
+				)
+			}
 		}
-		if strings.Contains(step, "sha256sum --check SHA256SUMS") {
-			t.Fatalf("%s executes the untrusted remote checksum:\n%s", test.step, step)
+		if strings.Contains(step, "sha256sum --check") {
+			t.Fatalf("%s executes a checksum file directly:\n%s", test.step, step)
 		}
+	}
+
+	// 行为验证：远端资产即使与它自带的 SHA256SUMS 完全自洽，只要与当前 run 的
+	// 可信副本不一致就必须被拒绝——远端那份校验和永远不会被执行。
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	verifier := filepath.Join(
+		repositoryRoot, ".github", "scripts", "release-verify-assets.sh",
+	)
+	var assets []string
+	for _, line := range strings.Split(
+		readRepositoryFile(t, ".github/release-assets.txt"), "\n",
+	) {
+		if name := strings.TrimSpace(line); name != "" && name != "SHA256SUMS" {
+			assets = append(assets, name)
+		}
+	}
+	if len(assets) == 0 {
+		t.Fatal("release asset manifest is empty")
+	}
+
+	build := func(directory string, replacements map[string]string) {
+		t.Helper()
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatalf("create asset directory: %v", err)
+		}
+		checksums := &strings.Builder{}
+		for _, name := range assets {
+			body := "payload-" + name
+			if replacement, ok := replacements[name]; ok {
+				body = replacement
+			}
+			path := filepath.Join(directory, name)
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatalf("write asset: %v", err)
+			}
+			fmt.Fprintf(checksums, "%x  %s\n", sha256.Sum256([]byte(body)), name)
+		}
+		path := filepath.Join(directory, "SHA256SUMS")
+		if err := os.WriteFile(path, []byte(checksums.String()), 0o600); err != nil {
+			t.Fatalf("write checksums: %v", err)
+		}
+	}
+
+	workspace := t.TempDir()
+	trusted := filepath.Join(workspace, "current-run")
+	build(trusted, nil)
+	forged := filepath.Join(workspace, "forged")
+	build(forged, map[string]string{"gpt-load-linux-amd64": "malicious"})
+
+	verify := func(directory string) error {
+		command := exec.Command(
+			verifier, directory, filepath.Join(trusted, "SHA256SUMS"),
+		)
+		command.Dir = repositoryRoot
+		return command.Run()
+	}
+	if err := verify(trusted); err != nil {
+		t.Fatalf("verifier rejected assets matching the current run: %v", err)
+	}
+	if err := verify(forged); err == nil {
+		t.Fatal("verifier accepted self-consistent forged assets over the trusted checksum")
 	}
 }
 
 func TestReleaseWorkflowKeepsUntrustedImageRevisionInsideJQComparison(t *testing.T) {
-	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	revisionVerifier := readRepositoryFile(
+		t, ".github/scripts/release-verify-image-revision.sh",
+	)
 	expectedSHA := "0123456789abcdef0123456789abcdef01234567"
-	validation := workflowMarkedScript(t, content, "release-image-revision-validation")
+	validation := workflowMarkedScript(
+		t, revisionVerifier, "release-image-revision-validation",
+	)
 	scriptPath := filepath.Join(t.TempDir(), "validate-image-revision.sh")
 	script := "#!/usr/bin/env bash\nset -euo pipefail\n" +
-		"GITHUB_SHA=" + expectedSHA + "\n" +
+		"expected=" + expectedSHA + "\n" +
 		"inspection=\"${RELEASE_TEST_INSPECTION}\"\n" +
-		"revision=mismatch\n" +
 		validation +
 		"printf '%s\\n' \"${revision}\"\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
@@ -818,26 +891,32 @@ func TestReleaseWorkflowKeepsUntrustedImageRevisionInsideJQComparison(t *testing
 		})
 	}
 
+	// 进入 shell 的只能是受信的 ${expected} 或字面量 mismatch；
+	// 实际读到的标签只允许直接写入 stderr，绝不赋给变量或送上 stdout。
+	for _, assignment := range regexp.MustCompile(`\brevision=\S*`).
+		FindAllString(revisionVerifier, -1) {
+		switch assignment {
+		case "revision=mismatch", `revision="${expected}"`:
+		default:
+			t.Fatalf("revision verifier assigns an untrusted value: %s", assignment)
+		}
+	}
+
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	inventoryStep := workflowStepBlock(
 		t,
 		workflowJobBlock(t, content, "publication-preflight"),
 		"Inventory publication channels",
 	)
 	functionStart := strings.Index(inventoryStep, "inventory_image() {")
-	functionEnd := strings.Index(inventoryStep, "\n          IFS='|' read -r")
+	functionEnd := strings.Index(inventoryStep, "\n          # 用命令替换而非进程替换")
 	if functionStart < 0 || functionEnd <= functionStart {
 		t.Fatalf("cannot isolate inventory_image:\n%s", inventoryStep)
 	}
 	inventoryFunction := inventoryStep[functionStart:functionEnd]
 	for _, required := range []string{
-		"jq -e",
-		`--arg expected "${GITHUB_SHA}"`,
-		`local revision=mismatch`,
-		`revision="${GITHUB_SHA}"`,
-		`linux/amd64`,
-		`linux/arm64`,
-		`org.opencontainers.image.revision`,
-		`. == $expected`,
+		".github/scripts/release-verify-image-revision.sh",
+		"revision=mismatch",
 	} {
 		if !strings.Contains(inventoryFunction, required) {
 			t.Fatalf("inventory_image does not contain %q:\n%s", required, inventoryFunction)
@@ -845,11 +924,15 @@ func TestReleaseWorkflowKeepsUntrustedImageRevisionInsideJQComparison(t *testing
 	}
 	for _, forbidden := range []string{
 		"child_revision",
-		`revision="$(`,
-		`revision="${child_revision`,
+		"imagetools inspect",
+		"org.opencontainers.image.revision",
 	} {
 		if strings.Contains(inventoryFunction, forbidden) {
-			t.Fatalf("inventory_image exposes raw revision via %q:\n%s", forbidden, inventoryFunction)
+			t.Fatalf(
+				"inventory_image parses the untrusted label itself instead of delegating (%q):\n%s",
+				forbidden,
+				inventoryFunction,
+			)
 		}
 	}
 
@@ -871,20 +954,16 @@ func TestReleaseWorkflowKeepsUntrustedImageRevisionInsideJQComparison(t *testing
 			workflowJobBlock(t, content, test.job),
 			test.step,
 		)
-		for _, required := range []string{
-			"jq -e",
-			`--arg expected "${GITHUB_SHA}"`,
-			`linux/amd64`,
-			`linux/arm64`,
-			`org.opencontainers.image.revision`,
-			`. == $expected`,
-		} {
-			if !strings.Contains(step, required) {
-				t.Fatalf("%s does not contain %q:\n%s", test.step, required, step)
-			}
+		if !strings.Contains(step, ".github/scripts/release-verify-image-revision.sh") {
+			t.Fatalf("%s does not delegate the revision comparison:\n%s", test.step, step)
 		}
-		if strings.Contains(step, `revision="$(`) {
-			t.Fatalf("%s transfers a raw revision into shell:\n%s", test.step, step)
+		for _, forbidden := range []string{
+			"org.opencontainers.image.revision",
+			`revision="$(`,
+		} {
+			if strings.Contains(step, forbidden) {
+				t.Fatalf("%s transfers a raw revision into shell (%q):\n%s", test.step, forbidden, step)
+			}
 		}
 	}
 }
@@ -918,9 +997,7 @@ func TestReleaseWorkflowUpdatesAliasesOnlyAfterExactVerification(t *testing.T) {
 	}
 	exactStep := workflowStepBlock(t, imageJob, "Verify exact published images")
 	for _, required := range []string{
-		"linux/amd64",
-		"linux/arm64",
-		"org.opencontainers.image.revision",
+		".github/scripts/release-verify-image-revision.sh",
 		"GITHUB_SHA",
 		"ghcr_exact_digest",
 		"dockerhub_exact_digest",
@@ -1082,7 +1159,7 @@ func TestReleaseWorkflowAlwaysReconcilesWriterAndPostPublishResults(t *testing.T
 		"publication-preflight",
 		"publish-images",
 		"publish-github",
-		"post-publish-native-smoke",
+		"post-publish-image-smoke",
 		"post-publish-verify",
 	} {
 		if !strings.Contains(job, dependency) {
@@ -1093,7 +1170,7 @@ func TestReleaseWorkflowAlwaysReconcilesWriterAndPostPublishResults(t *testing.T
 		"needs.publication-preflight.result",
 		"needs.publish-images.result",
 		"needs.publish-github.result",
-		"needs.post-publish-native-smoke.result",
+		"needs.post-publish-image-smoke.result",
 		"needs.post-publish-verify.result",
 	} {
 		if !strings.Contains(job, result) {
@@ -1583,26 +1660,31 @@ func TestReleaseWorkflowPostPublishVerifiesAliasesAndExactDigests(t *testing.T) 
 	}
 }
 
-func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t *testing.T) {
+func TestReleaseWorkflowPostPublishVerifiesDraftAssetsAgainstCurrentRun(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	inventoryJob := workflowJobBlock(t, content, "post-publish-verify")
 	for _, required := range []string{
 		"gh release download",
 		"draft-release",
-		"SHA256SUMS",
-		"sha256sum --check",
-		"asset_count",
-		`test "${asset_count}" = "12"`,
+		"name: release-assets",
+		".github/scripts/release-verify-assets.sh",
+		"release/SHA256SUMS",
 	} {
 		if !strings.Contains(inventoryJob, required) {
 			t.Fatalf("post-publish asset inventory does not contain %q:\n%s", required, inventoryJob)
 		}
 	}
 
-	nativeJob := workflowJobBlock(t, content, "post-publish-native-smoke")
+	// 已上传的原生产物不再重复跑第二遍五平台运行时 smoke：它们与发布前
+	// native-artifact-smoke 验证过的字节完全相同，这一点由上面对照当前 run
+	// 可信 SHA256SUMS 的校验保证，重复运行不会产生新信息。
+	if strings.Contains(content, "post-publish-native-smoke") {
+		t.Fatal("release workflow reintroduces the duplicated post-publication native smoke")
+	}
+
+	// 发布前的五平台原生 smoke 仍然是必须的门禁。
+	nativeJob := workflowJobBlock(t, content, "native-artifact-smoke")
 	for _, required := range []string{
-		"publish-github",
-		"publish-images",
 		"ubuntu-24.04",
 		"ubuntu-24.04-arm",
 		"macos-15-intel",
@@ -1613,12 +1695,11 @@ func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t
 		"gpt-load-macos-amd64",
 		"gpt-load-macos-arm64",
 		"gpt-load-windows-amd64.exe",
-		"gh release download",
 		".github/scripts/release-native-smoke.sh",
 		".github/scripts/release-native-smoke.ps1",
 	} {
 		if !strings.Contains(nativeJob, required) {
-			t.Fatalf("post-publish native smoke does not contain %q:\n%s", required, nativeJob)
+			t.Fatalf("pre-publication native smoke does not contain %q:\n%s", required, nativeJob)
 		}
 	}
 }
@@ -1658,7 +1739,6 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 	for _, required := range []string{
 		"RELEASE_SMOKE_SOURCE_IMAGE",
 		"ghcr.io/tbphp/gpt-load",
-		"tbphp/gpt-load",
 		"needs.validate-tag.outputs.image_exact",
 		".github/scripts/release-docker-smoke.sh",
 	} {
@@ -1666,10 +1746,15 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 			t.Fatalf("published image runtime smoke does not contain %q:\n%s", required, runtimeSmoke)
 		}
 	}
+	// Docker Hub 的 exact tag 与 GHCR 同 digest，只在 post-publish-verify 里以只读凭据
+	// 校验 manifest 并拉取一次，确认 layer 可达。
+	if !strings.Contains(postPublish, "Verify Docker Hub exact image is pullable") ||
+		!strings.Contains(postPublish, "docker pull") {
+		t.Fatalf("post-publication verification never pulls the Docker Hub image:\n%s", postPublish)
+	}
 	for name, block := range map[string]string{
 		"publication-preflight": snapshotJob,
 		"post-publish-verify":   postPublish,
-		"published-image-smoke": runtimeSmoke,
 	} {
 		for _, required := range []string{
 			"Log in to Docker Hub",
@@ -1995,4 +2080,151 @@ func workflowMarkedScript(t *testing.T, content, marker string) string {
 		lines[index] = strings.TrimPrefix(line, "          ")
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n")) + "\n"
+}
+
+func TestReleaseWorkflowReusesCIVerdictOnlyOnProvenSuccess(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	verdict := workflowMarkedScript(t, content, "release-ci-verdict-reuse")
+	scriptPath := filepath.Join(t.TempDir(), "reuse-ci-verdict.sh")
+	script := "#!/usr/bin/env bash\nset -euo pipefail\n" +
+		"GITHUB_REPOSITORY=owner/repo\n" +
+		"GITHUB_SHA=0123456789abcdef0123456789abcdef01234567\n" +
+		verdict +
+		"printf '%s\\n' \"${ci_verified}\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatalf("write ci verdict script: %v", err)
+	}
+
+	binDir := t.TempDir()
+	fakeGH := "#!/usr/bin/env bash\n" +
+		"if [[ -n \"${RELEASE_TEST_GH_OUTPUT}\" ]]; then\n" +
+		"  printf '%s\\n' \"${RELEASE_TEST_GH_OUTPUT}\"\n" +
+		"fi\n" +
+		"exit \"${RELEASE_TEST_GH_EXIT}\"\n"
+	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte(fakeGH), 0o700); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		output string
+		exit   string
+		want   string
+	}{
+		{name: "successful runs", output: "3", exit: "0", want: "true"},
+		{name: "no successful run", output: "0", exit: "0", want: "false"},
+		{name: "query failed", output: "", exit: "1", want: "false"},
+		{name: "non-numeric", output: "many", exit: "0", want: "false"},
+		{name: "injected count", output: "2\ninjected", exit: "0", want: "false"},
+		{name: "negative", output: "-1", exit: "0", want: "false"},
+		{name: "empty", output: "", exit: "0", want: "false"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command("bash", scriptPath)
+			command.Env = []string{
+				"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+				"RELEASE_TEST_GH_OUTPUT=" + test.output,
+				"RELEASE_TEST_GH_EXIT=" + test.exit,
+			}
+			output, err := command.Output()
+			if err != nil {
+				t.Fatalf("ci verdict evaluation failed: %v", err)
+			}
+			if got := strings.TrimSpace(string(output)); got != test.want {
+				t.Fatalf("ci_verified = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestReleaseWorkflowSkipsOnlyCIProvenGatesAndStillFailsClosed(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+
+	// 只有同一 commit 上确定性重跑的 gate 才允许复用 CI 结论。
+	reusable := []string{"race-tests", "race-cpa", "database-contract"}
+	for _, jobName := range reusable {
+		job := workflowJobBlock(t, content, jobName)
+		if !strings.Contains(job, "needs.validate-tag.outputs.ci_verified != 'true'") {
+			t.Fatalf("%s does not reuse the CI verdict:\n%s", jobName, job)
+		}
+	}
+	// 静态检查依赖会随时间变化的漏洞库，每次发布都必须重跑。
+	staticChecks := workflowJobBlock(t, content, "static-checks")
+	if strings.Contains(staticChecks, "ci_verified") {
+		t.Fatalf("static checks must not reuse a stale vulnerability audit:\n%s", staticChecks)
+	}
+
+	preflight := workflowJobBlock(t, content, "publication-preflight")
+	if !strings.Contains(preflight, "!contains(needs.*.result, 'failure')") ||
+		!strings.Contains(preflight, "!cancelled()") {
+		t.Fatalf("publication preflight does not fail closed on gate failures:\n%s", preflight)
+	}
+	// preflight 的 if 只能看到直接 needs 的 result：上游失败会让中间 job 变成
+	// skipped，因此每个 gate 都必须直接列出，漏掉任何一个都会让失败无法察觉。
+	needsBlock := preflight[:strings.Index(preflight, "runs-on:")]
+	for _, gate := range []string{
+		"validate-tag",
+		"verify-and-build-web",
+		"static-checks",
+		"race-tests",
+		"race-cpa",
+		"build-binaries",
+		"package-checksums",
+		"native-artifact-smoke",
+		"docker-smoke",
+		"database-contract",
+	} {
+		if !strings.Contains(needsBlock, "- "+gate) {
+			t.Fatalf("publication preflight does not directly need gate %q:\n%s", gate, needsBlock)
+		}
+	}
+}
+
+func TestReleaseAssetManifestIsTheSingleSourceOfTruth(t *testing.T) {
+	manifest := readRepositoryFile(t, ".github/release-assets.txt")
+	var assets []string
+	for _, line := range strings.Split(manifest, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			assets = append(assets, name)
+		}
+	}
+	if len(assets) != 12 {
+		t.Fatalf("release asset manifest lists %d assets, want 12", len(assets))
+	}
+	sorted := append([]string(nil), assets...)
+	sort.Strings(sorted)
+	for index := range assets {
+		if assets[index] != sorted[index] {
+			t.Fatalf("release asset manifest is not sorted: %v", assets)
+		}
+	}
+
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	// 许可证与 SBOM 资产名只允许出现在生成它们的 package-metadata 里，
+	// 清单与校验和一律从 .github/release-assets.txt 派生。
+	for _, name := range []string{
+		"Apache-2.0.txt",
+		"MIT.txt",
+		"MPL-2.0.txt",
+		"THIRD_PARTY_NOTICES.md",
+		"bom.cdx.json",
+	} {
+		metadataJob := workflowJobBlock(t, content, "package-metadata")
+		occurrences := strings.Count(content, name)
+		inMetadata := strings.Count(metadataJob, name)
+		if occurrences != inMetadata {
+			t.Fatalf(
+				"asset %q is hardcoded outside package-metadata (%d total, %d in metadata)",
+				name,
+				occurrences,
+				inMetadata,
+			)
+		}
+	}
+	// 资产数量与校验和行数不得再作为魔数散落在 workflow 中。
+	for _, magic := range []string{`= "11"`, `= "12"`, "asset_count"} {
+		if strings.Contains(content, magic) {
+			t.Fatalf("release workflow still hardcodes the asset count via %q", magic)
+		}
+	}
 }

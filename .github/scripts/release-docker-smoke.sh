@@ -6,6 +6,14 @@ release_version="${RELEASE_VERSION:-v2.0.0-local}"
 suffix="${RELEASE_SMOKE_SUFFIX:-local-$$}"
 source_image="${RELEASE_SMOKE_SOURCE_IMAGE:-}"
 trivy_image="${RELEASE_SMOKE_TRIVY_IMAGE:-aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f}"
+skip_scan="${RELEASE_SMOKE_SKIP_SCAN:-false}"
+case "${skip_scan}" in
+  true | false) ;;
+  *)
+    printf 'RELEASE_SMOKE_SKIP_SCAN must be true or false\n' >&2
+    exit 1
+    ;;
+esac
 case "${suffix}" in
   *[!A-Za-z0-9_-]*)
     printf 'RELEASE_SMOKE_SUFFIX contains unsupported characters\n' >&2
@@ -122,15 +130,22 @@ else
     -t "${image}" .
 fi
 smoke_stage="scan-image"
-docker run --rm \
-  --volume /var/run/docker.sock:/var/run/docker.sock \
-  "${trivy_image}" image \
-  --scanners vuln \
-  --severity CRITICAL,HIGH \
-  --ignore-unfixed \
-  --exit-code 1 \
-  --no-progress \
-  "${image}"
+# 发布后阶段拉取的是发布前已扫描过的同一 commit 镜像，重复扫描没有新信息，
+# 由调用方通过 RELEASE_SMOKE_SKIP_SCAN=true 显式跳过。
+scanned=true
+if [[ "${skip_scan}" == "true" ]]; then
+  scanned=false
+else
+  docker run --rm \
+    --volume /var/run/docker.sock:/var/run/docker.sock \
+    "${trivy_image}" image \
+    --scanners vuln \
+    --severity CRITICAL,HIGH \
+    --ignore-unfixed \
+    --exit-code 1 \
+    --no-progress \
+    "${image}"
+fi
 test "$(docker image inspect -f '{{.Config.User}}' "${image}")" = "10001:10001"
 docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${image}" |
   grep -Fx 'HOST=0.0.0.0' >/dev/null
@@ -456,6 +471,7 @@ smoke_stage="verify-secret-free-artifacts"
 summary_file="${task_tmp}/summary.txt"
 {
   printf 'platform=%s\n' "${platform}"
+  printf 'vulnerability_scanned=%s\n' "${scanned}"
   printf 'configured_user=10001:10001\n'
   printf 'image_and_container_host=0.0.0.0\n'
   printf 'direct_docker_run_publish_reachable=true\n'

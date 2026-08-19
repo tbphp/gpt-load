@@ -23,7 +23,9 @@ runs:
 
     - name: Audit web dependencies
       shell: bash
-      run: pnpm --dir web audit --audit-level high
+      # 只审计生产依赖：devDependencies 经 Vite 构建后不进入 internal/webui/dist，
+      # 让它们的 CVE 阻断发布只会制造噪音。
+      run: pnpm --dir web audit --prod --audit-level high
 
     - name: Lint web source
       shell: bash

@@ -1,0 +1,12 @@
+Apache-2.0.txt
+LICENSE
+MIT.txt
+MPL-2.0.txt
+SHA256SUMS
+THIRD_PARTY_NOTICES.md
+bom.cdx.json
+gpt-load-linux-amd64
+gpt-load-linux-arm64
+gpt-load-macos-amd64
+gpt-load-macos-arm64
+gpt-load-windows-amd64.exe

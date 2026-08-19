@@ -16,6 +16,10 @@ jobs:
   validate-tag:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      # 读取同一 commit 上的 CI 结论需要 actions:read。
+      actions: read
     outputs:
       version: ${{ steps.tag.outputs.version }}
       prerelease: ${{ steps.tag.outputs.prerelease }}
@@ -23,6 +27,7 @@ jobs:
       image_minor: ${{ steps.tag.outputs.image_minor }}
       image_major: ${{ steps.tag.outputs.image_major }}
       beta: ${{ steps.tag.outputs.beta }}
+      ci_verified: ${{ steps.ci.outputs.ci_verified }}
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,9 +81,38 @@ jobs:
           # release-tag-validation:end
 
       - name: Require tag commit in v2 history
+        shell: bash
         run: |
           git fetch --no-tags origin v2
           git merge-base --is-ancestor "${GITHUB_SHA}" origin/v2
+
+      - name: Reuse CI verdict for this commit
+        id: ci
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # race 测试、CPA 桥接测试与数据库合同都是同一 commit 上的确定性验证，
+          # ci.yml 已经整体成功过时重跑不会得出不同结论，只会让关键路径多等约 8 分钟。
+          # 查不到成功记录、查询失败或结论不是 success 时一律回落为全量重跑。
+          # release-ci-verdict-reuse:start
+          runs=query-failed
+          ci_verified=false
+          if runs="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=100" \
+              --jq '[
+                .workflow_runs[]
+                | select(.status == "completed" and .conclusion == "success")
+              ] | length'
+          )" && [[ "${runs}" =~ ^[0-9]+$ ]] && ((runs > 0)); then
+            ci_verified=true
+          fi
+          # release-ci-verdict-reuse:end
+          printf 'ci_verified=%s\n' "${ci_verified}" >>"${GITHUB_OUTPUT}"
+          printf 'successful ci.yml runs for %s: %s -> ci_verified=%s\n' \
+            "${GITHUB_SHA}" "${runs}" "${ci_verified}"
 
   verify-and-build-web:
     needs: validate-tag
@@ -99,7 +133,8 @@ jobs:
           name: verified-web-dist
           path: internal/webui/dist
           if-no-files-found: error
-          retention-days: 14
+          # 仅在本次 run 内传递给 build-binaries，不作为发布产物保留。
+          retention-days: 1
 
   static-checks:
     needs: validate-tag
@@ -147,6 +182,8 @@ jobs:
 
   race-tests:
     needs: validate-tag
+    # 同一 commit 的 CI 已全绿时跳过；publication-preflight 接受 skipped 结果。
+    if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -166,6 +203,7 @@ jobs:
 
   race-cpa:
     needs: validate-tag
+    if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -188,6 +226,7 @@ jobs:
   database-contract:
     name: Database contract (${{ matrix.driver }})
     needs: validate-tag
+    if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -301,7 +340,8 @@ jobs:
           name: binary-${{ matrix.filename }}
           path: release/${{ matrix.filename }}
           if-no-files-found: error
-          retention-days: 14
+          # 仅在本次 run 内汇总进 release-assets，不单独保留。
+          retention-days: 1
 
   package-metadata:
     needs: validate-tag
@@ -336,7 +376,8 @@ jobs:
           name: release-metadata
           path: release
           if-no-files-found: error
-          retention-days: 14
+          # 仅在本次 run 内汇总进 release-assets，不单独保留。
+          retention-days: 1
 
   package-checksums:
     needs:
@@ -345,6 +386,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Download all release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -359,21 +405,16 @@ jobs:
           path: release
 
       - name: Generate SHA256SUMS
-        working-directory: release
+        shell: bash
         run: |
-          sha256sum \
-            Apache-2.0.txt \
-            LICENSE \
-            MIT.txt \
-            MPL-2.0.txt \
-            THIRD_PARTY_NOTICES.md \
-            bom.cdx.json \
-            gpt-load-linux-amd64 \
-            gpt-load-linux-arm64 \
-            gpt-load-macos-amd64 \
-            gpt-load-macos-arm64 \
-            gpt-load-windows-amd64.exe >SHA256SUMS
-          sha256sum --check SHA256SUMS
+          set -euo pipefail
+          # 校验和覆盖 .github/release-assets.txt 中除 SHA256SUMS 自身外的全部资产。
+          grep -vFx 'SHA256SUMS' .github/release-assets.txt >/tmp/checksum-targets
+          cd release
+          xargs -a /tmp/checksum-targets -d '\n' sha256sum >SHA256SUMS
+
+      - name: Verify complete release asset set
+        run: .github/scripts/release-verify-assets.sh release
 
       - name: Upload complete release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -384,9 +425,8 @@ jobs:
           retention-days: 14
 
   native-artifact-smoke:
-    needs:
-      - build-binaries
-      - package-checksums
+    # package-checksums 已经依赖 build-binaries，无需重复声明。
+    needs: package-checksums
     timeout-minutes: 10
     strategy:
       fail-fast: true
@@ -455,6 +495,9 @@ jobs:
         run: .github/scripts/release-docker-smoke.sh
 
   publication-preflight:
+    # 这里必须逐个列出全部 gate，即使其中几个已被别的 needs 间接依赖：
+    # 下面的 if 只能看到直接 needs 的 result，上游失败会让中间 job 变成 skipped，
+    # 漏列任何一个都会让它的 failure 无法被察觉。清理 needs 前先读这条注释。
     needs:
       - validate-tag
       - verify-and-build-web
@@ -466,6 +509,9 @@ jobs:
       - native-artifact-smoke
       - docker-smoke
       - database-contract
+    # race-tests、race-cpa 与 database-contract 在 CI 已验证同一 commit 时为 skipped，
+    # 这里只拒绝真正失败的 gate，不把 skipped 当作缺失的验证。
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -508,32 +554,16 @@ jobs:
           git fetch --no-tags origin v2
           git merge-base --is-ancestor "${GITHUB_SHA}" origin/v2
 
-          cat >/tmp/expected-release-assets <<'ASSETS'
-          Apache-2.0.txt
-          LICENSE
-          MIT.txt
-          MPL-2.0.txt
-          SHA256SUMS
-          THIRD_PARTY_NOTICES.md
-          bom.cdx.json
-          gpt-load-linux-amd64
-          gpt-load-linux-arm64
-          gpt-load-macos-amd64
-          gpt-load-macos-arm64
-          gpt-load-windows-amd64.exe
-          ASSETS
-          find release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
-            sort >/tmp/current-run-release-assets
-          cmp /tmp/expected-release-assets /tmp/current-run-release-assets
-          cd release
-          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "11"
-          sha256sum --check SHA256SUMS
+      - name: Verify complete release asset set
+        run: .github/scripts/release-verify-assets.sh release
 
       - name: Require publication credentials and verify read access
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          # 只读 token 是可选降级项，缺失时各只读 job 会回落到 DOCKERHUB_TOKEN；
+          # 这里声明的是各 job 实际会用到的解析结果，确保发布前它们都可用。
           DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN || secrets.DOCKERHUB_TOKEN }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
@@ -604,29 +634,20 @@ jobs:
             test "${github_prerelease}" = \
               "${{ needs.validate-tag.outputs.prerelease }}"
             jq -r '.assets[].name' /tmp/existing-release.json |
-              sort >/tmp/existing-release-assets
-            if cmp \
-              /tmp/expected-release-assets \
-              /tmp/existing-release-assets; then
+              LC_ALL=C sort >/tmp/existing-release-assets
+            github_assets=mismatch
+            if cmp .github/release-assets.txt /tmp/existing-release-assets; then
               rm -rf existing-release
               mkdir existing-release
               gh release download "${GITHUB_REF_NAME}" \
                 --repo "${GITHUB_REPOSITORY}" \
                 --dir existing-release
-              if cmp release/SHA256SUMS existing-release/SHA256SUMS; then
-                if (
-                  cd existing-release
-                  sha256sum --check ../release/SHA256SUMS
-                ); then
-                  github_assets=match
-                else
-                  github_assets=mismatch
-                fi
-              else
-                github_assets=mismatch
+              # 已发布资产必须与本次 run 的 SHA256SUMS 逐字节一致；
+              # 传入可信副本后，远端那份 SHA256SUMS 只参与比对，不会被执行。
+              if .github/scripts/release-verify-assets.sh \
+                existing-release release/SHA256SUMS; then
+                github_assets=match
               fi
-            else
-              github_assets=mismatch
             fi
           elif grep -Eqi \
             'HTTP 404|Not Found|release not found' \
@@ -640,8 +661,8 @@ jobs:
           inventory_image() {
             local image="$1"
             local digest=
-            local inspection=
-            local revision=mismatch
+            local revision=
+            local status=0
 
             digest="$(.github/scripts/release-image-digest.sh "${image}")"
             if [[ "${digest}" == "absent" ]]; then
@@ -649,40 +670,33 @@ jobs:
               return
             fi
 
-            inspection="$(
-              docker buildx imagetools inspect \
-                "${image}" \
-                --format '{{json .}}'
-            )"
-            # release-image-revision-validation:start
-            if jq -e \
-              --arg expected "${GITHUB_SHA}" \
-              '[
-                .image["linux/amd64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ],
-                .image["linux/arm64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ]
-              ] | all(type == "string" and . == $expected)' \
-              <<<"${inspection}" >/dev/null; then
-              revision="${GITHUB_SHA}"
+            # 退出码 1 表示确实读到了不匹配的 revision，降级为 mismatch 交给分类器；
+            # 其他非零表示无法完成检查，此时让 job 失败以区分基础设施问题。
+            revision="$(
+              .github/scripts/release-verify-image-revision.sh \
+                "${image}" "${GITHUB_SHA}"
+            )" || status=$?
+            if ((status != 0)); then
+              test "${status}" = "1"
+              revision=mismatch
             fi
-            # release-image-revision-validation:end
             printf 'present|%s|%s\n' "${digest}" "${revision}"
           }
 
-          IFS='|' read -r ghcr_state ghcr_digest ghcr_revision < <(
+          # 用命令替换而非进程替换：函数内的失败必须终止本 step，
+          # 而不是让 read 静默读到空状态。
+          ghcr_inventory="$(
             inventory_image \
               "ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"
-          )
-          IFS='|' read -r \
-            dockerhub_state \
-            dockerhub_digest \
-            dockerhub_revision < <(
-              inventory_image \
-                "tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"
-            )
+          )"
+          dockerhub_inventory="$(
+            inventory_image \
+              "tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"
+          )"
+          IFS='|' read -r ghcr_state ghcr_digest ghcr_revision \
+            <<<"${ghcr_inventory}"
+          IFS='|' read -r dockerhub_state dockerhub_digest dockerhub_revision \
+            <<<"${dockerhub_inventory}"
           ghcr_latest_digest="$(
             .github/scripts/release-image-digest.sh ghcr.io/tbphp/gpt-load:latest
           )"
@@ -820,6 +834,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ github.ref_name }}
+          # 复用上一次发布的依赖层（go mod download / pnpm install）；
+          # Go 与 Web 源码层每个 tag 必然失效，这里只回收不变的依赖安装成本。
+          cache-from: type=gha,scope=release-image
+          cache-to: type=gha,scope=release-image,mode=max
 
       - name: Verify exact published images
         shell: bash
@@ -827,24 +845,9 @@ jobs:
           set -euo pipefail
           verify_exact_image() {
             local image="$1"
-            local inspection=
 
-            inspection="$(
-              docker buildx imagetools inspect \
-                "${image}" \
-                --format '{{json .}}'
-            )"
-            jq -e \
-              --arg expected "${GITHUB_SHA}" \
-              '[
-                .image["linux/amd64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ],
-                .image["linux/arm64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ]
-              ] | all(type == "string" and . == $expected)' \
-              <<<"${inspection}" >/dev/null
+            .github/scripts/release-verify-image-revision.sh \
+              "${image}" "${GITHUB_SHA}" >/dev/null
             .github/scripts/release-image-digest.sh "${image}"
           }
 
@@ -896,15 +899,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Download complete release assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-assets
           path: release
 
-      - name: Verify release checksums
-        working-directory: release
-        run: sha256sum --check SHA256SUMS
+      # 上传步骤按 release/* 通配收集，这里的清单校验就是它的边界保证。
+      - name: Verify complete release asset set
+        run: .github/scripts/release-verify-assets.sh release
 
       - name: Verify existing GitHub Release
         if: ${{ needs.publication-preflight.outputs.write_mode == 'verify' }}
@@ -941,11 +949,8 @@ jobs:
           gh release download "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
             --dir existing-release
-          cmp release/SHA256SUMS existing-release/SHA256SUMS
-          (
-            cd existing-release
-            sha256sum --check ../release/SHA256SUMS
-          )
+          .github/scripts/release-verify-assets.sh \
+            existing-release release/SHA256SUMS
 
       - name: Create or update GitHub Release draft
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
@@ -958,19 +963,8 @@ jobs:
           make_latest: false
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: |
-            release/gpt-load-linux-amd64
-            release/gpt-load-linux-arm64
-            release/gpt-load-macos-amd64
-            release/gpt-load-macos-arm64
-            release/gpt-load-windows-amd64.exe
-            release/Apache-2.0.txt
-            release/LICENSE
-            release/MIT.txt
-            release/MPL-2.0.txt
-            release/THIRD_PARTY_NOTICES.md
-            release/bom.cdx.json
-            release/SHA256SUMS
+          # 目录内容已由上面的清单校验锁定为 .github/release-assets.txt 的全集。
+          files: release/*
           body: |
             GPT-Load 2.x is a greenfield rewrite and is not data-compatible with 1.x.
             Do not open a 1.x database with this release; rebuild configuration and cut over manually.
@@ -1018,66 +1012,10 @@ jobs:
             channel and credentials, AccessKeys authorize data-plane access, and model discovery
             imports available models from the selected channel.
 
-  post-publish-native-smoke:
-    needs:
-      - publish-github
-      - publish-images
-    timeout-minutes: 15
-    permissions:
-      # Draft Releases are visible only to identities with push access.
-      contents: write
-    strategy:
-      fail-fast: true
-      max-parallel: 5
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            filename: gpt-load-linux-amd64
-          - runner: ubuntu-24.04-arm
-            filename: gpt-load-linux-arm64
-          - runner: macos-15-intel
-            filename: gpt-load-macos-amd64
-          - runner: macos-15
-            filename: gpt-load-macos-arm64
-          - runner: windows-2025
-            filename: gpt-load-windows-amd64.exe
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: Checkout tag commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Download draft GitHub Release assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p draft-release
-          gh release download "${GITHUB_REF_NAME}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --dir draft-release
-
-      - name: Smoke drafted POSIX native artifact
-        if: runner.os != 'Windows'
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/draft-release/${{ matrix.filename }}
-          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/draft-release/SHA256SUMS
-        run: .github/scripts/release-native-smoke.sh
-
-      - name: Smoke drafted Windows native artifact
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/draft-release/${{ matrix.filename }}
-          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/draft-release/SHA256SUMS
-        run: .github/scripts/release-native-smoke.ps1
-
   post-publish-image-smoke:
+    # GHCR 与 Docker Hub 的 exact tag 已在 publish-images 断言为同一 digest，
+    # 因此完整运行时 smoke 只需跑一遍；Docker Hub 侧的可拉取性与 digest 一致性
+    # 由 post-publish-verify 覆盖。
     needs:
       - validate-tag
       - publish-images
@@ -1086,17 +1024,6 @@ jobs:
     permissions:
       contents: read
       packages: read
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        include:
-          - registry: ghcr
-            repository: ghcr.io/tbphp/gpt-load
-            suffix: ghcr
-          - registry: dockerhub
-            repository: tbphp/gpt-load
-            suffix: dockerhub
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1104,26 +1031,20 @@ jobs:
           persist-credentials: false
 
       - name: Log in to GHCR for runtime smoke
-        if: ${{ matrix.registry == 'ghcr' }}
         uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to Docker Hub for runtime smoke
-        if: ${{ matrix.registry == 'dockerhub' }}
-        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_READ_TOKEN || secrets.DOCKERHUB_TOKEN }}
-
       - name: Run full runtime smoke for published exact image
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_SOURCE_IMAGE: ${{ matrix.repository }}:${{ needs.validate-tag.outputs.image_exact }}
-          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-${{ matrix.suffix }}
+          RELEASE_SMOKE_SOURCE_IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
+          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-ghcr
+          # 同一 commit 的镜像已在 docker-smoke 扫描过，这里不重复扫描。
+          RELEASE_SMOKE_SKIP_SCAN: "true"
         run: .github/scripts/release-docker-smoke.sh
 
   post-publish-verify:
@@ -1144,6 +1065,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Download complete release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets
+          path: release
+
       - name: Download and verify exact GitHub Release asset inventory
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1154,34 +1081,10 @@ jobs:
           gh release download "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
             --dir draft-release
-
-          cat >/tmp/expected-release-assets <<'ASSETS'
-          Apache-2.0.txt
-          LICENSE
-          MIT.txt
-          MPL-2.0.txt
-          SHA256SUMS
-          THIRD_PARTY_NOTICES.md
-          bom.cdx.json
-          gpt-load-linux-amd64
-          gpt-load-linux-arm64
-          gpt-load-macos-amd64
-          gpt-load-macos-arm64
-          gpt-load-windows-amd64.exe
-          ASSETS
-          find draft-release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
-            sort >/tmp/actual-release-assets
-          asset_count="$(wc -l </tmp/actual-release-assets | tr -d ' ')"
-          test "${asset_count}" = "12"
-          cmp /tmp/expected-release-assets /tmp/actual-release-assets
-
-          cd draft-release
-          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "11"
-          awk '{print $2}' SHA256SUMS | sort >/tmp/checksummed-release-assets
-          grep -v '^SHA256SUMS$' /tmp/expected-release-assets \
-            >/tmp/expected-checksummed-release-assets
-          cmp /tmp/expected-checksummed-release-assets /tmp/checksummed-release-assets
-          sha256sum --check SHA256SUMS
+          # 以本次 run 的可信 SHA256SUMS 为准校验已上传的 draft 资产，
+          # 而不是相信 draft 自带的那一份。
+          .github/scripts/release-verify-assets.sh \
+            draft-release release/SHA256SUMS
 
       - name: Verify GitHub Release channel metadata
         env:
@@ -1236,22 +1139,8 @@ jobs:
           dockerhub_exact_digest=
           for repository in ghcr.io/tbphp/gpt-load tbphp/gpt-load; do
             exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"
-            inspection="$(
-              docker buildx imagetools inspect \
-                "${exact}" \
-                --format '{{json .}}'
-            )"
-            jq -e \
-              --arg expected "${GITHUB_SHA}" \
-              '[
-                .image["linux/amd64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ],
-                .image["linux/arm64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ]
-              ] | all(type == "string" and . == $expected)' \
-              <<<"${inspection}" >/dev/null
+            .github/scripts/release-verify-image-revision.sh \
+              "${exact}" "${GITHUB_SHA}" >/dev/null
             exact_digest="$(
               .github/scripts/release-image-digest.sh "${exact}"
             )"
@@ -1292,13 +1181,25 @@ jobs:
           done
           test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
 
+      - name: Verify Docker Hub exact image is pullable
+        shell: bash
+        env:
+          DOCKERHUB_EXACT_IMAGE: tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
+        run: |
+          set -euo pipefail
+          # 完整运行时 smoke 只在 GHCR 侧跑一遍。manifest 校验只读取 config blob，
+          # 不保证 layer 已完整提交，这里补上 Docker Hub 侧的 layer 可达性证据。
+          docker pull --platform linux/amd64 "${DOCKERHUB_EXACT_IMAGE}"
+          test "$(
+            docker image inspect -f '{{.Config.User}}' "${DOCKERHUB_EXACT_IMAGE}"
+          )" = "10001:10001"
+
   reconcile-publication:
     if: ${{ always() }}
     needs:
       - publication-preflight
       - publish-images
       - publish-github
-      - post-publish-native-smoke
       - post-publish-image-smoke
       - post-publish-verify
     runs-on: ubuntu-24.04
@@ -1345,7 +1246,6 @@ jobs:
           PREFLIGHT_RESULT: ${{ needs.publication-preflight.result }}
           IMAGE_WRITER_RESULT: ${{ needs.publish-images.result }}
           GITHUB_WRITER_RESULT: ${{ needs.publish-github.result }}
-          NATIVE_POST_RESULT: ${{ needs.post-publish-native-smoke.result }}
           IMAGE_SMOKE_RESULT: ${{ needs.post-publish-image-smoke.result }}
           VERIFY_POST_RESULT: ${{ needs.post-publish-verify.result }}
         shell: bash
@@ -1363,10 +1263,11 @@ jobs:
           read_image_inventory() {
             local image="$1"
             local digest=
-            local inspection=
             local revisions=
+            local status=0
 
-            if [[ ! -x .github/scripts/release-image-digest.sh ]]; then
+            if [[ ! -x .github/scripts/release-image-digest.sh ]] ||
+              [[ ! -x .github/scripts/release-verify-image-revision.sh ]]; then
               printf 'unavailable'
               return
             fi
@@ -1379,26 +1280,16 @@ jobs:
               printf 'absent'
               return
             fi
-            inspection="$(
-              docker buildx imagetools inspect \
-                "${image}" \
-                --format '{{json .}}' 2>/dev/null
-            )"
-            if [[ $? -ne 0 ]]; then
-              printf '%s/revision-unavailable' "${digest}"
-              return
-            fi
+            # 退出码 0/1 都带回可读的 revision 值，仅在无法读取清单时降级。
             revisions="$(
-              jq -c '[
-                .image["linux/amd64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ],
-                .image["linux/arm64"].config.Labels[
-                  "org.opencontainers.image.revision"
-                ]
-              ]' <<<"${inspection}" 2>/dev/null
+              .github/scripts/release-verify-image-revision.sh \
+                "${image}" "${GITHUB_SHA}" 2>/dev/null
             )"
-            printf '%s/%s' "${digest}" "${revisions:-revision-unavailable}"
+            status=$?
+            if ((status > 1)) || [[ -z "${revisions}" ]]; then
+              revisions=revision-unavailable
+            fi
+            printf '%s/%s' "${digest}" "${revisions}"
           }
 
           ghcr_inventory="$(
@@ -1421,7 +1312,6 @@ jobs:
             printf -- '- preflight: `%s`\n' "${PREFLIGHT_RESULT}"
             printf -- '- image writer: `%s`\n' "${IMAGE_WRITER_RESULT}"
             printf -- '- GitHub writer: `%s`\n' "${GITHUB_WRITER_RESULT}"
-            printf -- '- draft native smoke: `%s`\n' "${NATIVE_POST_RESULT}"
             printf -- '- published image smoke: `%s`\n' "${IMAGE_SMOKE_RESULT}"
             printf -- '- draft and image verification: `%s`\n' "${VERIFY_POST_RESULT}"
             printf -- '- GitHub exact inventory: `%s`\n' "${github_inventory}"

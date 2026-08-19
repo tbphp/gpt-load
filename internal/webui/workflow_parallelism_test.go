@@ -51,13 +51,11 @@ func TestReleaseWorkflowParallelizesIndependentBuildStages(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowRunsPublishedImageSmokesInParallel(t *testing.T) {
+func TestReleaseWorkflowRunsPostPublishGatesInParallel(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	smokeJob := workflowJobBlock(t, content, "post-publish-image-smoke")
 	for _, required := range []string{
-		"max-parallel: 2",
 		"ghcr.io/tbphp/gpt-load",
-		"tbphp/gpt-load",
 		"RELEASE_SMOKE_SOURCE_IMAGE",
 		".github/scripts/release-docker-smoke.sh",
 	} {
@@ -65,17 +63,26 @@ func TestReleaseWorkflowRunsPublishedImageSmokesInParallel(t *testing.T) {
 			t.Fatalf("published image smoke job does not contain %q:\n%s", required, smokeJob)
 		}
 	}
+	// 两个 registry 的 exact tag 已被断言为同一 digest，完整运行时 smoke 只跑一遍；
+	// Docker Hub 侧的 digest 一致性与可拉取性由 post-publish-verify 覆盖。
+	if strings.Contains(smokeJob, "DOCKERHUB") {
+		t.Fatalf("published image smoke repeats the identical digest on a second registry:\n%s", smokeJob)
+	}
+	// 同一 commit 的镜像已在发布前的 docker-smoke 扫描过，这里不得重复扫描。
+	if !strings.Contains(smokeJob, `RELEASE_SMOKE_SKIP_SCAN: "true"`) {
+		t.Fatalf("published image smoke repeats the pre-publication vulnerability scan:\n%s", smokeJob)
+	}
 
 	verifyJob := workflowJobBlock(t, content, "post-publish-verify")
-	if strings.Contains(verifyJob, "post-publish-image-smoke") ||
-		strings.Contains(verifyJob, "post-publish-native-smoke") {
+	if strings.Contains(verifyJob, "needs.post-publish-image-smoke") ||
+		strings.Contains(verifyJob, "- post-publish-image-smoke") {
 		t.Fatalf("independent post-publication gates are still serialized:\n%s", verifyJob)
 	}
 	if strings.Contains(verifyJob, "for source_and_suffix in") {
 		t.Fatalf("post-publication verification still runs image smokes serially:\n%s", verifyJob)
 	}
 	reconcileJob := workflowJobBlock(t, content, "reconcile-publication")
-	for _, dependency := range []string{"post-publish-native-smoke", "post-publish-image-smoke", "post-publish-verify"} {
+	for _, dependency := range []string{"post-publish-image-smoke", "post-publish-verify"} {
 		if !strings.Contains(reconcileJob, dependency) {
 			t.Fatalf("publication reconciliation does not need %s:\n%s", dependency, reconcileJob)
 		}
