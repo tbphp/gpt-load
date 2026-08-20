@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage/models"
 )
@@ -200,6 +201,116 @@ func TestAccessKeyCostLimitRuleKindCannotBeChangedInPlace(t *testing.T) {
 	if len(stored) != 1 || stored[0].ID != rule.ID || stored[0].Kind != models.AccessKeyCostLimitKindTotal ||
 		stored[0].RuleRevision != 1 {
 		t.Fatalf("stored rules after rejected kind change = %#v", stored)
+	}
+}
+
+func TestAccessKeyCostLimitRulesAllowRetainedPeriodPermutations(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		initial []int64
+		desired []int64
+	}{
+		{name: "two rule swap", initial: []int64{300, 600}, desired: []int64{600, 300}},
+		{name: "three rule rotation", initial: []int64{300, 600, 900}, desired: []int64{600, 900, 300}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertAccessKeyCostLimitPeriodPermutation(
+				t,
+				newServiceFixture(t),
+				test.initial,
+				test.desired,
+			)
+		})
+	}
+}
+
+func assertAccessKeyCostLimitPeriodPermutation(
+	t *testing.T,
+	fixture serviceFixture,
+	initial []int64,
+	desired []int64,
+) {
+	t.Helper()
+	if len(initial) == 0 || len(initial) != len(desired) {
+		t.Fatalf("invalid permutation fixture: initial=%v desired=%v", initial, desired)
+	}
+	definitions := make([]AccessKeyCostLimitRuleRequest, 0, len(initial))
+	for _, period := range initial {
+		definitions = append(definitions, AccessKeyCostLimitRuleRequest{
+			Kind: accessquota.KindPeriodic, LimitUSD: "10", PeriodSeconds: period,
+		})
+	}
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "period-permutation",
+		CostLimitRules: OptionalAccessKeyCostLimitRules{
+			Set: true, Values: definitions,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	current := loadAccessKeyCostLimitRules(t, fixture, created.ID)
+	if len(current) != len(initial) {
+		t.Fatalf("created rules = %#v, want %d", current, len(initial))
+	}
+	for index, rule := range current {
+		windowStart := int64(1_000)
+		windowEnd := windowStart + rule.PeriodSeconds*1_000
+		if err := fixture.db.Model(&models.AccessKeyCostLimitState{}).
+			Where("rule_id = ?", rule.ID).
+			Updates(map[string]any{
+				"used_nano_usd":        int64(index + 1),
+				"window_started_at_ms": windowStart,
+				"window_ends_at_ms":    windowEnd,
+				"window_generation":    uint64(2),
+				"snapshot_version":     uint64(3),
+			}).Error; err != nil {
+			t.Fatalf("seed rule %d state: %v", rule.ID, err)
+		}
+	}
+
+	desiredRules := make([]AccessKeyCostLimitRuleRequest, 0, len(desired))
+	for index, period := range desired {
+		desiredRules = append(desiredRules, AccessKeyCostLimitRuleRequest{
+			ID: current[index].ID, Kind: accessquota.KindPeriodic,
+			LimitUSD: "10", PeriodSeconds: period,
+		})
+	}
+	if _, err := fixture.service.UpdateAccessKey(t.Context(), created.ID, AccessKeyUpdateRequest{
+		CostLimitRules: OptionalAccessKeyCostLimitRules{Set: true, Values: desiredRules},
+	}); err != nil {
+		t.Fatalf("UpdateAccessKey(period permutation) error = %v", err)
+	}
+
+	var finalRules []models.AccessKeyCostLimitRule
+	if err := fixture.db.Where("access_key_id = ?", created.ID).Order("id ASC").Find(&finalRules).Error; err != nil {
+		t.Fatal(err)
+	}
+	finalByID := make(map[uint]models.AccessKeyCostLimitRule, len(finalRules))
+	for _, rule := range finalRules {
+		finalByID[rule.ID] = rule
+	}
+	for index, original := range current {
+		final, exists := finalByID[original.ID]
+		if !exists || final.PeriodSeconds != desired[index] ||
+			final.RuleRevision != original.RuleRevision+1 {
+			t.Fatalf(
+				"final rule %d = %#v, want period %d revision %d",
+				original.ID,
+				final,
+				desired[index],
+				original.RuleRevision+1,
+			)
+		}
+		var state models.AccessKeyCostLimitState
+		if err := fixture.db.First(&state, original.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if state.RuleRevision != original.RuleRevision+1 || state.UsedNanoUSD != 0 ||
+			state.WindowStartedAtMS != nil || state.WindowEndsAtMS != nil ||
+			state.WindowGeneration != 0 || state.SnapshotVersion != 1 {
+			t.Fatalf("reset state for rule %d = %#v", original.ID, state)
+		}
 	}
 }
 

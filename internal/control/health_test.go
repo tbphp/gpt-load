@@ -105,6 +105,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		DroppedQueueFullTotal: 1, DroppedPersistFailedTotal: 1,
 		DroppedTotal: 2, WriteFailureTotal: 1,
 		AccessQuotaCheckpointWriteFailureTotal: 2,
+		AccessQuotaCheckpointDegraded:          true,
 		QueueDepth:                             2, QueueCapacity: 4096,
 		LastWriteFailureAt:                      now.Add(-time.Minute),
 		LastAccessQuotaCheckpointWriteFailureAt: now.Add(-2 * time.Minute),
@@ -119,6 +120,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		t.Fatalf("observation metadata = %#v", got)
 	}
 	if got.RequestLog.AccessQuotaCheckpointWriteFailureTotal != 2 ||
+		!got.RequestLog.AccessQuotaCheckpointDegraded ||
 		got.RequestLog.LastAccessQuotaCheckpointWriteFailureAtMS == nil ||
 		*got.RequestLog.LastAccessQuotaCheckpointWriteFailureAtMS != now.Add(-2*time.Minute).UnixMilli() {
 		t.Fatalf("access quota checkpoint health = %#v", got.RequestLog)
@@ -386,6 +388,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 		"dropped_total":                                    {},
 		"write_failure_total":                              {},
 		"access_quota_checkpoint_write_failure_total":      {},
+		"access_quota_checkpoint_degraded":                 {},
 		"retention_delete_failure_total":                   {},
 		"queue_depth":                                      {},
 		"queue_capacity":                                   {},

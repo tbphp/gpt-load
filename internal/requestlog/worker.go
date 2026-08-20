@@ -897,9 +897,11 @@ func (service *Service) flushAccessQuotaCheckpoints(ctx context.Context) error {
 	}
 	snapshots := service.accessQuota.DirtySnapshots(batchSize)
 	if len(snapshots) == 0 {
+		service.accessQuotaCheckpointDegraded.Store(false)
 		return nil
 	}
 	if err := service.quotaWriter.WriteSnapshots(ctx, snapshots); err != nil {
+		service.accessQuotaCheckpointDegraded.Store(true)
 		service.recordAccessQuotaCheckpointFailure()
 		service.wakeAccessQuotaCheckpoint()
 		return err
@@ -914,6 +916,8 @@ func (service *Service) flushAccessQuotaCheckpoints(ctx context.Context) error {
 	}
 	if len(service.accessQuota.DirtySnapshots(1)) > 0 {
 		service.wakeAccessQuotaCheckpoint()
+	} else {
+		service.accessQuotaCheckpointDegraded.Store(false)
 	}
 	return nil
 }

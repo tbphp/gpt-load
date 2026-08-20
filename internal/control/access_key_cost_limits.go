@@ -19,6 +19,11 @@ type normalizedAccessKeyCostLimitRule struct {
 	PeriodSeconds int64
 }
 
+type accessKeyCostLimitPeriodMove struct {
+	RuleID          uint
+	TemporaryPeriod int64
+}
+
 func normalizeAccessKeyCostLimitRules(
 	field OptionalAccessKeyCostLimitRules,
 	allowExistingIDs bool,
@@ -149,6 +154,25 @@ func reconcileAccessKeyCostLimitRules(
 			return nil, app_errors.ParseDBError(err)
 		}
 	}
+	periodMoves, err := planAccessKeyCostLimitPeriodMoves(current, desired)
+	if err != nil {
+		return nil, err
+	}
+	for _, move := range periodMoves {
+		result := tx.Model(&models.AccessKeyCostLimitRule{}).
+			Where("id = ? AND access_key_id = ?", move.RuleID, accessKeyID).
+			Update("period_seconds", move.TemporaryPeriod)
+		if result.Error != nil {
+			return nil, app_errors.ParseDBError(result.Error)
+		}
+		if result.RowsAffected != 1 {
+			return nil, fmt.Errorf(
+				"temporarily move access key cost limit rule %d: %w",
+				move.RuleID,
+				app_errors.ErrInternalServer,
+			)
+		}
+	}
 
 	for _, definition := range desired {
 		if definition.ID == 0 {
@@ -196,6 +220,64 @@ func reconcileAccessKeyCostLimitRules(
 		}
 	}
 	return loadAccessKeyCostLimitRuleRows(tx, accessKeyID)
+}
+
+func planAccessKeyCostLimitPeriodMoves(
+	current []models.AccessKeyCostLimitRule,
+	desired []normalizedAccessKeyCostLimitRule,
+) ([]accessKeyCostLimitPeriodMove, error) {
+	currentByID := make(map[uint]models.AccessKeyCostLimitRule, len(current))
+	reserved := make(map[int64]struct{}, len(current)+len(desired))
+	for _, rule := range current {
+		currentByID[rule.ID] = rule
+		if rule.Kind == models.AccessKeyCostLimitKindPeriodic {
+			reserved[rule.PeriodSeconds] = struct{}{}
+		}
+	}
+	changedIDs := make([]uint, 0)
+	for _, definition := range desired {
+		if definition.Kind == accessquota.KindPeriodic {
+			reserved[definition.PeriodSeconds] = struct{}{}
+		}
+		if definition.ID == 0 {
+			continue
+		}
+		currentRule := currentByID[definition.ID]
+		if currentRule.PeriodSeconds == definition.PeriodSeconds {
+			continue
+		}
+		if currentRule.RuleRevision == ^uint64(0) {
+			return nil, fmt.Errorf(
+				"advance access key cost limit rule %d revision: %w",
+				definition.ID,
+				app_errors.ErrInternalServer,
+			)
+		}
+		changedIDs = append(changedIDs, definition.ID)
+	}
+	sort.Slice(changedIDs, func(i, j int) bool { return changedIDs[i] < changedIDs[j] })
+	moves := make([]accessKeyCostLimitPeriodMove, 0, len(changedIDs))
+	candidate := accessquota.MaxPeriodSeconds
+	for _, ruleID := range changedIDs {
+		for candidate >= accessquota.MinPeriodSeconds {
+			if _, exists := reserved[candidate]; !exists {
+				break
+			}
+			candidate--
+		}
+		if candidate < accessquota.MinPeriodSeconds {
+			return nil, fmt.Errorf(
+				"plan temporary access key cost limit periods: %w",
+				app_errors.ErrInternalServer,
+			)
+		}
+		moves = append(moves, accessKeyCostLimitPeriodMove{
+			RuleID: ruleID, TemporaryPeriod: candidate,
+		})
+		reserved[candidate] = struct{}{}
+		candidate--
+	}
+	return moves, nil
 }
 
 func loadAccessKeyCostLimitRuleRows(

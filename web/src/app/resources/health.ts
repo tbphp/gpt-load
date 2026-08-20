@@ -95,6 +95,7 @@ const requestLogFields = [
   'dropped_total',
   'write_failure_total',
   'access_quota_checkpoint_write_failure_total',
+  'access_quota_checkpoint_degraded',
   'retention_delete_failure_total',
   'queue_depth',
   'queue_capacity',
@@ -277,10 +278,12 @@ function projectRequestLogHealth(value: unknown): RequestLogHealthDto {
       | 'last_write_failure_at_ms'
       | 'last_access_quota_checkpoint_write_failure_at_ms'
       | 'last_retention_failure_at_ms'
+      | 'access_quota_checkpoint_degraded'
     >
   >
   return {
     ...counters,
+    access_quota_checkpoint_degraded: projectBoolean(record.access_quota_checkpoint_degraded),
     last_write_failure_at_ms: projectNullableEpochMilliseconds(record.last_write_failure_at_ms),
     last_access_quota_checkpoint_write_failure_at_ms: projectNullableEpochMilliseconds(
       record.last_access_quota_checkpoint_write_failure_at_ms,

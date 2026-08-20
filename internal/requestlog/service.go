@@ -69,6 +69,7 @@ type Service struct {
 	droppedShutdownTotal                   atomic.Uint64
 	writeFailureTotal                      atomic.Uint64
 	accessQuotaCheckpointWriteFailureTotal atomic.Uint64
+	accessQuotaCheckpointDegraded          atomic.Bool
 	retentionDeleteTotal                   atomic.Uint64
 
 	statsMu                                 sync.Mutex
@@ -255,6 +256,7 @@ func (service *Service) Stats() Stats {
 		DroppedShutdownTotal:                    service.droppedShutdownTotal.Load(),
 		WriteFailureTotal:                       service.writeFailureTotal.Load(),
 		AccessQuotaCheckpointWriteFailureTotal:  service.accessQuotaCheckpointWriteFailureTotal.Load(),
+		AccessQuotaCheckpointDegraded:           service.accessQuotaCheckpointDegraded.Load(),
 		RetentionDeleteFailureTotal:             service.retentionDeleteTotal.Load(),
 		QueueDepth:                              len(service.queue),
 		QueueCapacity:                           cap(service.queue),

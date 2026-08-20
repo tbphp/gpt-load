@@ -55,6 +55,11 @@ var (
 		Code:    "access_key_cost_limit_exceeded",
 		Message: "Access key cost limit exceeded.",
 	}
+	reasonConfigurationChanged = reason{
+		Status:  http.StatusServiceUnavailable,
+		Code:    "configuration_changed",
+		Message: "Configuration changed; retry the request.",
+	}
 )
 
 type accessKeyCostLimitRuleError struct {
@@ -138,6 +143,14 @@ func cloneReasonInt64(value *int64) *int64 {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func (handler *Handler) completeConfigurationChanged(
+	context *gin.Context,
+	recorder *requestRecorder,
+) {
+	context.Writer.Header().Set("Retry-After", "1")
+	handler.completeReason(context, recorder, reasonConfigurationChanged)
 }
 
 func (handler *Handler) writeReason(context *gin.Context, value reason) error {

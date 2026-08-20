@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
 
@@ -204,4 +209,173 @@ func TestHandlerLogsAccessQuotaCompletionFault(t *testing.T) {
 		!strings.Contains(entry, `"level":"error"`) {
 		t.Fatalf("quota completion fault log = %s", entry)
 	}
+}
+
+func TestHandlerRejectsStaleSnapshotBeforeQuotaCheck(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	_, handler, manager, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, &recordingRequestLogSink{}, "sk-first",
+	)
+	runtime := accessquota.NewRuntime()
+	manager.SetSnapshotReconciler(gatewayAccessQuotaSnapshotReconciler{runtime: runtime})
+	oldRules := []accessquota.Rule{{
+		ID: 301, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 100,
+	}}
+	if _, err := manager.Publish(gatewayAccessQuotaCompileInput(handler, oldRules)); err != nil {
+		t.Fatal(err)
+	}
+	ticket, decision := runtime.Admit(1, time.Unix(5_000, 0))
+	if !decision.Allowed {
+		t.Fatalf("Admit() = %#v", decision)
+	}
+	runtime.Complete(ticket, 100)
+	handler.accessQuota = runtime
+
+	context, response := prepareAuthenticatedGatewayRequest(t, handler, http.MethodGet, "/v1/models", nil)
+	if _, err := manager.Publish(gatewayAccessQuotaCompileInput(handler, []accessquota.Rule{{
+		ID: 301, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 200,
+	}})); err != nil {
+		t.Fatal(err)
+	}
+
+	handler.Handle(context)
+	if response.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(response.Body.String(), `"code":"configuration_changed"`) ||
+		response.Header().Get("Retry-After") != "1" {
+		t.Fatalf(
+			"stale snapshot response = %d headers=%v body=%s",
+			response.Code,
+			response.Header(),
+			response.Body.String(),
+		)
+	}
+	if len(forwarder.inputs) != 0 {
+		t.Fatalf("stale snapshot forward calls = %d, want 0", len(forwarder.inputs))
+	}
+}
+
+func TestHandlerRejectsSnapshotChangedBetweenQuotaCheckAndAdmit(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	_, handler, manager, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, &recordingRequestLogSink{}, "sk-first",
+	)
+	runtime := accessquota.NewRuntime()
+	manager.SetSnapshotReconciler(gatewayAccessQuotaSnapshotReconciler{runtime: runtime})
+	oldRules := []accessquota.Rule{{
+		ID: 302, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 100,
+	}}
+	if _, err := manager.Publish(gatewayAccessQuotaCompileInput(handler, oldRules)); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := runtime.Admit(1, time.Unix(6_000, 0))
+	runtime.Complete(first, 90)
+	second, decision := runtime.Admit(1, time.Unix(6_001, 0))
+	if !decision.Allowed {
+		t.Fatalf("second Admit() = %#v", decision)
+	}
+	handler.accessQuota = runtime
+
+	body := newBlockingRequestBody(`{"model":"gpt-4o"}`, nil)
+	context, response := prepareAuthenticatedGatewayRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/chat/completions",
+		body,
+	)
+	done := make(chan struct{})
+	go func() {
+		handler.Handle(context)
+		close(done)
+	}()
+	receiveTestSignal(t, body.started, "quota request body read")
+
+	runtime.Complete(second, 10)
+	if _, err := manager.Publish(gatewayAccessQuotaCompileInput(handler, []accessquota.Rule{{
+		ID: 302, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 200,
+	}})); err != nil {
+		t.Fatal(err)
+	}
+	close(body.release)
+	receiveTestSignal(t, done, "stale quota admission completion")
+
+	if response.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(response.Body.String(), `"code":"configuration_changed"`) ||
+		response.Header().Get("Retry-After") != "1" {
+		t.Fatalf(
+			"stale admission response = %d headers=%v body=%s",
+			response.Code,
+			response.Header(),
+			response.Body.String(),
+		)
+	}
+	if len(forwarder.inputs) != 0 {
+		t.Fatalf("stale admission forward calls = %d, want 0", len(forwarder.inputs))
+	}
+}
+
+type gatewayAccessQuotaSnapshotReconciler struct {
+	runtime *accessquota.Runtime
+}
+
+func (reconciler gatewayAccessQuotaSnapshotReconciler) ReconcileConfigSnapshot(
+	snapshot *state.ConfigSnapshot,
+) error {
+	return reconciler.runtime.Reconcile(snapshot.AccessQuotaDefinitions())
+}
+
+func gatewayAccessQuotaCompileInput(
+	handler *Handler,
+	rules []accessquota.Rule,
+) state.CompileInput {
+	return state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive, CostLimitRules: append([]accessquota.Rule(nil), rules...),
+		}},
+	}
+}
+
+func prepareAuthenticatedGatewayRequest(
+	t *testing.T,
+	handler *Handler,
+	method string,
+	path string,
+	body io.Reader,
+) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	var selected dataPlaneEndpoint
+	found := false
+	for _, endpoint := range dataPlaneEndpointCatalog() {
+		if endpoint.path == path {
+			selected = endpoint
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("data-plane endpoint %q is missing", path)
+	}
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(method, path, body)
+	context.Request.Header.Set("Authorization", "Bearer gl-client")
+	handler.prepareDataPlaneRequest(selected)(context)
+	handler.authenticateDataPlaneRequest(context)
+	requestContext, ok := dataPlaneRequestContextFrom(context)
+	if !ok || !requestContext.authenticated || requestContext.snapshot == nil {
+		t.Fatalf("authenticated request context = %#v", requestContext)
+	}
+	return context, response
 }

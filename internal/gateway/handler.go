@@ -230,6 +230,7 @@ func (unlimitedAccessKeyRPMLimiter) Allow(uint, int64) ratelimit.LimitDecision {
 
 type requestAccessQuotaAdmission struct {
 	accessKeyID uint
+	snapshot    *state.ConfigSnapshot
 	ticket      accessquota.Ticket
 	admitted    bool
 }
@@ -323,6 +324,9 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 
 	quotaAdmission := requestAccessQuotaAdmission{accessKeyID: accessKey.ID}
+	if len(accessKey.CostLimitRules) > 0 {
+		quotaAdmission.snapshot = snapshot
+	}
 	var recorder *requestRecorder
 	if selectedRoute.Kind == endpointForward {
 		recorder = newRequestRecorder(
@@ -350,7 +354,21 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 
 	if handler.accessQuota != nil {
-		quotaDecision := handler.accessQuota.Check(accessKey.ID, handler.quotaNow())
+		quotaDecision := accessquota.Decision{}
+		if quotaAdmission.snapshot == nil {
+			quotaDecision = handler.accessQuota.Check(accessKey.ID, handler.quotaNow())
+		} else {
+			var current bool
+			quotaDecision, current = handler.checkAccessQuotaForSnapshot(
+				quotaAdmission.snapshot,
+				accessKey.ID,
+				handler.quotaNow(),
+			)
+			if !current {
+				handler.completeConfigurationChanged(ginContext, recorder)
+				return
+			}
+		}
 		if !quotaDecision.Allowed {
 			handler.completeAccessQuotaReason(ginContext, recorder, quotaDecision)
 			return
@@ -516,6 +534,45 @@ func (handler *Handler) quotaNow() time.Time {
 		return handler.now()
 	}
 	return time.Now()
+}
+
+func (handler *Handler) checkAccessQuotaForSnapshot(
+	snapshot *state.ConfigSnapshot,
+	accessKeyID uint,
+	now time.Time,
+) (accessquota.Decision, bool) {
+	var decision accessquota.Decision
+	if handler == nil || handler.manager == nil || handler.accessQuota == nil || snapshot == nil {
+		return decision, false
+	}
+	current := handler.manager.WithCurrentSnapshotRead(func(currentSnapshot *state.ConfigSnapshot) bool {
+		if currentSnapshot != snapshot {
+			return false
+		}
+		decision = handler.accessQuota.Check(accessKeyID, now)
+		return true
+	})
+	return decision, current
+}
+
+func (handler *Handler) admitAccessQuotaForSnapshot(
+	snapshot *state.ConfigSnapshot,
+	accessKeyID uint,
+	now time.Time,
+) (accessquota.Ticket, accessquota.Decision, bool) {
+	var ticket accessquota.Ticket
+	var decision accessquota.Decision
+	if handler == nil || handler.manager == nil || handler.accessQuota == nil || snapshot == nil {
+		return ticket, decision, false
+	}
+	current := handler.manager.WithCurrentSnapshotRead(func(currentSnapshot *state.ConfigSnapshot) bool {
+		if currentSnapshot != snapshot {
+			return false
+		}
+		ticket, decision = handler.accessQuota.Admit(accessKeyID, now)
+		return true
+	})
+	return ticket, decision, current
 }
 
 func (handler *Handler) logAccessQuotaCompletionFault(
@@ -716,10 +773,25 @@ func (handler *Handler) executeAttempts(
 			continue
 		}
 		if quotaAdmission != nil && !quotaAdmission.admitted && handler.accessQuota != nil {
-			ticket, decision := handler.accessQuota.Admit(
-				quotaAdmission.accessKeyID,
-				handler.quotaNow(),
-			)
+			var ticket accessquota.Ticket
+			var decision accessquota.Decision
+			if quotaAdmission.snapshot == nil {
+				ticket, decision = handler.accessQuota.Admit(
+					quotaAdmission.accessKeyID,
+					handler.quotaNow(),
+				)
+			} else {
+				var current bool
+				ticket, decision, current = handler.admitAccessQuotaForSnapshot(
+					quotaAdmission.snapshot,
+					quotaAdmission.accessKeyID,
+					handler.quotaNow(),
+				)
+				if !current {
+					handler.completeConfigurationChanged(ginContext, recorder)
+					return
+				}
+			}
 			if !decision.Allowed {
 				handler.completeAccessQuotaReason(ginContext, recorder, decision)
 				return

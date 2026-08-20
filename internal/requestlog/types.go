@@ -273,6 +273,7 @@ type Stats struct {
 	DroppedTotal                            uint64
 	WriteFailureTotal                       uint64
 	AccessQuotaCheckpointWriteFailureTotal  uint64
+	AccessQuotaCheckpointDegraded           bool
 	RetentionDeleteFailureTotal             uint64
 	QueueDepth                              int
 	QueueCapacity                           int

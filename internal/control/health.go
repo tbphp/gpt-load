@@ -80,6 +80,7 @@ type requestLogHealthResponse struct {
 	DroppedTotal                              uint64 `json:"dropped_total"`
 	WriteFailureTotal                         uint64 `json:"write_failure_total"`
 	AccessQuotaCheckpointWriteFailureTotal    uint64 `json:"access_quota_checkpoint_write_failure_total"`
+	AccessQuotaCheckpointDegraded             bool   `json:"access_quota_checkpoint_degraded"`
 	RetentionDeleteFailureTotal               uint64 `json:"retention_delete_failure_total"`
 	QueueDepth                                int    `json:"queue_depth"`
 	QueueCapacity                             int    `json:"queue_capacity"`
@@ -453,6 +454,7 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 		DroppedTotal:                              stats.DroppedTotal,
 		WriteFailureTotal:                         stats.WriteFailureTotal,
 		AccessQuotaCheckpointWriteFailureTotal:    stats.AccessQuotaCheckpointWriteFailureTotal,
+		AccessQuotaCheckpointDegraded:             stats.AccessQuotaCheckpointDegraded,
 		RetentionDeleteFailureTotal:               stats.RetentionDeleteFailureTotal,
 		QueueDepth:                                stats.QueueDepth,
 		QueueCapacity:                             stats.QueueCapacity,

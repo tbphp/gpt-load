@@ -25,7 +25,7 @@ const state = computed(() => {
 })
 
 const checkpointState = computed(() => {
-  if (props.stats.access_quota_checkpoint_write_failure_total > 0) {
+  if (props.stats.access_quota_checkpoint_degraded) {
     return { tone: 'danger' as const, label: t('monitor.health.requestLog.checkpointAbnormal') }
   }
   return { tone: 'success' as const, label: t('monitor.health.requestLog.checkpointNormal') }
@@ -88,8 +88,7 @@ const metrics = computed(() => [
           {{ t('monitor.health.requestLog.checkpointFailures') }}
           <strong
             :class="{
-              'request-log-health__failures--danger':
-                stats.access_quota_checkpoint_write_failure_total > 0,
+              'request-log-health__failures--danger': stats.access_quota_checkpoint_degraded,
             }"
           >
             {{ n(stats.access_quota_checkpoint_write_failure_total) }}
@@ -105,7 +104,7 @@ const metrics = computed(() => [
           </template>
         </span>
         <p
-          v-if="stats.access_quota_checkpoint_write_failure_total > 0"
+          v-if="stats.access_quota_checkpoint_degraded"
           class="request-log-health__checkpoint-risk"
         >
           {{ t('monitor.health.requestLog.checkpointRisk') }}
