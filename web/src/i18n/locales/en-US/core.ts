@@ -234,7 +234,7 @@ export default {
           periodMinutes: '{count} minutes',
           periodSeconds: '{count} seconds',
           usage: '{used} / {limit} used, {remaining} remaining',
-          startsOnNextRequest: 'The next request entering upstream execution starts a new period',
+          previewEndsAt: 'Preview period ends:',
           availableAgain: 'Available again:',
           resetsAt: 'Current period ends:',
           notAutomatic:

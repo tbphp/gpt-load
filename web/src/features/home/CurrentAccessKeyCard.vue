@@ -64,6 +64,7 @@ function ruleLabel(kind: 'total' | 'periodic', periodSeconds: number): string {
 }
 
 function remainingPercent(rule: AccessKeyCostLimitRuleStatusDto): number {
+  if (rule.status === 'inactive') return 100
   const limit = Number(rule.limit_usd)
   const remaining = Number(rule.remaining_usd)
   if (!Number.isFinite(limit) || !Number.isFinite(remaining) || limit <= 0) return 0
@@ -74,12 +75,45 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
   return quotaProgressTone(remainingPercent(rule), rule.status === 'exhausted')
 }
 
+function displayWindow(rule: AccessKeyCostLimitRuleStatusDto): {
+  start: number
+  end: number
+  preview: boolean
+} | null {
+  if (rule.window_started_at_ms !== null && rule.window_ends_at_ms !== null) {
+    return { start: rule.window_started_at_ms, end: rule.window_ends_at_ms, preview: false }
+  }
+  const start = costLimits.value?.observed_at_ms
+  const duration = rule.period_seconds * 1_000
+  const end = start === undefined ? Number.NaN : start + duration
+  if (
+    rule.kind !== 'periodic' ||
+    rule.status !== 'inactive' ||
+    start === undefined ||
+    !Number.isSafeInteger(duration) ||
+    !Number.isSafeInteger(end)
+  ) {
+    return null
+  }
+  return { start, end, preview: true }
+}
+
 function windowTooltip(rule: AccessKeyCostLimitRuleStatusDto): string | undefined {
-  if (rule.window_started_at_ms === null || rule.window_ends_at_ms === null) return undefined
-  return t('accessKeys.costLimits.windowPeriod', {
-    start: formatLocalInstant(rule.window_started_at_ms, locale.value),
-    end: formatLocalInstant(rule.window_ends_at_ms, locale.value),
-  })
+  const window = displayWindow(rule)
+  if (!window) return undefined
+  return t(
+    window.preview
+      ? 'accessKeys.costLimits.inactiveWindowPeriod'
+      : 'accessKeys.costLimits.windowPeriod',
+    {
+      start: formatLocalInstant(window.start, locale.value),
+      end: formatLocalInstant(window.end, locale.value),
+    },
+  )
+}
+
+function displayWindowEnd(rule: AccessKeyCostLimitRuleStatusDto): number | null {
+  return displayWindow(rule)?.end ?? null
 }
 </script>
 
@@ -189,34 +223,30 @@ function windowTooltip(rule: AccessKeyCostLimitRuleStatusDto): string | undefine
           </p>
           <div class="current-access-key__limit-progress">
             <QuotaProgressBar
-              :value="rule.status === 'inactive' ? undefined : remainingPercent(rule)"
+              :value="remainingPercent(rule)"
               :tone="ruleTone(rule)"
               :label="ruleLabel(rule.kind, rule.period_seconds)"
               :value-text="
-                rule.status === 'inactive'
-                  ? t('accessKeys.costLimits.status.inactive')
-                  : t('accessKeys.costLimits.remainingPercent', {
-                      value: n(remainingPercent(rule)),
-                    })
+                t('accessKeys.costLimits.remainingPercent', {
+                  value: n(remainingPercent(rule)),
+                })
               "
             />
-            <strong v-if="rule.status !== 'inactive'">{{ n(remainingPercent(rule)) }}%</strong>
-            <strong v-else>{{ t('accessKeys.costLimits.status.inactive') }}</strong>
+            <strong>{{ n(remainingPercent(rule)) }}%</strong>
           </div>
           <div class="current-access-key__limit-recovery">
-            <template v-if="rule.status === 'inactive'">
-              {{ t('home.ledger.currentAccessKey.costLimits.startsOnNextRequest') }}
-            </template>
-            <template v-else-if="rule.window_ends_at_ms !== null">
+            <template v-if="displayWindowEnd(rule) !== null">
               {{
                 t(
-                  rule.status === 'exhausted'
-                    ? 'home.ledger.currentAccessKey.costLimits.availableAgain'
-                    : 'home.ledger.currentAccessKey.costLimits.resetsAt',
+                  rule.status === 'inactive'
+                    ? 'home.ledger.currentAccessKey.costLimits.previewEndsAt'
+                    : rule.status === 'exhausted'
+                      ? 'home.ledger.currentAccessKey.costLimits.availableAgain'
+                      : 'home.ledger.currentAccessKey.costLimits.resetsAt',
                 )
               }}
               <AppRelativeTime
-                :instant="rule.window_ends_at_ms"
+                :instant="displayWindowEnd(rule)"
                 :locale="locale"
                 :empty-label="t('home.ledger.currentAccessKey.costLimits.notAutomatic')"
                 :tooltip-content="windowTooltip(rule)"
@@ -375,7 +405,12 @@ function windowTooltip(rule: AccessKeyCostLimitRuleStatusDto): string | undefine
   border-left-color: var(--color-warning);
 }
 .current-access-key__limit-list article.current-access-key__limit-card--danger {
+  border-color: var(--color-feedback-danger-border);
   border-left-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger-bg) 82%, var(--color-surface));
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-danger) 14%, transparent),
+    0 8px 24px color-mix(in srgb, var(--color-danger) 9%, transparent);
 }
 .current-access-key__limit-heading {
   justify-content: space-between;

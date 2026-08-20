@@ -38,6 +38,8 @@ export default {
       notAutomatic: 'Does not recover automatically',
       remainingPercent: '{value}%',
       windowPeriod: 'Start: {start}\nEnd: {end}',
+      inactiveWindowPeriod:
+        'Preview start: {start}\nPreview end: {end}\nThe actual period starts with the first admitted request',
       status: {
         available: 'Available',
         inactive: 'Not started',

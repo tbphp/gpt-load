@@ -223,7 +223,7 @@ export default {
           periodMinutes: '{count} 分钟',
           periodSeconds: '{count} 秒',
           usage: '已用 {used} / {limit}，剩余 {remaining}',
-          startsOnNextRequest: '下一次进入上游执行阶段的请求将开始新周期',
+          previewEndsAt: '预览周期结束：',
           availableAgain: '可再次请求：',
           resetsAt: '当前周期结束：',
           notAutomatic: '不会自动恢复，需要管理员调整或删除总额度规则',

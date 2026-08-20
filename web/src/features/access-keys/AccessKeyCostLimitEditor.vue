@@ -112,6 +112,7 @@ function runtimeFor(
 }
 
 function remainingPercent(runtime: AccessKeyCostLimitRuleStatusDto): number {
+  if (runtime.status === 'inactive') return 100
   const limit = Number(runtime.limit_usd)
   const remaining = Number(runtime.remaining_usd)
   if (!Number.isFinite(limit) || !Number.isFinite(remaining) || limit <= 0) return 0
@@ -119,20 +120,52 @@ function remainingPercent(runtime: AccessKeyCostLimitRuleStatusDto): number {
 }
 
 function runtimeProgressValue(runtime: AccessKeyCostLimitRuleStatusDto): number | undefined {
-  return runtime.status === 'inactive' ? undefined : remainingPercent(runtime)
+  return remainingPercent(runtime)
 }
 
 function runtimeValueText(runtime: AccessKeyCostLimitRuleStatusDto): string {
-  if (runtime.status === 'inactive') return t('accessKeys.costLimits.status.inactive')
   return t('accessKeys.costLimits.remainingPercent', { value: n(remainingPercent(runtime)) })
 }
 
+function runtimeWindow(runtime: AccessKeyCostLimitRuleStatusDto): {
+  start: number
+  end: number
+  preview: boolean
+} | null {
+  if (runtime.window_started_at_ms !== null && runtime.window_ends_at_ms !== null) {
+    return { start: runtime.window_started_at_ms, end: runtime.window_ends_at_ms, preview: false }
+  }
+  const start = props.runtimeStatus?.observed_at_ms
+  const duration = runtime.period_seconds * 1_000
+  const end = start === undefined ? Number.NaN : start + duration
+  if (
+    runtime.kind !== 'periodic' ||
+    runtime.status !== 'inactive' ||
+    start === undefined ||
+    !Number.isSafeInteger(duration) ||
+    !Number.isSafeInteger(end)
+  ) {
+    return null
+  }
+  return { start, end, preview: true }
+}
+
 function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string | undefined {
-  if (runtime.window_started_at_ms === null || runtime.window_ends_at_ms === null) return undefined
-  return t('accessKeys.costLimits.windowPeriod', {
-    start: formatLocalInstant(runtime.window_started_at_ms, locale.value),
-    end: formatLocalInstant(runtime.window_ends_at_ms, locale.value),
-  })
+  const window = runtimeWindow(runtime)
+  if (!window) return undefined
+  return t(
+    window.preview
+      ? 'accessKeys.costLimits.inactiveWindowPeriod'
+      : 'accessKeys.costLimits.windowPeriod',
+    {
+      start: formatLocalInstant(window.start, locale.value),
+      end: formatLocalInstant(window.end, locale.value),
+    },
+  )
+}
+
+function runtimeWindowEnd(runtime: AccessKeyCostLimitRuleStatusDto): number | null {
+  return runtimeWindow(runtime)?.end ?? null
 }
 </script>
 
@@ -215,9 +248,7 @@ function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string 
             :value-text="runtimeValueText(runtimeFor(rule)!)"
             compact
           />
-          <strong v-if="runtimeFor(rule)!.status !== 'inactive'">
-            {{ runtimeValueText(runtimeFor(rule)!) }}
-          </strong>
+          <strong>{{ runtimeValueText(runtimeFor(rule)!) }}</strong>
           <span v-if="runtimeFor(rule)!.status === 'exhausted'">
             {{ t('accessKeys.costLimits.notAutomatic') }}
           </span>
@@ -299,12 +330,10 @@ function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string 
             :value-text="runtimeValueText(runtimeFor(rule)!)"
             compact
           />
-          <strong v-if="runtimeFor(rule)!.status !== 'inactive'">
-            {{ runtimeValueText(runtimeFor(rule)!) }}
-          </strong>
+          <strong>{{ runtimeValueText(runtimeFor(rule)!) }}</strong>
           <AppRelativeTime
-            v-if="runtimeFor(rule)!.window_ends_at_ms !== null"
-            :instant="runtimeFor(rule)!.window_ends_at_ms"
+            v-if="runtimeWindowEnd(runtimeFor(rule)!) !== null"
+            :instant="runtimeWindowEnd(runtimeFor(rule)!)"
             :locale="locale"
             :empty-label="t('accessKeys.costLimits.status.inactive')"
             :tooltip-content="runtimeWindowTooltip(runtimeFor(rule)!)"
@@ -342,7 +371,7 @@ function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string 
 }
 .cost-limit-group {
   display: grid;
-  border-top: 1px solid var(--color-border-subtle);
+  border-top: 1px dashed var(--color-border-subtle);
   padding-top: 8px;
 }
 .cost-limit-group h4 {
@@ -357,7 +386,7 @@ function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string 
   padding: 7px 0;
 }
 .cost-limit-rule + .cost-limit-rule {
-  border-top: 1px solid var(--color-border-subtle);
+  border-top: 1px dashed var(--color-border-subtle);
 }
 .cost-limit-rule__remove {
   display: inline-grid;
@@ -425,6 +454,7 @@ function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string 
 .cost-limit-rule__amount input {
   height: 30px;
   border: 0;
+  outline: 0;
   background: transparent;
 }
 .cost-limit-rule__runtime {

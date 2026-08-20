@@ -38,6 +38,8 @@ export default {
       notAutomatic: '自動では回復しません',
       remainingPercent: '{value}%',
       windowPeriod: '開始：{start}\n終了：{end}',
+      inactiveWindowPeriod:
+        'プレビュー開始：{start}\nプレビュー終了：{end}\n実際の周期は最初に許可されたリクエストで始まります',
       status: {
         available: '利用可能',
         inactive: '未開始',

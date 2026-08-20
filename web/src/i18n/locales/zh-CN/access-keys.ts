@@ -38,6 +38,7 @@ export default {
       notAutomatic: '不会自动恢复',
       remainingPercent: '{value}%',
       windowPeriod: '开始：{start}\n结束：{end}',
+      inactiveWindowPeriod: '预览开始：{start}\n预览结束：{end}\n实际周期将在首个获准请求时开始',
       status: {
         available: '可用',
         inactive: '未开始',

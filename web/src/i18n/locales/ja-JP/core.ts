@@ -232,7 +232,7 @@ export default {
           periodMinutes: '{count} 分',
           periodSeconds: '{count} 秒',
           usage: '{used} / {limit} 使用済み、残り {remaining}',
-          startsOnNextRequest: '次に上流実行段階へ進むリクエストから新しい周期が始まります',
+          previewEndsAt: 'プレビュー周期終了：',
           availableAgain: '再利用可能：',
           resetsAt: '現在の周期終了：',
           notAutomatic:
