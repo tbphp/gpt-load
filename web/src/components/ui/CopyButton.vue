@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { Check, Copy } from '@lucide/vue'
 import { onBeforeUnmount, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+import { copyText } from '@/lib/clipboard'
 
 const props = defineProps<{
   value: string
@@ -8,13 +11,13 @@ const props = defineProps<{
   successLabel: string
   failureLabel: string
 }>()
-const state = ref<'idle' | 'success' | 'failure'>('idle')
+const { t } = useI18n()
+const state = ref<'idle' | 'success' | 'unsupported' | 'failure'>('idle')
 let resetTimer: number | undefined
 
 async function copy(): Promise<void> {
   try {
-    await navigator.clipboard.writeText(props.value)
-    state.value = 'success'
+    state.value = (await copyText(props.value)) ? 'success' : 'failure'
   } catch {
     state.value = 'failure'
   }
@@ -38,7 +41,13 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
       aria-live="polite"
       aria-atomic="true"
     >
-      {{ state === 'success' ? successLabel : failureLabel }}
+      {{
+        state === 'unsupported'
+          ? t('common.copyUnsupported')
+          : state === 'success'
+            ? successLabel
+            : failureLabel
+      }}
     </span>
   </span>
 </template>

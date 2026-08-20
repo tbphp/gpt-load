@@ -5,6 +5,7 @@ import type {
   ModelPriceScheduleUpdateRequest,
   ModelPriceUpdateRequest,
 } from '@/app/resources/model-prices'
+import { createUUID } from '@/lib/uuid'
 
 export const modelPriceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 export type ModelPriceField = (typeof modelPriceFields)[number]
@@ -55,7 +56,7 @@ function emptySlotDraft(): ModelPriceSlotDraft {
 }
 
 export function createEmptyTierDraft(): ModelPriceTierDraft {
-  return { key: crypto.randomUUID(), threshold: '', slots: emptySlotDraft() }
+  return { key: createUUID(), threshold: '', slots: emptySlotDraft() }
 }
 
 function createScheduleDraft(schedule?: ModelPriceScheduleDto | null): ModelPriceScheduleDraft {
@@ -67,7 +68,7 @@ function createScheduleDraft(schedule?: ModelPriceScheduleDto | null): ModelPric
       cache_write: schedule?.prices.cache_write ?? '',
     },
     tiers: (schedule?.context_tiers ?? []).map((tier) => ({
-      key: crypto.randomUUID(),
+      key: createUUID(),
       threshold: String(tier.threshold_tokens),
       slots: {
         input: tier.prices.input ?? '',

@@ -7,6 +7,7 @@ export default {
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
+    copyUnsupported: '当前环境不支持复制，请使用 HTTPS',
     pagination: {
       label: '分页',
       total: '共 {total} 条',

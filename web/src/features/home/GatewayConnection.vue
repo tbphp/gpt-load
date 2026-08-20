@@ -16,6 +16,7 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import CopyAction from '@/components/ui/CopyAction.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
+import { canWriteToClipboardNatively, copyText } from '@/lib/clipboard'
 
 import ClientPicker from './ClientPicker.vue'
 import HomeSectionHeading from './HomeSectionHeading.vue'
@@ -44,7 +45,7 @@ const emit = defineEmits<{
 }>()
 
 type ActionTarget = 'key' | 'configuration' | 'quick-import' | 'baseUrl' | 'apiKey'
-type FeedbackKind = 'success' | 'failure' | 'popup-blocked'
+type FeedbackKind = 'success' | 'failure' | 'popup-blocked' | 'unsupported'
 
 interface OperationIdentity {
   operationID: number
@@ -134,13 +135,16 @@ function fieldCopyState(id: ActionTarget): 'idle' | 'success' {
 
 async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }): Promise<void> {
   if (!selectedKeySupportsClient.value) return
+  if (field.secret && !canWriteToClipboardNatively()) {
+    setImmediateFeedback(field.id, 'unsupported')
+    return
+  }
   if (!field.secret) {
     // 非密钥字段不需要解密，直接复制展示值即可。
     const entry = clientFieldList.value.find((candidate) => candidate.id === field.id)
     if (!entry) return
     try {
-      await navigator.clipboard.writeText(entry.value)
-      setImmediateFeedback(field.id, 'success')
+      setImmediateFeedback(field.id, (await copyText(entry.value)) ? 'success' : 'failure')
     } catch {
       setImmediateFeedback(field.id, 'failure')
     }
@@ -149,7 +153,7 @@ async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }):
   const clientID = activeClient.value
   await withRevealedKey(field.id, clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    await navigator.clipboard.writeText(key)
+    if (!(await copyText(key))) throw new Error('COPY_FAILED')
   })
 }
 
@@ -164,12 +168,15 @@ const visibleFeedback = computed(() => {
   }
   return current
 })
-const feedbackTone = computed(() =>
-  visibleFeedback.value?.kind === 'success' ? 'success' : 'danger',
-)
+const feedbackTone = computed(() => {
+  if (visibleFeedback.value?.kind === 'success') return 'success'
+  if (visibleFeedback.value?.kind === 'unsupported') return 'warning'
+  return 'danger'
+})
 const feedbackMessage = computed(() => {
   const current = visibleFeedback.value
   if (!current) return ''
+  if (current.kind === 'unsupported') return t('common.copyUnsupported')
   if (current.target === 'key') {
     return t(
       current.kind === 'success'
@@ -389,10 +396,14 @@ async function withRevealedKey(
 }
 
 async function copyAccessKey(): Promise<void> {
+  if (!canWriteToClipboardNatively()) {
+    setImmediateFeedback('key', 'unsupported')
+    return
+  }
   const clientID = activeClient.value
   await withRevealedKey('key', clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    await navigator.clipboard.writeText(key)
+    if (!(await copyText(key))) throw new Error('COPY_FAILED')
   })
 }
 
@@ -402,11 +413,17 @@ async function copyClientConfiguration(): Promise<void> {
 
   if (clientID === 'codex') {
     try {
-      await navigator.clipboard.writeText(maskedSnippet.value)
-      setImmediateFeedback('configuration', 'success')
+      setImmediateFeedback(
+        'configuration',
+        (await copyText(maskedSnippet.value)) ? 'success' : 'failure',
+      )
     } catch {
       setImmediateFeedback('configuration', 'failure')
     }
+    return
+  }
+  if (!canWriteToClipboardNatively()) {
+    setImmediateFeedback('configuration', 'unsupported')
     return
   }
 
@@ -423,7 +440,7 @@ async function copyClientConfiguration(): Promise<void> {
         `GPT-Load · ${selectedKey.value?.name ?? ''}`,
       )
       if (!isCurrent()) return
-      await navigator.clipboard.writeText(configuration)
+      if (!(await copyText(configuration))) throw new Error('COPY_FAILED')
     } finally {
       configuration = undefined
     }

@@ -1,6 +1,7 @@
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef } from 'vue'
 
 import { classifyMutationOutcome, type MutationOutcome } from '@/app/mutation-outcome'
+import { createUUID } from '@/lib/uuid'
 
 export interface StableImportOperation<TPayload> {
   idempotencyKey: string
@@ -20,7 +21,7 @@ export function useStableImportOperation<TPayload, TResult>(
 ) {
   const clonePayload = options.clonePayload ?? ((payload: TPayload) => structuredClone(payload))
   const now = options.now ?? Date.now
-  const randomUUID = options.randomUUID ?? (() => crypto.randomUUID())
+  const randomUUID = options.randomUUID ?? createUUID
   const setTimer = options.setTimer ?? setTimeout
   const clearTimer = options.clearTimer ?? clearTimeout
 

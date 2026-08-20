@@ -7,6 +7,7 @@ export default {
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Copy failed',
+    copyUnsupported: 'Copy is unavailable. Use HTTPS.',
     pagination: {
       label: 'Pagination',
       total: 'Total: {total}',

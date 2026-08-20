@@ -7,6 +7,7 @@ export default {
     copy: 'コピー',
     copied: 'コピーしました',
     copyFailed: 'コピーに失敗しました',
+    copyUnsupported: 'コピーを使用できません。HTTPS を使用してください',
     pagination: {
       label: 'ページ送り',
       total: '全 {total} 件',

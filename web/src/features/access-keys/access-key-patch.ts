@@ -4,6 +4,7 @@ import type {
   UpdateAccessKeyRequest,
 } from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessKeyFiltersDto } from '@/api/control/types'
+import { createUUID } from '@/lib/uuid'
 
 import {
   createAccessKeyScopeModes,
@@ -29,7 +30,7 @@ export interface AccessKeyCostLimitRuleDraft extends AccessKeyCostLimitRuleInput
 function costLimitRuleDraft(rule: AccessKeyCostLimitRuleInput): AccessKeyCostLimitRuleDraft {
   return {
     ...rule,
-    clientKey: rule.id === undefined ? crypto.randomUUID() : `persisted-${rule.id}`,
+    clientKey: rule.id === undefined ? createUUID() : `persisted-${rule.id}`,
   }
 }
 

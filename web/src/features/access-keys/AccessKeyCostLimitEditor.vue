@@ -7,6 +7,7 @@ import type { AccessKeyCostLimitStatusDto } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { createUUID } from '@/lib/uuid'
 
 import type { AccessKeyCostLimitRuleDraft } from './access-key-patch'
 
@@ -57,7 +58,7 @@ function addRule(kind: 'total' | 'periodic'): void {
   emit('update:modelValue', [
     ...props.modelValue,
     {
-      clientKey: crypto.randomUUID(),
+      clientKey: createUUID(),
       kind,
       limit_usd: kind === 'total' ? '100' : '20',
       ...(kind === 'periodic' ? { period_seconds: 18_000 } : {}),

@@ -8,7 +8,9 @@ import {
   TooltipTrigger,
 } from 'reka-ui'
 import { onBeforeUnmount, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
+import { canWriteToClipboardNatively, copyText } from '@/lib/clipboard'
 import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = withDefaults(
@@ -27,8 +29,9 @@ const props = withDefaults(
   { resolveValue: undefined, layout: 'leading' },
 )
 
-type CopyState = 'idle' | 'success' | 'failure'
+type CopyState = 'idle' | 'success' | 'unsupported' | 'failure'
 
+const { t } = useI18n()
 const state = ref<CopyState>('idle')
 let resetTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -41,11 +44,15 @@ function scheduleReset(): void {
 }
 
 async function copyValue(): Promise<void> {
+  if (props.resolveValue && !canWriteToClipboardNatively()) {
+    state.value = 'unsupported'
+    scheduleReset()
+    return
+  }
+
   try {
-    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
     const value = props.resolveValue ? await props.resolveValue() : props.value
-    await navigator.clipboard.writeText(value)
-    state.value = 'success'
+    state.value = (await copyText(value)) ? 'success' : 'failure'
   } catch {
     state.value = 'failure'
   }
@@ -98,7 +105,13 @@ onBeforeUnmount(() => {
             role="status"
             aria-live="polite"
           >
-            {{ state === 'success' ? successLabel : failureLabel }}
+            {{
+              state === 'unsupported'
+                ? t('common.copyUnsupported')
+                : state === 'success'
+                  ? successLabel
+                  : failureLabel
+            }}
           </TooltipContent>
         </TooltipPortal>
       </TooltipRoot>
@@ -159,6 +172,7 @@ onBeforeUnmount(() => {
 }
 
 .copy-chip:hover,
+.copy-chip[data-state='unsupported'],
 .copy-chip[data-state='success'],
 .copy-chip[data-state='failure'] {
   background: var(--color-surface-sunken);
@@ -169,6 +183,7 @@ onBeforeUnmount(() => {
   color: var(--color-success);
 }
 
+.copy-chip[data-state='unsupported'],
 .copy-chip[data-state='failure'] {
   color: var(--color-danger);
 }
@@ -195,6 +210,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.copy-chip__feedback--unsupported,
 .copy-chip__feedback--failure {
   border-color: var(--color-feedback-danger-border);
   color: var(--color-danger);
