@@ -233,6 +233,14 @@ export function formatEstimatedCost(nanoUSD: string, locale: string): string {
   return formatCurrency(whole, fraction, locale)
 }
 
+export function formatUSD(value: string, locale: string): string {
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/u.test(value)) return '—'
+  const [whole = '0', fraction = ''] = value.split('.')
+  const nanoUSD = BigInt(whole) * NANO_USD_PER_USD + BigInt(fraction.padEnd(9, '0'))
+  const cents = roundNanoUSD(nanoUSD, 2)
+  return formatCurrency(cents / 100n, (cents % 100n).toString().padStart(2, '0'), locale)
+}
+
 function validDate(ms: number): Date | null {
   if (!Number.isSafeInteger(ms)) return null
   const date = new Date(ms)

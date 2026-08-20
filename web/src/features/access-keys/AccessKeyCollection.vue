@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Trash2 } from '@lucide/vue'
+import { ArrowRight, RotateCcw, Trash2 } from '@lucide/vue'
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -16,6 +16,7 @@ import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
+import AccessKeyCostLimitResetDialog from './AccessKeyCostLimitResetDialog.vue'
 import { presentAccessKeyCollection } from './access-key-presenter'
 
 const props = defineProps<{
@@ -31,6 +32,7 @@ const emit = defineEmits<{
   open: [accessKey: AccessKeyCollectionItemDto, trigger: HTMLElement]
   toggle: [accessKey: AccessKeyCollectionItemDto]
   deleted: [name: string]
+  reset: [name: string]
 }>()
 const client = useApiClient()
 const { locale, t } = useI18n()
@@ -143,7 +145,7 @@ watch(
 
       <div class="ledger-record-list__cell access-key-rpm" role="cell">
         <span class="mobile-label">{{ t('accessKeys.columns.limits') }}</span>
-        {{ record.limits }}
+        <span v-for="limit in record.limits" :key="limit">{{ limit }}</span>
       </div>
 
       <div class="ledger-record-list__cell access-key-last-request" role="cell">
@@ -169,6 +171,23 @@ watch(
               : t('accessKeys.actions.enable')
           }}
         </AppButton>
+        <AccessKeyCostLimitResetDialog
+          v-if="record.costLimitRuleCount > 0"
+          :access-key="source(record.id)"
+          @reset="emit('reset', $event)"
+        >
+          <template #trigger="{ open }">
+            <IconButton
+              variant="ghost"
+              size="compact"
+              :label="t('accessKeys.reset.open')"
+              :disabled="busyIds.has(record.id)"
+              @click="open"
+            >
+              <RotateCcw :size="15" aria-hidden="true" />
+            </IconButton>
+          </template>
+        </AccessKeyCostLimitResetDialog>
         <AccessKeyDeleteDialog
           :access-key="source(record.id)"
           :total="total"
@@ -221,6 +240,11 @@ watch(
 .access-key-rpm,
 .access-key-last-request {
   min-width: 0;
+}
+
+.access-key-rpm {
+  display: grid;
+  gap: 2px;
 }
 
 .access-key-status {

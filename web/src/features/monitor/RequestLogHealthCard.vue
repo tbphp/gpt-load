@@ -24,13 +24,6 @@ const state = computed(() => {
   return { tone: 'success' as const, label: t('monitor.health.requestLog.normal') }
 })
 
-const checkpointState = computed(() => {
-  if (props.stats.access_quota_checkpoint_degraded) {
-    return { tone: 'danger' as const, label: t('monitor.health.requestLog.checkpointAbnormal') }
-  }
-  return { tone: 'success' as const, label: t('monitor.health.requestLog.checkpointNormal') }
-})
-
 const metrics = computed(() => [
   {
     key: 'queue',
@@ -80,9 +73,9 @@ const metrics = computed(() => [
         </span>
       </header>
 
-      <div class="request-log-health__checkpoint">
-        <StatusBadge :tone="checkpointState.tone" size="compact">
-          {{ checkpointState.label }}
+      <div v-if="stats.access_quota_checkpoint_degraded" class="request-log-health__checkpoint">
+        <StatusBadge tone="danger" size="compact">
+          {{ t('monitor.health.requestLog.checkpointAbnormal') }}
         </StatusBadge>
         <span class="request-log-health__checkpoint-detail">
           {{ t('monitor.health.requestLog.checkpointFailures') }}
@@ -136,8 +129,9 @@ const metrics = computed(() => [
 }
 
 .request-log-health__card {
+  display: flex;
   height: 100%;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -200,6 +194,7 @@ const metrics = computed(() => [
 
 .request-log-health__metrics {
   display: grid;
+  flex: 1 1 auto;
   min-height: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(68px, 1fr));

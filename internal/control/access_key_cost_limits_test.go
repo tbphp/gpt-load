@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -121,6 +122,124 @@ func TestAccessKeyCostLimitRulesCreateAndReconcileDesiredList(t *testing.T) {
 	if reset.RuleRevision != periodic[0].RuleRevision+1 || reset.UsedNanoUSD != 0 ||
 		reset.WindowStartedAtMS != nil || reset.WindowEndsAtMS != nil || reset.WindowGeneration != 0 {
 		t.Fatalf("duration update state = %#v, want reset next revision", reset)
+	}
+}
+
+func TestAccessKeyCostLimitRulesResetOnlySelectedRules(t *testing.T) {
+	fixture, engine := newAccessKeyCostLimitHTTPFixture(t)
+	created := serveAccessKeyCostLimitRequest(t, engine, http.MethodPost, "/api/access-keys", `{
+		"name":"resettable",
+		"cost_limit_rules":[
+			{"kind":"total","limit_usd":"100"},
+			{"kind":"periodic","limit_usd":"20","period_seconds":18000},
+			{"kind":"periodic","limit_usd":"30","period_seconds":86400}
+		]
+	}`, "00000000-0000-4000-8000-000000009004")
+	if created.Code != http.StatusOK {
+		t.Fatalf("POST = %d %s, want 200", created.Code, created.Body.String())
+	}
+	var envelope struct {
+		Data AccessKeyCreateResult `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	rules := envelope.Data.CostLimitRules
+	if len(rules) != 3 {
+		t.Fatalf("created rules = %#v", rules)
+	}
+
+	now := time.Unix(1_787_184_000, 0).UTC()
+	ticket, decision := fixture.accessQuota.Admit(envelope.Data.ID, now)
+	if !decision.Allowed {
+		t.Fatalf("Admit() = %#v", decision)
+	}
+	fixture.accessQuota.Complete(ticket, 15_000_000_000)
+
+	response := serveAccessKeyCostLimitRequest(
+		t,
+		engine,
+		http.MethodPost,
+		fmt.Sprintf("/api/access-keys/%d/cost-limits/reset", envelope.Data.ID),
+		fmt.Sprintf(`{"rule_ids":[%d,%d]}`, rules[0].ID, rules[1].ID),
+		"",
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST reset = %d %s, want 200", response.Code, response.Body.String())
+	}
+
+	view := fixture.accessQuota.Snapshot(envelope.Data.ID, now.Add(time.Minute))
+	if len(view.Rules) != 3 {
+		t.Fatalf("runtime rules = %#v", view.Rules)
+	}
+	if view.Rules[0].ID != rules[0].ID || view.Rules[0].UsedNanoUSD != 0 ||
+		view.Rules[0].Status != accessquota.RuleStatusAvailable {
+		t.Fatalf("reset total runtime = %#v", view.Rules[0])
+	}
+	if view.Rules[1].ID != rules[1].ID || view.Rules[1].UsedNanoUSD != 0 ||
+		view.Rules[1].Status != accessquota.RuleStatusInactive ||
+		view.Rules[1].WindowStartedAtMS != nil || view.Rules[1].WindowEndsAtMS != nil {
+		t.Fatalf("reset periodic runtime = %#v", view.Rules[1])
+	}
+	if view.Rules[2].ID != rules[2].ID || view.Rules[2].UsedNanoUSD != 15_000_000_000 ||
+		view.Rules[2].Status != accessquota.RuleStatusAvailable ||
+		view.Rules[2].WindowStartedAtMS == nil || view.Rules[2].WindowEndsAtMS == nil {
+		t.Fatalf("unselected periodic runtime = %#v", view.Rules[2])
+	}
+
+	stored := loadAccessKeyCostLimitRules(t, fixture, envelope.Data.ID)
+	for index, rule := range stored {
+		wantRevision := uint64(1)
+		if index < 2 {
+			wantRevision = 2
+		}
+		if rule.RuleRevision != wantRevision {
+			t.Fatalf("rule %d revision = %d, want %d", rule.ID, rule.RuleRevision, wantRevision)
+		}
+		var state models.AccessKeyCostLimitState
+		if err := fixture.db.First(&state, rule.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if index < 2 && (state.RuleRevision != 2 || state.UsedNanoUSD != 0 ||
+			state.WindowStartedAtMS != nil || state.WindowEndsAtMS != nil ||
+			state.WindowGeneration != 0 || state.SnapshotVersion != 1) {
+			t.Fatalf("reset state for rule %d = %#v", rule.ID, state)
+		}
+	}
+}
+
+func TestAccessKeyCostLimitRulesResetRejectsInvalidSelection(t *testing.T) {
+	_, engine := newAccessKeyCostLimitHTTPFixture(t)
+	created := serveAccessKeyCostLimitRequest(
+		t,
+		engine,
+		http.MethodPost,
+		"/api/access-keys",
+		`{"name":"limited","cost_limit_rules":[{"kind":"total","limit_usd":"10"}]}`,
+		"00000000-0000-4000-8000-000000009005",
+	)
+	if created.Code != http.StatusOK {
+		t.Fatalf("POST = %d %s, want 200", created.Code, created.Body.String())
+	}
+	var envelope struct {
+		Data AccessKeyCreateResult `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, body := range []string{`{"rule_ids":[]}`, `{"rule_ids":[1,1]}`, `{"rule_ids":[999999]}`} {
+		response := serveAccessKeyCostLimitRequest(
+			t,
+			engine,
+			http.MethodPost,
+			fmt.Sprintf("/api/access-keys/%d/cost-limits/reset", envelope.Data.ID),
+			body,
+			"",
+		)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("POST reset %s = %d %s, want 400", body, response.Code, response.Body.String())
+		}
 	}
 }
 

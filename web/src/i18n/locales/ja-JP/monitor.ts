@@ -173,7 +173,6 @@ export default {
         normal: '収集は正常',
         abnormal: '収集に異常あり',
         retentionAbnormal: '保持処理に異常あり',
-        checkpointNormal: '上限チェックポイントは正常',
         checkpointAbnormal: '上限チェックポイントに異常あり',
         checkpointFailures: 'チェックポイント書き込み失敗',
         lastCheckpointFailureAt: '直近の失敗',

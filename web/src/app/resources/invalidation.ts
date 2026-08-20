@@ -58,6 +58,10 @@ export const mutationInvalidationPlans = {
       [controlQueryKeys.accessKeys.options(), controlQueryKeys.home.base()],
       [controlQueryKeys.accessKeys.collectionAll],
     ),
+    reset: plan(
+      [controlQueryKeys.home.base(), controlQueryKeys.health()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
     delete: plan(
       [controlQueryKeys.accessKeys.options(), controlQueryKeys.home.base()],
       [controlQueryKeys.accessKeys.collectionAll],

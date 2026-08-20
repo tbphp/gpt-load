@@ -173,7 +173,6 @@ export default {
         normal: 'Collection healthy',
         abnormal: 'Collection unhealthy',
         retentionAbnormal: 'Retention unhealthy',
-        checkpointNormal: 'Quota checkpoint healthy',
         checkpointAbnormal: 'Quota checkpoint unhealthy',
         checkpointFailures: 'Checkpoint write failures',
         lastCheckpointFailureAt: 'Last failure',
