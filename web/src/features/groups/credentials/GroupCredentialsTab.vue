@@ -12,8 +12,6 @@ import type {
   CredentialCollectionFilters,
   CredentialItemDto,
   CredentialStatus,
-  CredentialSummaryDto,
-  GroupSummaryDto,
 } from '@/api/control/types'
 import { useCollectionLoading } from '@/app/loading-state'
 import { channelsQueryOptions, type ChannelCapabilitiesDto } from '@/app/resources/channels'
@@ -380,12 +378,6 @@ function setPending(id: number | 'batch', action: string, value: boolean): void 
   else next.delete(key)
   pendingOperations.value = next
 }
-function cachedCurrentSummary(): CredentialSummaryDto | undefined {
-  return queryClient.getQueryData<CredentialCollectionDto>(
-    controlQueryKeys.groups.credentials(props.groupId, filters.value),
-  )?.summary
-}
-
 function cachedCurrentCredential(id: number): CredentialItemDto | undefined {
   return queryClient
     .getQueryData<CredentialCollectionDto>(
@@ -445,25 +437,14 @@ function credentialWithDetail(item: CredentialItemDto): CredentialItemDto {
   return detail === undefined ? item : withPreservedDetail(item, detail)
 }
 
-function synchronizeGroupSummary(summary: CredentialSummaryDto | undefined): void {
-  const queryKey = controlQueryKeys.groups.summary(props.groupId)
-  if (summary === undefined) {
-    void queryClient.invalidateQueries({ queryKey, exact: true, refetchType: 'none' })
-    return
-  }
-  queryClient.setQueryData<GroupSummaryDto>(queryKey, (group) => {
-    if (group === undefined) return group
-    return {
-      ...group,
-      credential_count: summary.total,
-      service_status:
-        group.service_status === 'disabled'
-          ? 'disabled'
-          : summary.available > 0
-            ? 'available'
-            : 'unavailable',
-    }
-  })
+async function refetchGroupSummary(): Promise<void> {
+  await queryClient.refetchQueries(
+    {
+      queryKey: controlQueryKeys.groups.summary(props.groupId),
+      exact: true,
+    },
+    { throwOnError: true },
+  )
 }
 
 async function invalidateReconciliationQueries(): Promise<void> {
@@ -515,12 +496,7 @@ async function reconcileItem(result: CredentialItemDto, refetchActive: boolean):
         )
       }
     }
-    const summary = cachedCurrentSummary()
-    if (summary === undefined) {
-      await invalidateReconciliationQueries()
-      return
-    }
-    synchronizeGroupSummary(summary)
+    await refetchGroupSummary()
   } catch {
     feedback.value = t('group.credentials.reconcileFailed')
     await invalidateReconciliationQueries()
@@ -769,7 +745,7 @@ async function reconcileBatch(
   try {
     await cacheCredentialBatch(queryClient, props.groupId, action, result)
     await refetchActiveCredentialPage()
-    synchronizeGroupSummary(result.summary)
+    await refetchGroupSummary()
   } catch {
     feedback.value = t('group.credentials.reconcileFailed')
     await invalidateReconciliationQueries()

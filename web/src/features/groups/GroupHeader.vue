@@ -34,6 +34,12 @@ const channelName = computed(() => channel.value?.name.trim() || props.group.cha
           <StatusBadge :status="group.service_status" size="compact">
             {{ t(`groups.collection.status.${group.service_status}`) }}
           </StatusBadge>
+          <span
+            v-if="group.service_status === 'unavailable' && group.service_status_reason"
+            class="group-header__status-reason"
+          >
+            {{ t(`groups.collection.statusReason.${group.service_status_reason}`) }}
+          </span>
         </div>
       </div>
       <div class="group-header__details">
@@ -90,6 +96,10 @@ const channelName = computed(() => channel.value?.name.trim() || props.group.cha
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+.group-header__status-reason {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
 }
 .group-header h1 {
   max-width: none;

@@ -17,6 +17,10 @@ export default {
         unavailable: 'Unavailable',
         disabled: 'Disabled',
       },
+      statusReason: {
+        no_available_credentials: 'No credentials are currently available',
+        no_models: 'No models configured',
+      },
       filters: {
         region: 'Filter Groups',
         searchLabel: 'Search',

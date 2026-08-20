@@ -17,6 +17,10 @@ export default {
         unavailable: '不可用',
         disabled: '已停用',
       },
+      statusReason: {
+        no_available_credentials: '当前没有可用凭据',
+        no_models: '未配置模型',
+      },
       filters: {
         region: '筛选分组',
         searchLabel: '搜索',

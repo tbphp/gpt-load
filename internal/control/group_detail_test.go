@@ -21,11 +21,14 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 	available := createGroupCollectionGroup(t, fixture, "summary-available", true, nil)
 	unavailable := createGroupCollectionGroup(t, fixture, "summary-unavailable", true, nil)
 	disabled := createGroupCollectionGroup(t, fixture, "summary-disabled", false, nil)
+	noCredentials := createGroupCollectionGroup(t, fixture, "summary-no-credentials", true, nil)
 	setGroupCollectionChannel(t, fixture, available, channel.OpenAI, models.JSON(`{}`))
 	setGroupCollectionChannel(t, fixture, unavailable, channel.Anthropic, models.JSON(`{}`))
 	setGroupCollectionRoute(t, fixture, available, `["openai-responses"]`, `[]`)
 	setGroupCollectionRoute(t, fixture, unavailable, `["openai-completions"]`, `[]`)
 	setGroupCollectionRoute(t, fixture, disabled, `["openai-responses"]`, `[]`)
+	setGroupCollectionChannel(t, fixture, noCredentials, channel.Anthropic, models.JSON(`{}`))
+	setGroupCollectionRoute(t, fixture, noCredentials, `["openai-completions"]`, `[{"id":"model"}]`)
 	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{
 		createGroupCollectionKey(t, fixture, available.ID, models.CredentialStatusActive, nil),
 		createGroupCollectionKey(t, fixture, unavailable.ID, models.CredentialStatusActive, nil),
@@ -36,11 +39,13 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 		name       string
 		groupID    uint
 		wantStatus GroupCollectionStatus
+		wantReason GroupUnavailableReason
 		wantKeys   int64
 	}{
 		{name: "available", groupID: available.ID, wantStatus: GroupCollectionStatusAvailable, wantKeys: 1},
-		{name: "unavailable", groupID: unavailable.ID, wantStatus: GroupCollectionStatusUnavailable, wantKeys: 1},
+		{name: "unavailable without models", groupID: unavailable.ID, wantStatus: GroupCollectionStatusUnavailable, wantReason: GroupUnavailableReasonNoModels, wantKeys: 1},
 		{name: "disabled", groupID: disabled.ID, wantStatus: GroupCollectionStatusDisabled, wantKeys: 1},
+		{name: "unavailable without credentials", groupID: noCredentials.ID, wantStatus: GroupCollectionStatusUnavailable, wantReason: GroupUnavailableReasonNoAvailableCredentials, wantKeys: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := fixture.service.GetGroupSummary(t.Context(), test.groupID)
@@ -49,6 +54,13 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 			}
 			if got.ID != test.groupID || got.ServiceStatus != test.wantStatus || got.CredentialCount != test.wantKeys {
 				t.Fatalf("GetGroupSummary() = %#v", got)
+			}
+			if test.wantReason == "" {
+				if got.ServiceStatusReason != nil {
+					t.Fatalf("ServiceStatusReason = %q, want nil", *got.ServiceStatusReason)
+				}
+			} else if got.ServiceStatusReason == nil || *got.ServiceStatusReason != test.wantReason {
+				t.Fatalf("ServiceStatusReason = %v, want %q", got.ServiceStatusReason, test.wantReason)
 			}
 
 			encoded, err := json.Marshal(got)
@@ -60,12 +72,17 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 				t.Fatal(err)
 			}
 			wantFields := map[string]struct{}{
-				"id": {}, "name": {}, "channel_id": {}, "params": {}, "service_status": {},
+				"id": {}, "name": {}, "channel_id": {}, "params": {}, "service_status": {}, "service_status_reason": {},
 				"connection_type": {}, "credential_count": {}, "model_count": {},
 			}
 			for name := range fields {
 				if _, exists := wantFields[name]; !exists {
 					t.Fatalf("summary exposes unexpected field %q: %s", name, encoded)
+				}
+			}
+			for name := range wantFields {
+				if _, exists := fields[name]; !exists {
+					t.Fatalf("summary is missing expected field %q: %s", name, encoded)
 				}
 			}
 			for _, forbidden := range []string{

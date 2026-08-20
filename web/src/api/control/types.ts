@@ -13,6 +13,7 @@ export type FailureCategory =
   | 'ambiguous'
 
 export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'
+export type GroupUnavailableReason = 'no_available_credentials' | 'no_models'
 export type GroupCollectionSort = 'status' | 'name' | 'credentials' | 'created'
 export type ModelPricingStatus = 'pending' | 'configured'
 export type ChannelParamsDto = Record<string, string>
@@ -66,6 +67,7 @@ export interface GroupSummaryDto {
   connection_type: ConnectionType
   params: ChannelParamsDto
   service_status: GroupCollectionStatus
+  service_status_reason: GroupUnavailableReason | null
   credential_count: number
   model_count: number
 }

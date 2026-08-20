@@ -17,6 +17,10 @@ export default {
         unavailable: '利用不可',
         disabled: '無効',
       },
+      statusReason: {
+        no_available_credentials: '現在利用可能な認証情報がありません',
+        no_models: 'モデルが設定されていません',
+      },
       filters: {
         region: 'グループを絞り込む',
         searchLabel: '検索',

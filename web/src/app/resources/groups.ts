@@ -12,6 +12,7 @@ import type {
   GroupCollectionResponseDto,
   GroupCollectionStatus,
   GroupCollectionSummaryDto,
+  GroupUnavailableReason,
   GroupModelItemDto,
   GroupModelsDto,
   GroupOptionDto,
@@ -41,6 +42,7 @@ const groupSummaryFields = [
   'connection_type',
   'params',
   'service_status',
+  'service_status_reason',
   'credential_count',
   'model_count',
 ] as const
@@ -87,6 +89,7 @@ const groupOptionFields = [
 ] as const
 const credentialCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
 const groupCollectionStatuses = ['available', 'unavailable', 'disabled'] as const
+const groupUnavailableReasons = ['no_available_credentials', 'no_models'] as const
 const connectionTypes = ['api_key', 'subscription'] as const
 const runtimeSettingFields = [
   'first_byte_timeout',
@@ -291,13 +294,25 @@ function projectRuntimeConfig(
 export function projectGroupSummary(value: unknown): GroupSummaryDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupSummaryFields)
+  const serviceStatus = projectEnum(record.service_status, groupCollectionStatuses)
+  const serviceStatusReason =
+    record.service_status_reason === null
+      ? null
+      : (projectEnum(
+          record.service_status_reason,
+          groupUnavailableReasons,
+        ) as GroupUnavailableReason)
+  if ((serviceStatus === 'unavailable') !== (serviceStatusReason !== null)) {
+    throw new InvalidResponseError()
+  }
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),
     connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
-    service_status: projectEnum(record.service_status, groupCollectionStatuses),
+    service_status: serviceStatus,
+    service_status_reason: serviceStatusReason,
     credential_count: projectSafeInteger(record.credential_count, { minimum: 0 }),
     model_count: projectSafeInteger(record.model_count, { minimum: 0 }),
   }
@@ -771,7 +786,7 @@ export function cacheGroupSettings(
   queryClient.setQueryData(controlQueryKeys.groups.settings(groupID), settings)
 }
 
-/** A settings mutation can change summary status; leave only that resource stale for manual refresh. */
+/** Model changes can change summary status; refresh the active summary and stale aggregate resources. */
 export async function invalidateGroupSummary(
   queryClient: QueryClient,
   groupID: number,
@@ -780,7 +795,7 @@ export async function invalidateGroupSummary(
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.groups.summary(groupID),
       exact: true,
-      refetchType: 'none',
+      refetchType: 'active',
     }),
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.modelPrices(),
