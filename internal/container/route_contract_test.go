@@ -101,6 +101,14 @@ func TestBuildContainerExposesUnifiedRouteCatalog(t *testing.T) {
 		},
 		{
 			ModuleName: "control",
+			RouteName:  "control.access-keys.cost-limits.reset",
+			Owner:      httproute.OwnerControl,
+			Auth:       httproute.AuthControl,
+			Methods:    []string{http.MethodPost},
+			Path:       "/api/access-keys/:id/cost-limits/reset",
+		},
+		{
+			ModuleName: "control",
 			RouteName:  "control.group-credentials.reveal",
 			Owner:      httproute.OwnerControl,
 			Auth:       httproute.AuthControl,

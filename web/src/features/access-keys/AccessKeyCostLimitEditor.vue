@@ -3,10 +3,15 @@ import { Plus, Trash2 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { AccessKeyCostLimitStatusDto } from '@/api/control/types'
+import type {
+  AccessKeyCostLimitRuleStatusDto,
+  AccessKeyCostLimitStatusDto,
+} from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
+import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
+import { formatLocalInstant } from '@/lib/format'
+import { quotaProgressTone } from '@/lib/quota-progress'
 import { createUUID } from '@/lib/uuid'
 
 import type { AccessKeyCostLimitRuleDraft } from './access-key-patch'
@@ -19,7 +24,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: AccessKeyCostLimitRuleDraft[]]
 }>()
-const { locale, t } = useI18n()
+const { locale, n, t } = useI18n()
 
 const totalCount = computed(() => props.modelValue.filter((rule) => rule.kind === 'total').length)
 const periodicCount = computed(
@@ -28,6 +33,8 @@ const periodicCount = computed(
 const runtimeByID = computed(
   () => new Map((props.runtimeStatus?.rules ?? []).map((rule) => [rule.id, rule])),
 )
+const totalRules = computed(() => props.modelValue.filter((rule) => rule.kind === 'total'))
+const periodicRules = computed(() => props.modelValue.filter((rule) => rule.kind === 'periodic'))
 
 type PeriodUnit = 'seconds' | 'minutes' | 'hours' | 'days'
 const periodUnits: ReadonlyArray<{ value: PeriodUnit; seconds: number }> = [
@@ -98,10 +105,34 @@ function updatePeriodUnit(rule: AccessKeyCostLimitRuleDraft, unit: PeriodUnit): 
   })
 }
 
-function runtimeTone(status: 'available' | 'inactive' | 'exhausted') {
-  if (status === 'exhausted') return 'danger' as const
-  if (status === 'inactive') return 'neutral' as const
-  return 'success' as const
+function runtimeFor(
+  rule: AccessKeyCostLimitRuleDraft,
+): AccessKeyCostLimitRuleStatusDto | undefined {
+  return rule.id === undefined ? undefined : runtimeByID.value.get(rule.id)
+}
+
+function remainingPercent(runtime: AccessKeyCostLimitRuleStatusDto): number {
+  const limit = Number(runtime.limit_usd)
+  const remaining = Number(runtime.remaining_usd)
+  if (!Number.isFinite(limit) || !Number.isFinite(remaining) || limit <= 0) return 0
+  return Math.round(Math.max(0, Math.min(100, (remaining / limit) * 100)))
+}
+
+function runtimeProgressValue(runtime: AccessKeyCostLimitRuleStatusDto): number | undefined {
+  return runtime.status === 'inactive' ? undefined : remainingPercent(runtime)
+}
+
+function runtimeValueText(runtime: AccessKeyCostLimitRuleStatusDto): string {
+  if (runtime.status === 'inactive') return t('accessKeys.costLimits.status.inactive')
+  return t('accessKeys.costLimits.remainingPercent', { value: n(remainingPercent(runtime)) })
+}
+
+function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string | undefined {
+  if (runtime.window_started_at_ms === null || runtime.window_ends_at_ms === null) return undefined
+  return t('accessKeys.costLimits.windowPeriod', {
+    start: formatLocalInstant(runtime.window_started_at_ms, locale.value),
+    end: formatLocalInstant(runtime.window_ends_at_ms, locale.value),
+  })
 }
 </script>
 
@@ -133,55 +164,91 @@ function runtimeTone(status: 'available' | 'inactive' | 'exhausted') {
       {{ t('accessKeys.drawer.costLimits.empty') }}
     </p>
 
-    <article v-for="rule in modelValue" :key="rule.clientKey" class="cost-limit-rule">
-      <header>
-        <div>
-          <strong>{{
-            t(
-              rule.kind === 'total'
-                ? 'accessKeys.drawer.costLimits.total'
-                : 'accessKeys.drawer.costLimits.periodic',
-            )
-          }}</strong>
-          <StatusBadge
-            v-if="rule.id !== undefined && runtimeByID.get(rule.id)"
-            :tone="runtimeTone(runtimeByID.get(rule.id)!.status)"
-            size="compact"
+    <section v-if="totalRules.length" class="cost-limit-group">
+      <h4>{{ t('accessKeys.drawer.costLimits.total') }}</h4>
+      <article
+        v-for="rule in totalRules"
+        :key="rule.clientKey"
+        class="cost-limit-rule cost-limit-rule--total"
+      >
+        <div class="cost-limit-rule__fields">
+          <label :for="`cost-limit-amount-${rule.clientKey}`">
+            <span>{{ t('accessKeys.drawer.costLimits.amount') }}</span>
+            <span class="cost-limit-rule__amount" data-input-shell>
+              <span aria-hidden="true">$</span>
+              <input
+                :id="`cost-limit-amount-${rule.clientKey}`"
+                data-input-inner
+                :value="rule.limit_usd"
+                type="text"
+                inputmode="decimal"
+                autocomplete="off"
+                :disabled="disabled"
+                @input="
+                  updateRule(rule.clientKey, {
+                    limit_usd: ($event.target as HTMLInputElement).value,
+                  })
+                "
+              />
+            </span>
+          </label>
+          <button
+            type="button"
+            class="cost-limit-rule__remove"
+            :aria-label="t('accessKeys.drawer.costLimits.remove')"
+            :disabled="disabled"
+            @click="removeRule(rule.clientKey)"
           >
-            {{ t(`accessKeys.costLimits.status.${runtimeByID.get(rule.id)!.status}`) }}
-          </StatusBadge>
+            <Trash2 :size="14" aria-hidden="true" />
+          </button>
         </div>
-        <button
-          type="button"
-          class="cost-limit-rule__remove"
-          :aria-label="t('accessKeys.drawer.costLimits.remove')"
-          :disabled="disabled"
-          @click="removeRule(rule.clientKey)"
-        >
-          <Trash2 :size="15" aria-hidden="true" />
-        </button>
-      </header>
+        <div v-if="runtimeFor(rule)" class="cost-limit-rule__runtime">
+          <QuotaProgressBar
+            :value="runtimeProgressValue(runtimeFor(rule)!)"
+            :tone="
+              quotaProgressTone(
+                remainingPercent(runtimeFor(rule)!),
+                runtimeFor(rule)!.status === 'exhausted',
+              )
+            "
+            :label="t('accessKeys.drawer.costLimits.total')"
+            :value-text="runtimeValueText(runtimeFor(rule)!)"
+            compact
+          />
+          <strong v-if="runtimeFor(rule)!.status !== 'inactive'">
+            {{ runtimeValueText(runtimeFor(rule)!) }}
+          </strong>
+          <span v-if="runtimeFor(rule)!.status === 'exhausted'">
+            {{ t('accessKeys.costLimits.notAutomatic') }}
+          </span>
+        </div>
+      </article>
+    </section>
 
-      <div class="cost-limit-rule__fields">
-        <label :for="`cost-limit-amount-${rule.clientKey}`">
-          <span>{{ t('accessKeys.drawer.costLimits.amount') }}</span>
-          <div class="cost-limit-rule__amount">
-            <span aria-hidden="true">$</span>
-            <input
-              :id="`cost-limit-amount-${rule.clientKey}`"
-              :value="rule.limit_usd"
-              type="text"
-              inputmode="decimal"
-              autocomplete="off"
-              :disabled="disabled"
-              @input="
-                updateRule(rule.clientKey, { limit_usd: ($event.target as HTMLInputElement).value })
-              "
-            />
-          </div>
-        </label>
-
-        <template v-if="rule.kind === 'periodic'">
+    <section v-if="periodicRules.length" class="cost-limit-group">
+      <h4>{{ t('accessKeys.drawer.costLimits.periodic') }}</h4>
+      <article v-for="rule in periodicRules" :key="rule.clientKey" class="cost-limit-rule">
+        <div class="cost-limit-rule__fields">
+          <label :for="`cost-limit-amount-${rule.clientKey}`">
+            <span>{{ t('accessKeys.drawer.costLimits.amount') }}</span>
+            <span class="cost-limit-rule__amount" data-input-shell>
+              <span aria-hidden="true">$</span>
+              <input
+                :id="`cost-limit-amount-${rule.clientKey}`"
+                data-input-inner
+                :value="rule.limit_usd"
+                type="text"
+                inputmode="decimal"
+                autocomplete="off"
+                :disabled="disabled"
+                @input="
+                  updateRule(rule.clientKey, {
+                    limit_usd: ($event.target as HTMLInputElement).value,
+                  })
+                "
+              />
+            </span>
+          </label>
           <label :for="`cost-limit-period-${rule.clientKey}`">
             <span>{{ t('accessKeys.drawer.costLimits.period') }}</span>
             <input
@@ -209,93 +276,94 @@ function runtimeTone(status: 'available' | 'inactive' | 'exhausted') {
               </option>
             </select>
           </label>
-        </template>
-      </div>
-
-      <div
-        v-if="rule.id !== undefined && runtimeByID.get(rule.id)"
-        class="cost-limit-rule__runtime"
-      >
-        <span>
-          {{
-            t('accessKeys.drawer.costLimits.used', {
-              used: runtimeByID.get(rule.id)!.used_usd,
-              limit: runtimeByID.get(rule.id)!.limit_usd,
-            })
-          }}
-        </span>
-        <span v-if="runtimeByID.get(rule.id)!.window_ends_at_ms !== null">
-          {{
-            t(
-              runtimeByID.get(rule.id)!.status === 'exhausted'
-                ? 'accessKeys.drawer.costLimits.availableAgain'
-                : 'accessKeys.drawer.costLimits.windowEnds',
-            )
-          }}
+          <button
+            type="button"
+            class="cost-limit-rule__remove"
+            :aria-label="t('accessKeys.drawer.costLimits.remove')"
+            :disabled="disabled"
+            @click="removeRule(rule.clientKey)"
+          >
+            <Trash2 :size="14" aria-hidden="true" />
+          </button>
+        </div>
+        <div v-if="runtimeFor(rule)" class="cost-limit-rule__runtime">
+          <QuotaProgressBar
+            :value="runtimeProgressValue(runtimeFor(rule)!)"
+            :tone="
+              quotaProgressTone(
+                remainingPercent(runtimeFor(rule)!),
+                runtimeFor(rule)!.status === 'exhausted',
+              )
+            "
+            :label="t('accessKeys.drawer.costLimits.periodic')"
+            :value-text="runtimeValueText(runtimeFor(rule)!)"
+            compact
+          />
+          <strong v-if="runtimeFor(rule)!.status !== 'inactive'">
+            {{ runtimeValueText(runtimeFor(rule)!) }}
+          </strong>
           <AppRelativeTime
-            :instant="runtimeByID.get(rule.id)!.window_ends_at_ms"
+            v-if="runtimeFor(rule)!.window_ends_at_ms !== null"
+            :instant="runtimeFor(rule)!.window_ends_at_ms"
             :locale="locale"
-            :empty-label="t('accessKeys.costLimits.notAutomatic')"
+            :empty-label="t('accessKeys.costLimits.status.inactive')"
+            :tooltip-content="runtimeWindowTooltip(runtimeFor(rule)!)"
             hint
           />
-        </span>
-        <span v-else-if="rule.kind === 'total' && runtimeByID.get(rule.id)!.status === 'exhausted'">
-          {{ t('accessKeys.costLimits.notAutomatic') }}
-        </span>
-      </div>
-    </article>
-
-    <p class="cost-limit-editor__note">{{ t('accessKeys.drawer.costLimits.note') }}</p>
+          <span v-else>{{ t('accessKeys.costLimits.status.inactive') }}</span>
+        </div>
+      </article>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .cost-limit-editor {
   display: grid;
-  gap: var(--space-3);
+  gap: 9px;
 }
 .cost-limit-editor__actions,
-.cost-limit-rule header,
-.cost-limit-rule header > div,
 .cost-limit-rule__runtime {
   display: flex;
   align-items: center;
 }
 .cost-limit-editor__actions {
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: 6px;
 }
 .cost-limit-editor__actions > span,
 .cost-limit-editor__empty,
-.cost-limit-editor__note,
 .cost-limit-rule__runtime {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
-.cost-limit-editor__empty,
-.cost-limit-editor__note {
+.cost-limit-editor__empty {
   margin: 0;
+}
+.cost-limit-group {
+  display: grid;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 8px;
+}
+.cost-limit-group h4 {
+  margin: 0 0 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  font-weight: 680;
 }
 .cost-limit-rule {
   display: grid;
-  gap: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-sunken);
-  padding: var(--space-3);
+  gap: 6px;
+  padding: 7px 0;
 }
-.cost-limit-rule header {
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.cost-limit-rule header > div {
-  flex-wrap: wrap;
-  gap: var(--space-2);
+.cost-limit-rule + .cost-limit-rule {
+  border-top: 1px solid var(--color-border-subtle);
 }
 .cost-limit-rule__remove {
   display: inline-grid;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
+  align-self: end;
   place-items: center;
   border: 0;
   border-radius: var(--radius-control);
@@ -316,48 +384,73 @@ function runtimeTone(status: 'available' | 'inactive' | 'exhausted') {
 }
 .cost-limit-rule__fields {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(92px, 0.7fr) minmax(116px, 0.8fr);
-  gap: var(--space-3);
+  grid-template-columns: minmax(112px, 1fr) 66px 84px 32px;
+  align-items: end;
+  gap: 6px;
+}
+.cost-limit-rule--total .cost-limit-rule__fields {
+  grid-template-columns: minmax(112px, 160px) 32px;
 }
 .cost-limit-rule__fields label {
   display: grid;
-  gap: 6px;
+  min-width: 0;
+  gap: 3px;
 }
 .cost-limit-rule__fields label > span {
   color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
+  font-size: 0.6875rem;
   font-weight: 560;
 }
 .cost-limit-rule__fields input,
 .cost-limit-rule__fields select {
   width: 100%;
-  height: var(--control-md);
+  height: 32px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
+  padding: 5px 7px;
+  font-size: var(--text-sm);
 }
 .cost-limit-rule__amount {
   display: grid;
+  height: 32px;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
-  padding-left: var(--space-3);
+  padding-left: 8px;
 }
 .cost-limit-rule__amount input {
+  height: 30px;
   border: 0;
   background: transparent;
 }
 .cost-limit-rule__runtime {
-  flex-wrap: wrap;
-  gap: var(--space-3);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(54px, auto);
+  min-height: 18px;
+  gap: 7px;
+}
+.cost-limit-rule__runtime strong {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.cost-limit-rule__runtime > :last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 @media (max-width: 560px) {
   .cost-limit-rule__fields {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(92px, 1fr) 58px 76px 32px;
   }
 }
 </style>

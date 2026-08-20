@@ -475,6 +475,19 @@ export function deleteAccessKey(
   return client.request(`/api/access-keys/${id}`, { method: 'DELETE', signal })
 }
 
+export function resetAccessKeyCostLimits(
+  client: ApiClient,
+  id: number,
+  ruleIDs: readonly number[],
+  signal?: AbortSignal,
+): Promise<void> {
+  return client.request(`/api/access-keys/${id}/cost-limits/reset`, {
+    method: 'POST',
+    json: { rule_ids: ruleIDs },
+    signal,
+  })
+}
+
 export const accessKeyResources = {
   collection: {
     queryKey: controlQueryKeys.accessKeys.collectionAll,

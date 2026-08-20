@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -483,6 +484,25 @@ func TestAuthSessionEndpointAcceptsActiveAccessKeyAndRejectsAdminRoutes(t *testi
 			"access key PUT /api/settings = %d %s, want 403",
 			updateRecorder.Code,
 			updateRecorder.Body.String(),
+		)
+	}
+
+	resetRequest := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/access-keys/%d/cost-limits/reset", created.ID),
+		strings.NewReader(fmt.Sprintf(`{"rule_ids":[%d]}`, created.CostLimitRules[0].ID)),
+	)
+	resetRequest.RemoteAddr = "192.0.2.60:1234"
+	resetRequest.Header.Set("Authorization", "Bearer "+created.Key)
+	resetRequest.Header.Set("Content-Type", "application/json")
+	resetRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(resetRecorder, resetRequest)
+	if resetRecorder.Code != http.StatusForbidden ||
+		!strings.Contains(resetRecorder.Body.String(), `"code":"FORBIDDEN"`) {
+		t.Fatalf(
+			"access key POST cost limit reset = %d %s, want 403",
+			resetRecorder.Code,
+			resetRecorder.Body.String(),
 		)
 	}
 }

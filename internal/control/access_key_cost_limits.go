@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -200,26 +201,106 @@ func reconcileAccessKeyCostLimitRules(
 			return nil, app_errors.ParseDBError(err)
 		}
 		if semanticsChanged {
-			stateUpdates := map[string]any{
-				"rule_revision":        currentRule.RuleRevision + 1,
-				"used_nano_usd":        int64(0),
-				"window_started_at_ms": nil,
-				"window_ends_at_ms":    nil,
-				"window_generation":    uint64(0),
-				"snapshot_version":     uint64(1),
-			}
-			result := tx.Model(&models.AccessKeyCostLimitState{}).
-				Where("rule_id = ? AND rule_revision = ?", definition.ID, currentRule.RuleRevision).
-				Updates(stateUpdates)
-			if result.Error != nil {
-				return nil, app_errors.ParseDBError(result.Error)
-			}
-			if result.RowsAffected != 1 {
-				return nil, fmt.Errorf("reset access key cost limit rule %d state: %w", definition.ID, app_errors.ErrInternalServer)
+			if err := resetAccessKeyCostLimitRuleState(
+				tx,
+				definition.ID,
+				currentRule.RuleRevision,
+				currentRule.RuleRevision+1,
+			); err != nil {
+				return nil, err
 			}
 		}
 	}
 	return loadAccessKeyCostLimitRuleRows(tx, accessKeyID)
+}
+
+func (s *Service) ResetAccessKeyCostLimitRules(
+	ctx context.Context,
+	accessKeyID uint,
+	ruleIDs []uint,
+) error {
+	if accessKeyID == 0 || len(ruleIDs) == 0 || len(ruleIDs) > accessquota.MaxPeriodicRules+1 {
+		return app_errors.ErrBadRequest
+	}
+	seen := make(map[uint]struct{}, len(ruleIDs))
+	for _, ruleID := range ruleIDs {
+		if ruleID == 0 {
+			return app_errors.ErrValidation
+		}
+		if _, duplicate := seen[ruleID]; duplicate {
+			return app_errors.ErrValidation
+		}
+		seen[ruleID] = struct{}{}
+	}
+
+	_, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
+		var accessKey models.AccessKey
+		if err := tx.Select("id").First(&accessKey, accessKeyID).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		var rules []models.AccessKeyCostLimitRule
+		if err := tx.Where("access_key_id = ? AND id IN ?", accessKeyID, ruleIDs).
+			Order("id ASC").Find(&rules).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		if len(rules) != len(ruleIDs) {
+			return app_errors.ErrValidation
+		}
+		for _, rule := range rules {
+			if rule.RuleRevision == ^uint64(0) {
+				return fmt.Errorf(
+					"advance access key cost limit rule %d revision: %w",
+					rule.ID,
+					app_errors.ErrInternalServer,
+				)
+			}
+			nextRevision := rule.RuleRevision + 1
+			result := tx.Model(&models.AccessKeyCostLimitRule{}).
+				Where("id = ? AND access_key_id = ? AND rule_revision = ?", rule.ID, accessKeyID, rule.RuleRevision).
+				Update("rule_revision", nextRevision)
+			if result.Error != nil {
+				return app_errors.ParseDBError(result.Error)
+			}
+			if result.RowsAffected != 1 {
+				return fmt.Errorf("reset access key cost limit rule %d: %w", rule.ID, app_errors.ErrInternalServer)
+			}
+			if err := resetAccessKeyCostLimitRuleState(
+				tx,
+				rule.ID,
+				rule.RuleRevision,
+				nextRevision,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil)
+	return err
+}
+
+func resetAccessKeyCostLimitRuleState(
+	tx *gorm.DB,
+	ruleID uint,
+	currentRevision uint64,
+	nextRevision uint64,
+) error {
+	result := tx.Model(&models.AccessKeyCostLimitState{}).
+		Where("rule_id = ? AND rule_revision = ?", ruleID, currentRevision).
+		Updates(map[string]any{
+			"rule_revision":        nextRevision,
+			"used_nano_usd":        int64(0),
+			"window_started_at_ms": nil,
+			"window_ends_at_ms":    nil,
+			"window_generation":    uint64(0),
+			"snapshot_version":     uint64(1),
+		})
+	if result.Error != nil {
+		return app_errors.ParseDBError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("reset access key cost limit rule %d state: %w", ruleID, app_errors.ErrInternalServer)
+	}
+	return nil
 }
 
 func planAccessKeyCostLimitPeriodMoves(

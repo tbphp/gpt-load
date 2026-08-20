@@ -425,6 +425,17 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleUpdateAccessKey,
 			),
 			controlRoute(
+				"control.access-keys.cost-limits.reset",
+				http.MethodPost,
+				"/access-keys/:id/cost-limits/reset",
+				s.auditMutation(newMutationDescriptor(
+					"access_key_cost_limits_reset",
+					"access_key",
+					accessKeyMutationLocator,
+				)),
+				s.handleResetAccessKeyCostLimits,
+			),
+			controlRoute(
 				"control.access-keys.delete",
 				http.MethodDelete,
 				"/access-keys/:id",

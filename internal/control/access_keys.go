@@ -120,6 +120,10 @@ type AccessKeyUpdateRequest struct {
 	CostLimitRules OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
 }
 
+type AccessKeyCostLimitResetRequest struct {
+	RuleIDs []uint `json:"rule_ids"`
+}
+
 type AccessKeyMetadata struct {
 	ID              uint                      `json:"id"`
 	Name            string                    `json:"name"`

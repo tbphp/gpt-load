@@ -56,6 +56,9 @@ func TestHandlerBlocksAllDataPlaneRoutesUntilPeriodicQuotaRecovers(t *testing.T)
 		engine.ServeHTTP(response, request)
 		if response.Code != http.StatusTooManyRequests ||
 			!strings.Contains(response.Body.String(), `"code":"access_key_cost_limit_exceeded"`) ||
+			!strings.Contains(response.Body.String(), `"type":"usage_limit_reached"`) ||
+			!strings.Contains(response.Body.String(), `5-minute limit`) ||
+			!strings.Contains(response.Body.String(), `"resets_at":1300`) ||
 			!strings.Contains(response.Body.String(), `"next_available_at_ms":1300000`) ||
 			response.Header().Get("Retry-After") != "240" {
 			t.Fatalf("quota response = %d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
@@ -102,6 +105,8 @@ func TestHandlerTotalQuotaBlockIsNotRetryableAndReturnsEveryBlocker(t *testing.T
 	engine.ServeHTTP(response, request)
 	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "" ||
 		!strings.Contains(response.Body.String(), `"recoverable":false`) ||
+		!strings.Contains(response.Body.String(), `total limit`) ||
+		!strings.Contains(response.Body.String(), `does not reset automatically`) ||
 		!strings.Contains(response.Body.String(), `"next_available_at_ms":null`) {
 		t.Fatalf("total quota response = %d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
 	}

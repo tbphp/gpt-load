@@ -26,9 +26,11 @@ import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
+import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatLocalInstant, formatTokens } from '@/lib/format'
+import { quotaProgressTone } from '@/lib/quota-progress'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
 
@@ -379,12 +381,9 @@ function usedPercentValue(window: CredentialQuotaWindowDto): string {
 
 function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'danger' | undefined {
   if (!quotaWindowIsCurrent(window)) return undefined
-  if (window.state === 'exhausted') return 'danger'
   const value = remainingPercent(window)
   if (value === undefined) return undefined
-  if (value < 30) return 'danger'
-  if (value < 70) return 'warning'
-  return 'success'
+  return quotaProgressTone(value, window.state === 'exhausted')
 }
 
 function toggleDetails(): void {
@@ -569,32 +568,11 @@ function runMenuAction(
           >
             {{ quotaWindowLabel(window) }}
           </OverflowTooltip>
-          <span
-            v-if="remainingPercent(window) !== undefined"
-            class="subscription-account__quota-track"
-            :class="
-              quotaTone(window) ? `subscription-account__quota-track--${quotaTone(window)}` : ''
-            "
-            role="progressbar"
-            :aria-label="quotaWindowLabel(window)"
-            :aria-valuenow="remainingPercent(window)"
-            :aria-valuetext="quotaValueLabel(window)"
-            aria-valuemin="0"
-            aria-valuemax="100"
-          >
-            <span
-              class="subscription-account__quota-fill"
-              :class="
-                quotaTone(window) ? `subscription-account__quota-fill--${quotaTone(window)}` : ''
-              "
-              :style="{ width: `${remainingPercent(window)}%` }"
-            />
-          </span>
-          <span
-            v-else
-            class="subscription-account__quota-track subscription-account__quota-track--unknown"
-            role="img"
-            :aria-label="`${quotaWindowLabel(window)}: ${quotaValueLabel(window)}`"
+          <QuotaProgressBar
+            :value="remainingPercent(window)"
+            :tone="quotaTone(window)"
+            :label="quotaWindowLabel(window)"
+            :value-text="quotaValueLabel(window)"
           />
           <span class="subscription-account__quota-value">{{ quotaValueLabel(window) }}</span>
           <span class="subscription-account__quota-reset">
@@ -959,7 +937,7 @@ function runMenuAction(
 .subscription-account--disabled .subscription-account__status {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-neutral) 28%, transparent);
 }
-.subscription-account--disabled .subscription-account__quota-track {
+.subscription-account--disabled :deep(.quota-progress) {
   filter: grayscale(1);
   opacity: 0.58;
 }
@@ -1073,45 +1051,6 @@ function runMenuAction(
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.subscription-account__quota-track {
-  position: relative;
-  width: 100%;
-  min-width: 0;
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: light-dark(#e9edf1, #29313a);
-}
-.subscription-account__quota-track--success {
-  background: light-dark(#dff6e6, #1b3c29);
-}
-.subscription-account__quota-track--warning {
-  background: light-dark(#fff4cc, #3b310f);
-}
-.subscription-account__quota-track--danger {
-  background: light-dark(#ffe5e8, #421d25);
-}
-.subscription-account__quota-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: inherit;
-  background: #42be65;
-}
-.subscription-account__quota-fill--warning {
-  background: #f1c21b;
-}
-.subscription-account__quota-fill--danger {
-  background: #fa4d56;
-}
-.subscription-account__quota-track--unknown {
-  background: repeating-linear-gradient(
-    135deg,
-    var(--color-border-subtle),
-    var(--color-border-subtle) 6px,
-    var(--color-surface-sunken) 6px,
-    var(--color-surface-sunken) 12px
-  );
 }
 .subscription-account__quota-value {
   min-width: 0;

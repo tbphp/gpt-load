@@ -755,6 +755,27 @@ func (s *Server) handleUpdateAccessKey(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleResetAccessKeyCostLimits(c *gin.Context) {
+	id, ok := accessKeyID(c)
+	if !ok {
+		return
+	}
+	var request AccessKeyCostLimitResetRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "reset_access_key_cost_limits", mapControlJSONError(err))
+		return
+	}
+	if err := s.service.ResetAccessKeyCostLimitRules(
+		c.Request.Context(),
+		id,
+		request.RuleIDs,
+	); err != nil {
+		writeServiceError(c, "reset_access_key_cost_limits", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", nil)
+}
+
 func (s *Server) handleDeleteAccessKey(c *gin.Context) {
 	id, ok := accessKeyID(c)
 	if !ok {

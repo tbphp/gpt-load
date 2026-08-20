@@ -11,8 +11,9 @@ export interface AccessKeyPresentation {
   maskedKey: string
   status: AccessKeyDto['status']
   scopeRows: ReadonlyArray<{ label: string; value: string }>
-  limits: string
+  limits: readonly string[]
   quotaExhausted: boolean
+  costLimitRuleCount: number
   lastRequestAt: number | null
 }
 
@@ -69,8 +70,9 @@ function presentAccessKeyWithGroupNames(
       ...(accessKey.cost_limit_rules.length > 0
         ? [options.labels.costRules(accessKey.cost_limit_rules.length)]
         : []),
-    ].join(' · '),
+    ],
     quotaExhausted: accessKey.cost_limit_status?.allowed === false,
+    costLimitRuleCount: accessKey.cost_limit_rules.length,
     lastRequestAt: accessKey.last_request_at_ms,
   }
 }

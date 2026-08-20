@@ -339,6 +339,15 @@ async function handleDeleted(name: string): Promise<void> {
   if (target instanceof HTMLButtonElement && target.isConnected) target.focus()
 }
 
+async function handleCostLimitsReset(name: string): Promise<void> {
+  try {
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.reset)
+  } catch {
+    void queryClient.invalidateQueries({ queryKey: accessKeyResources.collection.queryKey })
+  }
+  if (mounted) toast.show({ message: t('accessKeys.toast.reset', { name }) })
+}
+
 function setStatusPending(id: number, pending: boolean): void {
   const next = new Set(pendingStatusIDs.value)
   if (pending) next.add(id)
@@ -588,6 +597,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
               @open="openKey"
               @toggle="toggleStatus"
               @deleted="handleDeleted"
+              @reset="handleCostLimitsReset"
             />
             <PaginationBar
               :page="data.pagination.page"

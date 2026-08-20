@@ -169,7 +169,6 @@ export default {
         normal: '采集正常',
         abnormal: '采集异常',
         retentionAbnormal: '清理异常',
-        checkpointNormal: '额度快照正常',
         checkpointAbnormal: '额度快照异常',
         checkpointFailures: '快照写入失败',
         lastCheckpointFailureAt: '最近失败',

@@ -225,22 +225,18 @@ export default {
           title: '概算費用枠',
           available: '利用可能',
           blocked: '上限到達',
-          notConfigured: '上限未設定',
-          notConfiguredDescription: 'このアクセスキーには概算費用上限ルールがありません。',
           total: '総額枠',
           periodic: '{period} ごと',
           periodDays: '{count} 日',
           periodHours: '{count} 時間',
           periodMinutes: '{count} 分',
           periodSeconds: '{count} 秒',
-          usage: '${used} / ${limit} 使用済み、残り ${remaining}',
+          usage: '{used} / {limit} 使用済み、残り {remaining}',
           startsOnNextRequest: '次に上流実行段階へ進むリクエストから新しい周期が始まります',
           availableAgain: '再利用可能：',
           resetsAt: '現在の周期終了：',
           notAutomatic:
             '自動では回復しません。管理者が総額ルールを調整または削除する必要があります',
-          estimateNote:
-            'GPT-Load は設定済みモデル価格から費用を概算し、未価格設定のリクエストは $0 として加算します。',
         },
       },
       attention: {

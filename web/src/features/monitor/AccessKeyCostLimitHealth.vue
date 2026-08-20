@@ -7,6 +7,7 @@ import { accessKeysLocation } from '@/app/route-locations'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import Surface from '@/components/ui/Surface.vue'
+import { formatUSD } from '@/lib/format'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 
@@ -61,7 +62,8 @@ function ruleLabel(rule: HealthAccessKeyCostLimitDto['blocking_rules'][number]):
 
         <div class="access-key-limit-health__rules">
           <span v-for="rule in accessKey.blocking_rules" :key="rule.id">
-            {{ ruleLabel(rule) }} · ${{ rule.used_usd }} / ${{ rule.limit_usd }}
+            {{ ruleLabel(rule) }} · {{ formatUSD(rule.used_usd, locale) }} /
+            {{ formatUSD(rule.limit_usd, locale) }}
           </span>
         </div>
 
