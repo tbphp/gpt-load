@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
-import { computed } from 'vue'
+import { RefreshCw } from '@lucide/vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
+import { controlQueryKeys } from '@/app/query-keys'
 import {
   systemInfoQueryOptions,
   type DatabaseDriver,
   type SecretSource,
 } from '@/app/resources/system-info'
+import { getSystemUpdate, type ReleaseUpdateDto } from '@/app/resources/system-update'
+import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -18,6 +23,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import Surface from '@/components/ui/Surface.vue'
 
 const client = useApiClient()
+const queryClient = useQueryClient()
 const { t } = useI18n()
 const infoQuery = useQuery(systemInfoQueryOptions(client))
 const initialLoading = useStableLoading(
@@ -26,6 +32,26 @@ const initialLoading = useStableLoading(
 const infoRefreshing = computed(
   () => infoQuery.data.value !== undefined && infoQuery.isFetching.value,
 )
+type UpdateCheckState =
+  | { kind: 'checking' }
+  | { kind: 'latest' }
+  | { kind: 'available'; update: ReleaseUpdateDto }
+  | { kind: 'failed' }
+
+const updateCheck = ref<UpdateCheckState | null>(null)
+const updateCheckPending = ref(false)
+const updateCheckTone = computed<'info' | 'success' | 'warning' | 'danger'>(() => {
+  switch (updateCheck.value?.kind) {
+    case 'latest':
+      return 'success'
+    case 'available':
+      return 'warning'
+    case 'failed':
+      return 'danger'
+    default:
+      return 'info'
+  }
+})
 
 function sourceLabel(source: SecretSource): string {
   return t(`settings.system.sources.${source}`)
@@ -33,6 +59,29 @@ function sourceLabel(source: SecretSource): string {
 
 function databaseLabel(database: DatabaseDriver): string {
   return t(`settings.system.databases.${database}`)
+}
+
+async function checkForUpdate(): Promise<void> {
+  if (updateCheckPending.value) return
+  updateCheckPending.value = true
+  updateCheck.value = { kind: 'checking' }
+  try {
+    const result = await getSystemUpdate(client, undefined, true)
+    queryClient.setQueryData(controlQueryKeys.systemUpdate(), result)
+    updateCheck.value = result.update
+      ? { kind: 'available', update: result.update }
+      : { kind: 'latest' }
+  } catch (error) {
+    if (error instanceof RequestCancelledError) {
+      updateCheck.value = null
+      return
+    }
+    // 后端失败时会清空更新结果；同步前端查询缓存，避免继续显示旧提示。
+    queryClient.setQueryData(controlQueryKeys.systemUpdate(), { update: null })
+    updateCheck.value = { kind: 'failed' }
+  } finally {
+    updateCheckPending.value = false
+  }
 }
 </script>
 
@@ -71,7 +120,55 @@ function databaseLabel(database: DatabaseDriver): string {
         <dl class="settings-system__definition">
           <div class="settings-system__row">
             <dt>{{ t('settings.system.version') }}</dt>
-            <dd class="settings-system__mono">{{ infoQuery.data.value.version }}</dd>
+            <dd class="settings-system__version">
+              <span class="settings-system__mono">{{ infoQuery.data.value.version }}</span>
+              <div class="settings-system__update-controls">
+                <AppButton
+                  variant="secondary"
+                  size="compact"
+                  :busy="updateCheckPending"
+                  @click="checkForUpdate"
+                >
+                  <RefreshCw
+                    :size="14"
+                    aria-hidden="true"
+                    :class="{ 'settings-system__refresh-icon--spinning': updateCheckPending }"
+                  />
+                  {{ t('settings.system.checkUpdate') }}
+                </AppButton>
+                <span
+                  v-if="updateCheck"
+                  class="settings-system__update-result"
+                  :class="`settings-system__update-result--${updateCheckTone}`"
+                  :role="updateCheck.kind === 'failed' ? 'alert' : 'status'"
+                  :aria-live="updateCheck.kind === 'failed' ? 'assertive' : 'polite'"
+                  aria-atomic="true"
+                >
+                  <template v-if="updateCheck.kind === 'checking'">
+                    {{ t('settings.system.checkingUpdate') }}
+                  </template>
+                  <template v-else-if="updateCheck.kind === 'latest'">
+                    {{ t('settings.system.latestVersion') }}
+                  </template>
+                  <template v-else-if="updateCheck.kind === 'available'">
+                    {{
+                      t('settings.system.updateAvailable', { version: updateCheck.update.version })
+                    }}
+                    <a
+                      class="settings-system__update-link"
+                      :href="updateCheck.update.release_url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {{ t('settings.system.viewRelease') }}
+                    </a>
+                  </template>
+                  <template v-else>
+                    {{ t('settings.system.checkUpdateFailed') }}
+                  </template>
+                </span>
+              </div>
+            </dd>
           </div>
 
           <div class="settings-system__row">
@@ -239,6 +336,67 @@ function databaseLabel(database: DatabaseDriver): string {
 
 .settings-system__mono {
   font-family: var(--font-mono);
+}
+
+.settings-system__version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.settings-system__update-controls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-system__update-result {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.settings-system__update-result--info {
+  color: var(--color-action);
+}
+
+.settings-system__update-result--success {
+  color: var(--color-success);
+}
+
+.settings-system__update-result--warning {
+  color: var(--color-warning);
+}
+
+.settings-system__update-result--danger {
+  color: var(--color-danger);
+}
+
+.settings-system__update-link {
+  color: currentColor;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-system__refresh-icon--spinning {
+  animation: settings-system-refresh-spin 900ms linear infinite;
+}
+
+@keyframes settings-system-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-system__refresh-icon--spinning {
+    animation: none;
+  }
 }
 
 @media (max-width: 760px) {

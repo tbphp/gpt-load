@@ -2,6 +2,7 @@ package control
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -20,7 +21,8 @@ type releaseUpdateResponse struct {
 }
 
 func (s *Server) handleSystemUpdate(c *gin.Context) {
-	if c.Request.URL.RawQuery != "" || c.Request.URL.ForceQuery {
+	force, err := systemUpdateForce(c)
+	if err != nil {
 		writeServiceError(c, "system_update", app_errors.ErrBadRequest)
 		return
 	}
@@ -28,7 +30,7 @@ func (s *Server) handleSystemUpdate(c *gin.Context) {
 		writeServiceError(c, "system_update", app_errors.ErrInternalServer)
 		return
 	}
-	available, err := s.releaseChecker.Check(c.Request.Context())
+	available, err := s.releaseChecker.Check(c.Request.Context(), force)
 	if err != nil {
 		writeServiceError(
 			c,
@@ -46,4 +48,23 @@ func (s *Server) handleSystemUpdate(c *gin.Context) {
 		}
 	}
 	response.SuccessI18n(c, "common.success", systemUpdateResponse{Update: update})
+}
+
+func systemUpdateForce(c *gin.Context) (bool, error) {
+	if c.Request.URL.ForceQuery {
+		return false, app_errors.ErrBadRequest
+	}
+	if c.Request.URL.RawQuery == "" {
+		return false, nil
+	}
+	query := c.Request.URL.Query()
+	values, ok := query["force"]
+	if !ok || len(values) != 1 || len(query) != 1 {
+		return false, app_errors.ErrBadRequest
+	}
+	force, err := strconv.ParseBool(values[0])
+	if err != nil {
+		return false, app_errors.ErrBadRequest
+	}
+	return force, nil
 }

@@ -44,7 +44,8 @@ func newChecker(fetcher releaseFetcher, current string) *Checker {
 }
 
 // Check returns the cached result or synchronously refreshes it from GitHub.
-func (checker *Checker) Check(ctx context.Context) (*Update, error) {
+// When force is true, it ignores an unexpired cache and fetches GitHub again.
+func (checker *Checker) Check(ctx context.Context, force bool) (*Update, error) {
 	if checker == nil || checker.fetcher == nil {
 		return nil, errors.New("check GitHub releases: checker is unavailable")
 	}
@@ -58,7 +59,7 @@ func (checker *Checker) Check(ctx context.Context) (*Update, error) {
 	}
 
 	now := checker.currentTime()
-	if now.Before(checker.expiresAt) {
+	if !force && now.Before(checker.expiresAt) {
 		return cloneUpdate(checker.update), checker.cachedErr
 	}
 
