@@ -101,6 +101,7 @@ export default {
       compatibleUrlDescription:
         'Enter the complete API prefix, for example https://api.example.com/v1',
       urlDescriptionWithDefault: 'Default URL: {url}',
+      urlVersionWarning: 'Version path may differ; please verify',
       customUrl: 'Custom upstream URL',
       urlError: 'Enter a valid HTTP or HTTPS upstream URL',
       paramRequired: 'Enter {name}',

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { ChannelDto } from '@/app/resources/channels'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import FormField from '@/components/ui/FormField.vue'
+import { hasUpstreamBaseURLVersionMismatch, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 
 const props = defineProps<{
   channel: ChannelDto | null
@@ -38,6 +39,15 @@ function baseURLDescription(): string {
     url: props.channel.default_base_url,
   })
 }
+
+function baseURLVersionWarning(key: string): string | undefined {
+  if (key !== 'base_url' || !props.channel?.default_base_url) return undefined
+  const value = props.params[key]?.trim() ?? ''
+  if (!value || !isValidUpstreamBaseURL(value)) return undefined
+  return hasUpstreamBaseURLVersionMismatch(props.channel.default_base_url, value)
+    ? t('import.connection.urlVersionWarning')
+    : undefined
+}
 </script>
 
 <template>
@@ -71,6 +81,7 @@ function baseURLDescription(): string {
             class="import-connection__param import-connection__param--optional-url"
             :label="t('import.connection.customUrl')"
             :description="baseURLDescription()"
+            :description-warning="baseURLVersionWarning(param.key)"
             :error="fieldError(param.key)"
             :required="baseUrlOverrideEnabled"
             :required-text="t('import.required')"
@@ -116,6 +127,9 @@ function baseURLDescription(): string {
             class="import-connection__param"
             :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
             :description="param.key === 'base_url' ? baseURLDescription() : undefined"
+            :description-warning="
+              param.key === 'base_url' ? baseURLVersionWarning(param.key) : undefined
+            "
             :error="fieldError(param.key)"
             :required="param.required"
             :required-text="t('import.required')"
