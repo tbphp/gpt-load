@@ -104,8 +104,10 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		EnqueuedTotal: 100, PersistedTotal: 98,
 		DroppedQueueFullTotal: 1, DroppedPersistFailedTotal: 1,
 		DroppedTotal: 2, WriteFailureTotal: 1,
-		QueueDepth: 2, QueueCapacity: 4096,
-		LastWriteFailureAt: now.Add(-time.Minute),
+		AccessQuotaCheckpointWriteFailureTotal: 2,
+		QueueDepth:                             2, QueueCapacity: 4096,
+		LastWriteFailureAt:                      now.Add(-time.Minute),
+		LastAccessQuotaCheckpointWriteFailureAt: now.Add(-2 * time.Minute),
 	}
 
 	got, err := fixture.service.RuntimeHealth()
@@ -115,6 +117,11 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	if got.ObservedAtMS != now.UnixMilli() || got.SnapshotRevision != fixture.manager.Current().Revision ||
 		got.StatsWindowSeconds != 300 {
 		t.Fatalf("observation metadata = %#v", got)
+	}
+	if got.RequestLog.AccessQuotaCheckpointWriteFailureTotal != 2 ||
+		got.RequestLog.LastAccessQuotaCheckpointWriteFailureAtMS == nil ||
+		*got.RequestLog.LastAccessQuotaCheckpointWriteFailureAtMS != now.Add(-2*time.Minute).UnixMilli() {
+		t.Fatalf("access quota checkpoint health = %#v", got.RequestLog)
 	}
 	wantCounts := healthCountsResponse{
 		Credentials: 3, Available: 1, Cooldown: 1, Blacklisted: 1,
@@ -369,20 +376,22 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 		requestLogFields[name] = struct{}{}
 	}
 	wantRequestLogFields := map[string]struct{}{
-		"enqueued_total":                 {},
-		"persisted_total":                {},
-		"dropped_not_running_total":      {},
-		"dropped_queue_full_total":       {},
-		"dropped_stopping_total":         {},
-		"dropped_persist_failed_total":   {},
-		"dropped_shutdown_total":         {},
-		"dropped_total":                  {},
-		"write_failure_total":            {},
-		"retention_delete_failure_total": {},
-		"queue_depth":                    {},
-		"queue_capacity":                 {},
-		"last_write_failure_at_ms":       {},
-		"last_retention_failure_at_ms":   {},
+		"enqueued_total":                                   {},
+		"persisted_total":                                  {},
+		"dropped_not_running_total":                        {},
+		"dropped_queue_full_total":                         {},
+		"dropped_stopping_total":                           {},
+		"dropped_persist_failed_total":                     {},
+		"dropped_shutdown_total":                           {},
+		"dropped_total":                                    {},
+		"write_failure_total":                              {},
+		"access_quota_checkpoint_write_failure_total":      {},
+		"retention_delete_failure_total":                   {},
+		"queue_depth":                                      {},
+		"queue_capacity":                                   {},
+		"last_write_failure_at_ms":                         {},
+		"last_access_quota_checkpoint_write_failure_at_ms": {},
+		"last_retention_failure_at_ms":                     {},
 	}
 	if !reflect.DeepEqual(requestLogFields, wantRequestLogFields) {
 		t.Fatalf("request_log fields = %#v, want %#v", requestLogFields, wantRequestLogFields)

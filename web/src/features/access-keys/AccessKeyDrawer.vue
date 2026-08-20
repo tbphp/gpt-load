@@ -538,7 +538,7 @@ async function reconcileEdit(): Promise<void> {
       failed.value = true
       return
     }
-    if (accessKeyMatchesUpdatePatch(latest, attempt.patch)) {
+    if (accessKeyMatchesUpdatePatch(latest, attempt.patch, attempt.base)) {
       base.value = latest
       draft.value = createAccessKeyDraft(latest)
       editReconciliation.value = null

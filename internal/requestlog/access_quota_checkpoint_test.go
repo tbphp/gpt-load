@@ -304,7 +304,9 @@ func TestRequestLogWorkerRetriesQuotaCheckpointWithoutClearingDirtyVersion(t *te
 		t.Fatal(err)
 	}
 	stats := service.Stats()
-	if stats.WriteFailureTotal != 1 || stats.DroppedPersistFailedTotal != 0 {
+	if stats.WriteFailureTotal != 0 || stats.AccessQuotaCheckpointWriteFailureTotal != 1 ||
+		stats.LastAccessQuotaCheckpointWriteFailureAt.IsZero() ||
+		stats.DroppedPersistFailedTotal != 0 {
 		t.Fatalf("checkpoint failure stats = %#v", stats)
 	}
 }

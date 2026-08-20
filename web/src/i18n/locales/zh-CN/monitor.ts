@@ -165,11 +165,15 @@ export default {
       },
       requestLog: {
         title: '请求日志采集',
-        description:
-          '当前进程生命周期计数，进程重启后归零；写入失败也表示重启后费用额度可能恢复到较早快照。',
+        description: '当前进程生命周期计数，进程重启后归零。',
         normal: '采集正常',
         abnormal: '采集异常',
         retentionAbnormal: '清理异常',
+        checkpointNormal: '额度快照正常',
+        checkpointAbnormal: '额度快照异常',
+        checkpointFailures: '快照写入失败',
+        lastCheckpointFailureAt: '最近失败',
+        checkpointRisk: '内存限制仍有效；重启后可能从较早快照恢复。',
         queue: '队列',
         queueDescription: '当前 / 容量',
         processTotal: '本进程累计',

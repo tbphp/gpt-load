@@ -70,20 +70,22 @@ type healthQuotaCredentialResponse struct {
 }
 
 type requestLogHealthResponse struct {
-	EnqueuedTotal               uint64 `json:"enqueued_total"`
-	PersistedTotal              uint64 `json:"persisted_total"`
-	DroppedNotRunningTotal      uint64 `json:"dropped_not_running_total"`
-	DroppedQueueFullTotal       uint64 `json:"dropped_queue_full_total"`
-	DroppedStoppingTotal        uint64 `json:"dropped_stopping_total"`
-	DroppedPersistFailedTotal   uint64 `json:"dropped_persist_failed_total"`
-	DroppedShutdownTotal        uint64 `json:"dropped_shutdown_total"`
-	DroppedTotal                uint64 `json:"dropped_total"`
-	WriteFailureTotal           uint64 `json:"write_failure_total"`
-	RetentionDeleteFailureTotal uint64 `json:"retention_delete_failure_total"`
-	QueueDepth                  int    `json:"queue_depth"`
-	QueueCapacity               int    `json:"queue_capacity"`
-	LastWriteFailureAtMS        *int64 `json:"last_write_failure_at_ms"`
-	LastRetentionFailureAtMS    *int64 `json:"last_retention_failure_at_ms"`
+	EnqueuedTotal                             uint64 `json:"enqueued_total"`
+	PersistedTotal                            uint64 `json:"persisted_total"`
+	DroppedNotRunningTotal                    uint64 `json:"dropped_not_running_total"`
+	DroppedQueueFullTotal                     uint64 `json:"dropped_queue_full_total"`
+	DroppedStoppingTotal                      uint64 `json:"dropped_stopping_total"`
+	DroppedPersistFailedTotal                 uint64 `json:"dropped_persist_failed_total"`
+	DroppedShutdownTotal                      uint64 `json:"dropped_shutdown_total"`
+	DroppedTotal                              uint64 `json:"dropped_total"`
+	WriteFailureTotal                         uint64 `json:"write_failure_total"`
+	AccessQuotaCheckpointWriteFailureTotal    uint64 `json:"access_quota_checkpoint_write_failure_total"`
+	RetentionDeleteFailureTotal               uint64 `json:"retention_delete_failure_total"`
+	QueueDepth                                int    `json:"queue_depth"`
+	QueueCapacity                             int    `json:"queue_capacity"`
+	LastWriteFailureAtMS                      *int64 `json:"last_write_failure_at_ms"`
+	LastAccessQuotaCheckpointWriteFailureAtMS *int64 `json:"last_access_quota_checkpoint_write_failure_at_ms"`
+	LastRetentionFailureAtMS                  *int64 `json:"last_retention_failure_at_ms"`
 }
 
 type runtimeHealthResponse struct {
@@ -412,6 +414,7 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 		stats.DroppedShutdownTotal,
 		stats.DroppedTotal,
 		stats.WriteFailureTotal,
+		stats.AccessQuotaCheckpointWriteFailureTotal,
 		stats.RetentionDeleteFailureTotal,
 	} {
 		if value > uint64(maxSafeInteger) {
@@ -426,25 +429,36 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 	if err != nil {
 		return requestLogHealthResponse{}, fmt.Errorf("map last write failure timestamp: %w", err)
 	}
+	lastAccessQuotaCheckpointWriteFailureAtMS, err := optionalSafeEpochMilliseconds(
+		stats.LastAccessQuotaCheckpointWriteFailureAt,
+	)
+	if err != nil {
+		return requestLogHealthResponse{}, fmt.Errorf(
+			"map last access quota checkpoint write failure timestamp: %w",
+			err,
+		)
+	}
 	lastRetentionFailureAtMS, err := optionalSafeEpochMilliseconds(stats.LastRetentionFailureAt)
 	if err != nil {
 		return requestLogHealthResponse{}, fmt.Errorf("map last retention failure timestamp: %w", err)
 	}
 	return requestLogHealthResponse{
-		EnqueuedTotal:               stats.EnqueuedTotal,
-		PersistedTotal:              stats.PersistedTotal,
-		DroppedNotRunningTotal:      stats.DroppedNotRunningTotal,
-		DroppedQueueFullTotal:       stats.DroppedQueueFullTotal,
-		DroppedStoppingTotal:        stats.DroppedStoppingTotal,
-		DroppedPersistFailedTotal:   stats.DroppedPersistFailedTotal,
-		DroppedShutdownTotal:        stats.DroppedShutdownTotal,
-		DroppedTotal:                stats.DroppedTotal,
-		WriteFailureTotal:           stats.WriteFailureTotal,
-		RetentionDeleteFailureTotal: stats.RetentionDeleteFailureTotal,
-		QueueDepth:                  stats.QueueDepth,
-		QueueCapacity:               stats.QueueCapacity,
-		LastWriteFailureAtMS:        lastWriteFailureAtMS,
-		LastRetentionFailureAtMS:    lastRetentionFailureAtMS,
+		EnqueuedTotal:                             stats.EnqueuedTotal,
+		PersistedTotal:                            stats.PersistedTotal,
+		DroppedNotRunningTotal:                    stats.DroppedNotRunningTotal,
+		DroppedQueueFullTotal:                     stats.DroppedQueueFullTotal,
+		DroppedStoppingTotal:                      stats.DroppedStoppingTotal,
+		DroppedPersistFailedTotal:                 stats.DroppedPersistFailedTotal,
+		DroppedShutdownTotal:                      stats.DroppedShutdownTotal,
+		DroppedTotal:                              stats.DroppedTotal,
+		WriteFailureTotal:                         stats.WriteFailureTotal,
+		AccessQuotaCheckpointWriteFailureTotal:    stats.AccessQuotaCheckpointWriteFailureTotal,
+		RetentionDeleteFailureTotal:               stats.RetentionDeleteFailureTotal,
+		QueueDepth:                                stats.QueueDepth,
+		QueueCapacity:                             stats.QueueCapacity,
+		LastWriteFailureAtMS:                      lastWriteFailureAtMS,
+		LastAccessQuotaCheckpointWriteFailureAtMS: lastAccessQuotaCheckpointWriteFailureAtMS,
+		LastRetentionFailureAtMS:                  lastRetentionFailureAtMS,
 	}, nil
 }
 

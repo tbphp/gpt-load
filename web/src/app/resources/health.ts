@@ -94,13 +94,29 @@ const requestLogFields = [
   'dropped_shutdown_total',
   'dropped_total',
   'write_failure_total',
+  'access_quota_checkpoint_write_failure_total',
   'retention_delete_failure_total',
   'queue_depth',
   'queue_capacity',
   'last_write_failure_at_ms',
+  'last_access_quota_checkpoint_write_failure_at_ms',
   'last_retention_failure_at_ms',
 ] as const
-const requestLogCounterFields = requestLogFields.slice(0, 12)
+const requestLogCounterFields = [
+  'enqueued_total',
+  'persisted_total',
+  'dropped_not_running_total',
+  'dropped_queue_full_total',
+  'dropped_stopping_total',
+  'dropped_persist_failed_total',
+  'dropped_shutdown_total',
+  'dropped_total',
+  'write_failure_total',
+  'access_quota_checkpoint_write_failure_total',
+  'retention_delete_failure_total',
+  'queue_depth',
+  'queue_capacity',
+] as const
 const recoveryModes = ['cooldown_expiry', 'validation_probe', 'configuration_required'] as const
 const problemFailureCategories = [
   'rate_limited',
@@ -256,11 +272,19 @@ function projectRequestLogHealth(value: unknown): RequestLogHealthDto {
     ]),
   ) as Pick<
     RequestLogHealthDto,
-    Exclude<keyof RequestLogHealthDto, 'last_write_failure_at_ms' | 'last_retention_failure_at_ms'>
+    Exclude<
+      keyof RequestLogHealthDto,
+      | 'last_write_failure_at_ms'
+      | 'last_access_quota_checkpoint_write_failure_at_ms'
+      | 'last_retention_failure_at_ms'
+    >
   >
   return {
     ...counters,
     last_write_failure_at_ms: projectNullableEpochMilliseconds(record.last_write_failure_at_ms),
+    last_access_quota_checkpoint_write_failure_at_ms: projectNullableEpochMilliseconds(
+      record.last_access_quota_checkpoint_write_failure_at_ms,
+    ),
     last_retention_failure_at_ms: projectNullableEpochMilliseconds(
       record.last_retention_failure_at_ms,
     ),

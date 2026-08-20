@@ -169,11 +169,16 @@ export default {
       },
       requestLog: {
         title: 'リクエストログ収集',
-        description:
-          '現在のプロセスの累積値で、再起動時にリセットされます。書き込み失敗時は、費用上限状態が再起動後に古いチェックポイントへ戻る可能性もあります。',
+        description: '現在のプロセスの累積値で、再起動時にリセットされます。',
         normal: '収集は正常',
         abnormal: '収集に異常あり',
         retentionAbnormal: '保持処理に異常あり',
+        checkpointNormal: '上限チェックポイントは正常',
+        checkpointAbnormal: '上限チェックポイントに異常あり',
+        checkpointFailures: 'チェックポイント書き込み失敗',
+        lastCheckpointFailureAt: '直近の失敗',
+        checkpointRisk:
+          'メモリ内の上限は有効ですが、再起動後に古いチェックポイントへ戻る可能性があります。',
         queue: 'キュー',
         queueDescription: '現在 / 容量',
         processTotal: '現在のプロセス',

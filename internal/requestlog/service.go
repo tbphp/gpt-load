@@ -60,19 +60,21 @@ type Service struct {
 	shutdownDone  chan struct{}
 	shutdownErr   error
 
-	enqueuedTotal             atomic.Uint64
-	persistedTotal            atomic.Uint64
-	droppedNotRunningTotal    atomic.Uint64
-	droppedQueueFullTotal     atomic.Uint64
-	droppedStoppingTotal      atomic.Uint64
-	droppedPersistFailedTotal atomic.Uint64
-	droppedShutdownTotal      atomic.Uint64
-	writeFailureTotal         atomic.Uint64
-	retentionDeleteTotal      atomic.Uint64
+	enqueuedTotal                          atomic.Uint64
+	persistedTotal                         atomic.Uint64
+	droppedNotRunningTotal                 atomic.Uint64
+	droppedQueueFullTotal                  atomic.Uint64
+	droppedStoppingTotal                   atomic.Uint64
+	droppedPersistFailedTotal              atomic.Uint64
+	droppedShutdownTotal                   atomic.Uint64
+	writeFailureTotal                      atomic.Uint64
+	accessQuotaCheckpointWriteFailureTotal atomic.Uint64
+	retentionDeleteTotal                   atomic.Uint64
 
-	statsMu                sync.Mutex
-	lastWriteFailureAt     time.Time
-	lastRetentionFailureAt time.Time
+	statsMu                                 sync.Mutex
+	lastWriteFailureAt                      time.Time
+	lastAccessQuotaCheckpointWriteFailureAt time.Time
+	lastRetentionFailureAt                  time.Time
 
 	warningMu     sync.Mutex
 	lastWarningAt time.Time
@@ -239,23 +241,26 @@ func (service *Service) Stop(ctx context.Context) error {
 func (service *Service) Stats() Stats {
 	service.statsMu.Lock()
 	lastWriteFailureAt := service.lastWriteFailureAt
+	lastAccessQuotaCheckpointWriteFailureAt := service.lastAccessQuotaCheckpointWriteFailureAt
 	lastRetentionFailureAt := service.lastRetentionFailureAt
 	service.statsMu.Unlock()
 
 	stats := Stats{
-		EnqueuedTotal:               service.enqueuedTotal.Load(),
-		PersistedTotal:              service.persistedTotal.Load(),
-		DroppedNotRunningTotal:      service.droppedNotRunningTotal.Load(),
-		DroppedQueueFullTotal:       service.droppedQueueFullTotal.Load(),
-		DroppedStoppingTotal:        service.droppedStoppingTotal.Load(),
-		DroppedPersistFailedTotal:   service.droppedPersistFailedTotal.Load(),
-		DroppedShutdownTotal:        service.droppedShutdownTotal.Load(),
-		WriteFailureTotal:           service.writeFailureTotal.Load(),
-		RetentionDeleteFailureTotal: service.retentionDeleteTotal.Load(),
-		QueueDepth:                  len(service.queue),
-		QueueCapacity:               cap(service.queue),
-		LastWriteFailureAt:          lastWriteFailureAt,
-		LastRetentionFailureAt:      lastRetentionFailureAt,
+		EnqueuedTotal:                           service.enqueuedTotal.Load(),
+		PersistedTotal:                          service.persistedTotal.Load(),
+		DroppedNotRunningTotal:                  service.droppedNotRunningTotal.Load(),
+		DroppedQueueFullTotal:                   service.droppedQueueFullTotal.Load(),
+		DroppedStoppingTotal:                    service.droppedStoppingTotal.Load(),
+		DroppedPersistFailedTotal:               service.droppedPersistFailedTotal.Load(),
+		DroppedShutdownTotal:                    service.droppedShutdownTotal.Load(),
+		WriteFailureTotal:                       service.writeFailureTotal.Load(),
+		AccessQuotaCheckpointWriteFailureTotal:  service.accessQuotaCheckpointWriteFailureTotal.Load(),
+		RetentionDeleteFailureTotal:             service.retentionDeleteTotal.Load(),
+		QueueDepth:                              len(service.queue),
+		QueueCapacity:                           cap(service.queue),
+		LastWriteFailureAt:                      lastWriteFailureAt,
+		LastAccessQuotaCheckpointWriteFailureAt: lastAccessQuotaCheckpointWriteFailureAt,
+		LastRetentionFailureAt:                  lastRetentionFailureAt,
 	}
 	stats.DroppedTotal = stats.DroppedNotRunningTotal +
 		stats.DroppedQueueFullTotal +
@@ -359,6 +364,7 @@ func (service *Service) warn(failureType string, failedBatchSize int) {
 			"queue_depth":         stats.QueueDepth,
 			"dropped_total":       stats.DroppedTotal,
 			"write_failure_total": stats.WriteFailureTotal,
+			"access_quota_checkpoint_write_failure_total": stats.AccessQuotaCheckpointWriteFailureTotal,
 		},
 		message,
 	)

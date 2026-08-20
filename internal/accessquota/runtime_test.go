@@ -2,6 +2,7 @@ package accessquota
 
 import (
 	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -154,6 +155,65 @@ func TestRuntimeReconcilePreservesAmountStateAndInvalidatesNewRevisionTickets(t 
 	}
 }
 
+func TestRuntimeReconcilePreservesConcurrentCompletions(t *testing.T) {
+	const (
+		writerCount          = 8
+		completionsPerWriter = 2_000
+	)
+	definitions := map[uint][]Rule{1: {{
+		ID: 32, Revision: 1, Kind: KindTotal, LimitNanoUSD: 1_000_000_000,
+	}}}
+	runtime := NewRuntime()
+	if err := runtime.Reconcile(definitions); err != nil {
+		t.Fatal(err)
+	}
+	ticket, decision := runtime.Admit(1, time.Now())
+	if !decision.Allowed {
+		t.Fatalf("Admit() = %#v", decision)
+	}
+
+	start := make(chan struct{})
+	stopReconcile := make(chan struct{})
+	var writers sync.WaitGroup
+	writers.Add(writerCount)
+	for range writerCount {
+		go func() {
+			defer writers.Done()
+			<-start
+			for range completionsPerWriter {
+				runtime.Complete(ticket, 1)
+			}
+		}()
+	}
+	var reconciler sync.WaitGroup
+	reconciler.Add(1)
+	go func() {
+		defer reconciler.Done()
+		<-start
+		for {
+			select {
+			case <-stopReconcile:
+				return
+			default:
+				if err := runtime.Reconcile(definitions); err != nil {
+					t.Errorf("Reconcile() error = %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	close(start)
+	writers.Wait()
+	close(stopReconcile)
+	reconciler.Wait()
+	view := runtime.Snapshot(1, time.Now())
+	want := int64(writerCount * completionsPerWriter)
+	if got := ruleViewByID(t, view.Rules, 32).UsedNanoUSD; got != want {
+		t.Fatalf("concurrent used = %d, want %d", got, want)
+	}
+}
+
 func TestRuntimeRestoreRequiresExactRuleStateAndKeepsActiveWindow(t *testing.T) {
 	start := time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
@@ -195,6 +255,66 @@ func TestRuntimeRestoreRequiresExactRuleStateAndKeepsActiveWindow(t *testing.T) 
 	}
 	if err := orphan.Reconcile(nil); err == nil {
 		t.Fatal("Reconcile(orphan state) error = nil")
+	}
+}
+
+func TestRuntimeRestoreRejectsImpossiblePeriodicState(t *testing.T) {
+	tests := []struct {
+		name  string
+		state RestoredState
+	}{
+		{
+			name: "inactive state with used amount",
+			state: RestoredState{
+				AccessKeyID: 1, RuleID: 42, RuleRevision: 1, UsedNanoUSD: 1,
+				SnapshotVersion: 1,
+			},
+		},
+		{
+			name: "window duration differs from rule",
+			state: RestoredState{
+				AccessKeyID: 1, RuleID: 42, RuleRevision: 1, UsedNanoUSD: 1,
+				WindowStartedAtMS: ptrInt64(1_000), WindowEndsAtMS: ptrInt64(601_000),
+				WindowGeneration: 1, SnapshotVersion: 1,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := NewRuntime()
+			if err := runtime.Restore([]RestoredState{test.state}); err != nil {
+				t.Fatalf("Restore() error = %v", err)
+			}
+			if err := runtime.Reconcile(map[uint][]Rule{1: {{
+				ID: 42, Revision: 1, Kind: KindPeriodic, LimitNanoUSD: 10, PeriodSeconds: 300,
+			}}}); err == nil {
+				t.Fatal("Reconcile() error = nil")
+			}
+		})
+	}
+}
+
+func TestRuntimeRestoreAcceptsExpiredPeriodicPhysicalWindow(t *testing.T) {
+	start := time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	end := start.Add(5 * time.Minute)
+	runtime := NewRuntime()
+	if err := runtime.Restore([]RestoredState{{
+		AccessKeyID: 1, RuleID: 43, RuleRevision: 1, UsedNanoUSD: 7,
+		WindowStartedAtMS: ptrInt64(start.UnixMilli()), WindowEndsAtMS: ptrInt64(end.UnixMilli()),
+		WindowGeneration: 2, SnapshotVersion: 3,
+	}}); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if err := runtime.Reconcile(map[uint][]Rule{1: {{
+		ID: 43, Revision: 1, Kind: KindPeriodic, LimitNanoUSD: 10, PeriodSeconds: 300,
+	}}}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	view := ruleViewByID(t, runtime.Snapshot(1, end.Add(time.Minute)).Rules, 43)
+	if view.Status != RuleStatusInactive || view.UsedNanoUSD != 0 || view.WindowGeneration != 2 {
+		t.Fatalf("expired periodic view = %#v", view)
 	}
 }
 

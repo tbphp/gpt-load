@@ -375,10 +375,12 @@ export interface RequestLogHealthDto {
   dropped_shutdown_total: number
   dropped_total: number
   write_failure_total: number
+  access_quota_checkpoint_write_failure_total: number
   retention_delete_failure_total: number
   queue_depth: number
   queue_capacity: number
   last_write_failure_at_ms: number | null
+  last_access_quota_checkpoint_write_failure_at_ms: number | null
   last_retention_failure_at_ms: number | null
 }
 

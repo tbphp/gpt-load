@@ -169,11 +169,16 @@ export default {
       },
       requestLog: {
         title: 'Request-log collection',
-        description:
-          'Process-lifetime counters reset on restart. A write failure also means cost-limit state may restart from an older checkpoint.',
+        description: 'Process-lifetime counters reset on restart.',
         normal: 'Collection healthy',
         abnormal: 'Collection unhealthy',
         retentionAbnormal: 'Retention unhealthy',
+        checkpointNormal: 'Quota checkpoint healthy',
+        checkpointAbnormal: 'Quota checkpoint unhealthy',
+        checkpointFailures: 'Checkpoint write failures',
+        lastCheckpointFailureAt: 'Last failure',
+        checkpointRisk:
+          'In-memory limits remain active; a restart may recover an older checkpoint.',
         queue: 'Queue',
         queueDescription: 'Depth / capacity',
         processTotal: 'Current process',

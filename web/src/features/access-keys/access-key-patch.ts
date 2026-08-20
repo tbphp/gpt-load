@@ -240,6 +240,7 @@ export function isAccessKeyDraftDirty(draft: AccessKeyDraft, base?: AccessKeyDto
 export function accessKeyMatchesUpdatePatch(
   accessKey: AccessKeyDto,
   patch: UpdateAccessKeyRequest,
+  base: AccessKeyDto,
 ): boolean {
   return (
     (patch.name === undefined || patch.name === accessKey.name) &&
@@ -247,8 +248,64 @@ export function accessKeyMatchesUpdatePatch(
     (patch.filters === undefined || equalFilters(patch.filters, accessKey.filters)) &&
     (patch.rpm_limit === undefined || patch.rpm_limit === accessKey.rpm_limit) &&
     (patch.cost_limit_rules === undefined ||
-      equalCostLimitRules(patch.cost_limit_rules, accessKey.cost_limit_rules))
+      costLimitRulesMatchReconciliation(
+        accessKey.cost_limit_rules,
+        patch.cost_limit_rules,
+        base.cost_limit_rules,
+      ))
   )
+}
+
+function normalizedUSD(value: string): string {
+  const [whole, fraction = ''] = value.split('.')
+  const normalizedFraction = fraction.replace(/0+$/, '')
+  return normalizedFraction.length > 0 ? `${whole}.${normalizedFraction}` : whole
+}
+
+function sameCostLimitRuleValue(
+  left: AccessKeyCostLimitRuleInput,
+  right: AccessKeyCostLimitRuleInput,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    (left.period_seconds ?? 0) === (right.period_seconds ?? 0) &&
+    normalizedUSD(left.limit_usd) === normalizedUSD(right.limit_usd)
+  )
+}
+
+function costLimitRulesMatchReconciliation(
+  latest: readonly AccessKeyCostLimitRuleInput[],
+  desired: readonly AccessKeyCostLimitRuleInput[],
+  base: readonly AccessKeyCostLimitRuleInput[],
+): boolean {
+  if (latest.length !== desired.length || latest.some((rule) => rule.id === undefined)) return false
+
+  const latestByID = new Map(latest.map((rule) => [rule.id!, rule]))
+  const baseIDs = new Set(base.flatMap((rule) => (rule.id === undefined ? [] : [rule.id])))
+  const matchedIDs = new Set<number>()
+  for (const desiredRule of desired) {
+    let matched: AccessKeyCostLimitRuleInput | undefined
+    if (desiredRule.id !== undefined) {
+      matched = latestByID.get(desiredRule.id)
+    } else {
+      matched = latest.find(
+        (candidate) =>
+          candidate.id !== undefined &&
+          !baseIDs.has(candidate.id) &&
+          !matchedIDs.has(candidate.id) &&
+          sameCostLimitRuleValue(candidate, desiredRule),
+      )
+    }
+    if (
+      matched?.id === undefined ||
+      matchedIDs.has(matched.id) ||
+      !sameCostLimitRuleValue(matched, desiredRule)
+    ) {
+      return false
+    }
+    matchedIDs.add(matched.id)
+  }
+  return matchedIDs.size === latest.length
 }
 
 export function buildAccessKeyUpdatePatch(

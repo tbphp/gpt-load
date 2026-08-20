@@ -229,22 +229,20 @@ func (runtime *Runtime) Reconcile(definitions map[uint][]Rule) error {
 }
 
 func (runtime *Runtime) Check(accessKeyID uint, now time.Time) Decision {
-	entry := runtime.entry(accessKeyID)
+	entry := runtime.lockEntry(accessKeyID)
 	if entry == nil {
 		return allowedDecision()
 	}
-	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	return decisionLocked(entry, now.UnixMilli())
 }
 
 func (runtime *Runtime) Admit(accessKeyID uint, now time.Time) (Ticket, Decision) {
-	entry := runtime.entry(accessKeyID)
+	entry := runtime.lockEntry(accessKeyID)
 	if entry == nil {
 		return Ticket{AccessKeyID: accessKeyID}, allowedDecision()
 	}
 	nowMS := now.UnixMilli()
-	entry.mu.Lock()
 	decision := decisionLocked(entry, nowMS)
 	if !decision.Allowed {
 		entry.mu.Unlock()
@@ -286,11 +284,10 @@ func (runtime *Runtime) Complete(ticket Ticket, costNanoUSD int64) CompletionRes
 	if runtime == nil || ticket.AccessKeyID == 0 || len(ticket.Rules) == 0 {
 		return CompletionResult{}
 	}
-	entry := runtime.entry(ticket.AccessKeyID)
+	entry := runtime.lockEntry(ticket.AccessKeyID)
 	if entry == nil {
 		return CompletionResult{}
 	}
-	entry.mu.Lock()
 
 	completion := CompletionResult{}
 	dirty := false
@@ -336,11 +333,10 @@ func (runtime *Runtime) Complete(ticket Ticket, costNanoUSD int64) CompletionRes
 
 func (runtime *Runtime) Snapshot(accessKeyID uint, now time.Time) View {
 	view := View{ObservedAtMS: now.UnixMilli(), Allowed: true, Recoverable: true, Rules: []RuleView{}}
-	entry := runtime.entry(accessKeyID)
+	entry := runtime.lockEntry(accessKeyID)
 	if entry == nil {
 		return view
 	}
-	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	view.Rules = make([]RuleView, 0, len(entry.rules))
 	for _, rule := range entry.rules {
@@ -363,20 +359,19 @@ func (runtime *Runtime) DirtySnapshots(limit int) []RestoredState {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	entries := make([]*accessKeyEntry, len(ids))
-	for index, id := range ids {
-		entries[index] = runtime.entries[id]
-	}
 	runtime.mu.RUnlock()
 
 	result := make([]RestoredState, 0)
-	for index, entry := range entries {
-		entry.mu.Lock()
+	for _, id := range ids {
+		entry := runtime.lockEntry(id)
+		if entry == nil {
+			continue
+		}
 		for _, rule := range entry.rules {
 			if !rule.dirty {
 				continue
 			}
-			result = append(result, restoredState(ids[index], rule))
+			result = append(result, restoredState(id, rule))
 			if limit > 0 && len(result) >= limit {
 				entry.mu.Unlock()
 				return result
@@ -388,11 +383,10 @@ func (runtime *Runtime) DirtySnapshots(limit int) []RestoredState {
 }
 
 func (runtime *Runtime) Ack(accessKeyID, ruleID uint, revision, snapshotVersion uint64) {
-	entry := runtime.entry(accessKeyID)
+	entry := runtime.lockEntry(accessKeyID)
 	if entry == nil {
 		return
 	}
-	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	rule := entry.byID[ruleID]
 	if rule == nil || rule.definition.Revision != revision || rule.snapshotVersion != snapshotVersion {
@@ -420,12 +414,15 @@ func (runtime *Runtime) notifyDirty() {
 	}
 }
 
-func (runtime *Runtime) entry(accessKeyID uint) *accessKeyEntry {
+func (runtime *Runtime) lockEntry(accessKeyID uint) *accessKeyEntry {
 	if runtime == nil || accessKeyID == 0 {
 		return nil
 	}
 	runtime.mu.RLock()
 	entry := runtime.entries[accessKeyID]
+	if entry != nil {
+		entry.mu.Lock()
+	}
 	runtime.mu.RUnlock()
 	return entry
 }
@@ -567,10 +564,18 @@ func applyRestoredState(rule *runtimeRule, state RestoredState) error {
 		if state.WindowStartedAtMS != nil || state.WindowEndsAtMS != nil || state.WindowGeneration != 0 {
 			return fmt.Errorf("restore total access quota rule %d: window state is not allowed", rule.definition.ID)
 		}
-	} else if state.WindowStartedAtMS == nil && state.WindowGeneration != 0 {
-		return fmt.Errorf("restore periodic access quota rule %d: inactive state has generation", rule.definition.ID)
-	} else if state.WindowStartedAtMS != nil && state.WindowGeneration == 0 {
-		return fmt.Errorf("restore periodic access quota rule %d: active state has no generation", rule.definition.ID)
+	} else if state.WindowStartedAtMS == nil {
+		if state.UsedNanoUSD != 0 || state.WindowGeneration != 0 {
+			return fmt.Errorf("restore periodic access quota rule %d: inactive state has usage or generation", rule.definition.ID)
+		}
+	} else {
+		if state.WindowGeneration == 0 {
+			return fmt.Errorf("restore periodic access quota rule %d: active state has no generation", rule.definition.ID)
+		}
+		windowDurationMS := *state.WindowEndsAtMS - *state.WindowStartedAtMS
+		if windowDurationMS != rule.definition.PeriodSeconds*int64(time.Second/time.Millisecond) {
+			return fmt.Errorf("restore periodic access quota rule %d: window duration does not match period", rule.definition.ID)
+		}
 	}
 	rule.usedNanoUSD = state.UsedNanoUSD
 	rule.windowStartedAtMS = cloneInt64(state.WindowStartedAtMS)

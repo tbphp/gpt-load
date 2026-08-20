@@ -900,7 +900,7 @@ func (service *Service) flushAccessQuotaCheckpoints(ctx context.Context) error {
 		return nil
 	}
 	if err := service.quotaWriter.WriteSnapshots(ctx, snapshots); err != nil {
-		service.recordPersistFailure("access_quota_checkpoint_write_failure", 0)
+		service.recordAccessQuotaCheckpointFailure()
 		service.wakeAccessQuotaCheckpoint()
 		return err
 	}
@@ -925,6 +925,14 @@ func (service *Service) recordPersistFailure(reason string, count int) {
 	service.lastWriteFailureAt = service.now().UTC()
 	service.statsMu.Unlock()
 	service.warn(reason, count)
+}
+
+func (service *Service) recordAccessQuotaCheckpointFailure() {
+	service.accessQuotaCheckpointWriteFailureTotal.Add(1)
+	service.statsMu.Lock()
+	service.lastAccessQuotaCheckpointWriteFailureAt = service.now().UTC()
+	service.statsMu.Unlock()
+	service.warn("access_quota_checkpoint_write_failure", 0)
 }
 
 func (service *Service) dropUnattempted(batch []queuedEvent) {
