@@ -3,8 +3,12 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"gpt-load/internal/accessquota"
+	"gpt-load/internal/pricing"
 )
 
 type reason struct {
@@ -46,7 +50,108 @@ var (
 		Code:    "access_key_rate_limited",
 		Message: "Access key rate limit exceeded.",
 	}
+	reasonAccessKeyCostLimitExceeded = reason{
+		Status:  http.StatusTooManyRequests,
+		Code:    "access_key_cost_limit_exceeded",
+		Message: "Access key cost limit exceeded.",
+	}
+	reasonConfigurationChanged = reason{
+		Status:  http.StatusServiceUnavailable,
+		Code:    "configuration_changed",
+		Message: "Configuration changed; retry the request.",
+	}
 )
+
+type accessKeyCostLimitRuleError struct {
+	ID             uint             `json:"id"`
+	Kind           accessquota.Kind `json:"kind"`
+	LimitUSD       string           `json:"limit_usd"`
+	UsedUSD        string           `json:"used_usd"`
+	PeriodSeconds  int64            `json:"period_seconds,omitempty"`
+	WindowEndsAtMS *int64           `json:"window_ends_at_ms,omitempty"`
+}
+
+func (handler *Handler) completeAccessQuotaReason(
+	context *gin.Context,
+	recorder *requestRecorder,
+	decision accessquota.Decision,
+) {
+	recorder.completeReason(reasonAccessKeyCostLimitExceeded)
+	if err := handler.writeAccessQuotaReason(context, decision); err != nil {
+		handler.completeWriteTerminal(context, recorder, reasonAccessKeyCostLimitExceeded.Status)
+	}
+}
+
+func (handler *Handler) writeAccessQuotaReason(
+	context *gin.Context,
+	decision accessquota.Decision,
+) error {
+	blocking := make([]accessKeyCostLimitRuleError, 0, len(decision.BlockingRules))
+	for _, rule := range decision.BlockingRules {
+		blocking = append(blocking, accessKeyCostLimitRuleError{
+			ID: rule.ID, Kind: rule.Kind,
+			LimitUSD:       pricing.FormatUSD(pricing.NanoUSD(rule.LimitNanoUSD)),
+			UsedUSD:        pricing.FormatUSD(pricing.NanoUSD(rule.UsedNanoUSD)),
+			PeriodSeconds:  rule.PeriodSeconds,
+			WindowEndsAtMS: cloneReasonInt64(rule.WindowEndsAtMS),
+		})
+	}
+	body, err := json.Marshal(struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			Recoverable       bool                          `json:"recoverable"`
+			NextAvailableAtMS *int64                        `json:"next_available_at_ms"`
+			BlockingRules     []accessKeyCostLimitRuleError `json:"blocking_rules"`
+		} `json:"data"`
+	}{
+		Code:    reasonAccessKeyCostLimitExceeded.Code,
+		Message: reasonAccessKeyCostLimitExceeded.Message,
+		Data: struct {
+			Recoverable       bool                          `json:"recoverable"`
+			NextAvailableAtMS *int64                        `json:"next_available_at_ms"`
+			BlockingRules     []accessKeyCostLimitRuleError `json:"blocking_rules"`
+		}{
+			Recoverable:       decision.Recoverable,
+			NextAvailableAtMS: cloneReasonInt64(decision.NextAvailableAtMS),
+			BlockingRules:     blocking,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	headers := http.Header{"Content-Type": {"application/json; charset=utf-8"}}
+	if decision.Recoverable && decision.NextAvailableAtMS != nil {
+		deltaMS := *decision.NextAvailableAtMS - handler.quotaNow().UnixMilli()
+		seconds := (deltaMS + 999) / 1000
+		if seconds < 1 {
+			seconds = 1
+		}
+		headers.Set("Retry-After", strconv.FormatInt(seconds, 10))
+	}
+	return handler.writeBufferedResponse(
+		context,
+		reasonAccessKeyCostLimitExceeded.Status,
+		headers,
+		body,
+	)
+}
+
+func cloneReasonInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func (handler *Handler) completeConfigurationChanged(
+	context *gin.Context,
+	recorder *requestRecorder,
+) {
+	context.Writer.Header().Set("Retry-After", "1")
+	handler.completeReason(context, recorder, reasonConfigurationChanged)
+}
 
 func (handler *Handler) writeReason(context *gin.Context, value reason) error {
 	body, err := json.Marshal(struct {

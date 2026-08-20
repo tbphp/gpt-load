@@ -14,6 +14,7 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import { formatLocalInstant } from '@/lib/format'
 
 import GroupHealthCollection from './GroupHealthCollection.vue'
+import AccessKeyCostLimitHealth from './AccessKeyCostLimitHealth.vue'
 import HealthProblemCollection from './HealthProblemCollection.vue'
 import HealthSummaryStrip from './HealthSummaryStrip.vue'
 import RequestLogHealthCard from './RequestLogHealthCard.vue'
@@ -237,6 +238,11 @@ defineExpose({ refresh })
         />
         <RequestLogHealthCard :stats="healthQuery.data.value.request_log" />
       </div>
+
+      <AccessKeyCostLimitHealth
+        v-if="healthQuery.data.value.blocked_access_keys.length > 0"
+        :access-keys="healthQuery.data.value.blocked_access_keys"
+      />
 
       <GroupHealthCollection
         :groups="healthQuery.data.value.groups"

@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/gateway"
@@ -123,6 +124,7 @@ type serviceFixture struct {
 	stats           *health.StatsStore
 	mutations       *health.MutationCoordinator
 	requestLogStats *staticRequestLogStatsReader
+	accessQuota     *accessquota.Runtime
 	service         *Service
 }
 
@@ -187,6 +189,8 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 	t.Helper()
 	manager := state.NewManager()
+	accessQuota := accessquota.NewRuntime()
+	manager.SetSnapshotReconciler(controlAccessQuotaReconciler{runtime: accessQuota})
 	registry := state.NewCredentialRegistry()
 	channelRegistry := channel.NewRegistry()
 	keyService, err := encryption.NewService("control-test-master-key-material-2026")
@@ -222,6 +226,7 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 		stats,
 		mutations,
 		requestLogStats,
+		accessQuota,
 		channelRegistry,
 	)
 	installCodexControlTestHooks(service)
@@ -231,9 +236,17 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, channelRegistry: channelRegistry, encryption: keyService,
 		priceRuntime: priceRuntime, catalogRuntime: catalogRuntime,
-		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
+		stats: stats, mutations: mutations, requestLogStats: requestLogStats, accessQuota: accessQuota,
 		service: service,
 	}
+}
+
+type controlAccessQuotaReconciler struct {
+	runtime *accessquota.Runtime
+}
+
+func (reconciler controlAccessQuotaReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {
+	return reconciler.runtime.Reconcile(snapshot.AccessQuotaDefinitions())
 }
 
 func openControlTestDB(t *testing.T) *gorm.DB {

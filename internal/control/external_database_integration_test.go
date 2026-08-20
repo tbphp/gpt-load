@@ -12,6 +12,22 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+// TestExternalDatabaseAccessKeyCostLimitPeriodPermutation verifies that the
+// retained-rule two-phase period move obeys the real MySQL/PostgreSQL unique
+// index while preserving IDs and resetting each changed revision.
+func TestExternalDatabaseAccessKeyCostLimitPeriodPermutation(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
+	if dsn == "" {
+		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
+	}
+	assertAccessKeyCostLimitPeriodPermutation(
+		t,
+		newServiceFixtureWithDSN(t, dsn),
+		[]int64{300, 600, 900},
+		[]int64{600, 900, 300},
+	)
+}
+
 // TestExternalDatabaseGroupPriceReconciliation verifies the actual control
 // write chain on each supported external driver. Two Groups can reference one
 // global model price, and removing the final reference cleans only the

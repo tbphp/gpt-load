@@ -375,10 +375,13 @@ export interface RequestLogHealthDto {
   dropped_shutdown_total: number
   dropped_total: number
   write_failure_total: number
+  access_quota_checkpoint_write_failure_total: number
+  access_quota_checkpoint_degraded: boolean
   retention_delete_failure_total: number
   queue_depth: number
   queue_capacity: number
   last_write_failure_at_ms: number | null
+  last_access_quota_checkpoint_write_failure_at_ms: number | null
   last_retention_failure_at_ms: number | null
 }
 
@@ -393,6 +396,7 @@ export interface RuntimeHealthDto {
   cooldown_credentials: HealthProblemCredentialDto[]
   blacklisted_credentials: HealthProblemCredentialDto[]
   low_quota_credentials: HealthQuotaCredentialDto[]
+  blocked_access_keys: HealthAccessKeyCostLimitDto[]
   request_log: RequestLogHealthDto
 }
 
@@ -411,6 +415,41 @@ export interface AccessKeyFiltersDto {
   models: string[]
 }
 
+export type AccessKeyCostLimitKind = 'total' | 'periodic'
+export type AccessKeyCostLimitRuleState = 'available' | 'inactive' | 'exhausted'
+
+export interface AccessKeyCostLimitRuleDto {
+  id: number
+  kind: AccessKeyCostLimitKind
+  limit_usd: string
+  period_seconds: number
+}
+
+export interface AccessKeyCostLimitRuleStatusDto extends AccessKeyCostLimitRuleDto {
+  used_usd: string
+  remaining_usd: string
+  status: AccessKeyCostLimitRuleState
+  window_started_at_ms: number | null
+  window_ends_at_ms: number | null
+}
+
+export interface AccessKeyCostLimitStatusDto {
+  observed_at_ms: number
+  allowed: boolean
+  recoverable: boolean
+  next_available_at_ms: number | null
+  rules: AccessKeyCostLimitRuleStatusDto[]
+}
+
+export interface HealthAccessKeyCostLimitDto {
+  access_key_id: number
+  name: string
+  masked_key: string
+  recoverable: boolean
+  next_available_at_ms: number | null
+  blocking_rules: AccessKeyCostLimitRuleStatusDto[]
+}
+
 export interface AccessKeyDto {
   id: number
   name: string
@@ -418,6 +457,8 @@ export interface AccessKeyDto {
   status: 'active' | 'disabled'
   filters: AccessKeyFiltersDto
   rpm_limit: number
+  cost_limit_rules: AccessKeyCostLimitRuleDto[]
+  cost_limit_status: AccessKeyCostLimitStatusDto | null
   created_at_ms: number
   updated_at_ms: number
 }

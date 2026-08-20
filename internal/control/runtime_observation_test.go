@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/requestlog"
@@ -245,5 +246,88 @@ func TestRuntimeHealthReleasesReadLockBeforeDecryptingProblemKeys(t *testing.T) 
 
 	if _, err := fixture.service.RuntimeHealth(); err != nil {
 		t.Fatalf("RuntimeHealth() error = %v", err)
+	}
+}
+
+func TestRuntimeHealthKeepsAccessQuotaViewWithCapturedConfig(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := healthNow()
+	fixture.service.now = func() time.Time { return now }
+	groupID := createGroupWithCredentials(t, fixture, "health-quota-observation-secret")
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).First(&credential).Error; err != nil {
+		t.Fatalf("load credential: %v", err)
+	}
+	if !fixture.registry.SetCooldown(credential.ID, now.Add(time.Minute)) {
+		t.Fatal("SetCooldown() = false")
+	}
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "health-quota-observation",
+		CostLimitRules: OptionalAccessKeyCostLimitRules{Set: true, Values: []AccessKeyCostLimitRuleRequest{{
+			Kind: accessquota.KindTotal, LimitUSD: "1",
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	ticket, decision := fixture.accessQuota.Admit(created.ID, now)
+	if !decision.Allowed {
+		t.Fatalf("Admit() = %#v", decision)
+	}
+	fixture.accessQuota.Complete(ticket, 1_000_000_000)
+	expectedRevision := fixture.manager.Current().Revision
+
+	decryptStarted := make(chan struct{})
+	allowDecrypt := make(chan struct{})
+	var decryptOnce sync.Once
+	fixture.service.encryption = healthDecryptLockProbe{
+		Service: fixture.encryption,
+		beforeDecrypt: func() {
+			decryptOnce.Do(func() { close(decryptStarted) })
+			<-allowDecrypt
+		},
+	}
+	resultCh := make(chan struct {
+		value runtimeHealthResponse
+		err   error
+	}, 1)
+	go func() {
+		value, err := fixture.service.RuntimeHealth()
+		resultCh <- struct {
+			value runtimeHealthResponse
+			err   error
+		}{value: value, err: err}
+	}()
+	select {
+	case <-decryptStarted:
+	case <-time.After(2 * time.Second):
+		close(allowDecrypt)
+		t.Fatal("RuntimeHealth() did not reach problem-key mapping")
+	}
+	if _, err := fixture.service.UpdateAccessKey(t.Context(), created.ID, AccessKeyUpdateRequest{
+		CostLimitRules: OptionalAccessKeyCostLimitRules{Set: true, Values: []AccessKeyCostLimitRuleRequest{}},
+	}); err != nil {
+		close(allowDecrypt)
+		t.Fatalf("UpdateAccessKey(remove quota) error = %v", err)
+	}
+	close(allowDecrypt)
+	result := <-resultCh
+	if result.err != nil {
+		t.Fatalf("RuntimeHealth() error = %v", result.err)
+	}
+	if result.value.SnapshotRevision != expectedRevision {
+		t.Fatalf(
+			"SnapshotRevision = %d, want captured revision %d",
+			result.value.SnapshotRevision,
+			expectedRevision,
+		)
+	}
+	if len(result.value.BlockedAccessKeys) != 1 ||
+		result.value.BlockedAccessKeys[0].AccessKeyID != created.ID {
+		t.Fatalf(
+			"BlockedAccessKeys = %#v, want blocked key %d from captured revision",
+			result.value.BlockedAccessKeys,
+			created.ID,
+		)
 	}
 }

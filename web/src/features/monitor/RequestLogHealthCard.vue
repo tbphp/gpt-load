@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { RequestLogHealthDto } from '@/app/resources/health'
+import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import Surface from '@/components/ui/Surface.vue'
 
@@ -11,7 +12,7 @@ import MonitorSectionHeading from './MonitorSectionHeading.vue'
 const props = defineProps<{
   stats: RequestLogHealthDto
 }>()
-const { n, t } = useI18n()
+const { locale, n, t } = useI18n()
 
 const state = computed(() => {
   if (props.stats.dropped_total > 0 || props.stats.write_failure_total > 0) {
@@ -21,6 +22,13 @@ const state = computed(() => {
     return { tone: 'warning' as const, label: t('monitor.health.requestLog.retentionAbnormal') }
   }
   return { tone: 'success' as const, label: t('monitor.health.requestLog.normal') }
+})
+
+const checkpointState = computed(() => {
+  if (props.stats.access_quota_checkpoint_degraded) {
+    return { tone: 'danger' as const, label: t('monitor.health.requestLog.checkpointAbnormal') }
+  }
+  return { tone: 'success' as const, label: t('monitor.health.requestLog.checkpointNormal') }
 })
 
 const metrics = computed(() => [
@@ -72,6 +80,37 @@ const metrics = computed(() => [
         </span>
       </header>
 
+      <div class="request-log-health__checkpoint">
+        <StatusBadge :tone="checkpointState.tone" size="compact">
+          {{ checkpointState.label }}
+        </StatusBadge>
+        <span class="request-log-health__checkpoint-detail">
+          {{ t('monitor.health.requestLog.checkpointFailures') }}
+          <strong
+            :class="{
+              'request-log-health__failures--danger': stats.access_quota_checkpoint_degraded,
+            }"
+          >
+            {{ n(stats.access_quota_checkpoint_write_failure_total) }}
+          </strong>
+          <template v-if="stats.last_access_quota_checkpoint_write_failure_at_ms !== null">
+            · {{ t('monitor.health.requestLog.lastCheckpointFailureAt') }}
+            <AppRelativeTime
+              :instant="stats.last_access_quota_checkpoint_write_failure_at_ms"
+              :locale="locale"
+              empty-label="—"
+              hint
+            />
+          </template>
+        </span>
+        <p
+          v-if="stats.access_quota_checkpoint_degraded"
+          class="request-log-health__checkpoint-risk"
+        >
+          {{ t('monitor.health.requestLog.checkpointRisk') }}
+        </p>
+      </div>
+
       <dl class="request-log-health__metrics">
         <div v-for="metric in metrics" :key="metric.key" class="request-log-health__metric">
           <dt>{{ metric.label }}</dt>
@@ -98,7 +137,7 @@ const metrics = computed(() => [
 
 .request-log-health__card {
   height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -125,8 +164,38 @@ const metrics = computed(() => [
   font-weight: 600;
 }
 
-.request-log-health__failures .request-log-health__failures--danger {
+.request-log-health__failures--danger {
   color: var(--color-danger);
+}
+
+.request-log-health__checkpoint {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 8px 14px;
+}
+
+.request-log-health__checkpoint-detail {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+
+.request-log-health__checkpoint-detail strong {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.request-log-health__checkpoint-risk {
+  min-width: 0;
+  margin: 0 0 0 auto;
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  text-align: right;
 }
 
 .request-log-health__metrics {
@@ -204,6 +273,17 @@ const metrics = computed(() => [
 }
 
 @media (max-width: 760px) {
+  .request-log-health__status,
+  .request-log-health__checkpoint {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .request-log-health__checkpoint-risk {
+    margin-left: 0;
+    text-align: left;
+  }
+
   .request-log-health__metric {
     min-height: 76px;
   }

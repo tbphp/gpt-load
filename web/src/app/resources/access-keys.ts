@@ -9,6 +9,10 @@ import type {
   AccessKeyCollectionPaginationDto,
   AccessKeyCollectionResponseDto,
   AccessKeyCollectionSummaryDto,
+  AccessKeyCostLimitKind,
+  AccessKeyCostLimitRuleDto,
+  AccessKeyCostLimitRuleStatusDto,
+  AccessKeyCostLimitStatusDto,
   AccessKeyDto,
   AccessKeyFiltersDto,
   AccessKeyOptionDto,
@@ -21,6 +25,7 @@ import { controlQueryKeys, normalizeAccessKeyCollectionFilters } from '@/app/que
 import {
   assertNoSecretLikeFields,
   projectArray,
+  projectBoolean,
   projectEpochMilliseconds,
   projectEnum,
   projectNullableEpochMilliseconds,
@@ -48,6 +53,14 @@ export interface CreateAccessKeyRequest {
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
   rpm_limit: number
+  cost_limit_rules: AccessKeyCostLimitRuleInput[]
+}
+
+export interface AccessKeyCostLimitRuleInput {
+  id?: number
+  kind: AccessKeyCostLimitKind
+  limit_usd: string
+  period_seconds?: number
 }
 
 export type UpdateAccessKeyRequest = Partial<{
@@ -55,6 +68,7 @@ export type UpdateAccessKeyRequest = Partial<{
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
   rpm_limit: number
+  cost_limit_rules: AccessKeyCostLimitRuleInput[]
 }>
 
 const metadataFields = [
@@ -64,6 +78,8 @@ const metadataFields = [
   'status',
   'filters',
   'rpm_limit',
+  'cost_limit_rules',
+  'cost_limit_status',
   'created_at_ms',
   'updated_at_ms',
 ] as const
@@ -72,6 +88,22 @@ const collectionFields = ['summary', 'items', 'pagination'] as const
 const collectionSummaryFields = ['total', 'active', 'disabled'] as const
 const collectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
 const collectionItemFields = [...metadataFields, 'last_request_at_ms'] as const
+const costLimitRuleFields = ['id', 'kind', 'limit_usd', 'period_seconds'] as const
+const costLimitRuleStatusFields = [
+  ...costLimitRuleFields,
+  'used_usd',
+  'remaining_usd',
+  'status',
+  'window_started_at_ms',
+  'window_ends_at_ms',
+] as const
+const costLimitStatusFields = [
+  'observed_at_ms',
+  'allowed',
+  'recoverable',
+  'next_available_at_ms',
+  'rules',
+] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -101,10 +133,138 @@ function projectFilters(value: unknown): AccessKeyFiltersDto {
   return { groups, protocols, models }
 }
 
+function projectUSD(value: unknown, positive = false): string {
+  const result = projectString(value)
+  if (!/^(0|[1-9]\d*)(\.\d{1,9})?$/.test(result)) invalidResponse()
+  if (positive && /^0(?:\.0+)?$/.test(result)) invalidResponse()
+  return result
+}
+
+function projectCostLimitPeriod(value: unknown, kind: AccessKeyCostLimitKind): number {
+  if (kind === 'total') {
+    if (value !== undefined && value !== 0) invalidResponse()
+    return 0
+  }
+  return projectSafeInteger(value, { minimum: 60, maximum: 31_536_000 })
+}
+
+export function projectAccessKeyCostLimitRule(value: unknown): AccessKeyCostLimitRuleDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, costLimitRuleFields)
+  const kind = projectEnum(record.kind, ['total', 'periodic'] as const)
+  return {
+    id: projectSafeInteger(record.id, { minimum: 1 }),
+    kind,
+    limit_usd: projectUSD(record.limit_usd, true),
+    period_seconds: projectCostLimitPeriod(record.period_seconds, kind),
+  }
+}
+
+export function projectAccessKeyCostLimitRuleStatus(
+  value: unknown,
+): AccessKeyCostLimitRuleStatusDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, costLimitRuleStatusFields)
+  const definition = projectAccessKeyCostLimitRule(
+    Object.fromEntries(costLimitRuleFields.map((field) => [field, record[field]])),
+  )
+  const windowStarted =
+    record.window_started_at_ms === undefined || record.window_started_at_ms === null
+      ? null
+      : projectEpochMilliseconds(record.window_started_at_ms)
+  const windowEnds =
+    record.window_ends_at_ms === undefined || record.window_ends_at_ms === null
+      ? null
+      : projectEpochMilliseconds(record.window_ends_at_ms)
+  if (
+    (windowStarted === null) !== (windowEnds === null) ||
+    (windowEnds ?? 1) <= (windowStarted ?? 0)
+  ) {
+    invalidResponse()
+  }
+  const status = projectEnum(record.status, ['available', 'inactive', 'exhausted'] as const)
+  if (definition.kind === 'total' && (windowStarted !== null || status === 'inactive')) {
+    invalidResponse()
+  }
+  if (definition.kind === 'periodic' && status === 'inactive' && windowStarted !== null) {
+    invalidResponse()
+  }
+  return {
+    ...definition,
+    used_usd: projectUSD(record.used_usd),
+    remaining_usd: projectUSD(record.remaining_usd),
+    status,
+    window_started_at_ms: windowStarted,
+    window_ends_at_ms: windowEnds,
+  }
+}
+
+function validCostLimitRuleSet(rules: readonly AccessKeyCostLimitRuleDto[]): boolean {
+  const ids = new Set<number>()
+  const periods = new Set<number>()
+  let totalCount = 0
+  let periodicCount = 0
+  for (const rule of rules) {
+    if (ids.has(rule.id)) return false
+    ids.add(rule.id)
+    if (rule.kind === 'total') totalCount += 1
+    else {
+      periodicCount += 1
+      if (periods.has(rule.period_seconds)) return false
+      periods.add(rule.period_seconds)
+    }
+  }
+  return totalCount <= 1 && periodicCount <= 10
+}
+
+export function projectAccessKeyCostLimitStatus(value: unknown): AccessKeyCostLimitStatusDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, costLimitStatusFields)
+  const allowed = projectBoolean(record.allowed)
+  const recoverable = projectBoolean(record.recoverable)
+  const nextAvailable = projectNullableEpochMilliseconds(record.next_available_at_ms)
+  const rules = projectArray(record.rules, projectAccessKeyCostLimitRuleStatus)
+  if (
+    !validCostLimitRuleSet(rules) ||
+    (allowed && nextAvailable !== null) ||
+    (!recoverable && nextAvailable !== null) ||
+    (!allowed && recoverable && nextAvailable === null)
+  ) {
+    invalidResponse()
+  }
+  return {
+    observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
+    allowed,
+    recoverable,
+    next_available_at_ms: nextAvailable,
+    rules,
+  }
+}
+
 export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, metadataFields)
   const maskedKey = projectString(record.masked_key)
+  const costLimitRules = projectArray(record.cost_limit_rules, projectAccessKeyCostLimitRule)
+  if (!validCostLimitRuleSet(costLimitRules)) invalidResponse()
+  const costLimitStatus =
+    record.cost_limit_status === undefined
+      ? null
+      : projectAccessKeyCostLimitStatus(record.cost_limit_status)
+  if (
+    costLimitStatus !== null &&
+    JSON.stringify(costLimitRules) !==
+      JSON.stringify(
+        costLimitStatus.rules.map(({ id, kind, limit_usd, period_seconds }) => ({
+          id,
+          kind,
+          limit_usd,
+          period_seconds,
+        })),
+      )
+  ) {
+    invalidResponse()
+  }
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankTrimmedString(record.name),
@@ -112,6 +272,8 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
     status: projectEnum(record.status, ['active', 'disabled'] as const),
     filters: projectFilters(record.filters),
     rpm_limit: projectSafeInteger(record.rpm_limit, { minimum: 0 }),
+    cost_limit_rules: costLimitRules,
+    cost_limit_status: costLimitStatus,
     created_at_ms: projectEpochMilliseconds(record.created_at_ms),
     updated_at_ms: projectEpochMilliseconds(record.updated_at_ms),
   }

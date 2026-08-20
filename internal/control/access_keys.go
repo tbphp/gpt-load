@@ -12,6 +12,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/accessquota"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -29,6 +30,67 @@ type OptionalRPMLimit struct {
 	Value int64
 }
 
+type AccessKeyCostLimitRuleRequest struct {
+	ID            uint             `json:"id,omitempty"`
+	Kind          accessquota.Kind `json:"kind"`
+	LimitUSD      string           `json:"limit_usd"`
+	PeriodSeconds int64            `json:"period_seconds,omitempty"`
+}
+
+type OptionalAccessKeyCostLimitRules struct {
+	Set    bool
+	Values []AccessKeyCostLimitRuleRequest
+}
+
+func (value *OptionalAccessKeyCostLimitRules) UnmarshalJSON(data []byte) error {
+	if value == nil || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return app_errors.ErrValidation
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded []AccessKeyCostLimitRuleRequest
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("cost limit rules contain multiple JSON values")
+		}
+		return err
+	}
+	value.Set = true
+	value.Values = decoded
+	return nil
+}
+
+type AccessKeyCostLimitRule struct {
+	ID            uint             `json:"id"`
+	Kind          accessquota.Kind `json:"kind"`
+	LimitUSD      string           `json:"limit_usd"`
+	PeriodSeconds int64            `json:"period_seconds,omitempty"`
+}
+
+type AccessKeyCostLimitRuleStatus struct {
+	ID                uint                   `json:"id"`
+	Kind              accessquota.Kind       `json:"kind"`
+	LimitUSD          string                 `json:"limit_usd"`
+	UsedUSD           string                 `json:"used_usd"`
+	RemainingUSD      string                 `json:"remaining_usd"`
+	Status            accessquota.RuleStatus `json:"status"`
+	PeriodSeconds     int64                  `json:"period_seconds,omitempty"`
+	WindowStartedAtMS *int64                 `json:"window_started_at_ms,omitempty"`
+	WindowEndsAtMS    *int64                 `json:"window_ends_at_ms,omitempty"`
+}
+
+type AccessKeyCostLimitStatus struct {
+	ObservedAtMS      int64                          `json:"observed_at_ms"`
+	Allowed           bool                           `json:"allowed"`
+	Recoverable       bool                           `json:"recoverable"`
+	NextAvailableAtMS *int64                         `json:"next_available_at_ms"`
+	Rules             []AccessKeyCostLimitRuleStatus `json:"rules"`
+}
+
 func (value *OptionalRPMLimit) UnmarshalJSON(data []byte) error {
 	if value == nil || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		return app_errors.ErrValidation
@@ -43,28 +105,32 @@ func (value *OptionalRPMLimit) UnmarshalJSON(data []byte) error {
 }
 
 type AccessKeyCreateRequest struct {
-	Name     string                 `json:"name"`
-	Status   *state.AccessKeyStatus `json:"status"`
-	Filters  *AccessKeyFilters      `json:"filters"`
-	RPMLimit OptionalRPMLimit       `json:"rpm_limit"`
+	Name           string                          `json:"name"`
+	Status         *state.AccessKeyStatus          `json:"status"`
+	Filters        *AccessKeyFilters               `json:"filters"`
+	RPMLimit       OptionalRPMLimit                `json:"rpm_limit"`
+	CostLimitRules OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
 }
 
 type AccessKeyUpdateRequest struct {
-	Name     *string                `json:"name"`
-	Status   *state.AccessKeyStatus `json:"status"`
-	Filters  *AccessKeyFilters      `json:"filters"`
-	RPMLimit OptionalRPMLimit       `json:"rpm_limit"`
+	Name           *string                         `json:"name"`
+	Status         *state.AccessKeyStatus          `json:"status"`
+	Filters        *AccessKeyFilters               `json:"filters"`
+	RPMLimit       OptionalRPMLimit                `json:"rpm_limit"`
+	CostLimitRules OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
 }
 
 type AccessKeyMetadata struct {
-	ID          uint                  `json:"id"`
-	Name        string                `json:"name"`
-	MaskedKey   string                `json:"masked_key"`
-	Status      state.AccessKeyStatus `json:"status"`
-	Filters     AccessKeyFilters      `json:"filters"`
-	RPMLimit    int64                 `json:"rpm_limit"`
-	CreatedAtMS int64                 `json:"created_at_ms"`
-	UpdatedAtMS int64                 `json:"updated_at_ms"`
+	ID              uint                      `json:"id"`
+	Name            string                    `json:"name"`
+	MaskedKey       string                    `json:"masked_key"`
+	Status          state.AccessKeyStatus     `json:"status"`
+	Filters         AccessKeyFilters          `json:"filters"`
+	RPMLimit        int64                     `json:"rpm_limit"`
+	CostLimitRules  []AccessKeyCostLimitRule  `json:"cost_limit_rules"`
+	CostLimitStatus *AccessKeyCostLimitStatus `json:"cost_limit_status,omitempty"`
+	CreatedAtMS     int64                     `json:"created_at_ms"`
+	UpdatedAtMS     int64                     `json:"updated_at_ms"`
 }
 
 type AccessKeyCreateResult struct {
@@ -143,6 +209,10 @@ func (s *Service) CreateAccessKey(
 	if err != nil {
 		return AccessKeyCreateResult{}, err
 	}
+	costLimitRules, err := normalizeAccessKeyCostLimitRules(request.CostLimitRules, false)
+	if err != nil {
+		return AccessKeyCreateResult{}, err
+	}
 	status := state.AccessKeyStatusActive
 	if request.Status != nil {
 		status = *request.Status
@@ -164,6 +234,10 @@ func (s *Service) CreateAccessKey(
 		if err := tx.Create(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
+		persistedCostLimitRules, err := createAccessKeyCostLimitRules(tx, row.ID, costLimitRules)
+		if err != nil {
+			return err
+		}
 		metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 			ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
 			Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
@@ -172,6 +246,7 @@ func (s *Service) CreateAccessKey(
 		if err != nil {
 			return err
 		}
+		metadata.CostLimitRules = mapAccessKeyCostLimitRules(persistedCostLimitRules)
 		result = AccessKeyCreateResult{
 			AccessKeyMetadata: metadata,
 			Key:               plaintext,
@@ -189,11 +264,20 @@ func (s *Service) UpdateAccessKey(
 	id uint,
 	request AccessKeyUpdateRequest,
 ) (AccessKeyMetadata, error) {
-	if id == 0 || (request.Name == nil && request.Status == nil && request.Filters == nil && !request.RPMLimit.Set) {
+	if id == 0 || (request.Name == nil && request.Status == nil && request.Filters == nil &&
+		!request.RPMLimit.Set && !request.CostLimitRules.Set) {
 		return AccessKeyMetadata{}, app_errors.ErrBadRequest
 	}
 	if _, err := normalizeRPMLimit(request.RPMLimit, 0); err != nil {
 		return AccessKeyMetadata{}, err
+	}
+	var desiredCostLimitRules []normalizedAccessKeyCostLimitRule
+	if request.CostLimitRules.Set {
+		var err error
+		desiredCostLimitRules, err = normalizeAccessKeyCostLimitRules(request.CostLimitRules, true)
+		if err != nil {
+			return AccessKeyMetadata{}, err
+		}
 	}
 
 	var name *string
@@ -278,10 +362,21 @@ func (s *Service) UpdateAccessKey(
 			row.RPMLimit = request.RPMLimit.Value
 			updates["rpm_limit"] = row.RPMLimit
 		}
-		if err := tx.Model(&models.AccessKey{}).
-			Where("id = ?", row.ID).
-			Updates(updates).Error; err != nil {
-			return app_errors.ParseDBError(err)
+		if len(updates) > 0 {
+			if err := tx.Model(&models.AccessKey{}).
+				Where("id = ?", row.ID).
+				Updates(updates).Error; err != nil {
+				return app_errors.ParseDBError(err)
+			}
+		}
+		var costLimitRows []models.AccessKeyCostLimitRule
+		if request.CostLimitRules.Set {
+			costLimitRows, err = reconcileAccessKeyCostLimitRules(tx, row.ID, desiredCostLimitRules)
+		} else {
+			costLimitRows, err = loadAccessKeyCostLimitRuleRows(tx, row.ID)
+		}
+		if err != nil {
+			return err
 		}
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
@@ -293,6 +388,9 @@ func (s *Service) UpdateAccessKey(
 			return app_errors.ParseDBError(err)
 		}
 		result, err = mapAccessKeyMetadataRow(row)
+		if err == nil {
+			result.CostLimitRules = mapAccessKeyCostLimitRules(costLimitRows)
+		}
 		return err
 	}, nil)
 	if err != nil {
@@ -402,7 +500,8 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 		ID: row.ID, Name: row.Name,
 		MaskedKey: maskedAccessKey(row.KeySuffix),
 		Status:    status, Filters: filters, RPMLimit: row.RPMLimit,
-		CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
+		CostLimitRules: []AccessKeyCostLimitRule{},
+		CreatedAtMS:    row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 	}, nil
 }
 
