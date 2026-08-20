@@ -44,7 +44,7 @@ function scheduleReset(): void {
 }
 
 async function copyValue(): Promise<void> {
-  if (!canWriteToClipboardNatively()) {
+  if (props.resolveValue && !canWriteToClipboardNatively()) {
     state.value = 'unsupported'
     scheduleReset()
     return
@@ -52,8 +52,7 @@ async function copyValue(): Promise<void> {
 
   try {
     const value = props.resolveValue ? await props.resolveValue() : props.value
-    await copyText(value)
-    state.value = 'success'
+    state.value = (await copyText(value)) ? 'success' : 'failure'
   } catch {
     state.value = 'failure'
   }

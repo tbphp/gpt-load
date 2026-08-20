@@ -135,7 +135,7 @@ function fieldCopyState(id: ActionTarget): 'idle' | 'success' {
 
 async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }): Promise<void> {
   if (!selectedKeySupportsClient.value) return
-  if (!canWriteToClipboardNatively()) {
+  if (field.secret && !canWriteToClipboardNatively()) {
     setImmediateFeedback(field.id, 'unsupported')
     return
   }
@@ -144,8 +144,7 @@ async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }):
     const entry = clientFieldList.value.find((candidate) => candidate.id === field.id)
     if (!entry) return
     try {
-      await copyText(entry.value)
-      setImmediateFeedback(field.id, 'success')
+      setImmediateFeedback(field.id, (await copyText(entry.value)) ? 'success' : 'failure')
     } catch {
       setImmediateFeedback(field.id, 'failure')
     }
@@ -154,7 +153,7 @@ async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }):
   const clientID = activeClient.value
   await withRevealedKey(field.id, clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    await copyText(key)
+    if (!(await copyText(key))) throw new Error('COPY_FAILED')
   })
 }
 
@@ -404,25 +403,27 @@ async function copyAccessKey(): Promise<void> {
   const clientID = activeClient.value
   await withRevealedKey('key', clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    await copyText(key)
+    if (!(await copyText(key))) throw new Error('COPY_FAILED')
   })
 }
 
 async function copyClientConfiguration(): Promise<void> {
   const clientID = activeClient.value
   if (!selectedKeySupportsClient.value) return
-  if (!canWriteToClipboardNatively()) {
-    setImmediateFeedback('configuration', 'unsupported')
-    return
-  }
 
   if (clientID === 'codex') {
     try {
-      await copyText(maskedSnippet.value)
-      setImmediateFeedback('configuration', 'success')
+      setImmediateFeedback(
+        'configuration',
+        (await copyText(maskedSnippet.value)) ? 'success' : 'failure',
+      )
     } catch {
       setImmediateFeedback('configuration', 'failure')
     }
+    return
+  }
+  if (!canWriteToClipboardNatively()) {
+    setImmediateFeedback('configuration', 'unsupported')
     return
   }
 
@@ -439,7 +440,7 @@ async function copyClientConfiguration(): Promise<void> {
         `GPT-Load · ${selectedKey.value?.name ?? ''}`,
       )
       if (!isCurrent()) return
-      await copyText(configuration)
+      if (!(await copyText(configuration))) throw new Error('COPY_FAILED')
     } finally {
       configuration = undefined
     }
