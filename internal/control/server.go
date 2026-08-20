@@ -26,9 +26,9 @@ import (
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
-// ReleaseUpdateReader is the control-plane read view of the public release checker.
-type ReleaseUpdateReader interface {
-	Snapshot() *releasecheck.Update
+// ReleaseUpdateChecker is the control-plane on-demand view of the public release checker.
+type ReleaseUpdateChecker interface {
+	Check(context.Context) (*releasecheck.Update, error)
 }
 
 type Server struct {
@@ -41,7 +41,7 @@ type Server struct {
 	authFailureEvents *utils.RateLimitedEventCounter
 	startedAt         time.Time
 	now               func() time.Time
-	releaseUpdates    ReleaseUpdateReader
+	releaseChecker    ReleaseUpdateChecker
 }
 
 const maxControlJSONBodyBytes int64 = 32 << 20
@@ -68,14 +68,14 @@ func NewServer(cfg *config.Config, service *Service) *Server {
 	}
 }
 
-// NewServerWithReleaseUpdateReader wires the optional public update snapshot.
-func NewServerWithReleaseUpdateReader(
+// NewServerWithReleaseUpdateChecker wires the on-demand public update checker.
+func NewServerWithReleaseUpdateChecker(
 	cfg *config.Config,
 	service *Service,
-	releaseUpdates ReleaseUpdateReader,
+	releaseChecker ReleaseUpdateChecker,
 ) *Server {
 	server := NewServer(cfg, service)
-	server.releaseUpdates = releaseUpdates
+	server.releaseChecker = releaseChecker
 	return server
 }
 

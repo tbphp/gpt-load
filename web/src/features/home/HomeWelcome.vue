@@ -5,12 +5,14 @@ import { useI18n } from 'vue-i18n'
 
 import { importLocation } from '@/app/route-locations'
 import type { HomeBaseDto } from '@/app/resources/home'
+import type { ReleaseUpdateDto } from '@/app/resources/system-update'
 import AppButton from '@/components/ui/AppButton.vue'
 
 import HomeReleaseUpdateLink from './HomeReleaseUpdateLink.vue'
 
 defineProps<{
   base: HomeBaseDto
+  update: ReleaseUpdateDto | null
 }>()
 
 const { t } = useI18n()
@@ -22,11 +24,7 @@ const router = useRouter()
     <header class="home-welcome__header">
       <div class="home-welcome__title">
         <h1 id="home-title">{{ t('home.ledger.welcomeTitle') }}</h1>
-        <HomeReleaseUpdateLink
-          v-if="base.update"
-          :current-version="base.version"
-          :update="base.update"
-        />
+        <HomeReleaseUpdateLink v-if="update" :current-version="base.version" :update="update" />
       </div>
       <AppButton
         class="home-welcome__action"

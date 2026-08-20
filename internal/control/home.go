@@ -39,17 +39,10 @@ type HomeBase struct {
 }
 
 type homeResponse struct {
-	ServerNowMS int64               `json:"server_now_ms"`
-	StartedAtMS int64               `json:"started_at_ms"`
-	Version     string              `json:"version"`
-	Update      *homeUpdateResponse `json:"update"`
+	ServerNowMS int64  `json:"server_now_ms"`
+	StartedAtMS int64  `json:"started_at_ms"`
+	Version     string `json:"version"`
 	HomeBase
-}
-
-type homeUpdateResponse struct {
-	Version       string `json:"version"`
-	ReleaseURL    string `json:"release_url"`
-	PublishedAtMS int64  `json:"published_at_ms"`
 }
 
 type homeCredentialRow struct {
@@ -217,8 +210,7 @@ func (s *Server) handleHome(c *gin.Context) {
 		return
 	}
 	var base HomeBase
-	accessKeyID, scoped := currentAccessKeyID(c)
-	if scoped {
+	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
 		base, err = s.service.ReadAccessKeyHomeBase(
 			c.Request.Context(),
 			serverNowMS,
@@ -231,21 +223,10 @@ func (s *Server) handleHome(c *gin.Context) {
 		writeServiceError(c, "home", err)
 		return
 	}
-	var update *homeUpdateResponse
-	if !scoped && s.releaseUpdates != nil {
-		if available := s.releaseUpdates.Snapshot(); available != nil {
-			update = &homeUpdateResponse{
-				Version:       available.Version,
-				ReleaseURL:    available.ReleaseURL,
-				PublishedAtMS: available.PublishedAtMS,
-			}
-		}
-	}
 	response.SuccessI18n(c, "common.success", homeResponse{
 		ServerNowMS: serverNowMS,
 		StartedAtMS: startedAtMS,
 		Version:     version.Version,
-		Update:      update,
 		HomeBase:    base,
 	})
 }

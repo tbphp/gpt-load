@@ -162,6 +162,7 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleUpdateSettings,
 			),
 			controlRoute("control.system.info", http.MethodGet, "/system/info", s.handleSystemInfo),
+			controlRoute("control.system.update", http.MethodGet, "/system/update", s.handleSystemUpdate),
 			controlRoute(
 				"control.groups.list",
 				http.MethodGet,

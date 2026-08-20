@@ -3,13 +3,13 @@ import { CircleArrowUp } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { HomeBaseDto } from '@/app/resources/home'
+import type { ReleaseUpdateDto } from '@/app/resources/system-update'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import { formatLocalInstant } from '@/lib/format'
 
 const props = defineProps<{
   currentVersion: string
-  update: NonNullable<HomeBaseDto['update']>
+  update: ReleaseUpdateDto
 }>()
 
 const { locale, t } = useI18n()

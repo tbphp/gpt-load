@@ -2,6 +2,7 @@ package releasecheck
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 
 const (
 	successCacheDuration = 6 * time.Hour
-	failureRetryDuration = 30 * time.Minute
+	failureCacheDuration = 30 * time.Minute
 )
 
 type releaseFetcher interface {
@@ -22,12 +23,11 @@ type Checker struct {
 	fetcher releaseFetcher
 	current string
 
-	checkMu     sync.Mutex
-	mu          sync.RWMutex
-	update      *Update
-	nextCheckAt time.Time
-	now         func() time.Time
-	wait        func(context.Context, time.Duration) bool
+	mu        sync.Mutex
+	update    *Update
+	cachedErr error
+	expiresAt time.Time
+	now       func() time.Time
 }
 
 // NewChecker creates the process-local release checker.
@@ -40,84 +40,43 @@ func newChecker(fetcher releaseFetcher, current string) *Checker {
 		fetcher: fetcher,
 		current: current,
 		now:     time.Now,
-		wait:    waitForNextCheck,
 	}
 }
 
-// Snapshot returns the currently confirmed update, if any.
-func (checker *Checker) Snapshot() *Update {
-	if checker == nil {
-		return nil
-	}
-	checker.mu.RLock()
-	defer checker.mu.RUnlock()
-	if checker.update == nil {
-		return nil
-	}
-	result := *checker.update
-	return &result
-}
-
-func (checker *Checker) check(ctx context.Context) time.Duration {
+// Check returns the cached result or synchronously refreshes it from GitHub.
+func (checker *Checker) Check(ctx context.Context) (*Update, error) {
 	if checker == nil || checker.fetcher == nil {
-		return failureRetryDuration
+		return nil, errors.New("check GitHub releases: checker is unavailable")
 	}
-	checker.checkMu.Lock()
-	defer checker.checkMu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	checker.mu.Lock()
+	defer checker.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	now := checker.currentTime()
-	checker.mu.RLock()
-	nextCheckAt := checker.nextCheckAt
-	checker.mu.RUnlock()
-	if now.Before(nextCheckAt) {
-		return nextCheckAt.Sub(now)
+	if now.Before(checker.expiresAt) {
+		return cloneUpdate(checker.update), checker.cachedErr
 	}
 
 	releases, err := checker.fetcher.Fetch(ctx)
 	if ctx.Err() != nil {
-		return 0
+		return nil, ctx.Err()
 	}
-	delay := successCacheDuration
-	var update *Update
 	if err != nil {
-		delay = failureRetryDuration
-	} else {
-		update = SelectUpdate(checker.current, releases)
+		checker.update = nil
+		checker.cachedErr = err
+		checker.expiresAt = checker.currentTime().Add(failureCacheDuration)
+		return nil, err
 	}
-	checkedAt := checker.currentTime()
-	checker.mu.Lock()
-	checker.update = update
-	checker.nextCheckAt = checkedAt.Add(delay)
-	checker.mu.Unlock()
-	return delay
-}
 
-// Run checks immediately, then waits according to the result cache policy.
-func (checker *Checker) Run(ctx context.Context) {
-	if checker == nil {
-		return
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	wait := checker.wait
-	if wait == nil {
-		wait = waitForNextCheck
-	}
-	for ctx.Err() == nil {
-		delay := checker.check(ctx)
-		if ctx.Err() != nil {
-			return
-		}
-		if delay <= 0 {
-			delay = failureRetryDuration
-		}
-		if !wait(ctx, delay) {
-			return
-		}
-	}
+	checker.update = SelectUpdate(checker.current, releases)
+	checker.cachedErr = nil
+	checker.expiresAt = checker.currentTime().Add(successCacheDuration)
+	return cloneUpdate(checker.update), nil
 }
 
 func (checker *Checker) currentTime() time.Time {
@@ -127,13 +86,10 @@ func (checker *Checker) currentTime() time.Time {
 	return checker.now().UTC()
 }
 
-func waitForNextCheck(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
+func cloneUpdate(update *Update) *Update {
+	if update == nil {
+		return nil
 	}
+	result := *update
+	return &result
 }

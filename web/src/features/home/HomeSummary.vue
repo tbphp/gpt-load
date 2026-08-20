@@ -3,12 +3,14 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HomeBaseDto } from '@/app/resources/home'
+import type { ReleaseUpdateDto } from '@/app/resources/system-update'
 import { formatDuration, formatInteger, formatLocalInstant, formatLocalTime } from '@/lib/format'
 
 import HomeReleaseUpdateLink from './HomeReleaseUpdateLink.vue'
 
 const props = defineProps<{
   base: HomeBaseDto
+  update: ReleaseUpdateDto | null
   observedAtMs: number | null
   uptimeNowMs: number
 }>()
@@ -56,11 +58,7 @@ const updatedTitle = computed(() =>
         <dt>{{ t('home.ledger.version') }}</dt>
         <dd class="home-summary__version">
           <span>{{ base.version }}</span>
-          <HomeReleaseUpdateLink
-            v-if="base.update"
-            :current-version="base.version"
-            :update="base.update"
-          />
+          <HomeReleaseUpdateLink v-if="update" :current-version="base.version" :update="update" />
         </dd>
       </div>
       <div>

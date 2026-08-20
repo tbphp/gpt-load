@@ -8,6 +8,7 @@ import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
 import { healthQueryOptions } from '@/app/resources/health'
 import { homeBaseQueryOptions } from '@/app/resources/home'
+import { systemUpdateQueryOptions } from '@/app/resources/system-update'
 import { homeLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -36,8 +37,12 @@ const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const baseQuery = useQuery(homeBaseQueryOptions(client))
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const baseQuery = useQuery(homeBaseQueryOptions(client))
+// 更新检查与首页数据解耦，仅由管理员进入首页时按需触发一次。
+const updateQuery = useQuery(
+  systemUpdateQueryOptions(client, () => session.state.principalType === 'admin'),
+)
 // /api/health 不在 AccessKey 白名单里，必须前端主动 gate，
 // 否则 AccessKey 用户首页会挂一个永远 403 的区块。首页不轮询，进页面拉一次即可。
 const healthQuery = useQuery(healthQueryOptions(client, undefined, () => !isAccessKey.value))
@@ -59,6 +64,11 @@ watch(
 )
 
 const uptimeNowMS = computed(() => nowMS.value + serverClockOffsetMS.value)
+const releaseUpdate = computed(() =>
+  updateQuery.isSuccess.value && !updateQuery.isFetching.value
+    ? (updateQuery.data.value?.update ?? null)
+    : null,
+)
 const snapshot = computed(() => {
   const state = statistics.state.value
   return state.kind === 'initial' ? null : state.snapshot
@@ -158,6 +168,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
       <HomeWelcome
         v-else-if="isEmpty && !isAccessKey && baseQuery.data.value"
         :base="baseQuery.data.value"
+        :update="releaseUpdate"
       />
 
       <template v-else-if="baseQuery.data.value">
@@ -170,6 +181,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
         />
         <HomeSummary
           :base="baseQuery.data.value"
+          :update="releaseUpdate"
           :observed-at-ms="statistics.lastSuccessfulObservedAtMS.value"
           :uptime-now-ms="uptimeNowMS"
         />

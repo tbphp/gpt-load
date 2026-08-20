@@ -170,7 +170,7 @@ func BuildContainer() (*dig.Container, error) {
 			service *control.Service,
 			checker *releasecheck.Checker,
 		) *control.Server {
-			return control.NewServerWithReleaseUpdateReader(cfg, service, checker)
+			return control.NewServerWithReleaseUpdateChecker(cfg, service, checker)
 		},
 		newHTTPRegistry,
 		func(
