@@ -105,6 +105,7 @@ func TestHomeHTTPHidesReleaseUpdateFromAccessKey(t *testing.T) {
 }
 
 func TestHomeHTTPUsesNullWhenNoReleaseUpdateIsConfirmed(t *testing.T) {
+	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	reader := &staticReleaseUpdateReader{}
 	server := NewServerWithReleaseUpdateReader(

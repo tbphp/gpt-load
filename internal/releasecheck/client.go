@@ -7,14 +7,20 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"gpt-load/internal/platform/httpclient"
 )
 
-const githubReleasesEndpoint = "https://api.github.com/repos/tbphp/gpt-load/releases?per_page=30"
+const githubReleasesEndpoint = "https://api.github.com/repos/tbphp/gpt-load/releases"
 
-const maxGitHubResponseBytes int64 = 1 << 20
+const (
+	githubReleasesPerPage  = 30
+	maxGitHubReleasePages  = 10
+	maxGitHubResponseBytes = int64(1 << 20)
+)
 
 type httpDoer interface {
 	Do(*http.Request) (*http.Response, error)
@@ -63,6 +69,57 @@ func (client *Client) Fetch(ctx context.Context) ([]Release, error) {
 	if endpoint == "" {
 		endpoint = githubReleasesEndpoint
 	}
+	releases := make([]Release, 0, githubReleasesPerPage)
+	// 额外探测一页，用于区分刚好达到上限和仍有未读取数据。
+	for page := 1; page <= maxGitHubReleasePages+1; page++ {
+		pageEndpoint, err := releasePageEndpoint(endpoint, page)
+		if err != nil {
+			return nil, fmt.Errorf("fetch GitHub releases: create page endpoint: %w", err)
+		}
+		pageReleases, err := client.fetchPage(ctx, pageEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		if len(pageReleases) > githubReleasesPerPage {
+			return nil, fmt.Errorf(
+				"fetch GitHub releases: page %d contains more than %d releases",
+				page,
+				githubReleasesPerPage,
+			)
+		}
+		if page > maxGitHubReleasePages {
+			if len(pageReleases) == 0 {
+				return releases, nil
+			}
+			return nil, fmt.Errorf(
+				"fetch GitHub releases: history exceeds %d pages",
+				maxGitHubReleasePages,
+			)
+		}
+		releases = append(releases, pageReleases...)
+		if len(pageReleases) < githubReleasesPerPage {
+			return releases, nil
+		}
+	}
+	return nil, fmt.Errorf("fetch GitHub releases: pagination did not terminate")
+}
+
+func releasePageEndpoint(endpoint string, page int) (string, error) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return "", err
+	}
+	query := parsed.Query()
+	query.Set("per_page", strconv.Itoa(githubReleasesPerPage))
+	query.Del("page")
+	if page > 1 {
+		query.Set("page", strconv.Itoa(page))
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func (client *Client) fetchPage(ctx context.Context, endpoint string) ([]Release, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch GitHub releases: create request: %w", err)
