@@ -211,7 +211,7 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID})
+			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID})
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
