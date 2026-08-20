@@ -15,17 +15,17 @@ export async function copyText(value: string): Promise<boolean> {
     }
   }
 
-  const input = document.createElement('input')
-  input.value = value
-  input.style.position = 'fixed'
-  input.style.opacity = '0'
-  document.body.append(input)
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
   try {
-    input.select()
+    textarea.select()
     return document.execCommand('copy')
   } catch {
     return false
   } finally {
-    input.remove()
+    textarea.remove()
   }
 }
