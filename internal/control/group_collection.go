@@ -26,6 +26,13 @@ const (
 	GroupCollectionStatusDisabled    GroupCollectionStatus = "disabled"
 )
 
+type GroupUnavailableReason string
+
+const (
+	GroupUnavailableReasonNoAvailableCredentials GroupUnavailableReason = "no_available_credentials"
+	GroupUnavailableReasonNoModels               GroupUnavailableReason = "no_models"
+)
+
 type GroupCollectionCredentialCounts struct {
 	Total       int64 `json:"total"`
 	Available   int64 `json:"available"`
@@ -47,7 +54,8 @@ type GroupCollectionItem struct {
 
 type groupCollectionRecord struct {
 	GroupCollectionItem
-	CreatedAtMS int64
+	CreatedAtMS       int64
+	UnavailableReason *GroupUnavailableReason
 }
 
 type groupCollectionRows struct {
@@ -312,7 +320,7 @@ func mapGroupCollectionRecords(
 			bucket := classifyHealthKey(catalog, runtimeByID[persistedCredential.ID], observedAt)
 			addGroupCollectionCredentialCount(&record.CredentialCounts, bucket)
 		}
-		record.Status = groupCollectionStatus(
+		record.Status, record.UnavailableReason = groupCollectionStatusAndReason(
 			catalog,
 			record.CredentialCounts,
 			supportsModelOptionalRequests,
@@ -411,17 +419,34 @@ func groupCollectionStatus(
 	supportsModelOptionalRequests bool,
 	modelCount int64,
 ) GroupCollectionStatus {
+	status, _ := groupCollectionStatusAndReason(
+		group,
+		counts,
+		supportsModelOptionalRequests,
+		modelCount,
+	)
+	return status
+}
+
+func groupCollectionStatusAndReason(
+	group state.GroupCatalogView,
+	counts GroupCollectionCredentialCounts,
+	supportsModelOptionalRequests bool,
+	modelCount int64,
+) (GroupCollectionStatus, *GroupUnavailableReason) {
 	if !group.Enabled || (group.WeightManual != nil && *group.WeightManual == 0) {
-		return GroupCollectionStatusDisabled
+		return GroupCollectionStatusDisabled, nil
 	}
 	if counts.Available == 0 {
-		return GroupCollectionStatusUnavailable
+		reason := GroupUnavailableReasonNoAvailableCredentials
+		return GroupCollectionStatusUnavailable, &reason
 	}
 	if modelCount > 0 {
-		return GroupCollectionStatusAvailable
+		return GroupCollectionStatusAvailable, nil
 	}
 	if supportsModelOptionalRequests {
-		return GroupCollectionStatusAvailable
+		return GroupCollectionStatusAvailable, nil
 	}
-	return GroupCollectionStatusUnavailable
+	reason := GroupUnavailableReasonNoModels
+	return GroupCollectionStatusUnavailable, &reason
 }

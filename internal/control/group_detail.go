@@ -27,14 +27,15 @@ type GroupEffectiveConfigResponse struct {
 // It deliberately excludes models and configuration that are loaded through focused
 // resources.
 type GroupSummaryResponse struct {
-	ID              uint                  `json:"id"`
-	Name            string                `json:"name"`
-	ChannelID       channel.ID            `json:"channel_id"`
-	ConnectionType  models.ConnectionType `json:"connection_type"`
-	Params          json.RawMessage       `json:"params"`
-	ServiceStatus   GroupCollectionStatus `json:"service_status"`
-	CredentialCount int64                 `json:"credential_count"`
-	ModelCount      int                   `json:"model_count"`
+	ID                  uint                    `json:"id"`
+	Name                string                  `json:"name"`
+	ChannelID           channel.ID              `json:"channel_id"`
+	ConnectionType      models.ConnectionType   `json:"connection_type"`
+	Params              json.RawMessage         `json:"params"`
+	ServiceStatus       GroupCollectionStatus   `json:"service_status"`
+	ServiceStatusReason *GroupUnavailableReason `json:"service_status_reason"`
+	CredentialCount     int64                   `json:"credential_count"`
+	ModelCount          int                     `json:"model_count"`
 }
 
 func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSummaryResponse, error) {
@@ -52,10 +53,11 @@ func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSumma
 		return GroupSummaryResponse{
 			ID: record.ID, Name: record.Name,
 			ChannelID: record.ChannelID, Params: append(json.RawMessage(nil), record.Params...),
-			ConnectionType:  record.ConnectionType,
-			ServiceStatus:   record.Status,
-			CredentialCount: record.CredentialCounts.Total,
-			ModelCount:      int(record.ModelCount),
+			ConnectionType:      record.ConnectionType,
+			ServiceStatus:       record.Status,
+			ServiceStatusReason: record.UnavailableReason,
+			CredentialCount:     record.CredentialCounts.Total,
+			ModelCount:          int(record.ModelCount),
 		}, nil
 	}
 	return GroupSummaryResponse{}, app_errors.ErrResourceNotFound
