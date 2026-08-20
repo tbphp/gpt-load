@@ -80,6 +80,11 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 					t.Fatalf("summary exposes unexpected field %q: %s", name, encoded)
 				}
 			}
+			for name := range wantFields {
+				if _, exists := fields[name]; !exists {
+					t.Fatalf("summary is missing expected field %q: %s", name, encoded)
+				}
+			}
 			for _, forbidden := range []string{
 				"models", "config", "effective_config", "enabled", "weight_manual", "validation_model",
 			} {
