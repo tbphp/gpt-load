@@ -189,6 +189,13 @@ func (s *Service) readHomeBase(
 		if err != nil {
 			return HomeBase{}, err
 		}
+		if s.accessQuota != nil {
+			status := mapAccessKeyCostLimitStatus(s.accessQuota.Snapshot(*accessKeyID, now))
+			if len(status.Rules) > 0 {
+				current.CostLimitStatus = &status
+				current.CostLimitRules = costLimitDefinitionsFromStatus(status)
+			}
+		}
 		result.CurrentAccessKey = &current
 	}
 	return result, nil

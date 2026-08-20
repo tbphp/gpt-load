@@ -34,6 +34,7 @@ import {
   type PendingAccessKeyEditOperation,
 } from './access-key-edit-operation'
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
+import AccessKeyCostLimitEditor from './AccessKeyCostLimitEditor.vue'
 import AccessKeyFormFields from './AccessKeyFormFields.vue'
 import AccessKeyOperationFeedback from './AccessKeyOperationFeedback.vue'
 import AccessKeyScopeEditor from './AccessKeyScopeEditor.vue'
@@ -50,6 +51,7 @@ import {
   buildCreateAccessKeyInput,
   createAccessKeyDraft,
   createAccessKeyDraftFromCreateInput,
+  createAccessKeyDraftFromUpdate,
   isAccessKeyDraftDirty,
   isAccessKeyDraftValid,
   type AccessKeyDraft,
@@ -244,11 +246,7 @@ async function resetForOpen(): Promise<void> {
   draft.value = carriedCreateOperation
     ? createAccessKeyDraftFromCreateInput(carriedCreateOperation.payload)
     : carriedEditOperation
-      ? createAccessKeyDraft({
-          ...carriedEditOperation.base,
-          ...carriedEditOperation.patch,
-          filters: carriedEditOperation.patch.filters ?? carriedEditOperation.base.filters,
-        })
+      ? createAccessKeyDraftFromUpdate(carriedEditOperation.base, carriedEditOperation.patch)
       : createAccessKeyDraft(props.accessKey)
   operationID.value = props.accessKey
     ? ''
@@ -540,7 +538,7 @@ async function reconcileEdit(): Promise<void> {
       failed.value = true
       return
     }
-    if (accessKeyMatchesUpdatePatch(latest, attempt.patch)) {
+    if (accessKeyMatchesUpdatePatch(latest, attempt.patch, attempt.base)) {
       base.value = latest
       draft.value = createAccessKeyDraft(latest)
       editReconciliation.value = null
@@ -635,6 +633,17 @@ onBeforeUnmount(clearLocalState)
           @update:name="draft.name = $event"
           @update:status="draft.status = $event"
           @update:rpm-limit="draft.rpm_limit = $event"
+        />
+      </section>
+
+      <section class="drawer-section">
+        <h3>{{ t('accessKeys.drawer.costLimits.title') }}</h3>
+        <p>{{ t('accessKeys.drawer.costLimits.description') }}</p>
+        <AccessKeyCostLimitEditor
+          :model-value="draft.costLimitRules"
+          :runtime-status="base?.cost_limit_status ?? null"
+          :disabled="formLocked"
+          @update:model-value="draft.costLimitRules = $event"
         />
       </section>
 

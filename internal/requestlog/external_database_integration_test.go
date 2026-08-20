@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/storage"
@@ -38,6 +39,48 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+	accessKey := models.AccessKey{
+		Name:     fmt.Sprintf("external-quota-%d", time.Now().UnixNano()),
+		KeyValue: "encrypted-access-key", KeyHash: fmt.Sprintf("external-quota-hash-%d", time.Now().UnixNano()),
+		KeySuffix: "babe", Status: "active", Filters: models.JSON(`{}`),
+	}
+	if err := db.Create(&accessKey).Error; err != nil {
+		t.Fatalf("create external quota access key: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Delete(&accessKey).Error })
+	quotaRule := models.AccessKeyCostLimitRule{
+		AccessKeyID: accessKey.ID, Kind: models.AccessKeyCostLimitKindPeriodic,
+		LimitNanoUSD: 100, PeriodSeconds: 300, RuleRevision: 1,
+	}
+	if err := db.Create(&quotaRule).Error; err != nil {
+		t.Fatalf("create external quota rule: %v", err)
+	}
+	if err := db.Create(&models.AccessKeyCostLimitState{
+		RuleID: quotaRule.ID, RuleRevision: 1, SnapshotVersion: 1,
+	}).Error; err != nil {
+		t.Fatalf("create external quota state: %v", err)
+	}
+	startedAtMS := time.Now().UTC().Truncate(time.Second).UnixMilli()
+	endsAtMS := startedAtMS + 300_000
+	quotaSnapshot := accessquota.RestoredState{
+		AccessKeyID: accessKey.ID, RuleID: quotaRule.ID, RuleRevision: 1,
+		UsedNanoUSD: 75, WindowStartedAtMS: &startedAtMS, WindowEndsAtMS: &endsAtMS,
+		WindowGeneration: 1, SnapshotVersion: 2,
+	}
+	quotaWriter := &gormAccessQuotaCheckpointWriter{db: db}
+	if err := quotaWriter.WriteSnapshots(t.Context(), []accessquota.RestoredState{quotaSnapshot}); err != nil {
+		t.Fatalf("write external quota checkpoint: %v", err)
+	}
+	if err := quotaWriter.WriteSnapshots(t.Context(), []accessquota.RestoredState{quotaSnapshot}); err != nil {
+		t.Fatalf("retry external quota checkpoint: %v", err)
+	}
+	var persistedQuota models.AccessKeyCostLimitState
+	if err := db.First(&persistedQuota, quotaRule.ID).Error; err != nil {
+		t.Fatalf("read external quota checkpoint: %v", err)
+	}
+	if persistedQuota.UsedNanoUSD != 75 || persistedQuota.SnapshotVersion != 2 {
+		t.Fatalf("external quota checkpoint = %#v", persistedQuota)
 	}
 
 	now := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)

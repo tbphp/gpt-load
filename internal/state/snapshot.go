@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
@@ -61,12 +62,14 @@ func externalModelName(model ModelConfig) string {
 }
 
 type AccessKeyConfig struct {
-	ID       uint
-	Name     string
-	KeyHash  string
-	Status   AccessKeyStatus
-	Filters  FilterSet
-	RPMLimit int64
+	ID             uint
+	Name           string
+	KeyHash        string
+	KeySuffix      string
+	Status         AccessKeyStatus
+	Filters        FilterSet
+	RPMLimit       int64
+	CostLimitRules []accessquota.Rule
 }
 
 type AccessKeyStatus string
@@ -135,11 +138,13 @@ type GroupCatalogView struct {
 }
 
 type AccessKeyView struct {
-	ID       uint
-	Name     string
-	Status   AccessKeyStatus
-	Filters  FilterSet
-	RPMLimit int64
+	ID             uint
+	Name           string
+	KeySuffix      string
+	Status         AccessKeyStatus
+	Filters        FilterSet
+	RPMLimit       int64
+	CostLimitRules []accessquota.Rule
 }
 
 type ConfigSnapshot struct {
@@ -237,10 +242,37 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 }
 
 func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
+	rules := append([]accessquota.Rule(nil), input.CostLimitRules...)
+	sort.Slice(rules, func(i, j int) bool {
+		if rules[i].Kind != rules[j].Kind {
+			return rules[i].Kind == accessquota.KindTotal
+		}
+		if rules[i].PeriodSeconds != rules[j].PeriodSeconds {
+			return rules[i].PeriodSeconds < rules[j].PeriodSeconds
+		}
+		return rules[i].ID < rules[j].ID
+	})
 	return AccessKeyView{
 		ID: input.ID, Name: input.Name, Status: input.Status,
-		Filters: cloneFilterSet(input.Filters), RPMLimit: input.RPMLimit,
+		KeySuffix: input.KeySuffix,
+		Filters:   cloneFilterSet(input.Filters), RPMLimit: input.RPMLimit,
+		CostLimitRules: rules,
 	}
+}
+
+// AccessQuotaDefinitions returns a caller-owned rules map for runtime reconciliation.
+func (snapshot *ConfigSnapshot) AccessQuotaDefinitions() map[uint][]accessquota.Rule {
+	definitions := make(map[uint][]accessquota.Rule)
+	if snapshot == nil {
+		return definitions
+	}
+	for accessKeyID, view := range snapshot.AccessKeysByID {
+		if len(view.CostLimitRules) == 0 {
+			continue
+		}
+		definitions[accessKeyID] = append([]accessquota.Rule(nil), view.CostLimitRules...)
+	}
+	return definitions
 }
 
 func appendExecutionTargets(
@@ -422,6 +454,7 @@ func validateCompileInput(input CompileInput) error {
 
 	accessKeyIDs := make(map[uint]struct{}, len(input.AccessKeys))
 	hashes := make(map[string]struct{}, len(input.AccessKeys))
+	quotaDefinitions := make(map[uint][]accessquota.Rule)
 	for _, accessKey := range input.AccessKeys {
 		if accessKey.ID == 0 {
 			return fmt.Errorf("access key id is required")
@@ -448,6 +481,12 @@ func validateCompileInput(input CompileInput) error {
 		if err := validateFilterSet(accessKey.ID, accessKey.Filters); err != nil {
 			return err
 		}
+		if len(accessKey.CostLimitRules) > 0 {
+			quotaDefinitions[accessKey.ID] = accessKey.CostLimitRules
+		}
+	}
+	if err := accessquota.ValidateDefinitions(quotaDefinitions); err != nil {
+		return fmt.Errorf("validate access key cost limit rules: %w", err)
 	}
 	return nil
 }

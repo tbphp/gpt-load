@@ -146,6 +146,13 @@ func (recorder *requestRecorder) emit() {
 	})
 }
 
+func (recorder *requestRecorder) estimatedCostNanoUSD() int64 {
+	if recorder == nil {
+		return 0
+	}
+	return recorder.usage.Pricing.EstimatedCostNanoUSD
+}
+
 func (recorder *requestRecorder) setAffinityHit(hit bool) {
 	if recorder != nil && hit {
 		recorder.affinityHit = true

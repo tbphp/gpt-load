@@ -7,7 +7,7 @@ import (
 )
 
 type Manager struct {
-	publishMu  sync.Mutex
+	publishMu  sync.RWMutex
 	current    atomic.Pointer[ConfigSnapshot]
 	reconciler SnapshotReconciler
 	updates    chan struct{}
@@ -64,6 +64,19 @@ func (m *Manager) WithCurrentSnapshot(fn func(*ConfigSnapshot) bool) bool {
 	}
 	m.publishMu.Lock()
 	defer m.publishMu.Unlock()
+	return fn(m.current.Load())
+}
+
+// WithCurrentSnapshotRead runs a short read-only callback while publication
+// is blocked. Multiple data-plane readers may run concurrently. Callbacks may
+// only read the snapshot and perform quota Check/Admit operations following
+// the lock order publishMu.RLock -> quota runtime locks.
+func (m *Manager) WithCurrentSnapshotRead(fn func(*ConfigSnapshot) bool) bool {
+	if m == nil || fn == nil {
+		return false
+	}
+	m.publishMu.RLock()
+	defer m.publishMu.RUnlock()
 	return fn(m.current.Load())
 }
 

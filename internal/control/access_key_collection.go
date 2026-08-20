@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -76,10 +77,13 @@ func (s *Service) captureAccessKeyCollectionRecords(
 			app_errors.ErrInternalServer,
 		)
 	}
+	s.writeMu.RLock()
+	defer s.writeMu.RUnlock()
 
 	var rows []accessKeyCollectionRow
+	var costLimitRows []models.AccessKeyCostLimitRule
 	if err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
-		return tx.Model(&models.AccessKey{}).
+		if err := tx.Model(&models.AccessKey{}).
 			Select(
 				"access_keys.id", "access_keys.name", "access_keys.key_suffix",
 				"access_keys.status", "access_keys.filters", "access_keys.rpm_limit",
@@ -87,7 +91,11 @@ func (s *Service) captureAccessKeyCollectionRecords(
 				"(SELECT MAX(request_logs.completed_at_ms) FROM request_logs WHERE request_logs.access_key_id = access_keys.id) AS last_request_at_ms",
 			).
 			Order("access_keys.id ASC").
-			Scan(&rows).Error
+			Scan(&rows).Error; err != nil {
+			return err
+		}
+		return tx.Order("access_key_id ASC, CASE WHEN kind = 'total' THEN 0 ELSE 1 END ASC, period_seconds ASC, id ASC").
+			Find(&costLimitRows).Error
 	}); err != nil {
 		if parentErr := ctx.Err(); parentErr != nil {
 			return nil, parentErr
@@ -95,7 +103,15 @@ func (s *Service) captureAccessKeyCollectionRecords(
 		return nil, app_errors.ParseDBError(err)
 	}
 
+	rulesByAccessKey := make(map[uint][]models.AccessKeyCostLimitRule)
+	for _, row := range costLimitRows {
+		rulesByAccessKey[row.AccessKeyID] = append(rulesByAccessKey[row.AccessKeyID], row)
+	}
 	records := make([]accessKeyCollectionRecord, 0, len(rows))
+	observedAt := time.Now()
+	if s.now != nil {
+		observedAt = s.now()
+	}
 	for _, row := range rows {
 		metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 			ID:          row.ID,
@@ -109,6 +125,13 @@ func (s *Service) captureAccessKeyCollectionRecords(
 		})
 		if err != nil {
 			return nil, err
+		}
+		metadata.CostLimitRules = mapAccessKeyCostLimitRules(rulesByAccessKey[row.ID])
+		if s.accessQuota != nil {
+			status := mapAccessKeyCostLimitStatus(s.accessQuota.Snapshot(row.ID, observedAt))
+			if len(status.Rules) > 0 {
+				metadata.CostLimitStatus = &status
+			}
 		}
 		records = append(records, accessKeyCollectionRecord{
 			AccessKeyCollectionItem: AccessKeyCollectionItem{

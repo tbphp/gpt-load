@@ -70,34 +70,47 @@ type healthQuotaCredentialResponse struct {
 }
 
 type requestLogHealthResponse struct {
-	EnqueuedTotal               uint64 `json:"enqueued_total"`
-	PersistedTotal              uint64 `json:"persisted_total"`
-	DroppedNotRunningTotal      uint64 `json:"dropped_not_running_total"`
-	DroppedQueueFullTotal       uint64 `json:"dropped_queue_full_total"`
-	DroppedStoppingTotal        uint64 `json:"dropped_stopping_total"`
-	DroppedPersistFailedTotal   uint64 `json:"dropped_persist_failed_total"`
-	DroppedShutdownTotal        uint64 `json:"dropped_shutdown_total"`
-	DroppedTotal                uint64 `json:"dropped_total"`
-	WriteFailureTotal           uint64 `json:"write_failure_total"`
-	RetentionDeleteFailureTotal uint64 `json:"retention_delete_failure_total"`
-	QueueDepth                  int    `json:"queue_depth"`
-	QueueCapacity               int    `json:"queue_capacity"`
-	LastWriteFailureAtMS        *int64 `json:"last_write_failure_at_ms"`
-	LastRetentionFailureAtMS    *int64 `json:"last_retention_failure_at_ms"`
+	EnqueuedTotal                             uint64 `json:"enqueued_total"`
+	PersistedTotal                            uint64 `json:"persisted_total"`
+	DroppedNotRunningTotal                    uint64 `json:"dropped_not_running_total"`
+	DroppedQueueFullTotal                     uint64 `json:"dropped_queue_full_total"`
+	DroppedStoppingTotal                      uint64 `json:"dropped_stopping_total"`
+	DroppedPersistFailedTotal                 uint64 `json:"dropped_persist_failed_total"`
+	DroppedShutdownTotal                      uint64 `json:"dropped_shutdown_total"`
+	DroppedTotal                              uint64 `json:"dropped_total"`
+	WriteFailureTotal                         uint64 `json:"write_failure_total"`
+	AccessQuotaCheckpointWriteFailureTotal    uint64 `json:"access_quota_checkpoint_write_failure_total"`
+	AccessQuotaCheckpointDegraded             bool   `json:"access_quota_checkpoint_degraded"`
+	RetentionDeleteFailureTotal               uint64 `json:"retention_delete_failure_total"`
+	QueueDepth                                int    `json:"queue_depth"`
+	QueueCapacity                             int    `json:"queue_capacity"`
+	LastWriteFailureAtMS                      *int64 `json:"last_write_failure_at_ms"`
+	LastAccessQuotaCheckpointWriteFailureAtMS *int64 `json:"last_access_quota_checkpoint_write_failure_at_ms"`
+	LastRetentionFailureAtMS                  *int64 `json:"last_retention_failure_at_ms"`
 }
 
 type runtimeHealthResponse struct {
-	ObservedAtMS           int64                             `json:"observed_at_ms"`
-	Version                string                            `json:"version"`
-	UptimeSeconds          int64                             `json:"uptime_seconds"`
-	SnapshotRevision       uint64                            `json:"snapshot_revision"`
-	StatsWindowSeconds     int64                             `json:"stats_window_seconds"`
-	Counts                 healthCountsResponse              `json:"counts"`
-	Groups                 []healthGroupResponse             `json:"groups"`
-	CooldownCredentials    []healthProblemCredentialResponse `json:"cooldown_credentials"`
-	BlacklistedCredentials []healthProblemCredentialResponse `json:"blacklisted_credentials"`
-	LowQuotaCredentials    []healthQuotaCredentialResponse   `json:"low_quota_credentials"`
-	RequestLog             requestLogHealthResponse          `json:"request_log"`
+	ObservedAtMS           int64                              `json:"observed_at_ms"`
+	Version                string                             `json:"version"`
+	UptimeSeconds          int64                              `json:"uptime_seconds"`
+	SnapshotRevision       uint64                             `json:"snapshot_revision"`
+	StatsWindowSeconds     int64                              `json:"stats_window_seconds"`
+	Counts                 healthCountsResponse               `json:"counts"`
+	Groups                 []healthGroupResponse              `json:"groups"`
+	CooldownCredentials    []healthProblemCredentialResponse  `json:"cooldown_credentials"`
+	BlacklistedCredentials []healthProblemCredentialResponse  `json:"blacklisted_credentials"`
+	LowQuotaCredentials    []healthQuotaCredentialResponse    `json:"low_quota_credentials"`
+	BlockedAccessKeys      []healthAccessKeyCostLimitResponse `json:"blocked_access_keys"`
+	RequestLog             requestLogHealthResponse           `json:"request_log"`
+}
+
+type healthAccessKeyCostLimitResponse struct {
+	AccessKeyID       uint                           `json:"access_key_id"`
+	Name              string                         `json:"name"`
+	MaskedKey         string                         `json:"masked_key"`
+	Recoverable       bool                           `json:"recoverable"`
+	NextAvailableAtMS *int64                         `json:"next_available_at_ms"`
+	BlockingRules     []AccessKeyCostLimitRuleStatus `json:"blocking_rules"`
 }
 
 // healthLowQuotaRemainingRatio 是「额度快用完」的唯一阈值来源。
@@ -245,6 +258,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		CooldownCredentials:    []healthProblemCredentialResponse{},
 		BlacklistedCredentials: []healthProblemCredentialResponse{},
 		LowQuotaCredentials:    []healthQuotaCredentialResponse{},
+		BlockedAccessKeys:      []healthAccessKeyCostLimitResponse{},
 	}
 	groupIDs := make([]uint, 0, len(observation.snapshot.GroupCatalog))
 	for groupID := range observation.snapshot.GroupCatalog {
@@ -350,6 +364,38 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			result.BlacklistedCredentials = append(result.BlacklistedCredentials, detail)
 		}
 	}
+	if observation.accessQuotaViews != nil {
+		accessKeyIDs := make([]uint, 0, len(observation.snapshot.AccessKeysByID))
+		for accessKeyID := range observation.snapshot.AccessKeysByID {
+			accessKeyIDs = append(accessKeyIDs, accessKeyID)
+		}
+		sort.Slice(accessKeyIDs, func(i, j int) bool { return accessKeyIDs[i] < accessKeyIDs[j] })
+		for _, accessKeyID := range accessKeyIDs {
+			accessKey := observation.snapshot.AccessKeysByID[accessKeyID]
+			if accessKey.Status != state.AccessKeyStatusActive {
+				continue
+			}
+			view := observation.accessQuotaViews[accessKeyID]
+			if view.Allowed {
+				continue
+			}
+			if !validAccessKeySuffix(accessKey.KeySuffix) {
+				return runtimeHealthResponse{}, fmt.Errorf(
+					"map blocked access key %d suffix: %w",
+					accessKeyID,
+					app_errors.ErrInternalServer,
+				)
+			}
+			status := mapAccessKeyCostLimitStatus(view)
+			result.BlockedAccessKeys = append(result.BlockedAccessKeys, healthAccessKeyCostLimitResponse{
+				AccessKeyID: accessKeyID, Name: accessKey.Name,
+				MaskedKey:         maskedAccessKey(accessKey.KeySuffix),
+				Recoverable:       status.Recoverable,
+				NextAvailableAtMS: cloneCostLimitMilliseconds(status.NextAvailableAtMS),
+				BlockingRules:     blockingCostLimitRuleStatuses(status),
+			})
+		}
+	}
 	requestLog, err := mapRequestLogHealth(service.requestLogStats.Stats())
 	if err != nil {
 		return runtimeHealthResponse{}, fmt.Errorf("map request log health: %w", err)
@@ -369,6 +415,7 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 		stats.DroppedShutdownTotal,
 		stats.DroppedTotal,
 		stats.WriteFailureTotal,
+		stats.AccessQuotaCheckpointWriteFailureTotal,
 		stats.RetentionDeleteFailureTotal,
 	} {
 		if value > uint64(maxSafeInteger) {
@@ -383,25 +430,37 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 	if err != nil {
 		return requestLogHealthResponse{}, fmt.Errorf("map last write failure timestamp: %w", err)
 	}
+	lastAccessQuotaCheckpointWriteFailureAtMS, err := optionalSafeEpochMilliseconds(
+		stats.LastAccessQuotaCheckpointWriteFailureAt,
+	)
+	if err != nil {
+		return requestLogHealthResponse{}, fmt.Errorf(
+			"map last access quota checkpoint write failure timestamp: %w",
+			err,
+		)
+	}
 	lastRetentionFailureAtMS, err := optionalSafeEpochMilliseconds(stats.LastRetentionFailureAt)
 	if err != nil {
 		return requestLogHealthResponse{}, fmt.Errorf("map last retention failure timestamp: %w", err)
 	}
 	return requestLogHealthResponse{
-		EnqueuedTotal:               stats.EnqueuedTotal,
-		PersistedTotal:              stats.PersistedTotal,
-		DroppedNotRunningTotal:      stats.DroppedNotRunningTotal,
-		DroppedQueueFullTotal:       stats.DroppedQueueFullTotal,
-		DroppedStoppingTotal:        stats.DroppedStoppingTotal,
-		DroppedPersistFailedTotal:   stats.DroppedPersistFailedTotal,
-		DroppedShutdownTotal:        stats.DroppedShutdownTotal,
-		DroppedTotal:                stats.DroppedTotal,
-		WriteFailureTotal:           stats.WriteFailureTotal,
-		RetentionDeleteFailureTotal: stats.RetentionDeleteFailureTotal,
-		QueueDepth:                  stats.QueueDepth,
-		QueueCapacity:               stats.QueueCapacity,
-		LastWriteFailureAtMS:        lastWriteFailureAtMS,
-		LastRetentionFailureAtMS:    lastRetentionFailureAtMS,
+		EnqueuedTotal:                             stats.EnqueuedTotal,
+		PersistedTotal:                            stats.PersistedTotal,
+		DroppedNotRunningTotal:                    stats.DroppedNotRunningTotal,
+		DroppedQueueFullTotal:                     stats.DroppedQueueFullTotal,
+		DroppedStoppingTotal:                      stats.DroppedStoppingTotal,
+		DroppedPersistFailedTotal:                 stats.DroppedPersistFailedTotal,
+		DroppedShutdownTotal:                      stats.DroppedShutdownTotal,
+		DroppedTotal:                              stats.DroppedTotal,
+		WriteFailureTotal:                         stats.WriteFailureTotal,
+		AccessQuotaCheckpointWriteFailureTotal:    stats.AccessQuotaCheckpointWriteFailureTotal,
+		AccessQuotaCheckpointDegraded:             stats.AccessQuotaCheckpointDegraded,
+		RetentionDeleteFailureTotal:               stats.RetentionDeleteFailureTotal,
+		QueueDepth:                                stats.QueueDepth,
+		QueueCapacity:                             stats.QueueCapacity,
+		LastWriteFailureAtMS:                      lastWriteFailureAtMS,
+		LastAccessQuotaCheckpointWriteFailureAtMS: lastAccessQuotaCheckpointWriteFailureAtMS,
+		LastRetentionFailureAtMS:                  lastRetentionFailureAtMS,
 	}, nil
 }
 

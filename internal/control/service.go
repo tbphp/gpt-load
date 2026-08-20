@@ -11,6 +11,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -56,6 +57,7 @@ type Service struct {
 	stats                             *health.StatsStore
 	mutations                         credentialMutationCoordinator
 	requestLogStats                   RequestLogStatsReader
+	accessQuota                       *accessquota.Runtime
 	modelDiscoveryTimeout             time.Duration
 	random                            io.Reader
 	operationRandom                   io.Reader
@@ -154,6 +156,7 @@ func NewService(
 	stats *health.StatsStore,
 	mutations *health.MutationCoordinator,
 	requestLogStats RequestLogStatsReader,
+	accessQuota *accessquota.Runtime,
 	channelRegistries ...*channel.Registry,
 ) *Service {
 	channelRegistry := channel.NewRegistry()
@@ -174,7 +177,7 @@ func NewService(
 		catalogRuntime:  catalogRuntime,
 		encryption:      encryptionService, executor: executor, subscriptions: subscriptions, requestLogs: requestLogs,
 		usageStats: usageStats, homeStatistics: homeStatistics,
-		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
+		stats: stats, mutations: mutations, requestLogStats: requestLogStats, accessQuota: accessQuota,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader,
 		operationRandom:       rand.Reader,
