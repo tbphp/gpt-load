@@ -1,4 +1,6 @@
 function copyWithLegacyCommand(value: string): void {
+  const previousFocus =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null
   const textarea = document.createElement('textarea')
   textarea.value = value
   textarea.setAttribute('readonly', '')
@@ -14,6 +16,7 @@ function copyWithLegacyCommand(value: string): void {
     if (!document.execCommand('copy')) throw new Error('legacy clipboard copy failed')
   } finally {
     textarea.remove()
+    if (previousFocus?.isConnected) previousFocus.focus()
   }
 }
 

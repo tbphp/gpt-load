@@ -55,6 +55,13 @@ func TestBrowserCompatibilityHelpersPreferNativeAPIsAndStaySilent(t *testing.T) 
 		"await writeText.call(globalThis.navigator.clipboard, value)",
 		"copyWithLegacyCommand(value)",
 	)
+	assertOrderedSubstrings(t, clipboard,
+		"const previousFocus =",
+		"document.activeElement instanceof HTMLElement ? document.activeElement : null",
+		"textarea.focus()",
+		"textarea.remove()",
+		"if (previousFocus?.isConnected) previousFocus.focus()",
+	)
 	if strings.Contains(clipboard, "console.") {
 		t.Fatal("clipboard compatibility helper emits a console message")
 	}
