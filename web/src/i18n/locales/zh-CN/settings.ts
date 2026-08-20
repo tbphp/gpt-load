@@ -120,11 +120,17 @@ export default {
     },
     system: {
       title: '系统信息',
-      description: '只读展示部署与密钥来源元数据。',
+      description: '只读展示部署与密钥来源元数据，也可以手动检查版本更新。',
       loading: '正在加载系统信息…',
       loadFailed: '无法加载系统信息。',
       stale: '后台刷新失败，系统信息可能已过期。',
       version: '版本',
+      checkUpdate: '检查更新',
+      checkingUpdate: '正在检查更新…',
+      latestVersion: '当前已经是最新版本',
+      updateAvailable: '发现新版本 {version}，',
+      viewRelease: '查看 Release',
+      checkUpdateFailed: '检查更新失败，请稍后重试。',
       deployment: '部署形态',
       single: '单实例',
       databases: {

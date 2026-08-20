@@ -20,10 +20,12 @@ type recordingReleaseUpdateChecker struct {
 	update *releasecheck.Update
 	err    error
 	calls  int
+	forces []bool
 }
 
-func (checker *recordingReleaseUpdateChecker) Check(context.Context) (*releasecheck.Update, error) {
+func (checker *recordingReleaseUpdateChecker) Check(_ context.Context, force bool) (*releasecheck.Update, error) {
 	checker.calls++
+	checker.forces = append(checker.forces, force)
 	if checker.update == nil {
 		return nil, checker.err
 	}
@@ -76,13 +78,19 @@ func TestSystemUpdateHTTPChecksOnDemandWithoutAffectingHome(t *testing.T) {
 		ReleaseURL:    checker.update.ReleaseURL,
 		PublishedAtMS: checker.update.PublishedAtMS,
 	}
-	if envelope.Data.Update == nil || *envelope.Data.Update != want || checker.calls != 1 {
+	if envelope.Data.Update == nil || *envelope.Data.Update != want || checker.calls != 1 ||
+		len(checker.forces) != 1 || checker.forces[0] {
 		t.Fatalf("update/calls = %#v/%d, want %#v/1", envelope.Data.Update, checker.calls, want)
 	}
 	assertManagementWireObject(t, envelope.Data, []string{"update"})
 	assertManagementWireObject(t, *envelope.Data.Update, []string{
 		"version", "release_url", "published_at_ms",
 	})
+
+	forced := performHomeRequest(engine, "/api/system/update?force=true", "test-auth-key")
+	if forced.Code != http.StatusOK || checker.calls != 2 || len(checker.forces) != 2 || !checker.forces[1] {
+		t.Fatalf("forced update = %d, calls=%d, forces=%v", forced.Code, checker.calls, checker.forces)
+	}
 }
 
 func TestSystemUpdateHTTPReturnsNullForSuccessfulNoUpdate(t *testing.T) {
@@ -98,7 +106,7 @@ func TestSystemUpdateHTTPReturnsNullForSuccessfulNoUpdate(t *testing.T) {
 	server.RegisterRoutes(engine)
 
 	recorder := performHomeRequest(engine, "/api/system/update", "test-auth-key")
-	if recorder.Code != http.StatusOK || checker.calls != 1 {
+	if recorder.Code != http.StatusOK || checker.calls != 1 || len(checker.forces) != 1 || checker.forces[0] {
 		t.Fatalf("GET /api/system/update = %d %s, calls=%d", recorder.Code, recorder.Body.String(), checker.calls)
 	}
 	var envelope struct {
@@ -125,14 +133,14 @@ func TestSystemUpdateHTTPHidesUpstreamFailureBehindBadGateway(t *testing.T) {
 	server.RegisterRoutes(engine)
 
 	recorder := performHomeRequest(engine, "/api/system/update", "test-auth-key")
-	if recorder.Code != http.StatusBadGateway || checker.calls != 1 ||
+	if recorder.Code != http.StatusBadGateway || checker.calls != 1 || len(checker.forces) != 1 || checker.forces[0] ||
 		!strings.Contains(recorder.Body.String(), `"code":"`+app_errors.ErrBadGateway.Code+`"`) ||
 		strings.Contains(recorder.Body.String(), "private upstream detail") {
 		t.Fatalf("GET /api/system/update = %d %s, calls=%d", recorder.Code, recorder.Body.String(), checker.calls)
 	}
 }
 
-func TestSystemUpdateHTTPRejectsAccessKeyAndQueryBeforeCheck(t *testing.T) {
+func TestSystemUpdateHTTPRejectsAccessKeyAndInvalidQueryBeforeCheck(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	accessKey, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "read only"})
@@ -150,8 +158,14 @@ func TestSystemUpdateHTTPRejectsAccessKeyAndQueryBeforeCheck(t *testing.T) {
 
 	accessKeyResponse := performHomeRequest(engine, "/api/system/update", accessKey.Key)
 	assertHomeHTTPError(t, accessKeyResponse, http.StatusForbidden, app_errors.ErrForbidden.Code)
-	queryResponse := performHomeRequest(engine, "/api/system/update?refresh=1", "test-auth-key")
-	assertHomeHTTPError(t, queryResponse, http.StatusBadRequest, app_errors.ErrBadRequest.Code)
+	for _, path := range []string{
+		"/api/system/update?refresh=1",
+		"/api/system/update?force=maybe",
+		"/api/system/update?force=true&force=false",
+	} {
+		queryResponse := performHomeRequest(engine, path, "test-auth-key")
+		assertHomeHTTPError(t, queryResponse, http.StatusBadRequest, app_errors.ErrBadRequest.Code)
+	}
 	if checker.calls != 0 {
 		t.Fatalf("rejected request check calls = %d, want 0", checker.calls)
 	}

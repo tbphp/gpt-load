@@ -132,11 +132,17 @@ export default {
     },
     system: {
       title: 'System information',
-      description: 'Read-only deployment and secret-source metadata.',
+      description: 'Read-only deployment and secret-source metadata with manual update checks.',
       loading: 'Loading system information…',
       loadFailed: 'Unable to load system information.',
       stale: 'System information may be stale because the background refresh failed.',
       version: 'Version',
+      checkUpdate: 'Check for updates',
+      checkingUpdate: 'Checking for updates…',
+      latestVersion: 'You are already on the latest version',
+      updateAvailable: 'Version {version} is available. ',
+      viewRelease: 'View release',
+      checkUpdateFailed: 'Unable to check for updates. Please try again later.',
       deployment: 'Deployment',
       single: 'Single instance',
       databases: {

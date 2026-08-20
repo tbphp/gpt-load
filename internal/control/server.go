@@ -28,7 +28,7 @@ import (
 
 // ReleaseUpdateChecker is the control-plane on-demand view of the public release checker.
 type ReleaseUpdateChecker interface {
-	Check(context.Context) (*releasecheck.Update, error)
+	Check(context.Context, bool) (*releasecheck.Update, error)
 }
 
 type Server struct {

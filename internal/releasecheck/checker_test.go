@@ -49,13 +49,13 @@ func TestCheckerCheckRunsOnlyOnDemandAndCachesSuccess(t *testing.T) {
 	if calls := fetcher.callCount(); calls != 0 {
 		t.Fatalf("constructor fetch calls = %d, want 0", calls)
 	}
-	first, err := checker.Check(t.Context())
+	first, err := checker.Check(t.Context(), false)
 	if err != nil || first == nil || first.Version != "v2.0.1" || fetcher.callCount() != 1 {
 		t.Fatalf("first Check() = %#v, %v, calls=%d", first, err, fetcher.callCount())
 	}
 	first.Version = "mutated"
 	now = base.Add(2 * time.Hour)
-	second, err := checker.Check(t.Context())
+	second, err := checker.Check(t.Context(), false)
 	if err != nil || second == nil || second.Version != "v2.0.1" || fetcher.callCount() != 1 {
 		t.Fatalf("cached Check() = %#v, %v, calls=%d", second, err, fetcher.callCount())
 	}
@@ -73,31 +73,31 @@ func TestCheckerCachesSuccessForSixHoursAndFailureForThirtyMinutes(t *testing.T)
 	checker := newChecker(fetcher, "v2.0.0")
 	checker.now = func() time.Time { return now }
 
-	update, err := checker.Check(t.Context())
+	update, err := checker.Check(t.Context(), false)
 	if err != nil || update == nil || update.Version != "v2.0.1" {
 		t.Fatalf("first Check() = %#v, %v", update, err)
 	}
 
 	now = base.Add(2 * time.Hour)
-	update, err = checker.Check(t.Context())
+	update, err = checker.Check(t.Context(), false)
 	if err != nil || update == nil || update.Version != "v2.0.1" || fetcher.callCount() != 1 {
 		t.Fatalf("cached Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
 
 	now = base.Add(6 * time.Hour)
-	update, err = checker.Check(t.Context())
+	update, err = checker.Check(t.Context(), false)
 	if update != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
 		t.Fatalf("failed Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
 
 	now = base.Add(6*time.Hour + 15*time.Minute)
-	update, err = checker.Check(t.Context())
+	update, err = checker.Check(t.Context(), false)
 	if update != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
 		t.Fatalf("cached failure Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
 
 	now = base.Add(6*time.Hour + 30*time.Minute)
-	update, err = checker.Check(t.Context())
+	update, err = checker.Check(t.Context(), false)
 	if err != nil || update == nil || update.Version != "v2.0.2" || fetcher.callCount() != 3 {
 		t.Fatalf("recovered Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
@@ -108,13 +108,65 @@ func TestCheckerCachesSuccessfulNoUpdateResult(t *testing.T) {
 		releases: []Release{testRelease("v2.0.0-beta.8", "2026-08-19T11:00:00Z")},
 	}}}
 	checker := newChecker(fetcher, "v2.0.0")
-	update, err := checker.Check(t.Context())
+	update, err := checker.Check(t.Context(), false)
 	if err != nil || update != nil || fetcher.callCount() != 1 {
 		t.Fatalf("Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
-	update, err = checker.Check(t.Context())
+	update, err = checker.Check(t.Context(), false)
 	if err != nil || update != nil || fetcher.callCount() != 1 {
 		t.Fatalf("cached Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
+	}
+}
+
+func TestCheckerForceCheckBypassesAndReplacesCachedResult(t *testing.T) {
+	base := time.Date(2026, time.August, 20, 8, 0, 0, 0, time.UTC)
+	now := base
+	fetcher := &sequenceFetcher{results: []fetchResult{
+		{releases: []Release{testRelease("v2.0.1", "2026-08-20T07:00:00Z")}},
+		{releases: []Release{testRelease("v2.0.2", "2026-08-20T08:01:00Z")}},
+	}}
+	checker := newChecker(fetcher, "v2.0.0")
+	checker.now = func() time.Time { return now }
+
+	first, err := checker.Check(t.Context(), false)
+	if err != nil || first == nil || first.Version != "v2.0.1" {
+		t.Fatalf("first Check() = %#v, %v", first, err)
+	}
+
+	forced, err := checker.Check(t.Context(), true)
+	if err != nil || forced == nil || forced.Version != "v2.0.2" || fetcher.callCount() != 2 {
+		t.Fatalf("forced Check() = %#v, %v, calls=%d", forced, err, fetcher.callCount())
+	}
+
+	cached, err := checker.Check(t.Context(), false)
+	if err != nil || cached == nil || cached.Version != "v2.0.2" || fetcher.callCount() != 2 {
+		t.Fatalf("cached forced result = %#v, %v, calls=%d", cached, err, fetcher.callCount())
+	}
+}
+
+func TestCheckerForceCheckCachesFailure(t *testing.T) {
+	offlineErr := errors.New("offline")
+	fetcher := &sequenceFetcher{results: []fetchResult{
+		{releases: []Release{testRelease("v2.0.1", "2026-08-20T07:00:00Z")}},
+		{err: offlineErr},
+		{releases: []Release{testRelease("v2.0.2", "2026-08-20T08:01:00Z")}},
+	}}
+	checker := newChecker(fetcher, "v2.0.0")
+
+	if _, err := checker.Check(t.Context(), false); err != nil {
+		t.Fatalf("initial Check() error = %v", err)
+	}
+	forced, err := checker.Check(t.Context(), true)
+	if forced != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
+		t.Fatalf("forced failure = %#v, %v, calls=%d", forced, err, fetcher.callCount())
+	}
+	cached, err := checker.Check(t.Context(), false)
+	if cached != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
+		t.Fatalf("cached forced failure = %#v, %v, calls=%d", cached, err, fetcher.callCount())
+	}
+	recovered, err := checker.Check(t.Context(), true)
+	if err != nil || recovered == nil || recovered.Version != "v2.0.2" || fetcher.callCount() != 3 {
+		t.Fatalf("forced recovery = %#v, %v, calls=%d", recovered, err, fetcher.callCount())
 	}
 }
 
@@ -140,12 +192,12 @@ func TestCheckerCoalescesConcurrentChecks(t *testing.T) {
 	checker := newChecker(fetcher, "v2.0.0")
 	done := make(chan error, 2)
 	go func() {
-		_, err := checker.Check(t.Context())
+		_, err := checker.Check(t.Context(), false)
 		done <- err
 	}()
 	<-fetcher.started
 	go func() {
-		_, err := checker.Check(t.Context())
+		_, err := checker.Check(t.Context(), false)
 		done <- err
 	}()
 	time.Sleep(25 * time.Millisecond)
@@ -178,7 +230,7 @@ func TestCheckerCheckCancelsActiveFetch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := checker.Check(ctx)
+		_, err := checker.Check(ctx, false)
 		done <- err
 	}()
 	select {

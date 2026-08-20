@@ -85,8 +85,10 @@ export function projectSystemUpdate(value: unknown): SystemUpdateDto {
 export async function getSystemUpdate(
   client: ApiClient,
   signal?: AbortSignal,
+  force = false,
 ): Promise<SystemUpdateDto> {
-  return projectSystemUpdate(await client.request('/api/system/update', { signal }))
+  const path = force ? '/api/system/update?force=true' : '/api/system/update'
+  return projectSystemUpdate(await client.request(path, { signal }))
 }
 
 export function systemUpdateQueryOptions(client: ApiClient, enabled?: MaybeRefOrGetter<boolean>) {
