@@ -29,60 +29,39 @@ const props = withDefaults(
   { resolveValue: undefined, layout: 'leading' },
 )
 
-type CopyState = 'idle' | 'ready' | 'success' | 'failure'
+type CopyState = 'idle' | 'success' | 'unsupported' | 'failure'
 
 const { t } = useI18n()
 const state = ref<CopyState>('idle')
-const preparedValue = ref<string>()
 let resetTimer: ReturnType<typeof setTimeout> | undefined
 
 function scheduleReset(): void {
   if (resetTimer !== undefined) clearTimeout(resetTimer)
   resetTimer = setTimeout(() => {
     state.value = 'idle'
-    preparedValue.value = undefined
     resetTimer = undefined
   }, 2_000)
 }
 
 async function copyValue(): Promise<void> {
-  if (preparedValue.value !== undefined) {
-    const value = preparedValue.value
-    preparedValue.value = undefined
-    try {
-      await copyText(value)
-      state.value = 'success'
-    } catch {
-      state.value = 'failure'
-    }
+  if (!canWriteToClipboardNatively()) {
+    state.value = 'unsupported'
     scheduleReset()
     return
   }
 
-  let value: string | undefined
   try {
-    value = props.resolveValue ? await props.resolveValue() : props.value
-    if (props.resolveValue && !canWriteToClipboardNatively()) {
-      preparedValue.value = value
-      state.value = 'ready'
-    } else {
-      await copyText(value)
-      state.value = 'success'
-    }
+    const value = props.resolveValue ? await props.resolveValue() : props.value
+    await copyText(value)
+    state.value = 'success'
   } catch {
-    if (value !== undefined && props.resolveValue) {
-      preparedValue.value = value
-      state.value = 'ready'
-    } else {
-      state.value = 'failure'
-    }
+    state.value = 'failure'
   }
   scheduleReset()
 }
 
 onBeforeUnmount(() => {
   if (resetTimer !== undefined) clearTimeout(resetTimer)
-  preparedValue.value = undefined
 })
 </script>
 
@@ -128,8 +107,8 @@ onBeforeUnmount(() => {
             aria-live="polite"
           >
             {{
-              state === 'ready'
-                ? t('common.copyReady')
+              state === 'unsupported'
+                ? t('common.copyUnsupported')
                 : state === 'success'
                   ? successLabel
                   : failureLabel
@@ -194,7 +173,7 @@ onBeforeUnmount(() => {
 }
 
 .copy-chip:hover,
-.copy-chip[data-state='ready'],
+.copy-chip[data-state='unsupported'],
 .copy-chip[data-state='success'],
 .copy-chip[data-state='failure'] {
   background: var(--color-surface-sunken);
@@ -205,10 +184,7 @@ onBeforeUnmount(() => {
   color: var(--color-success);
 }
 
-.copy-chip[data-state='ready'] {
-  color: var(--color-action);
-}
-
+.copy-chip[data-state='unsupported'],
 .copy-chip[data-state='failure'] {
   color: var(--color-danger);
 }
@@ -235,6 +211,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.copy-chip__feedback--unsupported,
 .copy-chip__feedback--failure {
   border-color: var(--color-feedback-danger-border);
   color: var(--color-danger);

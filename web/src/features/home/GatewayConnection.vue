@@ -45,7 +45,7 @@ const emit = defineEmits<{
 }>()
 
 type ActionTarget = 'key' | 'configuration' | 'quick-import' | 'baseUrl' | 'apiKey'
-type FeedbackKind = 'success' | 'failure' | 'popup-blocked' | 'ready'
+type FeedbackKind = 'success' | 'failure' | 'popup-blocked' | 'unsupported'
 
 interface OperationIdentity {
   operationID: number
@@ -56,11 +56,6 @@ interface OperationIdentity {
 interface ActionFeedback extends OperationIdentity {
   target: ActionTarget
   kind: FeedbackKind
-}
-
-interface PreparedLegacyCopy extends OperationIdentity {
-  target: ActionTarget
-  value: string
 }
 
 const client = useApiClient()
@@ -77,7 +72,6 @@ let actionController: AbortController | undefined
 let operationSequence = 0
 let activeOperationID = 0
 let unmounted = false
-let preparedLegacyCopy: PreparedLegacyCopy | undefined
 
 const origin = window.location.origin
 const selectedKey = computed(
@@ -141,6 +135,10 @@ function fieldCopyState(id: ActionTarget): 'idle' | 'success' {
 
 async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }): Promise<void> {
   if (!selectedKeySupportsClient.value) return
+  if (!canWriteToClipboardNatively()) {
+    setImmediateFeedback(field.id, 'unsupported')
+    return
+  }
   if (!field.secret) {
     // 非密钥字段不需要解密，直接复制展示值即可。
     const entry = clientFieldList.value.find((candidate) => candidate.id === field.id)
@@ -153,11 +151,10 @@ async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }):
     }
     return
   }
-  if (await copyPreparedLegacyValue(field.id)) return
   const clientID = activeClient.value
-  await withRevealedKey(field.id, clientID, async (key, isCurrent, identity) => {
+  await withRevealedKey(field.id, clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    return copyRevealedValue(identity, field.id, key)
+    await copyText(key)
   })
 }
 
@@ -174,13 +171,13 @@ const visibleFeedback = computed(() => {
 })
 const feedbackTone = computed(() => {
   if (visibleFeedback.value?.kind === 'success') return 'success'
-  if (visibleFeedback.value?.kind === 'ready') return 'info'
+  if (visibleFeedback.value?.kind === 'unsupported') return 'warning'
   return 'danger'
 })
 const feedbackMessage = computed(() => {
   const current = visibleFeedback.value
   if (!current) return ''
-  if (current.kind === 'ready') return t('common.copyReady')
+  if (current.kind === 'unsupported') return t('common.copyUnsupported')
   if (current.target === 'key') {
     return t(
       current.kind === 'success'
@@ -262,69 +259,12 @@ function operationIsCurrent(identity: OperationIdentity, controller: AbortContro
   return identityMatches(identity) && actionController === controller && !controller.signal.aborted
 }
 
-function clearPreparedLegacyCopy(): void {
-  if (preparedLegacyCopy === undefined) return
-  preparedLegacyCopy.value = ''
-  preparedLegacyCopy = undefined
-}
-
-function prepareLegacyCopy(
-  identity: OperationIdentity,
-  target: ActionTarget,
-  value: string,
-): 'ready' {
-  clearPreparedLegacyCopy()
-  preparedLegacyCopy = { ...identity, target, value }
-  return 'ready'
-}
-
-async function copyPreparedLegacyValue(target: ActionTarget): Promise<boolean> {
-  const prepared = preparedLegacyCopy
-  if (prepared === undefined || prepared.target !== target) return false
-  if (!identityMatches(prepared)) {
-    clearPreparedLegacyCopy()
-    return false
-  }
-
-  let value = prepared.value
-  prepared.value = ''
-  preparedLegacyCopy = undefined
-  try {
-    await copyText(value)
-    if (identityMatches(prepared)) setFeedback(prepared, target, 'success')
-  } catch {
-    if (identityMatches(prepared)) setFeedback(prepared, target, 'failure')
-  } finally {
-    value = ''
-  }
-  return true
-}
-
-async function copyRevealedValue(
-  identity: OperationIdentity,
-  target: ActionTarget,
-  value: string,
-): Promise<'ready' | 'success'> {
-  if (!canWriteToClipboardNatively() && !props.selfScoped) {
-    return prepareLegacyCopy(identity, target, value)
-  }
-  try {
-    await copyText(value)
-    return 'success'
-  } catch {
-    if (!props.selfScoped) return prepareLegacyCopy(identity, target, value)
-    throw new Error('COPY_FAILED')
-  }
-}
-
 function setFeedback(identity: OperationIdentity, target: ActionTarget, kind: FeedbackKind): void {
   if (!identityMatches(identity)) return
-  if (kind !== 'ready') clearPreparedLegacyCopy()
   feedback.value = { ...identity, target, kind }
   window.clearTimeout(resetTimer)
   resetTimer = window.setTimeout(() => {
     if (feedback.value?.operationID === identity.operationID) feedback.value = null
-    if (preparedLegacyCopy?.operationID === identity.operationID) clearPreparedLegacyCopy()
   }, 2_000)
 }
 
@@ -344,7 +284,6 @@ function invalidateSensitiveAction(): void {
   activeOperationID = ++operationSequence
   actionController?.abort()
   actionController = undefined
-  clearPreparedLegacyCopy()
   actionBusy.value = false
   feedback.value = null
   window.clearTimeout(resetTimer)
@@ -372,11 +311,6 @@ watch(activeClient, (value, previous) => {
   if (value === previous) return
   invalidateSensitiveAction()
   quickImportConfirmationOpen.value = false
-})
-
-watch(ccSwitchModel, (value, previous) => {
-  if (value === previous || preparedLegacyCopy?.target !== 'configuration') return
-  invalidateSensitiveAction()
 })
 
 watch(
@@ -419,11 +353,7 @@ function selectFirstSupportedCCSwitchTarget(): void {
 async function withRevealedKey(
   target: ActionTarget,
   clientID: GatewayClientID,
-  operation: (
-    key: string,
-    isCurrent: () => boolean,
-    identity: OperationIdentity,
-  ) => Promise<'ready' | 'success' | void> | 'ready' | 'success' | void,
+  operation: (key: string, isCurrent: () => boolean) => Promise<void> | void,
 ): Promise<boolean> {
   const accessKey = selectedKey.value
   if (!accessKey || actionBusy.value || unmounted || activeClient.value !== clientID) {
@@ -439,7 +369,6 @@ async function withRevealedKey(
   activeOperationID = identity.operationID
   actionController = controller
   actionBusy.value = true
-  clearPreparedLegacyCopy()
   feedback.value = null
   window.clearTimeout(resetTimer)
 
@@ -451,9 +380,9 @@ async function withRevealedKey(
       : (await revealAccessKey(client, identity.accessKeyID, controller.signal)).key
     if (!secret) throw new Error('ACCESS_KEY_UNAVAILABLE')
     if (!isCurrent()) return false
-    const result = await operation(secret, isCurrent, identity)
+    await operation(secret, isCurrent)
     if (!isCurrent()) return false
-    setFeedback(identity, target, result ?? 'success')
+    setFeedback(identity, target, 'success')
     return true
   } catch {
     if (isCurrent()) setFeedback(identity, target, 'failure')
@@ -468,17 +397,24 @@ async function withRevealedKey(
 }
 
 async function copyAccessKey(): Promise<void> {
-  if (await copyPreparedLegacyValue('key')) return
+  if (!canWriteToClipboardNatively()) {
+    setImmediateFeedback('key', 'unsupported')
+    return
+  }
   const clientID = activeClient.value
-  await withRevealedKey('key', clientID, async (key, isCurrent, identity) => {
+  await withRevealedKey('key', clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    return copyRevealedValue(identity, 'key', key)
+    await copyText(key)
   })
 }
 
 async function copyClientConfiguration(): Promise<void> {
   const clientID = activeClient.value
   if (!selectedKeySupportsClient.value) return
+  if (!canWriteToClipboardNatively()) {
+    setImmediateFeedback('configuration', 'unsupported')
+    return
+  }
 
   if (clientID === 'codex') {
     try {
@@ -490,8 +426,7 @@ async function copyClientConfiguration(): Promise<void> {
     return
   }
 
-  if (await copyPreparedLegacyValue('configuration')) return
-  await withRevealedKey('configuration', clientID, async (key, isCurrent, identity) => {
+  await withRevealedKey('configuration', clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
     let configuration: string | undefined
     try {
@@ -504,7 +439,7 @@ async function copyClientConfiguration(): Promise<void> {
         `GPT-Load · ${selectedKey.value?.name ?? ''}`,
       )
       if (!isCurrent()) return
-      return copyRevealedValue(identity, 'configuration', configuration)
+      await copyText(configuration)
     } finally {
       configuration = undefined
     }
