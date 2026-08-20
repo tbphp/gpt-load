@@ -140,7 +140,7 @@ export default {
       checkUpdate: 'Check for updates',
       checkingUpdate: 'Checking for updates…',
       latestVersion: 'You are already on the latest version',
-      updateAvailable: 'Version {version} is available. ',
+      updateAvailable: 'Version {version} is available.',
       viewRelease: 'View release',
       checkUpdateFailed: 'Unable to check for updates. Please try again later.',
       deployment: 'Deployment',
