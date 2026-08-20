@@ -786,7 +786,7 @@ export function cacheGroupSettings(
   queryClient.setQueryData(controlQueryKeys.groups.settings(groupID), settings)
 }
 
-/** A settings mutation can change summary status; leave only that resource stale for manual refresh. */
+/** Model changes can change summary status; refresh the active summary and stale aggregate resources. */
 export async function invalidateGroupSummary(
   queryClient: QueryClient,
   groupID: number,
@@ -795,7 +795,7 @@ export async function invalidateGroupSummary(
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.groups.summary(groupID),
       exact: true,
-      refetchType: 'none',
+      refetchType: 'active',
     }),
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.modelPrices(),
