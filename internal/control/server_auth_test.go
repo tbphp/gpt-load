@@ -403,10 +403,18 @@ func TestAuthSessionEndpointAcceptsActiveAccessKeyAndRejectsAdminRoutes(t *testi
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 		Name: "readonly shared views",
+		CostLimitRules: OptionalAccessKeyCostLimitRules{Set: true, Values: []AccessKeyCostLimitRuleRequest{{
+			Kind: "total", LimitUSD: "1",
+		}}},
 	})
 	if err != nil {
 		t.Fatalf("CreateAccessKey() error = %v", err)
 	}
+	ticket, decision := fixture.accessQuota.Admit(created.ID, time.Now())
+	if !decision.Allowed {
+		t.Fatalf("Admit() = %#v", decision)
+	}
+	fixture.accessQuota.Complete(ticket, 1_000_000_000)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
 
@@ -433,6 +441,19 @@ func TestAuthSessionEndpointAcceptsActiveAccessKeyAndRejectsAdminRoutes(t *testi
 	if sessionEnvelope.Code != 0 || !sessionEnvelope.Data.Authenticated ||
 		sessionEnvelope.Data.PrincipalType != "access_key" {
 		t.Fatalf("access key session = %#v, want authenticated access_key", sessionEnvelope)
+	}
+	home := serveAuthRequest(
+		engine,
+		"/api/home",
+		"192.0.2.59:1234",
+		"Bearer "+created.Key,
+		nil,
+	)
+	if home.Code != http.StatusOK ||
+		!strings.Contains(home.Body.String(), `"cost_limit_status":{"observed_at_ms":`) ||
+		!strings.Contains(home.Body.String(), `"allowed":false`) ||
+		!strings.Contains(home.Body.String(), `"status":"active"`) {
+		t.Fatalf("exhausted access key home = %d %s", home.Code, home.Body.String())
 	}
 
 	forbidden := serveAuthRequest(

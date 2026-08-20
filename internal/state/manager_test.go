@@ -307,6 +307,69 @@ func TestManagerWithCurrentSnapshotBlocksConcurrentPublishUntilCallbackReturns(t
 	}
 }
 
+func TestManagerWithCurrentSnapshotReadAllowsConcurrentReadersAndBlocksPublish(t *testing.T) {
+	manager := NewManager()
+	first, err := manager.Publish(managerCompileInput(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readerEntered := make(chan struct{}, 2)
+	releaseReaders := make(chan struct{})
+	readerDone := make(chan bool, 2)
+	for range 2 {
+		go func() {
+			readerDone <- manager.WithCurrentSnapshotRead(func(snapshot *ConfigSnapshot) bool {
+				if snapshot != first {
+					t.Errorf("reader snapshot = %p, want %p", snapshot, first)
+				}
+				readerEntered <- struct{}{}
+				<-releaseReaders
+				return true
+			})
+		}()
+	}
+	awaitManagerSignal(t, readerEntered, "first shared snapshot reader")
+	awaitManagerSignal(t, readerEntered, "second shared snapshot reader")
+
+	publishAttempted := make(chan struct{})
+	publishDone := make(chan *ConfigSnapshot, 1)
+	go func() {
+		next, compileErr := Compile(managerCompileInput(2))
+		if compileErr != nil {
+			t.Errorf("Compile() error = %v", compileErr)
+			return
+		}
+		publishDone <- manager.publishCompiled(next, func() { close(publishAttempted) })
+	}()
+	awaitManagerSignal(t, publishAttempted, "publish behind shared readers")
+	select {
+	case published := <-publishDone:
+		t.Fatalf("Publish() returned %p while shared readers were active", published)
+	default:
+	}
+
+	close(releaseReaders)
+	for range 2 {
+		select {
+		case ok := <-readerDone:
+			if !ok {
+				t.Fatal("WithCurrentSnapshotRead() = false")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for shared reader")
+		}
+	}
+	select {
+	case published := <-publishDone:
+		if published.Revision != 2 {
+			t.Fatalf("Publish().Revision = %d, want 2", published.Revision)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for publish after shared readers")
+	}
+}
+
 func awaitManagerSignal(t *testing.T, signal <-chan struct{}, name string) {
 	t.Helper()
 	select {

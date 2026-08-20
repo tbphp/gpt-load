@@ -263,18 +263,21 @@ func (distributions UsageDistributions) Get(
 }
 
 type Stats struct {
-	EnqueuedTotal               uint64
-	PersistedTotal              uint64
-	DroppedNotRunningTotal      uint64
-	DroppedQueueFullTotal       uint64
-	DroppedStoppingTotal        uint64
-	DroppedPersistFailedTotal   uint64
-	DroppedShutdownTotal        uint64
-	DroppedTotal                uint64
-	WriteFailureTotal           uint64
-	RetentionDeleteFailureTotal uint64
-	QueueDepth                  int
-	QueueCapacity               int
-	LastWriteFailureAt          time.Time
-	LastRetentionFailureAt      time.Time
+	EnqueuedTotal                           uint64
+	PersistedTotal                          uint64
+	DroppedNotRunningTotal                  uint64
+	DroppedQueueFullTotal                   uint64
+	DroppedStoppingTotal                    uint64
+	DroppedPersistFailedTotal               uint64
+	DroppedShutdownTotal                    uint64
+	DroppedTotal                            uint64
+	WriteFailureTotal                       uint64
+	AccessQuotaCheckpointWriteFailureTotal  uint64
+	AccessQuotaCheckpointDegraded           bool
+	RetentionDeleteFailureTotal             uint64
+	QueueDepth                              int
+	QueueCapacity                           int
+	LastWriteFailureAt                      time.Time
+	LastAccessQuotaCheckpointWriteFailureAt time.Time
+	LastRetentionFailureAt                  time.Time
 }

@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
@@ -705,6 +706,111 @@ func TestLoaderMapsAccessKeyRPMLimit(t *testing.T) {
 	if got := manager.Current().AccessKeysByHash[accessKey.KeyHash].RPMLimit; got != 27 {
 		t.Fatalf("RPMLimit = %d, want 27", got)
 	}
+}
+
+func TestLoaderMapsAndRestoresAccessKeyCostLimits(t *testing.T) {
+	db := openMigratedDatabase(t)
+	accessKey := models.AccessKey{
+		Name: "cost-limited", KeyValue: "access-cipher", KeyHash: "cost-limited-hash",
+		KeySuffix: "00c0", Status: "active", Filters: models.JSON(`{}`),
+	}
+	mustCreate(t, db, &accessKey)
+	rule := models.AccessKeyCostLimitRule{
+		AccessKeyID: accessKey.ID, Kind: models.AccessKeyCostLimitKindPeriodic,
+		LimitNanoUSD: 20, PeriodSeconds: 5 * 60 * 60, RuleRevision: 1,
+	}
+	mustCreate(t, db, &rule)
+	startedAt := time.Now().UTC().Truncate(time.Second)
+	endsAt := startedAt.Add(5 * time.Hour)
+	mustCreate(t, db, &models.AccessKeyCostLimitState{
+		RuleID: rule.ID, RuleRevision: 1, UsedNanoUSD: 7,
+		WindowStartedAtMS: int64Pointer(startedAt.UnixMilli()), WindowEndsAtMS: int64Pointer(endsAt.UnixMilli()),
+		WindowGeneration: 2, SnapshotVersion: 4,
+	})
+
+	manager := state.NewManager()
+	registry := state.NewCredentialRegistry()
+	quotaRuntime := accessquota.NewRuntime()
+	manager.SetSnapshotReconciler(accessQuotaSnapshotReconciler{runtime: quotaRuntime})
+	if err := loader.NewWithAccessQuota(db, manager, registry, quotaRuntime).Load(t.Context()); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	rules := manager.Current().AccessKeysByID[accessKey.ID].CostLimitRules
+	if len(rules) != 1 || rules[0].ID != rule.ID || rules[0].LimitNanoUSD != 20 ||
+		rules[0].PeriodSeconds != 5*60*60 {
+		t.Fatalf("snapshot rules = %#v", rules)
+	}
+	view := quotaRuntime.Snapshot(accessKey.ID, startedAt.Add(time.Minute))
+	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 7 || view.Rules[0].WindowGeneration != 2 {
+		t.Fatalf("restored quota view = %#v", view)
+	}
+}
+
+func TestLoaderRejectsAccessKeyCostLimitWithoutState(t *testing.T) {
+	db := openMigratedDatabase(t)
+	accessKey := models.AccessKey{
+		Name: "missing-state", KeyValue: "access-cipher", KeyHash: "missing-state-hash",
+		KeySuffix: "00c1", Status: "active", Filters: models.JSON(`{}`),
+	}
+	mustCreate(t, db, &accessKey)
+	mustCreate(t, db, &models.AccessKeyCostLimitRule{
+		AccessKeyID: accessKey.ID, Kind: models.AccessKeyCostLimitKindTotal,
+		LimitNanoUSD: 100, RuleRevision: 1,
+	})
+
+	manager := state.NewManager()
+	quotaRuntime := accessquota.NewRuntime()
+	manager.SetSnapshotReconciler(accessQuotaSnapshotReconciler{runtime: quotaRuntime})
+	err := loader.NewWithAccessQuota(
+		db,
+		manager,
+		state.NewCredentialRegistry(),
+		quotaRuntime,
+	).Load(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "state is missing") {
+		t.Fatalf("Load() error = %v, want missing cost limit state", err)
+	}
+	if manager.Current() != nil {
+		t.Fatalf("Current() = %#v after failed restore", manager.Current())
+	}
+}
+
+func TestLoaderRejectsOrphanAccessKeyCostLimitState(t *testing.T) {
+	db := openMigratedDatabase(t)
+	if err := db.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.AccessKeyCostLimitState{
+		RuleID: 999, RuleRevision: 1, SnapshotVersion: 1,
+	}).Error; err != nil {
+		t.Fatalf("create orphan state: %v", err)
+	}
+	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	manager := state.NewManager()
+	quotaRuntime := accessquota.NewRuntime()
+	manager.SetSnapshotReconciler(accessQuotaSnapshotReconciler{runtime: quotaRuntime})
+	err := loader.NewWithAccessQuota(
+		db,
+		manager,
+		state.NewCredentialRegistry(),
+		quotaRuntime,
+	).Load(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "orphan state") {
+		t.Fatalf("Load() error = %v, want orphan state failure", err)
+	}
+}
+
+func int64Pointer(value int64) *int64 { return &value }
+
+type accessQuotaSnapshotReconciler struct {
+	runtime *accessquota.Runtime
+}
+
+func (reconciler accessQuotaSnapshotReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {
+	return reconciler.runtime.Reconcile(snapshot.AccessQuotaDefinitions())
 }
 
 func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"go.uber.org/dig"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/app"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
@@ -63,6 +64,7 @@ func BuildContainer() (*dig.Container, error) {
 		app.NewEngineWithLifecycle,
 		webui.NewServer,
 		state.NewCredentialRegistry,
+		accessquota.NewRuntime,
 		channel.CompileRegistry,
 		control.NewPriceRuntime,
 		control.NewCatalogBootstrap,
@@ -79,7 +81,14 @@ func BuildContainer() (*dig.Container, error) {
 		func(runtime *control.PriceRuntime) gateway.PriceTableProvider {
 			return priceRuntimeProvider{runtime: runtime}
 		},
-		requestlog.NewService,
+		func(
+			db *gorm.DB,
+			redactor *redact.Redactor,
+			retention requestlog.RetentionPolicyProvider,
+			quotaRuntime *accessquota.Runtime,
+		) *requestlog.Service {
+			return requestlog.NewService(db, redactor, retention, quotaRuntime)
+		},
 		func(service *requestlog.Service) telemetry.RequestLogSink {
 			return service
 		},
@@ -147,9 +156,11 @@ func BuildContainer() (*dig.Container, error) {
 		func(registry *channel.Registry) (*bifrostexecutor.RuntimeManager, error) {
 			return bifrostexecutor.NewManagedRuntime(registry)
 		},
-		func(adapters *provideradapter.Registry) *state.Manager {
+		func(adapters *provideradapter.Registry, quotaRuntime *accessquota.Runtime) *state.Manager {
 			manager := state.NewManager()
-			manager.SetSnapshotReconciler(providerRuntimeSnapshotReconciler{adapters: adapters})
+			manager.SetSnapshotReconciler(runtimeSnapshotReconciler{
+				adapters: adapters, accessQuota: quotaRuntime,
+			})
 			return manager
 		},
 		newSubscriptionRuntime,
@@ -180,6 +191,7 @@ func BuildContainer() (*dig.Container, error) {
 			channelRegistry *channel.Registry,
 			subscriptions *subscriptionruntime.Runtime,
 			encryptionService encryption.Service,
+			quotaRuntime *accessquota.Runtime,
 		) app.RuntimeStateLoader {
 			return stateloader.NewWithCredentialValidation(
 				db,
@@ -188,6 +200,7 @@ func BuildContainer() (*dig.Container, error) {
 				channelRegistry,
 				subscriptions,
 				encryptionService,
+				quotaRuntime,
 			)
 		},
 		app.NewApp,
@@ -209,8 +222,9 @@ func BuildContainer() (*dig.Container, error) {
 	return dependencyContainer, nil
 }
 
-type providerRuntimeSnapshotReconciler struct {
-	adapters *provideradapter.Registry
+type runtimeSnapshotReconciler struct {
+	adapters    *provideradapter.Registry
+	accessQuota *accessquota.Runtime
 }
 
 func newSubscriptionRuntime(registry *channel.Registry) (*subscriptionruntime.Runtime, error) {
@@ -242,9 +256,12 @@ func newProviderAdapterRegistry(
 	return provideradapter.NewRegistry(channels, bindings)
 }
 
-func (reconciler providerRuntimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {
+func (reconciler runtimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *state.ConfigSnapshot) error {
 	if reconciler.adapters == nil {
 		return fmt.Errorf("reconcile provider runtimes: adapter registry is unavailable")
+	}
+	if reconciler.accessQuota == nil {
+		return fmt.Errorf("reconcile access key cost limits: runtime is unavailable")
 	}
 	targets := make([]channel.ResolvedTarget, 0)
 	if snapshot != nil {
@@ -253,7 +270,10 @@ func (reconciler providerRuntimeSnapshotReconciler) ReconcileConfigSnapshot(snap
 			targets = append(targets, group.ResolvedTarget)
 		}
 	}
-	return reconciler.adapters.ReconcileTargets(targets)
+	if err := reconciler.adapters.ReconcileTargets(targets); err != nil {
+		return err
+	}
+	return reconciler.accessQuota.Reconcile(snapshot.AccessQuotaDefinitions())
 }
 
 func newHTTPRegistry(

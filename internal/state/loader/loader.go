@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/platform/config"
@@ -33,6 +34,7 @@ type Loader struct {
 	channelRegistry *channel.Registry
 	subscriptions   subscriptionCredentialCanonicalizer
 	encryption      encryption.Service
+	accessQuota     *accessquota.Runtime
 }
 
 type subscriptionCredentialCanonicalizer interface {
@@ -48,18 +50,26 @@ func NewWithCredentialValidation(
 	channelRegistry *channel.Registry,
 	subscriptions subscriptionCredentialCanonicalizer,
 	encryptionService encryption.Service,
+	accessQuotas ...*accessquota.Runtime,
 ) *Loader {
 	loader := New(db, manager, registry, channelRegistry)
 	loader.encryption = encryptionService
 	loader.subscriptions = subscriptions
+	for _, runtime := range accessQuotas {
+		if runtime != nil {
+			loader.accessQuota = runtime
+			break
+		}
+	}
 	return loader
 }
 
 type compileRows struct {
-	settings    []models.SystemSetting
-	groups      []models.Group
-	credentials []models.Credential
-	accessKeys  []models.AccessKey
+	settings       []models.SystemSetting
+	groups         []models.Group
+	credentials    []models.Credential
+	accessKeys     []models.AccessKey
+	costLimitRules []models.AccessKeyCostLimitRule
 }
 
 type modelDTO struct {
@@ -108,8 +118,22 @@ func New(
 	}
 }
 
+// NewWithAccessQuota creates a loader that restores AccessKey cost-limit state
+// before publishing the first configuration snapshot.
+func NewWithAccessQuota(
+	db *gorm.DB,
+	manager *state.Manager,
+	registry *state.CredentialRegistry,
+	accessQuota *accessquota.Runtime,
+	registries ...*channel.Registry,
+) *Loader {
+	loader := New(db, manager, registry, registries...)
+	loader.accessQuota = accessQuota
+	return loader
+}
+
 func (l *Loader) Load(ctx context.Context) error {
-	input, entries, err := l.read(ctx)
+	input, entries, costLimitStates, err := l.read(ctx)
 	if err != nil {
 		return fmt.Errorf("read runtime state: %w", err)
 	}
@@ -118,6 +142,11 @@ func (l *Loader) Load(ctx context.Context) error {
 	}
 	if err := l.validatePersistedCredentials(input, entries); err != nil {
 		return err
+	}
+	if l.accessQuota != nil {
+		if err := l.accessQuota.Restore(costLimitStates); err != nil {
+			return fmt.Errorf("restore access key cost limits: %w", err)
+		}
 	}
 	snapshot, err := l.manager.Publish(input)
 	if err != nil {
@@ -219,10 +248,16 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 		return compileRows{}, fmt.Errorf("query credential metadata: %w", err)
 	}
 	if err := db.
-		Select("id", "name", "key_hash", "status", "filters", "rpm_limit").
+		Select("id", "name", "key_hash", "key_suffix", "status", "filters", "rpm_limit").
 		Order("id ASC").
 		Find(&rows.accessKeys).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query access keys: %w", err)
+	}
+	if err := db.
+		Select("id", "access_key_id", "kind", "limit_nano_usd", "period_seconds", "rule_revision").
+		Order("access_key_id ASC, id ASC").
+		Find(&rows.costLimitRules).Error; err != nil {
+		return compileRows{}, fmt.Errorf("query access key cost limit rules: %w", err)
 	}
 	return rows, nil
 }
@@ -251,7 +286,7 @@ func BuildCompileInput(
 	}
 	input.ChannelRegistry = selectChannelRegistry(registries)
 	input.Credentials = mapCredentialConfigs(rows.credentials, rows.groups)
-	input.AccessKeys, err = mapAccessKeys(rows.accessKeys)
+	input.AccessKeys, err = mapAccessKeys(rows.accessKeys, rows.costLimitRules)
 	if err != nil {
 		return state.CompileInput{}, err
 	}
@@ -313,26 +348,32 @@ func BuildCredentialEntries(ctx context.Context, db *gorm.DB) ([]state.Credentia
 	return entries, nil
 }
 
-func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.CredentialEntry, error) {
+func (l *Loader) read(
+	ctx context.Context,
+) (state.CompileInput, []state.CredentialEntry, []accessquota.RestoredState, error) {
 	rows, err := queryCompileRows(ctx, l.db)
 	if err != nil {
-		return state.CompileInput{}, nil, err
+		return state.CompileInput{}, nil, nil, err
 	}
 	input, err := mapSystemAndGroups(rows)
 	if err != nil {
-		return state.CompileInput{}, nil, err
+		return state.CompileInput{}, nil, nil, err
 	}
 	input.ChannelRegistry = l.channelRegistry
 	input.Credentials = mapCredentialConfigs(rows.credentials, rows.groups)
-	input.AccessKeys, err = mapAccessKeys(rows.accessKeys)
+	input.AccessKeys, err = mapAccessKeys(rows.accessKeys, rows.costLimitRules)
 	if err != nil {
-		return state.CompileInput{}, nil, err
+		return state.CompileInput{}, nil, nil, err
 	}
 	credentials, err := queryCredentials(ctx, l.db)
 	if err != nil {
-		return state.CompileInput{}, nil, err
+		return state.CompileInput{}, nil, nil, err
 	}
-	return input, mapCredentials(credentials, rows.groups), nil
+	states, err := queryCostLimitStates(ctx, l.db, rows.costLimitRules)
+	if err != nil {
+		return state.CompileInput{}, nil, nil, err
+	}
+	return input, mapCredentials(credentials, rows.groups), states, nil
 }
 
 func selectChannelRegistry(registries []*channel.Registry) *channel.Registry {
@@ -468,7 +509,17 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 	return input, nil
 }
 
-func mapAccessKeys(rows []models.AccessKey) ([]state.AccessKeyConfig, error) {
+func mapAccessKeys(
+	rows []models.AccessKey,
+	costLimitRows []models.AccessKeyCostLimitRule,
+) ([]state.AccessKeyConfig, error) {
+	rulesByAccessKey := make(map[uint][]accessquota.Rule)
+	for _, row := range costLimitRows {
+		rulesByAccessKey[row.AccessKeyID] = append(rulesByAccessKey[row.AccessKeyID], accessquota.Rule{
+			ID: row.ID, Revision: row.RuleRevision, Kind: accessquota.Kind(row.Kind),
+			LimitNanoUSD: row.LimitNanoUSD, PeriodSeconds: row.PeriodSeconds,
+		})
+	}
 	result := make([]state.AccessKeyConfig, 0, len(rows))
 	for _, row := range rows {
 		var filters filterDTO
@@ -476,11 +527,50 @@ func mapAccessKeys(rows []models.AccessKey) ([]state.AccessKeyConfig, error) {
 			return nil, fmt.Errorf("decode access key %d filters: %w", row.ID, err)
 		}
 		result = append(result, state.AccessKeyConfig{
-			ID: row.ID, Name: row.Name, KeyHash: row.KeyHash,
+			ID: row.ID, Name: row.Name, KeyHash: row.KeyHash, KeySuffix: row.KeySuffix,
 			Status: state.AccessKeyStatus(row.Status), Filters: filters.toState(), RPMLimit: row.RPMLimit,
+			CostLimitRules: append([]accessquota.Rule(nil), rulesByAccessKey[row.ID]...),
 		})
 	}
 	return result, nil
+}
+
+func queryCostLimitStates(
+	ctx context.Context,
+	db *gorm.DB,
+	rules []models.AccessKeyCostLimitRule,
+) ([]accessquota.RestoredState, error) {
+	accessKeyByRule := make(map[uint]uint, len(rules))
+	for _, rule := range rules {
+		accessKeyByRule[rule.ID] = rule.AccessKeyID
+	}
+	var rows []models.AccessKeyCostLimitState
+	if err := db.WithContext(ctx).Order("rule_id ASC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("query access key cost limit states: %w", err)
+	}
+	states := make([]accessquota.RestoredState, 0, len(rows))
+	for _, row := range rows {
+		accessKeyID, exists := accessKeyByRule[row.RuleID]
+		if !exists {
+			return nil, fmt.Errorf("query access key cost limit states: orphan state for rule %d", row.RuleID)
+		}
+		states = append(states, accessquota.RestoredState{
+			AccessKeyID: accessKeyID, RuleID: row.RuleID,
+			RuleRevision: row.RuleRevision, UsedNanoUSD: row.UsedNanoUSD,
+			WindowStartedAtMS: cloneInt64Pointer(row.WindowStartedAtMS),
+			WindowEndsAtMS:    cloneInt64Pointer(row.WindowEndsAtMS),
+			WindowGeneration:  row.WindowGeneration, SnapshotVersion: row.SnapshotVersion,
+		})
+	}
+	return states, nil
+}
+
+func cloneInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func mapCredentialConfigs(

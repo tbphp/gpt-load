@@ -11,7 +11,8 @@ export interface AccessKeyPresentation {
   maskedKey: string
   status: AccessKeyDto['status']
   scopeRows: ReadonlyArray<{ label: string; value: string }>
-  rpm: string
+  limits: string
+  quotaExhausted: boolean
   lastRequestAt: number | null
 }
 
@@ -23,6 +24,7 @@ export interface AccessKeyPresenterLabels {
   allProtocols: string
   allModels: string
   unlimited: string
+  costRules(count: number): string
 }
 
 export interface AccessKeyPresenterOptions {
@@ -60,10 +62,15 @@ function presentAccessKeyWithGroupNames(
     maskedKey: accessKey.masked_key,
     status: accessKey.status,
     scopeRows,
-    rpm:
+    limits: [
       accessKey.rpm_limit === 0
         ? options.labels.unlimited
         : `${new Intl.NumberFormat(options.locale).format(accessKey.rpm_limit)} RPM`,
+      ...(accessKey.cost_limit_rules.length > 0
+        ? [options.labels.costRules(accessKey.cost_limit_rules.length)]
+        : []),
+    ].join(' · '),
+    quotaExhausted: accessKey.cost_limit_status?.allowed === false,
     lastRequestAt: accessKey.last_request_at_ms,
   }
 }

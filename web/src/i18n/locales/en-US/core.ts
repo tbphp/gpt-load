@@ -222,6 +222,27 @@ export default {
         allModels: 'All models',
         lastRequest: 'Latest request',
         neverRequested: 'No requests yet',
+        costLimits: {
+          title: 'Estimated cost allowance',
+          available: 'Available',
+          blocked: 'Quota exhausted',
+          notConfigured: 'No limits configured',
+          notConfiguredDescription: 'This access key has no estimated-cost limit rules.',
+          total: 'Total allowance',
+          periodic: 'Every {period}',
+          periodDays: '{count} days',
+          periodHours: '{count} hours',
+          periodMinutes: '{count} minutes',
+          periodSeconds: '{count} seconds',
+          usage: '${used} / ${limit} used, ${remaining} remaining',
+          startsOnNextRequest: 'The next request entering upstream execution starts a new period',
+          availableAgain: 'Available again:',
+          resetsAt: 'Current period ends:',
+          notAutomatic:
+            'Does not recover automatically; an administrator must adjust or remove the total rule',
+          estimateNote:
+            'GPT-Load estimates cost from configured model prices. Unpriced requests add $0.',
+        },
       },
       attention: {
         title: 'Needs attention',

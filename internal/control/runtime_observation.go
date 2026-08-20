@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"gpt-load/internal/accessquota"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 )
@@ -17,6 +18,7 @@ type runtimeObservation struct {
 type runtimeHealthObservation struct {
 	runtimeObservation
 	problemCiphertexts map[uint]string
+	accessQuotaViews   map[uint]accessquota.View
 }
 
 func (service *Service) captureRuntimeObservation() (runtimeObservation, error) {
@@ -81,6 +83,13 @@ func (service *Service) captureRuntimeHealthObservation() (
 	}
 	keys := service.registry.Snapshot()
 	observedAt := service.now().UTC()
+	var accessQuotaViews map[uint]accessquota.View
+	if service.accessQuota != nil {
+		accessQuotaViews = make(map[uint]accessquota.View, len(snapshot.AccessKeysByID))
+		for accessKeyID := range snapshot.AccessKeysByID {
+			accessQuotaViews[accessKeyID] = service.accessQuota.Snapshot(accessKeyID, observedAt)
+		}
+	}
 	problemCiphertexts := make(map[uint]string)
 	for _, key := range keys {
 		group, exists := snapshot.GroupCatalog[key.GroupID]
@@ -114,5 +123,6 @@ func (service *Service) captureRuntimeHealthObservation() (
 			keys:       keys,
 		},
 		problemCiphertexts: problemCiphertexts,
+		accessQuotaViews:   accessQuotaViews,
 	}, nil
 }

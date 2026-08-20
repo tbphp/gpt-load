@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/storage/models"
@@ -47,6 +48,9 @@ type Service struct {
 	logger          *logrus.Logger
 	now             func() time.Time
 	startErr        error
+	accessQuota     *accessquota.Runtime
+	quotaWriter     accessQuotaCheckpointWriter
+	quotaWake       chan struct{}
 
 	stateMu       sync.Mutex
 	state         lifecycleState
@@ -56,19 +60,22 @@ type Service struct {
 	shutdownDone  chan struct{}
 	shutdownErr   error
 
-	enqueuedTotal             atomic.Uint64
-	persistedTotal            atomic.Uint64
-	droppedNotRunningTotal    atomic.Uint64
-	droppedQueueFullTotal     atomic.Uint64
-	droppedStoppingTotal      atomic.Uint64
-	droppedPersistFailedTotal atomic.Uint64
-	droppedShutdownTotal      atomic.Uint64
-	writeFailureTotal         atomic.Uint64
-	retentionDeleteTotal      atomic.Uint64
+	enqueuedTotal                          atomic.Uint64
+	persistedTotal                         atomic.Uint64
+	droppedNotRunningTotal                 atomic.Uint64
+	droppedQueueFullTotal                  atomic.Uint64
+	droppedStoppingTotal                   atomic.Uint64
+	droppedPersistFailedTotal              atomic.Uint64
+	droppedShutdownTotal                   atomic.Uint64
+	writeFailureTotal                      atomic.Uint64
+	accessQuotaCheckpointWriteFailureTotal atomic.Uint64
+	accessQuotaCheckpointDegraded          atomic.Bool
+	retentionDeleteTotal                   atomic.Uint64
 
-	statsMu                sync.Mutex
-	lastWriteFailureAt     time.Time
-	lastRetentionFailureAt time.Time
+	statsMu                                 sync.Mutex
+	lastWriteFailureAt                      time.Time
+	lastAccessQuotaCheckpointWriteFailureAt time.Time
+	lastRetentionFailureAt                  time.Time
 
 	warningMu     sync.Mutex
 	lastWarningAt time.Time
@@ -78,6 +85,7 @@ func NewService(
 	db *gorm.DB,
 	redactor *redact.Redactor,
 	retentionPolicy RetentionPolicyProvider,
+	accessQuotas ...*accessquota.Runtime,
 ) *Service {
 	service := newService(
 		&gormBatchWriter{db: db},
@@ -88,12 +96,31 @@ func NewService(
 	)
 	service.db = db
 	service.retentionPolicy = retentionPolicy
+	for _, runtime := range accessQuotas {
+		if runtime != nil {
+			service.accessQuota = runtime
+			service.quotaWriter = &gormAccessQuotaCheckpointWriter{db: db}
+			service.quotaWake = make(chan struct{}, 1)
+			runtime.SetDirtyNotifier(service.wakeAccessQuotaCheckpoint)
+			break
+		}
+	}
 	if db == nil {
 		service.startErr = fmt.Errorf("request log database is nil")
 	} else if retentionPolicy == nil {
 		service.startErr = fmt.Errorf("request log retention policy provider is nil")
 	}
 	return service
+}
+
+func (service *Service) wakeAccessQuotaCheckpoint() {
+	if service == nil || service.quotaWake == nil {
+		return
+	}
+	select {
+	case service.quotaWake <- struct{}{}:
+	default:
+	}
 }
 
 func newService(
@@ -139,6 +166,9 @@ func (service *Service) Start() error {
 	service.workerDone = make(chan struct{})
 	service.state = lifecycleRunning
 	go service.runWorker(workerContext, service.workerDone)
+	if service.accessQuota != nil && len(service.accessQuota.DirtySnapshots(1)) > 0 {
+		service.wakeAccessQuotaCheckpoint()
+	}
 	return nil
 }
 
@@ -212,23 +242,27 @@ func (service *Service) Stop(ctx context.Context) error {
 func (service *Service) Stats() Stats {
 	service.statsMu.Lock()
 	lastWriteFailureAt := service.lastWriteFailureAt
+	lastAccessQuotaCheckpointWriteFailureAt := service.lastAccessQuotaCheckpointWriteFailureAt
 	lastRetentionFailureAt := service.lastRetentionFailureAt
 	service.statsMu.Unlock()
 
 	stats := Stats{
-		EnqueuedTotal:               service.enqueuedTotal.Load(),
-		PersistedTotal:              service.persistedTotal.Load(),
-		DroppedNotRunningTotal:      service.droppedNotRunningTotal.Load(),
-		DroppedQueueFullTotal:       service.droppedQueueFullTotal.Load(),
-		DroppedStoppingTotal:        service.droppedStoppingTotal.Load(),
-		DroppedPersistFailedTotal:   service.droppedPersistFailedTotal.Load(),
-		DroppedShutdownTotal:        service.droppedShutdownTotal.Load(),
-		WriteFailureTotal:           service.writeFailureTotal.Load(),
-		RetentionDeleteFailureTotal: service.retentionDeleteTotal.Load(),
-		QueueDepth:                  len(service.queue),
-		QueueCapacity:               cap(service.queue),
-		LastWriteFailureAt:          lastWriteFailureAt,
-		LastRetentionFailureAt:      lastRetentionFailureAt,
+		EnqueuedTotal:                           service.enqueuedTotal.Load(),
+		PersistedTotal:                          service.persistedTotal.Load(),
+		DroppedNotRunningTotal:                  service.droppedNotRunningTotal.Load(),
+		DroppedQueueFullTotal:                   service.droppedQueueFullTotal.Load(),
+		DroppedStoppingTotal:                    service.droppedStoppingTotal.Load(),
+		DroppedPersistFailedTotal:               service.droppedPersistFailedTotal.Load(),
+		DroppedShutdownTotal:                    service.droppedShutdownTotal.Load(),
+		WriteFailureTotal:                       service.writeFailureTotal.Load(),
+		AccessQuotaCheckpointWriteFailureTotal:  service.accessQuotaCheckpointWriteFailureTotal.Load(),
+		AccessQuotaCheckpointDegraded:           service.accessQuotaCheckpointDegraded.Load(),
+		RetentionDeleteFailureTotal:             service.retentionDeleteTotal.Load(),
+		QueueDepth:                              len(service.queue),
+		QueueCapacity:                           cap(service.queue),
+		LastWriteFailureAt:                      lastWriteFailureAt,
+		LastAccessQuotaCheckpointWriteFailureAt: lastAccessQuotaCheckpointWriteFailureAt,
+		LastRetentionFailureAt:                  lastRetentionFailureAt,
 	}
 	stats.DroppedTotal = stats.DroppedNotRunningTotal +
 		stats.DroppedQueueFullTotal +
@@ -293,6 +327,20 @@ func (service *Service) shutdownResult() error {
 	return service.shutdownErr
 }
 
+func (service *Service) recordFinalQuotaCheckpointFailure(cause error) {
+	if service == nil || cause == nil {
+		return
+	}
+	service.stateMu.Lock()
+	defer service.stateMu.Unlock()
+	if service.shutdownErr == nil {
+		service.shutdownErr = fmt.Errorf(
+			"stop request log service: final access key cost limit checkpoint: %w",
+			cause,
+		)
+	}
+}
+
 func (service *Service) warn(failureType string, failedBatchSize int) {
 	now := service.now()
 	service.warningMu.Lock()
@@ -304,6 +352,10 @@ func (service *Service) warn(failureType string, failedBatchSize int) {
 	service.warningMu.Unlock()
 
 	stats := service.Stats()
+	message := "Request log event loss"
+	if failureType == "access_quota_checkpoint_write_failure" {
+		message = "Access key cost limit checkpoint persistence failed"
+	}
 	utils.LogPlaneBestEffort(
 		service.logger,
 		logrus.WarnLevel,
@@ -314,8 +366,9 @@ func (service *Service) warn(failureType string, failedBatchSize int) {
 			"queue_depth":         stats.QueueDepth,
 			"dropped_total":       stats.DroppedTotal,
 			"write_failure_total": stats.WriteFailureTotal,
+			"access_quota_checkpoint_write_failure_total": stats.AccessQuotaCheckpointWriteFailureTotal,
 		},
-		"Request log event loss",
+		message,
 	)
 }
 

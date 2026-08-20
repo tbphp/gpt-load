@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
@@ -174,7 +175,12 @@ func TestCompileOwnsInputData(t *testing.T) {
 		Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 			Models: []ModelConfig{{ID: "upstream", Alias: "public"}}, WeightManual: &weight, Enabled: true,
 		}},
-		AccessKeys: []AccessKeyConfig{{ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive, Filters: filters}},
+		AccessKeys: []AccessKeyConfig{{
+			ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive, Filters: filters,
+			CostLimitRules: []accessquota.Rule{{
+				ID: 7, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 100,
+			}},
+		}},
 	}
 	snapshot, err := Compile(input)
 	if err != nil {
@@ -185,6 +191,7 @@ func TestCompileOwnsInputData(t *testing.T) {
 	filters.Groups[2] = struct{}{}
 	filters.Protocols[protocol.Gemini] = struct{}{}
 	filters.Models["changed"] = struct{}{}
+	input.AccessKeys[0].CostLimitRules[0].LimitNanoUSD = 1
 
 	view := snapshot.Groups[1]
 	if !reflect.DeepEqual(view.Models, []ModelConfig{{ID: "upstream", Alias: "public"}}) || view.WeightManual == nil || *view.WeightManual != 25 {
@@ -199,6 +206,9 @@ func TestCompileOwnsInputData(t *testing.T) {
 	}
 	if _, ok := gotFilters.Models["changed"]; ok {
 		t.Fatal("model filter retained caller mutation")
+	}
+	if got := snapshot.AccessKeysByID[1].CostLimitRules; len(got) != 1 || got[0].LimitNanoUSD != 100 {
+		t.Fatalf("cost limit rules changed with input = %#v", got)
 	}
 }
 
@@ -230,6 +240,17 @@ func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
 				{ID: 2, KeyHash: "same", Status: AccessKeyStatusActive},
 			}},
 			wantErr: "duplicate access key hash",
+		},
+		{
+			name: "invalid cost limit rules",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive,
+				CostLimitRules: []accessquota.Rule{
+					{ID: 1, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 100},
+					{ID: 2, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 200},
+				},
+			}}},
+			wantErr: "cost limit",
 		},
 	}
 	for _, test := range tests {
