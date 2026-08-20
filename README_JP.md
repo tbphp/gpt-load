@@ -262,6 +262,8 @@ GPT-Load の一部機能は以下のプロジェクトを基盤としていま�
 
 問題や機能の提案は [GitHub Issue](https://github.com/tbphp/gpt-load/issues) へお寄せください。セキュリティ脆弱性は [SECURITY.md](SECURITY.md) の手順に従って報告してください。
 
+コミュニティでの交流や利用方法の相談は、[Telegram グループ](https://t.me/+GHpy5SwEllg3MTUx) にご参加ください。
+
 GPT-Load が役に立ったら、Star をいただけると嬉しいです。
 
 ## スポンサーと支援

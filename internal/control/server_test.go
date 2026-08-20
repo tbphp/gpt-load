@@ -29,7 +29,7 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-func TestServerHomeRoutesUseExactManagementContracts(t *testing.T) {
+func TestServerHomeAndSystemUpdateRoutesUseExactManagementContracts(t *testing.T) {
 	fixture := newServiceFixture(t)
 	module := NewServer(
 		&config.Config{AuthKey: "test-auth-key"},
@@ -47,6 +47,10 @@ func TestServerHomeRoutesUseExactManagementContracts(t *testing.T) {
 		"control.home.statistics": {
 			method: http.MethodGet,
 			path:   "/home/statistics",
+		},
+		"control.system.update": {
+			method: http.MethodGet,
+			path:   "/system/update",
 		},
 	}
 	seen := make(map[string]int, len(want))

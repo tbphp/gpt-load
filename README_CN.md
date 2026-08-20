@@ -261,6 +261,8 @@ GPT-Load 自身负责凭据存储、账号选择、调度、重试、健康、�
 
 遇到问题或有功能建议，欢迎提交 [GitHub Issue](https://github.com/tbphp/gpt-load/issues)。安全漏洞请按 [SECURITY.md](SECURITY.md) 的流程报告。
 
+社区交流与使用讨论可加入 [Telegram 群组](https://t.me/+GHpy5SwEllg3MTUx)。
+
 如果 GPT-Load 对你有帮助，欢迎点个 Star。
 
 ## 赞助与支持

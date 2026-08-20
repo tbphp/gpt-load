@@ -4,7 +4,16 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { importLocation } from '@/app/route-locations'
+import type { HomeBaseDto } from '@/app/resources/home'
+import type { ReleaseUpdateDto } from '@/app/resources/system-update'
 import AppButton from '@/components/ui/AppButton.vue'
+
+import HomeReleaseUpdateLink from './HomeReleaseUpdateLink.vue'
+
+defineProps<{
+  base: HomeBaseDto
+  update: ReleaseUpdateDto | null
+}>()
 
 const { t } = useI18n()
 const router = useRouter()
@@ -13,7 +22,10 @@ const router = useRouter()
 <template>
   <section class="home-welcome" aria-labelledby="home-title">
     <header class="home-welcome__header">
-      <h1 id="home-title">{{ t('home.ledger.welcomeTitle') }}</h1>
+      <div class="home-welcome__title">
+        <h1 id="home-title">{{ t('home.ledger.welcomeTitle') }}</h1>
+        <HomeReleaseUpdateLink v-if="update" :current-version="base.version" :update="update" />
+      </div>
       <AppButton
         class="home-welcome__action"
         type="button"
@@ -70,6 +82,13 @@ const router = useRouter()
   font-weight: 500;
   letter-spacing: -0.015em;
   line-height: var(--line-compact);
+}
+
+.home-welcome__title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .home-welcome__action {

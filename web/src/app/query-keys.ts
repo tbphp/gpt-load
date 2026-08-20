@@ -125,6 +125,7 @@ export const controlQueryKeys = {
   settingsAll: ['control', 'settings'] as const,
   settings: (locale: string) => ['control', 'settings', locale] as const,
   systemInfo: () => ['control', 'system-info'] as const,
+  systemUpdate: () => ['control', 'system-update'] as const,
   models: {
     all: ['control', 'models'] as const,
     collection: (filters: ModelCollectionFilters) =>
