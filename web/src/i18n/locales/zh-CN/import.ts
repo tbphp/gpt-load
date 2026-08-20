@@ -95,6 +95,7 @@ export default {
       urlDescription: '请按上游服务要求填写 Base URL',
       compatibleUrlDescription: '填写完整 API 前缀，例如 https://api.example.com/v1',
       urlDescriptionWithDefault: '默认地址：{url}',
+      urlVersionWarning: '版本路径可能不一致，请确认',
       customUrl: '自定义上游地址',
       urlError: '请输入有效的 HTTP 或 HTTPS 上游地址',
       paramRequired: '请输入{name}',

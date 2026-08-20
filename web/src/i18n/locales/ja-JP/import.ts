@@ -99,6 +99,7 @@ export default {
       compatibleUrlDescription:
         'https://api.example.com/v1 のように完全な API プレフィックスを入力してください',
       urlDescriptionWithDefault: '既定の URL：{url}',
+      urlVersionWarning: 'バージョンパスが異なる可能性があります。確認してください',
       customUrl: 'カスタム上流 URL',
       urlError: '有効な HTTP または HTTPS のアップストリーム URL を入力してください',
       paramRequired: '{name} を入力してください',

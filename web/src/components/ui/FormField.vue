@@ -6,6 +6,7 @@ const props = withDefaults(
     id: string
     label: string
     description?: string
+    descriptionWarning?: string
     error?: string
     required?: boolean
     requiredText?: string
@@ -17,6 +18,7 @@ const props = withDefaults(
   }>(),
   {
     description: undefined,
+    descriptionWarning: undefined,
     error: undefined,
     requiredText: undefined,
     disabledReason: undefined,
@@ -26,7 +28,9 @@ const props = withDefaults(
   },
 )
 
-const descriptionId = computed(() => (props.description ? `${props.id}-description` : undefined))
+const descriptionId = computed(() =>
+  props.description || props.descriptionWarning ? `${props.id}-description` : undefined,
+)
 const errorId = computed(() => (props.error ? `${props.id}-error` : undefined))
 const disabledReasonId = computed(() =>
   props.disabledReason ? `${props.id}-disabled-reason` : undefined,
@@ -56,8 +60,16 @@ const describedBy = computed(
       :invalid="Boolean(error)"
       :required="Boolean(required)"
     />
-    <p v-if="description" :id="descriptionId" class="form-field__description">
-      {{ description }}
+    <p v-if="description || descriptionWarning" :id="descriptionId" class="form-field__description">
+      <span v-if="description">{{ description }}</span>
+      <span
+        v-if="descriptionWarning"
+        class="form-field__description-warning"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span aria-hidden="true"> · </span>{{ descriptionWarning }}
+      </span>
     </p>
     <p
       v-if="disabledReason"
@@ -168,6 +180,10 @@ const describedBy = computed(
 
 .form-field__description {
   color: var(--color-text-faint);
+}
+
+.form-field__description-warning {
+  color: var(--color-warning);
 }
 
 .form-field__error {
