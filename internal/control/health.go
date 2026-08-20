@@ -364,7 +364,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			result.BlacklistedCredentials = append(result.BlacklistedCredentials, detail)
 		}
 	}
-	if service.accessQuota != nil {
+	if observation.accessQuotaViews != nil {
 		accessKeyIDs := make([]uint, 0, len(observation.snapshot.AccessKeysByID))
 		for accessKeyID := range observation.snapshot.AccessKeysByID {
 			accessKeyIDs = append(accessKeyIDs, accessKeyID)
@@ -375,7 +375,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			if accessKey.Status != state.AccessKeyStatusActive {
 				continue
 			}
-			view := service.accessQuota.Snapshot(accessKeyID, observation.observedAt)
+			view := observation.accessQuotaViews[accessKeyID]
 			if view.Allowed {
 				continue
 			}
