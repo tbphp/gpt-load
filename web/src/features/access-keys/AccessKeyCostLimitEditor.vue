@@ -8,12 +8,11 @@ import type {
   AccessKeyCostLimitStatusDto,
 } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
-import { formatLocalInstant } from '@/lib/format'
 import { quotaProgressTone } from '@/lib/quota-progress'
 import { createUUID } from '@/lib/uuid'
 
+import AccessKeyCostLimitWindowTime from './AccessKeyCostLimitWindowTime.vue'
 import type { AccessKeyCostLimitRuleDraft } from './access-key-patch'
 
 const props = defineProps<{
@@ -24,7 +23,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: AccessKeyCostLimitRuleDraft[]]
 }>()
-const { locale, n, t } = useI18n()
+const { n, t } = useI18n()
 
 const totalCount = computed(() => props.modelValue.filter((rule) => rule.kind === 'total').length)
 const periodicCount = computed(
@@ -119,53 +118,12 @@ function remainingPercent(runtime: AccessKeyCostLimitRuleStatusDto): number {
   return Math.round(Math.max(0, Math.min(100, (remaining / limit) * 100)))
 }
 
-function runtimeProgressValue(runtime: AccessKeyCostLimitRuleStatusDto): number | undefined {
+function runtimeProgressValue(runtime: AccessKeyCostLimitRuleStatusDto): number {
   return remainingPercent(runtime)
 }
 
 function runtimeValueText(runtime: AccessKeyCostLimitRuleStatusDto): string {
   return t('accessKeys.costLimits.remainingPercent', { value: n(remainingPercent(runtime)) })
-}
-
-function runtimeWindow(runtime: AccessKeyCostLimitRuleStatusDto): {
-  start: number
-  end: number
-  preview: boolean
-} | null {
-  if (runtime.window_started_at_ms !== null && runtime.window_ends_at_ms !== null) {
-    return { start: runtime.window_started_at_ms, end: runtime.window_ends_at_ms, preview: false }
-  }
-  const start = props.runtimeStatus?.observed_at_ms
-  const duration = runtime.period_seconds * 1_000
-  const end = start === undefined ? Number.NaN : start + duration
-  if (
-    runtime.kind !== 'periodic' ||
-    runtime.status !== 'inactive' ||
-    start === undefined ||
-    !Number.isSafeInteger(duration) ||
-    !Number.isSafeInteger(end)
-  ) {
-    return null
-  }
-  return { start, end, preview: true }
-}
-
-function runtimeWindowTooltip(runtime: AccessKeyCostLimitRuleStatusDto): string | undefined {
-  const window = runtimeWindow(runtime)
-  if (!window) return undefined
-  return t(
-    window.preview
-      ? 'accessKeys.costLimits.inactiveWindowPeriod'
-      : 'accessKeys.costLimits.windowPeriod',
-    {
-      start: formatLocalInstant(window.start, locale.value),
-      end: formatLocalInstant(window.end, locale.value),
-    },
-  )
-}
-
-function runtimeWindowEnd(runtime: AccessKeyCostLimitRuleStatusDto): number | null {
-  return runtimeWindow(runtime)?.end ?? null
 }
 </script>
 
@@ -331,15 +289,7 @@ function runtimeWindowEnd(runtime: AccessKeyCostLimitRuleStatusDto): number | nu
             compact
           />
           <strong>{{ runtimeValueText(runtimeFor(rule)!) }}</strong>
-          <AppRelativeTime
-            v-if="runtimeWindowEnd(runtimeFor(rule)!) !== null"
-            :instant="runtimeWindowEnd(runtimeFor(rule)!)"
-            :locale="locale"
-            :empty-label="t('accessKeys.costLimits.status.inactive')"
-            :tooltip-content="runtimeWindowTooltip(runtimeFor(rule)!)"
-            hint
-          />
-          <span v-else>{{ t('accessKeys.costLimits.status.inactive') }}</span>
+          <AccessKeyCostLimitWindowTime :rule="runtimeFor(rule)!" />
         </div>
       </article>
     </section>

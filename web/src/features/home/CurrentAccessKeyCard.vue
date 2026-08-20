@@ -8,12 +8,13 @@ import type {
   AccessKeyCostLimitRuleStatusDto,
 } from '@/api/control/types'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
-import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatInteger, formatLocalInstant, formatUSD } from '@/lib/format'
+import { formatInteger, formatUSD } from '@/lib/format'
 import { quotaProgressTone } from '@/lib/quota-progress'
+
+import AccessKeyCostLimitWindowTime from '@/features/access-keys/AccessKeyCostLimitWindowTime.vue'
 
 const props = defineProps<{ accessKey: AccessKeyCollectionItemDto }>()
 const { locale, n, t } = useI18n()
@@ -73,47 +74,6 @@ function remainingPercent(rule: AccessKeyCostLimitRuleStatusDto): number {
 
 function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' | 'danger' {
   return quotaProgressTone(remainingPercent(rule), rule.status === 'exhausted')
-}
-
-function displayWindow(rule: AccessKeyCostLimitRuleStatusDto): {
-  start: number
-  end: number
-  preview: boolean
-} | null {
-  if (rule.window_started_at_ms !== null && rule.window_ends_at_ms !== null) {
-    return { start: rule.window_started_at_ms, end: rule.window_ends_at_ms, preview: false }
-  }
-  const start = costLimits.value?.observed_at_ms
-  const duration = rule.period_seconds * 1_000
-  const end = start === undefined ? Number.NaN : start + duration
-  if (
-    rule.kind !== 'periodic' ||
-    rule.status !== 'inactive' ||
-    start === undefined ||
-    !Number.isSafeInteger(duration) ||
-    !Number.isSafeInteger(end)
-  ) {
-    return null
-  }
-  return { start, end, preview: true }
-}
-
-function windowTooltip(rule: AccessKeyCostLimitRuleStatusDto): string | undefined {
-  const window = displayWindow(rule)
-  if (!window) return undefined
-  return t(
-    window.preview
-      ? 'accessKeys.costLimits.inactiveWindowPeriod'
-      : 'accessKeys.costLimits.windowPeriod',
-    {
-      start: formatLocalInstant(window.start, locale.value),
-      end: formatLocalInstant(window.end, locale.value),
-    },
-  )
-}
-
-function displayWindowEnd(rule: AccessKeyCostLimitRuleStatusDto): number | null {
-  return displayWindow(rule)?.end ?? null
 }
 </script>
 
@@ -235,7 +195,7 @@ function displayWindowEnd(rule: AccessKeyCostLimitRuleStatusDto): number | null 
             <strong>{{ n(remainingPercent(rule)) }}%</strong>
           </div>
           <div class="current-access-key__limit-recovery">
-            <template v-if="displayWindowEnd(rule) !== null">
+            <template v-if="rule.kind === 'periodic'">
               {{
                 t(
                   rule.status === 'inactive'
@@ -245,13 +205,7 @@ function displayWindowEnd(rule: AccessKeyCostLimitRuleStatusDto): number | null 
                       : 'home.ledger.currentAccessKey.costLimits.resetsAt',
                 )
               }}
-              <AppRelativeTime
-                :instant="displayWindowEnd(rule)"
-                :locale="locale"
-                :empty-label="t('home.ledger.currentAccessKey.costLimits.notAutomatic')"
-                :tooltip-content="windowTooltip(rule)"
-                hint
-              />
+              <AccessKeyCostLimitWindowTime :rule="rule" />
             </template>
             <template v-else-if="rule.status === 'exhausted'">
               {{ t('home.ledger.currentAccessKey.costLimits.notAutomatic') }}
