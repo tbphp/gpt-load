@@ -151,9 +151,26 @@ export default {
         downstream_cancel: 'Downstream canceled',
         ambiguous: 'Ambiguous failure',
       },
+      accessKeyLimits: {
+        title: 'Access key cost limits',
+        description:
+          'Access keys currently blocked by an exhausted estimated-cost rule. This is a normal business state, not a service failure.',
+        total: 'Total allowance',
+        periodic: 'Every {period}',
+        periodDays: '{count} days',
+        periodHours: '{count} hours',
+        periodMinutes: '{count} minutes',
+        periodSeconds: '{count} seconds',
+        temporary: 'Periodic limit block',
+        manual: 'Administrator action required',
+        availableAgain: 'Available again:',
+        notAutomatic: 'Does not recover automatically',
+        manage: 'Manage rules',
+      },
       requestLog: {
         title: 'Request-log collection',
-        description: 'Process-lifetime counters reset when the process restarts.',
+        description:
+          'Process-lifetime counters reset on restart. A write failure also means cost-limit state may restart from an older checkpoint.',
         normal: 'Collection healthy',
         abnormal: 'Collection unhealthy',
         retentionAbnormal: 'Retention unhealthy',

@@ -37,6 +37,41 @@ func TestApplyMySQLMigrationRecoversEveryInitialDDLBoundary(t *testing.T) {
 			assertInternalMigrationComplete(t, db, []string{migrations[0].ID})
 		})
 	}
+
+}
+
+func TestApplyMySQLMigrationRecoversEveryAccessKeyCostLimitDDLBoundary(t *testing.T) {
+	models := migrationfiles.SchemaModels0002()
+	for boundary := 0; boundary <= len(models); boundary++ {
+		t.Run(migrationfiles.TableNames0002()[boundaryOrLast(boundary, len(models))], func(t *testing.T) {
+			db := openInternalMigrationTestDatabase(t)
+			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+				t.Fatalf("create migration ledger: %v", err)
+			}
+			if err := migrations[0].Up(db); err != nil {
+				t.Fatalf("create baseline schema: %v", err)
+			}
+			if err := migrations[0].Validate(db); err != nil {
+				t.Fatalf("validate baseline schema: %v", err)
+			}
+			if err := db.Create(&schemaMigration{ID: migrations[0].ID}).Error; err != nil {
+				t.Fatalf("record baseline migration: %v", err)
+			}
+			if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[1].ID)}).Error; err != nil {
+				t.Fatalf("create resume marker: %v", err)
+			}
+			if boundary > 0 {
+				if err := db.AutoMigrate(models[:boundary]...); err != nil {
+					t.Fatalf("create schema prefix %d: %v", boundary, err)
+				}
+			}
+
+			if err := applyMySQLMigration(db, migrations[1]); err != nil {
+				t.Fatalf("resume boundary %d: %v", boundary, err)
+			}
+			assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID})
+		})
+	}
 }
 
 func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
@@ -182,6 +217,163 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 			}
 		})
 	}
+	runExternalMySQLCostLimitRecovery(t, admin, parsed)
+}
+
+func TestExternalDatabaseAccessKeyCostLimitIncrementalMigration(t *testing.T) {
+	rawDSN := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
+	if rawDSN == "" {
+		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
+	}
+	db := openExternalIncrementalMigrationDatabase(t, rawDSN)
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatalf("create migration ledger: %v", err)
+	}
+	if err := migrations[0].Up(db); err != nil {
+		t.Fatalf("create 0001 schema: %v", err)
+	}
+	if err := migrations[0].Validate(db); err != nil {
+		t.Fatalf("validate 0001 schema: %v", err)
+	}
+	if err := db.Create(&schemaMigration{ID: migrations[0].ID}).Error; err != nil {
+		t.Fatalf("record 0001 migration: %v", err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("apply 0001 to 0002 incremental migration: %v", err)
+	}
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("repeat migrated schema validation: %v", err)
+	}
+	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID})
+}
+
+func openExternalIncrementalMigrationDatabase(t *testing.T, rawDSN string) *gorm.DB {
+	t.Helper()
+	parsed, err := url.Parse(rawDSN)
+	if err != nil {
+		t.Fatalf("parse external database DSN: %v", err)
+	}
+	admin, err := OpenWithSource(rawDSN, config.DatabaseSourceExternal)
+	if err != nil {
+		t.Fatalf("open external database admin connection: %v", err)
+	}
+	adminSQL, err := admin.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = adminSQL.Close() })
+
+	name := fmt.Sprintf("gpt_load_cost_migration_%d", time.Now().UnixNano())
+	targetURL := *parsed
+	switch strings.ToLower(parsed.Scheme) {
+	case "mysql":
+		if err := admin.Exec("CREATE DATABASE `" + name + "`").Error; err != nil {
+			t.Fatalf("create MySQL migration database: %v", err)
+		}
+		t.Cleanup(func() {
+			if dropErr := admin.Exec("DROP DATABASE IF EXISTS `" + name + "`").Error; dropErr != nil {
+				t.Errorf("drop MySQL migration database: %v", dropErr)
+			}
+		})
+		targetURL.Path = "/" + name
+		targetURL.RawPath = ""
+	case "postgres", "postgresql":
+		if err := admin.Exec(`CREATE SCHEMA "` + name + `"`).Error; err != nil {
+			t.Fatalf("create PostgreSQL migration schema: %v", err)
+		}
+		t.Cleanup(func() {
+			if dropErr := admin.Exec(`DROP SCHEMA IF EXISTS "` + name + `" CASCADE`).Error; dropErr != nil {
+				t.Errorf("drop PostgreSQL migration schema: %v", dropErr)
+			}
+		})
+		query := targetURL.Query()
+		query.Set("search_path", name)
+		targetURL.RawQuery = query.Encode()
+	default:
+		t.Fatalf("unsupported external driver %q", parsed.Scheme)
+	}
+
+	db, err := OpenWithSource(targetURL.String(), config.DatabaseSourceExternal)
+	if err != nil {
+		t.Fatalf("open isolated incremental migration database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+
+func runExternalMySQLCostLimitRecovery(t *testing.T, admin *gorm.DB, parsed *url.URL) {
+	t.Helper()
+	models := migrationfiles.SchemaModels0002()
+	for boundary := 0; boundary <= len(models); boundary++ {
+		t.Run(fmt.Sprintf("access_key_cost_limits_boundary_%02d", boundary), func(t *testing.T) {
+			databaseName := fmt.Sprintf("gpt_load_cost_recovery_%d_%02d", time.Now().UnixNano(), boundary)
+			if err := admin.Exec("CREATE DATABASE `" + databaseName + "`").Error; err != nil {
+				t.Fatalf("create recovery database: %v", err)
+			}
+			t.Cleanup(func() {
+				if dropErr := admin.Exec("DROP DATABASE IF EXISTS `" + databaseName + "`").Error; dropErr != nil {
+					t.Errorf("drop recovery database: %v", dropErr)
+				}
+			})
+
+			recoveryURL := *parsed
+			recoveryURL.Path = "/" + databaseName
+			recoveryURL.RawPath = ""
+			partial, err := OpenWithSource(recoveryURL.String(), config.DatabaseSourceExternal)
+			if err != nil {
+				t.Fatalf("open recovery database: %v", err)
+			}
+			if err := partial.AutoMigrate(&schemaMigration{}); err != nil {
+				t.Fatalf("create recovery ledger: %v", err)
+			}
+			if err := migrations[0].Up(partial); err != nil {
+				t.Fatalf("create baseline schema: %v", err)
+			}
+			if err := migrations[0].Validate(partial); err != nil {
+				t.Fatalf("validate baseline schema: %v", err)
+			}
+			if err := partial.Create(&schemaMigration{ID: migrations[0].ID}).Error; err != nil {
+				t.Fatalf("record baseline migration: %v", err)
+			}
+			if err := partial.Create(&schemaMigration{ID: migrationResumeMarker(migrations[1].ID)}).Error; err != nil {
+				t.Fatalf("record cost-limit recovery marker: %v", err)
+			}
+			if boundary > 0 {
+				if err := partial.AutoMigrate(models[:boundary]...); err != nil {
+					t.Fatalf("create MySQL cost-limit schema prefix %d: %v", boundary, err)
+				}
+			}
+			partialSQL, err := partial.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := partialSQL.Close(); err != nil {
+				t.Fatalf("close interrupted database: %v", err)
+			}
+
+			restarted, err := OpenWithSource(recoveryURL.String(), config.DatabaseSourceExternal)
+			if err != nil {
+				t.Fatalf("reopen recovery database: %v", err)
+			}
+			restartedSQL, err := restarted.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := AutoMigrate(restarted); err != nil {
+				_ = restartedSQL.Close()
+				t.Fatalf("resume MySQL cost-limit schema prefix %d: %v", boundary, err)
+			}
+			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID})
+			if err := restartedSQL.Close(); err != nil {
+				t.Fatalf("close recovered database: %v", err)
+			}
+		})
+	}
 }
 
 type internalMigrationDB struct{ *gorm.DB }
@@ -205,6 +397,13 @@ func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string
 	for _, table := range migrationfiles.TableNames0001() {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("table %q is missing", table)
+		}
+	}
+	if len(wantIDs) >= 2 {
+		for _, table := range migrationfiles.TableNames0002() {
+			if !db.Migrator().HasTable(table) {
+				t.Errorf("table %q is missing", table)
+			}
 		}
 	}
 	var ids []string

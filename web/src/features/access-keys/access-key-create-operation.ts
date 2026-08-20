@@ -18,5 +18,6 @@ export function cloneAccessKeyCreatePayload(
       models: [...payload.filters.models],
     },
     rpm_limit: payload.rpm_limit,
+    cost_limit_rules: payload.cost_limit_rules.map((rule) => ({ ...rule })),
   }
 }

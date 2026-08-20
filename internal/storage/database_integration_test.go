@@ -90,6 +90,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		"usage_aggregation_journal", "usage_stats", "model_prices", "system_settings",
 		"jobs", "control_operations", "credential_stages", "credential_observations",
 		"credential_reset_operations", "credential_attempt_stats", "schema_migrations",
+		"access_key_cost_limit_rules", "access_key_cost_limit_states",
 	} {
 		if !db.Migrator().HasTable(table) {
 			t.Fatalf("table %q is missing", table)
@@ -115,8 +116,53 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if len(migrationIDs) != 1 || migrationIDs[0] != "0001_initial" {
-		t.Fatalf("migration ledger = %v, want [0001_initial]", migrationIDs)
+	if len(migrationIDs) != 2 || migrationIDs[0] != "0001_initial" ||
+		migrationIDs[1] != "0002_access_key_cost_limits" {
+		t.Fatalf("migration ledger = %v, want [0001_initial 0002_access_key_cost_limits]", migrationIDs)
+	}
+
+	accessKey := models.AccessKey{
+		Name:     fmt.Sprintf("integration-cost-limit-%d", time.Now().UnixNano()),
+		KeyValue: "encrypted-access-key", KeyHash: fmt.Sprintf("integration-access-%d", time.Now().UnixNano()),
+		KeySuffix: "cafe", Status: "active", Filters: models.JSON(`{}`),
+	}
+	if err := db.Create(&accessKey).Error; err != nil {
+		t.Fatalf("create cost-limited access key: %v", err)
+	}
+	costRule := models.AccessKeyCostLimitRule{
+		AccessKeyID: accessKey.ID, Kind: models.AccessKeyCostLimitKindPeriodic,
+		LimitNanoUSD: 20_000_000_000, PeriodSeconds: 18_000, RuleRevision: 1,
+	}
+	if err := db.Create(&costRule).Error; err != nil {
+		t.Fatalf("create access key cost limit rule: %v", err)
+	}
+	if err := db.Create(&models.AccessKeyCostLimitState{
+		RuleID: costRule.ID, RuleRevision: 1, SnapshotVersion: 1,
+	}).Error; err != nil {
+		t.Fatalf("create access key cost limit state: %v", err)
+	}
+	duplicate := costRule
+	duplicate.ID = 0
+	if err := db.Create(&duplicate).Error; err == nil {
+		t.Fatal("database accepted duplicate periodic access key cost limit")
+	}
+	if err := db.Delete(&accessKey).Error; err != nil {
+		t.Fatalf("delete cost-limited access key: %v", err)
+	}
+	for _, table := range []string{"access_key_cost_limit_rules", "access_key_cost_limit_states"} {
+		var count int64
+		query := db.Table(table)
+		if table == "access_key_cost_limit_rules" {
+			query = query.Where("access_key_id = ?", accessKey.ID)
+		} else {
+			query = query.Where("rule_id = ?", costRule.ID)
+		}
+		if err := query.Count(&count).Error; err != nil {
+			t.Fatalf("count %s after cascade: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s count after cascade = %d", table, count)
+		}
 	}
 
 	suffix := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())

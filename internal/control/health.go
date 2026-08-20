@@ -87,17 +87,27 @@ type requestLogHealthResponse struct {
 }
 
 type runtimeHealthResponse struct {
-	ObservedAtMS           int64                             `json:"observed_at_ms"`
-	Version                string                            `json:"version"`
-	UptimeSeconds          int64                             `json:"uptime_seconds"`
-	SnapshotRevision       uint64                            `json:"snapshot_revision"`
-	StatsWindowSeconds     int64                             `json:"stats_window_seconds"`
-	Counts                 healthCountsResponse              `json:"counts"`
-	Groups                 []healthGroupResponse             `json:"groups"`
-	CooldownCredentials    []healthProblemCredentialResponse `json:"cooldown_credentials"`
-	BlacklistedCredentials []healthProblemCredentialResponse `json:"blacklisted_credentials"`
-	LowQuotaCredentials    []healthQuotaCredentialResponse   `json:"low_quota_credentials"`
-	RequestLog             requestLogHealthResponse          `json:"request_log"`
+	ObservedAtMS           int64                              `json:"observed_at_ms"`
+	Version                string                             `json:"version"`
+	UptimeSeconds          int64                              `json:"uptime_seconds"`
+	SnapshotRevision       uint64                             `json:"snapshot_revision"`
+	StatsWindowSeconds     int64                              `json:"stats_window_seconds"`
+	Counts                 healthCountsResponse               `json:"counts"`
+	Groups                 []healthGroupResponse              `json:"groups"`
+	CooldownCredentials    []healthProblemCredentialResponse  `json:"cooldown_credentials"`
+	BlacklistedCredentials []healthProblemCredentialResponse  `json:"blacklisted_credentials"`
+	LowQuotaCredentials    []healthQuotaCredentialResponse    `json:"low_quota_credentials"`
+	BlockedAccessKeys      []healthAccessKeyCostLimitResponse `json:"blocked_access_keys"`
+	RequestLog             requestLogHealthResponse           `json:"request_log"`
+}
+
+type healthAccessKeyCostLimitResponse struct {
+	AccessKeyID       uint                           `json:"access_key_id"`
+	Name              string                         `json:"name"`
+	MaskedKey         string                         `json:"masked_key"`
+	Recoverable       bool                           `json:"recoverable"`
+	NextAvailableAtMS *int64                         `json:"next_available_at_ms"`
+	BlockingRules     []AccessKeyCostLimitRuleStatus `json:"blocking_rules"`
 }
 
 // healthLowQuotaRemainingRatio 是「额度快用完」的唯一阈值来源。
@@ -245,6 +255,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		CooldownCredentials:    []healthProblemCredentialResponse{},
 		BlacklistedCredentials: []healthProblemCredentialResponse{},
 		LowQuotaCredentials:    []healthQuotaCredentialResponse{},
+		BlockedAccessKeys:      []healthAccessKeyCostLimitResponse{},
 	}
 	groupIDs := make([]uint, 0, len(observation.snapshot.GroupCatalog))
 	for groupID := range observation.snapshot.GroupCatalog {
@@ -348,6 +359,38 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 				}
 			}
 			result.BlacklistedCredentials = append(result.BlacklistedCredentials, detail)
+		}
+	}
+	if service.accessQuota != nil {
+		accessKeyIDs := make([]uint, 0, len(observation.snapshot.AccessKeysByID))
+		for accessKeyID := range observation.snapshot.AccessKeysByID {
+			accessKeyIDs = append(accessKeyIDs, accessKeyID)
+		}
+		sort.Slice(accessKeyIDs, func(i, j int) bool { return accessKeyIDs[i] < accessKeyIDs[j] })
+		for _, accessKeyID := range accessKeyIDs {
+			accessKey := observation.snapshot.AccessKeysByID[accessKeyID]
+			if accessKey.Status != state.AccessKeyStatusActive {
+				continue
+			}
+			view := service.accessQuota.Snapshot(accessKeyID, observation.observedAt)
+			if view.Allowed {
+				continue
+			}
+			if !validAccessKeySuffix(accessKey.KeySuffix) {
+				return runtimeHealthResponse{}, fmt.Errorf(
+					"map blocked access key %d suffix: %w",
+					accessKeyID,
+					app_errors.ErrInternalServer,
+				)
+			}
+			status := mapAccessKeyCostLimitStatus(view)
+			result.BlockedAccessKeys = append(result.BlockedAccessKeys, healthAccessKeyCostLimitResponse{
+				AccessKeyID: accessKeyID, Name: accessKey.Name,
+				MaskedKey:         maskedAccessKey(accessKey.KeySuffix),
+				Recoverable:       status.Recoverable,
+				NextAvailableAtMS: cloneCostLimitMilliseconds(status.NextAvailableAtMS),
+				BlockingRules:     blockingCostLimitRuleStatuses(status),
+			})
 		}
 	}
 	requestLog, err := mapRequestLogHealth(service.requestLogStats.Stats())

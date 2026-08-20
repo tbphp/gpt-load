@@ -147,9 +147,26 @@ export default {
         downstream_cancel: '下游已取消',
         ambiguous: '结果不明确',
       },
+      accessKeyLimits: {
+        title: '访问密钥费用限额',
+        description:
+          '当前因任一估算费用规则用尽而被阻断的访问密钥；这是正常业务状态，不代表服务异常。',
+        total: '总额度',
+        periodic: '每 {period}',
+        periodDays: '{count} 天',
+        periodHours: '{count} 小时',
+        periodMinutes: '{count} 分钟',
+        periodSeconds: '{count} 秒',
+        temporary: '周期额度阻断',
+        manual: '需要管理员处理',
+        availableAgain: '可再次请求：',
+        notAutomatic: '不会自动恢复',
+        manage: '管理规则',
+      },
       requestLog: {
         title: '请求日志采集',
-        description: '当前进程生命周期计数，进程重启后归零。',
+        description:
+          '当前进程生命周期计数，进程重启后归零；写入失败也表示重启后费用额度可能恢复到较早快照。',
         normal: '采集正常',
         abnormal: '采集异常',
         retentionAbnormal: '清理异常',

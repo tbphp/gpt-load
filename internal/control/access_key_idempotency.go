@@ -16,10 +16,11 @@ import (
 )
 
 type accessKeyCreateDigestBody struct {
-	Name     string                 `json:"name"`
-	Status   *state.AccessKeyStatus `json:"status,omitempty"`
-	Filters  AccessKeyFilters       `json:"filters"`
-	RPMLimit int64                  `json:"rpm_limit"`
+	Name           string                          `json:"name"`
+	Status         *state.AccessKeyStatus          `json:"status,omitempty"`
+	Filters        AccessKeyFilters                `json:"filters"`
+	RPMLimit       int64                           `json:"rpm_limit"`
+	CostLimitRules []AccessKeyCostLimitRuleRequest `json:"cost_limit_rules,omitempty"`
 }
 
 func (s *Service) CreateAccessKeyIdempotent(
@@ -39,6 +40,10 @@ func (s *Service) CreateAccessKeyIdempotent(
 	if err != nil {
 		return AccessKeyCreateResult{}, err
 	}
+	costLimitRules, err := normalizeAccessKeyCostLimitRules(request.CostLimitRules, false)
+	if err != nil {
+		return AccessKeyCreateResult{}, err
+	}
 	status := state.AccessKeyStatusActive
 	if request.Status != nil {
 		status = *request.Status
@@ -53,6 +58,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 	digestFilters := canonicalAccessKeyFilterSet(filters)
 	canonicalBody, err := canonicalIdempotencyBody(accessKeyCreateDigestBody{
 		Name: name, Status: digestStatus, Filters: digestFilters, RPMLimit: rpmLimit,
+		CostLimitRules: costLimitRuleRequestsForDigest(costLimitRules),
 	})
 	if err != nil {
 		return AccessKeyCreateResult{}, app_errors.ErrInternalServer
@@ -87,6 +93,10 @@ func (s *Service) CreateAccessKeyIdempotent(
 			if err := tx.Create(&row).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}
+			persistedCostLimitRules, err := createAccessKeyCostLimitRules(tx, row.ID, costLimitRules)
+			if err != nil {
+				return idempotentMutationResult{}, err
+			}
 			metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 				ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
 				Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
@@ -95,6 +105,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
+			metadata.CostLimitRules = mapAccessKeyCostLimitRules(persistedCostLimitRules)
 			input, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
 			if err != nil {
 				return idempotentMutationResult{}, err
@@ -122,6 +133,11 @@ func (s *Service) CreateAccessKeyIdempotent(
 	var metadata AccessKeyMetadata
 	if err := json.Unmarshal(operationResult.CanonicalResult, &metadata); err != nil {
 		return AccessKeyCreateResult{}, app_errors.ErrInternalServer
+	}
+	if metadata.CostLimitRules == nil {
+		// Pre-0002 idempotency results did not carry this additive field. Preserve
+		// replay compatibility while keeping the current wire contract array-shaped.
+		metadata.CostLimitRules = []AccessKeyCostLimitRule{}
 	}
 	result := AccessKeyCreateResult{
 		AccessKeyMetadata: metadata,

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { KeyRound, LockKeyhole } from '@lucide/vue'
+import { Gauge, KeyRound, LockKeyhole } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyCollectionItemDto } from '@/api/control/types'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
+import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatInteger } from '@/lib/format'
@@ -34,6 +35,34 @@ const models = computed(() =>
     ? t('home.ledger.currentAccessKey.allModels')
     : props.accessKey.filters.models.join(', '),
 )
+const costLimits = computed(() => props.accessKey.cost_limit_status)
+
+function periodLabel(seconds: number): string {
+  if (seconds % 86_400 === 0) {
+    return t('home.ledger.currentAccessKey.costLimits.periodDays', { count: seconds / 86_400 })
+  }
+  if (seconds % 3_600 === 0) {
+    return t('home.ledger.currentAccessKey.costLimits.periodHours', { count: seconds / 3_600 })
+  }
+  if (seconds % 60 === 0) {
+    return t('home.ledger.currentAccessKey.costLimits.periodMinutes', { count: seconds / 60 })
+  }
+  return t('home.ledger.currentAccessKey.costLimits.periodSeconds', { count: seconds })
+}
+
+function ruleLabel(kind: 'total' | 'periodic', periodSeconds: number): string {
+  return kind === 'total'
+    ? t('home.ledger.currentAccessKey.costLimits.total')
+    : t('home.ledger.currentAccessKey.costLimits.periodic', {
+        period: periodLabel(periodSeconds),
+      })
+}
+
+function usagePercent(used: string, limit: string): number {
+  const parsedLimit = Number(limit)
+  if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) return 0
+  return Math.min(100, Math.max(0, (Number(used) / parsedLimit) * 100))
+}
 </script>
 
 <template>
@@ -88,6 +117,92 @@ const models = computed(() =>
         </dd>
       </div>
     </dl>
+
+    <section class="current-access-key__limits" aria-labelledby="cost-limits-title">
+      <header>
+        <div>
+          <Gauge :size="15" aria-hidden="true" />
+          <h3 id="cost-limits-title">{{ t('home.ledger.currentAccessKey.costLimits.title') }}</h3>
+        </div>
+        <StatusBadge
+          :tone="costLimits === null ? 'neutral' : costLimits.allowed ? 'success' : 'danger'"
+          size="compact"
+        >
+          {{
+            t(
+              costLimits === null
+                ? 'home.ledger.currentAccessKey.costLimits.notConfigured'
+                : costLimits.allowed
+                  ? 'home.ledger.currentAccessKey.costLimits.available'
+                  : 'home.ledger.currentAccessKey.costLimits.blocked',
+            )
+          }}
+        </StatusBadge>
+      </header>
+
+      <p v-if="costLimits === null" class="current-access-key__limit-note">
+        {{ t('home.ledger.currentAccessKey.costLimits.notConfiguredDescription') }}
+      </p>
+      <div v-else class="current-access-key__limit-list">
+        <article v-for="rule in costLimits.rules" :key="rule.id">
+          <div class="current-access-key__limit-heading">
+            <strong>{{ ruleLabel(rule.kind, rule.period_seconds) }}</strong>
+            <StatusBadge
+              :tone="
+                rule.status === 'exhausted'
+                  ? 'danger'
+                  : rule.status === 'inactive'
+                    ? 'neutral'
+                    : 'success'
+              "
+              size="compact"
+            >
+              {{ t(`accessKeys.costLimits.status.${rule.status}`) }}
+            </StatusBadge>
+          </div>
+          <p>
+            {{
+              t('home.ledger.currentAccessKey.costLimits.usage', {
+                used: rule.used_usd,
+                limit: rule.limit_usd,
+                remaining: rule.remaining_usd,
+              })
+            }}
+          </p>
+          <progress
+            :value="usagePercent(rule.used_usd, rule.limit_usd)"
+            max="100"
+            :aria-label="ruleLabel(rule.kind, rule.period_seconds)"
+          />
+          <div class="current-access-key__limit-recovery">
+            <template v-if="rule.status === 'inactive'">
+              {{ t('home.ledger.currentAccessKey.costLimits.startsOnNextRequest') }}
+            </template>
+            <template v-else-if="rule.window_ends_at_ms !== null">
+              {{
+                t(
+                  rule.status === 'exhausted'
+                    ? 'home.ledger.currentAccessKey.costLimits.availableAgain'
+                    : 'home.ledger.currentAccessKey.costLimits.resetsAt',
+                )
+              }}
+              <AppRelativeTime
+                :instant="rule.window_ends_at_ms"
+                :locale="locale"
+                :empty-label="t('home.ledger.currentAccessKey.costLimits.notAutomatic')"
+                hint
+              />
+            </template>
+            <template v-else-if="rule.status === 'exhausted'">
+              {{ t('home.ledger.currentAccessKey.costLimits.notAutomatic') }}
+            </template>
+          </div>
+        </article>
+      </div>
+      <p v-if="costLimits !== null" class="current-access-key__limit-note">
+        {{ t('home.ledger.currentAccessKey.costLimits.estimateNote') }}
+      </p>
+    </section>
   </section>
 </template>
 
@@ -188,6 +303,66 @@ const models = computed(() =>
   white-space: nowrap;
 }
 
+.current-access-key__limits {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-4);
+}
+.current-access-key__limits > header,
+.current-access-key__limits > header > div,
+.current-access-key__limit-heading,
+.current-access-key__limit-recovery {
+  display: flex;
+  align-items: center;
+}
+.current-access-key__limits > header {
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.current-access-key__limits > header > div {
+  gap: var(--space-2);
+}
+.current-access-key__limits h3 {
+  margin: 0;
+  font-size: var(--text-meta);
+}
+.current-access-key__limit-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.current-access-key__limit-list article {
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: var(--space-3);
+}
+.current-access-key__limit-heading {
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.current-access-key__limit-list p,
+.current-access-key__limit-note {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.current-access-key__limit-list progress {
+  width: 100%;
+  height: 7px;
+  accent-color: var(--color-action);
+}
+.current-access-key__limit-recovery {
+  min-height: 20px;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+}
+
 @media (max-width: 860px) {
   .current-access-key__facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -201,6 +376,10 @@ const models = computed(() =>
   }
 
   .current-access-key__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .current-access-key__limit-list {
     grid-template-columns: minmax(0, 1fr);
   }
 }

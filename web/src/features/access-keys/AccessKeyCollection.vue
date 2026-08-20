@@ -50,6 +50,7 @@ const presentations = computed(() =>
       allProtocols: t('accessKeys.allProtocols'),
       allModels: t('accessKeys.allModels'),
       unlimited: t('accessKeys.unlimited'),
+      costRules: (count) => t('accessKeys.costLimits.ruleCount', { count }),
     },
     protocolLabel: (protocol) => protocol,
   }),
@@ -93,7 +94,7 @@ watch(
       <span role="columnheader">{{ t('accessKeys.columns.key') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.status') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.scope') }}</span>
-      <span role="columnheader">{{ t('accessKeys.columns.rpm') }}</span>
+      <span role="columnheader">{{ t('accessKeys.columns.limits') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.lastRequest') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.actions') }}</span>
     </template>
@@ -125,6 +126,9 @@ watch(
         <StatusBadge :tone="record.status === 'active' ? 'success' : 'neutral'">
           {{ t(`accessKeys.status.${record.status}`) }}
         </StatusBadge>
+        <StatusBadge v-if="record.quotaExhausted" tone="danger" size="compact">
+          {{ t('accessKeys.costLimits.exhausted') }}
+        </StatusBadge>
       </div>
 
       <div class="ledger-record-list__cell access-key-scope" role="cell">
@@ -138,8 +142,8 @@ watch(
       </div>
 
       <div class="ledger-record-list__cell access-key-rpm" role="cell">
-        <span class="mobile-label">{{ t('accessKeys.columns.rpm') }}</span>
-        {{ record.rpm }}
+        <span class="mobile-label">{{ t('accessKeys.columns.limits') }}</span>
+        {{ record.limits }}
       </div>
 
       <div class="ledger-record-list__cell access-key-last-request" role="cell">
@@ -217,6 +221,13 @@ watch(
 .access-key-rpm,
 .access-key-last-request {
   min-width: 0;
+}
+
+.access-key-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
 }
 
 .access-key-scope dl {

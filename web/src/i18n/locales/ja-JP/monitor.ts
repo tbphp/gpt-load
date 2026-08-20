@@ -151,9 +151,26 @@ export default {
         downstream_cancel: 'ダウンストリームでキャンセル',
         ambiguous: '不明確な失敗',
       },
+      accessKeyLimits: {
+        title: 'アクセスキー費用上限',
+        description:
+          '概算費用ルールの上限到達により現在ブロックされているアクセスキーです。通常の業務状態であり、サービス障害ではありません。',
+        total: '総額枠',
+        periodic: '{period} ごと',
+        periodDays: '{count} 日',
+        periodHours: '{count} 時間',
+        periodMinutes: '{count} 分',
+        periodSeconds: '{count} 秒',
+        temporary: '周期上限によるブロック',
+        manual: '管理者の対応が必要',
+        availableAgain: '再利用可能：',
+        notAutomatic: '自動では回復しません',
+        manage: 'ルールを管理',
+      },
       requestLog: {
         title: 'リクエストログ収集',
-        description: '現在のプロセスの累積値で、再起動時にリセットされます。',
+        description:
+          '現在のプロセスの累積値で、再起動時にリセットされます。書き込み失敗時は、費用上限状態が再起動後に古いチェックポイントへ戻る可能性もあります。',
         normal: '収集は正常',
         abnormal: '収集に異常あり',
         retentionAbnormal: '保持処理に異常あり',

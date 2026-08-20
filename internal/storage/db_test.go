@@ -599,6 +599,8 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 		"groups",
 		"credentials",
 		"access_keys",
+		"access_key_cost_limit_rules",
+		"access_key_cost_limit_states",
 		"request_logs",
 		"usage_aggregation_journal",
 		"usage_stats",
@@ -622,7 +624,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	wantMigrationIDs := []string{"0001_initial"}
+	wantMigrationIDs := []string{"0001_initial", "0002_access_key_cost_limits"}
 	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
 		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)
 	}

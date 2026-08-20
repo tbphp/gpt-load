@@ -223,6 +223,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 		fixture.stats,
 		fixture.mutations,
 		fixture.requestLogStats,
+		nil,
 	)
 	reloadedEngine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, reloadedService).RegisterRoutes(reloadedEngine)

@@ -783,17 +783,23 @@ func (service *Service) runWorker(ctx context.Context, done chan<- struct{}) {
 		case <-service.stopRequested:
 			service.drain(ctx, nil)
 			return
+		case <-service.quotaWake:
+			if !service.collectAndWrite(ctx, queuedEvent{}, false) {
+				return
+			}
 		case event := <-service.queue:
-			if !service.collectAndWrite(ctx, event) {
+			if !service.collectAndWrite(ctx, event, true) {
 				return
 			}
 		}
 	}
 }
 
-func (service *Service) collectAndWrite(ctx context.Context, first queuedEvent) bool {
-	batch := make([]queuedEvent, 1, batchSize)
-	batch[0] = first
+func (service *Service) collectAndWrite(ctx context.Context, first queuedEvent, hasFirst bool) bool {
+	batch := make([]queuedEvent, 0, batchSize)
+	if hasFirst {
+		batch = append(batch, first)
+	}
 	timer := service.timerFactory(flushDelay)
 
 	for len(batch) < batchSize {
@@ -808,6 +814,7 @@ func (service *Service) collectAndWrite(ctx context.Context, first queuedEvent) 
 			return false
 		case event := <-service.queue:
 			batch = append(batch, event)
+		case <-service.quotaWake:
 		case <-timer.C():
 			service.writeBatch(ctx, batch)
 			return true
@@ -839,15 +846,28 @@ func (service *Service) drain(ctx context.Context, batch []queuedEvent) {
 		case event := <-service.queue:
 			batch = append(batch, event)
 		default:
-			if len(batch) > 0 {
-				service.writeBatch(ctx, batch)
+			if len(batch) > 0 || service.accessQuota != nil {
+				if err := service.writeBatch(ctx, batch); err != nil {
+					service.recordFinalQuotaCheckpointFailure(err)
+					return
+				}
+			}
+			for service.accessQuota != nil && service.quotaWriter != nil &&
+				len(service.accessQuota.DirtySnapshots(1)) > 0 {
+				if ctx.Err() != nil {
+					return
+				}
+				if err := service.flushAccessQuotaCheckpoints(ctx); err != nil {
+					service.recordFinalQuotaCheckpointFailure(err)
+					return
+				}
 			}
 			return
 		}
 	}
 }
 
-func (service *Service) writeBatch(ctx context.Context, events []queuedEvent) {
+func (service *Service) writeBatch(ctx context.Context, events []queuedEvent) error {
 	rows := make([]models.RequestLog, 0, len(events))
 	projectionFailures := 0
 	for _, event := range events {
@@ -861,15 +881,41 @@ func (service *Service) writeBatch(ctx context.Context, events []queuedEvent) {
 	if projectionFailures > 0 {
 		service.recordPersistFailure("projection_failure", projectionFailures)
 	}
-	if len(rows) == 0 {
-		return
+	if len(rows) > 0 {
+		if err := service.writer.WriteBatch(ctx, rows); err != nil {
+			service.recordPersistFailure("write_failure", len(rows))
+		} else {
+			service.persistedTotal.Add(uint64(len(rows)))
+		}
 	}
+	return service.flushAccessQuotaCheckpoints(ctx)
+}
 
-	if err := service.writer.WriteBatch(ctx, rows); err != nil {
-		service.recordPersistFailure("write_failure", len(rows))
-		return
+func (service *Service) flushAccessQuotaCheckpoints(ctx context.Context) error {
+	if service == nil || service.accessQuota == nil || service.quotaWriter == nil {
+		return nil
 	}
-	service.persistedTotal.Add(uint64(len(rows)))
+	snapshots := service.accessQuota.DirtySnapshots(batchSize)
+	if len(snapshots) == 0 {
+		return nil
+	}
+	if err := service.quotaWriter.WriteSnapshots(ctx, snapshots); err != nil {
+		service.recordPersistFailure("access_quota_checkpoint_write_failure", 0)
+		service.wakeAccessQuotaCheckpoint()
+		return err
+	}
+	for _, snapshot := range snapshots {
+		service.accessQuota.Ack(
+			snapshot.AccessKeyID,
+			snapshot.RuleID,
+			snapshot.RuleRevision,
+			snapshot.SnapshotVersion,
+		)
+	}
+	if len(service.accessQuota.DirtySnapshots(1)) > 0 {
+		service.wakeAccessQuotaCheckpoint()
+	}
+	return nil
 }
 
 func (service *Service) recordPersistFailure(reason string, count int) {

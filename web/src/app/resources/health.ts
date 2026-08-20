@@ -8,11 +8,13 @@ import type {
   HealthQuotaCredentialDto,
   HealthRecoveryDto,
   HealthCredentialCountsDto,
+  HealthAccessKeyCostLimitDto,
   RequestLogHealthDto,
   RuntimeHealthDto,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { projectAccessKeyCostLimitRuleStatus } from './access-keys'
 
 import {
   assertNoSecretLikeFields,
@@ -48,7 +50,16 @@ const healthFields = [
   'cooldown_credentials',
   'blacklisted_credentials',
   'low_quota_credentials',
+  'blocked_access_keys',
   'request_log',
+] as const
+const blockedAccessKeyFields = [
+  'access_key_id',
+  'name',
+  'masked_key',
+  'recoverable',
+  'next_available_at_ms',
+  'blocking_rules',
 ] as const
 const quotaCredentialFields = [
   'credential_id',
@@ -209,6 +220,32 @@ function projectQuotaCredential(value: unknown): HealthQuotaCredentialDto {
   }
 }
 
+function projectBlockedAccessKey(value: unknown): HealthAccessKeyCostLimitDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, blockedAccessKeyFields)
+  const recoverable = projectBoolean(record.recoverable)
+  const nextAvailable = projectNullableEpochMilliseconds(record.next_available_at_ms)
+  const blockingRules = projectArray(record.blocking_rules, projectAccessKeyCostLimitRuleStatus)
+  if (
+    blockingRules.length === 0 ||
+    blockingRules.some((rule) => rule.status !== 'exhausted') ||
+    (recoverable &&
+      (nextAvailable === null || blockingRules.some((rule) => rule.kind !== 'periodic'))) ||
+    (!recoverable &&
+      (nextAvailable !== null || !blockingRules.some((rule) => rule.kind === 'total')))
+  ) {
+    invalidResponse()
+  }
+  return {
+    access_key_id: projectSafeInteger(record.access_key_id, { minimum: 1 }),
+    name: projectNonBlankString(record.name),
+    masked_key: projectString(record.masked_key),
+    recoverable,
+    next_available_at_ms: nextAvailable,
+    blocking_rules: blockingRules,
+  }
+}
+
 function projectRequestLogHealth(value: unknown): RequestLogHealthDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, requestLogFields)
@@ -244,6 +281,7 @@ export function projectRuntimeHealth(value: unknown): RuntimeHealthDto {
     cooldown_credentials: projectArray(record.cooldown_credentials, projectProblemCredential),
     blacklisted_credentials: projectArray(record.blacklisted_credentials, projectProblemCredential),
     low_quota_credentials: projectArray(record.low_quota_credentials, projectQuotaCredential),
+    blocked_access_keys: projectArray(record.blocked_access_keys, projectBlockedAccessKey),
     request_log: projectRequestLogHealth(record.request_log),
   }
 }

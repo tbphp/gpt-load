@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/affinity"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
@@ -98,6 +99,7 @@ type Handler struct {
 	limiter             AccessKeyRPMLimiter
 	requestLogSink      telemetry.RequestLogSink
 	priceTables         PriceTableProvider
+	accessQuota         *accessquota.Runtime
 	newRandom           func() *rand.Rand
 	newRequestID        func() (string, error)
 	requestNow          func() time.Time
@@ -138,6 +140,7 @@ func NewHandler(
 	limiter AccessKeyRPMLimiter,
 	requestLogSink telemetry.RequestLogSink,
 	priceTables PriceTableProvider,
+	accessQuotas ...*accessquota.Runtime,
 ) *Handler {
 	if limiter == nil {
 		limiter = unlimitedAccessKeyRPMLimiter{}
@@ -147,7 +150,7 @@ func NewHandler(
 	}
 	channels := channel.NewRegistry()
 	subscriptions, _ := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
-	return &Handler{
+	handler := &Handler{
 		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
@@ -168,6 +171,13 @@ func NewHandler(
 			time.Now,
 		),
 	}
+	for _, runtime := range accessQuotas {
+		if runtime != nil {
+			handler.accessQuota = runtime
+			break
+		}
+	}
+	return handler
 }
 
 // NewHandlerWithLifecycle wires the process HTTP lifecycle coordinator into
@@ -186,6 +196,7 @@ func NewHandlerWithLifecycle(
 	limiter AccessKeyRPMLimiter,
 	requestLogSink telemetry.RequestLogSink,
 	priceTables PriceTableProvider,
+	accessQuota *accessquota.Runtime,
 	lifecycle *httplifecycle.Coordinator,
 ) *Handler {
 	handler := NewHandler(
@@ -199,6 +210,7 @@ func NewHandlerWithLifecycle(
 		limiter,
 		requestLogSink,
 		priceTables,
+		accessQuota,
 	)
 	if channelRegistry != nil {
 		handler.channels = channelRegistry
@@ -214,6 +226,12 @@ type unlimitedAccessKeyRPMLimiter struct{}
 
 func (unlimitedAccessKeyRPMLimiter) Allow(uint, int64) ratelimit.LimitDecision {
 	return ratelimit.LimitDecision{Allowed: true}
+}
+
+type requestAccessQuotaAdmission struct {
+	accessKeyID uint
+	ticket      accessquota.Ticket
+	admitted    bool
 }
 
 func (handler *Handler) applyCredentialAction(
@@ -304,8 +322,9 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		ginContext.Writer.Header().Set(requestIDHeader, requestID)
 	}
 
+	quotaAdmission := requestAccessQuotaAdmission{accessKeyID: accessKey.ID}
 	var recorder *requestRecorder
-	if selectedRoute.Kind == endpointForward && requestID != "" {
+	if selectedRoute.Kind == endpointForward {
 		recorder = newRequestRecorder(
 			handler.requestLogSink,
 			requestID,
@@ -319,10 +338,24 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 				ginContext.Writer.Written(),
 				ginContext.Writer.Status(),
 			)
+			if quotaAdmission.admitted && handler.accessQuota != nil {
+				completion := handler.accessQuota.Complete(
+					quotaAdmission.ticket,
+					recorder.estimatedCostNanoUSD(),
+				)
+				handler.logAccessQuotaCompletionFault(accessKey.ID, completion)
+			}
 			recorder.emit()
 		}()
 	}
 
+	if handler.accessQuota != nil {
+		quotaDecision := handler.accessQuota.Check(accessKey.ID, handler.quotaNow())
+		if !quotaDecision.Allowed {
+			handler.completeAccessQuotaReason(ginContext, recorder, quotaDecision)
+			return
+		}
+	}
 	limitDecision := handler.limiter.Allow(accessKey.ID, accessKey.RPMLimit)
 	if !limitDecision.Allowed {
 		ginContext.Writer.Header().Set(
@@ -474,6 +507,33 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		metadata.RouteRequirement,
 		requestAffinity,
 		recorder,
+		&quotaAdmission,
+	)
+}
+
+func (handler *Handler) quotaNow() time.Time {
+	if handler != nil && handler.now != nil {
+		return handler.now()
+	}
+	return time.Now()
+}
+
+func (handler *Handler) logAccessQuotaCompletionFault(
+	accessKeyID uint,
+	completion accessquota.CompletionResult,
+) {
+	if completion.Fault == "" {
+		return
+	}
+	utils.LogPlaneBestEffort(
+		handler.logger,
+		logrus.ErrorLevel,
+		utils.LogPlaneData,
+		logrus.Fields{
+			"access_key_id": accessKeyID,
+			"failure_type":  string(completion.Fault),
+		},
+		"Access key cost limit accounting saturated",
 	)
 }
 
@@ -582,6 +642,7 @@ func (handler *Handler) executeAttempts(
 	routeRequirement execution.RouteRequirement,
 	requestAffinity requestAffinity,
 	recorder *requestRecorder,
+	quotaAdmission *requestAccessQuotaAdmission,
 ) {
 	type deferredAttempt struct {
 		result        UpstreamResult
@@ -654,6 +715,18 @@ func (handler *Handler) executeAttempts(
 		if err != nil {
 			continue
 		}
+		if quotaAdmission != nil && !quotaAdmission.admitted && handler.accessQuota != nil {
+			ticket, decision := handler.accessQuota.Admit(
+				quotaAdmission.accessKeyID,
+				handler.quotaNow(),
+			)
+			if !decision.Allowed {
+				handler.completeAccessQuotaReason(ginContext, recorder, decision)
+				return
+			}
+			quotaAdmission.ticket = ticket
+			quotaAdmission.admitted = true
+		}
 
 		attempts++
 		if attempts == 1 && requestAffinity.preferredCredentialID != 0 &&
@@ -662,7 +735,7 @@ func (handler *Handler) executeAttempts(
 		}
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
 		executionRequestID := "untracked"
-		if recorder != nil {
+		if recorder != nil && recorder.requestID != "" {
 			executionRequestID = recorder.requestID
 		}
 		input := ForwardInput{

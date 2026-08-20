@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/app"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/control"
@@ -31,6 +32,7 @@ import (
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
@@ -57,6 +59,104 @@ func TestBuildContainerDoesNotInitializeUnusedRuntimeStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve database: %v", err)
 	}
+}
+
+func TestBuildContainerRestoresAndReconcilesAccessKeyCostLimits(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		runtimeState app.RuntimeStateLoader,
+		quotaRuntime *accessquota.Runtime,
+		requestLogRuntime *requestlog.Service,
+		manager *state.Manager,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		if migrateErr := storage.AutoMigrate(db); migrateErr != nil {
+			t.Fatalf("AutoMigrate() error = %v", migrateErr)
+		}
+		accessKey := models.AccessKey{
+			Name: "limited", KeyValue: "cipher", KeyHash: "limited-hash",
+			KeySuffix: "0abc", Status: "active", Filters: models.JSON(`{}`),
+		}
+		if createErr := db.Create(&accessKey).Error; createErr != nil {
+			t.Fatalf("create access key: %v", createErr)
+		}
+		rule := models.AccessKeyCostLimitRule{
+			AccessKeyID: accessKey.ID, Kind: models.AccessKeyCostLimitKindTotal,
+			LimitNanoUSD: 100, RuleRevision: 1,
+		}
+		if createErr := db.Create(&rule).Error; createErr != nil {
+			t.Fatalf("create cost limit rule: %v", createErr)
+		}
+		if createErr := db.Create(&models.AccessKeyCostLimitState{
+			RuleID: rule.ID, RuleRevision: 1, UsedNanoUSD: 75, SnapshotVersion: 3,
+		}).Error; createErr != nil {
+			t.Fatalf("create cost limit state: %v", createErr)
+		}
+
+		if loadErr := runtimeState.Load(t.Context()); loadErr != nil {
+			t.Fatalf("Load() error = %v", loadErr)
+		}
+		view := quotaRuntime.Snapshot(accessKey.ID, time.Now())
+		if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 75 || view.Rules[0].LimitNanoUSD != 100 {
+			t.Fatalf("restored view = %#v", view)
+		}
+		if startErr := requestLogRuntime.Start(); startErr != nil {
+			t.Fatalf("start request log runtime: %v", startErr)
+		}
+		t.Cleanup(func() { _ = requestLogRuntime.Stop(context.Background()) })
+		ticket, quotaDecision := quotaRuntime.Admit(accessKey.ID, time.Now())
+		if !quotaDecision.Allowed {
+			t.Fatalf("Admit() = %#v", quotaDecision)
+		}
+		quotaRuntime.Complete(ticket, 5)
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			var persisted models.AccessKeyCostLimitState
+			if queryErr := db.First(&persisted, rule.ID).Error; queryErr != nil {
+				t.Fatalf("read checkpoint: %v", queryErr)
+			}
+			if persisted.UsedNanoUSD == 80 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("checkpoint used = %d, want 80", persisted.UsedNanoUSD)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		input, buildErr := stateloader.BuildCompileInput(t.Context(), db)
+		if buildErr != nil {
+			t.Fatalf("BuildCompileInput() error = %v", buildErr)
+		}
+		input.AccessKeys[0].CostLimitRules[0].LimitNanoUSD = 50
+		if _, publishErr := manager.Publish(input); publishErr != nil {
+			t.Fatalf("Publish() error = %v", publishErr)
+		}
+		if decision := quotaRuntime.Check(accessKey.ID, time.Now()); decision.Allowed {
+			t.Fatalf("Check() = %#v, want lowered limit to block", decision)
+		}
+	})
+	if err == nil {
+		return
+	}
+	if strings.Contains(err.Error(), "missing type: *accessquota.Runtime") {
+		t.Fatalf("access quota runtime is not wired: %v", err)
+	}
+	t.Fatalf("resolve cost limit graph: %v", err)
 }
 
 func TestBuildContainerPublishesCodexSubscriptionGroup(t *testing.T) {
