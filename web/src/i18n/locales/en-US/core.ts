@@ -7,6 +7,7 @@ export default {
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Copy failed',
+    copyReady: 'Ready to copy. Click again to copy.',
     pagination: {
       label: 'Pagination',
       total: 'Total: {total}',

@@ -1,3 +1,7 @@
+export function canWriteToClipboardNatively(): boolean {
+  return typeof globalThis.navigator?.clipboard?.writeText === 'function'
+}
+
 function copyWithLegacyCommand(value: string): void {
   const previousFocus =
     document.activeElement instanceof HTMLElement ? document.activeElement : null

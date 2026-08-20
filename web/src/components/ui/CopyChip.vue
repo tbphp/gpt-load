@@ -8,8 +8,9 @@ import {
   TooltipTrigger,
 } from 'reka-ui'
 import { onBeforeUnmount, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
-import { copyText } from '@/lib/clipboard'
+import { canWriteToClipboardNatively, copyText } from '@/lib/clipboard'
 import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = withDefaults(
@@ -28,32 +29,60 @@ const props = withDefaults(
   { resolveValue: undefined, layout: 'leading' },
 )
 
-type CopyState = 'idle' | 'success' | 'failure'
+type CopyState = 'idle' | 'ready' | 'success' | 'failure'
 
+const { t } = useI18n()
 const state = ref<CopyState>('idle')
+const preparedValue = ref<string>()
 let resetTimer: ReturnType<typeof setTimeout> | undefined
 
 function scheduleReset(): void {
   if (resetTimer !== undefined) clearTimeout(resetTimer)
   resetTimer = setTimeout(() => {
     state.value = 'idle'
+    preparedValue.value = undefined
     resetTimer = undefined
   }, 2_000)
 }
 
 async function copyValue(): Promise<void> {
+  if (preparedValue.value !== undefined) {
+    const value = preparedValue.value
+    preparedValue.value = undefined
+    try {
+      await copyText(value)
+      state.value = 'success'
+    } catch {
+      state.value = 'failure'
+    }
+    scheduleReset()
+    return
+  }
+
+  let value: string | undefined
   try {
-    const value = props.resolveValue ? await props.resolveValue() : props.value
-    await copyText(value)
-    state.value = 'success'
+    value = props.resolveValue ? await props.resolveValue() : props.value
+    if (props.resolveValue && !canWriteToClipboardNatively()) {
+      preparedValue.value = value
+      state.value = 'ready'
+    } else {
+      await copyText(value)
+      state.value = 'success'
+    }
   } catch {
-    state.value = 'failure'
+    if (value !== undefined && props.resolveValue) {
+      preparedValue.value = value
+      state.value = 'ready'
+    } else {
+      state.value = 'failure'
+    }
   }
   scheduleReset()
 }
 
 onBeforeUnmount(() => {
   if (resetTimer !== undefined) clearTimeout(resetTimer)
+  preparedValue.value = undefined
 })
 </script>
 
@@ -98,7 +127,13 @@ onBeforeUnmount(() => {
             role="status"
             aria-live="polite"
           >
-            {{ state === 'success' ? successLabel : failureLabel }}
+            {{
+              state === 'ready'
+                ? t('common.copyReady')
+                : state === 'success'
+                  ? successLabel
+                  : failureLabel
+            }}
           </TooltipContent>
         </TooltipPortal>
       </TooltipRoot>
@@ -159,6 +194,7 @@ onBeforeUnmount(() => {
 }
 
 .copy-chip:hover,
+.copy-chip[data-state='ready'],
 .copy-chip[data-state='success'],
 .copy-chip[data-state='failure'] {
   background: var(--color-surface-sunken);
@@ -167,6 +203,10 @@ onBeforeUnmount(() => {
 
 .copy-chip[data-state='success'] {
   color: var(--color-success);
+}
+
+.copy-chip[data-state='ready'] {
+  color: var(--color-action);
 }
 
 .copy-chip[data-state='failure'] {

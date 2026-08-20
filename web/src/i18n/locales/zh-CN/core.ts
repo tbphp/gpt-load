@@ -7,6 +7,7 @@ export default {
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
+    copyReady: '内容已准备好，请再次点击复制',
     pagination: {
       label: '分页',
       total: '共 {total} 条',

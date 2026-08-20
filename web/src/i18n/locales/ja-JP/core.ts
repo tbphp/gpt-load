@@ -7,6 +7,7 @@ export default {
     copy: 'コピー',
     copied: 'コピーしました',
     copyFailed: 'コピーに失敗しました',
+    copyReady: 'コピーの準備ができました。もう一度クリックしてコピーしてください',
     pagination: {
       label: 'ページ送り',
       total: '全 {total} 件',

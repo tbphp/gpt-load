@@ -67,6 +67,34 @@ func TestBrowserCompatibilityHelpersPreferNativeAPIsAndStaySilent(t *testing.T) 
 	}
 }
 
+func TestAsyncSecretCopyKeepsAnExplicitLegacyClipboardGesture(t *testing.T) {
+	copyChip := readRepositoryFile(t, "web/src/components/ui/CopyChip.vue")
+	assertOrderedSubstrings(t, copyChip,
+		"const preparedValue = ref<string>()",
+		"if (preparedValue.value !== undefined)",
+		"await copyText(value)",
+		"if (props.resolveValue && !canWriteToClipboardNatively())",
+		"preparedValue.value = value",
+		"state.value = 'ready'",
+	)
+	if !strings.Contains(copyChip, "t('common.copyReady')") {
+		t.Fatal("CopyChip does not explain the second legacy-copy click")
+	}
+
+	gateway := readRepositoryFile(t, "web/src/features/home/GatewayConnection.vue")
+	for _, required := range []string{
+		"let preparedLegacyCopy: PreparedLegacyCopy | undefined",
+		"function prepareLegacyCopy(",
+		"async function copyPreparedLegacyValue(",
+		"if (!canWriteToClipboardNatively() && !props.selfScoped)",
+		"return prepareLegacyCopy(identity, target, value)",
+	} {
+		if !strings.Contains(gateway, required) {
+			t.Fatalf("GatewayConnection does not contain %q", required)
+		}
+	}
+}
+
 func assertOrderedSubstrings(t *testing.T, content string, values ...string) {
 	t.Helper()
 	previous := -1
