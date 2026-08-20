@@ -287,12 +287,15 @@ func TestRequestLogWorkerRetriesQuotaCheckpointWithoutClearingDirtyVersion(t *te
 	receiveValue(t, timers.created).Fire()
 	first := receiveValue(t, writes)
 	failureDeadline := time.Now().Add(time.Second)
-	for !service.Stats().AccessQuotaCheckpointDegraded && time.Now().Before(failureDeadline) {
+	for {
+		stats := service.Stats()
+		if stats.AccessQuotaCheckpointDegraded && stats.AccessQuotaCheckpointWriteFailureTotal == 1 {
+			break
+		}
+		if !time.Now().Before(failureDeadline) {
+			t.Fatalf("checkpoint state after failed write = %#v", stats)
+		}
 		time.Sleep(time.Millisecond)
-	}
-	if stats := service.Stats(); !stats.AccessQuotaCheckpointDegraded ||
-		stats.AccessQuotaCheckpointWriteFailureTotal != 1 {
-		t.Fatalf("checkpoint state after failed write = %#v", stats)
 	}
 	receiveValue(t, timers.created).Fire()
 	second := receiveValue(t, writes)
