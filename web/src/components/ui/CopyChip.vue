@@ -9,6 +9,7 @@ import {
 } from 'reka-ui'
 import { onBeforeUnmount, ref } from 'vue'
 
+import { copyText } from '@/lib/clipboard'
 import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = withDefaults(
@@ -42,9 +43,8 @@ function scheduleReset(): void {
 
 async function copyValue(): Promise<void> {
   try {
-    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
     const value = props.resolveValue ? await props.resolveValue() : props.value
-    await navigator.clipboard.writeText(value)
+    await copyText(value)
     state.value = 'success'
   } catch {
     state.value = 'failure'

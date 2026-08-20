@@ -19,6 +19,7 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import type { SearchableMultiSelectOption } from '@/components/ui/SearchableMultiSelect.vue'
+import { createUUID } from '@/lib/uuid'
 
 import {
   accessKeyProtocolOptions,
@@ -252,7 +253,7 @@ async function resetForOpen(): Promise<void> {
       : createAccessKeyDraft(props.accessKey)
   operationID.value = props.accessKey
     ? ''
-    : (carriedCreateOperation?.idempotencyKey ?? crypto.randomUUID())
+    : (carriedCreateOperation?.idempotencyKey ?? createUUID())
   createPayload.value = carriedCreateOperation
     ? cloneAccessKeyCreatePayload(carriedCreateOperation.payload)
     : null
@@ -461,7 +462,7 @@ async function save(): Promise<void> {
     })
     failed.value = outcome.kind === 'failed'
     if (!currentBase && outcome.kind === 'failed' && outcome.reason === 'rejected') {
-      operationID.value = crypto.randomUUID()
+      operationID.value = createUUID()
       createPayload.value = null
       createOperationRetained.value = false
       emit('update:createOperation', null)

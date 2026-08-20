@@ -53,6 +53,7 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SubscriptionCredentialStager from '@/features/import/SubscriptionCredentialStager.vue'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
+import { createUUID } from '@/lib/uuid'
 
 import CredentialBatchBar from './GroupCredentialBatchBar.vue'
 import CredentialRecord from './GroupCredentialRecord.vue'
@@ -621,7 +622,7 @@ async function loadCredentialUsage(item: CredentialItemDto): Promise<void> {
 
 function openResetCreditDialog(item: CredentialItemDto): void {
   if (pending(item.credential_id)) return
-  const idempotencyKey = resetOperationKeys.get(item.credential_id) ?? crypto.randomUUID()
+  const idempotencyKey = resetOperationKeys.get(item.credential_id) ?? createUUID()
   resetOperationKeys.set(item.credential_id, idempotencyKey)
   resetTarget.value = { item, idempotencyKey }
 }
@@ -724,7 +725,7 @@ async function saveConnectedAccounts(): Promise<void> {
   let succeeded = false
   setPending(0, 'connect', true)
   try {
-    connectOperationKey.value ??= crypto.randomUUID()
+    connectOperationKey.value ??= createUUID()
     const result = await connectGroupCredentials(
       client,
       props.groupId,

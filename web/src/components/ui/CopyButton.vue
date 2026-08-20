@@ -2,6 +2,8 @@
 import { Check, Copy } from '@lucide/vue'
 import { onBeforeUnmount, ref } from 'vue'
 
+import { copyText } from '@/lib/clipboard'
+
 const props = defineProps<{
   value: string
   label: string
@@ -13,7 +15,7 @@ let resetTimer: number | undefined
 
 async function copy(): Promise<void> {
   try {
-    await navigator.clipboard.writeText(props.value)
+    await copyText(props.value)
     state.value = 'success'
   } catch {
     state.value = 'failure'

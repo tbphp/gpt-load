@@ -16,6 +16,7 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import CopyAction from '@/components/ui/CopyAction.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
+import { copyText } from '@/lib/clipboard'
 
 import ClientPicker from './ClientPicker.vue'
 import HomeSectionHeading from './HomeSectionHeading.vue'
@@ -139,7 +140,7 @@ async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }):
     const entry = clientFieldList.value.find((candidate) => candidate.id === field.id)
     if (!entry) return
     try {
-      await navigator.clipboard.writeText(entry.value)
+      await copyText(entry.value)
       setImmediateFeedback(field.id, 'success')
     } catch {
       setImmediateFeedback(field.id, 'failure')
@@ -149,7 +150,7 @@ async function copyField(field: { id: 'baseUrl' | 'apiKey'; secret?: boolean }):
   const clientID = activeClient.value
   await withRevealedKey(field.id, clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    await navigator.clipboard.writeText(key)
+    await copyText(key)
   })
 }
 
@@ -392,7 +393,7 @@ async function copyAccessKey(): Promise<void> {
   const clientID = activeClient.value
   await withRevealedKey('key', clientID, async (key, isCurrent) => {
     if (!isCurrent()) return
-    await navigator.clipboard.writeText(key)
+    await copyText(key)
   })
 }
 
@@ -402,7 +403,7 @@ async function copyClientConfiguration(): Promise<void> {
 
   if (clientID === 'codex') {
     try {
-      await navigator.clipboard.writeText(maskedSnippet.value)
+      await copyText(maskedSnippet.value)
       setImmediateFeedback('configuration', 'success')
     } catch {
       setImmediateFeedback('configuration', 'failure')
@@ -423,7 +424,7 @@ async function copyClientConfiguration(): Promise<void> {
         `GPT-Load · ${selectedKey.value?.name ?? ''}`,
       )
       if (!isCurrent()) return
-      await navigator.clipboard.writeText(configuration)
+      await copyText(configuration)
     } finally {
       configuration = undefined
     }
