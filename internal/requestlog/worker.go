@@ -816,7 +816,6 @@ func (service *Service) collectAndWrite(ctx context.Context, first queuedEvent, 
 			batch = append(batch, event)
 		case <-service.quotaWake:
 		case <-timer.C():
-			batch = service.drainQueuedEvents(batch)
 			service.writeBatch(ctx, batch)
 			return true
 		}
@@ -829,18 +828,6 @@ func (service *Service) collectAndWrite(ctx context.Context, first queuedEvent, 
 	}
 	service.writeBatch(ctx, batch)
 	return true
-}
-
-func (service *Service) drainQueuedEvents(batch []queuedEvent) []queuedEvent {
-	for len(batch) < batchSize {
-		select {
-		case event := <-service.queue:
-			batch = append(batch, event)
-		default:
-			return batch
-		}
-	}
-	return batch
 }
 
 func (service *Service) drain(ctx context.Context, batch []queuedEvent) {

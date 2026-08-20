@@ -374,6 +374,11 @@ watch(activeClient, (value, previous) => {
   quickImportConfirmationOpen.value = false
 })
 
+watch(ccSwitchModel, (value, previous) => {
+  if (value === previous || preparedLegacyCopy?.target !== 'configuration') return
+  invalidateSensitiveAction()
+})
+
 watch(
   () => selectedKey.value?.protocols,
   () => selectFirstSupportedCCSwitchTarget(),

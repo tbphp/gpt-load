@@ -95,6 +95,19 @@ func TestAsyncSecretCopyKeepsAnExplicitLegacyClipboardGesture(t *testing.T) {
 	}
 }
 
+func TestPreparedLegacyConfigurationTracksCurrentModel(t *testing.T) {
+	gateway := readRepositoryFile(t, "web/src/features/home/GatewayConnection.vue")
+	for _, required := range []string{
+		"watch(ccSwitchModel, (value, previous) => {",
+		"preparedLegacyCopy?.target !== 'configuration'",
+		"invalidateSensitiveAction()",
+	} {
+		if !strings.Contains(gateway, required) {
+			t.Fatalf("GatewayConnection does not contain %q", required)
+		}
+	}
+}
+
 func assertOrderedSubstrings(t *testing.T, content string, values ...string) {
 	t.Helper()
 	previous := -1
