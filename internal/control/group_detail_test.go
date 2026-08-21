@@ -20,18 +20,22 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 	fixture := newServiceFixture(t)
 	available := createGroupCollectionGroup(t, fixture, "summary-available", true, nil)
 	unavailable := createGroupCollectionGroup(t, fixture, "summary-unavailable", true, nil)
+	openAIWithoutModels := createGroupCollectionGroup(t, fixture, "summary-openai-no-models", true, nil)
 	disabled := createGroupCollectionGroup(t, fixture, "summary-disabled", false, nil)
 	noCredentials := createGroupCollectionGroup(t, fixture, "summary-no-credentials", true, nil)
 	setGroupCollectionChannel(t, fixture, available, channel.OpenAI, models.JSON(`{}`))
 	setGroupCollectionChannel(t, fixture, unavailable, channel.Anthropic, models.JSON(`{}`))
-	setGroupCollectionRoute(t, fixture, available, `["openai-responses"]`, `[]`)
+	setGroupCollectionChannel(t, fixture, openAIWithoutModels, channel.OpenAI, models.JSON(`{}`))
+	setGroupCollectionRoute(t, fixture, available, `["openai-responses"]`, `[{"id":"gpt-test"}]`)
 	setGroupCollectionRoute(t, fixture, unavailable, `["openai-completions"]`, `[]`)
+	setGroupCollectionRoute(t, fixture, openAIWithoutModels, `["openai-responses"]`, `[]`)
 	setGroupCollectionRoute(t, fixture, disabled, `["openai-responses"]`, `[]`)
 	setGroupCollectionChannel(t, fixture, noCredentials, channel.Anthropic, models.JSON(`{}`))
 	setGroupCollectionRoute(t, fixture, noCredentials, `["openai-completions"]`, `[{"id":"model"}]`)
 	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{
 		createGroupCollectionKey(t, fixture, available.ID, models.CredentialStatusActive, nil),
 		createGroupCollectionKey(t, fixture, unavailable.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, openAIWithoutModels.ID, models.CredentialStatusActive, nil),
 		createGroupCollectionKey(t, fixture, disabled.ID, models.CredentialStatusActive, nil),
 	})
 
@@ -44,6 +48,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 	}{
 		{name: "available", groupID: available.ID, wantStatus: GroupCollectionStatusAvailable, wantKeys: 1},
 		{name: "unavailable without models", groupID: unavailable.ID, wantStatus: GroupCollectionStatusUnavailable, wantReason: GroupUnavailableReasonNoModels, wantKeys: 1},
+		{name: "OpenAI unavailable without models", groupID: openAIWithoutModels.ID, wantStatus: GroupCollectionStatusUnavailable, wantReason: GroupUnavailableReasonNoModels, wantKeys: 1},
 		{name: "disabled", groupID: disabled.ID, wantStatus: GroupCollectionStatusDisabled, wantKeys: 1},
 		{name: "unavailable without credentials", groupID: noCredentials.ID, wantStatus: GroupCollectionStatusUnavailable, wantReason: GroupUnavailableReasonNoAvailableCredentials, wantKeys: 0},
 	} {

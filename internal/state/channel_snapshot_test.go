@@ -94,7 +94,7 @@ func TestCompileSelectsNativeVertexGeminiModePerModel(t *testing.T) {
 	}
 }
 
-func TestCompileIndexesNativeResponsesResourceOperationsWithoutModels(t *testing.T) {
+func TestCompileDoesNotIndexResponsesResourceOperationsWithoutModels(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := Compile(CompileInput{
@@ -113,14 +113,16 @@ func TestCompileIndexesNativeResponsesResourceOperationsWithoutModels(t *testing
 		execution.OperationResponsesDelete,
 		execution.OperationResponsesCancel,
 		execution.OperationResponsesInputItems,
+		execution.OperationResponsesPassthrough,
 	} {
-		got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][operation][NoModelRouteKey]
-		if len(got) != 1 || got[0].GroupID != 1 || got[0].Mode != channel.RouteNative {
-			t.Errorf("resource candidates for %q = %#v, want native OpenAI only", operation, got)
+		for name, index := range map[string]ExecutionCandidateIndex{
+			"execution candidates": snapshot.ExecutionCandidates,
+			"route catalog":        snapshot.ExecutionRouteCatalog,
+		} {
+			if got := index[protocol.OpenAIResponses][operation][NoModelRouteKey]; len(got) != 0 {
+				t.Errorf("%s for %q = %#v, want none", name, operation, got)
+			}
 		}
-	}
-	if got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesCreate]; len(got) != 0 {
-		t.Fatalf("model-less Responses create candidates = %#v, want none", got)
 	}
 }
 
@@ -139,6 +141,19 @@ func TestCompileIndexesAllNativeResponsesExtensions(t *testing.T) {
 	}
 
 	for _, operation := range []execution.Operation{
+		execution.OperationResponsesRetrieve,
+		execution.OperationResponsesDelete,
+		execution.OperationResponsesCancel,
+		execution.OperationResponsesInputItems,
+		execution.OperationResponsesPassthrough,
+	} {
+		got := snapshot.ExecutionCandidates[protocol.OpenAIResponses][operation][NoModelRouteKey]
+		if len(got) != 1 || got[0].GroupID != 1 || got[0].Mode != channel.RouteNative {
+			t.Errorf("resource candidates for %q = %#v, want native OpenAI only", operation, got)
+		}
+	}
+
+	for _, operation := range []execution.Operation{
 		execution.OperationResponsesCompact,
 		execution.OperationResponsesInputTokens,
 	} {
@@ -148,10 +163,6 @@ func TestCompileIndexesAllNativeResponsesExtensions(t *testing.T) {
 		}
 	}
 
-	noModel := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesPassthrough][NoModelRouteKey]
-	if len(noModel) != 1 || noModel[0].GroupID != 1 {
-		t.Fatalf("model-less passthrough candidates = %#v", noModel)
-	}
 	withModel := snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesPassthrough]["public"]
 	if len(withModel) != 1 || withModel[0].UpstreamModelID != "official-upstream" {
 		t.Fatalf("model passthrough candidates = %#v", withModel)
