@@ -83,7 +83,7 @@ func TestDownloadGroupCredentialHTTPReturnsJSONObjectAndNoStoreHeaders(t *testin
 	}
 }
 
-func TestRefreshGroupCredentialForcesTokenRefreshBeforeObservation(t *testing.T) {
+func TestRefreshGroupCredentialOnlyRefreshesToken(t *testing.T) {
 	t.Parallel()
 
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
@@ -117,14 +117,16 @@ func TestRefreshGroupCredentialForcesTokenRefreshBeforeObservation(t *testing.T)
 		}
 		return runtimeCredential, nil
 	}
+	observationCalls := 0
 	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		observationCalls++
 		return codex.AccountObservation{Payload: []byte(`{"quota_windows":[]}`)}, nil
 	})
 
 	if _, err := fixture.service.RefreshGroupCredential(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}
-	if len(forces) < 2 || !forces[0] || forces[1] {
-		t.Fatalf("prepare force calls = %#v", forces)
+	if len(forces) != 1 || !forces[0] || observationCalls != 0 {
+		t.Fatalf("prepare force calls = %#v, observation calls = %d", forces, observationCalls)
 	}
 }

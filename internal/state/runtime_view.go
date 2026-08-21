@@ -34,11 +34,6 @@ func (view CredentialRuntimeView) FreshQuotaRemaining(now time.Time) *float64 {
 	return cloneFloat(view.QuotaRemaining)
 }
 
-func (view CredentialRuntimeView) QuotaExhausted(now time.Time) bool {
-	remaining := view.FreshQuotaRemaining(now)
-	return remaining != nil && *remaining <= 0
-}
-
 type CredentialRuntimeState string
 
 const (

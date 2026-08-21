@@ -441,15 +441,6 @@ func (r *Registry) SupportsAuthorizationMethod(id ID, method AuthorizationMethod
 	return false
 }
 
-// SchedulingPolicy returns immutable scheduling metadata for one channel.
-func (r *Registry) SchedulingPolicy(id ID) (spec.SchedulingPolicy, bool) {
-	definition, ok := r.lookup(id)
-	if !ok {
-		return spec.SchedulingPolicy{}, false
-	}
-	return definition.scheduling, true
-}
-
 // FixedBaseURL returns the code-owned endpoint for a fixed preset.
 func (r *Registry) FixedBaseURL(id ID) (string, bool) {
 	definition, ok := r.lookup(id)
@@ -634,7 +625,6 @@ type definition struct {
 	providerKind       ProviderKind
 	connection         spec.Connection
 	capabilities       spec.CapabilityBindings
-	scheduling         spec.SchedulingPolicy
 	endpointPolicy     spec.EndpointPolicy
 	fixedBaseURL       string
 	fixedTargetConfig  json.RawMessage

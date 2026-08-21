@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -131,17 +132,50 @@ func (s *Service) ConsumeCredentialResetCredit(
 	}
 
 	response := resetCreditResponse(result, false)
-	observation, observationErr := s.refreshCredentialObservation(
-		ctx,
-		groupID,
-		credentialID,
-		observationRefreshAfterMutation,
+	invalidationContext, cancelInvalidation := context.WithTimeout(
+		context.Background(),
+		controlTransactionCleanupTimeout,
 	)
-	if observation.State != "" {
-		response.Observation = &observation
+	observation, observationErr := s.invalidateCredentialObservationAfterReset(
+		invalidationContext, credential, previousObservation,
+	)
+	cancelInvalidation()
+	if observation != nil {
+		response.Observation = observation
 	}
-	response.ObservationPending = observationErr != nil
+	if observationErr != nil {
+		utils.LogPlaneBestEffort(
+			logrus.StandardLogger(),
+			logrus.WarnLevel,
+			utils.LogPlaneControl,
+			logrus.Fields{"credential_id": credentialID, "group_id": groupID},
+			"Reset credit was consumed but the previous credential observation could not be invalidated",
+		)
+	}
 	return response, nil
+}
+
+func (s *Service) invalidateCredentialObservationAfterReset(
+	ctx context.Context,
+	credential models.Credential,
+	previous models.CredentialObservation,
+) (*CredentialObservationResponse, error) {
+	if s.registry != nil {
+		s.registry.SetCredentialQuotaObservation(credential.ID, nil, time.Time{}, time.Time{})
+	}
+	if previous.CredentialID == 0 || previous.IdentityFingerprint != credential.IdentityFingerprint {
+		return nil, nil
+	}
+	previous.State = models.CredentialObservationStale
+	previous.FreshUntilMS = nil
+	previous.NextAllowedAtMS = nil
+	previous.LastErrorCode = ""
+	previous.UpdatedAtMS = s.now().UTC().UnixMilli()
+	if err := s.upsertCredentialObservation(ctx, previous); err != nil {
+		return nil, err
+	}
+	response := mapCredentialObservation(previous)
+	return &response, nil
 }
 
 func (s *Service) restoreCredentialRuntimeAfterReset(credentialID uint) bool {

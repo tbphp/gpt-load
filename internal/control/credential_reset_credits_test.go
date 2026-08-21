@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 const resetCreditTestKey = "9f0f4c32-89d2-4bcb-9e19-052940dc2f16"
 
-func TestConsumeCredentialResetCreditIsDurablyIdempotentAndForcesObservation(t *testing.T) {
+func TestConsumeCredentialResetCreditIsDurablyIdempotentWithoutRefreshingObservation(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	consumeCalls := 0
 	setCodexResetCreditConsume(t, fixture.service, func(_ context.Context, _ codex.Credential, redeemRequestID string) (codex.AccountObservation, error) {
@@ -46,14 +47,26 @@ func TestConsumeCredentialResetCreditIsDurablyIdempotentAndForcesObservation(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if consumeCalls != 1 || observationCalls != 1 || first.Status != "succeeded" || first.WindowsReset != 1 ||
-		first.Observation == nil || second.Status != first.Status || !second.Replayed {
+	if consumeCalls != 1 || observationCalls != 0 || first.Status != "succeeded" || first.WindowsReset != 1 ||
+		first.Observation != nil || first.ObservationPending || second.Status != first.Status || !second.Replayed {
 		t.Fatalf("calls=%d/%d first=%#v second=%#v", consumeCalls, observationCalls, first, second)
 	}
 }
 
-func TestConsumeCredentialResetCreditOmitsInvalidObservationAfterSuccess(t *testing.T) {
+func TestConsumeCredentialResetCreditInvalidatesFreshObservationWithoutRefreshing(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 14, 11, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	observationCalls := 0
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		observationCalls++
+		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
+			"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":100,"reset_at":%d}}
+		}`, now.Add(5*time.Hour).Unix()))}, nil
+	})
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
 		cancel()
@@ -69,8 +82,13 @@ func TestConsumeCredentialResetCreditOmitsInvalidObservationAfterSuccess(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "succeeded" || !result.ObservationPending || result.Observation != nil {
-		t.Fatalf("result = %#v, want succeeded with pending omitted observation", result)
+	if result.Status != "succeeded" || result.ObservationPending || result.Observation == nil ||
+		result.Observation.State != string(models.CredentialObservationStale) || observationCalls != 1 {
+		t.Fatalf("result/calls = %#v/%d, want succeeded with stale observation", result, observationCalls)
+	}
+	stored, err := fixture.service.GetCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil || stored.State != string(models.CredentialObservationStale) {
+		t.Fatalf("stored observation/error = %#v/%v", stored, err)
 	}
 }
 
@@ -202,7 +220,7 @@ func TestConsumeCredentialResetCreditBlocksNewKeyUntilSuccessIsObserved(t *testi
 	})
 
 	first, err := fixture.service.ConsumeCredentialResetCredit(t.Context(), groupID, credentialID, resetCreditTestKey)
-	if err != nil || !first.ObservationPending {
+	if err != nil || first.ObservationPending {
 		t.Fatalf("first response/error = %#v / %v", first, err)
 	}
 	secondKey := "9f0f4c32-89d2-4bcb-9e19-052940dc2f17"
@@ -215,13 +233,8 @@ func TestConsumeCredentialResetCreditBlocksNewKeyUntilSuccessIsObserved(t *testi
 
 	now = now.Add(time.Minute)
 	observationHealthy = true
-	if _, err := fixture.service.refreshCredentialObservation(
-		t.Context(),
-		groupID,
-		credentialID,
-		observationRefreshAfterMutation,
-	); err != nil {
-		t.Fatalf("force observation refresh: %v", err)
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
+		t.Fatalf("manual observation refresh: %v", err)
 	}
 	thirdKey := "9f0f4c32-89d2-4bcb-9e19-052940dc2f18"
 	if _, err := fixture.service.ConsumeCredentialResetCredit(t.Context(), groupID, credentialID, thirdKey); err != nil {
@@ -247,6 +260,9 @@ func TestConsumeCredentialResetCreditAllowsNextKeyAfterSameMillisecondObservatio
 
 	if _, err := fixture.service.ConsumeCredentialResetCredit(t.Context(), groupID, credentialID, resetCreditTestKey); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
+		t.Fatalf("manual observation refresh: %v", err)
 	}
 	secondKey := "9f0f4c32-89d2-4bcb-9e19-052940dc2f19"
 	if _, err := fixture.service.ConsumeCredentialResetCredit(t.Context(), groupID, credentialID, secondKey); err != nil {

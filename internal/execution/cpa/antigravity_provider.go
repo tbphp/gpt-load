@@ -338,9 +338,11 @@ func (*antigravityProviderBridge) ClassifyError(
 	case status == http.StatusUnauthorized:
 		evidence.Hint = execution.FailureHintRefreshRequired
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
-	case status == http.StatusForbidden ||
-		status == http.StatusTooManyRequests && strings.EqualFold(codeValue, "INSUFFICIENT_G1_CREDITS_BALANCE"):
+	case status == http.StatusForbidden:
 		evidence.Hint = execution.FailureHintCandidateUnavailable
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	case status == http.StatusTooManyRequests && strings.EqualFold(codeValue, "INSUFFICIENT_G1_CREDITS_BALANCE"):
+		evidence.Hint = execution.FailureHintRateLimited
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	case requestScopedFailure(err):
 		evidence.Hint = execution.FailureHintRequestRejected

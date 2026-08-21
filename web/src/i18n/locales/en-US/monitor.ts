@@ -558,10 +558,7 @@ export default {
         credential_disabled: 'Credential is disabled',
         credential_blacklisted: 'Credential is blacklisted',
         credential_cooldown: 'Credential is cooling down',
-        credential_quota_exhausted: 'Subscription quota is exhausted and is skipped until recovery',
         credential_auth_unavailable: 'Subscription authentication is currently unavailable',
-        credential_quota_deprioritized:
-          'A subscription with more remaining quota is available, so this credential is not competing',
         credential_weight_zero: 'Credential effective weight is zero',
         credential_not_allowed: 'Credential is excluded from this request',
         no_available_credential: 'Group has no currently available credential',

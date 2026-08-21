@@ -17,27 +17,25 @@ var ErrInconsistentSnapshot = errors.New("inconsistent scheduler snapshot")
 type ReasonCode string
 
 const (
-	ReasonAccessKeyDisabled            ReasonCode = "access_key_disabled"
-	ReasonProtocolFiltered             ReasonCode = "protocol_filtered"
-	ReasonModelFiltered                ReasonCode = "model_filtered"
-	ReasonModelRequiredByFilter        ReasonCode = "model_required_by_filter"
-	ReasonOperationUnsupported         ReasonCode = "operation_unsupported"
-	ReasonNativeRouteRequired          ReasonCode = "native_route_required"
-	ReasonNoRouteTarget                ReasonCode = "no_route_target"
-	ReasonGroupDisabled                ReasonCode = "group_disabled"
-	ReasonGroupFiltered                ReasonCode = "group_filtered"
-	ReasonNoAvailableGroup             ReasonCode = "no_available_group"
-	ReasonNoCredentials                ReasonCode = "no_credentials"
-	ReasonGroupWeightZero              ReasonCode = "group_weight_zero"
-	ReasonCredentialDisabled           ReasonCode = "credential_disabled"
-	ReasonCredentialAuthUnavailable    ReasonCode = "credential_auth_unavailable"
-	ReasonCredentialBlacklisted        ReasonCode = "credential_blacklisted"
-	ReasonCredentialCooldown           ReasonCode = "credential_cooldown"
-	ReasonCredentialQuotaExhausted     ReasonCode = "credential_quota_exhausted"
-	ReasonCredentialQuotaDeprioritized ReasonCode = "credential_quota_deprioritized"
-	ReasonCredentialWeightZero         ReasonCode = "credential_weight_zero"
-	ReasonCredentialNotAllowed         ReasonCode = "credential_not_allowed"
-	ReasonNoAvailableCredential        ReasonCode = "no_available_credential"
+	ReasonAccessKeyDisabled         ReasonCode = "access_key_disabled"
+	ReasonProtocolFiltered          ReasonCode = "protocol_filtered"
+	ReasonModelFiltered             ReasonCode = "model_filtered"
+	ReasonModelRequiredByFilter     ReasonCode = "model_required_by_filter"
+	ReasonOperationUnsupported      ReasonCode = "operation_unsupported"
+	ReasonNativeRouteRequired       ReasonCode = "native_route_required"
+	ReasonNoRouteTarget             ReasonCode = "no_route_target"
+	ReasonGroupDisabled             ReasonCode = "group_disabled"
+	ReasonGroupFiltered             ReasonCode = "group_filtered"
+	ReasonNoAvailableGroup          ReasonCode = "no_available_group"
+	ReasonNoCredentials             ReasonCode = "no_credentials"
+	ReasonGroupWeightZero           ReasonCode = "group_weight_zero"
+	ReasonCredentialDisabled        ReasonCode = "credential_disabled"
+	ReasonCredentialAuthUnavailable ReasonCode = "credential_auth_unavailable"
+	ReasonCredentialBlacklisted     ReasonCode = "credential_blacklisted"
+	ReasonCredentialCooldown        ReasonCode = "credential_cooldown"
+	ReasonCredentialWeightZero      ReasonCode = "credential_weight_zero"
+	ReasonCredentialNotAllowed      ReasonCode = "credential_not_allowed"
+	ReasonNoAvailableCredential     ReasonCode = "no_available_credential"
 )
 
 type Inspection struct {
@@ -272,10 +270,6 @@ func inspectCredential(
 		result.Reason = ReasonCredentialCooldown
 		result.CooldownUntil = credential.CooldownUntil
 	default:
-		if credential.QuotaExhausted(now) {
-			result.Reason = ReasonCredentialQuotaExhausted
-			return result
-		}
 		result.Available = true
 		result.EffectiveWeight = effectiveWeight(
 			group.WeightManual,
@@ -284,35 +278,6 @@ func inspectCredential(
 		)
 	}
 	return result
-}
-
-func applyInspectionQuotaPriority(
-	group state.GroupCatalogView,
-	credentials []CredentialRuntimeView,
-	results []CredentialInspection,
-	now time.Time,
-) {
-	if !group.QuotaPriority || len(credentials) != len(results) {
-		return
-	}
-	priority := quotaPriority{}
-	for index, result := range results {
-		if !result.Available || result.EffectiveWeight <= 0 {
-			continue
-		}
-		priority = observeQuotaPriority(priority, credentials[index].FreshQuotaRemaining(now))
-	}
-	for index := range results {
-		if !results[index].Available || results[index].EffectiveWeight <= 0 {
-			continue
-		}
-		if quotaPriorityAllows(priority, credentials[index].FreshQuotaRemaining(now)) {
-			continue
-		}
-		results[index].Available = false
-		results[index].Reason = ReasonCredentialQuotaDeprioritized
-		results[index].EffectiveWeight = 0
-	}
 }
 
 func Inspect(
@@ -392,12 +357,6 @@ func Inspect(
 			)
 			groupResult.Credentials = append(groupResult.Credentials, credentialResult)
 		}
-		applyInspectionQuotaPriority(
-			decision.group,
-			groupCredentials,
-			groupResult.Credentials,
-			now,
-		)
 		for _, credential := range groupResult.Credentials {
 			if credential.Available && credential.EffectiveWeight > 0 {
 				groupResult.Routable = true

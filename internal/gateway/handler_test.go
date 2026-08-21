@@ -3149,6 +3149,60 @@ func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 	}
 }
 
+func TestSubscriptionRateLimitWithoutResetUsesTenMinuteCooldown(t *testing.T) {
+	attemptNow := time.Date(2026, time.August, 21, 10, 0, 0, 0, time.UTC)
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		StatusCode: http.StatusTooManyRequests,
+		ExecutionError: &execution.ErrorEvidence{
+			Kind: execution.ErrorKindHTTP, StatusCode: http.StatusTooManyRequests,
+			Hint: execution.FailureHintRateLimited, Summary: "subscription quota exceeded",
+		},
+	}}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "placeholder")
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	canonical := `{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-1"}`
+	encrypted, err := handler.encryption.Encrypt(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: encrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	handler.now = func() time.Time { return attemptNow }
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.Equal(attemptNow.Add(10*time.Minute)) {
+		t.Fatalf("subscription cooldown = %#v, want %v", views, attemptNow.Add(10*time.Minute))
+	}
+}
+
 func TestHandlerCooldownExcludesKeyAcrossRequests(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
 		{

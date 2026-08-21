@@ -9,7 +9,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -21,8 +20,8 @@ type CredentialDownloadResult struct {
 	Credential json.RawMessage `json:"credential"`
 }
 
-// RefreshGroupCredential forces a subscription token refresh, then refreshes
-// the account observation when the channel exposes that capability.
+// RefreshGroupCredential forces only the subscription token refresh. Account
+// observations are refreshed through their dedicated explicit action.
 func (s *Service) RefreshGroupCredential(
 	ctx context.Context,
 	groupID uint,
@@ -40,11 +39,6 @@ func (s *Service) RefreshGroupCredential(
 	}
 	if _, err := s.prepareStoredSubscriptionCredentialWithForce(ctx, group, credential, true); err != nil {
 		return CredentialItemResponse{}, err
-	}
-	if _, supported := s.subscriptions.QuotaObservation(channel.ID(group.ChannelID)); supported {
-		if _, err := s.RefreshCredentialObservation(ctx, groupID, credentialID); err != nil {
-			return CredentialItemResponse{}, err
-		}
 	}
 	return s.loadCredentialItem(ctx, groupID, credentialID)
 }

@@ -50,7 +50,6 @@ func Claude() spec.Module {
 				ModelDiscovery:     ClaudeModelDiscovery,
 				QuotaObservation:   ClaudeQuotaObservation,
 			},
-			Scheduling: spec.SchedulingPolicy{QuotaPriority: true},
 		},
 	}
 }

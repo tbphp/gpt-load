@@ -325,7 +325,7 @@ func TestInspectEligiblePoolMatchesIteratorCredentialAuthorization(t *testing.T)
 	}
 }
 
-func TestInspectEligiblePoolMatchesIteratorQuotaPriority(t *testing.T) {
+func TestInspectEligiblePoolMatchesIteratorWhenQuotaObservationsDiffer(t *testing.T) {
 	now := inspectNow()
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
@@ -371,9 +371,8 @@ func TestInspectEligiblePoolMatchesIteratorQuotaPriority(t *testing.T) {
 		t.Fatalf("Inspect() error = %v", err)
 	}
 	credentials := inspection.Groups[0].Credentials
-	if len(credentials) != 2 || credentials[0].Available ||
-		credentials[0].Reason != ReasonCode("credential_quota_deprioritized") ||
-		!credentials[1].Available {
+	if len(credentials) != 2 || !credentials[0].Available || !credentials[1].Available ||
+		credentials[0].Reason != "" || credentials[1].Reason != "" {
 		t.Fatalf("credential inspections = %#v", credentials)
 	}
 
@@ -385,8 +384,8 @@ func TestInspectEligiblePoolMatchesIteratorQuotaPriority(t *testing.T) {
 		func() time.Time { return now },
 	)
 	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
-	if len(weighted) != 1 || weighted[0].meta.ID != 72 {
-		t.Fatalf("Iterator pool = %#v, want only highest-quota credential 72", weighted)
+	if len(weighted) != 2 || weighted[0].meta.ID != 71 || weighted[1].meta.ID != 72 {
+		t.Fatalf("Iterator pool = %#v, want both weighted credentials", weighted)
 	}
 }
 
@@ -402,7 +401,7 @@ func TestInspectRejectsCatalogRegistryMismatch(t *testing.T) {
 	}
 }
 
-func TestInspectReportsFreshCredentialQuotaExhaustion(t *testing.T) {
+func TestInspectIgnoresFreshCredentialQuotaExhaustion(t *testing.T) {
 	now := inspectNow()
 	inspection, err := Inspect(inspectSnapshot(t), []state.CredentialRuntimeView{{
 		ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
@@ -417,7 +416,7 @@ func TestInspectReportsFreshCredentialQuotaExhaustion(t *testing.T) {
 		t.Fatal(err)
 	}
 	credential := inspection.Groups[0].Credentials[0]
-	if credential.Available || credential.Reason != ReasonCredentialQuotaExhausted {
+	if !credential.Available || credential.Reason != "" {
 		t.Fatalf("credential inspection = %#v", credential)
 	}
 }

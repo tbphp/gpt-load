@@ -49,6 +49,5 @@ func Grok() spec.Module {
 			ModelDiscovery:     GrokModelDiscovery,
 			QuotaObservation:   GrokQuotaObservation,
 		},
-		Scheduling: spec.SchedulingPolicy{QuotaPriority: true},
 	}}
 }
