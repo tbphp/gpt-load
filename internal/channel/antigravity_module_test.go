@@ -52,10 +52,6 @@ func TestAntigravityModuleDeclaresSubscriptionContract(t *testing.T) {
 		bindings.ResetCreditAction != "" {
 		t.Fatalf("Antigravity capabilities = %#v", bindings)
 	}
-	policy, ok := registry.SchedulingPolicy(Antigravity)
-	if !ok || policy.QuotaPriority {
-		t.Fatal("Antigravity unexpectedly enables quota-priority scheduling")
-	}
 	for _, test := range []struct {
 		clientProtocol protocol.Protocol
 		operation      execution.Operation

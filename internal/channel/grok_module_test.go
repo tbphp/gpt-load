@@ -45,9 +45,6 @@ func TestGrokModuleDeclaresCompleteSubscriptionContract(t *testing.T) {
 		bindings.QuotaObservation != modules.GrokQuotaObservation {
 		t.Fatalf("Grok capabilities = %#v, %t", bindings, ok)
 	}
-	if policy, ok := registry.SchedulingPolicy(Grok); !ok || !policy.QuotaPriority {
-		t.Fatalf("Grok scheduling = %#v, %t", policy, ok)
-	}
 	for _, test := range []struct {
 		clientProtocol protocol.Protocol
 		operation      execution.Operation

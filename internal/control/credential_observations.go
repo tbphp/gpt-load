@@ -20,11 +20,7 @@ import (
 	"gpt-load/internal/usage"
 )
 
-const (
-	observationRefreshFloor     = 5 * time.Minute
-	observationFreshTTL         = time.Hour
-	observationAuthRetryBackoff = time.Hour
-)
+const observationFreshTTL = time.Hour
 
 type ObservationPlanSummary struct {
 	Name  string `json:"name,omitempty"`
@@ -107,9 +103,8 @@ type CredentialDetailResponse struct {
 type observationRefreshMode uint8
 
 const (
-	observationRefreshScheduled observationRefreshMode = iota
-	observationRefreshManual
-	observationRefreshAfterMutation
+	observationRefreshManual observationRefreshMode = iota
+	observationRefreshAfterReset
 )
 
 type observationFlight struct {
@@ -117,7 +112,6 @@ type observationFlight struct {
 	result CredentialObservationResponse
 	err    error
 	joined int
-	mode   observationRefreshMode
 }
 
 type observationFlightKey struct {
@@ -150,7 +144,7 @@ func (s *Service) refreshCredentialObservation(
 		s.observationMu.Lock()
 		if existing := s.observationFlights[key]; existing != nil {
 			existing.joined++
-			followUp := mode == observationRefreshAfterMutation && existing.mode != observationRefreshAfterMutation
+			followUp := mode == observationRefreshAfterReset
 			s.observationMu.Unlock()
 			select {
 			case <-ctx.Done():
@@ -162,7 +156,7 @@ func (s *Service) refreshCredentialObservation(
 				return existing.result, existing.err
 			}
 		}
-		flight := &observationFlight{done: make(chan struct{}), mode: mode}
+		flight := &observationFlight{done: make(chan struct{})}
 		s.observationFlights[key] = flight
 		s.observationMu.Unlock()
 		defer func() {
@@ -176,6 +170,17 @@ func (s *Service) refreshCredentialObservation(
 	}
 }
 
+func (s *Service) credentialObservationRefreshInFlight(groupID, credentialID uint) bool {
+	if s == nil || groupID == 0 || credentialID == 0 {
+		return false
+	}
+	s.observationMu.Lock()
+	defer s.observationMu.Unlock()
+	return s.observationFlights[observationFlightKey{
+		groupID: groupID, credentialID: credentialID,
+	}] != nil
+}
+
 func (s *Service) refreshCredentialObservationOnce(
 	ctx context.Context,
 	groupID uint,
@@ -186,11 +191,12 @@ func (s *Service) refreshCredentialObservationOnce(
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
-	now := s.now().UTC()
-	if mode == observationRefreshScheduled && previous.IdentityFingerprint == credential.IdentityFingerprint &&
-		previous.NextAllowedAtMS != nil && now.UnixMilli() < *previous.NextAllowedAtMS {
-		return mapCredentialObservation(previous), nil
+	if mode == observationRefreshAfterReset {
+		if _, err := s.invalidateCredentialObservationAfterReset(ctx, credential, &previous); err != nil {
+			return CredentialObservationResponse{}, err
+		}
 	}
+	now := s.now().UTC()
 	preparedCredential, err := s.prepareStoredSubscriptionCredential(ctx, group, credential)
 	if err != nil {
 		return CredentialObservationResponse{}, err
@@ -202,7 +208,6 @@ func (s *Service) refreshCredentialObservationOnce(
 		return CredentialObservationResponse{}, ctx.Err()
 	}
 	attemptMS := now.UnixMilli()
-	nextAllowedMS := now.Add(observationRefreshFloor).UnixMilli()
 	observeContext, cancelObserve := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancelObserve()
 	channelID := channel.ID(group.ChannelID)
@@ -232,31 +237,30 @@ func (s *Service) refreshCredentialObservationOnce(
 	if observeErr != nil {
 		if errors.Is(observeErr, subscriptionruntime.ErrObservationPayloadInvalid) {
 			return s.recordCredentialObservationFailure(
-				ctx, credential, previous, attemptMS, nextAllowedMS,
+				ctx, credential, previous, attemptMS,
 				"observation_payload_invalid", "normalize subscription information", nil,
 			)
 		}
 		if status := subscriptionUpstreamHTTPStatus(observeErr); status == http.StatusUnauthorized ||
 			status == http.StatusForbidden {
-			nextAllowedMS = now.Add(observationAuthRetryBackoff).UnixMilli()
 			code, summary := "observation_authorization_failed", "authorize subscription information"
 			if status == http.StatusForbidden {
 				code, summary = "observation_access_denied", "access subscription information"
 			}
 			return s.recordCredentialObservationFailure(
-				ctx, credential, previous, attemptMS, nextAllowedMS,
+				ctx, credential, previous, attemptMS,
 				code, summary, authRefreshVersion,
 			)
 		}
 		return s.recordCredentialObservationFailure(
-			ctx, credential, previous, attemptMS, nextAllowedMS,
+			ctx, credential, previous, attemptMS,
 			"observation_upstream_failed", "refresh subscription information", nil,
 		)
 	}
 	var snapshot CredentialObservationSnapshot
 	if err := json.Unmarshal(observation.Payload, &snapshot); err != nil || snapshot.QuotaWindows == nil {
 		return s.recordCredentialObservationFailure(
-			ctx, credential, previous, attemptMS, nextAllowedMS,
+			ctx, credential, previous, attemptMS,
 			"observation_payload_invalid", "normalize subscription information", nil,
 		)
 	}
@@ -326,7 +330,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
 		SchemaVersion: 1, ObservationVersion: version, SnapshotJSON: models.JSON(encoded),
 		State: state, ObservedAtMS: &attemptMS,
-		FreshUntilMS: freshUntilMS, LastAttemptAtMS: &attemptMS, NextAllowedAtMS: &nextAllowedMS,
+		FreshUntilMS: freshUntilMS, LastAttemptAtMS: &attemptMS,
 		LastErrorCode: lastErrorCode, UpdatedAtMS: attemptMS,
 	}
 	if err := s.upsertCredentialObservation(ctx, row); err != nil {
@@ -441,7 +445,6 @@ func (s *Service) recordCredentialObservationFailure(
 	credential models.Credential,
 	previous models.CredentialObservation,
 	attemptMS int64,
-	nextAllowedMS int64,
 	code string,
 	summary string,
 	authRefreshSecretVersion *uint64,
@@ -460,7 +463,7 @@ func (s *Service) recordCredentialObservationFailure(
 		failed.State = models.CredentialObservationError
 	}
 	failed.LastAttemptAtMS = &attemptMS
-	failed.NextAllowedAtMS = &nextAllowedMS
+	failed.NextAllowedAtMS = nil
 	failed.LastErrorCode = code
 	failed.UpdatedAtMS = attemptMS
 	if authRefreshSecretVersion != nil {

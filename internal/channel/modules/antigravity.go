@@ -50,7 +50,6 @@ func Antigravity() spec.Module {
 				ModelDiscovery:     AntigravityModelDiscovery,
 				QuotaObservation:   AntigravityQuotaObservation,
 			},
-			Scheduling: spec.SchedulingPolicy{QuotaPriority: false},
 		},
 	}
 }

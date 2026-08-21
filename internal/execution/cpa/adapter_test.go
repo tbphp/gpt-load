@@ -142,6 +142,18 @@ func TestAdapterMapsAnySubscription401ToSafeRefresh(t *testing.T) {
 	}
 }
 
+func TestAdapterMapsCodexQuotaFailureToRateLimit(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	setCodexExecutor(t, adapter, &fakeExecutor{err: statusError{
+		status:  http.StatusTooManyRequests,
+		message: `{"error":{"type":"rate_limit_error","code":"quota_exceeded"}}`,
+	}})
+	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
+	if result.Error == nil || result.Error.Hint != execution.FailureHintRateLimited {
+		t.Fatalf("error evidence = %#v", result.Error)
+	}
+}
+
 func TestAdapterMapsExplicitExpiredTokenToSafeRefresh(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access-secret", "refresh-secret", time.Now().Add(time.Hour)))
 	setCodexExecutor(t, adapter, &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"token_expired","message":"access token expired"}}`}})

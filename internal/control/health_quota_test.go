@@ -9,9 +9,7 @@ import (
 	"gpt-load/internal/state"
 )
 
-// 订阅账号额度耗尽时调度器已经在跳过该凭据（registry 的 QuotaExhausted 分支），
-// 但 classifyHealthKey 不看额度，健康页仍把它算作 available。
-// 首页要能说出「某账号额度快用完了」，健康响应必须单独暴露这批凭据。
+// 额度观测只服务于管理面展示，不影响调度可用性；首页仍需单独暴露额度快用完的凭据。
 func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
 	fixture := newServiceFixture(t)
 	now := healthNow()

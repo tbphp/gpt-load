@@ -52,10 +52,6 @@ func TestClaudeModuleDeclaresSubscriptionContract(t *testing.T) {
 		bindings.ResetCreditAction != "" {
 		t.Fatalf("Claude capabilities = %#v", bindings)
 	}
-	policy, ok := registry.SchedulingPolicy(Claude)
-	if !ok || !policy.QuotaPriority {
-		t.Fatal("Claude quota-priority scheduling is disabled")
-	}
 	wantRoutes := map[protocol.Protocol]RouteMode{
 		protocol.Anthropic:         RouteNative,
 		protocol.OpenAICompletions: RouteConverted,

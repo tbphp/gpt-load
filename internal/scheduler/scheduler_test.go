@@ -189,45 +189,6 @@ func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
 	}
 }
 
-func TestIteratorPrioritizesFreshQuotaForChannelsThatDeclareThePolicy(t *testing.T) {
-	snapshot, err := state.Compile(state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 7, Name: "codex", ChannelID: channel.Codex, ConnectionType: "subscription",
-			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-5", Alias: "public"}}, Enabled: true,
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	low, high := 0.2, 0.8
-	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 71, GroupID: 7, WeightAuto: state.DefaultWeight, QuotaRemaining: &low},
-		{ID: 72, GroupID: 7, WeightAuto: state.DefaultWeight, QuotaRemaining: &high},
-	}}, Query{
-		ClientProtocol: protocol.OpenAICompletions,
-		Operation:      execution.OperationChatCompletion,
-		ExternalModel:  modelPointer("public"),
-	}, rand.New(zeroRandSource{}))
-	selection, err := iterator.Next()
-	if err != nil || selection.CredentialID != 72 {
-		t.Fatalf("Next() = (%#v, %v), want highest remaining credential 72", selection, err)
-	}
-
-	iterator = New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 71, GroupID: 7, WeightAuto: state.DefaultWeight},
-		{ID: 72, GroupID: 7, WeightAuto: state.DefaultWeight, QuotaRemaining: &high},
-	}}, Query{
-		ClientProtocol: protocol.OpenAICompletions,
-		Operation:      execution.OperationChatCompletion,
-		ExternalModel:  modelPointer("public"),
-	}, rand.New(zeroRandSource{}))
-	selection, err = iterator.Next()
-	if err != nil || selection.CredentialID != 71 {
-		t.Fatalf("unknown quota fallback = (%#v, %v), want existing weighted choice 71", selection, err)
-	}
-}
-
 func TestIteratorSkipGroupExcludesWholeGroup(t *testing.T) {
 	source := fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 11, GroupID: 1}, {ID: 12, GroupID: 1}, {ID: 21, GroupID: 2},

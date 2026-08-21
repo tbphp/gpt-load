@@ -131,7 +131,7 @@ func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
 	}
 }
 
-func TestCredentialRegistryQuotaObservationFiltersOnlyWhileFresh(t *testing.T) {
+func TestCredentialRegistryQuotaObservationDoesNotAffectCandidates(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 14, 0, 0, 0, time.UTC)
 	registry := NewCredentialRegistry()
 	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
@@ -142,10 +142,10 @@ func TestCredentialRegistryQuotaObservationFiltersOnlyWhileFresh(t *testing.T) {
 	if !registry.SetCredentialQuotaObservation(1, &remaining, now.Add(7*24*time.Hour), now.Add(time.Hour)) {
 		t.Fatal("SetCredentialQuotaObservation() = false")
 	}
-	if got := registry.CollectCredentialCandidates([]uint{10}, nil, now); len(got) != 0 {
-		t.Fatalf("fresh exhausted candidates = %#v", got)
+	if got := registry.CollectCredentialCandidates([]uint{10}, nil, now); len(got) != 1 {
+		t.Fatalf("fresh exhausted candidates = %#v, want normal candidate", got)
 	}
-	if got := registry.CollectCredentialCandidates([]uint{10}, nil, now.Add(time.Hour)); len(got) != 1 || got[0].QuotaRemaining != nil {
+	if got := registry.CollectCredentialCandidates([]uint{10}, nil, now.Add(time.Hour)); len(got) != 1 {
 		t.Fatalf("stale quota candidates = %#v, want fallback candidate", got)
 	}
 
@@ -154,7 +154,7 @@ func TestCredentialRegistryQuotaObservationFiltersOnlyWhileFresh(t *testing.T) {
 		t.Fatal("SetCredentialQuotaObservation(available) = false")
 	}
 	got := registry.CollectCredentialCandidates([]uint{10}, nil, now)
-	if len(got) != 1 || got[0].QuotaRemaining == nil || *got[0].QuotaRemaining != 0.63 {
+	if len(got) != 1 {
 		t.Fatalf("available quota candidates = %#v", got)
 	}
 }

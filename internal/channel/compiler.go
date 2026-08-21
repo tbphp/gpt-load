@@ -120,9 +120,6 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 	if err := validateTargetPolicy(source, params); err != nil {
 		return definition{}, err
 	}
-	if source.Scheduling.QuotaPriority && source.Capabilities.QuotaObservation == "" {
-		return definition{}, fmt.Errorf("channel %q enables quota priority without quota observation", id)
-	}
 	if source.Capabilities.ResetCreditAction != "" && source.Capabilities.QuotaObservation == "" {
 		return definition{}, fmt.Errorf("channel %q binds reset credit without quota observation", id)
 	}
@@ -165,7 +162,6 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 		providerKind:       source.Provider.ProviderKind,
 		connection:         cloneConnection(source.Connection),
 		capabilities:       cloneCapabilityBindings(source.Capabilities),
-		scheduling:         source.Scheduling,
 		endpointPolicy:     source.Provider.EndpointPolicy,
 		fixedBaseURL:       fixedBaseURL,
 		fixedTargetConfig:  fixedTargetConfig,

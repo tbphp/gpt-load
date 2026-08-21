@@ -51,7 +51,6 @@ func Codex() spec.Module {
 				QuotaObservation:   CodexQuotaObservation,
 				ResetCreditAction:  CodexResetCreditAction,
 			},
-			Scheduling: spec.SchedulingPolicy{QuotaPriority: true},
 		},
 	}
 }

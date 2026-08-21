@@ -272,7 +272,7 @@ func TestAntigravityProviderTreatsForbiddenAsCandidateUnavailable(t *testing.T) 
 	}
 }
 
-func TestAntigravityProviderClassifiesOAuthAndPaidCreditErrorsWithoutCredentialPenalty(t *testing.T) {
+func TestAntigravityProviderClassifiesOAuthAndPaidCreditErrors(t *testing.T) {
 	bridge := &antigravityProviderBridge{}
 	credential := antigravityProviderCredential{value: antigravity.Credential{
 		Type: "antigravity", AccessToken: "access", RefreshToken: "refresh", AccountID: "account",
@@ -291,7 +291,7 @@ func TestAntigravityProviderClassifiesOAuthAndPaidCreditErrorsWithoutCredentialP
 		},
 		{
 			name: "paid credit balance advances to another credential", err: antigravityClassifiedTestError{status: 429, typeID: "RESOURCE_EXHAUSTED", code: "INSUFFICIENT_G1_CREDITS_BALANCE"},
-			wantHint: execution.FailureHintCandidateUnavailable, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing,
+			wantHint: execution.FailureHintRateLimited, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing,
 		},
 		{
 			name: "rate limit retains fractional retry delay", err: antigravityRetryAfterTestError{

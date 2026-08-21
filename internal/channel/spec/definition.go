@@ -234,11 +234,6 @@ type CapabilityBindings struct {
 	ResetCreditAction  ActionID
 }
 
-// SchedulingPolicy is immutable channel scheduling metadata.
-type SchedulingPolicy struct {
-	QuotaPriority bool
-}
-
 // Definition is the complete, code-owned declaration for one channel. Every
 // built-in module declares its schema, provider, routes, and bindings inline;
 // shared helpers may normalize a field or construct one Route, but never hide
@@ -259,7 +254,6 @@ type Definition struct {
 	Provider            ProviderBinding
 	Routes              []Route
 	Capabilities        CapabilityBindings
-	Scheduling          SchedulingPolicy
 }
 
 // ParamsNormalizer applies object-level defaults or cross-field rules.

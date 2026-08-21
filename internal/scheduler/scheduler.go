@@ -3,7 +3,6 @@ package scheduler
 
 import (
 	"errors"
-	"math"
 	"math/rand"
 	"time"
 
@@ -194,62 +193,11 @@ func (iterator *Iterator) weightedPoolForMode(mode channel.RouteMode, now time.T
 		}
 		weighted = append(weighted, weightedCredential{meta: credential, weight: weight})
 	}
-	weighted = prioritizeKnownQuota(weighted, iterator.targetsByMode[mode])
 	var total int64
 	for _, credential := range weighted {
 		total += credential.weight
 	}
 	return weighted, total
-}
-
-type quotaPriority struct {
-	eligible bool
-	known    bool
-	maximum  float64
-}
-
-func prioritizeKnownQuota(
-	weighted []weightedCredential,
-	targets map[uint]candidateTarget,
-) []weightedCredential {
-	priorities := make(map[uint]quotaPriority)
-	for _, candidate := range weighted {
-		target, exists := targets[candidate.meta.GroupID]
-		if !exists || !target.group.QuotaPriority {
-			continue
-		}
-		priorities[candidate.meta.GroupID] = observeQuotaPriority(
-			priorities[candidate.meta.GroupID],
-			candidate.meta.QuotaRemaining,
-		)
-	}
-	result := weighted[:0]
-	for _, candidate := range weighted {
-		priority := priorities[candidate.meta.GroupID]
-		if !quotaPriorityAllows(priority, candidate.meta.QuotaRemaining) {
-			continue
-		}
-		result = append(result, candidate)
-	}
-	return result
-}
-
-func observeQuotaPriority(priority quotaPriority, remaining *float64) quotaPriority {
-	if !priority.eligible {
-		priority = quotaPriority{eligible: true, known: true}
-	}
-	if remaining == nil || math.IsNaN(*remaining) || math.IsInf(*remaining, 0) ||
-		*remaining < 0 || *remaining > 1 {
-		priority.known = false
-	} else if *remaining > priority.maximum {
-		priority.maximum = *remaining
-	}
-	return priority
-}
-
-func quotaPriorityAllows(priority quotaPriority, remaining *float64) bool {
-	return !priority.eligible || !priority.known ||
-		remaining == nil || *remaining >= priority.maximum
 }
 
 func (iterator *Iterator) Next() (Selection, error) {

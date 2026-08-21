@@ -556,11 +556,7 @@ export default {
         credential_disabled: '認証情報は無効です',
         credential_blacklisted: '認証情報はブラックリストに登録されています',
         credential_cooldown: '認証情報はクールダウン中です',
-        credential_quota_exhausted:
-          'サブスクリプション枠を使い切ったため、回復まで自動的に除外されます',
         credential_auth_unavailable: 'サブスクリプション認証を現在利用できません',
-        credential_quota_deprioritized:
-          '残り枠がより多いサブスクリプションがあるため、現在の加重対象外です',
         credential_weight_zero: '認証情報の有効ウェイトがゼロです',
         credential_not_allowed: 'このリクエストから認証情報が除外されました',
         no_available_credential: 'グループに現在利用可能な認証情報がありません',

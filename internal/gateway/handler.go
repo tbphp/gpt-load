@@ -41,6 +41,7 @@ const (
 	maxRequestBodyBytes       = int64(32 << 20)
 	maxDataPlaneModelBytes    = 255
 	fixedCooldown             = time.Minute
+	subscriptionFixedCooldown = 10 * time.Minute
 	blacklistFailureThreshold = 3
 	debugHeaderGroup          = "X-GPTLoad-Group"
 	// debugHeaderKey remains reserved so an upstream cannot inject it downstream.
@@ -282,6 +283,20 @@ func (handler *Handler) applyCredentialAction(
 			}
 		})
 	}
+}
+
+func subscriptionCooldownFallback(
+	connectionType string,
+	decision health.Result,
+	attemptNow time.Time,
+) health.Result {
+	if decision.Action != health.ActionCooldownCredential || !decision.UseFixed ||
+		connection.Normalize(connectionType) != connection.Subscription {
+		return decision
+	}
+	decision.UseFixed = false
+	decision.CooldownUntil = attemptNow.Add(subscriptionFixedCooldown)
+	return decision
 }
 
 func (handler *Handler) recordCredentialSuccess(credentialID uint, at time.Time) {
@@ -899,7 +914,11 @@ func (handler *Handler) executeAttempts(
 			result.StatusCode < http.StatusMultipleChoices {
 			handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
 		}
-		decision := judgeUpstreamResult(result, attemptNow)
+		decision := subscriptionCooldownFallback(
+			selection.Group.ConnectionType,
+			judgeUpstreamResult(result, attemptNow),
+			attemptNow,
+		)
 		recordedAttempt := recorder.recordAttempt(
 			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 		)

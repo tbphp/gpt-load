@@ -64,22 +64,10 @@ func TestCompilerAcceptsDeviceOAuthAuthorizationMethod(t *testing.T) {
 	}
 }
 
-func TestCompilerRejectsQuotaPriorityWithoutObservation(t *testing.T) {
-	t.Parallel()
-
-	codex := findModule(t, builtInModules(), Codex)
-	codex.Definition.Capabilities.QuotaObservation = ""
-
-	if _, err := compileBuiltInModules([]spec.Module{codex}); err == nil {
-		t.Fatal("compileBuiltInModules() accepted quota priority without observation")
-	}
-}
-
 func TestCompilerRejectsResetCreditWithoutObservation(t *testing.T) {
 	t.Parallel()
 
 	codex := findModule(t, builtInModules(), Codex)
-	codex.Definition.Scheduling.QuotaPriority = false
 	codex.Definition.Capabilities.QuotaObservation = ""
 
 	if _, err := compileBuiltInModules([]spec.Module{codex}); err == nil {

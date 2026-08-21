@@ -394,7 +394,8 @@ export default {
         consumeResetCreditDescription:
           '将为账号 {account} 使用一张重置卡。此操作不可撤销；如果结果暂时无法确认，GPT-Load 不会自动重复消耗。',
         consumeResetCreditFailed: '无法使用重置卡',
-        consumeResetCreditPending: '重置已提交，等待上游同步最新额度',
+        consumeResetCreditSucceeded: '额度已重置，额度信息已更新',
+        consumeResetCreditPending: '额度已重置，但额度信息刷新失败，请手动重试',
         tokenExpiresAt: '凭据到期',
         lastTokenRefresh: '上次凭据刷新',
         noQuota: '上游尚未提供可展示的额度窗口',
@@ -413,7 +414,8 @@ export default {
         remainingAmount: '剩余 {remaining}',
         remainingPercent: '剩 {value}%',
         quotaPeriod: '当前周期\n{start} → {end}',
-        quotaExhaustedHint: '额度恢复前会自动跳过此账号；信息过期时回退到现有调度。',
+        quotaExhaustedHint:
+          '额度信息仅用于展示；请求仍按正常策略调度，命中上游限额后才会冷却并切换账号。',
         diagnostics: '诊断信息',
         activity: '最近活动',
         expandDetails: '展开统计数据',

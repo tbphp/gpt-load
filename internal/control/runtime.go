@@ -35,10 +35,6 @@ type operationRecoveryRuntime interface {
 	RunOperationRecovery(context.Context)
 }
 
-type credentialObservationRuntime interface {
-	RunCredentialObservationRefresh(context.Context)
-}
-
 type catalogSyncRuntime interface {
 	Run(context.Context)
 }
@@ -71,22 +67,21 @@ func (ticker standardRuntimeTicker) Stop() {
 }
 
 type Runtime struct {
-	registry               autoWeightRegistry
-	stats                  *health.StatsStore
-	mutations              credentialMutationCoordinator
-	validator              validationSweep
-	requestLogCleaner      RequestLogCleaner
-	stageCleaner           credentialStageCleaner
-	operationRecovery      operationRecoveryRuntime
-	credentialObservations credentialObservationRuntime
-	catalogSync            catalogSyncRuntime
-	oauthCallback          *OAuthCallbackManager
-	manager                *state.Manager
-	autoWeightInterval     time.Duration
-	validationInterval     time.Duration
-	validationJitter       func() time.Duration
-	now                    func() time.Time
-	newTicker              func(time.Duration) runtimeTicker
+	registry           autoWeightRegistry
+	stats              *health.StatsStore
+	mutations          credentialMutationCoordinator
+	validator          validationSweep
+	requestLogCleaner  RequestLogCleaner
+	stageCleaner       credentialStageCleaner
+	operationRecovery  operationRecoveryRuntime
+	catalogSync        catalogSyncRuntime
+	oauthCallback      *OAuthCallbackManager
+	manager            *state.Manager
+	autoWeightInterval time.Duration
+	validationInterval time.Duration
+	validationJitter   func() time.Duration
+	now                func() time.Time
+	newTicker          func(time.Duration) runtimeTicker
 }
 
 func NewRuntime(
@@ -102,17 +97,16 @@ func NewRuntime(
 	catalogSync *CatalogSyncCoordinator,
 ) *Runtime {
 	runtime := &Runtime{
-		registry:               registry,
-		stats:                  stats,
-		mutations:              mutations,
-		requestLogCleaner:      requestLogCleaner,
-		stageCleaner:           operationRecovery,
-		operationRecovery:      operationRecovery,
-		credentialObservations: operationRecovery,
-		catalogSync:            catalogSync,
-		manager:                manager,
-		autoWeightInterval:     autoWeightInterval,
-		validationInterval:     defaultValidationInterval,
+		registry:           registry,
+		stats:              stats,
+		mutations:          mutations,
+		requestLogCleaner:  requestLogCleaner,
+		stageCleaner:       operationRecovery,
+		operationRecovery:  operationRecovery,
+		catalogSync:        catalogSync,
+		manager:            manager,
+		autoWeightInterval: autoWeightInterval,
+		validationInterval: defaultValidationInterval,
 		validationJitter: func() time.Duration {
 			return time.Duration(rand.Int64N(int64(maxValidationJitter) + 1))
 		},
@@ -167,13 +161,6 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		go func() {
 			defer wait.Done()
 			runtime.operationRecovery.RunOperationRecovery(ctx)
-		}()
-	}
-	if runtime.credentialObservations != nil {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			runtime.credentialObservations.RunCredentialObservationRefresh(ctx)
 		}()
 	}
 	if runtime.catalogSync != nil {

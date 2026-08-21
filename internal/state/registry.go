@@ -52,7 +52,6 @@ type CredentialMeta struct {
 	IdentityGeneration uint64
 	WeightManual       *int
 	WeightAuto         int
-	QuotaRemaining     *float64
 }
 
 type CredentialRef struct {
@@ -635,14 +634,10 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 			if view.RuntimeState(now) != CredentialRuntimeAvailable || entry.AuthState.normalize() != CredentialAuthStateReady {
 				continue
 			}
-			if view.QuotaExhausted(now) {
-				continue
-			}
 			meta := CredentialMeta{
 				ID: view.ID, GroupID: view.GroupID,
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
 				WeightManual: cloneWeight(view.WeightManual), WeightAuto: view.WeightAuto,
-				QuotaRemaining: view.FreshQuotaRemaining(now),
 			}
 			metas = append(metas, meta)
 		}
@@ -665,8 +660,8 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 	return filtered
 }
 
-// SetCredentialQuotaObservation publishes an ephemeral provider observation to
-// routing. Passing nil clears the observation and restores normal scheduling.
+// SetCredentialQuotaObservation publishes an ephemeral provider observation for
+// management-plane health display. Passing nil clears the observation.
 func (r *CredentialRegistry) SetCredentialQuotaObservation(
 	credentialID uint,
 	remaining *float64,

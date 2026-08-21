@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -217,8 +216,8 @@ func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t 
 	if first.State != string(models.CredentialObservationFresh) || first.Snapshot == nil || len(first.Snapshot.QuotaWindows) != 1 || first.FreshUntilMS == nil {
 		t.Fatalf("initial observation = %#v", first)
 	}
-	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
-		t.Fatalf("exhausted candidates = %#v", candidates)
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
+		t.Fatalf("quota observation affected candidates = %#v", candidates)
 	}
 
 	now = now.Add(time.Minute)
@@ -241,8 +240,8 @@ func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t 
 		len(result.Snapshot.QuotaWindows) != 1 {
 		t.Fatalf("partial result = %#v / %#v / %v", result, result.Snapshot, err)
 	}
-	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
-		t.Fatalf("partial observation cleared quota protection: %#v", candidates)
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
+		t.Fatalf("partial quota observation affected candidates: %#v", candidates)
 	}
 }
 
@@ -542,41 +541,6 @@ func TestRefreshCredentialObservationPersistsPartialSnapshotAsStale(t *testing.T
 	}
 }
 
-func TestConnectingSubscriptionCredentialWakesObservationRefresh(t *testing.T) {
-	fixture, groupID, _ := newSubscriptionCredentialFixture(t)
-	observedAccounts := make(chan string, 4)
-	setCodexAccountObservation(fixture.service, func(_ context.Context, credential codex.Credential) (codex.AccountObservation, error) {
-		observedAccounts <- credential.AccountID
-		return codex.AccountObservation{Payload: []byte(`{"plan_type":"plus","rate_limit":{}}`)}, nil
-	})
-	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
-	go fixture.service.RunCredentialObservationRefresh(ctx)
-	select {
-	case accountID := <-observedAccounts:
-		if accountID != "account-observation" {
-			t.Fatalf("initial observed account = %q", accountID)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("initial observation sweep did not finish")
-	}
-
-	stage := mustImportSubscriptionStage(t, fixture, "account-immediate", "immediate@example.com")
-	if _, err := fixture.service.ConnectGroupCredentialsIdempotent(
-		t.Context(), "00000000-0000-4000-8000-000000000001", groupID, []string{stage.StageID},
-	); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case accountID := <-observedAccounts:
-		if accountID != "account-immediate" {
-			t.Fatalf("connected observed account = %q", accountID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("connecting a subscription credential did not wake observation refresh")
-	}
-}
-
 func TestRefreshCredentialObservationEnrichesResetCreditDetails(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
@@ -784,7 +748,7 @@ func TestEnrichCredentialObservationUsageSkipsNonCurrentObservation(t *testing.T
 	}
 }
 
-func TestRefreshCredentialObservationPublishesAndClearsQuotaRoutingState(t *testing.T) {
+func TestRefreshCredentialObservationDoesNotAffectRoutingState(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -797,8 +761,8 @@ func TestRefreshCredentialObservationPublishesAndClearsQuotaRoutingState(t *test
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}
-	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
-		t.Fatalf("exhausted candidates = %#v", candidates)
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
+		t.Fatalf("quota observation affected candidates = %#v", candidates)
 	}
 
 	now = now.Add(time.Minute)
@@ -808,8 +772,8 @@ func TestRefreshCredentialObservationPublishesAndClearsQuotaRoutingState(t *test
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err == nil {
 		t.Fatal("forced failed refresh error = nil")
 	}
-	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
-		t.Fatalf("failed observation lost quota protection = %#v", candidates)
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
+		t.Fatalf("failed quota observation affected candidates = %#v", candidates)
 	}
 }
 
@@ -860,7 +824,7 @@ func TestApplyCredentialQuotaObservationDoesNotBlockAccountForModelGroupExhausti
 	}
 }
 
-func TestDrainCommittedOperationsRestoresFreshQuotaRoutingState(t *testing.T) {
+func TestDrainCommittedOperationsRestoresQuotaDisplayStateWithoutAffectingRouting(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 16, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -879,12 +843,16 @@ func TestDrainCommittedOperationsRestoresFreshQuotaRoutingState(t *testing.T) {
 	if err := fixture.service.DrainCommittedOperations(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
-		t.Fatalf("restored exhausted candidates = %#v", candidates)
+	views := fixture.registry.Snapshot()
+	if len(views) != 1 || views[0].QuotaRemaining == nil || *views[0].QuotaRemaining != 0 {
+		t.Fatalf("restored quota views = %#v", views)
+	}
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
+		t.Fatalf("restored quota affected candidates = %#v", candidates)
 	}
 }
 
-func TestRecoverCommittedRuntimeRestoresFreshQuotaRoutingState(t *testing.T) {
+func TestRecoverCommittedRuntimeRestoresQuotaDisplayStateWithoutAffectingRouting(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 16, 30, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -900,66 +868,12 @@ func TestRecoverCommittedRuntimeRestoresFreshQuotaRoutingState(t *testing.T) {
 	if err := fixture.service.recoverCommittedRuntime(t.Context(), true); err != nil {
 		t.Fatal(err)
 	}
-	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 0 {
-		t.Fatalf("recovered exhausted candidates = %#v", candidates)
+	views := fixture.registry.Snapshot()
+	if len(views) != 1 || views[0].QuotaRemaining == nil || *views[0].QuotaRemaining != 0 {
+		t.Fatalf("recovered quota views = %#v", views)
 	}
-}
-
-func TestRefreshDueCredentialObservationsPollsOnlyMissingOrExpiringAccounts(t *testing.T) {
-	fixture, _, _ := newSubscriptionCredentialFixture(t)
-	now := time.Date(2026, time.August, 14, 17, 0, 0, 0, time.UTC)
-	fixture.service.now = func() time.Time { return now }
-	calls := 0
-	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
-		calls++
-		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
-			"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":20,"reset_at":%d}}
-		}`, now.Add(4*time.Hour).Unix()))}, nil
-	})
-
-	fixture.service.refreshDueCredentialObservations(t.Context())
-	fixture.service.refreshDueCredentialObservations(t.Context())
-	if calls != 1 {
-		t.Fatalf("immediate sweep calls = %d, want 1", calls)
-	}
-	now = now.Add(51 * time.Minute)
-	fixture.service.refreshDueCredentialObservations(t.Context())
-	if calls != 2 {
-		t.Fatalf("near-expiry sweep calls = %d, want 2", calls)
-	}
-}
-
-func TestDueCredentialObservationTargetsRefreshesChangedAccountIdentity(t *testing.T) {
-	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	now := time.Date(2026, time.August, 14, 17, 30, 0, 0, time.UTC)
-	freshUntil := now.Add(time.Hour).UnixMilli()
-	nextAllowed := now.Add(4 * time.Minute).UnixMilli()
-	observedAt := now.Add(-time.Minute).UnixMilli()
-	if err := fixture.db.Create(&models.CredentialObservation{
-		CredentialID: credentialID, IdentityFingerprint: "previous-account-identity",
-		SchemaVersion: 1, ObservationVersion: 1, SnapshotJSON: models.JSON(`{"quota_windows":[]}`),
-		State: models.CredentialObservationFresh, ObservedAtMS: &observedAt,
-		FreshUntilMS: &freshUntil, NextAllowedAtMS: &nextAllowed, UpdatedAtMS: observedAt,
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	targets, err := fixture.service.dueCredentialObservationTargets(t.Context(), now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(targets) != 1 || targets[0].groupID != groupID || targets[0].credentialID != credentialID {
-		t.Fatalf("targets = %#v", targets)
-	}
-	upstreamCalls := 0
-	fixture.service.now = func() time.Time { return now }
-	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
-		upstreamCalls++
-		return codex.AccountObservation{Payload: []byte(`{}`)}, nil
-	})
-	fixture.service.refreshDueCredentialObservations(t.Context())
-	if upstreamCalls != 1 {
-		t.Fatalf("upstream calls = %d, want identity change to bypass old throttle", upstreamCalls)
+	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
+		t.Fatalf("recovered quota affected candidates = %#v", candidates)
 	}
 }
 
@@ -1172,58 +1086,6 @@ func TestConcurrentObservationRefreshIsSingleflight(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("calls = %d", calls)
-	}
-}
-
-func TestPostMutationObservationRefreshRunsAfterExistingFlight(t *testing.T) {
-	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	firstStarted := make(chan struct{})
-	releaseFirst := make(chan struct{})
-	var calls atomic.Int32
-	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
-		call := calls.Add(1)
-		if call == 1 {
-			close(firstStarted)
-			<-releaseFirst
-			return codex.AccountObservation{Payload: []byte(`{"rate_limit":{"primary_window":{"used_percent":90}}}`)}, nil
-		}
-		return codex.AccountObservation{Payload: []byte(`{"rate_limit":{"primary_window":{"used_percent":20}}}`)}, nil
-	})
-
-	normalResult := make(chan CredentialObservationResponse, 1)
-	normalError := make(chan error, 1)
-	go func() {
-		result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
-		normalResult <- result
-		normalError <- err
-	}()
-	<-firstStarted
-	forcedResult := make(chan CredentialObservationResponse, 1)
-	forcedError := make(chan error, 1)
-	go func() {
-		result, err := fixture.service.refreshCredentialObservation(
-			t.Context(),
-			groupID,
-			credentialID,
-			observationRefreshAfterMutation,
-		)
-		forcedResult <- result
-		forcedError <- err
-	}()
-	close(releaseFirst)
-
-	if err := <-normalError; err != nil {
-		t.Fatalf("normal refresh: %v", err)
-	}
-	if err := <-forcedError; err != nil {
-		t.Fatalf("forced refresh: %v", err)
-	}
-	first := <-normalResult
-	second := <-forcedResult
-	if calls.Load() != 2 || first.ObservationVersion != 1 || second.ObservationVersion != 2 ||
-		second.Snapshot == nil || second.Snapshot.QuotaWindows[0].Utilization == nil ||
-		*second.Snapshot.QuotaWindows[0].Utilization != 0.2 {
-		t.Fatalf("calls/results = %d / %#v / %#v", calls.Load(), first, second)
 	}
 }
 

@@ -516,18 +516,3 @@ func (runtime *Runtime) ChannelIDs() []channel.ID {
 	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	return result
 }
-
-// QuotaObservationChannelIDs returns channels with the compiled observation capability.
-func (runtime *Runtime) QuotaObservationChannelIDs() []channel.ID {
-	if runtime == nil {
-		return nil
-	}
-	result := make([]channel.ID, 0, len(runtime.byChannel))
-	for id, compiled := range runtime.byChannel {
-		if compiled.observation != nil {
-			result = append(result, id)
-		}
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
-	return result
-}

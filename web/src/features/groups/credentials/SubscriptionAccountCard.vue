@@ -597,26 +597,31 @@ function runMenuAction(
       </p>
 
       <div
-        v-if="supportsResetCredit && resetCreditsUsable"
+        v-if="supportsResetCredit"
         class="subscription-account__credits"
         :class="{ 'subscription-account__credits--urgent': unifiedStatus === 'quota_exhausted' }"
       >
-        <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
-        <span class="subscription-account__credits-dots" aria-hidden="true">
-          <i v-for="index in Math.min(resetCreditsAvailable, 5)" :key="index"></i>
-        </span>
-        <strong>{{
-          t('group.credentials.subscription.resetCreditsCount', { count: n(resetCreditsAvailable) })
-        }}</strong>
-        <span v-if="nextResetCredit" class="subscription-account__credits-expiry">
-          {{ t('group.credentials.subscription.nearestResetCredit') }}
-          <AppRelativeTime
-            :instant="nextResetCredit.expires_at_ms"
-            :locale="locale"
-            :empty-label="t('group.credentials.subscription.unknown')"
-            hint
-          />
-        </span>
+        <template v-if="resetCreditsUsable">
+          <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
+          <span class="subscription-account__credits-dots" aria-hidden="true">
+            <i v-for="index in Math.min(resetCreditsAvailable, 5)" :key="index"></i>
+          </span>
+          <strong>{{
+            t('group.credentials.subscription.resetCreditsCount', {
+              count: n(resetCreditsAvailable),
+            })
+          }}</strong>
+          <span v-if="nextResetCredit" class="subscription-account__credits-expiry">
+            {{ t('group.credentials.subscription.nearestResetCredit') }}
+            <AppRelativeTime
+              :instant="nextResetCredit.expires_at_ms"
+              :locale="locale"
+              :empty-label="t('group.credentials.subscription.unknown')"
+              hint
+            />
+          </span>
+        </template>
+        <span v-else>{{ t('group.credentials.subscription.resetCredits') }}</span>
         <span class="subscription-account__spacer"></span>
         <AppButton size="compact" :disabled="busy" @click="emit('reset', item)">
           {{ t('group.credentials.subscription.consumeResetCredit') }}
