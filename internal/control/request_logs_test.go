@@ -1023,8 +1023,6 @@ func TestRequestLogEndpointRequiresManagementAuthentication(t *testing.T) {
 func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	rate := int64(5_000_000)
-	amount := int64(50)
 	current, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 		Name: "log viewer",
 	})
@@ -1068,22 +1066,8 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		Attempts: []requestlog.Attempt{{
 			Sequence: 1, GroupID: 99, GroupName: "private group",
 			ChannelID: channel.OpenAI, CredentialID: 101,
-			UpstreamModel: "private-upstream-model", Committed: true,
-			PricingReceipt: &pricing.Receipt{
-				SchemaVersion: 4, Method: pricing.ReceiptMethodUnitRateSum, MethodVersion: 1,
-				Currency: "USD", PricingMode: pricing.ModeFast,
-				Rule: pricing.ReceiptRule{ChannelID: string(channel.OpenAI), ModelID: "private-upstream-model"},
-				LineItems: []pricing.ReceiptLine{{
-					Code: "input", Quantity: 10, RateNanoUSDPerMillion: &rate,
-					Multiplier: pricing.Multiplier{Numerator: 1, Denominator: 1},
-					State:      pricing.ReceiptLinePriced, AmountNanoUSD: &amount,
-				}},
-				TotalNanoUSD: amount,
-			},
+			UpstreamModel: "private-upstream-model",
 		}},
-	}
-	if err := pricing.ValidateReceipt(*record.Attempts[0].PricingReceipt); err != nil {
-		t.Fatalf("test pricing receipt must be valid: %v", err)
 	}
 	reader := &recordingRequestLogReader{pages: []requestlog.Page{
 		{Items: []requestlog.Record{record}},
@@ -1190,23 +1174,6 @@ func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
 	}
 	if detail && string(item["attempts"]) != "[]" {
 		t.Fatalf("AccessKey attempts = %s, want []; body=%s", item["attempts"], body)
-	}
-	if detail {
-		var calculation struct {
-			LineItems []struct {
-				Code              string `json:"code"`
-				Quantity          string `json:"quantity"`
-				AmountNanoUSD     string `json:"amount_nano_usd"`
-				RateNanoUSDPerMio string `json:"rate_nano_usd_per_million"`
-			} `json:"line_items"`
-		}
-		if err := json.Unmarshal(item["pricing_calculation"], &calculation); err != nil ||
-			len(calculation.LineItems) != 1 || calculation.LineItems[0].Code != "input" ||
-			calculation.LineItems[0].Quantity != "10" ||
-			calculation.LineItems[0].AmountNanoUSD != "50" ||
-			calculation.LineItems[0].RateNanoUSDPerMio != "5000000" {
-			t.Fatalf("AccessKey pricing calculation = %s/%#v, want public calculation fields", item["pricing_calculation"], calculation)
-		}
 	}
 	for _, secret := range []string{
 		"private-upstream-model", "private-reported-model", "private group",

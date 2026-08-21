@@ -83,9 +83,6 @@ const receipt = computed(
       ?.pricing_receipt ??
     log.value?.attempts.find((attempt) => attempt.pricing_receipt)?.pricing_receipt,
 )
-const pricingCalculation = computed(() =>
-  props.selfScoped ? (log.value?.pricing_calculation ?? null) : receipt.value,
-)
 const pricingIdentity = computed(() => {
   const value = receipt.value
   if (!value) return '—'
@@ -108,7 +105,7 @@ const cacheRateLabel = computed(() => {
   return formatCacheHitRate(log.value.cache_read_tokens, log.value.input_tokens, locale.value)
 })
 const formula = computed(() => {
-  const lines = pricingCalculation.value?.line_items ?? []
+  const lines = receipt.value?.line_items ?? []
   const input = lines
     .filter((line) => line.code !== 'output')
     .map(formatFormulaLine)
@@ -557,8 +554,9 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div
             v-if="
+              !selfScoped &&
               costDisplayState !== 'unpriced' &&
-              pricingCalculation &&
+              receipt &&
               usageDisplayState === 'reported'
             "
             class="log-detail__wide"

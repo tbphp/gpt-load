@@ -134,7 +134,11 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
                     />
                   </span>
                 </AppTooltip>
-                <span v-else class="model-tree__channel-icon" aria-hidden="true">
+                <span
+                  v-else
+                  class="model-tree__channel-icon model-tree__channel-icon--decorative"
+                  aria-hidden="true"
+                >
                   <ChannelIcon
                     :icon="entry.upstream.price.channel_icon"
                     :mark="entry.upstream.price.channel_mark"
@@ -388,6 +392,10 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   cursor: help;
   font-size: 16px;
   outline: none;
+}
+
+.model-tree__channel-icon--decorative {
+  cursor: default;
 }
 
 .model-tree__channel-icon:focus-visible,
