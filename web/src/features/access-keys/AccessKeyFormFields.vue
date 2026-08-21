@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyDto } from '@/api/control/types'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
 
 const props = defineProps<{
   name: string
@@ -16,7 +17,7 @@ const emit = defineEmits<{
   'update:rpmLimit': [value: number]
 }>()
 const { t } = useI18n()
-const nameInput = ref<HTMLInputElement>()
+const nameInput = ref<InstanceType<typeof AppTextInput>>()
 
 function focusName(): void {
   nameInput.value?.focus()
@@ -27,8 +28,7 @@ function toggleStatus(): void {
   emit('update:status', props.status === 'active' ? 'disabled' : 'active')
 }
 
-function updateRpm(event: Event): void {
-  const value = (event.target as HTMLInputElement).value
+function updateRpm(value: string): void {
   emit('update:rpmLimit', value === '' ? 0 : Number(value))
 }
 
@@ -37,21 +37,22 @@ defineExpose({ focusName })
 
 <template>
   <div class="access-key-form-stack">
-    <label class="access-key-drawer__field" for="access-key-name">
-      <span>
+    <div class="access-key-drawer__field">
+      <span class="access-key-drawer__field-label" aria-hidden="true">
         {{ t('accessKeys.drawer.name') }}
         <b class="access-key-drawer__required" aria-hidden="true">*</b>
       </span>
-      <input
+      <AppTextInput
         id="access-key-name"
         ref="nameInput"
-        :value="name"
-        type="text"
-        autocomplete="off"
+        :model-value="name"
+        :label="t('accessKeys.drawer.name')"
+        appearance="surface"
+        size="compact"
         :disabled="disabled"
-        @input="emit('update:name', ($event.target as HTMLInputElement).value)"
+        @update:model-value="emit('update:name', $event)"
       />
-    </label>
+    </div>
 
     <div class="access-key-setting-row">
       <div class="access-key-setting-row__label">
@@ -72,24 +73,27 @@ defineExpose({ focusName })
       </button>
     </div>
 
-    <label class="access-key-drawer__field" for="access-key-rpm">
-      <span>
+    <div class="access-key-drawer__field">
+      <span class="access-key-drawer__field-label" aria-hidden="true">
         {{ t('accessKeys.drawer.rpm') }}
         <small class="access-key-drawer__optional">{{ t('accessKeys.drawer.optional') }}</small>
       </span>
-      <input
+      <AppTextInput
         id="access-key-rpm"
+        :model-value="rpmLimit === 0 ? '' : String(rpmLimit)"
+        :label="t('accessKeys.drawer.rpm')"
         type="number"
+        appearance="surface"
+        size="compact"
         min="0"
         step="1"
-        aria-describedby="access-key-rpm-description"
-        :value="rpmLimit === 0 ? '' : rpmLimit"
+        described-by="access-key-rpm-description"
         :placeholder="t('accessKeys.drawer.rpmPlaceholder')"
         :disabled="disabled"
-        @input="updateRpm"
+        @update:model-value="updateRpm"
       />
       <small id="access-key-rpm-description">{{ t('accessKeys.drawer.rpmDescription') }}</small>
-    </label>
+    </div>
   </div>
 </template>
 
@@ -102,20 +106,10 @@ defineExpose({ focusName })
   display: grid;
   gap: 6px;
 }
-.access-key-drawer__field > span {
+.access-key-drawer__field-label {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
-}
-input {
-  width: 100%;
-  height: var(--control-md);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-meta);
 }
 small {
   margin: 0;

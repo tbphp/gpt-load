@@ -166,13 +166,13 @@ export default {
       rpmPlaceholder: '空欄は無制限',
       rpmDescription: '0 以上の整数を入力してください。0 は無制限です。',
       costLimits: {
-        title: '概算費用上限',
-        description:
-          '総額上限 1 件と、利用開始を起点とする周期上限を最大 10 件まで組み合わせられます。いずれかに達すると後続リクエストを拒否します。',
-        addTotal: '総額上限を追加',
+        enableTotal: '総額上限を有効化',
+        enablePeriodic: '周期上限を有効化',
+        totalDescription:
+          'このアクセスキーの累計概算費用を制限します。総額上限は自動でリセットされません。',
+        periodicDescription:
+          '最初のリクエストを起点とする固定周期ごとに概算費用を制限します。最大 10 件まで設定できます。',
         addPeriodic: '周期上限を追加',
-        ruleCount: '現在 {count} 件',
-        empty: '概算費用上限は設定されていません。',
         total: '総額上限',
         periodic: '周期上限',
         amount: '上限（USD）',
@@ -189,6 +189,16 @@ export default {
       save: 'アクセスキーを保存',
       createKey: 'キーを作成',
       saveChanges: '変更を保存',
+      saveBlockedPending: '保存中…',
+      saveBlockedName: '名前を入力してください',
+      saveBlockedRPM: 'RPM は 0 以上の整数で入力してください',
+      saveBlockedCostLimits: '上限額または周期を確認してください',
+      saveBlockedGroupProtocol: 'グループとプロトコルをルーティングできません',
+      saveBlockedGroupUnavailable: 'グループカタログを利用できません',
+      saveBlockedStaleScope: '現在のグループ範囲は無効です',
+      saveBlockedScope: '権限範囲を設定してください',
+      saveBlockedInvalid: 'フォーム内容を確認してください',
+      saveBlockedNoChanges: '保存する変更はありません',
       checkResult: '結果を確認',
       saveFailed: 'アクセスキーを保存できません。入力内容は保持されています。',
       editNotApplied:

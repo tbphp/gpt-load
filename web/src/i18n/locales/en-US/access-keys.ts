@@ -167,13 +167,13 @@ export default {
       rpmPlaceholder: 'Leave blank for unlimited',
       rpmDescription: 'Use a non-negative whole number. 0 means unlimited.',
       costLimits: {
-        title: 'Estimated cost limits',
-        description:
-          'Combine one total limit with up to 10 activity-triggered periodic limits. Exhausting any rule blocks later requests.',
-        addTotal: 'Add total limit',
+        enableTotal: 'Enable total limit',
+        enablePeriodic: 'Enable periodic limits',
+        totalDescription:
+          "Limit this access key's cumulative estimated cost. The total limit does not reset automatically.",
+        periodicDescription:
+          'Limit estimated cost in fixed periods triggered by the first request. Up to 10 rules.',
         addPeriodic: 'Add periodic limit',
-        ruleCount: '{count} rules',
-        empty: 'No estimated cost limits are configured.',
         total: 'Total limit',
         periodic: 'Periodic limit',
         amount: 'Limit (USD)',
@@ -190,6 +190,16 @@ export default {
       save: 'Save access key',
       createKey: 'Create key',
       saveChanges: 'Save changes',
+      saveBlockedPending: 'Saving…',
+      saveBlockedName: 'Enter a name',
+      saveBlockedRPM: 'RPM must be a non-negative integer',
+      saveBlockedCostLimits: 'Check cost amounts or periods',
+      saveBlockedGroupProtocol: 'Group and protocol cannot route',
+      saveBlockedGroupUnavailable: 'Group catalog unavailable',
+      saveBlockedStaleScope: 'Current Group scope is invalid',
+      saveBlockedScope: 'Complete the permission scope',
+      saveBlockedInvalid: 'Check the form',
+      saveBlockedNoChanges: 'No changes to save',
       checkResult: 'Check result',
       saveFailed: 'Unable to save the access key. Your input is unchanged.',
       editNotApplied:

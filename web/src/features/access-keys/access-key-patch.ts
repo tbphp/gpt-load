@@ -99,7 +99,7 @@ export function isAccessKeyDraftValid(
     draft.name.trim().length > 0 &&
     Number.isSafeInteger(draft.rpm_limit) &&
     draft.rpm_limit >= 0 &&
-    validCostLimitRules(draft.costLimitRules) &&
+    areAccessKeyCostLimitRulesValid(draft.costLimitRules) &&
     validateAccessKeyScope({
       base: base?.filters ?? null,
       filters: draft.filters,
@@ -183,7 +183,9 @@ function costLimitInputs(
   )
 }
 
-function validCostLimitRules(rules: readonly AccessKeyCostLimitRuleDraft[]): boolean {
+export function areAccessKeyCostLimitRulesValid(
+  rules: readonly AccessKeyCostLimitRuleDraft[],
+): boolean {
   let totalCount = 0
   let periodicCount = 0
   const periods = new Set<number>()
