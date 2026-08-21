@@ -421,7 +421,7 @@ func (s *Service) mapCredentialCollection(
 		item.AuthErrorCode = safeInternalErrorCode(row.AuthErrorCode)
 		item.Account = account
 		if item.ConnectionType == string(models.ConnectionTypeSubscription) {
-			item.Observation = presentCredentialObservation(observation.subscription[row.ID], row.IdentityFingerprint, observation.observedAt)
+			item.Observation = presentCredentialObservation(observation.subscription[row.ID], row.IdentityFingerprint)
 		}
 		records = append(records, credentialCollectionRecord{item: item, bucket: bucket})
 	}

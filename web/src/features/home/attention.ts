@@ -1,15 +1,21 @@
-import type { HealthProblemCredentialDto, HealthQuotaCredentialDto } from '@/app/resources/health'
+import type {
+  HealthExpiringResetCreditDto,
+  HealthProblemCredentialDto,
+  HealthQuotaCredentialDto,
+} from '@/app/resources/health'
 
-export type AttentionKind = 'blacklisted' | 'lowQuota'
+export type AttentionKind = 'blacklisted' | 'expiringResetCredit' | 'lowQuota'
 
 export interface AttentionItem {
   kind: AttentionKind
   groupID: number
   groupName: string
-  /** blacklisted：该分组被拉黑的凭据数；lowQuota：剩余额度比例 0..1 */
+  /** blacklisted：被拉黑凭据数；expiringResetCredit：临期卡数；lowQuota：剩余额度比例 0..1 */
   value: number
   /** 仅 lowQuota：额度窗口重置时刻 */
   resetAtMS?: number
+  /** 仅 expiringResetCredit：最近一张卡的到期时刻 */
+  expiresAtMS?: number
 }
 
 /** 首页最多渲染的条数；超过就退化成一行汇总，避免把接入面板挤到折叠线以下。 */
@@ -26,6 +32,7 @@ export const attentionRowLimit = 2
  */
 export function collectAttentionItems(
   blacklisted: readonly HealthProblemCredentialDto[],
+  expiringResetCredits: readonly HealthExpiringResetCreditDto[],
   lowQuota: readonly HealthQuotaCredentialDto[],
 ): AttentionItem[] {
   const byGroup = new Map<number, AttentionItem>()
@@ -45,6 +52,29 @@ export function collectAttentionItems(
 
   const items = [...byGroup.values()].sort((left, right) => right.value - left.value)
 
+  const resetCreditByGroup = new Map<number, AttentionItem>()
+  for (const credential of expiringResetCredits) {
+    const existing = resetCreditByGroup.get(credential.group_id)
+    if (existing) {
+      existing.value += credential.count
+      existing.expiresAtMS = Math.min(
+        existing.expiresAtMS ?? credential.nearest_expires_at_ms,
+        credential.nearest_expires_at_ms,
+      )
+      continue
+    }
+    resetCreditByGroup.set(credential.group_id, {
+      kind: 'expiringResetCredit',
+      groupID: credential.group_id,
+      groupName: credential.group_name,
+      value: credential.count,
+      expiresAtMS: credential.nearest_expires_at_ms,
+    })
+  }
+  const resetCreditItems = [...resetCreditByGroup.values()].sort(
+    (left, right) => (left.expiresAtMS ?? 0) - (right.expiresAtMS ?? 0),
+  )
+
   // 额度按剩余从少到多，最紧迫的先说。
   const quotaItems = [...lowQuota]
     .sort((left, right) => left.remaining - right.remaining)
@@ -56,10 +86,10 @@ export function collectAttentionItems(
       resetAtMS: credential.reset_at_ms,
     }))
 
-  return [...items, ...quotaItems]
+  return [...items, ...resetCreditItems, ...quotaItems]
 }
 
 /** 需要处理的问题总数，用于超限时的汇总文案。 */
 export function attentionTotal(items: readonly AttentionItem[]): number {
-  return items.reduce((total, item) => total + (item.kind === 'blacklisted' ? item.value : 1), 0)
+  return items.reduce((total, item) => total + (item.kind === 'lowQuota' ? 1 : item.value), 0)
 }

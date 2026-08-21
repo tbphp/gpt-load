@@ -33,6 +33,7 @@ type migration struct {
 	ID                  string
 	Up                  func(*gorm.DB) error
 	Validate            func(*gorm.DB) error
+	ValidateCurrent     func(*gorm.DB) error
 	ValidateRecoverable func(*gorm.DB) error
 }
 
@@ -41,6 +42,7 @@ var migrations = []migration{
 		ID:                  migrationfiles.ID0001,
 		Up:                  migrationfiles.Up0001,
 		Validate:            migrationfiles.Validate0001,
+		ValidateCurrent:     migrationfiles.ValidateCurrent0001,
 		ValidateRecoverable: migrationfiles.ValidateRecoverable0001,
 	},
 	{
@@ -48,6 +50,12 @@ var migrations = []migration{
 		Up:                  migrationfiles.Up0002,
 		Validate:            migrationfiles.Validate0002,
 		ValidateRecoverable: migrationfiles.ValidateRecoverable0002,
+	},
+	{
+		ID:                  migrationfiles.ID0003,
+		Up:                  migrationfiles.Up0003,
+		Validate:            migrationfiles.Validate0003,
+		ValidateRecoverable: migrationfiles.ValidateRecoverable0003,
 	},
 }
 
@@ -150,7 +158,11 @@ func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransac
 		}
 	}
 	for index, id := range applied {
-		if err := entries[index].Validate(db); err != nil {
+		validator := entries[index].Validate
+		if entries[index].ValidateCurrent != nil {
+			validator = entries[index].ValidateCurrent
+		}
+		if err := validator(db); err != nil {
 			return fmt.Errorf("validate applied migration %s: %w", id, err)
 		}
 	}

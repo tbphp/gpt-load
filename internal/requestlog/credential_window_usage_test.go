@@ -90,6 +90,59 @@ func TestQueryCredentialWindowUsageUsesHourlyStatsForLongWindow(t *testing.T) {
 	}
 }
 
+func TestQueryCredentialWindowUsageUsesExactRequestLogsForBothBoundaries(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	now := time.Date(2026, time.August, 14, 14, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	credentialID := uint(42)
+	from := time.Date(2026, time.August, 14, 10, 10, 0, 0, time.UTC)
+	to := time.Date(2026, time.August, 14, 12, 25, 0, 0, time.UTC)
+
+	fullHour := usageStat(time.Date(2026, time.August, 14, 11, 0, 0, 0, time.UTC), 17, "codex-a", 2)
+	fullHour.CredentialID = credentialID
+	endingHour := usageStat(time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC), 17, "codex-a", 100)
+	endingHour.CredentialID = credentialID
+	createUsageStats(t, db, fullHour, endingHour)
+
+	startBoundary := requestLogWindowRow(
+		"00000000-0000-4000-8000-000000000741",
+		credentialID,
+		from.Add(10*time.Minute),
+		11,
+	)
+	endBoundary := requestLogWindowRow(
+		"00000000-0000-4000-8000-000000000742",
+		credentialID,
+		to.Add(-5*time.Minute),
+		13,
+	)
+	afterWindow := requestLogWindowRow(
+		"00000000-0000-4000-8000-000000000743",
+		credentialID,
+		to.Add(5*time.Minute),
+		1_000,
+	)
+	for _, row := range []models.RequestLog{startBoundary, endBoundary, afterWindow} {
+		createRequestLogQueryRow(t, db, row)
+	}
+
+	result, err := service.QueryCredentialWindowUsage(t.Context(), CredentialWindowUsageQuery{
+		CredentialID: credentialID,
+		FromMS:       from.UnixMilli(),
+		ToMS:         to.UnixMilli(),
+		Source:       CredentialWindowUsageSourceHourlyStats,
+	})
+	if err != nil {
+		t.Fatalf("QueryCredentialWindowUsage() error = %v", err)
+	}
+	if !result.DataComplete || result.RequestCount != 4 || result.UncachedInputTokens != 44 ||
+		result.OutputTokens != 14 || result.LastUsedAtMS == nil ||
+		*result.LastUsedAtMS != endBoundary.CompletedAtMS {
+		t.Fatalf("exact boundary usage = %#v", result)
+	}
+}
+
 func TestQueryCredentialWindowUsageTreatsLongTermHourlyStatsAsRetained(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)

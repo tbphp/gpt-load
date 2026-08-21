@@ -200,7 +200,7 @@ export interface CredentialObservationSnapshotDto {
 }
 
 export interface CredentialResetCreditDto {
-  expires_at_ms: number
+  expires_at_ms?: number
 }
 
 export interface CredentialObservationDto {
@@ -208,7 +208,6 @@ export interface CredentialObservationDto {
   snapshot: CredentialObservationSnapshotDto | null
   observation_version: number
   observed_at_ms: number | null
-  fresh_until_ms: number | null
   last_attempt_at_ms: number | null
   last_error_code?: string
 }
@@ -398,8 +397,17 @@ export interface RuntimeHealthDto {
   cooldown_credentials: HealthProblemCredentialDto[]
   blacklisted_credentials: HealthProblemCredentialDto[]
   low_quota_credentials: HealthQuotaCredentialDto[]
+  expiring_reset_credits: HealthExpiringResetCreditDto[]
   blocked_access_keys: HealthAccessKeyCostLimitDto[]
   request_log: RequestLogHealthDto
+}
+
+export interface HealthExpiringResetCreditDto {
+  credential_id: number
+  group_id: number
+  group_name: string
+  count: number
+  nearest_expires_at_ms: number
 }
 
 export interface HealthQuotaCredentialDto {

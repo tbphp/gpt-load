@@ -51,7 +51,6 @@ type CredentialObservation struct {
 	SnapshotJSON                 JSON                       `gorm:"column:snapshot_json;type:json;not null"`
 	State                        CredentialObservationState `gorm:"type:varchar(32);not null"`
 	ObservedAtMS                 *int64                     `gorm:"column:observed_at_ms"`
-	FreshUntilMS                 *int64                     `gorm:"column:fresh_until_ms"`
 	LastAttemptAtMS              *int64                     `gorm:"column:last_attempt_at_ms"`
 	NextAllowedAtMS              *int64                     `gorm:"column:next_allowed_at_ms"`
 	LastAuthRefreshSecretVersion *uint64                    `gorm:"column:last_auth_refresh_secret_version"`

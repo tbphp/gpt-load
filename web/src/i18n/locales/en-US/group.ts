@@ -397,12 +397,19 @@ export default {
         autoRenews: 'renews when used',
         resetCredits: 'Reset credits',
         resetCreditsCount: '{count} available',
+        resetCreditsTooltipTitle: 'Reset credit details',
+        resetCreditsTooltipItem: 'Credit {index}: {expires}',
+        resetCreditsTooltipNoDetails: 'The upstream did not provide individual expiry details',
+        resetCreditsTooltipMore: '{count} more credits have no individual expiry details',
+        resetCreditPermanent: 'No expiry',
+        resetCreditExpired: 'Expired',
         nearestResetCredit: 'Nearest expiry',
         resetCreditExpirations: 'Reset credit expirations',
-        consumeResetCredit: 'Use one to restore quota',
-        consumeResetCreditTitle: 'Use one reset credit?',
+        resetCreditsActionTooltip: 'Reset quota',
+        consumeResetCredit: 'Use reset credit',
+        consumeResetCreditTitle: 'Reset quota?',
         consumeResetCreditDescription:
-          'One reset credit will be used for {account}. This cannot be undone; if the outcome is temporarily unknown, GPT-Load will not consume another automatically.',
+          'This cannot be undone; if the outcome is temporarily unknown, another credit will not be consumed automatically.',
         consumeResetCreditFailed: 'Unable to use reset credit',
         consumeResetCreditSucceeded: 'Quota was reset and quota information was updated.',
         consumeResetCreditPending:
@@ -425,6 +432,8 @@ export default {
         remainingAmount: '{remaining} remaining',
         remainingPercent: '{value}% left',
         quotaPeriod: 'Current period\n{start} → {end}',
+        quotaPendingHint:
+          '{period}\nThis period has ended. Quota still shows the last synced result; refresh manually for current information.',
         quotaExhaustedHint:
           'Quota information is display-only. Requests use normal scheduling; an upstream limit response cools this account down and switches accounts.',
         diagnostics: 'Diagnostics',
@@ -434,7 +443,7 @@ export default {
         synced: 'Synced',
         syncTime: 'Sync time\n{time}',
         lastUsed: 'Last used',
-        freshUntil: 'Information valid until',
+        lastQuotaSync: 'Last quota sync',
         lastError: 'Last sync error',
         account: {
           title: 'Account information',

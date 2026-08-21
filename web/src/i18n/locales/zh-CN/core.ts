@@ -232,8 +232,9 @@ export default {
       attention: {
         title: '需要处理',
         blacklisted: '{group} 有 {count} 个凭据已拉黑，需要人工处理',
+        resetCreditExpiring: '{group} 有 {count} 张重置卡即将到期，最近一张',
         lowQuota: '{group} 账号额度剩 {remaining}，重置于',
-        summary: '{count} 个凭据需要你处理',
+        summary: '共有 {count} 项需要你处理',
         action: '处理',
       },
       spend: {

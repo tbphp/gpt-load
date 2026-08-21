@@ -69,6 +69,14 @@ type healthQuotaCredentialResponse struct {
 	ResetAtMS    int64   `json:"reset_at_ms"`
 }
 
+type healthExpiringResetCreditResponse struct {
+	CredentialID       uint   `json:"credential_id"`
+	GroupID            uint   `json:"group_id"`
+	GroupName          string `json:"group_name"`
+	Count              int    `json:"count"`
+	NearestExpiresAtMS int64  `json:"nearest_expires_at_ms"`
+}
+
 type requestLogHealthResponse struct {
 	EnqueuedTotal                             uint64 `json:"enqueued_total"`
 	PersistedTotal                            uint64 `json:"persisted_total"`
@@ -90,18 +98,19 @@ type requestLogHealthResponse struct {
 }
 
 type runtimeHealthResponse struct {
-	ObservedAtMS           int64                              `json:"observed_at_ms"`
-	Version                string                             `json:"version"`
-	UptimeSeconds          int64                              `json:"uptime_seconds"`
-	SnapshotRevision       uint64                             `json:"snapshot_revision"`
-	StatsWindowSeconds     int64                              `json:"stats_window_seconds"`
-	Counts                 healthCountsResponse               `json:"counts"`
-	Groups                 []healthGroupResponse              `json:"groups"`
-	CooldownCredentials    []healthProblemCredentialResponse  `json:"cooldown_credentials"`
-	BlacklistedCredentials []healthProblemCredentialResponse  `json:"blacklisted_credentials"`
-	LowQuotaCredentials    []healthQuotaCredentialResponse    `json:"low_quota_credentials"`
-	BlockedAccessKeys      []healthAccessKeyCostLimitResponse `json:"blocked_access_keys"`
-	RequestLog             requestLogHealthResponse           `json:"request_log"`
+	ObservedAtMS           int64                               `json:"observed_at_ms"`
+	Version                string                              `json:"version"`
+	UptimeSeconds          int64                               `json:"uptime_seconds"`
+	SnapshotRevision       uint64                              `json:"snapshot_revision"`
+	StatsWindowSeconds     int64                               `json:"stats_window_seconds"`
+	Counts                 healthCountsResponse                `json:"counts"`
+	Groups                 []healthGroupResponse               `json:"groups"`
+	CooldownCredentials    []healthProblemCredentialResponse   `json:"cooldown_credentials"`
+	BlacklistedCredentials []healthProblemCredentialResponse   `json:"blacklisted_credentials"`
+	LowQuotaCredentials    []healthQuotaCredentialResponse     `json:"low_quota_credentials"`
+	ExpiringResetCredits   []healthExpiringResetCreditResponse `json:"expiring_reset_credits"`
+	BlockedAccessKeys      []healthAccessKeyCostLimitResponse  `json:"blocked_access_keys"`
+	RequestLog             requestLogHealthResponse            `json:"request_log"`
 }
 
 type healthAccessKeyCostLimitResponse struct {
@@ -258,6 +267,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		CooldownCredentials:    []healthProblemCredentialResponse{},
 		BlacklistedCredentials: []healthProblemCredentialResponse{},
 		LowQuotaCredentials:    []healthQuotaCredentialResponse{},
+		ExpiringResetCredits:   []healthExpiringResetCreditResponse{},
 		BlockedAccessKeys:      []healthAccessKeyCostLimitResponse{},
 	}
 	groupIDs := make([]uint, 0, len(observation.snapshot.GroupCatalog))
@@ -273,16 +283,21 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			ID: group.ID, Name: group.Name, Enabled: group.Enabled,
 		})
 	}
+	resetCreditTargets := make(map[uint]healthResetCreditTarget)
 	for _, key := range observation.keys {
 		group := observation.snapshot.GroupCatalog[key.GroupID]
 		index := groupIndexes[key.GroupID]
 		bucket := classifyHealthKey(group, key, observation.observedAt)
+		if bucket != healthBucketDisabled {
+			resetCreditTargets[key.ID] = healthResetCreditTarget{
+				groupID: key.GroupID, groupName: group.Name,
+			}
+		}
 		addHealthCount(&result.Counts, bucket)
 		addHealthCount(&result.Groups[index].Counts, bucket)
 		// 额度只用于管理面展示，不参与健康分桶或调度；低额度凭据在这里单列提示。
-		// FreshQuotaRemaining 在观测过期或已过重置时刻时返回 nil，过期数字绝不报警。
 		if bucket == healthBucketAvailable || bucket == healthBucketCooldown {
-			if remaining := key.FreshQuotaRemaining(observation.observedAt); remaining != nil &&
+			if remaining := key.ObservedQuotaRemaining(); remaining != nil &&
 				*remaining <= healthLowQuotaRemainingRatio {
 				resetAtMS, err := safeEpochMilliseconds(key.QuotaResetAt)
 				if err != nil {
@@ -362,6 +377,13 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			}
 			result.BlacklistedCredentials = append(result.BlacklistedCredentials, detail)
 		}
+	}
+	result.ExpiringResetCredits, err = service.loadExpiringResetCredits(
+		resetCreditTargets,
+		observation.observedAt,
+	)
+	if err != nil {
+		return runtimeHealthResponse{}, err
 	}
 	if observation.accessQuotaViews != nil {
 		accessKeyIDs := make([]uint, 0, len(observation.snapshot.AccessKeysByID))

@@ -19,6 +19,7 @@ const items = computed(() =>
     ? []
     : collectAttentionItems(
         props.health.blacklisted_credentials,
+        props.health.expiring_reset_credits,
         props.health.low_quota_credentials,
       ),
 )
@@ -40,6 +41,19 @@ function quotaPercent(remaining: number): string {
     style: 'percent',
     maximumFractionDigits: 0,
   }).format(remaining)
+}
+
+function itemTone(item: (typeof items.value)[number]): 'danger' | 'warning' {
+  if (item.kind === 'blacklisted') return 'danger'
+  if (
+    item.kind === 'expiringResetCredit' &&
+    item.expiresAtMS !== undefined &&
+    props.health !== null &&
+    item.expiresAtMS - props.health.observed_at_ms <= 24 * 60 * 60 * 1_000
+  ) {
+    return 'danger'
+  }
+  return 'warning'
 }
 </script>
 
@@ -65,7 +79,7 @@ function quotaPercent(remaining: number): string {
         v-for="item in visibleItems"
         :key="`${item.kind}-${item.groupID}`"
         class="home-attention__row"
-        :class="`home-attention__row--${item.kind === 'blacklisted' ? 'danger' : 'warning'}`"
+        :class="`home-attention__row--${itemTone(item)}`"
         :to="itemLocation(item.groupID, item.kind)"
       >
         <CircleAlert v-if="item.kind === 'blacklisted'" :size="14" aria-hidden="true" />
@@ -73,7 +87,16 @@ function quotaPercent(remaining: number): string {
         <span v-if="item.kind === 'blacklisted'">
           {{ t('home.ledger.attention.blacklisted', { group: item.groupName, count: item.value }) }}
         </span>
-        <span v-else class="home-attention__quota">
+        <span v-else-if="item.kind === 'expiringResetCredit'" class="home-attention__detail">
+          {{
+            t('home.ledger.attention.resetCreditExpiring', {
+              group: item.groupName,
+              count: item.value,
+            })
+          }}
+          <AppRelativeTime :instant="item.expiresAtMS ?? null" :locale="locale" :empty-label="''" />
+        </span>
+        <span v-else class="home-attention__detail">
           {{
             t('home.ledger.attention.lowQuota', {
               group: item.groupName,
@@ -144,7 +167,7 @@ function quotaPercent(remaining: number): string {
   border-color: var(--color-danger);
 }
 
-.home-attention__quota {
+.home-attention__detail {
   display: inline-flex;
   align-items: baseline;
   flex-wrap: wrap;

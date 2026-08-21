@@ -6,6 +6,7 @@ import type {
   HealthGroupDto,
   HealthProblemCredentialDto,
   HealthQuotaCredentialDto,
+  HealthExpiringResetCreditDto,
   HealthRecoveryDto,
   HealthCredentialCountsDto,
   HealthAccessKeyCostLimitDto,
@@ -32,6 +33,7 @@ export type {
   HealthGroupDto,
   HealthProblemCredentialDto,
   HealthQuotaCredentialDto,
+  HealthExpiringResetCreditDto,
   HealthRecoveryDto,
   HealthCredentialCountsDto,
   RequestLogHealthDto,
@@ -50,6 +52,7 @@ const healthFields = [
   'cooldown_credentials',
   'blacklisted_credentials',
   'low_quota_credentials',
+  'expiring_reset_credits',
   'blocked_access_keys',
   'request_log',
 ] as const
@@ -67,6 +70,13 @@ const quotaCredentialFields = [
   'group_name',
   'remaining',
   'reset_at_ms',
+] as const
+const expiringResetCreditFields = [
+  'credential_id',
+  'group_id',
+  'group_name',
+  'count',
+  'nearest_expires_at_ms',
 ] as const
 const problemCredentialFields = [
   'credential_id',
@@ -237,6 +247,18 @@ function projectQuotaCredential(value: unknown): HealthQuotaCredentialDto {
   }
 }
 
+function projectExpiringResetCredit(value: unknown): HealthExpiringResetCreditDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, expiringResetCreditFields)
+  return {
+    credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
+    group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
+    group_name: projectNonBlankString(record.group_name),
+    count: projectSafeInteger(record.count, { minimum: 1 }),
+    nearest_expires_at_ms: projectEpochMilliseconds(record.nearest_expires_at_ms),
+  }
+}
+
 function projectBlockedAccessKey(value: unknown): HealthAccessKeyCostLimitDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, blockedAccessKeyFields)
@@ -308,6 +330,7 @@ export function projectRuntimeHealth(value: unknown): RuntimeHealthDto {
     cooldown_credentials: projectArray(record.cooldown_credentials, projectProblemCredential),
     blacklisted_credentials: projectArray(record.blacklisted_credentials, projectProblemCredential),
     low_quota_credentials: projectArray(record.low_quota_credentials, projectQuotaCredential),
+    expiring_reset_credits: projectArray(record.expiring_reset_credits, projectExpiringResetCredit),
     blocked_access_keys: projectArray(record.blocked_access_keys, projectBlockedAccessKey),
     request_log: projectRequestLogHealth(record.request_log),
   }

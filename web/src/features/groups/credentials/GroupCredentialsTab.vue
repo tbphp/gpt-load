@@ -114,9 +114,6 @@ const connectOperationKey = ref<string>()
 const connectFeedback = ref('')
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
-function credentialDisplayName(item: CredentialItemDto): string {
-  return item.account.email ?? item.mask
-}
 const connectionWorkspaceDescription = computed(() =>
   t('group.credentials.subscription.connectDescription'),
 )
@@ -1196,11 +1193,7 @@ async function runBatch(
       appearance="ledger"
       :open="resetTarget !== undefined"
       :title="t('group.credentials.subscription.consumeResetCreditTitle')"
-      :description="
-        t('group.credentials.subscription.consumeResetCreditDescription', {
-          account: resetTarget ? credentialDisplayName(resetTarget.item) : '',
-        })
-      "
+      :description="t('group.credentials.subscription.consumeResetCreditDescription')"
       :close-label="t('group.credentials.closeDialog')"
       :cancel-label="t('group.credentials.cancel')"
       :confirm-label="t('group.credentials.subscription.consumeResetCredit')"
@@ -1242,12 +1235,14 @@ async function runBatch(
   padding-top: var(--detail-panel-padding-top);
 }
 .group-credentials__feedback {
-  margin: 0;
+  margin: 0 0 var(--space-3);
   border: 1px solid var(--color-feedback-danger-border);
   border-radius: var(--radius-control);
   background: var(--color-danger-bg);
   color: var(--color-text);
   padding: var(--space-3);
+  line-height: var(--line-normal);
+  overflow-wrap: anywhere;
 }
 /* auto-fill 而不是 auto-fit：只有一个账号时也占一个轨道宽度，不会被拉成整行。
    容器窄于两个轨道时自动退回单列，不需要额外断点。 */

@@ -139,18 +139,18 @@ func TestCredentialRegistryQuotaObservationDoesNotAffectCandidates(t *testing.T)
 		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 	remaining := 0.0
-	if !registry.SetCredentialQuotaObservation(1, &remaining, now.Add(7*24*time.Hour), now.Add(time.Hour)) {
+	if !registry.SetCredentialQuotaObservation(1, &remaining, now.Add(7*24*time.Hour)) {
 		t.Fatal("SetCredentialQuotaObservation() = false")
 	}
 	if got := registry.CollectCredentialCandidates([]uint{10}, nil, now); len(got) != 1 {
-		t.Fatalf("fresh exhausted candidates = %#v, want normal candidate", got)
+		t.Fatalf("exhausted quota candidates = %#v, want normal candidate", got)
 	}
 	if got := registry.CollectCredentialCandidates([]uint{10}, nil, now.Add(time.Hour)); len(got) != 1 {
-		t.Fatalf("stale quota candidates = %#v, want fallback candidate", got)
+		t.Fatalf("later quota candidates = %#v, want normal candidate", got)
 	}
 
 	remaining = 0.63
-	if !registry.SetCredentialQuotaObservation(1, &remaining, now.Add(7*24*time.Hour), now.Add(2*time.Hour)) {
+	if !registry.SetCredentialQuotaObservation(1, &remaining, now.Add(7*24*time.Hour)) {
 		t.Fatal("SetCredentialQuotaObservation(available) = false")
 	}
 	got := registry.CollectCredentialCandidates([]uint{10}, nil, now)

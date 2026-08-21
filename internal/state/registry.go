@@ -42,7 +42,6 @@ type CredentialEntry struct {
 	EncryptedValue     string
 	quotaRemaining     *float64
 	quotaResetAt       time.Time
-	quotaFreshUntil    time.Time
 }
 
 type CredentialMeta struct {
@@ -506,7 +505,6 @@ func (r *CredentialRegistry) SetCredentialAuthState(credentialID uint, authState
 	if entry.AuthState != CredentialAuthStateReady {
 		entry.quotaRemaining = nil
 		entry.quotaResetAt = time.Time{}
-		entry.quotaFreshUntil = time.Time{}
 	}
 	return true
 }
@@ -666,13 +664,12 @@ func (r *CredentialRegistry) SetCredentialQuotaObservation(
 	credentialID uint,
 	remaining *float64,
 	resetAt time.Time,
-	freshUntil time.Time,
 ) bool {
 	if credentialID == 0 {
 		return false
 	}
 	if remaining != nil && (math.IsNaN(*remaining) || math.IsInf(*remaining, 0) ||
-		*remaining < 0 || *remaining > 1 || resetAt.IsZero() || freshUntil.IsZero()) {
+		*remaining < 0 || *remaining > 1 || resetAt.IsZero()) {
 		return false
 	}
 	r.mu.Lock()
@@ -684,11 +681,9 @@ func (r *CredentialRegistry) SetCredentialQuotaObservation(
 	entry.quotaRemaining = cloneFloat(remaining)
 	if remaining == nil {
 		entry.quotaResetAt = time.Time{}
-		entry.quotaFreshUntil = time.Time{}
 		return true
 	}
 	entry.quotaResetAt = resetAt
-	entry.quotaFreshUntil = freshUntil
 	return true
 }
 
