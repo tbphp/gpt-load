@@ -26,17 +26,15 @@ import (
 	"gpt-load/internal/usage"
 )
 
-var convertedRepresentationHeaderNames = [...]string{
-	"Content-Encoding",
-	"Content-Length",
-	"ETag",
-	"Digest",
-	"Content-MD5",
-	"Content-Range",
-	"Content-Digest",
-	"Repr-Digest",
-	"Signature",
-	"Signature-Input",
+var subscriptionResponseHeaderNames = [...]string{
+	"Request-Id",
+	"X-Request-Id",
+	"Openai-Request-Id",
+	"X-Oai-Request-Id",
+	"Anthropic-Request-Id",
+	"X-Goog-Request-Id",
+	"X-Amzn-Requestid",
+	"Retry-After",
 }
 
 type Adapter struct {
@@ -181,8 +179,9 @@ func unaryProviderSuccess(
 	response providerResponse,
 ) execution.AttemptResult {
 	body := append([]byte(nil), response.Payload...)
-	headers := convertedResponseHeaders(response.Headers, "application/json")
+	headers := subscriptionResponseHeaders(response.Headers, "application/json")
 	if response.Local {
+		headers.Set(localTokenCountHeader, "local-estimate")
 		return execution.AttemptResult{
 			DispatchState: execution.DispatchLocal, ResponseStarted: true,
 			StatusCode: http.StatusOK, Header: headers, Body: body,
@@ -245,14 +244,48 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		}
 	}
 	applied := appliedReasoning(response.AppliedReasoningEffort)
-	headers := convertedResponseHeaders(response.Headers, "text/event-stream")
+	headers := subscriptionResponseHeaders(response.Headers, "text/event-stream")
 	sequence := uint64(1)
 	ready := false
+	upstreamStarted := false
 	openAIDone := false
 	geminiTerminal := false
+	var nativeResponsesAssembler *nativeResponsesSSEAssembler
+	if spec.ClientProtocol == protocol.OpenAIResponses && spec.RouteMode == execution.RouteNative {
+		nativeResponsesAssembler = &nativeResponsesSSEAssembler{}
+	}
+	emitPayloads := func(payloads [][]byte) *execution.StreamResult {
+		for _, unframed := range payloads {
+			payload := frameSSE(spec.ClientProtocol, unframed)
+			payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
+			if rewriteErr != nil {
+				failure := streamInternalError(provider.UpstreamProtocol(), headers, applied, "rewrite subscription response model", ready)
+				return &failure
+			}
+			if spec.ClientProtocol == protocol.OpenAICompletions && isOpenAIDone(payload) {
+				openAIDone = true
+			}
+			if spec.ClientProtocol == protocol.Gemini && isGeminiTerminal(payload) {
+				geminiTerminal = true
+			}
+			if !ready {
+				if err := sink(execution.StreamEvent{Kind: execution.StreamEventReady, Sequence: sequence, StatusCode: http.StatusOK, Header: headers}); err != nil {
+					failure := streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, false)
+					return &failure
+				}
+				ready = true
+			}
+			sequence++
+			if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: payload}); err != nil {
+				failure := streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
+				return &failure
+			}
+		}
+		return nil
+	}
 	for {
 		idleTimeout := spec.Timeouts.StreamIdle
-		if !ready {
+		if !ready && !upstreamStarted {
 			idleTimeout = 0
 		}
 		chunk, ok, idleErr := nextChunk(streamCtx, response.Chunks, idleTimeout)
@@ -262,6 +295,15 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		if !ok {
 			if err := context.Cause(streamCtx); err != nil {
 				return streamExecutionError(streamCtx, provider, headers, err, credential, applied, ready)
+			}
+			if nativeResponsesAssembler != nil {
+				payloads, finishErr := nativeResponsesAssembler.finish()
+				if finishErr != nil {
+					return streamInternalError(provider.UpstreamProtocol(), headers, applied, "invalid subscription SSE stream", ready)
+				}
+				if failure := emitPayloads(payloads); failure != nil {
+					return *failure
+				}
 			}
 			if !ready {
 				return streamInternalError(provider.UpstreamProtocol(), headers, applied, "subscription upstream stream ended without data", false)
@@ -283,33 +325,22 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		if chunk.Err != nil {
 			return streamExecutionError(streamCtx, provider, headers, chunk.Err, credential, applied, ready)
 		}
-		if len(chunk.Payload) == 0 {
-			continue
+		if len(chunk.Payload) > 0 {
+			firstByte.stop()
+			upstreamStarted = true
 		}
-		firstByte.stop()
 		if err := context.Cause(streamCtx); err != nil {
 			return streamExecutionError(streamCtx, provider, headers, err, credential, applied, false)
 		}
-		payload := frameSSE(spec.ClientProtocol, chunk.Payload)
-		payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
-		if rewriteErr != nil {
-			return streamInternalError(provider.UpstreamProtocol(), headers, applied, "rewrite subscription response model", ready)
-		}
-		if spec.ClientProtocol == protocol.OpenAICompletions && isOpenAIDone(payload) {
-			openAIDone = true
-		}
-		if spec.ClientProtocol == protocol.Gemini && isGeminiTerminal(payload) {
-			geminiTerminal = true
-		}
-		if !ready {
-			if err := sink(execution.StreamEvent{Kind: execution.StreamEventReady, Sequence: sequence, StatusCode: http.StatusOK, Header: headers}); err != nil {
-				return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, false)
+		payloads := [][]byte{chunk.Payload}
+		if nativeResponsesAssembler != nil {
+			payloads, err = nativeResponsesAssembler.push(chunk.Payload)
+			if err != nil {
+				return streamInternalError(provider.UpstreamProtocol(), headers, applied, "invalid subscription SSE stream", ready)
 			}
-			ready = true
 		}
-		sequence++
-		if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: payload}); err != nil {
-			return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
+		if failure := emitPayloads(payloads); failure != nil {
+			return *failure
 		}
 	}
 }
@@ -381,19 +412,32 @@ func formatFor(clientProtocol protocol.Protocol) string {
 	}
 }
 
-func convertedResponseHeaders(source http.Header, contentType string) http.Header {
-	headers := source.Clone()
-	if headers == nil {
-		headers = make(http.Header)
-	}
-	for _, name := range convertedRepresentationHeaderNames {
-		for key := range headers {
-			if strings.EqualFold(key, name) {
-				delete(headers, key)
+func subscriptionResponseHeaders(source http.Header, contentType string) http.Header {
+	headers := make(http.Header)
+	for actualName, values := range source {
+		allowed := false
+		for _, name := range subscriptionResponseHeaderNames {
+			if strings.EqualFold(actualName, name) {
+				allowed = true
+				break
 			}
+		}
+		if !allowed {
+			continue
+		}
+		for _, value := range values {
+			headers.Add(actualName, value)
 		}
 	}
 	headers.Set("Content-Type", contentType)
+	if contentType == "text/event-stream" {
+		headers.Set("Cache-Control", "no-cache")
+	}
+	if headers.Get("X-Request-Id") == "" {
+		if requestID := upstreamRequestID(headers); requestID != "" {
+			headers.Set("X-Request-Id", requestID)
+		}
+	}
 	return headers
 }
 
@@ -691,10 +735,20 @@ func usageEvidence(clientProtocol protocol.Protocol, body []byte) *execution.Usa
 }
 
 func upstreamRequestID(headers http.Header) string {
-	if value := headers.Get("X-Request-Id"); value != "" {
-		return value
+	for _, name := range []string{
+		"X-Request-Id",
+		"Request-Id",
+		"Openai-Request-Id",
+		"X-Oai-Request-Id",
+		"Anthropic-Request-Id",
+		"X-Goog-Request-Id",
+		"X-Amzn-Requestid",
+	} {
+		if value := headers.Get(name); value != "" {
+			return value
+		}
 	}
-	return headers.Get("Request-Id")
+	return ""
 }
 
 func withRequestTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

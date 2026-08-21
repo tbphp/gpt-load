@@ -350,6 +350,67 @@ func headerValuesContainLiteral(values []string, literal string) bool {
 	return false
 }
 
+func isUpstreamOriginResponseHeader(name string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(name))
+	if strings.HasPrefix(lowered, "access-control-") ||
+		strings.HasPrefix(lowered, "cross-origin-") ||
+		strings.HasPrefix(lowered, "cf-") ||
+		strings.HasPrefix(lowered, "x-codex-") ||
+		strings.HasPrefix(lowered, "x-envoy-") {
+		return true
+	}
+	switch lowered {
+	case "alt-svc",
+		"clear-site-data",
+		"content-security-policy",
+		"content-security-policy-report-only",
+		"date",
+		"nel",
+		"origin-agent-cluster",
+		"permissions-policy",
+		"referrer-policy",
+		"report-to",
+		"reporting-endpoints",
+		"server",
+		"server-timing",
+		"strict-transport-security",
+		"timing-allow-origin",
+		"via",
+		"x-cache",
+		"x-cache-hits",
+		"x-content-type-options",
+		"x-frame-options",
+		"x-models-etag",
+		"x-openai-proxy-wasm",
+		"x-served-by",
+		"x-xss-protection":
+		return true
+	default:
+		return false
+	}
+}
+
+func isConvertedResponseHeaderAllowed(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "cache-control",
+		"content-encoding",
+		"content-length",
+		"content-type",
+		"request-id",
+		"retry-after",
+		"x-amzn-requestid",
+		"x-gpt-load-token-count",
+		"x-goog-request-id",
+		"x-oai-request-id",
+		"x-request-id",
+		"anthropic-request-id",
+		"openai-request-id":
+		return true
+	default:
+		return false
+	}
+}
+
 func sanitizeForwardResponseHeaders(
 	source http.Header,
 	input ForwardInput,
@@ -361,6 +422,7 @@ func sanitizeForwardResponseHeaders(
 	namesToDelete := make([]string, 0)
 	for actualName, values := range headers {
 		deleteField := isResolvedCredentialHeaderName(actualName) ||
+			isUpstreamOriginResponseHeader(actualName) ||
 			strings.HasPrefix(strings.ToLower(actualName), "x-upstream-") ||
 			strings.EqualFold(actualName, "Set-Cookie") ||
 			strings.EqualFold(actualName, "Set-Cookie2") ||
@@ -381,6 +443,15 @@ func sanitizeForwardResponseHeaders(
 	deleted = deleted || len(namesToDelete) > 0
 	for _, name := range namesToDelete {
 		deleteHeaderField(headers, name)
+	}
+	if input.RouteMode == execution.RouteConverted {
+		for name := range headers {
+			if isConvertedResponseHeaderAllowed(name) {
+				continue
+			}
+			delete(headers, name)
+			deleted = true
+		}
 	}
 	if !needsModelRewrite(input) {
 		if deleted {

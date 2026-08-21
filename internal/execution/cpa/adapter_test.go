@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -210,6 +211,44 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 	}
 }
 
+func TestSubscriptionResponseHeadersUseAllowlist(t *testing.T) {
+	source := http.Header{
+		"Content-Type":                         {"application/upstream"},
+		"X-Oai-Request-Id":                     {"oai-request-1"},
+		"Retry-After":                          {"3"},
+		"X-Codex-Turn-State":                   {"private-state"},
+		"X-Codex-Plan-Type":                    {"pro"},
+		"X-Codex-Primary-Used-Percent":         {"11"},
+		"X-Models-Etag":                        {"private-model-cache"},
+		"X-Openai-Proxy-Wasm":                  {"v0.1"},
+		"Cf-Ray":                               {"edge-trace"},
+		"Nel":                                  {`{"success_fraction":0.01}`},
+		"Report-To":                            {`{"group":"cf-nel"}`},
+		"Cross-Origin-Opener-Policy":           {"same-origin-allow-popups"},
+		"Referrer-Policy":                      {"strict-origin-when-cross-origin"},
+		"Strict-Transport-Security":            {"max-age=31536000"},
+		"Access-Control-Allow-Origin":          {"*"},
+		"Access-Control-Allow-Credentials":     {"true"},
+		"Access-Control-Expose-Headers":        {"X-Oai-Request-Id"},
+		"Access-Control-Allow-Private-Network": {"true"},
+	}
+	original := source.Clone()
+
+	headers := subscriptionResponseHeaders(source, "text/event-stream")
+	if !reflect.DeepEqual(headers, http.Header{
+		"Content-Type":     {"text/event-stream"},
+		"Cache-Control":    {"no-cache"},
+		"X-Oai-Request-Id": {"oai-request-1"},
+		"X-Request-Id":     {"oai-request-1"},
+		"Retry-After":      {"3"},
+	}) {
+		t.Fatalf("subscription response headers = %#v", headers)
+	}
+	if !reflect.DeepEqual(source, original) {
+		t.Fatalf("subscriptionResponseHeaders() mutated source: got %#v, want %#v", source, original)
+	}
+}
+
 func TestAdapterCountsCodexTokensForEverySupportedProtocol(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -389,7 +428,7 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 		{
 			name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate,
 			wantFormat: "openai-response", wantAPI: protocol.OpenAIResponses,
-			payload:  `data: {"type":"response.completed","response":{"id":"resp_1"}}`,
+			payload:  `data: {"type":"response.completed","response":{"id":"resp_1"}}` + "\n\n",
 			wantData: []string{`data: {"type":"response.completed","response":{"id":"resp_1"}}` + "\n\n"},
 		},
 		{
@@ -437,6 +476,60 @@ func TestAdapterStreamsEverySupportedClientProtocolThroughCPA(t *testing.T) {
 				t.Fatalf("stream data = %q, want %q", data, test.wantData)
 			}
 		})
+	}
+}
+
+func TestAdapterGroupsNativeResponsesSSELinesIntoCompleteEvents(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	chunks := make(chan codex.ExecuteStreamChunk, 5)
+	for _, payload := range []string{
+		"event: response.created",
+		`data: {"type":"response.created","response":{"id":"resp_1","model":"gpt-5"}}`,
+		"",
+		"event: response.completed",
+		`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5"}}`,
+	} {
+		chunks <- codex.ExecuteStreamChunk{Payload: []byte(payload)}
+	}
+	close(chunks)
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{
+		Headers: http.Header{
+			"X-Oai-Request-Id":   {"oai-request-1"},
+			"X-Codex-Turn-State": {"private-state"},
+		},
+		Chunks: chunks,
+	}})
+
+	var data []string
+	var readyHeader http.Header
+	result := adapter.ExecuteStream(t.Context(), validSpec(t, row, keyService), func(event execution.StreamEvent) error {
+		if event.Kind == execution.StreamEventReady {
+			readyHeader = event.Header.Clone()
+		}
+		if event.Kind == execution.StreamEventData {
+			data = append(data, string(event.Data))
+		}
+		return nil
+	})
+	if result.Error != nil {
+		t.Fatalf("ExecuteStream() error = %#v", result.Error)
+	}
+	if readyHeader.Get("X-Request-Id") != "oai-request-1" ||
+		readyHeader.Get("Cache-Control") != "no-cache" ||
+		readyHeader.Values("X-Codex-Turn-State") != nil {
+		t.Fatalf("ready headers = %#v", readyHeader)
+	}
+	want := []string{
+		"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5\"}}\n\n",
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5\"}}\n\n",
+	}
+	if len(data) != len(want) {
+		t.Fatalf("stream data events = %q, want %q", data, want)
+	}
+	for index := range want {
+		if data[index] != want[index] {
+			t.Fatalf("stream data event %d = %q, want %q", index, data[index], want[index])
+		}
 	}
 }
 
@@ -490,7 +583,7 @@ func TestAdapterUsesFirstByteTimeoutBeforeFirstData(t *testing.T) {
 func TestAdapterSwitchesToStreamIdleTimeoutAfterFirstData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	chunks := make(chan codex.ExecuteStreamChunk, 1)
-	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.created","response":{"id":"resp_1"}}`)}
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n")}
 	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
 	spec := validSpec(t, row, keyService)
 	spec.Timeouts.FirstByte = 200 * time.Millisecond
@@ -507,6 +600,30 @@ func TestAdapterSwitchesToStreamIdleTimeoutAfterFirstData(t *testing.T) {
 	}
 	if len(events) != 2 || events[0].Kind != execution.StreamEventReady || events[1].Kind != execution.StreamEventData {
 		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestAdapterUsesStreamIdleTimeoutBetweenNativeResponsesLines(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	chunks := make(chan codex.ExecuteStreamChunk, 1)
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: response.created")}
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
+	spec := validSpec(t, row, keyService)
+	spec.Timeouts.FirstByte = 200 * time.Millisecond
+	spec.Timeouts.StreamIdle = 20 * time.Millisecond
+	spec.Timeouts.Request = time.Second
+
+	started := time.Now()
+	var events []execution.StreamEvent
+	result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+	if elapsed := time.Since(started); elapsed >= 150*time.Millisecond {
+		t.Fatalf("stream idle timeout between SSE lines took %s", elapsed)
+	}
+	if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout || result.ResponseStarted || len(events) != 0 {
+		t.Fatalf("result = %#v, events = %#v", result, events)
 	}
 }
 
@@ -537,7 +654,7 @@ func TestAdapterRewritesStreamModelAliasForEveryProtocol(t *testing.T) {
 		payload   string
 	}{
 		{name: "OpenAI Chat", protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, payload: `{"model":"upstream-model","choices":[{"finish_reason":"stop"}]}`},
-		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, payload: `data: {"type":"response.completed","response":{"model":"upstream-model"}}`},
+		{name: "OpenAI Responses", protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, payload: "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"upstream-model\"}}\n\n"},
 		{name: "Anthropic", protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, payload: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"upstream-model\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}"},
 		{name: "Gemini", protocol: protocol.Gemini, operation: execution.OperationChatCompletion, payload: `{"modelVersion":"upstream-model","candidates":[{"finishReason":"STOP"}]}`},
 	}
@@ -671,6 +788,12 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 		wantTerminal string
 	}{
 		{
+			name: "OpenAI Responses", protocol: protocol.OpenAIResponses,
+			body:         `{"model":"gpt-5.6-luna","input":"hello","stream":true}`,
+			wantFragment: "event: response.output_text.delta\ndata: ",
+			wantTerminal: "\n\n",
+		},
+		{
 			name: "OpenAI Chat", protocol: protocol.OpenAICompletions,
 			body:         `{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hello"}],"stream":true}`,
 			wantFragment: `"object":"chat.completion.chunk"`,
@@ -695,9 +818,9 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 					Status:     "200 OK",
 					Header:     http.Header{"Content-Type": {"text/event-stream"}},
 					Body: io.NopCloser(strings.NewReader(strings.Join([]string{
-						`data: {"type":"response.created","response":{"id":"resp_1","object":"response","status":"in_progress","created_at":1,"model":"gpt-5.6-luna","output":[]}}`,
-						`data: {"type":"response.output_text.delta","response_id":"resp_1","output_index":0,"item_id":"msg_1","content_index":0,"delta":"hello"}`,
-						`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"gpt-5.6-luna","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+						"event: response.created\n" + `data: {"type":"response.created","response":{"id":"resp_1","object":"response","status":"in_progress","created_at":1,"model":"gpt-5.6-luna","output":[]}}`,
+						"event: response.output_text.delta\n" + `data: {"type":"response.output_text.delta","response_id":"resp_1","output_index":0,"item_id":"msg_1","content_index":0,"delta":"hello"}`,
+						"event: response.completed\n" + `data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"gpt-5.6-luna","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
 					}, "\n\n") + "\n\n")),
 					Request: request,
 				}, nil
@@ -705,8 +828,13 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
 			spec := validSpec(t, row, keyService)
 			spec.ClientProtocol = test.protocol
-			spec.Operation = execution.OperationChatCompletion
-			spec.RouteMode = execution.RouteConverted
+			if test.protocol == protocol.OpenAIResponses {
+				spec.Operation = execution.OperationResponsesCreate
+				spec.RouteMode = execution.RouteNative
+			} else {
+				spec.Operation = execution.OperationChatCompletion
+				spec.RouteMode = execution.RouteConverted
+			}
 			spec.UpstreamModel = "gpt-5.6-luna"
 			spec.ClientModel = "gpt-5.6-luna"
 			spec.Body = []byte(test.body)
@@ -714,7 +842,11 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 			var wire strings.Builder
 			result := adapter.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
 				if event.Kind == execution.StreamEventData {
-					if !bytes.HasPrefix(event.Data, []byte("data:")) {
+					wantPrefix := []byte("data:")
+					if test.protocol == protocol.OpenAIResponses {
+						wantPrefix = []byte("event:")
+					}
+					if !bytes.HasPrefix(event.Data, wantPrefix) {
 						t.Errorf("unframed client event = %q", event.Data)
 					}
 					_, _ = wire.Write(event.Data)
@@ -727,6 +859,10 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 			if !strings.Contains(wire.String(), test.wantFragment) || !strings.HasSuffix(wire.String(), test.wantTerminal) {
 				t.Fatalf("client wire = %q", wire.String())
 			}
+			if test.protocol == protocol.OpenAIResponses &&
+				!strings.Contains(wire.String(), "event: response.completed\ndata: ") {
+				t.Fatalf("Responses terminal event is incomplete: %q", wire.String())
+			}
 		})
 	}
 }
@@ -734,7 +870,7 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 func TestAdapterStreamsReadyThenFramedData(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	chunks := make(chan codex.ExecuteStreamChunk, 1)
-	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"id":"resp_1"}}`)}
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n")}
 	close(chunks)
 	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Headers: http.Header{"Content-Type": {"text/event-stream"}}, Chunks: chunks}})
 	var events []execution.StreamEvent
