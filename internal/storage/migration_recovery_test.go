@@ -284,6 +284,45 @@ func TestExternalDatabaseIncrementalMigrations(t *testing.T) {
 	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
 }
 
+func TestExternalDatabaseMySQLRecoversObservationFreshnessCheckDrop(t *testing.T) {
+	rawDSN := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
+	if rawDSN == "" {
+		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
+	}
+	parsed, err := url.Parse(rawDSN)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "mysql") {
+		t.Skip("observation freshness recovery is specific to MySQL")
+	}
+	db := openExternalIncrementalMigrationDatabase(t, rawDSN)
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatalf("create migration ledger: %v", err)
+	}
+	for index := 0; index < 2; index++ {
+		if err := migrations[index].Up(db); err != nil {
+			t.Fatalf("apply migration %d: %v", index+1, err)
+		}
+		if err := migrations[index].Validate(db); err != nil {
+			t.Fatalf("validate migration %d: %v", index+1, err)
+		}
+		if err := db.Create(&schemaMigration{ID: migrations[index].ID}).Error; err != nil {
+			t.Fatalf("record migration %d: %v", index+1, err)
+		}
+	}
+	if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[2].ID)}).Error; err != nil {
+		t.Fatalf("record observation freshness recovery marker: %v", err)
+	}
+	if err := db.Exec(
+		"ALTER TABLE `credential_observations` DROP CHECK `chk_credential_observation_fresh_until`",
+	).Error; err != nil {
+		t.Fatalf("drop observation freshness check: %v", err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("resume observation freshness removal: %v", err)
+	}
+	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
+}
+
 func openExternalIncrementalMigrationDatabase(t *testing.T, rawDSN string) *gorm.DB {
 	t.Helper()
 	parsed, err := url.Parse(rawDSN)

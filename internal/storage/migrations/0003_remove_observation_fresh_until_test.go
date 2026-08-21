@@ -59,3 +59,26 @@ func TestRemoveObservationFreshUntilMigrationDropsColumnAndPreservesRows(t *test
 		t.Fatalf("repeated Up0003() error = %v", err)
 	}
 }
+
+func TestRemoveObservationFreshUntilRecoveryAcceptsDroppedCheckBeforeColumn(t *testing.T) {
+	db := openInitialTestDatabase(t)
+	if err := migrations.Up0001(db); err != nil {
+		t.Fatalf("Up0001() error = %v", err)
+	}
+	if err := db.Migrator().DropConstraint(
+		"credential_observations",
+		"chk_credential_observation_fresh_until",
+	); err != nil {
+		t.Fatalf("drop freshness check constraint: %v", err)
+	}
+	if !db.Migrator().HasColumn("credential_observations", "fresh_until_ms") {
+		t.Fatal("fresh_until_ms was unexpectedly removed")
+	}
+	if db.Migrator().HasConstraint("credential_observations", "chk_credential_observation_fresh_until") {
+		t.Fatal("freshness check constraint still exists")
+	}
+
+	if err := migrations.ValidateRecoverable0003(db); err != nil {
+		t.Fatalf("ValidateRecoverable0003() error = %v", err)
+	}
+}

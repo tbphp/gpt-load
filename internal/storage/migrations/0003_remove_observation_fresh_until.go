@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -19,7 +20,8 @@ const (
 )
 
 type credentialObservation0003 struct {
-	CredentialID uint `gorm:"column:credential_id;primaryKey"`
+	CredentialID uint   `gorm:"column:credential_id;primaryKey"`
+	FreshUntilMS *int64 `gorm:"column:fresh_until_ms;check:chk_credential_observation_fresh_until,fresh_until_ms IS NULL OR fresh_until_ms >= 0"`
 }
 
 func (credentialObservation0003) TableName() string {
@@ -39,7 +41,7 @@ func Up0003(db *gorm.DB) error {
 	}
 	if strings.EqualFold(db.Dialector.Name(), "mysql") &&
 		db.Migrator().HasConstraint(&credentialObservation0003{}, credentialObservationFreshCheck0003) {
-		if err := db.Migrator().DropConstraint(&credentialObservation0003{}, credentialObservationFreshCheck0003); err != nil {
+		if err := dropObservationFreshnessCheck0003(db); err != nil {
 			return fmt.Errorf("remove observation freshness check constraint: %w", err)
 		}
 	}
@@ -47,6 +49,25 @@ func Up0003(db *gorm.DB) error {
 		return fmt.Errorf("remove observation freshness column: %w", err)
 	}
 	return nil
+}
+
+func dropObservationFreshnessCheck0003(db *gorm.DB) error {
+	if dialector, ok := db.Dialector.(*gormmysql.Dialector); ok &&
+		dialector.Config != nil &&
+		mysqlRequiresCheckDropSyntax0003(dialector.ServerVersion) {
+		return db.Exec(
+			"ALTER TABLE `credential_observations` DROP CHECK `chk_credential_observation_fresh_until`",
+		).Error
+	}
+	return db.Migrator().DropConstraint(&credentialObservation0003{}, credentialObservationFreshCheck0003)
+}
+
+func mysqlRequiresCheckDropSyntax0003(serverVersion string) bool {
+	var major, minor, patch int
+	if _, err := fmt.Sscanf(serverVersion, "%d.%d.%d", &major, &minor, &patch); err != nil {
+		return false
+	}
+	return major == 8 && minor == 0 && patch >= 16 && patch < 19
 }
 
 func rebuildSQLiteCredentialObservations0003(db *gorm.DB) error {
@@ -98,9 +119,13 @@ func rebuildSQLiteCredentialObservations0003(db *gorm.DB) error {
 	return nil
 }
 
-// ValidateRecoverable0003 accepts only the complete schema immediately before
-// or immediately after the single idempotent DDL operation.
+// ValidateRecoverable0003 accepts the complete schemas before and after the
+// migration, plus the MySQL state after its first non-transactional DDL.
 func ValidateRecoverable0003(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&credentialObservation0003{}, credentialObservationFreshUntil0003) &&
+		!db.Migrator().HasConstraint(&credentialObservation0003{}, credentialObservationFreshCheck0003) {
+		return validateInitialSchemaAfter0003(db)
+	}
 	return ValidateCurrent0001(db)
 }
 
