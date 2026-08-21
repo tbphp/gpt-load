@@ -144,7 +144,8 @@ func (s *Service) ConsumeCredentialResetCredit(
 	if observation.State != "" {
 		response.Observation = &observation
 	}
-	response.ObservationPending = observationErr != nil
+	response.ObservationPending = observationErr != nil ||
+		observation.State != string(models.CredentialObservationFresh)
 	if observationErr != nil {
 		utils.LogPlaneBestEffort(
 			logrus.StandardLogger(),

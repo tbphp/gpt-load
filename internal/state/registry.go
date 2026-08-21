@@ -660,8 +660,8 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 	return filtered
 }
 
-// SetCredentialQuotaObservation publishes an ephemeral provider observation to
-// routing. Passing nil clears the observation and restores normal scheduling.
+// SetCredentialQuotaObservation publishes an ephemeral provider observation for
+// management-plane health display. Passing nil clears the observation.
 func (r *CredentialRegistry) SetCredentialQuotaObservation(
 	credentialID uint,
 	remaining *float64,

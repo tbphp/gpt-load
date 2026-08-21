@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription/providers/codex"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 const resetCreditTestKey = "9f0f4c32-89d2-4bcb-9e19-052940dc2f16"
@@ -51,8 +53,52 @@ func TestConsumeCredentialResetCreditRefreshesObservationAndRemainsIdempotent(t 
 	}
 	if consumeCalls != 1 || observationCalls != 1 || first.Status != "succeeded" || first.WindowsReset != 1 ||
 		first.Observation == nil || first.Observation.State != string(models.CredentialObservationFresh) ||
-		first.ObservationPending || second.Status != first.Status || !second.Replayed {
+		first.ObservationPending || second.Status != first.Status || !second.Replayed ||
+		second.ObservationPending || second.Observation == nil ||
+		second.Observation.State != string(models.CredentialObservationFresh) {
 		t.Fatalf("calls=%d/%d first=%#v second=%#v", consumeCalls, observationCalls, first, second)
+	}
+}
+
+func TestConsumeCredentialResetCreditReportsPendingForPartialObservation(t *testing.T) {
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
+		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil
+	})
+	fixture.service.observeSubscriptionAccount = func(
+		context.Context,
+		channel.ID,
+		subscriptionruntime.Credential,
+	) (subscriptionruntime.Observation, error) {
+		return subscriptionruntime.Observation{
+			Payload: []byte(`{"plan_summary":{"name":"Claude Team"},"quota_windows":[]}`),
+			Partial: true,
+		}, nil
+	}
+
+	result, err := fixture.service.ConsumeCredentialResetCredit(
+		t.Context(),
+		groupID,
+		credentialID,
+		resetCreditTestKey,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ObservationPending || result.Observation == nil ||
+		result.Observation.State != string(models.CredentialObservationStale) {
+		t.Fatalf("result = %#v, want stale observation reported as pending", result)
+	}
+	replayed, err := fixture.service.ConsumeCredentialResetCredit(
+		t.Context(),
+		groupID,
+		credentialID,
+		resetCreditTestKey,
+	)
+	if err != nil || !replayed.Replayed || !replayed.ObservationPending ||
+		replayed.Observation == nil ||
+		replayed.Observation.State != string(models.CredentialObservationStale) {
+		t.Fatalf("replayed result/error = %#v/%v, want stale observation reported as pending", replayed, err)
 	}
 }
 

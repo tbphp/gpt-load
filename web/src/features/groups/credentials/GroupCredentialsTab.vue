@@ -615,18 +615,24 @@ async function confirmResetCredit(): Promise<void> {
       target.item.credential_id,
       target.idempotencyKey,
     )
+    const observationPending = result.observation_pending || result.observation?.state !== 'fresh'
     if (result.observation) {
       await reconcileItem({ ...target.item, observation: result.observation }, false)
     } else {
-      await refetchActiveCredentialPage()
+      try {
+        await refetchActiveCredentialPage()
+      } catch {
+        await invalidateReconciliationQueries()
+      }
     }
-    const observationPending =
-      result.observation_pending || (result.replayed && result.observation?.state !== 'fresh')
-    feedback.value = t(
-      observationPending
-        ? 'group.credentials.subscription.consumeResetCreditPending'
-        : 'group.credentials.subscription.consumeResetCreditSucceeded',
-    )
+    if (observationPending) {
+      feedback.value = t('group.credentials.subscription.consumeResetCreditPending')
+    } else {
+      toast.show({
+        message: t('group.credentials.subscription.consumeResetCreditSucceeded'),
+        tone: 'success',
+      })
+    }
     resetOperationKeys.delete(target.item.credential_id)
     resetTarget.value = undefined
   } catch (cause) {
