@@ -533,6 +533,37 @@ func TestAdapterGroupsNativeResponsesSSELinesIntoCompleteEvents(t *testing.T) {
 	}
 }
 
+func TestAdapterSkipsEmptyChunksOutsideNativeResponsesFraming(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	chunks := make(chan codex.ExecuteStreamChunk, 2)
+	chunks <- codex.ExecuteStreamChunk{}
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`{"id":"chat_1","choices":[{"finish_reason":"stop"}]}`)}
+	close(chunks)
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
+	spec := validSpec(t, row, keyService)
+	spec.ClientProtocol = protocol.OpenAICompletions
+	spec.Operation = execution.OperationChatCompletion
+	spec.RouteMode = execution.RouteConverted
+
+	var data []string
+	result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+		if event.Kind == execution.StreamEventData {
+			data = append(data, string(event.Data))
+		}
+		return nil
+	})
+	if result.Error != nil {
+		t.Fatalf("ExecuteStream() error = %#v", result.Error)
+	}
+	want := []string{
+		"data: {\"id\":\"chat_1\",\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n",
+		"data: [DONE]\n\n",
+	}
+	if !reflect.DeepEqual(data, want) {
+		t.Fatalf("stream data = %q, want %q", data, want)
+	}
+}
+
 func TestAdapterDoesNotCompleteStreamAfterContextCancellation(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	chunks := make(chan codex.ExecuteStreamChunk)

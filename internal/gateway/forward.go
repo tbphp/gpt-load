@@ -395,6 +395,7 @@ func isConvertedResponseHeaderAllowed(name string) bool {
 	case "cache-control",
 		"content-encoding",
 		"content-length",
+		"content-range",
 		"content-type",
 		"request-id",
 		"retry-after",

@@ -69,6 +69,7 @@ func TestSanitizeForwardResponseHeadersNarrowsConvertedResponses(t *testing.T) {
 	source := http.Header{
 		"Content-Type":                 {"application/json"},
 		"Content-Length":               {"123"},
+		"Content-Range":                {"bytes 0-122/123"},
 		"Cache-Control":                {"no-cache"},
 		"X-Request-Id":                 {"request-1"},
 		"Retry-After":                  {"3"},
@@ -87,7 +88,7 @@ func TestSanitizeForwardResponseHeadersNarrowsConvertedResponses(t *testing.T) {
 		RouteMode:      execution.RouteConverted,
 	})
 	for _, name := range []string{
-		"Content-Type", "Content-Length", "Cache-Control", "X-Request-Id", "Retry-After",
+		"Content-Type", "Content-Length", "Content-Range", "Cache-Control", "X-Request-Id", "Retry-After",
 		"X-Gpt-Load-Token-Count",
 	} {
 		if headers.Get(name) == "" {

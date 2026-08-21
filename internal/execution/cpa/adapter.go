@@ -325,6 +325,9 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 		if chunk.Err != nil {
 			return streamExecutionError(streamCtx, provider, headers, chunk.Err, credential, applied, ready)
 		}
+		if len(chunk.Payload) == 0 && nativeResponsesAssembler == nil {
+			continue
+		}
 		if len(chunk.Payload) > 0 {
 			firstByte.stop()
 			upstreamStarted = true
