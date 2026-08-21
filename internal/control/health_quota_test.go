@@ -7,6 +7,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/state"
+	"gpt-load/internal/storage/models"
 )
 
 // 额度观测只服务于管理面展示，不影响调度可用性；首页仍需单独暴露额度快用完的凭据。
@@ -74,5 +75,58 @@ func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
 	}
 	if got.ResetAtMS != resetAt.UnixMilli() {
 		t.Fatalf("ResetAtMS = %d, want %d", got.ResetAtMS, resetAt.UnixMilli())
+	}
+}
+
+func TestRuntimeHealthReportsResetCreditsExpiringWithinFortyEightHours(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := healthNow()
+	fixture.service.now = func() time.Time { return now }
+	groupID := createGroupWithCredentials(t, fixture, `{"api_key":"sk-expiring-reset-credit"}`)
+
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).First(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	near := now.Add(23 * time.Hour).UnixMilli()
+	later := now.Add(47 * time.Hour).UnixMilli()
+	outside := now.Add(72 * time.Hour).UnixMilli()
+	snapshot, err := json.Marshal(CredentialObservationSnapshot{
+		QuotaWindows: []ObservationQuotaWindow{},
+		ResetCredits: []ObservationResetCredit{
+			{ExpiresAtMS: &near},
+			{ExpiresAtMS: &later},
+			{ExpiresAtMS: &outside},
+			{},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedAtMS := now.UnixMilli()
+	if err := fixture.db.Create(&models.CredentialObservation{
+		CredentialID:        credential.ID,
+		IdentityFingerprint: credential.IdentityFingerprint,
+		SchemaVersion:       1,
+		ObservationVersion:  1,
+		SnapshotJSON:        models.JSON(snapshot),
+		State:               models.CredentialObservationFresh,
+		ObservedAtMS:        &observedAtMS,
+		UpdatedAtMS:         observedAtMS,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := fixture.service.RuntimeHealth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ExpiringResetCredits) != 1 {
+		t.Fatalf("ExpiringResetCredits = %#v", result.ExpiringResetCredits)
+	}
+	got := result.ExpiringResetCredits[0]
+	if got.CredentialID != credential.ID || got.GroupID != groupID ||
+		got.Count != 2 || got.NearestExpiresAtMS != near {
+		t.Fatalf("expiring reset credit = %#v", got)
 	}
 }

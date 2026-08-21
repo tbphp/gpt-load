@@ -444,7 +444,9 @@ function projectObservationSnapshot(value: unknown): CredentialObservationSnapsh
           reset_credits: projectArray(record.reset_credits, (value) => {
             const credit = projectRecord(value)
             assertNoSecretLikeFields(credit, resetCreditFields)
-            return { expires_at_ms: projectEpochMilliseconds(credit.expires_at_ms) }
+            return credit.expires_at_ms === undefined || credit.expires_at_ms === null
+              ? {}
+              : { expires_at_ms: projectEpochMilliseconds(credit.expires_at_ms) }
           }),
         }),
   }

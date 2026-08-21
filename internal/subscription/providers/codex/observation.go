@@ -274,15 +274,26 @@ func normalizeResetCreditDetails(raw []byte) (*int64, []resetCredit, bool, error
 		if expires == "" {
 			expires = strings.TrimSpace(detail.ExpiresAtCamel)
 		}
+		if expires == "" {
+			credits = append(credits, resetCredit{})
+			continue
+		}
 		parsed, err := time.Parse(time.RFC3339, expires)
 		if err == nil {
-			credits = append(credits, resetCredit{ExpiresAtMS: parsed.UnixMilli()})
+			expiresAtMS := parsed.UnixMilli()
+			credits = append(credits, resetCredit{ExpiresAtMS: &expiresAtMS})
 		}
 	}
 	if count == nil && present {
 		count = &available
 	}
-	sort.Slice(credits, func(i, j int) bool { return credits[i].ExpiresAtMS < credits[j].ExpiresAtMS })
+	sort.SliceStable(credits, func(i, j int) bool {
+		left, right := credits[i].ExpiresAtMS, credits[j].ExpiresAtMS
+		if left == nil {
+			return false
+		}
+		return right == nil || *left < *right
+	})
 	return count, credits, present, nil
 }
 

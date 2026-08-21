@@ -22,7 +22,7 @@ import (
 )
 
 type ObservationResetCredit struct {
-	ExpiresAtMS int64 `json:"expires_at_ms"`
+	ExpiresAtMS *int64 `json:"expires_at_ms,omitempty"`
 }
 
 type ResetCreditConsumeResponse struct {

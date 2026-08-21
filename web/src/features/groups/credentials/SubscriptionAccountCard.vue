@@ -141,16 +141,69 @@ const syncTimeTooltip = computed(() => {
     time: formatLocalInstant(observedAtMS, locale.value),
   })
 })
+const syncExactTimeTooltip = computed(() => {
+  const observedAtMS = observation.value?.observed_at_ms
+  if (observedAtMS === undefined || observedAtMS === null) return undefined
+  return formatLocalInstant(observedAtMS, locale.value)
+})
 const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available ?? 0)
 const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
 const hasResetCredits = computed(() => supportsResetCredit.value && resetCreditsAvailable.value > 0)
-const nearestResetCredit = computed(() =>
-  resetCredits.value.reduce<(typeof resetCredits.value)[number] | undefined>(
-    (nearest, credit) =>
-      nearest === undefined || credit.expires_at_ms < nearest.expires_at_ms ? credit : nearest,
-    undefined,
-  ),
+type ResetCreditDotTone = 'default' | 'warning' | 'danger'
+const resetCreditDots = computed(() =>
+  Array.from({ length: Math.min(resetCreditsAvailable.value, 5) }, (_, index) => {
+    const expiresAtMS = resetCredits.value[index]?.expires_at_ms
+    let tone: ResetCreditDotTone = 'default'
+    if (expiresAtMS !== undefined) {
+      const remainingMS = expiresAtMS - nowMs.value
+      tone =
+        remainingMS <= 24 * 60 * 60 * 1_000
+          ? 'danger'
+          : remainingMS <= 48 * 60 * 60 * 1_000
+            ? 'warning'
+            : 'default'
+    }
+    return { index, tone }
+  }),
 )
+const nearestResetCredit = computed(() =>
+  resetCredits.value.reduce<(typeof resetCredits.value)[number] | undefined>((nearest, credit) => {
+    if (credit.expires_at_ms === undefined || credit.expires_at_ms <= nowMs.value) return nearest
+    return nearest === undefined ||
+      nearest.expires_at_ms === undefined ||
+      credit.expires_at_ms < nearest.expires_at_ms
+      ? credit
+      : nearest
+  }, undefined),
+)
+function resetCreditExpiryLabel(credit: (typeof resetCredits.value)[number]): string {
+  if (credit.expires_at_ms === undefined) {
+    return t('group.credentials.subscription.resetCreditPermanent')
+  }
+  if (credit.expires_at_ms <= nowMs.value) {
+    return t('group.credentials.subscription.resetCreditExpired')
+  }
+  return formatLocalInstant(credit.expires_at_ms, locale.value)
+}
+const resetCreditsTooltip = computed(() => {
+  const lines = resetCredits.value.length
+    ? resetCredits.value.map((credit, index) =>
+        t('group.credentials.subscription.resetCreditsTooltipItem', {
+          index: index + 1,
+          expires: resetCreditExpiryLabel(credit),
+        }),
+      )
+    : [t('group.credentials.subscription.resetCreditsTooltipNoDetails')]
+  const knownCount = resetCredits.value.length
+  if (knownCount < resetCreditsAvailable.value) {
+    lines.push(
+      t('group.credentials.subscription.resetCreditsTooltipMore', {
+        count: n(resetCreditsAvailable.value - knownCount),
+      }),
+    )
+  }
+  return [t('group.credentials.subscription.resetCreditsTooltipTitle'), ...lines].join('\n')
+})
 const isProblem = computed(
   () => props.item.effective_status === 'cooldown' || props.item.effective_status === 'blacklisted',
 )
@@ -554,6 +607,18 @@ function runMenuAction(
           <OverflowTooltip class="subscription-account__mail" :content="accountName">
             {{ accountName }}
           </OverflowTooltip>
+          <span
+            v-if="supportsQuotaObservation && observation?.observed_at_ms != null"
+            class="subscription-account__sync-age"
+          >
+            <AppRelativeTime
+              :instant="observation.observed_at_ms"
+              :locale="locale"
+              :empty-label="t('group.credentials.subscription.unknown')"
+              :tooltip-content="syncTimeTooltip"
+              hint
+            />
+          </span>
         </div>
       </header>
 
@@ -608,21 +673,32 @@ function runMenuAction(
         {{ t('group.credentials.subscription.quotaExhaustedHint') }}
       </p>
 
-      <div
-        v-if="hasResetCredits"
-        class="subscription-account__credits"
-        :class="{ 'subscription-account__credits--urgent': unifiedStatus === 'quota_exhausted' }"
-      >
+      <div v-if="hasResetCredits" class="subscription-account__credits">
         <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
-        <span class="subscription-account__credits-dots" aria-hidden="true">
-          <i v-for="index in Math.min(resetCreditsAvailable, 5)" :key="index"></i>
-        </span>
-        <strong>{{
-          t('group.credentials.subscription.resetCreditsCount', {
-            count: n(resetCreditsAvailable),
-          })
-        }}</strong>
-        <span v-if="nearestResetCredit" class="subscription-account__credits-expiry">
+        <AppTooltip :content="resetCreditsTooltip">
+          <span
+            class="subscription-account__credits-summary"
+            tabindex="0"
+            :aria-label="resetCreditsTooltip"
+          >
+            <span class="subscription-account__credits-dots" aria-hidden="true">
+              <i
+                v-for="dot in resetCreditDots"
+                :key="dot.index"
+                :class="`subscription-account__credits-dot--${dot.tone}`"
+              ></i>
+            </span>
+            <strong>{{
+              t('group.credentials.subscription.resetCreditsCount', {
+                count: n(resetCreditsAvailable),
+              })
+            }}</strong>
+          </span>
+        </AppTooltip>
+        <span
+          v-if="nearestResetCredit && nearestResetCredit.expires_at_ms !== undefined"
+          class="subscription-account__credits-expiry"
+        >
           {{ t('group.credentials.subscription.nearestResetCredit') }}
           <AppRelativeTime
             :instant="nearestResetCredit.expires_at_ms"
@@ -632,9 +708,18 @@ function runMenuAction(
           />
         </span>
         <span class="subscription-account__spacer"></span>
-        <AppButton size="compact" :disabled="busy" @click="emit('reset', item)">
-          {{ t('group.credentials.subscription.consumeResetCredit') }}
-        </AppButton>
+        <AppTooltip :content="t('group.credentials.subscription.resetCreditsActionTooltip')">
+          <AppButton
+            class="subscription-account__credits-action"
+            variant="ghost"
+            size="compact"
+            :disabled="busy"
+            :aria-label="t('group.credentials.subscription.resetCreditsActionTooltip')"
+            @click="emit('reset', item)"
+          >
+            <RotateCcw :size="15" aria-hidden="true" />
+          </AppButton>
+        </AppTooltip>
       </div>
 
       <div class="subscription-account__detail-control">
@@ -860,7 +945,7 @@ function runMenuAction(
                   :instant="observation?.observed_at_ms ?? null"
                   :locale="locale"
                   :empty-label="t('group.credentials.subscription.unknown')"
-                  :tooltip-content="syncTimeTooltip"
+                  :tooltip-content="syncExactTimeTooltip"
                   hint
                 />
               </dd>
@@ -909,14 +994,18 @@ function runMenuAction(
             class="subscription-account__reset-credit-list"
           >
             <span>{{ t('group.credentials.subscription.resetCreditExpirations') }}</span>
-            <AppRelativeTime
-              v-for="credit in resetCredits"
-              :key="credit.expires_at_ms"
-              :instant="credit.expires_at_ms"
-              :locale="locale"
-              :empty-label="t('group.credentials.subscription.unknown')"
-              hint
-            />
+            <template v-for="(credit, index) in resetCredits" :key="index">
+              <span v-if="credit.expires_at_ms !== undefined && credit.expires_at_ms <= nowMs">
+                {{ t('group.credentials.subscription.resetCreditExpired') }}
+              </span>
+              <AppRelativeTime
+                v-else
+                :instant="credit.expires_at_ms ?? null"
+                :locale="locale"
+                :empty-label="t('group.credentials.subscription.resetCreditPermanent')"
+                hint
+              />
+            </template>
           </div>
         </section>
       </div>
@@ -987,6 +1076,13 @@ function runMenuAction(
   font-size: var(--text-body);
   font-weight: 650;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subscription-account__sync-age {
+  flex: none;
+  margin-left: auto;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
   white-space: nowrap;
 }
 .subscription-account__plan {
@@ -1101,21 +1197,38 @@ function runMenuAction(
 }
 .subscription-account__credits {
   display: flex;
+  min-height: var(--control-compact);
   align-items: center;
   gap: var(--space-2);
-  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: 7px 10px;
+  background: var(--color-surface);
+  padding: 4px 6px;
   font-size: var(--text-sm);
 }
-.subscription-account__credits--urgent {
-  border-color: color-mix(in srgb, var(--color-action) 40%, var(--color-border-subtle));
-  background: var(--color-action-soft);
+.subscription-account__credits :deep(.subscription-account__credits-action) {
+  width: 26px;
+  min-height: 26px;
+  padding: 0;
 }
 .subscription-account__credits > span:first-child,
 .subscription-account__credits-expiry {
   color: var(--color-text-faint);
+}
+.subscription-account__credits-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-tag);
+  padding: 3px 5px;
+  cursor: help;
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+.subscription-account__credits-summary:hover {
+  background: var(--color-interactive-hover);
+}
+.subscription-account__credits-summary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 .subscription-account__credits-dots {
   display: inline-flex;
@@ -1126,6 +1239,12 @@ function runMenuAction(
   height: 7px;
   border-radius: 50%;
   background: var(--color-action);
+}
+.subscription-account__credits-dots .subscription-account__credits-dot--warning {
+  background: var(--color-warning);
+}
+.subscription-account__credits-dots .subscription-account__credits-dot--danger {
+  background: var(--color-danger);
 }
 .subscription-account__alert {
   display: flex;

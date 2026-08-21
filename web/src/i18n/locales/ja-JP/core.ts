@@ -242,8 +242,10 @@ export default {
       attention: {
         title: '対応が必要',
         blacklisted: '{group} に {count} 件のブラックリスト入り認証情報があります',
+        resetCreditExpiring:
+          '{group} のリセットカード {count} 枚が間もなく期限切れです。最短期限は',
         lowQuota: '{group} の残額度は {remaining}、リセットは',
-        summary: '{count} 件の認証情報に対応が必要です',
+        summary: '{count} 件の対応が必要です',
         action: '対応',
       },
       spend: {

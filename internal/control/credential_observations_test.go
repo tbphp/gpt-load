@@ -107,7 +107,8 @@ func TestNormalizeCodexResetCreditDetailsKeepsOnlyAvailableCodexCredits(t *testi
 	if count == nil || *count != 2 || !listPresent || len(credits) != 2 {
 		t.Fatalf("count/list/credits = %#v/%t/%#v", count, listPresent, credits)
 	}
-	if credits[0].ExpiresAtMS >= credits[1].ExpiresAtMS {
+	if credits[0].ExpiresAtMS == nil || credits[1].ExpiresAtMS == nil ||
+		*credits[0].ExpiresAtMS >= *credits[1].ExpiresAtMS {
 		t.Fatalf("credits are not sorted by expiration: %#v", credits)
 	}
 }
@@ -123,7 +124,8 @@ func TestNormalizeCodexResetCreditDetailsAcceptsTopLevelListAndCountsAvailable(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count == nil || *count != 2 || !listPresent || len(credits) != 1 {
+	if count == nil || *count != 2 || !listPresent || len(credits) != 2 ||
+		credits[0].ExpiresAtMS == nil || credits[1].ExpiresAtMS != nil {
 		t.Fatalf("count/list/credits = %#v/%t/%#v", count, listPresent, credits)
 	}
 }
