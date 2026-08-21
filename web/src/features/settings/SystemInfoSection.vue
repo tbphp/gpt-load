@@ -13,7 +13,11 @@ import {
   type DatabaseDriver,
   type SecretSource,
 } from '@/app/resources/system-info'
-import { getSystemUpdate, type ReleaseUpdateDto } from '@/app/resources/system-update'
+import {
+  getSystemUpdate,
+  systemUpdateQueryOptions,
+  type ReleaseUpdateDto,
+} from '@/app/resources/system-update'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
@@ -32,14 +36,20 @@ const initialLoading = useStableLoading(
 const infoRefreshing = computed(
   () => infoQuery.data.value !== undefined && infoQuery.isFetching.value,
 )
+const updateQuery = useQuery(systemUpdateQueryOptions(client))
 type UpdateCheckState =
   | { kind: 'checking' }
   | { kind: 'latest' }
   | { kind: 'available'; update: ReleaseUpdateDto }
   | { kind: 'failed' }
 
-const updateCheck = ref<UpdateCheckState | null>(null)
+const manualUpdateCheck = ref<UpdateCheckState | null>(null)
 const updateCheckPending = ref(false)
+const updateCheck = computed<UpdateCheckState | null>(() => {
+  if (manualUpdateCheck.value) return manualUpdateCheck.value
+  const update = updateQuery.data.value?.update
+  return update ? { kind: 'available', update } : null
+})
 const updateCheckTone = computed<'info' | 'success' | 'warning' | 'danger'>(() => {
   switch (updateCheck.value?.kind) {
     case 'latest':
@@ -64,21 +74,21 @@ function databaseLabel(database: DatabaseDriver): string {
 async function checkForUpdate(): Promise<void> {
   if (updateCheckPending.value) return
   updateCheckPending.value = true
-  updateCheck.value = { kind: 'checking' }
+  manualUpdateCheck.value = { kind: 'checking' }
   try {
     const result = await getSystemUpdate(client, undefined, true)
     queryClient.setQueryData(controlQueryKeys.systemUpdate(), result)
-    updateCheck.value = result.update
+    manualUpdateCheck.value = result.update
       ? { kind: 'available', update: result.update }
       : { kind: 'latest' }
   } catch (error) {
     if (error instanceof RequestCancelledError) {
-      updateCheck.value = null
+      manualUpdateCheck.value = null
       return
     }
     // 后端失败时会清空更新结果；同步前端查询缓存，避免继续显示旧提示。
     queryClient.setQueryData(controlQueryKeys.systemUpdate(), { update: null })
-    updateCheck.value = { kind: 'failed' }
+    manualUpdateCheck.value = { kind: 'failed' }
   } finally {
     updateCheckPending.value = false
   }
