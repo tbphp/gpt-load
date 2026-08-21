@@ -208,7 +208,6 @@ export interface CredentialObservationDto {
   snapshot: CredentialObservationSnapshotDto | null
   observation_version: number
   observed_at_ms: number | null
-  fresh_until_ms: number | null
   last_attempt_at_ms: number | null
   last_error_code?: string
 }

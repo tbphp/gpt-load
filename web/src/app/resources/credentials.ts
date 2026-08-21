@@ -142,7 +142,6 @@ const observationFields = [
   'snapshot',
   'observation_version',
   'observed_at_ms',
-  'fresh_until_ms',
   'last_attempt_at_ms',
   'last_error_code',
 ] as const
@@ -459,7 +458,6 @@ function projectObservation(value: unknown): CredentialObservationDto {
     snapshot: record.snapshot === null ? null : projectObservationSnapshot(record.snapshot),
     observation_version: projectSafeInteger(record.observation_version, { minimum: 0 }),
     observed_at_ms: projectNullableEpochMilliseconds(record.observed_at_ms),
-    fresh_until_ms: projectNullableEpochMilliseconds(record.fresh_until_ms),
     last_attempt_at_ms: projectNullableEpochMilliseconds(record.last_attempt_at_ms),
     ...(record.last_error_code === undefined
       ? {}

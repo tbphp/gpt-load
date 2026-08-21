@@ -74,6 +74,42 @@ func TestApplyMySQLMigrationRecoversEveryAccessKeyCostLimitDDLBoundary(t *testin
 	}
 }
 
+func TestApplyMySQLMigrationRecoversObservationFreshnessRemoval(t *testing.T) {
+	for _, alreadyDropped := range []bool{false, true} {
+		t.Run(fmt.Sprintf("already_dropped_%t", alreadyDropped), func(t *testing.T) {
+			db := openInternalMigrationTestDatabase(t)
+			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+				t.Fatalf("create migration ledger: %v", err)
+			}
+			for index := 0; index < 2; index++ {
+				if err := migrations[index].Up(db); err != nil {
+					t.Fatalf("apply migration %d: %v", index+1, err)
+				}
+				if err := db.Create(&schemaMigration{ID: migrations[index].ID}).Error; err != nil {
+					t.Fatalf("record migration %d: %v", index+1, err)
+				}
+			}
+			if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[2].ID)}).Error; err != nil {
+				t.Fatalf("create resume marker: %v", err)
+			}
+			if alreadyDropped {
+				if err := migrations[2].Up(db); err != nil {
+					t.Fatalf("apply interrupted removal: %v", err)
+				}
+			}
+
+			if err := applyMySQLMigration(db, migrations[2]); err != nil {
+				t.Fatalf("resume freshness removal: %v", err)
+			}
+			assertInternalMigrationComplete(t, db, []string{
+				migrations[0].ID,
+				migrations[1].ID,
+				migrations[2].ID,
+			})
+		})
+	}
+}
+
 func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -211,7 +247,7 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID})
+			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
@@ -220,7 +256,7 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 	runExternalMySQLCostLimitRecovery(t, admin, parsed)
 }
 
-func TestExternalDatabaseAccessKeyCostLimitIncrementalMigration(t *testing.T) {
+func TestExternalDatabaseIncrementalMigrations(t *testing.T) {
 	rawDSN := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
 	if rawDSN == "" {
 		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
@@ -240,12 +276,12 @@ func TestExternalDatabaseAccessKeyCostLimitIncrementalMigration(t *testing.T) {
 	}
 
 	if err := AutoMigrate(db); err != nil {
-		t.Fatalf("apply 0001 to 0002 incremental migration: %v", err)
+		t.Fatalf("apply pending incremental migrations: %v", err)
 	}
 	if err := AutoMigrate(db); err != nil {
 		t.Fatalf("repeat migrated schema validation: %v", err)
 	}
-	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID})
+	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
 }
 
 func openExternalIncrementalMigrationDatabase(t *testing.T, rawDSN string) *gorm.DB {
@@ -368,7 +404,7 @@ func runExternalMySQLCostLimitRecovery(t *testing.T, admin *gorm.DB, parsed *url
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL cost-limit schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID})
+			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
@@ -405,6 +441,9 @@ func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string
 				t.Errorf("table %q is missing", table)
 			}
 		}
+	}
+	if len(wantIDs) >= 3 && db.Migrator().HasColumn("credential_observations", "fresh_until_ms") {
+		t.Error("credential_observations.fresh_until_ms remains after migration 0003")
 	}
 	var ids []string
 	if err := db.Table(migrationLedgerTable).Order("id").Pluck("id", &ids).Error; err != nil {

@@ -355,9 +355,8 @@ func TestInspectEligiblePoolMatchesIteratorWhenQuotaObservationsDiffer(t *testin
 	}
 	low, high := 0.2, 0.8
 	resetAt := now.Add(time.Hour)
-	freshUntil := now.Add(30 * time.Minute)
-	if !registry.SetCredentialQuotaObservation(71, &low, resetAt, freshUntil) ||
-		!registry.SetCredentialQuotaObservation(72, &high, resetAt, freshUntil) {
+	if !registry.SetCredentialQuotaObservation(71, &low, resetAt) ||
+		!registry.SetCredentialQuotaObservation(72, &high, resetAt) {
 		t.Fatal("SetCredentialQuotaObservation() = false")
 	}
 	query := Query{
@@ -401,11 +400,11 @@ func TestInspectRejectsCatalogRegistryMismatch(t *testing.T) {
 	}
 }
 
-func TestInspectIgnoresFreshCredentialQuotaExhaustion(t *testing.T) {
+func TestInspectIgnoresRecordedCredentialQuotaExhaustion(t *testing.T) {
 	now := inspectNow()
 	inspection, err := Inspect(inspectSnapshot(t), []state.CredentialRuntimeView{{
 		ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
-		QuotaRemaining: floatPointer(0), QuotaResetAt: now.Add(time.Hour), QuotaFreshUntil: now.Add(30 * time.Minute),
+		QuotaRemaining: floatPointer(0), QuotaResetAt: now.Add(time.Hour),
 	}}, Query{
 		ClientProtocol: protocol.OpenAICompletions,
 		Operation:      execution.OperationChatCompletion,

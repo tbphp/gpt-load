@@ -106,7 +106,7 @@ func (service *Service) queryCredentialHourlyUsage(
 	if err != nil {
 		return CredentialWindowUsage{}, fmt.Errorf("align window start: %w", err)
 	}
-	fullHoursToMS, err := alignHourUp(input.ToMS)
+	fullHoursToMS, err := epochms.AlignDown(input.ToMS, epochms.MillisecondsPerHour)
 	if err != nil {
 		return CredentialWindowUsage{}, fmt.Errorf("align window end: %w", err)
 	}
@@ -135,32 +135,47 @@ func (service *Service) queryCredentialHourlyUsage(
 		result.LastUsedAtMS = latest.LastUsedAtMS
 	}
 
-	boundaryToMS := fullHoursFromMS
-	if boundaryToMS > input.ToMS {
-		boundaryToMS = input.ToMS
-	}
-	if input.FromMS < boundaryToMS {
+	mergeBoundary := func(fromMS, toMS int64) error {
+		if fromMS >= toMS {
+			return nil
+		}
 		boundary, err := service.queryCredentialRequestLogUsage(db, CredentialWindowUsageQuery{
 			CredentialID: input.CredentialID,
-			FromMS:       input.FromMS,
-			ToMS:         boundaryToMS,
+			FromMS:       fromMS,
+			ToMS:         toMS,
 			Source:       CredentialWindowUsageSourceRequestLogs,
 		})
 		if err != nil {
-			return CredentialWindowUsage{}, err
+			return err
 		}
 		result.UsageAggregate, err = addUsageAggregates(
 			result.UsageAggregate,
 			boundary.UsageAggregate,
 		)
 		if err != nil {
-			return CredentialWindowUsage{}, fmt.Errorf("merge boundary usage: %w", err)
+			return fmt.Errorf("merge boundary usage: %w", err)
 		}
 		result.DataComplete = result.DataComplete && boundary.DataComplete
 		if boundary.LastUsedAtMS != nil &&
 			(result.LastUsedAtMS == nil || *boundary.LastUsedAtMS > *result.LastUsedAtMS) {
 			result.LastUsedAtMS = boundary.LastUsedAtMS
 		}
+		return nil
+	}
+
+	startBoundaryToMS := fullHoursFromMS
+	if startBoundaryToMS > input.ToMS {
+		startBoundaryToMS = input.ToMS
+	}
+	if err := mergeBoundary(input.FromMS, startBoundaryToMS); err != nil {
+		return CredentialWindowUsage{}, err
+	}
+	endBoundaryFromMS := fullHoursToMS
+	if endBoundaryFromMS < startBoundaryToMS {
+		endBoundaryFromMS = startBoundaryToMS
+	}
+	if err := mergeBoundary(endBoundaryFromMS, input.ToMS); err != nil {
+		return CredentialWindowUsage{}, err
 	}
 	return result, nil
 }

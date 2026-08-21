@@ -414,6 +414,8 @@ export default {
         remainingAmount: '剩余 {remaining}',
         remainingPercent: '剩 {value}%',
         quotaPeriod: '当前周期\n{start} → {end}',
+        quotaPendingHint:
+          '{period}\n当前周期已结束，额度仍显示上次同步结果；请手动刷新获取最新信息。',
         quotaExhaustedHint:
           '额度信息仅用于展示；请求仍按正常策略调度，命中上游限额后才会冷却并切换账号。',
         diagnostics: '诊断信息',
@@ -423,7 +425,7 @@ export default {
         synced: '同步',
         syncTime: '同步时间\n{time}',
         lastUsed: '最近使用',
-        freshUntil: '信息有效期',
+        lastQuotaSync: '上次额度同步',
         lastError: '最近同步错误',
         account: {
           title: '账号信息',

@@ -185,6 +185,7 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 	if calls != 2 {
 		t.Fatalf("calls = %d", calls)
 	}
+	now = now.Add(365 * 24 * time.Hour)
 	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		calls++
 		return codex.AccountObservation{}, errors.New("upstream unavailable")
@@ -213,7 +214,7 @@ func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.State != string(models.CredentialObservationFresh) || first.Snapshot == nil || len(first.Snapshot.QuotaWindows) != 1 || first.FreshUntilMS == nil {
+	if first.State != string(models.CredentialObservationFresh) || first.Snapshot == nil || len(first.Snapshot.QuotaWindows) != 1 {
 		t.Fatalf("initial observation = %#v", first)
 	}
 	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
@@ -367,7 +368,7 @@ func TestRefreshCredentialObservationMergesCoveredQuotaScopes(t *testing.T) {
 				}`)}, nil
 			}
 			first, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
-			if err != nil || first.FreshUntilMS == nil {
+			if err != nil {
 				t.Fatalf("initial observation = %#v, %v", first, err)
 			}
 
@@ -380,7 +381,7 @@ func TestRefreshCredentialObservationMergesCoveredQuotaScopes(t *testing.T) {
 				return test.observation, nil
 			}
 			result, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
-			if err != nil || result.Snapshot == nil || result.FreshUntilMS == nil || *result.FreshUntilMS != *first.FreshUntilMS {
+			if err != nil || result.Snapshot == nil {
 				t.Fatalf("merged observation = %#v, %v", result, err)
 			}
 			got := make(map[string]float64, len(result.Snapshot.QuotaWindows))
@@ -536,7 +537,7 @@ func TestRefreshCredentialObservationPersistsPartialSnapshotAsStale(t *testing.T
 	}
 	if result.State != string(models.CredentialObservationStale) || result.Snapshot == nil ||
 		result.Snapshot.Account == nil || result.Snapshot.Account.DisplayName != "Owner" ||
-		result.FreshUntilMS != nil || result.LastErrorCode != "observation_partial" {
+		result.LastErrorCode != "observation_partial" {
 		t.Fatalf("partial observation = %#v", result)
 	}
 }
@@ -660,13 +661,11 @@ func TestEnrichCredentialObservationUsageUsesHourlyStatsForEveryWindow(t *testin
 	shortReset := now.Add(2 * time.Hour).UnixMilli()
 	longReset := now.Add(3 * 24 * time.Hour).UnixMilli()
 	modelReset := now.Add(time.Hour).UnixMilli()
-	freshUntil := now.Add(time.Hour).UnixMilli()
 	shortSeconds := int64((5 * time.Hour) / time.Second)
 	longSeconds := int64((7 * 24 * time.Hour) / time.Second)
 	modelSeconds := int64(time.Hour / time.Second)
 	response := CredentialObservationResponse{
-		State:        string(models.CredentialObservationFresh),
-		FreshUntilMS: &freshUntil,
+		State: string(models.CredentialObservationFresh),
 		Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{
 			{ID: "short", Scope: "account", ResetAtMS: &shortReset, WindowSeconds: &shortSeconds},
 			{ID: "long", Scope: "account", ResetAtMS: &longReset, WindowSeconds: &longSeconds},
@@ -690,7 +689,7 @@ func TestEnrichCredentialObservationUsageUsesHourlyStatsForEveryWindow(t *testin
 	}
 	if reader.queries[0].Source != requestlog.CredentialWindowUsageSourceHourlyStats ||
 		reader.queries[0].FromMS != shortReset-shortSeconds*1000 ||
-		reader.queries[0].ToMS != now.UnixMilli() {
+		reader.queries[0].ToMS != shortReset {
 		t.Fatalf("short window query = %#v", reader.queries[0])
 	}
 	if reader.queries[1].Source != requestlog.CredentialWindowUsageSourceHourlyStats ||
@@ -708,21 +707,57 @@ func TestEnrichCredentialObservationUsageUsesHourlyStatsForEveryWindow(t *testin
 	}
 }
 
+func TestEnrichCredentialObservationUsageUsesRecordedWindowBoundaries(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	pastReset := now.Add(-time.Hour).UnixMilli()
+	futureReset := now.Add(2 * time.Hour).UnixMilli()
+	windowSeconds := int64((5 * time.Hour) / time.Second)
+	response := CredentialObservationResponse{
+		State: string(models.CredentialObservationFresh),
+		Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{
+			{ID: "past", Scope: "account", ResetAtMS: &pastReset, WindowSeconds: &windowSeconds},
+			{ID: "future", Scope: "account", ResetAtMS: &futureReset, WindowSeconds: &windowSeconds},
+		}},
+	}
+	reader := &recordingCredentialWindowUsageReader{}
+	fixture.service.credentialWindowUsage = reader
+
+	fixture.service.enrichCredentialObservationUsage(t.Context(), 37, &response)
+
+	if len(reader.queries) != 2 {
+		t.Fatalf("usage queries = %#v, want one query per recorded window", reader.queries)
+	}
+	for index, resetAt := range []int64{pastReset, futureReset} {
+		query := reader.queries[index]
+		if query.FromMS != resetAt-windowSeconds*1000 || query.ToMS != resetAt {
+			t.Fatalf("query %d = %#v, want recorded window boundaries", index, query)
+		}
+	}
+}
+
+func TestPresentCredentialObservationDoesNotExpireByTime(t *testing.T) {
+	result := presentCredentialObservation(models.CredentialObservation{
+		CredentialID: 1, IdentityFingerprint: "identity", SchemaVersion: 1,
+		ObservationVersion: 1, SnapshotJSON: models.JSON(`{"quota_windows":[]}`),
+		State: models.CredentialObservationFresh,
+	}, "identity")
+	if result == nil || result.State != string(models.CredentialObservationFresh) {
+		t.Fatalf("presented observation = %#v, want recorded fresh state", result)
+	}
+}
+
 func TestEnrichCredentialObservationUsageSkipsNonCurrentObservation(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
-	future := now.Add(time.Hour).UnixMilli()
-	expired := now.UnixMilli()
 	resetAt := now.Add(2 * time.Hour).UnixMilli()
 	windowSeconds := int64((5 * time.Hour) / time.Second)
 	tests := []struct {
-		name         string
-		state        string
-		freshUntilMS *int64
+		name  string
+		state string
 	}{
-		{name: "stale", state: string(models.CredentialObservationStale), freshUntilMS: &future},
-		{name: "error", state: string(models.CredentialObservationError), freshUntilMS: &future},
-		{name: "missing fresh until", state: string(models.CredentialObservationFresh)},
-		{name: "expired", state: string(models.CredentialObservationFresh), freshUntilMS: &expired},
+		{name: "stale", state: string(models.CredentialObservationStale)},
+		{name: "error", state: string(models.CredentialObservationError)},
 	}
 
 	for _, test := range tests {
@@ -732,8 +767,7 @@ func TestEnrichCredentialObservationUsageSkipsNonCurrentObservation(t *testing.T
 			reader := &recordingCredentialWindowUsageReader{}
 			fixture.service.credentialWindowUsage = reader
 			response := CredentialObservationResponse{
-				State:        test.state,
-				FreshUntilMS: test.freshUntilMS,
+				State: test.state,
 				Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{{
 					ID: "account", Scope: "account", ResetAtMS: &resetAt, WindowSeconds: &windowSeconds,
 				}}},
@@ -783,12 +817,10 @@ func TestApplyCredentialQuotaObservationUsesBottleneckReset(t *testing.T) {
 	fixture.service.now = func() time.Time { return now }
 	bottleneckReset := now.Add(20 * time.Minute).UnixMilli()
 	otherReset := now.Add(7 * 24 * time.Hour).UnixMilli()
-	freshUntil := now.Add(time.Hour).UnixMilli()
 	exhausted := 1.0
 	available := 0.5
 	response := CredentialObservationResponse{
-		State:        string(models.CredentialObservationFresh),
-		FreshUntilMS: &freshUntil,
+		State: string(models.CredentialObservationFresh),
 		Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{
 			{ID: "short", Scope: "account", Utilization: &exhausted, ResetAtMS: &bottleneckReset, State: "exhausted"},
 			{ID: "long", Scope: "account", Utilization: &available, ResetAtMS: &otherReset, State: "available"},
@@ -807,11 +839,9 @@ func TestApplyCredentialQuotaObservationDoesNotBlockAccountForModelGroupExhausti
 	now := time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	resetAt := now.Add(7 * 24 * time.Hour).UnixMilli()
-	freshUntil := now.Add(time.Hour).UnixMilli()
 	exhausted := 1.0
 	response := CredentialObservationResponse{
-		State:        string(models.CredentialObservationFresh),
-		FreshUntilMS: &freshUntil,
+		State: string(models.CredentialObservationFresh),
 		Snapshot: &CredentialObservationSnapshot{QuotaWindows: []ObservationQuotaWindow{{
 			ID: "gemini-weekly", Scope: "model", Utilization: &exhausted,
 			ResetAtMS: &resetAt, State: "exhausted",
@@ -837,7 +867,7 @@ func TestDrainCommittedOperationsRestoresQuotaDisplayStateWithoutAffectingRoutin
 	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}
-	if !fixture.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}, time.Time{}) {
+	if !fixture.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}) {
 		t.Fatal("clear quota observation")
 	}
 	if err := fixture.service.DrainCommittedOperations(t.Context()); err != nil {

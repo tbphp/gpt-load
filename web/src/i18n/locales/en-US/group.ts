@@ -425,6 +425,8 @@ export default {
         remainingAmount: '{remaining} remaining',
         remainingPercent: '{value}% left',
         quotaPeriod: 'Current period\n{start} → {end}',
+        quotaPendingHint:
+          '{period}\nThis period has ended. Quota still shows the last synced result; refresh manually for current information.',
         quotaExhaustedHint:
           'Quota information is display-only. Requests use normal scheduling; an upstream limit response cools this account down and switches accounts.',
         diagnostics: 'Diagnostics',
@@ -434,7 +436,7 @@ export default {
         synced: 'Synced',
         syncTime: 'Sync time\n{time}',
         lastUsed: 'Last used',
-        freshUntil: 'Information valid until',
+        lastQuotaSync: 'Last quota sync',
         lastError: 'Last sync error',
         account: {
           title: 'Account information',

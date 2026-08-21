@@ -19,18 +19,13 @@ type CredentialRuntimeView struct {
 	FailureCount       int
 	QuotaRemaining     *float64
 	QuotaResetAt       time.Time
-	QuotaFreshUntil    time.Time
 }
 
 func (view CredentialRuntimeView) AuthReady() bool {
 	return view.AuthState.normalize() == CredentialAuthStateReady
 }
 
-func (view CredentialRuntimeView) FreshQuotaRemaining(now time.Time) *float64 {
-	if view.QuotaRemaining == nil || !view.QuotaFreshUntil.After(now) ||
-		!view.QuotaResetAt.After(now) {
-		return nil
-	}
+func (view CredentialRuntimeView) ObservedQuotaRemaining() *float64 {
 	return cloneFloat(view.QuotaRemaining)
 }
 
@@ -71,7 +66,6 @@ func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 		FailureCount:       entry.FailureCount,
 		QuotaRemaining:     cloneFloat(entry.quotaRemaining),
 		QuotaResetAt:       entry.quotaResetAt,
-		QuotaFreshUntil:    entry.quotaFreshUntil,
 	}
 }
 

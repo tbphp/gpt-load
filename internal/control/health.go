@@ -280,9 +280,8 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		addHealthCount(&result.Counts, bucket)
 		addHealthCount(&result.Groups[index].Counts, bucket)
 		// 额度只用于管理面展示，不参与健康分桶或调度；低额度凭据在这里单列提示。
-		// FreshQuotaRemaining 在观测过期或已过重置时刻时返回 nil，过期数字绝不报警。
 		if bucket == healthBucketAvailable || bucket == healthBucketCooldown {
-			if remaining := key.FreshQuotaRemaining(observation.observedAt); remaining != nil &&
+			if remaining := key.ObservedQuotaRemaining(); remaining != nil &&
 				*remaining <= healthLowQuotaRemainingRatio {
 				resetAtMS, err := safeEpochMilliseconds(key.QuotaResetAt)
 				if err != nil {

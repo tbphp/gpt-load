@@ -428,6 +428,8 @@ export default {
         remainingAmount: '残り {remaining}',
         remainingPercent: '残り {value}%',
         quotaPeriod: '現在の期間\n{start} → {end}',
+        quotaPendingHint:
+          '{period}\n現在の期間は終了しています。利用枠は前回同期時のままです。最新情報は手動で更新してください。',
         quotaExhaustedHint:
           '利用枠情報は表示専用です。リクエストは通常どおりスケジュールされ、上流の制限応答後にアカウントをクールダウンして切り替えます。',
         diagnostics: '診断情報',
@@ -437,7 +439,7 @@ export default {
         synced: '同期',
         syncTime: '同期時刻\n{time}',
         lastUsed: '最終利用',
-        freshUntil: '情報の有効期限',
+        lastQuotaSync: '利用枠の最終同期',
         lastError: '最終同期エラー',
         account: {
           title: 'アカウント情報',

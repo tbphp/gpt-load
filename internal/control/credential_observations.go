@@ -20,8 +20,6 @@ import (
 	"gpt-load/internal/usage"
 )
 
-const observationFreshTTL = time.Hour
-
 type ObservationPlanSummary struct {
 	Name  string `json:"name,omitempty"`
 	Level string `json:"level,omitempty"`
@@ -90,7 +88,6 @@ type CredentialObservationResponse struct {
 	Snapshot           *CredentialObservationSnapshot `json:"snapshot"`
 	ObservationVersion uint64                         `json:"observation_version"`
 	ObservedAtMS       *int64                         `json:"observed_at_ms"`
-	FreshUntilMS       *int64                         `json:"fresh_until_ms"`
 	LastAttemptAtMS    *int64                         `json:"last_attempt_at_ms"`
 	LastErrorCode      string                         `json:"last_error_code,omitempty"`
 }
@@ -269,14 +266,11 @@ func (s *Service) refreshCredentialObservationOnce(
 		version = 1
 	}
 	state := models.CredentialObservationFresh
-	var freshUntilMS *int64
 	lastErrorCode := ""
 	var previousSnapshot CredentialObservationSnapshot
 	previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
 		json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
-	previousQuotaFresh := previousSnapshotOK &&
-		previous.State == models.CredentialObservationFresh &&
-		previous.FreshUntilMS != nil && *previous.FreshUntilMS > attemptMS
+	previousQuotaFresh := previousSnapshotOK && previous.State == models.CredentialObservationFresh
 	if observation.Partial {
 		lastErrorCode = "observation_partial"
 		if previousSnapshotOK {
@@ -304,10 +298,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		)
 		switch {
 		case preservedPrevious:
-			freshUntilMS = previous.FreshUntilMS
 		case !observation.Partial || currentQuotaData:
-			value := now.Add(observationFreshTTL).UnixMilli()
-			freshUntilMS = &value
 		default:
 			state = models.CredentialObservationStale
 		}
@@ -315,12 +306,8 @@ func (s *Service) refreshCredentialObservationOnce(
 		snapshot.QuotaWindows = previousSnapshot.QuotaWindows
 		snapshot.ResetCreditsAvailable = previousSnapshot.ResetCreditsAvailable
 		snapshot.ResetCredits = previousSnapshot.ResetCredits
-		freshUntilMS = previous.FreshUntilMS
 	case observation.Partial && !observation.QuotaObserved:
 		state = models.CredentialObservationStale
-	default:
-		value := now.Add(observationFreshTTL).UnixMilli()
-		freshUntilMS = &value
 	}
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
@@ -330,8 +317,8 @@ func (s *Service) refreshCredentialObservationOnce(
 		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
 		SchemaVersion: 1, ObservationVersion: version, SnapshotJSON: models.JSON(encoded),
 		State: state, ObservedAtMS: &attemptMS,
-		FreshUntilMS: freshUntilMS, LastAttemptAtMS: &attemptMS,
-		LastErrorCode: lastErrorCode, UpdatedAtMS: attemptMS,
+		LastAttemptAtMS: &attemptMS,
+		LastErrorCode:   lastErrorCode, UpdatedAtMS: attemptMS,
 	}
 	if err := s.upsertCredentialObservation(ctx, row); err != nil {
 		return CredentialObservationResponse{}, err
@@ -456,10 +443,7 @@ func (s *Service) recordCredentialObservationFailure(
 	if failed.ObservationVersion == 0 {
 		failed.ObservationVersion = 1
 	}
-	if failed.State == models.CredentialObservationFresh && failed.FreshUntilMS != nil &&
-		*failed.FreshUntilMS > attemptMS {
-		failed.State = models.CredentialObservationFresh
-	} else {
+	if failed.State != models.CredentialObservationFresh {
 		failed.State = models.CredentialObservationError
 	}
 	failed.LastAttemptAtMS = &attemptMS
@@ -486,7 +470,7 @@ func (s *Service) GetCredentialObservation(ctx context.Context, groupID, credent
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
-	response := observationResponseValue(presentCredentialObservation(row, credential.IdentityFingerprint, s.now().UTC()))
+	response := observationResponseValue(presentCredentialObservation(row, credential.IdentityFingerprint))
 	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
 	return response, nil
 }
@@ -574,13 +558,12 @@ func (s *Service) restoreCredentialQuotaObservations(ctx context.Context) error 
 	for _, credential := range credentials {
 		identities[credential.ID] = credential.IdentityFingerprint
 	}
-	now := s.now().UTC()
 	for _, observation := range observations {
 		identity, exists := identities[observation.CredentialID]
 		if !exists {
 			continue
 		}
-		response := presentCredentialObservation(observation, identity, now)
+		response := presentCredentialObservation(observation, identity)
 		s.applyCredentialQuotaObservation(observation.CredentialID, response)
 	}
 	return nil
@@ -589,7 +572,7 @@ func (s *Service) restoreCredentialQuotaObservations(ctx context.Context) error 
 func mapCredentialObservation(row models.CredentialObservation) CredentialObservationResponse {
 	response := CredentialObservationResponse{
 		State: string(row.State), ObservationVersion: row.ObservationVersion,
-		ObservedAtMS: row.ObservedAtMS, FreshUntilMS: row.FreshUntilMS,
+		ObservedAtMS:    row.ObservedAtMS,
 		LastAttemptAtMS: row.LastAttemptAtMS, LastErrorCode: row.LastErrorCode,
 	}
 	if len(row.SnapshotJSON) > 0 && string(row.SnapshotJSON) != "{}" {
@@ -601,13 +584,10 @@ func mapCredentialObservation(row models.CredentialObservation) CredentialObserv
 	return response
 }
 
-func presentCredentialObservation(row models.CredentialObservation, identityFingerprint string, now time.Time) *CredentialObservationResponse {
+func presentCredentialObservation(row models.CredentialObservation, identityFingerprint string) *CredentialObservationResponse {
 	if row.CredentialID == 0 || row.IdentityFingerprint != identityFingerprint {
 		unavailable := CredentialObservationResponse{State: string(models.CredentialObservationUnavailable)}
 		return &unavailable
-	}
-	if row.State == models.CredentialObservationFresh && row.FreshUntilMS != nil && now.UnixMilli() >= *row.FreshUntilMS {
-		row.State = models.CredentialObservationStale
 	}
 	response := mapCredentialObservation(row)
 	return &response
@@ -626,21 +606,16 @@ func (s *Service) applyCredentialQuotaObservation(
 ) {
 	if s == nil || s.registry == nil || credentialID == 0 || response == nil ||
 		response.State != string(models.CredentialObservationFresh) ||
-		response.Snapshot == nil || response.FreshUntilMS == nil {
+		response.Snapshot == nil {
 		if s != nil && s.registry != nil && credentialID != 0 {
-			s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}, time.Time{})
+			s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{})
 		}
-		return
-	}
-	nowMS := s.now().UTC().UnixMilli()
-	if *response.FreshUntilMS <= nowMS {
-		s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}, time.Time{})
 		return
 	}
 	var remaining *float64
 	var resetAtMS int64
 	for _, window := range response.Snapshot.QuotaWindows {
-		if window.Scope != "account" || window.ResetAtMS == nil || *window.ResetAtMS <= nowMS {
+		if window.Scope != "account" || window.ResetAtMS == nil {
 			continue
 		}
 		value, known := observationWindowRemainingRatio(window)
@@ -657,14 +632,13 @@ func (s *Service) applyCredentialQuotaObservation(
 		}
 	}
 	if remaining == nil || resetAtMS == 0 {
-		s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{}, time.Time{})
+		s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{})
 		return
 	}
 	s.registry.SetCredentialQuotaObservation(
 		credentialID,
 		remaining,
 		time.UnixMilli(resetAtMS).UTC(),
-		time.UnixMilli(*response.FreshUntilMS).UTC(),
 	)
 }
 
@@ -754,18 +728,14 @@ func (s *Service) enrichCredentialObservationUsage(
 ) {
 	if s == nil || s.credentialWindowUsage == nil || credentialID == 0 ||
 		response == nil || response.State != string(models.CredentialObservationFresh) ||
-		response.Snapshot == nil || response.FreshUntilMS == nil {
-		return
-	}
-	nowMS := s.now().UTC().UnixMilli()
-	if *response.FreshUntilMS <= nowMS {
+		response.Snapshot == nil {
 		return
 	}
 	for index := range response.Snapshot.QuotaWindows {
 		window := &response.Snapshot.QuotaWindows[index]
 		if window.Scope != "account" || window.ResetAtMS == nil ||
 			window.WindowSeconds == nil || *window.WindowSeconds <= 0 ||
-			*window.ResetAtMS <= nowMS {
+			*window.ResetAtMS <= 0 {
 			continue
 		}
 		if *window.WindowSeconds > math.MaxInt64/1000 {
@@ -776,19 +746,19 @@ func (s *Service) enrichCredentialObservationUsage(
 			continue
 		}
 		fromMS := *window.ResetAtMS - windowMS
-		if fromMS >= nowMS {
+		if fromMS >= *window.ResetAtMS {
 			continue
 		}
 		observed, err := s.credentialWindowUsage.QueryCredentialWindowUsage(ctx, requestlog.CredentialWindowUsageQuery{
 			CredentialID: credentialID,
 			FromMS:       fromMS,
-			ToMS:         nowMS,
+			ToMS:         *window.ResetAtMS,
 			Source:       requestlog.CredentialWindowUsageSourceHourlyStats,
 		})
 		if err != nil {
 			continue
 		}
-		mapped, ok := mapObservationWindowUsage(fromMS, nowMS, observed)
+		mapped, ok := mapObservationWindowUsage(fromMS, *window.ResetAtMS, observed)
 		if ok {
 			window.ObservedUsage = mapped
 		}

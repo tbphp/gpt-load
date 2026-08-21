@@ -164,13 +164,12 @@ func (s *Service) invalidateCredentialObservationAfterReset(
 	previous *models.CredentialObservation,
 ) (*CredentialObservationResponse, error) {
 	if s.registry != nil {
-		s.registry.SetCredentialQuotaObservation(credential.ID, nil, time.Time{}, time.Time{})
+		s.registry.SetCredentialQuotaObservation(credential.ID, nil, time.Time{})
 	}
 	if previous == nil || previous.CredentialID == 0 || previous.IdentityFingerprint != credential.IdentityFingerprint {
 		return nil, nil
 	}
 	previous.State = models.CredentialObservationStale
-	previous.FreshUntilMS = nil
 	previous.NextAllowedAtMS = nil
 	previous.LastErrorCode = ""
 	previous.UpdatedAtMS = s.now().UTC().UnixMilli()

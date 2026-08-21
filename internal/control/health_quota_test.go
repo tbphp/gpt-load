@@ -37,21 +37,17 @@ func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
 	}
 
 	resetAt := now.Add(3 * time.Hour)
-	freshUntil := now.Add(30 * time.Minute)
 	low := 0.12
 	healthy := 0.85
-	staleRemaining := 0.05
+	recordedRemaining := 0.05
 
-	if !fixture.registry.SetCredentialQuotaObservation(11, &low, resetAt, freshUntil) {
+	if !fixture.registry.SetCredentialQuotaObservation(11, &low, resetAt) {
 		t.Fatal("SetCredentialQuotaObservation(11) = false")
 	}
-	if !fixture.registry.SetCredentialQuotaObservation(12, &healthy, resetAt, freshUntil) {
+	if !fixture.registry.SetCredentialQuotaObservation(12, &healthy, resetAt) {
 		t.Fatal("SetCredentialQuotaObservation(12) = false")
 	}
-	// 13 号观测已过期：FreshQuotaRemaining 会返回 nil，绝不能拿过期数字报警。
-	if !fixture.registry.SetCredentialQuotaObservation(
-		13, &staleRemaining, resetAt, now.Add(-time.Minute),
-	) {
+	if !fixture.registry.SetCredentialQuotaObservation(13, &recordedRemaining, resetAt) {
 		t.Fatal("SetCredentialQuotaObservation(13) = false")
 	}
 
@@ -60,16 +56,16 @@ func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
 		t.Fatalf("RuntimeHealth() error = %v", err)
 	}
 
-	if len(result.LowQuotaCredentials) != 1 {
+	if len(result.LowQuotaCredentials) != 2 {
 		t.Fatalf(
-			"LowQuotaCredentials = %#v, want exactly the credential below the threshold",
+			"LowQuotaCredentials = %#v, want every recorded credential below the threshold",
 			result.LowQuotaCredentials,
 		)
 	}
-	got := result.LowQuotaCredentials[0]
-	if got.CredentialID != 11 {
-		t.Fatalf("CredentialID = %d, want 11", got.CredentialID)
+	if result.LowQuotaCredentials[0].CredentialID != 11 || result.LowQuotaCredentials[1].CredentialID != 13 {
+		t.Fatalf("credential IDs = %d/%d, want 11/13", result.LowQuotaCredentials[0].CredentialID, result.LowQuotaCredentials[1].CredentialID)
 	}
+	got := result.LowQuotaCredentials[0]
 	if got.GroupID != 1 || got.GroupName != "codex" {
 		t.Fatalf("group = %d/%q, want 1/\"codex\"", got.GroupID, got.GroupName)
 	}

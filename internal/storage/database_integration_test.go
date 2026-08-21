@@ -112,13 +112,17 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	if db.Migrator().HasColumn("request_log_attempts", "upstream_api") {
 		t.Fatal("request_log_attempts.upstream_api remains in the Beta.1 initial schema")
 	}
+	if db.Migrator().HasColumn("credential_observations", "fresh_until_ms") {
+		t.Fatal("credential_observations.fresh_until_ms remains after migration 0003")
+	}
 	var migrationIDs []string
 	if err := db.Table("schema_migrations").Order("id").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if len(migrationIDs) != 2 || migrationIDs[0] != "0001_initial" ||
-		migrationIDs[1] != "0002_access_key_cost_limits" {
-		t.Fatalf("migration ledger = %v, want [0001_initial 0002_access_key_cost_limits]", migrationIDs)
+	if len(migrationIDs) != 3 || migrationIDs[0] != "0001_initial" ||
+		migrationIDs[1] != "0002_access_key_cost_limits" ||
+		migrationIDs[2] != "0003_remove_observation_fresh_until" {
+		t.Fatalf("migration ledger = %v, want complete 0001-0003 chain", migrationIDs)
 	}
 
 	accessKey := models.AccessKey{
