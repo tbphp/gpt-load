@@ -244,7 +244,8 @@ export default {
       attention: {
         title: 'Needs attention',
         blacklisted: '{group} has {count} blacklisted credentials that need manual action',
-        resetCreditExpiring: '{group} has {count} reset credits expiring soon; the nearest expires',
+        resetCreditExpiring:
+          '{group} has {count} reset credits expiring soon; the nearest one expires',
         lowQuota: '{group} has {remaining} quota left, resets',
         summary: '{count} items need your attention',
         action: 'Resolve',

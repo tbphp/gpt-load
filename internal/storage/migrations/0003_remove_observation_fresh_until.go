@@ -37,6 +37,12 @@ func Up0003(db *gorm.DB) error {
 	if strings.EqualFold(db.Dialector.Name(), "sqlite") {
 		return rebuildSQLiteCredentialObservations0003(db)
 	}
+	if strings.EqualFold(db.Dialector.Name(), "mysql") &&
+		db.Migrator().HasConstraint(&credentialObservation0003{}, credentialObservationFreshCheck0003) {
+		if err := db.Migrator().DropConstraint(&credentialObservation0003{}, credentialObservationFreshCheck0003); err != nil {
+			return fmt.Errorf("remove observation freshness check constraint: %w", err)
+		}
+	}
 	if err := db.Migrator().DropColumn(&credentialObservation0003{}, credentialObservationFreshUntil0003); err != nil {
 		return fmt.Errorf("remove observation freshness column: %w", err)
 	}
