@@ -38,10 +38,10 @@ defineExpose({ focusName })
 <template>
   <div class="access-key-form-stack">
     <div class="access-key-drawer__field">
-      <label for="access-key-name">
+      <span class="access-key-drawer__field-label" aria-hidden="true">
         {{ t('accessKeys.drawer.name') }}
         <b class="access-key-drawer__required" aria-hidden="true">*</b>
-      </label>
+      </span>
       <AppTextInput
         id="access-key-name"
         ref="nameInput"
@@ -74,10 +74,10 @@ defineExpose({ focusName })
     </div>
 
     <div class="access-key-drawer__field">
-      <label for="access-key-rpm">
+      <span class="access-key-drawer__field-label" aria-hidden="true">
         {{ t('accessKeys.drawer.rpm') }}
         <small class="access-key-drawer__optional">{{ t('accessKeys.drawer.optional') }}</small>
-      </label>
+      </span>
       <AppTextInput
         id="access-key-rpm"
         :model-value="rpmLimit === 0 ? '' : String(rpmLimit)"
@@ -106,7 +106,7 @@ defineExpose({ focusName })
   display: grid;
   gap: 6px;
 }
-.access-key-drawer__field > label {
+.access-key-drawer__field-label {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
