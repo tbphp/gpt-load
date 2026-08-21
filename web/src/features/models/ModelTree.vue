@@ -63,7 +63,11 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
           >
             {{ t(`modelPrices.fields.${field}`) }}
           </span>
-          <span class="model-tree__cell model-tree__cell--status" role="columnheader">
+          <span
+            v-if="!readOnly"
+            class="model-tree__cell model-tree__cell--status"
+            role="columnheader"
+          >
             {{ t('models.tree.statusColumn') }}
           </span>
           <span v-if="!readOnly" class="model-tree__cell" role="columnheader">
@@ -114,7 +118,11 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
           >
             <div class="model-tree__cell model-tree__upstream" role="cell">
               <span class="model-tree__ident">
-                <AppTooltip :content="pricingIdentityTooltip(entry.upstream)" align="start">
+                <AppTooltip
+                  v-if="!readOnly"
+                  :content="pricingIdentityTooltip(entry.upstream)"
+                  align="start"
+                >
                   <span
                     class="model-tree__channel-icon"
                     tabindex="0"
@@ -126,6 +134,12 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
                     />
                   </span>
                 </AppTooltip>
+                <span v-else class="model-tree__channel-icon" aria-hidden="true">
+                  <ChannelIcon
+                    :icon="entry.upstream.price.channel_icon"
+                    :mark="entry.upstream.price.channel_mark"
+                  />
+                </span>
                 <button
                   v-if="!readOnly"
                   type="button"
@@ -188,7 +202,7 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
               </span>
             </div>
 
-            <div class="model-tree__cell model-tree__cell--status" role="cell">
+            <div v-if="!readOnly" class="model-tree__cell model-tree__cell--status" role="cell">
               <ModelPriceStatusBadge
                 :price="entry.upstream.price"
                 :provider-name="entry.upstream.catalog_reference?.provider_name"
@@ -241,8 +255,7 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
 .model-tree__grid--read-only {
   grid-template-columns:
     minmax(220px, 1fr)
-    repeat(4, minmax(78px, 104px))
-    auto;
+    repeat(4, minmax(78px, 104px));
 }
 
 .model-tree__row {

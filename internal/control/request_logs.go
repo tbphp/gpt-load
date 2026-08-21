@@ -118,6 +118,14 @@ type requestLogPricingReceiptResponse struct {
 	TotalNanoUSD           string                            `json:"total_nano_usd"`
 }
 
+// requestLogPricingCalculationResponse keeps the immutable calculation inputs
+// that an AccessKey holder can use to understand its own estimated cost. It
+// intentionally excludes the receipt rule because it identifies the internal
+// pricing channel.
+type requestLogPricingCalculationResponse struct {
+	LineItems []requestLogPricingLineResponse `json:"line_items"`
+}
+
 type requestLogItemResponse struct {
 	RequestID               string                       `json:"request_id"`
 	CompletedAtMS           int64                        `json:"completed_at_ms"`
@@ -159,7 +167,8 @@ type requestLogItemResponse struct {
 
 type requestLogDetailResponse struct {
 	requestLogItemResponse
-	Attempts []requestLogAttemptResponse `json:"attempts"`
+	Attempts           []requestLogAttemptResponse           `json:"attempts"`
+	PricingCalculation *requestLogPricingCalculationResponse `json:"pricing_calculation,omitempty"`
 }
 
 type requestLogListResponse struct {
@@ -217,7 +226,7 @@ func (service *Service) GetAccessKeyRequestLog(
 	if len(page.Items) != 1 {
 		return requestlog.Record{}, app_errors.ErrResourceNotFound
 	}
-	return sanitizeAccessKeyRequestLog(page.Items[0]), nil
+	return page.Items[0], nil
 }
 
 func (s *Server) handleListRequestLogs(c *gin.Context) {
@@ -258,14 +267,21 @@ func (s *Server) handleGetRequestLog(c *gin.Context) {
 		writeServiceError(c, "get_request_log", app_errors.ErrBadRequest)
 		return
 	}
-	var record requestlog.Record
-	var err error
+	var (
+		record             requestlog.Record
+		pricingCalculation *requestLogPricingCalculationResponse
+		err                error
+	)
 	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
 		record, err = s.service.GetAccessKeyRequestLog(
 			c.Request.Context(),
 			requestID,
 			accessKeyID,
 		)
+		if err == nil {
+			pricingCalculation, err = mapAccessKeyPricingCalculation(record)
+			record = sanitizeAccessKeyRequestLog(record)
+		}
 	} else {
 		record, err = s.service.GetRequestLog(c.Request.Context(), requestID)
 	}
@@ -278,6 +294,7 @@ func (s *Server) handleGetRequestLog(c *gin.Context) {
 		writeServiceError(c, "get_request_log", err)
 		return
 	}
+	result.PricingCalculation = pricingCalculation
 	response.SuccessI18n(c, "common.success", result)
 }
 
@@ -1114,6 +1131,37 @@ func mapRequestLogPricingReceipt(
 		result.LineItems = append(result.LineItems, mapped)
 	}
 	return result, nil
+}
+
+func mapAccessKeyPricingCalculation(
+	record requestlog.Record,
+) (*requestLogPricingCalculationResponse, error) {
+	var receipt *pricing.Receipt
+	for index := range record.Attempts {
+		attempt := record.Attempts[index]
+		if attempt.Committed && attempt.PricingReceipt != nil {
+			receipt = attempt.PricingReceipt
+			break
+		}
+	}
+	if receipt == nil {
+		for index := range record.Attempts {
+			if record.Attempts[index].PricingReceipt != nil {
+				receipt = record.Attempts[index].PricingReceipt
+				break
+			}
+		}
+	}
+	if receipt == nil {
+		return nil, nil
+	}
+	mapped, err := mapRequestLogPricingReceipt(receipt)
+	if err != nil {
+		return nil, err
+	}
+	return &requestLogPricingCalculationResponse{
+		LineItems: mapped.LineItems,
+	}, nil
 }
 
 func nullableRequestLogModel(value string) *string {

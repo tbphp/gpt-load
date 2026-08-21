@@ -112,6 +112,10 @@ export interface RequestLogPricingReceiptDto {
   total_nano_usd: string
 }
 
+export interface RequestLogPricingCalculationDto {
+  line_items: RequestLogPricingLineDto[]
+}
+
 export interface RequestLogAttemptDto {
   sequence: number
   group_id: number
@@ -184,6 +188,7 @@ export interface RequestLogItemDto {
 
 export interface RequestLogDetailDto extends RequestLogItemDto {
   attempts: RequestLogAttemptDto[]
+  pricing_calculation: RequestLogPricingCalculationDto | null
 }
 
 export interface RequestLogPageDto {
@@ -319,23 +324,8 @@ function projectAccessKey(value: unknown): RequestLogItemDto['access_key'] {
   }
 }
 
-function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | null {
-  if (value === null) return null
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, [
-    'schema_version',
-    'method',
-    'method_version',
-    'currency',
-    'pricing_mode',
-    'rule',
-    'context_threshold_tokens',
-    'line_items',
-    'total_nano_usd',
-  ])
-  const rule = projectRecord(record.rule)
-  assertNoSecretLikeFields(rule, ['scope_key', 'channel_id', 'model_id'])
-  const lines = projectArray(record.line_items, (lineValue): RequestLogPricingLineDto => {
+function projectPricingLineItems(value: unknown): RequestLogPricingLineDto[] {
+  return projectArray(value, (lineValue): RequestLogPricingLineDto => {
     const line = projectRecord(lineValue)
     assertNoSecretLikeFields(line, [
       'code',
@@ -366,6 +356,25 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
+}
+
+function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | null {
+  if (value === null) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, [
+    'schema_version',
+    'method',
+    'method_version',
+    'currency',
+    'pricing_mode',
+    'rule',
+    'context_threshold_tokens',
+    'line_items',
+    'total_nano_usd',
+  ])
+  const rule = projectRecord(record.rule)
+  assertNoSecretLikeFields(rule, ['scope_key', 'channel_id', 'model_id'])
+  const lines = projectPricingLineItems(record.line_items)
   const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 4 }) as
     1 | 2 | 3 | 4
   const scopeKey = rule.scope_key === undefined ? undefined : projectNonBlankString(rule.scope_key)
@@ -396,6 +405,13 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     line_items: lines,
     total_nano_usd: projectNonNegativeInt64String(record.total_nano_usd),
   }
+}
+
+function projectPricingCalculation(value: unknown): RequestLogPricingCalculationDto | null {
+  if (value === null) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['line_items'])
+  return { line_items: projectPricingLineItems(record.line_items) }
 }
 
 function projectAttempt(value: unknown): RequestLogAttemptDto {
@@ -576,10 +592,14 @@ export function projectRequestLogItem(value: unknown): RequestLogItemDto {
 
 export function projectRequestLogDetail(value: unknown): RequestLogDetailDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, [...itemFields, 'attempts'])
+  assertNoSecretLikeFields(record, [...itemFields, 'attempts', 'pricing_calculation'])
   return {
     ...projectItemRecord(record),
     attempts: projectArray(record.attempts, projectAttempt),
+    pricing_calculation:
+      record.pricing_calculation === undefined
+        ? null
+        : projectPricingCalculation(record.pricing_calculation),
   }
 }
 
