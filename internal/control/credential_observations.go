@@ -112,7 +112,6 @@ type observationFlight struct {
 	result CredentialObservationResponse
 	err    error
 	joined int
-	mode   observationRefreshMode
 }
 
 type observationFlightKey struct {
@@ -145,7 +144,7 @@ func (s *Service) refreshCredentialObservation(
 		s.observationMu.Lock()
 		if existing := s.observationFlights[key]; existing != nil {
 			existing.joined++
-			followUp := mode == observationRefreshAfterReset && existing.mode != observationRefreshAfterReset
+			followUp := mode == observationRefreshAfterReset
 			s.observationMu.Unlock()
 			select {
 			case <-ctx.Done():
@@ -157,7 +156,7 @@ func (s *Service) refreshCredentialObservation(
 				return existing.result, existing.err
 			}
 		}
-		flight := &observationFlight{done: make(chan struct{}), mode: mode}
+		flight := &observationFlight{done: make(chan struct{})}
 		s.observationFlights[key] = flight
 		s.observationMu.Unlock()
 		defer func() {
@@ -169,6 +168,17 @@ func (s *Service) refreshCredentialObservation(
 		flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID, mode)
 		return flight.result, flight.err
 	}
+}
+
+func (s *Service) credentialObservationRefreshInFlight(groupID, credentialID uint) bool {
+	if s == nil || groupID == 0 || credentialID == 0 {
+		return false
+	}
+	s.observationMu.Lock()
+	defer s.observationMu.Unlock()
+	return s.observationFlights[observationFlightKey{
+		groupID: groupID, credentialID: credentialID,
+	}] != nil
 }
 
 func (s *Service) refreshCredentialObservationOnce(

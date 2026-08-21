@@ -316,9 +316,15 @@ func (s *Service) replayResetCreditOperation(
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	response := resetCreditResponse(result, true)
-	if observation, observationErr := s.GetCredentialObservation(ctx, groupID, credentialID); observationErr == nil {
+	observation, observationErr := s.GetCredentialObservation(ctx, groupID, credentialID)
+	if observationErr == nil {
 		response.Observation = &observation
+		response.ObservationPending = observation.State != string(models.CredentialObservationFresh)
+	} else {
+		response.ObservationPending = true
 	}
+	response.ObservationPending = response.ObservationPending ||
+		s.credentialObservationRefreshInFlight(groupID, credentialID)
 	return response, nil
 }
 

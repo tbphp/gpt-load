@@ -620,8 +620,10 @@ async function confirmResetCredit(): Promise<void> {
     } else {
       await refetchActiveCredentialPage()
     }
+    const observationPending =
+      result.observation_pending || (result.replayed && result.observation?.state !== 'fresh')
     feedback.value = t(
-      result.observation_pending
+      observationPending
         ? 'group.credentials.subscription.consumeResetCreditPending'
         : 'group.credentials.subscription.consumeResetCreditSucceeded',
     )
