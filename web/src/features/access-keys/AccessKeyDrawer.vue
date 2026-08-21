@@ -47,6 +47,7 @@ import {
   type GroupCatalogState,
 } from './access-key-scope'
 import {
+  areAccessKeyCostLimitRulesValid,
   accessKeyMatchesUpdatePatch,
   buildAccessKeyUpdatePatch,
   buildCreateAccessKeyInput,
@@ -198,6 +199,35 @@ const scopeFeedbackKey = computed(() => {
     return 'accessKeys.drawer.staleGroupScopeInvalid'
   }
   return 'accessKeys.drawer.scopeIncomplete'
+})
+const scopeSaveBlockerKey = computed(() => {
+  switch (scopeFeedbackKey.value) {
+    case 'accessKeys.drawer.groupProtocolMismatch':
+      return 'accessKeys.drawer.saveBlockedGroupProtocol'
+    case 'accessKeys.drawer.groupScopeUnavailable':
+      return 'accessKeys.drawer.saveBlockedGroupUnavailable'
+    case 'accessKeys.drawer.staleGroupScopeInvalid':
+      return 'accessKeys.drawer.saveBlockedStaleScope'
+    case 'accessKeys.drawer.scopeIncomplete':
+      return 'accessKeys.drawer.saveBlockedScope'
+    default:
+      return ''
+  }
+})
+const saveBlockerKey = computed(() => {
+  if (pending.value) return 'accessKeys.drawer.saveBlockedPending'
+  if (editReconciliation.value || createOperationActive.value) return ''
+  if (draft.value.name.trim().length === 0) return 'accessKeys.drawer.saveBlockedName'
+  if (!Number.isSafeInteger(draft.value.rpm_limit) || draft.value.rpm_limit < 0) {
+    return 'accessKeys.drawer.saveBlockedRPM'
+  }
+  if (!areAccessKeyCostLimitRulesValid(draft.value.costLimitRules)) {
+    return 'accessKeys.drawer.saveBlockedCostLimits'
+  }
+  if (scopeSaveBlockerKey.value) return scopeSaveBlockerKey.value
+  if (!valid.value) return 'accessKeys.drawer.saveBlockedInvalid'
+  if (!dirty.value) return 'accessKeys.drawer.saveBlockedNoChanges'
+  return ''
 })
 const groupOptions = computed(() => {
   const baseGroupIDs = new Set(base.value?.filters.groups ?? [])
@@ -618,8 +648,6 @@ onBeforeUnmount(clearLocalState)
         :failed="failed"
         :edit-not-applied="editNotApplied"
         :mutation-feedback-key="mutationFeedbackKey"
-        :scope-feedback-key="scopeFeedbackKey"
-        :show-scope-feedback="!createOperationActive"
       />
 
       <section class="drawer-section">
@@ -638,8 +666,6 @@ onBeforeUnmount(clearLocalState)
       </section>
 
       <section class="drawer-section">
-        <h3>{{ t('accessKeys.drawer.costLimits.title') }}</h3>
-        <p>{{ t('accessKeys.drawer.costLimits.description') }}</p>
         <AccessKeyCostLimitEditor
           :model-value="draft.costLimitRules"
           :runtime-status="base?.cost_limit_status ?? null"
@@ -687,6 +713,15 @@ onBeforeUnmount(clearLocalState)
       <div v-if="editing && base" class="access-key-drawer__delete">
         <AccessKeyDeleteDialog :access-key="base" :total="total" @deleted="handleDeleted" />
       </div>
+      <p
+        id="access-key-save-blocker"
+        class="access-key-drawer__save-blocker"
+        role="status"
+        aria-live="polite"
+        :title="saveBlockerKey ? t(saveBlockerKey) : undefined"
+      >
+        {{ saveBlockerKey ? t(saveBlockerKey) : '' }}
+      </p>
       <AppButton
         variant="secondary"
         size="compact"
@@ -700,6 +735,7 @@ onBeforeUnmount(clearLocalState)
         form="access-key-drawer-form"
         size="compact"
         :busy="pending"
+        :aria-describedby="saveBlockerKey ? 'access-key-save-blocker' : undefined"
         :disabled="!editReconciliation && !createOperationActive && (!valid || !dirty)"
       >
         <Save :size="16" aria-hidden="true" />{{
@@ -722,7 +758,17 @@ onBeforeUnmount(clearLocalState)
   font-size: var(--text-body);
 }
 .access-key-drawer__delete {
-  margin-right: auto;
+  flex: none;
+}
+.access-key-drawer__save-blocker {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .drawer-section + .drawer-section {
   margin-top: 22px;

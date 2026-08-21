@@ -7,8 +7,6 @@ defineProps<{
   failed: boolean
   editNotApplied: boolean
   mutationFeedbackKey: string
-  scopeFeedbackKey: string
-  showScopeFeedback: boolean
 }>()
 const { t } = useI18n()
 </script>
@@ -19,8 +17,5 @@ const { t } = useI18n()
   }}</InlineFeedback>
   <InlineFeedback v-if="mutationFeedbackKey" tone="warning">{{
     t(mutationFeedbackKey)
-  }}</InlineFeedback>
-  <InlineFeedback v-if="scopeFeedbackKey && showScopeFeedback" tone="warning">{{
-    t(scopeFeedbackKey)
   }}</InlineFeedback>
 </template>
