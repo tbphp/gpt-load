@@ -620,7 +620,11 @@ async function confirmResetCredit(): Promise<void> {
     } else {
       await refetchActiveCredentialPage()
     }
-    feedback.value = t('group.credentials.subscription.consumeResetCreditSucceeded')
+    feedback.value = t(
+      result.observation_pending
+        ? 'group.credentials.subscription.consumeResetCreditPending'
+        : 'group.credentials.subscription.consumeResetCreditSucceeded',
+    )
     resetOperationKeys.delete(target.item.credential_id)
     resetTarget.value = undefined
   } catch (cause) {

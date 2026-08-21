@@ -404,7 +404,9 @@ export default {
         consumeResetCreditDescription:
           'One reset credit will be used for {account}. This cannot be undone; if the outcome is temporarily unknown, GPT-Load will not consume another automatically.',
         consumeResetCreditFailed: 'Unable to use reset credit',
-        consumeResetCreditSucceeded: 'Quota was reset. Refresh quota information manually.',
+        consumeResetCreditSucceeded: 'Quota was reset and quota information was updated.',
+        consumeResetCreditPending:
+          'Quota was reset, but quota information could not be refreshed. Try again manually.',
         tokenExpiresAt: 'Credential expires',
         lastTokenRefresh: 'Last credential refresh',
         noQuota: 'The upstream has not supplied any displayable quota window',

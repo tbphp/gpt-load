@@ -35,10 +35,9 @@ type ResetCreditConsumeResponse struct {
 }
 
 type storedResetCreditResult struct {
-	Status                   string `json:"status"`
-	WindowsReset             int    `json:"windows_reset"`
-	RedeemedAtMS             *int64 `json:"redeemed_at_ms,omitempty"`
-	ObservationVersionBefore uint64 `json:"observation_version_before"`
+	Status       string `json:"status"`
+	WindowsReset int    `json:"windows_reset"`
+	RedeemedAtMS *int64 `json:"redeemed_at_ms,omitempty"`
 }
 
 func (s *Service) ConsumeCredentialResetCredit(
@@ -53,7 +52,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 	if validateIdempotencyKey(idempotencyKey) != nil {
 		return ResetCreditConsumeResponse{}, app_errors.ErrInvalidIdempotencyKey
 	}
-	group, credential, previousObservation, err := s.loadObservationTarget(ctx, groupID, credentialID)
+	group, credential, _, err := s.loadObservationTarget(ctx, groupID, credentialID)
 	if err != nil {
 		return ResetCreditConsumeResponse{}, err
 	}
@@ -111,7 +110,6 @@ func (s *Service) ConsumeCredentialResetCredit(
 		Status: upstream.Status, WindowsReset: upstream.WindowsReset, RedeemedAtMS: upstream.RedeemedAtMS,
 	}
 	runtimeRestored := s.restoreCredentialRuntimeAfterReset(credentialID)
-	result.ObservationVersionBefore = previousObservation.ObservationVersion
 	canonicalResult, err := canonicaljson.Marshal(result)
 	if err != nil || s.finishResetCreditOperation(
 		operation.IdempotencyKey,
@@ -132,24 +130,28 @@ func (s *Service) ConsumeCredentialResetCredit(
 	}
 
 	response := resetCreditResponse(result, false)
-	invalidationContext, cancelInvalidation := context.WithTimeout(
+	observationContext, cancelObservation := context.WithTimeout(
 		context.Background(),
-		controlTransactionCleanupTimeout,
+		2*defaultSubscriptionControlTimeout,
 	)
-	observation, observationErr := s.invalidateCredentialObservationAfterReset(
-		invalidationContext, credential, previousObservation,
+	observation, observationErr := s.refreshCredentialObservation(
+		observationContext,
+		groupID,
+		credentialID,
+		observationRefreshAfterReset,
 	)
-	cancelInvalidation()
-	if observation != nil {
-		response.Observation = observation
+	cancelObservation()
+	if observation.State != "" {
+		response.Observation = &observation
 	}
+	response.ObservationPending = observationErr != nil
 	if observationErr != nil {
 		utils.LogPlaneBestEffort(
 			logrus.StandardLogger(),
 			logrus.WarnLevel,
 			utils.LogPlaneControl,
 			logrus.Fields{"credential_id": credentialID, "group_id": groupID},
-			"Reset credit was consumed but the previous credential observation could not be invalidated",
+			"Reset credit was consumed but the credential observation could not be refreshed",
 		)
 	}
 	return response, nil
@@ -158,12 +160,12 @@ func (s *Service) ConsumeCredentialResetCredit(
 func (s *Service) invalidateCredentialObservationAfterReset(
 	ctx context.Context,
 	credential models.Credential,
-	previous models.CredentialObservation,
+	previous *models.CredentialObservation,
 ) (*CredentialObservationResponse, error) {
 	if s.registry != nil {
 		s.registry.SetCredentialQuotaObservation(credential.ID, nil, time.Time{}, time.Time{})
 	}
-	if previous.CredentialID == 0 || previous.IdentityFingerprint != credential.IdentityFingerprint {
+	if previous == nil || previous.CredentialID == 0 || previous.IdentityFingerprint != credential.IdentityFingerprint {
 		return nil, nil
 	}
 	previous.State = models.CredentialObservationStale
@@ -171,10 +173,10 @@ func (s *Service) invalidateCredentialObservationAfterReset(
 	previous.NextAllowedAtMS = nil
 	previous.LastErrorCode = ""
 	previous.UpdatedAtMS = s.now().UTC().UnixMilli()
-	if err := s.upsertCredentialObservation(ctx, previous); err != nil {
+	if err := s.upsertCredentialObservation(ctx, *previous); err != nil {
 		return nil, err
 	}
-	response := mapCredentialObservation(previous)
+	response := mapCredentialObservation(*previous)
 	return &response, nil
 }
 
@@ -255,7 +257,7 @@ func (s *Service) beginResetCreditOperation(
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return models.CredentialResetOperation{}, false, app_errors.ParseDBError(err)
 	}
-	if !s.resetCreditOperationAllowsNext(ctx, credentialID, identityFingerprint) {
+	if !s.resetCreditOperationAllowsNewKey(ctx, credentialID) {
 		return models.CredentialResetOperation{}, false, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	operation := models.CredentialResetOperation{
@@ -360,10 +362,9 @@ func classifyExistingResetCreditOperation(
 	}
 }
 
-func (s *Service) resetCreditOperationAllowsNext(
+func (s *Service) resetCreditOperationAllowsNewKey(
 	ctx context.Context,
 	credentialID uint,
-	identityFingerprint string,
 ) bool {
 	var latest models.CredentialResetOperation
 	err := s.db.WithContext(ctx).
@@ -378,20 +379,7 @@ func (s *Service) resetCreditOperationAllowsNext(
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return true
 	}
-	if err != nil || latest.State != models.CredentialResetOperationSucceeded {
-		return false
-	}
-	var observation models.CredentialObservation
-	if err := s.db.WithContext(ctx).Take(&observation, "credential_id = ?", credentialID).Error; err != nil {
-		return false
-	}
-	result, err := decodeStoredResetCreditResult(latest.ResultJSON)
-	if err != nil {
-		return false
-	}
-	return observation.IdentityFingerprint == identityFingerprint &&
-		observation.State == models.CredentialObservationFresh &&
-		observation.ObservationVersion > result.ObservationVersionBefore
+	return err == nil && latest.State == models.CredentialResetOperationSucceeded
 }
 
 func (s *Service) finishResetCreditOperation(

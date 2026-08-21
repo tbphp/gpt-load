@@ -407,8 +407,9 @@ export default {
         consumeResetCreditDescription:
           '{account} にリセットクレジットを 1 件使用します。この操作は取り消せません。結果を一時的に確認できない場合も GPT-Load は自動で追加消費しません。',
         consumeResetCreditFailed: 'リセットクレジットを使用できません',
-        consumeResetCreditSucceeded:
-          '利用枠をリセットしました。利用枠情報を手動で更新してください。',
+        consumeResetCreditSucceeded: '利用枠をリセットし、利用枠情報を更新しました。',
+        consumeResetCreditPending:
+          '利用枠をリセットしましたが、利用枠情報を更新できませんでした。手動で再試行してください。',
         tokenExpiresAt: '認証期限',
         lastTokenRefresh: '認証情報の最終更新',
         noQuota: '上流から表示可能な利用枠が提供されていません',

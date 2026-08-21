@@ -100,11 +100,19 @@ type CredentialDetailResponse struct {
 	Observation CredentialObservationResponse `json:"observation"`
 }
 
+type observationRefreshMode uint8
+
+const (
+	observationRefreshManual observationRefreshMode = iota
+	observationRefreshAfterReset
+)
+
 type observationFlight struct {
 	done   chan struct{}
 	result CredentialObservationResponse
 	err    error
 	joined int
+	mode   observationRefreshMode
 }
 
 type observationFlightKey struct {
@@ -117,6 +125,15 @@ func (s *Service) RefreshCredentialObservation(
 	groupID uint,
 	credentialID uint,
 ) (CredentialObservationResponse, error) {
+	return s.refreshCredentialObservation(ctx, groupID, credentialID, observationRefreshManual)
+}
+
+func (s *Service) refreshCredentialObservation(
+	ctx context.Context,
+	groupID uint,
+	credentialID uint,
+	mode observationRefreshMode,
+) (CredentialObservationResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialObservationResponse{}, app_errors.ErrValidation
 	}
@@ -124,38 +141,50 @@ func (s *Service) RefreshCredentialObservation(
 		ctx = context.Background()
 	}
 	key := observationFlightKey{groupID: groupID, credentialID: credentialID}
-	s.observationMu.Lock()
-	if existing := s.observationFlights[key]; existing != nil {
-		existing.joined++
-		s.observationMu.Unlock()
-		select {
-		case <-ctx.Done():
-			return CredentialObservationResponse{}, ctx.Err()
-		case <-existing.done:
-			return existing.result, existing.err
-		}
-	}
-	flight := &observationFlight{done: make(chan struct{})}
-	s.observationFlights[key] = flight
-	s.observationMu.Unlock()
-	defer func() {
+	for {
 		s.observationMu.Lock()
-		delete(s.observationFlights, key)
-		close(flight.done)
+		if existing := s.observationFlights[key]; existing != nil {
+			existing.joined++
+			followUp := mode == observationRefreshAfterReset && existing.mode != observationRefreshAfterReset
+			s.observationMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return CredentialObservationResponse{}, ctx.Err()
+			case <-existing.done:
+				if followUp {
+					continue
+				}
+				return existing.result, existing.err
+			}
+		}
+		flight := &observationFlight{done: make(chan struct{}), mode: mode}
+		s.observationFlights[key] = flight
 		s.observationMu.Unlock()
-	}()
-	flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID)
-	return flight.result, flight.err
+		defer func() {
+			s.observationMu.Lock()
+			delete(s.observationFlights, key)
+			close(flight.done)
+			s.observationMu.Unlock()
+		}()
+		flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID, mode)
+		return flight.result, flight.err
+	}
 }
 
 func (s *Service) refreshCredentialObservationOnce(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
+	mode observationRefreshMode,
 ) (CredentialObservationResponse, error) {
 	group, credential, previous, err := s.loadObservationTarget(ctx, groupID, credentialID)
 	if err != nil {
 		return CredentialObservationResponse{}, err
+	}
+	if mode == observationRefreshAfterReset {
+		if _, err := s.invalidateCredentialObservationAfterReset(ctx, credential, &previous); err != nil {
+			return CredentialObservationResponse{}, err
+		}
 	}
 	now := s.now().UTC()
 	preparedCredential, err := s.prepareStoredSubscriptionCredential(ctx, group, credential)
