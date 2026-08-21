@@ -148,11 +148,14 @@ const syncExactTimeTooltip = computed(() => {
 })
 const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available ?? 0)
 const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
+const availableResetCreditDetails = computed(() =>
+  resetCredits.value.slice(0, resetCreditsAvailable.value),
+)
 const hasResetCredits = computed(() => supportsResetCredit.value && resetCreditsAvailable.value > 0)
 type ResetCreditDotTone = 'default' | 'warning' | 'danger'
 const resetCreditDots = computed(() =>
   Array.from({ length: Math.min(resetCreditsAvailable.value, 5) }, (_, index) => {
-    const expiresAtMS = resetCredits.value[index]?.expires_at_ms
+    const expiresAtMS = availableResetCreditDetails.value[index]?.expires_at_ms
     let tone: ResetCreditDotTone = 'default'
     if (expiresAtMS !== undefined) {
       const remainingMS = expiresAtMS - nowMs.value
@@ -167,14 +170,17 @@ const resetCreditDots = computed(() =>
   }),
 )
 const nearestResetCredit = computed(() =>
-  resetCredits.value.reduce<(typeof resetCredits.value)[number] | undefined>((nearest, credit) => {
-    if (credit.expires_at_ms === undefined || credit.expires_at_ms <= nowMs.value) return nearest
-    return nearest === undefined ||
-      nearest.expires_at_ms === undefined ||
-      credit.expires_at_ms < nearest.expires_at_ms
-      ? credit
-      : nearest
-  }, undefined),
+  availableResetCreditDetails.value.reduce<(typeof resetCredits.value)[number] | undefined>(
+    (nearest, credit) => {
+      if (credit.expires_at_ms === undefined || credit.expires_at_ms <= nowMs.value) return nearest
+      return nearest === undefined ||
+        nearest.expires_at_ms === undefined ||
+        credit.expires_at_ms < nearest.expires_at_ms
+        ? credit
+        : nearest
+    },
+    undefined,
+  ),
 )
 function resetCreditExpiryLabel(credit: (typeof resetCredits.value)[number]): string {
   if (credit.expires_at_ms === undefined) {
@@ -186,15 +192,15 @@ function resetCreditExpiryLabel(credit: (typeof resetCredits.value)[number]): st
   return formatLocalInstant(credit.expires_at_ms, locale.value)
 }
 const resetCreditsTooltip = computed(() => {
-  const lines = resetCredits.value.length
-    ? resetCredits.value.map((credit, index) =>
+  const lines = availableResetCreditDetails.value.length
+    ? availableResetCreditDetails.value.map((credit, index) =>
         t('group.credentials.subscription.resetCreditsTooltipItem', {
           index: index + 1,
           expires: resetCreditExpiryLabel(credit),
         }),
       )
     : [t('group.credentials.subscription.resetCreditsTooltipNoDetails')]
-  const knownCount = resetCredits.value.length
+  const knownCount = availableResetCreditDetails.value.length
   if (knownCount < resetCreditsAvailable.value) {
     lines.push(
       t('group.credentials.subscription.resetCreditsTooltipMore', {
@@ -990,11 +996,11 @@ function runMenuAction(
             <code v-for="model in constrainedModels" :key="model">{{ model }}</code>
           </div>
           <div
-            v-if="hasResetCredits && resetCredits.length"
+            v-if="hasResetCredits && availableResetCreditDetails.length"
             class="subscription-account__reset-credit-list"
           >
             <span>{{ t('group.credentials.subscription.resetCreditExpirations') }}</span>
-            <template v-for="(credit, index) in resetCredits" :key="index">
+            <template v-for="(credit, index) in availableResetCreditDetails" :key="index">
               <span v-if="credit.expires_at_ms !== undefined && credit.expires_at_ms <= nowMs">
                 {{ t('group.credentials.subscription.resetCreditExpired') }}
               </span>
