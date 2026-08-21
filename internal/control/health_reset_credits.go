@@ -55,6 +55,9 @@ func (service *Service) loadExpiringResetCredits(
 				app_errors.ErrInternalServer,
 			)
 		}
+		if snapshot.ResetCreditsAvailable != nil && *snapshot.ResetCreditsAvailable <= 0 {
+			continue
+		}
 		count := 0
 		nearest := int64(0)
 		for _, credit := range snapshot.ResetCredits {
@@ -69,6 +72,9 @@ func (service *Service) loadExpiringResetCredits(
 		}
 		if count == 0 {
 			continue
+		}
+		if snapshot.ResetCreditsAvailable != nil && int64(count) > *snapshot.ResetCreditsAvailable {
+			count = int(*snapshot.ResetCreditsAvailable)
 		}
 		result = append(result, healthExpiringResetCreditResponse{
 			CredentialID: observation.CredentialID,

@@ -130,3 +130,67 @@ func TestRuntimeHealthReportsResetCreditsExpiringWithinFortyEightHours(t *testin
 		t.Fatalf("expiring reset credit = %#v", got)
 	}
 }
+
+func TestRuntimeHealthHonorsRecordedResetCreditAvailability(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		available int64
+		wantCount int
+	}{
+		{name: "zero available", available: 0, wantCount: 0},
+		{name: "caps detailed credits", available: 1, wantCount: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			now := healthNow()
+			fixture.service.now = func() time.Time { return now }
+			groupID := createGroupWithCredentials(t, fixture, `{"api_key":"sk-reset-credit-availability"}`)
+
+			var credential models.Credential
+			if err := fixture.db.Where("group_id = ?", groupID).First(&credential).Error; err != nil {
+				t.Fatal(err)
+			}
+			near := now.Add(23 * time.Hour).UnixMilli()
+			later := now.Add(47 * time.Hour).UnixMilli()
+			snapshot, err := json.Marshal(CredentialObservationSnapshot{
+				QuotaWindows:          []ObservationQuotaWindow{},
+				ResetCreditsAvailable: &test.available,
+				ResetCredits: []ObservationResetCredit{
+					{ExpiresAtMS: &near},
+					{ExpiresAtMS: &later},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			observedAtMS := now.UnixMilli()
+			if err := fixture.db.Create(&models.CredentialObservation{
+				CredentialID:        credential.ID,
+				IdentityFingerprint: credential.IdentityFingerprint,
+				SchemaVersion:       1,
+				ObservationVersion:  1,
+				SnapshotJSON:        models.JSON(snapshot),
+				State:               models.CredentialObservationFresh,
+				ObservedAtMS:        &observedAtMS,
+				UpdatedAtMS:         observedAtMS,
+			}).Error; err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := fixture.service.RuntimeHealth()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.ExpiringResetCredits) != test.wantCount {
+				t.Fatalf("ExpiringResetCredits = %#v, want count %d", result.ExpiringResetCredits, test.wantCount)
+			}
+			if test.wantCount == 0 {
+				return
+			}
+			got := result.ExpiringResetCredits[0]
+			if got.Count != test.wantCount || got.NearestExpiresAtMS != near {
+				t.Fatalf("expiring reset credit = %#v", got)
+			}
+		})
+	}
+}
