@@ -100,7 +100,7 @@ func TestFilterTargetsSkipsCandidateWithoutGroupView(t *testing.T) {
 	}
 }
 
-func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
+func TestIteratorRejectsProtocolOnlyGroupWithoutConfiguredModels(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := state.Compile(state.CompileInput{
@@ -116,7 +116,7 @@ func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
 		ID: 71, GroupID: 7, WeightAuto: state.DefaultWeight,
 	}}}
 
-	selection, err := New(
+	iterator := New(
 		snapshot,
 		source,
 		Query{
@@ -128,13 +128,12 @@ func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
 			},
 		},
 		rand.New(zeroRandSource{}),
-	).Next()
-	if err != nil {
-		t.Fatalf("Next() error = %v", err)
+	)
+	if iterator.StaticReason() != ReasonNoRouteTarget {
+		t.Fatalf("StaticReason() = %q, want %q", iterator.StaticReason(), ReasonNoRouteTarget)
 	}
-	if selection.GroupID != 7 || selection.CredentialID != 71 ||
-		selection.UpstreamModelID != nil {
-		t.Fatalf("Selection = %#v, want protocol-only group/key and nil model", selection)
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("Next() error = %v, want ErrExhausted", err)
 	}
 }
 

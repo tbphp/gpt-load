@@ -264,7 +264,7 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "responses", ChannelID: channel.OpenAI,
-			Params: json.RawMessage(`{}`), Enabled: true,
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-resource"}}, Enabled: true,
 		}},
 		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -300,6 +300,58 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 			CostState: "not_applicable", PricingCompleteness: "not_applicable",
 		}) {
 		t.Fatalf("event = %#v", event)
+	}
+}
+
+func TestHandlerRejectsResponsesResourceWhenGroupHasNoModels(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
+		t,
+		forwarder,
+		&recordingAccessKeyRPMLimiter{},
+		sink,
+		"sk-first",
+	)
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "responses", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID:      1,
+			Name:    "client",
+			KeyHash: handler.encryption.Hash("gl-client"),
+			Status:  state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/responses/resp_123", nil)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	events := sink.snapshot()
+	if response.Code != http.StatusServiceUnavailable || body.Code != reasonNoCandidate.Code ||
+		len(forwarder.inputs) != 0 || len(events) != 1 || len(events[0].Attempts) != 0 {
+		t.Fatalf(
+			"response/code/attempts/events = %d/%q/%d/%#v, want 503/%q/0/one event without attempts",
+			response.Code,
+			body.Code,
+			len(forwarder.inputs),
+			events,
+			reasonNoCandidate.Code,
+		)
 	}
 }
 

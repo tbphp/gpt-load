@@ -111,7 +111,7 @@ func TestIteratorSkipGroupAndAllowedCredentialIDsApplyAcrossRouteTiers(t *testin
 	}
 }
 
-func TestIteratorRoutesModelLessResponsesResourceOperation(t *testing.T) {
+func TestIteratorRejectsResponsesResourceOperationWithoutConfiguredModels(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := state.Compile(state.CompileInput{
@@ -123,17 +123,16 @@ func TestIteratorRoutesModelLessResponsesResourceOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	selection, err := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{ID: 71, GroupID: 7}}}, Query{
+	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{ID: 71, GroupID: 7}}}, Query{
 		ClientProtocol: protocol.OpenAIResponses,
 		Operation:      execution.OperationResponsesRetrieve,
 		ExternalModel:  nil,
-	}, rand.New(zeroRandSource{})).Next()
-	if err != nil {
-		t.Fatalf("Next() error = %v", err)
+	}, rand.New(zeroRandSource{}))
+	if iterator.StaticReason() != ReasonNoRouteTarget {
+		t.Fatalf("StaticReason() = %q, want %q", iterator.StaticReason(), ReasonNoRouteTarget)
 	}
-	if selection.CredentialID != 71 || selection.GroupID != 7 || selection.UpstreamModelID != nil ||
-		selection.RouteMode != channel.RouteNative {
-		t.Fatalf("Selection = %#v", selection)
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("Next() error = %v, want ErrExhausted", err)
 	}
 }
 
@@ -169,7 +168,7 @@ func TestCandidateGroupIDsForQueryUsesExecutionRoutesAndAccessKeyFilters(t *test
 	}
 }
 
-func TestCandidateGroupIDsForQuerySupportsModelLessResourceOperation(t *testing.T) {
+func TestCandidateGroupIDsForQueryRejectsResourceOperationWithoutConfiguredModels(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := state.Compile(state.CompileInput{
@@ -193,8 +192,8 @@ func TestCandidateGroupIDsForQuerySupportsModelLessResourceOperation(t *testing.
 		ExternalModel:    nil,
 		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	})
-	if !slices.Equal(got, []uint{7}) {
-		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want native Responses group [7]", got)
+	if len(got) != 0 {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want none", got)
 	}
 }
 

@@ -10,9 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
-	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -272,7 +270,6 @@ func mapGroupCollectionRecords(
 	}
 	records := make([]groupCollectionRecord, 0, len(rows.groups))
 	for _, group := range rows.groups {
-		supportsModelOptionalRequests := false
 		channelID := channel.ID(group.ChannelID)
 		if registry == nil {
 			return nil, groupCollectionDataError("channel registry is nil")
@@ -282,14 +279,9 @@ func mapGroupCollectionRecords(
 			return nil, groupCollectionDataError("validate group %d params: %v", group.ID, err)
 		}
 		params := validated.CanonicalJSON()
-		resolvedTarget, err := registry.Resolve(channelID, params)
-		if err != nil {
+		if _, err := registry.Resolve(channelID, params); err != nil {
 			return nil, groupCollectionDataError("resolve group %d channel: %v", group.ID, err)
 		}
-		_, supportsModelOptionalRequests = resolvedTarget.Mode(
-			protocol.OpenAIResponses,
-			execution.OperationResponsesRetrieve,
-		)
 		var groupModels []GroupModel
 		if err := json.Unmarshal(group.Models, &groupModels); err != nil {
 			return nil, groupCollectionDataError(
@@ -323,7 +315,6 @@ func mapGroupCollectionRecords(
 		record.Status, record.UnavailableReason = groupCollectionStatusAndReason(
 			catalog,
 			record.CredentialCounts,
-			supportsModelOptionalRequests,
 			record.ModelCount,
 		)
 		records = append(records, record)
@@ -416,13 +407,11 @@ func addGroupCollectionCredentialCount(counts *GroupCollectionCredentialCounts, 
 func groupCollectionStatus(
 	group state.GroupCatalogView,
 	counts GroupCollectionCredentialCounts,
-	supportsModelOptionalRequests bool,
 	modelCount int64,
 ) GroupCollectionStatus {
 	status, _ := groupCollectionStatusAndReason(
 		group,
 		counts,
-		supportsModelOptionalRequests,
 		modelCount,
 	)
 	return status
@@ -431,7 +420,6 @@ func groupCollectionStatus(
 func groupCollectionStatusAndReason(
 	group state.GroupCatalogView,
 	counts GroupCollectionCredentialCounts,
-	supportsModelOptionalRequests bool,
 	modelCount int64,
 ) (GroupCollectionStatus, *GroupUnavailableReason) {
 	if !group.Enabled || (group.WeightManual != nil && *group.WeightManual == 0) {
@@ -442,9 +430,6 @@ func groupCollectionStatusAndReason(
 		return GroupCollectionStatusUnavailable, &reason
 	}
 	if modelCount > 0 {
-		return GroupCollectionStatusAvailable, nil
-	}
-	if supportsModelOptionalRequests {
 		return GroupCollectionStatusAvailable, nil
 	}
 	reason := GroupUnavailableReasonNoModels

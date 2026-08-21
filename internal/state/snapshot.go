@@ -288,6 +288,10 @@ func appendExecutionTargets(
 	if !ok {
 		return fmt.Errorf("compile group %d channel: unknown channel %q", group.ID, group.ChannelID)
 	}
+	// 模型配置是分组进入数据面调度的统一门槛；无模型资源请求也不能绕过。
+	if len(group.Models) == 0 {
+		return nil
+	}
 	for _, clientProtocol := range descriptor.ClientProtocols {
 		for _, operation := range target.Operations(clientProtocol) {
 			if operation == execution.OperationListModels || operation == execution.OperationProbe {
