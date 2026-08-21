@@ -25,7 +25,12 @@ function pageRoute(
 const routes: RouteRecordRaw[] = [
   pageRoute(pageRouteNames.home, {
     component: lazyView(() => import('@/features/home/HomeView.vue')),
-    meta: { titleKey: 'home.ledger.title', requiresAuth: true, primaryNav: 'home' },
+    meta: {
+      titleKey: 'home.ledger.title',
+      requiresAuth: true,
+      primaryNav: 'home',
+      messageNamespaces: ['access-keys'],
+    },
   }),
   pageRoute(pageRouteNames.login, {
     component: lazyView(() => import('@/features/auth/LoginView.vue')),
