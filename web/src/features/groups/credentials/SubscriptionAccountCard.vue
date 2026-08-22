@@ -584,7 +584,7 @@ function runMenuAction(
                 variant="ghost"
                 :label="t('group.credentials.subscription.sync')"
                 :busy="refreshingObservation"
-                :disabled="busy || item.configured_status === 'disabled'"
+                :disabled="busy"
                 @click="emit('refresh', item)"
               >
                 <RefreshCw
@@ -1182,7 +1182,7 @@ function runMenuAction(
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--color-text-faint) 42%, transparent);
   border-radius: 3px;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-action);
 }
 .subscription-account__select input:checked + .subscription-account__select-box {

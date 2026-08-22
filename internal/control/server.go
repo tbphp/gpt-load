@@ -1034,7 +1034,7 @@ func serviceErrorMessageID(
 		case "list_groups", "get_group_summary", "get_group_settings", "get_group_models",
 			"update_group_settings", "delete_group",
 			"update_group_models", "import_group_credentials",
-			"discover_group_models", "list_group_credentials":
+			"discover_group_models", "list_group_credentials", "download_all_group_credentials":
 			return "group.not_found"
 		default:
 			return "credential.not_found"

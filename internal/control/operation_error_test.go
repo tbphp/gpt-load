@@ -44,6 +44,10 @@ func TestServiceErrorMessageIDUsesTypedResourceNotFound(t *testing.T) {
 			err: groupNotFoundError(), want: "group.not_found",
 		},
 		{
+			name: "download all Group credentials missing Group", operation: "download_all_group_credentials",
+			err: groupNotFoundError(), want: "group.not_found",
+		},
+		{
 			name: "update Group credential missing Group", operation: "update_group_credential",
 			err: groupNotFoundError(), want: "group.not_found",
 		},

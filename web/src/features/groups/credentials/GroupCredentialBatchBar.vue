@@ -24,7 +24,7 @@ const { n, t } = useI18n()
 </script>
 
 <template>
-  <div class="group-credential-batch" role="status">
+  <div class="group-credential-batch">
     <div class="group-credential-batch__actions">
       <AppButton
         variant="secondary"

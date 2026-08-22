@@ -376,6 +376,22 @@ function setAllVisible(checked: boolean): void {
   }
   selectedIds.value = next
 }
+function currentSelectionContext(): string {
+  return JSON.stringify({
+    groupId: props.groupId,
+    status: filters.value.status ?? null,
+    query: filters.value.q ?? null,
+    page: filters.value.page,
+    pageSize: filters.value.page_size,
+  })
+}
+function restoreVisibleFailedSelection(context: string, failedIDs: ReadonlySet<number>): void {
+  if (context !== currentSelectionContext()) return
+  const visibleIDs = new Set(
+    (collection.value?.items ?? []).map(({ credential_id }) => credential_id),
+  )
+  selectedIds.value = new Set([...failedIDs].filter((id) => visibleIDs.has(id)))
+}
 function operation(id: number, action: string): string {
   return `${id}:${action}`
 }
@@ -606,7 +622,7 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
   } catch (cause) {
     setObservationError(
       item.credential_id,
-      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed'),
+      t(presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed')),
     )
   } finally {
     setPending(item.credential_id, 'observation', false)
@@ -705,6 +721,7 @@ async function confirmFullAction(): Promise<void> {
     fullActionTarget.value = undefined
   } catch {
     feedback.value = t('group.credentials.full.failed')
+    fullActionTarget.value = undefined
   } finally {
     setPending('batch', `all-${action}`, false)
   }
@@ -718,6 +735,7 @@ async function syncSelectedObservations(): Promise<void> {
   if (items.length === 0 || bulkActionsBusy.value || !channelCapabilities.value.quota_observation) {
     return
   }
+  const selectionContext = currentSelectionContext()
   feedback.value = ''
   batchObservationPending.value = new Set(items.map(({ credential_id }) => credential_id))
   setPending('batch', 'observation', true)
@@ -758,7 +776,7 @@ async function syncSelectedObservations(): Promise<void> {
     await Promise.all(
       Array.from({ length: Math.min(batchCredentialConcurrency, items.length) }, () => worker()),
     )
-    selectedIds.value = failedIDs
+    restoreVisibleFailedSelection(selectionContext, failedIDs)
     toast.show({
       message: t('group.credentials.batch.syncResult', {
         succeeded: n(succeeded),
@@ -779,6 +797,7 @@ async function downloadSelectedCredentials(): Promise<void> {
     selected.has(credential_id),
   )
   if (items.length === 0 || bulkActionsBusy.value) return
+  const selectionContext = currentSelectionContext()
   feedback.value = ''
   setPending('batch', 'export', true)
   let cursor = 0
@@ -804,7 +823,7 @@ async function downloadSelectedCredentials(): Promise<void> {
     await Promise.all(
       Array.from({ length: Math.min(batchCredentialConcurrency, items.length) }, () => worker()),
     )
-    selectedIds.value = failedIDs
+    restoreVisibleFailedSelection(selectionContext, failedIDs)
     toast.show({
       message: t('group.credentials.batch.downloadResult', {
         succeeded: n(succeeded),
