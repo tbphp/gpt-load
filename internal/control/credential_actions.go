@@ -20,6 +20,12 @@ type CredentialDownloadResult struct {
 	Credential json.RawMessage `json:"credential"`
 }
 
+// CredentialDownloadAllResult contains one downloadable file per subscription
+// credential in a Group, ordered by credential ID.
+type CredentialDownloadAllResult struct {
+	Files []CredentialDownloadResult `json:"files"`
+}
+
 // RefreshGroupCredential forces only the subscription token refresh. Account
 // observations are refreshed through their dedicated explicit action.
 func (s *Service) RefreshGroupCredential(
@@ -68,6 +74,56 @@ func (s *Service) DownloadGroupCredential(
 		Filename:   subscriptionCredentialFilename(group.ChannelID, email, credential.ID),
 		Credential: json.RawMessage(append([]byte(nil), canonical...)),
 	}, nil
+}
+
+// DownloadAllGroupCredentials returns every subscription credential in the
+// Group without applying collection pagination or filters.
+func (s *Service) DownloadAllGroupCredentials(
+	ctx context.Context,
+	groupID uint,
+) (CredentialDownloadAllResult, error) {
+	if groupID == 0 {
+		return CredentialDownloadAllResult{}, app_errors.ErrBadRequest
+	}
+	var group models.Group
+	var rows []models.Credential
+	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
+		if err := tx.Take(&group, groupID).Error; err != nil {
+			return err
+		}
+		if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription {
+			return app_errors.ErrForbidden
+		}
+		if group.ChannelID == "" {
+			return app_errors.ErrValidation
+		}
+		return tx.Where("group_id = ?", groupID).Order("id ASC").Find(&rows).Error
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return CredentialDownloadAllResult{}, app_errors.ErrResourceNotFound
+		}
+		var apiErr *app_errors.APIError
+		if errors.As(err, &apiErr) {
+			return CredentialDownloadAllResult{}, err
+		}
+		return CredentialDownloadAllResult{}, app_errors.ParseDBError(err)
+	}
+	files := make([]CredentialDownloadResult, 0, len(rows))
+	for _, row := range rows {
+		canonical, email, err := s.decodeCredential(group, row)
+		if err != nil {
+			return CredentialDownloadAllResult{}, err
+		}
+		if len(canonical) == 0 {
+			return CredentialDownloadAllResult{}, app_errors.ErrInternalServer
+		}
+		files = append(files, CredentialDownloadResult{
+			Filename:   subscriptionCredentialFilename(group.ChannelID, email, row.ID),
+			Credential: json.RawMessage(append([]byte(nil), canonical...)),
+		})
+	}
+	return CredentialDownloadAllResult{Files: files}, nil
 }
 
 func (s *Service) loadSubscriptionCredentialTarget(

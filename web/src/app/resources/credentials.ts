@@ -14,6 +14,7 @@ import type {
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
   CredentialDetailDto,
+  CredentialDownloadAllDto,
   CredentialDownloadDto,
   CredentialItemDto,
   CredentialObservationDto,
@@ -50,6 +51,7 @@ export type {
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
   CredentialDetailDto,
+  CredentialDownloadAllDto,
   CredentialDownloadDto,
   CredentialItemDto,
   CredentialRecoveryDto,
@@ -66,7 +68,8 @@ export interface CredentialPatch {
 
 export interface CredentialBatchRequest {
   action: 'enable' | 'disable' | 'delete'
-  credential_ids: number[]
+  credential_ids?: number[]
+  scope?: 'all'
 }
 
 const credentialCollectionFields = [
@@ -108,6 +111,7 @@ const credentialItemFields = [
 ] as const
 const credentialDetailFields = ['credential', 'observation'] as const
 const credentialDownloadFields = ['filename', 'credential'] as const
+const credentialDownloadAllFields = ['files'] as const
 const credentialDailyUsageFields = [
   'window_seconds',
   'success_count',
@@ -772,6 +776,14 @@ function projectCredentialDownload(value: unknown): CredentialDownloadDto {
   }
 }
 
+function projectCredentialDownloadAll(value: unknown): CredentialDownloadAllDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, credentialDownloadAllFields)
+  return {
+    files: projectArray(record.files, projectCredentialDownload),
+  }
+}
+
 export async function downloadCredential(
   client: ApiClient,
   groupId: number,
@@ -780,6 +792,20 @@ export async function downloadCredential(
 ): Promise<CredentialDownloadDto> {
   return projectCredentialDownload(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/download`, {
+      method: 'POST',
+      json: {},
+      signal,
+    }),
+  )
+}
+
+export async function downloadAllCredentials(
+  client: ApiClient,
+  groupId: number,
+  signal?: AbortSignal,
+): Promise<CredentialDownloadAllDto> {
+  return projectCredentialDownloadAll(
+    await client.request(`/api/groups/${groupId}/credentials/download-all`, {
       method: 'POST',
       json: {},
       signal,
@@ -874,13 +900,17 @@ export async function batchCredentials(
   body: CredentialBatchRequest,
   signal?: AbortSignal,
 ): Promise<CredentialBatchResultDto> {
-  const ids = body.credential_ids
+  const ids = body.credential_ids ?? []
+  const all = body.scope === 'all'
   if (
     !['enable', 'disable', 'delete'].includes(body.action) ||
-    ids.length < 1 ||
-    ids.length > 100 ||
-    ids.some((id) => !Number.isSafeInteger(id) || id < 1) ||
-    new Set(ids).size !== ids.length
+    (all
+      ? body.action === 'delete' || body.credential_ids !== undefined
+      : body.scope !== undefined ||
+        ids.length < 1 ||
+        ids.length > 100 ||
+        ids.some((id) => !Number.isSafeInteger(id) || id < 1) ||
+        new Set(ids).size !== ids.length)
   ) {
     throw new Error('INVALID_CREDENTIAL_BATCH')
   }
@@ -897,7 +927,7 @@ export async function batchCredentials(
   )
   if (
     new Set(affectedCredentialIDs).size !== affectedCredentialIDs.length ||
-    affectedCredentialIDs.length !== ids.length
+    (!all && affectedCredentialIDs.length !== ids.length)
   )
     invalidResponse()
   return {

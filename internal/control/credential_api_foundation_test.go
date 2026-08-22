@@ -77,15 +77,16 @@ func TestCredentialRoutesReplaceLegacyGroupKeyRoutes(t *testing.T) {
 	fixture := newServiceFixture(t)
 	module := NewServer(&config.Config{AuthKey: "credential-auth"}, fixture.service).HTTPModule()
 	want := map[string]string{
-		"control.group-credentials.list":     "/groups/:group_id/credentials",
-		"control.group-credentials.reveal":   "/groups/:group_id/credentials/:credential_id/reveal",
-		"control.group-credentials.refresh":  "/groups/:group_id/credentials/:credential_id/refresh",
-		"control.group-credentials.download": "/groups/:group_id/credentials/:credential_id/download",
-		"control.group-credentials.update":   "/groups/:group_id/credentials/:credential_id",
-		"control.group-credentials.restore":  "/groups/:group_id/credentials/:credential_id/restore",
-		"control.group-credentials.batch":    "/groups/:group_id/credentials/batch",
-		"control.group-credentials.delete":   "/groups/:group_id/credentials/:credential_id",
-		"control.group-credentials.import":   "/groups/:group_id/credentials/import",
+		"control.group-credentials.list":         "/groups/:group_id/credentials",
+		"control.group-credentials.download-all": "/groups/:group_id/credentials/download-all",
+		"control.group-credentials.reveal":       "/groups/:group_id/credentials/:credential_id/reveal",
+		"control.group-credentials.refresh":      "/groups/:group_id/credentials/:credential_id/refresh",
+		"control.group-credentials.download":     "/groups/:group_id/credentials/:credential_id/download",
+		"control.group-credentials.update":       "/groups/:group_id/credentials/:credential_id",
+		"control.group-credentials.restore":      "/groups/:group_id/credentials/:credential_id/restore",
+		"control.group-credentials.batch":        "/groups/:group_id/credentials/batch",
+		"control.group-credentials.delete":       "/groups/:group_id/credentials/:credential_id",
+		"control.group-credentials.import":       "/groups/:group_id/credentials/import",
 	}
 	seen := make(map[string]string)
 	for _, route := range module.Routes {

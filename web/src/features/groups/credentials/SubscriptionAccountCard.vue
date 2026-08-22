@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Check,
   CircleCheck,
   CircleOff,
   Download,
@@ -36,7 +37,10 @@ import { presentCredentialFailureCategory } from './credential-failure-presenter
 
 const props = defineProps<{
   item: CredentialItemDto
+  selected: boolean
   busy: boolean
+  refreshingObservation: boolean
+  observationError: string
   detailBusy: boolean
   detailLoaded: boolean
   detailError: string
@@ -45,6 +49,7 @@ const props = defineProps<{
   capabilities: ChannelCapabilitiesDto
 }>()
 const emit = defineEmits<{
+  'update:selected': [selected: boolean]
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
   refresh: [item: CredentialItemDto]
@@ -108,6 +113,7 @@ const usageQuotaWindows = computed(() =>
 )
 const hasUsageQuotaWindows = computed(() => usageQuotaWindows.value.length > 0)
 const windowSkeletonHeight = computed(() => `${24 + usageQuotaWindows.value.length * 32}px`)
+const refreshSkeletonRows = computed(() => Math.max(2, Math.min(4, quotaWindows.value.length || 2)))
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
@@ -495,12 +501,55 @@ function runMenuAction(
     class="subscription-account"
     :class="[
       `subscription-account--${statusTone}`,
-      { 'subscription-account--disabled': unifiedStatus === 'disabled' },
+      {
+        'subscription-account--disabled': unifiedStatus === 'disabled',
+        'subscription-account--refreshing': refreshingObservation,
+      },
     ]"
+    :aria-busy="refreshingObservation ? 'true' : undefined"
   >
+    <div
+      v-if="refreshingObservation"
+      class="subscription-account__refresh-skeleton"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="sr-only">{{ t('group.credentials.subscription.syncingQuota') }}</span>
+      <div class="subscription-account__refresh-skeleton-top" aria-hidden="true">
+        <div>
+          <SkeletonBlock width="92px" height="24px" />
+          <SkeletonBlock width="64px" height="24px" />
+        </div>
+        <SkeletonBlock width="32px" height="32px" />
+      </div>
+      <SkeletonBlock width="58%" height="18px" aria-hidden="true" />
+      <div class="subscription-account__refresh-skeleton-quotas" aria-hidden="true">
+        <div v-for="index in refreshSkeletonRows" :key="index">
+          <SkeletonBlock width="76px" height="12px" />
+          <SkeletonBlock height="8px" />
+          <SkeletonBlock width="54px" height="12px" />
+        </div>
+      </div>
+      <SkeletonBlock height="38px" aria-hidden="true" />
+      <SkeletonBlock width="100%" height="44px" aria-hidden="true" />
+    </div>
     <div class="subscription-account__main">
       <header class="subscription-account__top">
         <div class="subscription-account__top-row">
+          <label class="subscription-account__select">
+            <span class="sr-only">{{
+              t('group.credentials.subscription.selectAccount', { account: accountName })
+            }}</span>
+            <input
+              type="checkbox"
+              :checked="selected"
+              :disabled="busy"
+              @change="emit('update:selected', ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="subscription-account__select-box" aria-hidden="true">
+              <Check v-if="selected" :size="16" stroke-width="2.5" />
+            </span>
+          </label>
           <div class="subscription-account__badges">
             <span
               v-if="planLabel"
@@ -534,12 +583,12 @@ function runMenuAction(
                 size="compact"
                 variant="ghost"
                 :label="t('group.credentials.subscription.sync')"
-                :busy="busy"
-                :disabled="item.configured_status === 'disabled'"
+                :busy="refreshingObservation"
+                :disabled="busy"
                 @click="emit('refresh', item)"
               >
                 <RefreshCw
-                  :class="{ 'subscription-account__sync-icon--spinning': busy }"
+                  :class="{ 'subscription-account__sync-icon--spinning': refreshingObservation }"
                   :size="15"
                   aria-hidden="true"
                 />
@@ -630,6 +679,9 @@ function runMenuAction(
 
       <div v-if="authIssue" class="subscription-account__alert">
         <span>{{ authIssue }}</span>
+      </div>
+      <div v-if="observationError" class="subscription-account__alert" role="alert">
+        <span>{{ observationError }}</span>
       </div>
 
       <div
@@ -1021,6 +1073,7 @@ function runMenuAction(
 
 <style scoped>
 .subscription-account {
+  position: relative;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-action) 24%, var(--color-border-subtle));
   border-left: 3px solid var(--color-border-control);
@@ -1029,6 +1082,42 @@ function runMenuAction(
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--color-action) 14%, transparent),
     0 8px 24px color-mix(in srgb, var(--color-action) 10%, transparent);
+}
+.subscription-account--refreshing > .subscription-account__main,
+.subscription-account--refreshing > .subscription-account__detail {
+  visibility: hidden;
+}
+.subscription-account__refresh-skeleton {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  background: color-mix(in srgb, var(--color-action-soft) 46%, var(--color-surface));
+  padding: var(--space-3) var(--space-4);
+}
+.subscription-account__refresh-skeleton-top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.subscription-account__refresh-skeleton-top > div {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-2);
+}
+.subscription-account__refresh-skeleton-quotas {
+  display: grid;
+  gap: var(--space-2);
+}
+.subscription-account__refresh-skeleton-quotas > div {
+  display: grid;
+  grid-template-columns: minmax(72px, 98px) minmax(0, 1fr) 54px;
+  align-items: center;
+  gap: var(--space-2);
 }
 .subscription-account--success {
   border-left-color: var(--color-success);
@@ -1066,6 +1155,48 @@ function runMenuAction(
   min-width: 0;
   align-items: center;
   gap: var(--space-2);
+}
+.subscription-account__select {
+  position: relative;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-items: start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.subscription-account__select input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.subscription-account__select-box {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-text-faint) 42%, transparent);
+  border-radius: 3px;
+  background: var(--color-surface);
+  color: var(--color-action);
+}
+.subscription-account__select input:checked + .subscription-account__select-box {
+  border-color: color-mix(in srgb, var(--color-action) 60%, transparent);
+}
+.subscription-account__select input:focus-visible + .subscription-account__select-box {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.subscription-account__select:has(input:disabled) {
+  cursor: not-allowed;
+}
+.subscription-account__select:has(input:disabled) .subscription-account__select-box {
+  opacity: 0.5;
 }
 .subscription-account__badges {
   display: flex;

@@ -1,12 +1,15 @@
 package control
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -116,5 +119,61 @@ func TestBatchDeleteRetiresCommittedCredentialRuntimes(t *testing.T) {
 	}
 	if got := runtime.retiredCredentialIDs(); !reflect.DeepEqual(got, ids) {
 		t.Fatalf("retired credential runtimes = %#v, want %#v", got, ids)
+	}
+}
+
+func TestBatchAllCredentialsAffectsOnlyCurrentGroup(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "first-secret\nsecond-secret")
+	otherGroupName := "other-credential-group"
+	otherGroup, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name:              &otherGroupName,
+		ChannelID:         channel.OpenAI,
+		Params:            json.RawMessage(`{}`),
+		Models:            optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-4o"}}},
+		Credentials:       "other-secret",
+		ConnectionType:    models.ConnectionTypeAPIKey,
+		ConfirmSameTarget: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup(%q) error = %v", otherGroupName, err)
+	}
+	otherGroupID := otherGroup.GroupID
+
+	result, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, CredentialBatchRequest{
+		Action: CredentialBatchDisable,
+		Scope:  CredentialBatchScopeAll,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.AffectedCredentialIDs) != 2 || result.Summary.Disabled != 2 {
+		t.Fatalf("batch-all response = %#v", result)
+	}
+	for _, view := range fixture.registry.Snapshot() {
+		switch view.GroupID {
+		case groupID:
+			if view.Status != state.CredentialStatusDisabled {
+				t.Fatalf("credential %d status = %q, want disabled", view.ID, view.Status)
+			}
+		case otherGroupID:
+			if view.Status != state.CredentialStatusActive {
+				t.Fatalf("other-group credential %d status = %q, want active", view.ID, view.Status)
+			}
+		}
+	}
+}
+
+func TestBatchAllCredentialsRejectsDeleteAndExplicitIDs(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "first-secret")
+
+	for _, request := range []CredentialBatchRequest{
+		{Action: CredentialBatchDelete, Scope: CredentialBatchScopeAll},
+		{Action: CredentialBatchDisable, Scope: CredentialBatchScopeAll, CredentialIDs: []uint{1}},
+	} {
+		if _, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, request); !errors.Is(err, app_errors.ErrValidation) {
+			t.Fatalf("BatchGroupCredentials(%#v) error = %v, want validation", request, err)
+		}
 	}
 }

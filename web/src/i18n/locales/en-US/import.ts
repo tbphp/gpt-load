@@ -158,10 +158,12 @@ export default {
       callbackFailed: 'This URL is invalid, already used, or belongs to another authorization',
       orImport: 'Have an OAuth JSON file? Import it directly',
       oauthJSONLabel: 'OAuth JSON content',
-      oauthJSONDescription: 'Paste the OAuth credential JSON, or choose a local file.',
+      oauthJSONDescription:
+        'Paste one account OAuth credential JSON, or choose one or more local files. Each file must contain one account.',
       importText: 'Import pasted content',
-      importFile: 'Choose a local file',
+      importFile: 'Choose one or more files',
       importing: 'Importing…',
+      importResult: 'Import complete: {succeeded} succeeded, {failed} failed',
       importFailed: 'The OAuth JSON is invalid or unsupported',
       pollFailed: 'Authorization status is temporarily unavailable; still retrying',
       pollAbandoned:

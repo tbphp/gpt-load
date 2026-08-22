@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { useToast } from '@/app/toast'
 import {
   beginCredentialAuthorization,
   cancelCredentialStage,
@@ -55,7 +56,8 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ 'update:modelValue': [stages: CredentialStage[]] }>()
 const client = useApiClient()
-const { locale, t } = useI18n()
+const toast = useToast()
+const { locale, n, t } = useI18n()
 const busyAction = ref<'authorize' | 'import' | `callback:${string}` | ''>('')
 const feedbackKey = ref('')
 const oauthJSON = ref('')
@@ -280,10 +282,48 @@ async function beginAuthorization(existingPopup?: Window | null): Promise<void> 
 
 async function importFile(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+  const files = Array.from(input.files ?? [])
   input.value = ''
-  if (!file) return
-  await importOAuthJSON(file)
+  if (
+    files.length === 0 ||
+    !supportsOAuthFile.value ||
+    props.disabled ||
+    Boolean(busyAction.value)
+  ) {
+    return
+  }
+  feedbackKey.value = ''
+  busyAction.value = 'import'
+  const imported: CredentialStage[] = []
+  let failed = 0
+  try {
+    for (const file of files) {
+      try {
+        imported.push(await importCredentialStage(client, props.channelId, file))
+      } catch {
+        failed += 1
+      }
+    }
+    if (imported.length > 0) {
+      const knownStageIDs = new Set(props.modelValue.map(({ stage_id }) => stage_id))
+      emit('update:modelValue', [
+        ...props.modelValue,
+        ...imported.filter(({ stage_id }) => !knownStageIDs.has(stage_id)),
+      ])
+      oauthJSON.value = ''
+      jsonImportOpen.value = false
+    }
+    toast.show({
+      message: t('import.subscription.importResult', {
+        succeeded: n(imported.length),
+        failed: n(failed),
+      }),
+      tone: failed === 0 ? 'success' : imported.length === 0 ? 'danger' : 'warning',
+      duration: 4_000,
+    })
+  } finally {
+    busyAction.value = ''
+  }
 }
 
 async function importText(): Promise<void> {
@@ -754,6 +794,7 @@ onBeforeUnmount(() => {
               <input
                 type="file"
                 accept="application/json,.json"
+                multiple
                 :disabled="entryBusy"
                 @change="importFile"
               />

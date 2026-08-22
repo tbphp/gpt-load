@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { KeyRound, Plus, Search } from '@lucide/vue'
+import {
+  ChevronDown,
+  CircleCheck,
+  CircleOff,
+  Download,
+  KeyRound,
+  ListChecks,
+  Plus,
+  Search,
+} from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -11,6 +20,7 @@ import type {
   CredentialCollectionDto,
   CredentialCollectionFilters,
   CredentialItemDto,
+  CredentialObservationDto,
   CredentialStatus,
 } from '@/api/control/types'
 import { useCollectionLoading } from '@/app/loading-state'
@@ -21,6 +31,7 @@ import {
   cacheCredentialItem,
   consumeCredentialResetCredit,
   credentialCollectionQueryOptions,
+  downloadAllCredentials,
   downloadCredential,
   getCredentialDetail,
   revealCredential,
@@ -35,12 +46,12 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
 import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
 import { useDebouncedAction } from '@/app/use-debounced-action'
-import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import AppPopover from '@/components/ui/AppPopover.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -64,6 +75,9 @@ import {
   serializeCredentialRouteQuery,
   type CredentialRouteState,
 } from '../group-route'
+
+const batchCredentialConcurrency = 4
+type FullCredentialAction = 'enable' | 'disable' | 'download'
 
 const props = defineProps<{
   groupId: number
@@ -103,11 +117,15 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const loadedDetails = ref(new Map<number, CredentialItemDto>())
 const detailErrors = ref(new Map<number, string>())
+const observationErrors = ref(new Map<number, string>())
+const batchObservationPending = ref(new Set<number>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
 const resetOperationKeys = new Map<number, string>()
 const connectionWorkspaceOpen = ref(false)
+const fullActionsOpen = ref(false)
+const fullActionTarget = ref<FullCredentialAction>()
 const connectionStages = ref<CredentialStage[]>([])
 const connectOperationKey = ref<string>()
 // 抽屉打开时列表区被遮住，连接失败的提示必须落在抽屉内部才看得见。
@@ -152,6 +170,36 @@ const singleBusy = computed(() =>
 const connectBusy = computed(() =>
   [...pendingOperations.value].some((key) => key.endsWith(':connect')),
 )
+const observationBatchBusy = computed(() => pendingOperations.value.has('batch:observation'))
+const bulkActionsBusy = computed(
+  () =>
+    batchBusy.value || singleBusy.value || connectBusy.value || credentialsQuery.isFetching.value,
+)
+const fullActionBusy = computed(() =>
+  fullActionTarget.value === undefined
+    ? false
+    : pendingOperations.value.has(`batch:all-${fullActionTarget.value}`),
+)
+const fullCredentialKind = computed(() =>
+  t(
+    props.connectionType === 'subscription'
+      ? 'group.credentials.full.kind.account'
+      : 'group.credentials.full.kind.key',
+  ),
+)
+const fullActionCopy = computed(() => {
+  const action = fullActionTarget.value
+  if (action === undefined) return { title: '', description: '', confirm: '' }
+  return {
+    title: t(`group.credentials.full.confirmTitle.${action}`, {
+      kind: fullCredentialKind.value,
+    }),
+    description: t('group.credentials.full.confirmDescription', {
+      kind: fullCredentialKind.value,
+    }),
+    confirm: t(`group.credentials.full.confirm.${action}`),
+  }
+})
 const dialogBusy = computed(() => {
   const target = deleteTarget.value
   if (target === undefined) return false
@@ -227,9 +275,13 @@ watch(
   () => props.groupId,
   () => {
     connectionWorkspaceOpen.value = false
+    fullActionsOpen.value = false
+    fullActionTarget.value = undefined
     connectionStages.value = []
     loadedDetails.value = new Map()
     detailErrors.value = new Map()
+    observationErrors.value = new Map()
+    batchObservationPending.value = new Set()
   },
 )
 watch(
@@ -324,11 +376,53 @@ function setAllVisible(checked: boolean): void {
   }
   selectedIds.value = next
 }
+function currentSelectionContext(): string {
+  return JSON.stringify({
+    groupId: props.groupId,
+    status: filters.value.status ?? null,
+    query: filters.value.q ?? null,
+    page: filters.value.page,
+    pageSize: filters.value.page_size,
+  })
+}
+function restoreVisibleFailedSelection(context: string, failedIDs: ReadonlySet<number>): void {
+  if (context !== currentSelectionContext()) return
+  const visibleIDs = new Set(
+    (collection.value?.items ?? []).map(({ credential_id }) => credential_id),
+  )
+  selectedIds.value = new Set([...failedIDs].filter((id) => visibleIDs.has(id)))
+}
 function operation(id: number, action: string): string {
   return `${id}:${action}`
 }
 function pending(id: number): boolean {
   return [...pendingOperations.value].some((value) => value.startsWith(`${id}:`))
+}
+function observationRefreshing(id: number): boolean {
+  return (
+    batchObservationPending.value.has(id) ||
+    pendingOperations.value.has(operation(id, 'observation'))
+  )
+}
+function observationError(id: number): string {
+  return observationErrors.value.get(id) ?? ''
+}
+function clearObservationError(id: number): void {
+  if (!observationErrors.value.has(id)) return
+  const next = new Map(observationErrors.value)
+  next.delete(id)
+  observationErrors.value = next
+}
+function setObservationError(id: number, message: string): void {
+  const next = new Map(observationErrors.value)
+  next.set(id, message)
+  observationErrors.value = next
+}
+function finishBatchObservation(id: number): void {
+  if (!batchObservationPending.value.has(id)) return
+  const next = new Set(batchObservationPending.value)
+  next.delete(id)
+  batchObservationPending.value = next
 }
 function rowBusy(id: number): boolean {
   return (
@@ -500,9 +594,22 @@ async function reconcileItem(result: CredentialItemDto, refetchActive: boolean):
   }
 }
 
+async function cacheObservation(
+  item: CredentialItemDto,
+  observation: CredentialObservationDto,
+): Promise<void> {
+  const current = cachedCurrentCredential(item.credential_id)
+  const reconciled = {
+    ...(current ?? item),
+    observation,
+  }
+  await cacheCredentialItem(queryClient, props.groupId, reconciled)
+}
+
 async function refreshObservation(item: CredentialItemDto): Promise<void> {
-  if (pending(item.credential_id)) return
+  if (pending(item.credential_id) || observationBatchBusy.value) return
   feedback.value = ''
+  clearObservationError(item.credential_id)
   setPending(item.credential_id, 'observation', true)
   try {
     const observation = await refreshCredentialObservation(
@@ -513,8 +620,9 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
     clearDetailState(item.credential_id)
     await reconcileItem({ ...item, observation }, true)
   } catch (cause) {
-    feedback.value = t(
-      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed'),
+    setObservationError(
+      item.credential_id,
+      t(presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed')),
     )
   } finally {
     setPending(item.credential_id, 'observation', false)
@@ -542,23 +650,27 @@ async function refreshCredentialToken(item: CredentialItemDto): Promise<void> {
   }
 }
 
+function downloadJSONFile(filename: string, value: unknown): void {
+  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], {
+    type: 'application/json;charset=utf-8',
+  })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
 async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
   if (pending(item.credential_id)) return
   feedback.value = ''
   setPending(item.credential_id, 'download', true)
   try {
     const result = await downloadCredential(client, props.groupId, item.credential_id)
-    const blob = new Blob([`${JSON.stringify(result.credential, null, 2)}\n`], {
-      type: 'application/json;charset=utf-8',
-    })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = result.filename
-    document.body.append(anchor)
-    anchor.click()
-    anchor.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    downloadJSONFile(result.filename, result.credential)
     toast.show({
       message: t('group.credentials.subscription.downloadSucceeded'),
       tone: 'success',
@@ -569,6 +681,159 @@ async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
     )
   } finally {
     setPending(item.credential_id, 'download', false)
+  }
+}
+
+function openFullAction(action: FullCredentialAction): void {
+  if (bulkActionsBusy.value || (collection.value?.summary.total ?? 0) === 0) return
+  if (action === 'download' && props.connectionType !== 'subscription') return
+  fullActionsOpen.value = false
+  fullActionTarget.value = action
+}
+
+async function confirmFullAction(): Promise<void> {
+  const action = fullActionTarget.value
+  if (action === undefined || batchBusy.value || singleBusy.value) return
+  feedback.value = ''
+  setPending('batch', `all-${action}`, true)
+  try {
+    let affected = 0
+    if (action === 'download') {
+      const result = await downloadAllCredentials(client, props.groupId)
+      for (const file of result.files) downloadJSONFile(file.filename, file.credential)
+      affected = result.files.length
+    } else {
+      const result = await batchCredentials(client, props.groupId, {
+        action,
+        scope: 'all',
+      })
+      affected = result.affected_credential_ids.length
+      await reconcileBatch(action, result)
+      selectedIds.value = new Set()
+    }
+    toast.show({
+      message: t(`group.credentials.full.succeeded.${action}`, {
+        count: n(affected),
+        kind: fullCredentialKind.value,
+      }),
+      tone: 'success',
+    })
+    fullActionTarget.value = undefined
+  } catch {
+    feedback.value = t('group.credentials.full.failed')
+    fullActionTarget.value = undefined
+  } finally {
+    setPending('batch', `all-${action}`, false)
+  }
+}
+
+async function syncSelectedObservations(): Promise<void> {
+  const selected = selectedIds.value
+  const items = (collection.value?.items ?? []).filter(({ credential_id }) =>
+    selected.has(credential_id),
+  )
+  if (items.length === 0 || bulkActionsBusy.value || !channelCapabilities.value.quota_observation) {
+    return
+  }
+  const selectionContext = currentSelectionContext()
+  feedback.value = ''
+  batchObservationPending.value = new Set(items.map(({ credential_id }) => credential_id))
+  setPending('batch', 'observation', true)
+  let cursor = 0
+  let succeeded = 0
+  let failed = 0
+  const failedIDs = new Set<number>()
+  const worker = async () => {
+    while (cursor < items.length) {
+      const item = items[cursor]
+      cursor += 1
+      if (item === undefined) return
+      clearObservationError(item.credential_id)
+      setPending(item.credential_id, 'observation', true)
+      try {
+        const observation = await refreshCredentialObservation(
+          client,
+          props.groupId,
+          item.credential_id,
+        )
+        clearDetailState(item.credential_id)
+        await cacheObservation(item, observation)
+        succeeded += 1
+      } catch (cause) {
+        failed += 1
+        failedIDs.add(item.credential_id)
+        setObservationError(
+          item.credential_id,
+          t(presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed')),
+        )
+      } finally {
+        finishBatchObservation(item.credential_id)
+        setPending(item.credential_id, 'observation', false)
+      }
+    }
+  }
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(batchCredentialConcurrency, items.length) }, () => worker()),
+    )
+    restoreVisibleFailedSelection(selectionContext, failedIDs)
+    toast.show({
+      message: t('group.credentials.batch.syncResult', {
+        succeeded: n(succeeded),
+        failed: n(failed),
+      }),
+      tone: failed === 0 ? 'success' : succeeded === 0 ? 'danger' : 'warning',
+      duration: 4_000,
+    })
+  } finally {
+    batchObservationPending.value = new Set()
+    setPending('batch', 'observation', false)
+  }
+}
+
+async function downloadSelectedCredentials(): Promise<void> {
+  const selected = selectedIds.value
+  const items = (collection.value?.items ?? []).filter(({ credential_id }) =>
+    selected.has(credential_id),
+  )
+  if (items.length === 0 || bulkActionsBusy.value) return
+  const selectionContext = currentSelectionContext()
+  feedback.value = ''
+  setPending('batch', 'export', true)
+  let cursor = 0
+  let succeeded = 0
+  let failed = 0
+  const failedIDs = new Set<number>()
+  const worker = async () => {
+    while (cursor < items.length) {
+      const item = items[cursor]
+      cursor += 1
+      if (item === undefined) return
+      try {
+        const result = await downloadCredential(client, props.groupId, item.credential_id)
+        downloadJSONFile(result.filename, result.credential)
+        succeeded += 1
+      } catch {
+        failed += 1
+        failedIDs.add(item.credential_id)
+      }
+    }
+  }
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(batchCredentialConcurrency, items.length) }, () => worker()),
+    )
+    restoreVisibleFailedSelection(selectionContext, failedIDs)
+    toast.show({
+      message: t('group.credentials.batch.downloadResult', {
+        succeeded: n(succeeded),
+        failed: n(failed),
+      }),
+      tone: failed === 0 ? 'success' : succeeded === 0 ? 'danger' : 'warning',
+      duration: 4_000,
+    })
+  } finally {
+    setPending('batch', 'export', false)
   }
 }
 
@@ -869,7 +1134,7 @@ async function runBatch(
   <section
     class="group-credentials"
     aria-labelledby="group-credentials-heading"
-    :aria-busy="credentialsQuery.isFetching.value ? 'true' : undefined"
+    :aria-busy="credentialsQuery.isFetching.value || observationBatchBusy ? 'true' : undefined"
   >
     <PanelHeader
       heading-id="group-credentials-heading"
@@ -880,8 +1145,45 @@ async function runBatch(
       "
     >
       <template #actions>
+        <AppPopover
+          v-model:open="fullActionsOpen"
+          align="end"
+          content-class="app-popover__content--credential-full-actions"
+        >
+          <template #trigger>
+            <AppButton
+              variant="secondary"
+              :busy="batchBusy"
+              :disabled="bulkActionsBusy || (collection?.summary.total ?? 0) === 0"
+            >
+              <ListChecks :size="16" aria-hidden="true" />
+              {{ t('group.credentials.full.actions') }}
+              <ChevronDown :size="14" aria-hidden="true" />
+            </AppButton>
+          </template>
+          <div class="group-credentials__full-menu">
+            <button
+              v-if="connectionType === 'subscription'"
+              type="button"
+              :disabled="bulkActionsBusy"
+              @click="openFullAction('download')"
+            >
+              <Download :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.download') }}
+            </button>
+            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('enable')">
+              <CircleCheck :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.enable') }}
+            </button>
+            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('disable')">
+              <CircleOff :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.disable') }}
+            </button>
+          </div>
+        </AppPopover>
         <AppButton
           v-if="connectionType === 'subscription' && authorizationMethods.length > 0"
+          :disabled="bulkActionsBusy"
           @click="openConnectionWorkspace()"
         >
           <Plus :size="16" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
@@ -979,50 +1281,60 @@ async function runBatch(
         @retry="credentialsQuery.refetch()"
       />
       <p v-if="feedback" class="group-credentials__feedback" role="alert">{{ feedback }}</p>
-      <template v-if="connectionType !== 'subscription'">
-        <CollectionStatusSummary
-          v-if="collection.summary.total > 0"
-          :total="collection.summary.total"
-          :items="statusSummaryItems"
-          :model-value="filters.status"
-          :label="t('group.credentials.summary.region')"
-          :total-label="t('group.credentials.summary.current')"
-          appearance="detail"
-          @update:model-value="setStatus"
-        />
-        <CollectionFilterBar
-          v-if="collection.summary.total > 0"
-          single-column
-          :label="t('group.credentials.filters.region')"
-          :show-result="hasChangedConditions"
-          appearance="detail"
-        >
-          <label class="collection-filter-field collection-filter-field--search">
-            <span class="collection-filter-label">{{ t('group.credentials.filters.search') }}</span>
+      <CollectionStatusSummary
+        v-if="collection.summary.total > 0"
+        :total="collection.summary.total"
+        :items="statusSummaryItems"
+        :model-value="filters.status"
+        :label="t('group.credentials.summary.region')"
+        :total-label="t('group.credentials.summary.current')"
+        appearance="detail"
+        @update:model-value="setStatus"
+      />
+      <div v-if="collection.summary.total > 0" class="group-credentials__tools">
+        <label class="group-credentials__search-field">
+          <span class="group-credentials__search-controls">
             <AppSearchInput
               v-model="searchDraft"
+              class="group-credentials__search-input"
               :label="t('group.credentials.filters.search')"
-              :placeholder="t('group.credentials.filters.placeholder')"
+              :placeholder="
+                connectionType === 'subscription'
+                  ? t('group.credentials.subscription.searchPlaceholder')
+                  : t('group.credentials.filters.placeholder')
+              "
               :clear-label="t('group.credentials.filters.clear')"
               @update:model-value="scheduleSearch"
               @clear="clearSearch"
             />
-          </label>
-          <template #result>
-            <span aria-live="polite">
-              {{
-                t('group.credentials.filters.result', {
-                  shown: n(collection.items.length),
-                  total: n(collection.pagination.total_items),
-                })
-              }}
-            </span>
-            <AppButton variant="link" size="inline" @click="resetFilters">
+            <AppButton
+              variant="link"
+              size="inline"
+              :class="{ 'group-credentials__reset-placeholder': !hasChangedConditions }"
+              :aria-hidden="!hasChangedConditions"
+              :tabindex="hasChangedConditions ? undefined : -1"
+              :disabled="!hasChangedConditions"
+              @click="resetFilters"
+            >
               {{ t('group.credentials.filters.reset') }}
             </AppButton>
-          </template>
-        </CollectionFilterBar>
-      </template>
+          </span>
+        </label>
+        <CredentialBatchBar
+          :selected-count="selectedCount"
+          :all-visible-selected="allVisibleSelected"
+          :pending="batchBusy || singleBusy"
+          :can-select-all="collection.items.length > 0"
+          :can-sync="connectionType === 'subscription' && channelCapabilities.quota_observation"
+          :can-download="connectionType === 'subscription'"
+          @toggle-select="setAllVisible(!allVisibleSelected)"
+          @enable="runBatch('enable')"
+          @disable="runBatch('disable')"
+          @sync="syncSelectedObservations"
+          @download="downloadSelectedCredentials"
+          @remove="deleteTarget = { ids: [...selectedIds] }"
+        />
+      </div>
       <SkeletonSurface
         v-if="collectionTransition"
         variant="collection"
@@ -1050,6 +1362,7 @@ async function runBatch(
         <template #actions>
           <AppButton
             v-if="connectionType === 'subscription' && authorizationMethods.length > 0"
+            :disabled="bulkActionsBusy"
             @click="openConnectionWorkspace()"
           >
             <Plus :size="15" aria-hidden="true" />{{ t('group.credentials.subscription.connect') }}
@@ -1079,74 +1392,48 @@ async function runBatch(
           </AppButton>
         </template>
       </EmptyState>
-      <template v-else-if="connectionType === 'subscription'">
-        <div class="group-credentials__accounts">
-          <SubscriptionAccountCard
-            v-for="item in collection.items"
-            :key="item.credential_id"
-            :item="credentialWithDetail(item)"
-            :busy="rowBusy(item.credential_id)"
-            :detail-busy="detailBusy(item.credential_id)"
-            :detail-loaded="detailLoaded(item.credential_id)"
-            :detail-error="detailError(item.credential_id)"
-            :channel-icon="channelDescriptor?.icon"
-            :channel-mark="channelDescriptor?.mark"
-            :capabilities="channelCapabilities"
-            @toggle="mutateItem($event, 'toggle')"
-            @restore="mutateItem($event, 'restore')"
-            @refresh="refreshObservation"
-            @load-details="loadCredentialUsage"
-            @reset="openResetCreditDialog"
-            @download="downloadCredentialFile"
-            @refresh-credential="refreshCredentialToken"
-            @remove="
-              deleteTarget = {
-                ids: [$event.credential_id],
-                mask: $event.account.email ?? $event.mask,
-              }
-            "
-          />
-        </div>
-        <PaginationBar
-          v-if="collection.pagination.total_pages > 1"
-          :page="collection.pagination.page"
-          :page-size="collection.pagination.page_size"
-          :total-items="collection.pagination.total_items"
-          :total-pages="collection.pagination.total_pages"
-          show-page-size
-          appearance="detail"
-          :pending="credentialsQuery.isFetching.value"
-          @previous="setPage(filters.page - 1)"
-          @next="setPage(filters.page + 1)"
-          @update:page-size="setPageSize"
-        />
-      </template>
       <template v-else>
-        <CredentialBatchBar
-          v-if="selectedCount > 0"
-          :selected-count="selectedCount"
-          :pending="batchBusy || singleBusy"
-          @enable="runBatch('enable')"
-          @disable="runBatch('disable')"
-          @remove="deleteTarget = { ids: [...selectedIds] }"
-        />
+        <template v-if="connectionType === 'subscription'">
+          <div class="group-credentials__accounts">
+            <SubscriptionAccountCard
+              v-for="item in collection.items"
+              :key="item.credential_id"
+              :item="credentialWithDetail(item)"
+              :selected="selectedIds.has(item.credential_id)"
+              :busy="rowBusy(item.credential_id)"
+              :refreshing-observation="observationRefreshing(item.credential_id)"
+              :detail-busy="detailBusy(item.credential_id)"
+              :detail-loaded="detailLoaded(item.credential_id)"
+              :detail-error="detailError(item.credential_id)"
+              :observation-error="observationError(item.credential_id)"
+              :channel-icon="channelDescriptor?.icon"
+              :channel-mark="channelDescriptor?.mark"
+              :capabilities="channelCapabilities"
+              @update:selected="setSelected(item.credential_id, $event)"
+              @toggle="mutateItem($event, 'toggle')"
+              @restore="mutateItem($event, 'restore')"
+              @refresh="refreshObservation"
+              @load-details="loadCredentialUsage"
+              @reset="openResetCreditDialog"
+              @download="downloadCredentialFile"
+              @refresh-credential="refreshCredentialToken"
+              @remove="
+                deleteTarget = {
+                  ids: [$event.credential_id],
+                  mask: $event.account.email ?? $event.mask,
+                }
+              "
+            />
+          </div>
+        </template>
         <LedgerRecordList
+          v-else
           :label="t('group.credentials.caption')"
           :row-count="collection.pagination.total_items + 1"
           grid-class="group-credential-record-grid"
         >
           <template #header>
-            <span class="group-credentials__select-all" role="columnheader">
-              <label>
-                <span class="sr-only">{{ t('group.credentials.selectVisible') }}</span>
-                <input
-                  type="checkbox"
-                  :checked="allVisibleSelected"
-                  :disabled="batchBusy"
-                  @change="setAllVisible(($event.target as HTMLInputElement).checked)"
-                />
-              </label>
-            </span>
+            <span role="columnheader" aria-hidden="true"></span>
             <span role="columnheader">{{ t('group.credentials.columns.credential') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.status') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.weight') }}</span>
@@ -1182,13 +1469,27 @@ async function runBatch(
           :total-pages="collection.pagination.total_pages"
           show-page-size
           appearance="detail"
-          :pending="credentialsQuery.isFetching.value"
+          :pending="credentialsQuery.isFetching.value || observationBatchBusy"
           @previous="setPage(filters.page - 1)"
           @next="setPage(filters.page + 1)"
           @update:page-size="setPageSize"
         />
       </template>
     </template>
+    <AppConfirmDialog
+      appearance="ledger"
+      :open="fullActionTarget !== undefined"
+      :title="fullActionCopy.title"
+      :description="fullActionCopy.description"
+      :close-label="t('group.credentials.closeDialog')"
+      :cancel-label="t('group.credentials.cancel')"
+      :confirm-label="fullActionCopy.confirm"
+      :tone="fullActionTarget === 'disable' ? 'danger' : 'default'"
+      description-tone="warning"
+      :pending="fullActionBusy"
+      @update:open="!$event && !fullActionBusy && (fullActionTarget = undefined)"
+      @confirm="confirmFullAction"
+    />
     <AppConfirmDialog
       appearance="ledger"
       :open="resetTarget !== undefined"
@@ -1244,8 +1545,79 @@ async function runBatch(
   line-height: var(--line-normal);
   overflow-wrap: anywhere;
 }
-/* auto-fill 而不是 auto-fit：只有一个账号时也占一个轨道宽度，不会被拉成整行。
-   容器窄于两个轨道时自动退回单列，不需要额外断点。 */
+.group-credentials__tools {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, max-content);
+  align-items: start;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: var(--space-4);
+  padding: 13px 0 var(--space-3);
+}
+.group-credentials__search-field {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  width: 420px;
+  max-width: 100%;
+}
+.group-credentials__search-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+.group-credentials__search-input {
+  width: 420px;
+  min-width: 0;
+  flex: 0 1 420px;
+}
+.group-credentials__reset-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+.group-credentials__full-menu {
+  display: grid;
+  width: 100%;
+  gap: 1px;
+}
+.group-credentials__full-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: var(--text-button);
+  text-align: left;
+  cursor: pointer;
+}
+.group-credentials__full-menu button:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+.group-credentials__full-menu button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.group-credentials__full-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.group-credentials__full-menu button svg {
+  flex: none;
+  color: var(--color-text-faint);
+}
+:global(.app-popover__content.app-popover__content--credential-full-actions) {
+  width: 220px;
+  border-color: var(--color-border-control);
+  border-radius: 10px;
+  padding: 8px;
+}
 .group-credentials__accounts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
@@ -1263,22 +1635,6 @@ async function runBatch(
   --ledger-record-list-grid: 48px minmax(150px, 0.95fr) 116px minmax(118px, 0.72fr)
     minmax(150px, 0.95fr) minmax(280px, 1.7fr);
   --ledger-record-list-column-gap: 12px;
-}
-.group-credentials__select-all {
-  display: flex;
-  justify-content: center;
-}
-.group-credentials__select-all label {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  cursor: pointer;
-}
-.group-credentials__select-all input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-action);
 }
 @media (max-width: 1120px) {
   .group-credential-record-grid {
@@ -1298,17 +1654,22 @@ async function runBatch(
   }
 }
 @media (max-width: 860px) {
+  .group-credentials__tools {
+    grid-template-columns: 1fr;
+  }
   .group-credential-record-grid {
     --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  }
-  .group-credentials__select-all label {
-    width: var(--touch-target);
-    height: var(--touch-target);
   }
 }
 @media (max-width: 800px) {
   .group-credentials {
     padding-top: var(--detail-panel-padding-top-compact);
+  }
+}
+@media (max-width: 560px) {
+  .group-credentials__search-field,
+  .group-credentials__search-input {
+    width: 100%;
   }
 }
 </style>

@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 
@@ -80,6 +82,79 @@ func TestDownloadGroupCredentialHTTPReturnsJSONObjectAndNoStoreHeaders(t *testin
 	}
 	if envelope.Code != 0 || envelope.Data.Filename == "" || envelope.Data.Credential["access_token"] == nil {
 		t.Fatalf("download envelope = %#v", envelope)
+	}
+}
+
+func TestDownloadAllGroupCredentialsReturnsEveryAccountAndNoStoreHeaders(t *testing.T) {
+	initControlI18n(t)
+	fixture, groupID, _ := newSubscriptionCredentialFixture(t)
+	stageIDs := make([]string, 0, 24)
+	for index := 1; index <= 24; index++ {
+		stage := mustImportSubscriptionStage(
+			t,
+			fixture,
+			fmt.Sprintf("account-export-%02d", index),
+			fmt.Sprintf("export-%02d@example.com", index),
+		)
+		stageIDs = append(stageIDs, stage.StageID)
+	}
+	if _, err := fixture.service.ConnectGroupCredentials(t.Context(), groupID, stageIDs); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := fixture.service.DownloadAllGroupCredentials(t.Context(), groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Files) != 25 {
+		t.Fatalf("downloaded file count = %d, want 25", len(result.Files))
+	}
+	accountIDs := make(map[string]struct{}, len(result.Files))
+	filenames := make(map[string]struct{}, len(result.Files))
+	for _, file := range result.Files {
+		filenames[file.Filename] = struct{}{}
+		var credential map[string]any
+		if err := json.Unmarshal(file.Credential, &credential); err != nil {
+			t.Fatal(err)
+		}
+		accountID, _ := credential["account_id"].(string)
+		accountIDs[accountID] = struct{}{}
+	}
+	if len(filenames) != 25 || len(accountIDs) != 25 {
+		t.Fatalf("downloaded files = %#v", result.Files)
+	}
+	for _, accountID := range []string{"account-observation", "account-export-01", "account-export-24"} {
+		if _, exists := accountIDs[accountID]; !exists {
+			t.Fatalf("account %q missing from download", accountID)
+		}
+	}
+
+	server := NewServer(&config.Config{AuthKey: "credential-download-all-auth"}, fixture.service)
+	engine := gin.New()
+	server.RegisterRoutes(engine)
+	response := serveCredentialRequest(
+		t,
+		engine,
+		http.MethodPost,
+		fmt.Sprintf("/api/groups/%d/credentials/download-all", groupID),
+		"{}",
+		"credential-download-all-auth",
+		"",
+	)
+	if response.Code != http.StatusOK ||
+		response.Header().Get("Cache-Control") != "no-store" ||
+		response.Header().Get("Pragma") != "no-cache" {
+		t.Fatalf("download-all response = %d headers=%#v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
+func TestDownloadAllGroupCredentialsRejectsAPIKeyGroup(t *testing.T) {
+	t.Parallel()
+
+	fixture := newServiceFixture(t)
+	groupID := createGroupForCredentialImport(t, fixture, "sk-download-all-forbidden")
+	if _, err := fixture.service.DownloadAllGroupCredentials(t.Context(), groupID); !errors.Is(err, app_errors.ErrForbidden) {
+		t.Fatalf("DownloadAllGroupCredentials() error = %v, want forbidden", err)
 	}
 }
 

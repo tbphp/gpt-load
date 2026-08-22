@@ -390,21 +390,30 @@ func (s *Service) mapCredentialItem(
 	return item, nil
 }
 
-func normalizeCredentialBatchRequest(request CredentialBatchRequest) ([]uint, error) {
+func normalizeCredentialBatchRequest(request CredentialBatchRequest) ([]uint, bool, error) {
 	if request.Action != CredentialBatchEnable && request.Action != CredentialBatchDisable && request.Action != CredentialBatchDelete {
-		return nil, app_errors.ErrValidation
+		return nil, false, app_errors.ErrValidation
+	}
+	if request.Scope == CredentialBatchScopeAll {
+		if request.Action == CredentialBatchDelete || len(request.CredentialIDs) != 0 {
+			return nil, false, app_errors.ErrValidation
+		}
+		return nil, true, nil
+	}
+	if request.Scope != "" {
+		return nil, false, app_errors.ErrValidation
 	}
 	if len(request.CredentialIDs) < 1 || len(request.CredentialIDs) > 100 {
-		return nil, app_errors.ErrValidation
+		return nil, false, app_errors.ErrValidation
 	}
 	ids := append([]uint(nil), request.CredentialIDs...)
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	for index, id := range ids {
 		if id == 0 || index > 0 && id == ids[index-1] {
-			return nil, app_errors.ErrValidation
+			return nil, false, app_errors.ErrValidation
 		}
 	}
-	return ids, nil
+	return ids, false, nil
 }
 
 func (s *Service) BatchGroupCredentials(
@@ -415,7 +424,7 @@ func (s *Service) BatchGroupCredentials(
 	if groupID == 0 {
 		return CredentialBatchResponse{}, app_errors.ErrBadRequest
 	}
-	ids, err := normalizeCredentialBatchRequest(request)
+	ids, all, err := normalizeCredentialBatchRequest(request)
 	if err != nil {
 		return CredentialBatchResponse{}, err
 	}
@@ -432,8 +441,26 @@ func (s *Service) BatchGroupCredentials(
 		return CredentialBatchResponse{}, app_errors.ErrValidation
 	}
 	var rows []models.Credential
-	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+	rowsQuery := s.db.WithContext(ctx)
+	if all {
+		rowsQuery = rowsQuery.Where("group_id = ?", groupID).Order("id ASC")
+	} else {
+		rowsQuery = rowsQuery.Where("id IN ?", ids)
+	}
+	if err := rowsQuery.Find(&rows).Error; err != nil {
 		return CredentialBatchResponse{}, app_errors.ParseDBError(err)
+	}
+	if all {
+		ids = make([]uint, len(rows))
+		for index, row := range rows {
+			ids[index] = row.ID
+		}
+		if len(ids) == 0 {
+			return CredentialBatchResponse{
+				AffectedCredentialIDs: []uint{},
+				Summary:               summarizeGroupRuntimeCredentials(group, s.registry.Snapshot(), s.now().UTC()),
+			}, nil
+		}
 	}
 	if len(rows) != len(ids) {
 		return CredentialBatchResponse{}, credentialNotFoundError()
@@ -475,7 +502,10 @@ func (s *Service) BatchGroupCredentials(
 		}
 		persist := func() error {
 			return s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-				query := tx.Where("group_id = ? AND id IN ?", groupID, ids)
+				query := tx.Where("group_id = ?", groupID)
+				if !all {
+					query = query.Where("id IN ?", ids)
+				}
 				var result *gorm.DB
 				switch request.Action {
 				case CredentialBatchEnable:

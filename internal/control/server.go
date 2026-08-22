@@ -527,6 +527,24 @@ func (s *Server) handleDownloadGroupCredential(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleDownloadAllGroupCredentials(c *gin.Context) {
+	groupID, ok := groupID(c, "download_all_group_credentials")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "download_all_group_credentials", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.DownloadAllGroupCredentials(c.Request.Context(), groupID)
+	if err != nil {
+		writeServiceError(c, "download_all_group_credentials", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleUpdateGroupCredential(c *gin.Context) {
 	groupID, ok := groupID(c, "update_group_credential")
 	if !ok {
@@ -1016,7 +1034,7 @@ func serviceErrorMessageID(
 		case "list_groups", "get_group_summary", "get_group_settings", "get_group_models",
 			"update_group_settings", "delete_group",
 			"update_group_models", "import_group_credentials",
-			"discover_group_models", "list_group_credentials":
+			"discover_group_models", "list_group_credentials", "download_all_group_credentials":
 			return "group.not_found"
 		default:
 			return "credential.not_found"
