@@ -38,6 +38,7 @@ const props = defineProps<{
   item: CredentialItemDto
   busy: boolean
   refreshingObservation: boolean
+  observationError: string
   detailBusy: boolean
   detailLoaded: boolean
   detailError: string
@@ -661,6 +662,9 @@ function runMenuAction(
 
       <div v-if="authIssue" class="subscription-account__alert">
         <span>{{ authIssue }}</span>
+      </div>
+      <div v-if="observationError" class="subscription-account__alert" role="alert">
+        <span>{{ observationError }}</span>
       </div>
 
       <div

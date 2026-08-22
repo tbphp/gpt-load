@@ -21,6 +21,7 @@ import type {
   CredentialCollectionDto,
   CredentialCollectionFilters,
   CredentialItemDto,
+  CredentialObservationDto,
   CredentialStatus,
 } from '@/api/control/types'
 import { useCollectionLoading } from '@/app/loading-state'
@@ -123,6 +124,8 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const loadedDetails = ref(new Map<number, CredentialItemDto>())
 const detailErrors = ref(new Map<number, string>())
+const observationErrors = ref(new Map<number, string>())
+const batchObservationPending = ref(new Set<number>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
@@ -258,6 +261,8 @@ watch(
     connectionStages.value = []
     loadedDetails.value = new Map()
     detailErrors.value = new Map()
+    observationErrors.value = new Map()
+    batchObservationPending.value = new Set()
   },
 )
 watch(
@@ -359,7 +364,30 @@ function pending(id: number): boolean {
   return [...pendingOperations.value].some((value) => value.startsWith(`${id}:`))
 }
 function observationRefreshing(id: number): boolean {
-  return observationBatchBusy.value || pendingOperations.value.has(operation(id, 'observation'))
+  return (
+    batchObservationPending.value.has(id) ||
+    pendingOperations.value.has(operation(id, 'observation'))
+  )
+}
+function observationError(id: number): string {
+  return observationErrors.value.get(id) ?? ''
+}
+function clearObservationError(id: number): void {
+  if (!observationErrors.value.has(id)) return
+  const next = new Map(observationErrors.value)
+  next.delete(id)
+  observationErrors.value = next
+}
+function setObservationError(id: number, message: string): void {
+  const next = new Map(observationErrors.value)
+  next.set(id, message)
+  observationErrors.value = next
+}
+function finishBatchObservation(id: number): void {
+  if (!batchObservationPending.value.has(id)) return
+  const next = new Set(batchObservationPending.value)
+  next.delete(id)
+  batchObservationPending.value = next
 }
 function rowBusy(id: number): boolean {
   return (
@@ -531,9 +559,22 @@ async function reconcileItem(result: CredentialItemDto, refetchActive: boolean):
   }
 }
 
+async function cacheObservation(
+  item: CredentialItemDto,
+  observation: CredentialObservationDto,
+): Promise<void> {
+  const current = cachedCurrentCredential(item.credential_id)
+  const reconciled = {
+    ...(current ?? item),
+    observation,
+  }
+  await cacheCredentialItem(queryClient, props.groupId, reconciled)
+}
+
 async function refreshObservation(item: CredentialItemDto): Promise<void> {
-  if (pending(item.credential_id)) return
+  if (pending(item.credential_id) || observationBatchBusy.value) return
   feedback.value = ''
+  clearObservationError(item.credential_id)
   setPending(item.credential_id, 'observation', true)
   try {
     const observation = await refreshCredentialObservation(
@@ -544,7 +585,8 @@ async function refreshObservation(item: CredentialItemDto): Promise<void> {
     clearDetailState(item.credential_id)
     await reconcileItem({ ...item, observation }, true)
   } catch (cause) {
-    feedback.value = t(
+    setObservationError(
+      item.credential_id,
       presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed'),
     )
   } finally {
@@ -695,6 +737,7 @@ async function refreshCurrentPageObservations(): Promise<void> {
   }
   bulkActionsOpen.value = false
   feedback.value = ''
+  batchObservationPending.value = new Set(items.map(({ credential_id }) => credential_id))
   setPending('batch', 'observation', true)
   let cursor = 0
   let succeeded = 0
@@ -704,11 +747,26 @@ async function refreshCurrentPageObservations(): Promise<void> {
       const item = items[cursor]
       cursor += 1
       if (item === undefined) return
+      clearObservationError(item.credential_id)
+      setPending(item.credential_id, 'observation', true)
       try {
-        await refreshCredentialObservation(client, props.groupId, item.credential_id)
+        const observation = await refreshCredentialObservation(
+          client,
+          props.groupId,
+          item.credential_id,
+        )
+        clearDetailState(item.credential_id)
+        await cacheObservation(item, observation)
         succeeded += 1
-      } catch {
+      } catch (cause) {
         failed += 1
+        setObservationError(
+          item.credential_id,
+          t(presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed')),
+        )
+      } finally {
+        finishBatchObservation(item.credential_id)
+        setPending(item.credential_id, 'observation', false)
       }
     }
   }
@@ -716,13 +774,6 @@ async function refreshCurrentPageObservations(): Promise<void> {
     await Promise.all(
       Array.from({ length: Math.min(batchObservationConcurrency, items.length) }, () => worker()),
     )
-    for (const item of items) clearDetailState(item.credential_id)
-    try {
-      await refetchActiveCredentialPage()
-    } catch {
-      feedback.value = t('group.credentials.reconcileFailed')
-      await invalidateReconciliationQueries()
-    }
     toast.show({
       message: t('group.credentials.subscription.bulk.refreshResult', {
         succeeded: n(succeeded),
@@ -732,6 +783,7 @@ async function refreshCurrentPageObservations(): Promise<void> {
       duration: 4_000,
     })
   } finally {
+    batchObservationPending.value = new Set()
     setPending('batch', 'observation', false)
   }
 }
@@ -1316,6 +1368,7 @@ async function runBatch(
             :detail-busy="detailBusy(item.credential_id)"
             :detail-loaded="detailLoaded(item.credential_id)"
             :detail-error="detailError(item.credential_id)"
+            :observation-error="observationError(item.credential_id)"
             :channel-icon="channelDescriptor?.icon"
             :channel-mark="channelDescriptor?.mark"
             :capabilities="channelCapabilities"
