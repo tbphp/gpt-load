@@ -412,15 +412,6 @@ function onSearchKeydown(event: KeyboardEvent): void {
         </div>
       </div>
     </div>
-
-    <InlineFeedback
-      v-if="!initialLoading && !loadFailed && activeConnectionType === 'subscription'"
-      class="channel-picker__subscription-risk"
-      tone="warning"
-      appearance="ledger"
-    >
-      {{ t('import.presets.subscriptionRisk') }}
-    </InlineFeedback>
   </section>
 </template>
 
@@ -660,10 +651,6 @@ function onSearchKeydown(event: KeyboardEvent): void {
   font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.channel-picker__subscription-risk {
-  margin-top: var(--space-3);
 }
 
 @media (max-width: 860px) {

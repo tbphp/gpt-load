@@ -14,8 +14,6 @@ export default {
       loadFailed: 'チャネルを読み込めません',
       channelRequired: 'チャネルを選択してください',
       connectionType: '認証情報の種類',
-      subscriptionRisk:
-        'サブスクリプションアカウント接続は、安定した公開 API 契約ではなくプロバイダーの認証フローに依存します。上流のポリシーやプロトコル変更により、認証の失効、接続中断、アカウント制限が発生する可能性があるため、利用前にリスクを評価してください。',
     },
     mode: {
       label: 'インポート先',
@@ -106,21 +104,15 @@ export default {
     },
     subscription: {
       title: 'サブスクリプションアカウントを接続',
-      description: '{channel} でログインするか、既存の OAuth JSON を読み込みます',
+      riskNotice:
+        'サブスクリプションアカウントはプロバイダー認証に依存し、ルール変更で認証失効やアカウント制限が起こる場合があります。',
       channelNotice: {
         claude_oauth_risk:
           'Claude OAuth は安定した公開 API 契約ではなく、Claude Code 互換プロトコルに依存します。上流の変更による接続停止やアカウントへの影響を、認証前に評価してください。',
         antigravity_oauth_risk:
           'Antigravity OAuth は Google OAuth と変更される可能性がある Cloud Code インターフェースに依存します。上流のポリシー、権限、実装の変更により認証失効、接続中断、アカウントへの影響が生じる場合があります。管理権限のあるアカウントだけを接続し、事前にリスクを評価してください。',
       },
-      securityNotice: {
-        create:
-          'ブラウザーはアクセス認証情報を保存しません。サーバー側で暗号化して保持し、グループ作成時にのみ書き込みます。',
-        connect:
-          'ブラウザーはアクセス認証情報を保存しません。サーバー側で暗号化して保持し、認証完了後にこのグループへ書き込みます。',
-      },
       authorize: '{channel} でログイン',
-      authorizeHint: '{channel} の認証ページを開き、完了すると自動でここに戻ります',
       addAnother: 'もう 1 つ接続',
       authorizeFailed: '{channel} ログインを完了できません',
       popupBlocked:
@@ -153,12 +145,10 @@ export default {
         'アドレスバーの URL を一部ではなく全体をコピーして貼り付けてください。そのページが開けなくても問題ありません。',
       submitCallback: '送信',
       callbackFailed: 'この URL は無効、使用済み、または別の認証に属しています',
-      orImport: 'OAuth JSON をお持ちの場合はこちらから読み込み',
+      pasteJSON: 'JSON の内容を貼り付け',
       oauthJSONLabel: 'OAuth JSON の内容',
-      oauthJSONDescription:
-        '1 アカウント分の OAuth 認証情報 JSON を貼り付けるか、1 つ以上のローカルファイルを選択します。各ファイルには 1 アカウントのみを含めてください。',
       importText: '貼り付けた内容をインポート',
-      importFile: '1 つ以上のファイルを選択',
+      importFile: '認証情報ファイルを読み込む',
       importing: 'インポート中…',
       importResult: 'インポート完了：成功 {succeeded} 件、失敗 {failed} 件',
       importFailed: 'OAuth JSON が無効または未対応です',

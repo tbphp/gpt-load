@@ -14,8 +14,6 @@ export default {
       loadFailed: '无法加载渠道列表',
       channelRequired: '请选择渠道',
       connectionType: '凭据类型',
-      subscriptionRisk:
-        '订阅账号接入依赖服务商的授权机制，并非稳定的公开 API 契约；上游规则或协议变化可能导致授权失效、接入中断或账号受限，请在使用前自行评估风险。',
     },
     mode: {
       label: '导入目标',
@@ -102,19 +100,14 @@ export default {
     },
     subscription: {
       title: '连接订阅账号',
-      description: '使用 {channel} 登录授权，或导入已有的 OAuth JSON 文件',
+      riskNotice: '订阅账号依赖服务商授权，规则变化可能导致授权失效或账号受限。',
       channelNotice: {
         claude_oauth_risk:
           'Claude OAuth 依赖 Claude Code 的兼容协议，并非稳定的公开 API 契约；上游变化可能导致接入中断或影响账号，请在授权前自行评估风险。',
         antigravity_oauth_risk:
           'Antigravity OAuth 依赖 Google OAuth 与可能变化的 Cloud Code 接口；上游策略、权限或实现变化可能导致授权失效、接入中断或账号受限。请仅连接你有权管理的账号，并自行评估风险。',
       },
-      securityNotice: {
-        create: '浏览器不会保存访问凭据；服务端加密暂存，创建分组时才正式写入。',
-        connect: '浏览器不会保存访问凭据；服务端加密暂存，授权完成后写入当前分组。',
-      },
       authorize: '使用 {channel} 登录',
-      authorizeHint: '会打开 {channel} 授权页面，完成后自动回到这里',
       addAnother: '再连一个账号',
       authorizeFailed: '无法完成 {channel} 登录',
       popupBlocked: '新窗口被浏览器拦截了，请用下面的授权链接手动打开',
@@ -143,12 +136,10 @@ export default {
       callbackHelp: '从地址栏复制完整网址粘到这里，不要只复制其中一段。页面打不开也没关系。',
       submitCallback: '提交',
       callbackFailed: '这段网址无效、已使用，或不属于当前这次授权',
-      orImport: '已有 OAuth JSON 文件？直接导入',
+      pasteJSON: '粘贴 JSON 内容',
       oauthJSONLabel: 'OAuth JSON 内容',
-      oauthJSONDescription:
-        '可直接粘贴单个账号的 OAuth 凭据 JSON，也可选择一个或多个本地文件；每个文件只包含一个账号。',
       importText: '导入已粘贴内容',
-      importFile: '选择一个或多个文件',
+      importFile: '导入凭据文件',
       importing: '正在导入…',
       importResult: '导入完成：成功 {succeeded}，失败 {failed}',
       importFailed: 'OAuth JSON 无效或不受支持',
