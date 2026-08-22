@@ -96,14 +96,61 @@ const supportsResetCredit = computed(() =>
   props.capabilities.credential_actions.includes('reset_credit'),
 )
 const snapshot = computed(() => observation.value?.snapshot)
-// 最快恢复的额度窗口排在前面；缺少时长的上游窗口保持在最后。
-const quotaWindows = computed(() =>
-  [...(snapshot.value?.quota_windows ?? [])].sort((left, right) => {
-    const leftSeconds = left.window_seconds ?? Number.MAX_SAFE_INTEGER
-    const rightSeconds = right.window_seconds ?? Number.MAX_SAFE_INTEGER
-    return leftSeconds - rightSeconds
-  }),
-)
+function isAccountWideQuotaWindow(window: CredentialQuotaWindowDto): boolean {
+  return window.scope === 'account'
+}
+
+function quotaWindowDuration(window: CredentialQuotaWindowDto): number {
+  const seconds = window.window_seconds
+  return seconds !== undefined && Number.isFinite(seconds) && seconds > 0
+    ? seconds
+    : Number.MAX_SAFE_INTEGER
+}
+
+function quotaWindowGroupKey(window: CredentialQuotaWindowDto): string {
+  const modelIDs = (window.model_ids ?? [])
+    .map((model) => model.trim())
+    .filter((model) => model !== '')
+    .sort()
+  if (modelIDs.length > 0) return `models:${modelIDs.join('\u0000')}`
+
+  const period = quotaWindowPeriodLabel(window.window_seconds)
+  const labelParts = window.label
+    .split('·')
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+  const finalPart = labelParts.at(-1)
+  if (
+    period &&
+    labelParts.length > 1 &&
+    finalPart !== undefined &&
+    normalizedQuotaLabelPart(finalPart) === normalizedQuotaLabelPart(period)
+  ) {
+    const subject = normalizedQuotaLabelPart(labelParts.slice(0, -1).join(' '))
+    if (subject) return `subject:${subject}`
+  }
+  return `scope:${normalizedQuotaLabelPart(window.scope) || window.id}`
+}
+
+// 呈现层统一排序：账号全局窗口优先；其余按同一模型/专属窗口成组，组内按时长升序。
+const quotaWindows = computed(() => {
+  const windows = snapshot.value?.quota_windows ?? []
+  const groupOrder = new Map<string, number>()
+  for (const [index, window] of windows.entries()) {
+    const key = quotaWindowGroupKey(window)
+    if (!groupOrder.has(key)) groupOrder.set(key, index)
+  }
+  return [...windows].sort((left, right) => {
+    const scopeDifference =
+      Number(!isAccountWideQuotaWindow(left)) - Number(!isAccountWideQuotaWindow(right))
+    if (scopeDifference !== 0) return scopeDifference
+    const groupDifference =
+      (groupOrder.get(quotaWindowGroupKey(left)) ?? 0) -
+      (groupOrder.get(quotaWindowGroupKey(right)) ?? 0)
+    if (groupDifference !== 0) return groupDifference
+    return quotaWindowDuration(left) - quotaWindowDuration(right)
+  })
+})
 const accountQuotaWindows = computed(() =>
   quotaWindows.value.filter((window) => window.scope === 'account'),
 )
