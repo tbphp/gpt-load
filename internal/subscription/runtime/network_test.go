@@ -17,7 +17,6 @@ func TestHTTPClientUsesFrozenProxyMode(t *testing.T) {
 	}{
 		{name: "direct", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect}, Source: outboundproxy.SourceCredential}},
 		{name: "http", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://user:password@proxy.example.com:8080"}, Source: outboundproxy.SourceGroup}, wantProxy: true},
-		{name: "https", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "https://proxy.example.com:8443"}, Source: outboundproxy.SourceGlobal}, wantProxy: true},
 		{name: "socks5", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "socks5://user:password@proxy.example.com:1080"}, Source: outboundproxy.SourceGlobal}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -34,5 +33,17 @@ func TestHTTPClientUsesFrozenProxyMode(t *testing.T) {
 				t.Fatalf("Transport proxy = %t, want %t", transport.Proxy != nil, test.wantProxy)
 			}
 		})
+	}
+}
+
+func TestHTTPClientRejectsHTTPSProxy(t *testing.T) {
+	t.Parallel()
+
+	ctx := WithNetworkContext(t.Context(), NetworkContext{Proxy: outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "https://proxy.example.com:8443"},
+		Source: outboundproxy.SourceGlobal,
+	}})
+	if _, err := HTTPClient(ctx); err == nil {
+		t.Fatal("HTTPClient() accepted an HTTPS proxy")
 	}
 }

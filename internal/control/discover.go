@@ -61,6 +61,9 @@ func (s *Service) DiscoverModels(
 		(strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "") {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
+	if request.Proxy != nil && !s.channelRegistry.SupportsOutboundProxy(request.ChannelID) {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
 	resolvedTarget, err := s.channelRegistry.Resolve(request.ChannelID, request.Params)
 	if err != nil {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation

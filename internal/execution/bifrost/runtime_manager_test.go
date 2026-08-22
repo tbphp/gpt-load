@@ -63,6 +63,43 @@ func TestEffectiveProviderConfigMapsHTTPAndSOCKSAttemptProxy(t *testing.T) {
 	}
 }
 
+func TestEffectiveProviderConfigDoesNotInjectProxyIntoUnsupportedProviders(t *testing.T) {
+	t.Parallel()
+
+	registry := channel.NewRegistry()
+	for _, test := range []struct {
+		channelID channel.ID
+		params    json.RawMessage
+	}{
+		{channelID: channel.AzureOpenAI, params: json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`)},
+		{channelID: channel.AWSBedrock, params: json.RawMessage(`{"region":"us-east-1"}`)},
+		{channelID: channel.GoogleVertex, params: json.RawMessage(`{"location":"global"}`)},
+	} {
+		resolved, err := registry.Resolve(test.channelID, test.params)
+		if err != nil {
+			t.Fatalf("Resolve(%q) error = %v", test.channelID, err)
+		}
+		for _, effective := range []outboundproxy.Effective{
+			{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"},
+				Source: outboundproxy.SourceGlobal,
+			},
+			{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment},
+				Source: outboundproxy.SourceEnvironment,
+			},
+		} {
+			config, err := buildEffectiveProviderConfigForAttempt(resolved, execution.AttemptSpec{Proxy: effective}, true)
+			if err != nil {
+				t.Fatalf("buildEffectiveProviderConfigForAttempt(%q, %q) error = %v", test.channelID, effective.Config.Mode, err)
+			}
+			if config.providerConfig.ProxyConfig != nil {
+				t.Fatalf("channel %q mode %q injected ProxyConfig = %#v", test.channelID, effective.Config.Mode, config.providerConfig.ProxyConfig)
+			}
+		}
+	}
+}
+
 func TestEffectiveProviderConfigUsesSDKProviderAndCanonicalDefaultBaseURL(t *testing.T) {
 	registry := channel.NewRegistry()
 

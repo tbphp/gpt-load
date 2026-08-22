@@ -6,12 +6,11 @@ import (
 	"testing"
 )
 
-func TestNormalizeSupportsFinalProxySchemes(t *testing.T) {
+func TestNormalizeSupportsProductProxySchemes(t *testing.T) {
 	t.Parallel()
 
 	for _, endpoint := range []string{
 		"http://proxy.example.com:8080",
-		"https://proxy.example.com:8443",
 		"socks5://user:password@proxy.example.com:1080",
 	} {
 		t.Run(endpoint, func(t *testing.T) {
@@ -35,6 +34,7 @@ func TestNormalizeRejectsInvalidPoliciesWithoutLeakingEndpoint(t *testing.T) {
 		{Mode: ModeInherit, URL: "http://secret:password@proxy.example.com"},
 		{Mode: ModeDirect, URL: "http://secret:password@proxy.example.com"},
 		{Mode: ModeCustom},
+		{Mode: ModeCustom, URL: "https://secret:password@proxy.example.com"},
 		{Mode: ModeCustom, URL: "ftp://secret:password@proxy.example.com"},
 		{Mode: ModeCustom, URL: "http://secret:password@proxy.example.com/path"},
 		{Mode: ModeCustom, URL: "http://secret:password@proxy.example.com?token=secret"},

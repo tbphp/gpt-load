@@ -57,7 +57,7 @@ func HTTPClient(ctx context.Context) (*http.Client, error) {
 			return nil, fmt.Errorf("invalid subscription proxy config")
 		}
 		switch endpoint.Scheme {
-		case "http", "https":
+		case "http":
 			transport.Proxy = http.ProxyURL(endpoint)
 		case "socks5":
 			var auth *proxy.Auth

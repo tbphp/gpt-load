@@ -111,6 +111,7 @@ const channelCapabilities = computed<ChannelCapabilitiesDto>(
       model_discovery: false,
       quota_observation: false,
       credential_actions: [],
+      outbound_proxy: false,
     },
 )
 const searchDraft = ref(filters.value.q ?? '')
@@ -1470,6 +1471,7 @@ async function runBatch(
             :weight-editor-open="routeState.weightCredentialID === item.credential_id"
             :resolve-copy-value="resolveCopyValue"
             :save-proxy="(value) => saveCredentialProxy(item, value)"
+            :proxy-supported="channelCapabilities.outbound_proxy"
             @update:selected="setSelected(item.credential_id, $event)"
             @update:expanded="setExpanded(item.credential_id, $event)"
             @update:weight-editor-open="setWeightEditor(item.credential_id, $event)"

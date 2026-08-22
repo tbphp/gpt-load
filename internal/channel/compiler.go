@@ -150,7 +150,11 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 				CredentialInput:      source.Connection.CredentialInput,
 				AuthorizationMethods: append([]AuthorizationMethod(nil), source.Connection.AuthorizationMethods...),
 			},
-			Capabilities:    publicCapabilities(source.Capabilities, source.Routes),
+			Capabilities: publicCapabilities(
+				source.Capabilities,
+				source.Routes,
+				source.Provider.ProviderKind,
+			),
 			Routes:          publicRoutes,
 			ClientProtocols: orderedProtocols(modes),
 		},
@@ -473,11 +477,16 @@ func cloneCapabilityBindings(source spec.CapabilityBindings) spec.CapabilityBind
 	return source
 }
 
-func publicCapabilities(source spec.CapabilityBindings, routes []spec.Route) CapabilityDescriptor {
+func publicCapabilities(
+	source spec.CapabilityBindings,
+	routes []spec.Route,
+	providerKind spec.ProviderKind,
+) CapabilityDescriptor {
 	result := CapabilityDescriptor{
 		ModelDiscovery:    source.ModelDiscovery != "",
 		QuotaObservation:  source.QuotaObservation != "",
 		CredentialActions: []CredentialAction{},
+		OutboundProxy:     providerKind.SupportsOutboundProxy(),
 	}
 	if source.ResetCreditAction != "" {
 		result.CredentialActions = append(result.CredentialActions, CredentialActionResetCredit)

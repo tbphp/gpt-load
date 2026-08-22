@@ -73,7 +73,7 @@ export function isValidProxyURL(value: string): boolean {
     return false
   }
 
-  if (!['http:', 'https:', 'socks5:'].includes(parsed.protocol) || parsed.hostname === '') {
+  if (!['http:', 'socks5:'].includes(parsed.protocol) || parsed.hostname === '') {
     return false
   }
   if (parsed.pathname !== '' && parsed.pathname !== '/') return false

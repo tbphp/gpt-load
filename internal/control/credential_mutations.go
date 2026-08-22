@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/epochms"
@@ -149,6 +150,10 @@ func (s *Service) UpdateGroupCredential(
 			return err
 		}
 		if group.ChannelID == "" {
+			return app_errors.ErrValidation
+		}
+		if request.Proxy.Set && !request.Proxy.Null &&
+			!s.channelRegistry.SupportsOutboundProxy(channel.ID(group.ChannelID)) {
 			return app_errors.ErrValidation
 		}
 		committedGroup = group

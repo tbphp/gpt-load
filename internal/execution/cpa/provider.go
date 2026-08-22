@@ -75,7 +75,6 @@ func proxyURLForAttempt(effective outboundproxy.Effective) (string, error) {
 	case outboundproxy.ModeCustom:
 		switch {
 		case len(effective.Config.URL) >= len("http://") && effective.Config.URL[:len("http://")] == "http://",
-			len(effective.Config.URL) >= len("https://") && effective.Config.URL[:len("https://")] == "https://",
 			len(effective.Config.URL) >= len("socks5://") && effective.Config.URL[:len("socks5://")] == "socks5://":
 			return effective.Config.URL, nil
 		default:

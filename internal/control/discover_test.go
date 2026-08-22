@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -460,6 +461,11 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 			value.ChannelID = channel.ID("unknown")
 		}},
 		{name: "empty credentials", mutate: func(value *ModelDiscoveryRequest) { value.Credentials = " \n\t" }},
+		{name: "unsupported channel proxy", mutate: func(value *ModelDiscoveryRequest) {
+			value.ChannelID = channel.AzureOpenAI
+			value.Params = json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`)
+			value.Proxy = &outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

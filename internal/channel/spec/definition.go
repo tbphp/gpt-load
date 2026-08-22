@@ -109,6 +109,21 @@ func (kind ProviderKind) Valid() bool {
 	}
 }
 
+// SupportsOutboundProxy reports whether GPT-Load may inject its managed proxy
+// configuration into this provider. Provider SDK-native environment handling
+// remains outside this capability contract.
+func (kind ProviderKind) SupportsOutboundProxy() bool {
+	if !kind.Valid() {
+		return false
+	}
+	switch kind {
+	case ProviderAzureOpenAI, ProviderAWSBedrock, ProviderGoogleVertex:
+		return false
+	default:
+		return true
+	}
+}
+
 // InputKind describes how the management UI collects one field.
 type InputKind string
 

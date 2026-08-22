@@ -89,6 +89,7 @@ type CapabilityDescriptor struct {
 	ModelDiscovery    bool               `json:"model_discovery"`
 	QuotaObservation  bool               `json:"quota_observation"`
 	CredentialActions []CredentialAction `json:"credential_actions"`
+	OutboundProxy     bool               `json:"outbound_proxy"`
 }
 
 // NoticeID identifies one frontend-localized channel notice.
@@ -398,6 +399,13 @@ func (r *Registry) ProviderKind(id ID) (ProviderKind, bool) {
 		return "", false
 	}
 	return definition.providerKind, true
+}
+
+// SupportsOutboundProxy reports whether GPT-Load may inject a managed proxy
+// into the channel's provider runtime.
+func (r *Registry) SupportsOutboundProxy(id ID) bool {
+	definition, ok := r.lookup(id)
+	return ok && definition.providerKind.SupportsOutboundProxy()
 }
 
 // SupportsConnectionType reports whether a channel accepts one connection type.

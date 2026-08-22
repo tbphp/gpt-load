@@ -91,6 +91,9 @@ func buildEffectiveProviderConfigForAttempt(
 	if err != nil {
 		return base, err
 	}
+	if !resolved.ProviderKind.SupportsOutboundProxy() {
+		return base, nil
+	}
 	if resolved.ProviderKind != channel.ProviderDeepSeek ||
 		spec.ClientProtocol != protocol.OpenAIResponses ||
 		(spec.Operation != execution.OperationResponsesCreate && spec.Operation != execution.OperationProbe) ||

@@ -39,6 +39,7 @@ export interface ChannelCapabilitiesDto {
   model_discovery: boolean
   quota_observation: boolean
   credential_actions: ChannelCredentialAction[]
+  outbound_proxy: boolean
 }
 
 export type ChannelRouteMode = 'native' | 'converted'
@@ -124,7 +125,12 @@ const inputKinds = ['text', 'url', 'secret'] as const
 const connectionTypes = ['api_key', 'subscription'] as const
 const credentialInputs = ['batch_text', 'authorization'] as const
 const connectionFields = ['type', 'credential_input', 'authorization_methods'] as const
-const capabilityFields = ['model_discovery', 'quota_observation', 'credential_actions'] as const
+const capabilityFields = [
+  'model_discovery',
+  'quota_observation',
+  'credential_actions',
+  'outbound_proxy',
+] as const
 const credentialActions = ['reset_credit'] as const
 const noticeFields = ['id', 'tone'] as const
 const noticeIDs = ['claude_oauth_risk', 'antigravity_oauth_risk'] as const
@@ -220,6 +226,7 @@ function projectCapabilities(value: unknown): ChannelCapabilitiesDto {
     model_discovery: projectBoolean(record.model_discovery),
     quota_observation: projectBoolean(record.quota_observation),
     credential_actions: actions,
+    outbound_proxy: projectBoolean(record.outbound_proxy),
   }
 }
 

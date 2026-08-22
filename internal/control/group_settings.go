@@ -233,6 +233,10 @@ func (s *Service) UpdateGroupSettings(
 		if err := validateGroupRowCandidate(ctx, tx, group, s.channelRegistry); err != nil {
 			return fmt.Errorf("validate existing group %d: %w", groupID, app_errors.ErrInternalServer)
 		}
+		if request.Proxy.Set && !request.Proxy.Null &&
+			!s.channelRegistry.SupportsOutboundProxy(channel.ID(group.ChannelID)) {
+			return app_errors.ErrValidation
+		}
 
 		updates := make(map[string]any, 7)
 		if normalized.name != nil {

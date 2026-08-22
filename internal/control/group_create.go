@@ -179,6 +179,9 @@ func (s *Service) normalizeGroupCreate(
 	if !ok {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
+	if request.Proxy.Set && !request.Proxy.Null && !s.channelRegistry.SupportsOutboundProxy(request.ChannelID) {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
+	}
 	explicitName, err := normalizeGroupName(request.Name)
 	if err != nil {
 		return normalizedGroupCreate{}, err

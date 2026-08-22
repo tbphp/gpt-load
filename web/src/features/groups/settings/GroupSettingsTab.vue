@@ -475,7 +475,8 @@ onBeforeUnmount(() => {
                   scope="group"
                   :view="saved.proxy"
                   :save-proxy="saveGroupProxy"
-                  :disabled="mutationPending"
+                  :supported="selectedChannel?.capabilities.outbound_proxy"
+                  :disabled="mutationPending || selectedChannel === undefined"
                 />
               </div>
               <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">

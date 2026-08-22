@@ -2,10 +2,13 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/outboundproxy"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
 
@@ -132,5 +135,55 @@ func TestGroupAndCredentialProxyRejectInvalidConfigWithoutMutation(t *testing.T)
 	}
 	if groupRow.ProxyConfig != nil || credentialRow.ProxyConfig != nil {
 		t.Fatalf("invalid proxy mutated rows: %v/%v", groupRow.ProxyConfig, credentialRow.ProxyConfig)
+	}
+}
+
+func TestUnsupportedChannelRejectsManagedGroupAndCredentialProxy(t *testing.T) {
+	fixture := newServiceFixture(t)
+	name := "azure-without-managed-proxy"
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: &name, ChannelID: channel.AzureOpenAI,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Params:         json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`),
+		Models:         optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-4o"}}},
+		Credentials:    "azure-key",
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+
+	proxy := optionalField[outboundproxy.Config]{Set: true, Value: outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "http://proxy.example.com:8080",
+	}}
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
+		Proxy: proxy,
+	}); !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("UpdateGroupSettings() error = %v, want ErrValidation", err)
+	}
+	credentials, err := fixture.service.ListGroupCredentials(
+		t.Context(), created.GroupID, CredentialCollectionQuery{Page: 1, PageSize: 20},
+	)
+	if err != nil || len(credentials.Items) != 1 {
+		t.Fatalf("ListGroupCredentials() = %#v, %v", credentials, err)
+	}
+	if _, err := fixture.service.UpdateGroupCredential(
+		t.Context(), created.GroupID, credentials.Items[0].CredentialID,
+		CredentialUpdateRequest{Proxy: proxy},
+	); !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("UpdateGroupCredential() error = %v, want ErrValidation", err)
+	}
+
+	withProxy := GroupCreateRequest{
+		Name: new(string), ChannelID: channel.AzureOpenAI,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Params:         json.RawMessage(`{"endpoint":"https://another.openai.azure.com"}`),
+		Models:         optionalGroupModels{Set: true, Values: []GroupModel{{ID: "gpt-4o"}}},
+		Credentials:    "another-azure-key",
+		Proxy:          proxy,
+	}
+	*withProxy.Name = "azure-with-managed-proxy"
+	if _, err := fixture.service.CreateGroup(t.Context(), withProxy); !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("CreateGroup(proxy) error = %v, want ErrValidation", err)
 	}
 }

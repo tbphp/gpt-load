@@ -90,7 +90,7 @@ func normalizeCustom(endpoint string) (Config, error) {
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	switch parsed.Scheme {
-	case "http", "https", "socks5":
+	case "http", "socks5":
 	default:
 		return Config{}, ErrInvalidConfig
 	}

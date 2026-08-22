@@ -1204,6 +1204,7 @@ function runMenuAction(
         scope="credential"
         :view="item.proxy"
         :save-proxy="saveProxy"
+        :supported="capabilities.outbound_proxy"
         :disabled="busy"
         :divided="false"
       />

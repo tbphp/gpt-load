@@ -15,10 +15,11 @@ const props = withDefaults(
     scope: 'global' | 'group' | 'credential'
     view: ProxyViewDto
     saveProxy: (value: ProxyMutation) => Promise<void>
+    supported?: boolean
     disabled?: boolean
     divided?: boolean
   }>(),
-  { disabled: false, divided: true },
+  { supported: true, disabled: false, divided: true },
 )
 
 const { t } = useI18n()
@@ -56,7 +57,7 @@ const effectiveLabel = computed(() =>
 )
 
 function beginEdit(): void {
-  if (props.disabled || pending.value) return
+  if (!props.supported || props.disabled || pending.value) return
   mode.value = props.view.configured_mode
   endpoint.value = ''
   touched.value = false
@@ -89,7 +90,7 @@ async function save(): Promise<void> {
   touched.value = true
   saveFailed.value = false
   const value = mutation.value
-  if (value === undefined || props.disabled || pending.value) return
+  if (value === undefined || !props.supported || props.disabled || pending.value) return
 
   pending.value = true
   try {
@@ -108,7 +109,7 @@ async function save(): Promise<void> {
   <div
     class="proxy-config-editor"
     :class="{
-      'proxy-config-editor--editing': editing,
+      'proxy-config-editor--editing': supported && editing,
       'proxy-config-editor--divided': divided,
     }"
   >
@@ -116,14 +117,21 @@ async function save(): Promise<void> {
       <strong>{{ t('common.proxy.title') }}</strong>
       <StatusBadge
         size="compact"
-        :tone="view.configured_mode === 'inherit' ? 'neutral' : 'info'"
-        :icon="view.configured_mode === 'inherit' ? 'check' : 'edit'"
+        :tone="!supported || view.configured_mode === 'inherit' ? 'neutral' : 'info'"
+        :icon="!supported ? 'off' : view.configured_mode === 'inherit' ? 'check' : 'edit'"
       >
-        {{ sourceLabel }}
+        {{ supported ? sourceLabel : t('common.proxy.unsupportedBadge') }}
       </StatusBadge>
     </div>
 
-    <template v-if="!editing">
+    <template v-if="!supported">
+      <div class="proxy-config-editor__value">
+        <strong>{{ t('common.proxy.unsupported') }}</strong>
+        <small>{{ t('common.proxy.unsupportedHelp') }}</small>
+      </div>
+    </template>
+
+    <template v-else-if="!editing">
       <div class="proxy-config-editor__value">
         <code v-if="view.display_url">{{ displayValue }}</code>
         <strong v-else>{{ displayValue }}</strong>

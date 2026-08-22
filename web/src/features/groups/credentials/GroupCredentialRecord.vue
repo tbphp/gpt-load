@@ -25,6 +25,7 @@ const props = defineProps<{
   weightEditorOpen: boolean
   resolveCopyValue: (id: number) => Promise<string>
   saveProxy: (value: ProxyMutation) => Promise<void>
+  proxySupported: boolean
 }>()
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
@@ -313,6 +314,7 @@ function saveWeight(): void {
             scope="credential"
             :view="item.proxy"
             :save-proxy="saveProxy"
+            :supported="proxySupported"
             :disabled="busy"
             :divided="false"
           />
