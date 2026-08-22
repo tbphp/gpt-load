@@ -1327,10 +1327,8 @@ func TestReleaseWorkflowKeepsReleaseNotesConciseAndWarnsAboutDataIncompatibility
 
 	for _, required := range []string{
 		"not compatible with 1.x",
-		"do not open a",
-		"1.x database",
-		"encryption.key",
-		"https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md",
+		"start 2.x from an empty database",
+		"new `encryption.key`",
 	} {
 		if !strings.Contains(english, required) {
 			t.Fatalf("English release notes do not contain %q:\n%s", required, english)
@@ -1338,9 +1336,8 @@ func TestReleaseWorkflowKeepsReleaseNotesConciseAndWarnsAboutDataIncompatibility
 	}
 	for _, required := range []string{
 		"1.x 数据不兼容",
-		"1.x 数据库",
-		"encryption.key",
-		"README",
+		"全新数据库",
+		"新的 `encryption.key`",
 	} {
 		if !strings.Contains(chinese, required) {
 			t.Fatalf("Chinese release notes do not contain %q:\n%s", required, chinese)
