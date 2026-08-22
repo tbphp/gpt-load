@@ -1292,7 +1292,8 @@ function runMenuAction(
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-neutral) 28%, transparent);
 }
 .subscription-account--disabled .subscription-account__quota {
-  background: var(--color-surface-sunken);
+  --quota-accent: var(--color-neutral);
+  --quota-tint: var(--color-surface-sunken);
 }
 .subscription-account__main {
   display: grid;
@@ -1433,6 +1434,9 @@ function runMenuAction(
   gap: var(--space-2);
 }
 .subscription-account__quota {
+  /* 强调色用于左竖条与行底进度线，单值同时适配明暗；淡底只做状态提示 */
+  --quota-accent: var(--color-border-control);
+  --quota-tint: var(--color-surface-sunken);
   position: relative;
   display: grid;
   min-height: 34px;
@@ -1441,17 +1445,23 @@ function runMenuAction(
   gap: var(--space-3);
   overflow: hidden;
   border-radius: 6px;
-  background: var(--color-surface-sunken);
-  padding: 7px 10px;
+  background: var(--quota-tint);
+  /* 左竖条用 inset 阴影而非 border：border 会把 inset:0 的进度线整体右推 3px，
+     导致左下圆角处出现断口。阴影不占盒模型，细线可贯通到最左侧与竖条重叠。 */
+  box-shadow: inset 3px 0 0 var(--quota-accent);
+  padding: 7px 10px 7px 13px;
 }
 .subscription-account__quota--success {
-  background: light-dark(oklch(94.5% 0.075 158), oklch(30% 0.06 158));
+  --quota-accent: oklch(70% 0.16 158);
+  --quota-tint: light-dark(#dcfeea, #112b21);
 }
 .subscription-account__quota--warning {
-  background: light-dark(oklch(94.5% 0.044 75), oklch(30% 0.06 65));
+  --quota-accent: oklch(75% 0.152 75);
+  --quota-tint: light-dark(#fff2e2, #302212);
 }
 .subscription-account__quota--danger {
-  background: light-dark(oklch(94.5% 0.026 22), oklch(30% 0.08 22));
+  --quota-accent: oklch(65% 0.2 22);
+  --quota-tint: light-dark(#fef0f0, #371a1d);
 }
 .subscription-account__quota-meter {
   position: absolute;
@@ -1467,15 +1477,10 @@ function runMenuAction(
 }
 .subscription-account__quota-fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  background: light-dark(oklch(76% 0.17 158), oklch(51% 0.115 158));
+  inset: auto auto 0 0;
+  height: 3px;
+  background: var(--quota-accent);
   transition: width var(--duration-fast) var(--easing-standard);
-}
-.subscription-account__quota--warning .subscription-account__quota-fill {
-  background: light-dark(oklch(78% 0.16 75), oklch(52% 0.105 65));
-}
-.subscription-account__quota--danger .subscription-account__quota-fill {
-  background: light-dark(oklch(67% 0.2 22), oklch(51% 0.195 22));
 }
 .subscription-account__quota-name {
   position: relative;
