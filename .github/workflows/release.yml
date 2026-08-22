@@ -972,15 +972,11 @@ jobs:
           # 目录内容已由上面的清单校验锁定为 .github/release-assets.txt 的全集。
           files: release/*
           body: |
-            GPT-Load 2.x is a rewrite and is not compatible with 1.x data — do not open a 1.x database with this release.
-            Start 2.x from an empty database and a new `encryption.key`; verify, then cut traffic over manually.
-            See the [README](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md) for deployment, backup, and 1.x cutover details.
+            2.x is a rewrite and is not compatible with 1.x data, start 2.x from an empty database and a new `encryption.key`.
 
             ---
 
-            GPT-Load 2.x 是全新重写版本，与 1.x 数据不兼容 — 请勿使用本版本打开 1.x 数据库。
-            请以全新数据库和新的 `encryption.key` 部署 2.x，验证无误后再手动切换流量。
-            部署、备份及 1.x 切换详情见 [README](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md)。
+            2.x 是全新重写版本，与 1.x 数据不兼容，请以全新数据库和新的 `encryption.key` 部署 2.x。
 
   post-publish-image-smoke:
     # GHCR 与 Docker Hub 的 exact tag 已在 publish-images 断言为同一 digest，
