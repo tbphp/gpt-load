@@ -522,6 +522,30 @@ export default {
           disabled: '無効',
         },
       },
+      full: {
+        actions: '全件操作',
+        download: 'すべてダウンロード',
+        enable: 'すべて有効化',
+        disable: 'すべて無効化',
+        kind: { account: 'アカウント', key: 'キー' },
+        confirmTitle: {
+          download: 'このグループの全アカウントをダウンロードしますか？',
+          enable: 'このグループの全{kind}を有効化しますか？',
+          disable: 'このグループの全{kind}を無効化しますか？',
+        },
+        confirmDescription: '現在のグループにあるすべての{kind}が対象です。',
+        confirm: {
+          download: 'すべてダウンロード',
+          enable: 'すべて有効化',
+          disable: 'すべて無効化',
+        },
+        succeeded: {
+          download: '{count} 件のアカウントファイルをダウンロードしました',
+          enable: '{count} 件の{kind}を有効化しました',
+          disable: '{count} 件の{kind}を無効化しました',
+        },
+        failed: '全件操作を完了できません',
+      },
       batch: {
         selected: '{count} 件を選択',
         selectAll: 'すべて選択',

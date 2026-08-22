@@ -21,8 +21,9 @@ const props = withDefaults(
     preventCloseAutoFocus?: boolean
     appearance?: 'default' | 'ledger'
     tone?: 'default' | 'danger'
+    descriptionTone?: 'default' | 'warning'
   }>(),
-  { dismissible: true, appearance: 'default', tone: 'default' },
+  { dismissible: true, appearance: 'default', tone: 'default', descriptionTone: 'default' },
 )
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
@@ -56,7 +57,10 @@ function guardDismiss(event: Event): void {
         </header>
         <DialogDescription
           class="app-dialog__description"
-          :class="{ 'app-dialog__description--standalone': !$slots.body }"
+          :class="[
+            `app-dialog__description--${descriptionTone}`,
+            { 'app-dialog__description--standalone': !$slots.body },
+          ]"
         >
           {{ description }}
         </DialogDescription>
@@ -132,6 +136,9 @@ function guardDismiss(event: Event): void {
 .app-dialog__description--standalone {
   padding-bottom: var(--space-4);
 }
+.app-dialog__description--warning {
+  color: var(--color-warning);
+}
 .app-dialog__body {
   min-height: 0;
   overflow-y: auto;
@@ -174,6 +181,9 @@ function guardDismiss(event: Event): void {
   padding: 0;
   color: var(--color-text-muted);
   font-size: var(--text-meta);
+}
+.app-dialog__content--ledger .app-dialog__description--warning {
+  color: var(--color-warning);
 }
 .app-dialog__content--ledger .app-dialog__description--standalone {
   padding-bottom: 0;

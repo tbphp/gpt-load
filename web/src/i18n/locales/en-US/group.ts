@@ -518,6 +518,30 @@ export default {
           disabled: 'Disabled',
         },
       },
+      full: {
+        actions: 'All credentials',
+        download: 'Download all',
+        enable: 'Enable all',
+        disable: 'Disable all',
+        kind: { account: 'accounts', key: 'keys' },
+        confirmTitle: {
+          download: 'Download every account in this Group?',
+          enable: 'Enable all {kind} in this Group?',
+          disable: 'Disable all {kind} in this Group?',
+        },
+        confirmDescription: 'This affects every {kind} in the current Group.',
+        confirm: {
+          download: 'Download all',
+          enable: 'Enable all',
+          disable: 'Disable all',
+        },
+        succeeded: {
+          download: 'Downloaded {count} account files',
+          enable: 'Enabled {count} {kind}',
+          disable: 'Disabled {count} {kind}',
+        },
+        failed: 'Unable to complete the full-Group operation',
+      },
       batch: {
         selected: '{count} selected',
         selectAll: 'Select all',

@@ -527,6 +527,24 @@ func (s *Server) handleDownloadGroupCredential(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleDownloadAllGroupCredentials(c *gin.Context) {
+	groupID, ok := groupID(c, "download_all_group_credentials")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "download_all_group_credentials", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.DownloadAllGroupCredentials(c.Request.Context(), groupID)
+	if err != nil {
+		writeServiceError(c, "download_all_group_credentials", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleUpdateGroupCredential(c *gin.Context) {
 	groupID, ok := groupID(c, "update_group_credential")
 	if !ok {

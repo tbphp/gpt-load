@@ -497,6 +497,30 @@ export default {
           disabled: '已停用',
         },
       },
+      full: {
+        actions: '全量操作',
+        download: '下载全部',
+        enable: '启用全部',
+        disable: '停用全部',
+        kind: { account: '账号', key: '密钥' },
+        confirmTitle: {
+          download: '下载当前分组全部账号？',
+          enable: '启用当前分组全部{kind}？',
+          disable: '停用当前分组全部{kind}？',
+        },
+        confirmDescription: '此操作将作用于当前分组的全部{kind}。',
+        confirm: {
+          download: '确认下载',
+          enable: '确认启用',
+          disable: '确认停用',
+        },
+        succeeded: {
+          download: '已下载 {count} 个账号文件',
+          enable: '已启用 {count} 个{kind}',
+          disable: '已停用 {count} 个{kind}',
+        },
+        failed: '无法完成全量操作',
+      },
       batch: {
         selected: '已选择 {count} 项',
         selectAll: '全选',

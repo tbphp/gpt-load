@@ -16,6 +16,7 @@ withDefaults(
     dismissible?: boolean
     preventCloseAutoFocus?: boolean
     appearance?: 'default' | 'ledger'
+    descriptionTone?: 'default' | 'warning'
   }>(),
   {
     tone: 'default',
@@ -24,6 +25,7 @@ withDefaults(
     dismissible: true,
     preventCloseAutoFocus: false,
     appearance: 'default',
+    descriptionTone: 'default',
   },
 )
 const emit = defineEmits<{
@@ -42,6 +44,7 @@ const emit = defineEmits<{
     :prevent-close-auto-focus="preventCloseAutoFocus"
     :appearance="appearance"
     :tone="tone"
+    :description-tone="descriptionTone"
     @update:open="emit('update:open', $event)"
   >
     <template v-if="$slots.trigger" #trigger><slot name="trigger" /></template>

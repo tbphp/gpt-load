@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { KeyRound, Plus, Search } from '@lucide/vue'
+import {
+  ChevronDown,
+  CircleCheck,
+  CircleOff,
+  Download,
+  KeyRound,
+  ListChecks,
+  Plus,
+  Search,
+} from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -22,6 +31,7 @@ import {
   cacheCredentialItem,
   consumeCredentialResetCredit,
   credentialCollectionQueryOptions,
+  downloadAllCredentials,
   downloadCredential,
   getCredentialDetail,
   revealCredential,
@@ -41,6 +51,7 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import AppPopover from '@/components/ui/AppPopover.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -66,6 +77,7 @@ import {
 } from '../group-route'
 
 const batchCredentialConcurrency = 4
+type FullCredentialAction = 'enable' | 'disable' | 'download'
 
 const props = defineProps<{
   groupId: number
@@ -112,6 +124,8 @@ const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
 const resetOperationKeys = new Map<number, string>()
 const connectionWorkspaceOpen = ref(false)
+const fullActionsOpen = ref(false)
+const fullActionTarget = ref<FullCredentialAction>()
 const connectionStages = ref<CredentialStage[]>([])
 const connectOperationKey = ref<string>()
 // 抽屉打开时列表区被遮住，连接失败的提示必须落在抽屉内部才看得见。
@@ -161,6 +175,31 @@ const bulkActionsBusy = computed(
   () =>
     batchBusy.value || singleBusy.value || connectBusy.value || credentialsQuery.isFetching.value,
 )
+const fullActionBusy = computed(() =>
+  fullActionTarget.value === undefined
+    ? false
+    : pendingOperations.value.has(`batch:all-${fullActionTarget.value}`),
+)
+const fullCredentialKind = computed(() =>
+  t(
+    props.connectionType === 'subscription'
+      ? 'group.credentials.full.kind.account'
+      : 'group.credentials.full.kind.key',
+  ),
+)
+const fullActionCopy = computed(() => {
+  const action = fullActionTarget.value
+  if (action === undefined) return { title: '', description: '', confirm: '' }
+  return {
+    title: t(`group.credentials.full.confirmTitle.${action}`, {
+      kind: fullCredentialKind.value,
+    }),
+    description: t('group.credentials.full.confirmDescription', {
+      kind: fullCredentialKind.value,
+    }),
+    confirm: t(`group.credentials.full.confirm.${action}`),
+  }
+})
 const dialogBusy = computed(() => {
   const target = deleteTarget.value
   if (target === undefined) return false
@@ -236,6 +275,8 @@ watch(
   () => props.groupId,
   () => {
     connectionWorkspaceOpen.value = false
+    fullActionsOpen.value = false
+    fullActionTarget.value = undefined
     connectionStages.value = []
     loadedDetails.value = new Map()
     detailErrors.value = new Map()
@@ -624,6 +665,48 @@ async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
     )
   } finally {
     setPending(item.credential_id, 'download', false)
+  }
+}
+
+function openFullAction(action: FullCredentialAction): void {
+  if (bulkActionsBusy.value || (collection.value?.summary.total ?? 0) === 0) return
+  if (action === 'download' && props.connectionType !== 'subscription') return
+  fullActionsOpen.value = false
+  fullActionTarget.value = action
+}
+
+async function confirmFullAction(): Promise<void> {
+  const action = fullActionTarget.value
+  if (action === undefined || batchBusy.value || singleBusy.value) return
+  feedback.value = ''
+  setPending('batch', `all-${action}`, true)
+  try {
+    let affected = 0
+    if (action === 'download') {
+      const result = await downloadAllCredentials(client, props.groupId)
+      for (const file of result.files) downloadJSONFile(file.filename, file.credential)
+      affected = result.files.length
+    } else {
+      const result = await batchCredentials(client, props.groupId, {
+        action,
+        scope: 'all',
+      })
+      affected = result.affected_credential_ids.length
+      await reconcileBatch(action, result)
+      selectedIds.value = new Set()
+    }
+    toast.show({
+      message: t(`group.credentials.full.succeeded.${action}`, {
+        count: n(affected),
+        kind: fullCredentialKind.value,
+      }),
+      tone: 'success',
+    })
+    fullActionTarget.value = undefined
+  } catch {
+    feedback.value = t('group.credentials.full.failed')
+  } finally {
+    setPending('batch', `all-${action}`, false)
   }
 }
 
@@ -1043,6 +1126,42 @@ async function runBatch(
       "
     >
       <template #actions>
+        <AppPopover
+          v-model:open="fullActionsOpen"
+          align="end"
+          content-class="app-popover__content--credential-full-actions"
+        >
+          <template #trigger>
+            <AppButton
+              variant="secondary"
+              :busy="batchBusy"
+              :disabled="bulkActionsBusy || (collection?.summary.total ?? 0) === 0"
+            >
+              <ListChecks :size="16" aria-hidden="true" />
+              {{ t('group.credentials.full.actions') }}
+              <ChevronDown :size="14" aria-hidden="true" />
+            </AppButton>
+          </template>
+          <div class="group-credentials__full-menu">
+            <button
+              v-if="connectionType === 'subscription'"
+              type="button"
+              :disabled="bulkActionsBusy"
+              @click="openFullAction('download')"
+            >
+              <Download :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.download') }}
+            </button>
+            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('enable')">
+              <CircleCheck :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.enable') }}
+            </button>
+            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('disable')">
+              <CircleOff :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.disable') }}
+            </button>
+          </div>
+        </AppPopover>
         <AppButton
           v-if="connectionType === 'subscription' && authorizationMethods.length > 0"
           :disabled="bulkActionsBusy"
@@ -1340,6 +1459,20 @@ async function runBatch(
     </template>
     <AppConfirmDialog
       appearance="ledger"
+      :open="fullActionTarget !== undefined"
+      :title="fullActionCopy.title"
+      :description="fullActionCopy.description"
+      :close-label="t('group.credentials.closeDialog')"
+      :cancel-label="t('group.credentials.cancel')"
+      :confirm-label="fullActionCopy.confirm"
+      :tone="fullActionTarget === 'disable' ? 'danger' : 'default'"
+      description-tone="warning"
+      :pending="fullActionBusy"
+      @update:open="!$event && !fullActionBusy && (fullActionTarget = undefined)"
+      @confirm="confirmFullAction"
+    />
+    <AppConfirmDialog
+      appearance="ledger"
       :open="resetTarget !== undefined"
       :title="t('group.credentials.subscription.consumeResetCreditTitle')"
       :description="t('group.credentials.subscription.consumeResetCreditDescription')"
@@ -1424,9 +1557,51 @@ async function runBatch(
   visibility: hidden;
   pointer-events: none;
 }
+.group-credentials__full-menu {
+  display: grid;
+  width: 100%;
+  gap: 1px;
+}
+.group-credentials__full-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: var(--text-button);
+  text-align: left;
+  cursor: pointer;
+}
+.group-credentials__full-menu button:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+.group-credentials__full-menu button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.group-credentials__full-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.group-credentials__full-menu button svg {
+  flex: none;
+  color: var(--color-text-faint);
+}
+:global(.app-popover__content.app-popover__content--credential-full-actions) {
+  width: 220px;
+  border-color: var(--color-border-control);
+  border-radius: 10px;
+  padding: 8px;
+}
 .group-credentials__accounts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   align-items: start;
   gap: var(--space-3);
 }

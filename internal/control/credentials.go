@@ -120,15 +120,19 @@ type CredentialPaginationResponse struct {
 
 type CredentialBatchAction string
 
+type CredentialBatchScope string
+
 const (
-	CredentialBatchEnable  CredentialBatchAction = "enable"
-	CredentialBatchDisable CredentialBatchAction = "disable"
-	CredentialBatchDelete  CredentialBatchAction = "delete"
+	CredentialBatchEnable   CredentialBatchAction = "enable"
+	CredentialBatchDisable  CredentialBatchAction = "disable"
+	CredentialBatchDelete   CredentialBatchAction = "delete"
+	CredentialBatchScopeAll CredentialBatchScope  = "all"
 )
 
 type CredentialBatchRequest struct {
 	Action        CredentialBatchAction `json:"action"`
-	CredentialIDs []uint                `json:"credential_ids"`
+	CredentialIDs []uint                `json:"credential_ids,omitempty"`
+	Scope         CredentialBatchScope  `json:"scope,omitempty"`
 }
 
 type CredentialBatchResponse struct {
