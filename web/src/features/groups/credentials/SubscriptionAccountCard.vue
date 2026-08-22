@@ -1194,24 +1194,6 @@ function runMenuAction(
             <span>{{ t('group.credentials.subscription.modelConstraints') }}</span>
             <code v-for="model in constrainedModels" :key="model">{{ model }}</code>
           </div>
-          <div
-            v-if="hasResetCredits && availableResetCreditDetails.length"
-            class="subscription-account__reset-credit-list"
-          >
-            <span>{{ t('group.credentials.subscription.resetCreditExpirations') }}</span>
-            <template v-for="(credit, index) in availableResetCreditDetails" :key="index">
-              <span v-if="credit.expires_at_ms !== undefined && credit.expires_at_ms <= nowMs">
-                {{ t('group.credentials.subscription.resetCreditExpired') }}
-              </span>
-              <AppRelativeTime
-                v-else
-                :instant="credit.expires_at_ms ?? null"
-                :locale="locale"
-                :empty-label="t('group.credentials.subscription.resetCreditPermanent')"
-                hint
-              />
-            </template>
-          </div>
         </section>
       </div>
     </section>
@@ -1874,8 +1856,7 @@ function runMenuAction(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.subscription-account__models,
-.subscription-account__reset-credit-list {
+.subscription-account__models {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;

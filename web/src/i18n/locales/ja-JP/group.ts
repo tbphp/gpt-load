@@ -407,7 +407,6 @@ export default {
         resetCreditPermanent: '期限なし',
         resetCreditExpired: '期限切れ',
         nearestResetCredit: '直近の期限',
-        resetCreditExpirations: 'リセットクレジットの期限',
         resetCreditsActionTooltip: '利用枠をリセット',
         consumeResetCredit: 'リセットクレジットを使用',
         consumeResetCreditTitle: '利用枠をリセットしますか？',

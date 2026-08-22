@@ -394,7 +394,6 @@ export default {
         resetCreditPermanent: '永久有效',
         resetCreditExpired: '已过期',
         nearestResetCredit: '最近一张',
-        resetCreditExpirations: '重置卡到期',
         resetCreditsActionTooltip: '重置额度',
         consumeResetCredit: '使用重置卡',
         consumeResetCreditTitle: '重置额度？',

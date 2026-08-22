@@ -404,7 +404,6 @@ export default {
         resetCreditPermanent: 'No expiry',
         resetCreditExpired: 'Expired',
         nearestResetCredit: 'Nearest expiry',
-        resetCreditExpirations: 'Reset credit expirations',
         resetCreditsActionTooltip: 'Reset quota',
         consumeResetCredit: 'Use reset credit',
         consumeResetCreditTitle: 'Reset quota?',
