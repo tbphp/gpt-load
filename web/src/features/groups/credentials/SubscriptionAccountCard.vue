@@ -521,24 +521,93 @@ function runMenuAction(
       aria-live="polite"
     >
       <span class="sr-only">{{ t('group.credentials.subscription.syncingQuota') }}</span>
-      <div class="subscription-account__refresh-skeleton-top" aria-hidden="true">
-        <div>
-          <SkeletonBlock width="20px" height="20px" />
-          <SkeletonBlock width="92px" height="24px" />
-          <SkeletonBlock width="64px" height="24px" />
+      <div class="subscription-account__refresh-skeleton-header">
+        <div class="subscription-account__refresh-skeleton-top" aria-hidden="true">
+          <div>
+            <SkeletonBlock width="20px" height="20px" />
+            <SkeletonBlock width="92px" height="24px" />
+            <SkeletonBlock width="64px" height="24px" />
+          </div>
+          <div>
+            <SkeletonBlock width="58px" height="12px" />
+            <SkeletonBlock width="32px" height="32px" />
+            <SkeletonBlock width="32px" height="32px" />
+          </div>
         </div>
-        <div>
-          <SkeletonBlock width="58px" height="12px" />
-          <SkeletonBlock width="32px" height="32px" />
-          <SkeletonBlock width="32px" height="32px" />
+        <SkeletonBlock width="62%" height="20px" aria-hidden="true" />
+      </div>
+      <div
+        v-if="supportsQuotaObservation && quotaWindows.length"
+        class="subscription-account__refresh-skeleton-quotas"
+        aria-hidden="true"
+      >
+        <div
+          v-for="index in refreshSkeletonRows"
+          :key="index"
+          class="subscription-account__refresh-skeleton-quota"
+        >
+          <SkeletonBlock width="44%" height="13px" />
+          <span>
+            <SkeletonBlock width="64px" height="12px" />
+            <SkeletonBlock width="82px" height="12px" />
+          </span>
         </div>
       </div>
-      <SkeletonBlock width="58%" height="18px" aria-hidden="true" />
-      <div class="subscription-account__refresh-skeleton-quotas" aria-hidden="true">
-        <SkeletonBlock v-for="index in refreshSkeletonRows" :key="index" height="34px" />
+      <SkeletonBlock
+        v-else-if="supportsQuotaObservation"
+        class="subscription-account__refresh-skeleton-empty-quota"
+        width="48%"
+        height="16px"
+        aria-hidden="true"
+      />
+      <SkeletonBlock
+        v-if="unifiedStatus === 'quota_exhausted'"
+        class="subscription-account__refresh-skeleton-hint"
+        width="82%"
+        height="16px"
+        aria-hidden="true"
+      />
+      <div
+        v-if="hasResetCredits"
+        class="subscription-account__refresh-skeleton-credits"
+        aria-hidden="true"
+      >
+        <SkeletonBlock width="52px" height="14px" />
+        <SkeletonBlock width="72px" height="14px" />
+        <SkeletonBlock
+          v-if="nearestResetCredit && nearestResetCredit.expires_at_ms !== undefined"
+          class="subscription-account__refresh-skeleton-credits-expiry"
+          width="68px"
+          height="14px"
+        />
+        <SkeletonBlock width="26px" height="26px" />
       </div>
-      <SkeletonBlock height="38px" aria-hidden="true" />
-      <SkeletonBlock width="100%" height="44px" aria-hidden="true" />
+      <div class="subscription-account__refresh-skeleton-detail-control" aria-hidden="true">
+        <span></span>
+        <SkeletonBlock width="30px" height="30px" />
+        <span></span>
+      </div>
+      <div
+        v-if="detailsExpanded"
+        class="subscription-account__refresh-skeleton-detail"
+        aria-hidden="true"
+      >
+        <div
+          v-if="supportsQuotaObservation && hasUsageQuotaWindows"
+          class="subscription-account__skeleton-section"
+        >
+          <span class="subscription-account__skeleton-title">
+            <SkeletonBlock width="140px" height="11px" />
+          </span>
+          <SkeletonBlock :height="windowSkeletonHeight" />
+        </div>
+        <div class="subscription-account__skeleton-section">
+          <span class="subscription-account__skeleton-title">
+            <SkeletonBlock width="88px" height="11px" />
+          </span>
+          <SkeletonBlock height="var(--subscription-detail-overview-height)" />
+        </div>
+      </div>
     </div>
     <div class="subscription-account__main">
       <header class="subscription-account__top">
@@ -1119,6 +1188,7 @@ function runMenuAction(
   visibility: hidden;
 }
 .subscription-account__refresh-skeleton {
+  --subscription-account-refresh-inline: var(--space-4);
   position: absolute;
   z-index: 2;
   inset: 0;
@@ -1126,7 +1196,12 @@ function runMenuAction(
   align-content: start;
   gap: var(--space-3);
   background: color-mix(in srgb, var(--color-action-soft) 46%, var(--color-surface));
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--subscription-account-refresh-inline);
+}
+.subscription-account__refresh-skeleton-header {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
 }
 .subscription-account__refresh-skeleton-top {
   display: flex;
@@ -1143,6 +1218,61 @@ function runMenuAction(
 .subscription-account__refresh-skeleton-quotas {
   display: grid;
   gap: var(--space-2);
+}
+.subscription-account__refresh-skeleton-quota {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-surface-sunken);
+  padding: 7px 10px;
+}
+.subscription-account__refresh-skeleton-quota > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.subscription-account__refresh-skeleton-empty-quota,
+.subscription-account__refresh-skeleton-hint {
+  align-self: center;
+}
+.subscription-account__refresh-skeleton-credits {
+  display: flex;
+  min-height: var(--control-compact);
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  padding: 4px 6px;
+}
+.subscription-account__refresh-skeleton-credits-expiry {
+  margin-left: var(--space-1);
+}
+.subscription-account__refresh-skeleton-credits > :last-child {
+  margin-left: auto;
+  flex: none;
+}
+.subscription-account__refresh-skeleton-detail-control {
+  display: grid;
+  height: 44px;
+  grid-template-columns: 1fr 44px 1fr;
+  align-items: center;
+  margin-top: 2px;
+}
+.subscription-account__refresh-skeleton-detail-control > span {
+  height: 1px;
+  background: var(--color-border-subtle);
+}
+.subscription-account__refresh-skeleton-detail {
+  display: grid;
+  gap: 13px;
+  margin: calc(-1 * var(--space-3)) calc(-1 * var(--subscription-account-refresh-inline));
+  border-top: 1px solid color-mix(in srgb, var(--color-action) 18%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
+  padding: 14px 18px 16px;
 }
 .subscription-account--success {
   border-left-color: var(--color-success);
@@ -1315,13 +1445,13 @@ function runMenuAction(
   padding: 7px 10px;
 }
 .subscription-account__quota--success {
-  background: color-mix(in srgb, var(--color-success-bg) 78%, var(--color-surface));
+  background: light-dark(oklch(96.2% 0.044 156.743), oklch(26.6% 0.065 152.934));
 }
 .subscription-account__quota--warning {
-  background: color-mix(in srgb, var(--color-warning-bg) 78%, var(--color-surface));
+  background: light-dark(oklch(97.3% 0.071 103.193), oklch(28.6% 0.066 53.813));
 }
 .subscription-account__quota--danger {
-  background: color-mix(in srgb, var(--color-danger-bg) 82%, var(--color-surface));
+  background: light-dark(oklch(94.1% 0.03 12.58), oklch(27.1% 0.105 12.094));
 }
 .subscription-account__quota-meter {
   position: absolute;
@@ -1338,14 +1468,14 @@ function runMenuAction(
 .subscription-account__quota-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: color-mix(in srgb, var(--color-success) 17%, var(--color-surface));
+  background: light-dark(oklch(79.2% 0.209 151.711), oklch(52.7% 0.154 150.069));
   transition: width var(--duration-fast) var(--easing-standard);
 }
 .subscription-account__quota--warning .subscription-account__quota-fill {
-  background: color-mix(in srgb, var(--color-warning) 19%, var(--color-surface));
+  background: light-dark(oklch(85.2% 0.199 91.936), oklch(47.6% 0.114 61.907));
 }
 .subscription-account__quota--danger .subscription-account__quota-fill {
-  background: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface));
+  background: light-dark(oklch(71.2% 0.194 13.428), oklch(45.5% 0.188 13.697));
 }
 .subscription-account__quota-name {
   position: relative;
@@ -1732,6 +1862,9 @@ function runMenuAction(
   }
   .subscription-account__actions {
     margin-left: auto;
+  }
+  .subscription-account__refresh-skeleton {
+    --subscription-account-refresh-inline: 14px;
   }
   .subscription-account__skeleton {
     --subscription-detail-overview-height: 154px;
