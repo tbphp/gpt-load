@@ -3,6 +3,7 @@ package control
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -330,6 +331,76 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 		{1, 13}, {2, 21},
 	}; !reflect.DeepEqual(gotPairs, want) {
 		t.Fatalf("blacklisted order = %v, want %v", gotPairs, want)
+	}
+}
+
+func TestRuntimeHealthCapsProblemCredentialDetails(t *testing.T) {
+	const detailLimit = 100
+
+	fixture := newServiceFixture(t)
+	now := healthNow()
+	fixture.service.now = func() time.Time { return now }
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		Groups: []state.GroupConfig{{
+			ConnectionType: "api_key", ID: 1, Name: "one", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	ciphertext := encryptHealthKey(t, fixture, "health-detail-limit-secret")
+	entries := make([]state.CredentialEntry, 0, 2*(detailLimit+1))
+	for offset := range detailLimit + 1 {
+		cooldownID := uint(offset + 1)
+		blacklistedID := uint(detailLimit + 2 + offset)
+		entries = append(entries,
+			state.CredentialEntry{
+				ID: cooldownID, GroupID: 1, Version: 1, IdentityGeneration: uint64(cooldownID),
+				Fingerprint: fmt.Sprintf("cooldown-%d", cooldownID), Status: state.CredentialStatusActive,
+				CooldownUntil: now.Add(time.Minute), EncryptedValue: ciphertext,
+			},
+			state.CredentialEntry{
+				ID: blacklistedID, GroupID: 1, Version: 1, IdentityGeneration: uint64(blacklistedID),
+				Fingerprint: fmt.Sprintf("blacklisted-%d", blacklistedID), Status: state.CredentialStatusActive,
+				Blacklisted: true, EncryptedValue: ciphertext,
+			},
+		)
+	}
+	if err := fixture.registry.ReplaceCredentials(entries); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+	remaining := 0.1
+	for credentialID := uint(1); credentialID <= detailLimit+1; credentialID++ {
+		if !fixture.registry.SetCredentialQuotaObservation(credentialID, &remaining, now.Add(time.Hour)) {
+			t.Fatalf("SetCredentialQuotaObservation(%d) = false", credentialID)
+		}
+	}
+	observation, err := fixture.service.captureRuntimeHealthObservation()
+	if err != nil {
+		t.Fatalf("captureRuntimeHealthObservation() error = %v", err)
+	}
+	if len(observation.problemCiphertexts) != 2*detailLimit {
+		t.Fatalf("problem ciphertexts = %d, want %d", len(observation.problemCiphertexts), 2*detailLimit)
+	}
+
+	got, err := fixture.service.RuntimeHealth()
+	if err != nil {
+		t.Fatalf("RuntimeHealth() error = %v", err)
+	}
+	if got.Counts != (healthCountsResponse{
+		Credentials: 2 * (detailLimit + 1), Cooldown: detailLimit + 1, Blacklisted: detailLimit + 1,
+	}) {
+		t.Fatalf("counts = %#v", got.Counts)
+	}
+	if len(got.CooldownCredentials) != detailLimit || len(got.BlacklistedCredentials) != detailLimit ||
+		len(got.LowQuotaCredentials) != detailLimit+1 {
+		t.Fatalf(
+			"detail lengths = cooldown:%d blacklisted:%d low_quota:%d, want %d/%d/%d",
+			len(got.CooldownCredentials), len(got.BlacklistedCredentials), len(got.LowQuotaCredentials),
+			detailLimit, detailLimit, detailLimit+1,
+		)
 	}
 }
 
