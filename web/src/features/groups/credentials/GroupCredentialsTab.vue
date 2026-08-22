@@ -614,10 +614,10 @@ async function downloadAllCredentialFiles(): Promise<void> {
   setPending('batch', 'export', true)
   try {
     const result = await downloadAllCredentials(client, props.groupId)
-    downloadJSONFile(result.filename, result.credentials)
+    for (const file of result.files) downloadJSONFile(file.filename, file.credential)
     toast.show({
       message: t('group.credentials.subscription.bulk.exportSucceeded', {
-        count: n(result.credentials.length),
+        count: n(result.files.length),
       }),
       tone: 'success',
     })
@@ -636,47 +636,6 @@ function openBulkImportPicker(): void {
   bulkImportInput.value?.click()
 }
 
-function isCredentialJSONObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-async function prepareBulkImportFiles(
-  selected: readonly File[],
-): Promise<{ files: File[]; failed: number }> {
-  const files: File[] = []
-  let failed = 0
-  for (const file of selected) {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(await file.text())
-    } catch {
-      files.push(file)
-      continue
-    }
-    if (!Array.isArray(parsed)) {
-      files.push(file)
-      continue
-    }
-    if (parsed.length === 0) {
-      failed += 1
-      continue
-    }
-    const stem = file.name.replace(/\.json$/iu, '') || props.channelId
-    parsed.forEach((credential, index) => {
-      if (!isCredentialJSONObject(credential)) {
-        failed += 1
-        return
-      }
-      files.push(
-        new File([`${JSON.stringify(credential)}\n`], `${stem}-${index + 1}.json`, {
-          type: 'application/json',
-        }),
-      )
-    })
-  }
-  return { files, failed }
-}
-
 async function handleBulkImportFiles(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const selected = Array.from(input.files ?? [])
@@ -687,9 +646,7 @@ async function handleBulkImportFiles(event: Event): Promise<void> {
   let succeeded = 0
   let failed = 0
   try {
-    const prepared = await prepareBulkImportFiles(selected)
-    failed += prepared.failed
-    for (const file of prepared.files) {
+    for (const file of selected) {
       let stage: CredentialStage | undefined
       try {
         stage = await importCredentialStage(client, props.channelId, file)

@@ -277,8 +277,7 @@ export interface CredentialDownloadDto {
 }
 
 export interface CredentialDownloadAllDto {
-  filename: string
-  credentials: Record<string, unknown>[]
+  files: CredentialDownloadDto[]
 }
 
 export interface CredentialSummaryDto {

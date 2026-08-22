@@ -110,7 +110,7 @@ const credentialItemFields = [
 ] as const
 const credentialDetailFields = ['credential', 'observation'] as const
 const credentialDownloadFields = ['filename', 'credential'] as const
-const credentialDownloadAllFields = ['filename', 'credentials'] as const
+const credentialDownloadAllFields = ['files'] as const
 const credentialDailyUsageFields = [
   'window_seconds',
   'success_count',
@@ -778,11 +778,8 @@ function projectCredentialDownload(value: unknown): CredentialDownloadDto {
 function projectCredentialDownloadAll(value: unknown): CredentialDownloadAllDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, credentialDownloadAllFields)
-  const filename = projectString(record.filename)
-  if (!/^[a-z0-9][a-z0-9._-]{0,191}\.json$/u.test(filename)) invalidResponse()
   return {
-    filename,
-    credentials: projectArray(record.credentials, projectCredentialJSON),
+    files: projectArray(record.files, projectCredentialDownload),
   }
 }
 

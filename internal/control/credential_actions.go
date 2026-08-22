@@ -20,11 +20,10 @@ type CredentialDownloadResult struct {
 	Credential json.RawMessage `json:"credential"`
 }
 
-// CredentialDownloadAllResult contains every canonical subscription
+// CredentialDownloadAllResult contains one downloadable file per subscription
 // credential in a Group, ordered by credential ID.
 type CredentialDownloadAllResult struct {
-	Filename    string            `json:"filename"`
-	Credentials []json.RawMessage `json:"credentials"`
+	Files []CredentialDownloadResult `json:"files"`
 }
 
 // RefreshGroupCredential forces only the subscription token refresh. Account
@@ -110,20 +109,22 @@ func (s *Service) DownloadAllGroupCredentials(
 		}
 		return CredentialDownloadAllResult{}, app_errors.ParseDBError(err)
 	}
-	credentials := make([]json.RawMessage, 0, len(rows))
+	files := make([]CredentialDownloadResult, 0, len(rows))
 	for _, row := range rows {
-		canonical, _, err := s.decodeCredential(group, row)
+		canonical, email, err := s.decodeCredential(group, row)
 		if err != nil {
 			return CredentialDownloadAllResult{}, err
 		}
 		if len(canonical) == 0 {
 			return CredentialDownloadAllResult{}, app_errors.ErrInternalServer
 		}
-		credentials = append(credentials, json.RawMessage(append([]byte(nil), canonical...)))
+		files = append(files, CredentialDownloadResult{
+			Filename:   subscriptionCredentialFilename(group.ChannelID, email, row.ID),
+			Credential: json.RawMessage(append([]byte(nil), canonical...)),
+		})
 	}
 	return CredentialDownloadAllResult{
-		Filename:    subscriptionCredentialBundleFilename(group.ChannelID, groupID),
-		Credentials: credentials,
+		Files: files,
 	}, nil
 }
 
@@ -169,14 +170,6 @@ func subscriptionCredentialFilename(channelID, email string, credentialID uint) 
 		accountPart = fmt.Sprintf("credential-%d", credentialID)
 	}
 	return channelPart + "-" + accountPart + ".json"
-}
-
-func subscriptionCredentialBundleFilename(channelID string, groupID uint) string {
-	channelPart := sanitizeCredentialFilenamePart(channelID)
-	if channelPart == "" {
-		channelPart = "subscription"
-	}
-	return fmt.Sprintf("%s-group-%d-accounts.json", channelPart, groupID)
 }
 
 func sanitizeCredentialFilenamePart(value string) string {
