@@ -1173,6 +1173,7 @@ function runMenuAction(
 
 <style scoped>
 .subscription-account {
+  container-type: inline-size;
   position: relative;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-action) 24%, var(--color-border-subtle));
@@ -1853,6 +1854,18 @@ function runMenuAction(
   gap: var(--space-3);
   color: var(--color-danger);
   font-size: var(--text-sm);
+}
+/* 双列列表接近最小卡片宽度时，操作不能被右侧裁切；同步时间与操作组整体换行。 */
+@container (max-width: 480px) {
+  .subscription-account__top > .subscription-account__top-row:first-child {
+    flex-wrap: wrap;
+  }
+  .subscription-account__top
+    > .subscription-account__top-row:first-child
+    .subscription-account__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 @keyframes subscription-account-spin {
   to {
