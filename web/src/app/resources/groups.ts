@@ -18,11 +18,12 @@ import type {
   GroupOptionDto,
   GroupSettingsDto,
   GroupSummaryDto,
+  ProxyMutation,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeGroupCollectionFilters } from '@/app/query-keys'
-import { projectModelCandidate, type ModelCandidate } from '@/app/resources/providers'
 import { projectChannelID } from '@/app/resources/channels'
+import { projectModelCandidate, type ModelCandidate } from '@/app/resources/providers'
 
 import {
   assertNoSecretLikeFields,
@@ -34,6 +35,7 @@ import {
   projectSafeInteger,
   projectString,
 } from './projector'
+import { projectProxyView } from './proxy'
 
 const groupSummaryFields = [
   'id',
@@ -56,6 +58,7 @@ const groupSettingsFields = [
   'weight_manual',
   'overrides',
   'effective',
+  'proxy',
 ] as const
 const groupModelsFields = ['items', 'total', 'pending'] as const
 const groupModelItemFields = [
@@ -137,6 +140,7 @@ export type GroupSettingsUpdateRequest = Partial<{
   enabled: boolean
   weight_manual: number | null
   overrides: GroupRuntimeConfigDto
+  proxy: ProxyMutation
 }>
 
 export interface AccessKeyReferenceDto {
@@ -335,6 +339,7 @@ export function projectGroupSettings(value: unknown): GroupSettingsDto {
         : projectSafeInteger(record.weight_manual, { minimum: 1, maximum: 100 }),
     overrides: projectRuntimeConfig(record.overrides, false),
     effective: projectRuntimeConfig(record.effective, true),
+    proxy: projectProxyView(record.proxy),
   }
 }
 

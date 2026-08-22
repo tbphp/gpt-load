@@ -10,7 +10,9 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -28,15 +30,17 @@ type GroupSettingsResponse struct {
 	WeightManual    *int                         `json:"weight_manual"`
 	Overrides       config.Settings              `json:"overrides"`
 	Effective       GroupEffectiveConfigResponse `json:"effective"`
+	Proxy           outboundproxy.View           `json:"proxy"`
 }
 
 type GroupSettingsUpdateRequest struct {
-	Name            optionalField[string]          `json:"name"`
-	Params          optionalField[json.RawMessage] `json:"params"`
-	ValidationModel optionalField[string]          `json:"validation_model"`
-	Enabled         optionalField[bool]            `json:"enabled"`
-	WeightManual    optionalField[int]             `json:"weight_manual"`
-	Overrides       optionalField[config.Settings] `json:"overrides"`
+	Name            optionalField[string]               `json:"name"`
+	Params          optionalField[json.RawMessage]      `json:"params"`
+	ValidationModel optionalField[string]               `json:"validation_model"`
+	Enabled         optionalField[bool]                 `json:"enabled"`
+	WeightManual    optionalField[int]                  `json:"weight_manual"`
+	Overrides       optionalField[config.Settings]      `json:"overrides"`
+	Proxy           optionalField[outboundproxy.Config] `json:"proxy"`
 }
 
 type normalizedGroupSettingsUpdate struct {
@@ -50,6 +54,8 @@ type normalizedGroupSettingsUpdate struct {
 	weightManualSet    bool
 	encodedOverrides   models.JSON
 	overridesSet       bool
+	proxyConfig        *string
+	proxySet           bool
 }
 
 func (s *Service) GetGroupSettings(ctx context.Context, groupID uint) (GroupSettingsResponse, error) {
@@ -70,7 +76,12 @@ func (s *Service) GetGroupSettings(ctx context.Context, groupID uint) (GroupSett
 			"runtime snapshot unavailable: %w", app_errors.ErrInternalServer,
 		)
 	}
-	return groupSettingsResponse(group, snapshot.Settings, s.channelRegistry)
+	response, err := groupSettingsResponse(group, snapshot.Settings, s.channelRegistry)
+	if err != nil {
+		return GroupSettingsResponse{}, err
+	}
+	response.Proxy, err = s.groupProxyView(ctx, s.db, group)
+	return response, err
 }
 
 func groupSettingsResponse(
@@ -128,6 +139,7 @@ func cloneString(value *string) *string {
 
 func normalizeGroupSettingsUpdate(
 	request GroupSettingsUpdateRequest,
+	encryptionService encryption.Service,
 ) (normalizedGroupSettingsUpdate, error) {
 	for _, nullable := range []bool{
 		request.Name.Set && request.Name.Null,
@@ -140,7 +152,7 @@ func normalizeGroupSettingsUpdate(
 		}
 	}
 	if !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
-		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set {
+		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
 	}
 
@@ -188,6 +200,12 @@ func normalizeGroupSettingsUpdate(
 		result.encodedOverrides = encoded
 		result.overridesSet = true
 	}
+	proxyConfig, proxySet, err := normalizeProxyOverride(request.Proxy, encryptionService)
+	if err != nil {
+		return normalizedGroupSettingsUpdate{}, err
+	}
+	result.proxyConfig = proxyConfig
+	result.proxySet = proxySet
 	return result, nil
 }
 
@@ -199,7 +217,7 @@ func (s *Service) UpdateGroupSettings(
 	if groupID == 0 {
 		return GroupSettingsResponse{}, app_errors.ErrBadRequest
 	}
-	normalized, err := normalizeGroupSettingsUpdate(request)
+	normalized, err := normalizeGroupSettingsUpdate(request, s.encryption)
 	if err != nil {
 		return GroupSettingsResponse{}, err
 	}
@@ -216,7 +234,7 @@ func (s *Service) UpdateGroupSettings(
 			return fmt.Errorf("validate existing group %d: %w", groupID, app_errors.ErrInternalServer)
 		}
 
-		updates := make(map[string]any, 6)
+		updates := make(map[string]any, 7)
 		if normalized.name != nil {
 			group.Name = *normalized.name
 			updates["name"] = group.Name
@@ -253,6 +271,10 @@ func (s *Service) UpdateGroupSettings(
 			group.Overrides = normalized.encodedOverrides
 			updates["overrides"] = group.Overrides
 		}
+		if normalized.proxySet {
+			group.ProxyConfig = normalized.proxyConfig
+			updates["proxy_config"] = normalized.proxyConfig
+		}
 		if err := validateGroupInjectUsageOptionsConstraint(group, s.channelRegistry); err != nil {
 			return err
 		}
@@ -265,7 +287,7 @@ func (s *Service) UpdateGroupSettings(
 			}
 		}
 		if targetChanged {
-			targetEntries, err = stateloader.BuildGroupCredentialEntries(ctx, tx, groupID)
+			targetEntries, err = stateloader.BuildGroupCredentialEntriesWithProxy(ctx, tx, groupID, s.encryption)
 			if err != nil {
 				return err
 			}
@@ -287,7 +309,12 @@ func (s *Service) UpdateGroupSettings(
 	if err != nil {
 		return GroupSettingsResponse{}, withControlOperationContext(err, groupID, 0)
 	}
-	return groupSettingsResponse(committed, snapshot.Settings, s.channelRegistry)
+	response, err := groupSettingsResponse(committed, snapshot.Settings, s.channelRegistry)
+	if err != nil {
+		return GroupSettingsResponse{}, err
+	}
+	response.Proxy, err = s.groupProxyView(ctx, s.db, committed)
+	return response, err
 }
 
 func validateGroupInjectUsageOptionsConstraint(group models.Group, registry *channel.Registry) error {

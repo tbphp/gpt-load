@@ -97,8 +97,8 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		}
 	}
 	for table, columns := range map[string][]string{
-		"groups":                  {"connection_type"},
-		"credentials":             {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code"},
+		"groups":                  {"connection_type", "proxy_config"},
+		"credentials":             {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code", "proxy_config"},
 		"request_log_attempts":    {"upstream_protocol"},
 		"model_prices":            {"mode_price_schedules"},
 		"credential_observations": {"last_auth_refresh_secret_version"},

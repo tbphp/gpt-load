@@ -18,6 +18,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -153,8 +154,9 @@ func (executor *antigravityHTTPExecutor) ExecuteCanonical(
 	request = prepareAntigravityExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderAntigravity)
-	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, observation)
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, request.ProxyURL, observation)
 	if err != nil {
 		return ExecuteResponse{}, err
 	}
@@ -185,7 +187,8 @@ func (executor *antigravityHTTPExecutor) CountTokensCanonical(
 	request = prepareAntigravityExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
-	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, nil)
+	auth.ProxyURL = request.ProxyURL
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, request.ProxyURL, nil)
 	if err != nil {
 		return ExecuteResponse{}, err
 	}
@@ -215,8 +218,9 @@ func (executor *antigravityHTTPExecutor) ExecuteStreamCanonical(
 	request = prepareAntigravityExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderAntigravity)
-	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, observation)
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, request.ProxyURL, observation)
 	if err != nil {
 		return nil, err
 	}
@@ -387,6 +391,7 @@ const antigravityExecutionTransportCacheCapacity = 8192
 type antigravityExecutionTransportKey struct {
 	credential string
 	baseURL    string
+	proxyURL   string
 }
 
 var antigravityExecutionTransports = helps.NewTransportCache[antigravityExecutionTransportKey](
@@ -406,6 +411,7 @@ func (executor *antigravityHTTPExecutor) executionContext(
 	ctx context.Context,
 	credentialID string,
 	accountID string,
+	proxyURL string,
 	observation *executionObservation,
 ) (context.Context, error) {
 	ctx = antigravityExecutionContext{Context: ctx}
@@ -416,13 +422,23 @@ func (executor *antigravityHTTPExecutor) executionContext(
 	if credentialScope == "" {
 		credentialScope = "anonymous"
 	}
-	key := antigravityExecutionTransportKey{credential: credentialScope, baseURL: executor.baseURL}
+	key := antigravityExecutionTransportKey{
+		credential: credentialScope,
+		baseURL:    executor.baseURL,
+		proxyURL:   strings.TrimSpace(proxyURL),
+	}
 	transport, err := antigravityExecutionTransports.Get(key, func() (*http.Transport, error) {
-		base, ok := http.DefaultTransport.(*http.Transport)
-		if !ok || base == nil {
-			base = &http.Transport{}
+		transport, _, proxyErr := proxyutil.BuildHTTPTransport(proxyURL)
+		if proxyErr != nil {
+			return nil, proxyErr
 		}
-		transport := base.Clone()
+		if transport == nil {
+			base, ok := http.DefaultTransport.(*http.Transport)
+			if !ok || base == nil {
+				base = &http.Transport{}
+			}
+			transport = base.Clone()
+		}
 		transport.ForceAttemptHTTP2 = false
 		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 		if transport.TLSClientConfig == nil {

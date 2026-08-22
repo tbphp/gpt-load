@@ -56,6 +56,11 @@ func (s *Service) ConsumeCredentialResetCredit(
 	if err != nil {
 		return ResetCreditConsumeResponse{}, err
 	}
+	network, err := s.credentialNetworkContext(ctx, s.db, group, credential)
+	if err != nil {
+		return ResetCreditConsumeResponse{}, err
+	}
+	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	if replay, found, replayErr := s.replayResetCreditOperationIfExists(
 		ctx,
 		groupID,

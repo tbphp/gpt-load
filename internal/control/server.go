@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/i18n"
@@ -97,7 +98,8 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 }
 
 type credentialAuthorizationRequest struct {
-	ChannelID string `json:"channel_id"`
+	ChannelID string                `json:"channel_id"`
+	Proxy     *outboundproxy.Config `json:"proxy"`
 }
 
 func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
@@ -106,7 +108,9 @@ func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
 		writeServiceError(c, "begin_credential_authorization", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.BeginCredentialAuthorization(c.Request.Context(), channel.ID(request.ChannelID))
+	result, err := s.service.BeginCredentialAuthorization(
+		c.Request.Context(), channel.ID(request.ChannelID), request.Proxy,
+	)
 	if err != nil {
 		writeServiceError(c, "begin_credential_authorization", err)
 		return
@@ -167,8 +171,10 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 	var raw []byte
 	defer func() { clear(raw) }()
 	var channelID channel.ID
+	var proxyConfig *outboundproxy.Config
 	fileCount := 0
 	channelCount := 0
+	proxyCount := 0
 	for {
 		part, nextErr := reader.NextPart()
 		if errors.Is(nextErr, io.EOF) {
@@ -201,6 +207,20 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 				return
 			}
+		case part.FormName() == "proxy" && part.FileName() == "":
+			proxyCount++
+			value, readErr := io.ReadAll(io.LimitReader(part, 16*1024+1))
+			_ = part.Close()
+			if readErr != nil || len(value) > 16*1024 || proxyCount != 1 {
+				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				return
+			}
+			config, decodeErr := outboundproxy.Decode(string(value))
+			if decodeErr != nil || config.Mode == outboundproxy.ModeInherit {
+				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				return
+			}
+			proxyConfig = &config
 		default:
 			_ = part.Close()
 			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
@@ -211,7 +231,7 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 		writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 		return
 	}
-	result, err := s.service.ImportCredentialStage(c.Request.Context(), channelID, raw)
+	result, err := s.service.ImportCredentialStage(c.Request.Context(), channelID, raw, proxyConfig)
 	if err != nil {
 		writeServiceError(c, "import_credential_stage", err)
 		return

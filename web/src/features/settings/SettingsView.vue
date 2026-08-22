@@ -5,10 +5,12 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import type { ProxyMutation } from '@/api/control/types'
 import { useStableLoading } from '@/app/loading-state'
 import {
   runtimeSettingKeys,
   settingsQueryOptions,
+  updateSettings,
   type RuntimeSettingKey,
 } from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -59,6 +61,7 @@ const settingsRefreshing = computed(
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
+const proxyPending = ref(false)
 const {
   value: savedFeedback,
   clear: clearSavedFeedback,
@@ -100,6 +103,7 @@ const { activeSection, selectSection } = useSectionNavigation({
   topOffset: 76,
 })
 const headerRulesValid = ref(true)
+const pageOperationLocked = computed(() => operationLocked.value || proxyPending.value)
 const dirty = computed(() => controllerDirty.value || headerRulesInvalidEdits.value)
 const valid = computed(
   () =>
@@ -154,7 +158,7 @@ const deferredExternalUpdate = computed(
 )
 
 useUnsavedChanges(dirty, {
-  blocked: operationLocked,
+  blocked: pageOperationLocked,
   allowRouteUpdate: (to, from) => to.name === from.name,
 })
 
@@ -260,6 +264,23 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
   target?.focus()
 }
 
+async function saveGlobalProxy(value: ProxyMutation): Promise<void> {
+  const current = resource.value
+  if (!current || pageOperationLocked.value) throw new Error('SETTINGS_PROXY_UNAVAILABLE')
+
+  proxyPending.value = true
+  try {
+    const next = await updateSettings(client, { proxy_config: value }, current.settings_etag)
+    queryClient.setQueryData(controlQueryKeys.settings(locale.value), next)
+    await queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.all,
+      refetchType: 'none',
+    })
+  } finally {
+    proxyPending.value = false
+  }
+}
+
 onBeforeUnmount(() => {
   queryClient.removeQueries({ queryKey: controlQueryKeys.settingsAll })
 })
@@ -333,8 +354,10 @@ onBeforeUnmount(() => {
             <RuntimeSettingsSection
               :base="base"
               :draft="draft"
-              :disabled="operationLocked"
+              :disabled="pageOperationLocked"
               :conflicts="conflicts"
+              :proxy="resource?.settings.values.proxy_config ?? base.settings.values.proxy_config"
+              :save-proxy="saveGlobalProxy"
               @change="updateDraft"
               @choose-mine="chooseMine"
               @choose-latest="chooseLatest"
@@ -342,7 +365,7 @@ onBeforeUnmount(() => {
             <AffinitySettingsSection
               :base="base"
               :draft="draft"
-              :disabled="operationLocked"
+              :disabled="pageOperationLocked"
               :conflicts="conflicts"
               @change="updateDraft"
               @choose-mine="chooseMine"
@@ -351,7 +374,7 @@ onBeforeUnmount(() => {
             <GlobalHeaderRulesSection
               :base="base"
               :draft="draft"
-              :disabled="operationLocked"
+              :disabled="pageOperationLocked"
               :conflicts="conflicts"
               :reset-key="headerRulesEditorRevision"
               @change="updateDraft"
@@ -363,7 +386,7 @@ onBeforeUnmount(() => {
             <LogsMaintenanceSection
               :base="base"
               :draft="draft"
-              :disabled="operationLocked"
+              :disabled="pageOperationLocked"
               :conflicts="conflicts"
               @change="updateDraft"
               @choose-mine="chooseMine"
@@ -396,7 +419,7 @@ onBeforeUnmount(() => {
         appearance="ledger"
         always-visible
         :dirty="dirty"
-        :pending="pending"
+        :pending="pending || proxyPending"
         :status="
           failed
             ? 'error'
@@ -448,7 +471,7 @@ onBeforeUnmount(() => {
           <AppButton
             variant="ghost"
             size="sm"
-            :disabled="disabled || !dirty || operationLocked"
+            :disabled="disabled || !dirty || pageOperationLocked"
             @click="requestDiscard"
           >
             {{ t('settings.discard') }}
@@ -458,7 +481,7 @@ onBeforeUnmount(() => {
           <AppButton
             size="sm"
             :busy="pending"
-            :disabled="disabled || !dirty || !valid || operationLocked"
+            :disabled="disabled || !dirty || !valid || pageOperationLocked"
             @click="saveAll"
           >
             {{ t('settings.save') }}

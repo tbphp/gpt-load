@@ -224,6 +224,13 @@ func (s *Service) mapGroupDiscoveryTarget(
 			),
 			apiKey: apiKey,
 		})
+		network, networkErr := s.credentialNetworkContext(ctx, s.db, rows.group, credentialRow)
+		if networkErr != nil {
+			clear(canonical)
+			return discoveryTarget{}, networkErr
+		}
+		discoveryCredentials[len(discoveryCredentials)-1].proxy = network.Proxy
+		discoveryCredentials[len(discoveryCredentials)-1].proxyFingerprint = network.Fingerprint
 		clear(canonical)
 	}
 	if len(discoveryCredentials) == 0 && preparationErr != nil {

@@ -588,7 +588,9 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 			Request:    input.Group.Timeouts.Request,
 			StreamIdle: input.Group.Timeouts.StreamIdle,
 		},
-		Credential: input.Credential,
+		Credential:       input.Credential,
+		Proxy:            input.Proxy,
+		ProxyFingerprint: input.ProxyFingerprint,
 	})
 	if err := spec.Validate(); err != nil {
 		return execution.AttemptSpec{}, err

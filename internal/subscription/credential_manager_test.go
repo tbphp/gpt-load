@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -129,6 +130,21 @@ func TestCredentialManagerSerializesConcurrentRefresh(t *testing.T) {
 
 func TestCredentialManagerReconcilesRegistryAfterIncrementalPublicationMiss(t *testing.T) {
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
+	encodedProxy, err := outboundproxy.Encode(outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "socks5://proxy-user:proxy-password@127.0.0.1:1080",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryptedProxy, err := keyService.Encrypt(encodedProxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.Credential{}).Where("id = ?", row.ID).
+		Update("proxy_config", encryptedProxy).Error; err != nil {
+		t.Fatal(err)
+	}
 	manager.refresh = adaptCodexRefresh(refreshedCredential)
 	manager.replaceSecret = func(uint, uint64, uint64, string, string) bool { return false }
 
@@ -149,7 +165,9 @@ func TestCredentialManagerReconcilesRegistryAfterIncrementalPublicationMiss(t *t
 		t.Fatalf("durable credential = %#v, %v", durable, err)
 	}
 	ref, ok := registry.CredentialRef(row.ID)
-	if !ok || ref.Version != row.SecretVersion+1 || ref.Fingerprint != stored.Fingerprint || ref.EncryptedValue != stored.Data {
+	if !ok || ref.Version != row.SecretVersion+1 || ref.Fingerprint != stored.Fingerprint ||
+		ref.EncryptedValue != stored.Data || ref.EncryptedProxy != encryptedProxy ||
+		ref.ProxyFingerprint != keyService.Hash(encodedProxy) {
 		t.Fatalf("registry ref = %#v, ok = %t", ref, ok)
 	}
 }

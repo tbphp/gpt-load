@@ -19,8 +19,49 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
 )
+
+func TestEffectiveProviderConfigMapsHTTPAndSOCKSAttemptProxy(t *testing.T) {
+	t.Parallel()
+
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		endpoint string
+		wantType schemas.ProxyType
+	}{
+		{name: "http", endpoint: "http://user:password@proxy.example.com:8080", wantType: schemas.HTTPProxy},
+		{name: "socks5", endpoint: "socks5://user:password@proxy.example.com:1080", wantType: schemas.Socks5Proxy},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := execution.AttemptSpec{Proxy: outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: test.endpoint},
+				Source: outboundproxy.SourceCredential,
+			}}
+			config, err := buildEffectiveProviderConfigForAttempt(resolved, spec, true)
+			if err != nil {
+				t.Fatalf("buildEffectiveProviderConfigForAttempt() error = %v", err)
+			}
+			proxy := config.providerConfig.ProxyConfig
+			if proxy == nil || proxy.Type != test.wantType || proxy.URL.GetValue() != strings.Split(test.endpoint, "//")[0]+"//proxy.example.com:"+map[string]string{"http": "8080", "socks5": "1080"}[test.name] {
+				t.Fatalf("ProxyConfig = %#v", proxy)
+			}
+			if proxy.Username.GetValue() != "user" || proxy.Password.GetValue() != "password" {
+				t.Fatalf("ProxyConfig auth = %#v/%#v", proxy.Username, proxy.Password)
+			}
+			if config.baseFingerprint == "" || config.baseFingerprint == config.fingerprint {
+				t.Fatalf("proxy config partition = base %q effective %q", config.baseFingerprint, config.fingerprint)
+			}
+		})
+	}
+}
 
 func TestEffectiveProviderConfigUsesSDKProviderAndCanonicalDefaultBaseURL(t *testing.T) {
 	registry := channel.NewRegistry()

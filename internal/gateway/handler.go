@@ -746,7 +746,9 @@ func (handler *Handler) executeAttempts(
 			selection = refreshRetry.selection
 			currentRef, exists := handler.registry.CredentialRef(selection.CredentialID)
 			if !exists || currentRef.GroupID != selection.GroupID ||
-				currentRef.IdentityGeneration != refreshRetry.ref.IdentityGeneration {
+				currentRef.IdentityGeneration != refreshRetry.ref.IdentityGeneration ||
+				currentRef.EncryptedProxy != refreshRetry.ref.EncryptedProxy ||
+				currentRef.ProxyFingerprint != refreshRetry.ref.ProxyFingerprint {
 				refreshRetry = nil
 				continue
 			}
@@ -783,6 +785,14 @@ func (handler *Handler) executeAttempts(
 			selection.ChannelID,
 			selection.Group.ConnectionType,
 			decryptedCredential,
+		)
+		if err != nil {
+			continue
+		}
+		effectiveProxy, proxyFingerprint, err := resolveAttemptProxy(
+			handler.encryption,
+			selection.Group.Proxy,
+			ref,
 		)
 		if err != nil {
 			continue
@@ -846,6 +856,8 @@ func (handler *Handler) executeAttempts(
 				ref.IdentityGeneration,
 				normalizedCredential.payload,
 			),
+			Proxy:                  effectiveProxy,
+			ProxyFingerprint:       proxyFingerprint,
 			ForceCredentialRefresh: forceCredentialRefresh,
 			ContinuityKey:          requestAffinity.continuityKey,
 			OnFirstResponse: func() {

@@ -21,6 +21,7 @@ import type {
   CredentialCollectionFilters,
   CredentialItemDto,
   CredentialObservationDto,
+  ProxyMutation,
   CredentialStatus,
 } from '@/api/control/types'
 import { useCollectionLoading } from '@/app/loading-state'
@@ -1068,6 +1069,23 @@ async function mutateItem(
   }
 }
 
+async function saveCredentialProxy(item: CredentialItemDto, value: ProxyMutation): Promise<void> {
+  if (batchBusy.value || pending(item.credential_id)) {
+    throw new Error('CREDENTIAL_PROXY_UNAVAILABLE')
+  }
+
+  feedback.value = ''
+  setPending(item.credential_id, 'proxy', true)
+  try {
+    const result = await updateCredential(client, props.groupId, item.credential_id, {
+      proxy: value,
+    })
+    await reconcileItem(result, false)
+  } finally {
+    setPending(item.credential_id, 'proxy', false)
+  }
+}
+
 async function confirmDelete(): Promise<void> {
   const target = deleteTarget.value
   if (!target || dialogBusy.value || batchBusy.value) return
@@ -1406,6 +1424,7 @@ async function runBatch(
               :channel-icon="channelDescriptor?.icon"
               :channel-mark="channelDescriptor?.mark"
               :capabilities="channelCapabilities"
+              :save-proxy="(value) => saveCredentialProxy(item, value)"
               @update:selected="setSelected(item.credential_id, $event)"
               @toggle="mutateItem($event, 'toggle')"
               @restore="mutateItem($event, 'restore')"
@@ -1450,6 +1469,7 @@ async function runBatch(
             :expanded="credentialExpanded(item.credential_id)"
             :weight-editor-open="routeState.weightCredentialID === item.credential_id"
             :resolve-copy-value="resolveCopyValue"
+            :save-proxy="(value) => saveCredentialProxy(item, value)"
             @update:selected="setSelected(item.credential_id, $event)"
             @update:expanded="setExpanded(item.credential_id, $event)"
             @update:weight-editor-open="setWeightEditor(item.credential_id, $event)"

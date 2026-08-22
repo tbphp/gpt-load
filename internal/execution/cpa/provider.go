@@ -7,6 +7,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
 )
 
@@ -55,6 +56,34 @@ type providerRequest struct {
 	// ContinuityKey is a private, tenant-scoped key used only by providers
 	// whose tool/thinking protocol needs an isolated multi-request replay lane.
 	ContinuityKey string
+	ProxyURL      string
+}
+
+func proxyURLForAttempt(effective outboundproxy.Effective) (string, error) {
+	if effective.Config.Mode == "" {
+		return "", nil
+	}
+	effective, err := outboundproxy.NormalizeEffective(effective)
+	if err != nil {
+		return "", err
+	}
+	switch effective.Config.Mode {
+	case outboundproxy.ModeDirect:
+		return "direct", nil
+	case outboundproxy.ModeEnvironment:
+		return "", nil
+	case outboundproxy.ModeCustom:
+		switch {
+		case len(effective.Config.URL) >= len("http://") && effective.Config.URL[:len("http://")] == "http://",
+			len(effective.Config.URL) >= len("https://") && effective.Config.URL[:len("https://")] == "https://",
+			len(effective.Config.URL) >= len("socks5://") && effective.Config.URL[:len("socks5://")] == "socks5://":
+			return effective.Config.URL, nil
+		default:
+			return "", outboundproxy.ErrInvalidConfig
+		}
+	default:
+		return "", outboundproxy.ErrInvalidConfig
+	}
 }
 
 type providerResponse struct {

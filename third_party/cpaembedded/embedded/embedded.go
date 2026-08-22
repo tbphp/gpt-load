@@ -149,6 +149,7 @@ type ExecuteRequest struct {
 	Headers         http.Header
 	OriginalRequest []byte
 	ContinuityKey   string
+	ProxyURL        string
 }
 
 type ExecuteResponse struct {
@@ -371,6 +372,7 @@ func (e *CodexHTTPExecutor) Identifier() string { return ProviderCodex }
 func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
@@ -390,6 +392,7 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
@@ -439,6 +442,7 @@ func normalizeCodexResponsesTokenCount(payload []byte) ([]byte, error) {
 func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (*ExecuteStreamResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
@@ -495,7 +499,7 @@ func (e *CodexHTTPExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.
 }
 
 // ListCodexModels performs exactly one account-bound models request.
-func ListCodexModels(ctx context.Context, credential CodexCredential, baseURL string) ([]Model, error) {
+func ListCodexModels(ctx context.Context, credential CodexCredential, baseURL string, options ...Options) ([]Model, error) {
 	if err := validateCredential(credential); err != nil {
 		return nil, err
 	}
@@ -514,7 +518,7 @@ func ListCodexModels(ctx context.Context, credential CodexCredential, baseURL st
 		return nil, err
 	}
 	applyCodexReadHeaders(req, credential)
-	resp, err := clientWithoutRedirects(nil).Do(req)
+	resp, err := clientWithoutRedirects(codexOptionsHTTPClient(options)).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -560,20 +564,20 @@ func ListCodexModels(ctx context.Context, credential CodexCredential, baseURL st
 
 // ObserveCodexAccount performs exactly one fixed usage request. The response
 // schema remains opaque here so GPT-Load can version and normalize it itself.
-func ObserveCodexAccount(ctx context.Context, credential CodexCredential, baseURL string) (AccountObservation, error) {
+func ObserveCodexAccount(ctx context.Context, credential CodexCredential, baseURL string, options ...Options) (AccountObservation, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultCodexAPIBase
 	}
-	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/usage", nil, "usage")
+	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/usage", nil, "usage", codexOptionsHTTPClient(options))
 }
 
 // ObserveCodexResetCredits fetches the reset-credit detail endpoint without
 // interpreting its evolving response schema.
-func ObserveCodexResetCredits(ctx context.Context, credential CodexCredential, baseURL string) (AccountObservation, error) {
+func ObserveCodexResetCredits(ctx context.Context, credential CodexCredential, baseURL string, options ...Options) (AccountObservation, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultCodexAPIBase
 	}
-	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/rate-limit-reset-credits", nil, "reset credits")
+	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/rate-limit-reset-credits", nil, "reset credits", codexOptionsHTTPClient(options))
 }
 
 // ConsumeCodexResetCredit consumes the next available reset credit. GPT-Load
@@ -584,6 +588,7 @@ func ConsumeCodexResetCredit(
 	credential CodexCredential,
 	baseURL string,
 	redeemRequestID string,
+	options ...Options,
 ) (AccountObservation, error) {
 	redeemRequestID = strings.TrimSpace(redeemRequestID)
 	if redeemRequestID == "" || len(redeemRequestID) > 128 {
@@ -603,7 +608,15 @@ func ConsumeCodexResetCredit(
 		strings.TrimRight(baseURL, "/")+"/wham/rate-limit-reset-credits/consume",
 		payload,
 		"reset credit consume",
+		codexOptionsHTTPClient(options),
 	)
+}
+
+func codexOptionsHTTPClient(options []Options) *http.Client {
+	if len(options) == 0 {
+		return nil
+	}
+	return options[0].HTTPClient
 }
 
 func requestCodexJSON(
@@ -613,6 +626,7 @@ func requestCodexJSON(
 	target string,
 	payload []byte,
 	operation string,
+	client *http.Client,
 ) (AccountObservation, error) {
 	if err := validateCredential(credential); err != nil {
 		return AccountObservation{}, err
@@ -629,7 +643,7 @@ func requestCodexJSON(
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := clientWithoutRedirects(nil).Do(req)
+	resp, err := clientWithoutRedirects(client).Do(req)
 	if err != nil {
 		return AccountObservation{}, err
 	}

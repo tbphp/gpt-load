@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sync"
 	"sync/atomic"
 
@@ -14,6 +15,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
 )
 
@@ -86,13 +88,14 @@ func buildEffectiveProviderConfigForAttempt(
 	allowPrivateNetwork bool,
 ) (effectiveProviderConfig, error) {
 	base, err := buildEffectiveProviderConfig(resolved, allowPrivateNetwork)
-	if err != nil || resolved.ProviderKind != channel.ProviderDeepSeek {
+	if err != nil {
 		return base, err
 	}
-	if spec.ClientProtocol != protocol.OpenAIResponses ||
+	if resolved.ProviderKind != channel.ProviderDeepSeek ||
+		spec.ClientProtocol != protocol.OpenAIResponses ||
 		(spec.Operation != execution.OperationResponsesCreate && spec.Operation != execution.OperationProbe) ||
 		channel.RouteMode(spec.RouteMode) != channel.RouteNative {
-		return base, nil
+		return applyAttemptProxy(base, spec.Proxy)
 	}
 
 	provider := customProviderKey(schemas.OpenAI, base.targetBaseURL)
@@ -104,7 +107,62 @@ func buildEffectiveProviderConfigForAttempt(
 	config.CustomProviderConfig.RequestPathOverrides[schemas.ResponsesRequest] = base.targetBaseURL + "/responses"
 	config.CustomProviderConfig.RequestPathOverrides[schemas.ResponsesStreamRequest] = base.targetBaseURL + "/responses"
 	config.CheckAndSetDefaults()
-	return newEffectiveProviderConfig(provider, base.targetBaseURL, true, config)
+	base, err = newEffectiveProviderConfig(provider, base.targetBaseURL, true, config)
+	if err != nil {
+		return effectiveProviderConfig{}, err
+	}
+	return applyAttemptProxy(base, spec.Proxy)
+}
+
+func applyAttemptProxy(
+	base effectiveProviderConfig,
+	effective outboundproxy.Effective,
+) (effectiveProviderConfig, error) {
+	effective, err := outboundproxy.NormalizeEffective(effective)
+	if err != nil {
+		return effectiveProviderConfig{}, fmt.Errorf("normalize attempt proxy: %w", err)
+	}
+	if effective.Config.Mode == outboundproxy.ModeDirect {
+		return base, nil
+	}
+	config := cloneProviderConfig(base.providerConfig)
+	proxy := &schemas.ProxyConfig{}
+	switch effective.Config.Mode {
+	case outboundproxy.ModeEnvironment:
+		proxy.Type = schemas.EnvProxy
+	case outboundproxy.ModeCustom:
+		endpoint, parseErr := url.Parse(effective.Config.URL)
+		if parseErr != nil || endpoint.Host == "" {
+			return effectiveProviderConfig{}, fmt.Errorf("normalize attempt proxy: invalid endpoint")
+		}
+		switch endpoint.Scheme {
+		case "http":
+			proxy.Type = schemas.HTTPProxy
+		case "socks5":
+			proxy.Type = schemas.Socks5Proxy
+		default:
+			return effectiveProviderConfig{}, fmt.Errorf("normalize attempt proxy: unsupported transport")
+		}
+		username, password := "", ""
+		if endpoint.User != nil {
+			username = endpoint.User.Username()
+			password, _ = endpoint.User.Password()
+		}
+		endpoint.User = nil
+		proxy.URL = schemas.NewSecretVar(endpoint.String())
+		proxy.Username = schemas.NewSecretVar(username)
+		proxy.Password = schemas.NewSecretVar(password)
+	default:
+		return effectiveProviderConfig{}, fmt.Errorf("normalize attempt proxy: unsupported mode")
+	}
+	config.ProxyConfig = proxy
+	partitioned, err := newEffectiveProviderConfig(base.provider, base.targetBaseURL, base.custom, config)
+	if err != nil {
+		return effectiveProviderConfig{}, err
+	}
+	partitioned.baseCanonical = append([]byte(nil), base.canonical...)
+	partitioned.baseFingerprint = base.fingerprint
+	return partitioned, nil
 }
 
 func buildDeepSeekResponsesConfig(
@@ -565,6 +623,12 @@ func partitionProviderRuntime(
 	config effectiveProviderConfig,
 	credential execution.CredentialSnapshot,
 ) (effectiveProviderConfig, error) {
+	activeBaseCanonical := config.baseCanonical
+	activeBaseFingerprint := config.baseFingerprint
+	if activeBaseFingerprint == "" {
+		activeBaseCanonical = config.canonical
+		activeBaseFingerprint = config.fingerprint
+	}
 	canonical, err := json.Marshal(struct {
 		Base               json.RawMessage `json:"base"`
 		CredentialID       uint            `json:"credential_id"`
@@ -578,8 +642,8 @@ func partitionProviderRuntime(
 		return effectiveProviderConfig{}, fmt.Errorf("encode provider runtime partition: %w", err)
 	}
 	digest := sha256.Sum256(canonical)
-	config.baseCanonical = append([]byte(nil), config.canonical...)
-	config.baseFingerprint = config.fingerprint
+	config.baseCanonical = append([]byte(nil), activeBaseCanonical...)
+	config.baseFingerprint = activeBaseFingerprint
 	config.credentialPartitionID = credential.ID
 	config.canonical = canonical
 	config.fingerprint = hex.EncodeToString(digest[:])

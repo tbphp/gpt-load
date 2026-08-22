@@ -83,7 +83,16 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	if err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
-	request := bridgeRequest(spec)
+	proxyURL, err := proxyURLForAttempt(spec.Proxy)
+	if err != nil {
+		return unaryNotSent(execution.ErrorKindInternal, "initialize subscription proxy", "", nil)
+	}
+	if spec.Proxy.Config.Mode != "" {
+		ctx = subscriptionruntime.WithNetworkContext(ctx, subscriptionruntime.NetworkContext{
+			Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint,
+		})
+	}
+	request := bridgeRequest(spec, proxyURL)
 	if validator, ok := provider.(providerRequestValidator); ok {
 		if err := validator.ValidateRequest(request); err != nil {
 			return unaryNotSent(
@@ -207,7 +216,16 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	if countTokensOperation(spec.Operation) {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "count tokens does not support streaming", "")
 	}
-	request := bridgeRequest(spec)
+	proxyURL, err := proxyURLForAttempt(spec.Proxy)
+	if err != nil {
+		return streamNotSent(execution.ErrorKindInternal, "initialize subscription proxy", "")
+	}
+	if spec.Proxy.Config.Mode != "" {
+		ctx = subscriptionruntime.WithNetworkContext(ctx, subscriptionruntime.NetworkContext{
+			Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint,
+		})
+	}
+	request := bridgeRequest(spec, proxyURL)
 	if validator, ok := provider.(providerRequestValidator); ok {
 		if err := validator.ValidateRequest(request); err != nil {
 			return streamNotSent(execution.ErrorKindInvalidRequest, "subscription request input is not supported", "unsupported_subscription_input")
@@ -393,12 +411,13 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, erro
 	return provider, nil
 }
 
-func bridgeRequest(spec execution.AttemptSpec) providerRequest {
+func bridgeRequest(spec execution.AttemptSpec, proxyURL string) providerRequest {
 	return providerRequest{
 		AttemptID: spec.AttemptID, Model: spec.UpstreamModel, Payload: append([]byte(nil), spec.Body...),
 		Format: formatFor(spec.ClientProtocol), Headers: spec.Header.Clone(),
 		OriginalRequest: append([]byte(nil), spec.Body...),
 		ContinuityKey:   spec.ContinuityKey,
+		ProxyURL:        proxyURL,
 	}
 }
 

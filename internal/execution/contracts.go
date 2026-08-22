@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
@@ -199,9 +200,11 @@ type AttemptSpec struct {
 	// thinking/tool continuity. It is never persisted, logged, or exposed.
 	ContinuityKey string `json:"-"`
 	// TargetConfig is non-secret configuration resolved by the channel registry.
-	TargetConfig json.RawMessage    `json:"target_config,omitempty"`
-	Timeouts     AttemptTimeouts    `json:"timeouts"`
-	Credential   CredentialSnapshot `json:"credential"`
+	TargetConfig     json.RawMessage         `json:"target_config,omitempty"`
+	Timeouts         AttemptTimeouts         `json:"timeouts"`
+	Credential       CredentialSnapshot      `json:"credential"`
+	Proxy            outboundproxy.Effective `json:"-"`
+	ProxyFingerprint string                  `json:"-"`
 }
 
 // NewAttemptSpec takes ownership of an independent clone of spec.

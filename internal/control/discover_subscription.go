@@ -19,6 +19,15 @@ func (s *Service) discoverSubscriptionStageModels(
 	channelID channel.ID,
 	stageID string,
 ) (ModelDiscoveryResult, error) {
+	stage, err := s.loadCredentialStage(ctx, strings.TrimSpace(stageID))
+	if err != nil {
+		return ModelDiscoveryResult{}, err
+	}
+	network, err := s.credentialStageNetworkContext(ctx, stage)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
+	}
+	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	credential, err := s.loadReadySubscriptionStageCredential(ctx, channelID, stageID)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
@@ -95,23 +104,29 @@ func (s *Service) discoverSubscriptionGroupModels(
 	var preparationErr error
 	attempted := false
 	for _, row := range rows.credentials {
-		credential, err := s.prepareStoredSubscriptionCredential(ctx, rows.group, row)
+		network, networkErr := s.credentialNetworkContext(ctx, s.db, rows.group, row)
+		if networkErr != nil {
+			preparationErr = networkErr
+			continue
+		}
+		attemptContext := subscriptionruntime.WithNetworkContext(ctx, network)
+		credential, err := s.prepareStoredSubscriptionCredential(attemptContext, rows.group, row)
 		if err != nil {
 			preparationErr = err
 			continue
 		}
 		attempted = true
-		result, err := s.discoverSubscriptionModelsForChannel(ctx, channel.ID(rows.group.ChannelID), credential)
+		result, err := s.discoverSubscriptionModelsForChannel(attemptContext, channel.ID(rows.group.ChannelID), credential)
 		if err == nil {
 			return result, nil
 		}
 		if subscriptionUpstreamHTTPStatus(err) == http.StatusUnauthorized {
-			credential, prepareErr := s.prepareStoredSubscriptionCredentialWithForce(ctx, rows.group, row, true)
+			credential, prepareErr := s.prepareStoredSubscriptionCredentialWithForce(attemptContext, rows.group, row, true)
 			if prepareErr != nil {
 				preparationErr = prepareErr
 				continue
 			}
-			result, err = s.discoverSubscriptionModelsForChannel(ctx, channel.ID(rows.group.ChannelID), credential)
+			result, err = s.discoverSubscriptionModelsForChannel(attemptContext, channel.ID(rows.group.ChannelID), credential)
 			if err == nil {
 				return result, nil
 			}
@@ -140,6 +155,13 @@ func (s *Service) prepareStoredSubscriptionCredentialWithForce(
 	row models.Credential,
 	forceRefresh bool,
 ) (subscriptionruntime.Credential, error) {
+	if _, frozen := subscriptionruntime.NetworkFromContext(ctx); !frozen {
+		network, err := s.credentialNetworkContext(ctx, s.db, group, row)
+		if err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
+		ctx = subscriptionruntime.WithNetworkContext(ctx, network)
+	}
 	switch row.AuthState {
 	case "", models.CredentialAuthStateReady:
 	case models.CredentialAuthStateReauthorizationRequired:

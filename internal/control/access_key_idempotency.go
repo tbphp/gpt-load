@@ -106,7 +106,9 @@ func (s *Service) CreateAccessKeyIdempotent(
 				return idempotentMutationResult{}, err
 			}
 			metadata.CostLimitRules = mapAccessKeyCostLimitRules(persistedCostLimitRules)
-			input, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
+			input, err := stateloader.BuildCompileInputWithProxy(
+				ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+			)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}

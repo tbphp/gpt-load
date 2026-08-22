@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"gpt-load/internal/outboundproxy"
 )
 
 type settingsETagFixture struct {
@@ -42,6 +44,11 @@ func TestSettingsWireETagMatchesCheckedInFixture(t *testing.T) {
 			InjectUsageOptions:      true,
 			ValidationInterval:      600,
 			RequestLogRetentionDays: 7,
+			ProxyConfig: outboundproxy.View{
+				ConfiguredMode:  outboundproxy.ModeInherit,
+				EffectiveMode:   outboundproxy.ModeDirect,
+				EffectiveSource: outboundproxy.SourceDefault,
+			},
 		},
 		Overrides: []string{},
 	})

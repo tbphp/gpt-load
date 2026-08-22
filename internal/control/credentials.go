@@ -13,6 +13,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
+	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -32,6 +33,7 @@ type CredentialImportResult struct {
 type CredentialUpdateRequest struct {
 	Status       optionalField[state.CredentialStatus] `json:"status"`
 	WeightManual optionalField[int]                    `json:"weight_manual"`
+	Proxy        optionalField[outboundproxy.Config]   `json:"proxy"`
 }
 
 type CredentialRevealResult struct {
@@ -92,6 +94,7 @@ type CredentialItemResponse struct {
 	LastUsedAtMS            *int64                         `json:"last_used_at_ms,omitempty"`
 	DailyUsage              *CredentialDailyUsageResponse  `json:"daily_usage,omitempty"`
 	Recovery                CredentialRecoveryResponse     `json:"recovery"`
+	Proxy                   outboundproxy.View             `json:"proxy"`
 }
 
 // CredentialDailyUsageResponse 汇报固定 24 小时窗口内的上游尝试结果分布。
@@ -225,7 +228,7 @@ func (s *Service) ImportGroupCredentials(
 		if err != nil {
 			return err
 		}
-		entries, err = stateloader.BuildGroupCredentialEntries(ctx, tx, groupID)
+		entries, err = stateloader.BuildGroupCredentialEntriesWithProxy(ctx, tx, groupID, s.encryption)
 		if err != nil {
 			return err
 		}
@@ -259,7 +262,7 @@ func (s *Service) ListGroupCredentials(
 	if err != nil {
 		return CredentialCollectionResponse{}, err
 	}
-	return s.mapCredentialCollection(observation, query)
+	return s.mapCredentialCollection(ctx, observation, query)
 }
 
 func (s *Service) captureCredentials(ctx context.Context, groupID uint) (credentialCapture, error) {
@@ -389,6 +392,7 @@ func (s *Service) decodeCredential(group models.Group, row models.Credential) (j
 }
 
 func (s *Service) mapCredentialCollection(
+	ctx context.Context,
 	observation credentialObservation,
 	query CredentialCollectionQuery,
 ) (CredentialCollectionResponse, error) {
@@ -402,6 +406,10 @@ func (s *Service) mapCredentialCollection(
 	group := state.GroupCatalogView{ID: observation.group.ID, Name: observation.group.Name,
 		Enabled: observation.group.Enabled, WeightManual: cloneInt(observation.group.WeightManual)}
 	records := make([]credentialCollectionRecord, 0, len(observation.rows))
+	proxyViews, err := s.credentialProxyViews(ctx, s.db, observation.group, observation.rows)
+	if err != nil {
+		return CredentialCollectionResponse{}, err
+	}
 	for _, row := range observation.rows {
 		canonical, identity, err := s.decodeCredential(observation.group, row)
 		if err != nil {
@@ -424,6 +432,7 @@ func (s *Service) mapCredentialCollection(
 		item.AuthState = string(row.AuthState)
 		item.AuthErrorCode = safeInternalErrorCode(row.AuthErrorCode)
 		item.Account = account
+		item.Proxy = proxyViews[row.ID]
 		if item.ConnectionType == string(models.ConnectionTypeSubscription) {
 			item.Observation = presentCredentialObservation(observation.subscription[row.ID], row.IdentityFingerprint)
 		}

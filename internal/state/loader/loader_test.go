@@ -15,13 +15,63 @@ import (
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 )
+
+func TestBuildCompileInputWithProxyDecryptsGlobalAndGroupPolicies(t *testing.T) {
+	db := openMigratedDatabase(t)
+	crypto, err := encryption.NewService("loader-proxy-test-key-material-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypt := func(config outboundproxy.Config) string {
+		t.Helper()
+		encoded, err := outboundproxy.Encode(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ciphertext, err := crypto.Encrypt(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ciphertext
+	}
+	globalCiphertext := encrypt(outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://global.example.com:8080"})
+	mustCreate(t, db, &models.SystemSetting{Key: outboundproxy.SystemSettingKey, Value: globalCiphertext})
+	groupCiphertext := encrypt(outboundproxy.Config{Mode: outboundproxy.ModeDirect})
+	mustCreate(t, db, &models.Group{
+		Name: "proxy", ChannelID: string(channel.OpenAI), ConnectionType: models.ConnectionTypeAPIKey,
+		Params: models.JSON(`{}`), Models: models.JSON(`[{"id":"gpt-4o"}]`),
+		Overrides: models.JSON(`{}`), ProxyConfig: &groupCiphertext, Enabled: true,
+	})
+
+	input, err := loader.BuildCompileInputWithProxy(
+		context.Background(), db, crypto, nil, channel.NewRegistry(),
+	)
+	if err != nil {
+		t.Fatalf("BuildCompileInputWithProxy() error = %v", err)
+	}
+	if input.GlobalProxy == nil || input.GlobalProxy.URL != "http://global.example.com:8080" {
+		t.Fatalf("GlobalProxy = %#v", input.GlobalProxy)
+	}
+	if len(input.Groups) != 1 || input.Groups[0].Proxy == nil || input.Groups[0].Proxy.Mode != outboundproxy.ModeDirect {
+		t.Fatalf("Groups = %#v", input.Groups)
+	}
+	snapshot, err := state.Compile(input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if snapshot.Groups[input.Groups[0].ID].Proxy.Source != outboundproxy.SourceGroup {
+		t.Fatalf("compiled proxy = %#v", snapshot.Groups[input.Groups[0].ID].Proxy)
+	}
+}
 
 func TestLoadSystemSettingsDecodesPersistedValues(t *testing.T) {
 	db := openMigratedDatabase(t)

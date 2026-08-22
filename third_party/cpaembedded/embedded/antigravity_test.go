@@ -1049,7 +1049,7 @@ func TestAntigravityExecutionRequestUsesOnlyPrivateContinuityScope(t *testing.T)
 		t.Fatalf("prepared request was corrupted: payload=%q original=%q", prepared.Payload, prepared.OriginalRequest)
 	}
 	contextWithGin := context.WithValue(t.Context(), "gin", "downstream-request-context")
-	executionCtx, err := newAntigravityHTTPExecutor("").executionContext(contextWithGin, "credential-one", "account-one", nil)
+	executionCtx, err := newAntigravityHTTPExecutor("").executionContext(contextWithGin, "credential-one", "account-one", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

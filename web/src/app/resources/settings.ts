@@ -2,6 +2,7 @@ import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient, ApiClientWithResponse } from '@/api/client'
+import type { ProxyMutation, ProxyViewDto } from '@/api/control/types'
 import { ApiError, InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 
@@ -14,6 +15,7 @@ import {
   projectSafeInteger,
   projectString,
 } from './projector'
+import { projectProxyView } from './proxy'
 
 export const runtimeSettingKeys = [
   'first_byte_timeout',
@@ -52,6 +54,7 @@ export interface SettingsValues {
   validation_interval: number
   request_log_retention_days: number
   models_dev_auto_sync_enabled: boolean
+  proxy_config: ProxyViewDto
 }
 
 export interface SettingsDto {
@@ -72,6 +75,7 @@ export type SettingsPatch = Partial<{
   validation_interval: number | null
   request_log_retention_days: number | null
   models_dev_auto_sync_enabled: boolean | null
+  proxy_config: ProxyMutation
 }>
 
 export interface SettingsResource {
@@ -82,7 +86,7 @@ export interface SettingsResource {
 const strongSettingsETag = /^"(?<token>sha256-[0-9a-f]{64})"$/
 const strongSettingsETagToken = /^sha256-[0-9a-f]{64}$/
 const settingsFields = ['values', 'overrides', 'read_only'] as const
-const settingsValueFields = [...runtimeSettingKeys] as const
+const settingsValueFields = [...runtimeSettingKeys, 'proxy_config'] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -147,6 +151,7 @@ export function projectSettings(value: unknown): SettingsDto {
         maximum: 365,
       }),
       models_dev_auto_sync_enabled: projectBoolean(values.models_dev_auto_sync_enabled),
+      proxy_config: projectProxyView(values.proxy_config),
     },
     overrides,
     read_only: readOnly,

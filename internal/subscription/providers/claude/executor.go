@@ -20,6 +20,7 @@ type ExecuteRequest struct {
 	Format          string
 	Headers         http.Header
 	OriginalRequest []byte
+	ProxyURL        string
 }
 
 // ExecuteResponse is one converted non-streaming bridge response.
@@ -208,6 +209,7 @@ func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {
 		Model: value.Model, Payload: append([]byte(nil), value.Payload...),
 		Format: value.Format, Headers: value.Headers.Clone(),
 		OriginalRequest: append([]byte(nil), value.OriginalRequest...),
+		ProxyURL:        value.ProxyURL,
 	}
 }
 

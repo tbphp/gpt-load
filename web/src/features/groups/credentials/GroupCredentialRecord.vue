@@ -3,7 +3,8 @@ import { ChevronDown, RotateCcw, SlidersHorizontal, Trash2 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { CredentialItemDto } from '@/api/control/types'
+import type { CredentialItemDto, ProxyMutation } from '@/api/control/types'
+import ProxyConfigEditor from '@/components/config/ProxyConfigEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
@@ -23,6 +24,7 @@ const props = defineProps<{
   expanded: boolean
   weightEditorOpen: boolean
   resolveCopyValue: (id: number) => Promise<string>
+  saveProxy: (value: ProxyMutation) => Promise<void>
 }>()
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
@@ -306,6 +308,14 @@ function saveWeight(): void {
               <dd>{{ n(item.consecutive_failure_count) }}</dd>
             </div>
           </dl>
+          <ProxyConfigEditor
+            class="group-credential-record__proxy"
+            scope="credential"
+            :view="item.proxy"
+            :save-proxy="saveProxy"
+            :disabled="busy"
+            :divided="false"
+          />
         </div>
       </div>
     </div>
@@ -406,6 +416,10 @@ function saveWeight(): void {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-5);
   margin: 0;
+}
+
+.group-credential-record__proxy {
+  border-top: 1px dashed var(--color-border-subtle);
 }
 
 .group-credential-record__details dl div {

@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
@@ -21,14 +22,15 @@ import (
 )
 
 type GroupCreateRequest struct {
-	Name                *string               `json:"name"`
-	ChannelID           channel.ID            `json:"channel_id"`
-	ConnectionType      models.ConnectionType `json:"connection_type"`
-	Params              json.RawMessage       `json:"params"`
-	Models              optionalGroupModels   `json:"models"`
-	Credentials         string                `json:"credentials"`
-	StagedCredentialIDs []string              `json:"staged_credential_ids"`
-	ConfirmSameTarget   bool                  `json:"confirm_same_target"`
+	Name                *string                             `json:"name"`
+	ChannelID           channel.ID                          `json:"channel_id"`
+	ConnectionType      models.ConnectionType               `json:"connection_type"`
+	Params              json.RawMessage                     `json:"params"`
+	Models              optionalGroupModels                 `json:"models"`
+	Credentials         string                              `json:"credentials"`
+	StagedCredentialIDs []string                            `json:"staged_credential_ids"`
+	ConfirmSameTarget   bool                                `json:"confirm_same_target"`
+	Proxy               optionalField[outboundproxy.Config] `json:"proxy"`
 }
 
 type GroupCreateResult struct {
@@ -59,6 +61,8 @@ type normalizedGroupCreate struct {
 	credentials         normalizedCredentials
 	stagedCredentialIDs []string
 	confirmSameTarget   bool
+	proxy               *outboundproxy.Config
+	proxyConfig         *string
 }
 
 func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (GroupCreateResult, error) {
@@ -107,6 +111,7 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 			Params:         append(models.JSON(nil), normalized.params...),
 			Models:         models.JSON(encodedModels),
 			Overrides:      normalized.encodedOverrides,
+			ProxyConfig:    normalized.proxyConfig,
 			Enabled:        true,
 		}
 		if err := tx.Create(&group).Error; err != nil {
@@ -130,7 +135,7 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 		if err != nil {
 			return err
 		}
-		requestedEntries, err = stateloader.BuildGroupCredentialEntries(ctx, tx, group.ID)
+		requestedEntries, err = stateloader.BuildGroupCredentialEntriesWithProxy(ctx, tx, group.ID, s.encryption)
 		return err
 	}, func() error {
 		_, reconcileErr := s.reconcileRegistryGroup(result.GroupID, requestedEntries)
@@ -203,7 +208,7 @@ func (s *Service) normalizeGroupCreate(
 	for _, model := range groupModels {
 		runtimeModels = append(runtimeModels, state.ModelConfig{ID: model.ID, Alias: model.Alias})
 	}
-	systemSettings, err := stateloader.LoadSystemSettings(ctx, s.db)
+	systemSettings, globalProxy, err := stateloader.LoadSystemSettingsAndProxy(ctx, s.db, s.encryption)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return normalizedGroupCreate{}, parentErr
 	}
@@ -211,13 +216,27 @@ func (s *Service) normalizeGroupCreate(
 		return normalizedGroupCreate{}, app_errors.ParseDBError(err)
 	}
 	canonicalParams := params.CanonicalJSON()
+	proxyConfig, _, err := normalizeProxyOverride(request.Proxy, s.encryption)
+	if err != nil {
+		return normalizedGroupCreate{}, err
+	}
+	var proxy *outboundproxy.Config
+	if request.Proxy.Set && !request.Proxy.Null {
+		normalizedProxy, normalizeErr := outboundproxy.Normalize(request.Proxy.Value)
+		if normalizeErr != nil || normalizedProxy.Mode == outboundproxy.ModeInherit {
+			return normalizedGroupCreate{}, app_errors.ErrValidation
+		}
+		proxy = &normalizedProxy
+	}
 	_, err = state.Compile(state.CompileInput{
-		SystemSettings:  systemSettings,
-		ChannelRegistry: s.channelRegistry,
+		SystemSettings:   systemSettings,
+		ChannelRegistry:  s.channelRegistry,
+		GlobalProxy:      globalProxy,
+		EnvironmentProxy: s.environmentProxy,
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "candidate", ChannelID: request.ChannelID,
 			ConnectionType: string(connectionType), Params: canonicalParams,
-			Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
+			Models: runtimeModels, Settings: config.Settings{}, Proxy: proxy, Enabled: true,
 		}},
 	})
 	if err != nil {
@@ -245,6 +264,8 @@ func (s *Service) normalizeGroupCreate(
 		credentials:         credentials,
 		stagedCredentialIDs: stagedCredentialIDs,
 		confirmSameTarget:   request.ConfirmSameTarget,
+		proxy:               proxy,
+		proxyConfig:         proxyConfig,
 	}, nil
 }
 

@@ -26,6 +26,7 @@ import type {
   CredentialRevealDto,
   CredentialStatus,
   CredentialSummaryDto,
+  ProxyMutation,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeCredentialCollectionFilters } from '@/app/query-keys'
@@ -43,6 +44,7 @@ import {
   projectSafeInteger,
   projectString,
 } from './projector'
+import { projectProxyView } from './proxy'
 
 export type {
   CredentialBatchResultDto,
@@ -64,6 +66,7 @@ export type {
 export interface CredentialPatch {
   status?: CredentialConfiguredStatus
   weight_manual?: number | null
+  proxy?: ProxyMutation
 }
 
 export interface CredentialBatchRequest {
@@ -108,6 +111,7 @@ const credentialItemFields = [
   'last_used_at_ms',
   'daily_usage',
   'recovery',
+  'proxy',
 ] as const
 const credentialDetailFields = ['credential', 'observation'] as const
 const credentialDownloadFields = ['filename', 'credential'] as const
@@ -559,6 +563,7 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
       ? {}
       : { daily_usage: projectDailyUsage(record.daily_usage) }),
     recovery,
+    proxy: projectProxyView(record.proxy),
   }
 }
 
@@ -631,7 +636,10 @@ export function projectCredentialCollection(value: unknown): CredentialCollectio
 
 function normalizePatch(patch: CredentialPatch): CredentialPatch {
   const keys = Object.keys(patch)
-  if (keys.length === 0 || keys.some((key) => key !== 'status' && key !== 'weight_manual')) {
+  if (
+    keys.length === 0 ||
+    keys.some((key) => key !== 'status' && key !== 'weight_manual' && key !== 'proxy')
+  ) {
     throw new Error('INVALID_CREDENTIAL_PATCH')
   }
   const body: CredentialPatch = {}
@@ -647,6 +655,11 @@ function normalizePatch(patch: CredentialPatch): CredentialPatch {
       throw new Error('INVALID_CREDENTIAL_WEIGHT')
     }
     body.weight_manual = weight
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'proxy')) {
+    const proxy = patch.proxy
+    if (proxy === undefined) throw new Error('INVALID_CREDENTIAL_PROXY')
+    body.proxy = proxy
   }
   return body
 }

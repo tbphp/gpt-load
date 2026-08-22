@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
+import type { ProxyMutation, ProxyViewDto } from '@/api/control/types'
 import type {
   RuntimeSettingKey,
   SettingsResource,
   TimeoutSettingKey,
 } from '@/app/resources/settings'
+import ProxyConfigEditor from '@/components/config/ProxyConfigEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
@@ -26,6 +28,8 @@ const props = defineProps<{
   draft: SettingsDraft
   disabled: boolean
   conflicts: SettingsMergeConflict[]
+  proxy: ProxyViewDto
+  saveProxy: (value: ProxyMutation) => Promise<void>
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
@@ -113,6 +117,14 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
     </header>
 
     <div class="settings-runtime__rows">
+      <div class="settings-runtime__entry">
+        <ProxyConfigEditor
+          scope="global"
+          :view="proxy"
+          :save-proxy="saveProxy"
+          :disabled="disabled"
+        />
+      </div>
       <div v-for="key in timeoutKeys" :key="key" class="settings-runtime__entry">
         <RuntimeOverrideRow
           appearance="ledger"

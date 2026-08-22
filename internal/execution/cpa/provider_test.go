@@ -7,8 +7,32 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
 )
+
+func TestProxyURLForAttemptMapsFinalModesForCPA(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		effective outboundproxy.Effective
+		want      string
+	}{
+		{name: "unspecified inherits existing environment", want: ""},
+		{name: "explicit direct", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect}, Source: outboundproxy.SourceCredential}, want: "direct"},
+		{name: "environment", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment}, Source: outboundproxy.SourceEnvironment}, want: ""},
+		{name: "http", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://user:password@proxy.example.com:8080"}, Source: outboundproxy.SourceGroup}, want: "http://user:password@proxy.example.com:8080"},
+		{name: "socks5", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "socks5://proxy.example.com:1080"}, Source: outboundproxy.SourceGlobal}, want: "socks5://proxy.example.com:1080"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := proxyURLForAttempt(test.effective)
+			if err != nil || got != test.want {
+				t.Fatalf("proxyURLForAttempt() = %q, %v, want %q", got, err, test.want)
+			}
+		})
+	}
+}
 
 type requestScopedTestError struct{}
 

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 const (
@@ -164,9 +166,13 @@ func CompleteBrowserAuthorization(
 	ctx context.Context,
 	completion BrowserAuthorizationCompletion,
 ) (Credential, error) {
+	options, err := antigravityOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
 	value, err := cpaembedded.CompleteAntigravityBrowserAuthorization(ctx, cpaembedded.BrowserAuthorizationCompletion{
 		ExpectedState: completion.ExpectedState, ReturnedState: completion.ReturnedState, Code: completion.Code,
-	}, cpaembedded.AntigravityOptions{})
+	}, options)
 	if err != nil {
 		return Credential{}, normalizeError(err)
 	}
@@ -174,7 +180,11 @@ func CompleteBrowserAuthorization(
 }
 
 func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential, error) {
-	value, err := cpaembedded.RefreshAntigravityCredentialOnce(ctx, credentialToBridge(current), cpaembedded.AntigravityOptions{})
+	options, err := antigravityOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
+	value, err := cpaembedded.RefreshAntigravityCredentialOnce(ctx, credentialToBridge(current), options)
 	if err != nil {
 		return Credential{}, normalizeError(err)
 	}
@@ -182,7 +192,11 @@ func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential,
 }
 
 func ImportCredential(ctx context.Context, raw []byte) (Credential, error) {
-	value, err := cpaembedded.ImportAntigravityCredential(ctx, raw, cpaembedded.AntigravityOptions{})
+	options, err := antigravityOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
+	value, err := cpaembedded.ImportAntigravityCredential(ctx, raw, options)
 	if err != nil {
 		return Credential{}, normalizeError(err)
 	}
@@ -190,7 +204,11 @@ func ImportCredential(ctx context.Context, raw []byte) (Credential, error) {
 }
 
 func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
-	values, err := cpaembedded.DiscoverAntigravityModels(ctx, credentialToBridge(credential), cpaembedded.AntigravityOptions{})
+	options, err := antigravityOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	values, err := cpaembedded.DiscoverAntigravityModels(ctx, credentialToBridge(credential), options)
 	if err != nil {
 		return nil, normalizeError(err)
 	}
@@ -205,7 +223,11 @@ func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
 }
 
 func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
-	value, err := cpaembedded.ObserveAntigravityAccount(ctx, credentialToBridge(credential), cpaembedded.AntigravityOptions{})
+	options, err := antigravityOptions(ctx)
+	if err != nil {
+		return AccountObservation{}, err
+	}
+	value, err := cpaembedded.ObserveAntigravityAccount(ctx, credentialToBridge(credential), options)
 	if err != nil {
 		return AccountObservation{}, normalizeError(err)
 	}
@@ -231,6 +253,14 @@ func ObserveAccount(ctx context.Context, credential Credential) (AccountObservat
 		result.QuotaGroups = append(result.QuotaGroups, mapped)
 	}
 	return result, nil
+}
+
+func antigravityOptions(ctx context.Context) (cpaembedded.AntigravityOptions, error) {
+	client, err := subscriptionruntime.HTTPClient(ctx)
+	if err != nil {
+		return cpaembedded.AntigravityOptions{}, err
+	}
+	return cpaembedded.AntigravityOptions{HTTPClient: client}, nil
 }
 
 func cloneFloat64(value *float64) *float64 {

@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
@@ -28,13 +29,14 @@ import (
 )
 
 type Loader struct {
-	db              *gorm.DB
-	manager         *state.Manager
-	registry        *state.CredentialRegistry
-	channelRegistry *channel.Registry
-	subscriptions   subscriptionCredentialCanonicalizer
-	encryption      encryption.Service
-	accessQuota     *accessquota.Runtime
+	db               *gorm.DB
+	manager          *state.Manager
+	registry         *state.CredentialRegistry
+	channelRegistry  *channel.Registry
+	subscriptions    subscriptionCredentialCanonicalizer
+	encryption       encryption.Service
+	environmentProxy *outboundproxy.Config
+	accessQuota      *accessquota.Runtime
 }
 
 type subscriptionCredentialCanonicalizer interface {
@@ -54,6 +56,7 @@ func NewWithCredentialValidation(
 ) *Loader {
 	loader := New(db, manager, registry, channelRegistry)
 	loader.encryption = encryptionService
+	loader.environmentProxy = outboundproxy.Environment()
 	loader.subscriptions = subscriptions
 	for _, runtime := range accessQuotas {
 		if runtime != nil {
@@ -280,7 +283,32 @@ func BuildCompileInput(
 	if err != nil {
 		return state.CompileInput{}, err
 	}
-	input, err := mapSystemAndGroups(rows)
+	input, err := mapSystemAndGroups(rows, nil, nil)
+	if err != nil {
+		return state.CompileInput{}, err
+	}
+	input.ChannelRegistry = selectChannelRegistry(registries)
+	input.Credentials = mapCredentialConfigs(rows.credentials, rows.groups)
+	input.AccessKeys, err = mapAccessKeys(rows.accessKeys, rows.costLimitRules)
+	if err != nil {
+		return state.CompileInput{}, err
+	}
+	return input, nil
+}
+
+// BuildCompileInputWithProxy additionally decrypts data-plane proxy policies.
+func BuildCompileInputWithProxy(
+	ctx context.Context,
+	db *gorm.DB,
+	encryptionService encryption.Service,
+	environmentProxy *outboundproxy.Config,
+	registries ...*channel.Registry,
+) (state.CompileInput, error) {
+	rows, err := queryCompileRows(ctx, db)
+	if err != nil {
+		return state.CompileInput{}, err
+	}
+	input, err := mapSystemAndGroups(rows, encryptionService, environmentProxy)
 	if err != nil {
 		return state.CompileInput{}, err
 	}
@@ -325,6 +353,41 @@ func BuildGroupCredentialEntries(
 	return entries, nil
 }
 
+// BuildGroupCredentialEntriesWithProxy also captures encrypted credential-level proxy identity.
+func BuildGroupCredentialEntriesWithProxy(
+	ctx context.Context,
+	db *gorm.DB,
+	groupID uint,
+	encryptionService encryption.Service,
+) ([]state.CredentialEntry, error) {
+	if groupID == 0 {
+		return nil, fmt.Errorf("group id is required")
+	}
+	var group models.Group
+	if err := db.WithContext(ctx).
+		Model(&models.Group{}).
+		Select("id", "channel_id", "connection_type", "params").
+		Where("id = ?", groupID).
+		Take(&group).Error; err != nil {
+		return nil, fmt.Errorf("query group %d: %w", groupID, err)
+	}
+	var rows []models.Credential
+	if err := db.WithContext(ctx).
+		Where("group_id = ?", groupID).
+		Order("id ASC").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("query group %d credentials: %w", groupID, err)
+	}
+	entries, err := mapCredentialsWithProxy(rows, []models.Group{group}, encryptionService)
+	if err != nil {
+		return nil, fmt.Errorf("map group %d credentials: %w", groupID, err)
+	}
+	if err := state.ValidateCredentialEntries(entries); err != nil {
+		return nil, fmt.Errorf("validate group %d credentials: %w", groupID, err)
+	}
+	return entries, nil
+}
+
 // BuildCredentialEntries maps all persisted credential rows into the exact
 // runtime registry representation. It is used to converge runtime state after
 // a committed control-plane write could not publish its incremental update.
@@ -348,6 +411,33 @@ func BuildCredentialEntries(ctx context.Context, db *gorm.DB) ([]state.Credentia
 	return entries, nil
 }
 
+func BuildCredentialEntriesWithProxy(
+	ctx context.Context,
+	db *gorm.DB,
+	encryptionService encryption.Service,
+) ([]state.CredentialEntry, error) {
+	var groups []models.Group
+	if err := db.WithContext(ctx).
+		Model(&models.Group{}).
+		Select("id", "channel_id", "connection_type", "params").
+		Order("id ASC").
+		Find(&groups).Error; err != nil {
+		return nil, fmt.Errorf("query credential targets: %w", err)
+	}
+	rows, err := queryCredentials(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := mapCredentialsWithProxy(rows, groups, encryptionService)
+	if err != nil {
+		return nil, err
+	}
+	if err := state.ValidateCredentialEntries(entries); err != nil {
+		return nil, fmt.Errorf("validate credentials: %w", err)
+	}
+	return entries, nil
+}
+
 func (l *Loader) read(
 	ctx context.Context,
 ) (state.CompileInput, []state.CredentialEntry, []accessquota.RestoredState, error) {
@@ -355,7 +445,7 @@ func (l *Loader) read(
 	if err != nil {
 		return state.CompileInput{}, nil, nil, err
 	}
-	input, err := mapSystemAndGroups(rows)
+	input, err := mapSystemAndGroups(rows, l.encryption, l.environmentProxy)
 	if err != nil {
 		return state.CompileInput{}, nil, nil, err
 	}
@@ -373,7 +463,11 @@ func (l *Loader) read(
 	if err != nil {
 		return state.CompileInput{}, nil, nil, err
 	}
-	return input, mapCredentials(credentials, rows.groups), states, nil
+	entries, err := mapCredentialsWithProxy(credentials, rows.groups, l.encryption)
+	if err != nil {
+		return state.CompileInput{}, nil, nil, err
+	}
+	return input, entries, states, nil
 }
 
 func selectChannelRegistry(registries []*channel.Registry) *channel.Registry {
@@ -429,7 +523,8 @@ func decodeSettingValue(raw string) (any, error) {
 }
 
 func isInternalSystemSetting(key string) bool {
-	return strings.HasPrefix(key, models.InternalSystemSettingPrefix)
+	return strings.HasPrefix(key, models.InternalSystemSettingPrefix) ||
+		key == outboundproxy.SystemSettingKey
 }
 
 // LoadSystemSettings reads only the persisted system settings used to compile a draft Group.
@@ -441,6 +536,34 @@ func LoadSystemSettings(ctx context.Context, db *gorm.DB) (config.Settings, erro
 		return nil, fmt.Errorf("query system settings: %w", err)
 	}
 	return MapSystemSettings(rows)
+}
+
+func LoadSystemSettingsAndProxy(
+	ctx context.Context,
+	db *gorm.DB,
+	encryptionService encryption.Service,
+) (config.Settings, *outboundproxy.Config, error) {
+	var rows []models.SystemSetting
+	if err := db.WithContext(ctx).
+		Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "key"}}}}).
+		Find(&rows).Error; err != nil {
+		return nil, nil, fmt.Errorf("query system settings: %w", err)
+	}
+	settings, err := MapSystemSettings(rows)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, row := range rows {
+		if row.Key != outboundproxy.SystemSettingKey {
+			continue
+		}
+		proxyConfig, err := decodePersistedProxy(row.Value, encryptionService)
+		if err != nil {
+			return nil, nil, fmt.Errorf("decode global proxy config: %w", err)
+		}
+		return settings, proxyConfig, nil
+	}
+	return settings, nil, nil
 }
 
 // MapSystemSettings maps persisted system setting rows without accessing the database.
@@ -459,12 +582,25 @@ func MapSystemSettings(rows []models.SystemSetting) (config.Settings, error) {
 	return settings, nil
 }
 
-func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
+func mapSystemAndGroups(
+	rows compileRows,
+	encryptionService encryption.Service,
+	environmentProxy *outboundproxy.Config,
+) (state.CompileInput, error) {
 	input := state.CompileInput{
-		SystemSettings: make(config.Settings, len(rows.settings)),
-		Groups:         make([]state.GroupConfig, 0, len(rows.groups)),
+		SystemSettings:   make(config.Settings, len(rows.settings)),
+		Groups:           make([]state.GroupConfig, 0, len(rows.groups)),
+		EnvironmentProxy: environmentProxy,
 	}
 	for _, row := range rows.settings {
+		if row.Key == outboundproxy.SystemSettingKey {
+			config, err := decodePersistedProxy(row.Value, encryptionService)
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("decode global proxy config: %w", err)
+			}
+			input.GlobalProxy = config
+			continue
+		}
 		if isInternalSystemSetting(row.Key) {
 			continue
 		}
@@ -504,9 +640,35 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 			WeightManual:    cloneWeight(row.WeightManual),
 			Enabled:         row.Enabled,
 		}
+		if row.ProxyConfig != nil {
+			proxy, err := decodePersistedProxy(*row.ProxyConfig, encryptionService)
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("decode group %d proxy config: %w", row.ID, err)
+			}
+			group.Proxy = proxy
+		}
 		input.Groups = append(input.Groups, group)
 	}
 	return input, nil
+}
+
+func decodePersistedProxy(
+	ciphertext string,
+	encryptionService encryption.Service,
+) (*outboundproxy.Config, error) {
+	if encryptionService == nil || ciphertext == "" {
+		return nil, fmt.Errorf("proxy encryption service is unavailable")
+	}
+	plaintext, err := encryptionService.Decrypt(ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt proxy config")
+	}
+	config, err := outboundproxy.Decode(plaintext)
+	plaintext = ""
+	if err != nil || config.Mode == outboundproxy.ModeInherit {
+		return nil, fmt.Errorf("validate proxy config")
+	}
+	return &config, nil
 }
 
 func mapAccessKeys(
@@ -617,6 +779,35 @@ func mapCredentials(rows []models.Credential, groups []models.Group) []state.Cre
 		})
 	}
 	return result
+}
+
+func mapCredentialsWithProxy(
+	rows []models.Credential,
+	groups []models.Group,
+	encryptionService encryption.Service,
+) ([]state.CredentialEntry, error) {
+	entries := mapCredentials(rows, groups)
+	for index, row := range rows {
+		if row.ProxyConfig == nil {
+			continue
+		}
+		if encryptionService == nil || *row.ProxyConfig == "" {
+			return nil, fmt.Errorf("credential %d proxy encryption is unavailable", row.ID)
+		}
+		plaintext, err := encryptionService.Decrypt(*row.ProxyConfig)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt credential %d proxy config", row.ID)
+		}
+		config, err := outboundproxy.Decode(plaintext)
+		if err != nil || config.Mode == outboundproxy.ModeInherit {
+			plaintext = ""
+			return nil, fmt.Errorf("validate credential %d proxy config", row.ID)
+		}
+		entries[index].EncryptedProxy = *row.ProxyConfig
+		entries[index].ProxyFingerprint = encryptionService.Hash(plaintext)
+		plaintext = ""
+	}
+	return entries, nil
 }
 
 func credentialVersion(secretVersion uint64) uint64 {

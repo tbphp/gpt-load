@@ -8,6 +8,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -20,6 +21,7 @@ type ModelDiscoveryRequest struct {
 	Params             json.RawMessage       `json:"params"`
 	Credentials        string                `json:"credentials"`
 	StagedCredentialID string                `json:"staged_credential_id"`
+	Proxy              *outboundproxy.Config `json:"proxy"`
 }
 
 type ModelDiscoveryResult struct {
@@ -92,19 +94,28 @@ func (s *Service) DiscoverModels(
 			})
 		}
 	}
-	systemSettings, err := stateloader.LoadSystemSettings(ctx, s.db)
+	systemSettings, globalProxy, err := stateloader.LoadSystemSettingsAndProxy(ctx, s.db, s.encryption)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return ModelDiscoveryResult{}, parentErr
 	}
 	if err != nil {
 		return ModelDiscoveryResult{}, fmt.Errorf("load model discovery settings: %w", err)
 	}
+	var draftProxy *outboundproxy.Config
+	if request.Proxy != nil {
+		normalized, normalizeErr := outboundproxy.Normalize(*request.Proxy)
+		if normalizeErr != nil || normalized.Mode == outboundproxy.ModeInherit {
+			return ModelDiscoveryResult{}, app_errors.ErrValidation
+		}
+		draftProxy = &normalized
+	}
 	snapshot, err := state.Compile(state.CompileInput{
 		SystemSettings: systemSettings, ChannelRegistry: s.channelRegistry,
+		GlobalProxy: globalProxy, EnvironmentProxy: s.environmentProxy,
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "draft", ChannelID: request.ChannelID,
 			ConnectionType: string(connectionType),
-			Params:         append(json.RawMessage(nil), request.Params...), Enabled: true,
+			Params:         append(json.RawMessage(nil), request.Params...), Proxy: draftProxy, Enabled: true,
 		}},
 	})
 	if err != nil {
@@ -113,6 +124,14 @@ func (s *Service) DiscoverModels(
 	group, ok := snapshot.Groups[1]
 	if !ok {
 		return ModelDiscoveryResult{}, fmt.Errorf("compiled model discovery draft is missing")
+	}
+	network, err := s.proxyNetworkContext(group.Proxy)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
+	}
+	for index := range discoveryCredentials {
+		discoveryCredentials[index].proxy = network.Proxy
+		discoveryCredentials[index].proxyFingerprint = network.Fingerprint
 	}
 
 	return s.executeModelDiscovery(ctx, discoveryTarget{

@@ -159,6 +159,7 @@ func (e *claudeHTTPExecutor) ExecuteCanonical(
 	}
 	format := sdktranslator.FromString(request.Format)
 	auth := NewClaudeAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
 	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
@@ -189,6 +190,7 @@ func (e *claudeHTTPExecutor) CountTokensCanonical(
 	}
 	format := sdktranslator.FromString(request.Format)
 	auth := NewClaudeAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
 	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
@@ -218,6 +220,7 @@ func (e *claudeHTTPExecutor) ExecuteStreamCanonical(
 	}
 	format := sdktranslator.FromString(request.Format)
 	auth := NewClaudeAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
 	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
