@@ -245,6 +245,17 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleListGroupCredentials,
 			),
 			controlRoute(
+				"control.group-credentials.download-all",
+				http.MethodPost,
+				"/groups/:group_id/credentials/download-all",
+				s.auditMutation(newMutationDescriptor(
+					"group_credentials_download_all",
+					"group_credential",
+					groupCredentialsMutationLocator,
+				)),
+				s.handleDownloadAllGroupCredentials,
+			),
+			controlRoute(
 				"control.group-credentials.detail",
 				http.MethodGet,
 				"/groups/:group_id/credentials/:credential_id",

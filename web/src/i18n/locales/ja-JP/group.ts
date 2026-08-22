@@ -384,6 +384,17 @@ export default {
         connectDuplicated:
           '{added} 件のアカウントを接続し、既存の {duplicated} 件をスキップしました',
         sync: '同期',
+        syncingQuota: 'クォータ情報を更新中',
+        bulk: {
+          actions: '一括操作',
+          importFiles: 'ファイルを一括インポート',
+          exportAll: 'すべてエクスポート',
+          refreshCurrentPage: 'このページを更新',
+          importResult: '一括インポート完了：成功 {succeeded} 件、失敗 {failed} 件',
+          exportSucceeded: '{count} 件のアカウントをエクスポートしました',
+          exportFailed: 'アカウントをエクスポートできません',
+          refreshResult: 'クォータ更新完了：成功 {succeeded} 件、失敗 {failed} 件',
+        },
         download: '認証情報をダウンロード',
         downloadSucceeded: '認証情報ファイルをダウンロードしました',
         downloadFailed: '認証情報ファイルをダウンロードできません',
