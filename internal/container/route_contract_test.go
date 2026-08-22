@@ -133,14 +133,6 @@ func TestBuildContainerExposesUnifiedRouteCatalog(t *testing.T) {
 		},
 		{
 			ModuleName: "control",
-			RouteName:  "control.group-credentials.download-all",
-			Owner:      httproute.OwnerControl,
-			Auth:       httproute.AuthControl,
-			Methods:    []string{http.MethodPost},
-			Path:       "/api/groups/:group_id/credentials/download-all",
-		},
-		{
-			ModuleName: "control",
 			RouteName:  "control.groups.options",
 			Owner:      httproute.OwnerControl,
 			Auth:       httproute.AuthControl,

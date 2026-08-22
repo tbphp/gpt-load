@@ -36,6 +36,7 @@ import { presentCredentialFailureCategory } from './credential-failure-presenter
 
 const props = defineProps<{
   item: CredentialItemDto
+  selected: boolean
   busy: boolean
   refreshingObservation: boolean
   observationError: string
@@ -47,6 +48,7 @@ const props = defineProps<{
   capabilities: ChannelCapabilitiesDto
 }>()
 const emit = defineEmits<{
+  'update:selected': [selected: boolean]
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
   refresh: [item: CredentialItemDto]
@@ -533,6 +535,17 @@ function runMenuAction(
     <div class="subscription-account__main">
       <header class="subscription-account__top">
         <div class="subscription-account__top-row">
+          <label class="subscription-account__select">
+            <span class="sr-only">{{
+              t('group.credentials.subscription.selectAccount', { account: accountName })
+            }}</span>
+            <input
+              type="checkbox"
+              :checked="selected"
+              :disabled="busy"
+              @change="emit('update:selected', ($event.target as HTMLInputElement).checked)"
+            />
+          </label>
           <div class="subscription-account__badges">
             <span
               v-if="planLabel"
@@ -1139,6 +1152,22 @@ function runMenuAction(
   align-items: center;
   gap: var(--space-2);
 }
+.subscription-account__select {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  cursor: pointer;
+}
+.subscription-account__select input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-action);
+}
+.subscription-account__select:has(input:disabled) {
+  cursor: not-allowed;
+}
 .subscription-account__badges {
   display: flex;
   min-width: 0;
@@ -1634,6 +1663,10 @@ function runMenuAction(
   .subscription-account__detail {
     padding-right: 14px;
     padding-left: 14px;
+  }
+  .subscription-account__select {
+    width: var(--touch-target);
+    height: var(--touch-target);
   }
   .subscription-account__actions {
     margin-left: auto;

@@ -1,10 +1,24 @@
 <script setup lang="ts">
+import { CircleCheck, CircleOff, Download, ListChecks, RefreshCw, Trash2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
 
-defineProps<{ selectedCount: number; pending?: boolean }>()
-const emit = defineEmits<{ enable: []; disable: []; remove: [] }>()
+defineProps<{
+  selectedCount: number
+  allVisibleSelected: boolean
+  pending?: boolean
+  canSync?: boolean
+  canDownload?: boolean
+}>()
+const emit = defineEmits<{
+  'toggle-select': []
+  enable: []
+  disable: []
+  sync: []
+  download: []
+  remove: []
+}>()
 const { n, t } = useI18n()
 </script>
 
@@ -20,11 +34,26 @@ const { n, t } = useI18n()
     <div class="group-credential-batch__actions">
       <AppButton
         variant="secondary"
+        tone="action"
+        size="compact"
+        :busy="pending"
+        @click="emit('toggle-select')"
+      >
+        <ListChecks :size="15" aria-hidden="true" />
+        {{
+          allVisibleSelected
+            ? t('group.credentials.batch.clearAll')
+            : t('group.credentials.batch.selectAll')
+        }}
+      </AppButton>
+      <AppButton
+        variant="secondary"
         tone="success"
         size="compact"
         :busy="pending"
         @click="emit('enable')"
       >
+        <CircleCheck :size="15" aria-hidden="true" />
         {{ t('group.credentials.batch.enable') }}
       </AppButton>
       <AppButton
@@ -34,6 +63,7 @@ const { n, t } = useI18n()
         :busy="pending"
         @click="emit('disable')"
       >
+        <CircleOff :size="15" aria-hidden="true" />
         {{ t('group.credentials.batch.disable') }}
       </AppButton>
       <AppButton
@@ -43,7 +73,30 @@ const { n, t } = useI18n()
         :busy="pending"
         @click="emit('remove')"
       >
+        <Trash2 :size="15" aria-hidden="true" />
         {{ t('group.credentials.batch.delete') }}
+      </AppButton>
+      <AppButton
+        v-if="canSync"
+        variant="secondary"
+        tone="action"
+        size="compact"
+        :busy="pending"
+        @click="emit('sync')"
+      >
+        <RefreshCw :size="15" aria-hidden="true" />
+        {{ t('group.credentials.batch.sync') }}
+      </AppButton>
+      <AppButton
+        v-if="canDownload"
+        variant="secondary"
+        tone="action"
+        size="compact"
+        :busy="pending"
+        @click="emit('download')"
+      >
+        <Download :size="15" aria-hidden="true" />
+        {{ t('group.credentials.batch.download') }}
       </AppButton>
     </div>
   </div>

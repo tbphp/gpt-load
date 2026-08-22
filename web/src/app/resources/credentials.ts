@@ -14,7 +14,6 @@ import type {
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
   CredentialDetailDto,
-  CredentialDownloadAllDto,
   CredentialDownloadDto,
   CredentialItemDto,
   CredentialObservationDto,
@@ -51,7 +50,6 @@ export type {
   CredentialConfiguredStatus,
   CredentialDailyUsageDto,
   CredentialDetailDto,
-  CredentialDownloadAllDto,
   CredentialDownloadDto,
   CredentialItemDto,
   CredentialRecoveryDto,
@@ -110,7 +108,6 @@ const credentialItemFields = [
 ] as const
 const credentialDetailFields = ['credential', 'observation'] as const
 const credentialDownloadFields = ['filename', 'credential'] as const
-const credentialDownloadAllFields = ['files'] as const
 const credentialDailyUsageFields = [
   'window_seconds',
   'success_count',
@@ -775,14 +772,6 @@ function projectCredentialDownload(value: unknown): CredentialDownloadDto {
   }
 }
 
-function projectCredentialDownloadAll(value: unknown): CredentialDownloadAllDto {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, credentialDownloadAllFields)
-  return {
-    files: projectArray(record.files, projectCredentialDownload),
-  }
-}
-
 export async function downloadCredential(
   client: ApiClient,
   groupId: number,
@@ -791,20 +780,6 @@ export async function downloadCredential(
 ): Promise<CredentialDownloadDto> {
   return projectCredentialDownload(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/download`, {
-      method: 'POST',
-      json: {},
-      signal,
-    }),
-  )
-}
-
-export async function downloadAllCredentials(
-  client: ApiClient,
-  groupId: number,
-  signal?: AbortSignal,
-): Promise<CredentialDownloadAllDto> {
-  return projectCredentialDownloadAll(
-    await client.request(`/api/groups/${groupId}/credentials/download-all`, {
       method: 'POST',
       json: {},
       signal,

@@ -276,10 +276,6 @@ export interface CredentialDownloadDto {
   credential: Record<string, unknown>
 }
 
-export interface CredentialDownloadAllDto {
-  files: CredentialDownloadDto[]
-}
-
 export interface CredentialSummaryDto {
   total: number
   available: number

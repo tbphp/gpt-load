@@ -1,15 +1,5 @@
 <script setup lang="ts">
-import {
-  ChevronDown,
-  Download,
-  FileUp,
-  KeyRound,
-  ListChecks,
-  LoaderCircle,
-  Plus,
-  RefreshCw,
-  Search,
-} from '@lucide/vue'
+import { KeyRound, Plus, Search } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -32,7 +22,6 @@ import {
   cacheCredentialItem,
   consumeCredentialResetCredit,
   credentialCollectionQueryOptions,
-  downloadAllCredentials,
   downloadCredential,
   getCredentialDetail,
   revealCredential,
@@ -41,12 +30,7 @@ import {
   refreshCredentialObservation,
   updateCredential,
 } from '@/app/resources/credentials'
-import {
-  cancelCredentialStage,
-  connectGroupCredentials,
-  importCredentialStage,
-  type CredentialStage,
-} from '@/app/resources/credential-stages'
+import { connectGroupCredentials, type CredentialStage } from '@/app/resources/credential-stages'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
@@ -58,7 +42,6 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
-import AppPopover from '@/components/ui/AppPopover.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -83,7 +66,7 @@ import {
   type CredentialRouteState,
 } from '../group-route'
 
-const batchObservationConcurrency = 4
+const batchCredentialConcurrency = 4
 
 const props = defineProps<{
   groupId: number
@@ -110,7 +93,6 @@ const authorizationMethods = computed(
 )
 const channelName = computed(() => channelDescriptor.value?.name ?? props.channelId)
 const channelNotices = computed(() => channelDescriptor.value?.notices ?? [])
-const supportsOAuthFile = computed(() => authorizationMethods.value.includes('oauth_file'))
 const channelCapabilities = computed<ChannelCapabilitiesDto>(
   () =>
     channelDescriptor.value?.capabilities ?? {
@@ -131,8 +113,6 @@ const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
 const resetOperationKeys = new Map<number, string>()
 const connectionWorkspaceOpen = ref(false)
-const bulkActionsOpen = ref(false)
-const bulkImportInput = ref<HTMLInputElement>()
 const connectionStages = ref<CredentialStage[]>([])
 const connectOperationKey = ref<string>()
 // 抽屉打开时列表区被遮住，连接失败的提示必须落在抽屉内部才看得见。
@@ -257,7 +237,6 @@ watch(
   () => props.groupId,
   () => {
     connectionWorkspaceOpen.value = false
-    bulkActionsOpen.value = false
     connectionStages.value = []
     loadedDetails.value = new Map()
     detailErrors.value = new Map()
@@ -649,99 +628,21 @@ async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
   }
 }
 
-async function downloadAllCredentialFiles(): Promise<void> {
-  if (bulkActionsBusy.value || (collection.value?.summary.total ?? 0) === 0) return
-  bulkActionsOpen.value = false
-  feedback.value = ''
-  setPending('batch', 'export', true)
-  try {
-    const result = await downloadAllCredentials(client, props.groupId)
-    for (const file of result.files) downloadJSONFile(file.filename, file.credential)
-    toast.show({
-      message: t('group.credentials.subscription.bulk.exportSucceeded', {
-        count: n(result.files.length),
-      }),
-      tone: 'success',
-    })
-  } catch (cause) {
-    feedback.value = t(
-      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.bulk.exportFailed'),
-    )
-  } finally {
-    setPending('batch', 'export', false)
-  }
-}
-
-function openBulkImportPicker(): void {
-  if (bulkActionsBusy.value || !supportsOAuthFile.value) return
-  bulkActionsOpen.value = false
-  bulkImportInput.value?.click()
-}
-
-async function handleBulkImportFiles(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  const selected = Array.from(input.files ?? [])
-  input.value = ''
-  if (selected.length === 0 || bulkActionsBusy.value || !supportsOAuthFile.value) return
-  feedback.value = ''
-  setPending('batch', 'import', true)
-  let succeeded = 0
-  let failed = 0
-  try {
-    for (const file of selected) {
-      let stage: CredentialStage | undefined
-      try {
-        stage = await importCredentialStage(client, props.channelId, file)
-        const result = await connectGroupCredentials(
-          client,
-          props.groupId,
-          [stage.stage_id],
-          createUUID(),
-        )
-        if (result.credentials_added === 1) succeeded += 1
-        else failed += 1
-      } catch {
-        failed += 1
-        if (stage !== undefined) {
-          void cancelCredentialStage(client, stage.stage_id).catch(() => {
-            // Ready stages expire and clear their secret material automatically.
-          })
-        }
-      }
-    }
-    if (succeeded > 0) {
-      try {
-        await Promise.all([refetchActiveCredentialPage(), refetchGroupSummary()])
-      } catch {
-        feedback.value = t('group.credentials.reconcileFailed')
-        await invalidateReconciliationQueries()
-      }
-    }
-    toast.show({
-      message: t('group.credentials.subscription.bulk.importResult', {
-        succeeded: n(succeeded),
-        failed: n(failed),
-      }),
-      tone: failed === 0 ? 'success' : succeeded === 0 ? 'danger' : 'warning',
-      duration: 4_000,
-    })
-  } finally {
-    setPending('batch', 'import', false)
-  }
-}
-
-async function refreshCurrentPageObservations(): Promise<void> {
-  const items = [...(collection.value?.items ?? [])]
+async function syncSelectedObservations(): Promise<void> {
+  const selected = selectedIds.value
+  const items = (collection.value?.items ?? []).filter(({ credential_id }) =>
+    selected.has(credential_id),
+  )
   if (items.length === 0 || bulkActionsBusy.value || !channelCapabilities.value.quota_observation) {
     return
   }
-  bulkActionsOpen.value = false
   feedback.value = ''
   batchObservationPending.value = new Set(items.map(({ credential_id }) => credential_id))
   setPending('batch', 'observation', true)
   let cursor = 0
   let succeeded = 0
   let failed = 0
+  const failedIDs = new Set<number>()
   const worker = async () => {
     while (cursor < items.length) {
       const item = items[cursor]
@@ -760,6 +661,7 @@ async function refreshCurrentPageObservations(): Promise<void> {
         succeeded += 1
       } catch (cause) {
         failed += 1
+        failedIDs.add(item.credential_id)
         setObservationError(
           item.credential_id,
           t(presentSubscriptionErrorKey(cause, 'group.credentials.subscription.syncFailed')),
@@ -772,10 +674,11 @@ async function refreshCurrentPageObservations(): Promise<void> {
   }
   try {
     await Promise.all(
-      Array.from({ length: Math.min(batchObservationConcurrency, items.length) }, () => worker()),
+      Array.from({ length: Math.min(batchCredentialConcurrency, items.length) }, () => worker()),
     )
+    selectedIds.value = failedIDs
     toast.show({
-      message: t('group.credentials.subscription.bulk.refreshResult', {
+      message: t('group.credentials.batch.syncResult', {
         succeeded: n(succeeded),
         failed: n(failed),
       }),
@@ -785,6 +688,51 @@ async function refreshCurrentPageObservations(): Promise<void> {
   } finally {
     batchObservationPending.value = new Set()
     setPending('batch', 'observation', false)
+  }
+}
+
+async function downloadSelectedCredentials(): Promise<void> {
+  const selected = selectedIds.value
+  const items = (collection.value?.items ?? []).filter(({ credential_id }) =>
+    selected.has(credential_id),
+  )
+  if (items.length === 0 || bulkActionsBusy.value) return
+  feedback.value = ''
+  setPending('batch', 'export', true)
+  let cursor = 0
+  let succeeded = 0
+  let failed = 0
+  const failedIDs = new Set<number>()
+  const worker = async () => {
+    while (cursor < items.length) {
+      const item = items[cursor]
+      cursor += 1
+      if (item === undefined) return
+      try {
+        const result = await downloadCredential(client, props.groupId, item.credential_id)
+        downloadJSONFile(result.filename, result.credential)
+        succeeded += 1
+      } catch {
+        failed += 1
+        failedIDs.add(item.credential_id)
+      }
+    }
+  }
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(batchCredentialConcurrency, items.length) }, () => worker()),
+    )
+    selectedIds.value = failedIDs
+    toast.show({
+      message: t('group.credentials.batch.downloadResult', {
+        succeeded: n(succeeded),
+        failed: n(failed),
+      }),
+      tone: failed === 0 ? 'success' : succeeded === 0 ? 'danger' : 'warning',
+      duration: 4_000,
+    })
+  } finally {
+    setPending('batch', 'export', false)
   }
 }
 
@@ -1096,66 +1044,6 @@ async function runBatch(
       "
     >
       <template #actions>
-        <AppPopover
-          v-if="connectionType === 'subscription'"
-          v-model:open="bulkActionsOpen"
-          align="end"
-          content-class="app-popover__content--credential-bulk"
-        >
-          <template #trigger>
-            <AppButton variant="secondary" :busy="batchBusy" :disabled="bulkActionsBusy">
-              <LoaderCircle
-                v-if="batchBusy"
-                class="group-credentials__bulk-spinner"
-                :size="16"
-                aria-hidden="true"
-              />
-              <ListChecks v-else :size="16" aria-hidden="true" />
-              {{ t('group.credentials.subscription.bulk.actions') }}
-              <ChevronDown :size="14" aria-hidden="true" />
-            </AppButton>
-          </template>
-          <div class="group-credentials__bulk-menu">
-            <button
-              v-if="supportsOAuthFile"
-              type="button"
-              :disabled="bulkActionsBusy"
-              @click="openBulkImportPicker"
-            >
-              <FileUp :size="15" aria-hidden="true" />
-              {{ t('group.credentials.subscription.bulk.importFiles') }}
-            </button>
-            <button
-              type="button"
-              :disabled="bulkActionsBusy || (collection?.summary.total ?? 0) === 0"
-              @click="downloadAllCredentialFiles"
-            >
-              <Download :size="15" aria-hidden="true" />
-              {{ t('group.credentials.subscription.bulk.exportAll') }}
-            </button>
-            <button
-              v-if="channelCapabilities.quota_observation"
-              type="button"
-              :disabled="bulkActionsBusy || (collection?.items.length ?? 0) === 0"
-              @click="refreshCurrentPageObservations"
-            >
-              <RefreshCw :size="15" aria-hidden="true" />
-              {{ t('group.credentials.subscription.bulk.refreshCurrentPage') }}
-            </button>
-          </div>
-        </AppPopover>
-        <input
-          v-if="connectionType === 'subscription' && supportsOAuthFile"
-          ref="bulkImportInput"
-          class="group-credentials__bulk-file"
-          type="file"
-          accept="application/json,.json"
-          multiple
-          :disabled="bulkActionsBusy"
-          tabindex="-1"
-          aria-hidden="true"
-          @change="handleBulkImportFiles"
-        />
         <AppButton
           v-if="connectionType === 'subscription' && authorizationMethods.length > 0"
           :disabled="bulkActionsBusy"
@@ -1256,50 +1144,52 @@ async function runBatch(
         @retry="credentialsQuery.refetch()"
       />
       <p v-if="feedback" class="group-credentials__feedback" role="alert">{{ feedback }}</p>
-      <template v-if="connectionType !== 'subscription'">
-        <CollectionStatusSummary
-          v-if="collection.summary.total > 0"
-          :total="collection.summary.total"
-          :items="statusSummaryItems"
-          :model-value="filters.status"
-          :label="t('group.credentials.summary.region')"
-          :total-label="t('group.credentials.summary.current')"
-          appearance="detail"
-          @update:model-value="setStatus"
-        />
-        <CollectionFilterBar
-          v-if="collection.summary.total > 0"
-          single-column
-          :label="t('group.credentials.filters.region')"
-          :show-result="hasChangedConditions"
-          appearance="detail"
-        >
-          <label class="collection-filter-field collection-filter-field--search">
-            <span class="collection-filter-label">{{ t('group.credentials.filters.search') }}</span>
-            <AppSearchInput
-              v-model="searchDraft"
-              :label="t('group.credentials.filters.search')"
-              :placeholder="t('group.credentials.filters.placeholder')"
-              :clear-label="t('group.credentials.filters.clear')"
-              @update:model-value="scheduleSearch"
-              @clear="clearSearch"
-            />
-          </label>
-          <template #result>
-            <span aria-live="polite">
-              {{
-                t('group.credentials.filters.result', {
-                  shown: n(collection.items.length),
-                  total: n(collection.pagination.total_items),
-                })
-              }}
-            </span>
-            <AppButton variant="link" size="inline" @click="resetFilters">
-              {{ t('group.credentials.filters.reset') }}
-            </AppButton>
-          </template>
-        </CollectionFilterBar>
-      </template>
+      <CollectionStatusSummary
+        v-if="collection.summary.total > 0"
+        :total="collection.summary.total"
+        :items="statusSummaryItems"
+        :model-value="filters.status"
+        :label="t('group.credentials.summary.region')"
+        :total-label="t('group.credentials.summary.current')"
+        appearance="detail"
+        @update:model-value="setStatus"
+      />
+      <CollectionFilterBar
+        v-if="collection.summary.total > 0"
+        single-column
+        :label="t('group.credentials.filters.region')"
+        :show-result="hasChangedConditions"
+        appearance="detail"
+      >
+        <label class="collection-filter-field collection-filter-field--search">
+          <span class="collection-filter-label">{{ t('group.credentials.filters.search') }}</span>
+          <AppSearchInput
+            v-model="searchDraft"
+            :label="t('group.credentials.filters.search')"
+            :placeholder="
+              connectionType === 'subscription'
+                ? t('group.credentials.subscription.searchPlaceholder')
+                : t('group.credentials.filters.placeholder')
+            "
+            :clear-label="t('group.credentials.filters.clear')"
+            @update:model-value="scheduleSearch"
+            @clear="clearSearch"
+          />
+        </label>
+        <template #result>
+          <span aria-live="polite">
+            {{
+              t('group.credentials.filters.result', {
+                shown: n(collection.items.length),
+                total: n(collection.pagination.total_items),
+              })
+            }}
+          </span>
+          <AppButton variant="link" size="inline" @click="resetFilters">
+            {{ t('group.credentials.filters.reset') }}
+          </AppButton>
+        </template>
+      </CollectionFilterBar>
       <SkeletonSurface
         v-if="collectionTransition"
         variant="collection"
@@ -1357,76 +1247,62 @@ async function runBatch(
           </AppButton>
         </template>
       </EmptyState>
-      <template v-else-if="connectionType === 'subscription'">
-        <div class="group-credentials__accounts">
-          <SubscriptionAccountCard
-            v-for="item in collection.items"
-            :key="item.credential_id"
-            :item="credentialWithDetail(item)"
-            :busy="rowBusy(item.credential_id)"
-            :refreshing-observation="observationRefreshing(item.credential_id)"
-            :detail-busy="detailBusy(item.credential_id)"
-            :detail-loaded="detailLoaded(item.credential_id)"
-            :detail-error="detailError(item.credential_id)"
-            :observation-error="observationError(item.credential_id)"
-            :channel-icon="channelDescriptor?.icon"
-            :channel-mark="channelDescriptor?.mark"
-            :capabilities="channelCapabilities"
-            @toggle="mutateItem($event, 'toggle')"
-            @restore="mutateItem($event, 'restore')"
-            @refresh="refreshObservation"
-            @load-details="loadCredentialUsage"
-            @reset="openResetCreditDialog"
-            @download="downloadCredentialFile"
-            @refresh-credential="refreshCredentialToken"
-            @remove="
-              deleteTarget = {
-                ids: [$event.credential_id],
-                mask: $event.account.email ?? $event.mask,
-              }
-            "
-          />
-        </div>
-        <PaginationBar
-          v-if="collection.pagination.total_pages > 1"
-          :page="collection.pagination.page"
-          :page-size="collection.pagination.page_size"
-          :total-items="collection.pagination.total_items"
-          :total-pages="collection.pagination.total_pages"
-          show-page-size
-          appearance="detail"
-          :pending="credentialsQuery.isFetching.value || observationBatchBusy"
-          @previous="setPage(filters.page - 1)"
-          @next="setPage(filters.page + 1)"
-          @update:page-size="setPageSize"
-        />
-      </template>
       <template v-else>
         <CredentialBatchBar
           v-if="selectedCount > 0"
           :selected-count="selectedCount"
+          :all-visible-selected="allVisibleSelected"
           :pending="batchBusy || singleBusy"
+          :can-sync="connectionType === 'subscription' && channelCapabilities.quota_observation"
+          :can-download="connectionType === 'subscription'"
+          @toggle-select="setAllVisible(!allVisibleSelected)"
           @enable="runBatch('enable')"
           @disable="runBatch('disable')"
+          @sync="syncSelectedObservations"
+          @download="downloadSelectedCredentials"
           @remove="deleteTarget = { ids: [...selectedIds] }"
         />
+        <template v-if="connectionType === 'subscription'">
+          <div class="group-credentials__accounts">
+            <SubscriptionAccountCard
+              v-for="item in collection.items"
+              :key="item.credential_id"
+              :item="credentialWithDetail(item)"
+              :selected="selectedIds.has(item.credential_id)"
+              :busy="rowBusy(item.credential_id)"
+              :refreshing-observation="observationRefreshing(item.credential_id)"
+              :detail-busy="detailBusy(item.credential_id)"
+              :detail-loaded="detailLoaded(item.credential_id)"
+              :detail-error="detailError(item.credential_id)"
+              :observation-error="observationError(item.credential_id)"
+              :channel-icon="channelDescriptor?.icon"
+              :channel-mark="channelDescriptor?.mark"
+              :capabilities="channelCapabilities"
+              @update:selected="setSelected(item.credential_id, $event)"
+              @toggle="mutateItem($event, 'toggle')"
+              @restore="mutateItem($event, 'restore')"
+              @refresh="refreshObservation"
+              @load-details="loadCredentialUsage"
+              @reset="openResetCreditDialog"
+              @download="downloadCredentialFile"
+              @refresh-credential="refreshCredentialToken"
+              @remove="
+                deleteTarget = {
+                  ids: [$event.credential_id],
+                  mask: $event.account.email ?? $event.mask,
+                }
+              "
+            />
+          </div>
+        </template>
         <LedgerRecordList
+          v-else
           :label="t('group.credentials.caption')"
           :row-count="collection.pagination.total_items + 1"
           grid-class="group-credential-record-grid"
         >
           <template #header>
-            <span class="group-credentials__select-all" role="columnheader">
-              <label>
-                <span class="sr-only">{{ t('group.credentials.selectVisible') }}</span>
-                <input
-                  type="checkbox"
-                  :checked="allVisibleSelected"
-                  :disabled="batchBusy"
-                  @change="setAllVisible(($event.target as HTMLInputElement).checked)"
-                />
-              </label>
-            </span>
+            <span role="columnheader" aria-hidden="true"></span>
             <span role="columnheader">{{ t('group.credentials.columns.credential') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.status') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.weight') }}</span>
@@ -1462,7 +1338,7 @@ async function runBatch(
           :total-pages="collection.pagination.total_pages"
           show-page-size
           appearance="detail"
-          :pending="credentialsQuery.isFetching.value"
+          :pending="credentialsQuery.isFetching.value || observationBatchBusy"
           @previous="setPage(filters.page - 1)"
           @next="setPage(filters.page + 1)"
           @update:page-size="setPageSize"
@@ -1524,57 +1400,6 @@ async function runBatch(
   line-height: var(--line-normal);
   overflow-wrap: anywhere;
 }
-.group-credentials__bulk-menu {
-  display: grid;
-  width: 100%;
-  gap: 1px;
-}
-.group-credentials__bulk-menu button {
-  display: flex;
-  width: 100%;
-  min-height: 34px;
-  align-items: center;
-  gap: var(--space-2);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--color-text);
-  padding: 7px 8px;
-  font: inherit;
-  font-size: var(--text-button);
-  text-align: left;
-  cursor: pointer;
-}
-.group-credentials__bulk-menu button svg {
-  flex: none;
-  color: var(--color-text-faint);
-}
-.group-credentials__bulk-menu button:hover:not(:disabled) {
-  background: var(--color-surface-sunken);
-}
-.group-credentials__bulk-menu button:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
-}
-.group-credentials__bulk-menu button:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-}
-.group-credentials__bulk-file {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-.group-credentials__bulk-spinner {
-  animation: group-credentials-spin 800ms linear infinite;
-}
-@keyframes group-credentials-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 /* auto-fill 而不是 auto-fit：只有一个账号时也占一个轨道宽度，不会被拉成整行。
    容器窄于两个轨道时自动退回单列，不需要额外断点。 */
 .group-credentials__accounts {
@@ -1594,22 +1419,6 @@ async function runBatch(
   --ledger-record-list-grid: 48px minmax(150px, 0.95fr) 116px minmax(118px, 0.72fr)
     minmax(150px, 0.95fr) minmax(280px, 1.7fr);
   --ledger-record-list-column-gap: 12px;
-}
-.group-credentials__select-all {
-  display: flex;
-  justify-content: center;
-}
-.group-credentials__select-all label {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  cursor: pointer;
-}
-.group-credentials__select-all input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-action);
 }
 @media (max-width: 1120px) {
   .group-credential-record-grid {
@@ -1632,28 +1441,10 @@ async function runBatch(
   .group-credential-record-grid {
     --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
   }
-  .group-credentials__select-all label {
-    width: var(--touch-target);
-    height: var(--touch-target);
-  }
 }
 @media (max-width: 800px) {
   .group-credentials {
     padding-top: var(--detail-panel-padding-top-compact);
   }
-}
-@media (prefers-reduced-motion: reduce) {
-  .group-credentials__bulk-spinner {
-    animation: none;
-  }
-}
-</style>
-
-<style>
-.app-popover__content.app-popover__content--credential-bulk {
-  width: 220px;
-  border-color: var(--color-border-control);
-  border-radius: 10px;
-  padding: 8px;
 }
 </style>
