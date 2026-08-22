@@ -1445,13 +1445,13 @@ function runMenuAction(
   padding: 7px 10px;
 }
 .subscription-account__quota--success {
-  background: light-dark(oklch(96.2% 0.044 156.743), oklch(26.6% 0.065 152.934));
+  background: light-dark(oklch(94.5% 0.075 158), oklch(30% 0.06 158));
 }
 .subscription-account__quota--warning {
-  background: light-dark(oklch(97.3% 0.071 103.193), oklch(28.6% 0.066 53.813));
+  background: light-dark(oklch(94.5% 0.044 75), oklch(30% 0.06 65));
 }
 .subscription-account__quota--danger {
-  background: light-dark(oklch(94.1% 0.03 12.58), oklch(27.1% 0.105 12.094));
+  background: light-dark(oklch(94.5% 0.026 22), oklch(30% 0.08 22));
 }
 .subscription-account__quota-meter {
   position: absolute;
@@ -1468,14 +1468,14 @@ function runMenuAction(
 .subscription-account__quota-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: light-dark(oklch(79.2% 0.209 151.711), oklch(52.7% 0.154 150.069));
+  background: light-dark(oklch(76% 0.17 158), oklch(51% 0.115 158));
   transition: width var(--duration-fast) var(--easing-standard);
 }
 .subscription-account__quota--warning .subscription-account__quota-fill {
-  background: light-dark(oklch(85.2% 0.199 91.936), oklch(47.6% 0.114 61.907));
+  background: light-dark(oklch(78% 0.16 75), oklch(52% 0.105 65));
 }
 .subscription-account__quota--danger .subscription-account__quota-fill {
-  background: light-dark(oklch(71.2% 0.194 13.428), oklch(45.5% 0.188 13.697));
+  background: light-dark(oklch(67% 0.2 22), oklch(51% 0.195 22));
 }
 .subscription-account__quota-name {
   position: relative;

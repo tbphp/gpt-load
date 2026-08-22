@@ -768,9 +768,16 @@ onBeforeUnmount(() => {
       <DisclosurePanel
         v-if="supportsOAuthFile"
         :summary="t('import.subscription.pasteJSON')"
+        indicator-position="inline"
         :open="jsonImportOpen"
         @update:open="jsonImportOpen = $event"
       >
+        <template #summary>
+          <span class="subscription-stager__json-disclosure-summary">
+            <FileJson :size="16" aria-hidden="true" />
+            <span>{{ t('import.subscription.pasteJSON') }}</span>
+          </span>
+        </template>
         <div class="subscription-stager__json">
           <FormField
             id="subscription-oauth-json"
@@ -1046,6 +1053,16 @@ onBeforeUnmount(() => {
 .subscription-stager__json {
   display: grid;
   gap: var(--space-3);
+}
+.subscription-stager__json-disclosure-summary {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.subscription-stager__json-disclosure-summary svg {
+  flex: none;
+  color: var(--color-action);
 }
 .subscription-stager__json textarea {
   width: 100%;
