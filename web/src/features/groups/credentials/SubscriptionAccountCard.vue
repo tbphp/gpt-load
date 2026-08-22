@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Check,
   CircleCheck,
   CircleOff,
   Download,
@@ -545,6 +546,9 @@ function runMenuAction(
               :disabled="busy"
               @change="emit('update:selected', ($event.target as HTMLInputElement).checked)"
             />
+            <span class="subscription-account__select-box" aria-hidden="true">
+              <Check v-if="selected" :size="16" stroke-width="2.5" />
+            </span>
           </label>
           <div class="subscription-account__badges">
             <span
@@ -1153,20 +1157,46 @@ function runMenuAction(
   gap: var(--space-2);
 }
 .subscription-account__select {
+  position: relative;
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 20px;
+  height: 20px;
   flex: none;
-  place-items: center;
+  align-items: center;
+  justify-items: start;
+  border: 0;
+  background: transparent;
+  padding: 0;
   cursor: pointer;
 }
 .subscription-account__select input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-action);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.subscription-account__select-box {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-text-faint) 42%, transparent);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--color-action);
+}
+.subscription-account__select input:checked + .subscription-account__select-box {
+  border-color: color-mix(in srgb, var(--color-action) 60%, transparent);
+}
+.subscription-account__select input:focus-visible + .subscription-account__select-box {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 .subscription-account__select:has(input:disabled) {
   cursor: not-allowed;
+}
+.subscription-account__select:has(input:disabled) .subscription-account__select-box {
+  opacity: 0.5;
 }
 .subscription-account__badges {
   display: flex;
@@ -1663,10 +1693,6 @@ function runMenuAction(
   .subscription-account__detail {
     padding-right: 14px;
     padding-left: 14px;
-  }
-  .subscription-account__select {
-    width: var(--touch-target);
-    height: var(--touch-target);
   }
   .subscription-account__actions {
     margin-left: auto;

@@ -279,7 +279,6 @@ export default {
         placeholder: 'マスク',
         clear: '検索をクリア',
         reset: '条件をリセット',
-        result: '認証情報を {shown} / {total} 件表示',
       },
       loading: 'チャネル認証情報を読み込み中…',
       loadFailed: 'チャネル認証情報を読み込めません。',

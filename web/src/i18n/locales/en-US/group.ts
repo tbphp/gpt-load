@@ -279,7 +279,6 @@ export default {
         placeholder: 'Mask',
         clear: 'Clear search',
         reset: 'Reset filters',
-        result: 'Showing {shown} / {total} credentials',
       },
       loading: 'Loading channel credentials…',
       loadFailed: 'Unable to load channel credentials.',

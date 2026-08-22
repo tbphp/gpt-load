@@ -36,7 +36,6 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
 import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
 import { useDebouncedAction } from '@/app/use-debounced-action'
-import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -1154,42 +1153,50 @@ async function runBatch(
         appearance="detail"
         @update:model-value="setStatus"
       />
-      <CollectionFilterBar
-        v-if="collection.summary.total > 0"
-        single-column
-        :label="t('group.credentials.filters.region')"
-        :show-result="hasChangedConditions"
-        appearance="detail"
-      >
-        <label class="collection-filter-field collection-filter-field--search">
-          <span class="collection-filter-label">{{ t('group.credentials.filters.search') }}</span>
-          <AppSearchInput
-            v-model="searchDraft"
-            :label="t('group.credentials.filters.search')"
-            :placeholder="
-              connectionType === 'subscription'
-                ? t('group.credentials.subscription.searchPlaceholder')
-                : t('group.credentials.filters.placeholder')
-            "
-            :clear-label="t('group.credentials.filters.clear')"
-            @update:model-value="scheduleSearch"
-            @clear="clearSearch"
-          />
-        </label>
-        <template #result>
-          <span aria-live="polite">
-            {{
-              t('group.credentials.filters.result', {
-                shown: n(collection.items.length),
-                total: n(collection.pagination.total_items),
-              })
-            }}
+      <div v-if="collection.summary.total > 0" class="group-credentials__tools">
+        <label class="group-credentials__search-field">
+          <span class="group-credentials__search-controls">
+            <AppSearchInput
+              v-model="searchDraft"
+              class="group-credentials__search-input"
+              :label="t('group.credentials.filters.search')"
+              :placeholder="
+                connectionType === 'subscription'
+                  ? t('group.credentials.subscription.searchPlaceholder')
+                  : t('group.credentials.filters.placeholder')
+              "
+              :clear-label="t('group.credentials.filters.clear')"
+              @update:model-value="scheduleSearch"
+              @clear="clearSearch"
+            />
+            <AppButton
+              variant="link"
+              size="inline"
+              :class="{ 'group-credentials__reset-placeholder': !hasChangedConditions }"
+              :aria-hidden="!hasChangedConditions"
+              :tabindex="hasChangedConditions ? undefined : -1"
+              :disabled="!hasChangedConditions"
+              @click="resetFilters"
+            >
+              {{ t('group.credentials.filters.reset') }}
+            </AppButton>
           </span>
-          <AppButton variant="link" size="inline" @click="resetFilters">
-            {{ t('group.credentials.filters.reset') }}
-          </AppButton>
-        </template>
-      </CollectionFilterBar>
+        </label>
+        <CredentialBatchBar
+          :selected-count="selectedCount"
+          :all-visible-selected="allVisibleSelected"
+          :pending="batchBusy || singleBusy"
+          :can-select-all="collection.items.length > 0"
+          :can-sync="connectionType === 'subscription' && channelCapabilities.quota_observation"
+          :can-download="connectionType === 'subscription'"
+          @toggle-select="setAllVisible(!allVisibleSelected)"
+          @enable="runBatch('enable')"
+          @disable="runBatch('disable')"
+          @sync="syncSelectedObservations"
+          @download="downloadSelectedCredentials"
+          @remove="deleteTarget = { ids: [...selectedIds] }"
+        />
+      </div>
       <SkeletonSurface
         v-if="collectionTransition"
         variant="collection"
@@ -1248,20 +1255,6 @@ async function runBatch(
         </template>
       </EmptyState>
       <template v-else>
-        <CredentialBatchBar
-          v-if="selectedCount > 0"
-          :selected-count="selectedCount"
-          :all-visible-selected="allVisibleSelected"
-          :pending="batchBusy || singleBusy"
-          :can-sync="connectionType === 'subscription' && channelCapabilities.quota_observation"
-          :can-download="connectionType === 'subscription'"
-          @toggle-select="setAllVisible(!allVisibleSelected)"
-          @enable="runBatch('enable')"
-          @disable="runBatch('disable')"
-          @sync="syncSelectedObservations"
-          @download="downloadSelectedCredentials"
-          @remove="deleteTarget = { ids: [...selectedIds] }"
-        />
         <template v-if="connectionType === 'subscription'">
           <div class="group-credentials__accounts">
             <SubscriptionAccountCard
@@ -1400,11 +1393,40 @@ async function runBatch(
   line-height: var(--line-normal);
   overflow-wrap: anywhere;
 }
-/* auto-fill 而不是 auto-fit：只有一个账号时也占一个轨道宽度，不会被拉成整行。
-   容器窄于两个轨道时自动退回单列，不需要额外断点。 */
+.group-credentials__tools {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, max-content);
+  align-items: start;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: var(--space-4);
+  padding: 13px 0 var(--space-3);
+}
+.group-credentials__search-field {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  width: 420px;
+  max-width: 100%;
+}
+.group-credentials__search-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+.group-credentials__search-input {
+  width: 420px;
+  min-width: 0;
+  flex: 0 1 420px;
+}
+.group-credentials__reset-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
 .group-credentials__accounts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
   align-items: start;
   gap: var(--space-3);
 }
@@ -1438,6 +1460,9 @@ async function runBatch(
   }
 }
 @media (max-width: 860px) {
+  .group-credentials__tools {
+    grid-template-columns: 1fr;
+  }
   .group-credential-record-grid {
     --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
   }
@@ -1445,6 +1470,12 @@ async function runBatch(
 @media (max-width: 800px) {
   .group-credentials {
     padding-top: var(--detail-panel-padding-top-compact);
+  }
+}
+@media (max-width: 560px) {
+  .group-credentials__search-field,
+  .group-credentials__search-input {
+    width: 100%;
   }
 }
 </style>
