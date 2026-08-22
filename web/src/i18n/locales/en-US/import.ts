@@ -14,8 +14,6 @@ export default {
       loadFailed: 'Unable to load channels',
       channelRequired: 'Select a channel',
       connectionType: 'Credential type',
-      subscriptionRisk:
-        'Subscription-account access depends on provider authorization flows rather than a stable public API contract. Upstream policy or protocol changes may invalidate authorization, interrupt access, or restrict the account; assess the risks before use.',
     },
     mode: {
       label: 'Import destination',
@@ -108,21 +106,15 @@ export default {
     },
     subscription: {
       title: 'Connect a subscription account',
-      description: 'Sign in with {channel}, or import an existing OAuth JSON file',
+      riskNotice:
+        'Subscription accounts depend on provider authorization. Rule changes may invalidate access or restrict the account.',
       channelNotice: {
         claude_oauth_risk:
           'Claude OAuth relies on a Claude Code compatibility protocol rather than a stable public API contract. Upstream changes may interrupt access or affect the account; evaluate this risk before authorizing.',
         antigravity_oauth_risk:
           'Antigravity OAuth depends on Google OAuth and Cloud Code interfaces that may change. Upstream policy, permission, or implementation changes can invalidate authorization, interrupt access, or affect the account. Connect only accounts you are authorized to manage and evaluate this risk first.',
       },
-      securityNotice: {
-        create:
-          'The browser never stores the access credential. The server encrypts and holds it, and only writes it in when the group is created.',
-        connect:
-          'The browser never stores the access credential. The server encrypts and holds it, and writes it into this group once authorization finishes.',
-      },
       authorize: 'Sign in with {channel}',
-      authorizeHint: 'Opens the {channel} authorization page and returns here automatically',
       addAnother: 'Connect another account',
       authorizeFailed: 'Unable to complete {channel} sign-in',
       popupBlocked:
@@ -156,12 +148,10 @@ export default {
         'Copy the whole URL from the address bar, not just part of it. It is fine if that page does not load.',
       submitCallback: 'Submit',
       callbackFailed: 'This URL is invalid, already used, or belongs to another authorization',
-      orImport: 'Have an OAuth JSON file? Import it directly',
+      pasteJSON: 'Paste JSON content',
       oauthJSONLabel: 'OAuth JSON content',
-      oauthJSONDescription:
-        'Paste one account OAuth credential JSON, or choose one or more local files. Each file must contain one account.',
       importText: 'Import pasted content',
-      importFile: 'Choose one or more files',
+      importFile: 'Import credential files',
       importing: 'Importing…',
       importResult: 'Import complete: {succeeded} succeeded, {failed} failed',
       importFailed: 'The OAuth JSON is invalid or unsupported',

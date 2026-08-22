@@ -444,16 +444,14 @@ const credentialStepTitle = computed(() =>
     { channel: subscriptionChannelName.value },
   ),
 )
-const credentialStepDescription = computed(() =>
-  t(
-    isSubscription.value
-      ? 'import.subscription.description'
-      : structuredCredentials.value
-        ? 'import.credentials.structuredDescription'
-        : 'import.credentials.description',
-    { channel: subscriptionChannelName.value },
-  ),
-)
+const credentialStepDescription = computed(() => {
+  if (isSubscription.value) return undefined
+  return t(
+    structuredCredentials.value
+      ? 'import.credentials.structuredDescription'
+      : 'import.credentials.description',
+  )
+})
 const credentialStepSummary = computed(() => {
   if (!isSubscription.value && credentialAnalysis.value.tooManyCredentials) {
     return t('import.credentials.tooMany')

@@ -27,7 +27,6 @@ import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
-import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatLocalInstant, formatTokens } from '@/lib/format'
@@ -152,6 +151,8 @@ const syncExactTimeTooltip = computed(() => {
   if (observedAtMS === undefined || observedAtMS === null) return undefined
   return formatLocalInstant(observedAtMS, locale.value)
 })
+const quotaResetPrefix = computed(() => t('group.credentials.subscription.quotaResetPrefix'))
+const quotaResetSuffix = computed(() => t('group.credentials.subscription.quotaResetSuffix'))
 const resetCreditsAvailable = computed(() => snapshot.value?.reset_credits_available ?? 0)
 const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
 const availableResetCreditDetails = computed(() =>
@@ -464,6 +465,11 @@ function quotaTone(window: CredentialQuotaWindowDto): 'success' | 'warning' | 'd
   return quotaProgressTone(value, window.state === 'exhausted')
 }
 
+function quotaFillStyle(window: CredentialQuotaWindowDto): Record<string, string> {
+  const value = remainingPercent(window)
+  return value === undefined ? {} : { width: `${value}%` }
+}
+
 function toggleDetails(): void {
   if (props.detailBusy) return
   detailsExpanded.value = !detailsExpanded.value
@@ -517,18 +523,19 @@ function runMenuAction(
       <span class="sr-only">{{ t('group.credentials.subscription.syncingQuota') }}</span>
       <div class="subscription-account__refresh-skeleton-top" aria-hidden="true">
         <div>
+          <SkeletonBlock width="20px" height="20px" />
           <SkeletonBlock width="92px" height="24px" />
           <SkeletonBlock width="64px" height="24px" />
         </div>
-        <SkeletonBlock width="32px" height="32px" />
+        <div>
+          <SkeletonBlock width="58px" height="12px" />
+          <SkeletonBlock width="32px" height="32px" />
+          <SkeletonBlock width="32px" height="32px" />
+        </div>
       </div>
       <SkeletonBlock width="58%" height="18px" aria-hidden="true" />
       <div class="subscription-account__refresh-skeleton-quotas" aria-hidden="true">
-        <div v-for="index in refreshSkeletonRows" :key="index">
-          <SkeletonBlock width="76px" height="12px" />
-          <SkeletonBlock height="8px" />
-          <SkeletonBlock width="54px" height="12px" />
-        </div>
+        <SkeletonBlock v-for="index in refreshSkeletonRows" :key="index" height="34px" />
       </div>
       <SkeletonBlock height="38px" aria-hidden="true" />
       <SkeletonBlock width="100%" height="44px" aria-hidden="true" />
@@ -574,6 +581,18 @@ function runMenuAction(
             </StatusBadge>
           </div>
           <div class="subscription-account__actions">
+            <span
+              v-if="supportsQuotaObservation && observation?.observed_at_ms != null"
+              class="subscription-account__sync-age"
+            >
+              <AppRelativeTime
+                :instant="observation.observed_at_ms"
+                :locale="locale"
+                :empty-label="t('group.credentials.subscription.unknown')"
+                :tooltip-content="syncTimeTooltip"
+                hint
+              />
+            </span>
             <AppTooltip
               v-if="supportsQuotaObservation"
               :content="t('group.credentials.subscription.sync')"
@@ -662,18 +681,6 @@ function runMenuAction(
           <OverflowTooltip class="subscription-account__mail" :content="accountName">
             {{ accountName }}
           </OverflowTooltip>
-          <span
-            v-if="supportsQuotaObservation && observation?.observed_at_ms != null"
-            class="subscription-account__sync-age"
-          >
-            <AppRelativeTime
-              :instant="observation.observed_at_ms"
-              :locale="locale"
-              :empty-label="t('group.credentials.subscription.unknown')"
-              :tooltip-content="syncTimeTooltip"
-              hint
-            />
-          </span>
         </div>
       </header>
 
@@ -688,38 +695,66 @@ function runMenuAction(
         v-if="supportsQuotaObservation && quotaWindows.length"
         class="subscription-account__quotas"
       >
-        <div v-for="window in quotaWindows" :key="window.id" class="subscription-account__quota">
+        <div
+          v-for="window in quotaWindows"
+          :key="window.id"
+          class="subscription-account__quota"
+          :class="`subscription-account__quota--${quotaTone(window) ?? 'unknown'}`"
+        >
+          <span
+            class="subscription-account__quota-meter"
+            :role="remainingPercent(window) === undefined ? 'img' : 'progressbar'"
+            :aria-label="
+              remainingPercent(window) === undefined
+                ? `${quotaWindowLabel(window)}: ${quotaValueLabel(window)}`
+                : quotaWindowLabel(window)
+            "
+            :aria-valuemin="remainingPercent(window) === undefined ? undefined : 0"
+            :aria-valuemax="remainingPercent(window) === undefined ? undefined : 100"
+            :aria-valuenow="remainingPercent(window)"
+            :aria-valuetext="
+              remainingPercent(window) === undefined ? undefined : quotaValueLabel(window)
+            "
+          >
+            <span
+              v-if="remainingPercent(window) !== undefined"
+              class="subscription-account__quota-fill"
+              :style="quotaFillStyle(window)"
+              aria-hidden="true"
+            ></span>
+          </span>
           <OverflowTooltip
             class="subscription-account__quota-name"
             :content="quotaWindowLabel(window)"
           >
             {{ quotaWindowLabel(window) }}
           </OverflowTooltip>
-          <QuotaProgressBar
-            :value="remainingPercent(window)"
-            :tone="quotaTone(window)"
-            :label="quotaWindowLabel(window)"
-            :value-text="quotaValueLabel(window)"
-          />
-          <span class="subscription-account__quota-value">{{ quotaValueLabel(window) }}</span>
-          <span class="subscription-account__quota-reset">
-            <AppTooltip
-              v-if="window.reset_at_ms && quotaWindowNeedsRefresh(window)"
-              :content="quotaPeriodTooltip(window) ?? ''"
-            >
-              <span class="subscription-account__quota-reset-pending" tabindex="0">
-                {{ t('group.credentials.subscription.quotaPendingRefresh') }}
+          <span class="subscription-account__quota-meta">
+            <strong>{{ quotaValueLabel(window) }}</strong>
+            <span aria-hidden="true">·</span>
+            <span class="subscription-account__quota-reset">
+              <AppTooltip
+                v-if="window.reset_at_ms && quotaWindowNeedsRefresh(window)"
+                :content="quotaPeriodTooltip(window) ?? ''"
+              >
+                <span class="subscription-account__quota-reset-pending" tabindex="0">
+                  {{ t('group.credentials.subscription.quotaPendingRefresh') }}
+                </span>
+              </AppTooltip>
+              <span v-else-if="window.reset_at_ms" class="subscription-account__quota-reset-time">
+                <span v-if="quotaResetPrefix" class="subscription-account__quota-reset-prefix">
+                  {{ quotaResetPrefix }}
+                </span>
+                <AppRelativeTime
+                  :instant="window.reset_at_ms"
+                  :locale="locale"
+                  :empty-label="t('group.credentials.subscription.unknown')"
+                  :tooltip-content="quotaPeriodTooltip(window)"
+                  hint
+                /><span v-if="quotaResetSuffix">{{ quotaResetSuffix }}</span>
               </span>
-            </AppTooltip>
-            <AppRelativeTime
-              v-else-if="window.reset_at_ms"
-              :instant="window.reset_at_ms"
-              :locale="locale"
-              :empty-label="t('group.credentials.subscription.unknown')"
-              :tooltip-content="quotaPeriodTooltip(window)"
-              hint
-            />
-            <template v-else>—</template>
+              <template v-else>—</template>
+            </span>
           </span>
         </div>
       </div>
@@ -842,12 +877,6 @@ function runMenuAction(
       aria-live="polite"
     >
       <div v-if="!detailLoaded && !detailError" class="subscription-account__skeleton">
-        <div class="subscription-account__skeleton-section">
-          <span class="subscription-account__skeleton-title">
-            <SkeletonBlock width="88px" height="11px" />
-          </span>
-          <SkeletonBlock height="var(--subscription-detail-activity-height)" />
-        </div>
         <div
           v-if="supportsQuotaObservation && hasUsageQuotaWindows"
           class="subscription-account__skeleton-section"
@@ -861,7 +890,7 @@ function runMenuAction(
           <span class="subscription-account__skeleton-title">
             <SkeletonBlock width="88px" height="11px" />
           </span>
-          <SkeletonBlock height="var(--subscription-detail-diagnostics-height)" />
+          <SkeletonBlock height="var(--subscription-detail-overview-height)" />
         </div>
       </div>
 
@@ -873,41 +902,6 @@ function runMenuAction(
       </div>
 
       <div v-else class="subscription-account__detail-content">
-        <section class="subscription-account__detail-section">
-          <h3>{{ t('group.credentials.subscription.activity') }}</h3>
-          <div class="subscription-account__activity">
-            <span class="subscription-account__activity-last">
-              {{ t('group.credentials.subscription.lastUsed') }}
-              <AppRelativeTime
-                :instant="item.last_used_at_ms ?? null"
-                :locale="locale"
-                :empty-label="t('group.credentials.subscription.unknown')"
-                hint
-              />
-            </span>
-            <span v-if="dailyUsage" class="subscription-account__activity-daily">
-              <span class="subscription-account__activity-window">
-                {{ t('group.credentials.subscription.dailyWindow') }}
-              </span>
-              <span :title="dailyIncompleteHint">
-                {{ t('group.credentials.subscription.dailySuccess') }}
-                <strong class="subscription-account__daily-success">{{
-                  n(dailyUsage.success_count)
-                }}</strong>
-              </span>
-              <span :title="dailyIncompleteHint">
-                {{ t('group.credentials.subscription.dailyFailure') }}
-                <strong class="subscription-account__daily-failure">{{
-                  n(dailyUsage.failure_count)
-                }}</strong>
-              </span>
-            </span>
-            <span v-else class="subscription-account__activity-daily">
-              {{ t('group.credentials.subscription.estimate.unavailable') }}
-            </span>
-          </div>
-        </section>
-
         <section
           v-if="supportsQuotaObservation && hasUsageQuotaWindows"
           class="subscription-account__detail-section"
@@ -990,23 +984,56 @@ function runMenuAction(
         </section>
 
         <section class="subscription-account__detail-section">
-          <h3>{{ t('group.credentials.subscription.diagnostics') }}</h3>
+          <h3>{{ t('group.credentials.subscription.overview') }}</h3>
           <div class="subscription-account__diagnostics">
+            <dl>
+              <dt>{{ t('group.credentials.subscription.lastUsed') }}</dt>
+              <dd>
+                <AppRelativeTime
+                  :instant="item.last_used_at_ms ?? null"
+                  :locale="locale"
+                  :empty-label="t('group.credentials.subscription.unknown')"
+                  hint
+                />
+              </dd>
+            </dl>
+            <dl>
+              <dt>{{ t('group.credentials.subscription.dailySuccessSummary') }}</dt>
+              <dd
+                :class="{ 'subscription-account__daily-success': dailyUsage }"
+                :title="dailyIncompleteHint"
+              >
+                {{
+                  dailyUsage
+                    ? n(dailyUsage.success_count)
+                    : t('group.credentials.subscription.estimate.unavailable')
+                }}
+              </dd>
+            </dl>
+            <dl>
+              <dt>{{ t('group.credentials.subscription.dailyFailureSummary') }}</dt>
+              <dd
+                :class="{ 'subscription-account__daily-failure': dailyUsage }"
+                :title="dailyIncompleteHint"
+              >
+                {{
+                  dailyUsage
+                    ? n(dailyUsage.failure_count)
+                    : t('group.credentials.subscription.estimate.unavailable')
+                }}
+              </dd>
+            </dl>
             <dl>
               <dt>{{ t('group.credentials.detailsFailure') }}</dt>
               <dd>{{ failureLabel }}</dd>
             </dl>
-            <dl v-if="supportsQuotaObservation">
-              <dt>{{ t('group.credentials.subscription.lastQuotaSync') }}</dt>
-              <dd>
-                <AppRelativeTime
-                  :instant="observation?.observed_at_ms ?? null"
-                  :locale="locale"
-                  :empty-label="t('group.credentials.subscription.unknown')"
-                  :tooltip-content="syncExactTimeTooltip"
-                  hint
-                />
-              </dd>
+            <dl>
+              <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
+              <dd>{{ n(item.consecutive_failure_count) }}</dd>
+            </dl>
+            <dl>
+              <dt>{{ t('group.credentials.subscription.lastError') }}</dt>
+              <dd>{{ observationErrorLabel(observation?.last_error_code) }}</dd>
             </dl>
             <dl>
               <dt>{{ t('group.credentials.subscription.lastTokenRefresh') }}</dt>
@@ -1020,14 +1047,6 @@ function runMenuAction(
               </dd>
             </dl>
             <dl>
-              <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
-              <dd>{{ n(item.consecutive_failure_count) }}</dd>
-            </dl>
-            <dl v-if="supportsQuotaObservation">
-              <dt>{{ t('group.credentials.subscription.lastError') }}</dt>
-              <dd>{{ observationErrorLabel(observation?.last_error_code) }}</dd>
-            </dl>
-            <dl>
               <dt>{{ t('group.credentials.subscription.tokenExpiresAt') }}</dt>
               <dd>
                 <AppRelativeTime
@@ -1035,6 +1054,18 @@ function runMenuAction(
                   :locale="locale"
                   :empty-label="t('group.credentials.subscription.unknown')"
                   :tooltip-content="credentialExpiryTooltip"
+                  hint
+                />
+              </dd>
+            </dl>
+            <dl>
+              <dt>{{ t('group.credentials.subscription.lastQuotaSync') }}</dt>
+              <dd>
+                <AppRelativeTime
+                  :instant="observation?.observed_at_ms ?? null"
+                  :locale="locale"
+                  :empty-label="t('group.credentials.subscription.unknown')"
+                  :tooltip-content="syncExactTimeTooltip"
                   hint
                 />
               </dd>
@@ -1113,12 +1144,6 @@ function runMenuAction(
   display: grid;
   gap: var(--space-2);
 }
-.subscription-account__refresh-skeleton-quotas > div {
-  display: grid;
-  grid-template-columns: minmax(72px, 98px) minmax(0, 1fr) 54px;
-  align-items: center;
-  gap: var(--space-2);
-}
 .subscription-account--success {
   border-left-color: var(--color-success);
 }
@@ -1136,9 +1161,8 @@ function runMenuAction(
 .subscription-account--disabled .subscription-account__status {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-neutral) 28%, transparent);
 }
-.subscription-account--disabled :deep(.quota-progress) {
-  filter: grayscale(1);
-  opacity: 0.58;
+.subscription-account--disabled .subscription-account__quota {
+  background: var(--color-surface-sunken);
 }
 .subscription-account__main {
   display: grid;
@@ -1217,7 +1241,7 @@ function runMenuAction(
 }
 .subscription-account__sync-age {
   flex: none;
-  margin-left: auto;
+  margin-right: var(--space-1);
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
   white-space: nowrap;
@@ -1279,41 +1303,92 @@ function runMenuAction(
   gap: var(--space-2);
 }
 .subscription-account__quota {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(72px, 98px) minmax(0, 1fr) 88px 56px;
+  min-height: 34px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  row-gap: var(--space-2);
-  column-gap: var(--space-1);
+  gap: var(--space-3);
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-surface-sunken);
+  padding: 7px 10px;
+}
+.subscription-account__quota--success {
+  background: color-mix(in srgb, var(--color-success-bg) 78%, var(--color-surface));
+}
+.subscription-account__quota--warning {
+  background: color-mix(in srgb, var(--color-warning-bg) 78%, var(--color-surface));
+}
+.subscription-account__quota--danger {
+  background: color-mix(in srgb, var(--color-danger-bg) 82%, var(--color-surface));
+}
+.subscription-account__quota-meter {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.subscription-account--disabled .subscription-account__quota-meter {
+  filter: grayscale(1);
+  opacity: 0.58;
+}
+.subscription-account__quota-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--color-success) 17%, var(--color-surface));
+  transition: width var(--duration-fast) var(--easing-standard);
+}
+.subscription-account__quota--warning .subscription-account__quota-fill {
+  background: color-mix(in srgb, var(--color-warning) 19%, var(--color-surface));
+}
+.subscription-account__quota--danger .subscription-account__quota-fill {
+  background: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface));
 }
 .subscription-account__quota-name {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
   overflow: hidden;
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font-size: var(--text-sm);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.subscription-account__quota-value {
-  min-width: 0;
-  overflow: hidden;
-  padding-left: var(--space-1);
-  font-family: var(--font-mono);
+.subscription-account__quota-meta {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  min-width: max-content;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--color-text-muted);
   font-size: var(--text-sm);
-  font-weight: 650;
   font-variant-numeric: tabular-nums;
-  text-align: left;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+.subscription-account__quota-meta strong {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-weight: 650;
+}
 .subscription-account__quota-reset {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  text-align: right;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
   white-space: nowrap;
+}
+.subscription-account__quota-reset-time {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.subscription-account__quota-reset-prefix {
+  margin-right: 0.3em;
 }
 .subscription-account__quota-reset-pending {
   cursor: help;
@@ -1506,8 +1581,7 @@ function runMenuAction(
   padding: 14px 18px 16px;
 }
 .subscription-account__skeleton {
-  --subscription-detail-activity-height: 34px;
-  --subscription-detail-diagnostics-height: 61px;
+  --subscription-detail-overview-height: 92px;
 }
 .subscription-account__skeleton,
 .subscription-account__detail-content {
@@ -1532,44 +1606,6 @@ function runMenuAction(
   font-size: var(--text-label-xs);
   font-weight: 680;
   letter-spacing: 0.06em;
-}
-.subscription-account__activity {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  padding: 7px 10px;
-}
-.subscription-account__activity-last {
-  color: var(--color-text-muted);
-}
-.subscription-account__activity-last :deep(.app-relative-time) {
-  margin-left: var(--space-1);
-  color: var(--color-text);
-  font-family: var(--font-mono);
-}
-.subscription-account__activity-daily {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-.subscription-account__activity-window {
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
-  padding: 1px 6px;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-.subscription-account__activity-daily strong {
-  margin-left: 3px;
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  font-variant-numeric: tabular-nums;
 }
 .subscription-account__daily-success {
   color: var(--color-success);
@@ -1697,24 +1733,8 @@ function runMenuAction(
   .subscription-account__actions {
     margin-left: auto;
   }
-  .subscription-account__quota {
-    grid-template-columns: 68px minmax(0, 1fr) 76px;
-    gap: var(--space-2);
-  }
-  .subscription-account__quota-reset {
-    grid-column: 2 / -1;
-  }
-  .subscription-account__activity {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-2);
-  }
   .subscription-account__skeleton {
-    --subscription-detail-activity-height: 60px;
-    --subscription-detail-diagnostics-height: 92px;
-  }
-  .subscription-account__activity-daily {
-    justify-content: space-between;
-    gap: var(--space-1);
+    --subscription-detail-overview-height: 154px;
   }
   .subscription-account__window-row {
     grid-template-columns: 42px repeat(4, minmax(48px, 1fr));
@@ -1730,6 +1750,9 @@ function runMenuAction(
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .subscription-account__quota-fill {
+    transition: none;
+  }
   .subscription-account__detail-spinner,
   .subscription-account__sync-icon--spinning {
     animation: none;

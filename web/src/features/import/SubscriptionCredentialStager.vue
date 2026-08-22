@@ -496,7 +496,6 @@ onBeforeUnmount(() => {
       heading-id="subscription-stager-title"
       :step="step"
       :title="t('import.subscription.title')"
-      :description="t('import.subscription.description', { channel: channelLabel })"
     >
       <template v-if="readyCount" #actions>
         <span class="subscription-stager__count">
@@ -505,14 +504,16 @@ onBeforeUnmount(() => {
       </template>
     </PanelHeader>
 
-    <InlineFeedback
-      v-for="notice in notices"
-      :key="notice.id"
-      :tone="notice.tone"
-      appearance="ledger"
-    >
-      {{ t(`import.subscription.channelNotice.${notice.id}`) }}
-    </InlineFeedback>
+    <template v-if="!hasAccounts">
+      <InlineFeedback
+        v-for="notice in notices"
+        :key="notice.id"
+        :tone="notice.tone"
+        appearance="ledger"
+      >
+        {{ t(`import.subscription.channelNotice.${notice.id}`) }}
+      </InlineFeedback>
+    </template>
 
     <div v-if="hasAccounts" class="subscription-stager__accounts">
       <article
@@ -722,8 +723,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="hasEntryMethod" class="subscription-stager__entry">
-      <div v-if="supportsInteractiveOAuth" class="subscription-stager__entry-primary">
+      <div class="subscription-stager__entry-actions">
         <AppButton
+          v-if="supportsInteractiveOAuth"
           class="subscription-stager__primary"
           :variant="hasAccounts ? 'secondary' : 'primary'"
           :size="hasAccounts ? 'sm' : 'lg'"
@@ -738,26 +740,41 @@ onBeforeUnmount(() => {
               : t('import.subscription.authorize', { channel: channelLabel })
           }}
         </AppButton>
-        <span v-if="!hasAccounts" class="subscription-stager__entry-hint">
-          {{ t('import.subscription.authorizeHint', { channel: channelLabel }) }}
-        </span>
+        <label
+          v-if="supportsOAuthFile"
+          class="subscription-stager__file subscription-stager__entry-file"
+          :class="{
+            'subscription-stager__entry-file--compact': hasAccounts,
+            'subscription-stager__entry-file--primary': !supportsInteractiveOAuth,
+            'is-disabled': entryBusy,
+          }"
+        >
+          <FileJson :size="16" aria-hidden="true" />
+          {{
+            busyAction === 'import'
+              ? t('import.subscription.importing')
+              : t('import.subscription.importFile')
+          }}
+          <input
+            type="file"
+            accept="application/json,.json"
+            multiple
+            :disabled="entryBusy"
+            @change="importFile"
+          />
+        </label>
       </div>
 
       <DisclosurePanel
         v-if="supportsOAuthFile"
-        :summary="
-          supportsInteractiveOAuth
-            ? t('import.subscription.orImport')
-            : t('import.subscription.oauthJSONLabel')
-        "
-        :open="!supportsInteractiveOAuth || jsonImportOpen"
-        @update:open="jsonImportOpen = supportsInteractiveOAuth ? $event : true"
+        :summary="t('import.subscription.pasteJSON')"
+        :open="jsonImportOpen"
+        @update:open="jsonImportOpen = $event"
       >
         <div class="subscription-stager__json">
           <FormField
             id="subscription-oauth-json"
             :label="t('import.subscription.oauthJSONLabel')"
-            :description="t('import.subscription.oauthJSONDescription')"
             size="compact"
           >
             <template #default="field">
@@ -784,34 +801,17 @@ onBeforeUnmount(() => {
             >
               <FileJson :size="16" aria-hidden="true" />{{ t('import.subscription.importText') }}
             </AppButton>
-            <label class="subscription-stager__file" :class="{ 'is-disabled': entryBusy }">
-              <FileJson :size="16" aria-hidden="true" />
-              {{
-                busyAction === 'import'
-                  ? t('import.subscription.importing')
-                  : t('import.subscription.importFile')
-              }}
-              <input
-                type="file"
-                accept="application/json,.json"
-                multiple
-                :disabled="entryBusy"
-                @change="importFile"
-              />
-            </label>
           </div>
         </div>
       </DisclosurePanel>
     </div>
 
-    <!-- 安全说明只在还没连上账号时引导；已有账号后它就只是噪音 -->
     <InlineFeedback
-      v-if="!hasAccounts && hasEntryMethod"
-      tone="neutral"
+      v-if="!hasAccounts && hasEntryMethod && notices.length === 0"
+      tone="warning"
       appearance="ledger-hint"
-      glyph="i"
     >
-      {{ t(`import.subscription.securityNotice.${context}`) }}
+      {{ t('import.subscription.riskNotice') }}
     </InlineFeedback>
 
     <InlineFeedback v-if="feedbackKey" tone="danger" appearance="ledger">
@@ -1034,19 +1034,14 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
   min-width: 0;
 }
-.subscription-stager__entry-primary {
+.subscription-stager__entry-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
 }
 .subscription-stager__primary {
   flex: none;
-}
-.subscription-stager__entry-hint {
-  min-width: 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
 }
 .subscription-stager__json {
   display: grid;
@@ -1078,9 +1073,29 @@ onBeforeUnmount(() => {
   font-weight: 560;
   cursor: pointer;
 }
+.subscription-stager__entry-file {
+  min-height: var(--control-lg);
+  padding-inline: 18px;
+}
+.subscription-stager__entry-file--compact {
+  min-height: var(--control-sm);
+  padding-inline: 12px;
+  font-size: var(--text-sm);
+}
+.subscription-stager__entry-file--primary {
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  font-weight: 600;
+}
 .subscription-stager__file:hover:not(.is-disabled) {
   border-color: var(--color-text-faint);
   color: var(--color-text);
+}
+.subscription-stager__entry-file--primary:hover:not(.is-disabled) {
+  border-color: var(--color-action-hover);
+  background: var(--color-action-hover);
+  color: var(--color-action-ink);
 }
 .subscription-stager__file:focus-within {
   outline: 2px solid var(--color-focus);

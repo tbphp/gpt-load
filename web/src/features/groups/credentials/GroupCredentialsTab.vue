@@ -132,10 +132,6 @@ const connectOperationKey = ref<string>()
 const connectFeedback = ref('')
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
-const connectionWorkspaceDescription = computed(() =>
-  t('group.credentials.subscription.connectDescription'),
-)
-
 const collection = computed(() => credentialsQuery.data.value)
 const {
   initial: initialLoading,
@@ -1206,8 +1202,7 @@ async function runBatch(
       appearance="ledger"
       :open="connectionWorkspaceOpen"
       :title="t('group.credentials.subscription.connect')"
-      :description="connectionWorkspaceDescription"
-      show-description
+      :description="t('group.credentials.subscription.connectDescription')"
       :close-label="t('common.close')"
       :dismissible="!connectBusy"
       @update:open="setConnectionWorkspace"
@@ -1231,12 +1226,14 @@ async function runBatch(
       <template #footer>
         <AppButton
           variant="secondary"
+          size="compact"
           :disabled="connectBusy"
           @click="setConnectionWorkspace(false)"
         >
           {{ t('group.credentials.cancel') }}
         </AppButton>
         <AppButton
+          size="compact"
           :busy="connectBusy"
           :disabled="readyConnectionStages.length === 0"
           @click="saveConnectedAccounts"

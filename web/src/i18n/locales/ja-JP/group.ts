@@ -391,9 +391,8 @@ export default {
         refreshCredential: '認証情報を更新',
         refreshCredentialSucceeded: '認証情報を更新しました',
         refreshCredentialFailed: '認証情報を更新できません',
-        dailyWindow: '直近 24 時間',
-        dailySuccess: '成功',
-        dailyFailure: '失敗',
+        dailySuccessSummary: '24 時間の成功',
+        dailyFailureSummary: '24 時間の失敗',
         dailyIncomplete:
           '統計データが 24 時間全体をカバーしていないため、件数が少なく出る場合があります',
         syncFailed: 'アカウント情報を同期できません',
@@ -422,6 +421,8 @@ export default {
         lastTokenRefresh: '認証情報の最終更新',
         noQuota: '上流から表示可能な利用枠が提供されていません',
         quotaPendingRefresh: '更新待ち',
+        quotaResetPrefix: '',
+        quotaResetSuffix: 'にリセット',
         quotaLabels: {
           session: 'セッション',
           weekly: '週間',
@@ -440,8 +441,7 @@ export default {
           '{period}\n現在の期間は終了しています。利用枠は前回同期時のままです。最新情報は手動で更新してください。',
         quotaExhaustedHint:
           '利用枠情報は表示専用です。リクエストは通常どおりスケジュールされ、上流の制限応答後にアカウントをクールダウンして切り替えます。',
-        diagnostics: '診断情報',
-        activity: '最近のアクティビティ',
+        overview: '稼働概要',
         expandDetails: '統計データを展開',
         collapseDetails: '統計データを折りたたむ',
         synced: '同期',
