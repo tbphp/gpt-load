@@ -159,7 +159,7 @@ const usageQuotaWindows = computed(() =>
 )
 const hasUsageQuotaWindows = computed(() => usageQuotaWindows.value.length > 0)
 const windowSkeletonHeight = computed(() => `${24 + usageQuotaWindows.value.length * 32}px`)
-const refreshSkeletonRows = computed(() => Math.max(2, Math.min(4, quotaWindows.value.length || 2)))
+const refreshSkeletonRows = computed(() => Math.min(4, quotaWindows.value.length))
 const constrainedModels = computed(() =>
   Array.from(new Set(quotaWindows.value.flatMap((window) => window.model_ids ?? []))),
 )
