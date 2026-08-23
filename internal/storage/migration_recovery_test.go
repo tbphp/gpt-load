@@ -247,7 +247,7 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
+			assertInternalMigrationComplete(t, restarted, registeredMigrationIDs())
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
@@ -281,7 +281,7 @@ func TestExternalDatabaseIncrementalMigrations(t *testing.T) {
 	if err := AutoMigrate(db); err != nil {
 		t.Fatalf("repeat migrated schema validation: %v", err)
 	}
-	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
+	assertInternalMigrationComplete(t, db, registeredMigrationIDs())
 }
 
 func TestExternalDatabaseMySQLRecoversObservationFreshnessCheckDrop(t *testing.T) {
@@ -320,7 +320,7 @@ func TestExternalDatabaseMySQLRecoversObservationFreshnessCheckDrop(t *testing.T
 	if err := AutoMigrate(db); err != nil {
 		t.Fatalf("resume observation freshness removal: %v", err)
 	}
-	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
+	assertInternalMigrationComplete(t, db, registeredMigrationIDs())
 }
 
 func openExternalIncrementalMigrationDatabase(t *testing.T, rawDSN string) *gorm.DB {
@@ -443,7 +443,7 @@ func runExternalMySQLCostLimitRecovery(t *testing.T, admin *gorm.DB, parsed *url
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL cost-limit schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
+			assertInternalMigrationComplete(t, restarted, registeredMigrationIDs())
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
@@ -499,6 +499,14 @@ func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string
 			t.Fatalf("migration IDs = %v, want %v", ids, wantIDs)
 		}
 	}
+}
+
+func registeredMigrationIDs() []string {
+	result := make([]string, 0, len(migrations))
+	for _, entry := range migrations {
+		result = append(result, entry.ID)
+	}
+	return result
 }
 
 func boundaryOrLast(boundary, count int) int {

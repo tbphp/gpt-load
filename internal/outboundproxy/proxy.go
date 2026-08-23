@@ -57,7 +57,7 @@ type View struct {
 // Environment snapshots whether the process has a standard proxy configured.
 // The concrete environment values remain owned by the transport implementation.
 func Environment() *Config {
-	for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+	for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
 		if strings.TrimSpace(os.Getenv(key)) != "" {
 			return &Config{Mode: ModeEnvironment}
 		}

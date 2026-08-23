@@ -44,15 +44,22 @@ func TestProxyConfigMigrationAddsNullableEncryptedColumnsAndPreservesRows(t *tes
 		t.Fatal("credentials.proxy_config is missing")
 	}
 
-	var groupProxy, credentialProxy *string
-	if err := db.Table("groups").Select("proxy_config").Where("id = ?", 1).Scan(&groupProxy).Error; err != nil {
+	type proxyRow struct {
+		ID          uint
+		ProxyConfig *string
+	}
+	var groupRow, credentialRow proxyRow
+	if err := db.Table("groups").Select("id", "proxy_config").Where("id = ?", 1).Take(&groupRow).Error; err != nil {
 		t.Fatalf("read group proxy_config: %v", err)
 	}
-	if err := db.Table("credentials").Select("proxy_config").Where("id = ?", 1).Scan(&credentialProxy).Error; err != nil {
+	if err := db.Table("credentials").Select("id", "proxy_config").Where("id = ?", 1).Take(&credentialRow).Error; err != nil {
 		t.Fatalf("read credential proxy_config: %v", err)
 	}
-	if groupProxy != nil || credentialProxy != nil {
-		t.Fatalf("existing rows proxy_config = %v/%v, want NULL/NULL", groupProxy, credentialProxy)
+	if groupRow.ID != 1 || credentialRow.ID != 1 {
+		t.Fatalf("existing row IDs after migration = %d/%d, want 1/1", groupRow.ID, credentialRow.ID)
+	}
+	if groupRow.ProxyConfig != nil || credentialRow.ProxyConfig != nil {
+		t.Fatalf("existing rows proxy_config = %v/%v, want NULL/NULL", groupRow.ProxyConfig, credentialRow.ProxyConfig)
 	}
 
 	if err := migrations.Up0004(db); err != nil {
@@ -61,24 +68,33 @@ func TestProxyConfigMigrationAddsNullableEncryptedColumnsAndPreservesRows(t *tes
 }
 
 func TestProxyConfigMigrationRecoverableValidationAcceptsPartialColumns(t *testing.T) {
-	for _, statement := range []string{
-		"",
-		"ALTER TABLE groups ADD COLUMN proxy_config text NULL",
-		"ALTER TABLE credentials ADD COLUMN proxy_config text NULL",
-		"ALTER TABLE groups ADD COLUMN proxy_config text NULL; ALTER TABLE credentials ADD COLUMN proxy_config text NULL",
+	for _, test := range []struct {
+		name      string
+		statement string
+	}{
+		{name: "no_columns"},
+		{name: "groups_only", statement: "ALTER TABLE groups ADD COLUMN proxy_config text NULL"},
+		{name: "credentials_only", statement: "ALTER TABLE credentials ADD COLUMN proxy_config text NULL"},
+		{name: "both_columns", statement: "ALTER TABLE groups ADD COLUMN proxy_config text NULL; ALTER TABLE credentials ADD COLUMN proxy_config text NULL"},
 	} {
-		t.Run(statement, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			db := openInitialTestDatabase(t)
 			if err := migrations.Up0001(db); err != nil {
 				t.Fatalf("Up0001() error = %v", err)
 			}
-			if statement != "" {
-				if err := db.Exec(statement).Error; err != nil {
+			if test.statement != "" {
+				if err := db.Exec(test.statement).Error; err != nil {
 					t.Fatalf("prepare partial schema: %v", err)
 				}
 			}
 			if err := migrations.ValidateRecoverable0004(db); err != nil {
 				t.Fatalf("ValidateRecoverable0004() error = %v", err)
+			}
+			if err := migrations.Up0004(db); err != nil {
+				t.Fatalf("Up0004() after partial schema error = %v", err)
+			}
+			if err := migrations.Validate0004(db); err != nil {
+				t.Fatalf("Validate0004() after recovery error = %v", err)
 			}
 		})
 	}

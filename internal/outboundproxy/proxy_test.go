@@ -6,6 +6,24 @@ import (
 	"testing"
 )
 
+func TestEnvironmentDetectsOnlyHTTPProxyVariables(t *testing.T) {
+	for _, key := range []string{
+		"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy",
+	} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("ALL_PROXY", "socks5://proxy.example.com:1080")
+	if got := Environment(); got != nil {
+		t.Fatalf("Environment() with only ALL_PROXY = %#v, want nil", got)
+	}
+
+	t.Setenv("ALL_PROXY", "")
+	t.Setenv("HTTP_PROXY", "http://proxy.example.com:8080")
+	if got := Environment(); got == nil || got.Mode != ModeEnvironment {
+		t.Fatalf("Environment() with HTTP_PROXY = %#v, want environment mode", got)
+	}
+}
+
 func TestNormalizeSupportsProductProxySchemes(t *testing.T) {
 	t.Parallel()
 
