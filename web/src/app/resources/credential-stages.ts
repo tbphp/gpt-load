@@ -1,4 +1,5 @@
 import type { ApiClient } from '@/api/client'
+import type { ProxyConfigInput } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 
 import {
@@ -151,12 +152,13 @@ function projectConnectResult(value: unknown): CredentialConnectResult {
 export async function beginCredentialAuthorization(
   client: ApiClient,
   channelID: string,
+  proxy?: ProxyConfigInput,
   signal?: AbortSignal,
 ): Promise<CredentialStage> {
   return projectCredentialStage(
     await client.request('/api/credential-stages/authorizations', {
       method: 'POST',
-      json: { channel_id: channelID },
+      json: { channel_id: channelID, ...(proxy === undefined ? {} : { proxy }) },
       signal,
     }),
   )
@@ -196,10 +198,12 @@ export async function importCredentialStage(
   client: ApiClient,
   channelID: string,
   file: File,
+  proxy?: ProxyConfigInput,
   signal?: AbortSignal,
 ): Promise<CredentialStage> {
   const body = new FormData()
   body.set('channel_id', channelID)
+  if (proxy !== undefined) body.set('proxy', JSON.stringify(proxy))
   body.set('file', file, file.name)
   return projectCredentialStage(
     await client.request('/api/credential-stages/import', { method: 'POST', body, signal }),

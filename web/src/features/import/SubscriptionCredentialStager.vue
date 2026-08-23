@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import type { ProxyConfigInput } from '@/api/control/types'
 import { useToast } from '@/app/toast'
 import {
   beginCredentialAuthorization,
@@ -33,6 +34,7 @@ const props = withDefaults(
     channelId: string
     channelName?: string
     authorizationMethods: ChannelAuthorizationMethod[]
+    proxy?: ProxyConfigInput
     notices?: ChannelNoticeDto[]
     disabled?: boolean
     compact?: boolean
@@ -51,6 +53,7 @@ const props = withDefaults(
     compact: false,
     hideHeader: false,
     step: undefined,
+    proxy: undefined,
     context: 'create',
   },
 )
@@ -267,7 +270,7 @@ async function beginAuthorization(existingPopup?: Window | null): Promise<void> 
   const popup = existingPopup === undefined ? openAuthorizationPopup() : existingPopup
   busyAction.value = 'authorize'
   try {
-    const stage = await beginCredentialAuthorization(client, props.channelId)
+    const stage = await beginCredentialAuthorization(client, props.channelId, props.proxy)
     replaceStage(stage)
     schedulePoll(stage)
     if (popup && stage.authorization_url) popup.location.replace(stage.authorization_url)
@@ -299,7 +302,7 @@ async function importFile(event: Event): Promise<void> {
   try {
     for (const file of files) {
       try {
-        imported.push(await importCredentialStage(client, props.channelId, file))
+        imported.push(await importCredentialStage(client, props.channelId, file, props.proxy))
       } catch {
         failed += 1
       }
@@ -339,7 +342,7 @@ async function importOAuthJSON(file: File): Promise<void> {
   feedbackKey.value = ''
   busyAction.value = 'import'
   try {
-    replaceStage(await importCredentialStage(client, props.channelId, file))
+    replaceStage(await importCredentialStage(client, props.channelId, file, props.proxy))
     oauthJSON.value = ''
     jsonImportOpen.value = false
   } catch (cause) {

@@ -18,6 +18,7 @@ import type {
   GroupOptionDto,
   GroupSettingsDto,
   GroupSummaryDto,
+  ProxyConfigInput,
   ProxyMutation,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
@@ -158,6 +159,7 @@ export interface ModelDiscoveryRequest {
   params: ChannelParamsDto
   credentials?: string
   staged_credential_id?: string
+  proxy?: ProxyConfigInput
 }
 
 export interface ModelDiscoveryResult {
@@ -182,6 +184,7 @@ export interface GroupCreateRequest {
   models: GroupModelUpdateDto[]
   credentials?: string
   staged_credential_ids?: string[]
+  proxy?: ProxyConfigInput
   confirm_same_target: boolean
 }
 

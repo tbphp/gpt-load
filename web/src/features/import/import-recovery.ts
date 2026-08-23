@@ -1,6 +1,6 @@
 import { inject, type InjectionKey } from 'vue'
 
-import type { ImportRecoveryDraft, ModelDraftItem } from './model-draft'
+import type { ImportProxyDraft, ImportRecoveryDraft, ModelDraftItem } from './model-draft'
 
 export const importRecoveryStorageKey = 'gpt-load.import-reauth-draft'
 export const importRecoveryTtlMs = 15 * 60 * 1_000
@@ -22,7 +22,7 @@ export interface ImportRecoveryService {
 }
 
 interface ImportRecoveryRecord {
-  version: 6
+  version: 7
   expires_at: number
   draft: ImportRecoveryDraft
 }
@@ -78,6 +78,12 @@ function isChannelParams(value: unknown): value is Record<string, string> {
   )
 }
 
+function isImportProxyDraft(value: unknown): value is ImportProxyDraft {
+  if (!isRecord(value) || !hasOnlyFields(value, ['mode', 'url'])) return false
+  if (value.mode === 'custom') return typeof value.url === 'string'
+  return (value.mode === 'inherit' || value.mode === 'direct') && value.url === ''
+}
+
 function isNewImportDraft(value: Record<string, unknown>): boolean {
   if (!(
     hasOnlyFields(value, [
@@ -85,6 +91,7 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
       'channel_id',
       'connection_type',
       'params',
+      'proxy',
       'name',
       'credentials',
       'staged_credentials',
@@ -94,6 +101,7 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
     isChannelID(value.channel_id) &&
     (value.connection_type === 'api_key' || value.connection_type === 'subscription') &&
     isChannelParams(value.params) &&
+    isImportProxyDraft(value.proxy) &&
     typeof value.name === 'string' &&
     typeof value.credentials === 'string' &&
     Array.isArray(value.staged_credentials) &&
@@ -174,7 +182,7 @@ function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
     if (
       !isRecord(value) ||
       !hasOnlyFields(value, ['version', 'expires_at', 'draft']) ||
-      value.version !== 6 ||
+      value.version !== 7 ||
       typeof value.expires_at !== 'number' ||
       !Number.isFinite(value.expires_at) ||
       !isImportDraft(value.draft)
@@ -252,7 +260,7 @@ export function createImportRecoveryService(
     if (!deps.storage) return 'storage-unavailable'
 
     const record: ImportRecoveryRecord = {
-      version: 6,
+      version: 7,
       expires_at: deps.now() + importRecoveryTtlMs,
       draft,
     }

@@ -1,4 +1,4 @@
-import type { ChannelParamsDto } from '@/api/control/types'
+import type { ChannelParamsDto, ProxyConfiguredMode } from '@/api/control/types'
 import type { CredentialStage } from '@/app/resources/credential-stages'
 import type { GroupModelUpdateDto } from '@/app/resources/groups'
 import type { ModelCandidate } from '@/app/resources/providers'
@@ -8,11 +8,17 @@ export interface ModelDraftItem extends ModelDraftValue {
   key: number
 }
 
+export interface ImportProxyDraft {
+  mode: ProxyConfiguredMode
+  url: string
+}
+
 export interface ImportDraft {
   mode: 'new'
   channel_id: string
   connection_type: 'api_key' | 'subscription'
   params: ChannelParamsDto
+  proxy: ImportProxyDraft
   name: string
   credentials: string
   staged_credentials: CredentialStage[]
