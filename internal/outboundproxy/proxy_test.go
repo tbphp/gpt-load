@@ -28,8 +28,11 @@ func TestNormalizeSupportsProductProxySchemes(t *testing.T) {
 	t.Parallel()
 
 	for _, endpoint := range []string{
+		"http://proxy.example.com",
 		"http://proxy.example.com:8080",
+		"http://[::1]:8080",
 		"socks5://user:password@proxy.example.com:1080",
+		"socks5://[2001:db8::1]:1080",
 	} {
 		t.Run(endpoint, func(t *testing.T) {
 			t.Parallel()
@@ -54,6 +57,11 @@ func TestNormalizeRejectsInvalidPoliciesWithoutLeakingEndpoint(t *testing.T) {
 		{Mode: ModeCustom},
 		{Mode: ModeCustom, URL: "https://secret:password@proxy.example.com"},
 		{Mode: ModeCustom, URL: "ftp://secret:password@proxy.example.com"},
+		{Mode: ModeCustom, URL: "http://:8080"},
+		{Mode: ModeCustom, URL: "http://proxy.example.com:"},
+		{Mode: ModeCustom, URL: "http://proxy.example.com:0"},
+		{Mode: ModeCustom, URL: "http://proxy.example.com:65536"},
+		{Mode: ModeCustom, URL: "socks5://proxy.example.com"},
 		{Mode: ModeCustom, URL: "http://secret:password@proxy.example.com/path"},
 		{Mode: ModeCustom, URL: "http://secret:password@proxy.example.com?token=secret"},
 		{Mode: ModeCustom, URL: "http://:password@proxy.example.com"},

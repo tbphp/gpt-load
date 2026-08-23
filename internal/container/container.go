@@ -263,11 +263,14 @@ func (reconciler runtimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *st
 	if reconciler.accessQuota == nil {
 		return fmt.Errorf("reconcile access key cost limits: runtime is unavailable")
 	}
-	targets := make([]channel.ResolvedTarget, 0)
+	targets := make([]provideradapter.RuntimeTarget, 0)
 	if snapshot != nil {
-		targets = make([]channel.ResolvedTarget, 0, len(snapshot.Groups))
+		targets = make([]provideradapter.RuntimeTarget, 0, len(snapshot.Groups))
 		for _, group := range snapshot.Groups {
-			targets = append(targets, group.ResolvedTarget)
+			targets = append(targets, provideradapter.RuntimeTarget{
+				Target: group.ResolvedTarget,
+				Proxy:  group.Proxy,
+			})
 		}
 	}
 	if err := reconciler.adapters.ReconcileTargets(targets); err != nil {

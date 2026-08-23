@@ -76,6 +76,11 @@ export function isValidProxyURL(value: string): boolean {
   if (!['http:', 'socks5:'].includes(parsed.protocol) || parsed.hostname === '') {
     return false
   }
+  const authorityStart = value.indexOf('://') + 3
+  const pathStart = value.indexOf('/', authorityStart)
+  const authority = value.slice(authorityStart, pathStart === -1 ? undefined : pathStart)
+  const host = authority.slice(authority.lastIndexOf('@') + 1)
+  if (host.endsWith(':') || (parsed.protocol === 'socks5:' && parsed.port === '')) return false
   if (parsed.pathname !== '' && parsed.pathname !== '/') return false
   return parsed.password === '' || parsed.username !== ''
 }

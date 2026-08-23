@@ -213,6 +213,9 @@ func (s *Service) UpdateGroupCredential(
 		entry.EncryptedProxy = committedProxy
 		entry.ProxyFingerprint = committedProxyFingerprint
 		applyErr = s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
+		if applyErr == nil && proxySet {
+			s.retireCredentialRuntime(credentialID)
+		}
 		return applyErr
 	})
 	if err != nil {

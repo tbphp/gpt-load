@@ -14,6 +14,8 @@ import (
 
 func TestGroupAndCredentialProxyUseFinalPrecedenceAndEncryptedStorage(t *testing.T) {
 	fixture := newServiceFixture(t)
+	runtime := &recordingCredentialRuntimeExecutor{}
+	fixture.service.executor = runtime
 	groupID := createGroupWithCredentials(t, fixture, "sk-proxy-test")
 
 	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
@@ -68,6 +70,9 @@ func TestGroupAndCredentialProxyUseFinalPrecedenceAndEncryptedStorage(t *testing
 	}
 	if updated.SecretVersion != secretVersion {
 		t.Fatalf("proxy update changed secret version %d -> %d", secretVersion, updated.SecretVersion)
+	}
+	if got := runtime.retiredCredentialIDs(); len(got) != 1 || got[0] != credentialID {
+		t.Fatalf("retired credential runtimes = %v, want [%d]", got, credentialID)
 	}
 	ref, ok := fixture.registry.CredentialRef(credentialID)
 	if !ok || ref.EncryptedProxy == "" || ref.ProxyFingerprint == "" {

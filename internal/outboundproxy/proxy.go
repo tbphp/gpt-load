@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -85,7 +86,7 @@ func normalizeCustom(endpoint string) (Config, error) {
 		return Config{}, ErrInvalidConfig
 	}
 	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Opaque != "" || parsed.Host == "" {
+	if err != nil || parsed.Opaque != "" || parsed.Hostname() == "" {
 		return Config{}, ErrInvalidConfig
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
@@ -93,6 +94,16 @@ func normalizeCustom(endpoint string) (Config, error) {
 	case "http", "socks5":
 	default:
 		return Config{}, ErrInvalidConfig
+	}
+	port := parsed.Port()
+	if strings.HasSuffix(parsed.Host, ":") || (parsed.Scheme == "socks5" && port == "") {
+		return Config{}, ErrInvalidConfig
+	}
+	if port != "" {
+		value, parseErr := strconv.ParseUint(port, 10, 16)
+		if parseErr != nil || value == 0 {
+			return Config{}, ErrInvalidConfig
+		}
 	}
 	if parsed.Path != "" && parsed.Path != "/" {
 		return Config{}, ErrInvalidConfig

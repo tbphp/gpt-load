@@ -17,15 +17,22 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/provideradapter"
 )
 
 type effectiveProviderConfig struct {
-	provider              schemas.ModelProvider
-	providerConfig        *schemas.ProviderConfig
-	canonical             []byte
-	fingerprint           string
-	baseCanonical         []byte
-	baseFingerprint       string
+	provider       schemas.ModelProvider
+	providerConfig *schemas.ProviderConfig
+	canonical      []byte
+	fingerprint    string
+	// base identifies the unpartitioned provider config accepted by a
+	// credential-partitioned Runtime.
+	baseCanonical   []byte
+	baseFingerprint string
+	// target identifies the code-owned provider target that keeps a
+	// credential-partitioned Runtime eligible until that credential retires.
+	targetCanonical       []byte
+	targetFingerprint     string
 	credentialPartitionID uint
 	targetBaseURL         string
 	custom                bool
@@ -163,8 +170,12 @@ func applyAttemptProxy(
 	if err != nil {
 		return effectiveProviderConfig{}, err
 	}
-	partitioned.baseCanonical = append([]byte(nil), base.canonical...)
-	partitioned.baseFingerprint = base.fingerprint
+	partitioned.targetCanonical = append([]byte(nil), base.targetCanonical...)
+	partitioned.targetFingerprint = base.targetFingerprint
+	if partitioned.targetFingerprint == "" {
+		partitioned.targetCanonical = append([]byte(nil), base.canonical...)
+		partitioned.targetFingerprint = base.fingerprint
+	}
 	return partitioned, nil
 }
 
@@ -452,9 +463,15 @@ func (manager *runtimeManager) beginShutdown() <-chan struct{} {
 func (manager *runtimeManager) configIsActive(config effectiveProviderConfig) bool {
 	fingerprint := config.fingerprint
 	canonical := config.canonical
-	if config.baseFingerprint != "" {
-		fingerprint = config.baseFingerprint
-		canonical = config.baseCanonical
+	if config.credentialPartitionID != 0 {
+		switch {
+		case config.targetFingerprint != "":
+			fingerprint = config.targetFingerprint
+			canonical = config.targetCanonical
+		case config.baseFingerprint != "":
+			fingerprint = config.baseFingerprint
+			canonical = config.baseCanonical
+		}
 	}
 	activeCanonical, exists := manager.active[fingerprint]
 	return exists && bytes.Equal(activeCanonical, canonical)
@@ -521,6 +538,7 @@ func cloneEffectiveProviderConfig(source effectiveProviderConfig) effectiveProvi
 	clone.providerConfig = cloneProviderConfig(source.providerConfig)
 	clone.canonical = append([]byte(nil), source.canonical...)
 	clone.baseCanonical = append([]byte(nil), source.baseCanonical...)
+	clone.targetCanonical = append([]byte(nil), source.targetCanonical...)
 	return clone
 }
 
@@ -619,6 +637,15 @@ func (manager *RuntimeManager) configForAttempt(spec execution.AttemptSpec) (eff
 			return effectiveProviderConfig{}, &failure
 		}
 	}
+	if resolved.ProviderKind.SupportsOutboundProxy() &&
+		spec.Proxy.Source == outboundproxy.SourceCredential &&
+		spec.Proxy.Config.Mode == outboundproxy.ModeCustom {
+		config, err = partitionProviderRuntime(config, spec.Credential)
+		if err != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInternal, "partition credential proxy runtime")
+			return effectiveProviderConfig{}, &failure
+		}
+	}
 	return config, nil
 }
 
@@ -626,18 +653,14 @@ func partitionProviderRuntime(
 	config effectiveProviderConfig,
 	credential execution.CredentialSnapshot,
 ) (effectiveProviderConfig, error) {
-	activeBaseCanonical := config.baseCanonical
-	activeBaseFingerprint := config.baseFingerprint
-	if activeBaseFingerprint == "" {
-		activeBaseCanonical = config.canonical
-		activeBaseFingerprint = config.fingerprint
-	}
+	baseCanonical := append([]byte(nil), config.canonical...)
+	baseFingerprint := config.fingerprint
 	canonical, err := json.Marshal(struct {
 		Base               json.RawMessage `json:"base"`
 		CredentialID       uint            `json:"credential_id"`
 		IdentityGeneration uint64          `json:"identity_generation"`
 	}{
-		Base:               config.canonical,
+		Base:               baseCanonical,
 		CredentialID:       credential.ID,
 		IdentityGeneration: credential.IdentityGeneration,
 	})
@@ -645,8 +668,8 @@ func partitionProviderRuntime(
 		return effectiveProviderConfig{}, fmt.Errorf("encode provider runtime partition: %w", err)
 	}
 	digest := sha256.Sum256(canonical)
-	config.baseCanonical = append([]byte(nil), activeBaseCanonical...)
-	config.baseFingerprint = activeBaseFingerprint
+	config.baseCanonical = baseCanonical
+	config.baseFingerprint = baseFingerprint
 	config.credentialPartitionID = credential.ID
 	config.canonical = canonical
 	config.fingerprint = hex.EncodeToString(digest[:])
@@ -654,17 +677,27 @@ func partitionProviderRuntime(
 }
 
 // Reconcile marks the canonical configs referenced by the latest state snapshot as active.
-func (manager *RuntimeManager) Reconcile(targets []channel.ResolvedTarget) error {
+func (manager *RuntimeManager) Reconcile(targets []provideradapter.RuntimeTarget) error {
 	if manager == nil || manager.pool == nil {
 		return fmt.Errorf("reconcile provider runtimes: manager is unavailable")
 	}
-	configs := make([]effectiveProviderConfig, 0, len(targets)*2)
-	for _, target := range targets {
+	configs := make([]effectiveProviderConfig, 0, len(targets)*4)
+	for _, runtimeTarget := range targets {
+		target := runtimeTarget.Target
 		config, err := buildEffectiveProviderConfig(target, manager.options.allowPrivateNetwork)
 		if err != nil {
 			return fmt.Errorf("reconcile provider runtime %q: %w", target.ChannelID, err)
 		}
 		configs = append(configs, config)
+		effectiveConfig, effectiveErr := buildEffectiveProviderConfigForAttempt(
+			target,
+			execution.AttemptSpec{Proxy: runtimeTarget.Proxy},
+			manager.options.allowPrivateNetwork,
+		)
+		if effectiveErr != nil {
+			return fmt.Errorf("reconcile provider runtime %q proxy: %w", target.ChannelID, effectiveErr)
+		}
+		configs = append(configs, effectiveConfig)
 		if target.ProviderKind == channel.ProviderDeepSeek {
 			responsesMode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate)
 			if ok && responsesMode == channel.RouteNative {
@@ -673,6 +706,20 @@ func (manager *RuntimeManager) Reconcile(targets []channel.ResolvedTarget) error
 					return fmt.Errorf("reconcile provider runtime %q Responses: %w", target.ChannelID, responsesErr)
 				}
 				configs = append(configs, responsesConfig)
+				effectiveResponsesConfig, effectiveResponsesErr := buildEffectiveProviderConfigForAttempt(
+					target,
+					execution.AttemptSpec{
+						ClientProtocol: protocol.OpenAIResponses,
+						Operation:      execution.OperationResponsesCreate,
+						RouteMode:      execution.RouteNative,
+						Proxy:          runtimeTarget.Proxy,
+					},
+					manager.options.allowPrivateNetwork,
+				)
+				if effectiveResponsesErr != nil {
+					return fmt.Errorf("reconcile provider runtime %q Responses proxy: %w", target.ChannelID, effectiveResponsesErr)
+				}
+				configs = append(configs, effectiveResponsesConfig)
 			}
 		}
 	}
