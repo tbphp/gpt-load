@@ -36,6 +36,7 @@ export default {
         subscription: 'Subscription account',
       },
       sort: {
+        recent: 'Recently used',
         status: 'Status first',
         name: 'Name A–Z',
         credentials: 'Credential count',

@@ -55,7 +55,7 @@ func parseGroupCollectionQuery(
 	forceQuery bool,
 ) (GroupCollectionQuery, *app_errors.APIError) {
 	query := GroupCollectionQuery{
-		Sort:     GroupCollectionSortStatus,
+		Sort:     GroupCollectionSortRecent,
 		Page:     groupCollectionDefaultPage,
 		PageSize: groupCollectionDefaultPageSize,
 	}
@@ -100,7 +100,8 @@ func parseGroupCollectionQuery(
 	if entries, exists := values["sort"]; exists {
 		sortValue := GroupCollectionSort(entries[0])
 		switch sortValue {
-		case GroupCollectionSortStatus,
+		case GroupCollectionSortRecent,
+			GroupCollectionSortStatus,
 			GroupCollectionSortName,
 			GroupCollectionSortCredentials,
 			GroupCollectionSortCreated:

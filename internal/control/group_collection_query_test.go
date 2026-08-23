@@ -45,6 +45,44 @@ func TestListGroupCollectionCapturesThenQueries(t *testing.T) {
 	}
 }
 
+func TestListGroupCollectionSortsRecentActivityByHourThenRequestCount(t *testing.T) {
+	fixture := newServiceFixture(t)
+	older := createGroupCollectionGroup(t, fixture, "older", true, nil)
+	recentLow := createGroupCollectionGroup(t, fixture, "alpha recent", true, nil)
+	recentHigh := createGroupCollectionGroup(t, fixture, "zulu recent", true, nil)
+	unusedZulu := createGroupCollectionGroup(t, fixture, "zulu unused", true, nil)
+	unusedAlpha := createGroupCollectionGroup(t, fixture, "alpha unused", true, nil)
+	entries := []state.CredentialEntry{
+		createGroupCollectionKey(t, fixture, older.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, recentLow.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, recentHigh.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, unusedZulu.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, unusedAlpha.ID, models.CredentialStatusActive, nil),
+	}
+	publishGroupCollectionRuntime(t, fixture, entries)
+
+	const (
+		olderHour  = int64(1_700_000_000_000)
+		recentHour = olderHour + 3_600_000
+	)
+	createGroupCollectionUsageStat(t, fixture, older.ID, olderHour, 50, "older")
+	createGroupCollectionUsageStat(t, fixture, recentLow.ID, recentHour, 3, "recent-low")
+	createGroupCollectionUsageStat(t, fixture, recentHigh.ID, recentHour, 2, "recent-high-a")
+	createGroupCollectionUsageStat(t, fixture, recentHigh.ID, recentHour, 7, "recent-high-b")
+
+	result, err := fixture.service.ListGroupCollection(t.Context(), GroupCollectionQuery{
+		Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListGroupCollection() error = %v", err)
+	}
+	if got, want := groupCollectionItemIDs(result.Items), []uint{
+		recentHigh.ID, recentLow.ID, older.ID, unusedAlpha.ID, unusedZulu.ID,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recent activity IDs = %#v, want %#v", got, want)
+	}
+}
+
 func TestListGroupCollectionQueryDoesNotSearchPersistedModelIDOrAlias(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "not a model", true, nil)
@@ -186,6 +224,18 @@ func TestGroupCollectionQueryUsesFixedSortsWithIDTieBreak(t *testing.T) {
 				t.Fatalf("sort %q item IDs = %#v, want %#v", test.sort, got, test.want)
 			}
 		})
+	}
+}
+
+func TestGroupCollectionQueryRecentActivityFallsBackToNameWithoutUsage(t *testing.T) {
+	records := []groupCollectionRecord{
+		groupCollectionQueryRecord(2, "Zulu", GroupCollectionStatusUnavailable, "https://zulu.example/v1", nil, 1, 200),
+		groupCollectionQueryRecord(1, "Alpha", GroupCollectionStatusDisabled, "https://alpha.example/v1", nil, 1, 100),
+	}
+
+	result := queryGroupCollectionRecords(1_700, records, GroupCollectionQuery{Page: 1, PageSize: 20})
+	if got, want := groupCollectionItemIDs(result.Items), []uint{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recent activity fallback IDs = %#v, want %#v", got, want)
 	}
 }
 
@@ -350,4 +400,28 @@ func groupCollectionItemIDs(items []GroupCollectionItem) []uint {
 		result[index] = items[index].ID
 	}
 	return result
+}
+
+func createGroupCollectionUsageStat(
+	t *testing.T,
+	fixture serviceFixture,
+	groupID uint,
+	bucketStartMS int64,
+	requestCount int64,
+	model string,
+) {
+	t.Helper()
+	row := models.UsageStat{
+		BucketStartMS: bucketStartMS,
+		AccessKeyID:   1,
+		ChannelID:     string(channel.OpenAICompatible),
+		GroupID:       groupID,
+		CredentialID:  1,
+		Model:         model,
+		RequestCount:  requestCount,
+		SuccessCount:  requestCount,
+	}
+	if err := fixture.db.Create(&row).Error; err != nil {
+		t.Fatalf("create usage stat for group %d: %v", groupID, err)
+	}
 }

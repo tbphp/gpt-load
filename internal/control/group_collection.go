@@ -52,13 +52,22 @@ type GroupCollectionItem struct {
 
 type groupCollectionRecord struct {
 	GroupCollectionItem
-	CreatedAtMS       int64
-	UnavailableReason *GroupUnavailableReason
+	CreatedAtMS                int64
+	LastActiveAtMS             *int64
+	LastActiveHourRequestCount int64
+	UnavailableReason          *GroupUnavailableReason
 }
 
 type groupCollectionRows struct {
 	groups      []models.Group
 	credentials []models.Credential
+	activity    []groupCollectionActivityRow
+}
+
+type groupCollectionActivityRow struct {
+	GroupID                    uint
+	LastActiveAtMS             int64
+	LastActiveHourRequestCount int64
 }
 
 func cloneGroupRows(rows []models.Group) []models.Group {
@@ -134,6 +143,31 @@ func (s *Service) readGroupCollectionRows(
 			return err
 		}
 		rows.groups = cloneGroupRows(groups)
+		groupIDs := make([]uint, 0, len(groups))
+		for _, group := range groups {
+			groupIDs = append(groupIDs, group.ID)
+		}
+		if len(groupIDs) > 0 {
+			latestActivity := tx.Model(&models.UsageStat{}).
+				Select("group_id, MAX(bucket_start_ms) AS last_active_at_ms").
+				Where("group_id IN ?", groupIDs).
+				Group("group_id")
+			if err := tx.Table("usage_stats").
+				Select(
+					"usage_stats.group_id, latest_activity.last_active_at_ms, "+
+						"COALESCE(SUM(usage_stats.request_count), 0) AS last_active_hour_request_count",
+				).
+				Joins(
+					"JOIN (?) AS latest_activity ON latest_activity.group_id = usage_stats.group_id "+
+						"AND latest_activity.last_active_at_ms = usage_stats.bucket_start_ms",
+					latestActivity,
+				).
+				Group("usage_stats.group_id, latest_activity.last_active_at_ms").
+				Order("usage_stats.group_id ASC").
+				Find(&rows.activity).Error; err != nil {
+				return err
+			}
+		}
 		var credentials []models.Credential
 		if err := tx.Model(&models.Credential{}).
 			Select("id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual").
@@ -219,6 +253,19 @@ func mapGroupCollectionRecords(
 		}
 	}
 	credentialsByGroup := make(map[uint][]models.Credential)
+	activityByGroup := make(map[uint]groupCollectionActivityRow, len(rows.activity))
+	for _, activity := range rows.activity {
+		if activity.GroupID == 0 || activity.LastActiveAtMS < 0 || activity.LastActiveHourRequestCount < 0 {
+			return nil, groupCollectionDataError("invalid group activity row")
+		}
+		if _, duplicate := activityByGroup[activity.GroupID]; duplicate {
+			return nil, groupCollectionDataError("duplicate group activity row for group %d", activity.GroupID)
+		}
+		if _, exists := persistedGroups[activity.GroupID]; !exists {
+			return nil, groupCollectionDataError("group activity references missing group %d", activity.GroupID)
+		}
+		activityByGroup[activity.GroupID] = activity
+	}
 	persistedCredentialByID := make(map[uint]models.Credential, len(rows.credentials))
 	for _, credential := range rows.credentials {
 		if credential.ID == 0 {
@@ -307,6 +354,11 @@ func mapGroupCollectionRecords(
 				ModelCount:     int64(len(groupModels)),
 			},
 			CreatedAtMS: group.CreatedAtMS,
+		}
+		if activity, exists := activityByGroup[group.ID]; exists {
+			lastActiveAtMS := activity.LastActiveAtMS
+			record.LastActiveAtMS = &lastActiveAtMS
+			record.LastActiveHourRequestCount = activity.LastActiveHourRequestCount
 		}
 		for _, persistedCredential := range credentialsByGroup[group.ID] {
 			bucket := classifyHealthKey(catalog, runtimeByID[persistedCredential.ID], observedAt)

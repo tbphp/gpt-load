@@ -36,6 +36,7 @@ export default {
         subscription: '订阅账号',
       },
       sort: {
+        recent: '最近调用',
         status: '状态优先',
         name: '名称 A–Z',
         credentials: '凭据数量',

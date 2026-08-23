@@ -12,6 +12,7 @@ import (
 type GroupCollectionSort string
 
 const (
+	GroupCollectionSortRecent      GroupCollectionSort = "recent"
 	GroupCollectionSortStatus      GroupCollectionSort = "status"
 	GroupCollectionSortName        GroupCollectionSort = "name"
 	GroupCollectionSortCredentials GroupCollectionSort = "credentials"
@@ -162,6 +163,8 @@ func sortGroupCollectionRecords(
 	sort.Slice(records, func(leftIndex, rightIndex int) bool {
 		left, right := records[leftIndex], records[rightIndex]
 		switch sortBy {
+		case GroupCollectionSortRecent:
+			return compareGroupCollectionRecentActivity(left, right)
 		case GroupCollectionSortName:
 			return compareGroupCollectionNames(left, right)
 		case GroupCollectionSortCredentials:
@@ -176,14 +179,30 @@ func sortGroupCollectionRecords(
 			}
 			return left.ID > right.ID
 		case GroupCollectionSortStatus:
-			fallthrough
-		default:
 			if leftStatus, rightStatus := groupCollectionStatusOrder(left.Status), groupCollectionStatusOrder(right.Status); leftStatus != rightStatus {
 				return leftStatus < rightStatus
 			}
 			return compareGroupCollectionNames(left, right)
+		default:
+			return compareGroupCollectionRecentActivity(left, right)
 		}
 	})
+}
+
+func compareGroupCollectionRecentActivity(left, right groupCollectionRecord) bool {
+	if left.LastActiveAtMS != nil && right.LastActiveAtMS != nil {
+		if *left.LastActiveAtMS != *right.LastActiveAtMS {
+			return *left.LastActiveAtMS > *right.LastActiveAtMS
+		}
+		if left.LastActiveHourRequestCount != right.LastActiveHourRequestCount {
+			return left.LastActiveHourRequestCount > right.LastActiveHourRequestCount
+		}
+	} else if left.LastActiveAtMS != nil {
+		return true
+	} else if right.LastActiveAtMS != nil {
+		return false
+	}
+	return compareGroupCollectionNames(left, right)
 }
 
 func groupCollectionCredentialTotal(record groupCollectionRecord) int64 {

@@ -32,56 +32,63 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 		{
 			name: "no query uses defaults",
 			want: GroupCollectionQuery{
-				Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
 			name:     "q is trimmed",
 			rawQuery: "q=++needle++",
 			want: GroupCollectionQuery{
-				Query: "needle", Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				Query: "needle", Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
 			name:     "q may trim to empty",
 			rawQuery: "q=+++",
 			want: GroupCollectionQuery{
-				Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
 			name:     "q accepts 200 Unicode code points",
 			rawQuery: "q=" + q200,
 			want: GroupCollectionQuery{
-				Query: q200, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				Query: q200, Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
 			name:     "status available",
 			rawQuery: "status=available",
 			want: GroupCollectionQuery{
-				Status: &available, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				Status: &available, Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
 			name:     "status unavailable",
 			rawQuery: "status=unavailable",
 			want: GroupCollectionQuery{
-				Status: &unavailable, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				Status: &unavailable, Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
 			name:     "status disabled",
 			rawQuery: "status=disabled",
 			want: GroupCollectionQuery{
-				Status: &disabled, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				Status: &disabled, Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
 			name:     "connection type subscription",
 			rawQuery: "connection_type=subscription",
 			want: GroupCollectionQuery{
-				ConnectionType: &subscription, Sort: GroupCollectionSortStatus, Page: 1, PageSize: 20,
+				ConnectionType: &subscription, Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
+			},
+		},
+		{
+			name:     "sort recent",
+			rawQuery: "sort=recent",
+			want: GroupCollectionQuery{
+				Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
 			},
 		},
 		{
@@ -116,21 +123,21 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 			name:     "page accepts positive integer",
 			rawQuery: "page=9223372036854775807",
 			want: GroupCollectionQuery{
-				Sort: GroupCollectionSortStatus, Page: 9223372036854775807, PageSize: 20,
+				Sort: GroupCollectionSortRecent, Page: 9223372036854775807, PageSize: 20,
 			},
 		},
 		{
 			name:     "page size accepts one",
 			rawQuery: "page_size=1",
 			want: GroupCollectionQuery{
-				Sort: GroupCollectionSortStatus, Page: 1, PageSize: 1,
+				Sort: GroupCollectionSortRecent, Page: 1, PageSize: 1,
 			},
 		},
 		{
 			name:     "page size accepts one hundred",
 			rawQuery: "page_size=100",
 			want: GroupCollectionQuery{
-				Sort: GroupCollectionSortStatus, Page: 1, PageSize: 100,
+				Sort: GroupCollectionSortRecent, Page: 1, PageSize: 100,
 			},
 		},
 		{
@@ -151,6 +158,16 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 			}
 			assertGroupCollectionQueryEqual(t, got, test.want)
 		})
+	}
+}
+
+func TestParseGroupCollectionQueryDefaultsToRecentActivity(t *testing.T) {
+	got, apiErr := parseGroupCollectionQuery("", false)
+	if apiErr != nil {
+		t.Fatalf("parseGroupCollectionQuery() error = %v", apiErr)
+	}
+	if got.Sort != GroupCollectionSortRecent {
+		t.Fatalf("default sort = %q, want recent", got.Sort)
 	}
 }
 
