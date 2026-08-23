@@ -63,3 +63,12 @@ func TestExecutorCountsTokensWithoutCredential(t *testing.T) {
 		t.Fatalf("token count = %s / %v", response.Payload, err)
 	}
 }
+
+func TestExecuteRequestToBridgePreservesEnvironmentProxyPolicy(t *testing.T) {
+	t.Parallel()
+
+	request := executeRequestToBridge(ExecuteRequest{ProxyFromEnvironment: true})
+	if !request.ProxyFromEnvironment || request.ProxyURL != "" {
+		t.Fatalf("bridge proxy request = %#v", request)
+	}
+}

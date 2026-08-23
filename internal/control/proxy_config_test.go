@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"gpt-load/internal/channel"
 	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
@@ -107,6 +109,65 @@ func TestGroupAndCredentialProxyUseFinalPrecedenceAndEncryptedStorage(t *testing
 	ref, ok = fixture.registry.CredentialRef(credentialID)
 	if !ok || ref.EncryptedProxy != "" || ref.ProxyFingerprint != "" {
 		t.Fatalf("reset credential registry proxy identity = %#v, %t", ref, ok)
+	}
+}
+
+func TestCredentialProxyUpdateRetiresRuntimeAfterCommittedRegistryRecovery(t *testing.T) {
+	fixture := newServiceFixture(t)
+	runtime := &recordingCredentialRuntimeExecutor{}
+	fixture.service.executor = runtime
+	groupID := createGroupWithCredentials(t, fixture, "sk-proxy-recovery-test")
+	credentials, err := fixture.service.ListGroupCredentials(
+		t.Context(),
+		groupID,
+		CredentialCollectionQuery{Page: 1, PageSize: 20},
+	)
+	if err != nil || len(credentials.Items) != 1 {
+		t.Fatalf("ListGroupCredentials() = %#v, %v", credentials, err)
+	}
+	credentialID := credentials.Items[0].CredentialID
+
+	const callbackName = "test:remove_registry_entry_after_credential_update"
+	removed := false
+	if err := fixture.db.Callback().Update().After("gorm:update").Register(
+		callbackName,
+		func(*gorm.DB) {
+			if !removed {
+				removed = fixture.registry.RemoveCredential(credentialID)
+			}
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = fixture.db.Callback().Update().Remove(callbackName)
+	})
+
+	_, err = fixture.service.UpdateGroupCredential(
+		t.Context(),
+		groupID,
+		credentialID,
+		CredentialUpdateRequest{Proxy: optionalField[outboundproxy.Config]{
+			Set: true,
+			Value: outboundproxy.Config{
+				Mode: outboundproxy.ModeCustom,
+				URL:  "http://recovered-proxy.example.com:8080",
+			},
+		}},
+	)
+	var operationErr *controlOperationError
+	if !errors.As(err, &operationErr) || operationErr.stage != stageApplyCommittedRegistryMutation {
+		t.Fatalf("UpdateGroupCredential() error = %#v, want committed Registry recovery", err)
+	}
+	if !removed {
+		t.Fatal("test did not remove the Registry entry after the database update")
+	}
+	ref, ok := fixture.registry.CredentialRef(credentialID)
+	if !ok || ref.EncryptedProxy == "" || ref.ProxyFingerprint == "" {
+		t.Fatalf("recovered credential Registry proxy = %#v, %t", ref, ok)
+	}
+	if got := runtime.retiredCredentialIDs(); len(got) != 1 || got[0] != credentialID {
+		t.Fatalf("retired credential runtimes = %v, want [%d]", got, credentialID)
 	}
 }
 

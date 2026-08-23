@@ -172,6 +172,14 @@ func TestDiscoverModelsAppliesRequestedProxyToReadySubscriptionStage(t *testing.
 			discoveryCalls,
 		)
 	}
+	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageNetwork, err := fixture.service.credentialStageNetworkContext(t.Context(), row)
+	if err != nil || stageNetwork.Proxy.Config != stageProxy {
+		t.Fatalf("stage network after discovery = %#v, %v", stageNetwork, err)
+	}
 }
 
 func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {

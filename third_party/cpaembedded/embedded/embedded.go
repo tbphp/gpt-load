@@ -21,7 +21,6 @@ import (
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 	internalexecutor "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	_ "github.com/router-for-me/CLIProxyAPI/v7/internal/translator"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -142,14 +141,15 @@ type HTTPExecutor interface {
 }
 
 type ExecuteRequest struct {
-	AttemptID       string
-	Model           string
-	Payload         []byte
-	Format          string
-	Headers         http.Header
-	OriginalRequest []byte
-	ContinuityKey   string
-	ProxyURL        string
+	AttemptID            string
+	Model                string
+	Payload              []byte
+	Format               string
+	Headers              http.Header
+	OriginalRequest      []byte
+	ContinuityKey        string
+	ProxyURL             string
+	ProxyFromEnvironment bool
 }
 
 type ExecuteResponse struct {
@@ -374,7 +374,7 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	auth := NewCodexAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
-	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -394,7 +394,7 @@ func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credential
 	auth := NewCodexAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
-	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -444,7 +444,7 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 	auth := NewCodexAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
-	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Stream: true, Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -471,11 +471,11 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 }
 
 func (e *CodexHTTPExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return e.inner.Execute(e.executionContext(ctx, auth, nil), auth, req, opts)
+	return e.inner.Execute(e.executionContext(ctx, auth, nil, false), auth, req, opts)
 }
 
 func (e *CodexHTTPExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
-	return e.inner.ExecuteStream(e.executionContext(ctx, auth, nil), auth, req, opts)
+	return e.inner.ExecuteStream(e.executionContext(ctx, auth, nil, false), auth, req, opts)
 }
 
 func (e *CodexHTTPExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
@@ -495,7 +495,7 @@ func (e *CodexHTTPExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.
 }
 
 func (e *CodexHTTPExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth, req *http.Request) (*http.Response, error) {
-	return e.inner.HttpRequest(e.executionContext(ctx, auth, nil), auth, req)
+	return e.inner.HttpRequest(e.executionContext(ctx, auth, nil, false), auth, req)
 }
 
 // ListCodexModels performs exactly one account-bound models request.
@@ -669,15 +669,16 @@ func applyCodexReadHeaders(req *http.Request, credential CodexCredential) {
 	req.Header.Set("User-Agent", "codex_cli_rs/"+defaultModelsVersion)
 }
 
-func (e *CodexHTTPExecutor) executionContext(ctx context.Context, auth *cliproxyauth.Auth, observation *executionObservation) context.Context {
+func (e *CodexHTTPExecutor) executionContext(
+	ctx context.Context,
+	auth *cliproxyauth.Auth,
+	observation *executionObservation,
+	proxyFromEnvironment bool,
+) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	baseClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
-	transport := baseClient.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
+	transport := executionRoundTripper(ctx, e.cfg, auth, proxyFromEnvironment)
 	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{base: transport, observation: observation})
 }
 

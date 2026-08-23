@@ -11,26 +11,45 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-func TestProxyURLForAttemptMapsFinalModesForCPA(t *testing.T) {
+func TestProxySettingsForAttemptMapsFinalModesForCPA(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
 		name      string
 		effective outboundproxy.Effective
-		want      string
+		want      cpaProxySettings
 	}{
-		{name: "unspecified inherits existing environment", want: ""},
-		{name: "explicit direct", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect}, Source: outboundproxy.SourceCredential}, want: "direct"},
-		{name: "environment", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment}, Source: outboundproxy.SourceEnvironment}, want: ""},
-		{name: "http", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://user:password@proxy.example.com:8080"}, Source: outboundproxy.SourceGroup}, want: "http://user:password@proxy.example.com:8080"},
-		{name: "socks5", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "socks5://proxy.example.com:1080"}, Source: outboundproxy.SourceGlobal}, want: "socks5://proxy.example.com:1080"},
+		{name: "unspecified retains CPA default", want: cpaProxySettings{}},
+		{name: "explicit direct", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect}, Source: outboundproxy.SourceCredential}, want: cpaProxySettings{URL: "direct"}},
+		{name: "environment", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment}, Source: outboundproxy.SourceEnvironment}, want: cpaProxySettings{FromEnvironment: true}},
+		{name: "http", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://user:password@proxy.example.com:8080"}, Source: outboundproxy.SourceGroup}, want: cpaProxySettings{URL: "http://user:password@proxy.example.com:8080"}},
+		{name: "socks5", effective: outboundproxy.Effective{Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "socks5://proxy.example.com:1080"}, Source: outboundproxy.SourceGlobal}, want: cpaProxySettings{URL: "socks5://proxy.example.com:1080"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := proxyURLForAttempt(test.effective)
+			got, err := proxySettingsForAttempt(test.effective)
 			if err != nil || got != test.want {
-				t.Fatalf("proxyURLForAttempt() = %q, %v, want %q", got, err, test.want)
+				t.Fatalf("proxySettingsForAttempt() = %#v, %v, want %#v", got, err, test.want)
 			}
 		})
+	}
+}
+
+func TestProxySettingsForAttemptPreservesEnvironmentAsDistinctPolicy(t *testing.T) {
+	t.Parallel()
+
+	unspecified, err := proxySettingsForAttempt(outboundproxy.Effective{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := proxySettingsForAttempt(outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment},
+		Source: outboundproxy.SourceEnvironment,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if environment == unspecified {
+		t.Fatal("CPA environment policy is indistinguishable from an unspecified proxy")
 	}
 }
 

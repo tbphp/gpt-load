@@ -144,6 +144,7 @@ func (s *Service) UpdateGroupCredential(
 	var committed models.Credential
 	var committedGroup models.Group
 	var committedProxy, committedProxyFingerprint string
+	committedProxyUpdate := false
 	err = s.writeCredentialConfig(ctx, groupID, credentialID, func(tx *gorm.DB) error {
 		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
@@ -195,7 +196,7 @@ func (s *Service) UpdateGroupCredential(
 		}
 		return nil
 	}, func() error {
-		var applyErr error
+		committedProxyUpdate = proxySet
 		entries, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credentialID})
 		if snapshotErr != nil {
 			return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
@@ -212,12 +213,11 @@ func (s *Service) UpdateGroupCredential(
 		entry.EncryptedValue = committed.Data
 		entry.EncryptedProxy = committedProxy
 		entry.ProxyFingerprint = committedProxyFingerprint
-		applyErr = s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
-		if applyErr == nil && proxySet {
-			s.retireCredentialRuntime(credentialID)
-		}
-		return applyErr
+		return s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
 	})
+	if committedProxyUpdate {
+		s.retireCredentialRuntime(credentialID)
+	}
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}

@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -125,6 +126,29 @@ func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) 
 	}
 	if preparer.calls != 1 || !preparer.force || executor.calls != 0 {
 		t.Fatalf("prepare calls = %d, force = %t, execute calls = %d", preparer.calls, preparer.force, executor.calls)
+	}
+}
+
+func TestAdapterPassesEnvironmentProxyPolicyToCPAExecutor(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(
+		t,
+		credentialJSON("access", "refresh", time.Now().Add(time.Hour)),
+	)
+	executor := &fakeExecutor{result: codex.ExecuteResponse{
+		Payload: []byte(`{"model":"gpt-5"}`),
+	}}
+	setCodexExecutor(t, adapter, executor)
+	spec := validSpec(t, row, keyService)
+	spec.Proxy = outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment},
+		Source: outboundproxy.SourceEnvironment,
+	}
+	result := adapter.Execute(t.Context(), spec)
+	if result.Error != nil || executor.calls != 1 {
+		t.Fatalf("Execute() result/calls = %#v/%d", result, executor.calls)
+	}
+	if !executor.request.ProxyFromEnvironment || executor.request.ProxyURL != "" {
+		t.Fatalf("CPA proxy request = %#v", executor.request)
 	}
 }
 

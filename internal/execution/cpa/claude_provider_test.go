@@ -120,10 +120,14 @@ func TestClaudeProviderMapsExecutionAndRequestScopedErrors(t *testing.T) {
 	credential := claudeProviderCredentialForTest(t)
 	response, err := bridge.Execute(t.Context(), "1", credential, providerRequest{
 		Model: "claude-sonnet-4-5", Payload: []byte(`{"messages":[]}`), Format: "claude",
+		ProxyFromEnvironment: true,
 	})
 	if err != nil || string(response.Payload) != `{"id":"message-one"}` ||
 		response.Headers.Get("X-Request-Id") != "request-one" || response.AppliedReasoningEffort != "high" {
 		t.Fatalf("response/error = %#v / %v", response, err)
+	}
+	if len(executor.requests) != 1 || !executor.requests[0].ProxyFromEnvironment {
+		t.Fatalf("Claude proxy request = %#v", executor.requests)
 	}
 
 	requestRejected := &classifiedClaudeError{

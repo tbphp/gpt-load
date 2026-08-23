@@ -55,33 +55,39 @@ type providerRequest struct {
 	OriginalRequest []byte
 	// ContinuityKey is a private, tenant-scoped key used only by providers
 	// whose tool/thinking protocol needs an isolated multi-request replay lane.
-	ContinuityKey string
-	ProxyURL      string
+	ContinuityKey        string
+	ProxyURL             string
+	ProxyFromEnvironment bool
 }
 
-func proxyURLForAttempt(effective outboundproxy.Effective) (string, error) {
+type cpaProxySettings struct {
+	URL             string
+	FromEnvironment bool
+}
+
+func proxySettingsForAttempt(effective outboundproxy.Effective) (cpaProxySettings, error) {
 	if effective.Config.Mode == "" {
-		return "", nil
+		return cpaProxySettings{}, nil
 	}
 	effective, err := outboundproxy.NormalizeEffective(effective)
 	if err != nil {
-		return "", err
+		return cpaProxySettings{}, err
 	}
 	switch effective.Config.Mode {
 	case outboundproxy.ModeDirect:
-		return "direct", nil
+		return cpaProxySettings{URL: "direct"}, nil
 	case outboundproxy.ModeEnvironment:
-		return "", nil
+		return cpaProxySettings{FromEnvironment: true}, nil
 	case outboundproxy.ModeCustom:
 		switch {
 		case len(effective.Config.URL) >= len("http://") && effective.Config.URL[:len("http://")] == "http://",
 			len(effective.Config.URL) >= len("socks5://") && effective.Config.URL[:len("socks5://")] == "socks5://":
-			return effective.Config.URL, nil
+			return cpaProxySettings{URL: effective.Config.URL}, nil
 		default:
-			return "", outboundproxy.ErrInvalidConfig
+			return cpaProxySettings{}, outboundproxy.ErrInvalidConfig
 		}
 	default:
-		return "", outboundproxy.ErrInvalidConfig
+		return cpaProxySettings{}, outboundproxy.ErrInvalidConfig
 	}
 }
 
