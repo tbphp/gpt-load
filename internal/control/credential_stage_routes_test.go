@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription/providers/codex"
@@ -76,6 +78,96 @@ func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 	if removeResponse.Code != http.StatusOK {
 		t.Fatalf("delete response = %d %s", removeResponse.Code, removeResponse.Body)
 	}
+}
+
+func TestCredentialStageRoutesUseExistingGroupProxy(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
+	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
+	proxy := outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "socks5://group-user:group-password@group-proxy.example.com:1080",
+	}
+	encodedProxy, err := outboundproxy.Encode(proxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryptedProxy, err := fixture.encryption.Encrypt(encodedProxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := models.Group{
+		Name: "subscription-proxy", ChannelID: string(channel.Codex),
+		ConnectionType: models.ConnectionTypeSubscription,
+		Params:         models.JSON(`{}`), Models: models.JSON(`[]`),
+		ProxyConfig: &encryptedProxy, Enabled: true,
+	}
+	if err := fixture.db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	assertStageNetwork := func(t *testing.T, response *httptest.ResponseRecorder) {
+		t.Helper()
+		if response.Code != http.StatusOK {
+			t.Fatalf("stage response = %d %s", response.Code, response.Body)
+		}
+		var envelope struct {
+			Data CredentialStageResult `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		row, err := fixture.service.loadCredentialStage(t.Context(), envelope.Data.StageID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		network, err := fixture.service.credentialStageNetworkContext(t.Context(), row)
+		if err != nil || network.Proxy.Config != proxy || network.Proxy.Source != outboundproxy.SourceGroup {
+			t.Fatalf("stage network = %#v, %v", network, err)
+		}
+	}
+
+	t.Run("authorization", func(t *testing.T) {
+		body := fmt.Sprintf(`{"channel_id":"codex","group_id":%d}`, group.ID)
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/api/credential-stages/authorizations",
+			strings.NewReader(body),
+		)
+		request.Header.Set("Authorization", "Bearer test-auth-key")
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		assertStageNetwork(t, response)
+	})
+
+	t.Run("oauth file", func(t *testing.T) {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		if err := writer.WriteField("channel_id", "codex"); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.WriteField("group_id", strconv.FormatUint(uint64(group.ID), 10)); err != nil {
+			t.Fatal(err)
+		}
+		part, err := writer.CreateFormFile("file", "codex.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = part.Write([]byte(`{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-group-proxy"}`))
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/credential-stages/import", &body)
+		request.Header.Set("Authorization", "Bearer test-auth-key")
+		request.Header.Set("Content-Type", writer.FormDataContentType())
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		assertStageNetwork(t, response)
+	})
 }
 
 func TestDeviceAuthorizationRouteReturnsSafeChallengeAndPollsByPOST(t *testing.T) {

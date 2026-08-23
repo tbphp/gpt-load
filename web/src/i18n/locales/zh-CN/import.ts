@@ -97,6 +97,7 @@ export default {
       customUrl: '自定义上游地址',
       urlError: '请输入有效的 HTTP 或 HTTPS 上游地址',
       paramRequired: '请输入{name}',
+      proxyLocked: '已有暂存账号；移除这些账号后才能修改代理。',
     },
     subscription: {
       title: '连接订阅账号',

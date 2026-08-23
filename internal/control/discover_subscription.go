@@ -18,15 +18,8 @@ func (s *Service) discoverSubscriptionStageModels(
 	ctx context.Context,
 	channelID channel.ID,
 	stageID string,
+	network subscriptionruntime.NetworkContext,
 ) (ModelDiscoveryResult, error) {
-	stage, err := s.loadCredentialStage(ctx, strings.TrimSpace(stageID))
-	if err != nil {
-		return ModelDiscoveryResult{}, err
-	}
-	network, err := s.credentialStageNetworkContext(ctx, stage)
-	if err != nil {
-		return ModelDiscoveryResult{}, err
-	}
 	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	credential, err := s.loadReadySubscriptionStageCredential(ctx, channelID, stageID)
 	if err != nil {

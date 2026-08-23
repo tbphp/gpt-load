@@ -119,11 +119,12 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if len(migrationIDs) != 4 || migrationIDs[0] != "0001_initial" ||
+	if len(migrationIDs) != 5 || migrationIDs[0] != "0001_initial" ||
 		migrationIDs[1] != "0002_access_key_cost_limits" ||
 		migrationIDs[2] != "0003_remove_observation_fresh_until" ||
-		migrationIDs[3] != "0004_usage_stats_group_activity_index" {
-		t.Fatalf("migration ledger = %v, want complete 0001-0004 chain", migrationIDs)
+		migrationIDs[3] != "0004_usage_stats_group_activity_index" ||
+		migrationIDs[4] != "0005_proxy_config" {
+		t.Fatalf("migration ledger = %v, want complete 0001-0005 chain", migrationIDs)
 	}
 	if !db.Migrator().HasIndex("usage_stats", "idx_usage_stats_group_bucket") {
 		t.Fatal("usage_stats group activity index is missing")

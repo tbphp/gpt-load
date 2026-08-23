@@ -178,7 +178,17 @@ function isImportDraft(value: unknown): value is ImportRecoveryDraft {
 
 function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
   try {
-    const value: unknown = JSON.parse(raw)
+    let value: unknown = JSON.parse(raw)
+    if (isRecord(value) && value.version === 6 && isRecord(value.draft)) {
+      value = {
+        ...value,
+        version: 7,
+        draft:
+          value.draft.mode === 'new'
+            ? { ...value.draft, proxy: { mode: 'inherit', url: '' } }
+            : value.draft,
+      }
+    }
     if (
       !isRecord(value) ||
       !hasOnlyFields(value, ['version', 'expires_at', 'draft']) ||

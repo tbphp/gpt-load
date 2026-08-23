@@ -270,6 +270,7 @@ const credentialCount = computed(() =>
 )
 const connectionChannel = computed<ChannelDto | null>(() => selectedChannel.value)
 const isSubscription = computed(() => draft.connection_type === 'subscription')
+const proxyLocked = computed(() => isSubscription.value && draft.staged_credentials.length > 0)
 const draftProxyMutation = computed(() => proxyMutation(draft.proxy.mode, draft.proxy.url))
 const draftProxyOverride = computed(() => {
   if (selectedChannel.value?.capabilities.outbound_proxy !== true) return undefined
@@ -1248,6 +1249,7 @@ onBeforeUnmount(() => {
             :name="draft.name"
             :params="draft.params"
             :proxy="draft.proxy"
+            :proxy-disabled="proxyLocked"
             :param-errors="paramErrors"
             :base-url-override-enabled="baseUrlOverrideEnabled"
             :disabled="payloadLocked"
@@ -1296,7 +1298,8 @@ onBeforeUnmount(() => {
             :proxy="draftProxyOverride"
             :notices="selectedChannel?.notices ?? []"
             context="create"
-            :disabled="payloadLocked || draftProxyMutation === undefined"
+            :disabled="payloadLocked"
+            :entry-disabled="draftProxyMutation === undefined"
             hide-header
             compact
           />

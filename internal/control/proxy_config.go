@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
@@ -84,6 +85,25 @@ func (s *Service) groupNetworkContext(
 		return subscriptionruntime.NetworkContext{}, err
 	}
 	return s.proxyNetworkContext(effective)
+}
+
+func (s *Service) groupCredentialStageNetworkContext(
+	ctx context.Context,
+	groupID uint,
+	channelID channel.ID,
+) (subscriptionruntime.NetworkContext, error) {
+	if s == nil || s.db == nil || groupID == 0 || channelID == "" {
+		return subscriptionruntime.NetworkContext{}, app_errors.ErrValidation
+	}
+	db := s.db.WithContext(ctx)
+	group, err := loadGroupRow(db, groupID)
+	if err != nil {
+		return subscriptionruntime.NetworkContext{}, err
+	}
+	if group.ChannelID != string(channelID) || group.ConnectionType != models.ConnectionTypeSubscription {
+		return subscriptionruntime.NetworkContext{}, app_errors.ErrValidation
+	}
+	return s.groupNetworkContext(ctx, db, group)
 }
 
 func (s *Service) credentialNetworkContext(

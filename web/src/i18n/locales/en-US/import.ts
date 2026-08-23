@@ -103,6 +103,7 @@ export default {
       customUrl: 'Custom upstream URL',
       urlError: 'Enter a valid HTTP or HTTPS upstream URL',
       paramRequired: 'Enter {name}',
+      proxyLocked: 'Remove the staged accounts before changing the proxy.',
     },
     subscription: {
       title: 'Connect a subscription account',

@@ -115,6 +115,65 @@ func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
 	}
 }
 
+func TestDiscoverModelsAppliesRequestedProxyToReadySubscriptionStage(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stageProxy := outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "http://stage-proxy.example.com:8080",
+	}
+	stage, err := fixture.service.ImportCredentialStage(
+		t.Context(),
+		channel.Codex,
+		[]byte(`{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-proxy"}`),
+		&stageProxy,
+	)
+	if err != nil {
+		t.Fatalf("ImportCredentialStage() error = %v", err)
+	}
+
+	discoveryProxy := outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "socks5://discovery-proxy.example.com:1080",
+	}
+	assertDiscoveryNetwork := func(ctx context.Context) {
+		t.Helper()
+		network, ok := subscriptionruntime.NetworkFromContext(ctx)
+		if !ok || network.Proxy.Config != discoveryProxy || network.Proxy.Source != outboundproxy.SourceGroup {
+			t.Fatalf("subscription discovery network = %#v, %t", network, ok)
+		}
+	}
+	refreshCalls := 0
+	setCodexCredentialRefresh(t, fixture.service, func(ctx context.Context, credential codex.Credential) (codex.Credential, error) {
+		assertDiscoveryNetwork(ctx)
+		refreshCalls++
+		credential.AccessToken = "refreshed-access"
+		return credential, nil
+	})
+	discoveryCalls := 0
+	setCodexModelDiscovery(t, fixture.service, func(ctx context.Context, _ codex.Credential) ([]codex.Model, error) {
+		assertDiscoveryNetwork(ctx)
+		discoveryCalls++
+		if discoveryCalls == 1 {
+			return nil, &subscriptionruntime.UpstreamHTTPError{StatusCode: http.StatusUnauthorized}
+		}
+		return []codex.Model{{ID: "gpt-5.2"}}, nil
+	})
+
+	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID, Proxy: &discoveryProxy,
+	})
+	if err != nil || len(result.Models) != 1 || refreshCalls != 1 || discoveryCalls != 2 {
+		t.Fatalf(
+			"DiscoverModels() result/error/refresh/discovery = %#v/%v/%d/%d",
+			result,
+			err,
+			refreshCalls,
+			discoveryCalls,
+		)
+	}
+}
+
 func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)

@@ -46,7 +46,10 @@ type Server struct {
 }
 
 const maxControlJSONBodyBytes int64 = 32 << 20
-const maxCredentialStageChannelIDBytes int64 = 128
+const (
+	maxCredentialStageChannelIDBytes int64 = 128
+	maxCredentialStageGroupIDBytes   int64 = 32
+)
 
 func NewServer(cfg *config.Config, service *Service) *Server {
 	now := time.Now
@@ -100,6 +103,7 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 type credentialAuthorizationRequest struct {
 	ChannelID string                `json:"channel_id"`
 	Proxy     *outboundproxy.Config `json:"proxy"`
+	GroupID   *uint                 `json:"group_id"`
 }
 
 func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
@@ -108,9 +112,20 @@ func (s *Server) handleBeginCredentialAuthorization(c *gin.Context) {
 		writeServiceError(c, "begin_credential_authorization", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.BeginCredentialAuthorization(
-		c.Request.Context(), channel.ID(request.ChannelID), request.Proxy,
-	)
+	var result CredentialStageResult
+	var err error
+	switch {
+	case request.GroupID != nil && (*request.GroupID == 0 || request.Proxy != nil):
+		err = app_errors.ErrValidation
+	case request.GroupID != nil:
+		result, err = s.service.BeginGroupCredentialAuthorization(
+			c.Request.Context(), *request.GroupID, channel.ID(request.ChannelID),
+		)
+	default:
+		result, err = s.service.BeginCredentialAuthorization(
+			c.Request.Context(), channel.ID(request.ChannelID), request.Proxy,
+		)
+	}
 	if err != nil {
 		writeServiceError(c, "begin_credential_authorization", err)
 		return
@@ -172,9 +187,11 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 	defer func() { clear(raw) }()
 	var channelID channel.ID
 	var proxyConfig *outboundproxy.Config
+	var groupID uint
 	fileCount := 0
 	channelCount := 0
 	proxyCount := 0
+	groupCount := 0
 	for {
 		part, nextErr := reader.NextPart()
 		if errors.Is(nextErr, io.EOF) {
@@ -221,17 +238,34 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 				return
 			}
 			proxyConfig = &config
+		case part.FormName() == "group_id" && part.FileName() == "":
+			groupCount++
+			value, readErr := io.ReadAll(io.LimitReader(part, maxCredentialStageGroupIDBytes+1))
+			_ = part.Close()
+			parsed, parseErr := strconv.ParseUint(strings.TrimSpace(string(value)), 10, 64)
+			if readErr != nil || int64(len(value)) > maxCredentialStageGroupIDBytes ||
+				groupCount != 1 || parseErr != nil || parsed == 0 || uint64(uint(parsed)) != parsed {
+				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				return
+			}
+			groupID = uint(parsed)
 		default:
 			_ = part.Close()
 			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 			return
 		}
 	}
-	if fileCount != 1 || channelCount != 1 || channelID == "" {
+	if fileCount != 1 || channelCount != 1 || channelID == "" ||
+		(groupCount != 0 && proxyCount != 0) {
 		writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 		return
 	}
-	result, err := s.service.ImportCredentialStage(c.Request.Context(), channelID, raw, proxyConfig)
+	var result CredentialStageResult
+	if groupCount == 1 {
+		result, err = s.service.ImportGroupCredentialStage(c.Request.Context(), groupID, channelID, raw)
+	} else {
+		result, err = s.service.ImportCredentialStage(c.Request.Context(), channelID, raw, proxyConfig)
+	}
 	if err != nil {
 		writeServiceError(c, "import_credential_stage", err)
 		return

@@ -182,19 +182,9 @@ func (s *Service) ImportCredentialStage(
 	raw []byte,
 	proxyConfigs ...*outboundproxy.Config,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	if s.channelRegistry == nil ||
-		!s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationOAuthFile) {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	driver, err := s.subscriptionDriver(channelID)
+	driver, err := s.credentialStageImportDriver(channelID, raw)
 	if err != nil {
 		return CredentialStageResult{}, err
-	}
-	if len(raw) > maxOAuthFileBytes {
-		return CredentialStageResult{}, app_errors.ErrOAuthFileTooLarge
 	}
 	var proxyConfig *outboundproxy.Config
 	if len(proxyConfigs) > 0 {
@@ -204,6 +194,54 @@ func (s *Service) ImportCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
+	return s.importCredentialStageWithNetwork(ctx, channelID, raw, driver, network)
+}
+
+func (s *Service) ImportGroupCredentialStage(
+	ctx context.Context,
+	groupID uint,
+	channelID channel.ID,
+	raw []byte,
+) (CredentialStageResult, error) {
+	driver, err := s.credentialStageImportDriver(channelID, raw)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	network, err := s.groupCredentialStageNetworkContext(ctx, groupID, channelID)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	return s.importCredentialStageWithNetwork(ctx, channelID, raw, driver, network)
+}
+
+func (s *Service) credentialStageImportDriver(
+	channelID channel.ID,
+	raw []byte,
+) (subscriptionruntime.Driver, error) {
+	if s == nil || s.db == nil || s.encryption == nil {
+		return nil, app_errors.ErrValidation
+	}
+	if s.channelRegistry == nil ||
+		!s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationOAuthFile) {
+		return nil, app_errors.ErrValidation
+	}
+	driver, err := s.subscriptionDriver(channelID)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxOAuthFileBytes {
+		return nil, app_errors.ErrOAuthFileTooLarge
+	}
+	return driver, nil
+}
+
+func (s *Service) importCredentialStageWithNetwork(
+	ctx context.Context,
+	channelID channel.ID,
+	raw []byte,
+	driver subscriptionruntime.Driver,
+	network subscriptionruntime.NetworkContext,
+) (CredentialStageResult, error) {
 	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	importContext, cancelImport := credentialImportContext(ctx)
 	defer cancelImport()
@@ -256,9 +294,13 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 	if err := ctx.Err(); err != nil {
 		return subscriptionruntime.Credential{}, err
 	}
-	network, err := s.credentialStageNetworkContext(ctx, row)
-	if err != nil {
-		return subscriptionruntime.Credential{}, err
+	network, frozen := subscriptionruntime.NetworkFromContext(ctx)
+	if !frozen {
+		var err error
+		network, err = s.credentialStageNetworkContext(ctx, row)
+		if err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
 	}
 	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	expiresAt, known := credential.ExpiresAt()
@@ -416,13 +458,7 @@ func (s *Service) BeginCredentialAuthorization(
 	channelID channel.ID,
 	proxyConfigs ...*outboundproxy.Config,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	if s.channelRegistry == nil {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	if _, err := s.subscriptionDriver(channelID); err != nil {
+	if err := s.validateCredentialAuthorization(channelID); err != nil {
 		return CredentialStageResult{}, err
 	}
 	var proxyConfig *outboundproxy.Config
@@ -433,6 +469,42 @@ func (s *Service) BeginCredentialAuthorization(
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
+	return s.beginCredentialAuthorizationWithNetwork(ctx, channelID, network)
+}
+
+func (s *Service) BeginGroupCredentialAuthorization(
+	ctx context.Context,
+	groupID uint,
+	channelID channel.ID,
+) (CredentialStageResult, error) {
+	if err := s.validateCredentialAuthorization(channelID); err != nil {
+		return CredentialStageResult{}, err
+	}
+	network, err := s.groupCredentialStageNetworkContext(ctx, groupID, channelID)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	return s.beginCredentialAuthorizationWithNetwork(ctx, channelID, network)
+}
+
+func (s *Service) validateCredentialAuthorization(channelID channel.ID) error {
+	if s == nil || s.db == nil || s.encryption == nil {
+		return app_errors.ErrValidation
+	}
+	if s.channelRegistry == nil {
+		return app_errors.ErrValidation
+	}
+	if _, err := s.subscriptionDriver(channelID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) beginCredentialAuthorizationWithNetwork(
+	ctx context.Context,
+	channelID channel.ID,
+	network subscriptionruntime.NetworkContext,
+) (CredentialStageResult, error) {
 	if s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationBrowserOAuth) {
 		return s.beginBrowserCredentialAuthorization(ctx, channelID, network)
 	}

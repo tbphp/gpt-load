@@ -12,6 +12,7 @@ func TestProxyConfigMigrationAddsNullableEncryptedColumnsAndPreservesRows(t *tes
 		func() error { return migrations.Up0001(db) },
 		func() error { return migrations.Up0002(db) },
 		func() error { return migrations.Up0003(db) },
+		func() error { return migrations.Up0004(db) },
 	} {
 		if err := migrate(); err != nil {
 			t.Fatalf("prepare previous schema: %v", err)
@@ -31,11 +32,11 @@ func TestProxyConfigMigrationAddsNullableEncryptedColumnsAndPreservesRows(t *tes
 		t.Fatalf("create credential: %v", err)
 	}
 
-	if err := migrations.Up0004(db); err != nil {
-		t.Fatalf("Up0004() error = %v", err)
+	if err := migrations.Up0005(db); err != nil {
+		t.Fatalf("Up0005() error = %v", err)
 	}
-	if err := migrations.Validate0004(db); err != nil {
-		t.Fatalf("Validate0004() error = %v", err)
+	if err := migrations.Validate0005(db); err != nil {
+		t.Fatalf("Validate0005() error = %v", err)
 	}
 	if !db.Migrator().HasColumn("groups", "proxy_config") {
 		t.Fatal("groups.proxy_config is missing")
@@ -62,8 +63,8 @@ func TestProxyConfigMigrationAddsNullableEncryptedColumnsAndPreservesRows(t *tes
 		t.Fatalf("existing rows proxy_config = %v/%v, want NULL/NULL", groupRow.ProxyConfig, credentialRow.ProxyConfig)
 	}
 
-	if err := migrations.Up0004(db); err != nil {
-		t.Fatalf("second Up0004() error = %v", err)
+	if err := migrations.Up0005(db); err != nil {
+		t.Fatalf("second Up0005() error = %v", err)
 	}
 }
 
@@ -87,14 +88,14 @@ func TestProxyConfigMigrationRecoverableValidationAcceptsPartialColumns(t *testi
 					t.Fatalf("prepare partial schema: %v", err)
 				}
 			}
-			if err := migrations.ValidateRecoverable0004(db); err != nil {
-				t.Fatalf("ValidateRecoverable0004() error = %v", err)
+			if err := migrations.ValidateRecoverable0005(db); err != nil {
+				t.Fatalf("ValidateRecoverable0005() error = %v", err)
 			}
-			if err := migrations.Up0004(db); err != nil {
-				t.Fatalf("Up0004() after partial schema error = %v", err)
+			if err := migrations.Up0005(db); err != nil {
+				t.Fatalf("Up0005() after partial schema error = %v", err)
 			}
-			if err := migrations.Validate0004(db); err != nil {
-				t.Fatalf("Validate0004() after recovery error = %v", err)
+			if err := migrations.Validate0005(db); err != nil {
+				t.Fatalf("Validate0005() after recovery error = %v", err)
 			}
 		})
 	}

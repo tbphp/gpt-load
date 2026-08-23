@@ -1234,6 +1234,7 @@ async function runBatch(
           v-model="connectionStages"
           :channel-id="channelId"
           :channel-name="channelName"
+          :group-id="groupId"
           :authorization-methods="authorizationMethods"
           :notices="channelNotices"
           compact

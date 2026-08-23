@@ -21,6 +21,7 @@ const props = defineProps<{
   paramErrors: Readonly<Record<string, string>>
   baseUrlOverrideEnabled: boolean
   disabled?: boolean
+  proxyDisabled?: boolean
 }>()
 const emit = defineEmits<{
   'update:name': [value: string]
@@ -198,7 +199,13 @@ function baseURLVersionWarning(key: string): string | undefined {
         class="import-connection__proxy"
         :label="t('common.proxy.title')"
         :description="proxyDescription"
-        :disabled-reason="!proxySupported ? t('common.proxy.unsupportedHelp') : undefined"
+        :disabled-reason="
+          !proxySupported
+            ? t('common.proxy.unsupportedHelp')
+            : proxyDisabled
+              ? t('import.connection.proxyLocked')
+              : undefined
+        "
         :error="proxyError"
         size="compact"
       >
@@ -210,7 +217,7 @@ function baseURLVersionWarning(key: string): string | undefined {
               :label="t('common.proxy.modeLabel')"
               :options="proxyModeOptions"
               size="sm"
-              :disabled="disabled || !proxySupported"
+              :disabled="disabled || proxyDisabled || !proxySupported"
               @update:model-value="updateProxyMode"
             />
             <AppTextInput
@@ -224,7 +231,7 @@ function baseURLVersionWarning(key: string): string | undefined {
               autocomplete="off"
               :spellcheck="false"
               monospace
-              :disabled="disabled"
+              :disabled="disabled || proxyDisabled"
               :invalid="field.invalid"
               :described-by="field.describedBy"
               @update:model-value="updateProxyURL"

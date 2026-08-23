@@ -43,6 +43,9 @@ func (s *Service) DiscoverModels(
 	if err != nil {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
+	if request.Proxy != nil && !s.channelRegistry.SupportsOutboundProxy(request.ChannelID) {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
 	bindings, ok := s.channelRegistry.CapabilityBindings(request.ChannelID)
 	if !ok {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
@@ -52,16 +55,19 @@ func (s *Service) DiscoverModels(
 			strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "" {
 			return ModelDiscoveryResult{}, app_errors.ErrValidation
 		}
-		return s.discoverSubscriptionStageModels(ctx, request.ChannelID, request.StagedCredentialID)
+		network, networkErr := s.draftNetworkContext(ctx, request.Proxy)
+		if networkErr != nil {
+			return ModelDiscoveryResult{}, networkErr
+		}
+		return s.discoverSubscriptionStageModels(
+			ctx, request.ChannelID, request.StagedCredentialID, network,
+		)
 	}
 	if connectionType == models.ConnectionTypeAPIKey && strings.TrimSpace(request.StagedCredentialID) != "" {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 	if connectionType == models.ConnectionTypeSubscription &&
 		(strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "") {
-		return ModelDiscoveryResult{}, app_errors.ErrValidation
-	}
-	if request.Proxy != nil && !s.channelRegistry.SupportsOutboundProxy(request.ChannelID) {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 	resolvedTarget, err := s.channelRegistry.Resolve(request.ChannelID, request.Params)
