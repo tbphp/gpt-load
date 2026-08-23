@@ -29,17 +29,25 @@ type httpDoer interface {
 // Client reads public GPT-Load release metadata from GitHub.
 type Client struct {
 	httpClient       httpDoer
+	clientManager    *httpclient.HTTPClientManager
+	proxyProvider    httpclient.OutboundProxyProvider
+	httpConfig       httpclient.Config
 	endpoint         string
 	maxResponseBytes int64
 }
 
 // NewClient creates the fixed public GitHub release client.
-func NewClient(manager *httpclient.HTTPClientManager) *Client {
+func NewClient(
+	manager *httpclient.HTTPClientManager,
+	proxyProvider httpclient.OutboundProxyProvider,
+) *Client {
 	if manager == nil {
 		manager = httpclient.NewHTTPClientManager()
 	}
 	return &Client{
-		httpClient: manager.GetClient(&httpclient.Config{
+		clientManager: manager,
+		proxyProvider: proxyProvider,
+		httpConfig: httpclient.Config{
 			ConnectTimeout:        5 * time.Second,
 			RequestTimeout:        8 * time.Second,
 			IdleConnTimeout:       30 * time.Second,
@@ -51,16 +59,40 @@ func NewClient(manager *httpclient.HTTPClientManager) *Client {
 			TLSHandshakeTimeout:   5 * time.Second,
 			ExpectContinueTimeout: time.Second,
 			DisableRedirects:      true,
-		}),
+		},
 		endpoint:         githubReleasesEndpoint,
 		maxResponseBytes: maxGitHubResponseBytes,
 	}
 }
 
+func (client *Client) httpClientForFetch() (httpDoer, error) {
+	if client.httpClient != nil {
+		return client.httpClient, nil
+	}
+	if client.clientManager == nil {
+		return nil, fmt.Errorf("fetch GitHub releases: HTTP client is unavailable")
+	}
+	if client.proxyProvider != nil {
+		httpClient, err := client.clientManager.NewClientForOutboundProxy(
+			&client.httpConfig,
+			client.proxyProvider(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("fetch GitHub releases: initialize outbound proxy: %w", err)
+		}
+		return httpClient, nil
+	}
+	return client.clientManager.GetClient(&client.httpConfig), nil
+}
+
 // Fetch returns the public releases used by the selector.
 func (client *Client) Fetch(ctx context.Context) ([]Release, error) {
-	if client == nil || client.httpClient == nil {
+	if client == nil {
 		return nil, fmt.Errorf("fetch GitHub releases: HTTP client is unavailable")
+	}
+	httpClient, err := client.httpClientForFetch()
+	if err != nil {
+		return nil, err
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -76,7 +108,7 @@ func (client *Client) Fetch(ctx context.Context) ([]Release, error) {
 		if err != nil {
 			return nil, fmt.Errorf("fetch GitHub releases: create page endpoint: %w", err)
 		}
-		pageReleases, err := client.fetchPage(ctx, pageEndpoint)
+		pageReleases, err := client.fetchPage(ctx, httpClient, pageEndpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +151,11 @@ func releasePageEndpoint(endpoint string, page int) (string, error) {
 	return parsed.String(), nil
 }
 
-func (client *Client) fetchPage(ctx context.Context, endpoint string) ([]Release, error) {
+func (client *Client) fetchPage(
+	ctx context.Context,
+	httpClient httpDoer,
+	endpoint string,
+) ([]Release, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fetch GitHub releases: create request: %w", err)
@@ -128,7 +164,7 @@ func (client *Client) fetchPage(ctx context.Context, endpoint string) ([]Release
 	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	request.Header.Set("User-Agent", "GPT-Load")
 
-	response, err := client.httpClient.Do(request)
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch GitHub releases: %w", err)
 	}

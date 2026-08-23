@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/authkey"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
@@ -38,6 +39,46 @@ import (
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/webui"
 )
+
+func TestSystemOutboundProxyProviderUsesEnvironmentAndLatestGlobalSnapshot(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://environment-proxy.example.com:8080")
+	t.Setenv("https_proxy", "")
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("http_proxy", "")
+
+	manager := state.NewManager()
+	provider := newSystemOutboundProxyProvider(manager)
+	if got := provider(); got.Config.Mode != outboundproxy.ModeEnvironment ||
+		got.Source != outboundproxy.SourceEnvironment {
+		t.Fatalf("environment proxy = %#v", got)
+	}
+
+	custom := outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "socks5://global-proxy.example.com:1080",
+	}
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		GlobalProxy:     &custom,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := provider(); got.Config != custom || got.Source != outboundproxy.SourceGlobal {
+		t.Fatalf("custom global proxy = %#v", got)
+	}
+
+	direct := outboundproxy.Config{Mode: outboundproxy.ModeDirect}
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		GlobalProxy:     &direct,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := provider(); got.Config.Mode != outboundproxy.ModeDirect ||
+		got.Source != outboundproxy.SourceGlobal {
+		t.Fatalf("direct global proxy = %#v", got)
+	}
+}
 
 func TestBuildContainerDoesNotInitializeUnusedRuntimeStore(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")

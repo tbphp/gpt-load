@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	"gpt-load/internal/outboundproxy"
 )
 
 // Config defines the parameters for creating an HTTP client.
@@ -30,8 +33,12 @@ type Config struct {
 	TLSHandshakeTimeout   time.Duration
 	ExpectContinueTimeout time.Duration
 	ProxyURL              string
+	DisableProxy          bool
 	DisableRedirects      bool
 }
+
+// OutboundProxyProvider returns the current frozen system-level proxy policy.
+type OutboundProxyProvider func() outboundproxy.Effective
 
 // HTTPClientManager manages the lifecycle of HTTP clients.
 // It creates and caches clients based on their configuration fingerprint,
@@ -71,6 +78,12 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 		return client
 	}
 
+	newClient := newHTTPClient(config)
+	m.clients[fingerprint] = newClient
+	return newClient
+}
+
+func newHTTPClient(config *Config) *http.Client {
 	// Create a new transport and client with the specified configuration.
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
@@ -90,7 +103,9 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 	}
 
 	// Set http proxy.
-	if config.ProxyURL != "" {
+	if config.DisableProxy {
+		transport.Proxy = nil
+	} else if config.ProxyURL != "" {
 		proxyURL, err := url.Parse(config.ProxyURL)
 		if err != nil {
 			logrus.Warnf("Invalid proxy URL '%s' provided, falling back to environment settings: %v", config.ProxyURL, err)
@@ -108,14 +123,40 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 			return http.ErrUseLastResponse
 		}
 	}
-	newClient := &http.Client{
+	return &http.Client{
 		Transport:     transport,
 		Timeout:       config.RequestTimeout,
 		CheckRedirect: checkRedirect,
 	}
+}
 
-	m.clients[fingerprint] = newClient
-	return newClient
+// NewClientForOutboundProxy creates one operation-scoped client from a frozen
+// system proxy policy. Dynamic proxy credentials are not retained in the
+// shared client cache after settings change.
+func (m *HTTPClientManager) NewClientForOutboundProxy(
+	config *Config,
+	effective outboundproxy.Effective,
+) (*http.Client, error) {
+	normalized, err := outboundproxy.NormalizeEffective(effective)
+	if err != nil {
+		return nil, fmt.Errorf("invalid outbound proxy policy")
+	}
+	resolved := Config{}
+	if config != nil {
+		resolved = *config
+	}
+	resolved.ProxyURL = ""
+	resolved.DisableProxy = false
+	switch normalized.Config.Mode {
+	case outboundproxy.ModeDirect:
+		resolved.DisableProxy = true
+	case outboundproxy.ModeEnvironment:
+	case outboundproxy.ModeCustom:
+		resolved.ProxyURL = normalized.Config.URL
+	default:
+		return nil, fmt.Errorf("invalid outbound proxy policy")
+	}
+	return newHTTPClient(&resolved), nil
 }
 
 var errCrossOriginRedirect = errors.New("cross-origin redirect is not allowed")
@@ -176,8 +217,9 @@ func normalizedOrigin(request *http.Request) (scheme, host, port string, ok bool
 
 // getFingerprint generates a unique string representation of the client configuration.
 func (c *Config) getFingerprint() string {
+	proxyFingerprint := sha256.Sum256([]byte(c.ProxyURL))
 	return fmt.Sprintf(
-		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs|proxy:%s|dr:%t",
+		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs|proxy:%x|dp:%t|dr:%t",
 		c.ConnectTimeout.Seconds(),
 		c.RequestTimeout.Seconds(),
 		c.IdleConnTimeout.Seconds(),
@@ -190,7 +232,8 @@ func (c *Config) getFingerprint() string {
 		c.ForceAttemptHTTP2,
 		c.TLSHandshakeTimeout.Seconds(),
 		c.ExpectContinueTimeout.Seconds(),
-		c.ProxyURL,
+		proxyFingerprint,
+		c.DisableProxy,
 		c.DisableRedirects,
 	)
 }

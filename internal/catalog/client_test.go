@@ -6,34 +6,90 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/httpclient"
 )
 
 func TestNewClientUsesFixedManagedTransportContract(t *testing.T) {
 	manager := httpclient.NewHTTPClientManager()
-	client := NewClient(manager, "http://proxy.example:8080")
+	client := NewClient(manager, nil)
 	if client.endpoint != modelsDevEndpoint {
 		t.Fatalf("production endpoint = %q, want %q", client.endpoint, modelsDevEndpoint)
 	}
-	if client.httpClient.Timeout != 30*time.Second {
-		t.Fatalf("request timeout = %s, want 30s", client.httpClient.Timeout)
+	managedClient, err := client.httpClientForSync()
+	if err != nil {
+		t.Fatal(err)
 	}
-	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if managedClient.Timeout != 30*time.Second {
+		t.Fatalf("request timeout = %s, want 30s", managedClient.Timeout)
+	}
+	transport, ok := managedClient.Transport.(*http.Transport)
 	if !ok {
-		t.Fatalf("transport = %T, want *http.Transport", client.httpClient.Transport)
+		t.Fatalf("transport = %T, want *http.Transport", managedClient.Transport)
 	}
 	if transport.ResponseHeaderTimeout != 30*time.Second || transport.DisableCompression {
 		t.Fatalf("transport header timeout/compression = %s/%t", transport.ResponseHeaderTimeout, transport.DisableCompression)
 	}
-	request := &http.Request{URL: &url.URL{Scheme: "https", Host: "models.dev"}}
-	proxy, err := transport.Proxy(request)
-	if err != nil || proxy == nil || proxy.String() != "http://proxy.example:8080" {
-		t.Fatalf("transport proxy = %v, %v", proxy, err)
+	if transport.Proxy == nil {
+		t.Fatal("production catalog client does not preserve environment proxy support")
+	}
+}
+
+func TestClientUsesLatestGlobalProxyPolicyForEachSync(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{"openai":{"id":"openai","name":"OpenAI","models":{}}}`)
+	var targetCalls atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		targetCalls.Add(1)
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(raw)
+	}))
+	defer target.Close()
+	var proxyCalls atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		proxyCalls.Add(1)
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(raw)
+	}))
+	defer proxy.Close()
+
+	effective := outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: proxy.URL},
+		Source: outboundproxy.SourceGlobal,
+	}
+	var providerCalls atomic.Int32
+	client := NewClient(httpclient.NewHTTPClientManager(), func() outboundproxy.Effective {
+		providerCalls.Add(1)
+		return effective
+	})
+	client.endpoint = target.URL
+	if _, err := client.Sync(t.Context(), Metadata{}); err != nil {
+		t.Fatal(err)
+	}
+	if proxyCalls.Load() != 1 || targetCalls.Load() != 0 {
+		t.Fatalf("custom proxy/target calls = %d/%d, want 1/0", proxyCalls.Load(), targetCalls.Load())
+	}
+
+	effective = outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect},
+		Source: outboundproxy.SourceGlobal,
+	}
+	if _, err := client.Sync(t.Context(), Metadata{}); err != nil {
+		t.Fatal(err)
+	}
+	if proxyCalls.Load() != 1 || targetCalls.Load() != 1 || providerCalls.Load() != 2 {
+		t.Fatalf(
+			"direct proxy/target/provider calls = %d/%d/%d, want 1/1/2",
+			proxyCalls.Load(),
+			targetCalls.Load(),
+			providerCalls.Load(),
+		)
 	}
 }
 
@@ -215,7 +271,7 @@ func TestClientSyncUsesManagedSameOriginRedirectPolicy(t *testing.T) {
 	}))
 	defer source.Close()
 
-	client := NewClient(httpclient.NewHTTPClientManager(), "")
+	client := NewClient(httpclient.NewHTTPClientManager(), nil)
 	client.endpoint = source.URL + "/same"
 	if _, err := client.Sync(context.Background(), Metadata{}); err != nil {
 		t.Fatalf("same-origin redirect Sync() error = %v", err)
