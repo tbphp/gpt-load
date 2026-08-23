@@ -42,7 +42,7 @@ func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSumma
 	if groupID == 0 {
 		return GroupSummaryResponse{}, app_errors.ErrBadRequest
 	}
-	_, records, err := s.captureGroupCollectionRecords(ctx)
+	_, records, err := s.captureGroupCollectionRecords(ctx, false)
 	if err != nil {
 		return GroupSummaryResponse{}, err
 	}

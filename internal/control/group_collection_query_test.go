@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	gormmysql "gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/protocol"
@@ -42,6 +47,91 @@ func TestListGroupCollectionCapturesThenQueries(t *testing.T) {
 	}
 	if result.ObservedAtMS != observedAt {
 		t.Fatalf("ListGroupCollection() observed_at_ms = %d, want %d", result.ObservedAtMS, observedAt)
+	}
+}
+
+func TestListGroupCollectionSortsRecentActivityByHourThenRequestCount(t *testing.T) {
+	fixture := newServiceFixture(t)
+	older := createGroupCollectionGroup(t, fixture, "older", true, nil)
+	recentLow := createGroupCollectionGroup(t, fixture, "alpha recent", true, nil)
+	recentHigh := createGroupCollectionGroup(t, fixture, "zulu recent", true, nil)
+	unusedZulu := createGroupCollectionGroup(t, fixture, "zulu unused", true, nil)
+	unusedAlpha := createGroupCollectionGroup(t, fixture, "alpha unused", true, nil)
+	entries := []state.CredentialEntry{
+		createGroupCollectionKey(t, fixture, older.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, recentLow.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, recentHigh.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, unusedZulu.ID, models.CredentialStatusActive, nil),
+		createGroupCollectionKey(t, fixture, unusedAlpha.ID, models.CredentialStatusActive, nil),
+	}
+	publishGroupCollectionRuntime(t, fixture, entries)
+
+	const (
+		olderHour  = int64(1_700_000_000_000)
+		recentHour = olderHour + 3_600_000
+	)
+	createGroupCollectionUsageStat(t, fixture, older.ID, olderHour, 50, "older")
+	createGroupCollectionUsageStat(t, fixture, recentLow.ID, recentHour, 3, "recent-low")
+	createGroupCollectionUsageStat(t, fixture, recentHigh.ID, recentHour, 2, "recent-high-a")
+	createGroupCollectionUsageStat(t, fixture, recentHigh.ID, recentHour, 7, "recent-high-b")
+
+	result, err := fixture.service.ListGroupCollection(t.Context(), GroupCollectionQuery{
+		Sort: GroupCollectionSortRecent, Page: 1, PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListGroupCollection() error = %v", err)
+	}
+	if got, want := groupCollectionItemIDs(result.Items), []uint{
+		recentHigh.ID, recentLow.ID, older.ID, unusedAlpha.ID, unusedZulu.ID,
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recent activity IDs = %#v, want %#v", got, want)
+	}
+}
+
+func TestGroupCollectionLatestActivityScopeQuotesGroupsForMySQL(t *testing.T) {
+	db, err := gorm.Open(gormmysql.New(gormmysql.Config{
+		DSN:                       "user:password@tcp(127.0.0.1:3306)/gpt_load",
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{
+		DryRun:                 true,
+		DisableAutomaticPing:   true,
+		SkipDefaultTransaction: true,
+		Logger:                 logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("gorm.Open() error = %v", err)
+	}
+
+	result := groupCollectionLatestActivityScope(db).Find(&[]groupCollectionActivityRow{})
+	if result.Error != nil {
+		t.Fatalf("latest activity query error = %v", result.Error)
+	}
+	sql := result.Statement.SQL.String()
+	if strings.Contains(sql, "JOIN groups") {
+		t.Fatalf("generated SQL = %q, must not contain an unquoted groups join", sql)
+	}
+	if !strings.Contains(sql, "FROM `groups`") {
+		t.Fatalf("generated SQL = %q, want GORM-quoted groups subquery", sql)
+	}
+}
+
+func TestListGroupCollectionSkipsActivityReadForNonRecentSort(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := createGroupCollectionGroup(t, fixture, "name sort", true, nil)
+	entry := createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil)
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{entry})
+	if err := fixture.db.Migrator().DropTable(&models.UsageStat{}); err != nil {
+		t.Fatalf("drop usage_stats: %v", err)
+	}
+
+	result, err := fixture.service.ListGroupCollection(t.Context(), GroupCollectionQuery{
+		Sort: GroupCollectionSortName, Page: 1, PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListGroupCollection() error = %v", err)
+	}
+	if got, want := groupCollectionItemIDs(result.Items), []uint{group.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("name-sort IDs = %#v, want %#v", got, want)
 	}
 }
 
@@ -184,6 +274,41 @@ func TestGroupCollectionQueryUsesFixedSortsWithIDTieBreak(t *testing.T) {
 			})
 			if got := groupCollectionItemIDs(result.Items); !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("sort %q item IDs = %#v, want %#v", test.sort, got, test.want)
+			}
+		})
+	}
+}
+
+func TestGroupCollectionQueryRecentActivityFallsBackToNameWithoutUsage(t *testing.T) {
+	records := []groupCollectionRecord{
+		groupCollectionQueryRecord(2, "Zulu", GroupCollectionStatusUnavailable, "https://zulu.example/v1", nil, 1, 200),
+		groupCollectionQueryRecord(1, "Alpha", GroupCollectionStatusDisabled, "https://alpha.example/v1", nil, 1, 100),
+	}
+
+	result := queryGroupCollectionRecords(1_700, records, GroupCollectionQuery{Page: 1, PageSize: 20})
+	if got, want := groupCollectionItemIDs(result.Items), []uint{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recent activity fallback IDs = %#v, want %#v", got, want)
+	}
+}
+
+func TestGroupCollectionSortUsesActivityOnlyForRecentOrdering(t *testing.T) {
+	tests := []struct {
+		name   string
+		sortBy GroupCollectionSort
+		want   bool
+	}{
+		{name: "default", sortBy: "", want: true},
+		{name: "recent", sortBy: GroupCollectionSortRecent, want: true},
+		{name: "status", sortBy: GroupCollectionSortStatus, want: false},
+		{name: "name", sortBy: GroupCollectionSortName, want: false},
+		{name: "credentials", sortBy: GroupCollectionSortCredentials, want: false},
+		{name: "created", sortBy: GroupCollectionSortCreated, want: false},
+		{name: "unknown defaults to recent", sortBy: "unknown", want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := groupCollectionSortUsesActivity(test.sortBy); got != test.want {
+				t.Fatalf("groupCollectionSortUsesActivity(%q) = %t, want %t", test.sortBy, got, test.want)
 			}
 		})
 	}
@@ -350,4 +475,28 @@ func groupCollectionItemIDs(items []GroupCollectionItem) []uint {
 		result[index] = items[index].ID
 	}
 	return result
+}
+
+func createGroupCollectionUsageStat(
+	t *testing.T,
+	fixture serviceFixture,
+	groupID uint,
+	bucketStartMS int64,
+	requestCount int64,
+	model string,
+) {
+	t.Helper()
+	row := models.UsageStat{
+		BucketStartMS: bucketStartMS,
+		AccessKeyID:   1,
+		ChannelID:     string(channel.OpenAICompatible),
+		GroupID:       groupID,
+		CredentialID:  1,
+		Model:         model,
+		RequestCount:  requestCount,
+		SuccessCount:  requestCount,
+	}
+	if err := fixture.db.Create(&row).Error; err != nil {
+		t.Fatalf("create usage stat for group %d: %v", groupID, err)
+	}
 }

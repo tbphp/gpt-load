@@ -47,7 +47,13 @@ import {
   serializeGroupCollectionRouteQuery,
 } from './group-collection-route'
 
-const sortOptions: readonly GroupCollectionSort[] = ['status', 'name', 'credentials', 'created']
+const sortOptions: readonly GroupCollectionSort[] = [
+  'recent',
+  'status',
+  'name',
+  'credentials',
+  'created',
+]
 
 const client = useApiClient()
 const route = useRoute()
@@ -72,7 +78,7 @@ const hasFilterCriteria = computed(
     filters.value.connection_type !== undefined,
 )
 const hasChangedConditions = computed(
-  () => hasFilterCriteria.value || filters.value.sort !== 'status',
+  () => hasFilterCriteria.value || filters.value.sort !== 'recent',
 )
 const collectionBusy = computed(() => data.value !== undefined && groupsQuery.isFetching.value)
 const {
@@ -207,7 +213,7 @@ function setSort(value: string): void {
 function resetConditions(): void {
   searchDebounce.cancel()
   searchDraft.value = ''
-  routeWithFilters({ sort: 'status', page: 1, page_size: 20 })
+  routeWithFilters({ sort: 'recent', page: 1, page_size: 20 })
 }
 
 function setPage(page: number): void {

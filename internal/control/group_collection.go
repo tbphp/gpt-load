@@ -52,13 +52,22 @@ type GroupCollectionItem struct {
 
 type groupCollectionRecord struct {
 	GroupCollectionItem
-	CreatedAtMS       int64
-	UnavailableReason *GroupUnavailableReason
+	CreatedAtMS                int64
+	LastActiveAtMS             *int64
+	LastActiveHourRequestCount int64
+	UnavailableReason          *GroupUnavailableReason
 }
 
 type groupCollectionRows struct {
 	groups      []models.Group
 	credentials []models.Credential
+	activity    []groupCollectionActivityRow
+}
+
+type groupCollectionActivityRow struct {
+	GroupID                    uint
+	LastActiveAtMS             int64
+	LastActiveHourRequestCount int64
 }
 
 func cloneGroupRows(rows []models.Group) []models.Group {
@@ -83,6 +92,7 @@ func cloneGroupRows(rows []models.Group) []models.Group {
 
 func (s *Service) captureGroupCollectionRecords(
 	ctx context.Context,
+	includeActivity bool,
 ) (int64, []groupCollectionRecord, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -106,7 +116,7 @@ func (s *Service) captureGroupCollectionRecords(
 	snapshot := s.manager.Current()
 	runtimeKeys := s.registrySnapshot()
 	observedAt := s.now().UTC()
-	rows, err := s.readGroupCollectionRows(ctx)
+	rows, err := s.readGroupCollectionRows(ctx, includeActivity)
 	s.writeMu.RUnlock()
 	if parentErr := ctx.Err(); parentErr != nil {
 		return 0, nil, parentErr
@@ -126,6 +136,7 @@ func (s *Service) captureGroupCollectionRecords(
 
 func (s *Service) readGroupCollectionRows(
 	ctx context.Context,
+	includeActivity bool,
 ) (groupCollectionRows, error) {
 	var rows groupCollectionRows
 	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
@@ -134,6 +145,24 @@ func (s *Service) readGroupCollectionRows(
 			return err
 		}
 		rows.groups = cloneGroupRows(groups)
+		if includeActivity && len(groups) > 0 {
+			latestActivity := groupCollectionLatestActivityScope(tx)
+			if err := tx.Table("usage_stats").
+				Select(
+					"usage_stats.group_id, latest_activity.last_active_at_ms, "+
+						"COALESCE(SUM(usage_stats.request_count), 0) AS last_active_hour_request_count",
+				).
+				Joins(
+					"JOIN (?) AS latest_activity ON latest_activity.group_id = usage_stats.group_id "+
+						"AND latest_activity.last_active_at_ms = usage_stats.bucket_start_ms",
+					latestActivity,
+				).
+				Group("usage_stats.group_id, latest_activity.last_active_at_ms").
+				Order("usage_stats.group_id ASC").
+				Find(&rows.activity).Error; err != nil {
+				return err
+			}
+		}
 		var credentials []models.Credential
 		if err := tx.Model(&models.Credential{}).
 			Select("id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual").
@@ -144,6 +173,16 @@ func (s *Service) readGroupCollectionRows(
 		return nil
 	})
 	return rows, err
+}
+
+func groupCollectionLatestActivityScope(db *gorm.DB) *gorm.DB {
+	existingGroups := db.Session(&gorm.Session{NewDB: true}).
+		Model(&models.Group{}).
+		Select("id")
+	return db.Model(&models.UsageStat{}).
+		Select("usage_stats.group_id, MAX(usage_stats.bucket_start_ms) AS last_active_at_ms").
+		Where("usage_stats.group_id IN (?)", existingGroups).
+		Group("usage_stats.group_id")
 }
 
 func mapGroupCollectionRecords(
@@ -219,6 +258,19 @@ func mapGroupCollectionRecords(
 		}
 	}
 	credentialsByGroup := make(map[uint][]models.Credential)
+	activityByGroup := make(map[uint]groupCollectionActivityRow, len(rows.activity))
+	for _, activity := range rows.activity {
+		if activity.GroupID == 0 || activity.LastActiveAtMS < 0 || activity.LastActiveHourRequestCount < 0 {
+			return nil, groupCollectionDataError("invalid group activity row")
+		}
+		if _, duplicate := activityByGroup[activity.GroupID]; duplicate {
+			return nil, groupCollectionDataError("duplicate group activity row for group %d", activity.GroupID)
+		}
+		if _, exists := persistedGroups[activity.GroupID]; !exists {
+			return nil, groupCollectionDataError("group activity references missing group %d", activity.GroupID)
+		}
+		activityByGroup[activity.GroupID] = activity
+	}
 	persistedCredentialByID := make(map[uint]models.Credential, len(rows.credentials))
 	for _, credential := range rows.credentials {
 		if credential.ID == 0 {
@@ -307,6 +359,11 @@ func mapGroupCollectionRecords(
 				ModelCount:     int64(len(groupModels)),
 			},
 			CreatedAtMS: group.CreatedAtMS,
+		}
+		if activity, exists := activityByGroup[group.ID]; exists {
+			lastActiveAtMS := activity.LastActiveAtMS
+			record.LastActiveAtMS = &lastActiveAtMS
+			record.LastActiveHourRequestCount = activity.LastActiveHourRequestCount
 		}
 		for _, persistedCredential := range credentialsByGroup[group.ID] {
 			bucket := classifyHealthKey(catalog, runtimeByID[persistedCredential.ID], observedAt)

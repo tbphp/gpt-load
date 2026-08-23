@@ -14,7 +14,7 @@ export type FailureCategory =
 
 export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'
 export type GroupUnavailableReason = 'no_available_credentials' | 'no_models'
-export type GroupCollectionSort = 'status' | 'name' | 'credentials' | 'created'
+export type GroupCollectionSort = 'recent' | 'status' | 'name' | 'credentials' | 'created'
 export type ModelPricingStatus = 'pending' | 'configured'
 export type ChannelParamsDto = Record<string, string>
 export type ConnectionType = 'api_key' | 'subscription'

@@ -247,7 +247,7 @@ func TestExternalDatabaseMySQLInterruptedBaselineRecovery(t *testing.T) {
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
+			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
@@ -281,7 +281,7 @@ func TestExternalDatabaseIncrementalMigrations(t *testing.T) {
 	if err := AutoMigrate(db); err != nil {
 		t.Fatalf("repeat migrated schema validation: %v", err)
 	}
-	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
+	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
 }
 
 func TestExternalDatabaseMySQLRecoversObservationFreshnessCheckDrop(t *testing.T) {
@@ -320,7 +320,7 @@ func TestExternalDatabaseMySQLRecoversObservationFreshnessCheckDrop(t *testing.T
 	if err := AutoMigrate(db); err != nil {
 		t.Fatalf("resume observation freshness removal: %v", err)
 	}
-	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
+	assertInternalMigrationComplete(t, db, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
 }
 
 func openExternalIncrementalMigrationDatabase(t *testing.T, rawDSN string) *gorm.DB {
@@ -443,7 +443,7 @@ func runExternalMySQLCostLimitRecovery(t *testing.T, admin *gorm.DB, parsed *url
 				_ = restartedSQL.Close()
 				t.Fatalf("resume MySQL cost-limit schema prefix %d: %v", boundary, err)
 			}
-			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID})
+			assertInternalMigrationComplete(t, restarted, []string{migrations[0].ID, migrations[1].ID, migrations[2].ID, migrations[3].ID})
 			if err := restartedSQL.Close(); err != nil {
 				t.Fatalf("close recovered database: %v", err)
 			}
@@ -483,6 +483,9 @@ func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string
 	}
 	if len(wantIDs) >= 3 && db.Migrator().HasColumn("credential_observations", "fresh_until_ms") {
 		t.Error("credential_observations.fresh_until_ms remains after migration 0003")
+	}
+	if len(wantIDs) >= 4 && !db.Migrator().HasIndex("usage_stats", "idx_usage_stats_group_bucket") {
+		t.Error("usage_stats group activity index is missing after migration 0004")
 	}
 	var ids []string
 	if err := db.Table(migrationLedgerTable).Order("id").Pluck("id", &ids).Error; err != nil {

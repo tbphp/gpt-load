@@ -119,10 +119,10 @@ func (UsageAggregationJournal) TableName() string {
 // credential, and upstream model.
 type UsageStat struct {
 	ID                      uint   `gorm:"primaryKey;autoIncrement"`
-	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null;check:chk_usage_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_usage_stats_identity,priority:1;index:idx_usage_stats_credential_bucket,priority:2"`
+	BucketStartMS           int64  `gorm:"column:bucket_start_ms;not null;check:chk_usage_stat_bucket,bucket_start_ms >= 0;uniqueIndex:idx_usage_stats_identity,priority:1;index:idx_usage_stats_credential_bucket,priority:2;index:idx_usage_stats_group_bucket,priority:2,sort:desc"`
 	AccessKeyID             uint   `gorm:"not null;uniqueIndex:idx_usage_stats_identity,priority:2"`
 	ChannelID               string `gorm:"type:varchar(64);not null;default:'';uniqueIndex:idx_usage_stats_identity,priority:3"`
-	GroupID                 uint   `gorm:"not null;uniqueIndex:idx_usage_stats_identity,priority:4"`
+	GroupID                 uint   `gorm:"not null;uniqueIndex:idx_usage_stats_identity,priority:4;index:idx_usage_stats_group_bucket,priority:1"`
 	CredentialID            uint   `gorm:"not null;default:0;uniqueIndex:idx_usage_stats_identity,priority:5;index:idx_usage_stats_credential_bucket,priority:1"`
 	Model                   string `gorm:"type:varchar(255);not null;uniqueIndex:idx_usage_stats_identity,priority:6"`
 	RequestCount            int64  `gorm:"not null;default:0;check:chk_usage_stat_request_count,request_count >= 0;check:chk_usage_stat_request_outcome,request_count = success_count + failure_count"`

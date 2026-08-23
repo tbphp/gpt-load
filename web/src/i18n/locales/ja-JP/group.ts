@@ -36,6 +36,7 @@ export default {
         subscription: 'サブスクリプションアカウント',
       },
       sort: {
+        recent: '最近利用',
         status: 'ステータス優先',
         name: '名前 A–Z',
         credentials: '認証情報数',
