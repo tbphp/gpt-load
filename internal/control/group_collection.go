@@ -146,10 +146,7 @@ func (s *Service) readGroupCollectionRows(
 		}
 		rows.groups = cloneGroupRows(groups)
 		if includeActivity && len(groups) > 0 {
-			latestActivity := tx.Model(&models.UsageStat{}).
-				Select("usage_stats.group_id, MAX(usage_stats.bucket_start_ms) AS last_active_at_ms").
-				Joins("JOIN groups ON groups.id = usage_stats.group_id").
-				Group("usage_stats.group_id")
+			latestActivity := groupCollectionLatestActivityScope(tx)
 			if err := tx.Table("usage_stats").
 				Select(
 					"usage_stats.group_id, latest_activity.last_active_at_ms, "+
@@ -176,6 +173,16 @@ func (s *Service) readGroupCollectionRows(
 		return nil
 	})
 	return rows, err
+}
+
+func groupCollectionLatestActivityScope(db *gorm.DB) *gorm.DB {
+	existingGroups := db.Session(&gorm.Session{NewDB: true}).
+		Model(&models.Group{}).
+		Select("id")
+	return db.Model(&models.UsageStat{}).
+		Select("usage_stats.group_id, MAX(usage_stats.bucket_start_ms) AS last_active_at_ms").
+		Where("usage_stats.group_id IN (?)", existingGroups).
+		Group("usage_stats.group_id")
 }
 
 func mapGroupCollectionRecords(

@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	gormmysql "gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/protocol"
@@ -80,6 +85,33 @@ func TestListGroupCollectionSortsRecentActivityByHourThenRequestCount(t *testing
 		recentHigh.ID, recentLow.ID, older.ID, unusedAlpha.ID, unusedZulu.ID,
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recent activity IDs = %#v, want %#v", got, want)
+	}
+}
+
+func TestGroupCollectionLatestActivityScopeQuotesGroupsForMySQL(t *testing.T) {
+	db, err := gorm.Open(gormmysql.New(gormmysql.Config{
+		DSN:                       "user:password@tcp(127.0.0.1:3306)/gpt_load",
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{
+		DryRun:                 true,
+		DisableAutomaticPing:   true,
+		SkipDefaultTransaction: true,
+		Logger:                 logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("gorm.Open() error = %v", err)
+	}
+
+	result := groupCollectionLatestActivityScope(db).Find(&[]groupCollectionActivityRow{})
+	if result.Error != nil {
+		t.Fatalf("latest activity query error = %v", result.Error)
+	}
+	sql := result.Statement.SQL.String()
+	if strings.Contains(sql, "JOIN groups") {
+		t.Fatalf("generated SQL = %q, must not contain an unquoted groups join", sql)
+	}
+	if !strings.Contains(sql, "FROM `groups`") {
+		t.Fatalf("generated SQL = %q, want GORM-quoted groups subquery", sql)
 	}
 }
 
