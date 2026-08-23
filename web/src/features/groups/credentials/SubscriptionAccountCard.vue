@@ -23,6 +23,7 @@ import type {
 import type { ChannelCapabilitiesDto } from '@/app/resources/channels'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import ProxyConfigEditor from '@/components/config/ProxyConfigEditor.vue'
+import ProxyScopeIndicator from '@/components/config/ProxyScopeIndicator.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
@@ -698,6 +699,7 @@ function runMenuAction(
             >
               {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
             </StatusBadge>
+            <ProxyScopeIndicator v-if="capabilities.outbound_proxy" :view="item.proxy" />
           </div>
           <div class="subscription-account__actions">
             <span
@@ -1201,7 +1203,7 @@ function runMenuAction(
       </div>
       <ProxyConfigEditor
         class="subscription-account__proxy"
-        scope="credential"
+        appearance="card"
         :view="item.proxy"
         :save-proxy="saveProxy"
         :supported="capabilities.outbound_proxy"
@@ -1767,7 +1769,6 @@ function runMenuAction(
 }
 .subscription-account__proxy {
   margin-top: 13px;
-  border-top: 1px dashed var(--color-border-subtle);
 }
 .subscription-account__skeleton-section {
   display: grid;

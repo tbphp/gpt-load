@@ -349,7 +349,26 @@ function setExpanded(id: number, expanded: boolean): void {
   const next = new Set(routeState.value.expandedCredentialIDs)
   if (expanded) next.add(id)
   else next.delete(id)
-  updateRoute(filters.value, false, { ...routeState.value, expandedCredentialIDs: [...next] })
+  // 收起时一并关掉权重编辑，避免下次展开直接落在遗留的编辑态里。
+  const weightCredentialID =
+    !expanded && routeState.value.weightCredentialID === id
+      ? undefined
+      : routeState.value.weightCredentialID
+  updateRoute(filters.value, false, {
+    ...routeState.value,
+    expandedCredentialIDs: [...next],
+    weightCredentialID,
+  })
+}
+// 权重列的值可点：一次操作完成“展开 + 进入编辑”，让折叠区里的设置被发现。
+function openWeightEditor(id: number): void {
+  const expanded = new Set(routeState.value.expandedCredentialIDs)
+  expanded.add(id)
+  updateRoute(filters.value, false, {
+    ...routeState.value,
+    expandedCredentialIDs: [...expanded],
+    weightCredentialID: id,
+  })
 }
 function credentialExpanded(id: number): boolean {
   return routeState.value.expandedCredentialIDs.includes(id)
@@ -1476,6 +1495,7 @@ async function runBatch(
             @update:selected="setSelected(item.credential_id, $event)"
             @update:expanded="setExpanded(item.credential_id, $event)"
             @update:weight-editor-open="setWeightEditor(item.credential_id, $event)"
+            @open-weight="openWeightEditor($event.credential_id)"
             @weight="mutateItem($event.item, 'weight', $event.value)"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
@@ -1649,24 +1669,24 @@ async function runBatch(
   gap: var(--space-3);
   padding: var(--space-4) 0;
 }
+/* 操作列收成「更多操作 + 展开」两个图标后只需固定 80px，省下的宽度还给信息列。 */
 .group-credential-record-grid {
   --ledger-record-list-record-min-height: 52px;
   --ledger-record-list-record-padding: 8px 0;
-  --ledger-record-list-grid: 48px minmax(150px, 0.95fr) 116px minmax(118px, 0.72fr)
-    minmax(150px, 0.95fr) minmax(280px, 1.7fr);
+  --ledger-record-list-grid: 48px minmax(200px, 1.5fr) 116px minmax(130px, 0.85fr)
+    minmax(170px, 1.1fr) 80px;
   --ledger-record-list-column-gap: 12px;
 }
 @media (max-width: 1120px) {
   .group-credential-record-grid {
-    --ledger-record-list-grid: 44px minmax(130px, 0.9fr) 108px minmax(108px, 0.7fr)
-      minmax(132px, 0.9fr) minmax(250px, 1.45fr);
+    --ledger-record-list-grid: 44px minmax(160px, 1.3fr) 108px minmax(112px, 0.8fr)
+      minmax(140px, 1fr) 76px;
     --ledger-record-list-column-gap: 9px;
   }
 }
 @media (max-width: 1023px) and (min-width: 861px) {
   .group-credential-record-grid {
-    --ledger-record-list-grid: 44px minmax(130px, 0.9fr) 108px minmax(108px, 0.7fr)
-      minmax(220px, 1.35fr);
+    --ledger-record-list-grid: 44px minmax(150px, 1.3fr) 108px minmax(110px, 0.8fr) 76px;
   }
   .group-credential-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
   .group-credential-record-grid :deep(.group-credential-record__recent) {

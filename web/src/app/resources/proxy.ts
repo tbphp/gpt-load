@@ -61,6 +61,27 @@ export function proxyMutation(
   return { mode: 'custom', url: normalized }
 }
 
+export interface ProxyDraftState {
+  dirty: boolean
+  invalid: boolean
+  value: ProxyMutation | undefined
+}
+
+/**
+ * 自定义地址输入框始终以空白开始（避免回显已脱敏的凭据），所以“模式未变且输入为空”
+ * 代表用户没有修改代理设置的意图，不应视为脏值。
+ */
+export function proxyDraftState(
+  base: ProxyViewDto,
+  mode: ProxyConfiguredMode,
+  endpoint: string,
+): ProxyDraftState {
+  const unchanged = mode === base.configured_mode && (mode !== 'custom' || endpoint.trim() === '')
+  if (unchanged) return { dirty: false, invalid: false, value: undefined }
+  const value = proxyMutation(mode, endpoint)
+  return { dirty: true, invalid: value === undefined, value }
+}
+
 export function isValidProxyURL(value: string): boolean {
   if (value === '' || value !== value.trim() || value.includes('?') || value.includes('#')) {
     return false

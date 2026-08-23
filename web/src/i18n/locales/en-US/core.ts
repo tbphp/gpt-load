@@ -36,16 +36,17 @@ export default {
       urlLabel: 'Proxy URL',
       placeholder: 'http:// or socks5://',
       invalid: 'Enter a valid HTTP or SOCKS5 proxy URL.',
+      keepCurrentHint: 'Leave blank to keep the current address.',
       effective: 'Effective: {mode}',
+      ownTooltip: 'Proxy: {type}',
       inherit: {
         global: 'Inherit startup environment',
         group: 'Inherit global',
-        credential: 'Inherit Group',
       },
       mode: {
         inherit: 'Inherit',
         direct: 'Direct',
-        custom: 'Custom proxy',
+        custom: 'Custom',
         environment: 'Environment proxy',
       },
       help: {

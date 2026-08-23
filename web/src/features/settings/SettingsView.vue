@@ -5,12 +5,12 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import type { ProxyMutation } from '@/api/control/types'
+import type { ProxyConfiguredMode, ProxyViewDto } from '@/api/control/types'
 import { useStableLoading } from '@/app/loading-state'
+import { proxyDraftState } from '@/app/resources/proxy'
 import {
   runtimeSettingKeys,
   settingsQueryOptions,
-  updateSettings,
   type RuntimeSettingKey,
 } from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -61,12 +61,20 @@ const settingsRefreshing = computed(
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
-const proxyPending = ref(false)
 const {
   value: savedFeedback,
   clear: clearSavedFeedback,
   show: showSavedFeedback,
 } = useTransientFlag(1_600)
+const proxyMode = ref<ProxyConfiguredMode>('inherit')
+const proxyEndpoint = ref('')
+const proxyBaseView = computed(() => resource.value?.settings.values.proxy_config)
+const proxyState = computed(() =>
+  proxyBaseView.value
+    ? proxyDraftState(proxyBaseView.value, proxyMode.value, proxyEndpoint.value)
+    : { dirty: false, invalid: false, value: undefined },
+)
+const hasLocalEdits = computed(() => headerRulesInvalidEdits.value || proxyState.value.dirty)
 const {
   base,
   draft,
@@ -87,7 +95,25 @@ const {
   discard: discardDraft,
   saveAll,
   checkResult,
-} = useSettingsController(resource, { hasLocalEdits: headerRulesInvalidEdits })
+} = useSettingsController(resource, { hasLocalEdits })
+
+function resetProxyDraft(view: ProxyViewDto): void {
+  proxyMode.value = view.configured_mode
+  proxyEndpoint.value = ''
+}
+
+watch(
+  () => base.value?.settings.values.proxy_config,
+  (view, previous) => {
+    if (!view) return
+    if (!previous || proxyMode.value === view.configured_mode) {
+      resetProxyDraft(view)
+      return
+    }
+    if (!proxyDraftState(view, proxyMode.value, proxyEndpoint.value).dirty) resetProxyDraft(view)
+  },
+  { immediate: true },
+)
 
 const navItems = computed(() => [
   { id: 'settings-forwarding', label: t('settings.navigation.forwarding') },
@@ -103,12 +129,15 @@ const { activeSection, selectSection } = useSectionNavigation({
   topOffset: 76,
 })
 const headerRulesValid = ref(true)
-const pageOperationLocked = computed(() => operationLocked.value || proxyPending.value)
-const dirty = computed(() => controllerDirty.value || headerRulesInvalidEdits.value)
+const pageOperationLocked = computed(() => operationLocked.value)
+const dirty = computed(
+  () => controllerDirty.value || headerRulesInvalidEdits.value || proxyState.value.dirty,
+)
 const valid = computed(
   () =>
     controllerValid.value &&
-    (!draft.value?.overrides.has('header_rules') || headerRulesValid.value),
+    (!draft.value?.overrides.has('header_rules') || headerRulesValid.value) &&
+    !proxyState.value.invalid,
 )
 const timeoutKeys = [
   'first_byte_timeout',
@@ -125,6 +154,10 @@ const changedKeys = computed(() => {
     changed.push('header_rules')
   return changed
 })
+const changedLabels = computed(() => [
+  ...changedKeys.value.map(settingLabel),
+  ...(proxyState.value.dirty ? [t('common.proxy.title')] : []),
+])
 const invalidKeys = computed<RuntimeSettingKey[]>(() => {
   const current = draft.value
   if (!current) return []
@@ -150,7 +183,7 @@ const saveBarError = computed(() => {
 })
 const deferredExternalUpdate = computed(
   () =>
-    headerRulesInvalidEdits.value &&
+    (headerRulesInvalidEdits.value || proxyState.value.dirty) &&
     concurrent.value &&
     resource.value !== null &&
     base.value !== null &&
@@ -217,6 +250,7 @@ function discard(): void {
   discardDraft()
   headerRulesInvalidEdits.value = false
   headerRulesEditorRevision.value += 1
+  if (proxyBaseView.value) resetProxyDraft(proxyBaseView.value)
 }
 
 function requestDiscard(): void {
@@ -264,21 +298,12 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
   target?.focus()
 }
 
-async function saveGlobalProxy(value: ProxyMutation): Promise<void> {
-  const current = resource.value
-  if (!current || pageOperationLocked.value) throw new Error('SETTINGS_PROXY_UNAVAILABLE')
-
-  proxyPending.value = true
-  try {
-    const next = await updateSettings(client, { proxy_config: value }, current.settings_etag)
-    queryClient.setQueryData(controlQueryKeys.settings(locale.value), next)
-    await queryClient.invalidateQueries({
-      queryKey: controlQueryKeys.groups.all,
-      refetchType: 'none',
-    })
-  } finally {
-    proxyPending.value = false
-  }
+async function handleSaveAll(): Promise<void> {
+  const extra =
+    proxyState.value.dirty && proxyState.value.value !== undefined
+      ? { proxy_config: proxyState.value.value }
+      : {}
+  await saveAll(extra)
 }
 
 onBeforeUnmount(() => {
@@ -357,10 +382,13 @@ onBeforeUnmount(() => {
               :disabled="pageOperationLocked"
               :conflicts="conflicts"
               :proxy="resource?.settings.values.proxy_config ?? base.settings.values.proxy_config"
-              :save-proxy="saveGlobalProxy"
+              :proxy-mode="proxyMode"
+              :proxy-endpoint="proxyEndpoint"
               @change="updateDraft"
               @choose-mine="chooseMine"
               @choose-latest="chooseLatest"
+              @update:proxy-mode="proxyMode = $event"
+              @update:proxy-endpoint="proxyEndpoint = $event"
             />
             <AffinitySettingsSection
               :base="base"
@@ -411,7 +439,7 @@ onBeforeUnmount(() => {
         @confirm="confirmDiscard"
       >
         <ul class="settings__discard-list">
-          <li v-for="key in changedKeys" :key="key">{{ settingLabel(key) }}</li>
+          <li v-for="label in changedLabels" :key="label">{{ label }}</li>
         </ul>
       </AppConfirmDialog>
       <StickySaveBar
@@ -419,7 +447,7 @@ onBeforeUnmount(() => {
         appearance="ledger"
         always-visible
         :dirty="dirty"
-        :pending="pending || proxyPending"
+        :pending="pending"
         :status="
           failed
             ? 'error'
@@ -444,7 +472,7 @@ onBeforeUnmount(() => {
                     : pending
                       ? t('settings.saveState.saving')
                       : dirty
-                        ? t('settings.dirtySummary', { count: changedKeys.length })
+                        ? t('settings.dirtySummary', { count: changedLabels.length })
                         : savedFeedback
                           ? t('settings.saved')
                           : t('settings.saveState.baseline')
@@ -459,7 +487,7 @@ onBeforeUnmount(() => {
                     : pending
                       ? t('settings.saveState.savingNote')
                       : dirty
-                        ? changedKeys.map(settingLabel).join(', ')
+                        ? changedLabels.join(', ')
                         : savedFeedback
                           ? t('settings.savedAt', { time: savedAtLabel })
                           : t('settings.saveState.baselineNote')
@@ -482,7 +510,7 @@ onBeforeUnmount(() => {
             size="sm"
             :busy="pending"
             :disabled="disabled || !dirty || !valid || pageOperationLocked"
-            @click="saveAll"
+            @click="handleSaveAll"
           >
             {{ t('settings.save') }}
           </AppButton>

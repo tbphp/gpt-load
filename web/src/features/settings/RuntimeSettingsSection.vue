@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
-import type { ProxyMutation, ProxyViewDto } from '@/api/control/types'
+import type { ProxyConfiguredMode, ProxyViewDto } from '@/api/control/types'
 import type {
   RuntimeSettingKey,
   SettingsResource,
   TimeoutSettingKey,
 } from '@/app/resources/settings'
-import ProxyConfigEditor from '@/components/config/ProxyConfigEditor.vue'
+import ProxyOverrideRow from '@/components/config/ProxyOverrideRow.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
@@ -29,12 +29,15 @@ const props = defineProps<{
   disabled: boolean
   conflicts: SettingsMergeConflict[]
   proxy: ProxyViewDto
-  saveProxy: (value: ProxyMutation) => Promise<void>
+  proxyMode: ProxyConfiguredMode
+  proxyEndpoint: string
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
   chooseMine: [key: RuntimeSettingKey]
   chooseLatest: [key: RuntimeSettingKey]
+  'update:proxyMode': [value: ProxyConfiguredMode]
+  'update:proxyEndpoint': [value: string]
 }>()
 const { t } = useI18n()
 
@@ -118,11 +121,14 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
 
     <div class="settings-runtime__rows">
       <div class="settings-runtime__entry">
-        <ProxyConfigEditor
+        <ProxyOverrideRow
           scope="global"
           :view="proxy"
-          :save-proxy="saveProxy"
+          :mode="proxyMode"
+          :endpoint="proxyEndpoint"
           :disabled="disabled"
+          @update:mode="emit('update:proxyMode', $event)"
+          @update:endpoint="emit('update:proxyEndpoint', $event)"
         />
       </div>
       <div v-for="key in timeoutKeys" :key="key" class="settings-runtime__entry">

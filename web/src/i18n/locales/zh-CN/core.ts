@@ -36,16 +36,17 @@ export default {
       urlLabel: '代理地址',
       placeholder: 'http:// 或 socks5://',
       invalid: '请输入有效的 HTTP 或 SOCKS5 代理地址。',
+      keepCurrentHint: '留空则保持当前地址不变。',
       effective: '当前生效：{mode}',
+      ownTooltip: '代理：{type}',
       inherit: {
         global: '继承启动环境',
         group: '继承全局',
-        credential: '继承分组',
       },
       mode: {
         inherit: '继承',
         direct: '直连',
-        custom: '自定义代理',
+        custom: '自定义',
         environment: '环境变量代理',
       },
       help: {

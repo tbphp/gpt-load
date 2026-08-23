@@ -53,7 +53,7 @@ export interface SettingsPageController {
   chooseMine(key: RuntimeSettingKey): void
   chooseLatest(key: RuntimeSettingKey): void
   discard(): void
-  saveAll(): Promise<void>
+  saveAll(extra?: SettingsPatch): Promise<void>
   checkResult(): Promise<void>
 }
 
@@ -265,20 +265,23 @@ export function useSettingsController(
     if (isCurrent(owner, controller)) requestController = undefined
   }
 
-  async function saveAll(): Promise<void> {
+  async function saveAll(extra: SettingsPatch = {}): Promise<void> {
     if (
       operationLocked.value ||
       !valid.value ||
       !base.value ||
       !draft.value ||
-      Object.keys(patch.value).length === 0
+      (Object.keys(patch.value).length === 0 && Object.keys(extra).length === 0)
     ) {
       return
     }
 
     const operationBase = base.value
     const operationDraft = cloneDraft(draft.value)
-    const normalizedPatch = buildSettingsPatch(operationBase.settings, operationDraft, 'all')
+    const normalizedPatch = {
+      ...buildSettingsPatch(operationBase.settings, operationDraft, 'all'),
+      ...extra,
+    }
     requestController?.abort()
     const owner = ++requestOwner
     const controller = new AbortController()

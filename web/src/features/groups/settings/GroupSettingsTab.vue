@@ -5,11 +5,12 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-import type { GroupSettingsDto, HeaderRulesDto, ProxyMutation } from '@/api/control/types'
+import type { GroupSettingsDto, HeaderRulesDto, ProxyConfiguredMode } from '@/api/control/types'
 
 import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
+import { proxyDraftState } from '@/app/resources/proxy'
 import { channelsQueryOptions, type ChannelFieldDto } from '@/app/resources/channels'
 import {
   cacheGroupSettings,
@@ -21,7 +22,7 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
-import ProxyConfigEditor from '@/components/config/ProxyConfigEditor.vue'
+import ProxyOverrideRow from '@/components/config/ProxyOverrideRow.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
@@ -71,13 +72,14 @@ const queryRefreshing = computed(() => query.data.value !== undefined && query.i
 const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
 const pending = ref(false)
-const proxyPending = ref(false)
 const deletePending = ref(false)
 const deleted = ref(false)
 const error = ref('')
 const headerRulesValid = ref(true)
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
+const proxyMode = ref<ProxyConfiguredMode>('inherit')
+const proxyEndpoint = ref('')
 const {
   value: savedFeedback,
   clear: clearSavedFeedback,
@@ -110,10 +112,19 @@ const { activeSection: section, selectSection: scrollToSection } = useSectionNav
 const patch = computed(() =>
   saved.value && draft.value ? buildGroupSettingsPatch(saved.value, draft.value) : {},
 )
-const dirty = computed(
-  () => !deleted.value && (Object.keys(patch.value).length > 0 || headerRulesInvalidEdits.value),
+const proxyState = computed(() =>
+  saved.value
+    ? proxyDraftState(saved.value.proxy, proxyMode.value, proxyEndpoint.value)
+    : { dirty: false, invalid: false, value: undefined },
 )
-const mutationPending = computed(() => pending.value || proxyPending.value || deletePending.value)
+const dirty = computed(
+  () =>
+    !deleted.value &&
+    (Object.keys(patch.value).length > 0 ||
+      headerRulesInvalidEdits.value ||
+      proxyState.value.dirty),
+)
+const mutationPending = computed(() => pending.value || deletePending.value)
 const nameError = computed(() =>
   draft.value?.name.trim() ? '' : t('group.settings.base.nameError'),
 )
@@ -147,7 +158,8 @@ const valid = computed(
     Object.keys(paramErrors.value).length === 0 &&
     weightValid.value &&
     timeoutValid.value &&
-    headerRulesValid.value,
+    headerRulesValid.value &&
+    !proxyState.value.invalid,
 )
 const showInjectUsage = computed(
   () => selectedChannel.value?.client_protocols.includes('openai-completions') ?? false,
@@ -184,6 +196,8 @@ function resetSavedDraft(settings: GroupSettingsDto): void {
   headerRulesValid.value = true
   headerRulesInvalidEdits.value = false
   headerRulesEditorRevision.value += 1
+  proxyMode.value = settings.proxy.configured_mode
+  proxyEndpoint.value = ''
 }
 
 function consumeCurrentQuery(): void {
@@ -320,7 +334,12 @@ async function save(): Promise<void> {
   clearSavedFeedback()
   error.value = ''
   try {
-    const body = patch.value
+    const body = {
+      ...patch.value,
+      ...(proxyState.value.dirty && proxyState.value.value !== undefined
+        ? { proxy: proxyState.value.value }
+        : {}),
+    }
     const result = await updateGroupSettings(client, props.groupId, body, active.signal)
     if (controller !== active) return
     resetSavedDraft(result)
@@ -334,26 +353,6 @@ async function save(): Promise<void> {
     if (controller === active) {
       controller = undefined
       pending.value = false
-    }
-  }
-}
-
-async function saveGroupProxy(value: ProxyMutation): Promise<void> {
-  if (!saved.value || mutationPending.value) throw new Error('GROUP_PROXY_UNAVAILABLE')
-
-  const active = new AbortController()
-  controller = active
-  proxyPending.value = true
-  try {
-    const result = await updateGroupSettings(client, props.groupId, { proxy: value }, active.signal)
-    if (controller !== active) throw new RequestCancelledError()
-    saved.value = { ...saved.value, proxy: result.proxy }
-    cacheGroupSettings(queryClient, props.groupId, result)
-    await invalidateGroupSettingsDependents(queryClient, props.groupId)
-  } finally {
-    if (controller === active) {
-      controller = undefined
-      proxyPending.value = false
     }
   }
 }
@@ -471,12 +470,15 @@ onBeforeUnmount(() => {
             </header>
             <div class="group-settings__runtime">
               <div class="group-settings__runtime-row">
-                <ProxyConfigEditor
+                <ProxyOverrideRow
                   scope="group"
                   :view="saved.proxy"
-                  :save-proxy="saveGroupProxy"
+                  :mode="proxyMode"
+                  :endpoint="proxyEndpoint"
                   :supported="selectedChannel?.capabilities.outbound_proxy"
                   :disabled="mutationPending || selectedChannel === undefined"
+                  @update:mode="proxyMode = $event"
+                  @update:endpoint="proxyEndpoint = $event"
                 />
               </div>
               <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">

@@ -36,16 +36,17 @@ export default {
       urlLabel: 'プロキシ URL',
       placeholder: 'http:// または socks5://',
       invalid: '有効な HTTP または SOCKS5 プロキシ URL を入力してください。',
+      keepCurrentHint: '空欄のままにすると現在のアドレスが維持されます。',
       effective: '現在有効：{mode}',
+      ownTooltip: 'プロキシ：{type}',
       inherit: {
         global: '起動環境を継承',
         group: 'グローバル設定を継承',
-        credential: 'グループ設定を継承',
       },
       mode: {
         inherit: '継承',
         direct: '直接接続',
-        custom: 'カスタムプロキシ',
+        custom: 'カスタム',
         environment: '環境変数プロキシ',
       },
       help: {
