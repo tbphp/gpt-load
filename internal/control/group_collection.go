@@ -92,6 +92,7 @@ func cloneGroupRows(rows []models.Group) []models.Group {
 
 func (s *Service) captureGroupCollectionRecords(
 	ctx context.Context,
+	includeActivity bool,
 ) (int64, []groupCollectionRecord, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -115,7 +116,7 @@ func (s *Service) captureGroupCollectionRecords(
 	snapshot := s.manager.Current()
 	runtimeKeys := s.registrySnapshot()
 	observedAt := s.now().UTC()
-	rows, err := s.readGroupCollectionRows(ctx)
+	rows, err := s.readGroupCollectionRows(ctx, includeActivity)
 	s.writeMu.RUnlock()
 	if parentErr := ctx.Err(); parentErr != nil {
 		return 0, nil, parentErr
@@ -135,6 +136,7 @@ func (s *Service) captureGroupCollectionRecords(
 
 func (s *Service) readGroupCollectionRows(
 	ctx context.Context,
+	includeActivity bool,
 ) (groupCollectionRows, error) {
 	var rows groupCollectionRows
 	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
@@ -143,15 +145,11 @@ func (s *Service) readGroupCollectionRows(
 			return err
 		}
 		rows.groups = cloneGroupRows(groups)
-		groupIDs := make([]uint, 0, len(groups))
-		for _, group := range groups {
-			groupIDs = append(groupIDs, group.ID)
-		}
-		if len(groupIDs) > 0 {
+		if includeActivity && len(groups) > 0 {
 			latestActivity := tx.Model(&models.UsageStat{}).
-				Select("group_id, MAX(bucket_start_ms) AS last_active_at_ms").
-				Where("group_id IN ?", groupIDs).
-				Group("group_id")
+				Select("usage_stats.group_id, MAX(usage_stats.bucket_start_ms) AS last_active_at_ms").
+				Joins("JOIN groups ON groups.id = usage_stats.group_id").
+				Group("usage_stats.group_id")
 			if err := tx.Table("usage_stats").
 				Select(
 					"usage_stats.group_id, latest_activity.last_active_at_ms, "+

@@ -83,6 +83,26 @@ func TestListGroupCollectionSortsRecentActivityByHourThenRequestCount(t *testing
 	}
 }
 
+func TestListGroupCollectionSkipsActivityReadForNonRecentSort(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := createGroupCollectionGroup(t, fixture, "name sort", true, nil)
+	entry := createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil)
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{entry})
+	if err := fixture.db.Migrator().DropTable(&models.UsageStat{}); err != nil {
+		t.Fatalf("drop usage_stats: %v", err)
+	}
+
+	result, err := fixture.service.ListGroupCollection(t.Context(), GroupCollectionQuery{
+		Sort: GroupCollectionSortName, Page: 1, PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListGroupCollection() error = %v", err)
+	}
+	if got, want := groupCollectionItemIDs(result.Items), []uint{group.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("name-sort IDs = %#v, want %#v", got, want)
+	}
+}
+
 func TestListGroupCollectionQueryDoesNotSearchPersistedModelIDOrAlias(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "not a model", true, nil)
@@ -236,6 +256,29 @@ func TestGroupCollectionQueryRecentActivityFallsBackToNameWithoutUsage(t *testin
 	result := queryGroupCollectionRecords(1_700, records, GroupCollectionQuery{Page: 1, PageSize: 20})
 	if got, want := groupCollectionItemIDs(result.Items), []uint{1, 2}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recent activity fallback IDs = %#v, want %#v", got, want)
+	}
+}
+
+func TestGroupCollectionSortUsesActivityOnlyForRecentOrdering(t *testing.T) {
+	tests := []struct {
+		name   string
+		sortBy GroupCollectionSort
+		want   bool
+	}{
+		{name: "default", sortBy: "", want: true},
+		{name: "recent", sortBy: GroupCollectionSortRecent, want: true},
+		{name: "status", sortBy: GroupCollectionSortStatus, want: false},
+		{name: "name", sortBy: GroupCollectionSortName, want: false},
+		{name: "credentials", sortBy: GroupCollectionSortCredentials, want: false},
+		{name: "created", sortBy: GroupCollectionSortCreated, want: false},
+		{name: "unknown defaults to recent", sortBy: "unknown", want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := groupCollectionSortUsesActivity(test.sortBy); got != test.want {
+				t.Fatalf("groupCollectionSortUsesActivity(%q) = %t, want %t", test.sortBy, got, test.want)
+			}
+		})
 	}
 }
 

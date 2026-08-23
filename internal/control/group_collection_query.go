@@ -56,7 +56,10 @@ func (s *Service) ListGroupCollection(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	observedAtMS, records, err := s.captureGroupCollectionRecords(ctx)
+	observedAtMS, records, err := s.captureGroupCollectionRecords(
+		ctx,
+		groupCollectionSortUsesActivity(query.Sort),
+	)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return GroupCollectionResponse{}, parentErr
 	}
@@ -64,6 +67,18 @@ func (s *Service) ListGroupCollection(
 		return GroupCollectionResponse{}, err
 	}
 	return queryGroupCollectionRecords(observedAtMS, records, query), nil
+}
+
+func groupCollectionSortUsesActivity(sortBy GroupCollectionSort) bool {
+	switch sortBy {
+	case GroupCollectionSortStatus,
+		GroupCollectionSortName,
+		GroupCollectionSortCredentials,
+		GroupCollectionSortCreated:
+		return false
+	default:
+		return true
+	}
 }
 
 func queryGroupCollectionRecords(
