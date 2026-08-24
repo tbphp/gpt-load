@@ -43,11 +43,12 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 		status int
 		body   string
 		want   execution.FailureHint
+		scope  execution.ErrorScope
 	}{
 		{
 			name: "Gemini invalid credential", status: http.StatusBadRequest,
 			body: `{"error":{"status":"PERMISSION_DENIED","message":"API key not valid"}}`,
-			want: execution.FailureHintInvalidCredential,
+			want: execution.FailureHintInvalidCredential, scope: execution.ErrorScopeCredential,
 		},
 		{
 			name: "OpenAI rate limit", status: http.StatusBadRequest,
@@ -57,36 +58,39 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 		{
 			name: "model unavailable", status: http.StatusBadRequest,
 			body: `{"error":{"code":"model_not_available"}}`,
-			want: execution.FailureHintModelUnavailable,
+			want: execution.FailureHintModelUnavailable, scope: execution.ErrorScopeModel,
 		},
 		{
 			name: "forbidden model unavailable", status: http.StatusForbidden,
 			body: `{"error":{"code":"model_not_found"}}`,
-			want: execution.FailureHintModelUnavailable,
+			want: execution.FailureHintModelUnavailable, scope: execution.ErrorScopeModel,
 		},
 		{
 			name: "generic forbidden permission", status: http.StatusForbidden,
-			body: `{"error":{"code":"permission_denied"}}`,
+			body:  `{"error":{"code":"permission_denied"}}`,
+			scope: execution.ErrorScopeRequest,
 		},
 		{
 			name: "payment required", status: http.StatusPaymentRequired,
-			body: `{"error":{"message":"billing disabled"}}`,
+			body:  `{"error":{"message":"billing disabled"}}`,
+			scope: execution.ErrorScopeRequest,
 		},
 		{
 			name: "explicit invalid key under forbidden", status: http.StatusForbidden,
 			body: `{"error":{"message":"API key not valid"}}`,
-			want: execution.FailureHintInvalidCredential,
+			want: execution.FailureHintInvalidCredential, scope: execution.ErrorScopeCredential,
 		},
 		{
 			name: "server error", status: http.StatusServiceUnavailable,
 			body: `{"error":{"message":"overloaded"}}`,
-			want: execution.FailureHintHostError,
+			want: execution.FailureHintHostError, scope: execution.ErrorScopeGroup,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := passthroughHTTPError(test.status, nil, []byte(test.body), nil)
-			if got.Hint != test.want {
+			if got.Hint != test.want || got.OriginHint != execution.ErrorOriginUpstream ||
+				got.ScopeHint != test.scope {
 				t.Fatalf("hint = %q, want %q; evidence=%+v", got.Hint, test.want, got)
 			}
 		})
@@ -162,7 +166,9 @@ func TestSDKTransportErrorDispatchEvidence(t *testing.T) {
 				nil,
 			)
 			if result.DispatchState != test.want || result.ResponseStarted ||
-				result.Error == nil || result.Error.Kind != execution.ErrorKindTransport {
+				result.Error == nil || result.Error.Kind != execution.ErrorKindTransport ||
+				result.Error.OriginHint != execution.ErrorOriginUpstream ||
+				result.Error.ScopeHint != execution.ErrorScopeGroup {
 				t.Fatalf("result = %+v, want dispatch=%s transport without response", result, test.want)
 			}
 		})
@@ -209,7 +215,9 @@ func TestConvertedSDKPreflightFailureIsAGroupScopedConversionFailure(t *testing.
 	unary := convertedUnaryErrorResult(bifrostError, context, nil)
 	if unary.DispatchState != execution.DispatchNotSent || unary.ResponseStarted || unary.Error == nil ||
 		unary.Error.Kind != execution.ErrorKindConversionUnsupported ||
-		unary.Error.Code != execution.ErrorCodeTargetSerializationFailed {
+		unary.Error.Code != execution.ErrorCodeTargetSerializationFailed ||
+		unary.Error.OriginHint != execution.ErrorOriginInternal ||
+		unary.Error.ScopeHint != execution.ErrorScopeGroup {
 		t.Fatalf("converted unary result = %+v", unary)
 	}
 

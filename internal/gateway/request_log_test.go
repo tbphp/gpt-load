@@ -25,6 +25,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
+	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -151,6 +152,70 @@ type recordingRequestLogSink struct {
 	events []telemetry.RequestEvent
 }
 
+func (recorder *requestRecorder) appendAttempt(
+	selection scheduler.Selection,
+	result UpstreamResult,
+	category telemetry.FailureCategory,
+	action telemetry.Action,
+	errorCode string,
+	errorSummary string,
+	startedAt time.Time,
+	completedAt time.Time,
+) int {
+	return recorder.appendDecisionAttempt(
+		selection,
+		result,
+		testHealthDecision(category, action),
+		errorCode,
+		errorSummary,
+		startedAt,
+		completedAt,
+	)
+}
+
+func testHealthFailureCategory(category telemetry.FailureCategory) health.FailureCategory {
+	switch category {
+	case telemetry.FailureCategoryOK:
+		return health.FailureCategoryOK
+	case telemetry.FailureCategoryRateLimited:
+		return health.FailureCategoryRateLimited
+	case telemetry.FailureCategoryModelUnavailable:
+		return health.FailureCategoryModelUnavailable
+	case telemetry.FailureCategoryInvalidKey:
+		return health.FailureCategoryInvalidKey
+	case telemetry.FailureCategoryUpstreamHost:
+		return health.FailureCategoryUpstreamHostError
+	case telemetry.FailureCategoryClientError:
+		return health.FailureCategoryClientError
+	case telemetry.FailureCategoryConversionUnsupported:
+		return health.FailureCategoryConversionUnsupported
+	case telemetry.FailureCategoryDownstreamCancel:
+		return health.FailureCategoryDownstreamCancel
+	case telemetry.FailureCategoryAuthenticationRequired:
+		return health.FailureCategoryAuthenticationRequired
+	default:
+		return health.FailureCategoryAmbiguous
+	}
+}
+
+func testHealthDecision(
+	category telemetry.FailureCategory,
+	action telemetry.Action,
+) health.Decision {
+	decision := health.Decision{Category: testHealthFailureCategory(category)}
+	switch action {
+	case telemetry.ActionRetry:
+		decision.Retry = health.RetryNextCandidate
+	case telemetry.ActionCooldownCredential:
+		decision.Effect = health.EffectCooldownCredential
+	case telemetry.ActionFailCredential:
+		decision.Effect = health.EffectRecordCredentialFailure
+	case telemetry.ActionSkipGroup:
+		decision.Effect = health.EffectSkipGroup
+	}
+	return decision
+}
+
 type mutableGatewayPriceTableProvider struct {
 	mu    sync.Mutex
 	table *pricing.Table
@@ -178,6 +243,19 @@ func (provider *mutableGatewayPriceTableProvider) LoadCount() int {
 
 type usageObservingStreamRetryForwarder struct {
 	observed []usage.Result
+}
+
+type failCredentialDecrypt struct {
+	encryption.Service
+	remaining int
+}
+
+func (service *failCredentialDecrypt) Decrypt(value string) (string, error) {
+	if service.remaining > 0 {
+		service.remaining--
+		return "", errors.New("private credential decrypt failure")
+	}
+	return service.Service.Decrypt(value)
 }
 
 func (*usageObservingStreamRetryForwarder) Forward(context.Context, ForwardInput) UpstreamResult {
@@ -208,8 +286,14 @@ func (forwarder *usageObservingStreamRetryForwarder) ForwardStream(
 			ClassificationBody:        []byte(`{"error":{"type":"rate_limit_error"}}`),
 			ErrorSummary:              fixedErrorSummary("upstream_sse_error"),
 			RequestWritten:            true,
+			DispatchState:             execution.DispatchMaybeSent,
+			ResponseStarted:           true,
 			ProviderErrorBeforeCommit: true,
-			Usage:                     result,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindProvider, Hint: execution.FailureHintRateLimited,
+				StatusCode: http.StatusOK, Summary: "rate limited",
+			},
+			Usage: result,
 		}
 	}
 	if input.OnStreamReady != nil {
@@ -217,6 +301,8 @@ func (forwarder *usageObservingStreamRetryForwarder) ForwardStream(
 	}
 	return UpstreamResult{
 		StatusCode: http.StatusOK, RequestWritten: true, Committed: true, Usage: result,
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		Stream: StreamObservation{EndReason: StreamEndCleanEOF},
 	}
 }
 
@@ -498,7 +584,7 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 			recorder.appendAttempt(requestLogSelection(11, 21, "first"), UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 			second := recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 
-			recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: test.result}, health.Result{}, "provider", second)
+			recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: test.result}, health.Decision{}, "provider", second)
 			recorder.emit()
 
 			event := sink.events[0]
@@ -516,7 +602,7 @@ func TestRequestRecorderNon2xxKeepsAttributionButNotApplicable(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
 	index := recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{StatusCode: http.StatusTooManyRequests}, telemetry.FailureCategoryRateLimited, telemetry.ActionRetry, "", "", time.Unix(100, 0), time.Unix(100, 0))
-	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}}, health.Result{Category: health.FailureCategoryRateLimited}, "provider", index)
+	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}}, health.Decision{Category: health.FailureCategoryRateLimited}, "provider", index)
 	recorder.emit()
 
 	event := sink.events[0]
@@ -569,7 +655,7 @@ func TestRequestRecorderLocalAttemptDoesNotBindCredentialUsage(t *testing.T) {
 	)
 	recorder.completeResponse(
 		UpstreamResult{DispatchState: execution.DispatchLocal, StatusCode: http.StatusOK},
-		health.Result{},
+		health.Decision{},
 		"gpt-5",
 		index,
 	)
@@ -594,7 +680,7 @@ func TestRequestRecorderDownstreamFailureKeepsBoundUsage(t *testing.T) {
 	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
 	index := recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 	result := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
-	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: result}, health.Result{}, "provider", index)
+	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: result}, health.Decision{}, "provider", index)
 	recorder.completeDownstreamWrite(http.StatusOK)
 	recorder.emit()
 
@@ -694,7 +780,7 @@ func TestRequestRecorderPreservesKnownCostWhenUsedOutputPriceIsUnavailable(t *te
 			State:  usage.StateComplete,
 			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
 		},
-	}, health.Result{}, model, index)
+	}, health.Decision{}, model, index)
 
 	if got := withoutPricingReceipt(recorder.usage.Pricing); got != (telemetry.PricingObservation{
 		UpstreamModel: model,
@@ -733,7 +819,7 @@ func TestRequestRecorderMergesRequestPricingDiagnosticsIntoKnownCost(t *testing.
 			State:  usage.StateComplete,
 			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
 		},
-	}, health.Result{}, model, index)
+	}, health.Decision{}, model, index)
 
 	if !recorder.usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
 		t.Fatalf("usage diagnostics = %#v, want unsupported billable detail", recorder.usage.Result.Diagnostics)
@@ -974,6 +1060,77 @@ func TestHandlerDiscardsPreCommitStreamUsageOnRetry(t *testing.T) {
 	}
 }
 
+func TestHandlerRecordsCandidatePreparationFailureThroughJudge(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header),
+		Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second",
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.encryption = &failCredentialDecrypt{Service: handler.encryption, remaining: 1}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 1 ||
+		len(events) != 1 || len(events[0].Attempts) != 2 {
+		t.Fatalf("response/forwards/events = %d/%d/%#v", response.Code, len(forwarder.inputs), events)
+	}
+	first := events[0].Attempts[0]
+	if first.DispatchState != execution.DispatchNotSent ||
+		first.FailureCategory != telemetry.FailureCategoryAmbiguous ||
+		first.FailureOrigin != execution.ErrorOriginInternal ||
+		first.FailureScope != execution.ErrorScopeCredential ||
+		first.RetryDirective != telemetry.RetryNextCandidate ||
+		first.Effect != telemetry.EffectNone ||
+		first.RuleID != "candidate.credential_decrypt_failed" ||
+		!first.WillRetry || first.ErrorCode != "credential_decrypt_failed" ||
+		strings.Contains(first.ErrorSummary, "private") {
+		t.Fatalf("candidate preparation attempt = %#v", first)
+	}
+}
+
+func TestHandlerCandidatePreparationFailuresDoNotExhaustForwardBudget(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header),
+		Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink,
+		"sk-first", "sk-second", "sk-third", "sk-fourth",
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.encryption = &failCredentialDecrypt{Service: handler.encryption, remaining: 3}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 1 ||
+		len(events) != 1 || len(events[0].Attempts) != 4 {
+		t.Fatalf("response/forwards/events = %d/%d/%#v", response.Code, len(forwarder.inputs), events)
+	}
+	if forwarder.inputs[0].AttemptSequence != 4 || events[0].Attempts[3].Sequence != 4 {
+		t.Fatalf("forward/recorded attempt sequences = %d/%d, want 4/4",
+			forwarder.inputs[0].AttemptSequence, events[0].Attempts[3].Sequence)
+	}
+}
+
 func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	const (
@@ -1041,6 +1198,11 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 	attempt := event.Attempts[0]
 	if attempt.StatusCode != http.StatusOK ||
 		attempt.FailureCategory != telemetry.FailureCategoryRateLimited ||
+		attempt.FailureOrigin != execution.ErrorOriginUpstream ||
+		attempt.FailureScope != "" ||
+		attempt.RetryDirective != telemetry.RetryNextCandidate ||
+		attempt.Effect != telemetry.EffectCooldownCredential ||
+		attempt.RuleID != "rate_limit.reset_header" ||
 		attempt.Action != telemetry.ActionCooldownCredential ||
 		attempt.Committed ||
 		attempt.ErrorSummary != fixedErrorSummary("upstream_sse_error") {
@@ -2333,6 +2495,48 @@ func TestHandlerRecordsCommittedStreamTerminalMatrix(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsFinalSwitchingProtocolsAsLocalProtocolError(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusSwitchingProtocols,
+		Header: http.Header{
+			"Connection": {"Upgrade"},
+			"Upgrade":    {"websocket"},
+		},
+		Body:           []byte("private upgrade payload"),
+		ErrorSummary:   "unexpected final informational response",
+		RequestWritten: true,
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-one",
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadGateway ||
+		response.Header().Get("Connection") != "" || response.Header().Get("Upgrade") != "" ||
+		!strings.Contains(response.Body.String(), reasonUpstreamProtocol.Code) {
+		t.Fatalf("response = %d headers=%#v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || len(events[0].Attempts) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+	event, attempt := events[0], events[0].Attempts[0]
+	if event.StatusCode != http.StatusBadGateway || event.ErrorCode != reasonUpstreamProtocol.Code ||
+		attempt.StatusCode != http.StatusSwitchingProtocols || attempt.WillRetry ||
+		attempt.FailureCategory != telemetry.FailureCategoryAmbiguous {
+		t.Fatalf("event/attempt = %#v / %#v", event, attempt)
+	}
+}
+
 func TestHandlerStreamTelemetryDoesNotChangeHealthOrRetrySideEffects(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -2837,9 +3041,8 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 					selection,
 					[]string{apiKey},
 					result,
-					health.Result{
+					health.Decision{
 						Category: health.FailureCategoryClientError,
-						Action:   health.ActionTerminate,
 					},
 					time.Unix(100, 0),
 					time.Unix(101, 0),
@@ -2848,7 +3051,7 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 			finish: func(recorder *requestRecorder, result UpstreamResult, attempt int) {
 				recorder.completeResponse(
 					result,
-					health.Result{Category: health.FailureCategoryClientError},
+					health.Decision{Category: health.FailureCategoryClientError},
 					"provider-model",
 					attempt,
 				)
@@ -2869,6 +3072,12 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 					selection,
 					[]string{apiKey},
 					result,
+					health.Decision{
+						Category: health.FailureCategoryAmbiguous,
+						Retry:    health.RetryNone,
+						Effect:   health.EffectNone,
+						RuleID:   "stream.provider_error",
+					},
 					time.Unix(100, 0),
 					time.Unix(101, 0),
 				)
@@ -2950,6 +3159,12 @@ func TestRequestRecorderPreservesFixedTerminalSummariesWithShortHeaderRuleLitera
 		selection,
 		[]string{"fake-fixed-summary-provider-key"},
 		result,
+		health.Decision{
+			Category: health.FailureCategoryAmbiguous,
+			Retry:    health.RetryNone,
+			Effect:   health.EffectNone,
+			RuleID:   "stream.upstream_terminated",
+		},
 		time.Unix(100, 0),
 		time.Unix(101, 0),
 	)
@@ -3001,9 +3216,9 @@ func TestRequestRecorderPreservesProviderErrorFixedSummaryWithOrdinaryHeaderRule
 		ProviderErrorBeforeCommit: true,
 		Usage:                     usage.Result{State: usage.StateMissing},
 	}
-	decision := health.Result{
+	decision := health.Decision{
 		Category: health.FailureCategoryRateLimited,
-		Action:   health.ActionCooldownCredential,
+		Effect:   health.EffectCooldownCredential,
 	}
 
 	recorder.recordAttempt(
@@ -3123,7 +3338,7 @@ func TestRequestRecorderTerminalErrorsUseSanitizedAttemptSummary(t *testing.T) {
 				selection,
 				nil,
 				result,
-				health.Result{Category: health.FailureCategoryUpstreamHostError, Action: health.ActionSkipGroup},
+				health.Decision{Category: health.FailureCategoryUpstreamHostError, Effect: health.EffectSkipGroup},
 				time.Unix(100, 0),
 				time.Unix(101, 0),
 			)

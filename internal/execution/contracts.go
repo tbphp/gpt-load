@@ -242,6 +242,46 @@ func (s DispatchState) Valid() bool {
 // MaxErrorSummaryLength bounds sanitized error messages retained by the contract.
 const MaxErrorSummaryLength = 4096
 
+// ErrorOrigin identifies the responsibility domain where a failure originated.
+type ErrorOrigin string
+
+const (
+	ErrorOriginClient     ErrorOrigin = "client"
+	ErrorOriginUpstream   ErrorOrigin = "upstream"
+	ErrorOriginDownstream ErrorOrigin = "downstream"
+	ErrorOriginInternal   ErrorOrigin = "internal"
+)
+
+// Valid reports whether the optional origin is recognized.
+func (o ErrorOrigin) Valid() bool {
+	switch o {
+	case "", ErrorOriginClient, ErrorOriginUpstream, ErrorOriginDownstream, ErrorOriginInternal:
+		return true
+	default:
+		return false
+	}
+}
+
+// ErrorScope identifies the resource boundary affected by a failure.
+type ErrorScope string
+
+const (
+	ErrorScopeRequest    ErrorScope = "request"
+	ErrorScopeModel      ErrorScope = "model"
+	ErrorScopeCredential ErrorScope = "credential"
+	ErrorScopeGroup      ErrorScope = "group"
+)
+
+// Valid reports whether the optional scope is recognized.
+func (s ErrorScope) Valid() bool {
+	switch s {
+	case "", ErrorScopeRequest, ErrorScopeModel, ErrorScopeCredential, ErrorScopeGroup:
+		return true
+	default:
+		return false
+	}
+}
+
 // ErrorKind is the stable category used for retry and health decisions.
 type ErrorKind string
 
@@ -326,6 +366,8 @@ func (s ReplaySafety) Valid() bool {
 type ErrorEvidence struct {
 	Kind         ErrorKind     `json:"kind"`
 	Hint         FailureHint   `json:"hint,omitempty"`
+	OriginHint   ErrorOrigin   `json:"origin_hint,omitempty"`
+	ScopeHint    ErrorScope    `json:"scope_hint,omitempty"`
 	StatusCode   int           `json:"status_code,omitempty"`
 	Type         string        `json:"type,omitempty"`
 	Code         string        `json:"code,omitempty"`

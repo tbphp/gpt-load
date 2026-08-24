@@ -71,6 +71,7 @@ export const requestLogFailureCategories = [
   'client_error',
   'conversion_unsupported',
   'downstream_cancel',
+  'authentication_required',
   'ambiguous',
 ] as const
 export const requestLogRetryStates = ['retried', 'not_retried'] as const

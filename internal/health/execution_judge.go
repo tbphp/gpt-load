@@ -22,58 +22,197 @@ type ExecutionAttempt struct {
 	Now                 time.Time
 }
 
-// JudgeExecution decides the GPT-Load action for one executor result.
-func JudgeExecution(attempt ExecutionAttempt) Result {
+// JudgeExecution decides the complete GPT-Load retry and runtime effect for one
+// executor result.
+func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) Decision {
+	decisionContext = normalizeDecisionContext(decisionContext)
 	if errors.Is(attempt.DownstreamErr, context.Canceled) ||
 		errors.Is(attempt.DownstreamErr, context.DeadlineExceeded) {
-		return Result{Category: FailureCategoryDownstreamCancel, Action: ActionTerminate}
-	}
-	if attempt.DownstreamCommitted {
-		if attempt.DownstreamErr == nil && attempt.Evidence == nil && isSuccessStatus(attempt.StatusCode) {
-			return Result{Category: FailureCategoryOK, Action: ActionTerminate}
-		}
-		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}
+		return decision(
+			FailureCategoryDownstreamCancel,
+			execution.ErrorOriginDownstream,
+			execution.ErrorScopeRequest,
+			RetryNone,
+			EffectNone,
+			"safety.downstream_cancel",
+		)
 	}
 	if attempt.DownstreamErr != nil {
-		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}
+		return decision(
+			FailureCategoryAmbiguous,
+			execution.ErrorOriginDownstream,
+			execution.ErrorScopeRequest,
+			RetryNone,
+			EffectNone,
+			"safety.downstream_write_failed",
+		)
+	}
+	if attempt.DownstreamCommitted && attempt.Evidence == nil && isSuccessStatus(attempt.StatusCode) {
+		return decision(
+			FailureCategoryOK,
+			execution.ErrorOriginUpstream,
+			"",
+			RetryNone,
+			EffectNone,
+			"success.committed_stream",
+		)
 	}
 
 	if attempt.Evidence == nil {
 		if attempt.DispatchState.Valid() && isSuccessStatus(attempt.StatusCode) {
-			return Result{Category: FailureCategoryOK, Action: ActionTerminate}
+			return decision(
+				FailureCategoryOK,
+				execution.ErrorOriginUpstream,
+				"",
+				RetryNone,
+				EffectNone,
+				"success.upstream_response",
+			)
 		}
-		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}
+		return decision(
+			FailureCategoryAmbiguous,
+			originForDispatch(attempt.DispatchState),
+			"",
+			RetryNone,
+			EffectNone,
+			"fallback.missing_evidence",
+		)
 	}
 
 	if attempt.Evidence.Kind == execution.ErrorKindCanceled {
-		return Result{Category: FailureCategoryDownstreamCancel, Action: ActionTerminate}
+		return decision(
+			FailureCategoryDownstreamCancel,
+			execution.ErrorOriginDownstream,
+			execution.ErrorScopeRequest,
+			RetryNone,
+			EffectNone,
+			"safety.execution_canceled",
+		)
 	}
 	if attempt.DispatchState == execution.DispatchNotSent {
-		if attempt.Evidence.Hint == execution.FailureHintRefreshRequired ||
-			attempt.Evidence.Hint == execution.FailureHintReauthorizationRequired {
-			return Result{Category: FailureCategoryAuthenticationRequired, Action: ActionRetry}
+		if result, ok := candidatePreparationDecision(attempt.Evidence); ok {
+			return result
+		}
+		if attempt.Evidence.Hint == execution.FailureHintRefreshRequired {
+			return authenticationDecision(attempt, decisionContext)
+		}
+		if attempt.Evidence.Hint == execution.FailureHintReauthorizationRequired {
+			return decision(
+				FailureCategoryAuthenticationRequired,
+				execution.ErrorOriginUpstream,
+				execution.ErrorScopeCredential,
+				RetryNextCandidate,
+				EffectNone,
+				"auth.reauthorization_required",
+			)
 		}
 		switch attempt.Evidence.Kind {
 		case execution.ErrorKindTransport, execution.ErrorKindTimeout:
-			return Result{Category: FailureCategoryUpstreamHostError, Action: ActionSkipGroup}
+			return decision(
+				FailureCategoryUpstreamHostError,
+				execution.ErrorOriginUpstream,
+				execution.ErrorScopeGroup,
+				RetryNextCandidate,
+				EffectSkipGroup,
+				"transport.not_sent",
+			)
 		case execution.ErrorKindConversionUnsupported:
-			return Result{Category: FailureCategoryConversionUnsupported, Action: ActionSkipGroup}
+			return decision(
+				FailureCategoryConversionUnsupported,
+				execution.ErrorOriginInternal,
+				execution.ErrorScopeGroup,
+				RetryNextCandidate,
+				EffectSkipGroup,
+				"conversion.not_sent",
+			)
 		case execution.ErrorKindInvalidRequest:
-			return Result{Category: FailureCategoryClientError, Action: ActionTerminate}
+			return decision(
+				FailureCategoryClientError,
+				originForEvidence(attempt.Evidence),
+				scopeOrDefault(attempt.Evidence.ScopeHint, execution.ErrorScopeRequest),
+				RetryNone,
+				EffectNone,
+				"request.invalid_before_dispatch",
+			)
 		default:
-			return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}
+			return decision(
+				FailureCategoryAmbiguous,
+				originForEvidence(attempt.Evidence),
+				attempt.Evidence.ScopeHint,
+				RetryNone,
+				EffectNone,
+				"fallback.not_sent",
+			)
 		}
 	}
 	if attempt.DispatchState != execution.DispatchMaybeSent {
-		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}
+		return decision(
+			FailureCategoryAmbiguous,
+			originForEvidence(attempt.Evidence),
+			attempt.Evidence.ScopeHint,
+			RetryNone,
+			EffectNone,
+			"fallback.invalid_dispatch_state",
+		)
 	}
 	if !attempt.ResponseStarted() &&
 		(attempt.Evidence.Kind == execution.ErrorKindTransport || attempt.Evidence.Kind == execution.ErrorKindTimeout) {
-		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}
+		return decision(
+			FailureCategoryAmbiguous,
+			execution.ErrorOriginUpstream,
+			attempt.Evidence.ScopeHint,
+			RetryNone,
+			EffectNone,
+			"transport.outcome_unknown",
+		)
 	}
 
+	if attempt.StatusCode >= http.StatusContinue && attempt.StatusCode < http.StatusOK {
+		return decision(
+			FailureCategoryAmbiguous,
+			execution.ErrorOriginUpstream,
+			execution.ErrorScopeRequest,
+			RetryNone,
+			EffectNone,
+			"safety.final_informational_response",
+		)
+	}
 	category := classifyExecutionEvidence(attempt)
-	return resultForExecutionCategory(category, attempt)
+	result := decisionForExecutionCategory(category, attempt, decisionContext)
+	if attempt.Evidence.ReplaySafety == execution.ReplaySafetyUnknown && result.Retry == RetryNone {
+		result.RuleID = "safety.replay_unknown"
+	}
+	return constrainCommittedDecision(result, attempt)
+}
+
+func candidatePreparationDecision(evidence *execution.ErrorEvidence) (Decision, bool) {
+	if evidence == nil || evidence.OriginHint != execution.ErrorOriginInternal {
+		return Decision{}, false
+	}
+	effect := EffectNone
+	switch evidence.Code {
+	case "credential_decrypt_failed",
+		"credential_normalization_failed",
+		"credential_proxy_prepare_failed":
+		if evidence.ScopeHint != execution.ErrorScopeCredential {
+			return Decision{}, false
+		}
+	case "group_proxy_prepare_failed":
+		if evidence.ScopeHint != execution.ErrorScopeGroup {
+			return Decision{}, false
+		}
+		effect = EffectSkipGroup
+	default:
+		return Decision{}, false
+	}
+	return decision(
+		FailureCategoryAmbiguous,
+		execution.ErrorOriginInternal,
+		evidence.ScopeHint,
+		RetryNextCandidate,
+		effect,
+		RuleID("candidate.")+RuleID(evidence.Code),
+	), true
 }
 
 func (attempt ExecutionAttempt) ResponseStarted() bool {
@@ -157,44 +296,304 @@ func structuredUnsupportedModelClientError(statusCode int, evidence *execution.E
 	return false
 }
 
-func resultForExecutionCategory(category FailureCategory, attempt ExecutionAttempt) Result {
+func decisionForExecutionCategory(
+	category FailureCategory,
+	attempt ExecutionAttempt,
+	decisionContext DecisionContext,
+) Decision {
+	origin := originForEvidence(attempt.Evidence)
+	scope := attempt.Evidence.ScopeHint
 	if attempt.Evidence != nil && attempt.Evidence.Hint == execution.FailureHintCandidateUnavailable {
-		return Result{Category: category, Action: ActionRetry}
+		if attempt.Evidence.ReplaySafety == execution.ReplaySafetyUnknown {
+			return decision(category, origin, scope, RetryNone, EffectNone, "safety.replay_unknown")
+		}
+		return decision(
+			category,
+			origin,
+			scopeOrDefault(scope, execution.ErrorScopeModel),
+			RetryNextCandidate,
+			EffectNone,
+			"candidate.unavailable",
+		)
 	}
 	switch category {
 	case FailureCategoryRateLimited:
-		if attempt.Evidence != nil && attempt.Evidence.RetryAfter > 0 {
-			return Result{
-				Category:      category,
-				Action:        ActionCooldownCredential,
-				CooldownUntil: attempt.Now.Add(attempt.Evidence.RetryAfter),
-			}
-		}
-		header := attempt.Header
-		if len(header) == 0 && attempt.Evidence != nil {
-			header = attempt.Evidence.Header
-		}
-		if until, ok := ParseRateLimitReset(header, attempt.Now); ok {
-			return Result{Category: category, Action: ActionCooldownCredential, CooldownUntil: until}
-		}
-		return Result{Category: category, Action: ActionCooldownCredential, UseFixed: true}
+		return rateLimitDecision(attempt, decisionContext)
 	case FailureCategoryModelUnavailable:
-		return Result{
-			Category:      category,
-			Action:        ActionCooldownCredential,
-			CooldownUntil: attempt.Now.Add(time.Hour),
-		}
+		retry := retryUnlessExplicitlyUnknown(attempt.Evidence)
+		result := decision(
+			category,
+			origin,
+			scopeOrDefault(scope, execution.ErrorScopeModel),
+			retry,
+			EffectCooldownCredential,
+			"model.unavailable",
+		)
+		result.CooldownUntil = attempt.Now.Add(time.Hour)
+		return result
 	case FailureCategoryInvalidKey:
-		return Result{Category: category, Action: ActionFailCredential}
+		return decision(
+			category,
+			origin,
+			scopeOrDefault(scope, execution.ErrorScopeCredential),
+			retryUnlessExplicitlyUnknown(attempt.Evidence),
+			EffectRecordCredentialFailure,
+			"auth.invalid_credential",
+		)
 	case FailureCategoryAuthenticationRequired:
-		return Result{Category: category, Action: ActionRetry}
+		return authenticationDecision(attempt, decisionContext)
 	case FailureCategoryUpstreamHostError:
-		return Result{Category: category, Action: ActionSkipGroup}
+		retry := RetryNone
+		ruleID := RuleID("upstream.host_error.replay_unsafe")
+		if attempt.Evidence.ReplaySafety != execution.ReplaySafetyUnknown &&
+			requestMayReplayAfterResponse(decisionContext) {
+			retry = RetryNextCandidate
+			ruleID = "upstream.host_error.read_only"
+		}
+		return decision(
+			category,
+			origin,
+			scopeOrDefault(scope, execution.ErrorScopeGroup),
+			retry,
+			EffectSkipGroup,
+			ruleID,
+		)
 	case FailureCategoryConversionUnsupported:
-		return Result{Category: category, Action: ActionSkipGroup}
+		return decision(
+			category,
+			execution.ErrorOriginInternal,
+			scopeOrDefault(scope, execution.ErrorScopeGroup),
+			RetryNone,
+			EffectSkipGroup,
+			"conversion.unsupported",
+		)
+	case FailureCategoryClientError:
+		return decision(
+			category,
+			origin,
+			scopeOrDefault(scope, execution.ErrorScopeRequest),
+			RetryNone,
+			EffectNone,
+			"fallback.http_client_error",
+		)
+	case FailureCategoryOK:
+		return decision(category, origin, scope, RetryNone, EffectNone, "success.upstream_response")
 	default:
-		return Result{Category: category, Action: ActionTerminate}
+		return decision(category, origin, scope, RetryNone, EffectNone, "fallback.ambiguous")
 	}
+}
+
+func normalizeDecisionContext(value DecisionContext) DecisionContext {
+	if value.DefaultRateLimitCooldown <= 0 {
+		value.DefaultRateLimitCooldown = time.Minute
+	}
+	return value
+}
+
+func decision(
+	category FailureCategory,
+	origin execution.ErrorOrigin,
+	scope execution.ErrorScope,
+	retry RetryDirective,
+	effect Effect,
+	ruleID RuleID,
+) Decision {
+	return Decision{
+		Category: category,
+		Origin:   origin,
+		Scope:    scope,
+		Retry:    retry,
+		Effect:   effect,
+		RuleID:   ruleID,
+	}
+}
+
+func rateLimitDecision(attempt ExecutionAttempt, decisionContext DecisionContext) Decision {
+	scope := attempt.Evidence.ScopeHint
+	retry := retryUnlessExplicitlyUnknown(attempt.Evidence)
+	if scope == execution.ErrorScopeRequest || scope == execution.ErrorScopeModel {
+		return decision(
+			FailureCategoryRateLimited,
+			originForEvidence(attempt.Evidence),
+			scope,
+			RetryNone,
+			EffectNone,
+			"rate_limit.scoped",
+		)
+	}
+	effect := EffectCooldownCredential
+	ruleID := RuleID("legacy.http_429_credential_cooldown")
+	if scope == execution.ErrorScopeCredential {
+		ruleID = "rate_limit.credential.default_cooldown"
+	}
+	result := decision(
+		FailureCategoryRateLimited,
+		originForEvidence(attempt.Evidence),
+		scope,
+		retry,
+		effect,
+		ruleID,
+	)
+	if attempt.Evidence.RetryAfter > 0 {
+		result.CooldownUntil = attempt.Now.Add(attempt.Evidence.RetryAfter)
+		result.RuleID = "rate_limit.retry_after"
+		return result
+	}
+	header := attempt.Header
+	if len(header) == 0 {
+		header = attempt.Evidence.Header
+	}
+	if until, ok := ParseRateLimitReset(header, attempt.Now); ok {
+		result.CooldownUntil = until
+		result.RuleID = "rate_limit.reset_header"
+		return result
+	}
+	result.CooldownUntil = attempt.Now.Add(decisionContext.DefaultRateLimitCooldown)
+	return result
+}
+
+func authenticationDecision(attempt ExecutionAttempt, decisionContext DecisionContext) Decision {
+	hint := attempt.Evidence.Hint
+	if attempt.DispatchState == execution.DispatchMaybeSent &&
+		attempt.Evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
+		return decision(
+			FailureCategoryAuthenticationRequired,
+			execution.ErrorOriginUpstream,
+			execution.ErrorScopeCredential,
+			RetryNone,
+			EffectNone,
+			"auth.replay_unsafe",
+		)
+	}
+	if hint == execution.FailureHintRefreshRequired {
+		if decisionContext.CredentialRefreshable &&
+			attempt.Evidence.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing {
+			return decision(
+				FailureCategoryAuthenticationRequired,
+				execution.ErrorOriginUpstream,
+				execution.ErrorScopeCredential,
+				RetryRefreshCredential,
+				EffectNone,
+				"auth.refresh_required",
+			)
+		}
+		return decision(
+			FailureCategoryAuthenticationRequired,
+			execution.ErrorOriginUpstream,
+			execution.ErrorScopeCredential,
+			RetryNextCandidate,
+			EffectNone,
+			"auth.refresh_unavailable",
+		)
+	}
+	return decision(
+		FailureCategoryAuthenticationRequired,
+		execution.ErrorOriginUpstream,
+		execution.ErrorScopeCredential,
+		RetryNextCandidate,
+		EffectNone,
+		"auth.reauthorization_required",
+	)
+}
+
+func constrainCommittedDecision(result Decision, attempt ExecutionAttempt) Decision {
+	if !attempt.DownstreamCommitted {
+		return result
+	}
+	result.Retry = RetryNone
+	switch result.Effect {
+	case EffectCooldownCredential, EffectRecordCredentialFailure:
+		if !trustedCommittedCredentialEffect(result, attempt.Evidence) {
+			result.Effect = EffectNone
+			result.CooldownUntil = time.Time{}
+		}
+	default:
+		result.Effect = EffectNone
+		result.CooldownUntil = time.Time{}
+	}
+	if result.Category == FailureCategoryRateLimited && result.Effect == EffectCooldownCredential {
+		result.RuleID = "rate_limit.credential.committed"
+	}
+	return result
+}
+
+func trustedCommittedCredentialEffect(
+	result Decision,
+	evidence *execution.ErrorEvidence,
+) bool {
+	if evidence == nil || result.Scope != execution.ErrorScopeCredential {
+		return false
+	}
+	if evidence.ScopeHint == execution.ErrorScopeCredential {
+		return true
+	}
+	return result.Effect == EffectRecordCredentialFailure &&
+		evidence.Hint == execution.FailureHintInvalidCredential
+}
+
+func retryUnlessExplicitlyUnknown(evidence *execution.ErrorEvidence) RetryDirective {
+	if evidence != nil && evidence.ReplaySafety == execution.ReplaySafetyUnknown {
+		return RetryNone
+	}
+	return RetryNextCandidate
+}
+
+func requestMayReplayAfterResponse(value DecisionContext) bool {
+	if strings.EqualFold(value.Method, http.MethodGet) || strings.EqualFold(value.Method, http.MethodHead) {
+		return true
+	}
+	switch value.Operation {
+	case execution.OperationResponsesRetrieve,
+		execution.OperationResponsesInputItems,
+		execution.OperationResponsesInputTokens,
+		execution.OperationCountTokens,
+		execution.OperationListModels:
+		return true
+	default:
+		return false
+	}
+}
+
+func originForEvidence(evidence *execution.ErrorEvidence) execution.ErrorOrigin {
+	if evidence == nil {
+		return ""
+	}
+	if evidence.OriginHint != "" {
+		return evidence.OriginHint
+	}
+	switch evidence.Kind {
+	case execution.ErrorKindTransport,
+		execution.ErrorKindTimeout,
+		execution.ErrorKindHTTP,
+		execution.ErrorKindProvider:
+		return execution.ErrorOriginUpstream
+	case execution.ErrorKindCanceled:
+		return execution.ErrorOriginDownstream
+	case execution.ErrorKindConversionUnsupported,
+		execution.ErrorKindInternal:
+		return execution.ErrorOriginInternal
+	case execution.ErrorKindInvalidRequest:
+		return execution.ErrorOriginClient
+	default:
+		return ""
+	}
+}
+
+func originForDispatch(dispatch execution.DispatchState) execution.ErrorOrigin {
+	if dispatch == execution.DispatchLocal {
+		return execution.ErrorOriginInternal
+	}
+	if dispatch == execution.DispatchMaybeSent || dispatch == execution.DispatchNotSent {
+		return execution.ErrorOriginUpstream
+	}
+	return ""
+}
+
+func scopeOrDefault(value, fallback execution.ErrorScope) execution.ErrorScope {
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
 func isSuccessStatus(statusCode int) bool {

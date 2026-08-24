@@ -10,6 +10,11 @@ import (
 )
 
 func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
+	type Result struct {
+		Category      FailureCategory
+		Action        Action
+		CooldownUntil time.Time
+	}
 	now := time.Date(2026, time.August, 9, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name    string
@@ -27,10 +32,11 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 		{
 			name: "committed response never retries",
 			attempt: ExecutionAttempt{
+				DispatchState:       execution.DispatchMaybeSent,
 				DownstreamCommitted: true,
 				Evidence:            evidence(execution.ErrorKindHTTP, http.StatusTooManyRequests, "rate limited"),
 			},
-			want: Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate},
+			want: Result{Category: FailureCategoryRateLimited, Action: ActionTerminate},
 		},
 		{
 			name: "clean committed response is successful",
@@ -272,7 +278,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 					Summary:    "authorization expired",
 				},
 			},
-			want: Result{Category: FailureCategoryAuthenticationRequired, Action: ActionRetry},
+			want: Result{Category: FailureCategoryAuthenticationRequired, Action: ActionTerminate},
 		},
 		{
 			name: "model not found cools credential",
@@ -315,7 +321,10 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 					Summary:    "rate limited",
 				},
 			},
-			want: Result{Category: FailureCategoryRateLimited, Action: ActionCooldownCredential, UseFixed: true},
+			want: Result{
+				Category: FailureCategoryRateLimited, Action: ActionCooldownCredential,
+				CooldownUntil: now.Add(time.Minute),
+			},
 		},
 		{
 			name: "server error skips group",
@@ -373,8 +382,27 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := JudgeExecution(test.attempt); got != test.want {
-				t.Fatalf("JudgeExecution() = %#v, want %#v", got, test.want)
+			got := JudgeExecution(test.attempt, DecisionContext{
+				DefaultRateLimitCooldown: time.Minute,
+				CredentialRefreshable:    true,
+				Method:                   http.MethodPost,
+				Operation:                execution.OperationChatCompletion,
+			})
+			if err := got.Validate(); err != nil {
+				t.Fatalf("JudgeExecution() returned invalid decision %#v: %v", got, err)
+			}
+			wantCooldown := test.want.CooldownUntil
+			if got.Category != test.want.Category ||
+				got.LegacyAction() != test.want.Action ||
+				!got.CooldownUntil.Equal(wantCooldown) {
+				t.Fatalf(
+					"JudgeExecution() = %#v action=%d, want category=%q action=%d cooldown=%s",
+					got,
+					got.LegacyAction(),
+					test.want.Category.String(),
+					test.want.Action,
+					wantCooldown,
+				)
 			}
 		})
 	}

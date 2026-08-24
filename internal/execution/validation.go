@@ -117,6 +117,12 @@ func (e ErrorEvidence) Validate() error {
 	if !e.Hint.Valid() {
 		return validationError("error.hint", "unsupported value")
 	}
+	if !e.OriginHint.Valid() {
+		return validationError("error.origin_hint", "unsupported value")
+	}
+	if !e.ScopeHint.Valid() {
+		return validationError("error.scope_hint", "unsupported value")
+	}
 	if !e.ReplaySafety.Valid() {
 		return validationError("error.replay_safety", "unsupported value")
 	}

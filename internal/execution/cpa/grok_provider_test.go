@@ -34,19 +34,21 @@ func TestGrokProviderClassifiesOAuthAndQuotaFailures(t *testing.T) {
 		name   string
 		err    error
 		hint   execution.FailureHint
+		scope  execution.ErrorScope
 		replay execution.ReplaySafety
 	}{
-		{name: "unauthorized", err: grokProviderTestError{status: http.StatusUnauthorized}, hint: execution.FailureHintRefreshRequired, replay: execution.ReplaySafetyRejectedBeforeProcessing},
-		{name: "forbidden", err: grokProviderTestError{status: http.StatusForbidden}, hint: execution.FailureHintCandidateUnavailable, replay: execution.ReplaySafetyRejectedBeforeProcessing},
-		{name: "payment required", err: grokProviderTestError{status: http.StatusPaymentRequired}, hint: execution.FailureHintCandidateUnavailable, replay: execution.ReplaySafetyRejectedBeforeProcessing},
-		{name: "invalid request", err: grokProviderTestError{status: http.StatusBadRequest}, hint: execution.FailureHintRequestRejected},
-		{name: "free usage", err: grokProviderTestError{status: http.StatusTooManyRequests, code: "subscription:free-usage-exhausted", retry: 24 * time.Hour}, hint: execution.FailureHintRateLimited},
-		{name: "host", err: grokProviderTestError{status: http.StatusServiceUnavailable}, hint: execution.FailureHintHostError},
+		{name: "unauthorized", err: grokProviderTestError{status: http.StatusUnauthorized}, hint: execution.FailureHintRefreshRequired, scope: execution.ErrorScopeCredential, replay: execution.ReplaySafetyRejectedBeforeProcessing},
+		{name: "forbidden", err: grokProviderTestError{status: http.StatusForbidden}, hint: execution.FailureHintCandidateUnavailable, scope: execution.ErrorScopeModel, replay: execution.ReplaySafetyRejectedBeforeProcessing},
+		{name: "payment required", err: grokProviderTestError{status: http.StatusPaymentRequired}, hint: execution.FailureHintCandidateUnavailable, scope: execution.ErrorScopeModel, replay: execution.ReplaySafetyRejectedBeforeProcessing},
+		{name: "invalid request", err: grokProviderTestError{status: http.StatusBadRequest}, hint: execution.FailureHintRequestRejected, scope: execution.ErrorScopeRequest},
+		{name: "free usage", err: grokProviderTestError{status: http.StatusTooManyRequests, code: "subscription:free-usage-exhausted", retry: 24 * time.Hour}, hint: execution.FailureHintRateLimited, scope: execution.ErrorScopeCredential},
+		{name: "host", err: grokProviderTestError{status: http.StatusServiceUnavailable}, hint: execution.FailureHintHostError, scope: execution.ErrorScopeGroup},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			status, evidence := bridge.ClassifyError(t.Context(), test.err, credential)
 			if status != test.err.(grokProviderTestError).status || evidence == nil ||
-				evidence.Hint != test.hint || evidence.ReplaySafety != test.replay {
+				evidence.Hint != test.hint || evidence.OriginHint != execution.ErrorOriginUpstream ||
+				evidence.ScopeHint != test.scope || evidence.ReplaySafety != test.replay {
 				t.Fatalf("classification = %d/%#v", status, evidence)
 			}
 			if test.name == "free usage" && evidence.RetryAfter != 24*time.Hour {

@@ -138,7 +138,8 @@ func TestClaudeProviderMapsExecutionAndRequestScopedErrors(t *testing.T) {
 	status, evidence := bridge.ClassifyError(t.Context(), errors.Join(errors.New("outer"), requestRejected), credential)
 	if status != http.StatusTooManyRequests || evidence == nil ||
 		evidence.Hint != execution.FailureHintRequestRejected || evidence.Type != "rate_limit_error" ||
-		evidence.Code != "fast_mode_credits" || evidence.RetryAfter != 17*time.Second {
+		evidence.Code != "fast_mode_credits" || evidence.RetryAfter != 17*time.Second ||
+		evidence.OriginHint != execution.ErrorOriginUpstream || evidence.ScopeHint != execution.ErrorScopeRequest {
 		t.Fatalf("request-scoped evidence = %d / %#v", status, evidence)
 	}
 
@@ -150,7 +151,8 @@ func TestClaudeProviderMapsExecutionAndRequestScopedErrors(t *testing.T) {
 
 	requestRejected.credentialScoped = true
 	_, evidence = bridge.ClassifyError(t.Context(), requestRejected, credential)
-	if evidence == nil || evidence.Hint != execution.FailureHintRateLimited {
+	if evidence == nil || evidence.Hint != execution.FailureHintRateLimited ||
+		evidence.ScopeHint != execution.ErrorScopeCredential {
 		t.Fatalf("credential-scoped rate-limit evidence = %#v", evidence)
 	}
 }
@@ -164,7 +166,8 @@ func TestClaudeProviderRefreshesAnyUnauthorizedOAuthRequest(t *testing.T) {
 			codeValue: code, summary: "Claude authorization was rejected",
 		}, credential)
 		if evidence == nil || evidence.Hint != execution.FailureHintRefreshRequired ||
-			evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
+			evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing ||
+			evidence.ScopeHint != execution.ErrorScopeCredential {
 			t.Fatalf("code %q evidence = %#v", code, evidence)
 		}
 	}

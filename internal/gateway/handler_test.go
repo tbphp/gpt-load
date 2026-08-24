@@ -243,9 +243,9 @@ func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
 	handler := &Handler{registry: registry, stats: stats, mutations: coordinator}
 	done := make(chan struct{})
 	go func() {
-		handler.applyCredentialAction(1, health.Result{
+		handler.applyDecisionEffect(1, health.Decision{
 			Category: health.FailureCategoryRateLimited,
-			Action:   health.ActionCooldownCredential,
+			Effect:   health.EffectCooldownCredential,
 		}, http.StatusTooManyRequests, now)
 		close(done)
 	}()
@@ -417,18 +417,18 @@ func TestHandlerLogsCredentialStateChanges(t *testing.T) {
 		mutations: health.NewMutationCoordinator(),
 		logger:    newGatewayJSONLogger(&logs),
 	}
-	cooldown := health.Result{
+	cooldown := health.Decision{
 		Category:      health.FailureCategoryRateLimited,
-		Action:        health.ActionCooldownCredential,
+		Effect:        health.EffectCooldownCredential,
 		CooldownUntil: now.Add(time.Minute),
 	}
 
-	handler.applyCredentialAction(1, cooldown, http.StatusTooManyRequests, now)
-	handler.applyCredentialAction(1, cooldown, http.StatusTooManyRequests, now)
+	handler.applyDecisionEffect(1, cooldown, http.StatusTooManyRequests, now)
+	handler.applyDecisionEffect(1, cooldown, http.StatusTooManyRequests, now)
 	for range blacklistFailureThreshold + 1 {
-		handler.applyCredentialAction(1, health.Result{
+		handler.applyDecisionEffect(1, health.Decision{
 			Category: health.FailureCategoryInvalidKey,
-			Action:   health.ActionFailCredential,
+			Effect:   health.EffectRecordCredentialFailure,
 		}, http.StatusUnauthorized, now)
 	}
 
@@ -469,9 +469,9 @@ func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
 	handler := &Handler{registry: registry, stats: stats}
 	until := now.Add(30 * time.Second)
 
-	handler.applyCredentialAction(1, health.Result{
+	handler.applyDecisionEffect(1, health.Decision{
 		Category:      health.FailureCategoryRateLimited,
-		Action:        health.ActionCooldownCredential,
+		Effect:        health.EffectCooldownCredential,
 		CooldownUntil: until,
 	}, http.StatusTooManyRequests, now)
 
@@ -503,18 +503,18 @@ func TestHandlerSkipsStatsWhenRegistryKeyWasDeletedBeforeCompletion(t *testing.T
 		{
 			name: "cooldown",
 			mutate: func(handler *Handler) {
-				handler.applyCredentialAction(1, health.Result{
+				handler.applyDecisionEffect(1, health.Decision{
 					Category: health.FailureCategoryRateLimited,
-					Action:   health.ActionCooldownCredential,
+					Effect:   health.EffectCooldownCredential,
 				}, http.StatusTooManyRequests, now)
 			},
 		},
 		{
 			name: "attributable failure",
 			mutate: func(handler *Handler) {
-				handler.applyCredentialAction(1, health.Result{
+				handler.applyDecisionEffect(1, health.Decision{
 					Category: health.FailureCategoryInvalidKey,
-					Action:   health.ActionFailCredential,
+					Effect:   health.EffectRecordCredentialFailure,
 				}, http.StatusUnauthorized, now)
 			},
 		},
@@ -561,9 +561,9 @@ func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handler.applyCredentialAction(1, health.Result{
+		handler.applyDecisionEffect(1, health.Decision{
 			Category: health.FailureCategoryInvalidKey,
-			Action:   health.ActionFailCredential,
+			Effect:   health.EffectRecordCredentialFailure,
 		}, http.StatusUnauthorized, now)
 		close(done)
 	}()
@@ -617,7 +617,7 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 
 	failureDone := make(chan struct{})
 	go func() {
-		handler.applyCredentialAction(1, health.Result{Action: health.ActionFailCredential}, 0, now)
+		handler.applyDecisionEffect(1, health.Decision{Effect: health.EffectRecordCredentialFailure}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, registry.failureEntered, "gateway failure mutation")
@@ -691,7 +691,7 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	failureDone := make(chan struct{})
 	go func() {
 		close(failureAttempted)
-		handler.applyCredentialAction(1, health.Result{Action: health.ActionFailCredential}, 0, now)
+		handler.applyDecisionEffect(1, health.Decision{Effect: health.EffectRecordCredentialFailure}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, failureAttempted, "gateway failure attempt")
@@ -734,9 +734,9 @@ func (forwarder *scriptedForwarder) Forward(_ context.Context, input ForwardInpu
 		forwarder.onCall(index)
 	}
 	if index >= len(forwarder.results) {
-		return UpstreamResult{Err: errors.New("script exhausted")}
+		return completeScriptedUpstreamResult(UpstreamResult{Err: errors.New("script exhausted")})
 	}
-	return forwarder.results[index]
+	return completeScriptedUpstreamResult(forwarder.results[index])
 }
 
 func (forwarder *scriptedForwarder) ForwardStream(
@@ -750,11 +750,84 @@ func (forwarder *scriptedForwarder) ForwardStream(
 		forwarder.onStreamCall(index, writer)
 	}
 	if index >= len(forwarder.streamResults) {
-		return UpstreamResult{Err: errors.New("stream script exhausted")}
+		return completeScriptedUpstreamResult(UpstreamResult{Err: errors.New("stream script exhausted")})
 	}
-	result := forwarder.streamResults[index]
+	result := completeScriptedUpstreamResult(forwarder.streamResults[index])
 	if forwarder.invokeStreamReady && result.Committed && input.OnStreamReady != nil {
 		input.OnStreamReady()
+	}
+	return result
+}
+
+func completeScriptedUpstreamResult(result UpstreamResult) UpstreamResult {
+	if !result.DispatchState.Valid() {
+		if result.RequestWritten || result.Committed || result.ResponseStarted || result.StatusCode != 0 {
+			result.DispatchState = execution.DispatchMaybeSent
+		} else {
+			result.DispatchState = execution.DispatchNotSent
+		}
+	}
+	if result.StatusCode != 0 {
+		result.ResponseStarted = true
+	}
+	if result.ExecutionError != nil {
+		evidence := result.ExecutionError.Clone()
+		if evidence.Kind == "" {
+			evidence.Kind = execution.ErrorKindInternal
+		}
+		if evidence.StatusCode == 0 && result.ResponseStarted {
+			evidence.StatusCode = result.StatusCode
+		}
+		if evidence.Summary == "" {
+			evidence.Summary = "scripted upstream failure"
+		}
+		result.ExecutionError = &evidence
+		if result.ErrorSummary == "" {
+			result.ErrorSummary = evidence.Summary
+		}
+		return result
+	}
+	if result.Err == nil && result.ResponseStarted &&
+		result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices &&
+		!result.ProviderErrorBeforeCommit {
+		return result
+	}
+
+	evidence := execution.ErrorEvidence{Summary: result.ErrorSummary}
+	if evidence.Summary == "" {
+		evidence.Summary = sanitizeErrorSummary(nil, allowedErrorSummary(result.ClassificationBody))
+	}
+	if evidence.Summary == "" {
+		evidence.Summary = sanitizeErrorSummary(nil, allowedErrorSummary(result.Body))
+	}
+	if evidence.Summary == "" {
+		evidence.Summary = "scripted upstream failure"
+	}
+	if result.ResponseStarted {
+		evidence.Kind = execution.ErrorKindHTTP
+		evidence.StatusCode = result.StatusCode
+		evidence.Hint = streamErrorFailureHint(
+			result.StatusCode,
+			string(result.ClassificationBody),
+			string(result.Body),
+			result.ErrorSummary,
+		)
+		if result.ProviderErrorBeforeCommit {
+			evidence.Kind = execution.ErrorKindProvider
+		}
+	} else {
+		switch {
+		case errors.Is(result.Err, context.Canceled):
+			evidence.Kind = execution.ErrorKindCanceled
+		case errors.Is(result.Err, context.DeadlineExceeded):
+			evidence.Kind = execution.ErrorKindTimeout
+		default:
+			evidence.Kind = execution.ErrorKindTransport
+		}
+	}
+	result.ExecutionError = &evidence
+	if result.ErrorSummary == "" {
+		result.ErrorSummary = evidence.Summary
 	}
 	return result
 }
@@ -763,7 +836,7 @@ func (forwarder *streamReadyBlockingForwarder) Forward(
 	context.Context,
 	ForwardInput,
 ) UpstreamResult {
-	return UpstreamResult{Err: errors.New("unexpected non-streaming forward")}
+	return completeScriptedUpstreamResult(UpstreamResult{Err: errors.New("unexpected non-streaming forward")})
 }
 
 func (forwarder *streamReadyBlockingForwarder) ForwardStream(
@@ -776,7 +849,7 @@ func (forwarder *streamReadyBlockingForwarder) ForwardStream(
 	}
 	close(forwarder.ready)
 	<-forwarder.release
-	return forwarder.result
+	return completeScriptedUpstreamResult(forwarder.result)
 }
 
 func (forwarder *streamReadyBlockingForwarder) Release() {
@@ -1108,7 +1181,108 @@ func TestHandlerRecordsStreamSuccessOnlyAfterCleanTerminal(t *testing.T) {
 	}
 }
 
-func TestHandlerDoesNotRecordCanceledAttempt(t *testing.T) {
+func TestHandlerFinalizesCommittedStreamThroughJudge(t *testing.T) {
+	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name         string
+		result       UpstreamResult
+		wantCooldown int
+	}{
+		{
+			name: "trusted credential rate limit applies effect without retry",
+			result: UpstreamResult{
+				DispatchState:   execution.DispatchMaybeSent,
+				ResponseStarted: true,
+				StatusCode:      http.StatusOK,
+				RequestWritten:  true,
+				Committed:       true,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindProvider,
+					Hint:       execution.FailureHintRateLimited,
+					ScopeHint:  execution.ErrorScopeCredential,
+					StatusCode: http.StatusOK,
+					Summary:    "credential rate limited",
+				},
+				Stream: StreamObservation{EndReason: StreamEndSSEError},
+			},
+			wantCooldown: 1,
+		},
+		{
+			name: "unscoped rate limit does not apply committed effect",
+			result: UpstreamResult{
+				DispatchState:   execution.DispatchMaybeSent,
+				ResponseStarted: true,
+				StatusCode:      http.StatusOK,
+				RequestWritten:  true,
+				Committed:       true,
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindProvider,
+					Hint:       execution.FailureHintRateLimited,
+					StatusCode: http.StatusOK,
+					Summary:    "overloaded",
+				},
+				Stream: StreamObservation{EndReason: StreamEndSSEError},
+			},
+		},
+		{
+			name: "downstream failure suppresses provider effect",
+			result: UpstreamResult{
+				DispatchState:   execution.DispatchMaybeSent,
+				ResponseStarted: true,
+				StatusCode:      http.StatusOK,
+				RequestWritten:  true,
+				Committed:       true,
+				Err:             &streamFailure{kind: streamFailureDownstreamWrite, err: errors.New("downstream write failed")},
+				ExecutionError: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindProvider,
+					Hint:       execution.FailureHintRateLimited,
+					ScopeHint:  execution.ErrorScopeCredential,
+					StatusCode: http.StatusOK,
+					Summary:    "credential rate limited",
+				},
+				Stream: StreamObservation{EndReason: StreamEndDownstreamWriteFailure},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{streamResults: []UpstreamResult{test.result}}
+			engine, handler, registry, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
+			recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
+			handler.registry = recording
+			handler.now = func() time.Time { return now }
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			engine.ServeHTTP(httptest.NewRecorder(), request)
+
+			if len(forwarder.streamInputs) != 1 {
+				t.Fatalf("stream attempts = %d, want 1", len(forwarder.streamInputs))
+			}
+			if recording.cooldownCalls != test.wantCooldown {
+				t.Fatalf("cooldown calls = %d, want %d", recording.cooldownCalls, test.wantCooldown)
+			}
+			credentialID := forwarder.streamInputs[0].Credential.ID
+			if test.wantCooldown == 1 {
+				if !recording.cooldownUntil.Equal(now.Add(time.Minute)) {
+					t.Fatalf("cooldown until = %s, want %s", recording.cooldownUntil, now.Add(time.Minute))
+				}
+				if got := stats.Snapshot(credentialID, now); got.Problem != 1 {
+					t.Fatalf("credential stats = %#v, want one problem", got)
+				}
+			} else if got := stats.Snapshot(credentialID, now); got != (health.CredentialStats{}) {
+				t.Fatalf("credential stats = %#v, want empty", got)
+			}
+		})
+	}
+}
+
+func TestHandlerDoesNotMutateCredentialForCanceledAttempt(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	requestContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1119,10 +1293,7 @@ func TestHandlerDoesNotRecordCanceledAttempt(t *testing.T) {
 		onCall: func(int) { cancel() },
 	}
 	engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-one")
-	handler.now = func() time.Time {
-		t.Fatal("canceled attempt read the clock")
-		return now
-	}
+	handler.now = func() time.Time { return now }
 
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -1137,17 +1308,14 @@ func TestHandlerDoesNotRecordCanceledAttempt(t *testing.T) {
 	}
 }
 
-func TestHandlerDoesNotRecordCommittedNonStreamingAttempt(t *testing.T) {
+func TestHandlerDoesNotMutateCredentialForCommittedNonStreamingAttempt(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{
 		StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`),
 		Committed: true, RequestWritten: true,
 	}}}
 	engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-one")
-	handler.now = func() time.Time {
-		t.Fatal("committed attempt read the clock")
-		return now
-	}
+	handler.now = func() time.Time { return now }
 
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -3335,160 +3503,6 @@ func TestHandlerDoesNotClearFailureAfterDownstreamCancellation(t *testing.T) {
 	}
 }
 
-func TestCrossCandidateRetryRespectsReplaySafety(t *testing.T) {
-	retry := health.Result{Category: health.FailureCategoryUpstreamHostError, Action: health.ActionSkipGroup}
-	authRetry := health.Result{Category: health.FailureCategoryInvalidKey, Action: health.ActionFailCredential}
-	tests := []struct {
-		name      string
-		operation execution.Operation
-		method    string
-		result    UpstreamResult
-		decision  health.Result
-		want      bool
-	}{
-		{
-			name: "chat 500 may have executed", operation: execution.OperationChatCompletion,
-			method:   http.MethodPost,
-			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
-			decision: retry,
-		},
-		{
-			name: "chat DNS failure was not sent", operation: execution.OperationChatCompletion,
-			method:   http.MethodPost,
-			result:   UpstreamResult{DispatchState: execution.DispatchNotSent},
-			decision: retry, want: true,
-		},
-		{
-			name: "subscription refresh rejected before model dispatch", operation: execution.OperationChatCompletion,
-			method: http.MethodPost,
-			result: UpstreamResult{
-				DispatchState: execution.DispatchNotSent,
-				ExecutionError: &execution.ErrorEvidence{
-					Kind: execution.ErrorKindProvider,
-					Hint: execution.FailureHintReauthorizationRequired,
-				},
-			},
-			decision: health.Result{Category: health.FailureCategoryAuthenticationRequired, Action: health.ActionRetry},
-			want:     true,
-		},
-		{
-			name: "local conversion failure was not sent", operation: execution.OperationChatCompletion,
-			method: http.MethodPost,
-			result: UpstreamResult{
-				DispatchState: execution.DispatchNotSent,
-				ExecutionError: &execution.ErrorEvidence{
-					Kind:    execution.ErrorKind("conversion_unsupported"),
-					Summary: "target conversion is not supported",
-				},
-			},
-			decision: health.Result{Category: health.FailureCategoryConversionUnsupported, Action: health.ActionSkipGroup},
-			want:     true,
-		},
-		{
-			name: "explicit credential rejection", operation: execution.OperationResponsesCreate,
-			method:   http.MethodPost,
-			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusUnauthorized},
-			decision: authRetry, want: true,
-		},
-		{
-			name: "request-scoped rejection is terminal even if a caller supplies retry action", operation: execution.OperationChatCompletion,
-			method: http.MethodPost,
-			result: UpstreamResult{
-				DispatchState: execution.DispatchMaybeSent,
-				StatusCode:    http.StatusTooManyRequests,
-				ExecutionError: &execution.ErrorEvidence{
-					Kind:       execution.ErrorKindHTTP,
-					Hint:       execution.FailureHintRequestRejected,
-					StatusCode: http.StatusTooManyRequests,
-				},
-			},
-			decision: retry,
-		},
-		{
-			name: "candidate rejection safely advances to another credential", operation: execution.OperationChatCompletion,
-			method: http.MethodPost,
-			result: UpstreamResult{
-				DispatchState: execution.DispatchMaybeSent,
-				StatusCode:    http.StatusForbidden,
-				ExecutionError: &execution.ErrorEvidence{
-					Kind:         execution.ErrorKindHTTP,
-					Hint:         execution.FailureHintCandidateUnavailable,
-					StatusCode:   http.StatusForbidden,
-					ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
-				},
-			},
-			decision: health.Result{Category: health.FailureCategoryModelUnavailable, Action: health.ActionRetry},
-			want:     true,
-		},
-		{
-			name: "unsupported count tokens is terminal despite idempotent operation", operation: execution.OperationCountTokens,
-			method: http.MethodPost,
-			result: UpstreamResult{
-				DispatchState: execution.DispatchMaybeSent,
-				StatusCode:    http.StatusNotImplemented,
-				ExecutionError: &execution.ErrorEvidence{
-					Kind:       execution.ErrorKindHTTP,
-					Hint:       execution.FailureHintRequestRejected,
-					StatusCode: http.StatusNotImplemented,
-				},
-			},
-			decision: retry,
-		},
-		{
-			name: "subscription authorization failure with unknown replay safety", operation: execution.OperationResponsesCreate,
-			method: http.MethodPost,
-			result: UpstreamResult{
-				DispatchState: execution.DispatchMaybeSent,
-				StatusCode:    http.StatusUnauthorized,
-				ExecutionError: &execution.ErrorEvidence{
-					Kind:         execution.ErrorKindHTTP,
-					StatusCode:   http.StatusUnauthorized,
-					ReplaySafety: execution.ReplaySafetyUnknown,
-					Summary:      "authorization failed",
-				},
-			},
-			decision: authRetry,
-		},
-		{
-			name: "retrieve is read only", operation: execution.OperationResponsesRetrieve,
-			method:   http.MethodGet,
-			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
-			decision: retry, want: true,
-		},
-		{
-			name: "delete is a mutation", operation: execution.OperationResponsesDelete,
-			method:   http.MethodDelete,
-			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
-			decision: retry,
-		},
-		{
-			name: "GET passthrough is read only", operation: execution.OperationResponsesPassthrough,
-			method:   http.MethodGet,
-			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
-			decision: retry, want: true,
-		},
-		{
-			name: "POST passthrough may mutate", operation: execution.OperationResponsesPassthrough,
-			method:   http.MethodPost,
-			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError},
-			decision: retry,
-		},
-		{
-			name: "downstream commit is terminal", operation: execution.OperationResponsesRetrieve,
-			method:   http.MethodGet,
-			result:   UpstreamResult{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusInternalServerError, Committed: true},
-			decision: retry,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := shouldRetryAcrossCandidates(test.operation, test.method, test.result, test.decision); got != test.want {
-				t.Fatalf("shouldRetryAcrossCandidates() = %t, want %t", got, test.want)
-			}
-		})
-	}
-}
-
 func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
 		{
@@ -3763,17 +3777,16 @@ func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *tes
 	}
 }
 
-func TestHandlerLeavesKeyRegistryUnchangedForNonKeyActions(t *testing.T) {
-	for _, action := range []health.Action{
-		health.ActionRetry,
-		health.ActionSkipGroup,
-		health.ActionTerminate,
-		health.Action(255),
+func TestHandlerLeavesCredentialRegistryUnchangedForNonCredentialEffects(t *testing.T) {
+	for _, effect := range []health.Effect{
+		health.EffectNone,
+		health.EffectSkipGroup,
+		health.Effect("unknown"),
 	} {
-		t.Run(fmt.Sprintf("action_%d", action), func(t *testing.T) {
+		t.Run(fmt.Sprintf("effect_%s", effect), func(t *testing.T) {
 			recording := &recordingRuntimeRegistry{CredentialRegistry: state.NewCredentialRegistry()}
 			handler := &Handler{registry: recording}
-			handler.applyCredentialAction(1, health.Result{Action: action}, 0, time.Time{})
+			handler.applyDecisionEffect(1, health.Decision{Effect: effect}, 0, time.Time{})
 			if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 ||
 				recording.blacklistCalls != 0 || recording.clearCalls != 0 {
 				t.Fatalf("mutation calls = cooldown:%d failure:%d blacklist:%d clear:%d",

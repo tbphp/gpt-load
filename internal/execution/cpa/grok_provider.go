@@ -241,6 +241,10 @@ func (*grokProviderBridge) ClassifyError(
 	if evidence.Summary == "" {
 		evidence.Summary = safeErrorSummary(err, credential.redactionValues())
 	}
+	annotateProviderErrorEvidence(evidence, err)
+	if status == http.StatusTooManyRequests && strings.Contains(strings.ToLower(code), "free-usage-exhausted") {
+		evidence.ScopeHint = execution.ErrorScopeCredential
+	}
 	return status, evidence
 }
 

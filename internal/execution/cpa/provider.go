@@ -46,6 +46,49 @@ func credentialScopedFailure(err error) (bool, bool) {
 	return scoped.IsCredentialScoped(), true
 }
 
+func annotateProviderErrorEvidence(evidence *execution.ErrorEvidence, err error) {
+	if evidence == nil {
+		return
+	}
+	switch evidence.Kind {
+	case execution.ErrorKindTransport, execution.ErrorKindTimeout,
+		execution.ErrorKindHTTP, execution.ErrorKindProvider:
+		evidence.OriginHint = execution.ErrorOriginUpstream
+	case execution.ErrorKindCanceled:
+		evidence.OriginHint = execution.ErrorOriginDownstream
+	case execution.ErrorKindInvalidRequest:
+		evidence.OriginHint = execution.ErrorOriginClient
+	case execution.ErrorKindConversionUnsupported, execution.ErrorKindInternal:
+		evidence.OriginHint = execution.ErrorOriginInternal
+	}
+	switch evidence.Hint {
+	case execution.FailureHintInvalidCredential,
+		execution.FailureHintRefreshRequired,
+		execution.FailureHintReauthorizationRequired:
+		evidence.ScopeHint = execution.ErrorScopeCredential
+	case execution.FailureHintRequestRejected:
+		evidence.ScopeHint = execution.ErrorScopeRequest
+	case execution.FailureHintCandidateUnavailable,
+		execution.FailureHintModelUnavailable:
+		evidence.ScopeHint = execution.ErrorScopeModel
+	case execution.FailureHintHostError:
+		evidence.ScopeHint = execution.ErrorScopeGroup
+	case execution.FailureHintRateLimited:
+		if credentialScoped, known := credentialScopedFailure(err); known && credentialScoped {
+			evidence.ScopeHint = execution.ErrorScopeCredential
+		} else if requestScopedFailure(err) {
+			evidence.ScopeHint = execution.ErrorScopeRequest
+		}
+	default:
+		switch evidence.Kind {
+		case execution.ErrorKindTransport, execution.ErrorKindTimeout:
+			evidence.ScopeHint = execution.ErrorScopeGroup
+		case execution.ErrorKindCanceled, execution.ErrorKindInvalidRequest:
+			evidence.ScopeHint = execution.ErrorScopeRequest
+		}
+	}
+}
+
 type providerRequest struct {
 	AttemptID       string
 	Model           string

@@ -119,7 +119,7 @@ func expandRouteModes(route channel.RouteDescriptor) []channel.RouteDescriptor {
 func (registry *Registry) Execute(ctx context.Context, spec execution.AttemptSpec) execution.AttemptResult {
 	adapter, failure := registry.resolve(spec)
 	if failure != nil {
-		return unaryFailure(failure.Kind, failure.Summary)
+		return unaryFailure(failure)
 	}
 	return adapter.Execute(ctx, spec)
 }
@@ -128,27 +128,43 @@ func (registry *Registry) Execute(ctx context.Context, spec execution.AttemptSpe
 func (registry *Registry) ExecuteStream(ctx context.Context, spec execution.AttemptSpec, sink execution.StreamSink) execution.StreamResult {
 	adapter, failure := registry.resolve(spec)
 	if failure != nil {
-		return streamFailure(failure.Kind, failure.Summary)
+		return streamFailure(failure)
 	}
 	return adapter.ExecuteStream(ctx, spec, sink)
 }
 
 func (registry *Registry) resolve(spec execution.AttemptSpec) (execution.Executor, *execution.ErrorEvidence) {
 	if registry == nil || registry.channels == nil {
-		return nil, &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Summary: "provider adapter registry is unavailable"}
+		return nil, localAdapterEvidence(
+			execution.ErrorKindInternal,
+			"provider_adapter_registry_unavailable",
+			"provider adapter registry is unavailable",
+		)
 	}
 	channelID := channel.ID(spec.ChannelID)
 	target, err := registry.channels.ResolveExecutionTarget(channelID, spec.TargetConfig)
 	if err != nil {
-		return nil, &execution.ErrorEvidence{Kind: execution.ErrorKindInvalidRequest, Summary: "invalid channel target"}
+		return nil, localAdapterEvidence(
+			execution.ErrorKindInvalidRequest,
+			"invalid_channel_target",
+			"invalid channel target",
+		)
 	}
 	mode, ok := target.ModeForModel(spec.ClientProtocol, spec.Operation, spec.UpstreamModel)
 	if !ok || mode != spec.RouteMode || !spec.RouteRequirement.Allows(spec.RouteMode) {
-		return nil, &execution.ErrorEvidence{Kind: execution.ErrorKindInvalidRequest, Summary: "attempt route is not declared by channel"}
+		return nil, localAdapterEvidence(
+			execution.ErrorKindInvalidRequest,
+			"undeclared_channel_route",
+			"attempt route is not declared by channel",
+		)
 	}
 	adapter := registry.bindings[target.ProviderKind]
 	if isNilAdapter(adapter) {
-		return nil, &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Summary: "provider adapter binding is unavailable"}
+		return nil, localAdapterEvidence(
+			execution.ErrorKindInternal,
+			"provider_adapter_binding_unavailable",
+			"provider adapter binding is unavailable",
+		)
 	}
 	return adapter, nil
 }
@@ -246,17 +262,30 @@ func sameAdapter(left execution.Executor, right execution.Executor) bool {
 	return leftValue.Kind() == reflect.Pointer && leftValue.Pointer() == rightValue.Pointer()
 }
 
-func unaryFailure(kind execution.ErrorKind, summary string) execution.AttemptResult {
-	return execution.AttemptResult{
-		DispatchState: execution.DispatchNotSent,
-		Error:         &execution.ErrorEvidence{Kind: kind, Summary: summary},
+func localAdapterEvidence(
+	kind execution.ErrorKind,
+	code string,
+	summary string,
+) *execution.ErrorEvidence {
+	return &execution.ErrorEvidence{
+		Kind: kind, OriginHint: execution.ErrorOriginInternal,
+		ScopeHint: execution.ErrorScopeGroup, Code: code, Summary: summary,
 	}
 }
 
-func streamFailure(kind execution.ErrorKind, summary string) execution.StreamResult {
+func unaryFailure(evidence *execution.ErrorEvidence) execution.AttemptResult {
+	copy := evidence.Clone()
+	return execution.AttemptResult{
+		DispatchState: execution.DispatchNotSent,
+		Error:         &copy,
+	}
+}
+
+func streamFailure(evidence *execution.ErrorEvidence) execution.StreamResult {
+	copy := evidence.Clone()
 	return execution.StreamResult{
 		DispatchState: execution.DispatchNotSent,
-		Error:         &execution.ErrorEvidence{Kind: kind, Summary: summary},
+		Error:         &copy,
 	}
 }
 

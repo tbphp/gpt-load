@@ -27,6 +27,11 @@ export type RequestLogStatus = 'success' | 'error' | 'incomplete' | 'canceled'
 export type RequestLogModelConsistency = 'not_applicable' | 'match' | 'unknown' | 'mismatch'
 export type RequestLogAction =
   'terminate' | 'retry' | 'cooldown_credential' | 'fail_credential' | 'skip_group'
+export type RequestLogFailureOrigin = 'client' | 'upstream' | 'downstream' | 'internal'
+export type RequestLogFailureScope = 'request' | 'model' | 'credential' | 'group'
+export type RequestLogRetryDirective = 'none' | 'refresh_credential' | 'next_candidate'
+export type RequestLogEffect =
+  'none' | 'cooldown_credential' | 'record_credential_failure' | 'skip_group'
 export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_applicable'
 export type RequestLogCostState = 'priced' | 'unpriced' | 'not_applicable'
 export type RequestLogPricingCompleteness =
@@ -129,6 +134,11 @@ export interface RequestLogAttemptDto {
   status_code: number
   duration_ms: number
   failure_category: RequestLogFailureCategory
+  failure_origin: RequestLogFailureOrigin | null
+  failure_scope: RequestLogFailureScope | null
+  retry_directive: RequestLogRetryDirective | null
+  effect: RequestLogEffect | null
+  rule_id: string | null
   action: RequestLogAction
   will_retry: boolean
   error_code: string
@@ -203,6 +213,7 @@ const failureCategories = [
   'client_error',
   'conversion_unsupported',
   'downstream_cancel',
+  'authentication_required',
   'ambiguous',
 ] as const
 const actions = [
@@ -417,6 +428,11 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'status_code',
     'duration_ms',
     'failure_category',
+    'failure_origin',
+    'failure_scope',
+    'retry_directive',
+    'effect',
+    'rule_id',
     'action',
     'will_retry',
     'error_code',
@@ -448,6 +464,28 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     status_code: projectStatusCode(record.status_code),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),
     failure_category: projectEnum(record.failure_category, failureCategories),
+    failure_origin:
+      record.failure_origin === null
+        ? null
+        : projectEnum(record.failure_origin, ['client', 'upstream', 'downstream', 'internal']),
+    failure_scope:
+      record.failure_scope === null
+        ? null
+        : projectEnum(record.failure_scope, ['request', 'model', 'credential', 'group']),
+    retry_directive:
+      record.retry_directive === null
+        ? null
+        : projectEnum(record.retry_directive, ['none', 'refresh_credential', 'next_candidate']),
+    effect:
+      record.effect === null
+        ? null
+        : projectEnum(record.effect, [
+            'none',
+            'cooldown_credential',
+            'record_credential_failure',
+            'skip_group',
+          ]),
+    rule_id: record.rule_id === null ? null : projectNonBlankString(record.rule_id),
     action: projectEnum(record.action, actions),
     will_retry: projectBoolean(record.will_retry),
     error_code: projectString(record.error_code, { allowEmpty: true }),

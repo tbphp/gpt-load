@@ -342,6 +342,7 @@ export default {
         upstreamHostError: 'Upstream service error',
         clientError: 'Invalid request',
         downstreamCancel: 'Downstream request cancelled',
+        authenticationRequired: 'Credential requires authentication',
         ambiguous: 'Result is indeterminate',
         unknown: 'Unknown failure reason',
       },

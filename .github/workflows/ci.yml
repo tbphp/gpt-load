@@ -169,7 +169,7 @@ jobs:
         env:
           GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
         run: |
-          go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternal(PostgresMigrationLockTimesOut|Database(AccessKeyCostLimitIncrementalMigration|AccessKeyCostLimitPeriodPermutation|ConcurrentMigrations|Lifecycle|ModelPriceIdentityUsesExactComparison|ReadSnapshotUsesRepeatableRead|MySQLInterruptedBaselineRecovery|GroupPriceReconciliation|RequestLogLifecycle))$'
+          go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternal(PostgresMigrationLockTimesOut|Database(AccessKeyCostLimitIncrementalMigration|AccessKeyCostLimitPeriodPermutation|ConcurrentMigrations|IncrementalMigrations|Lifecycle|ModelPriceIdentityUsesExactComparison|ReadSnapshotUsesRepeatableRead|MySQLInterruptedBaselineRecovery|MySQLRecoversPartialErrorDecisionMigration|GroupPriceReconciliation|RequestLogLifecycle))$'
 
   windows-encryption-acl:
     runs-on: windows-2025

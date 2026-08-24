@@ -97,9 +97,12 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		}
 	}
 	for table, columns := range map[string][]string{
-		"groups":                  {"connection_type", "proxy_config"},
-		"credentials":             {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code", "proxy_config"},
-		"request_log_attempts":    {"upstream_protocol"},
+		"groups":      {"connection_type", "proxy_config"},
+		"credentials": {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code", "proxy_config"},
+		"request_log_attempts": {
+			"upstream_protocol", "failure_origin", "failure_scope",
+			"retry_directive", "effect", "rule_id",
+		},
 		"model_prices":            {"mode_price_schedules"},
 		"credential_observations": {"last_auth_refresh_secret_version"},
 	} {
@@ -119,12 +122,13 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if len(migrationIDs) != 5 || migrationIDs[0] != "0001_initial" ||
+	if len(migrationIDs) != 6 || migrationIDs[0] != "0001_initial" ||
 		migrationIDs[1] != "0002_access_key_cost_limits" ||
 		migrationIDs[2] != "0003_remove_observation_fresh_until" ||
 		migrationIDs[3] != "0004_usage_stats_group_activity_index" ||
-		migrationIDs[4] != "0005_proxy_config" {
-		t.Fatalf("migration ledger = %v, want complete 0001-0005 chain", migrationIDs)
+		migrationIDs[4] != "0005_proxy_config" ||
+		migrationIDs[5] != "0006_error_decision" {
+		t.Fatalf("migration ledger = %v, want complete 0001-0006 chain", migrationIDs)
 	}
 	if !db.Migrator().HasIndex("usage_stats", "idx_usage_stats_group_bucket") {
 		t.Fatal("usage_stats group activity index is missing")

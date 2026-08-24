@@ -78,6 +78,11 @@ type requestLogAttemptResponse struct {
 	StatusCode        int                               `json:"status_code"`
 	DurationMs        int64                             `json:"duration_ms"`
 	FailureCategory   telemetry.FailureCategory         `json:"failure_category"`
+	FailureOrigin     *execution.ErrorOrigin            `json:"failure_origin"`
+	FailureScope      *execution.ErrorScope             `json:"failure_scope"`
+	RetryDirective    *telemetry.RetryDirective         `json:"retry_directive"`
+	Effect            *telemetry.Effect                 `json:"effect"`
+	RuleID            *string                           `json:"rule_id"`
 	Action            string                            `json:"action"`
 	WillRetry         bool                              `json:"will_retry"`
 	ErrorCode         string                            `json:"error_code"`
@@ -492,6 +497,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 			telemetry.FailureCategoryClientError,
 			telemetry.FailureCategoryConversionUnsupported,
 			telemetry.FailureCategoryDownstreamCancel,
+			telemetry.FailureCategoryAuthenticationRequired,
 			telemetry.FailureCategoryAmbiguous:
 			query.FailureCategory = category
 		default:
@@ -1021,6 +1027,22 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 	if err != nil {
 		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
 	}
+	failureOrigin, err := nullableRequestLogFailureOrigin(attempt.FailureOrigin)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	failureScope, err := nullableRequestLogFailureScope(attempt.FailureScope)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	retryDirective, err := nullableRequestLogRetryDirective(attempt.RetryDirective)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
+	effect, err := nullableRequestLogEffect(attempt.Effect)
+	if err != nil {
+		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
+	}
 	receipt, err := mapRequestLogPricingReceipt(attempt.PricingReceipt)
 	if err != nil {
 		return requestLogAttemptResponse{}, err
@@ -1042,6 +1064,11 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 		StatusCode:        attempt.StatusCode,
 		DurationMs:        attempt.DurationMs,
 		FailureCategory:   attempt.FailureCategory,
+		FailureOrigin:     failureOrigin,
+		FailureScope:      failureScope,
+		RetryDirective:    retryDirective,
+		Effect:            effect,
+		RuleID:            nullableRequestLogModel(attempt.RuleID),
 		Action:            requestLogAttemptAction(attempt.Action),
 		WillRetry:         attempt.WillRetry,
 		ErrorCode:         attempt.ErrorCode,
@@ -1181,6 +1208,52 @@ func nullableRequestLogDispatchState(
 	}
 	if !value.Valid() {
 		return nil, fmt.Errorf("invalid dispatch state")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogFailureOrigin(
+	value execution.ErrorOrigin,
+) (*execution.ErrorOrigin, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid failure origin")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogFailureScope(
+	value execution.ErrorScope,
+) (*execution.ErrorScope, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid failure scope")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogRetryDirective(
+	value telemetry.RetryDirective,
+) (*telemetry.RetryDirective, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid retry directive")
+	}
+	return &value, nil
+}
+
+func nullableRequestLogEffect(value telemetry.Effect) (*telemetry.Effect, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid effect")
 	}
 	return &value, nil
 }

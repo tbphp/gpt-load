@@ -236,19 +236,16 @@ type requestAccessQuotaAdmission struct {
 	admitted    bool
 }
 
-func (handler *Handler) applyCredentialAction(
+func (handler *Handler) applyDecisionEffect(
 	credentialID uint,
-	decision health.Result,
+	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
 ) {
-	switch decision.Action {
-	case health.ActionCooldownCredential:
+	switch decision.Effect {
+	case health.EffectCooldownCredential:
 		mutate := func() {
 			until := decision.CooldownUntil
-			if decision.UseFixed {
-				until = attemptNow.Add(fixedCooldown)
-			}
 			exists, changed := handler.registry.SetCooldownWithChange(credentialID, until)
 			if !exists {
 				return
@@ -263,7 +260,7 @@ func (handler *Handler) applyCredentialAction(
 		} else {
 			handler.mutations.Do(credentialID, mutate)
 		}
-	case health.ActionFailCredential:
+	case health.EffectRecordCredentialFailure:
 		handler.mutations.Do(credentialID, func() {
 			count, ok := handler.registry.IncrFailure(credentialID)
 			if !ok {
@@ -283,20 +280,6 @@ func (handler *Handler) applyCredentialAction(
 			}
 		})
 	}
-}
-
-func subscriptionCooldownFallback(
-	connectionType string,
-	decision health.Result,
-	attemptNow time.Time,
-) health.Result {
-	if decision.Action != health.ActionCooldownCredential || !decision.UseFixed ||
-		connection.Normalize(connectionType) != connection.Subscription {
-		return decision
-	}
-	decision.UseFixed = false
-	decision.CooldownUntil = attemptNow.Add(subscriptionFixedCooldown)
-	return decision
 }
 
 func (handler *Handler) recordCredentialSuccess(credentialID uint, at time.Time) {
@@ -718,7 +701,7 @@ func (handler *Handler) executeAttempts(
 ) {
 	type deferredAttempt struct {
 		result        UpstreamResult
-		decision      health.Result
+		decision      health.Decision
 		upstreamModel string
 		attemptIndex  int
 	}
@@ -727,14 +710,88 @@ func (handler *Handler) executeAttempts(
 	var lastConversion *deferredAttempt
 	var lastProviderError *deferredAttempt
 	lastAttemptIndex := -1
-	attempts := 0
+	attemptSequence := 0
+	forwardAttempts := 0
 	type credentialRefreshRetry struct {
 		selection scheduler.Selection
 		ref       state.CredentialRef
 	}
 	var refreshRetry *credentialRefreshRetry
 	authRefreshReplayUsed := false
-	for attempts < maxAttempts {
+	decisionContextForSelection := func(selection scheduler.Selection) health.DecisionContext {
+		defaultRateLimitCooldown := fixedCooldown
+		credentialRefreshable := false
+		if connection.Normalize(selection.Group.ConnectionType) == connection.Subscription {
+			defaultRateLimitCooldown = subscriptionFixedCooldown
+			credentialRefreshable = true
+		}
+		method := ""
+		if parsed != nil {
+			method = parsed.Method
+		}
+		return health.DecisionContext{
+			DefaultRateLimitCooldown: defaultRateLimitCooldown,
+			CredentialRefreshable:    credentialRefreshable,
+			Method:                   method,
+			Operation:                operation,
+		}
+	}
+	recordCandidatePreparationFailure := func(
+		selection scheduler.Selection,
+		code string,
+		summary string,
+		scope execution.ErrorScope,
+	) bool {
+		attemptSequence++
+		if attemptSequence == 1 && requestAffinity.preferredCredentialID != 0 &&
+			selection.CredentialID == requestAffinity.preferredCredentialID {
+			recorder.setAffinityHit(true)
+		}
+		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attemptSequence)
+		if recorder != nil {
+			recorder.freezeNextAttemptPricing(
+				handler.freezeAttemptPricing(selection, observeUsage),
+			)
+		}
+		attemptStarted := recorder.beforeForward()
+		evidence := execution.ErrorEvidence{
+			Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+			ScopeHint: scope, Code: code, Summary: summary,
+		}
+		result := UpstreamResult{
+			Err:           fmt.Errorf("%w: candidate preparation failed", ErrUpstreamProtocol),
+			DispatchState: execution.DispatchNotSent, ExecutionError: &evidence,
+			ErrorSummary: summary,
+		}
+		attemptCompleted := time.Time{}
+		if recorder != nil {
+			attemptCompleted = recorder.now()
+		}
+		attemptNow := handler.now()
+		decision := judgeUpstreamResult(
+			result,
+			attemptNow,
+			decisionContextForSelection(selection),
+		)
+		recordedAttempt := recorder.recordAttempt(
+			selection, nil, result, decision, attemptStarted, attemptCompleted,
+		)
+		lastAttemptIndex = recordedAttempt
+		handler.applyDecisionEffect(selection.CredentialID, decision, 0, attemptNow)
+		if decision.Effect == health.EffectSkipGroup {
+			iterator.SkipGroup(selection.GroupID)
+		}
+		lastTransport = &deferredAttempt{
+			result: result, decision: decision,
+			upstreamModel: optionalModelValue(selection.UpstreamModelID),
+			attemptIndex:  recordedAttempt,
+		}
+		if decision.Retry != health.RetryNone {
+			recorder.retryIfAnotherForward(recordedAttempt)
+		}
+		return decision.Retry != health.RetryNone
+	}
+	for forwardAttempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
@@ -777,6 +834,14 @@ func (handler *Handler) executeAttempts(
 		}
 		decryptedCredential, err := handler.encryption.Decrypt(encrypted)
 		if err != nil {
+			if !recordCandidatePreparationFailure(
+				selection,
+				"credential_decrypt_failed",
+				"Stored credential could not be decrypted.",
+				execution.ErrorScopeCredential,
+			) {
+				break
+			}
 			continue
 		}
 		normalizedCredential, err := normalizeChannelCredential(
@@ -787,6 +852,14 @@ func (handler *Handler) executeAttempts(
 			decryptedCredential,
 		)
 		if err != nil {
+			if !recordCandidatePreparationFailure(
+				selection,
+				"credential_normalization_failed",
+				"Stored credential could not be prepared.",
+				execution.ErrorScopeCredential,
+			) {
+				break
+			}
 			continue
 		}
 		effectiveProxy, proxyFingerprint, err := resolveAttemptProxy(
@@ -795,6 +868,17 @@ func (handler *Handler) executeAttempts(
 			ref,
 		)
 		if err != nil {
+			code := "group_proxy_prepare_failed"
+			summary := "Group proxy configuration could not be prepared."
+			scope := execution.ErrorScopeGroup
+			if ref.EncryptedProxy != "" || ref.ProxyFingerprint != "" {
+				code = "credential_proxy_prepare_failed"
+				summary = "Credential proxy configuration could not be prepared."
+				scope = execution.ErrorScopeCredential
+			}
+			if !recordCandidatePreparationFailure(selection, code, summary, scope) {
+				break
+			}
 			continue
 		}
 		if quotaAdmission != nil && !quotaAdmission.admitted && handler.accessQuota != nil {
@@ -825,12 +909,13 @@ func (handler *Handler) executeAttempts(
 			quotaAdmission.admitted = true
 		}
 
-		attempts++
-		if attempts == 1 && requestAffinity.preferredCredentialID != 0 &&
+		attemptSequence++
+		forwardAttempts++
+		if attemptSequence == 1 && requestAffinity.preferredCredentialID != 0 &&
 			selection.CredentialID == requestAffinity.preferredCredentialID {
 			recorder.setAffinityHit(true)
 		}
-		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
+		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attemptSequence)
 		executionRequestID := "untracked"
 		if recorder != nil && recorder.requestID != "" {
 			executionRequestID = recorder.requestID
@@ -842,8 +927,8 @@ func (handler *Handler) executeAttempts(
 			ExternalModel:    externalModel,
 			UpstreamModelID:  optionalModelValue(selection.UpstreamModelID),
 			RequestID:        executionRequestID,
-			AttemptID:        executionRequestID + ":" + strconv.Itoa(attempts),
-			AttemptSequence:  uint32(attempts),
+			AttemptID:        executionRequestID + ":" + strconv.Itoa(attemptSequence),
+			AttemptSequence:  uint32(attemptSequence),
 			ClientProtocol:   selectedDialect.Protocol(),
 			Operation:        operation,
 			RouteRequirement: routeRequirement,
@@ -876,28 +961,39 @@ func (handler *Handler) executeAttempts(
 		} else {
 			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
 		}
-		result = normalizeUpstreamResultEvidence(result)
+		result = normalizeUpstreamResultContract(result)
 		attemptCompleted := time.Time{}
 		if recorder != nil {
 			attemptCompleted = recorder.now()
 		}
 		requestCanceled := ginContext.Request.Context().Err() != nil
+		if stream && result.Committed && result.Stream.EndReason == StreamEndNone {
+			result.Stream = prioritizeStreamObservation(
+				ginContext.Request.Context(),
+				result.Err,
+				result.Stream,
+			)
+		}
+		attemptNow := handler.now()
+		resultForDecision := result
+		if requestCanceled {
+			resultForDecision.Err = ginContext.Request.Context().Err()
+		}
+		decision := judgeUpstreamResult(
+			resultForDecision,
+			attemptNow,
+			decisionContextForSelection(selection),
+		)
 		if result.Committed {
-			if stream && result.Stream.EndReason == StreamEndNone {
-				result.Stream = prioritizeStreamObservation(
-					ginContext.Request.Context(),
-					result.Err,
-					result.Stream,
-				)
-			}
 			if recorder != nil {
 				recordedAttempt := recorder.recordStreamAttempt(
-					selection, normalizedCredential.secrets, result, attemptStarted, attemptCompleted,
+					selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 				)
 				recorder.completeStream(result, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 			}
+			handler.applyDecisionEffect(selection.CredentialID, decision, result.StatusCode, attemptNow)
 			if stream && result.Stream.EndReason == StreamEndCleanEOF {
-				handler.recordCredentialSuccess(selection.CredentialID, handler.now())
+				handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
 				handler.recordAffinitySuccess(requestAffinity, selection, ref)
 			}
 			return
@@ -908,10 +1004,7 @@ func (handler *Handler) executeAttempts(
 					selection,
 					normalizedCredential.secrets,
 					result,
-					health.Result{
-						Category: health.FailureCategoryDownstreamCancel,
-						Action:   health.ActionTerminate,
-					},
+					decision,
 					attemptStarted,
 					attemptCompleted,
 				)
@@ -919,35 +1012,37 @@ func (handler *Handler) executeAttempts(
 			}
 			return
 		}
-		attemptNow := handler.now()
 		if !stream && result.DispatchState != execution.DispatchLocal &&
 			!result.ProviderErrorBeforeCommit && result.HasResponse() &&
 			result.StatusCode >= http.StatusOK &&
 			result.StatusCode < http.StatusMultipleChoices {
 			handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
 		}
-		decision := subscriptionCooldownFallback(
-			selection.Group.ConnectionType,
-			judgeUpstreamResult(result, attemptNow),
-			attemptNow,
-		)
 		recordedAttempt := recorder.recordAttempt(
 			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyCredentialAction(selection.CredentialID, decision, result.StatusCode, attemptNow)
-		if result.ExecutionError != nil &&
-			result.ExecutionError.Hint == execution.FailureHintRefreshRequired &&
-			result.ExecutionError.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing &&
-			connection.Normalize(selection.Group.ConnectionType) == connection.Subscription &&
-			!authRefreshReplayUsed && attempts < maxAttempts {
+		handler.applyDecisionEffect(selection.CredentialID, decision, result.StatusCode, attemptNow)
+		if decision.Retry == health.RetryRefreshCredential &&
+			!authRefreshReplayUsed && forwardAttempts < maxAttempts {
 			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
 		}
-		if decision.Action == health.ActionSkipGroup {
+		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
+		if result.StatusCode >= http.StatusContinue && result.StatusCode < http.StatusOK {
+			recorder.completeTransport(
+				reasonUpstreamProtocol,
+				optionalModelValue(selection.UpstreamModelID),
+				recordedAttempt,
+			)
+			if err := handler.writeReason(ginContext, reasonUpstreamProtocol); err != nil {
+				handler.completeWriteTerminal(ginContext, recorder, reasonUpstreamProtocol.Status)
+			}
+			return
+		}
 		if result.ProviderErrorBeforeCommit {
-			if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {
+			if decision.Retry != health.RetryNone {
 				lastProviderError = &deferredAttempt{
 					result:        result,
 					decision:      decision,
@@ -971,7 +1066,7 @@ func (handler *Handler) executeAttempts(
 			lastResponse = &deferredAttempt{
 				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID), attemptIndex: recordedAttempt,
 			}
-			if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {
+			if decision.Retry != health.RetryNone {
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
@@ -990,7 +1085,7 @@ func (handler *Handler) executeAttempts(
 			recorder.completeCanceled(ginContext.Request.Context(), 0, recordedAttempt)
 			return
 		}
-		if shouldRetryAcrossCandidates(input.Operation, input.Request.Method, result, decision) {
+		if decision.Retry != health.RetryNone {
 			deferred := &deferredAttempt{
 				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID), attemptIndex: recordedAttempt,
 			}
@@ -1059,57 +1154,6 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 	handler.completeReason(ginContext, recorder, reasonNoCandidate)
-}
-
-func shouldRetryAcrossCandidates(
-	operation execution.Operation,
-	method string,
-	result UpstreamResult,
-	decision health.Result,
-) bool {
-	if result.ExecutionError != nil &&
-		result.ExecutionError.Hint == execution.FailureHintRequestRejected {
-		return false
-	}
-	if !decision.ShouldRetry() || result.Committed {
-		return false
-	}
-	if result.DispatchState == execution.DispatchNotSent {
-		return true
-	}
-	if result.DispatchState != execution.DispatchMaybeSent {
-		return false
-	}
-	if result.ExecutionError != nil &&
-		(result.ExecutionError.Hint == execution.FailureHintRefreshRequired ||
-			result.ExecutionError.Hint == execution.FailureHintReauthorizationRequired) {
-		return result.ExecutionError.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing
-	}
-	if result.ExecutionError != nil && result.ExecutionError.ReplaySafety == execution.ReplaySafetyUnknown {
-		return false
-	}
-	switch result.StatusCode {
-	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests:
-		return true
-	}
-	if decision.Category == health.FailureCategoryInvalidKey ||
-		decision.Category == health.FailureCategoryRateLimited ||
-		decision.Category == health.FailureCategoryModelUnavailable {
-		return true
-	}
-	if method == http.MethodGet || method == http.MethodHead {
-		return true
-	}
-	switch operation {
-	case execution.OperationResponsesRetrieve,
-		execution.OperationResponsesInputItems,
-		execution.OperationResponsesInputTokens,
-		execution.OperationCountTokens,
-		execution.OperationListModels:
-		return true
-	default:
-		return false
-	}
 }
 
 func initializeDebugHeaders(headers http.Header) {

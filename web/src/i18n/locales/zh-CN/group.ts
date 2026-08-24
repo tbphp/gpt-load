@@ -332,6 +332,7 @@ export default {
         upstreamHostError: '上游服务异常',
         clientError: '请求参数错误',
         downstreamCancel: '下游取消请求',
+        authenticationRequired: '凭据需要重新认证',
         ambiguous: '结果不明确',
         unknown: '未知失败原因',
       },

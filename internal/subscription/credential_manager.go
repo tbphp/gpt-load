@@ -305,10 +305,14 @@ func refreshFinalizeContext(ctx context.Context) (context.Context, context.Cance
 func authEvidence(code string) *execution.ErrorEvidence {
 	return &execution.ErrorEvidence{
 		Kind: execution.ErrorKindProvider, Hint: execution.FailureHintReauthorizationRequired,
+		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
 		Code: code, Summary: "subscription account requires reauthorization",
 	}
 }
 
 func localEvidence(code, summary string) *execution.ErrorEvidence {
-	return &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Code: code, Summary: summary}
+	return &execution.ErrorEvidence{
+		Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+		Code: code, Summary: summary,
+	}
 }

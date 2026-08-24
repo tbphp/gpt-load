@@ -85,7 +85,12 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 	}
 	proxySettings, err := proxySettingsForAttempt(spec.Proxy)
 	if err != nil {
-		return unaryNotSent(execution.ErrorKindInternal, "initialize subscription proxy", "", nil)
+		return unaryNotSent(
+			execution.ErrorKindInternal,
+			"initialize subscription proxy",
+			"subscription_proxy_prepare_failed",
+			nil,
+		)
 	}
 	if spec.Proxy.Config.Mode != "" {
 		ctx = subscriptionruntime.WithNetworkContext(ctx, subscriptionruntime.NetworkContext{
@@ -218,7 +223,11 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 	}
 	proxySettings, err := proxySettingsForAttempt(spec.Proxy)
 	if err != nil {
-		return streamNotSent(execution.ErrorKindInternal, "initialize subscription proxy", "")
+		return streamNotSent(
+			execution.ErrorKindInternal,
+			"initialize subscription proxy",
+			"subscription_proxy_prepare_failed",
+		)
 	}
 	if spec.Proxy.Config.Mode != "" {
 		ctx = subscriptionruntime.WithNetworkContext(ctx, subscriptionruntime.NetworkContext{
@@ -577,11 +586,34 @@ func safeScalar(value string) string {
 }
 
 func unaryNotSent(kind execution.ErrorKind, summary, code string, _ error) execution.AttemptResult {
-	return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: &execution.ErrorEvidence{Kind: kind, Code: code, Summary: summary}}
+	evidence := notSentEvidence(kind, summary, code)
+	return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: evidence}
 }
 
 func streamNotSent(kind execution.ErrorKind, summary, code string) execution.StreamResult {
-	return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: &execution.ErrorEvidence{Kind: kind, Code: code, Summary: summary}}
+	evidence := notSentEvidence(kind, summary, code)
+	return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: evidence}
+}
+
+func notSentEvidence(kind execution.ErrorKind, summary, code string) *execution.ErrorEvidence {
+	evidence := &execution.ErrorEvidence{Kind: kind, Code: code, Summary: summary}
+	switch kind {
+	case execution.ErrorKindTransport, execution.ErrorKindTimeout:
+		evidence.OriginHint = execution.ErrorOriginUpstream
+		evidence.ScopeHint = execution.ErrorScopeGroup
+	case execution.ErrorKindCanceled:
+		evidence.OriginHint = execution.ErrorOriginDownstream
+		evidence.ScopeHint = execution.ErrorScopeRequest
+	case execution.ErrorKindInvalidRequest:
+		evidence.OriginHint = execution.ErrorOriginClient
+		evidence.ScopeHint = execution.ErrorScopeRequest
+	case execution.ErrorKindConversionUnsupported:
+		evidence.OriginHint = execution.ErrorOriginInternal
+		evidence.ScopeHint = execution.ErrorScopeGroup
+	case execution.ErrorKindInternal:
+		evidence.OriginHint = execution.ErrorOriginInternal
+	}
+	return evidence
 }
 
 func successfulStreamTerminal(

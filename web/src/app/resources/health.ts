@@ -136,6 +136,7 @@ const problemFailureCategories = [
   'upstream_host_error',
   'client_error',
   'downstream_cancel',
+  'authentication_required',
   'ambiguous',
 ] as const
 function invalidResponse(): never {

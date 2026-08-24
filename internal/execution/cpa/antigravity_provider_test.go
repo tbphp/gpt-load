@@ -267,6 +267,7 @@ func TestAntigravityProviderTreatsForbiddenAsCandidateUnavailable(t *testing.T) 
 	}})
 	if evidence == nil || evidence.Hint != execution.FailureHintCandidateUnavailable ||
 		evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing ||
+		evidence.OriginHint != execution.ErrorOriginUpstream || evidence.ScopeHint != execution.ErrorScopeModel ||
 		strings.Contains(evidence.Summary, "PERMISSION_DENIED") {
 		t.Fatalf("error evidence = %#v", evidence)
 	}
@@ -283,15 +284,16 @@ func TestAntigravityProviderClassifiesOAuthAndPaidCreditErrors(t *testing.T) {
 		err        error
 		wantHint   execution.FailureHint
 		wantReplay execution.ReplaySafety
+		wantScope  execution.ErrorScope
 		wantRetry  time.Duration
 	}{
 		{
 			name: "OAuth 401 refreshes once", err: antigravityClassifiedTestError{status: 401, typeID: "UNAUTHENTICATED"},
-			wantHint: execution.FailureHintRefreshRequired, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing,
+			wantHint: execution.FailureHintRefreshRequired, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing, wantScope: execution.ErrorScopeCredential,
 		},
 		{
 			name: "paid credit balance advances to another credential", err: antigravityClassifiedTestError{status: 429, typeID: "RESOURCE_EXHAUSTED", code: "INSUFFICIENT_G1_CREDITS_BALANCE"},
-			wantHint: execution.FailureHintRateLimited, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing,
+			wantHint: execution.FailureHintRateLimited, wantReplay: execution.ReplaySafetyRejectedBeforeProcessing, wantScope: execution.ErrorScopeCredential,
 		},
 		{
 			name: "rate limit retains fractional retry delay", err: antigravityRetryAfterTestError{
@@ -305,6 +307,7 @@ func TestAntigravityProviderClassifiesOAuthAndPaidCreditErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			_, evidence := bridge.ClassifyError(t.Context(), test.err, credential)
 			if evidence == nil || evidence.Hint != test.wantHint || evidence.ReplaySafety != test.wantReplay ||
+				evidence.ScopeHint != test.wantScope || evidence.OriginHint != execution.ErrorOriginUpstream ||
 				strings.Contains(evidence.Summary, "provider body") || evidence.RetryAfter != test.wantRetry {
 				t.Fatalf("error evidence = %#v", evidence)
 			}

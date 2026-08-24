@@ -202,6 +202,7 @@ func (*claudeProviderBridge) ClassifyError(
 	case status >= http.StatusInternalServerError:
 		evidence.Hint = execution.FailureHintHostError
 	}
+	annotateProviderErrorEvidence(evidence, err)
 	return status, evidence
 }
 
