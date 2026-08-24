@@ -64,8 +64,10 @@ func (credentialScopedTestError) Error() string                { return "credent
 func (err credentialScopedTestError) IsCredentialScoped() bool { return bool(err) }
 
 type recordingProviderBridge struct {
-	kind           channel.ProviderKind
-	validatedRoute channel.RouteDescriptor
+	kind                   channel.ProviderKind
+	validatedRoute         channel.RouteDescriptor
+	classificationStatus   int
+	classificationEvidence *execution.ErrorEvidence
 }
 
 func (bridge *recordingProviderBridge) ProviderKind() channel.ProviderKind { return bridge.kind }
@@ -83,8 +85,8 @@ func (*recordingProviderBridge) Execute(context.Context, string, providerCredent
 func (*recordingProviderBridge) ExecuteStream(context.Context, string, providerCredential, providerRequest) (*providerStreamResponse, error) {
 	return nil, nil
 }
-func (*recordingProviderBridge) ClassifyError(context.Context, error, providerCredential) (int, *execution.ErrorEvidence) {
-	return 0, nil
+func (bridge *recordingProviderBridge) ClassifyError(context.Context, error, providerCredential) (int, *execution.ErrorEvidence) {
+	return bridge.classificationStatus, bridge.classificationEvidence
 }
 
 func TestAdapterDelegatesRouteValidationByProviderKind(t *testing.T) {

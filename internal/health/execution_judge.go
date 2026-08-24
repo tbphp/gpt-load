@@ -539,8 +539,7 @@ func constrainCommittedDecision(result Decision, attempt ExecutionAttempt) Decis
 	}
 	if result.Category == FailureCategoryRateLimited && result.Effect == EffectCooldownCredential {
 		result.RuleID = "rate_limit.credential.committed"
-	} else if result.Effect == EffectNone &&
-		(originalRetry != RetryNone || originalEffect != EffectNone) {
+	} else if originalRetry != result.Retry || originalEffect != result.Effect {
 		result.RuleID = "safety.committed"
 	}
 	return result

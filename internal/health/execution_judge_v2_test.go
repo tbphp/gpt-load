@@ -83,6 +83,24 @@ func TestJudgeExecutionCommittedKeepsOnlyTrustedCredentialEffect(t *testing.T) {
 		unscoped.RuleID != "safety.committed" {
 		t.Fatalf("unscoped committed decision = %#v", unscoped)
 	}
+
+	invalidCredential := JudgeExecution(ExecutionAttempt{
+		DispatchState:       execution.DispatchMaybeSent,
+		StatusCode:          http.StatusUnauthorized,
+		DownstreamCommitted: true,
+		Evidence: &execution.ErrorEvidence{
+			Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintInvalidCredential,
+			ScopeHint: execution.ErrorScopeCredential, StatusCode: http.StatusUnauthorized,
+			ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+			Summary:      "credential rejected",
+		},
+		Now: now,
+	}, context)
+	if invalidCredential.Retry != RetryNone ||
+		invalidCredential.Effect != EffectRecordCredentialFailure ||
+		invalidCredential.RuleID != "safety.committed" {
+		t.Fatalf("invalid credential committed decision = %#v", invalidCredential)
+	}
 }
 
 func TestJudgeExecutionDoesNotRotateCredentialsForScopedRateLimit(t *testing.T) {

@@ -1018,6 +1018,19 @@ func TestUnaryExecutionErrorDistinguishesDefinitelyUnsentNetworkFailures(t *test
 			}
 		})
 	}
+
+	responseEvidence := &recordingProviderBridge{
+		classificationEvidence: &execution.ErrorEvidence{
+			Kind: execution.ErrorKindHTTP, StatusCode: http.StatusBadGateway,
+			Summary: "upstream response started",
+		},
+	}
+	result := unaryExecutionError(t.Context(), responseEvidence, &net.DNSError{
+		Err: "no such host", Name: "upstream.invalid",
+	}, nil)
+	if result.DispatchState != execution.DispatchMaybeSent {
+		t.Fatalf("evidence status dispatch = %q, want %q", result.DispatchState, execution.DispatchMaybeSent)
+	}
 }
 
 func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *state.CredentialRegistry, encryption.Service, models.Credential) {

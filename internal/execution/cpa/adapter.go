@@ -483,7 +483,8 @@ func unaryExecutionError(
 ) execution.AttemptResult {
 	status, evidence := provider.ClassifyError(ctx, err, credential)
 	dispatchState := execution.DispatchMaybeSent
-	if status == 0 && definitelyNotSentNetworkError(err) {
+	if status == 0 && (evidence == nil || evidence.StatusCode == 0) &&
+		definitelyNotSentNetworkError(err) {
 		dispatchState = execution.DispatchNotSent
 	}
 	return execution.AttemptResult{
