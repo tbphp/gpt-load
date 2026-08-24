@@ -1008,6 +1008,13 @@ func TestUnaryExecutionErrorDistinguishesDefinitelyUnsentNetworkFailures(t *test
 			err:  &net.OpError{Op: "read", Net: "tcp", Err: io.ErrUnexpectedEOF},
 			want: execution.DispatchMaybeSent,
 		},
+		{
+			name: "read wrapped DNS failure",
+			err: &net.OpError{Op: "read", Net: "tcp", Err: &net.DNSError{
+				Err: "temporary lookup failure", Name: "upstream.invalid",
+			}},
+			want: execution.DispatchMaybeSent,
+		},
 	}
 
 	for _, test := range tests {

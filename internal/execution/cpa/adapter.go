@@ -497,13 +497,12 @@ func definitelyNotSentNetworkError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var dnsError *net.DNSError
-	if errors.As(err, &dnsError) && dnsError != nil {
-		return true
-	}
 	var operationError *net.OpError
-	return errors.As(err, &operationError) && operationError != nil &&
-		strings.EqualFold(strings.TrimSpace(operationError.Op), "dial")
+	if errors.As(err, &operationError) && operationError != nil {
+		return strings.EqualFold(strings.TrimSpace(operationError.Op), "dial")
+	}
+	var dnsError *net.DNSError
+	return errors.As(err, &dnsError) && dnsError != nil
 }
 
 func streamExecutionError(
