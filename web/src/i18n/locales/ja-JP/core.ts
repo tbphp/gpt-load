@@ -162,7 +162,7 @@ export default {
     useLightTheme: 'ライトテーマを使用',
     useDarkTheme: 'ダークテーマを使用',
     projectCommunity: 'プロジェクトとコミュニティ',
-    starInvitation: 'GPT-Load が役に立ったら、GitHub で Star をお願いします。',
+    starInvitation: 'GPT-Load に Star を',
     signOut: 'ログアウト',
     placeholderDescription: 'この管理機能は、このステージの後続タスクで実装されます。',
     backHome: 'ホームへ戻る',

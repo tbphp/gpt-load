@@ -163,7 +163,7 @@ export default {
     useLightTheme: 'Use light theme',
     useDarkTheme: 'Use dark theme',
     projectCommunity: 'Project & community',
-    starInvitation: 'If GPT-Load is useful to you, a GitHub star is appreciated.',
+    starInvitation: 'Star GPT-Load on GitHub',
     signOut: 'Sign out',
     placeholderDescription: 'This management feature will arrive in a later task in this stage.',
     backHome: 'Back to Home',
