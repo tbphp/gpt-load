@@ -1430,7 +1430,8 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 	nativePowerShellImplementation := readRepositoryFile(t, ".github/scripts/release-native-smoke.ps1")
 	nativeImplementation := nativeJob + nativeShellImplementation + nativePowerShellImplementation
 	for _, required := range []string{
-		"name: release-assets",
+		"name: binary-${{ matrix.filename }}",
+		"name: release-checksums",
 		"SHA256SUMS",
 		"sha256sum",
 		"shasum -a 256",
