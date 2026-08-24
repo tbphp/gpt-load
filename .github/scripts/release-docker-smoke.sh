@@ -7,6 +7,15 @@ suffix="${RELEASE_SMOKE_SUFFIX:-local-$$}"
 source_image="${RELEASE_SMOKE_SOURCE_IMAGE:-}"
 trivy_image="${RELEASE_SMOKE_TRIVY_IMAGE:-aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f}"
 skip_scan="${RELEASE_SMOKE_SKIP_SCAN:-false}"
+# 留空构建默认 target（源码自包含构建）；发布流程用 prebuilt 验证真正的打包路径。
+build_target="${RELEASE_SMOKE_BUILD_TARGET:-}"
+case "${build_target}" in
+  "" | prebuilt | source-build) ;;
+  *)
+    printf 'RELEASE_SMOKE_BUILD_TARGET must be empty, prebuilt, or source-build\n' >&2
+    exit 1
+    ;;
+esac
 case "${skip_scan}" in
   true | false) ;;
   *)
@@ -124,8 +133,13 @@ if [[ -n "${source_image}" ]]; then
   docker pull --platform "${platform}" "${source_image}"
   docker image tag "${source_image}" "${image}"
 else
+  build_target_args=()
+  if [[ -n "${build_target}" ]]; then
+    build_target_args+=(--target "${build_target}")
+  fi
   docker build \
     --platform "${platform}" \
+    "${build_target_args[@]}" \
     --build-arg "VERSION=${release_version}" \
     -t "${image}" .
 fi

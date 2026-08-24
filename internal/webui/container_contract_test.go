@@ -204,13 +204,31 @@ func TestOrdinaryNetworkConfigurationExposesOnlyHostAndPort(t *testing.T) {
 
 func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 	content := readRepositoryFile(t, "Dockerfile")
-	finalStageIndex := strings.LastIndex(content, "\nFROM ")
-	if finalStageIndex < 0 {
-		t.Fatal("Dockerfile does not contain a final stage")
+	// runtime 是唯一的 runtime 定义，源码自包含构建与发布用的 prebuilt 都继承它。
+	// 每个可发布 stage 必须以它为基，否则某条打包路径会绕开下面全部 runtime 断言。
+	runtimeIndex := strings.Index(content, "\nFROM alpine:")
+	if runtimeIndex < 0 {
+		t.Fatal("Dockerfile does not contain the shared runtime stage")
 	}
-	finalStage := content[finalStageIndex:]
+	if !strings.Contains(content[runtimeIndex:], "AS runtime\n") {
+		t.Fatal("Dockerfile runtime stage is not named runtime")
+	}
+	nextStageIndex := strings.Index(content[runtimeIndex+1:], "\nFROM ")
+	if nextStageIndex < 0 {
+		t.Fatal("Dockerfile does not derive any stage from the shared runtime stage")
+	}
+	finalStage := content[runtimeIndex : runtimeIndex+1+nextStageIndex]
+	for _, derived := range []string{"FROM runtime AS prebuilt", "FROM runtime AS source-build"} {
+		if !strings.Contains(content, derived) {
+			t.Fatalf("Dockerfile does not derive a publishable stage via %q", derived)
+		}
+	}
+	// 除 runtime 自身外，不允许出现直接以 alpine 为基的可发布 stage。
+	if strings.Count(content, "\nFROM alpine:") != 1 {
+		t.Fatal("Dockerfile declares a publishable stage that bypasses the shared runtime stage")
+	}
 	if !strings.Contains(finalStage, "EXPOSE 3001 1455 54545 51121") {
-		t.Fatal("Dockerfile final stage does not expose the application and all fixed OAuth callback ports")
+		t.Fatal("Dockerfile runtime stage does not expose the application and all fixed OAuth callback ports")
 	}
 
 	orderedBeforeUser := []string{
