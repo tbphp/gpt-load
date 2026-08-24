@@ -68,15 +68,38 @@ export interface ProxyDraftState {
 }
 
 /**
- * 自定义地址输入框始终以空白开始（避免回显已脱敏的凭据），所以“模式未变且输入为空”
- * 代表用户没有修改代理设置的意图，不应视为脏值。
+ * 已存自定义地址的 placeholder；没有可展示的地址时返回 undefined，由调用方回退到通用提示。
+ * 输入框不做回填：后端 Display() 会把密码脱敏成 ******，回填等于把掩码当真密码存回去。
+ */
+export function proxyPlaceholderURL(view: ProxyViewDto): string | undefined {
+  return view.configured_mode === 'custom' ? view.display_url : undefined
+}
+
+/**
+ * 覆盖开关要切到的模式。重新开启覆盖时回到基线已存的覆盖模式，让「恢复默认 / 继承」
+ * 可以原路撤销而不丢掉原本配置；基线本就未覆盖时落到 direct——一个立即完整有效的状态。
+ */
+export function proxyOverrideToggleMode(
+  base: ProxyViewDto,
+  overridden: boolean,
+): ProxyConfiguredMode {
+  if (overridden) return 'inherit'
+  return base.configured_mode === 'inherit' ? 'direct' : base.configured_mode
+}
+
+/**
+ * 同模式下有两种“未改动”：输入留空表示保持原地址；输入与已存地址逐字相同同样不是改动
+ * ——后者顺带挡住了照着 placeholder 手敲掩码提交的情况。
  */
 export function proxyDraftState(
   base: ProxyViewDto,
   mode: ProxyConfiguredMode,
   endpoint: string,
 ): ProxyDraftState {
-  const unchanged = mode === base.configured_mode && (mode !== 'custom' || endpoint.trim() === '')
+  const trimmed = endpoint.trim()
+  const unchanged =
+    mode === base.configured_mode &&
+    (mode !== 'custom' || trimmed === '' || trimmed === (base.display_url ?? ''))
   if (unchanged) return { dirty: false, invalid: false, value: undefined }
   const value = proxyMutation(mode, endpoint)
   return { dirty: true, invalid: value === undefined, value }

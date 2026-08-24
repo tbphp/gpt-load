@@ -10,7 +10,7 @@ import type { GroupSettingsDto, HeaderRulesDto, ProxyConfiguredMode } from '@/ap
 import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
-import { proxyDraftState } from '@/app/resources/proxy'
+import { proxyDraftState, proxyOverrideToggleMode } from '@/app/resources/proxy'
 import { channelsQueryOptions, type ChannelFieldDto } from '@/app/resources/channels'
 import {
   cacheGroupSettings,
@@ -22,7 +22,7 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
-import ProxyOverrideRow from '@/components/config/ProxyOverrideRow.vue'
+import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
@@ -117,6 +117,20 @@ const proxyState = computed(() =>
     ? proxyDraftState(saved.value.proxy, proxyMode.value, proxyEndpoint.value)
     : { dirty: false, invalid: false, value: undefined },
 )
+// 代理沿用其它设置项的覆盖语义：inherit 即“继承全局”，direct/custom 即“本分组覆盖”。
+const proxyOverridden = computed(() => proxyMode.value !== 'inherit')
+const proxyEffectiveLabel = computed(() => {
+  const view = saved.value?.proxy
+  if (!view) return ''
+  return view.display_url ?? t(`common.proxy.mode.${view.effective_mode}`)
+})
+const proxySupported = computed(() => selectedChannel.value?.capabilities.outbound_proxy ?? false)
+
+function toggleProxyOverride(): void {
+  const base = saved.value?.proxy
+  if (base) proxyMode.value = proxyOverrideToggleMode(base, proxyOverridden.value)
+  proxyEndpoint.value = ''
+}
 const dirty = computed(
   () =>
     !deleted.value &&
@@ -470,16 +484,51 @@ onBeforeUnmount(() => {
             </header>
             <div class="group-settings__runtime">
               <div class="group-settings__runtime-row">
-                <ProxyOverrideRow
-                  scope="group"
-                  :view="saved.proxy"
-                  :mode="proxyMode"
-                  :endpoint="proxyEndpoint"
-                  :supported="selectedChannel?.capabilities.outbound_proxy"
-                  :disabled="mutationPending || selectedChannel === undefined"
-                  @update:mode="proxyMode = $event"
-                  @update:endpoint="proxyEndpoint = $event"
-                />
+                <RuntimeOverrideRow
+                  appearance="ledger"
+                  :label="t('common.proxy.title')"
+                  :detail="
+                    proxySupported
+                      ? proxyOverridden
+                        ? t('group.settings.runtime.override')
+                        : proxyEffectiveLabel
+                      : t('common.proxy.unsupported')
+                  "
+                  :value-label="
+                    proxySupported && !proxyOverridden
+                      ? t('group.settings.runtime.currentValue')
+                      : !proxySupported
+                        ? t('common.proxy.unsupportedHelp')
+                        : undefined
+                  "
+                  :source-label="
+                    !proxySupported
+                      ? t('common.proxy.unsupportedBadge')
+                      : proxyOverridden
+                        ? t('group.settings.runtime.override')
+                        : t('group.settings.runtime.inherited')
+                  "
+                  :action-label="
+                    proxyOverridden
+                      ? t('group.settings.runtime.useInherited')
+                      : t('group.settings.runtime.useOverride')
+                  "
+                  :overridden="proxyOverridden"
+                  :locked="!proxySupported"
+                  :disabled="mutationPending || selectedChannel === undefined || !proxySupported"
+                  @toggle="toggleProxyOverride"
+                >
+                  <template v-if="proxySupported && proxyOverridden" #value>
+                    <ProxyOverrideControl
+                      :base="saved.proxy"
+                      :mode="proxyMode"
+                      :endpoint="proxyEndpoint"
+                      :disabled="mutationPending"
+                      @update:mode="proxyMode = $event"
+                      @update:endpoint="proxyEndpoint = $event"
+                    />
+                  </template>
+                </RuntimeOverrideRow>
               </div>
               <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">
                 <RuntimeOverrideRow

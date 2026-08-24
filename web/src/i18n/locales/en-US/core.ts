@@ -36,7 +36,6 @@ export default {
       urlLabel: 'Proxy URL',
       placeholder: 'http:// or socks5://',
       invalid: 'Enter a valid HTTP or SOCKS5 proxy URL.',
-      keepCurrentHint: 'Leave blank to keep the current address.',
       effective: 'Effective: {mode}',
       ownTooltip: 'Proxy: {type}',
       inherit: {

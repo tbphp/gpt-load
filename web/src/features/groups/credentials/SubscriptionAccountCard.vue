@@ -1203,12 +1203,10 @@ function runMenuAction(
       </div>
       <ProxyConfigEditor
         class="subscription-account__proxy"
-        appearance="card"
         :view="item.proxy"
         :save-proxy="saveProxy"
         :supported="capabilities.outbound_proxy"
         :disabled="busy"
-        :divided="false"
       />
     </section>
   </article>

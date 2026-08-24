@@ -36,7 +36,6 @@ export default {
       urlLabel: 'プロキシ URL',
       placeholder: 'http:// または socks5://',
       invalid: '有効な HTTP または SOCKS5 プロキシ URL を入力してください。',
-      keepCurrentHint: '空欄のままにすると現在のアドレスが維持されます。',
       effective: '現在有効：{mode}',
       ownTooltip: 'プロキシ：{type}',
       inherit: {

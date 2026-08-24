@@ -36,7 +36,6 @@ export default {
       urlLabel: '代理地址',
       placeholder: 'http:// 或 socks5://',
       invalid: '请输入有效的 HTTP 或 SOCKS5 代理地址。',
-      keepCurrentHint: '留空则保持当前地址不变。',
       effective: '当前生效：{mode}',
       ownTooltip: '代理：{type}',
       inherit: {

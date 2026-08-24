@@ -271,20 +271,20 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
           :inert="!expanded || undefined"
         >
           <div class="group-credential-record__settings">
-            <div class="group-credential-record__block">
-              <span class="group-credential-record__block-title">
+            <div class="setting-panel">
+              <span class="setting-panel__title">
                 {{ t('group.credentials.columns.weight') }}
               </span>
-              <div class="group-credential-record__panel">
+              <div class="setting-panel__body">
                 <template v-if="!weightEditorOpen">
-                  <span class="group-credential-record__mode-tag">
+                  <span class="setting-panel__tag">
                     {{ t(`group.credentials.weightEditor.${item.weight_mode}`) }}
                   </span>
-                  <span class="group-credential-record__panel-value">
+                  <span class="setting-panel__value">
                     {{ item.weight === null ? t('group.credentials.none') : n(item.weight) }}
                   </span>
                   <IconButton
-                    class="group-credential-record__panel-edit"
+                    class="setting-panel__edit"
                     variant="ghost"
                     tone="action"
                     size="xs"
@@ -297,7 +297,7 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
                 </template>
                 <form
                   v-else
-                  class="group-credential-record__weight-form"
+                  class="setting-panel__form group-credential-record__weight-form"
                   @submit.prevent="saveWeight"
                 >
                   <SegmentedControl
@@ -323,7 +323,7 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
                     :aria-hidden="draftWeightMode === 'auto' ? 'true' : undefined"
                     :aria-invalid="!manualWeightValid || undefined"
                   />
-                  <div class="group-credential-record__panel-actions">
+                  <div class="setting-panel__actions">
                     <AppButton
                       variant="ghost"
                       size="compact"
@@ -337,7 +337,7 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
                   </div>
                   <p
                     v-if="draftWeightMode === 'manual' && !manualWeightValid"
-                    class="group-credential-record__panel-error"
+                    class="setting-panel__error"
                     role="alert"
                   >
                     {{ t('group.credentials.weightEditor.invalid') }}
@@ -347,21 +347,18 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
             </div>
 
             <ProxyConfigEditor
-              class="group-credential-record__proxy"
-              appearance="card"
               :view="item.proxy"
               :save-proxy="saveProxy"
               :supported="proxySupported"
               :disabled="busy"
-              :divided="false"
             />
           </div>
 
-          <div class="group-credential-record__block">
-            <span class="group-credential-record__block-title">
+          <div class="setting-panel">
+            <span class="setting-panel__title">
               {{ t('group.credentials.diagnostics') }}
             </span>
-            <dl class="group-credential-record__runtime-details">
+            <dl class="setting-panel__body group-credential-record__runtime-details">
               <div>
                 <dt>{{ t('group.credentials.detailsFailure') }}</dt>
                 <dd>{{ failureLabel }}</dd>
@@ -484,20 +481,12 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
   overflow: hidden;
 }
 
-/* 与上方权重／出站代理的面板同款：标题在白底外，内容落在白底面板里。 */
+/* 白底面板复用 .setting-panel__body，只把弹性排布换成三列指标网格。 */
 .group-credential-record__details dl {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-5);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
   margin: 0;
-  padding: 7px 9px;
-}
-
-/* card 外观自带标题与白底面板，虚线分隔反而多余；宽度由 __settings 的列约束。 */
-.group-credential-record__proxy {
-  min-width: 0;
 }
 
 .group-credential-record__details dl div {
@@ -513,7 +502,7 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: var(--text-meta);
+  font-size: var(--text-label-xs);
   font-weight: 560;
 }
 
@@ -525,77 +514,15 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
 }
 
 /*
- * 折叠区里的设置块与 ProxyConfigEditor 的 card 外观保持同款：标题在白底外、
- * 白底面板承载值与编辑控件。这里是有意复刻那套视觉，若之后再多一个设置项，
- * 应把这套外壳抽成共享组件而不是继续复制。
- */
-/*
  * 权重与出站代理并排成两列，诊断在下面占满整行。这里不设 max-width：
  * 否则设置行的右边缘会比下方诊断面板短一截，两行对不齐。
+ * 面板外壳（标题 + 白底面板 + 标签 / 值 / 编辑图标 / 操作）由全局 .setting-panel 提供。
  */
 .group-credential-record__settings {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: 13px 16px;
-}
-
-.group-credential-record__block {
-  display: grid;
-  min-width: 0;
-  gap: 6px;
-}
-
-.group-credential-record__block-title {
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-  font-weight: 680;
-  letter-spacing: 0.06em;
-}
-
-.group-credential-record__panel {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  padding: 7px 9px;
-}
-
-.group-credential-record__mode-tag {
-  flex: none;
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding: 2px 7px;
-  font-size: var(--text-label-xs);
-  font-weight: 620;
-}
-
-.group-credential-record__panel-value {
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-label-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.group-credential-record__panel-edit {
-  width: 22px;
-  min-height: 22px;
-  height: 22px;
-  flex: none;
-  margin-left: 2px;
-}
-
-.group-credential-record__weight-form {
-  display: flex;
-  flex: 1 1 100%;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
 }
 
 .group-credential-record__weight-form > input {
@@ -614,27 +541,6 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
 .group-credential-record__weight-form > input.is-concealed {
   visibility: hidden;
   pointer-events: none;
-}
-
-.group-credential-record__panel-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-}
-
-.group-credential-record__panel-actions :deep(.app-button) {
-  min-height: 26px;
-  padding-inline: 8px;
-  font-size: var(--text-label-xs);
-}
-
-.group-credential-record__panel-error {
-  flex: 1 1 100%;
-  margin: 0;
-  color: var(--color-danger);
-  font-size: var(--text-label-xs);
 }
 
 .group-credential-record__weight-value {
