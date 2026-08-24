@@ -19,6 +19,7 @@ import (
 )
 
 func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {
@@ -56,6 +57,7 @@ func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T
 }
 
 func TestClaudeDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"anthropic": {
@@ -105,6 +107,7 @@ func TestClaudeDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.
 }
 
 func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"google": {
@@ -167,6 +170,7 @@ func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *tes
 }
 
 func TestGrokDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"xai": {
@@ -229,6 +233,7 @@ func TestGrokDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T)
 }
 
 func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {
@@ -294,6 +299,7 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 }
 
 func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	openAI := "openai"
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
@@ -384,6 +390,7 @@ func TestDiscoveryPricingStatusUsesAutomaticPriceReferenceForDraftScopes(t *test
 }
 
 func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {

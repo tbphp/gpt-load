@@ -21,6 +21,7 @@ import (
 const resetCreditTestKey = "9f0f4c32-89d2-4bcb-9e19-052940dc2f16"
 
 func TestConsumeCredentialResetCreditRefreshesObservationAndRemainsIdempotent(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	consumeCalls := 0
 	setCodexResetCreditConsume(t, fixture.service, func(_ context.Context, _ codex.Credential, redeemRequestID string) (codex.AccountObservation, error) {
@@ -61,6 +62,7 @@ func TestConsumeCredentialResetCreditRefreshesObservationAndRemainsIdempotent(t 
 }
 
 func TestConsumeCredentialResetCreditReportsPendingForPartialObservation(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil
@@ -103,6 +105,7 @@ func TestConsumeCredentialResetCreditReportsPendingForPartialObservation(t *test
 }
 
 func TestConsumeCredentialResetCreditRefreshesObservationAfterClientCancellation(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 11, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -148,6 +151,7 @@ func TestConsumeCredentialResetCreditRefreshesObservationAfterClientCancellation
 }
 
 func TestConsumeCredentialResetCreditRunsFollowUpAfterInFlightObservation(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -206,6 +210,7 @@ func TestConsumeCredentialResetCreditRunsFollowUpAfterInFlightObservation(t *tes
 }
 
 func TestConsumeCredentialResetCreditRunsFollowUpAfterInFlightResetObservation(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	firstObservationStarted := make(chan struct{})
 	releaseFirstObservation := make(chan struct{})
@@ -268,6 +273,7 @@ func TestConsumeCredentialResetCreditRunsFollowUpAfterInFlightResetObservation(t
 }
 
 func TestConsumeCredentialResetCreditReplayReportsPendingWhileObservationRefreshRuns(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	observationStarted := make(chan struct{})
 	releaseObservation := make(chan struct{})
@@ -306,6 +312,7 @@ func TestConsumeCredentialResetCreditReplayReportsPendingWhileObservationRefresh
 }
 
 func TestConsumeCredentialResetCreditRestoresRuntimeHealth(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 11, 30, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -347,6 +354,7 @@ func TestConsumeCredentialResetCreditRestoresRuntimeHealth(t *testing.T) {
 }
 
 func TestConsumeCredentialResetCreditRetriesAmbiguousOutcomeOnlyWithSameKey(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	consumeCalls := 0
 	setCodexResetCreditConsume(t, fixture.service, func(_ context.Context, _ codex.Credential, redeemRequestID string) (codex.AccountObservation, error) {
@@ -389,6 +397,7 @@ func TestConsumeCredentialResetCreditRetriesAmbiguousOutcomeOnlyWithSameKey(t *t
 }
 
 func TestConsumeCredentialResetCreditRecoversStalePreparedOperationWithSameKey(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -421,6 +430,7 @@ func TestConsumeCredentialResetCreditRecoversStalePreparedOperationWithSameKey(t
 }
 
 func TestConsumeCredentialResetCreditAllowsNewKeyAfterSuccessWhenObservationRefreshFails(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	consumeCalls := 0
 	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
@@ -454,6 +464,7 @@ func TestConsumeCredentialResetCreditAllowsNewKeyAfterSuccessWhenObservationRefr
 }
 
 func TestConsumeCredentialResetCreditAllowsNewKeyImmediatelyAfterSuccess(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	fixedNow := time.Date(2026, time.August, 14, 13, 30, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return fixedNow }
@@ -481,6 +492,7 @@ func TestConsumeCredentialResetCreditAllowsNewKeyImmediatelyAfterSuccess(t *test
 }
 
 func TestConsumeCredentialResetCreditRejectsReusedKeyForAnotherCredential(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil
@@ -508,6 +520,7 @@ func TestConsumeCredentialResetCreditRejectsReusedKeyForAnotherCredential(t *tes
 }
 
 func TestConsumeCredentialResetCreditRejectsReusedKeyAfterIdentityChanges(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil
@@ -531,6 +544,7 @@ func TestConsumeCredentialResetCreditRejectsReusedKeyAfterIdentityChanges(t *tes
 }
 
 func TestConsumeCredentialResetCreditReplaysSuccessWithoutPreparingCredential(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexResetCreditConsume(t, fixture.service, func(context.Context, codex.Credential, string) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"code":"reset","windows_reset":1}`)}, nil

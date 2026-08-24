@@ -12,6 +12,7 @@ import (
 )
 
 func TestQueryAccessKeyCollectionRecordsSummarizesBeforeFiltering(t *testing.T) {
+	t.Parallel()
 	active := state.AccessKeyStatusActive
 	records := []accessKeyCollectionRecord{
 		accessKeyCollectionQueryRecord(1, "Alpha", "0001", active, 100),
@@ -33,6 +34,7 @@ func TestQueryAccessKeyCollectionRecordsSummarizesBeforeFiltering(t *testing.T) 
 }
 
 func TestQueryAccessKeyCollectionRecordsFiltersCaseFoldedNameAndMaskedSuffix(t *testing.T) {
+	t.Parallel()
 	records := []accessKeyCollectionRecord{
 		accessKeyCollectionQueryRecord(1, "München", "cafe", state.AccessKeyStatusActive, 100),
 		accessKeyCollectionQueryRecord(2, "Other", "beef", state.AccessKeyStatusActive, 200),
@@ -59,6 +61,7 @@ func TestQueryAccessKeyCollectionRecordsFiltersCaseFoldedNameAndMaskedSuffix(t *
 }
 
 func TestQueryAccessKeyCollectionRecordsFiltersStatus(t *testing.T) {
+	t.Parallel()
 	active := state.AccessKeyStatusActive
 	disabled := state.AccessKeyStatusDisabled
 	records := []accessKeyCollectionRecord{
@@ -87,6 +90,7 @@ func TestQueryAccessKeyCollectionRecordsFiltersStatus(t *testing.T) {
 }
 
 func TestQueryAccessKeyCollectionRecordsSortsByUpdatedAtThenIDDescending(t *testing.T) {
+	t.Parallel()
 	records := []accessKeyCollectionRecord{
 		accessKeyCollectionQueryRecord(1, "one", "0001", state.AccessKeyStatusActive, 100),
 		accessKeyCollectionQueryRecord(4, "four", "0004", state.AccessKeyStatusDisabled, 300),
@@ -101,6 +105,7 @@ func TestQueryAccessKeyCollectionRecordsSortsByUpdatedAtThenIDDescending(t *test
 }
 
 func TestQueryAccessKeyCollectionRecordsPaginatesAndHandlesZeroRecords(t *testing.T) {
+	t.Parallel()
 	records := []accessKeyCollectionRecord{
 		accessKeyCollectionQueryRecord(1, "one", "0001", state.AccessKeyStatusActive, 100),
 		accessKeyCollectionQueryRecord(2, "two", "0002", state.AccessKeyStatusActive, 200),
@@ -144,6 +149,7 @@ func TestQueryAccessKeyCollectionRecordsPaginatesAndHandlesZeroRecords(t *testin
 }
 
 func TestListAccessKeyCollectionReadsMappedMetadataWithoutDecrypting(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "collection"})
@@ -166,6 +172,7 @@ func TestListAccessKeyCollectionReadsMappedMetadataWithoutDecrypting(t *testing.
 }
 
 func TestListAccessKeyCollectionRejectsCanceledContextAndInvalidMappedMetadata(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

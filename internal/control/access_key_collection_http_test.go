@@ -16,6 +16,7 @@ import (
 )
 
 func TestParseAccessKeyCollectionQueryAcceptsStrictContract(t *testing.T) {
+	t.Parallel()
 	active := state.AccessKeyStatusActive
 	disabled := state.AccessKeyStatusDisabled
 	q200 := strings.Repeat("猫", 200)
@@ -49,6 +50,7 @@ func TestParseAccessKeyCollectionQueryAcceptsStrictContract(t *testing.T) {
 }
 
 func TestParseAccessKeyCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		rawQuery   string
@@ -92,6 +94,7 @@ func TestParseAccessKeyCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 }
 
 func TestAccessKeyCollectionHTTPReturnsAuthenticatedCollectionEnvelope(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(append(make([]byte, 16), bytes.Repeat([]byte{1}, 16)...))
@@ -155,6 +158,7 @@ func TestAccessKeyCollectionHTTPReturnsAuthenticatedCollectionEnvelope(t *testin
 }
 
 func TestAccessKeyCollectionHTTPReturnsLatestRequestTimeAndOmitsCollectionScope(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(append(make([]byte, 16), bytes.Repeat([]byte{1}, 16)...))
@@ -219,6 +223,7 @@ func TestAccessKeyCollectionHTTPReturnsLatestRequestTimeAndOmitsCollectionScope(
 }
 
 func TestAccessKeyCollectionHTTPRejectsInvalidQueryBeforeServiceAccess(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()

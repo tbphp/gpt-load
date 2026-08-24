@@ -26,6 +26,7 @@ func (spy *decryptCountingEncryption) Decrypt(ciphertext string) (string, error)
 }
 
 func TestAccessKeyMetadataListAndUpdateNeverDecryptCiphertext(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	created, err := fixture.service.CreateAccessKey(
@@ -80,6 +81,7 @@ func TestAccessKeyMetadataListAndUpdateNeverDecryptCiphertext(t *testing.T) {
 }
 
 func TestCreateAccessKeyIdempotentReplaysMetadataWithoutPersistingSecret(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x61}, 16))
@@ -129,6 +131,7 @@ func TestCreateAccessKeyIdempotentReplaysMetadataWithoutPersistingSecret(t *test
 }
 
 func TestAccessKeyMetadataFailsClosedForInvalidPersistedSuffix(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(
 		t.Context(),
@@ -165,6 +168,7 @@ func TestAccessKeyMetadataFailsClosedForInvalidPersistedSuffix(t *testing.T) {
 }
 
 func TestRevealAccessKeyIsTheExplicitMetadataDecryptPath(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(
 		t.Context(),
@@ -190,6 +194,7 @@ func TestRevealAccessKeyIsTheExplicitMetadataDecryptPath(t *testing.T) {
 }
 
 func TestListAccessKeyOptionsContainsOnlySelectorMetadata(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateAccessKey(
 		t.Context(),
@@ -229,6 +234,7 @@ func TestListAccessKeyOptionsContainsOnlySelectorMetadata(t *testing.T) {
 }
 
 func TestAccessKeyFilterUpdateCanPreserveOrRemoveButNotAddDanglingScope(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	row := models.AccessKey{
 		Name:      "historical-scope",

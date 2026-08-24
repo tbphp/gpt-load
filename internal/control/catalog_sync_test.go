@@ -286,6 +286,7 @@ func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t 
 }
 
 func TestCatalogBootstrapLoadsLKGAndFallsBackToOfficialCatalog(t *testing.T) {
+	t.Parallel()
 	missing := loadCatalogBootstrap(filepath.Join(t.TempDir(), "missing.json"))
 	if missing.HasLKG || missing.Runtime == nil || missing.Runtime.Load() == nil {
 		t.Fatalf("missing bootstrap = %#v, want official-only runtime", missing)
@@ -323,6 +324,7 @@ func TestCatalogBootstrapLoadsLKGAndFallsBackToOfficialCatalog(t *testing.T) {
 }
 
 func TestCatalogStartupReconcilesDurableLKGBeforeAnyNetworkSync(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	providerID := "openai"
 	seedCatalogPriceGroup(t, fixture, "startup-lkg", &providerID, []string{"gpt"})
@@ -360,6 +362,7 @@ func TestCatalogStartupReconcilesDurableLKGBeforeAnyNetworkSync(t *testing.T) {
 }
 
 func TestCatalogSyncSingleFlightJoinsManualStartupAndGroupTriggers(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -421,6 +424,7 @@ func TestCatalogSyncSingleFlightJoinsManualStartupAndGroupTriggers(t *testing.T)
 }
 
 func TestCatalogSyncCallerCancellationStopsWaitingWithoutCancelingSharedOperation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	operationContexts := make(chan context.Context, 1)
 	release := make(chan struct{})
@@ -470,6 +474,7 @@ func TestCatalogSyncCallerCancellationStopsWaitingWithoutCancelingSharedOperatio
 }
 
 func TestCatalogSync304PreservesPublishedGenerationsAndDoesNotStoreCache(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	oldSnapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": catalogProviderFixture("openai", "Old", "old", 1_000_000_000),
@@ -518,6 +523,7 @@ func TestCatalogSync304PreservesPublishedGenerationsAndDoesNotStoreCache(t *test
 }
 
 func TestCatalogSyncRejects304WithoutLastKnownGoodGeneration(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	previous := catalog.Metadata{}
 	client := catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
@@ -546,6 +552,7 @@ func TestCatalogSyncRejects304WithoutLastKnownGoodGeneration(t *testing.T) {
 }
 
 func TestCatalogSyncFailuresRefreshLastCheckAndPreserveLastSuccessfulFetch(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	previous := catalog.Metadata{
 		ETag:                    "last-good",
@@ -575,6 +582,7 @@ func TestCatalogSyncFailuresRefreshLastCheckAndPreserveLastSuccessfulFetch(t *te
 }
 
 func TestCatalogSyncCacheFailureUsesCurrentCheckWithoutAdvancingSuccessfulFetch(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	previous := catalog.Metadata{SuccessfulFetchAtMillis: 90, CheckedAtMillis: 100}
 	client := catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
@@ -595,6 +603,7 @@ func TestCatalogSyncCacheFailureUsesCurrentCheckWithoutAdvancingSuccessfulFetch(
 }
 
 func TestCatalogSyncDisabledAutomaticTriggersDoNotCallNetworkButManualStillWorks(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	disabled := false
 	fixture.service.modelsDevAutoSyncOverride = &disabled
@@ -631,6 +640,7 @@ func TestCatalogSyncDisabledAutomaticTriggersDoNotCallNetworkButManualStillWorks
 }
 
 func TestCatalogSyncSchedulerRetriesNoLKGAfterOneHourAndKeepsLKGOnDailyCadence(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name             string
 		hasLKG           bool
@@ -705,6 +715,7 @@ func TestCatalogSyncSchedulerRetriesNoLKGAfterOneHourAndKeepsLKGOnDailyCadence(t
 }
 
 func TestCatalogSyncSchedulerDebouncesGroupChangeBursts(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	calls := make(chan struct{}, 4)
 	client := catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
@@ -761,6 +772,7 @@ func TestCatalogSyncSchedulerDebouncesGroupChangeBursts(t *testing.T) {
 }
 
 func TestCatalogSyncSchedulerRunsImmediateSettingsTrigger(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	calls := make(chan struct{}, 2)
 	client := catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
@@ -802,6 +814,7 @@ func TestCatalogSyncSchedulerRunsImmediateSettingsTrigger(t *testing.T) {
 }
 
 func TestCatalogSyncSchedulerRetries304WithoutLKGAfterOneHour(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	calls := make(chan struct{}, 2)
 	client := catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
@@ -839,6 +852,7 @@ func TestCatalogSyncSchedulerRetries304WithoutLKGAfterOneHour(t *testing.T) {
 }
 
 func TestCatalogSyncShutdownWaitsForBlockedCacheAndPreventsLateReconcile(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	result := catalogResultFixture(100, "shutdown", nil)
 	var calls atomic.Int32
@@ -898,6 +912,7 @@ func TestCatalogSyncShutdownWaitsForBlockedCacheAndPreventsLateReconcile(t *test
 }
 
 func TestCatalogSyncShutdownWaitsForBlockedReconcile(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	result := catalogResultFixture(100, "shutdown", nil)
 	client := catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
@@ -941,6 +956,7 @@ func TestCatalogSyncShutdownWaitsForBlockedReconcile(t *testing.T) {
 }
 
 func TestCatalogSyncRunShutdownCancelsPreRuntimeManualOperation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started := make(chan struct{})
 	canceled := make(chan struct{})
@@ -1010,6 +1026,7 @@ func TestCatalogSyncRunShutdownCancelsPreRuntimeManualOperation(t *testing.T) {
 }
 
 func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	openAI := "openai"
 	missingProvider := "missing-provider"
@@ -1085,6 +1102,7 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 }
 
 func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := createPriceTestGroup(t, fixture.db, models.Group{
 		Name: "custom", ChannelID: string(channel.OpenAICompatible),
@@ -1201,6 +1219,7 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 }
 
 func TestCatalogSyncScopesSameModelByChannelAndPreservesManualOverride(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	for _, group := range []models.Group{
 		{
@@ -1276,6 +1295,7 @@ func TestCatalogSyncScopesSameModelByChannelAndPreservesManualOverride(t *testin
 }
 
 func TestCatalogSyncReconcileFailurePublishesNeitherRuntimeAndKeepsPendingLKG(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	providerID := "openai"
 	seedCatalogPriceGroup(t, fixture, "openai", &providerID, []string{"gpt"})

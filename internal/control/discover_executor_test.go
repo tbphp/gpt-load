@@ -120,6 +120,7 @@ func encodeDiscoveryModelsForTest(value protocol.Protocol, models []string) []by
 }
 
 func TestUtilityRequestShapeUsesSelectedProtocol(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		clientProtocol protocol.Protocol
 		path           string
@@ -352,6 +353,7 @@ func (scriptedDiscoveryExecutor) ExecuteStream(context.Context, execution.Attemp
 }
 
 func TestExecuteModelDiscoveryFallsBackAcrossCredentialsInStableOrder(t *testing.T) {
+	t.Parallel()
 	var calls []string
 	recorder := &recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
@@ -382,6 +384,7 @@ func TestExecuteModelDiscoveryFallsBackAcrossCredentialsInStableOrder(t *testing
 }
 
 func TestExecuteModelDiscoverySharesOneTotalTimeout(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var deadlines []time.Time
 	recorder := &recordingDiscoveryExecutorTarget{
@@ -410,6 +413,7 @@ func TestExecuteModelDiscoverySharesOneTotalTimeout(t *testing.T) {
 }
 
 func TestExecuteModelDiscoveryReturnsParentCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
 	recorder := &recordingDiscoveryExecutorTarget{
@@ -431,6 +435,7 @@ func TestExecuteModelDiscoveryReturnsParentCancellation(t *testing.T) {
 }
 
 func TestExecuteModelDiscoveryRejectsInvalidTargetBeforeDispatch(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	service := &Service{
 		executor: scriptedDiscoveryExecutor{execute: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
@@ -464,6 +469,7 @@ func TestExecuteModelDiscoveryRejectsInvalidTargetBeforeDispatch(t *testing.T) {
 }
 
 func TestNormalizeDiscoveredModels(t *testing.T) {
+	t.Parallel()
 	got := normalizeDiscoveredModels([]string{" model-b ", "", "model-a", "model-b", "\t"})
 	if !reflect.DeepEqual(got, []string{"model-b", "model-a"}) {
 		t.Fatalf("normalizeDiscoveredModels() = %#v", got)

@@ -24,6 +24,7 @@ import (
 )
 
 func TestDiscoverModelsUsesSystemDefaultsAndNormalizesSuccessfulResult(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	if err := fixture.db.Create(&models.SystemSetting{
 		Key: "header_rules",
@@ -116,6 +117,7 @@ func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
 }
 
 func TestDiscoverModelsAppliesRequestedProxyToReadySubscriptionStage(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stageProxy := outboundproxy.Config{
 		Mode: outboundproxy.ModeCustom,
@@ -183,6 +185,7 @@ func TestDiscoverModelsAppliesRequestedProxyToReadySubscriptionStage(t *testing.
 }
 
 func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -267,6 +270,7 @@ func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
 }
 
 func TestDiscoverModelsRejectsReadyStageRefreshIdentityChange(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -303,6 +307,7 @@ func TestDiscoverModelsRejectsReadyStageRefreshIdentityChange(t *testing.T) {
 }
 
 func TestDiscoverModelsRefreshesReadyStageOnceAfterUnauthorized(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
 		`{"type":"codex","access_token":"stale-access","refresh_token":"refresh-token","account_id":"account-discovery-refresh","expired":"2030-01-01T00:00:00Z"}`,
@@ -340,6 +345,7 @@ func TestDiscoverModelsRefreshesReadyStageOnceAfterUnauthorized(t *testing.T) {
 }
 
 func TestDiscoverModelsMarksReadyStageOutcomeUnknownAfterAmbiguousRefresh(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -368,6 +374,7 @@ func TestDiscoverModelsMarksReadyStageOutcomeUnknownAfterAmbiguousRefresh(t *tes
 }
 
 func TestReadyStageRefreshExcludesConcurrentConsume(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -422,6 +429,7 @@ func TestReadyStageRefreshExcludesConcurrentConsume(t *testing.T) {
 }
 
 func TestReadyStageRefreshCancellationBoundary(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -501,6 +509,7 @@ func TestReadyStageRefreshCancellationBoundary(t *testing.T) {
 }
 
 func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	var calls atomic.Int64
 	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
@@ -550,6 +559,7 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 }
 
 func TestDiscoverModelsUsesChannelNativeDiscoveryProtocol(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	calls := 0
 	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
@@ -588,6 +598,7 @@ func TestDiscoverModelsUsesChannelNativeDiscoveryProtocol(t *testing.T) {
 }
 
 func TestDiscoverModelsPassesStructuredCloudCredentialToExecutor(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	var observed execution.AttemptSpec
 	fixture.service.executor = scriptedDiscoveryExecutor{execute: func(
@@ -628,6 +639,7 @@ func TestDiscoverModelsPassesStructuredCloudCredentialToExecutor(t *testing.T) {
 }
 
 func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(context.Background(), GroupCreateRequest{
 		Name: stringPointer("discover-runtime-state"), ChannelID: channel.OpenAICompatible,
@@ -723,6 +735,7 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 }
 
 func TestDiscoverModelsDoesNotAcquireWriteMu(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
@@ -755,6 +768,7 @@ func TestDiscoverModelsDoesNotAcquireWriteMu(t *testing.T) {
 }
 
 func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
+	t.Parallel()
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	fixture := newServiceFixture(t)

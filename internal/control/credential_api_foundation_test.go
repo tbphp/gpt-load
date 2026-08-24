@@ -22,6 +22,7 @@ import (
 )
 
 func TestRestoreGroupCredentialLogsRuntimeRecovery(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -74,6 +75,7 @@ func TestRestoreGroupCredentialLogsRuntimeRecovery(t *testing.T) {
 }
 
 func TestCredentialRoutesReplaceLegacyGroupKeyRoutes(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	module := NewServer(&config.Config{AuthKey: "credential-auth"}, fixture.service).HTTPModule()
 	want := map[string]string{
@@ -110,6 +112,7 @@ func TestCredentialRoutesReplaceLegacyGroupKeyRoutes(t *testing.T) {
 }
 
 func TestImportAndListGroupCredentialsUseCanonicalCredentialStorage(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name: stringPointer("credential api"), ChannelID: channel.OpenAI,
@@ -150,6 +153,7 @@ func TestImportAndListGroupCredentialsUseCanonicalCredentialStorage(t *testing.T
 }
 
 func TestCloudCredentialImportAcceptsOneStrictJSONObjectPerLine(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	tests := []struct {
 		name        string
@@ -206,6 +210,7 @@ func TestCloudCredentialImportAcceptsOneStrictJSONObjectPerLine(t *testing.T) {
 }
 
 func TestCredentialValidationReturnsSafeFieldDiagnostic(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	const secret = "sensitive-client-id"
 	_, err := fixture.service.normalizeCredentials(
@@ -229,6 +234,7 @@ func TestCredentialValidationReturnsSafeFieldDiagnostic(t *testing.T) {
 }
 
 func TestVertexCredentialImportAcceptsPastedServiceAccountJSON(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	raw := `{
   "type": "service_account",
@@ -262,6 +268,7 @@ func TestVertexCredentialImportAcceptsPastedServiceAccountJSON(t *testing.T) {
 }
 
 func TestVertexCredentialImportAcceptsOneRawServiceAccountPerLine(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	credentials := strings.Join([]string{
 		`{"type":"service_account","project_id":"project-one","client_email":"first@example.iam.gserviceaccount.com","private_key":"first-secret"}`,
@@ -281,6 +288,7 @@ func TestVertexCredentialImportAcceptsOneRawServiceAccountPerLine(t *testing.T) 
 }
 
 func TestGroupCredentialMutationsPreserveRuntimeIdentityAndHealthContracts(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	runtime := &recordingCredentialRuntimeExecutor{}
 	fixture.service.executor = runtime
@@ -385,6 +393,7 @@ func TestGroupCredentialMutationsPreserveRuntimeIdentityAndHealthContracts(t *te
 }
 
 func TestCredentialHTTPUsesCanonicalWireAndRejectsLegacyFields(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -460,6 +469,7 @@ func TestCredentialHTTPUsesCanonicalWireAndRejectsLegacyFields(t *testing.T) {
 }
 
 func TestAPIKeyCredentialImportRejectsSubscriptionGroup(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, _ := newSubscriptionCredentialFixture(t)
 	before, err := fixture.service.ListGroupCredentials(t.Context(), groupID, CredentialCollectionQuery{Page: 1, PageSize: 20})
 	if err != nil {
