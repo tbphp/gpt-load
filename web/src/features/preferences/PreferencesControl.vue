@@ -1,20 +1,10 @@
 <script setup lang="ts">
-import {
-  Code2,
-  ExternalLink,
-  Languages,
-  LogOut,
-  Menu,
-  MessageCircle,
-  Monitor,
-  Moon,
-  Star,
-  Sun,
-} from '@lucide/vue'
+import { Languages, LogOut, Menu, Monitor, Moon, Sun } from '@lucide/vue'
 import { useId, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppPopover from '@/components/ui/AppPopover.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import type { AppLocale } from '@/i18n'
 
@@ -140,35 +130,78 @@ function close(): void {
       </div>
       <div class="preferences-panel__divider"></div>
       <div class="preferences-panel__group">
-        <span class="preferences-panel__label">{{ t('shell.projectCommunity') }}</span>
-        <div class="preferences-panel__project-links">
-          <a
-            class="preferences-panel__action"
-            :href="githubURL"
-            target="_blank"
-            rel="noopener noreferrer"
-            @click="close"
-          >
-            <Code2 :size="15" aria-hidden="true" />
-            <span>GitHub</span>
-            <ExternalLink class="preferences-panel__external" :size="13" aria-hidden="true" />
-          </a>
-          <a
-            class="preferences-panel__action"
-            :href="telegramURL"
-            target="_blank"
-            rel="noopener noreferrer"
-            @click="close"
-          >
-            <MessageCircle :size="15" aria-hidden="true" />
-            <span>Telegram</span>
-            <ExternalLink class="preferences-panel__external" :size="13" aria-hidden="true" />
-          </a>
+        <div class="preferences-panel__project-meta">
+          <AppTooltip content="GitHub">
+            <a
+              class="preferences-panel__brand-link preferences-panel__brand-link--github"
+              :href="githubURL"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="GitHub"
+              @click="close"
+            >
+              <!-- Source: https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/github.svg -->
+              <svg
+                class="preferences-panel__brand-icon"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                fill-rule="evenodd"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  d="M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z"
+                />
+              </svg>
+            </a>
+          </AppTooltip>
+          <span class="preferences-panel__star">{{ t('shell.starInvitation') }}</span>
+          <AppTooltip content="Telegram">
+            <a
+              class="preferences-panel__brand-link preferences-panel__brand-link--telegram"
+              :href="telegramURL"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Telegram"
+              @click="close"
+            >
+              <!-- Source: https://telegram.org/img/t_logo.svg -->
+              <svg
+                class="preferences-panel__brand-icon"
+                viewBox="0 0 128 128"
+                fill="none"
+                fill-rule="evenodd"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <defs>
+                  <linearGradient
+                    :id="`${identity}-telegram-logo`"
+                    x1="50%"
+                    x2="50%"
+                    y1="0%"
+                    y2="99.258%"
+                  >
+                    <stop offset="0%" stop-color="#2aabee" />
+                    <stop offset="100%" stop-color="#229ed9" />
+                  </linearGradient>
+                </defs>
+                <circle
+                  cx="64"
+                  cy="64"
+                  r="64"
+                  :fill="`url(#${identity}-telegram-logo)`"
+                  fill-rule="nonzero"
+                />
+                <path
+                  fill="#fff"
+                  fill-rule="nonzero"
+                  d="M28.9700376,63.3244248 C47.6273373,55.1957357 60.0684594,49.8368063 66.2934036,47.2476366 C84.0668845,39.855031 87.7600616,38.5708563 90.1672227,38.528 C90.6966555,38.5191258 91.8804274,38.6503351 92.6472251,39.2725385 C93.294694,39.7979149 93.4728387,40.5076237 93.5580865,41.0057381 C93.6433345,41.5038525 93.7494885,42.63857 93.6651041,43.5252052 C92.7019529,53.6451182 88.5344133,78.2034783 86.4142057,89.5379542 C85.5170662,94.3339958 83.750571,95.9420841 82.0403991,96.0994568 C78.3237996,96.4414641 75.5015827,93.6432685 71.9018743,91.2836143 C66.2690414,87.5912212 63.0868492,85.2926952 57.6192095,81.6896017 C51.3004058,77.5256038 55.3966232,75.2369981 58.9976911,71.4967761 C59.9401076,70.5179421 76.3155302,55.6232293 76.6324771,54.2720454 C76.6721165,54.1030573 76.7089039,53.4731496 76.3346867,53.1405352 C75.9604695,52.8079208 75.4081573,52.921662 75.0095933,53.0121213 C74.444641,53.1403447 65.4461175,59.0880351 48.0140228,70.8551922 C45.4598218,72.6091037 43.1463059,73.4636682 41.0734751,73.4188859 C38.7883453,73.3695169 34.3926725,72.1268388 31.1249416,71.0646282 C27.1169366,69.7617838 23.931454,69.0729605 24.208838,66.8603276 C24.3533167,65.7078514 25.9403832,64.5292172 28.9700376,63.3244248 Z"
+                />
+              </svg>
+            </a>
+          </AppTooltip>
         </div>
-        <p class="preferences-panel__star">
-          <Star :size="13" aria-hidden="true" />
-          <span>{{ t('shell.starInvitation') }}</span>
-        </p>
       </div>
       <div v-if="showSignOut" class="preferences-panel__divider"></div>
       <button v-if="showSignOut" class="preferences-panel__action" type="button" @click="signOut">
@@ -321,30 +354,48 @@ function close(): void {
   background: var(--color-surface-sunken);
 }
 
-.preferences-panel__project-links {
-  display: grid;
-  gap: 2px;
+.preferences-panel__project-meta {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
 }
 
-.preferences-panel__external {
+.preferences-panel__brand-link {
+  display: inline-flex;
+  width: 20px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.preferences-panel__brand-link--github {
+  width: auto;
+  color: light-dark(#181717, #f0f6fc);
+}
+
+.preferences-panel__brand-link--telegram {
   margin-left: auto;
-  color: var(--color-text-faint);
+  justify-content: flex-end;
+}
+
+.preferences-panel__brand-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
 }
 
 .preferences-panel__star {
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin: 0;
+  flex: none;
+  margin-left: 4px;
   color: var(--color-text-faint);
-  padding: 1px 6px 0;
   font-size: var(--text-label-xs);
   line-height: var(--line-normal);
-}
-
-.preferences-panel__star svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
+  text-align: left;
+  white-space: nowrap;
 }
 
 .app-popover__content.app-popover__content--preferences {

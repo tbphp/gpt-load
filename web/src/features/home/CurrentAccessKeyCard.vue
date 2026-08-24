@@ -9,7 +9,6 @@ import type {
 } from '@/api/control/types'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
-import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatInteger, formatUSD } from '@/lib/format'
 import { quotaProgressTone } from '@/lib/quota-progress'
@@ -62,6 +61,14 @@ function ruleLabel(kind: 'total' | 'periodic', periodSeconds: number): string {
     : t('home.ledger.currentAccessKey.costLimits.periodic', {
         period: periodLabel(periodSeconds),
       })
+}
+
+function ruleUsageLabel(rule: AccessKeyCostLimitRuleStatusDto): string {
+  return t('home.ledger.currentAccessKey.costLimits.usage', {
+    used: formatUSD(rule.used_usd, locale.value),
+    limit: formatUSD(rule.limit_usd, locale.value),
+    remaining: formatUSD(rule.remaining_usd, locale.value),
+  })
 }
 
 function remainingPercent(rule: AccessKeyCostLimitRuleStatusDto): number {
@@ -172,26 +179,35 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
               {{ t(`accessKeys.costLimits.status.${rule.status}`) }}
             </StatusBadge>
           </div>
-          <p>
-            {{
-              t('home.ledger.currentAccessKey.costLimits.usage', {
-                used: formatUSD(rule.used_usd, locale),
-                limit: formatUSD(rule.limit_usd, locale),
-                remaining: formatUSD(rule.remaining_usd, locale),
-              })
-            }}
-          </p>
-          <div class="current-access-key__limit-progress">
-            <QuotaProgressBar
-              :value="remainingPercent(rule)"
-              :tone="ruleTone(rule)"
-              :label="ruleLabel(rule.kind, rule.period_seconds)"
-              :value-text="
+          <div
+            class="current-access-key__limit-progress"
+            :class="`current-access-key__limit-progress--${ruleTone(rule)}`"
+          >
+            <span
+              class="current-access-key__limit-progress-meter"
+              role="progressbar"
+              :aria-label="ruleLabel(rule.kind, rule.period_seconds)"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="remainingPercent(rule)"
+              :aria-valuetext="
                 t('accessKeys.costLimits.remainingPercent', {
                   value: n(remainingPercent(rule)),
                 })
               "
-            />
+            >
+              <span
+                class="current-access-key__limit-progress-fill"
+                :style="{ width: `${remainingPercent(rule)}%` }"
+                aria-hidden="true"
+              ></span>
+            </span>
+            <OverflowTooltip
+              class="current-access-key__limit-progress-usage"
+              :content="ruleUsageLabel(rule)"
+            >
+              {{ ruleUsageLabel(rule) }}
+            </OverflowTooltip>
             <strong>{{ n(remainingPercent(rule)) }}%</strong>
           </div>
           <div class="current-access-key__limit-recovery">
@@ -370,19 +386,63 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
   justify-content: space-between;
   gap: var(--space-2);
 }
-.current-access-key__limit-list p {
-  margin: 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
 .current-access-key__limit-progress {
+  --quota-accent: var(--color-border-control);
+  --quota-tint: var(--color-surface-sunken);
+  position: relative;
   display: grid;
+  min-height: 34px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--quota-tint);
+  box-shadow: inset 3px 0 0 var(--quota-accent);
+  padding: 7px 10px 7px 13px;
+}
+.current-access-key__limit-progress--success {
+  --quota-accent: oklch(70% 0.16 158);
+  --quota-tint: light-dark(#dcfeea, #112b21);
+}
+.current-access-key__limit-progress--warning {
+  --quota-accent: oklch(75% 0.152 75);
+  --quota-tint: light-dark(#fff2e2, #302212);
+}
+.current-access-key__limit-progress--danger {
+  --quota-accent: oklch(65% 0.2 22);
+  --quota-tint: light-dark(#fef0f0, #371a1d);
+}
+.current-access-key__limit-progress-meter {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.current-access-key__limit-progress-fill {
+  position: absolute;
+  inset: auto auto 0 0;
+  height: 3px;
+  background: var(--quota-accent);
+  transition: width var(--duration-fast) var(--easing-standard);
+}
+.current-access-key__limit-progress-usage {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .current-access-key__limit-progress strong {
+  position: relative;
+  z-index: 1;
   min-width: 36px;
+  color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
@@ -415,6 +475,12 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 
   .current-access-key__limit-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .current-access-key__limit-progress-fill {
+    transition: none;
   }
 }
 </style>
