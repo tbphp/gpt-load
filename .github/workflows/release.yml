@@ -350,8 +350,9 @@ jobs:
           name: binary-${{ matrix.filename }}
           path: release/${{ matrix.filename }}
           if-no-files-found: error
-          # 仅在本次 run 内汇总进 release-assets，不单独保留。
-          retention-days: 1
+          # native-artifact-smoke 按需下载此产物；保留期需与 release-assets
+          # 一致，否则失败的 run 在超过较短保留期后重试会因产物过期而无法下载。
+          retention-days: 14
 
   package-metadata:
     needs: validate-tag
@@ -440,8 +441,9 @@ jobs:
           name: release-checksums
           path: release/SHA256SUMS
           if-no-files-found: error
-          # 仅供 native-artifact-smoke 按需下载单个校验和文件，不作为发布产物单独保留。
-          retention-days: 1
+          # 供 native-artifact-smoke 按需下载单个校验和文件；保留期需与
+          # release-assets 一致，否则失败的 run 延迟重试时可能已过期。
+          retention-days: 14
 
   native-artifact-smoke:
     # package-checksums 已经依赖 build-binaries，无需重复声明。

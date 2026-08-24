@@ -14,9 +14,11 @@ var (
 
 // Service returns an encryption.Service derived from keyMaterial, reusing a
 // previously derived instance for the same keyMaterial within this test
-// binary. PBKDF2 key derivation dominates fixture construction cost across
-// packages; aesService is stateless after construction, so sharing an
-// instance across fixtures (including parallel tests) is safe.
+// binary (each package's go test run is a separate process, so this cache
+// does not span packages). PBKDF2 key derivation dominates fixture
+// construction cost in several packages; aesService is stateless after
+// construction, so sharing an instance across fixtures (including parallel
+// tests) within one package is safe.
 func Service(t *testing.T, keyMaterial string) encryption.Service {
 	t.Helper()
 	mu.Lock()
