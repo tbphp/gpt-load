@@ -160,7 +160,8 @@ func (e *claudeHTTPExecutor) ExecuteCanonical(
 	auth := NewClaudeAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -191,7 +192,8 @@ func (e *claudeHTTPExecutor) CountTokensCanonical(
 	auth := NewClaudeAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.CountTokens(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -221,7 +223,8 @@ func (e *claudeHTTPExecutor) ExecuteStreamCanonical(
 	auth := NewClaudeAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Stream: true, Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),

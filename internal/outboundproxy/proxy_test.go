@@ -65,6 +65,10 @@ func TestNormalizeRejectsInvalidPoliciesWithoutLeakingEndpoint(t *testing.T) {
 		{Mode: ModeCustom, URL: "http://secret:password@proxy.example.com/path"},
 		{Mode: ModeCustom, URL: "http://secret:password@proxy.example.com?token=secret"},
 		{Mode: ModeCustom, URL: "http://:password@proxy.example.com"},
+		{Mode: ModeCustom, URL: "http://user@proxy.example.com"},
+		{Mode: ModeCustom, URL: "http://user:@proxy.example.com"},
+		{Mode: ModeCustom, URL: "socks5://user@proxy.example.com:1080"},
+		{Mode: ModeCustom, URL: "socks5://user:@proxy.example.com:1080"},
 		{Mode: "unknown"},
 	}
 	for _, input := range tests {

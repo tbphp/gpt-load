@@ -160,7 +160,7 @@ func (executor *antigravityHTTPExecutor) ExecuteCanonical(
 	if err != nil {
 		return ExecuteResponse{}, err
 	}
-	response, err := executor.inner.Execute(executionCtx, auth, cliproxyexecutor.Request{
+	response, err := executor.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, false))
 	if err != nil {
@@ -192,7 +192,7 @@ func (executor *antigravityHTTPExecutor) CountTokensCanonical(
 	if err != nil {
 		return ExecuteResponse{}, err
 	}
-	response, err := executor.inner.CountTokens(executionCtx, auth, cliproxyexecutor.Request{
+	response, err := executor.inner.CountTokens(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, false))
 	if err != nil {
@@ -224,7 +224,7 @@ func (executor *antigravityHTTPExecutor) ExecuteStreamCanonical(
 	if err != nil {
 		return nil, err
 	}
-	response, err := executor.inner.ExecuteStream(executionCtx, auth, cliproxyexecutor.Request{
+	response, err := executor.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, true))
 	if err != nil {

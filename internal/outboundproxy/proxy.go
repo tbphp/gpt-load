@@ -112,8 +112,8 @@ func normalizeCustom(endpoint string) (Config, error) {
 		return Config{}, ErrInvalidConfig
 	}
 	if parsed.User != nil {
-		_, hasPassword := parsed.User.Password()
-		if hasPassword && parsed.User.Username() == "" {
+		password, hasPassword := parsed.User.Password()
+		if parsed.User.Username() == "" || !hasPassword || password == "" {
 			return Config{}, ErrInvalidConfig
 		}
 	}

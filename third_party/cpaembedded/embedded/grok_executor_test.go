@@ -184,13 +184,15 @@ func TestGrokExecutionOnlyBridgeUsesOneDispatchAndRejectsRedirects(t *testing.T)
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
-		w.Header().Set("Location", "https://example.invalid/redirected")
+		w.Header().Set("Location", "/redirected")
 		w.WriteHeader(http.StatusTemporaryRedirect)
 	}))
 	defer server.Close()
 
 	executor := testGrokHTTPExecutor(server.URL)
-	_, err := executor.ExecuteCanonical(t.Context(), "credential-1", testGrokExecutionCredential(), testGrokRequest())
+	request := testGrokRequest()
+	request.ProxyURL = "direct"
+	_, err := executor.ExecuteCanonical(t.Context(), "credential-1", testGrokExecutionCredential(), request)
 	if !errors.Is(err, ErrRedirectNotAllowed) || calls.Load() != 1 {
 		t.Fatalf("redirect result = %v, calls = %d", err, calls.Load())
 	}

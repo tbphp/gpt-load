@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -738,8 +739,10 @@ func TestAntigravityExecutionOnlyBridgeScopesConnectionsByCredential(t *testing.
 }
 
 func TestAntigravityExecutionOnlyBridgeRejectsRedirects(t *testing.T) {
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Location", "https://example.invalid/redirected")
+		calls.Add(1)
+		writer.Header().Set("Location", "/redirected")
 		writer.WriteHeader(http.StatusTemporaryRedirect)
 	}))
 	defer server.Close()
@@ -752,9 +755,10 @@ func TestAntigravityExecutionOnlyBridgeRejectsRedirects(t *testing.T) {
 		Model: "gemini-live", Format: "gemini",
 		Payload:         []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
 		OriginalRequest: []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+		ProxyURL:        "direct",
 	})
-	if !errors.Is(err, ErrRedirectNotAllowed) {
-		t.Fatalf("error = %v, want redirect rejection", err)
+	if !errors.Is(err, ErrRedirectNotAllowed) || calls.Load() != 1 {
+		t.Fatalf("redirect result = %v, calls = %d", err, calls.Load())
 	}
 }
 

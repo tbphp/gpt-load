@@ -374,7 +374,8 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	auth := NewCodexAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
-	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -394,7 +395,8 @@ func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credential
 	auth := NewCodexAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
-	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.CountTokens(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -444,7 +446,8 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 	auth := NewCodexAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
-	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Stream: true, Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -471,11 +474,13 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 }
 
 func (e *CodexHTTPExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return e.inner.Execute(e.executionContext(ctx, auth, nil, false), auth, req, opts)
+	executionCtx := e.executionContext(ctx, auth, nil, false)
+	return e.inner.Execute(executionCtx, authWithoutProxyURL(auth), req, opts)
 }
 
 func (e *CodexHTTPExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
-	return e.inner.ExecuteStream(e.executionContext(ctx, auth, nil, false), auth, req, opts)
+	executionCtx := e.executionContext(ctx, auth, nil, false)
+	return e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), req, opts)
 }
 
 func (e *CodexHTTPExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
@@ -495,7 +500,8 @@ func (e *CodexHTTPExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.
 }
 
 func (e *CodexHTTPExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth, req *http.Request) (*http.Response, error) {
-	return e.inner.HttpRequest(e.executionContext(ctx, auth, nil, false), auth, req)
+	executionCtx := e.executionContext(ctx, auth, nil, false)
+	return e.inner.HttpRequest(executionCtx, authWithoutProxyURL(auth), req)
 }
 
 // ListCodexModels performs exactly one account-bound models request.
@@ -680,6 +686,17 @@ func (e *CodexHTTPExecutor) executionContext(
 	}
 	transport := executionRoundTripper(ctx, e.cfg, auth, proxyFromEnvironment)
 	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{base: transport, observation: observation})
+}
+
+// authWithoutProxyURL forces CPA to use the guarded transport already frozen
+// into the execution context instead of rebuilding an unguarded transport.
+func authWithoutProxyURL(auth *cliproxyauth.Auth) *cliproxyauth.Auth {
+	if auth == nil || strings.TrimSpace(auth.ProxyURL) == "" {
+		return auth
+	}
+	clone := *auth
+	clone.ProxyURL = ""
+	return &clone
 }
 
 type noRedirectRoundTripper struct {

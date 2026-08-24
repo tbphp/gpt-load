@@ -36,9 +36,20 @@ func TestEffectiveProviderConfigMapsHTTPAndSOCKSAttemptProxy(t *testing.T) {
 		name     string
 		endpoint string
 		wantType schemas.ProxyType
+		wantURL  string
 	}{
-		{name: "http", endpoint: "http://user:password@proxy.example.com:8080", wantType: schemas.HTTPProxy},
-		{name: "socks5", endpoint: "socks5://user:password@proxy.example.com:1080", wantType: schemas.Socks5Proxy},
+		{
+			name: "http", endpoint: "http://user:password@proxy.example.com:8080",
+			wantType: schemas.HTTPProxy, wantURL: "http://proxy.example.com:8080",
+		},
+		{
+			name: "http default port", endpoint: "http://user:password@proxy.example.com",
+			wantType: schemas.HTTPProxy, wantURL: "http://proxy.example.com:80",
+		},
+		{
+			name: "socks5", endpoint: "socks5://user:password@proxy.example.com:1080",
+			wantType: schemas.Socks5Proxy, wantURL: "socks5://proxy.example.com:1080",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -51,7 +62,7 @@ func TestEffectiveProviderConfigMapsHTTPAndSOCKSAttemptProxy(t *testing.T) {
 				t.Fatalf("buildEffectiveProviderConfigForAttempt() error = %v", err)
 			}
 			proxy := config.providerConfig.ProxyConfig
-			if proxy == nil || proxy.Type != test.wantType || proxy.URL.GetValue() != strings.Split(test.endpoint, "//")[0]+"//proxy.example.com:"+map[string]string{"http": "8080", "socks5": "1080"}[test.name] {
+			if proxy == nil || proxy.Type != test.wantType || proxy.URL.GetValue() != test.wantURL {
 				t.Fatalf("ProxyConfig = %#v", proxy)
 			}
 			if proxy.Username.GetValue() != "user" || proxy.Password.GetValue() != "password" {
@@ -67,6 +78,38 @@ func TestEffectiveProviderConfigMapsHTTPAndSOCKSAttemptProxy(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestEffectiveProviderConfigTreatsProxyCredentialsAsPlaintext(t *testing.T) {
+	t.Setenv("GPT_LOAD_PROXY_USER", "resolved-user")
+	t.Setenv("GPT_LOAD_PROXY_PASSWORD", "resolved-password")
+
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := execution.AttemptSpec{Proxy: outboundproxy.Effective{
+		Config: outboundproxy.Config{
+			Mode: outboundproxy.ModeCustom,
+			URL:  "http://env.GPT_LOAD_PROXY_USER:env.GPT_LOAD_PROXY_PASSWORD@proxy.example.com:8080",
+		},
+		Source: outboundproxy.SourceCredential,
+	}}
+	config, err := buildEffectiveProviderConfigForAttempt(resolved, spec, true)
+	if err != nil {
+		t.Fatalf("buildEffectiveProviderConfigForAttempt() error = %v", err)
+	}
+	proxy := config.providerConfig.ProxyConfig
+	if proxy == nil {
+		t.Fatal("ProxyConfig = nil")
+	}
+	if proxy.Username.GetValue() != "env.GPT_LOAD_PROXY_USER" ||
+		proxy.Password.GetValue() != "env.GPT_LOAD_PROXY_PASSWORD" ||
+		proxy.Username.SecretType != schemas.SecretTypePlainText ||
+		proxy.Password.SecretType != schemas.SecretTypePlainText {
+		t.Fatalf("ProxyConfig auth = %#v/%#v, want literal plaintext", proxy.Username, proxy.Password)
 	}
 }
 

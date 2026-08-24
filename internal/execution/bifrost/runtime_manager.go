@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -148,6 +149,9 @@ func applyAttemptProxy(
 		switch endpoint.Scheme {
 		case "http":
 			proxy.Type = schemas.HTTPProxy
+			if endpoint.Port() == "" {
+				endpoint.Host = net.JoinHostPort(endpoint.Hostname(), "80")
+			}
 		case "socks5":
 			proxy.Type = schemas.Socks5Proxy
 		default:
@@ -159,9 +163,9 @@ func applyAttemptProxy(
 			password, _ = endpoint.User.Password()
 		}
 		endpoint.User = nil
-		proxy.URL = schemas.NewSecretVar(endpoint.String())
-		proxy.Username = schemas.NewSecretVar(username)
-		proxy.Password = schemas.NewSecretVar(password)
+		proxy.URL = &schemas.SecretVar{Val: endpoint.String(), SecretType: schemas.SecretTypePlainText}
+		proxy.Username = &schemas.SecretVar{Val: username, SecretType: schemas.SecretTypePlainText}
+		proxy.Password = &schemas.SecretVar{Val: password, SecretType: schemas.SecretTypePlainText}
 	default:
 		return effectiveProviderConfig{}, fmt.Errorf("normalize attempt proxy: unsupported mode")
 	}

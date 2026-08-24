@@ -309,37 +309,43 @@ func TestRefreshCodexCredentialOnceClassifiesTokenEndpointError(t *testing.T) {
 }
 
 func TestCodexHTTPExecutorDoesNotFollowRedirects(t *testing.T) {
-	t.Parallel()
+	for _, mode := range []string{"direct", "custom"} {
+		t.Run(mode, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				count := requests.Add(1)
+				if count == 1 {
+					w.Header().Set("Location", "/second")
+					w.WriteHeader(http.StatusTemporaryRedirect)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
 
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count := requests.Add(1)
-		if count == 1 {
-			w.Header().Set("Location", "/second")
-			w.WriteHeader(http.StatusTemporaryRedirect)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	executor := NewCodexHTTPExecutor()
-	auth := NewCodexAuth("credential-1", CodexCredential{
-		Type:         ProviderCodex,
-		AccessToken:  "access",
-		RefreshToken: "refresh",
-		AccountID:    "account-123",
-	}, server.URL)
-	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
-		Model:   "gpt-5.2",
-		Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`),
-		Format:  sdktranslator.FormatOpenAIResponse,
-	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse})
-	if err == nil {
-		t.Fatal("Execute() error = nil, want upstream redirect error")
-	}
-	if requests.Load() != 1 {
-		t.Fatalf("upstream requests = %d, want 1", requests.Load())
+			executor := NewCodexHTTPExecutor()
+			auth := NewCodexAuth("credential-1", CodexCredential{
+				Type:         ProviderCodex,
+				AccessToken:  "access",
+				RefreshToken: "refresh",
+				AccountID:    "account-123",
+			}, server.URL)
+			auth.ProxyURL = "direct"
+			if mode == "custom" {
+				auth.ProxyURL = server.URL
+			}
+			_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+				Model:   "gpt-5.2",
+				Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`),
+				Format:  sdktranslator.FormatOpenAIResponse,
+			}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse})
+			if !errors.Is(err, ErrRedirectNotAllowed) {
+				t.Fatalf("Execute() error = %v, want ErrRedirectNotAllowed", err)
+			}
+			if requests.Load() != 1 {
+				t.Fatalf("upstream requests = %d, want 1", requests.Load())
+			}
+		})
 	}
 }
 

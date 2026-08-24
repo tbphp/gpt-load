@@ -110,6 +110,9 @@ export function isValidProxyURL(value: string): boolean {
     return false
   }
 
+  const lowerValue = value.toLowerCase()
+  if (!lowerValue.startsWith('http://') && !lowerValue.startsWith('socks5://')) return false
+
   let parsed: URL
   try {
     parsed = new URL(value)
@@ -132,5 +135,6 @@ export function isValidProxyURL(value: string): boolean {
     return false
   }
   if (parsed.pathname !== '' && parsed.pathname !== '/') return false
-  return parsed.password === '' || parsed.username !== ''
+  if (authority.includes('@') && (parsed.username === '' || parsed.password === '')) return false
+  return true
 }
