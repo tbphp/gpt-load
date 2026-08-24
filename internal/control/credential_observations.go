@@ -188,6 +188,11 @@ func (s *Service) refreshCredentialObservationOnce(
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
+	network, err := s.credentialNetworkContext(ctx, s.db, group, credential)
+	if err != nil {
+		return CredentialObservationResponse{}, err
+	}
+	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	if mode == observationRefreshAfterReset {
 		if _, err := s.invalidateCredentialObservationAfterReset(ctx, credential, &previous); err != nil {
 			return CredentialObservationResponse{}, err

@@ -363,7 +363,9 @@ func (s *Service) recoverOperationLocked(
 		case operationStageRegistryApplied:
 			stageErr = s.recoverRegistryOperation(ctx, operation)
 		case operationStageSnapshotPublished:
-			compileInput, inputErr := stateloader.BuildCompileInput(ctx, s.db, s.channelRegistry)
+			compileInput, inputErr := stateloader.BuildCompileInputWithProxy(
+				ctx, s.db, s.encryption, s.environmentProxy, s.channelRegistry,
+			)
 			if inputErr != nil {
 				stageErr = inputErr
 			} else {
@@ -404,7 +406,7 @@ func (s *Service) recoverRegistryOperation(
 	}
 	var reconcileErr error
 	reconcile := func() {
-		entries, buildErr := stateloader.BuildGroupCredentialEntries(ctx, s.db, groupID)
+		entries, buildErr := stateloader.BuildGroupCredentialEntriesWithProxy(ctx, s.db, groupID, s.encryption)
 		if buildErr != nil {
 			reconcileErr = buildErr
 			return

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"gpt-load/internal/outboundproxy"
 )
 
 func TestHTTPClientManagerDisableRedirectsReturnsEvery3xxWithoutFollowup(t *testing.T) {
@@ -78,6 +80,116 @@ func TestHTTPClientManagerDisableRedirectsReturnsEvery3xxWithoutFollowup(t *test
 				)
 			}
 		})
+	}
+}
+
+func TestHTTPClientConfigFingerprintDoesNotRetainProxyCredentials(t *testing.T) {
+	t.Parallel()
+
+	fingerprint := (&Config{
+		ProxyURL: "http://proxy-user:proxy-password@proxy.example.com:8080",
+	}).getFingerprint()
+	for _, secret := range []string{"proxy-user", "proxy-password"} {
+		if strings.Contains(fingerprint, secret) {
+			t.Fatalf("HTTP client fingerprint contains proxy credential %q: %s", secret, fingerprint)
+		}
+	}
+}
+
+func TestHTTPClientManagerDisableProxyBypassesEnvironment(t *testing.T) {
+	t.Parallel()
+
+	manager := NewHTTPClientManager()
+	direct := manager.GetClient(&Config{DisableProxy: true})
+	directTransport, ok := direct.Transport.(*http.Transport)
+	if !ok || directTransport.Proxy != nil {
+		t.Fatalf("direct transport = %T, proxy configured = %t", direct.Transport, ok && directTransport.Proxy != nil)
+	}
+	environment := manager.GetClient(&Config{})
+	environmentTransport, ok := environment.Transport.(*http.Transport)
+	if !ok || environmentTransport.Proxy == nil {
+		t.Fatalf("environment transport = %T, proxy configured = %t", environment.Transport, ok && environmentTransport.Proxy != nil)
+	}
+}
+
+func TestHTTPClientManagerMapsValidatedOutboundProxyModes(t *testing.T) {
+	t.Parallel()
+
+	manager := NewHTTPClientManager()
+	request := &http.Request{URL: &url.URL{Scheme: "https", Host: "example.com"}}
+	for _, test := range []struct {
+		name       string
+		effective  outboundproxy.Effective
+		wantProxy  string
+		wantDirect bool
+	}{
+		{
+			name: "environment",
+			effective: outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment},
+				Source: outboundproxy.SourceEnvironment,
+			},
+		},
+		{
+			name: "direct",
+			effective: outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect},
+				Source: outboundproxy.SourceGlobal,
+			},
+			wantDirect: true,
+		},
+		{
+			name: "custom HTTP",
+			effective: outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"},
+				Source: outboundproxy.SourceGlobal,
+			},
+			wantProxy: "http://proxy.example.com:8080",
+		},
+		{
+			name: "custom SOCKS5",
+			effective: outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "socks5://proxy.example.com:1080"},
+				Source: outboundproxy.SourceGlobal,
+			},
+			wantProxy: "socks5://proxy.example.com:1080",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := manager.NewClientForOutboundProxy(&Config{}, test.effective)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transport, ok := client.Transport.(*http.Transport)
+			if !ok {
+				t.Fatalf("transport = %T", client.Transport)
+			}
+			if test.wantDirect {
+				if transport.Proxy != nil {
+					t.Fatal("direct policy retained a proxy function")
+				}
+				return
+			}
+			if transport.Proxy == nil {
+				t.Fatal("proxy policy has no proxy function")
+			}
+			if test.wantProxy == "" {
+				return
+			}
+			proxyURL, err := transport.Proxy(request)
+			if err != nil || proxyURL == nil || proxyURL.String() != test.wantProxy {
+				t.Fatalf("proxy = %v, %v, want %q", proxyURL, err, test.wantProxy)
+			}
+		})
+	}
+
+	if client, err := manager.NewClientForOutboundProxy(&Config{}, outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment, URL: "http://invalid.example.com"},
+	}); err == nil || client != nil {
+		t.Fatalf("invalid policy client/error = %#v/%v", client, err)
+	}
+	if len(manager.clients) != 0 {
+		t.Fatalf("operation-scoped proxy clients retained in shared cache: %d", len(manager.clients))
 	}
 }
 

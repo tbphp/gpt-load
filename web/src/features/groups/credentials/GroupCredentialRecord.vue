@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import { ChevronDown, RotateCcw, SlidersHorizontal, Trash2 } from '@lucide/vue'
+import {
+  ChevronDown,
+  CircleCheck,
+  CircleOff,
+  Ellipsis,
+  PencilLine,
+  RotateCcw,
+  Trash2,
+} from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { CredentialItemDto } from '@/api/control/types'
+import type { CredentialItemDto, ProxyMutation } from '@/api/control/types'
+import ProxyConfigEditor from '@/components/config/ProxyConfigEditor.vue'
+import ProxyScopeIndicator from '@/components/config/ProxyScopeIndicator.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
@@ -23,17 +33,21 @@ const props = defineProps<{
   expanded: boolean
   weightEditorOpen: boolean
   resolveCopyValue: (id: number) => Promise<string>
+  saveProxy: (value: ProxyMutation) => Promise<void>
+  proxySupported: boolean
 }>()
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
   'update:expanded': [expanded: boolean]
   'update:weightEditorOpen': [open: boolean]
+  'open-weight': [item: CredentialItemDto]
   weight: [payload: { item: CredentialItemDto; value: string }]
   toggle: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t } = useI18n()
+const menuOpen = ref(false)
 const draftWeightMode = ref<'auto' | 'manual'>('auto')
 const draftWeight = ref('50')
 const detailId = computed(() => `group-credential-details-${props.item.credential_id}`)
@@ -96,6 +110,19 @@ function saveWeight(): void {
   })
   emit('update:weightEditorOpen', false)
 }
+
+// 权重列的值可点：展开该行并直接进入权重编辑，作为折叠区设置的发现入口。
+function openWeightFromColumn(): void {
+  if (props.busy || props.item.configured_status === 'disabled') return
+  emit('open-weight', props.item)
+}
+
+function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
+  menuOpen.value = false
+  if (action === 'toggle') emit('toggle', props.item)
+  else if (action === 'restore') emit('restore', props.item)
+  else emit('remove', props.item)
+}
 </script>
 
 <template>
@@ -124,13 +151,16 @@ function saveWeight(): void {
         <span class="group-credential-record__mobile-label">{{
           t('group.credentials.columns.credential')
         }}</span>
-        <CopyChip
-          :value="item.mask"
-          :label="t('group.credentials.copy')"
-          :success-label="t('common.copied')"
-          :failure-label="t('common.copyFailed')"
-          :resolve-value="() => resolveCopyValue(item.credential_id)"
-        />
+        <span class="group-credential-record__credential">
+          <CopyChip
+            :value="item.mask"
+            :label="t('group.credentials.copy')"
+            :success-label="t('common.copied')"
+            :failure-label="t('common.copyFailed')"
+            :resolve-value="() => resolveCopyValue(item.credential_id)"
+          />
+          <ProxyScopeIndicator v-if="proxySupported" :view="item.proxy" />
+        </span>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__status" role="cell">
@@ -149,7 +179,16 @@ function saveWeight(): void {
         <AppTooltip v-if="item.weight === null" :content="t('group.credentials.notScheduledHelp')">
           <span class="group-credential-record__weight-none" tabindex="0">{{ weightLabel }}</span>
         </AppTooltip>
-        <span v-else>{{ weightLabel }}</span>
+        <AppTooltip v-else :content="t('group.credentials.editWeightHint')">
+          <button
+            type="button"
+            class="group-credential-record__weight-value"
+            :disabled="busy || item.configured_status === 'disabled'"
+            @click="openWeightFromColumn"
+          >
+            {{ weightLabel }}
+          </button>
+        </AppTooltip>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__recent" role="cell">
@@ -161,110 +200,49 @@ function saveWeight(): void {
 
       <div class="ledger-record-list__cell group-credential-record__actions" role="cell">
         <AppPopover
-          :open="weightEditorOpen"
-          align="start"
-          @update:open="emit('update:weightEditorOpen', $event)"
+          v-model:open="menuOpen"
+          align="end"
+          content-class="app-popover__content--credential-menu"
         >
           <template #trigger>
-            <AppButton
-              variant="secondary"
-              tone="action"
+            <IconButton
+              variant="ghost"
               size="compact"
-              :disabled="busy || item.configured_status === 'disabled'"
+              :label="t('group.credentials.moreActions')"
+              :disabled="busy"
             >
-              <SlidersHorizontal :size="15" aria-hidden="true" />{{
-                t('group.credentials.editWeight')
-              }}
-            </AppButton>
+              <Ellipsis :size="16" aria-hidden="true" />
+            </IconButton>
           </template>
-          <form class="group-credential-weight-editor" @submit.prevent="saveWeight">
-            <h3>{{ t('group.credentials.weightEditor.title') }}</h3>
-            <div class="group-credential-weight-editor__control">
-              <SegmentedControl
-                v-model="draftWeightMode"
-                :label="t('group.credentials.weightEditor.mode')"
-                :options="weightModeOptions"
-                size="compact"
-              />
-              <label class="sr-only" :for="weightInputId">
-                {{ t('group.credentials.weightEditor.value') }}
-              </label>
-              <input
-                :id="weightInputId"
-                v-model="draftWeight"
-                :class="{ 'is-concealed': draftWeightMode === 'auto' }"
-                type="number"
-                min="1"
-                max="100"
-                step="1"
-                inputmode="numeric"
-                :disabled="busy || draftWeightMode === 'auto'"
-                :tabindex="draftWeightMode === 'auto' ? -1 : undefined"
-                :aria-hidden="draftWeightMode === 'auto' ? 'true' : undefined"
-                :aria-invalid="!manualWeightValid || undefined"
-              />
-            </div>
-            <p
-              class="group-credential-weight-editor__message"
-              :class="{ 'group-credential-weight-editor__error': !manualWeightValid }"
-              :role="!manualWeightValid ? 'alert' : undefined"
-            >
+          <div class="group-credential-record__menu">
+            <button type="button" :disabled="busy" @click="runMenuAction('toggle')">
+              <CircleOff v-if="item.configured_status === 'active'" :size="15" aria-hidden="true" />
+              <CircleCheck v-else :size="15" aria-hidden="true" />
               {{
-                draftWeightMode === 'auto'
-                  ? '\u00a0'
-                  : manualWeightValid
-                    ? t('group.credentials.weightEditor.help')
-                    : t('group.credentials.weightEditor.invalid')
+                item.configured_status === 'active'
+                  ? t('group.credentials.disable')
+                  : t('group.credentials.enable')
               }}
-            </p>
-            <div class="group-credential-weight-editor__actions">
-              <AppButton
-                variant="secondary"
-                size="compact"
-                @click="emit('update:weightEditorOpen', false)"
-              >
-                {{ t('group.credentials.weightEditor.cancel') }}
-              </AppButton>
-              <AppButton type="submit" size="compact" :disabled="busy || !manualWeightValid">
-                {{ t('group.credentials.weightEditor.save') }}
-              </AppButton>
-            </div>
-          </form>
+            </button>
+            <button
+              v-if="isProblem"
+              type="button"
+              :disabled="busy"
+              @click="runMenuAction('restore')"
+            >
+              <RotateCcw :size="15" aria-hidden="true" />{{ t('group.credentials.restore') }}
+            </button>
+            <div class="group-credential-record__menu-divider"></div>
+            <button
+              type="button"
+              class="group-credential-record__menu-danger"
+              :disabled="busy"
+              @click="runMenuAction('remove')"
+            >
+              <Trash2 :size="15" aria-hidden="true" />{{ t('group.credentials.delete') }}
+            </button>
+          </div>
         </AppPopover>
-        <AppButton
-          variant="secondary"
-          :tone="item.configured_status === 'active' ? 'warning' : 'success'"
-          size="compact"
-          :disabled="busy"
-          @click="emit('toggle', item)"
-        >
-          {{
-            item.configured_status === 'active'
-              ? t('group.credentials.disable')
-              : t('group.credentials.enable')
-          }}
-        </AppButton>
-        <IconButton
-          v-if="isProblem"
-          variant="ghost"
-          tone="success"
-          size="compact"
-          :label="t('group.credentials.restore')"
-          :disabled="busy"
-          @click="emit('restore', item)"
-        >
-          <RotateCcw :size="15" aria-hidden="true" />
-        </IconButton>
-        <IconButton
-          variant="ghost"
-          tone="danger"
-          size="compact"
-          :label="t('group.credentials.delete')"
-          :disabled="busy"
-          @click="emit('remove', item)"
-        >
-          <Trash2 :size="15" aria-hidden="true" />
-        </IconButton>
         <IconButton
           class="group-credential-record__toggle"
           variant="ghost"
@@ -292,20 +270,109 @@ function saveWeight(): void {
           :aria-hidden="!expanded"
           :inert="!expanded || undefined"
         >
-          <dl class="group-credential-record__runtime-details">
-            <div>
-              <dt>{{ t('group.credentials.detailsFailure') }}</dt>
-              <dd>{{ failureLabel }}</dd>
+          <div class="group-credential-record__settings">
+            <div class="setting-panel">
+              <span class="setting-panel__title">
+                {{ t('group.credentials.columns.weight') }}
+              </span>
+              <div class="setting-panel__body">
+                <template v-if="!weightEditorOpen">
+                  <span class="setting-panel__tag">
+                    {{ t(`group.credentials.weightEditor.${item.weight_mode}`) }}
+                  </span>
+                  <span class="setting-panel__value">
+                    {{ item.weight === null ? t('group.credentials.none') : n(item.weight) }}
+                  </span>
+                  <IconButton
+                    class="setting-panel__edit"
+                    variant="ghost"
+                    tone="action"
+                    size="xs"
+                    :label="t('group.credentials.editWeight')"
+                    :disabled="busy || item.configured_status === 'disabled'"
+                    @click="emit('update:weightEditorOpen', true)"
+                  >
+                    <PencilLine :size="12" aria-hidden="true" />
+                  </IconButton>
+                </template>
+                <form
+                  v-else
+                  class="setting-panel__form group-credential-record__weight-form"
+                  @submit.prevent="saveWeight"
+                >
+                  <SegmentedControl
+                    v-model="draftWeightMode"
+                    :label="t('group.credentials.weightEditor.mode')"
+                    :options="weightModeOptions"
+                    size="compact"
+                  />
+                  <label class="sr-only" :for="weightInputId">
+                    {{ t('group.credentials.weightEditor.value') }}
+                  </label>
+                  <input
+                    :id="weightInputId"
+                    v-model="draftWeight"
+                    :class="{ 'is-concealed': draftWeightMode === 'auto' }"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    inputmode="numeric"
+                    :disabled="busy || draftWeightMode === 'auto'"
+                    :tabindex="draftWeightMode === 'auto' ? -1 : undefined"
+                    :aria-hidden="draftWeightMode === 'auto' ? 'true' : undefined"
+                    :aria-invalid="!manualWeightValid || undefined"
+                  />
+                  <div class="setting-panel__actions">
+                    <AppButton
+                      variant="ghost"
+                      size="compact"
+                      @click="emit('update:weightEditorOpen', false)"
+                    >
+                      {{ t('group.credentials.weightEditor.cancel') }}
+                    </AppButton>
+                    <AppButton type="submit" size="compact" :disabled="busy || !manualWeightValid">
+                      {{ t('group.credentials.weightEditor.save') }}
+                    </AppButton>
+                  </div>
+                  <p
+                    v-if="draftWeightMode === 'manual' && !manualWeightValid"
+                    class="setting-panel__error"
+                    role="alert"
+                  >
+                    {{ t('group.credentials.weightEditor.invalid') }}
+                  </p>
+                </form>
+              </div>
             </div>
-            <div>
-              <dt>{{ t('group.credentials.detailsRecovery') }}</dt>
-              <dd>{{ recoveryLabel }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
-              <dd>{{ n(item.consecutive_failure_count) }}</dd>
-            </div>
-          </dl>
+
+            <ProxyConfigEditor
+              :view="item.proxy"
+              :save-proxy="saveProxy"
+              :supported="proxySupported"
+              :disabled="busy"
+            />
+          </div>
+
+          <div class="setting-panel">
+            <span class="setting-panel__title">
+              {{ t('group.credentials.diagnostics') }}
+            </span>
+            <dl class="setting-panel__body group-credential-record__runtime-details">
+              <div>
+                <dt>{{ t('group.credentials.detailsFailure') }}</dt>
+                <dd>{{ failureLabel }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('group.credentials.detailsRecovery') }}</dt>
+                <dd>{{ recoveryLabel }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('group.credentials.detailsConsecutive') }}</dt>
+                <dd>{{ n(item.consecutive_failure_count) }}</dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </div>
     </div>
@@ -353,6 +420,13 @@ function saveWeight(): void {
   font-variant-numeric: tabular-nums;
 }
 
+.group-credential-record__credential {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
 .group-credential-record__weight-none {
   color: var(--color-text-faint);
   text-decoration: underline dotted;
@@ -376,13 +450,19 @@ function saveWeight(): void {
   transform: rotate(180deg);
 }
 
+/*
+ * 背景沿用账号卡片展开区（subscription-account__detail）的取值。取消上边框后
+ * 只剩底色一条区分线索，因此左右内缩并加圆角，用“比列表窄一圈的嵌套块”表达
+ * 层级归属；内缩必须配圆角，否则方角内缩看起来像渲染错位。
+ */
 .group-credential-record__details {
   display: grid;
-  gap: var(--space-4);
+  gap: 13px;
   min-width: 0;
-  border-top: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
-  padding: 14px 17px 16px 42px;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
+  margin: 0 14px 6px;
+  padding: 13px 14px 14px;
 }
 
 .group-credential-record__disclosure {
@@ -401,6 +481,7 @@ function saveWeight(): void {
   overflow: hidden;
 }
 
+/* 白底面板复用 .setting-panel__body，只把弹性排布换成三列指标网格。 */
 .group-credential-record__details dl {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -421,7 +502,7 @@ function saveWeight(): void {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: var(--text-meta);
+  font-size: var(--text-label-xs);
   font-weight: 560;
 }
 
@@ -432,62 +513,131 @@ function saveWeight(): void {
   font-weight: 560;
 }
 
-.group-credential-weight-editor {
+/*
+ * 权重与出站代理并排成两列，诊断在下面占满整行。这里不设 max-width：
+ * 否则设置行的右边缘会比下方诊断面板短一截，两行对不齐。
+ * 面板外壳（标题 + 白底面板 + 标签 / 值 / 编辑图标 / 操作）由全局 .setting-panel 提供。
+ */
+.group-credential-record__settings {
   display: grid;
-  gap: var(--space-3);
-  width: min(320px, 100%);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 13px 16px;
 }
 
-.group-credential-weight-editor h3,
-.group-credential-weight-editor p {
-  margin: 0;
-}
-
-.group-credential-weight-editor h3 {
-  font-size: var(--text-body);
-  font-weight: 650;
-}
-
-.group-credential-weight-editor__control {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.group-credential-weight-editor__control > input {
-  width: 90px;
-  min-height: var(--control-compact);
-  flex: 0 0 90px;
+.group-credential-record__weight-form > input {
+  width: 64px;
+  min-height: 26px;
+  flex: none;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);
-  padding: 0 var(--space-3);
-  font: var(--text-body) var(--font-mono);
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
 }
 
-.group-credential-weight-editor__control > input.is-concealed {
+.group-credential-record__weight-form > input.is-concealed {
   visibility: hidden;
   pointer-events: none;
 }
 
-.group-credential-weight-editor__message {
-  min-height: 1.5em;
+.group-credential-record__weight-value {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text);
+  padding: 2px 4px;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--color-border-control);
+  text-underline-offset: 3px;
+}
+
+.group-credential-record__weight-value:hover:not(:disabled) {
+  background: var(--color-interactive-hover);
+  text-decoration-color: var(--color-text-faint);
+}
+
+.group-credential-record__weight-value:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.group-credential-record__weight-value:disabled {
   color: var(--color-text-faint);
-  font-size: var(--text-sm);
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
-.group-credential-weight-editor__error {
-  color: var(--color-danger);
-  font-size: var(--text-sm);
+.group-credential-record__menu {
+  display: grid;
+  width: 100%;
+  gap: 1px;
 }
 
-.group-credential-weight-editor__actions {
+.group-credential-record__menu button {
   display: flex;
-  justify-content: flex-end;
+  width: 100%;
+  align-items: center;
   gap: var(--space-2);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  padding: 7px 6px;
+  font: inherit;
+  font-size: var(--text-button);
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-credential-record__menu button svg {
+  flex: none;
+  color: var(--color-text-faint);
+}
+
+.group-credential-record__menu button:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.group-credential-record__menu button:hover:not(:disabled) svg {
+  color: var(--color-text-muted);
+}
+
+.group-credential-record__menu button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.group-credential-record__menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.group-credential-record__menu-divider {
+  height: 1px;
+  margin: 4px -8px;
+  background: var(--color-border-subtle);
+}
+
+.group-credential-record__menu button.group-credential-record__menu-danger,
+.group-credential-record__menu button.group-credential-record__menu-danger svg {
+  color: var(--color-danger);
+}
+
+.group-credential-record__menu button.group-credential-record__menu-danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+}
+
+:global(.app-popover__content.app-popover__content--credential-menu) {
+  width: auto;
+  min-width: 176px;
+  border-color: var(--color-border-control);
+  border-radius: 10px;
+  padding: 8px;
 }
 
 @media (max-width: 860px) {
@@ -544,9 +694,11 @@ function saveWeight(): void {
   }
 
   .group-credential-record__details {
-    padding: 14px;
+    margin: 0 8px 4px;
+    padding: 12px;
   }
 
+  .group-credential-record__settings,
   .group-credential-record__details dl {
     grid-template-columns: 1fr;
   }

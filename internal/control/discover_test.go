@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -111,6 +112,73 @@ func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
 	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
 	if err != nil || row.Status != models.CredentialStageReady || row.EncryptedPayload == "" {
 		t.Fatalf("stage was consumed = %#v, %v", row, err)
+	}
+}
+
+func TestDiscoverModelsAppliesRequestedProxyToReadySubscriptionStage(t *testing.T) {
+	fixture := newServiceFixture(t)
+	stageProxy := outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "http://stage-proxy.example.com:8080",
+	}
+	stage, err := fixture.service.ImportCredentialStage(
+		t.Context(),
+		channel.Codex,
+		[]byte(`{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-proxy"}`),
+		&stageProxy,
+	)
+	if err != nil {
+		t.Fatalf("ImportCredentialStage() error = %v", err)
+	}
+
+	discoveryProxy := outboundproxy.Config{
+		Mode: outboundproxy.ModeCustom,
+		URL:  "socks5://discovery-proxy.example.com:1080",
+	}
+	assertDiscoveryNetwork := func(ctx context.Context) {
+		t.Helper()
+		network, ok := subscriptionruntime.NetworkFromContext(ctx)
+		if !ok || network.Proxy.Config != discoveryProxy || network.Proxy.Source != outboundproxy.SourceGroup {
+			t.Fatalf("subscription discovery network = %#v, %t", network, ok)
+		}
+	}
+	refreshCalls := 0
+	setCodexCredentialRefresh(t, fixture.service, func(ctx context.Context, credential codex.Credential) (codex.Credential, error) {
+		assertDiscoveryNetwork(ctx)
+		refreshCalls++
+		credential.AccessToken = "refreshed-access"
+		return credential, nil
+	})
+	discoveryCalls := 0
+	setCodexModelDiscovery(t, fixture.service, func(ctx context.Context, _ codex.Credential) ([]codex.Model, error) {
+		assertDiscoveryNetwork(ctx)
+		discoveryCalls++
+		if discoveryCalls == 1 {
+			return nil, &subscriptionruntime.UpstreamHTTPError{StatusCode: http.StatusUnauthorized}
+		}
+		return []codex.Model{{ID: "gpt-5.2"}}, nil
+	})
+
+	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID, Proxy: &discoveryProxy,
+	})
+	if err != nil || len(result.Models) != 1 || refreshCalls != 1 || discoveryCalls != 2 {
+		t.Fatalf(
+			"DiscoverModels() result/error/refresh/discovery = %#v/%v/%d/%d",
+			result,
+			err,
+			refreshCalls,
+			discoveryCalls,
+		)
+	}
+	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageNetwork, err := fixture.service.credentialStageNetworkContext(t.Context(), row)
+	if err != nil || stageNetwork.Proxy.Config != stageProxy {
+		t.Fatalf("stage network after discovery = %#v, %v", stageNetwork, err)
 	}
 }
 
@@ -460,6 +528,11 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 			value.ChannelID = channel.ID("unknown")
 		}},
 		{name: "empty credentials", mutate: func(value *ModelDiscoveryRequest) { value.Credentials = " \n\t" }},
+		{name: "unsupported channel proxy", mutate: func(value *ModelDiscoveryRequest) {
+			value.ChannelID = channel.AzureOpenAI
+			value.Params = json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`)
+			value.Proxy = &outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -208,7 +208,9 @@ func (manager *CredentialManager) refreshCredentialLocked(
 		// failed incremental publication cannot leave control and data planes at
 		// different secret versions.
 		reconcileContext, cancelReconcile := refreshFinalizeContext(ctx)
-		entries, reconcileErr := stateloader.BuildGroupCredentialEntries(reconcileContext, manager.db, row.GroupID)
+		entries, reconcileErr := stateloader.BuildGroupCredentialEntriesWithProxy(
+			reconcileContext, manager.db, row.GroupID, manager.encryption,
+		)
 		if reconcileErr != nil {
 			cancelReconcile()
 		} else if manager.reconcileGroup == nil {
@@ -280,7 +282,9 @@ func (manager *CredentialManager) publishAuthState(
 	if manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthState(authState)) {
 		return nil
 	}
-	entries, err := stateloader.BuildGroupCredentialEntries(ctx, manager.db, row.GroupID)
+	entries, err := stateloader.BuildGroupCredentialEntriesWithProxy(
+		ctx, manager.db, row.GroupID, manager.encryption,
+	)
 	if err != nil {
 		return err
 	}

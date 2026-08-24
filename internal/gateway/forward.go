@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/contentcoding"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
@@ -46,6 +47,8 @@ type ForwardInput struct {
 	RouteMode        execution.RouteMode
 	TargetConfig     json.RawMessage
 	Credential       execution.CredentialSnapshot
+	Proxy            outboundproxy.Effective
+	ProxyFingerprint string
 	// ForceCredentialRefresh preserves one explicit provider-auth retry as a
 	// globally counted Attempt on the same selected credential.
 	ForceCredentialRefresh bool

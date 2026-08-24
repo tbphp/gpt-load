@@ -130,7 +130,7 @@ func (s *Service) connectGroupCredentialsMutation(
 	if err != nil {
 		return CredentialImportResult{}, nil, err
 	}
-	entries, err := stateloader.BuildGroupCredentialEntries(ctx, tx, groupID)
+	entries, err := stateloader.BuildGroupCredentialEntriesWithProxy(ctx, tx, groupID, s.encryption)
 	if err != nil {
 		return CredentialImportResult{}, nil, err
 	}

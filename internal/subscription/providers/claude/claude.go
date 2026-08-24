@@ -11,6 +11,8 @@ import (
 	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 const (
@@ -127,12 +129,16 @@ func CompleteBrowserAuthorization(
 	ctx context.Context,
 	completion BrowserAuthorizationCompletion,
 ) (Credential, error) {
+	options, err := claudeOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
 	value, err := cpaembedded.CompleteClaudeBrowserAuthorization(ctx, cpaembedded.BrowserAuthorizationCompletion{
 		ExpectedState: completion.ExpectedState,
 		ReturnedState: completion.ReturnedState,
 		Code:          completion.Code,
 		CodeVerifier:  completion.CodeVerifier,
-	}, cpaembedded.ClaudeOptions{})
+	}, options)
 	if err != nil {
 		return Credential{}, normalizeAuthorizationError(err)
 	}
@@ -140,11 +146,23 @@ func CompleteBrowserAuthorization(
 }
 
 func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential, error) {
-	value, err := cpaembedded.RefreshClaudeCredentialOnce(ctx, credentialToBridge(current), cpaembedded.ClaudeOptions{})
+	options, err := claudeOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
+	value, err := cpaembedded.RefreshClaudeCredentialOnce(ctx, credentialToBridge(current), options)
 	if err != nil {
 		return Credential{}, normalizeAuthorizationError(err)
 	}
 	return credentialFromBridge(value), nil
+}
+
+func claudeOptions(ctx context.Context) (cpaembedded.ClaudeOptions, error) {
+	client, err := subscriptionruntime.HTTPClient(ctx)
+	if err != nil {
+		return cpaembedded.ClaudeOptions{}, err
+	}
+	return cpaembedded.ClaudeOptions{HTTPClient: client}, nil
 }
 
 func credentialFromBridge(value cpaembedded.ClaudeCredential) Credential {

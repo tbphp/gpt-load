@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/outboundproxy"
+	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -37,20 +39,23 @@ type SettingsValuesResponse struct {
 	ValidationInterval       int64               `json:"validation_interval"`
 	RequestLogRetentionDays  int                 `json:"request_log_retention_days"`
 	ModelsDevAutoSyncEnabled bool                `json:"models_dev_auto_sync_enabled"`
+	ProxyConfig              outboundproxy.View  `json:"proxy_config"`
 }
 
 type SettingsResponse struct {
-	Revision  uint64                 `json:"revision"`
-	Values    SettingsValuesResponse `json:"values"`
-	Overrides []string               `json:"overrides"`
-	ReadOnly  []string               `json:"read_only,omitempty"`
+	Revision         uint64                 `json:"revision"`
+	Values           SettingsValuesResponse `json:"values"`
+	Overrides        []string               `json:"overrides"`
+	ReadOnly         []string               `json:"read_only,omitempty"`
+	proxyFingerprint string
 }
 
 func (response SettingsResponse) DTO() SettingsDTO {
 	return canonicalizeSettingsDTO(SettingsDTO{
-		Values:    response.Values,
-		Overrides: response.Overrides,
-		ReadOnly:  response.ReadOnly,
+		Values:           response.Values,
+		Overrides:        response.Overrides,
+		ReadOnly:         response.ReadOnly,
+		proxyFingerprint: response.proxyFingerprint,
 	})
 }
 
@@ -116,14 +121,20 @@ func (s *Service) getSettingsWithSnapshot(
 		Find(&rows).Error; err != nil {
 		return SettingsResponse{}, app_errors.ParseDBError(err)
 	}
-	return mapSettingsResponse(snapshot, rows, s.modelsDevAutoSyncOverride), nil
+	return mapSettingsResponse(
+		snapshot,
+		rows,
+		s.modelsDevAutoSyncOverride,
+		s.encryption,
+		s.environmentProxy,
+	)
 }
 
 func (s *Service) UpdateSettings(
 	ctx context.Context,
 	request SettingsUpdateRequest,
 ) (SettingsResponse, error) {
-	updates, err := normalizeSettingUpdates(request)
+	updates, err := normalizeSettingUpdates(request, s.encryption)
 	if err != nil {
 		return SettingsResponse{}, err
 	}
@@ -153,7 +164,7 @@ func (s *Service) UpdateSettingsIfMatch(
 	expectedETag string,
 	message string,
 ) (settingsWireRepresentation, error) {
-	updates, err := normalizeSettingUpdates(request)
+	updates, err := normalizeSettingUpdates(request, s.encryption)
 	if err != nil {
 		return settingsWireRepresentation{}, err
 	}
@@ -174,7 +185,9 @@ func (s *Service) UpdateSettingsIfMatch(
 		updatedAutoSyncEnabled  bool
 	)
 	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-		currentInput, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
+		currentInput, err := stateloader.BuildCompileInputWithProxy(
+			ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+		)
 		if err != nil {
 			return err
 		}
@@ -207,7 +220,9 @@ func (s *Service) UpdateSettingsIfMatch(
 		if err := s.applySettingUpdates(tx, updates); err != nil {
 			return err
 		}
-		input, err = stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
+		input, err = stateloader.BuildCompileInputWithProxy(
+			ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+		)
 		if err != nil {
 			return err
 		}
@@ -275,7 +290,10 @@ func (s *Service) applySettingUpdates(
 	return nil
 }
 
-func normalizeSettingUpdates(request SettingsUpdateRequest) ([]persistedSettingUpdate, error) {
+func normalizeSettingUpdates(
+	request SettingsUpdateRequest,
+	encryptionService encryption.Service,
+) ([]persistedSettingUpdate, error) {
 	if len(request.Settings) == 0 {
 		return nil, app_errors.ErrBadRequest
 	}
@@ -287,12 +305,28 @@ func normalizeSettingUpdates(request SettingsUpdateRequest) ([]persistedSettingU
 
 	updates := make([]persistedSettingUpdate, 0, len(keys))
 	for _, key := range keys {
-		if !state.IsRuntimeSettingKey(key) {
+		if key != outboundproxy.SystemSettingKey && !state.IsRuntimeSettingKey(key) {
 			return nil, app_errors.ErrValidation
 		}
 		raw := bytes.TrimSpace(request.Settings[key])
 		if bytes.Equal(raw, []byte("null")) {
 			updates = append(updates, persistedSettingUpdate{key: key})
+			continue
+		}
+		if key == outboundproxy.SystemSettingKey {
+			config, err := outboundproxy.Decode(string(raw))
+			if err != nil || config.Mode == outboundproxy.ModeInherit || encryptionService == nil {
+				return nil, app_errors.ErrValidation
+			}
+			encoded, err := outboundproxy.Encode(config)
+			if err != nil {
+				return nil, app_errors.ErrValidation
+			}
+			ciphertext, err := encryptionService.Encrypt(encoded)
+			if err != nil {
+				return nil, app_errors.ErrInternalServer
+			}
+			updates = append(updates, persistedSettingUpdate{key: key, value: &ciphertext})
 			continue
 		}
 		value, err := decodeSettingValue(raw)
@@ -338,7 +372,9 @@ func mapSettingsResponse(
 	snapshot *state.ConfigSnapshot,
 	rows []models.SystemSetting,
 	modelsDevAutoSyncOverride *bool,
-) SettingsResponse {
+	encryptionService encryption.Service,
+	environmentProxy *outboundproxy.Config,
+) (SettingsResponse, error) {
 	settings := snapshot.Settings
 	set := make(map[string]string, len(settings.HeaderRules.Set))
 	for name, value := range settings.HeaderRules.Set {
@@ -346,10 +382,36 @@ func mapSettingsResponse(
 	}
 	remove := append([]string{}, settings.HeaderRules.Remove...)
 	overrides := make([]string, 0, len(rows))
+	var configuredProxy *outboundproxy.Config
+	proxyFingerprint := ""
 	for _, row := range rows {
 		if state.IsRuntimeSettingKey(row.Key) {
 			overrides = append(overrides, row.Key)
 		}
+		if row.Key == outboundproxy.SystemSettingKey {
+			if encryptionService == nil {
+				return SettingsResponse{}, app_errors.ErrInternalServer
+			}
+			plaintext, err := encryptionService.Decrypt(row.Value)
+			if err != nil {
+				return SettingsResponse{}, app_errors.ErrInternalServer
+			}
+			config, err := outboundproxy.Decode(plaintext)
+			if err != nil || config.Mode == outboundproxy.ModeInherit {
+				return SettingsResponse{}, app_errors.ErrInternalServer
+			}
+			proxyFingerprint = encryptionService.Hash(plaintext)
+			plaintext = ""
+			configuredProxy = &config
+		}
+	}
+	effectiveProxy, err := outboundproxy.Resolve(nil, nil, configuredProxy, environmentProxy)
+	if err != nil {
+		return SettingsResponse{}, app_errors.ErrInternalServer
+	}
+	proxyView, err := outboundproxy.NewView(configuredProxy, effectiveProxy)
+	if err != nil {
+		return SettingsResponse{}, app_errors.ErrInternalServer
 	}
 	readOnly := make([]string, 0)
 	modelsDevAutoSyncEnabled := settings.ModelsDevAutoSyncEnabled
@@ -358,7 +420,8 @@ func mapSettingsResponse(
 		readOnly = append(readOnly, state.SettingModelsDevAutoSyncEnabled)
 	}
 	return SettingsResponse{
-		Revision: snapshot.Revision,
+		Revision:         snapshot.Revision,
+		proxyFingerprint: proxyFingerprint,
 		Values: SettingsValuesResponse{
 			FirstByteTimeout:  durationSeconds(settings.FirstByteTimeout),
 			RequestTimeout:    durationSeconds(settings.RequestTimeout),
@@ -374,10 +437,11 @@ func mapSettingsResponse(
 			ValidationInterval:       durationSeconds(settings.ValidationInterval),
 			RequestLogRetentionDays:  settings.RequestLogRetentionDays,
 			ModelsDevAutoSyncEnabled: modelsDevAutoSyncEnabled,
+			ProxyConfig:              proxyView,
 		},
 		Overrides: overrides,
 		ReadOnly:  readOnly,
-	}
+	}, nil
 }
 
 func durationSeconds(value time.Duration) int64 {

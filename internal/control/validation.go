@@ -4,6 +4,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/binary"
 	"hash"
 	"net/http"
@@ -17,7 +18,9 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -187,6 +190,11 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		return
 	}
 	apiKey, _ := credential.Value("api_key")
+	proxy, proxyFingerprint, err := validationAttemptProxy(worker.decryptor, group.Proxy, ref)
+	if err != nil {
+		logValidationFailure(ref, string(target.protocol), "proxy")
+		return
+	}
 	routeMode, supported := group.ResolvedTarget.ModeForModel(
 		target.protocol,
 		execution.OperationProbe,
@@ -225,6 +233,7 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		Credential: execution.NewCredentialSnapshot(
 			ref.ID, version, generation, credential.CanonicalJSON(),
 		),
+		Proxy: proxy, ProxyFingerprint: proxyFingerprint,
 	})
 	if err := spec.Validate(); err != nil {
 		logValidationFailure(ref, string(target.protocol), "request")
@@ -284,6 +293,54 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 	}
 }
 
+func validationAttemptProxy(
+	decryptor credentialDecryptor,
+	groupProxy outboundproxy.Effective,
+	ref state.CredentialRef,
+) (outboundproxy.Effective, string, error) {
+	if groupProxy.Config.Mode == "" && ref.EncryptedProxy == "" {
+		return outboundproxy.Effective{}, "", nil
+	}
+	if ref.EncryptedProxy != "" {
+		hasher, ok := decryptor.(interface{ Hash(string) string })
+		if !ok {
+			return outboundproxy.Effective{}, "", app_errors.ErrInternalServer
+		}
+		plaintext, err := decryptor.Decrypt(ref.EncryptedProxy)
+		if err != nil {
+			return outboundproxy.Effective{}, "", err
+		}
+		fingerprint := hasher.Hash(plaintext)
+		if subtle.ConstantTimeCompare([]byte(fingerprint), []byte(ref.ProxyFingerprint)) != 1 {
+			plaintext = ""
+			return outboundproxy.Effective{}, "", app_errors.ErrInternalServer
+		}
+		config, err := outboundproxy.Decode(plaintext)
+		plaintext = ""
+		if err != nil {
+			return outboundproxy.Effective{}, "", err
+		}
+		effective, err := outboundproxy.Resolve(&config, nil, nil, nil)
+		return effective, fingerprint, err
+	}
+	effective, err := outboundproxy.NormalizeEffective(groupProxy)
+	if err != nil {
+		return outboundproxy.Effective{}, "", err
+	}
+	hasher, ok := decryptor.(interface{ Hash(string) string })
+	if !ok {
+		return effective, "", nil
+	}
+	identity := `{"mode":"environment"}`
+	if effective.Config.Mode != outboundproxy.ModeEnvironment {
+		identity, err = outboundproxy.Encode(effective.Config)
+		if err != nil {
+			return outboundproxy.Effective{}, "", err
+		}
+	}
+	return effective, hasher.Hash(identity), nil
+}
+
 func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, bool) {
 	if strings.TrimSpace(group.ConnectionType) == string(models.ConnectionTypeSubscription) {
 		return groupValidationTarget{}, false
@@ -326,6 +383,9 @@ func computeGroupValidationSignature(
 	writeValidationSignaturePart(hasher, group.ResolvedTarget.TargetConfig)
 	writeValidationSignaturePart(hasher, []byte(selectedProtocol))
 	writeValidationSignaturePart(hasher, []byte(probeModel))
+	writeValidationSignaturePart(hasher, []byte(group.Proxy.Source))
+	writeValidationSignaturePart(hasher, []byte(group.Proxy.Config.Mode))
+	writeValidationSignaturePart(hasher, []byte(group.Proxy.Config.URL))
 
 	type headerSetPart struct {
 		name  string

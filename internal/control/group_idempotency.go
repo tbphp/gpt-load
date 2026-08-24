@@ -11,6 +11,7 @@ import (
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
@@ -28,6 +29,7 @@ type groupCreateDigestBody struct {
 	Credentials         []string              `json:"credentials"`
 	StagedCredentialIDs []string              `json:"staged_credential_ids,omitempty"`
 	ConfirmSameTarget   bool                  `json:"confirm_same_target,omitempty"`
+	Proxy               *outboundproxy.Config `json:"proxy,omitempty"`
 }
 
 type credentialImportDigestBody struct {
@@ -59,6 +61,7 @@ func (s *Service) CreateGroupIdempotent(
 		Credentials:         credentialLines,
 		StagedCredentialIDs: append([]string(nil), normalized.stagedCredentialIDs...),
 		ConfirmSameTarget:   normalized.confirmSameTarget,
+		Proxy:               normalized.proxy,
 	}
 	canonicalBody, err := canonicalIdempotencyBody(digestBody)
 	if err != nil {
@@ -125,6 +128,7 @@ func (s *Service) CreateGroupIdempotent(
 				Params:         append(models.JSON(nil), normalized.params...),
 				Models:         models.JSON(encodedModels),
 				Overrides:      normalized.encodedOverrides,
+				ProxyConfig:    normalized.proxyConfig,
 				Enabled:        true,
 			}
 			if err := tx.Create(&group).Error; err != nil {
@@ -146,7 +150,7 @@ func (s *Service) CreateGroupIdempotent(
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
-			entries, err := stateloader.BuildGroupCredentialEntries(ctx, tx, group.ID)
+			entries, err := stateloader.BuildGroupCredentialEntriesWithProxy(ctx, tx, group.ID, s.encryption)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
@@ -156,7 +160,9 @@ func (s *Service) CreateGroupIdempotent(
 			if err := reconcileReferencedPrices(tx, catalogSnapshot); err != nil {
 				return idempotentMutationResult{}, err
 			}
-			input, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
+			input, err := stateloader.BuildCompileInputWithProxy(
+				ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+			)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
@@ -250,7 +256,7 @@ func (s *Service) ImportGroupCredentialsIdempotent(
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
-			entries, err := stateloader.BuildGroupCredentialEntries(ctx, tx, groupID)
+			entries, err := stateloader.BuildGroupCredentialEntriesWithProxy(ctx, tx, groupID, s.encryption)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}

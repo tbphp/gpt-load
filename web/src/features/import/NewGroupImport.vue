@@ -29,6 +29,7 @@ import {
 } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { type ModelCandidate } from '@/app/resources/providers'
+import { proxyMutation } from '@/app/resources/proxy'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -90,6 +91,7 @@ function freshDraft(): ImportDraft {
     channel_id: '',
     connection_type: 'api_key',
     params: {},
+    proxy: { mode: 'inherit', url: '' },
     name: '',
     credentials: '',
     staged_credentials: [],
@@ -101,6 +103,7 @@ function cloneDraft(source: ImportDraft): ImportDraft {
   return {
     ...source,
     params: { ...source.params },
+    proxy: { ...source.proxy },
     staged_credentials: source.staged_credentials.map((stage) => ({
       stage_id: stage.stage_id,
       status: stage.status,
@@ -267,6 +270,19 @@ const credentialCount = computed(() =>
 )
 const connectionChannel = computed<ChannelDto | null>(() => selectedChannel.value)
 const isSubscription = computed(() => draft.connection_type === 'subscription')
+const proxyLocked = computed(() => isSubscription.value && draft.staged_credentials.length > 0)
+const draftProxyMutation = computed(() => proxyMutation(draft.proxy.mode, draft.proxy.url))
+const draftProxyOverride = computed(() => {
+  if (selectedChannel.value?.capabilities.outbound_proxy !== true) return undefined
+  const mutation = draftProxyMutation.value
+  return mutation === null || mutation === undefined ? undefined : mutation
+})
+const proxyError = computed(() =>
+  selectedChannel.value?.capabilities.outbound_proxy === true &&
+  draftProxyMutation.value === undefined
+    ? t('common.proxy.invalid')
+    : '',
+)
 const structuredCredentials = computed(
   () =>
     selectedChannel.value !== null &&
@@ -292,11 +308,11 @@ const allParamErrors = computed<Record<string, string>>(() => {
 const paramErrors = computed<Record<string, string>>(() =>
   Object.fromEntries(Object.entries(allParamErrors.value).filter(([key]) => paramTouched[key])),
 )
-const visibleParamError = computed(() => Object.values(paramErrors.value)[0] ?? '')
+const visibleParamError = computed(() => Object.values(paramErrors.value)[0] ?? proxyError.value)
 const paramsError = computed(() =>
   selectedChannel.value === null
     ? t('import.presets.channelRequired')
-    : (Object.values(allParamErrors.value)[0] ?? ''),
+    : (Object.values(allParamErrors.value)[0] ?? proxyError.value),
 )
 const modelConflicts = computed(() =>
   serverModelConflicts.value.length
@@ -643,6 +659,7 @@ watch(
     () => JSON.stringify(draft.params),
     () => draft.credentials,
     () => readyStages.value.map(({ stage_id }) => stage_id).join(','),
+    () => JSON.stringify(draft.proxy),
   ],
   invalidateDiscovery,
 )
@@ -671,6 +688,9 @@ watch(
   selectedChannel,
   (channel) => {
     if (!channel || payloadLocked.value) return
+    if (!channel.capabilities.outbound_proxy && draft.proxy.mode !== 'inherit') {
+      draft.proxy = { mode: 'inherit', url: '' }
+    }
     const connectionType = channel.connection.type
     if (draft.connection_type === connectionType) return
     draft.connection_type = connectionType
@@ -791,6 +811,7 @@ function startDiscovery(): void {
     params: Object.fromEntries(
       Object.entries(draft.params).map(([key, value]) => [key, value.trim()]),
     ),
+    ...(draftProxyOverride.value === undefined ? {} : { proxy: draftProxyOverride.value }),
     ...(draft.connection_type === 'subscription'
       ? { staged_credential_id: subscriptionStage?.stage_id }
       : { credentials: draft.credentials }),
@@ -883,6 +904,7 @@ function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
     params: Object.fromEntries(
       Object.entries(draft.params).map(([key, value]) => [key, value.trim()]),
     ),
+    ...(draftProxyOverride.value === undefined ? {} : { proxy: draftProxyOverride.value }),
     ...(name ? { name } : {}),
     models: toGroupModels(draft.models),
     ...(draft.connection_type === 'subscription'
@@ -1150,7 +1172,7 @@ function returnToEdit(): void {
   errorKey.value = ''
 }
 
-watch([() => draft.channel_id, () => draft.credentials], () => {
+watch([() => draft.channel_id, () => draft.credentials, () => JSON.stringify(draft.proxy)], () => {
   credentialValidation.value = null
 })
 
@@ -1226,11 +1248,14 @@ onBeforeUnmount(() => {
             :channel="connectionChannel"
             :name="draft.name"
             :params="draft.params"
+            :proxy="draft.proxy"
+            :proxy-disabled="proxyLocked"
             :param-errors="paramErrors"
             :base-url-override-enabled="baseUrlOverrideEnabled"
             :disabled="payloadLocked"
             @update:name="draft.name = $event"
             @update:param="setChannelParam"
+            @update:proxy="draft.proxy = $event"
             @update:base-url-override="setBaseURLOverride"
             @blur:param="touchChannelParam"
           />
@@ -1270,9 +1295,11 @@ onBeforeUnmount(() => {
             :channel-id="draft.channel_id"
             :channel-name="subscriptionChannelName"
             :authorization-methods="selectedChannel?.connection.authorization_methods ?? []"
+            :proxy="draftProxyOverride"
             :notices="selectedChannel?.notices ?? []"
             context="create"
             :disabled="payloadLocked"
+            :entry-disabled="draftProxyMutation === undefined"
             hide-header
             compact
           />

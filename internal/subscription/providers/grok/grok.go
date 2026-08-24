@@ -13,6 +13,8 @@ import (
 	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 const Provider = cpaembedded.ProviderGrok
@@ -159,7 +161,11 @@ func CredentialExpiresAt(value Credential) (time.Time, bool) {
 func (value Credential) SecretValues() []string { return credentialToBridge(value).SecretValues() }
 
 func BeginDeviceAuthorization(ctx context.Context) (DeviceAuthorization, error) {
-	value, err := cpaembedded.BeginGrokDeviceAuthorization(ctx, cpaembedded.GrokOptions{})
+	options, err := grokOptions(ctx)
+	if err != nil {
+		return DeviceAuthorization{}, err
+	}
+	value, err := cpaembedded.BeginGrokDeviceAuthorization(ctx, options)
 	if err != nil {
 		return DeviceAuthorization{}, normalizeError(err)
 	}
@@ -170,7 +176,11 @@ func BeginDeviceAuthorization(ctx context.Context) (DeviceAuthorization, error) 
 }
 
 func PollDeviceAuthorizationOnce(ctx context.Context, state DeviceAuthorizationState) (DeviceAuthorizationPoll, error) {
-	value, err := cpaembedded.PollGrokDeviceAuthorizationOnce(ctx, stateToBridge(state), cpaembedded.GrokOptions{})
+	options, err := grokOptions(ctx)
+	if err != nil {
+		return DeviceAuthorizationPoll{}, err
+	}
+	value, err := cpaembedded.PollGrokDeviceAuthorizationOnce(ctx, stateToBridge(state), options)
 	if err != nil {
 		return DeviceAuthorizationPoll{}, normalizeError(err)
 	}
@@ -181,7 +191,11 @@ func PollDeviceAuthorizationOnce(ctx context.Context, state DeviceAuthorizationS
 }
 
 func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential, error) {
-	value, err := cpaembedded.RefreshGrokCredentialOnce(ctx, credentialToBridge(current), cpaembedded.GrokOptions{})
+	options, err := grokOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
+	value, err := cpaembedded.RefreshGrokCredentialOnce(ctx, credentialToBridge(current), options)
 	if err != nil {
 		return Credential{}, normalizeError(err)
 	}
@@ -189,7 +203,11 @@ func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential,
 }
 
 func ImportCredential(ctx context.Context, raw []byte) (Credential, error) {
-	value, err := cpaembedded.ImportGrokCredential(ctx, raw, cpaembedded.GrokOptions{})
+	options, err := grokOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
+	value, err := cpaembedded.ImportGrokCredential(ctx, raw, options)
 	if err != nil {
 		return Credential{}, normalizeError(err)
 	}
@@ -197,7 +215,11 @@ func ImportCredential(ctx context.Context, raw []byte) (Credential, error) {
 }
 
 func ListModels(ctx context.Context, credential Credential) ([]string, error) {
-	values, err := cpaembedded.DiscoverGrokModels(ctx, credentialToBridge(credential), cpaembedded.GrokOptions{})
+	options, err := grokOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	values, err := cpaembedded.DiscoverGrokModels(ctx, credentialToBridge(credential), options)
 	if err != nil {
 		return nil, normalizeError(err)
 	}
@@ -205,7 +227,11 @@ func ListModels(ctx context.Context, credential Credential) ([]string, error) {
 }
 
 func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
-	value, err := cpaembedded.ObserveGrokAccount(ctx, credentialToBridge(credential), cpaembedded.GrokOptions{})
+	options, err := grokOptions(ctx)
+	if err != nil {
+		return AccountObservation{}, err
+	}
+	value, err := cpaembedded.ObserveGrokAccount(ctx, credentialToBridge(credential), options)
 	if err != nil {
 		return AccountObservation{}, normalizeError(err)
 	}
@@ -229,6 +255,14 @@ func ObserveAccount(ctx context.Context, credential Credential) (AccountObservat
 		CreditQuotaObserved:  value.CreditQuotaObserved,
 		IncompleteSources:    append([]string(nil), value.IncompleteSources...),
 	}, nil
+}
+
+func grokOptions(ctx context.Context) (cpaembedded.GrokOptions, error) {
+	client, err := subscriptionruntime.HTTPClient(ctx)
+	if err != nil {
+		return cpaembedded.GrokOptions{}, err
+	}
+	return cpaembedded.GrokOptions{HTTPClient: client}, nil
 }
 
 func IsDefinitiveRefreshRejection(code string) bool {

@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
@@ -46,6 +47,7 @@ type Service struct {
 	catalogRuntime                    *catalog.Runtime
 	catalogSync                       *CatalogSyncCoordinator
 	modelsDevAutoSyncOverride         *bool
+	environmentProxy                  *outboundproxy.Config
 	encryption                        encryption.Service
 	executor                          execution.Executor
 	subscriptions                     *subscriptionruntime.Runtime
@@ -247,6 +249,9 @@ func NewService(
 		observationFlights:    make(map[observationFlightKey]*observationFlight),
 		observationSemaphore:  make(chan struct{}, 1),
 	}
+	if cfg != nil {
+		service.environmentProxy = outboundproxy.Environment()
+	}
 	if subscriptionCredentials != nil {
 		service.prepareSubscriptionCredential = subscriptionCredentials.Prepare
 		service.subscriptions = subscriptionCredentials.Runtime()
@@ -349,7 +354,9 @@ func (s *Service) writeGroupConfigLocked(
 		if err := cleanupUnreferencedAutomaticPrices(tx); err != nil {
 			return err
 		}
-		input, err := stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
+		input, err := stateloader.BuildCompileInputWithProxy(
+			ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+		)
 		if err != nil {
 			return err
 		}
@@ -405,7 +412,9 @@ func (s *Service) writeConfig(
 			return err
 		}
 		var err error
-		input, err = stateloader.BuildCompileInput(ctx, tx, s.channelRegistry)
+		input, err = stateloader.BuildCompileInputWithProxy(
+			ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+		)
 		if err != nil {
 			return err
 		}
@@ -480,7 +489,9 @@ func (s *Service) writeCredentialConfig(
 }
 
 func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices bool) error {
-	input, err := stateloader.BuildCompileInput(ctx, s.db, s.channelRegistry)
+	input, err := stateloader.BuildCompileInputWithProxy(
+		ctx, s.db, s.encryption, s.environmentProxy, s.channelRegistry,
+	)
 	if err != nil {
 		return fmt.Errorf("reload committed configuration: %w", err)
 	}
@@ -489,7 +500,7 @@ func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices boo
 	}
 	var priceTable *pricing.Table
 	if includePrices {
-		entries, entriesErr := stateloader.BuildCredentialEntries(ctx, s.db)
+		entries, entriesErr := stateloader.BuildCredentialEntriesWithProxy(ctx, s.db, s.encryption)
 		if entriesErr != nil {
 			return fmt.Errorf("reload committed credentials: %w", entriesErr)
 		}
@@ -512,7 +523,7 @@ func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices boo
 }
 
 func (s *Service) recoverCommittedCredentialRegistryGroup(ctx context.Context, groupID uint) error {
-	entries, err := stateloader.BuildGroupCredentialEntries(ctx, s.db, groupID)
+	entries, err := stateloader.BuildGroupCredentialEntriesWithProxy(ctx, s.db, groupID, s.encryption)
 	if err != nil {
 		return fmt.Errorf("reload committed group credentials: %w", err)
 	}

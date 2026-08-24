@@ -12,6 +12,8 @@ import (
 	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 // Provider is the stable provider value stored in Codex credentials.
@@ -144,12 +146,16 @@ func CompleteBrowserAuthorization(
 	ctx context.Context,
 	completion BrowserAuthorizationCompletion,
 ) (Credential, error) {
+	options, err := codexOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
 	value, err := cpaembedded.CompleteCodexBrowserAuthorization(ctx, cpaembedded.BrowserAuthorizationCompletion{
 		ExpectedState: completion.ExpectedState,
 		ReturnedState: completion.ReturnedState,
 		Code:          completion.Code,
 		CodeVerifier:  completion.CodeVerifier,
-	}, cpaembedded.Options{})
+	}, options)
 	if err != nil {
 		return Credential{}, normalizeAuthorizationError(err)
 	}
@@ -158,7 +164,11 @@ func CompleteBrowserAuthorization(
 
 // RefreshCredentialOnce performs exactly one token refresh without persistence or retries.
 func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential, error) {
-	value, err := cpaembedded.RefreshCodexCredentialOnce(ctx, credentialToBridge(current), cpaembedded.Options{})
+	options, err := codexOptions(ctx)
+	if err != nil {
+		return Credential{}, err
+	}
+	value, err := cpaembedded.RefreshCodexCredentialOnce(ctx, credentialToBridge(current), options)
 	if err != nil {
 		return Credential{}, normalizeAuthorizationError(err)
 	}
@@ -167,7 +177,11 @@ func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential,
 
 // ListModels returns the models visible to one Codex subscription account.
 func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
-	values, err := cpaembedded.ListCodexModels(ctx, credentialToBridge(credential), "")
+	options, err := codexOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	values, err := cpaembedded.ListCodexModels(ctx, credentialToBridge(credential), "", options)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +194,11 @@ func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
 
 // ObserveAccount retrieves account entitlement and quota metadata.
 func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
-	value, err := cpaembedded.ObserveCodexAccount(ctx, credentialToBridge(credential), "")
+	options, err := codexOptions(ctx)
+	if err != nil {
+		return AccountObservation{}, err
+	}
+	value, err := cpaembedded.ObserveCodexAccount(ctx, credentialToBridge(credential), "", options)
 	if err != nil {
 		return AccountObservation{}, normalizeUpstreamError(err)
 	}
@@ -189,7 +207,11 @@ func ObserveAccount(ctx context.Context, credential Credential) (AccountObservat
 
 // ObserveResetCredits retrieves the available reset-credit detail payload.
 func ObserveResetCredits(ctx context.Context, credential Credential) (AccountObservation, error) {
-	value, err := cpaembedded.ObserveCodexResetCredits(ctx, credentialToBridge(credential), "")
+	options, err := codexOptions(ctx)
+	if err != nil {
+		return AccountObservation{}, err
+	}
+	value, err := cpaembedded.ObserveCodexResetCredits(ctx, credentialToBridge(credential), "", options)
 	if err != nil {
 		return AccountObservation{}, normalizeUpstreamError(err)
 	}
@@ -199,11 +221,23 @@ func ObserveResetCredits(ctx context.Context, credential Credential) (AccountObs
 // ConsumeResetCredit consumes the next available credit with a caller-owned,
 // durable upstream idempotency identity.
 func ConsumeResetCredit(ctx context.Context, credential Credential, redeemRequestID string) (AccountObservation, error) {
-	value, err := cpaembedded.ConsumeCodexResetCredit(ctx, credentialToBridge(credential), "", redeemRequestID)
+	options, err := codexOptions(ctx)
+	if err != nil {
+		return AccountObservation{}, err
+	}
+	value, err := cpaembedded.ConsumeCodexResetCredit(ctx, credentialToBridge(credential), "", redeemRequestID, options)
 	if err != nil {
 		return AccountObservation{}, normalizeUpstreamError(err)
 	}
 	return AccountObservation{Payload: append([]byte(nil), value.Payload...), Header: value.Header.Clone()}, nil
+}
+
+func codexOptions(ctx context.Context) (cpaembedded.Options, error) {
+	client, err := subscriptionruntime.HTTPClient(ctx)
+	if err != nil {
+		return cpaembedded.Options{}, err
+	}
+	return cpaembedded.Options{HTTPClient: client}, nil
 }
 
 func normalizeUpstreamError(err error) error {
@@ -216,11 +250,13 @@ func normalizeUpstreamError(err error) error {
 
 // ExecuteRequest is the canonical request accepted by the embedded CPA bridge.
 type ExecuteRequest struct {
-	Model           string
-	Payload         []byte
-	Format          string
-	Headers         http.Header
-	OriginalRequest []byte
+	Model                string
+	Payload              []byte
+	Format               string
+	Headers              http.Header
+	OriginalRequest      []byte
+	ProxyURL             string
+	ProxyFromEnvironment bool
 }
 
 // ExecuteResponse is one converted non-streaming bridge response.
@@ -333,11 +369,13 @@ func (e *executor) ExecuteStream(
 
 func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {
 	return cpaembedded.ExecuteRequest{
-		Model:           value.Model,
-		Payload:         append([]byte(nil), value.Payload...),
-		Format:          value.Format,
-		Headers:         value.Headers.Clone(),
-		OriginalRequest: append([]byte(nil), value.OriginalRequest...),
+		Model:                value.Model,
+		Payload:              append([]byte(nil), value.Payload...),
+		Format:               value.Format,
+		Headers:              value.Headers.Clone(),
+		OriginalRequest:      append([]byte(nil), value.OriginalRequest...),
+		ProxyURL:             value.ProxyURL,
+		ProxyFromEnvironment: value.ProxyFromEnvironment,
 	}
 }
 

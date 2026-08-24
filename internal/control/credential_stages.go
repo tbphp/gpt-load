@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -91,9 +92,40 @@ type credentialStageSafeSummary struct {
 }
 
 type stagedSubscriptionPayload struct {
-	Credential  json.RawMessage `json:"credential,omitempty"`
-	State       string          `json:"state,omitempty"`
-	DriverState json.RawMessage `json:"driver_state,omitempty"`
+	Credential  json.RawMessage                     `json:"credential,omitempty"`
+	State       string                              `json:"state,omitempty"`
+	DriverState json.RawMessage                     `json:"driver_state,omitempty"`
+	Network     *subscriptionruntime.NetworkContext `json:"network,omitempty"`
+}
+
+func (s *Service) stagedNetworkContext(
+	ctx context.Context,
+	payload stagedSubscriptionPayload,
+) (subscriptionruntime.NetworkContext, error) {
+	if payload.Network == nil {
+		return s.globalNetworkContext(ctx, s.db)
+	}
+	network, err := s.proxyNetworkContext(payload.Network.Proxy)
+	if err != nil || network.Fingerprint != payload.Network.Fingerprint {
+		return subscriptionruntime.NetworkContext{}, app_errors.ErrInternalServer
+	}
+	return network, nil
+}
+
+func (s *Service) credentialStageNetworkContext(
+	ctx context.Context,
+	row models.CredentialStage,
+) (subscriptionruntime.NetworkContext, error) {
+	plaintext, err := s.encryption.Decrypt(row.EncryptedPayload)
+	if err != nil {
+		return subscriptionruntime.NetworkContext{}, app_errors.ErrInternalServer
+	}
+	payload, err := decodeStagedAuthorizationPayload(row.PayloadSchemaVersion, []byte(plaintext))
+	plaintext = ""
+	if err != nil {
+		return subscriptionruntime.NetworkContext{}, app_errors.ErrInternalServer
+	}
+	return s.stagedNetworkContext(ctx, payload)
 }
 
 // Version 1 was the Codex-only envelope used before subscription drivers were
@@ -148,21 +180,69 @@ func (s *Service) ImportCredentialStage(
 	ctx context.Context,
 	channelID channel.ID,
 	raw []byte,
+	proxyConfigs ...*outboundproxy.Config,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	if s.channelRegistry == nil ||
-		!s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationOAuthFile) {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	driver, err := s.subscriptionDriver(channelID)
+	driver, err := s.credentialStageImportDriver(channelID, raw)
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
-	if len(raw) > maxOAuthFileBytes {
-		return CredentialStageResult{}, app_errors.ErrOAuthFileTooLarge
+	var proxyConfig *outboundproxy.Config
+	if len(proxyConfigs) > 0 {
+		proxyConfig = proxyConfigs[0]
 	}
+	network, err := s.draftNetworkContext(ctx, proxyConfig)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	return s.importCredentialStageWithNetwork(ctx, channelID, raw, driver, network)
+}
+
+func (s *Service) ImportGroupCredentialStage(
+	ctx context.Context,
+	groupID uint,
+	channelID channel.ID,
+	raw []byte,
+) (CredentialStageResult, error) {
+	driver, err := s.credentialStageImportDriver(channelID, raw)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	network, err := s.groupCredentialStageNetworkContext(ctx, groupID, channelID)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	return s.importCredentialStageWithNetwork(ctx, channelID, raw, driver, network)
+}
+
+func (s *Service) credentialStageImportDriver(
+	channelID channel.ID,
+	raw []byte,
+) (subscriptionruntime.Driver, error) {
+	if s == nil || s.db == nil || s.encryption == nil {
+		return nil, app_errors.ErrValidation
+	}
+	if s.channelRegistry == nil ||
+		!s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationOAuthFile) {
+		return nil, app_errors.ErrValidation
+	}
+	driver, err := s.subscriptionDriver(channelID)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxOAuthFileBytes {
+		return nil, app_errors.ErrOAuthFileTooLarge
+	}
+	return driver, nil
+}
+
+func (s *Service) importCredentialStageWithNetwork(
+	ctx context.Context,
+	channelID channel.ID,
+	raw []byte,
+	driver subscriptionruntime.Driver,
+	network subscriptionruntime.NetworkContext,
+) (CredentialStageResult, error) {
+	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	importContext, cancelImport := credentialImportContext(ctx)
 	defer cancelImport()
 	credential, err := s.subscriptions.ImportCredential(importContext, channelID, raw)
@@ -173,7 +253,7 @@ func (s *Service) ImportCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
-	return s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential)
+	return s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential, network)
 }
 
 func (s *Service) prepareTransientSubscriptionCredential(
@@ -214,6 +294,15 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 	if err := ctx.Err(); err != nil {
 		return subscriptionruntime.Credential{}, err
 	}
+	network, frozen := subscriptionruntime.NetworkFromContext(ctx)
+	if !frozen {
+		var err error
+		network, err = s.credentialStageNetworkContext(ctx, row)
+		if err != nil {
+			return subscriptionruntime.Credential{}, err
+		}
+	}
+	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	expiresAt, known := credential.ExpiresAt()
 	if !forceRefresh && (!known || expiresAt.After(s.now().Add(5*time.Minute))) {
 		return credential, nil
@@ -301,8 +390,12 @@ func (s *Service) finishCredentialStageRefresh(
 	row models.CredentialStage,
 	credential subscriptionruntime.Credential,
 ) error {
+	network, err := s.credentialStageNetworkContext(ctx, row)
+	if err != nil {
+		return err
+	}
 	canonical := credential.Canonical()
-	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: canonical})
+	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: canonical, Network: &network})
 	clear(canonical)
 	if err != nil {
 		return err
@@ -363,21 +456,60 @@ func (s *Service) finishCredentialStageRefreshFailure(
 func (s *Service) BeginCredentialAuthorization(
 	ctx context.Context,
 	channelID channel.ID,
+	proxyConfigs ...*outboundproxy.Config,
 ) (CredentialStageResult, error) {
-	if s == nil || s.db == nil || s.encryption == nil {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	if s.channelRegistry == nil {
-		return CredentialStageResult{}, app_errors.ErrValidation
-	}
-	if _, err := s.subscriptionDriver(channelID); err != nil {
+	if err := s.validateCredentialAuthorization(channelID); err != nil {
 		return CredentialStageResult{}, err
 	}
+	var proxyConfig *outboundproxy.Config
+	if len(proxyConfigs) > 0 {
+		proxyConfig = proxyConfigs[0]
+	}
+	network, err := s.draftNetworkContext(ctx, proxyConfig)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	return s.beginCredentialAuthorizationWithNetwork(ctx, channelID, network)
+}
+
+func (s *Service) BeginGroupCredentialAuthorization(
+	ctx context.Context,
+	groupID uint,
+	channelID channel.ID,
+) (CredentialStageResult, error) {
+	if err := s.validateCredentialAuthorization(channelID); err != nil {
+		return CredentialStageResult{}, err
+	}
+	network, err := s.groupCredentialStageNetworkContext(ctx, groupID, channelID)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	return s.beginCredentialAuthorizationWithNetwork(ctx, channelID, network)
+}
+
+func (s *Service) validateCredentialAuthorization(channelID channel.ID) error {
+	if s == nil || s.db == nil || s.encryption == nil {
+		return app_errors.ErrValidation
+	}
+	if s.channelRegistry == nil {
+		return app_errors.ErrValidation
+	}
+	if _, err := s.subscriptionDriver(channelID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) beginCredentialAuthorizationWithNetwork(
+	ctx context.Context,
+	channelID channel.ID,
+	network subscriptionruntime.NetworkContext,
+) (CredentialStageResult, error) {
 	if s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationBrowserOAuth) {
-		return s.beginBrowserCredentialAuthorization(ctx, channelID)
+		return s.beginBrowserCredentialAuthorization(ctx, channelID, network)
 	}
 	if s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationDeviceOAuth) {
-		return s.beginDeviceCredentialAuthorization(ctx, channelID)
+		return s.beginDeviceCredentialAuthorization(ctx, channelID, network)
 	}
 	return CredentialStageResult{}, app_errors.ErrValidation
 }
@@ -385,6 +517,7 @@ func (s *Service) BeginCredentialAuthorization(
 func (s *Service) beginBrowserCredentialAuthorization(
 	ctx context.Context,
 	channelID channel.ID,
+	network subscriptionruntime.NetworkContext,
 ) (CredentialStageResult, error) {
 	if s.beginSubscriptionAuthorization == nil {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
@@ -393,7 +526,9 @@ func (s *Service) beginBrowserCredentialAuthorization(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
 	}
-	payload, err := json.Marshal(stagedSubscriptionPayload{State: authorization.State, DriverState: authorization.DriverState})
+	payload, err := json.Marshal(stagedSubscriptionPayload{
+		State: authorization.State, DriverState: authorization.DriverState, Network: &network,
+	})
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
@@ -430,10 +565,12 @@ func (s *Service) beginBrowserCredentialAuthorization(
 func (s *Service) beginDeviceCredentialAuthorization(
 	ctx context.Context,
 	channelID channel.ID,
+	network subscriptionruntime.NetworkContext,
 ) (CredentialStageResult, error) {
 	if s.beginDeviceAuthorization == nil {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
 	}
+	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	beginContext, cancelBegin := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancelBegin()
 	authorization, err := s.beginDeviceAuthorization(beginContext, channelID)
@@ -463,7 +600,7 @@ func (s *Service) beginDeviceCredentialAuthorization(
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
-	payload, err := json.Marshal(stagedSubscriptionPayload{DriverState: authorization.DriverState})
+	payload, err := json.Marshal(stagedSubscriptionPayload{DriverState: authorization.DriverState, Network: &network})
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
@@ -605,8 +742,14 @@ func (s *Service) completeCredentialAuthorization(
 		}
 		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
 	}
+	network, err := s.stagedNetworkContext(ctx, payload)
+	if err != nil {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
 	exchangeContext, cancelExchange := context.WithTimeout(context.WithoutCancel(ctx), defaultSubscriptionControlTimeout)
 	defer cancelExchange()
+	exchangeContext = subscriptionruntime.WithNetworkContext(exchangeContext, network)
 	channelID := channel.ID(row.ChannelID)
 	driver, driverErr := s.subscriptionDriver(channelID)
 	if driverErr != nil {
@@ -634,7 +777,7 @@ func (s *Service) completeCredentialAuthorization(
 	}
 	finalizeContext, cancelFinalize := credentialStageFinalizeContext(ctx)
 	defer cancelFinalize()
-	result, err := s.finishCredentialStageExchange(finalizeContext, row, credential)
+	result, err := s.finishCredentialStageExchange(finalizeContext, row, credential, network)
 	if err != nil {
 		if markErr := s.markCredentialStageOutcomeUnknown(ctx, row.ID); markErr != nil {
 			return CredentialStageResult{}, app_errors.ErrInternalServer
@@ -835,8 +978,14 @@ func (s *Service) PollCredentialDeviceAuthorization(
 		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
 		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
 	}
+	network, err := s.stagedNetworkContext(ctx, payload)
+	if err != nil {
+		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
+		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
+	}
 	pollContext, cancelPoll := context.WithTimeout(context.WithoutCancel(ctx), defaultSubscriptionControlTimeout)
 	defer cancelPoll()
+	pollContext = subscriptionruntime.WithNetworkContext(pollContext, network)
 	poll, err := s.pollDeviceAuthorization(pollContext, channel.ID(row.ChannelID), payload.DriverState)
 	if err != nil {
 		if markErr := s.markCredentialStageOutcomeUnknown(ctx, row.ID); markErr != nil {
@@ -846,11 +995,11 @@ func (s *Service) PollCredentialDeviceAuthorization(
 	}
 	switch poll.Status {
 	case subscriptionruntime.DeviceAuthorizationPending:
-		return s.finishPendingDeviceAuthorization(ctx, row, payload.DriverState, authorization, poll)
+		return s.finishPendingDeviceAuthorization(ctx, row, payload.DriverState, authorization, poll, network)
 	case subscriptionruntime.DeviceAuthorizationAuthorized:
 		finalizeContext, cancelFinalize := credentialStageFinalizeContext(ctx)
 		defer cancelFinalize()
-		return s.finishCredentialStageExchange(finalizeContext, row, poll.Credential)
+		return s.finishCredentialStageExchange(finalizeContext, row, poll.Credential, network)
 	case subscriptionruntime.DeviceAuthorizationDenied:
 		if err := s.finishDeviceAuthorizationFailure(ctx, row.ID, models.CredentialStageFailed, "authorization_denied"); err != nil {
 			return CredentialStageResult{}, err
@@ -875,6 +1024,7 @@ func (s *Service) finishPendingDeviceAuthorization(
 	previousDriverState []byte,
 	authorization *credentialStageAuthorizationSummary,
 	poll subscriptionruntime.DeviceAuthorizationPoll,
+	network subscriptionruntime.NetworkContext,
 ) (CredentialStageResult, error) {
 	driverState := poll.DriverState
 	if len(driverState) == 0 {
@@ -894,7 +1044,7 @@ func (s *Service) finishPendingDeviceAuthorization(
 		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
 		return CredentialStageResult{}, app_errors.ErrAuthorizationExchangeFailed
 	}
-	payload, err := json.Marshal(stagedSubscriptionPayload{DriverState: driverState})
+	payload, err := json.Marshal(stagedSubscriptionPayload{DriverState: driverState, Network: &network})
 	if err != nil {
 		_ = s.markCredentialStageOutcomeUnknown(ctx, row.ID)
 		return CredentialStageResult{}, app_errors.ErrInternalServer
@@ -1023,8 +1173,14 @@ func (s *Service) persistReadyCredentialStage(
 	channelID channel.ID,
 	method string,
 	credential subscriptionruntime.Credential,
+	networks ...subscriptionruntime.NetworkContext,
 ) (CredentialStageResult, error) {
-	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: credential.Canonical()})
+	var network *subscriptionruntime.NetworkContext
+	if len(networks) > 0 {
+		value := networks[0]
+		network = &value
+	}
+	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: credential.Canonical(), Network: network})
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
@@ -1065,8 +1221,9 @@ func (s *Service) finishCredentialStageExchange(
 	ctx context.Context,
 	row models.CredentialStage,
 	credential subscriptionruntime.Credential,
+	network subscriptionruntime.NetworkContext,
 ) (CredentialStageResult, error) {
-	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: credential.Canonical()})
+	payload, err := json.Marshal(stagedSubscriptionPayload{Credential: credential.Canonical(), Network: &network})
 	if err != nil {
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}

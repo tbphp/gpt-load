@@ -12,16 +12,19 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 )
 
 type CompileInput struct {
-	SystemSettings  config.Settings
-	ChannelRegistry *channel.Registry
-	Groups          []GroupConfig
-	Credentials     []CredentialConfig
-	AccessKeys      []AccessKeyConfig
+	SystemSettings   config.Settings
+	ChannelRegistry  *channel.Registry
+	Groups           []GroupConfig
+	Credentials      []CredentialConfig
+	AccessKeys       []AccessKeyConfig
+	GlobalProxy      *outboundproxy.Config
+	EnvironmentProxy *outboundproxy.Config
 }
 
 type GroupConfig struct {
@@ -35,6 +38,7 @@ type GroupConfig struct {
 	Settings        config.Settings
 	WeightManual    *int
 	Enabled         bool
+	Proxy           *outboundproxy.Config
 }
 
 // CredentialConfig contains only non-secret credential metadata required to
@@ -126,6 +130,7 @@ type GroupView struct {
 	InjectUsageOptions bool
 	AffinityEnabled    bool
 	WeightManual       *int
+	Proxy              outboundproxy.Effective
 }
 
 type GroupCatalogView struct {
@@ -154,6 +159,7 @@ type ConfigSnapshot struct {
 	AccessKeysByHash      map[string]AccessKeyView
 	GroupCatalog          map[uint]GroupCatalogView
 	AccessKeysByID        map[uint]AccessKeyView
+	GlobalProxy           outboundproxy.Effective
 }
 
 func Compile(input CompileInput) (*ConfigSnapshot, error) {
@@ -164,6 +170,10 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	globalProxy, err := outboundproxy.Resolve(nil, nil, input.GlobalProxy, input.EnvironmentProxy)
+	if err != nil {
+		return nil, fmt.Errorf("compile global proxy: %w", err)
+	}
 
 	snapshot := &ConfigSnapshot{
 		Settings:              runtimeSettings,
@@ -173,6 +183,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		AccessKeysByHash:      make(map[string]AccessKeyView),
 		GroupCatalog:          make(map[uint]GroupCatalogView),
 		AccessKeysByID:        make(map[uint]AccessKeyView),
+		GlobalProxy:           globalProxy,
 	}
 
 	for _, group := range input.Groups {
@@ -187,6 +198,10 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		resolved, err := ResolveGroupRuntimeSettings(runtimeSettings, group.Settings)
 		if err != nil {
 			return nil, fmt.Errorf("compile group %d settings: %w", group.ID, err)
+		}
+		groupProxy, err := outboundproxy.Resolve(nil, group.Proxy, input.GlobalProxy, input.EnvironmentProxy)
+		if err != nil {
+			return nil, fmt.Errorf("compile group %d proxy: %w", group.ID, err)
 		}
 		if !group.Enabled {
 			continue
@@ -203,6 +218,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			AffinityEnabled:    resolved.AffinityEnabled,
 			WeightManual:       cloneWeight(group.WeightManual),
 			ConnectionType:     connection.Normalize(group.ConnectionType),
+			Proxy:              groupProxy,
 		}
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)
 		if err != nil {

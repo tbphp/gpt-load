@@ -10,7 +10,9 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -19,14 +21,15 @@ import (
 
 func normalizeCredentialUpdate(
 	request CredentialUpdateRequest,
-) (status *state.CredentialStatus, weight *int, weightSet bool, err error) {
-	if !request.Status.Set && !request.WeightManual.Set {
-		return nil, nil, false, app_errors.ErrBadRequest
+	encryptionService encryption.Service,
+) (status *state.CredentialStatus, weight *int, weightSet bool, proxy *string, proxySet bool, err error) {
+	if !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set {
+		return nil, nil, false, nil, false, app_errors.ErrBadRequest
 	}
 	if request.Status.Set {
 		if request.Status.Null ||
 			(request.Status.Value != state.CredentialStatusActive && request.Status.Value != state.CredentialStatusDisabled) {
-			return nil, nil, false, app_errors.ErrValidation
+			return nil, nil, false, nil, false, app_errors.ErrValidation
 		}
 		value := request.Status.Value
 		status = &value
@@ -35,13 +38,17 @@ func normalizeCredentialUpdate(
 		weightSet = true
 		if !request.WeightManual.Null {
 			if request.WeightManual.Value < 1 || request.WeightManual.Value > state.MaxWeight {
-				return nil, nil, false, app_errors.ErrValidation
+				return nil, nil, false, nil, false, app_errors.ErrValidation
 			}
 			value := request.WeightManual.Value
 			weight = &value
 		}
 	}
-	return status, weight, weightSet, nil
+	proxy, proxySet, err = normalizeProxyOverride(request.Proxy, encryptionService)
+	if err != nil {
+		return nil, nil, false, nil, false, err
+	}
+	return status, weight, weightSet, proxy, proxySet, nil
 }
 
 func nextCredentialUpdatedAtMS(now time.Time, previous int64) (int64, error) {
@@ -130,18 +137,24 @@ func (s *Service) UpdateGroupCredential(
 	if groupID == 0 || credentialID == 0 {
 		return CredentialItemResponse{}, app_errors.ErrBadRequest
 	}
-	status, weight, weightSet, err := normalizeCredentialUpdate(request)
+	status, weight, weightSet, proxy, proxySet, err := normalizeCredentialUpdate(request, s.encryption)
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
 	var committed models.Credential
 	var committedGroup models.Group
+	var committedProxy, committedProxyFingerprint string
+	committedProxyUpdate := false
 	err = s.writeCredentialConfig(ctx, groupID, credentialID, func(tx *gorm.DB) error {
 		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
 			return err
 		}
 		if group.ChannelID == "" {
+			return app_errors.ErrValidation
+		}
+		if request.Proxy.Set && !request.Proxy.Null &&
+			!s.channelRegistry.SupportsOutboundProxy(channel.ID(group.ChannelID)) {
 			return app_errors.ErrValidation
 		}
 		committedGroup = group
@@ -168,14 +181,22 @@ func (s *Service) UpdateGroupCredential(
 			committed.WeightManual = cloneInt(weight)
 			updates["weight_manual"] = committed.WeightManual
 		}
+		if proxySet {
+			committed.ProxyConfig = proxy
+			updates["proxy_config"] = proxy
+		}
 		committed.UpdatedAtMS = updatedAtMS
+		committedProxy, committedProxyFingerprint, err = storedProxyIdentity(s.encryption, committed.ProxyConfig)
+		if err != nil {
+			return err
+		}
 		if err := tx.Model(&models.Credential{}).Where("id = ? AND group_id = ?", credentialID, groupID).
 			Updates(updates).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
 		return nil
 	}, func() error {
-		var applyErr error
+		committedProxyUpdate = proxySet
 		entries, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credentialID})
 		if snapshotErr != nil {
 			return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
@@ -190,9 +211,13 @@ func (s *Service) UpdateGroupCredential(
 		)
 		entry.Fingerprint = committed.Fingerprint
 		entry.EncryptedValue = committed.Data
-		applyErr = s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
-		return applyErr
+		entry.EncryptedProxy = committedProxy
+		entry.ProxyFingerprint = committedProxyFingerprint
+		return s.registry.RestoreGroupCredentialEntriesExact(groupID, []state.CredentialEntry{entry})
 	})
+	if committedProxyUpdate {
+		s.retireCredentialRuntime(credentialID)
+	}
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
@@ -379,6 +404,11 @@ func (s *Service) mapCredentialItem(
 	item.SecretVersion = row.SecretVersion
 	item.AuthState = string(row.AuthState)
 	item.Account = account
+	proxyViews, err := s.credentialProxyViews(ctx, s.db, group, []models.Credential{row})
+	if err != nil {
+		return CredentialItemResponse{}, err
+	}
+	item.Proxy = proxyViews[row.ID]
 	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
 		var observation models.CredentialObservation
 		result := s.db.WithContext(ctx).Take(&observation, "credential_id = ?", row.ID)

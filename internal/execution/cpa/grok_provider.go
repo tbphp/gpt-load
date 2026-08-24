@@ -146,6 +146,7 @@ func (bridge *grokProviderBridge) CountTokensLocal(
 		AttemptID: request.AttemptID, Model: request.Model,
 		Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		ProxyURL: request.ProxyURL,
 	})
 	headers := response.Headers.Clone()
 	if headers == nil {
@@ -164,6 +165,7 @@ func grokRequest(request providerRequest, credentialID string) grok.ExecuteReque
 		Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ContinuityKey: grokContinuityScope(request.ContinuityKey, credentialID, request.Model, request.AttemptID),
+		ProxyURL:      request.ProxyURL,
 	}
 }
 

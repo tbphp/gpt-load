@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -29,8 +30,10 @@ const (
 )
 
 type discoveryCredential struct {
-	snapshot execution.CredentialSnapshot
-	apiKey   string
+	snapshot         execution.CredentialSnapshot
+	apiKey           string
+	proxy            outboundproxy.Effective
+	proxyFingerprint string
 }
 
 type discoveryTarget struct {
@@ -89,9 +92,11 @@ func (s *Service) executeModelDiscovery(
 				Operation: execution.OperationListModels, Method: method, Path: path,
 				RawQuery: rawQuery,
 				Header:   applyControlHeaderRules(target.headerRules, credential.apiKey), Body: body,
-				TargetConfig: target.resolvedTarget.TargetConfig,
-				Timeouts:     executionTimeouts(target.timeouts),
-				Credential:   credential.snapshot,
+				TargetConfig:     target.resolvedTarget.TargetConfig,
+				Timeouts:         executionTimeouts(target.timeouts),
+				Credential:       credential.snapshot,
+				Proxy:            credential.proxy,
+				ProxyFingerprint: credential.proxyFingerprint,
 			})
 			if validationErr := spec.Validate(); validationErr != nil {
 				return ModelDiscoveryResult{}, fmt.Errorf("build discovery attempt: %w", app_errors.ErrInternalServer)

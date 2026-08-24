@@ -12,7 +12,6 @@ import (
 
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	internalexecutor "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
@@ -159,8 +158,10 @@ func (e *claudeHTTPExecutor) ExecuteCanonical(
 	}
 	format := sdktranslator.FromString(request.Format)
 	auth := NewClaudeAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	response, err := e.inner.Execute(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -189,8 +190,10 @@ func (e *claudeHTTPExecutor) CountTokensCanonical(
 	}
 	format := sdktranslator.FromString(request.Format)
 	auth := NewClaudeAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	response, err := e.inner.CountTokens(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.CountTokens(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -218,8 +221,10 @@ func (e *claudeHTTPExecutor) ExecuteStreamCanonical(
 	}
 	format := sdktranslator.FromString(request.Format)
 	auth := NewClaudeAuth(credentialID, credential, "")
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	response, err := e.inner.ExecuteStream(e.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	response, err := e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
 		Stream: true, Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
@@ -253,12 +258,9 @@ func (e *claudeHTTPExecutor) executionContext(
 	ctx context.Context,
 	auth *cliproxyauth.Auth,
 	observation *executionObservation,
+	proxyFromEnvironment bool,
 ) context.Context {
-	baseClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
-	transport := baseClient.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
+	transport := executionRoundTripper(ctx, e.cfg, auth, proxyFromEnvironment)
 	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{
 		base: transport, observation: observation,
 	})

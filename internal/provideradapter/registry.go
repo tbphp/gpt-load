@@ -9,6 +9,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 )
 
 // Binding associates one ProviderKind with its execution adapter.
@@ -24,8 +25,14 @@ type RouteCapabilityValidator interface {
 	ValidateRouteCapability(channel.ProviderKind, channel.RouteDescriptor) error
 }
 
+// RuntimeTarget is one active provider target with its Group-effective network policy.
+type RuntimeTarget struct {
+	Target channel.ResolvedTarget
+	Proxy  outboundproxy.Effective
+}
+
 type runtimeTargetReconciler interface {
-	Reconcile([]channel.ResolvedTarget) error
+	Reconcile([]RuntimeTarget) error
 }
 
 // Registry is an immutable ProviderKind-to-adapter dispatcher.
@@ -170,13 +177,13 @@ func (registry *Registry) DefaultBaseURL(channelID channel.ID) (string, bool, er
 
 // ReconcileTargets partitions snapshot targets by their bound adapter. Adapters
 // without process-owned runtime state do not participate in reconciliation.
-func (registry *Registry) ReconcileTargets(targets []channel.ResolvedTarget) error {
+func (registry *Registry) ReconcileTargets(targets []RuntimeTarget) error {
 	if registry == nil {
 		return fmt.Errorf("reconcile provider adapters: registry is unavailable")
 	}
 	for _, target := range targets {
-		if isNilAdapter(registry.bindings[target.ProviderKind]) {
-			return fmt.Errorf("reconcile provider adapters: provider %q is not bound", target.ProviderKind)
+		if isNilAdapter(registry.bindings[target.Target.ProviderKind]) {
+			return fmt.Errorf("reconcile provider adapters: provider %q is not bound", target.Target.ProviderKind)
 		}
 	}
 	for _, adapter := range registry.unique {
@@ -184,9 +191,9 @@ func (registry *Registry) ReconcileTargets(targets []channel.ResolvedTarget) err
 		if !ok {
 			continue
 		}
-		owned := make([]channel.ResolvedTarget, 0, len(targets))
+		owned := make([]RuntimeTarget, 0, len(targets))
 		for _, target := range targets {
-			if sameAdapter(adapter, registry.bindings[target.ProviderKind]) {
+			if sameAdapter(adapter, registry.bindings[target.Target.ProviderKind]) {
 				owned = append(owned, target)
 			}
 		}

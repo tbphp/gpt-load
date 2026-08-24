@@ -253,7 +253,7 @@ func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
 	if target.protocol != protocol.OpenAICompletions || target.model != "model-a" {
 		t.Fatalf("target protocol/model = %q/%q, want openai/model-a", target.protocol, target.model)
 	}
-	const want = "96758d0d5d971626ff21a2e501edd86c6799c2aa17d7924cc40469d2e3a698b9"
+	const want = "eb368678ae2d586451381ecad184474b772e646f6c75697e7f6a2a01ca2bc985"
 	if got := fmt.Sprintf("%x", target.signature); got != want {
 		t.Fatalf("validation signature = %s, want canonical digest %s", got, want)
 	}

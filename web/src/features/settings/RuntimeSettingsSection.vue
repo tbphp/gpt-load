@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
+import { computed } from 'vue'
+
+import type { ProxyConfiguredMode, ProxyViewDto } from '@/api/control/types'
+import { proxyOverrideToggleMode } from '@/app/resources/proxy'
 import type {
   RuntimeSettingKey,
   SettingsResource,
   TimeoutSettingKey,
 } from '@/app/resources/settings'
+import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
@@ -26,13 +31,32 @@ const props = defineProps<{
   draft: SettingsDraft
   disabled: boolean
   conflicts: SettingsMergeConflict[]
+  proxy: ProxyViewDto
+  proxyMode: ProxyConfiguredMode
+  proxyEndpoint: string
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
   chooseMine: [key: RuntimeSettingKey]
   chooseLatest: [key: RuntimeSettingKey]
+  'update:proxyMode': [value: ProxyConfiguredMode]
+  'update:proxyEndpoint': [value: string]
 }>()
 const { t } = useI18n()
+
+// 代理沿用其它设置项的覆盖语义：inherit 即“未覆盖”，direct/custom 即“显式覆盖”。
+const proxyOverridden = computed(() => props.proxyMode !== 'inherit')
+const proxyPendingRestore = computed(
+  () => props.proxy.configured_mode !== 'inherit' && props.proxyMode === 'inherit',
+)
+const proxyEffectiveLabel = computed(
+  () => props.proxy.display_url ?? t(`common.proxy.mode.${props.proxy.effective_mode}`),
+)
+
+function toggleProxyOverride(): void {
+  emit('update:proxyMode', proxyOverrideToggleMode(props.proxy, proxyOverridden.value))
+  emit('update:proxyEndpoint', '')
+}
 
 const timeoutKeys: TimeoutSettingKey[] = [
   'first_byte_timeout',
@@ -113,6 +137,49 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
     </header>
 
     <div class="settings-runtime__rows">
+      <div class="settings-runtime__entry">
+        <RuntimeOverrideRow
+          appearance="ledger"
+          :label="t('common.proxy.title')"
+          :detail="
+            proxyOverridden
+              ? t('settings.runtime.overrideValue')
+              : proxyPendingRestore
+                ? t('settings.runtime.resetPending')
+                : proxyEffectiveLabel
+          "
+          :value-label="
+            proxyOverridden || proxyPendingRestore
+              ? undefined
+              : t('settings.runtime.currentEffective')
+          "
+          :source-label="
+            proxyOverridden
+              ? t('settings.runtime.overrideSource')
+              : proxyPendingRestore
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
+          "
+          :action-label="
+            proxyOverridden ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
+          "
+          :overridden="proxyOverridden"
+          :pending-restore="proxyPendingRestore"
+          :disabled="disabled"
+          @toggle="toggleProxyOverride"
+        >
+          <template v-if="proxyOverridden" #value>
+            <ProxyOverrideControl
+              :base="proxy"
+              :mode="proxyMode"
+              :endpoint="proxyEndpoint"
+              :disabled="disabled"
+              @update:mode="emit('update:proxyMode', $event)"
+              @update:endpoint="emit('update:proxyEndpoint', $event)"
+            />
+          </template>
+        </RuntimeOverrideRow>
+      </div>
       <div v-for="key in timeoutKeys" :key="key" class="settings-runtime__entry">
         <RuntimeOverrideRow
           appearance="ledger"

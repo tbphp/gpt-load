@@ -76,6 +76,7 @@ func (bridge *claudeProviderBridge) CountTokens(
 	response, err := bridge.executor.CountTokens(ctx, credentialID, claudeCredential.value, claude.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
@@ -103,6 +104,7 @@ func (bridge *claudeProviderBridge) Execute(
 	response, err := bridge.executor.Execute(ctx, credentialID, claudeCredential.value, claude.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
@@ -123,6 +125,7 @@ func (bridge *claudeProviderBridge) ExecuteStream(
 	response, err := bridge.executor.ExecuteStream(ctx, credentialID, claudeCredential.value, claude.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	if response == nil {
 		return nil, err

@@ -7,6 +7,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
 )
 
@@ -54,7 +55,40 @@ type providerRequest struct {
 	OriginalRequest []byte
 	// ContinuityKey is a private, tenant-scoped key used only by providers
 	// whose tool/thinking protocol needs an isolated multi-request replay lane.
-	ContinuityKey string
+	ContinuityKey        string
+	ProxyURL             string
+	ProxyFromEnvironment bool
+}
+
+type cpaProxySettings struct {
+	URL             string
+	FromEnvironment bool
+}
+
+func proxySettingsForAttempt(effective outboundproxy.Effective) (cpaProxySettings, error) {
+	if effective.Config.Mode == "" {
+		return cpaProxySettings{}, nil
+	}
+	effective, err := outboundproxy.NormalizeEffective(effective)
+	if err != nil {
+		return cpaProxySettings{}, err
+	}
+	switch effective.Config.Mode {
+	case outboundproxy.ModeDirect:
+		return cpaProxySettings{URL: "direct"}, nil
+	case outboundproxy.ModeEnvironment:
+		return cpaProxySettings{FromEnvironment: true}, nil
+	case outboundproxy.ModeCustom:
+		switch {
+		case len(effective.Config.URL) >= len("http://") && effective.Config.URL[:len("http://")] == "http://",
+			len(effective.Config.URL) >= len("socks5://") && effective.Config.URL[:len("socks5://")] == "socks5://":
+			return cpaProxySettings{URL: effective.Config.URL}, nil
+		default:
+			return cpaProxySettings{}, outboundproxy.ErrInvalidConfig
+		}
+	default:
+		return cpaProxySettings{}, outboundproxy.ErrInvalidConfig
+	}
 }
 
 type providerResponse struct {

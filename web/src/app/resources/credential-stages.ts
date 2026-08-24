@@ -1,4 +1,5 @@
 import type { ApiClient } from '@/api/client'
+import type { ProxyConfigInput } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 
 import {
@@ -45,6 +46,9 @@ export interface CredentialConnectResult {
   credentials_added: number
   credentials_duplicated: number
 }
+
+export type CredentialStageNetworkInput =
+  { proxy: ProxyConfigInput; group_id?: never } | { group_id: number; proxy?: never }
 
 const stageFields = [
   'stage_id',
@@ -151,12 +155,13 @@ function projectConnectResult(value: unknown): CredentialConnectResult {
 export async function beginCredentialAuthorization(
   client: ApiClient,
   channelID: string,
+  network?: CredentialStageNetworkInput,
   signal?: AbortSignal,
 ): Promise<CredentialStage> {
   return projectCredentialStage(
     await client.request('/api/credential-stages/authorizations', {
       method: 'POST',
-      json: { channel_id: channelID },
+      json: { channel_id: channelID, ...network },
       signal,
     }),
   )
@@ -196,10 +201,13 @@ export async function importCredentialStage(
   client: ApiClient,
   channelID: string,
   file: File,
+  network?: CredentialStageNetworkInput,
   signal?: AbortSignal,
 ): Promise<CredentialStage> {
   const body = new FormData()
   body.set('channel_id', channelID)
+  if (network?.proxy !== undefined) body.set('proxy', JSON.stringify(network.proxy))
+  if (network?.group_id !== undefined) body.set('group_id', String(network.group_id))
   body.set('file', file, file.name)
   return projectCredentialStage(
     await client.request('/api/credential-stages/import', { method: 'POST', body, signal }),

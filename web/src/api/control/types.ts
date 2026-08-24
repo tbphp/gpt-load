@@ -18,6 +18,20 @@ export type GroupCollectionSort = 'recent' | 'status' | 'name' | 'credentials' |
 export type ModelPricingStatus = 'pending' | 'configured'
 export type ChannelParamsDto = Record<string, string>
 export type ConnectionType = 'api_key' | 'subscription'
+export type ProxyConfiguredMode = 'inherit' | 'direct' | 'custom'
+export type ProxyEffectiveMode = 'direct' | 'environment' | 'custom'
+export type ProxyEffectiveSource = 'credential' | 'group' | 'global' | 'environment' | 'default'
+
+export interface ProxyViewDto {
+  configured_mode: ProxyConfiguredMode
+  effective_mode: ProxyEffectiveMode
+  effective_source: ProxyEffectiveSource
+  display_url?: string
+  has_auth: boolean
+}
+
+export type ProxyConfigInput = { mode: 'direct' } | { mode: 'custom'; url: string }
+export type ProxyMutation = ProxyConfigInput | null
 
 export interface GroupCollectionFilters {
   q?: string
@@ -105,6 +119,7 @@ export interface GroupSettingsDto {
   weight_manual: number | null
   overrides: GroupRuntimeConfigDto
   effective: GroupEffectiveConfigDto
+  proxy: ProxyViewDto
 }
 
 export interface GroupModelItemDto {
@@ -249,6 +264,7 @@ export interface CredentialItemDto {
   last_used_at_ms?: number
   daily_usage?: CredentialDailyUsageDto
   recovery: CredentialRecoveryDto
+  proxy: ProxyViewDto
 }
 
 /** 固定 24 小时窗口的上游尝试结果分布，来源是小时聚合而非 health 的 5 分钟内存窗口。 */

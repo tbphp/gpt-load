@@ -16,11 +16,14 @@ import { useI18n } from 'vue-i18n'
 
 import type {
   CredentialItemDto,
+  ProxyMutation,
   CredentialQuotaLabelKey,
   CredentialQuotaWindowDto,
 } from '@/api/control/types'
 import type { ChannelCapabilitiesDto } from '@/app/resources/channels'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
+import ProxyConfigEditor from '@/components/config/ProxyConfigEditor.vue'
+import ProxyScopeIndicator from '@/components/config/ProxyScopeIndicator.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
@@ -46,6 +49,7 @@ const props = defineProps<{
   channelIcon?: string
   channelMark?: string
   capabilities: ChannelCapabilitiesDto
+  saveProxy: (value: ProxyMutation) => Promise<void>
 }>()
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
@@ -695,6 +699,7 @@ function runMenuAction(
             >
               {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
             </StatusBadge>
+            <ProxyScopeIndicator v-if="capabilities.outbound_proxy" :view="item.proxy" />
           </div>
           <div class="subscription-account__actions">
             <span
@@ -1196,6 +1201,13 @@ function runMenuAction(
           </div>
         </section>
       </div>
+      <ProxyConfigEditor
+        class="subscription-account__proxy"
+        :view="item.proxy"
+        :save-proxy="saveProxy"
+        :supported="capabilities.outbound_proxy"
+        :disabled="busy"
+      />
     </section>
   </article>
 </template>
@@ -1752,6 +1764,9 @@ function runMenuAction(
 .subscription-account__detail-content {
   display: grid;
   gap: 13px;
+}
+.subscription-account__proxy {
+  margin-top: 13px;
 }
 .subscription-account__skeleton-section {
   display: grid;

@@ -19,8 +19,150 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/provideradapter"
 )
+
+func TestEffectiveProviderConfigMapsHTTPAndSOCKSAttemptProxy(t *testing.T) {
+	t.Parallel()
+
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		endpoint string
+		wantType schemas.ProxyType
+		wantURL  string
+	}{
+		{
+			name: "http", endpoint: "http://user:password@proxy.example.com:8080",
+			wantType: schemas.HTTPProxy, wantURL: "http://proxy.example.com:8080",
+		},
+		{
+			name: "http default port", endpoint: "http://user:password@proxy.example.com",
+			wantType: schemas.HTTPProxy, wantURL: "http://proxy.example.com:80",
+		},
+		{
+			name: "socks5", endpoint: "socks5://user:password@proxy.example.com:1080",
+			wantType: schemas.Socks5Proxy, wantURL: "socks5://proxy.example.com:1080",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := execution.AttemptSpec{Proxy: outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: test.endpoint},
+				Source: outboundproxy.SourceCredential,
+			}}
+			config, err := buildEffectiveProviderConfigForAttempt(resolved, spec, true)
+			if err != nil {
+				t.Fatalf("buildEffectiveProviderConfigForAttempt() error = %v", err)
+			}
+			proxy := config.providerConfig.ProxyConfig
+			if proxy == nil || proxy.Type != test.wantType || proxy.URL.GetValue() != test.wantURL {
+				t.Fatalf("ProxyConfig = %#v", proxy)
+			}
+			if proxy.Username.GetValue() != "user" || proxy.Password.GetValue() != "password" {
+				t.Fatalf("ProxyConfig auth = %#v/%#v", proxy.Username, proxy.Password)
+			}
+			if config.baseFingerprint != "" || config.targetFingerprint == "" ||
+				config.targetFingerprint == config.fingerprint {
+				t.Fatalf(
+					"proxy config identity = base %q target %q effective %q",
+					config.baseFingerprint,
+					config.targetFingerprint,
+					config.fingerprint,
+				)
+			}
+		})
+	}
+}
+
+func TestEffectiveProviderConfigTreatsProxyCredentialsAsPlaintext(t *testing.T) {
+	t.Setenv("GPT_LOAD_PROXY_USER", "resolved-user")
+	t.Setenv("GPT_LOAD_PROXY_PASSWORD", "resolved-password")
+
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := execution.AttemptSpec{Proxy: outboundproxy.Effective{
+		Config: outboundproxy.Config{
+			Mode: outboundproxy.ModeCustom,
+			URL:  "http://env.GPT_LOAD_PROXY_USER:env.GPT_LOAD_PROXY_PASSWORD@proxy.example.com:8080",
+		},
+		Source: outboundproxy.SourceCredential,
+	}}
+	config, err := buildEffectiveProviderConfigForAttempt(resolved, spec, true)
+	if err != nil {
+		t.Fatalf("buildEffectiveProviderConfigForAttempt() error = %v", err)
+	}
+	proxy := config.providerConfig.ProxyConfig
+	if proxy == nil {
+		t.Fatal("ProxyConfig = nil")
+	}
+	if proxy.Username.GetValue() != "env.GPT_LOAD_PROXY_USER" ||
+		proxy.Password.GetValue() != "env.GPT_LOAD_PROXY_PASSWORD" ||
+		proxy.Username.SecretType != schemas.SecretTypePlainText ||
+		proxy.Password.SecretType != schemas.SecretTypePlainText {
+		t.Fatalf("ProxyConfig auth = %#v/%#v, want literal plaintext", proxy.Username, proxy.Password)
+	}
+}
+
+func TestEffectiveProviderConfigDoesNotInjectProxyIntoUnsupportedProviders(t *testing.T) {
+	t.Parallel()
+
+	registry := channel.NewRegistry()
+	for _, test := range []struct {
+		channelID channel.ID
+		params    json.RawMessage
+	}{
+		{channelID: channel.AzureOpenAI, params: json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`)},
+		{channelID: channel.AWSBedrock, params: json.RawMessage(`{"region":"us-east-1"}`)},
+		{channelID: channel.GoogleVertex, params: json.RawMessage(`{"location":"global"}`)},
+	} {
+		resolved, err := registry.Resolve(test.channelID, test.params)
+		if err != nil {
+			t.Fatalf("Resolve(%q) error = %v", test.channelID, err)
+		}
+		for _, effective := range []outboundproxy.Effective{
+			{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"},
+				Source: outboundproxy.SourceGlobal,
+			},
+			{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeEnvironment},
+				Source: outboundproxy.SourceEnvironment,
+			},
+		} {
+			config, err := buildEffectiveProviderConfigForAttempt(resolved, execution.AttemptSpec{Proxy: effective}, true)
+			if err != nil {
+				t.Fatalf("buildEffectiveProviderConfigForAttempt(%q, %q) error = %v", test.channelID, effective.Config.Mode, err)
+			}
+			if config.providerConfig.ProxyConfig != nil {
+				t.Fatalf("channel %q mode %q injected ProxyConfig = %#v", test.channelID, effective.Config.Mode, config.providerConfig.ProxyConfig)
+			}
+		}
+	}
+}
+
+func TestRuntimeAcceptsAttemptMatchingProxyConfig(t *testing.T) {
+	runtime := newRuntimeForTest(t, testRuntimeOptions{
+		openAIBaseURL: "https://api.openai.com",
+	})
+	spec := openAIChatAttempt(t, channel.OpenAI, "https://api.openai.com", "test-key")
+	spec.Proxy = outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"},
+		Source: outboundproxy.SourceGroup,
+	}
+	if _, failure := runtime.prepare(spec, false); failure != nil {
+		t.Fatalf("proxy attempt preflight failure = %#v", failure)
+	}
+}
 
 func TestEffectiveProviderConfigUsesSDKProviderAndCanonicalDefaultBaseURL(t *testing.T) {
 	registry := channel.NewRegistry()
@@ -318,6 +460,131 @@ func TestRuntimeManagerRetiresOnlyAfterLastLeaseAndRejectsAfterShutdown(t *testi
 	<-manager.beginShutdown()
 	if _, err := manager.acquire(context.Background(), config); err == nil {
 		t.Fatal("acquire after shutdown error = nil")
+	}
+}
+
+func TestRuntimeManagerRetiresSupersededProxyRuntime(t *testing.T) {
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := buildEffectiveProviderConfig(resolved, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyConfig := func(endpoint string) effectiveProviderConfig {
+		t.Helper()
+		config, configErr := buildEffectiveProviderConfigForAttempt(
+			resolved,
+			execution.AttemptSpec{Proxy: outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: endpoint},
+				Source: outboundproxy.SourceGroup,
+			}},
+			true,
+		)
+		if configErr != nil {
+			t.Fatal(configErr)
+		}
+		return config
+	}
+	first := proxyConfig("http://first-proxy.example.com:8080")
+	second := proxyConfig("http://second-proxy.example.com:8080")
+	created := make(map[string]*fakeManagedRuntime)
+	manager := newRuntimeManagerPool(func(_ context.Context, config effectiveProviderConfig) (managedProviderRuntime, error) {
+		runtime := newFakeManagedRuntime()
+		created[config.fingerprint] = runtime
+		return runtime, nil
+	})
+	manager.reconcile([]effectiveProviderConfig{base, first})
+	lease, err := manager.acquire(t.Context(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Release()
+
+	manager.reconcile([]effectiveProviderConfig{base, second})
+	if got := created[first.fingerprint].shutdowns.Load(); got != 1 {
+		t.Fatalf("superseded proxy runtime shutdowns = %d, want 1", got)
+	}
+	lease, err = manager.acquire(t.Context(), second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Release()
+	if got := created[second.fingerprint].shutdowns.Load(); got != 0 {
+		t.Fatalf("active proxy runtime shutdowns = %d, want 0", got)
+	}
+	<-manager.beginShutdown()
+}
+
+func TestRuntimeManagerReconcilesGroupEffectiveProxy(t *testing.T) {
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective := outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"},
+		Source: outboundproxy.SourceGroup,
+	}
+	want, err := buildEffectiveProviderConfigForAttempt(
+		resolved,
+		execution.AttemptSpec{Proxy: effective},
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Reconcile([]provideradapter.RuntimeTarget{{Target: resolved, Proxy: effective}}); err != nil {
+		t.Fatal(err)
+	}
+	manager.pool.mu.Lock()
+	activeCanonical, exists := manager.pool.active[want.fingerprint]
+	manager.pool.mu.Unlock()
+	if !exists || !bytes.Equal(activeCanonical, want.canonical) {
+		t.Fatalf("effective proxy runtime is not active: found=%t", exists)
+	}
+	<-manager.BeginShutdown()
+}
+
+func TestRuntimeManagerPartitionsCredentialProxyByCredential(t *testing.T) {
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Shutdown)
+	config, failure := manager.configForAttempt(execution.AttemptSpec{
+		ChannelID:    string(channel.OpenAI),
+		TargetConfig: resolved.TargetConfig,
+		Credential: execution.NewCredentialSnapshot(
+			17,
+			1,
+			23,
+			[]byte(`{"api_key":"secret"}`),
+		),
+		Proxy: outboundproxy.Effective{
+			Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.com:8080"},
+			Source: outboundproxy.SourceCredential,
+		},
+	})
+	if failure != nil {
+		t.Fatalf("configForAttempt() failure = %#v", failure)
+	}
+	if config.credentialPartitionID != 17 || config.baseFingerprint == "" || config.targetFingerprint == "" {
+		t.Fatalf("credential proxy partition = %#v", config)
 	}
 }
 

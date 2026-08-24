@@ -105,8 +105,10 @@ func (executor *grokHTTPExecutor) ExecuteCanonical(
 	request = prepareGrokExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewGrokAuth(credentialID, credential, executor.baseURL)
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, grokCPAProvider)
-	response, err := executor.inner.Execute(executor.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	executionCtx := executor.executionContext(ctx, auth, observation)
+	response, err := executor.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, grokExecutorOptions(request, format, false))
 	if err != nil {
@@ -158,8 +160,10 @@ func (executor *grokHTTPExecutor) ExecuteStreamCanonical(
 	request = prepareGrokExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewGrokAuth(credentialID, credential, executor.baseURL)
+	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, grokCPAProvider)
-	response, err := executor.inner.ExecuteStream(executor.executionContext(ctx, auth, observation), auth, cliproxyexecutor.Request{
+	executionCtx := executor.executionContext(ctx, auth, observation)
+	response, err := executor.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, grokExecutorOptions(request, format, true))
 	if err != nil {

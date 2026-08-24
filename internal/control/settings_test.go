@@ -17,11 +17,117 @@ import (
 	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/catalog"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestSettingsProxyConfigIsEncryptedMaskedAndResettable(t *testing.T) {
+	fixture := newServiceFixture(t)
+	const endpoint = "http://proxy-user:proxy-password@proxy.example.com:8080"
+
+	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			outboundproxy.SystemSettingKey: json.RawMessage(`{"mode":"custom","url":"` + endpoint + `"}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings(proxy) error = %v", err)
+	}
+	view := updated.Values.ProxyConfig
+	if view.ConfiguredMode != outboundproxy.ModeCustom || view.EffectiveSource != outboundproxy.SourceGlobal ||
+		view.DisplayURL != "http://proxy-user:******@proxy.example.com:8080" || !view.HasAuth {
+		t.Fatalf("proxy view = %#v", view)
+	}
+
+	var row models.SystemSetting
+	if err := fixture.db.Where("key = ?", outboundproxy.SystemSettingKey).Take(&row).Error; err != nil {
+		t.Fatalf("read proxy setting: %v", err)
+	}
+	if strings.Contains(row.Value, endpoint) || strings.Contains(row.Value, "proxy-password") {
+		t.Fatalf("proxy setting stored plaintext: %q", row.Value)
+	}
+	plaintext, err := fixture.encryption.Decrypt(row.Value)
+	if err != nil {
+		t.Fatalf("decrypt proxy setting: %v", err)
+	}
+	config, err := outboundproxy.Decode(plaintext)
+	if err != nil || config.URL != endpoint {
+		t.Fatalf("stored proxy config = %#v, %v", config, err)
+	}
+
+	reset, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{outboundproxy.SystemSettingKey: json.RawMessage("null")},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSettings(proxy null) error = %v", err)
+	}
+	if reset.Values.ProxyConfig.ConfiguredMode != outboundproxy.ModeInherit {
+		t.Fatalf("reset proxy view = %#v", reset.Values.ProxyConfig)
+	}
+	var count int64
+	if err := fixture.db.Model(&models.SystemSetting{}).Where("key = ?", outboundproxy.SystemSettingKey).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("proxy setting rows after reset = %d", count)
+	}
+}
+
+func TestSettingsProxyPasswordChangesETagWithoutExposingPassword(t *testing.T) {
+	fixture := newServiceFixture(t)
+	current, err := fixture.service.GetSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := newSettingsWireRepresentation("settings", current.DTO())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := fixture.service.UpdateSettingsIfMatch(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{outboundproxy.SystemSettingKey: json.RawMessage(
+			`{"mode":"custom","url":"http://user:first-password@proxy.example.com:8080"}`,
+		)},
+	}, initial.ETag, "settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := fixture.service.UpdateSettingsIfMatch(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{outboundproxy.SystemSettingKey: json.RawMessage(
+			`{"mode":"custom","url":"http://user:second-password@proxy.example.com:8080"}`,
+		)},
+	}, first.ETag, "settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ETag == second.ETag {
+		t.Fatal("proxy password change did not change settings ETag")
+	}
+	if bytes.Contains(second.Body, []byte("first-password")) || bytes.Contains(second.Body, []byte("second-password")) {
+		t.Fatalf("settings response leaked proxy password: %s", second.Body)
+	}
+}
+
+func TestSettingsProxyRejectsInvalidConfigWithoutMutation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	_, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{outboundproxy.SystemSettingKey: json.RawMessage(
+			`{"mode":"custom","url":"ftp://user:password@proxy.example.com"}`,
+		)},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("UpdateSettings(invalid proxy) error = %v, want validation", err)
+	}
+	var count int64
+	if err := fixture.db.Model(&models.SystemSetting{}).Where("key = ?", outboundproxy.SystemSettingKey).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("invalid proxy persisted %d rows", count)
+	}
+}
 
 func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	fixture := newServiceFixture(t)

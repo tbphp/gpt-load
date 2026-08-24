@@ -226,6 +226,46 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 	}
 }
 
+func TestChannelDescriptorMarksOutboundProxySupport(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	for _, test := range []struct {
+		channelID ID
+		want      bool
+	}{
+		{channelID: OpenAI, want: true},
+		{channelID: Codex, want: true},
+		{channelID: AzureOpenAI, want: false},
+		{channelID: AWSBedrock, want: false},
+		{channelID: GoogleVertex, want: false},
+	} {
+		descriptor, ok := registry.Get(test.channelID)
+		if !ok {
+			t.Fatalf("channel %q is missing", test.channelID)
+		}
+		encoded, err := json.Marshal(descriptor.Capabilities)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var capabilities map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &capabilities); err != nil {
+			t.Fatal(err)
+		}
+		var got bool
+		value, exists := capabilities["outbound_proxy"]
+		if !exists {
+			t.Fatalf("channel %q omits outbound_proxy: %s", test.channelID, encoded)
+		}
+		if err := json.Unmarshal(value, &got); err != nil {
+			t.Fatalf("channel %q outbound_proxy is invalid: %v", test.channelID, err)
+		}
+		if got != test.want {
+			t.Fatalf("channel %q outbound_proxy = %t, want %t", test.channelID, got, test.want)
+		}
+	}
+}
+
 func TestRegistryPublicDescriptorUsesSingularConnectionAndExplicitRoutes(t *testing.T) {
 	t.Parallel()
 

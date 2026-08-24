@@ -356,3 +356,88 @@
     border-left-color: transparent;
   }
 }
+
+/*
+ * 设置面板：标题留在面板之外，具体值与编辑控件落在白底圆角面板里。
+ * 账号卡片与密钥行展开区的「权重 / 出站代理」共用这一套外壳，故放在全局样式中，
+ * 避免同一套视觉在多个 scoped 样式里各写一份而逐渐漂移。
+ */
+.setting-panel {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.setting-panel__title {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  font-weight: 680;
+  letter-spacing: 0.06em;
+}
+
+.setting-panel__body {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  padding: 7px 9px;
+}
+
+.setting-panel__tag {
+  flex: none;
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  padding: 2px 7px;
+  font-size: var(--text-label-xs);
+  font-weight: 620;
+}
+
+.setting-panel__value {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 编辑入口跟着左侧内容走，不靠右吸边；高度压到不超过同行的标签。 */
+.setting-panel__edit {
+  width: 22px;
+  min-height: 22px;
+  height: 22px;
+  flex: none;
+  margin-left: 2px;
+}
+
+.setting-panel__form {
+  display: flex;
+  flex: 1 1 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.setting-panel__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.setting-panel__actions .app-button {
+  min-height: 26px;
+  padding-inline: 8px;
+  font-size: var(--text-label-xs);
+}
+
+.setting-panel__error {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-label-xs);
+}

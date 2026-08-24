@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
@@ -120,10 +121,14 @@ func BuildContainer() (*dig.Container, error) {
 		control.NewRuntime,
 		func(runtime *control.Runtime) app.ControlRuntime { return runtime },
 		httpclient.NewHTTPClientManager,
+		newSystemOutboundProxyProvider,
 		releasecheck.NewClient,
 		releasecheck.NewChecker,
-		func(manager *httpclient.HTTPClientManager) *catalog.Client {
-			return catalog.NewClient(manager, "")
+		func(
+			manager *httpclient.HTTPClientManager,
+			proxyProvider httpclient.OutboundProxyProvider,
+		) *catalog.Client {
+			return catalog.NewClient(manager, proxyProvider)
 		},
 		redact.New,
 		func(manager *httpclient.HTTPClientManager) *http.Client {
@@ -222,6 +227,24 @@ func BuildContainer() (*dig.Container, error) {
 	return dependencyContainer, nil
 }
 
+func newSystemOutboundProxyProvider(manager *state.Manager) httpclient.OutboundProxyProvider {
+	fallback, err := outboundproxy.Resolve(nil, nil, nil, outboundproxy.Environment())
+	if err != nil {
+		fallback = outboundproxy.Effective{
+			Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect},
+			Source: outboundproxy.SourceDefault,
+		}
+	}
+	return func() outboundproxy.Effective {
+		if manager != nil {
+			if snapshot := manager.Current(); snapshot != nil {
+				return snapshot.GlobalProxy
+			}
+		}
+		return fallback
+	}
+}
+
 type runtimeSnapshotReconciler struct {
 	adapters    *provideradapter.Registry
 	accessQuota *accessquota.Runtime
@@ -263,11 +286,14 @@ func (reconciler runtimeSnapshotReconciler) ReconcileConfigSnapshot(snapshot *st
 	if reconciler.accessQuota == nil {
 		return fmt.Errorf("reconcile access key cost limits: runtime is unavailable")
 	}
-	targets := make([]channel.ResolvedTarget, 0)
+	targets := make([]provideradapter.RuntimeTarget, 0)
 	if snapshot != nil {
-		targets = make([]channel.ResolvedTarget, 0, len(snapshot.Groups))
+		targets = make([]provideradapter.RuntimeTarget, 0, len(snapshot.Groups))
 		for _, group := range snapshot.Groups {
-			targets = append(targets, group.ResolvedTarget)
+			targets = append(targets, provideradapter.RuntimeTarget{
+				Target: group.ResolvedTarget,
+				Proxy:  group.Proxy,
+			})
 		}
 	}
 	if err := reconciler.adapters.ReconcileTargets(targets); err != nil {

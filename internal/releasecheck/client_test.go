@@ -8,9 +8,67 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"gpt-load/internal/outboundproxy"
+	"gpt-load/internal/platform/httpclient"
 )
+
+func TestClientUsesLatestGlobalProxyPolicyForEachFetch(t *testing.T) {
+	t.Parallel()
+
+	writeReleases := func(writer http.ResponseWriter) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`[{"tag_name":"v2.0.1","html_url":"https://github.com/tbphp/gpt-load/releases/tag/v2.0.1","published_at":"2026-08-19T13:09:53Z","draft":false}]`))
+	}
+	var targetCalls atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		targetCalls.Add(1)
+		writeReleases(writer)
+	}))
+	defer target.Close()
+	var proxyCalls atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		proxyCalls.Add(1)
+		writeReleases(writer)
+	}))
+	defer proxy.Close()
+
+	effective := outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: proxy.URL},
+		Source: outboundproxy.SourceGlobal,
+	}
+	var providerCalls atomic.Int32
+	client := NewClient(httpclient.NewHTTPClientManager(), func() outboundproxy.Effective {
+		providerCalls.Add(1)
+		return effective
+	})
+	client.endpoint = target.URL
+	if _, err := client.Fetch(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if proxyCalls.Load() != 1 || targetCalls.Load() != 0 {
+		t.Fatalf("custom proxy/target calls = %d/%d, want 1/0", proxyCalls.Load(), targetCalls.Load())
+	}
+
+	effective = outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeDirect},
+		Source: outboundproxy.SourceGlobal,
+	}
+	if _, err := client.Fetch(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if proxyCalls.Load() != 1 || targetCalls.Load() != 1 || providerCalls.Load() != 2 {
+		t.Fatalf(
+			"direct proxy/target/provider calls = %d/%d/%d, want 1/1/2",
+			proxyCalls.Load(),
+			targetCalls.Load(),
+			providerCalls.Load(),
+		)
+	}
+}
 
 func TestClientFetchUsesFixedPublicGitHubContract(t *testing.T) {
 	published := "2026-08-19T13:09:53Z"

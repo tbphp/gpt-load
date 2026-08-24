@@ -1,26 +1,63 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import type { ProxyConfiguredMode } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
+import { proxyMutation } from '@/app/resources/proxy'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
 import FormField from '@/components/ui/FormField.vue'
 import { hasUpstreamBaseURLVersionMismatch, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+
+import type { ImportProxyDraft } from './model-draft'
 
 const props = defineProps<{
   channel: ChannelDto | null
   name: string
   params: Record<string, string>
+  proxy: ImportProxyDraft
   paramErrors: Readonly<Record<string, string>>
   baseUrlOverrideEnabled: boolean
   disabled?: boolean
+  proxyDisabled?: boolean
 }>()
 const emit = defineEmits<{
   'update:name': [value: string]
   'update:param': [key: string, value: string]
+  'update:proxy': [value: ImportProxyDraft]
   'update:base-url-override': [enabled: boolean]
   'blur:param': [key: string]
 }>()
 const { t } = useI18n()
+const proxySupported = computed(() => props.channel?.capabilities.outbound_proxy === true)
+const proxyModeOptions = computed(() => [
+  { value: 'inherit', label: t('common.proxy.inherit.group') },
+  { value: 'direct', label: t('common.proxy.mode.direct') },
+  { value: 'custom', label: t('common.proxy.mode.custom') },
+])
+const proxyError = computed(() =>
+  proxySupported.value &&
+  props.proxy.mode === 'custom' &&
+  proxyMutation(props.proxy.mode, props.proxy.url) === undefined
+    ? t('common.proxy.invalid')
+    : undefined,
+)
+const proxyDescription = computed(() => {
+  if (!proxySupported.value || props.proxy.mode === 'custom') return undefined
+  return t(`common.proxy.help.${props.proxy.mode}`)
+})
+
+function updateProxyMode(value: string): void {
+  if (!['inherit', 'direct', 'custom'].includes(value)) return
+  emit('update:proxy', { mode: value as ProxyConfiguredMode, url: '' })
+}
+
+function updateProxyURL(value: string): void {
+  if (props.proxy.mode !== 'custom') return
+  emit('update:proxy', { mode: 'custom', url: value })
+}
 
 function fieldError(key: string): string {
   return props.paramErrors[key] ?? ''
@@ -155,6 +192,53 @@ function baseURLVersionWarning(key: string): string | undefined {
           </FormField>
         </template>
       </div>
+
+      <FormField
+        v-if="channel"
+        id="import-group-proxy-mode"
+        class="import-connection__proxy"
+        :label="t('common.proxy.title')"
+        :description="proxyDescription"
+        :disabled-reason="
+          !proxySupported
+            ? t('common.proxy.unsupportedHelp')
+            : proxyDisabled
+              ? t('import.connection.proxyLocked')
+              : undefined
+        "
+        :error="proxyError"
+        size="compact"
+      >
+        <template #default="field">
+          <div class="import-connection__proxy-controls">
+            <AppSelect
+              id="import-group-proxy-mode"
+              :model-value="proxySupported ? proxy.mode : 'inherit'"
+              :label="t('common.proxy.modeLabel')"
+              :options="proxyModeOptions"
+              size="sm"
+              :disabled="disabled || proxyDisabled || !proxySupported"
+              @update:model-value="updateProxyMode"
+            />
+            <AppTextInput
+              v-if="proxySupported && proxy.mode === 'custom'"
+              id="import-group-proxy-url"
+              :model-value="proxy.url"
+              :label="t('common.proxy.urlLabel')"
+              :placeholder="t('common.proxy.placeholder')"
+              appearance="surface"
+              size="sm"
+              autocomplete="off"
+              :spellcheck="false"
+              monospace
+              :disabled="disabled || proxyDisabled"
+              :invalid="field.invalid"
+              :described-by="field.describedBy"
+              @update:model-value="updateProxyURL"
+            />
+          </div>
+        </template>
+      </FormField>
     </div>
   </div>
 </template>
@@ -174,7 +258,8 @@ function baseURLVersionWarning(key: string): string | undefined {
 
 .import-connection__name,
 .import-connection__params,
-.import-connection__param {
+.import-connection__param,
+.import-connection__proxy {
   min-width: 0;
 }
 
@@ -182,6 +267,21 @@ function baseURLVersionWarning(key: string): string | undefined {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: var(--space-4);
+}
+
+.import-connection__proxy {
+  grid-column: 1 / -1;
+}
+
+.import-connection__proxy-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.import-connection__proxy-controls :deep(.app-text-input) {
+  flex: 1 1 auto;
 }
 
 .import-connection__url {
@@ -207,6 +307,11 @@ function baseURLVersionWarning(key: string): string | undefined {
 
   .import-connection__switch-row {
     min-height: var(--touch-target);
+  }
+
+  .import-connection__proxy-controls {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

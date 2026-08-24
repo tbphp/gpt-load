@@ -15,11 +15,13 @@ const maxExecutionErrorSummaryRunes = 512
 
 // ExecuteRequest is the canonical request accepted by the embedded Claude bridge.
 type ExecuteRequest struct {
-	Model           string
-	Payload         []byte
-	Format          string
-	Headers         http.Header
-	OriginalRequest []byte
+	Model                string
+	Payload              []byte
+	Format               string
+	Headers              http.Header
+	OriginalRequest      []byte
+	ProxyURL             string
+	ProxyFromEnvironment bool
 }
 
 // ExecuteResponse is one converted non-streaming bridge response.
@@ -207,7 +209,9 @@ func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {
 	return cpaembedded.ExecuteRequest{
 		Model: value.Model, Payload: append([]byte(nil), value.Payload...),
 		Format: value.Format, Headers: value.Headers.Clone(),
-		OriginalRequest: append([]byte(nil), value.OriginalRequest...),
+		OriginalRequest:      append([]byte(nil), value.OriginalRequest...),
+		ProxyURL:             value.ProxyURL,
+		ProxyFromEnvironment: value.ProxyFromEnvironment,
 	}
 }
 

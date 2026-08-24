@@ -273,6 +273,14 @@ func cloneProviderConfig(source *schemas.ProviderConfig) *schemas.ProviderConfig
 	clone := *source
 	clone.NetworkConfig.ExtraHeaders = cloneStringMap(source.NetworkConfig.ExtraHeaders)
 	clone.NetworkConfig.BetaHeaderOverrides = cloneBoolMap(source.NetworkConfig.BetaHeaderOverrides)
+	if source.ProxyConfig != nil {
+		proxy := *source.ProxyConfig
+		proxy.URL = cloneSecretVar(source.ProxyConfig.URL)
+		proxy.Username = cloneSecretVar(source.ProxyConfig.Username)
+		proxy.Password = cloneSecretVar(source.ProxyConfig.Password)
+		proxy.CACertPEM = cloneSecretVar(source.ProxyConfig.CACertPEM)
+		clone.ProxyConfig = &proxy
+	}
 	if source.CustomProviderConfig != nil {
 		custom := *source.CustomProviderConfig
 		if source.CustomProviderConfig.AllowedRequests != nil {
@@ -289,6 +297,14 @@ func cloneProviderConfig(source *schemas.ProviderConfig) *schemas.ProviderConfig
 		openAIConfig := *source.OpenAIConfig
 		clone.OpenAIConfig = &openAIConfig
 	}
+	return &clone
+}
+
+func cloneSecretVar(source *schemas.SecretVar) *schemas.SecretVar {
+	if source == nil {
+		return nil
+	}
+	clone := *source
 	return &clone
 }
 

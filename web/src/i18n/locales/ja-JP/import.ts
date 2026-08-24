@@ -101,6 +101,7 @@ export default {
       customUrl: 'カスタム上流 URL',
       urlError: '有効な HTTP または HTTPS のアップストリーム URL を入力してください',
       paramRequired: '{name} を入力してください',
+      proxyLocked: 'プロキシを変更する前に、ステージ済みアカウントを削除してください。',
     },
     subscription: {
       title: 'サブスクリプションアカウントを接続',

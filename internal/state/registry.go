@@ -40,6 +40,8 @@ type CredentialEntry struct {
 	FailureCount       int
 	FailureGeneration  uint64
 	EncryptedValue     string
+	EncryptedProxy     string
+	ProxyFingerprint   string
 	quotaRemaining     *float64
 	quotaResetAt       time.Time
 }
@@ -60,6 +62,8 @@ type CredentialRef struct {
 	IdentityGeneration uint64
 	Fingerprint        string
 	EncryptedValue     string
+	EncryptedProxy     string
+	ProxyFingerprint   string
 	FailureGeneration  uint64
 }
 
@@ -99,6 +103,9 @@ func ValidateCredentialEntries(entries []CredentialEntry) error {
 		}
 		if entry.EncryptedValue == "" {
 			return fmt.Errorf("credential %d encrypted value is required", entry.ID)
+		}
+		if (entry.EncryptedProxy == "") != (entry.ProxyFingerprint == "") {
+			return fmt.Errorf("credential %d proxy identity is incomplete", entry.ID)
 		}
 		if entry.Version == 0 {
 			return fmt.Errorf("credential %d version is required", entry.ID)
@@ -324,7 +331,9 @@ func samePersistedCredentialConfig(left, right CredentialEntry) bool {
 		left.IdentityGeneration != right.IdentityGeneration ||
 		left.Fingerprint != right.Fingerprint ||
 		left.Status != right.Status ||
-		left.EncryptedValue != right.EncryptedValue {
+		left.EncryptedValue != right.EncryptedValue ||
+		left.EncryptedProxy != right.EncryptedProxy ||
+		left.ProxyFingerprint != right.ProxyFingerprint {
 		return false
 	}
 	if left.WeightManual == nil || right.WeightManual == nil {
@@ -554,6 +563,7 @@ func (r *CredentialRegistry) CaptureActiveCredentialRefs(groupIDs []uint) []Cred
 				ID: entry.ID, GroupID: entry.GroupID,
 				Version: entry.Version, IdentityGeneration: entry.IdentityGeneration,
 				Fingerprint: entry.Fingerprint, EncryptedValue: entry.EncryptedValue,
+				EncryptedProxy: entry.EncryptedProxy, ProxyFingerprint: entry.ProxyFingerprint,
 				FailureGeneration: entry.FailureGeneration,
 			})
 		}
@@ -583,6 +593,8 @@ func (r *CredentialRegistry) ActiveEncryptedCredentialDataIfMatch(ref Credential
 		entry.IdentityGeneration != ref.IdentityGeneration ||
 		entry.Fingerprint != ref.Fingerprint ||
 		entry.EncryptedValue != ref.EncryptedValue ||
+		entry.EncryptedProxy != ref.EncryptedProxy ||
+		entry.ProxyFingerprint != ref.ProxyFingerprint ||
 		entry.Status != CredentialStatusActive || entry.AuthState.normalize() != CredentialAuthStateReady {
 		return "", false
 	}
@@ -618,7 +630,8 @@ func (r *CredentialRegistry) CredentialRef(credentialID uint) (CredentialRef, bo
 	return CredentialRef{
 		ID: entry.ID, GroupID: entry.GroupID, Version: entry.Version,
 		IdentityGeneration: entry.IdentityGeneration, Fingerprint: entry.Fingerprint,
-		EncryptedValue: entry.EncryptedValue, FailureGeneration: entry.FailureGeneration,
+		EncryptedValue: entry.EncryptedValue, EncryptedProxy: entry.EncryptedProxy,
+		ProxyFingerprint: entry.ProxyFingerprint, FailureGeneration: entry.FailureGeneration,
 	}, true
 }
 
@@ -814,6 +827,7 @@ func (r *CredentialRegistry) RecoverIfMatch(ref CredentialRef, weight int) bool 
 		entry.GroupID != ref.GroupID || entry.Version != ref.Version ||
 		entry.IdentityGeneration != ref.IdentityGeneration ||
 		entry.Fingerprint != ref.Fingerprint || entry.EncryptedValue != ref.EncryptedValue ||
+		entry.EncryptedProxy != ref.EncryptedProxy || entry.ProxyFingerprint != ref.ProxyFingerprint ||
 		entry.FailureGeneration != ref.FailureGeneration {
 		return false
 	}
@@ -836,6 +850,7 @@ func (r *CredentialRegistry) BlacklistedCredentials() []CredentialRef {
 				ID: entry.ID, GroupID: entry.GroupID,
 				Version: entry.Version, IdentityGeneration: entry.IdentityGeneration,
 				Fingerprint: entry.Fingerprint, EncryptedValue: entry.EncryptedValue,
+				EncryptedProxy: entry.EncryptedProxy, ProxyFingerprint: entry.ProxyFingerprint,
 				FailureGeneration: entry.FailureGeneration,
 			})
 		}

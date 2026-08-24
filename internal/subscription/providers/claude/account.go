@@ -75,7 +75,11 @@ type AccountObservation struct {
 }
 
 func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
-	models, err := cpaembedded.DiscoverClaudeModels(ctx, credentialToBridge(credential), cpaembedded.ClaudeOptions{})
+	options, err := claudeOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	models, err := cpaembedded.DiscoverClaudeModels(ctx, credentialToBridge(credential), options)
 	if err != nil {
 		return nil, normalizeAuthorizationError(err)
 	}
@@ -89,7 +93,11 @@ func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
 }
 
 func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
-	observed, err := cpaembedded.ObserveClaudeAccount(ctx, credentialToBridge(credential), cpaembedded.ClaudeOptions{})
+	options, err := claudeOptions(ctx)
+	if err != nil {
+		return AccountObservation{}, err
+	}
+	observed, err := cpaembedded.ObserveClaudeAccount(ctx, credentialToBridge(credential), options)
 	if err != nil {
 		return AccountObservation{}, normalizeAuthorizationError(err)
 	}

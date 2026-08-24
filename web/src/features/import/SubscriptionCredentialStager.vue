@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import type { ProxyConfigInput } from '@/api/control/types'
 import { useToast } from '@/app/toast'
 import {
   beginCredentialAuthorization,
@@ -12,6 +13,7 @@ import {
   getCredentialStage,
   importCredentialStage,
   pollCredentialDeviceAuthorization,
+  type CredentialStageNetworkInput,
   type CredentialStage,
 } from '@/app/resources/credential-stages'
 import type { ChannelAuthorizationMethod, ChannelNoticeDto } from '@/app/resources/channels'
@@ -33,8 +35,11 @@ const props = withDefaults(
     channelId: string
     channelName?: string
     authorizationMethods: ChannelAuthorizationMethod[]
+    proxy?: ProxyConfigInput
+    groupId?: number
     notices?: ChannelNoticeDto[]
     disabled?: boolean
+    entryDisabled?: boolean
     compact?: boolean
     hideHeader?: boolean
     step?: number
@@ -46,11 +51,14 @@ const props = withDefaults(
   }>(),
   {
     disabled: false,
+    entryDisabled: false,
     channelName: '',
     notices: () => [],
     compact: false,
     hideHeader: false,
     step: undefined,
+    proxy: undefined,
+    groupId: undefined,
     context: 'create',
   },
 )
@@ -77,7 +85,12 @@ const readyCount = computed(
   () => props.modelValue.filter(({ status }) => status === 'ready').length,
 )
 const hasAccounts = computed(() => props.modelValue.length > 0)
-const entryBusy = computed(() => props.disabled || Boolean(busyAction.value))
+const entryBusy = computed(() => props.disabled || props.entryDisabled || Boolean(busyAction.value))
+const stageNetwork = computed<CredentialStageNetworkInput | undefined>(() => {
+  if (props.groupId !== undefined) return { group_id: props.groupId }
+  if (props.proxy !== undefined) return { proxy: props.proxy }
+  return undefined
+})
 const supportsBrowserOAuth = computed(() => props.authorizationMethods.includes('browser_oauth'))
 const supportsDeviceOAuth = computed(() => props.authorizationMethods.includes('device_oauth'))
 const supportsOAuthFile = computed(() => props.authorizationMethods.includes('oauth_file'))
@@ -259,7 +272,12 @@ function openAuthorizationPopup(): Window | null {
 }
 
 async function beginAuthorization(existingPopup?: Window | null): Promise<void> {
-  if (!supportsInteractiveOAuth.value || props.disabled || busyAction.value) {
+  if (
+    !supportsInteractiveOAuth.value ||
+    props.disabled ||
+    props.entryDisabled ||
+    busyAction.value
+  ) {
     existingPopup?.close()
     return
   }
@@ -267,7 +285,7 @@ async function beginAuthorization(existingPopup?: Window | null): Promise<void> 
   const popup = existingPopup === undefined ? openAuthorizationPopup() : existingPopup
   busyAction.value = 'authorize'
   try {
-    const stage = await beginCredentialAuthorization(client, props.channelId)
+    const stage = await beginCredentialAuthorization(client, props.channelId, stageNetwork.value)
     replaceStage(stage)
     schedulePoll(stage)
     if (popup && stage.authorization_url) popup.location.replace(stage.authorization_url)
@@ -288,6 +306,7 @@ async function importFile(event: Event): Promise<void> {
     files.length === 0 ||
     !supportsOAuthFile.value ||
     props.disabled ||
+    props.entryDisabled ||
     Boolean(busyAction.value)
   ) {
     return
@@ -299,7 +318,9 @@ async function importFile(event: Event): Promise<void> {
   try {
     for (const file of files) {
       try {
-        imported.push(await importCredentialStage(client, props.channelId, file))
+        imported.push(
+          await importCredentialStage(client, props.channelId, file, stageNetwork.value),
+        )
       } catch {
         failed += 1
       }
@@ -335,11 +356,11 @@ async function importText(): Promise<void> {
 }
 
 async function importOAuthJSON(file: File): Promise<void> {
-  if (!supportsOAuthFile.value || props.disabled || busyAction.value) return
+  if (!supportsOAuthFile.value || props.disabled || props.entryDisabled || busyAction.value) return
   feedbackKey.value = ''
   busyAction.value = 'import'
   try {
-    replaceStage(await importCredentialStage(client, props.channelId, file))
+    replaceStage(await importCredentialStage(client, props.channelId, file, stageNetwork.value))
     oauthJSON.value = ''
     jsonImportOpen.value = false
   } catch (cause) {
@@ -392,7 +413,8 @@ function callbackPlaceholder(stage: CredentialStage): string {
 }
 
 async function restartAuthorization(stage: CredentialStage): Promise<void> {
-  if (!supportsInteractiveOAuth.value || props.disabled || busyAction.value) return
+  if (!supportsInteractiveOAuth.value || props.disabled || props.entryDisabled || busyAction.value)
+    return
   const popup = openAuthorizationPopup()
   await removeStage(stage)
   await nextTick()

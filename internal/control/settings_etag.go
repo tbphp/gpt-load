@@ -13,9 +13,10 @@ import (
 const settingsWireETagDomain = "gpt-load/settings-wire-v1"
 
 type SettingsDTO struct {
-	Values    SettingsValuesResponse `json:"values"`
-	Overrides []string               `json:"overrides"`
-	ReadOnly  []string               `json:"read_only,omitempty"`
+	Values           SettingsValuesResponse `json:"values"`
+	Overrides        []string               `json:"overrides"`
+	ReadOnly         []string               `json:"read_only,omitempty"`
+	proxyFingerprint string
 }
 
 type SettingsConflictData struct {
@@ -71,6 +72,10 @@ func newSettingsWireRepresentation(
 	_, _ = hash.Write([]byte(settingsWireETagDomain))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(body)
+	if settings.proxyFingerprint != "" {
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(settings.proxyFingerprint))
+	}
 	tag := "sha256-" + hex.EncodeToString(hash.Sum(nil))
 	return settingsWireRepresentation{
 		Settings:   settings,
