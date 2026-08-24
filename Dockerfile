@@ -17,8 +17,11 @@ FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.24@sha256:af8d6740070b8906d
 ARG VERSION=2.0.0-dev
 ARG TARGETOS
 ARG TARGETARCH
+# GOPROXY 使用竖线分隔：任何错误（含网络错误）都回退到下一个源。
+# 默认的逗号只在 404/410 时回退，模块代理瞬时故障会直接中断构建。
 ENV GO111MODULE=on \
-    CGO_ENABLED=0
+    CGO_ENABLED=0 \
+    GOPROXY="https://proxy.golang.org|direct"
 
 WORKDIR /build
 
