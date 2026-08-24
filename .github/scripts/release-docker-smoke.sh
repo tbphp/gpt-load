@@ -12,7 +12,8 @@ build_target="${RELEASE_SMOKE_BUILD_TARGET:-}"
 case "${build_target}" in
   "" | prebuilt | source-build) ;;
   *)
-    printf 'RELEASE_SMOKE_BUILD_TARGET must be empty, prebuilt, or source-build\n' >&2
+    printf 'RELEASE_SMOKE_BUILD_TARGET must be empty, prebuilt, or source-build; got %s\n' \
+      "${build_target}" >&2
     exit 1
     ;;
 esac
