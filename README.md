@@ -136,7 +136,7 @@ flowchart LR
 <details>
 <summary>OAuth callback ports for subscription channels</summary>
 
-The Codex, Claude, and Antigravity OAuth clients use fixed callback ports. Compose publishes them to `127.0.0.1:1455`, `127.0.0.1:54545`, and `127.0.0.1:51121` respectively. Because the ports are fixed by the upstream clients, only one default Compose instance can run on a host at a time.
+The Codex, Claude, and Antigravity OAuth clients use fixed callback ports. Compose publishes them on the address configured by `HOST`, which defaults to `127.0.0.1`; setting `HOST=0.0.0.0` also publishes these callback ports on all host interfaces. Because the ports are fixed by the upstream clients, only one default Compose instance can run on a host at a time.
 
 When working over SSH or from a remote browser, the browser's `localhost` may not reach GPT-Load — paste the full callback URL into the authorization dialog to finish the flow.
 

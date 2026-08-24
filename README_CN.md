@@ -135,7 +135,7 @@ flowchart LR
 <details>
 <summary>订阅渠道的 OAuth 回调端口</summary>
 
-Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口，Compose 默认把它们发布到本机的 `127.0.0.1:1455`、`127.0.0.1:54545`、`127.0.0.1:51121`。因为端口由上游客户端固定，同一台机器同一时刻只能运行一个默认 Compose 实例。
+Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compose 会把它们发布到 `HOST` 配置的地址，默认是 `127.0.0.1`；设置 `HOST=0.0.0.0` 时，这些回调端口也会发布到宿主机的全部网络接口。因为端口由上游客户端固定，同一台机器同一时刻只能运行一个默认 Compose 实例。
 
 如果通过 SSH 或远程浏览器操作，浏览器的 `localhost` 可能到不了 GPT-Load —— 此时把完整回调 URL 复制到授权弹窗里即可完成流程。
 

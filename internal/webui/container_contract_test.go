@@ -10,7 +10,9 @@ import (
 )
 
 func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
+	t.Setenv("HOST", "")
 	t.Setenv("BIND_ADDRESS", "")
+	t.Setenv("OAUTH_CALLBACK_BIND_ADDRESS", "")
 
 	projectDir := t.TempDir()
 	if err := os.WriteFile(
@@ -76,6 +78,127 @@ func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
 	if len(service.Healthcheck.Test) != 2 ||
 		!strings.Contains(service.Healthcheck.Test[1], "localhost:41234/health") {
 		t.Fatalf("resolved healthcheck = %#v, want container PORT 41234", service.Healthcheck.Test)
+	}
+}
+
+func TestComposeHostBindingsInheritHostAndAllowIndependentOverrides(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "docker-compose.yml"),
+		[]byte(readRepositoryFile(t, "docker-compose.yml")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write temporary Compose file: %v", err)
+	}
+
+	commandEnvironment := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if key != "HOST" && key != "BIND_ADDRESS" && key != "OAUTH_CALLBACK_BIND_ADDRESS" {
+			commandEnvironment = append(commandEnvironment, entry)
+		}
+	}
+
+	for _, testCase := range []struct {
+		name             string
+		bindAddress      string
+		oauthBindAddress string
+		wantMainHost     string
+		wantOAuthHost    string
+	}{
+		{
+			name:          "host_default",
+			wantMainHost:  "192.0.2.10",
+			wantOAuthHost: "192.0.2.10",
+		},
+		{
+			name:          "main_service_override",
+			bindAddress:   "127.0.0.2",
+			wantMainHost:  "127.0.0.2",
+			wantOAuthHost: "192.0.2.10",
+		},
+		{
+			name:             "oauth_callback_override",
+			oauthBindAddress: "127.0.0.3",
+			wantMainHost:     "192.0.2.10",
+			wantOAuthHost:    "127.0.0.3",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			environmentLines := []string{"HOST=192.0.2.10"}
+			if testCase.bindAddress != "" {
+				environmentLines = append(environmentLines, "BIND_ADDRESS="+testCase.bindAddress)
+			}
+			if testCase.oauthBindAddress != "" {
+				environmentLines = append(
+					environmentLines,
+					"OAUTH_CALLBACK_BIND_ADDRESS="+testCase.oauthBindAddress,
+				)
+			}
+			if err := os.WriteFile(
+				filepath.Join(projectDir, ".env"),
+				[]byte(strings.Join(environmentLines, "\n")+"\n"),
+				0o600,
+			); err != nil {
+				t.Fatalf("write temporary .env: %v", err)
+			}
+
+			command := exec.Command(
+				"docker", "compose", "config", "--no-env-resolution", "--format", "json",
+			)
+			command.Dir = projectDir
+			command.Env = commandEnvironment
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("docker compose config: %v\n%s", err, output)
+			}
+
+			var resolved struct {
+				Services map[string]struct {
+					Environment map[string]string `json:"environment"`
+					Ports       []struct {
+						HostIP string `json:"host_ip"`
+					} `json:"ports"`
+				} `json:"services"`
+			}
+			if err := json.Unmarshal(output, &resolved); err != nil {
+				t.Fatalf("decode docker compose config: %v\n%s", err, output)
+			}
+
+			service := resolved.Services["gpt-load"]
+			if service.Environment["HOST"] != "0.0.0.0" {
+				t.Fatalf("resolved application HOST = %q, want 0.0.0.0", service.Environment["HOST"])
+			}
+			if len(service.Ports) != 4 {
+				t.Fatalf("resolved ports = %#v, want application and three OAuth callback ports", service.Ports)
+			}
+			if service.Ports[0].HostIP != testCase.wantMainHost {
+				t.Fatalf("main service host IP = %q, want %q", service.Ports[0].HostIP, testCase.wantMainHost)
+			}
+			for index, port := range service.Ports[1:] {
+				if port.HostIP != testCase.wantOAuthHost {
+					t.Fatalf("OAuth callback %d host IP = %q, want %q", index, port.HostIP, testCase.wantOAuthHost)
+				}
+			}
+		})
+	}
+}
+
+func TestOrdinaryNetworkConfigurationExposesOnlyHostAndPort(t *testing.T) {
+	environmentExample := readRepositoryFile(t, ".env.example")
+	for _, required := range []string{"HOST=127.0.0.1", "PORT=3001"} {
+		if !strings.Contains(environmentExample, required) {
+			t.Fatalf(".env.example does not contain %q", required)
+		}
+	}
+
+	for _, name := range []string{".env.example", "README.md", "README_CN.md", "README_JP.md"} {
+		content := readRepositoryFile(t, name)
+		for _, advanced := range []string{"BIND_ADDRESS", "OAUTH_CALLBACK_BIND_ADDRESS"} {
+			if strings.Contains(content, advanced) {
+				t.Fatalf("%s exposes advanced Compose override %s", name, advanced)
+			}
+		}
 	}
 }
 
@@ -201,7 +324,9 @@ func TestDockerfileDistributesDeclaredThirdPartyLicenseTexts(t *testing.T) {
 }
 
 func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
+	t.Setenv("HOST", "")
 	t.Setenv("BIND_ADDRESS", "")
+	t.Setenv("OAUTH_CALLBACK_BIND_ADDRESS", "")
 	t.Setenv("PORT", "")
 
 	projectDir := t.TempDir()
@@ -261,7 +386,9 @@ func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
 }
 
 func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testing.T) {
+	t.Setenv("HOST", "")
 	t.Setenv("BIND_ADDRESS", "")
+	t.Setenv("OAUTH_CALLBACK_BIND_ADDRESS", "")
 	t.Setenv("PORT", "")
 
 	projectDir := t.TempDir()

@@ -5,10 +5,10 @@ services:
     #   context: .
     #   dockerfile: Dockerfile
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3001}:${PORT:-3001}"
-      - "${OAUTH_CALLBACK_BIND_ADDRESS:-127.0.0.1}:1455:1455"
-      - "${OAUTH_CALLBACK_BIND_ADDRESS:-127.0.0.1}:54545:54545"
-      - "${OAUTH_CALLBACK_BIND_ADDRESS:-127.0.0.1}:51121:51121"
+      - "${BIND_ADDRESS:-${HOST:-127.0.0.1}}:${PORT:-3001}:${PORT:-3001}"
+      - "${OAUTH_CALLBACK_BIND_ADDRESS:-${HOST:-127.0.0.1}}:1455:1455"
+      - "${OAUTH_CALLBACK_BIND_ADDRESS:-${HOST:-127.0.0.1}}:54545:54545"
+      - "${OAUTH_CALLBACK_BIND_ADDRESS:-${HOST:-127.0.0.1}}:51121:51121"
     env_file:
       - .env
     environment:
