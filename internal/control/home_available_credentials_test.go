@@ -14,6 +14,7 @@ import (
 // 只看 status/拉黑/冷却会把「待重新授权」和「权重手动置 0」的凭据算成可用，
 // 而调度器根本不会选中它们，两页并排就会自相矛盾。
 func TestReadHomeBaseAvailableCredentialsMatchHealthClassification(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 16, 9, 0, 0, 0, time.UTC)
 	zeroWeight := 0

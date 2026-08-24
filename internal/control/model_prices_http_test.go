@@ -19,6 +19,7 @@ import (
 )
 
 func TestModelPriceFinalRoutesRequireManagementAuthentication(t *testing.T) {
+	t.Parallel()
 	fixture, engine, row := newModelPriceHTTPFixture(t, true)
 	_ = fixture
 	for _, request := range []struct {
@@ -43,6 +44,7 @@ func TestModelPriceFinalRoutesRequireManagementAuthentication(t *testing.T) {
 }
 
 func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
+	t.Parallel()
 	fixture, engine, row := newModelPriceHTTPFixture(t, true)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
@@ -145,6 +147,7 @@ func TestModelPriceHTTPListAndUpdateUseFinalWireContract(t *testing.T) {
 }
 
 func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
+	t.Parallel()
 	_, engine, row := newModelPriceHTTPFixture(t, true)
 
 	tieredBody := `{"input":"1","output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":false,` +
@@ -237,6 +240,7 @@ func TestModelPriceHTTPUpdateAcceptsAndPersistsContextTiers(t *testing.T) {
 }
 
 func TestModelPriceHTTPUpdateEditsPersistedModeScheduleAsManualRuntimeFact(t *testing.T) {
+	t.Parallel()
 	fixture, engine, row := newModelPriceHTTPFixture(t, true)
 	if err := fixture.db.Model(&models.ModelPrice{}).Where("id = ?", row.ID).Update(
 		"mode_price_schedules",
@@ -278,6 +282,7 @@ func TestModelPriceHTTPUpdateEditsPersistedModeScheduleAsManualRuntimeFact(t *te
 }
 
 func TestModelPriceHTTPUpdateRejectsModeScheduleKeyChanges(t *testing.T) {
+	t.Parallel()
 	t.Run("add unsynchronized Fast schedule", func(t *testing.T) {
 		fixture, engine, row := newModelPriceHTTPFixture(t, true)
 		body := `{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],` +
@@ -332,6 +337,7 @@ func TestModelPriceHTTPUpdateRejectsModeScheduleKeyChanges(t *testing.T) {
 }
 
 func TestModelPriceHTTPUpdateIgnoresIfMatch(t *testing.T) {
+	t.Parallel()
 	_, engine, row := newModelPriceHTTPFixture(t, true)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
@@ -354,6 +360,7 @@ func TestModelPriceHTTPUpdateIgnoresIfMatch(t *testing.T) {
 }
 
 func TestModelPriceHTTPResetDeleteAndStableErrorData(t *testing.T) {
+	t.Parallel()
 	t.Run("reset returns the complete pending row", func(t *testing.T) {
 		_, engine, row := newModelPriceHTTPFixture(t, true)
 		response := serveModelPriceHTTPRequest(
@@ -456,6 +463,7 @@ func TestModelPriceHTTPResetDeleteAndStableErrorData(t *testing.T) {
 }
 
 func TestModelPriceHTTPRejectsLegacyAndAmbiguousContracts(t *testing.T) {
+	t.Parallel()
 	_, engine, row := newModelPriceHTTPFixture(t, true)
 	for _, request := range []struct {
 		name     string
@@ -502,6 +510,7 @@ func TestModelPriceHTTPRejectsLegacyAndAmbiguousContracts(t *testing.T) {
 }
 
 func TestModelPriceHTTPErrorsUseThreeLocaleMessageIDs(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		language string
 		message  string

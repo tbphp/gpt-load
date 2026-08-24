@@ -23,6 +23,7 @@ type strictJSONTestTarget struct {
 }
 
 func TestBindStrictJSONRejectsDuplicateKeysAtEveryObjectDepth(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name string
 		body string
@@ -70,6 +71,7 @@ func TestBindStrictJSONRejectsDuplicateKeysAtEveryObjectDepth(t *testing.T) {
 }
 
 func TestBindStrictJSONPreservesJSONNumber(t *testing.T) {
+	t.Parallel()
 	const largeInteger = "900719925474099312345678901234567890"
 	var target strictJSONTestTarget
 	if err := bindStrictJSONForTest(`{"count":`+largeInteger+`}`, &target); err != nil {

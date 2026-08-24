@@ -32,6 +32,7 @@ func (function catalogSyncClientFunc) Sync(
 }
 
 func TestCatalogSyncEmitsLifecycleLogsWithoutLeakingFailureDetails(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	fixture := newServiceFixture(t)
 	var logs bytes.Buffer
 	standardLogger := logrus.StandardLogger()
@@ -107,6 +108,7 @@ func TestCatalogSyncEmitsLifecycleLogsWithoutLeakingFailureDetails(t *testing.T)
 }
 
 func TestApplyCatalogSnapshotLogsMissingAutomaticPricePriorityProviders(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	fixture := newServiceFixture(t)
 	var logs bytes.Buffer
 	standardLogger := logrus.StandardLogger()
@@ -163,6 +165,7 @@ func TestApplyCatalogSnapshotLogsMissingAutomaticPricePriorityProviders(t *testi
 }
 
 func TestApplyCatalogSnapshotDoesNotLogCompletePriorityAndLogsEachSuccess(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	t.Run("complete priority", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		var logs bytes.Buffer
@@ -226,6 +229,7 @@ func TestApplyCatalogSnapshotDoesNotLogCompletePriorityAndLogsEachSuccess(t *tes
 }
 
 func TestApplyCatalogSnapshotFailureDoesNotLogPriorityWarningOrPublishRuntime(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	fixture := newServiceFixture(t)
 	seedCatalogPriceGroup(t, fixture, "failure", nil, []string{"gpt"})
 	oldPrice := int64(1)

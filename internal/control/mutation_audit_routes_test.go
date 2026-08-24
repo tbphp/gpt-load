@@ -39,6 +39,7 @@ type groupMutationAuditCase struct {
 }
 
 func TestModelPriceSyncMutationAudit(t *testing.T) {
+	t.Parallel()
 	t.Run("success", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{}})
@@ -117,6 +118,7 @@ func TestModelPriceSyncMutationAudit(t *testing.T) {
 }
 
 func TestGroupMutationAuditRoutes(t *testing.T) {
+	t.Parallel()
 	for _, test := range groupMutationAuditCases() {
 		t.Run(test.operation+"/success", func(t *testing.T) {
 			fixture := newServiceFixture(t)
@@ -186,6 +188,7 @@ func TestGroupMutationAuditRoutes(t *testing.T) {
 }
 
 func TestGroupMutationAuditIncompleteAndBlocked(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.reconcileRegistryGroup = func(
 		uint,
@@ -250,6 +253,7 @@ func TestGroupMutationAuditIncompleteAndBlocked(t *testing.T) {
 }
 
 func TestGroupMutationAuditExcludesInternalCalls(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(
 		t,
@@ -289,6 +293,7 @@ func TestGroupMutationAuditExcludesInternalCalls(t *testing.T) {
 }
 
 func TestSettingsMutationAudit(t *testing.T) {
+	t.Parallel()
 	t.Run("success", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		var logs bytes.Buffer
@@ -412,6 +417,7 @@ func TestSettingsMutationAudit(t *testing.T) {
 }
 
 func TestAccessKeyMutationAudit(t *testing.T) {
+	t.Parallel()
 	t.Run("create and replay", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		fixture.service.random = bytes.NewReader(
@@ -710,6 +716,7 @@ func TestAccessKeyMutationAudit(t *testing.T) {
 }
 
 func TestAccessKeyRevealAudit(t *testing.T) {
+	t.Parallel()
 	t.Run("success excludes credential", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		created := seedAuditAccessKey(t, fixture)
@@ -812,6 +819,7 @@ func TestAccessKeyRevealAudit(t *testing.T) {
 }
 
 func TestControlSecurityEventFormatterSecretMatrix(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	const (
 		authKey             = "gl-control-auth-secret-0001"

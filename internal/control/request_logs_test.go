@@ -30,6 +30,7 @@ import (
 )
 
 func TestRequestLogReadsPreserveRequestCancellation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	reader := &recordingRequestLogReader{err: context.Canceled, getErr: context.Canceled}
 	fixture.service.requestLogs = reader
@@ -45,6 +46,7 @@ func TestRequestLogReadsPreserveRequestCancellation(t *testing.T) {
 }
 
 func TestListRequestLogsSuppressesOnlyCanceledHTTPRequestErrors(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	initControlI18n(t)
 	tests := []struct {
 		name       string
@@ -119,6 +121,7 @@ func TestListRequestLogsSuppressesOnlyCanceledHTTPRequestErrors(t *testing.T) {
 }
 
 func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing.T) {
+	t.Parallel()
 	validCursor := encodeTestCursorPayload(
 		`{"v":2,"completed_at_ms":1784894400000,"request_id":"00000000-0000-4000-8000-000000000001"}`,
 	)
@@ -184,6 +187,7 @@ func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing
 }
 
 func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
+	t.Parallel()
 	equalTime := "1784894400000"
 	tests := []struct {
 		name  string
@@ -219,6 +223,7 @@ func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
 }
 
 func TestRequestLogEndpointAcceptsCanonicalNumericBoundaries(t *testing.T) {
+	t.Parallel()
 	if strconv.IntSize != 64 {
 		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
 	}
@@ -242,6 +247,7 @@ func TestRequestLogEndpointAcceptsCanonicalNumericBoundaries(t *testing.T) {
 }
 
 func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
+	t.Parallel()
 	reader := &recordingRequestLogReader{}
 	engine := newRequestLogTestEngine(t, reader)
 	query := strings.Join([]string{
@@ -306,6 +312,7 @@ func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
 }
 
 func TestRequestLogEndpointRejectsInvalidAdvancedFilters(t *testing.T) {
+	t.Parallel()
 	tests := []string{
 		"protocol=openai",
 		"stream=1",
@@ -346,6 +353,7 @@ func TestRequestLogEndpointRejectsInvalidAdvancedFilters(t *testing.T) {
 }
 
 func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
+	t.Parallel()
 	completedAt := time.Date(2026, time.July, 24, 12, 0, 0, 123456789, time.UTC)
 	completedAtMS := completedAt.UnixMilli()
 	contextThreshold := int64(272_000)
@@ -499,6 +507,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 }
 
 func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testing.T) {
+	t.Parallel()
 	requestID := "00000000-0000-4000-8000-000000000611"
 	reasoningBudget := int64(4096)
 	rate := int64(1_000_000_000)
@@ -656,6 +665,7 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 }
 
 func TestRequestLogPricingReceiptKeepsHistoricalSchemasReadable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		receipt       pricing.Receipt
@@ -726,6 +736,7 @@ func TestRequestLogPricingReceiptKeepsHistoricalSchemasReadable(t *testing.T) {
 }
 
 func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
+	t.Parallel()
 	reasoningBudget := int64(-1)
 	reader := &recordingRequestLogReader{pages: []requestlog.Page{{Items: []requestlog.Record{
 		{
@@ -804,6 +815,7 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 }
 
 func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *testing.T) {
+	t.Parallel()
 	result, err := mapRequestLogListResponse(requestlog.Page{
 		Items: []requestlog.Record{{
 			RequestID:           "00000000-0000-4000-8000-000000000503",
@@ -843,6 +855,7 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 }
 
 func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
+	t.Parallel()
 	result, err := mapRequestLogDetailResponse(requestlog.Record{
 		RequestID:           "00000000-0000-4000-8000-000000000504",
 		Protocol:            protocol.OpenAIResponses,
@@ -875,6 +888,7 @@ func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
 }
 
 func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
+	t.Parallel()
 	base := requestlog.Record{
 		UsageState: usage.StateComplete, CostState: pricing.CostStatePriced,
 	}
@@ -931,6 +945,7 @@ func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 }
 
 func TestRequestLogUsageCostProjectionAcceptsMaximumSafeFinalGroupID(t *testing.T) {
+	t.Parallel()
 	if strconv.IntSize != 64 {
 		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
 	}
@@ -950,6 +965,7 @@ func TestRequestLogUsageCostProjectionAcceptsMaximumSafeFinalGroupID(t *testing.
 }
 
 func TestRequestLogEndpointFailsClosedOnCorruptReaderUsageCost(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		mutate func(*requestlog.Record)
@@ -1008,6 +1024,7 @@ func TestRequestLogEndpointFailsClosedOnCorruptReaderUsageCost(t *testing.T) {
 }
 
 func TestRequestLogEndpointRequiresManagementAuthentication(t *testing.T) {
+	t.Parallel()
 	reader := &recordingRequestLogReader{}
 	engine := newRequestLogTestEngine(t, reader)
 	recorder := performRequestLogRequest(engine, "", "")
@@ -1021,6 +1038,7 @@ func TestRequestLogEndpointRequiresManagementAuthentication(t *testing.T) {
 }
 
 func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	current, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
@@ -1267,6 +1285,7 @@ func encodeTestCursorPayload(payload string) string {
 }
 
 func TestRequestLogAttemptActionUsesCredentialTerms(t *testing.T) {
+	t.Parallel()
 	for input, want := range map[telemetry.Action]string{
 		telemetry.Action("cooldown_credential"): "cooldown_credential",
 		telemetry.Action("fail_credential"):     "fail_credential",

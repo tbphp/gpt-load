@@ -15,6 +15,7 @@ import (
 )
 
 func TestGroupAndCredentialProxyUseFinalPrecedenceAndEncryptedStorage(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	runtime := &recordingCredentialRuntimeExecutor{}
 	fixture.service.executor = runtime
@@ -113,6 +114,7 @@ func TestGroupAndCredentialProxyUseFinalPrecedenceAndEncryptedStorage(t *testing
 }
 
 func TestCredentialProxyUpdateRetiresRuntimeAfterCommittedRegistryRecovery(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	runtime := &recordingCredentialRuntimeExecutor{}
 	fixture.service.executor = runtime
@@ -172,6 +174,7 @@ func TestCredentialProxyUpdateRetiresRuntimeAfterCommittedRegistryRecovery(t *te
 }
 
 func TestGroupAndCredentialProxyRejectInvalidConfigWithoutMutation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-invalid-proxy-test")
 	credentials, err := fixture.service.ListGroupCredentials(t.Context(), groupID, CredentialCollectionQuery{Page: 1, PageSize: 20})
@@ -205,6 +208,7 @@ func TestGroupAndCredentialProxyRejectInvalidConfigWithoutMutation(t *testing.T)
 }
 
 func TestUnsupportedChannelRejectsManagedGroupAndCredentialProxy(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	name := "azure-without-managed-proxy"
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{

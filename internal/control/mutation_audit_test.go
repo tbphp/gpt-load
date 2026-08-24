@@ -15,6 +15,7 @@ import (
 )
 
 func TestClassifyMutationOutcome(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		statusCode int
@@ -72,6 +73,7 @@ func TestClassifyMutationOutcome(t *testing.T) {
 }
 
 func TestMutationLocatorsOnlyExposeValidatedIDs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		params gin.Params
@@ -149,6 +151,7 @@ func TestMutationLocatorsOnlyExposeValidatedIDs(t *testing.T) {
 }
 
 func TestAuditMutationRecordsExactlyOneOutcome(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	tests := []struct {
 		name          string
@@ -281,6 +284,7 @@ func TestAuditMutationRecordsExactlyOneOutcome(t *testing.T) {
 }
 
 func TestAuditMutationUsesSuccessfulLocatorOverride(t *testing.T) {
+	t.Parallel()
 	var logs bytes.Buffer
 	server := NewServer(&config.Config{AuthKey: authTestKey}, nil)
 	server.logger = newControlJSONLogger(&logs)
@@ -317,6 +321,7 @@ func TestAuditMutationUsesSuccessfulLocatorOverride(t *testing.T) {
 }
 
 func TestAuditMutationLogsPanicThenRethrowsToRecovery(t *testing.T) {
+	t.Parallel()
 	const panicSecret = "sk-panic-audit-secret"
 	var logs bytes.Buffer
 	server := NewServer(&config.Config{AuthKey: authTestKey}, nil)
@@ -378,6 +383,7 @@ func TestAuditMutationLogsPanicThenRethrowsToRecovery(t *testing.T) {
 }
 
 func TestAuditMutationLoggerPanicDoesNotChangeResponse(t *testing.T) {
+	t.Parallel()
 	server := NewServer(&config.Config{AuthKey: authTestKey}, nil)
 	server.logger = logrus.New()
 	server.logger.AddHook(controlPanicLogHook{})
@@ -409,6 +415,7 @@ func TestAuditMutationLoggerPanicDoesNotChangeResponse(t *testing.T) {
 }
 
 func TestMutationAuditExcludesReadAndDiscoveryRoutes(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	var logs bytes.Buffer

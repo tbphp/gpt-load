@@ -13,6 +13,7 @@ import (
 )
 
 func TestReconcileReferencedPricesUsesChannelModelIdentity(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	createPriceTestGroup(t, fixture.db, models.Group{
 		Name: "openai", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
@@ -66,6 +67,7 @@ func TestReconcileReferencedPricesUsesChannelModelIdentity(t *testing.T) {
 }
 
 func TestLoadPriceTableDoesNotMergeModelsDevModePricesIntoManualRule(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	standard := int64(2)
 	if err := fixture.db.Create(&models.ModelPrice{

@@ -19,6 +19,7 @@ import (
 )
 
 func TestOperationReplayRepairsPostCommitRegistryFailureWithoutRerunningMutation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x31}, 16))
 	reconcileCalls := 0
@@ -74,6 +75,7 @@ func TestOperationReplayRepairsPostCommitRegistryFailureWithoutRerunningMutation
 }
 
 func TestOperationReplayOnlyRecordsStageWhenRegistrySideEffectAlreadySatisfied(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x32}, 16))
 	reconcileCalls := 0
@@ -127,6 +129,7 @@ func TestOperationReplayOnlyRecordsStageWhenRegistrySideEffectAlreadySatisfied(t
 }
 
 func TestOperationRegistryRecoverySerializesWithCredentialSecretMutation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	mutations := 0
 	input := newDurableGroupOperationInput(
@@ -180,6 +183,7 @@ func TestOperationRegistryRecoverySerializesWithCredentialSecretMutation(t *test
 }
 
 func TestOperationBarrierBlocksNewMutationBehindOlderRecovery(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x33}, 32))
 	fixture.service.reconcileRegistryGroup = func(uint, []state.CredentialEntry) (bool, error) {
@@ -257,6 +261,7 @@ func TestOperationBarrierBlocksNewMutationBehindOlderRecovery(t *testing.T) {
 }
 
 func TestOperationBarrierReturnsDatabaseErrorWhenRecoveryQueryFails(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -293,6 +298,7 @@ func TestOperationBarrierReturnsDatabaseErrorWhenRecoveryQueryFails(t *testing.T
 }
 
 func TestDrainCommittedOperationsFailsClosedOnUnsupportedDigestVersion(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stages, err := json.Marshal([]operationStage{
 		operationStageDBCommitted,
@@ -334,6 +340,7 @@ func TestDrainCommittedOperationsFailsClosedOnUnsupportedDigestVersion(t *testin
 }
 
 func TestOperationRecoveryBackoffIsExponentialAndBounded(t *testing.T) {
+	t.Parallel()
 	backoff := operationRecoveryInitialBackoff
 	want := []time.Duration{
 		500 * time.Millisecond,
@@ -354,6 +361,7 @@ func TestOperationRecoveryBackoffIsExponentialAndBounded(t *testing.T) {
 }
 
 func TestCompactCompletedOperationsKeepsPermanentComparatorTombstone(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x34}, 16))
 	fixture.service.now = func() time.Time {

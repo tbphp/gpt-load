@@ -9,6 +9,7 @@ import (
 )
 
 func TestAccessKeyMillisWireOmitsLegacyTimestampKeys(t *testing.T) {
+	t.Parallel()
 	encoded, err := json.Marshal(AccessKeyMetadata{
 		ID:          7,
 		CreatedAtMS: 1_784_894_400_000,
@@ -27,6 +28,7 @@ func TestAccessKeyMillisWireOmitsLegacyTimestampKeys(t *testing.T) {
 }
 
 func TestRevealMillisWireOmitsLegacyTimestampKey(t *testing.T) {
+	t.Parallel()
 	assertManagementWireObject(
 		t,
 		AccessKeyRevealResult{ID: 7, Key: "secret", RevealedAtMS: 1_784_894_400_000},
@@ -35,6 +37,7 @@ func TestRevealMillisWireOmitsLegacyTimestampKey(t *testing.T) {
 }
 
 func TestHealthMillisWireUsesNullableEpochMilliseconds(t *testing.T) {
+	t.Parallel()
 	cooldownUntilMS := int64(1_784_894_460_000)
 	assertManagementWireObject(
 		t,
@@ -61,6 +64,7 @@ func TestHealthMillisWireUsesNullableEpochMilliseconds(t *testing.T) {
 }
 
 func TestInspectMillisWireUsesEpochMilliseconds(t *testing.T) {
+	t.Parallel()
 	cooldownUntilMS := int64(1_784_894_460_000)
 	assertManagementWireObject(
 		t,
@@ -77,6 +81,7 @@ func TestInspectMillisWireUsesEpochMilliseconds(t *testing.T) {
 }
 
 func TestHealthAndRouteInspectionUseCredentialWireNames(t *testing.T) {
+	t.Parallel()
 	healthBody, err := json.Marshal(runtimeHealthResponse{
 		Counts:                 healthCountsResponse{Credentials: 1, Available: 1},
 		CooldownCredentials:    []healthProblemCredentialResponse{{CredentialID: 7}},
@@ -129,6 +134,7 @@ func TestHealthAndRouteInspectionUseCredentialWireNames(t *testing.T) {
 }
 
 func TestRequestLogMillisCostWireUsesCursorV2Fields(t *testing.T) {
+	t.Parallel()
 	assertManagementWireObject(
 		t,
 		requestLogCursorPayload{
@@ -149,6 +155,7 @@ func TestRequestLogMillisCostWireUsesCursorV2Fields(t *testing.T) {
 }
 
 func TestUsageMillisCostWireUsesIntegerBucketsAndStringCost(t *testing.T) {
+	t.Parallel()
 	assertManagementWireObject(
 		t,
 		usageResponse{
@@ -168,6 +175,7 @@ func TestUsageMillisCostWireUsesIntegerBucketsAndStringCost(t *testing.T) {
 }
 
 func TestIdempotencyOperationMillisWireOmitsLegacyTimestampKey(t *testing.T) {
+	t.Parallel()
 	assertManagementWireObject(
 		t,
 		operationExpiredData{

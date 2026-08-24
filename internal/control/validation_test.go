@@ -24,6 +24,7 @@ import (
 )
 
 func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *testing.T) {
+	t.Parallel()
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{
@@ -101,6 +102,7 @@ func TestValidationProtocolUsesFirstNativePresetProtocolThenConfiguredFallback(t
 }
 
 func TestValidationWorkerFallsBackToFirstRealModelID(t *testing.T) {
+	t.Parallel()
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{
@@ -146,6 +148,7 @@ func TestValidationWorkerUsesResponsesProbeForResponsesOnlyGroup(t *testing.T) {
 }
 
 func TestValidationWorkerProbesStructuredCloudCredential(t *testing.T) {
+	t.Parallel()
 	group := validationGroup(nil, "anthropic.claude-test", nil)
 	setValidationChannel(&group, channel.AWSBedrock, json.RawMessage(`{"region":"us-east-1"}`))
 	worker := newValidationWorkerForTest(
@@ -197,6 +200,7 @@ func TestValidationWorkerProbesStructuredCloudCredential(t *testing.T) {
 }
 
 func TestValidationWorkerUsesNativeGeminiProbeForVertexModel(t *testing.T) {
+	t.Parallel()
 	group := validationGroup(nil, "gemini-2.5-pro", nil)
 	setValidationChannel(&group, channel.GoogleVertex, json.RawMessage(`{}`))
 	worker := newValidationWorkerForTest(
@@ -234,6 +238,7 @@ func TestValidationWorkerUsesNativeGeminiProbeForVertexModel(t *testing.T) {
 }
 
 func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
+	t.Parallel()
 	group := validationGroup(
 		[]protocol.Protocol{protocol.OpenAICompletions}, " model-a ", nil,
 	)
@@ -260,6 +265,7 @@ func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
 }
 
 func TestValidationSignatureChangesForEveryCoveredInput(t *testing.T) {
+	t.Parallel()
 	base := validationSignatureGroup()
 	tests := []struct {
 		name   string
@@ -317,6 +323,7 @@ func TestValidationSignatureChangesForEveryCoveredInput(t *testing.T) {
 }
 
 func TestValidationSignatureIsStableAcrossNormalizedHeaderOrder(t *testing.T) {
+	t.Parallel()
 	first := validationSignatureGroup()
 	first.HeaderRules.Set = map[string]string{
 		"X-Alpha": "first",
@@ -346,6 +353,7 @@ func TestValidationSignatureIsStableAcrossNormalizedHeaderOrder(t *testing.T) {
 }
 
 func TestValidationWorkerSkipsMissingGroupProtocolModelAndDialect(t *testing.T) {
+	t.Parallel()
 	probes := &validationProbeRecorder{}
 	snapshot := validationSnapshot(map[uint]state.GroupView{
 		1: validationGroup(nil, "", nil),
@@ -371,6 +379,7 @@ func TestValidationWorkerSkipsMissingGroupProtocolModelAndDialect(t *testing.T) 
 }
 
 func TestValidationWorkerKeepsKeyBlacklistedOnDecryptOrProbeFailure(t *testing.T) {
+	t.Parallel()
 	probes := &validationProbeRecorder{errByKey: map[string]error{"plain-key-2": errors.New("probe failed")}}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
@@ -393,6 +402,7 @@ func TestValidationWorkerKeepsKeyBlacklistedOnDecryptOrProbeFailure(t *testing.T
 }
 
 func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.T) {
+	t.Parallel()
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
@@ -436,6 +446,7 @@ func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.
 }
 
 func TestValidationWorkerLogsSuccessfulRecovery(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	var logs bytes.Buffer
 	logger := logrus.StandardLogger()
 	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.GetLevel()
@@ -477,6 +488,7 @@ func TestValidationWorkerLogsSuccessfulRecovery(t *testing.T) {
 }
 
 func TestValidationWorkerRecoverIfMatchFailsDoesNotResetStats(t *testing.T) {
+	t.Parallel()
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
@@ -493,6 +505,7 @@ func TestValidationWorkerRecoverIfMatchFailsDoesNotResetStats(t *testing.T) {
 }
 
 func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	registry := state.NewCredentialRegistry()
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
@@ -549,6 +562,7 @@ func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *t
 }
 
 func TestValidationSignatureChangesDuringProbeRejectRecovery(t *testing.T) {
+	t.Parallel()
 	oldGroup := validationSignatureGroup()
 	tests := []struct {
 		name    string
@@ -609,6 +623,7 @@ func TestValidationSignatureChangesDuringProbeRejectRecovery(t *testing.T) {
 }
 
 func TestValidationWorkerUnrelatedSnapshotRevisionAllowsRecovery(t *testing.T) {
+	t.Parallel()
 	oldGroup := validationSignatureGroup()
 	worker := newValidationWorkerForTest(
 		&state.ConfigSnapshot{
@@ -643,6 +658,7 @@ func TestValidationWorkerUnrelatedSnapshotRevisionAllowsRecovery(t *testing.T) {
 }
 
 func TestValidationSignatureRemovedOrDisabledGroupRejectsRecovery(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"removed", "disabled"} {
 		t.Run(name, func(t *testing.T) {
 			worker := newValidationWorkerForTest(
@@ -727,6 +743,7 @@ func (stats *publicationValidationStats) Reset(keyID uint) {
 }
 
 func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(t *testing.T) {
+	t.Parallel()
 	manager := state.NewManager()
 	if _, err := manager.Publish(validationManagerCompileInput("https://upstream.example.com")); err != nil {
 		t.Fatalf("initial Publish() error = %v", err)
@@ -817,6 +834,7 @@ func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(
 }
 
 func TestValidationSignatureMismatchLogDoesNotLeakSensitiveInputs(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	var logs bytes.Buffer
 	logger := logrus.StandardLogger()
 	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.GetLevel()
@@ -903,6 +921,7 @@ func (coordinator *barrierValidationMutationCoordinator) Do(_ uint, fn func()) {
 }
 
 func TestValidationWorkerConditionalRecoveryFailureCompletesCoordinatorInterval(t *testing.T) {
+	t.Parallel()
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
@@ -934,6 +953,7 @@ func TestValidationWorkerConditionalRecoveryFailureCompletesCoordinatorInterval(
 }
 
 func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		mutate          func(t *testing.T, registry *state.CredentialRegistry)
@@ -1015,6 +1035,7 @@ func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
 }
 
 func TestValidationWorkerFailureLogUsesSafeStructuredFields(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	var logs bytes.Buffer
 	logger := logrus.StandardLogger()
 	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.GetLevel()
@@ -1050,6 +1071,7 @@ func TestValidationWorkerFailureLogUsesSafeStructuredFields(t *testing.T) {
 }
 
 func TestValidationWorkerLimitsGlobalConcurrencyToEight(t *testing.T) {
+	t.Parallel()
 	started := make(chan uint, 9)
 	release := make(chan struct{})
 	probes := &validationProbeRecorder{
@@ -1095,6 +1117,7 @@ func TestValidationWorkerLimitsGlobalConcurrencyToEight(t *testing.T) {
 }
 
 func TestValidationWorkerCancellationStopsDispatchAndInFlightProbes(t *testing.T) {
+	t.Parallel()
 	started := make(chan uint, 9)
 	probes := &validationProbeRecorder{
 		probe: func(ctx context.Context, _ protocol.Protocol, _ string, apiKey string) error {
@@ -1131,6 +1154,7 @@ func TestValidationWorkerCancellationStopsDispatchAndInFlightProbes(t *testing.T
 }
 
 func TestValidationWorkerDoesNotProbeQueuedJobAfterCancellation(t *testing.T) {
+	t.Parallel()
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),

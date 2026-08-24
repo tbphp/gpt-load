@@ -10,6 +10,7 @@ import (
 )
 
 func TestResolveCandidatePricingUsesCurrentAutomaticPriceMatch(t *testing.T) {
+	t.Parallel()
 	price := int64(0)
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {
@@ -39,6 +40,7 @@ func TestResolveCandidatePricingUsesCurrentAutomaticPriceMatch(t *testing.T) {
 }
 
 func TestResolveCandidatePricingHidesManuallyUnpricedSource(t *testing.T) {
+	t.Parallel()
 	status, source := resolveCandidatePricing(
 		&models.ModelPrice{ChannelID: string(channel.OpenAI), ModelID: "gpt-4o", IsManual: true},
 		nil,

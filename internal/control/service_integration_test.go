@@ -20,6 +20,7 @@ import (
 )
 
 func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
+	t.Parallel()
 	requestReached := make(chan bool, 2)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, _ := io.ReadAll(request.Body)
