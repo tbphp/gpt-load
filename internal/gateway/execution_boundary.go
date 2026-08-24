@@ -139,17 +139,25 @@ func decisionEvidence(result UpstreamResult) (*execution.ErrorEvidence, error) {
 		if evidence == nil && errors.Is(downstreamErr, ErrUpstreamProtocol) {
 			return &execution.ErrorEvidence{
 				Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+				ScopeHint:  execution.ErrorScopeRequest,
 				StatusCode: result.StatusCode, Code: "upstream_protocol_error",
 				Summary: fixedErrorSummary("upstream_protocol_error"),
 			}, nil
 		}
 		return evidence, downstreamErr
-	case StreamEndCleanEOF, StreamEndProviderIncomplete:
+	case StreamEndCleanEOF:
 		return nil, nil
+	case StreamEndProviderIncomplete:
+		return &execution.ErrorEvidence{
+			Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+			ScopeHint:  execution.ErrorScopeRequest,
+			StatusCode: result.StatusCode, Code: "upstream_response_incomplete", Summary: summary,
+		}, nil
 	case StreamEndSSEError:
 		if evidence == nil {
 			evidence = &execution.ErrorEvidence{
 				Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+				ScopeHint:  execution.ErrorScopeRequest,
 				StatusCode: result.StatusCode, Code: "upstream_sse_error", Summary: summary,
 			}
 		}
@@ -157,16 +165,19 @@ func decisionEvidence(result UpstreamResult) (*execution.ErrorEvidence, error) {
 	case StreamEndUpstreamTerminated:
 		return &execution.ErrorEvidence{
 			Kind: execution.ErrorKindTransport, OriginHint: execution.ErrorOriginUpstream,
+			ScopeHint:  execution.ErrorScopeRequest,
 			StatusCode: result.StatusCode, Code: "upstream_stream_terminated", Summary: summary,
 		}, nil
 	case StreamEndUpstreamProtocolError:
 		return &execution.ErrorEvidence{
 			Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+			ScopeHint:  execution.ErrorScopeRequest,
 			StatusCode: result.StatusCode, Code: "upstream_protocol_error", Summary: summary,
 		}, nil
 	case StreamEndIdleTimeout:
 		return &execution.ErrorEvidence{
 			Kind: execution.ErrorKindTimeout, OriginHint: execution.ErrorOriginUpstream,
+			ScopeHint:  execution.ErrorScopeRequest,
 			StatusCode: result.StatusCode, Code: "upstream_stream_idle_timeout", Summary: summary,
 		}, nil
 	case StreamEndDownstreamWriteFailure:

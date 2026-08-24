@@ -179,7 +179,8 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 	}
 	category := classifyExecutionEvidence(attempt)
 	result := decisionForExecutionCategory(category, attempt, decisionContext)
-	if attempt.Evidence.ReplaySafety == execution.ReplaySafetyUnknown && result.Retry == RetryNone {
+	if attempt.Evidence.ReplaySafety == execution.ReplaySafetyUnknown &&
+		result.RuleID == "fallback.ambiguous" {
 		result.RuleID = "safety.replay_unknown"
 	}
 	return constrainCommittedDecision(result, attempt)
@@ -345,7 +346,10 @@ func decisionForExecutionCategory(
 	case FailureCategoryUpstreamHostError:
 		retry := RetryNone
 		ruleID := RuleID("upstream.host_error.replay_unsafe")
-		if attempt.Evidence.ReplaySafety != execution.ReplaySafetyUnknown &&
+		if attempt.Evidence.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing {
+			retry = RetryNextCandidate
+			ruleID = "upstream.host_error.rejected_before_processing"
+		} else if attempt.Evidence.ReplaySafety != execution.ReplaySafetyUnknown &&
 			requestMayReplayAfterResponse(decisionContext) {
 			retry = RetryNextCandidate
 			ruleID = "upstream.host_error.read_only"
@@ -379,7 +383,27 @@ func decisionForExecutionCategory(
 	case FailureCategoryOK:
 		return decision(category, origin, scope, RetryNone, EffectNone, "success.upstream_response")
 	default:
-		return decision(category, origin, scope, RetryNone, EffectNone, "fallback.ambiguous")
+		return decision(category, origin, scope, RetryNone, EffectNone, ambiguousRuleID(attempt.Evidence))
+	}
+}
+
+func ambiguousRuleID(evidence *execution.ErrorEvidence) RuleID {
+	if evidence == nil {
+		return "fallback.ambiguous"
+	}
+	switch evidence.Code {
+	case "upstream_sse_error":
+		return "stream.provider_error"
+	case "upstream_stream_terminated":
+		return "stream.upstream_terminated"
+	case "upstream_protocol_error":
+		return "stream.protocol_error"
+	case "upstream_stream_idle_timeout":
+		return "stream.idle_timeout"
+	case "upstream_response_incomplete":
+		return "stream.provider_incomplete"
+	default:
+		return "fallback.ambiguous"
 	}
 }
 
@@ -500,6 +524,8 @@ func constrainCommittedDecision(result Decision, attempt ExecutionAttempt) Decis
 	if !attempt.DownstreamCommitted {
 		return result
 	}
+	originalRetry := result.Retry
+	originalEffect := result.Effect
 	result.Retry = RetryNone
 	switch result.Effect {
 	case EffectCooldownCredential, EffectRecordCredentialFailure:
@@ -513,6 +539,8 @@ func constrainCommittedDecision(result Decision, attempt ExecutionAttempt) Decis
 	}
 	if result.Category == FailureCategoryRateLimited && result.Effect == EffectCooldownCredential {
 		result.RuleID = "rate_limit.credential.committed"
+	} else if originalRetry != result.Retry || originalEffect != result.Effect {
+		result.RuleID = "safety.committed"
 	}
 	return result
 }

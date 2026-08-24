@@ -145,7 +145,8 @@ func TestClaudeProviderMapsExecutionAndRequestScopedErrors(t *testing.T) {
 
 	requestRejected.requestScoped = false
 	_, evidence = bridge.ClassifyError(t.Context(), requestRejected, credential)
-	if evidence == nil || evidence.Hint != execution.FailureHintRequestRejected {
+	if evidence == nil || evidence.Hint != execution.FailureHintRateLimited ||
+		evidence.ScopeHint != execution.ErrorScopeModel {
 		t.Fatalf("model-scoped rate-limit evidence = %#v", evidence)
 	}
 

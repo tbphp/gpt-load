@@ -159,10 +159,47 @@ func TestJudgeUpstreamResultClassifiesUncommittedProtocolFailureAsUpstream(t *te
 	}, time.Now(), health.DecisionContext{})
 	if decision.Category != health.FailureCategoryAmbiguous ||
 		decision.Origin != execution.ErrorOriginUpstream ||
+		decision.Scope != execution.ErrorScopeRequest ||
 		decision.Retry != health.RetryNone ||
 		decision.Effect != health.EffectNone ||
-		decision.RuleID != "fallback.ambiguous" {
+		decision.RuleID != "stream.protocol_error" {
 		t.Fatalf("protocol decision = %#v", decision)
+	}
+}
+
+func TestJudgeUpstreamResultUsesStableStreamTerminalRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		endReason  StreamEndReason
+		wantRule   health.RuleID
+		wantOrigin execution.ErrorOrigin
+		wantScope  execution.ErrorScope
+	}{
+		{name: "provider error", endReason: StreamEndSSEError, wantRule: "stream.provider_error", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
+		{name: "upstream terminated", endReason: StreamEndUpstreamTerminated, wantRule: "stream.upstream_terminated", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
+		{name: "protocol error", endReason: StreamEndUpstreamProtocolError, wantRule: "stream.protocol_error", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
+		{name: "idle timeout", endReason: StreamEndIdleTimeout, wantRule: "stream.idle_timeout", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
+		{name: "provider incomplete", endReason: StreamEndProviderIncomplete, wantRule: "stream.provider_incomplete", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decision := judgeUpstreamResult(UpstreamResult{
+				DispatchState:   execution.DispatchMaybeSent,
+				ResponseStarted: true,
+				StatusCode:      http.StatusOK,
+				Committed:       true,
+				Stream:          streamTerminalObservation(test.endReason),
+			}, time.Now(), health.DecisionContext{})
+			if decision.Category != health.FailureCategoryAmbiguous ||
+				decision.Origin != test.wantOrigin || decision.Scope != test.wantScope ||
+				decision.Retry != health.RetryNone || decision.Effect != health.EffectNone ||
+				decision.RuleID != test.wantRule {
+				t.Fatalf("judgeUpstreamResult() = %#v", decision)
+			}
+		})
 	}
 }
 

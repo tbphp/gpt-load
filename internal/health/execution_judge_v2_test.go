@@ -79,8 +79,27 @@ func TestJudgeExecutionCommittedKeepsOnlyTrustedCredentialEffect(t *testing.T) {
 		},
 		Now: now,
 	}, context)
-	if unscoped.Retry != RetryNone || unscoped.Effect != EffectNone || unscoped.Scope != "" {
+	if unscoped.Retry != RetryNone || unscoped.Effect != EffectNone || unscoped.Scope != "" ||
+		unscoped.RuleID != "safety.committed" {
 		t.Fatalf("unscoped committed decision = %#v", unscoped)
+	}
+
+	invalidCredential := JudgeExecution(ExecutionAttempt{
+		DispatchState:       execution.DispatchMaybeSent,
+		StatusCode:          http.StatusUnauthorized,
+		DownstreamCommitted: true,
+		Evidence: &execution.ErrorEvidence{
+			Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintInvalidCredential,
+			ScopeHint: execution.ErrorScopeCredential, StatusCode: http.StatusUnauthorized,
+			ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+			Summary:      "credential rejected",
+		},
+		Now: now,
+	}, context)
+	if invalidCredential.Retry != RetryNone ||
+		invalidCredential.Effect != EffectRecordCredentialFailure ||
+		invalidCredential.RuleID != "safety.committed" {
+		t.Fatalf("invalid credential committed decision = %#v", invalidCredential)
 	}
 }
 
@@ -252,6 +271,22 @@ func TestJudgeExecutionPreservesReplayCompatibilityRules(t *testing.T) {
 			wantRetry: RetryNone,
 			wantRule:  RuleID("upstream.host_error.replay_unsafe"),
 		},
+		{
+			name: "explicitly rejected mutating host error retries",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusServiceUnavailable,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintHostError,
+					StatusCode:   http.StatusServiceUnavailable,
+					ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+					Summary:      "request rejected before processing",
+				},
+			},
+			context:   DecisionContext{Method: http.MethodPost, Operation: execution.OperationChatCompletion},
+			wantRetry: RetryNextCandidate,
+			wantRule:  RuleID("upstream.host_error.rejected_before_processing"),
+		},
 	}
 
 	for _, test := range tests {
@@ -259,6 +294,119 @@ func TestJudgeExecutionPreservesReplayCompatibilityRules(t *testing.T) {
 			decision := JudgeExecution(test.attempt, test.context)
 			if decision.Retry != test.wantRetry || decision.RuleID != test.wantRule {
 				t.Fatalf("JudgeExecution() = %#v, want retry=%q rule=%q", decision, test.wantRetry, test.wantRule)
+			}
+		})
+	}
+}
+
+func TestJudgeExecutionReplayUnknownKeepsUnaffectedRuleID(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   int
+		evidence execution.ErrorEvidence
+		wantRule RuleID
+	}{
+		{
+			name:   "request scoped rate limit",
+			status: http.StatusTooManyRequests,
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRateLimited,
+				ScopeHint: execution.ErrorScopeRequest, StatusCode: http.StatusTooManyRequests,
+				ReplaySafety: execution.ReplaySafetyUnknown, Summary: "request rate limited",
+			},
+			wantRule: "rate_limit.scoped",
+		},
+		{
+			name:   "generic client error",
+			status: http.StatusForbidden,
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusForbidden,
+				ReplaySafety: execution.ReplaySafetyUnknown, Summary: "permission denied",
+			},
+			wantRule: "fallback.http_client_error",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decision := JudgeExecution(ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    test.status,
+				Evidence:      &test.evidence,
+			}, DecisionContext{})
+			if decision.Retry != RetryNone || decision.RuleID != test.wantRule {
+				t.Fatalf("JudgeExecution() = %#v, want rule %q", decision, test.wantRule)
+			}
+		})
+	}
+}
+
+func TestJudgeExecutionStableFallbackRuleMatrix(t *testing.T) {
+	tests := []struct {
+		name    string
+		attempt ExecutionAttempt
+		want    RuleID
+	}{
+		{
+			name:    "missing evidence",
+			attempt: ExecutionAttempt{DispatchState: execution.DispatchNotSent},
+			want:    "fallback.missing_evidence",
+		},
+		{
+			name: "execution canceled",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				Evidence:      &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled, Summary: "canceled"},
+			},
+			want: "safety.execution_canceled",
+		},
+		{
+			name: "unclassified not sent",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchNotSent,
+				Evidence:      &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Summary: "internal failure"},
+			},
+			want: "fallback.not_sent",
+		},
+		{
+			name: "invalid dispatch state",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchState("invalid"),
+				Evidence:      &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Summary: "invalid state"},
+			},
+			want: "fallback.invalid_dispatch_state",
+		},
+		{
+			name: "transport outcome unknown",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				Evidence:      &execution.ErrorEvidence{Kind: execution.ErrorKindTransport, Summary: "connection lost"},
+			},
+			want: "transport.outcome_unknown",
+		},
+		{
+			name: "authentication replay unsafe",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusUnauthorized,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRefreshRequired,
+					StatusCode: http.StatusUnauthorized, ReplaySafety: execution.ReplaySafetyUnknown,
+					Summary: "authentication failed",
+				},
+			},
+			want: "auth.replay_unsafe",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decision := JudgeExecution(test.attempt, DecisionContext{CredentialRefreshable: true})
+			if decision.RuleID != test.want {
+				t.Fatalf("JudgeExecution() = %#v, want rule %q", decision, test.want)
+			}
+			if err := decision.Validate(); err != nil {
+				t.Fatalf("Decision.Validate() error = %v", err)
 			}
 		})
 	}
