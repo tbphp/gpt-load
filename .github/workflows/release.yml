@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# 竖线分隔在任何错误（含网络错误）时回退到下一个源；默认的逗号只在
+# 404/410 时回退，proxy.golang.org 瞬时故障会直接让整个 job 失败。
+env:
+  GOPROXY: https://proxy.golang.org|direct
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -521,6 +526,46 @@ jobs:
           RELEASE_SMOKE_TRIVY_IMAGE: aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f
         run: .github/scripts/release-docker-smoke.sh
 
+  prebuilt-image-smoke:
+    name: Prebuilt image smoke (${{ matrix.arch }})
+    # publish-images 实际推送的是 prebuilt target，必须在发布前用完全相同的打包
+    # 路径做 smoke 与漏洞扫描；docker-smoke 覆盖的源码自包含构建是另一条路径，
+    # 两者互相不能替代，删除任一个都会让一条发布路径失去发布前验证。
+    needs: build-binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # publish-images 推送 linux/amd64 与 linux/arm64 两个平台，两条 prebuilt
+          # 路径 COPY 的是不同的二进制，必须各自验证。使用原生 arm64 runner 而非
+          # QEMU：QEMU 模拟下的启动行为不能代表真实 arm64 运行时。
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download prebuilt Linux binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binary-gpt-load-linux-${{ matrix.arch }}
+          path: release
+
+      - name: Build and smoke prebuilt image
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_SMOKE_SUFFIX: prebuilt-${{ matrix.arch }}-${{ github.run_id }}
+          RELEASE_SMOKE_TRIVY_IMAGE: aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f
+          RELEASE_SMOKE_BUILD_TARGET: prebuilt
+        run: .github/scripts/release-docker-smoke.sh
+
   publication-preflight:
     # 这里必须逐个列出全部 gate，即使其中几个已被别的 needs 间接依赖：
     # 下面的 if 只能看到直接 needs 的 result，上游失败会让中间 job 变成 skipped，
@@ -535,6 +580,7 @@ jobs:
       - package-checksums
       - native-artifact-smoke
       - docker-smoke
+      - prebuilt-image-smoke
       - database-contract
     # race-tests、race-cpa 与 database-contract 在 CI 已验证同一 commit 时为 skipped，
     # 这里只拒绝真正失败的 gate，不把 skipped 当作缺失的验证。
@@ -806,6 +852,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Download prebuilt Linux binaries
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: binary-gpt-load-linux-*
+          path: release
+          merge-multiple: true
+
       - name: Set up QEMU
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -856,6 +910,9 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
+          # prebuilt 直接打包 build-binaries 已交叉编译好的产物，不在镜像内重复
+          # 编译 Go 与 Web；镜像内二进制与同名 native 发布产物是同一个文件。
+          target: prebuilt
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

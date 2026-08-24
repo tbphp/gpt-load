@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# 竖线分隔在任何错误（含网络错误）时回退到下一个源；默认的逗号只在
+# 404/410 时回退，proxy.golang.org 瞬时故障会直接让整个 job 失败。
+env:
+  GOPROXY: https://proxy.golang.org|direct
+
 concurrency:
   group: v2-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
