@@ -194,10 +194,13 @@ func (*claudeProviderBridge) ClassifyError(
 	case requestScopedFailure(err):
 		evidence.Hint = execution.FailureHintRequestRejected
 	case status == http.StatusTooManyRequests:
-		if credentialScoped, known := credentialScopedFailure(err); known && !credentialScoped {
-			evidence.Hint = execution.FailureHintRequestRejected
-		} else {
-			evidence.Hint = execution.FailureHintRateLimited
+		evidence.Hint = execution.FailureHintRateLimited
+		if credentialScoped, known := credentialScopedFailure(err); known {
+			if credentialScoped {
+				evidence.ScopeHint = execution.ErrorScopeCredential
+			} else {
+				evidence.ScopeHint = execution.ErrorScopeModel
+			}
 		}
 	case status >= http.StatusInternalServerError:
 		evidence.Hint = execution.FailureHintHostError

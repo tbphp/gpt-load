@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -480,10 +482,27 @@ func unaryExecutionError(
 	credential providerCredential,
 ) execution.AttemptResult {
 	status, evidence := provider.ClassifyError(ctx, err, credential)
+	dispatchState := execution.DispatchMaybeSent
+	if status == 0 && definitelyNotSentNetworkError(err) {
+		dispatchState = execution.DispatchNotSent
+	}
 	return execution.AttemptResult{
-		DispatchState: execution.DispatchMaybeSent, ResponseStarted: status != 0,
+		DispatchState: dispatchState, ResponseStarted: status != 0,
 		StatusCode: status, Error: evidence,
 	}
+}
+
+func definitelyNotSentNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var dnsError *net.DNSError
+	if errors.As(err, &dnsError) && dnsError != nil {
+		return true
+	}
+	var operationError *net.OpError
+	return errors.As(err, &operationError) && operationError != nil &&
+		strings.EqualFold(strings.TrimSpace(operationError.Op), "dial")
 }
 
 func streamExecutionError(

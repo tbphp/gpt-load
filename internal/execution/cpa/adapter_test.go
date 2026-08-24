@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"reflect"
 	"strings"
@@ -981,6 +982,43 @@ type statusError struct {
 
 func (e statusError) Error() string   { return e.message }
 func (e statusError) StatusCode() int { return e.status }
+
+func TestUnaryExecutionErrorDistinguishesDefinitelyUnsentNetworkFailures(t *testing.T) {
+	t.Parallel()
+
+	bridge := newCodexProviderBridge()
+	credential := codexProviderCredential{}
+	tests := []struct {
+		name string
+		err  error
+		want execution.DispatchState
+	}{
+		{
+			name: "DNS lookup failed",
+			err:  &net.DNSError{Err: "no such host", Name: "upstream.invalid"},
+			want: execution.DispatchNotSent,
+		},
+		{
+			name: "dial failed",
+			err:  &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")},
+			want: execution.DispatchNotSent,
+		},
+		{
+			name: "read failed",
+			err:  &net.OpError{Op: "read", Net: "tcp", Err: io.ErrUnexpectedEOF},
+			want: execution.DispatchMaybeSent,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := unaryExecutionError(t.Context(), bridge, test.err, credential)
+			if result.DispatchState != test.want {
+				t.Fatalf("unaryExecutionError() dispatch = %q, want %q", result.DispatchState, test.want)
+			}
+		})
+	}
+}
 
 func newAdapterFixture(t *testing.T, canonical []byte) (*Adapter, *gorm.DB, *state.CredentialRegistry, encryption.Service, models.Credential) {
 	t.Helper()

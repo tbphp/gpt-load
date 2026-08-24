@@ -328,8 +328,9 @@ func (*codexProviderBridge) ClassifyError(
 		return 0, nil
 	}
 	status := 0
-	if value, ok := err.(interface{ StatusCode() int }); ok {
-		status = value.StatusCode()
+	var statusError interface{ StatusCode() int }
+	if errors.As(err, &statusError) && statusError != nil {
+		status = statusError.StatusCode()
 	}
 	kind := execution.ErrorKindTransport
 	if status != 0 {
@@ -338,20 +339,35 @@ func (*codexProviderBridge) ClassifyError(
 		kind = execution.ErrorKindTimeout
 	} else if errors.Is(err, context.Canceled) || ctx != nil && errors.Is(context.Cause(ctx), context.Canceled) {
 		kind = execution.ErrorKindCanceled
-	} else if _, ok := err.(net.Error); ok {
-		kind = execution.ErrorKindTransport
+	} else {
+		var networkError net.Error
+		if errors.As(err, &networkError) && networkError != nil {
+			kind = execution.ErrorKindTransport
+		}
 	}
-	typeValue, codeValue := errorTypeCode(err.Error())
+	typeValue, codeValue := codexErrorTypeCode(err)
 	evidence := &execution.ErrorEvidence{
 		Kind: kind, StatusCode: status, Type: typeValue, Code: codeValue,
 		Summary: safeErrorSummary(err, credential.redactionValues()),
 	}
-	if retry, ok := err.(interface{ RetryAfter() *time.Duration }); ok && retry.RetryAfter() != nil && *retry.RetryAfter() > 0 {
-		evidence.RetryAfter = *retry.RetryAfter()
+	var retry interface{ RetryAfter() *time.Duration }
+	if errors.As(err, &retry) && retry != nil {
+		if value := retry.RetryAfter(); value != nil && *value > 0 {
+			evidence.RetryAfter = *value
+		}
 	}
 	switch {
 	case status == http.StatusUnauthorized:
 		evidence.Hint = execution.FailureHintRefreshRequired
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	case status == http.StatusTooManyRequests && typeValue == "usage_limit_reached":
+		evidence.Hint = execution.FailureHintRateLimited
+		evidence.ScopeHint = execution.ErrorScopeCredential
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	case status == http.StatusTooManyRequests && codexModelCapacityError(err):
+		evidence.Hint = execution.FailureHintCandidateUnavailable
+		evidence.ScopeHint = execution.ErrorScopeModel
+		evidence.Code = "selected_model_at_capacity"
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	case status == http.StatusTooManyRequests:
 		evidence.Hint = execution.FailureHintRateLimited
@@ -362,6 +378,51 @@ func (*codexProviderBridge) ClassifyError(
 	}
 	annotateProviderErrorEvidence(evidence, err)
 	return status, evidence
+}
+
+func codexErrorTypeCode(err error) (string, string) {
+	var typed interface {
+		ErrorType() string
+		ErrorCode() string
+	}
+	if errors.As(err, &typed) && typed != nil {
+		return safeScalar(typed.ErrorType()), safeScalar(typed.ErrorCode())
+	}
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if typeValue, codeValue := errorTypeCode(current.Error()); typeValue != "" || codeValue != "" {
+			return typeValue, codeValue
+		}
+	}
+	return "", ""
+}
+
+func codexModelCapacityError(err error) bool {
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		message := strings.TrimSpace(current.Error())
+		var payload struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(message), &payload) == nil {
+			if payload.Error.Message != "" {
+				message = payload.Error.Message
+			} else if payload.Message != "" {
+				message = payload.Message
+			}
+		}
+		switch strings.ToLower(strings.TrimSpace(message)) {
+		case "selected model is at capacity",
+			"selected model is at capacity. please try a different model",
+			"selected model is at capacity. please try a different model.",
+			"the selected model is at capacity. please try a different model.",
+			"model is at capacity. please try a different model",
+			"model is at capacity. please try a different model.":
+			return true
+		}
+	}
+	return false
 }
 
 var _ providerBridge = (*codexProviderBridge)(nil)
