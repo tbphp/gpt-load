@@ -136,6 +136,13 @@ func decisionEvidence(result UpstreamResult) (*execution.ErrorEvidence, error) {
 	}
 	switch result.Stream.EndReason {
 	case StreamEndNone:
+		if evidence == nil && errors.Is(downstreamErr, ErrUpstreamProtocol) {
+			return &execution.ErrorEvidence{
+				Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+				StatusCode: result.StatusCode, Code: "upstream_protocol_error",
+				Summary: fixedErrorSummary("upstream_protocol_error"),
+			}, nil
+		}
 		return evidence, downstreamErr
 	case StreamEndCleanEOF, StreamEndProviderIncomplete:
 		return nil, nil

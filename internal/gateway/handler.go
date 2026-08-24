@@ -710,7 +710,8 @@ func (handler *Handler) executeAttempts(
 	var lastConversion *deferredAttempt
 	var lastProviderError *deferredAttempt
 	lastAttemptIndex := -1
-	attempts := 0
+	attemptSequence := 0
+	forwardAttempts := 0
 	type credentialRefreshRetry struct {
 		selection scheduler.Selection
 		ref       state.CredentialRef
@@ -741,12 +742,12 @@ func (handler *Handler) executeAttempts(
 		summary string,
 		scope execution.ErrorScope,
 	) bool {
-		attempts++
-		if attempts == 1 && requestAffinity.preferredCredentialID != 0 &&
+		attemptSequence++
+		if attemptSequence == 1 && requestAffinity.preferredCredentialID != 0 &&
 			selection.CredentialID == requestAffinity.preferredCredentialID {
 			recorder.setAffinityHit(true)
 		}
-		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
+		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attemptSequence)
 		if recorder != nil {
 			recorder.freezeNextAttemptPricing(
 				handler.freezeAttemptPricing(selection, observeUsage),
@@ -790,7 +791,7 @@ func (handler *Handler) executeAttempts(
 		}
 		return decision.Retry != health.RetryNone
 	}
-	for attempts < maxAttempts {
+	for forwardAttempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
@@ -908,12 +909,13 @@ func (handler *Handler) executeAttempts(
 			quotaAdmission.admitted = true
 		}
 
-		attempts++
-		if attempts == 1 && requestAffinity.preferredCredentialID != 0 &&
+		attemptSequence++
+		forwardAttempts++
+		if attemptSequence == 1 && requestAffinity.preferredCredentialID != 0 &&
 			selection.CredentialID == requestAffinity.preferredCredentialID {
 			recorder.setAffinityHit(true)
 		}
-		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
+		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attemptSequence)
 		executionRequestID := "untracked"
 		if recorder != nil && recorder.requestID != "" {
 			executionRequestID = recorder.requestID
@@ -925,8 +927,8 @@ func (handler *Handler) executeAttempts(
 			ExternalModel:    externalModel,
 			UpstreamModelID:  optionalModelValue(selection.UpstreamModelID),
 			RequestID:        executionRequestID,
-			AttemptID:        executionRequestID + ":" + strconv.Itoa(attempts),
-			AttemptSequence:  uint32(attempts),
+			AttemptID:        executionRequestID + ":" + strconv.Itoa(attemptSequence),
+			AttemptSequence:  uint32(attemptSequence),
 			ClientProtocol:   selectedDialect.Protocol(),
 			Operation:        operation,
 			RouteRequirement: routeRequirement,
@@ -1022,7 +1024,7 @@ func (handler *Handler) executeAttempts(
 		lastAttemptIndex = recordedAttempt
 		handler.applyDecisionEffect(selection.CredentialID, decision, result.StatusCode, attemptNow)
 		if decision.Retry == health.RetryRefreshCredential &&
-			!authRefreshReplayUsed && attempts < maxAttempts {
+			!authRefreshReplayUsed && forwardAttempts < maxAttempts {
 			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
 		}
 		if decision.Effect == health.EffectSkipGroup {

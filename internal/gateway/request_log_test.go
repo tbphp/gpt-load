@@ -245,14 +245,14 @@ type usageObservingStreamRetryForwarder struct {
 	observed []usage.Result
 }
 
-type failFirstCredentialDecrypt struct {
+type failCredentialDecrypt struct {
 	encryption.Service
-	calls int
+	remaining int
 }
 
-func (service *failFirstCredentialDecrypt) Decrypt(value string) (string, error) {
-	service.calls++
-	if service.calls == 1 {
+func (service *failCredentialDecrypt) Decrypt(value string) (string, error) {
+	if service.remaining > 0 {
+		service.remaining--
 		return "", errors.New("private credential decrypt failure")
 	}
 	return service.Service.Decrypt(value)
@@ -1070,7 +1070,7 @@ func TestHandlerRecordsCandidatePreparationFailureThroughJudge(t *testing.T) {
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second",
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
-	handler.encryption = &failFirstCredentialDecrypt{Service: handler.encryption}
+	handler.encryption = &failCredentialDecrypt{Service: handler.encryption, remaining: 1}
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/chat/completions",
@@ -1096,6 +1096,38 @@ func TestHandlerRecordsCandidatePreparationFailureThroughJudge(t *testing.T) {
 		!first.WillRetry || first.ErrorCode != "credential_decrypt_failed" ||
 		strings.Contains(first.ErrorSummary, "private") {
 		t.Fatalf("candidate preparation attempt = %#v", first)
+	}
+}
+
+func TestHandlerCandidatePreparationFailuresDoNotExhaustForwardBudget(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header),
+		Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink,
+		"sk-first", "sk-second", "sk-third", "sk-fourth",
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.encryption = &failCredentialDecrypt{Service: handler.encryption, remaining: 3}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 1 ||
+		len(events) != 1 || len(events[0].Attempts) != 4 {
+		t.Fatalf("response/forwards/events = %d/%d/%#v", response.Code, len(forwarder.inputs), events)
+	}
+	if forwarder.inputs[0].AttemptSequence != 4 || events[0].Attempts[3].Sequence != 4 {
+		t.Fatalf("forward/recorded attempt sequences = %d/%d, want 4/4",
+			forwarder.inputs[0].AttemptSequence, events[0].Attempts[3].Sequence)
 	}
 }
 

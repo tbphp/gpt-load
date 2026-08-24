@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -118,6 +119,50 @@ func TestJudgeUpstreamResultUsesNeutralExecutionEvidence(t *testing.T) {
 	}, now, health.DecisionContext{DefaultRateLimitCooldown: time.Minute})
 	if result.Category != health.FailureCategoryUpstreamHostError || result.Effect != health.EffectSkipGroup {
 		t.Fatalf("JudgeExecution(not sent) = %#v", result)
+	}
+}
+
+func TestJudgeUpstreamResultKeepsUpstreamTimeoutOutOfDownstreamCancellation(t *testing.T) {
+	t.Parallel()
+
+	evidence := &execution.ErrorEvidence{
+		Kind: execution.ErrorKindTimeout, OriginHint: execution.ErrorOriginUpstream,
+		ScopeHint: execution.ErrorScopeGroup, Summary: "upstream connection timed out",
+	}
+	upstream := upstreamFromExecutionResult(
+		context.Background(),
+		ForwardInput{},
+		execution.AttemptResult{
+			DispatchState: execution.DispatchNotSent,
+			Error:         evidence,
+		},
+	)
+	decision := judgeUpstreamResult(upstream, time.Now(), health.DecisionContext{})
+	if decision.Category != health.FailureCategoryUpstreamHostError ||
+		decision.Origin != execution.ErrorOriginUpstream ||
+		decision.Scope != execution.ErrorScopeGroup ||
+		decision.Retry != health.RetryNextCandidate ||
+		decision.Effect != health.EffectSkipGroup ||
+		decision.RuleID != "transport.not_sent" {
+		t.Fatalf("timeout decision = %#v", decision)
+	}
+}
+
+func TestJudgeUpstreamResultClassifiesUncommittedProtocolFailureAsUpstream(t *testing.T) {
+	t.Parallel()
+
+	decision := judgeUpstreamResult(UpstreamResult{
+		Err:             fmt.Errorf("%w: invalid execution stream event", ErrUpstreamProtocol),
+		DispatchState:   execution.DispatchMaybeSent,
+		ResponseStarted: true,
+		StatusCode:      http.StatusOK,
+	}, time.Now(), health.DecisionContext{})
+	if decision.Category != health.FailureCategoryAmbiguous ||
+		decision.Origin != execution.ErrorOriginUpstream ||
+		decision.Retry != health.RetryNone ||
+		decision.Effect != health.EffectNone ||
+		decision.RuleID != "fallback.ambiguous" {
+		t.Fatalf("protocol decision = %#v", decision)
 	}
 }
 

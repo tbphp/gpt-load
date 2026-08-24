@@ -783,13 +783,19 @@ func executionFailureError(ctx context.Context, evidence *execution.ErrorEvidenc
 	case execution.ErrorKindCanceled:
 		return context.Canceled
 	case execution.ErrorKindTimeout:
-		return context.DeadlineExceeded
+		return upstreamExecutionTimeoutError{}
 	case execution.ErrorKindInvalidRequest, execution.ErrorKindProvider, execution.ErrorKindInternal:
 		return fmt.Errorf("%w: upstream execution failed", ErrUpstreamProtocol)
 	default:
 		return fmt.Errorf("upstream execution failed")
 	}
 }
+
+type upstreamExecutionTimeoutError struct{}
+
+func (upstreamExecutionTimeoutError) Error() string   { return "upstream execution timed out" }
+func (upstreamExecutionTimeoutError) Timeout() bool   { return true }
+func (upstreamExecutionTimeoutError) Temporary() bool { return true }
 
 func executionInputFailure(cause error) UpstreamResult {
 	if cause == nil {
