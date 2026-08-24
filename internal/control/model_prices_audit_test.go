@@ -13,6 +13,7 @@ import (
 )
 
 func TestModelPriceMutationAuditSuccessRejectionAndFailure(t *testing.T) {
+	t.Parallel()
 	t.Run("success", func(t *testing.T) {
 		for _, test := range []struct {
 			operation string
@@ -173,6 +174,7 @@ func TestModelPriceMutationAuditSuccessRejectionAndFailure(t *testing.T) {
 }
 
 func TestModelPriceMutationAuditExcludesAuthFailureAndWrongMethod(t *testing.T) {
+	t.Parallel()
 	fixture, row := newModelPriceAuditFixture(t)
 	var logs bytes.Buffer
 	_, engine := newMutationAuditRouteServer(t, fixture, &logs)
@@ -193,6 +195,7 @@ func TestModelPriceMutationAuditExcludesAuthFailureAndWrongMethod(t *testing.T) 
 }
 
 func TestModelPriceSyncStaticPathOwnsDynamicMutationMethodsBeforeAuthAndAudit(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		method        string
 		body          string

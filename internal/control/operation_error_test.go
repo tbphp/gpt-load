@@ -13,6 +13,7 @@ import (
 )
 
 func TestControlOperationErrorCarriesOnlyFixedContext(t *testing.T) {
+	t.Parallel()
 	err := withControlOperationContext(
 		newControlOperationError(stageApplyCommittedRegistryMutation),
 		12,
@@ -33,6 +34,7 @@ func TestControlOperationErrorCarriesOnlyFixedContext(t *testing.T) {
 }
 
 func TestServiceErrorMessageIDUsesTypedResourceNotFound(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		operation string
@@ -77,6 +79,7 @@ func TestServiceErrorMessageIDUsesTypedResourceNotFound(t *testing.T) {
 }
 
 func TestServiceErrorMessageIDUsesGroupNameExistsForGroupSettingsUpdate(t *testing.T) {
+	t.Parallel()
 	if got := serviceErrorMessageID(
 		"update_group_settings",
 		app_errors.ErrDuplicateResource,
@@ -87,6 +90,7 @@ func TestServiceErrorMessageIDUsesGroupNameExistsForGroupSettingsUpdate(t *testi
 }
 
 func TestLogServiceErrorUsesOnlyFixedOperationContext(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	const secretCause = "known-operation-secret-cause"
 	err := fmt.Errorf(
 		"%s: %w",

@@ -31,6 +31,7 @@ import (
 	"gpt-load/internal/subscription"
 	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
+	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/sqlitetest"
 )
 
@@ -193,10 +194,7 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 	manager.SetSnapshotReconciler(controlAccessQuotaReconciler{runtime: accessQuota})
 	registry := state.NewCredentialRegistry()
 	channelRegistry := channel.NewRegistry()
-	keyService, err := encryption.NewService("control-test-master-key-material-2026")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "control-test-master-key-material-2026")
 	if _, err := manager.Publish(state.CompileInput{}); err != nil {
 		t.Fatalf("manager.Publish(empty) error = %v", err)
 	}

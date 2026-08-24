@@ -34,6 +34,7 @@ func (checker *recordingReleaseUpdateChecker) Check(_ context.Context, force boo
 }
 
 func TestSystemUpdateHTTPChecksOnDemandWithoutAffectingHome(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	checker := &recordingReleaseUpdateChecker{update: &releasecheck.Update{
@@ -94,6 +95,7 @@ func TestSystemUpdateHTTPChecksOnDemandWithoutAffectingHome(t *testing.T) {
 }
 
 func TestSystemUpdateHTTPReturnsNullForSuccessfulNoUpdate(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	checker := &recordingReleaseUpdateChecker{}
@@ -121,6 +123,7 @@ func TestSystemUpdateHTTPReturnsNullForSuccessfulNoUpdate(t *testing.T) {
 }
 
 func TestSystemUpdateHTTPHidesUpstreamFailureBehindBadGateway(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	checker := &recordingReleaseUpdateChecker{err: errors.New("private upstream detail")}
@@ -141,6 +144,7 @@ func TestSystemUpdateHTTPHidesUpstreamFailureBehindBadGateway(t *testing.T) {
 }
 
 func TestSystemUpdateHTTPRejectsAccessKeyAndInvalidQueryBeforeCheck(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	accessKey, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "read only"})

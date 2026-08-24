@@ -11,6 +11,7 @@ import (
 )
 
 func TestSystemInfoResponseContainsOnlySafeMetadata(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		DataDir:     "./safe-data",
 		DatabaseDSN: "file:distinctive-secret-dsn",
@@ -71,6 +72,7 @@ func TestSystemInfoResponseContainsOnlySafeMetadata(t *testing.T) {
 }
 
 func TestSystemInfoResponseUsesNullPathsForEnvironmentSources(t *testing.T) {
+	t.Parallel()
 	encoded, err := json.Marshal(newSystemInfoResponse(&config.Config{
 		AuthKeyMetadata: config.SecretMetadata{
 			Source: config.SecretSourceEnvironment,
@@ -100,6 +102,7 @@ func TestSystemInfoResponseUsesNullPathsForEnvironmentSources(t *testing.T) {
 }
 
 func TestSystemInfoResponseReportsSelectedDatabaseDriver(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name   string
 		driver config.DatabaseDriver

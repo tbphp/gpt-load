@@ -16,6 +16,7 @@ import (
 )
 
 func TestGroupDetailLedgerRoutesReplaceLegacyContracts(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)

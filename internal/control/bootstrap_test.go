@@ -26,6 +26,7 @@ const bootstrapMarkerForTest = models.InternalSystemSettingPrefix + "bootstrap.d
 var errBootstrapEncryption = errors.New("forced bootstrap encryption failure")
 
 func TestEnsureInitialStateCreatesDefaultAccessKeyAndMarker(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader([]byte{
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -83,6 +84,7 @@ func TestEnsureInitialStateCreatesDefaultAccessKeyAndMarker(t *testing.T) {
 }
 
 func TestEnsureInitialStateWithExistingAccessKeyOnlyWritesMarker(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	const plaintext = "gl-existing-access-key"
 	ciphertext, err := fixture.encryption.Encrypt(plaintext)
@@ -120,6 +122,7 @@ func TestEnsureInitialStateWithExistingAccessKeyOnlyWritesMarker(t *testing.T) {
 }
 
 func TestEnsureInitialStateDoesNotLogExpectedMarkerMissAsError(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	var logs bytes.Buffer
 	fixture.service.db = fixture.db.Session(&gorm.Session{
@@ -140,6 +143,7 @@ func TestEnsureInitialStateDoesNotLogExpectedMarkerMissAsError(t *testing.T) {
 }
 
 func TestEnsureInitialStateIsIdempotentWhenMarkerExists(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	if err := fixture.db.Create(&models.SystemSetting{
 		Key: bootstrapMarkerForTest, Value: "true",
@@ -157,6 +161,7 @@ func TestEnsureInitialStateIsIdempotentWhenMarkerExists(t *testing.T) {
 }
 
 func TestEnsureInitialStateDoesNotRecreateDeletedFinalKey(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	if err := fixture.service.EnsureInitialState(context.Background()); err != nil {
@@ -174,6 +179,7 @@ func TestEnsureInitialStateDoesNotRecreateDeletedFinalKey(t *testing.T) {
 }
 
 func TestEnsureInitialStateRollsBackWhenEncryptionFails(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	fixture.service.encryption = bootstrapFailingEncryptService{Service: fixture.encryption}
@@ -187,6 +193,7 @@ func TestEnsureInitialStateRollsBackWhenEncryptionFails(t *testing.T) {
 }
 
 func TestEnsureInitialStateRollsBackAccessKeyWhenMarkerWriteFails(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	if err := fixture.db.Exec(`
@@ -208,6 +215,7 @@ func TestEnsureInitialStateRollsBackAccessKeyWhenMarkerWriteFails(t *testing.T) 
 }
 
 func TestEnsureInitialStateDoesNotLogPlaintext(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	fixture := newServiceFixture(t)
 	randomBytes := bytes.Repeat([]byte{0xab}, 16)
 	fixture.service.random = bytes.NewReader(randomBytes)

@@ -23,6 +23,7 @@ import (
 	subscriptionproviders "gpt-load/internal/subscription/providers"
 	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
+	"gpt-load/internal/testutil/encryptiontest"
 )
 
 type failingEncryptService struct {
@@ -304,10 +305,7 @@ func newCredentialManagerFixture(
 	if err := db.AutoMigrate(&models.Group{}, &models.Credential{}); err != nil {
 		t.Fatal(err)
 	}
-	keyService, err := encryption.NewService("subscription-manager-test-encryption-key-material")
-	if err != nil {
-		t.Fatal(err)
-	}
+	keyService := encryptiontest.Service(t, "subscription-manager-test-encryption-key-material")
 	ciphertext, err := keyService.Encrypt(string(canonical))
 	if err != nil {
 		t.Fatal(err)

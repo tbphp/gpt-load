@@ -11,6 +11,7 @@ import (
 )
 
 func TestChannelModelPriceIsSharedAcrossGroupsAndAliases(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	createPriceTestGroup(t, fixture.db, models.Group{
 		Name: "first", ChannelID: string(channel.OpenAICompatible),
@@ -61,6 +62,7 @@ func TestChannelModelPriceIsSharedAcrossGroupsAndAliases(t *testing.T) {
 }
 
 func TestProjectModelPriceRowDoesNotExposeSlotCompleteness(t *testing.T) {
+	t.Parallel()
 	value := int64(1)
 	record, err := projectModelPriceRow(models.ModelPrice{
 		ID: 1, ChannelID: string(channel.OpenAICompatible), ModelID: "tiered", InputPriceNanoUSDPerMillionTokens: &value,
@@ -83,6 +85,7 @@ func TestProjectModelPriceRowDoesNotExposeSlotCompleteness(t *testing.T) {
 }
 
 func TestProjectModelPriceRowExposesPersistedFastSchedule(t *testing.T) {
+	t.Parallel()
 	standardInput := int64(3)
 	record, err := projectModelPriceRow(models.ModelPrice{
 		ID: 1, ChannelID: string(channel.OpenAI), ModelID: "gpt-fast",
@@ -139,6 +142,7 @@ func TestProjectModelPriceRowExposesPersistedFastSchedule(t *testing.T) {
 }
 
 func TestResetModelPriceChangesOnlySelectedChannelIdentity(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	manual := int64(99)
 	rows := []models.ModelPrice{
@@ -199,6 +203,7 @@ func TestResetModelPriceChangesOnlySelectedChannelIdentity(t *testing.T) {
 }
 
 func TestDeleteModelPriceIgnoresSameModelReferenceFromDifferentChannel(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	manual := int64(1)
 	row := models.ModelPrice{

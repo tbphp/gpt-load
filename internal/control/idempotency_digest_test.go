@@ -9,6 +9,7 @@ import (
 )
 
 func TestIdempotencyDigestFixtures(t *testing.T) {
+	t.Parallel()
 	type fixture struct {
 		Name            string        `json:"name"`
 		OperationKind   operationKind `json:"operation_kind"`
@@ -78,6 +79,7 @@ func TestIdempotencyDigestFixtures(t *testing.T) {
 }
 
 func TestIdempotencyDigestV1MatchesAccessKeyCreateFixture(t *testing.T) {
+	t.Parallel()
 	body := []byte(
 		`{"filters":{"groups":[],"models":[],"protocols":[]},"name":"CI client","rpm_limit":0}`,
 	)
@@ -116,6 +118,7 @@ func TestIdempotencyDigestV1MatchesAccessKeyCreateFixture(t *testing.T) {
 }
 
 func TestNormalizeIdempotencyKeyLinesPreservesSortedMultiplicity(t *testing.T) {
+	t.Parallel()
 	one, err := normalizeIdempotencyKeyLines(" K \r\n")
 	if err != nil {
 		t.Fatalf("normalizeIdempotencyKeyLines(K) error = %v", err)
@@ -161,6 +164,7 @@ func TestNormalizeIdempotencyKeyLinesPreservesSortedMultiplicity(t *testing.T) {
 }
 
 func TestIdempotencyDigestRejectsUnsupportedVersionAndInvalidFields(t *testing.T) {
+	t.Parallel()
 	valid := idempotencyDigestInput{
 		Version: 1, Method: "POST", OperationKind: operationKindAccessKeyCreate,
 		PathTemplate: "/api/access-keys", ResourceLocator: "new",

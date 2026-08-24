@@ -20,6 +20,7 @@ type settingsETagFixture struct {
 }
 
 func TestSettingsWireETagMatchesCheckedInFixture(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile("testdata/settings-etag-v1.json")
 	if err != nil {
 		t.Fatal(err)
@@ -96,6 +97,7 @@ func TestSettingsWireETagMatchesCheckedInFixture(t *testing.T) {
 }
 
 func TestSettingsDTOCanonicalizesHeaderRulesAndOverrides(t *testing.T) {
+	t.Parallel()
 	dto := canonicalizeSettingsDTO(SettingsDTO{
 		Values: SettingsValuesResponse{
 			HeaderRules: HeaderRulesResponse{

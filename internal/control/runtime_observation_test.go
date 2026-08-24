@@ -27,6 +27,7 @@ func (probe healthDecryptLockProbe) Decrypt(ciphertext string) (string, error) {
 }
 
 func TestCaptureRuntimeObservationWaitsForPublishedConfigPair(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := validControlGroup("runtime-observation")
 	var key models.Credential
@@ -113,6 +114,7 @@ func TestCaptureRuntimeObservationWaitsForPublishedConfigPair(t *testing.T) {
 }
 
 func TestCaptureRuntimeHealthObservationWaitsForPublishedConfigPair(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := validControlGroup("runtime-health-observation")
 	var key models.Credential
@@ -205,6 +207,7 @@ func TestCaptureRuntimeHealthObservationWaitsForPublishedConfigPair(t *testing.T
 }
 
 func TestRuntimeHealthReleasesReadLockBeforeRequestLogMapping(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.requestLogStats.fn = func() requestlog.Stats {
 		if !fixture.service.writeMu.TryLock() {
@@ -219,6 +222,7 @@ func TestRuntimeHealthReleasesReadLockBeforeRequestLogMapping(t *testing.T) {
 }
 
 func TestRuntimeHealthReleasesReadLockBeforeDecryptingProblemKeys(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
@@ -250,6 +254,7 @@ func TestRuntimeHealthReleasesReadLockBeforeDecryptingProblemKeys(t *testing.T) 
 }
 
 func TestRuntimeHealthKeepsAccessQuotaViewWithCapturedConfig(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }

@@ -40,6 +40,7 @@ func TestDownloadGroupCredentialReturnsCanonicalJSONAndSafeFilename(t *testing.T
 }
 
 func TestSubscriptionCredentialFilenameFallsBackToCredentialID(t *testing.T) {
+	t.Parallel()
 	if got := subscriptionCredentialFilename("Claude", "", 42); got != "claude-credential-42.json" {
 		t.Fatalf("filename = %q", got)
 	}
@@ -49,6 +50,7 @@ func TestSubscriptionCredentialFilenameFallsBackToCredentialID(t *testing.T) {
 }
 
 func TestDownloadGroupCredentialHTTPReturnsJSONObjectAndNoStoreHeaders(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	server := NewServer(&config.Config{AuthKey: "credential-download-auth"}, fixture.service)
@@ -86,6 +88,7 @@ func TestDownloadGroupCredentialHTTPReturnsJSONObjectAndNoStoreHeaders(t *testin
 }
 
 func TestDownloadAllGroupCredentialsReturnsEveryAccountAndNoStoreHeaders(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture, groupID, _ := newSubscriptionCredentialFixture(t)
 	stageIDs := make([]string, 0, 24)

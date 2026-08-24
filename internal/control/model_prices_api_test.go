@@ -13,6 +13,7 @@ import (
 )
 
 func TestParseModelPriceListQueryAcceptsFinalContract(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		rawQuery   string
@@ -70,6 +71,7 @@ func TestParseModelPriceListQueryAcceptsFinalContract(t *testing.T) {
 }
 
 func TestParseModelPriceListQueryRejectsAmbiguousOrUnsafeInput(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		rawQuery   string
@@ -104,6 +106,7 @@ func TestParseModelPriceListQueryRejectsAmbiguousOrUnsafeInput(t *testing.T) {
 }
 
 func TestParseModelPriceRowIDRequiresCanonicalPositiveSafeUint(t *testing.T) {
+	t.Parallel()
 	for _, value := range []string{"1", "9007199254740991"} {
 		got, err := parseModelPriceRowID(value)
 		if err != nil {
@@ -122,6 +125,7 @@ func TestParseModelPriceRowIDRequiresCanonicalPositiveSafeUint(t *testing.T) {
 }
 
 func TestNullableDecimalAcceptsOnlyExactUSDStringOrNull(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		body string
 		want *int64
@@ -143,6 +147,7 @@ func TestNullableDecimalAcceptsOnlyExactUSDStringOrNull(t *testing.T) {
 }
 
 func TestNullableDecimalClassifiesInvalidDecimalStringsAsValidation(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{
 		`""`, `" "`, `"1e3"`, `"+1"`, `"-1"`, `".5"`, `"1."`,
 		`"1.0000000000"`, `"9223372036.854775808"`,
@@ -156,6 +161,7 @@ func TestNullableDecimalClassifiesInvalidDecimalStringsAsValidation(t *testing.T
 }
 
 func TestNullableDecimalRejectsJSONNumbersAndContainers(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{`0`, `1.5`, `1e3`, `{}`, `[]`, `true`} {
 		var got nullableDecimal
 		if err := json.Unmarshal([]byte(body), &got); err == nil {
@@ -165,6 +171,7 @@ func TestNullableDecimalRejectsJSONNumbersAndContainers(t *testing.T) {
 }
 
 func TestModelPriceUpdateRequestRequiresFullReplacementSlots(t *testing.T) {
+	t.Parallel()
 	request, apiErr := decodeModelPriceUpdateRequestForTest(
 		`{"input":"2.5","output":null,"cache_read":"0","cache_write":null,"context_tiers":[],"mode_schedules":{}}`,
 	)
@@ -208,6 +215,7 @@ func TestModelPriceUpdateRequestRequiresFullReplacementSlots(t *testing.T) {
 }
 
 func TestModelPriceUpdateRequestDecodesContextTiers(t *testing.T) {
+	t.Parallel()
 	request, apiErr := decodeModelPriceUpdateRequestForTest(
 		`{"input":"2.5","output":null,"cache_read":"0","cache_write":null,"context_tiers":[` +
 			`{"threshold_tokens":1000,"input":"3","output":null,"cache_read":null,"cache_write":null},` +
@@ -241,6 +249,7 @@ func TestModelPriceUpdateRequestDecodesContextTiers(t *testing.T) {
 }
 
 func TestModelPriceUpdateRequestDecodesModeSchedules(t *testing.T) {
+	t.Parallel()
 	request, apiErr := decodeModelPriceUpdateRequestForTest(
 		`{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],` +
 			`"mode_schedules":{"fast":{"prices":{"input":"7","output":null,"cache_read":null,"cache_write":null},` +
@@ -268,6 +277,7 @@ func TestModelPriceUpdateRequestDecodesModeSchedules(t *testing.T) {
 }
 
 func TestModelPriceUpdateRequestClassifiesTypeAndDecimalErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string

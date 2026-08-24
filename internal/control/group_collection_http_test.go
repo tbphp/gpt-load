@@ -17,6 +17,7 @@ import (
 )
 
 func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
+	t.Parallel()
 	available := GroupCollectionStatusAvailable
 	unavailable := GroupCollectionStatusUnavailable
 	disabled := GroupCollectionStatusDisabled
@@ -162,6 +163,7 @@ func TestParseGroupCollectionQueryAcceptsStrictContract(t *testing.T) {
 }
 
 func TestParseGroupCollectionQueryDefaultsToRecentActivity(t *testing.T) {
+	t.Parallel()
 	got, apiErr := parseGroupCollectionQuery("", false)
 	if apiErr != nil {
 		t.Fatalf("parseGroupCollectionQuery() error = %v", apiErr)
@@ -172,6 +174,7 @@ func TestParseGroupCollectionQueryDefaultsToRecentActivity(t *testing.T) {
 }
 
 func TestParseGroupCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		rawQuery   string
@@ -223,6 +226,7 @@ func TestParseGroupCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 }
 
 func TestGroupCollectionQueryUsesCredentialSortAndRejectsProtocolFilter(t *testing.T) {
+	t.Parallel()
 	got, apiErr := parseGroupCollectionQuery("sort=credentials", false)
 	if apiErr != nil {
 		t.Fatalf("parseGroupCollectionQuery(sort=credentials) error = %v", apiErr)
@@ -258,6 +262,7 @@ func assertGroupCollectionQueryEqual(
 }
 
 func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	createGroupOptionGroup(
@@ -363,6 +368,7 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 }
 
 func TestGroupCollectionHTTPAllowsAvailableKeysInAnUnavailableStatus(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "http-zero-model-completions", true, nil)
@@ -396,6 +402,7 @@ func TestGroupCollectionHTTPAllowsAvailableKeysInAnUnavailableStatus(t *testing.
 }
 
 func TestGroupOptionsHTTPRejectsAnyQueryIncludingBareQuestionMark(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, nil).RegisterRoutes(engine)
@@ -422,6 +429,7 @@ func TestGroupOptionsHTTPRejectsAnyQueryIncludingBareQuestionMark(t *testing.T) 
 }
 
 func TestGroupCollectionHTTPRejectsInvalidQueryBeforeServiceAccess(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -452,6 +460,7 @@ func TestGroupCollectionHTTPRejectsInvalidQueryBeforeServiceAccess(t *testing.T)
 }
 
 func TestGroupCollectionHTTPMapsServiceErrorsThroughStandardEnvelope(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	for _, target := range []string{"/api/groups", "/api/groups/options"} {
 		t.Run(target, func(t *testing.T) {

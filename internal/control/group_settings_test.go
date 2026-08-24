@@ -23,6 +23,7 @@ import (
 )
 
 func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := validControlGroup("settings-read")
 	group.Overrides = models.JSON(`{
@@ -71,6 +72,7 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 }
 
 func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID: channel.OpenAICompatible,
@@ -114,6 +116,7 @@ func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 }
 
 func TestUpdateGroupSettingsOverridesAffinityParticipation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-affinity")
 
@@ -144,6 +147,7 @@ func TestUpdateGroupSettingsOverridesAffinityParticipation(t *testing.T) {
 }
 
 func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID:   channel.OpenAICompatible,
@@ -184,6 +188,7 @@ func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *tes
 }
 
 func TestUpdateGroupTargetResetsCredentialHealthIdentity(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID: channel.OpenAICompatible,
@@ -229,6 +234,7 @@ func TestUpdateGroupTargetResetsCredentialHealthIdentity(t *testing.T) {
 }
 
 func TestUpdateGroupTargetSerializesWithCredentialSecretMutation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID: channel.OpenAICompatible,
@@ -282,6 +288,7 @@ func TestUpdateGroupTargetSerializesWithCredentialSecretMutation(t *testing.T) {
 }
 
 func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChannels(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-validation")
 	beforeRevision := fixture.manager.Current().Revision
@@ -334,6 +341,7 @@ func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChanne
 }
 
 func TestGroupSettingsHTTPRejectsStrictJSONAndUnauthorizedWithoutMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-http")
@@ -362,6 +370,7 @@ func TestGroupSettingsHTTPRejectsStrictJSONAndUnauthorizedWithoutMutation(t *tes
 }
 
 func TestGroupSettingsHTTPNotFoundAndDatabaseFailureDoNotMutate(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-errors")

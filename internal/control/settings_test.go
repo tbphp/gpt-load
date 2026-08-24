@@ -25,6 +25,7 @@ import (
 )
 
 func TestSettingsProxyConfigIsEncryptedMaskedAndResettable(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	const endpoint = "http://proxy-user:proxy-password@proxy.example.com:8080"
 
@@ -77,6 +78,7 @@ func TestSettingsProxyConfigIsEncryptedMaskedAndResettable(t *testing.T) {
 }
 
 func TestSettingsProxyPasswordChangesETagWithoutExposingPassword(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	current, err := fixture.service.GetSettings(t.Context())
 	if err != nil {
@@ -111,6 +113,7 @@ func TestSettingsProxyPasswordChangesETagWithoutExposingPassword(t *testing.T) {
 }
 
 func TestSettingsProxyRejectsInvalidConfigWithoutMutation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	_, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{outboundproxy.SystemSettingKey: json.RawMessage(
@@ -130,6 +133,7 @@ func TestSettingsProxyRejectsInvalidConfigWithoutMutation(t *testing.T) {
 }
 
 func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	got, err := fixture.service.GetSettings(t.Context())
 	if err != nil {
@@ -163,6 +167,7 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 }
 
 func TestUpdateSettingsChangesAndResetsValidationInterval(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{
@@ -192,6 +197,7 @@ func TestUpdateSettingsChangesAndResetsValidationInterval(t *testing.T) {
 }
 
 func TestUpdateSettingsChangesAndResetsAffinityDefaults(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{
@@ -230,6 +236,7 @@ func TestUpdateSettingsChangesAndResetsAffinityDefaults(t *testing.T) {
 }
 
 func TestModelsDevEnvironmentOverrideWinsAndIsReadOnlyWithoutPersistence(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	disabled := false
 	fixture.service.modelsDevAutoSyncOverride = &disabled
@@ -262,6 +269,7 @@ func TestModelsDevEnvironmentOverrideWinsAndIsReadOnlyWithoutPersistence(t *test
 }
 
 func TestUpdateSettingsInjectUsageOptionsBooleanAndNullReset(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{state.SettingInjectUsageOptions: json.RawMessage("false")},
@@ -281,6 +289,7 @@ func TestUpdateSettingsInjectUsageOptionsBooleanAndNullReset(t *testing.T) {
 }
 
 func TestUpdateSettingsEnablingModelsDevRequestsImmediateSyncOnce(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{
@@ -325,6 +334,7 @@ func TestUpdateSettingsEnablingModelsDevRequestsImmediateSyncOnce(t *testing.T) 
 }
 
 func TestUpdateSettingsIfMatchEnablingModelsDevRequestsImmediateSync(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{
@@ -366,6 +376,7 @@ func TestUpdateSettingsIfMatchEnablingModelsDevRequestsImmediateSync(t *testing.
 }
 
 func TestUpdateSettingsRejectsNonBooleanInjectUsageWithoutMutation(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []json.RawMessage{json.RawMessage("0"), json.RawMessage("1"), json.RawMessage(`"true"`), json.RawMessage("[]"), json.RawMessage("{}")} {
 		fixture := newServiceFixture(t)
 		before := fixture.manager.Current().Revision
@@ -383,6 +394,7 @@ func TestUpdateSettingsRejectsNonBooleanInjectUsageWithoutMutation(t *testing.T)
 }
 
 func TestGetSettingsFiltersAndSortsPublicRuntimeOverrides(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	_, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{
@@ -422,6 +434,7 @@ func TestGetSettingsFiltersAndSortsPublicRuntimeOverrides(t *testing.T) {
 }
 
 func TestGetSettingsRejectsMissingSnapshot(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.manager = state.NewManager()
 
@@ -432,6 +445,7 @@ func TestGetSettingsRejectsMissingSnapshot(t *testing.T) {
 }
 
 func TestGetSettingsWaitsForConfigurationWriteLock(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.writeMu.Lock()
 	locked := true
@@ -472,6 +486,7 @@ func TestGetSettingsWaitsForConfigurationWriteLock(t *testing.T) {
 }
 
 func TestUpdateSettingsPersistsPublishesAndResetsOverrides(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	got, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
@@ -517,6 +532,7 @@ func TestUpdateSettingsPersistsPublishesAndResetsOverrides(t *testing.T) {
 }
 
 func TestUpdateSettingsCanonicalizesValuesAndReturnsEffectiveHeaderRules(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.now = func() time.Time {
 		return time.Date(2026, time.July, 24, 12, 30, 0, 0, time.FixedZone("offset", 8*60*60))
@@ -557,6 +573,7 @@ func TestUpdateSettingsCanonicalizesValuesAndReturnsEffectiveHeaderRules(t *test
 }
 
 func TestUpdateSettingsRejectsSDKOwnedCredentialHeaders(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	const (
 		authKey       = "settings-template-test-auth"
@@ -603,6 +620,7 @@ func TestUpdateSettingsRejectsSDKOwnedCredentialHeaders(t *testing.T) {
 }
 
 func TestUpdateSettingsRejectsInvalidChangesWithoutPublishing(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		updates map[string]json.RawMessage
@@ -642,6 +660,7 @@ func TestUpdateSettingsRejectsInvalidChangesWithoutPublishing(t *testing.T) {
 }
 
 func TestUpdateSettingsRollsBackAllRowsWithoutPublishing(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	if err := fixture.db.Exec(`
 		CREATE TRIGGER reject_request_timeout
@@ -680,6 +699,7 @@ func TestUpdateSettingsRollsBackAllRowsWithoutPublishing(t *testing.T) {
 }
 
 func TestSettingsUpdateRequestRejectsDuplicateUnknownAndWrongShapeJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		body string
@@ -709,6 +729,7 @@ func TestSettingsUpdateRequestRejectsDuplicateUnknownAndWrongShapeJSON(t *testin
 }
 
 func TestSettingsUpdateRequestPreservesRawNullAndNumbers(t *testing.T) {
+	t.Parallel()
 	var request SettingsUpdateRequest
 	if err := json.Unmarshal([]byte(
 		`{"settings":{"request_timeout":9e2,"header_rules":null}}`,
@@ -723,6 +744,7 @@ func TestSettingsUpdateRequestPreservesRawNullAndNumbers(t *testing.T) {
 }
 
 func TestRejectDuplicateJSONFieldsWalksArraysScalarsAndTrailingValues(t *testing.T) {
+	t.Parallel()
 	for _, valid := range []string{
 		`1`,
 		`[true,null,"value",{"one":[{"two":2}]}]`,
@@ -744,6 +766,7 @@ func TestRejectDuplicateJSONFieldsWalksArraysScalarsAndTrailingValues(t *testing
 }
 
 func TestConcurrentSettingsUpdatesPublishDatabaseTruth(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	updates := []SettingsUpdateRequest{

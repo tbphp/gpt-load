@@ -19,6 +19,7 @@ import (
 )
 
 func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {
@@ -64,6 +65,7 @@ func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 }
 
 func TestMapGroupModelsResponseTreatsContextTierOnlyPriceAsConfigured(t *testing.T) {
+	t.Parallel()
 	result, err := mapGroupModelsResponse(
 		string(channel.OpenAI),
 		[]GroupModel{{ID: "tiered-model"}},
@@ -90,6 +92,7 @@ func TestMapGroupModelsResponseTreatsContextTierOnlyPriceAsConfigured(t *testing
 }
 
 func TestNormalizeGroupModelsAppliesAliasSwitchAndReportsStableConflicts(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		values        []GroupModel
@@ -185,6 +188,7 @@ func TestNormalizeGroupModelsAppliesAliasSwitchAndReportsStableConflicts(t *test
 }
 
 func TestNormalizeGroupModelsRejectsDuplicateExternalNames(t *testing.T) {
+	t.Parallel()
 	for _, values := range [][]GroupModel{
 		{{ID: "provider-a", Alias: "public", AliasEnabled: true}, {ID: "provider-b", Alias: "public", AliasEnabled: true}},
 		{{ID: "public"}, {ID: "provider-b", Alias: "public", AliasEnabled: true}},
@@ -198,6 +202,7 @@ func TestNormalizeGroupModelsRejectsDuplicateExternalNames(t *testing.T) {
 }
 
 func TestUpdateGroupModelsRequiresNonNullModelsField(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-required-models")
 	for _, request := range []GroupModelsUpdateRequest{
@@ -217,6 +222,7 @@ func TestUpdateGroupModelsRequiresNonNullModelsField(t *testing.T) {
 }
 
 func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -356,6 +362,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 }
 
 func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -392,6 +399,7 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 }
 
 func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-no-discovery")
@@ -443,6 +451,7 @@ func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testin
 }
 
 func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
+	t.Parallel()
 	t.Run("external collision", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		groupID := createGroupForCredentialImport(t, fixture, "sk-invalid-models")

@@ -20,6 +20,7 @@ import (
 )
 
 func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	nowMS := now.UnixMilli()
@@ -177,6 +178,7 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 }
 
 func TestHomeInventoryWireUsesCredentialTerms(t *testing.T) {
+	t.Parallel()
 	encoded, err := json.Marshal(HomeInventory{
 		GroupCount: 1, CredentialCount: 2, AvailableCredentialCount: 1, ModelCount: 3,
 	})
@@ -197,6 +199,7 @@ func TestHomeInventoryWireUsesCredentialTerms(t *testing.T) {
 }
 
 func TestReadAccessKeyHomeBaseScopesInventoryToRoutableModels(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	allowed := createPriceTestGroup(t, fixture.db, models.Group{
 		Name: "allowed", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
@@ -239,6 +242,7 @@ func TestReadAccessKeyHomeBaseScopesInventoryToRoutableModels(t *testing.T) {
 }
 
 func TestReadHomeBaseFailsClosed(t *testing.T) {
+	t.Parallel()
 	t.Run("invalid time", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		for _, nowMS := range []int64{-1, maxSafeInteger + 1} {
@@ -290,6 +294,7 @@ func TestReadHomeBaseFailsClosed(t *testing.T) {
 }
 
 func TestReadHomeBaseKeepsDatabaseRowsInOneReadSnapshot(t *testing.T) {
+	t.Parallel()
 	fixture, dsn := newFileServiceFixture(t)
 	group := validControlGroup("home-snapshot")
 	if err := fixture.db.Create(group).Error; err != nil {

@@ -84,6 +84,7 @@ func routeModelValue(value *string) string {
 }
 
 func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -205,6 +206,7 @@ func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
 }
 
 func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
@@ -258,6 +260,7 @@ func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
 }
 
 func TestRouteInspectRejectsLegacyDerivedFields(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -324,6 +327,7 @@ func TestRouteInspectStandardRequestIncludesNativeAndConvertedTargets(t *testing
 }
 
 func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	now := healthNow()
@@ -450,6 +454,7 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 }
 
 func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	tests := []struct {
 		name        string
@@ -557,6 +562,7 @@ func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
 }
 
 func TestRouteInspectEndpointReturnsNoRouteTargetExplanation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	now := healthNow()
@@ -593,6 +599,7 @@ func TestRouteInspectEndpointReturnsNoRouteTargetExplanation(t *testing.T) {
 }
 
 func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	now := healthNow()
@@ -710,6 +717,7 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 }
 
 func TestRouteInspectReturnsDisabledAccessKeyAsExplanation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
@@ -746,6 +754,7 @@ func TestRouteInspectReturnsDisabledAccessKeyAsExplanation(t *testing.T) {
 }
 
 func TestRouteInspectMissingAccessKeyReturnsNotFound(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	_, err := fixture.service.InspectRoute(routeInspectRequest{
@@ -793,6 +802,7 @@ func (spy *routeInspectEncryptionSpy) Hash(string) string {
 }
 
 func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {
+	t.Parallel()
 	var upstreamCalls atomic.Int64
 	fixture := newServiceFixture(t)
 	encryptionSpy := &routeInspectEncryptionSpy{}
@@ -861,6 +871,7 @@ func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {
 }
 
 func TestRouteInspectEndpointRequiresManagementAuthentication(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	beforeSnapshot := fixture.manager.Current()
@@ -882,6 +893,7 @@ func TestRouteInspectEndpointRequiresManagementAuthentication(t *testing.T) {
 }
 
 func TestRouteInspectCatalogMismatchReturnsInternalServerError(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{

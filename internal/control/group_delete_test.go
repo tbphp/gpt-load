@@ -23,6 +23,7 @@ import (
 )
 
 func TestDeleteGroupRejectsActiveAndDisabledExplicitAccessKeyReferences(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-in-use")
 	other := validControlGroup("other-reference")
@@ -88,6 +89,7 @@ func TestDeleteGroupRejectsActiveAndDisabledExplicitAccessKeyReferences(t *testi
 }
 
 func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	runtime := &recordingCredentialRuntimeExecutor{}
 	fixture.service.executor = runtime
@@ -128,6 +130,7 @@ func TestDeleteGroupCommitsCascadeThenRemovesRegistryThenPublishes(t *testing.T)
 }
 
 func TestDeleteGroupSerializesWithCredentialSecretMutation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-delete-serialized")
 	var credential models.Credential
@@ -169,6 +172,7 @@ func TestDeleteGroupSerializesWithCredentialSecretMutation(t *testing.T) {
 }
 
 func TestDeleteGroupCompileFailurePreservesDatabaseRegistryAndSnapshot(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-delete-rollback")
 	corrupt := validControlGroup("delete-corrupt-other")
@@ -203,6 +207,7 @@ func TestDeleteGroupCompileFailurePreservesDatabaseRegistryAndSnapshot(t *testin
 }
 
 func TestDeleteGroupCommitFailurePreservesDatabaseRegistryAndSnapshot(t *testing.T) {
+	t.Parallel()
 	fixture, dsn := newFileServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-delete-commit-busy")
 	var row models.Credential
@@ -242,6 +247,7 @@ func TestDeleteGroupCommitFailurePreservesDatabaseRegistryAndSnapshot(t *testing
 }
 
 func TestDeleteGroupCorruptAccessKeyFiltersPreservesDatabaseRegistryAndSnapshot(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-delete-corrupt-filter")
 	corrupt := models.AccessKey{
@@ -276,6 +282,7 @@ func TestDeleteGroupCorruptAccessKeyFiltersPreservesDatabaseRegistryAndSnapshot(
 }
 
 func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-delete-target-state")
 	var key models.Credential
@@ -321,6 +328,7 @@ func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *test
 }
 
 func TestDeleteGroupEndpointAuthenticationValidationNotFoundConflictAndSuccess(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "sk-delete-http")

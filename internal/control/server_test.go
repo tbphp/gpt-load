@@ -30,6 +30,7 @@ import (
 )
 
 func TestServerHomeAndSystemUpdateRoutesUseExactManagementContracts(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	module := NewServer(
 		&config.Config{AuthKey: "test-auth-key"},
@@ -74,6 +75,7 @@ func TestServerHomeAndSystemUpdateRoutesUseExactManagementContracts(t *testing.T
 }
 
 func TestGroupCollectionHTTPRoutesDeclareStaticOptionsBeforeDynamicDetail(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	module := NewServer(
 		&config.Config{AuthKey: authTestKey},
@@ -107,6 +109,7 @@ func TestGroupCollectionHTTPRoutesDeclareStaticOptionsBeforeDynamicDetail(t *tes
 }
 
 func TestSystemInfoHTTPContract(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	cfg := &config.Config{
@@ -207,6 +210,7 @@ func TestSystemInfoHTTPContract(t *testing.T) {
 }
 
 func TestControlJSONBodyLimitBoundary(t *testing.T) {
+	t.Parallel()
 	if maxControlJSONBodyBytes != 32<<20 {
 		t.Fatalf("maxControlJSONBodyBytes = %d, want %d", maxControlJSONBodyBytes, 32<<20)
 	}
@@ -256,6 +260,7 @@ func TestControlJSONBodyLimitBoundary(t *testing.T) {
 }
 
 func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 
 	for _, endpoint := range []struct {
@@ -476,6 +481,7 @@ func assertControlJSONBodyLimitStateUnchanged(
 }
 
 func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 
 	for _, endpoint := range []struct {
@@ -618,6 +624,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 }
 
 func TestControlJSONBodyLimitContentLengthFastPathPreservesAuthenticationPriority(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -661,6 +668,7 @@ func TestControlJSONBodyLimitContentLengthFastPathPreservesAuthenticationPriorit
 }
 
 func TestControlJSONBodyLimitLocalizes413(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -704,6 +712,7 @@ func TestControlJSONBodyLimitLocalizes413(t *testing.T) {
 }
 
 func TestManagementAuthRequiresConstantShapeBearerToken(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -746,6 +755,7 @@ func TestManagementAuthRequiresConstantShapeBearerToken(t *testing.T) {
 }
 
 func TestManagementAuthLocalizesUnauthorized(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -769,6 +779,7 @@ func TestManagementAuthLocalizesUnauthorized(t *testing.T) {
 }
 
 func TestManagementAuthDoesNotLogSecretOrDigest(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	initControlI18n(t)
 	const authKey = "distinctive-control-auth-key"
 	fixture := newServiceFixture(t)
@@ -794,6 +805,7 @@ func TestManagementAuthDoesNotLogSecretOrDigest(t *testing.T) {
 }
 
 func TestGroupCreateHTTPReturnsNarrowSuccessAndConflictEnvelopes(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -868,6 +880,7 @@ func TestGroupCreateHTTPReturnsNarrowSuccessAndConflictEnvelopes(t *testing.T) {
 }
 
 func TestGroupCreateHTTPRejectsLegacyMissingAndMalformedContractsWithoutMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	tests := []struct {
 		name string
@@ -932,6 +945,7 @@ func TestGroupCreateHTTPRejectsLegacyMissingAndMalformedContractsWithoutMutation
 }
 
 func TestImportGroupCredentialsEndpointReturnsSuccessEnvelope(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-existing")
@@ -983,6 +997,7 @@ func TestImportGroupCredentialsEndpointReturnsSuccessEnvelope(t *testing.T) {
 }
 
 func TestImportGroupCredentialsEndpointRejectsUnknownFieldsAndInvalidGroupID(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-existing")
@@ -1022,6 +1037,7 @@ func TestImportGroupCredentialsEndpointRejectsUnknownFieldsAndInvalidGroupID(t *
 }
 
 func TestImportGroupCredentialsEndpointReturnsGroupNotFound(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -1080,6 +1096,7 @@ func assertImportedCredentialState(t *testing.T, fixture serviceFixture, groupID
 }
 
 func TestLegacyImportRouteIsNotRegistered(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
@@ -1092,6 +1109,7 @@ func TestLegacyImportRouteIsNotRegistered(t *testing.T) {
 }
 
 func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 
 	t.Run("group create rejects unknown top-level field", func(t *testing.T) {
@@ -1183,6 +1201,7 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 }
 
 func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-update-http")
@@ -1232,6 +1251,7 @@ func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 }
 
 func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-update-null")
@@ -1283,6 +1303,7 @@ func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testin
 }
 
 func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -1384,6 +1405,7 @@ func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *tes
 }
 
 func TestUpdateGroupSettingsEndpointRejectsOversizedJSON(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-update-limit")
@@ -1408,6 +1430,7 @@ func TestUpdateGroupSettingsEndpointRejectsOversizedJSON(t *testing.T) {
 }
 
 func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -1470,6 +1493,7 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 }
 
 func TestGroupModelsHTTPReturnsStructuredConflictWithoutMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-model-conflict-http")
@@ -1507,6 +1531,7 @@ func TestGroupModelsHTTPReturnsStructuredConflictWithoutMutation(t *testing.T) {
 }
 
 func TestGroupModelsHTTPRejectsMissingAliasEnabledWithoutMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
@@ -1537,6 +1562,7 @@ func TestGroupModelsHTTPRejectsMissingAliasEnabledWithoutMutation(t *testing.T) 
 }
 
 func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
@@ -1682,6 +1708,7 @@ func assertUpdateGroupErrorResponse(
 }
 
 func TestUpdateAccessKeyRoutesParseIDsAndPreservePointerSemantics(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
@@ -1750,6 +1777,7 @@ func TestUpdateAccessKeyRoutesParseIDsAndPreservePointerSemantics(t *testing.T) 
 }
 
 func TestModelDiscoveryHTTPContract(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	const authKey = "test-auth-key"
 
@@ -1967,6 +1995,7 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 }
 
 func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	initControlI18n(t)
 	const (
 		authSecret = "distinctive-auth-secret"
@@ -2012,6 +2041,7 @@ func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 }
 
 func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	const authKey = "test-auth-key"
 
@@ -2202,6 +2232,7 @@ func serveDiscoveryRequestWithLanguage(
 }
 
 func TestSettingsHTTPContract(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -2281,6 +2312,7 @@ func TestSettingsHTTPContract(t *testing.T) {
 }
 
 func TestSettingsHTTPStableSuccessEnvelopeUpdateAndReset(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -2306,6 +2338,7 @@ func TestSettingsHTTPStableSuccessEnvelopeUpdateAndReset(t *testing.T) {
 }
 
 func TestSettingsHTTPBodyLimitRejectsBeforeMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -2341,6 +2374,7 @@ func TestSettingsHTTPBodyLimitRejectsBeforeMutation(t *testing.T) {
 }
 
 func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	initControlI18n(t)
 	const (
 		authKey          = "settings-auth-key"

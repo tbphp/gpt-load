@@ -16,6 +16,7 @@ import (
 // retained-rule two-phase period move obeys the real MySQL/PostgreSQL unique
 // index while preserving IDs and resetting each changed revision.
 func TestExternalDatabaseAccessKeyCostLimitPeriodPermutation(t *testing.T) {
+	// 不标记 t.Parallel()：依赖 GPT_LOAD_DATABASE_TEST_DSN 的共享外部数据库，并发执行有唯一索引冲突等正确性风险。
 	dsn := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
 	if dsn == "" {
 		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
@@ -33,6 +34,7 @@ func TestExternalDatabaseAccessKeyCostLimitPeriodPermutation(t *testing.T) {
 // global model price, and removing the final reference cleans only the
 // automatic row.
 func TestExternalDatabaseGroupPriceReconciliation(t *testing.T) {
+	// 不标记 t.Parallel()：依赖 GPT_LOAD_DATABASE_TEST_DSN 的共享外部数据库，并发执行有唯一索引冲突等正确性风险。
 	dsn := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
 	if dsn == "" {
 		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")

@@ -8,6 +8,7 @@ import (
 )
 
 func TestAccessKeyCostLimitRuntimeProjectionIsSharedByCollectionHomeAndHealth(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 		Name: "limited",

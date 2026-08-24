@@ -13,6 +13,7 @@ import (
 )
 
 func TestOperationRequiredStagesAreKindSpecificAndDetached(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		kind operationKind
 		want []operationStage
@@ -70,6 +71,7 @@ func TestOperationRequiredStagesAreKindSpecificAndDetached(t *testing.T) {
 }
 
 func TestValidateIdempotencyKeyRequiresCanonicalLowercaseUUIDV4(t *testing.T) {
+	t.Parallel()
 	const valid = "018f47a2-9c35-4d6e-8b1a-1234567890ab"
 	if err := validateIdempotencyKey(valid); err != nil {
 		t.Fatalf("validateIdempotencyKey(valid) error = %v", err)
@@ -91,6 +93,7 @@ func TestValidateIdempotencyKeyRequiresCanonicalLowercaseUUIDV4(t *testing.T) {
 }
 
 func TestNewOperationIDUsesCanonicalUUIDV4WithoutSharingCredentialRandom(t *testing.T) {
+	t.Parallel()
 	random := bytes.NewReader([]byte{
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 		0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -108,6 +111,7 @@ func TestNewOperationIDUsesCanonicalUUIDV4WithoutSharingCredentialRandom(t *test
 }
 
 func TestExecuteIdempotentOperationCommitsResultAndReplaysWithoutMutation(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x42}, 16))
 	const key = "018f47a2-9c35-4d6e-8b1a-1234567890ab"
@@ -177,6 +181,7 @@ func TestExecuteIdempotentOperationCommitsResultAndReplaysWithoutMutation(t *tes
 }
 
 func TestExecuteIdempotentOperationRejectsKeyReuseWithDifferentDigest(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x24}, 16))
 	const key = "018f47a2-9c35-4d6e-8b1a-1234567890ab"

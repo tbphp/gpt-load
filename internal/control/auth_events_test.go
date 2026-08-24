@@ -19,6 +19,7 @@ import (
 func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	t *testing.T,
 ) {
+	t.Parallel()
 	initControlI18n(t)
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	var logs bytes.Buffer
@@ -144,6 +145,7 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 }
 
 func TestAuthenticateLockRequestCanEmitBothEventsWhenGateOpens(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	var logs bytes.Buffer
@@ -208,6 +210,7 @@ func TestAuthenticateLockRequestCanEmitBothEventsWhenGateOpens(t *testing.T) {
 }
 
 func TestAuthenticateValidCredentialAddsNormalizedPeerToContext(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	server := NewServer(&config.Config{AuthKey: authTestKey}, nil)
 	engine := gin.New()
@@ -240,6 +243,7 @@ func TestAuthenticateValidCredentialAddsNormalizedPeerToContext(t *testing.T) {
 }
 
 func TestAuthenticateMalformedPeerDoesNotEmitSecurityEvent(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	const rawPeer = "malformed:peer:raw-secret"
 	var logs bytes.Buffer
@@ -274,6 +278,7 @@ func (controlPanicLogHook) Fire(*logrus.Entry) error {
 }
 
 func TestAuthenticateLoggerPanicDoesNotChangeResponses(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	server, engine := newAuthProbeServer(t)
 	server.logger = logrus.New()

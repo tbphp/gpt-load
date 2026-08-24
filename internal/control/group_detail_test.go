@@ -17,6 +17,7 @@ import (
 )
 
 func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	available := createGroupCollectionGroup(t, fixture, "summary-available", true, nil)
 	unavailable := createGroupCollectionGroup(t, fixture, "summary-unavailable", true, nil)
@@ -102,6 +103,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 }
 
 func TestGroupDetailStatusRequiresAHealthyKeyAndRouteCapability(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "detail-zero-model-completions", true, nil)
 	setGroupCollectionChannel(t, fixture, group, channel.Anthropic, models.JSON(`{}`))
@@ -120,6 +122,7 @@ func TestGroupDetailStatusRequiresAHealthyKeyAndRouteCapability(t *testing.T) {
 }
 
 func TestGetGroupHTTPContractAndAuthentication(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	group := validControlGroup("detail-http")

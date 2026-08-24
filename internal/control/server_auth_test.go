@@ -23,6 +23,7 @@ import (
 const authTestKey = "test-auth-key"
 
 func TestAuthenticateFailsClosedForInvalidPeerWithoutComparison(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	for _, remote := range []string{
 		"",
@@ -63,6 +64,7 @@ func TestAuthenticateFailsClosedForInvalidPeerWithoutComparison(t *testing.T) {
 }
 
 func TestAuthenticateLockedRequestsIgnoreForwardingHeaders(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	_, engine := newAuthProbeServer(t)
 	const peer = "192.0.2.10:1234"
@@ -87,6 +89,7 @@ func TestAuthenticateLockedRequestsIgnoreForwardingHeaders(t *testing.T) {
 }
 
 func TestAuthenticateSeparatesDifferentRemotePeers(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	_, engine := newAuthProbeServer(t)
 
@@ -110,6 +113,7 @@ func TestAuthenticateSeparatesDifferentRemotePeers(t *testing.T) {
 }
 
 func TestAuthenticateComparesEveryUnlockedCredentialShapeOnce(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	server, engine := newAuthProbeServer(t)
 
@@ -146,6 +150,7 @@ func TestAuthenticateComparesEveryUnlockedCredentialShapeOnce(t *testing.T) {
 }
 
 func TestAuthenticateComparesEveryLockedAuthorizationShapeOnce(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	for index, test := range []struct {
 		name          string
@@ -202,6 +207,7 @@ func TestAuthenticateComparesEveryLockedAuthorizationShapeOnce(t *testing.T) {
 }
 
 func TestAuthenticateLockedCorrectKeyClearsPeerAndNextFailureReturns401(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	_, engine := newAuthProbeServer(t)
 	const peer = "192.0.2.30:1234"
@@ -212,6 +218,7 @@ func TestAuthenticateLockedCorrectKeyClearsPeerAndNextFailureReturns401(t *testi
 }
 
 func TestAuthenticateLockedWrongTokensPreserve429ShapeAndRetryAfter(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	server, engine := newAuthProbeServer(t)
 	server.authFailures.now = func() time.Time {
@@ -255,6 +262,7 @@ func TestAuthenticateLockedWrongTokensPreserve429ShapeAndRetryAfter(t *testing.T
 }
 
 func TestAuthenticateSuccessBeforeThresholdClearsPeerFailures(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	_, engine := newAuthProbeServer(t)
 	const peer = "192.0.2.21:1234"
@@ -270,6 +278,7 @@ func TestAuthenticateSuccessBeforeThresholdClearsPeerFailures(t *testing.T) {
 }
 
 func TestAuthenticateLockExpiresAfterThirtyMinutes(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	server, engine := newAuthProbeServer(t)
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
@@ -284,6 +293,7 @@ func TestAuthenticateLockExpiresAfterThirtyMinutes(t *testing.T) {
 }
 
 func TestAuthenticateRetryAfterMatchesResponseData(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	_, engine := newAuthProbeServer(t)
 	const peer = "192.0.2.23:1234"
@@ -314,6 +324,7 @@ func TestAuthenticateRetryAfterMatchesResponseData(t *testing.T) {
 }
 
 func TestAuthenticateMessagesAreLocalized(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	for index, test := range []struct {
 		language     string
@@ -365,6 +376,7 @@ func TestAuthenticateMessagesAreLocalized(t *testing.T) {
 }
 
 func TestAuthSessionEndpointReturnsAuthenticatedWithoutDatabaseAccess(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, nil).RegisterRoutes(engine)
@@ -400,6 +412,7 @@ func TestAuthSessionEndpointReturnsAuthenticatedWithoutDatabaseAccess(t *testing
 }
 
 func TestAuthSessionEndpointAcceptsActiveAccessKeyAndRejectsAdminRoutes(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
@@ -508,6 +521,7 @@ func TestAuthSessionEndpointAcceptsActiveAccessKeyAndRejectsAdminRoutes(t *testi
 }
 
 func TestAccessKeyAuthenticationDoesNotClearPeerFailuresOrLock(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
@@ -553,6 +567,7 @@ func TestAccessKeyAuthenticationDoesNotClearPeerFailuresOrLock(t *testing.T) {
 }
 
 func TestAuthSessionEndpointRejectsDisabledAccessKey(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	status := state.AccessKeyStatusDisabled
@@ -579,6 +594,7 @@ func TestAuthSessionEndpointRejectsDisabledAccessKey(t *testing.T) {
 }
 
 func TestAuthSessionEndpointRejectsCredentialMatchingAdminAndAccessKey(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
@@ -603,6 +619,7 @@ func TestAuthSessionEndpointRejectsCredentialMatchingAdminAndAccessKey(t *testin
 }
 
 func TestAuthSessionEndpointRequiresAuthentication(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, nil).RegisterRoutes(engine)
@@ -615,6 +632,7 @@ func TestAuthSessionEndpointRequiresAuthentication(t *testing.T) {
 }
 
 func TestCollectionEndpointsRequireBearerAuthentication(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, nil).RegisterRoutes(engine)
@@ -657,6 +675,7 @@ func TestCollectionEndpointsRequireBearerAuthentication(t *testing.T) {
 }
 
 func TestAuthSessionEndpointUsesLimiter(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, nil).RegisterRoutes(engine)

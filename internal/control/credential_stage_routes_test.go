@@ -27,6 +27,7 @@ import (
 )
 
 func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
@@ -81,6 +82,7 @@ func TestCredentialStageRoutesRequireAuthAndNeverReturnSecrets(t *testing.T) {
 }
 
 func TestCredentialStageRoutesUseExistingGroupProxy(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
@@ -171,6 +173,7 @@ func TestCredentialStageRoutesUseExistingGroupProxy(t *testing.T) {
 }
 
 func TestDeviceAuthorizationRouteReturnsSafeChallengeAndPollsByPOST(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	now := fixture.service.now().UTC()
@@ -225,6 +228,7 @@ func TestDeviceAuthorizationRouteReturnsSafeChallengeAndPollsByPOST(t *testing.T
 }
 
 func TestBeginCredentialAuthorizationAllowsManualCallbackWhenListenerIsUnavailable(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.oauthCallback.listen = func(string, string) (net.Listener, error) {
@@ -244,6 +248,7 @@ func TestBeginCredentialAuthorizationAllowsManualCallbackWhenListenerIsUnavailab
 }
 
 func TestBeginCredentialAuthorizationStartsOnlyTheCallbackRequestedByTheDriver(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	originalBegin := fixture.service.beginSubscriptionAuthorization
@@ -275,6 +280,7 @@ func TestBeginCredentialAuthorizationStartsOnlyTheCallbackRequestedByTheDriver(t
 }
 
 func TestManualOAuthCallbackCompletesOnlyItsBoundStageOnce(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
@@ -319,6 +325,7 @@ func TestManualOAuthCallbackCompletesOnlyItsBoundStageOnce(t *testing.T) {
 }
 
 func TestParseManualOAuthCallbackURLRequiresFixedLocalCallback(t *testing.T) {
+	t.Parallel()
 	valid := "http://localhost:1455/auth/callback?code=authorization-code&state=state-one"
 	parsed, err := parseManualOAuthCallbackURL(valid, subscriptionruntime.LocalCallbackSpec{
 		RedirectURI: "http://localhost:1455/auth/callback",
@@ -344,6 +351,7 @@ func TestParseManualOAuthCallbackURLRequiresFixedLocalCallback(t *testing.T) {
 }
 
 func TestParseManualOAuthCallbackURLUsesDriverCallback(t *testing.T) {
+	t.Parallel()
 	claudeCallback := subscriptionruntime.LocalCallbackSpec{
 		RedirectURI: "http://localhost:54545/callback",
 	}
@@ -363,6 +371,7 @@ func TestParseManualOAuthCallbackURLUsesDriverCallback(t *testing.T) {
 }
 
 func TestOAuthCallbackServerStartsIndependentDriverEndpoints(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
 	callbacks := []subscriptionruntime.LocalCallbackSpec{
@@ -410,6 +419,7 @@ func postManualOAuthCallback(engine *gin.Engine, stageID string, callbackURL str
 }
 
 func TestOAuthFileImportRouteStreamsOneFileIntoReadyStage(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -448,6 +458,7 @@ func TestOAuthFileImportRouteStreamsOneFileIntoReadyStage(t *testing.T) {
 }
 
 func TestOAuthFileImportRouteRequiresChannelID(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -474,6 +485,7 @@ func TestOAuthFileImportRouteRequiresChannelID(t *testing.T) {
 }
 
 func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
 	if err != nil {
@@ -515,6 +527,7 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 }
 
 func TestOAuthCallbackServerRejectsStateFromAnotherDriverEndpoint(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
@@ -553,6 +566,7 @@ func TestOAuthCallbackServerRejectsStateFromAnotherDriverEndpoint(t *testing.T) 
 }
 
 func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), "codex")
 	if err != nil {
@@ -593,6 +607,7 @@ func TestOAuthCallbackServerMarksDeniedAuthorizationFailed(t *testing.T) {
 }
 
 func TestOAuthCallbackExchangeFailureDoesNotOfferConsumedCallbackRetry(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
@@ -659,6 +674,7 @@ func useEphemeralOAuthCallbackListeners(manager *OAuthCallbackManager) {
 }
 
 func TestNewServerConfiguresOAuthCallbackForWildcardContainerHost(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	NewServer(&config.Config{AuthKey: "test-auth-key", Server: config.ServerConfig{Host: "0.0.0.0"}}, fixture.service)
 	if got := fixture.service.oauthCallback.host; got != "0.0.0.0" {
@@ -667,6 +683,7 @@ func TestNewServerConfiguresOAuthCallbackForWildcardContainerHost(t *testing.T) 
 }
 
 func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
@@ -705,6 +722,7 @@ func TestCredentialObservationRoutesReadCacheAndRefreshExplicitly(t *testing.T) 
 }
 
 func TestCredentialResetCreditRouteRequiresIdempotencyAndReplays(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	consumeCalls := 0

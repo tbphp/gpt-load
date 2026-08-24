@@ -195,6 +195,7 @@ func (recovery *controlledOperationRecovery) RunOperationRecovery(ctx context.Co
 }
 
 func TestRuntimeRunsOperationRecoveryUntilCancellation(t *testing.T) {
+	t.Parallel()
 	recovery := &controlledOperationRecovery{
 		started:  make(chan struct{}),
 		returned: make(chan struct{}),
@@ -216,6 +217,7 @@ func TestRuntimeRunsOperationRecoveryUntilCancellation(t *testing.T) {
 }
 
 func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	clock := &fakeRuntimeClock{now: base}
 	cleaner := newControlledRequestLogCleaner(false)
@@ -287,6 +289,7 @@ func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T
 }
 
 func TestRuntimeSweepsCredentialStagesWithoutRequestLogCleaner(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, time.August, 13, 8, 0, 0, 0, time.UTC)
 	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
@@ -322,6 +325,7 @@ func TestRuntimeSweepsCredentialStagesWithoutRequestLogCleaner(t *testing.T) {
 }
 
 func TestRuntimeCancellationWaitsForRetentionSweep(t *testing.T) {
+	t.Parallel()
 	cleaner := newControlledRequestLogCleaner(true)
 	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
@@ -371,6 +375,7 @@ func TestRuntimeCancellationWaitsForRetentionSweep(t *testing.T) {
 }
 
 func TestRuntimeCreatesAutoWeightAndJitteredValidationTickers(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(1)
 	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
@@ -391,6 +396,7 @@ func TestRuntimeCreatesAutoWeightAndJitteredValidationTickers(t *testing.T) {
 }
 
 func TestRuntimeValidationJitterDoesNotOverflow(t *testing.T) {
+	t.Parallel()
 	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
 	created := make(chan time.Duration, 2)
@@ -426,6 +432,7 @@ func TestRuntimeValidationJitterDoesNotOverflow(t *testing.T) {
 }
 
 func TestRuntimeReschedulesValidationWhenPublishedIntervalChanges(t *testing.T) {
+	t.Parallel()
 	manager := state.NewManager()
 	if _, err := manager.Publish(state.CompileInput{}); err != nil {
 		t.Fatal(err)
@@ -482,6 +489,7 @@ func TestRuntimeReschedulesValidationWhenPublishedIntervalChanges(t *testing.T) 
 }
 
 func TestRuntimeWaitsForTickBeforeRecompute(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(1)
 	runtime, autoTicker, _, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
 
@@ -495,6 +503,7 @@ func TestRuntimeWaitsForTickBeforeRecompute(t *testing.T) {
 }
 
 func TestRuntimeRecomputesEveryActiveKey(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(3, 7, 9)
 	runtime, autoTicker, _, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
 
@@ -520,6 +529,7 @@ func TestRuntimeRecomputesEveryActiveKey(t *testing.T) {
 }
 
 func TestRuntimeResetsExpiredStatsToDefaultWeight(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	stats := health.NewStatsStore()
 	for sample := 0; sample < 10; sample++ {
@@ -545,6 +555,7 @@ func TestRuntimeResetsExpiredStatsToDefaultWeight(t *testing.T) {
 }
 
 func TestRuntimeContinuesWhenKeyDisappears(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(1, 2, 3)
 	registry.reject[2] = true
 	runtime, autoTicker, _, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
@@ -561,6 +572,7 @@ func TestRuntimeContinuesWhenKeyDisappears(t *testing.T) {
 }
 
 func TestRuntimeCooldownProblemDoesNotAffectAutoWeightSeenByCandidateCollection(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	registry := state.NewCredentialRegistry()
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
@@ -585,6 +597,7 @@ func TestRuntimeCooldownProblemDoesNotAffectAutoWeightSeenByCandidateCollection(
 }
 
 func TestRuntimeCoordinatesStatsSnapshotAndAutoWeightWrite(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	registry := newFakeAutoWeightRegistry(1)
 	stats := health.NewStatsStore()
@@ -627,6 +640,7 @@ func TestRuntimeCoordinatesStatsSnapshotAndAutoWeightWrite(t *testing.T) {
 }
 
 func TestRuntimeCoordinatesAutoWeightWithValidationRecovery(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	stats := health.NewStatsStore()
 	for range 10 {
@@ -678,6 +692,7 @@ func TestRuntimeCoordinatesAutoWeightWithValidationRecovery(t *testing.T) {
 }
 
 func TestRuntimeWaitsForValidationTick(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(1)
 	validator := newFakeValidationSweep(false)
 	runtime, _, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), validator, time.Now)
@@ -696,6 +711,7 @@ func TestRuntimeWaitsForValidationTick(t *testing.T) {
 }
 
 func TestRuntimeKeepsRecomputingWhileValidationIsBlocked(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(1)
 	validator := newFakeValidationSweep(true)
 	runtime, autoTicker, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), validator, time.Now)
@@ -713,6 +729,7 @@ func TestRuntimeKeepsRecomputingWhileValidationIsBlocked(t *testing.T) {
 }
 
 func TestRuntimeCancellationStopsBothTickersAndWaitsForValidation(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(1)
 	validator := newFakeValidationSweep(true)
 	runtime, autoTicker, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), validator, time.Now)
@@ -729,6 +746,7 @@ func TestRuntimeCancellationStopsBothTickersAndWaitsForValidation(t *testing.T) 
 }
 
 func TestRuntimeStopsOnContextCancellation(t *testing.T) {
+	t.Parallel()
 	registry := newFakeAutoWeightRegistry(1)
 	runtime, autoTicker, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
 

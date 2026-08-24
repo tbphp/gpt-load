@@ -30,6 +30,7 @@ func (credentialImportNetworkError) Timeout() bool   { return true }
 func (credentialImportNetworkError) Temporary() bool { return true }
 
 func TestCredentialImportUsesBoundedContextAndClassifiesTransientFailures(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := credentialImportContext(t.Context())
 	defer cancel()
 	deadline, known := ctx.Deadline()
@@ -102,6 +103,7 @@ func TestImportCodexOAuthJSONCreatesEncryptedReadyStage(t *testing.T) {
 }
 
 func TestImportCodexOAuthJSONRefreshesExpiredCredentialBeforeReady(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -150,6 +152,7 @@ func TestImportCodexOAuthJSONRejectsInvalidInput(t *testing.T) {
 }
 
 func TestImportClaudeOAuthJSONRequiresExpiredTimestamp(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	_, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
 		`{"type":"claude","access_token":"access","refresh_token":"refresh","account_uuid":"account"}`,
@@ -185,6 +188,7 @@ func TestBeginBrowserAuthorizationCreatesPendingStage(t *testing.T) {
 }
 
 func TestBeginDeviceAuthorizationCreatesEncryptedPendingStage(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.UnixMilli(1_800_000_000_000).UTC()
 	fixture.service.now = func() time.Time { return now }
@@ -222,6 +226,7 @@ func TestBeginDeviceAuthorizationCreatesEncryptedPendingStage(t *testing.T) {
 }
 
 func TestBeginDeviceAuthorizationRejectsUnsafeChallenge(t *testing.T) {
+	t.Parallel()
 	now := time.UnixMilli(1_800_000_000_000).UTC()
 	for _, test := range []struct {
 		name         string
@@ -253,6 +258,7 @@ func TestBeginDeviceAuthorizationRejectsUnsafeChallenge(t *testing.T) {
 }
 
 func TestPollDeviceAuthorizationHonorsIntervalAndPersistsPendingState(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.UnixMilli(1_800_000_000_000).UTC()
 	fixture.service.now = func() time.Time { return now }
@@ -312,6 +318,7 @@ func TestPollDeviceAuthorizationHonorsIntervalAndPersistsPendingState(t *testing
 }
 
 func TestPollDeviceAuthorizationConcurrentRequestDoesNotDispatchTwice(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.UnixMilli(1_800_000_000_000).UTC()
 	fixture.service.now = func() time.Time { return now }
@@ -355,6 +362,7 @@ func TestPollDeviceAuthorizationConcurrentRequestDoesNotDispatchTwice(t *testing
 }
 
 func TestPollDeviceAuthorizationCompletesReadyStage(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.UnixMilli(1_800_000_000_000).UTC()
 	fixture.service.now = func() time.Time { return now }
@@ -388,6 +396,7 @@ func TestPollDeviceAuthorizationCompletesReadyStage(t *testing.T) {
 }
 
 func TestPollDeviceAuthorizationPersistsTerminalStatesAndClearsSecrets(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		poll      subscriptionruntime.DeviceAuthorizationStatus
@@ -497,6 +506,7 @@ func TestCompleteBrowserAuthorizationConsumesStateOnce(t *testing.T) {
 }
 
 func TestCompleteBrowserAuthorizationAcceptsVersionOnePendingStage(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
@@ -558,6 +568,7 @@ func TestCompleteBrowserAuthorizationAcceptsVersionOnePendingStage(t *testing.T)
 }
 
 func TestCompleteBrowserAuthorizationMarksDefinitiveExchangeRejectionFailed(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
@@ -595,6 +606,7 @@ func TestCompleteBrowserAuthorizationMarksDefinitiveExchangeRejectionFailed(t *t
 }
 
 func TestCompleteBrowserAuthorizationUsesBoundedUpstreamContext(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
@@ -626,6 +638,7 @@ func TestCompleteBrowserAuthorizationUsesBoundedUpstreamContext(t *testing.T) {
 }
 
 func TestCompleteBrowserAuthorizationSurvivesCallbackCancellationAfterClaim(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
@@ -664,6 +677,7 @@ func TestCompleteBrowserAuthorizationSurvivesCallbackCancellationAfterClaim(t *t
 }
 
 func TestCompleteBrowserAuthorizationTreatsTransientEndpointRejectionAsUnknown(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
 	if err != nil {
@@ -931,6 +945,7 @@ func TestCleanupCredentialStagesExpiresSecretsAndRemovesOldTombstones(t *testing
 }
 
 func TestGetCredentialStageFinalizesExpiredExchange(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
