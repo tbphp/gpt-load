@@ -11,6 +11,7 @@ import (
 )
 
 func TestMapGroupRowToStateCarriesDeepClonedParams(t *testing.T) {
+	t.Parallel()
 	group := models.Group{
 		ID: 1, Name: "channel-group", ChannelID: string(channel.OpenAICompatible),
 		Params: models.JSON(`{"base_url":"https://api.example.com/v1"}`),
@@ -28,6 +29,7 @@ func TestMapGroupRowToStateCarriesDeepClonedParams(t *testing.T) {
 }
 
 func TestSubscriptionGroupSettingsAndModelsRemainUpdatable(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-group-update", "group-update@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -66,6 +68,7 @@ func TestSubscriptionGroupSettingsAndModelsRemainUpdatable(t *testing.T) {
 }
 
 func TestGroupCatalogSyncTriggerOnlyTracksProviderAndModelIDChanges(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID: channel.OpenAI,

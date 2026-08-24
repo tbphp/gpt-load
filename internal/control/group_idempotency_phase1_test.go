@@ -12,6 +12,7 @@ import (
 )
 
 func TestCreateGroupIdempotentReplaysOriginalCountsAndPreservesCredentialMultiplicity(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.operationRandom = bytes.NewReader(bytes.Repeat([]byte{0x71}, 16))
 	request := GroupCreateRequest{
@@ -55,6 +56,7 @@ func TestCreateGroupIdempotentReplaysOriginalCountsAndPreservesCredentialMultipl
 }
 
 func TestCreateGroupIdempotentCanonicalizesDisabledAliasesAndReplaysNarrowResult(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	request := GroupCreateRequest{
 		Name:      stringPointer("canonical-models"),

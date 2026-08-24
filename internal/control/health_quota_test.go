@@ -12,6 +12,7 @@ import (
 
 // 额度观测只服务于管理面展示，不影响调度可用性；首页仍需单独暴露额度快用完的凭据。
 func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
@@ -79,6 +80,7 @@ func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
 }
 
 func TestRuntimeHealthReportsResetCreditsExpiringWithinFortyEightHours(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
@@ -132,6 +134,7 @@ func TestRuntimeHealthReportsResetCreditsExpiringWithinFortyEightHours(t *testin
 }
 
 func TestRuntimeHealthHonorsRecordedResetCreditAvailability(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		available int64

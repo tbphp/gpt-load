@@ -20,6 +20,7 @@ import (
 )
 
 func TestControlRoutesRequireAuthenticationForGroupCreateAndModelDiscovery(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
@@ -79,6 +80,7 @@ func TestControlRoutesRequireAuthenticationForGroupCreateAndModelDiscovery(t *te
 }
 
 func TestCreateAndImportEndpointsRequireCanonicalIdempotencyKeyBeforeMutation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "seed-idempotency-header")
@@ -151,6 +153,7 @@ func TestCreateAndImportEndpointsRequireCanonicalIdempotencyKeyBeforeMutation(t 
 }
 
 func TestAccessKeyCreateReplayOptionsAndRevealWireContracts(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))

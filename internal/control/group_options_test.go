@@ -14,6 +14,7 @@ import (
 )
 
 func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	createGroupOptionGroup(t, fixture, 20, "later enabled", true,
 		channel.OpenAICompatible, `{"base_url":"https://later-enabled.example/v1"}`,
@@ -63,6 +64,7 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 }
 
 func TestListGroupOptionsFailsClosedForInvalidDataDatabaseAndCancellation(t *testing.T) {
+	t.Parallel()
 	t.Run("invalid models JSON", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		createGroupOptionGroup(t, fixture, 1, "invalid", true, channel.OpenAI, `{}`, `{"not":"an array"}`)

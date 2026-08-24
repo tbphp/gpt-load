@@ -7,6 +7,7 @@ import (
 )
 
 func TestAuthFailureLimiterMarksOnlyNewLockTransition(t *testing.T) {
+	t.Parallel()
 	limiter := newAuthFailureLimiter()
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	limiter.now = func() time.Time { return now }
@@ -28,6 +29,7 @@ func TestAuthFailureLimiterMarksOnlyNewLockTransition(t *testing.T) {
 }
 
 func TestAuthFailureLimiterLocksOnFifthFailure(t *testing.T) {
+	t.Parallel()
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newAuthFailureLimiter()
 	limiter.now = func() time.Time { return current }
@@ -46,6 +48,7 @@ func TestAuthFailureLimiterLocksOnFifthFailure(t *testing.T) {
 }
 
 func TestAuthFailureLimiterUsesRollingThirtyMinuteWindow(t *testing.T) {
+	t.Parallel()
 	firstFailure := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	current := firstFailure
 	limiter := newAuthFailureLimiter()
@@ -70,6 +73,7 @@ func TestAuthFailureLimiterUsesRollingThirtyMinuteWindow(t *testing.T) {
 }
 
 func TestAuthFailureLimiterSuccessBeforeThresholdClearsFailures(t *testing.T) {
+	t.Parallel()
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newAuthFailureLimiter()
 	limiter.now = func() time.Time { return current }
@@ -88,6 +92,7 @@ func TestAuthFailureLimiterSuccessBeforeThresholdClearsFailures(t *testing.T) {
 }
 
 func TestAuthFailureLimiterValidCredentialClearsLockedPeer(t *testing.T) {
+	t.Parallel()
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newAuthFailureLimiter()
 	limiter.now = func() time.Time { return current }
@@ -105,6 +110,7 @@ func TestAuthFailureLimiterValidCredentialClearsLockedPeer(t *testing.T) {
 }
 
 func TestAuthFailureLimiterUnlocksAfterThirtyMinutes(t *testing.T) {
+	t.Parallel()
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newAuthFailureLimiter()
 	limiter.now = func() time.Time { return current }
@@ -120,6 +126,7 @@ func TestAuthFailureLimiterUnlocksAfterThirtyMinutes(t *testing.T) {
 }
 
 func TestAuthFailureLimiterKeepsPeersIsolated(t *testing.T) {
+	t.Parallel()
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newAuthFailureLimiter()
 	limiter.now = func() time.Time { return current }
@@ -136,6 +143,7 @@ func TestAuthFailureLimiterKeepsPeersIsolated(t *testing.T) {
 }
 
 func TestAuthFailureLimiterLazilyRemovesExpiredEntries(t *testing.T) {
+	t.Parallel()
 	firstFailure := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	current := firstFailure
 	limiter := newAuthFailureLimiter()
@@ -164,6 +172,7 @@ func TestAuthFailureLimiterLazilyRemovesExpiredEntries(t *testing.T) {
 }
 
 func TestAuthFailureLimiterConcurrentEvaluation(t *testing.T) {
+	t.Parallel()
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newAuthFailureLimiter()
 	limiter.now = func() time.Time { return current }

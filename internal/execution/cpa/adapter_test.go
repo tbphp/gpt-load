@@ -30,6 +30,7 @@ import (
 	"gpt-load/internal/subscription/providers/antigravity"
 	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
+	"gpt-load/internal/testutil/encryptiontest"
 )
 
 type fakeExecutor struct {
@@ -981,10 +982,7 @@ func newSubscriptionAdapterFixture(
 	if err := db.AutoMigrate(&models.Group{}, &models.Credential{}); err != nil {
 		t.Fatal(err)
 	}
-	keyService, err := encryption.NewService("cpa-adapter-test-encryption-key-material")
-	if err != nil {
-		t.Fatal(err)
-	}
+	keyService := encryptiontest.Service(t, "cpa-adapter-test-encryption-key-material")
 	ciphertext, err := keyService.Encrypt(string(canonical))
 	if err != nil {
 		t.Fatal(err)

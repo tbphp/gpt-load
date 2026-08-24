@@ -18,6 +18,7 @@ import (
 )
 
 func TestAccessKeyCostLimitRulesCreateAndReconcileDesiredList(t *testing.T) {
+	t.Parallel()
 	fixture, engine := newAccessKeyCostLimitHTTPFixture(t)
 	created := serveAccessKeyCostLimitRequest(t, engine, http.MethodPost, "/api/access-keys", `{
 		"name":"limited",
@@ -126,6 +127,7 @@ func TestAccessKeyCostLimitRulesCreateAndReconcileDesiredList(t *testing.T) {
 }
 
 func TestAccessKeyCostLimitRulesResetOnlySelectedRules(t *testing.T) {
+	t.Parallel()
 	fixture, engine := newAccessKeyCostLimitHTTPFixture(t)
 	created := serveAccessKeyCostLimitRequest(t, engine, http.MethodPost, "/api/access-keys", `{
 		"name":"resettable",
@@ -209,6 +211,7 @@ func TestAccessKeyCostLimitRulesResetOnlySelectedRules(t *testing.T) {
 }
 
 func TestAccessKeyCostLimitRulesResetRejectsInvalidSelection(t *testing.T) {
+	t.Parallel()
 	_, engine := newAccessKeyCostLimitHTTPFixture(t)
 	created := serveAccessKeyCostLimitRequest(
 		t,
@@ -244,6 +247,7 @@ func TestAccessKeyCostLimitRulesResetRejectsInvalidSelection(t *testing.T) {
 }
 
 func TestAccessKeyCostLimitRulesAreValidatedAndIdempotent(t *testing.T) {
+	t.Parallel()
 	fixture, engine := newAccessKeyCostLimitHTTPFixture(t)
 	const idempotencyKey = "00000000-0000-4000-8000-000000009002"
 	payload := `{"name":"idempotent","cost_limit_rules":[{"kind":"total","limit_usd":"10"}]}`
@@ -283,6 +287,7 @@ func TestAccessKeyCostLimitRulesAreValidatedAndIdempotent(t *testing.T) {
 }
 
 func TestAccessKeyCostLimitRuleKindCannotBeChangedInPlace(t *testing.T) {
+	t.Parallel()
 	fixture, engine := newAccessKeyCostLimitHTTPFixture(t)
 	created := serveAccessKeyCostLimitRequest(
 		t,
@@ -324,6 +329,7 @@ func TestAccessKeyCostLimitRuleKindCannotBeChangedInPlace(t *testing.T) {
 }
 
 func TestAccessKeyCostLimitRulesAllowRetainedPeriodPermutations(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name    string
 		initial []int64

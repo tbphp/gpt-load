@@ -10,6 +10,7 @@ import (
 )
 
 func TestPriceIdentityForChannelModelRequiresRegisteredChannel(t *testing.T) {
+	t.Parallel()
 	identity, err := PriceIdentityForChannelModel(string(channel.OpenAICompatible), "shared")
 	if err != nil || identity != (pricing.Identity{
 		ChannelID: string(channel.OpenAICompatible), ModelID: "shared",
@@ -22,6 +23,7 @@ func TestPriceIdentityForChannelModelRequiresRegisteredChannel(t *testing.T) {
 }
 
 func TestResolveAutomaticPriceForIdentityUsesOfficialChannelCatalogProvider(t *testing.T) {
+	t.Parallel()
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	anthropicCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
@@ -43,6 +45,7 @@ func TestResolveAutomaticPriceForIdentityUsesOfficialChannelCatalogProvider(t *t
 }
 
 func TestResolveAutomaticPriceForIdentityUsesVolcengineOfficialSupplement(t *testing.T) {
+	t.Parallel()
 	snapshot, err := catalog.MergeOfficial(&catalog.Snapshot{})
 	if err != nil {
 		t.Fatalf("MergeOfficial() error = %v", err)
@@ -59,6 +62,7 @@ func TestResolveAutomaticPriceForIdentityUsesVolcengineOfficialSupplement(t *tes
 }
 
 func TestResolveAutomaticPriceForIdentityFallsBackWhenChannelCatalogProviderMisses(t *testing.T) {
+	t.Parallel()
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
@@ -76,6 +80,7 @@ func TestResolveAutomaticPriceForIdentityFallsBackWhenChannelCatalogProviderMiss
 }
 
 func TestResolveAutomaticPriceForIdentityFallsBackForCompatibleChannel(t *testing.T) {
+	t.Parallel()
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
@@ -93,6 +98,7 @@ func TestResolveAutomaticPriceForIdentityFallsBackForCompatibleChannel(t *testin
 }
 
 func TestResolveAutomaticPriceForIdentityTreatsCodexOpenAIPriceAsReference(t *testing.T) {
+	t.Parallel()
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
@@ -110,6 +116,7 @@ func TestResolveAutomaticPriceForIdentityTreatsCodexOpenAIPriceAsReference(t *te
 }
 
 func TestResolveAutomaticPriceForIdentityTreatsClaudeAnthropicPriceAsReference(t *testing.T) {
+	t.Parallel()
 	anthropicCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"anthropic": {ID: "anthropic", Models: map[string]catalog.Model{
@@ -127,6 +134,7 @@ func TestResolveAutomaticPriceForIdentityTreatsClaudeAnthropicPriceAsReference(t
 }
 
 func TestResolveAutomaticPriceForIdentityTreatsAntigravityGooglePriceAsReference(t *testing.T) {
+	t.Parallel()
 	googleCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"google": {ID: "google", Models: map[string]catalog.Model{
@@ -144,6 +152,7 @@ func TestResolveAutomaticPriceForIdentityTreatsAntigravityGooglePriceAsReference
 }
 
 func TestResolveAutomaticPriceForIdentityTreatsGrokXAIPriceAsReference(t *testing.T) {
+	t.Parallel()
 	xaiCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"xai": {ID: "xai", Models: map[string]catalog.Model{
@@ -161,6 +170,7 @@ func TestResolveAutomaticPriceForIdentityTreatsGrokXAIPriceAsReference(t *testin
 }
 
 func TestCompatibleAutomaticPriceUsesGlobalPriority(t *testing.T) {
+	t.Parallel()
 	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
@@ -185,6 +195,7 @@ func TestCompatibleAutomaticPriceUsesGlobalPriority(t *testing.T) {
 }
 
 func TestCompatibleAutomaticPriceFallsBackToStableProviderID(t *testing.T) {
+	t.Parallel()
 	alphaCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"zeta":  {ID: "zeta", Models: map[string]catalog.Model{"shared": {ID: "shared", Cost: &catalog.ModelCost{}}}},

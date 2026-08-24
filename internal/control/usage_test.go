@@ -21,6 +21,7 @@ import (
 )
 
 func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.now = func() time.Time {
@@ -40,6 +41,7 @@ func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
 }
 
 func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		rawQuery    string
@@ -150,6 +152,7 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 }
 
 func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC)
 	tests := []struct {
 		rangeValue    string
@@ -187,6 +190,7 @@ func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
 }
 
 func TestUsageAPIReturnsDistributionWithoutCredentialIdentity(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
 	other := requestlog.UsageDistributionAggregate{
 		RequestCount:         3,
@@ -271,6 +275,7 @@ func TestUsageAPIReturnsDistributionWithoutCredentialIdentity(t *testing.T) {
 }
 
 func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60))
 	reader := &recordingUsageStatReader{}
 	engine, fixture := newUsageTestEngine(t, now, reader)
@@ -355,6 +360,7 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 }
 
 func TestUsageAPIReturnsAllDistributionViewsInOneResponse(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
 	reader := &recordingUsageStatReader{}
 	engine, _ := newUsageTestEngine(t, now, reader)
@@ -407,6 +413,7 @@ func TestUsageAPIReturnsAllDistributionViewsInOneResponse(t *testing.T) {
 }
 
 func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
 		Summary: requestlog.UsageAggregate{
@@ -532,6 +539,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 }
 
 func TestUsageAPIValidatesModelAsUTF8BytesWithoutBoundaryWhitespaceOrControls(t *testing.T) {
+	t.Parallel()
 	reader := &recordingUsageStatReader{}
 	engine, _ := newUsageTestEngine(
 		t,
@@ -577,6 +585,7 @@ func TestUsageAPIValidatesModelAsUTF8BytesWithoutBoundaryWhitespaceOrControls(t 
 }
 
 func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
+	t.Parallel()
 	reader := &recordingUsageStatReader{}
 	engine, _ := newUsageTestEngine(t, time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC), reader)
 	tests := []struct {
@@ -633,6 +642,7 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 }
 
 func TestMapUsageRejectsUnsafeOrMismatchedDistribution(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	query := requestlog.UsageQuery{
 		FromMS:      time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
@@ -740,6 +750,7 @@ func TestMapUsageRejectsUnsafeOrMismatchedDistribution(t *testing.T) {
 }
 
 func TestUsageAPIRejectsUnsafeAggregateAndKeepsErrorsSecret(t *testing.T) {
+	t.Parallel()
 	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
 		Summary: requestlog.UsageAggregate{RequestCount: 9_007_199_254_740_992},
 	}}
@@ -760,6 +771,7 @@ func TestUsageAPIRejectsUnsafeAggregateAndKeepsErrorsSecret(t *testing.T) {
 }
 
 func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		mutate func(*requestlog.Stats)
@@ -787,6 +799,7 @@ func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
 }
 
 func TestUsageAPIExcludesLegacyZeroAttemptAggregateFromSQLite(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	fixture := newServiceFixture(t)
@@ -836,6 +849,7 @@ func TestUsageAPIExcludesLegacyZeroAttemptAggregateFromSQLite(t *testing.T) {
 }
 
 func TestUsageAPIAcceptsMaximumSafeCanonicalGroupID(t *testing.T) {
+	t.Parallel()
 	if strconv.IntSize != 64 {
 		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
 	}
@@ -856,6 +870,7 @@ func TestUsageAPIAcceptsMaximumSafeCanonicalGroupID(t *testing.T) {
 }
 
 func TestUsageAPIRequiresManagementAuthentication(t *testing.T) {
+	t.Parallel()
 	engine, _ := newUsageTestEngine(t, time.Now(), &recordingUsageStatReader{})
 	recorder := performUsageRequest(engine, "", "")
 	if recorder.Code != http.StatusUnauthorized {
@@ -864,6 +879,7 @@ func TestUsageAPIRequiresManagementAuthentication(t *testing.T) {
 }
 
 func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{

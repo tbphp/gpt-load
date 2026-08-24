@@ -15,6 +15,7 @@ import (
 )
 
 func TestBatchEnableDoesNotExposeCredentialsBeforeDatabaseCommit(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "first-secret\nsecond-secret")
 
@@ -64,6 +65,7 @@ func TestBatchEnableDoesNotExposeCredentialsBeforeDatabaseCommit(t *testing.T) {
 }
 
 func TestBatchEnableRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "runtime-recovery-secret")
 	var row models.Credential
@@ -102,6 +104,7 @@ func TestBatchEnableRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
 }
 
 func TestBatchDeleteRetiresCommittedCredentialRuntimes(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	runtime := &recordingCredentialRuntimeExecutor{}
 	fixture.service.executor = runtime
@@ -123,6 +126,7 @@ func TestBatchDeleteRetiresCommittedCredentialRuntimes(t *testing.T) {
 }
 
 func TestBatchAllCredentialsAffectsOnlyCurrentGroup(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "first-secret\nsecond-secret")
 	otherGroupName := "other-credential-group"
@@ -165,6 +169,7 @@ func TestBatchAllCredentialsAffectsOnlyCurrentGroup(t *testing.T) {
 }
 
 func TestBatchAllCredentialsRejectsDeleteAndExplicitIDs(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "first-secret")
 

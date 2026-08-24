@@ -71,11 +71,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Mark race-instrumented Go cache scope
+        # race-tests、test、database-contract(*) 默认共用同一个基于 go.sum 的
+        # setup-go 缓存 key；命中即不保存，race-instrumented GOCACHE 永远无法
+        # 写回，每次都要重新编译。加入这个 marker 文件参与 cache-dependency-path
+        # 哈希，让 race-tests 拥有独立 key 命名空间。
+        run: echo race-tests > .go-cache-scope
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            .go-cache-scope
 
       - name: Run race-enabled tests
         run: go test -race -count=1 -timeout=15m . ./internal/...

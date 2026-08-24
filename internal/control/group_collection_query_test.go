@@ -20,6 +20,7 @@ import (
 )
 
 func TestListGroupCollectionCapturesThenQueries(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	observedAt := int64(1_700)
 	fixture.service.now = func() time.Time { return time.UnixMilli(observedAt) }
@@ -51,6 +52,7 @@ func TestListGroupCollectionCapturesThenQueries(t *testing.T) {
 }
 
 func TestListGroupCollectionSortsRecentActivityByHourThenRequestCount(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	older := createGroupCollectionGroup(t, fixture, "older", true, nil)
 	recentLow := createGroupCollectionGroup(t, fixture, "alpha recent", true, nil)
@@ -89,6 +91,7 @@ func TestListGroupCollectionSortsRecentActivityByHourThenRequestCount(t *testing
 }
 
 func TestGroupCollectionLatestActivityScopeQuotesGroupsForMySQL(t *testing.T) {
+	t.Parallel()
 	db, err := gorm.Open(gormmysql.New(gormmysql.Config{
 		DSN:                       "user:password@tcp(127.0.0.1:3306)/gpt_load",
 		SkipInitializeWithVersion: true,
@@ -116,6 +119,7 @@ func TestGroupCollectionLatestActivityScopeQuotesGroupsForMySQL(t *testing.T) {
 }
 
 func TestListGroupCollectionSkipsActivityReadForNonRecentSort(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "name sort", true, nil)
 	entry := createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil)
@@ -136,6 +140,7 @@ func TestListGroupCollectionSkipsActivityReadForNonRecentSort(t *testing.T) {
 }
 
 func TestListGroupCollectionQueryDoesNotSearchPersistedModelIDOrAlias(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := createGroupCollectionGroup(t, fixture, "not a model", true, nil)
 	group.Models = models.JSON(`[{"id":"private-upstream-model","alias":"public-model-alias"}]`)
@@ -161,6 +166,7 @@ func TestListGroupCollectionQueryDoesNotSearchPersistedModelIDOrAlias(t *testing
 }
 
 func TestGroupCollectionQueryFiltersUnicodeInsensitiveFieldsWithoutModels(t *testing.T) {
+	t.Parallel()
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(1, "München", GroupCollectionStatusAvailable, "https://muenchen.example.net/v1", []protocol.Protocol{protocol.OpenAICompletions}, 7, 100),
 		groupCollectionQueryRecord(2, "URL only", GroupCollectionStatusUnavailable, "https://Api.Example.Net/v1", []protocol.Protocol{protocol.Gemini}, 3, 200),
@@ -190,6 +196,7 @@ func TestGroupCollectionQueryFiltersUnicodeInsensitiveFieldsWithoutModels(t *tes
 }
 
 func TestGroupCollectionQueryMatchesUnicodeSimpleFoldAndSortsWithIt(t *testing.T) {
+	t.Parallel()
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(2, "ΟΣ", GroupCollectionStatusAvailable, "https://two.example/v1", nil, 1, 100),
 		groupCollectionQueryRecord(1, "ος", GroupCollectionStatusAvailable, "https://one.example/v1", nil, 1, 100),
@@ -204,6 +211,7 @@ func TestGroupCollectionQueryMatchesUnicodeSimpleFoldAndSortsWithIt(t *testing.T
 }
 
 func TestGroupCollectionQueryFiltersByConnectionType(t *testing.T) {
+	t.Parallel()
 	subscription := models.ConnectionTypeSubscription
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(1, "API key", GroupCollectionStatusAvailable, "https://api-key.example", nil, 1, 100),
@@ -224,6 +232,7 @@ func TestGroupCollectionQueryFiltersByConnectionType(t *testing.T) {
 }
 
 func TestGroupCollectionQueryCombinesFiltersAndSummarizesCompleteCollection(t *testing.T) {
+	t.Parallel()
 	available := GroupCollectionStatusAvailable
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(1, "Alpha", GroupCollectionStatusAvailable, "https://alpha.example/v1", []protocol.Protocol{protocol.OpenAICompletions}, 1, 100),
@@ -250,6 +259,7 @@ func TestGroupCollectionQueryCombinesFiltersAndSummarizesCompleteCollection(t *t
 }
 
 func TestGroupCollectionQueryUsesFixedSortsWithIDTieBreak(t *testing.T) {
+	t.Parallel()
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(5, "Bravo", GroupCollectionStatusAvailable, "https://five.example/v1", nil, 3, 500),
 		groupCollectionQueryRecord(4, "bravo", GroupCollectionStatusAvailable, "https://four.example/v1", nil, 3, 400),
@@ -280,6 +290,7 @@ func TestGroupCollectionQueryUsesFixedSortsWithIDTieBreak(t *testing.T) {
 }
 
 func TestGroupCollectionQueryRecentActivityFallsBackToNameWithoutUsage(t *testing.T) {
+	t.Parallel()
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(2, "Zulu", GroupCollectionStatusUnavailable, "https://zulu.example/v1", nil, 1, 200),
 		groupCollectionQueryRecord(1, "Alpha", GroupCollectionStatusDisabled, "https://alpha.example/v1", nil, 1, 100),
@@ -292,6 +303,7 @@ func TestGroupCollectionQueryRecentActivityFallsBackToNameWithoutUsage(t *testin
 }
 
 func TestGroupCollectionSortUsesActivityOnlyForRecentOrdering(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		sortBy GroupCollectionSort
@@ -315,6 +327,7 @@ func TestGroupCollectionSortUsesActivityOnlyForRecentOrdering(t *testing.T) {
 }
 
 func TestGroupCollectionQueryUsesIDTieBreakAfterEachSortPrimaryAndName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		sort    GroupCollectionSort
@@ -371,6 +384,7 @@ func TestGroupCollectionQueryUsesIDTieBreakAfterEachSortPrimaryAndName(t *testin
 }
 
 func TestGroupCollectionQueryPaginatesWithoutLeakingCreatedAt(t *testing.T) {
+	t.Parallel()
 	records := []groupCollectionRecord{
 		groupCollectionQueryRecord(1, "one", GroupCollectionStatusAvailable, "https://one.example/v1", nil, 1, 10),
 		groupCollectionQueryRecord(2, "two", GroupCollectionStatusAvailable, "https://two.example/v1", nil, 1, 20),

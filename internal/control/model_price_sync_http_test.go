@@ -19,6 +19,7 @@ import (
 )
 
 func TestModelPriceSyncRouteSanitizesFailure(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	const rawFailure = "secret upstream response body"

@@ -26,6 +26,7 @@ import (
 )
 
 func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
+	t.Parallel()
 	fixture, dsn := newFileServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
 	group.Name = "discovery-snapshot-old"
@@ -174,6 +175,7 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 }
 
 func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
+	t.Parallel()
 	fixture, _ := newFileServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
 	seedPersistedDiscoveryCredential(
@@ -235,6 +237,7 @@ func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
 }
 
 func TestDiscoverGroupModelsUsesDisabledGroupAndActiveCredentialsInIDOrder(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, false, models.JSON(
 		`{"header_rules":{"set":{"X-Group":"group"},"remove":["X-Remove"]}}`,
@@ -298,6 +301,7 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveCredentialsInIDOrder(t *te
 }
 
 func TestDiscoverGroupModelsReturnsNotFoundAndNoActiveUpstreamKey(t *testing.T) {
+	t.Parallel()
 	t.Run("missing Group", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		_, err := fixture.service.DiscoverGroupModels(t.Context(), 999)
@@ -344,6 +348,7 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 }
 
 func TestClaudeGroupDiscoversModelsAndBecomesAvailableAfterSelection(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Claude, []byte(
 		`{"type":"claude","access_token":"claude-access","refresh_token":"claude-refresh","account_uuid":"claude-account","email":"claude@example.com","expired":"2030-01-01T00:00:00Z"}`,
@@ -398,6 +403,7 @@ func TestClaudeGroupDiscoversModelsAndBecomesAvailableAfterSelection(t *testing.
 }
 
 func TestDiscoverGroupModelsPreparesSubscriptionCredential(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-prepared-models", "prepared@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -432,6 +438,7 @@ func TestDiscoverGroupModelsPreparesSubscriptionCredential(t *testing.T) {
 }
 
 func TestDiscoverGroupModelsRefreshesSameCredentialOnceAfterUnauthorized(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-model-refresh", "model-refresh@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -479,6 +486,7 @@ func TestDiscoverGroupModelsRefreshesSameCredentialOnceAfterUnauthorized(t *test
 }
 
 func TestDiscoverGroupModelsSkipsSubscriptionCredentialRequiringAuthorization(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-reauthorize-models", "reauthorize@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -507,6 +515,7 @@ func TestDiscoverGroupModelsSkipsSubscriptionCredentialRequiringAuthorization(t 
 }
 
 func TestMapGroupDiscoveryTargetRejectsUnreadySubscriptionCredential(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-route-owned", "route-owned@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -534,6 +543,7 @@ func TestMapGroupDiscoveryTargetRejectsUnreadySubscriptionCredential(t *testing.
 }
 
 func TestMapGroupDiscoveryTargetPreparesSubscriptionCredential(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	stage := mustImportSubscriptionStage(t, fixture, "account-route-refresh", "route-refresh@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -571,6 +581,7 @@ func TestMapGroupDiscoveryTargetPreparesSubscriptionCredential(t *testing.T) {
 }
 
 func TestDiscoverGroupModelsDoesNotMaskAttemptedSubscriptionFailure(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	first := mustImportSubscriptionStage(t, fixture, "account-reauthorize-first", "first@example.com")
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
@@ -604,6 +615,7 @@ func TestDiscoverGroupModelsDoesNotMaskAttemptedSubscriptionFailure(t *testing.T
 }
 
 func TestCodexPreparationAPIErrorTreatsStateCommitFailureAsUnknown(t *testing.T) {
+	t.Parallel()
 	err := subscriptionPreparationAPIError(&execution.ErrorEvidence{Code: "refresh_state_commit_failed"})
 	if !errors.Is(err, app_errors.ErrCredentialAuthOutcomeUnknown) {
 		t.Fatalf("subscriptionPreparationAPIError() = %v, want ErrCredentialAuthOutcomeUnknown", err)
@@ -611,6 +623,7 @@ func TestCodexPreparationAPIErrorTreatsStateCommitFailureAsUnknown(t *testing.T)
 }
 
 func TestDiscoverGroupModelsDecryptsEveryKeyBeforeHTTP(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
 	seedPersistedDiscoveryCredential(t, fixture, group.ID, 1, "key-1", models.CredentialStatusActive)
@@ -644,6 +657,7 @@ func TestDiscoverGroupModelsDecryptsEveryKeyBeforeHTTP(t *testing.T) {
 }
 
 func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		listFn  func(context.Context, context.CancelFunc) ([]string, error)
@@ -712,6 +726,7 @@ func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T
 }
 
 func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID:   channel.OpenAICompatible,

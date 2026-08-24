@@ -25,7 +25,6 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
-	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -34,6 +33,7 @@ import (
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/usage"
 )
 
@@ -1635,10 +1635,7 @@ func TestHandlerRPMAdmissionOrderingAndSingleCharge(t *testing.T) {
 }
 
 func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
-	keyService, err := encryption.NewService("frozen-rpm-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "frozen-rpm-test-master-key")
 	manager := state.NewManager()
 	publish := func(limit int64) {
 		t.Helper()

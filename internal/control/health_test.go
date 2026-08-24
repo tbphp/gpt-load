@@ -44,6 +44,7 @@ func encryptHealthKey(t *testing.T, fixture serviceFixture, plaintext string) st
 }
 
 func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
@@ -175,6 +176,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 }
 
 func TestRuntimeHealthAdvertisesExecutorValidationForChannelCredential(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
@@ -208,6 +210,7 @@ func TestRuntimeHealthAdvertisesExecutorValidationForChannelCredential(t *testin
 }
 
 func TestRuntimeHealthExposesProblemCountsInsteadOfFailureAliases(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
@@ -266,6 +269,7 @@ func TestRuntimeHealthExposesProblemCountsInsteadOfFailureAliases(t *testing.T) 
 }
 
 func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
@@ -335,6 +339,7 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 }
 
 func TestRuntimeHealthCapsProblemCredentialDetails(t *testing.T) {
+	t.Parallel()
 	const detailLimit = 100
 
 	fixture := newServiceFixture(t)
@@ -405,6 +410,7 @@ func TestRuntimeHealthCapsProblemCredentialDetails(t *testing.T) {
 }
 
 func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.now = healthNow
 	plaintext := "provider-secret-credential-tail"
@@ -490,6 +496,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 }
 
 func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.now = healthNow
 	if _, err := fixture.manager.Publish(state.CompileInput{ChannelRegistry: fixture.channelRegistry, Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "safe", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
@@ -513,6 +520,7 @@ func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
 }
 
 func TestHealthProblemMaskFailsClosedWhenCiphertextIsMissing(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	if _, err := fixture.service.healthProblemMask(nil, 1, "", "api_key"); !errors.Is(
 		err,
@@ -523,6 +531,7 @@ func TestHealthProblemMaskFailsClosedWhenCiphertextIsMissing(t *testing.T) {
 }
 
 func TestHealthProblemMaskExtractsTypedCredentialSecret(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	ciphertext := encryptHealthKey(
 		t,
@@ -544,6 +553,7 @@ func TestHealthProblemMaskExtractsTypedCredentialSecret(t *testing.T) {
 }
 
 func TestHealthProblemMaskUsesSafeSubscriptionAccountIdentity(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	ciphertext := encryptHealthKey(t, fixture,
 		`{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret","account_id":"account-one","email":"owner@example.com"}`)
@@ -557,6 +567,7 @@ func TestHealthProblemMaskUsesSafeSubscriptionAccountIdentity(t *testing.T) {
 }
 
 func TestRuntimeHealthDTOHasNoCredentialOrScoreFields(t *testing.T) {
+	t.Parallel()
 	forbidden := map[string]struct{}{
 		"EncryptedValue": {}, "KeyHash": {}, "AccessKey": {},
 		"HeaderRules": {}, "Percentage": {}, "SuccessRate": {}, "Score": {},
@@ -580,6 +591,7 @@ func TestRuntimeHealthDTOHasNoCredentialOrScoreFields(t *testing.T) {
 }
 
 func TestRuntimeHealthFailsLoudForRegistryCatalogMismatch(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
 		ID: 1, GroupID: 999, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
@@ -596,6 +608,7 @@ func TestRuntimeHealthFailsLoudForRegistryCatalogMismatch(t *testing.T) {
 }
 
 func TestRuntimeHealthFailsWhenSnapshotIsUninitialized(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.manager = state.NewManager()
 	if _, err := fixture.service.RuntimeHealth(); !errors.Is(
@@ -607,6 +620,7 @@ func TestRuntimeHealthFailsWhenSnapshotIsUninitialized(t *testing.T) {
 }
 
 func TestRuntimeHealthEndpointRequiresManagementAuthentication(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.now = healthNow

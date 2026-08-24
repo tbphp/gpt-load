@@ -25,6 +25,7 @@ import (
 )
 
 func TestCreateAccessKeyGeneratesEncryptedSKGLToken(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader([]byte{
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -86,6 +87,7 @@ func TestCreateAccessKeyGeneratesEncryptedSKGLToken(t *testing.T) {
 }
 
 func TestAccessKeyFiltersNormalizeAndAcceptExistingDisabledGroups(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	enabled := validControlGroup("filter-enabled")
 	if err := fixture.db.Create(enabled).Error; err != nil {
@@ -142,6 +144,7 @@ func TestAccessKeyFiltersNormalizeAndAcceptExistingDisabledGroups(t *testing.T) 
 }
 
 func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 
@@ -167,6 +170,7 @@ func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T)
 }
 
 func TestAccessKeyFiltersRejectInvalidCurrentInputWithoutPublishing(t *testing.T) {
+	t.Parallel()
 	blank := "   "
 	tooLong := strings.Repeat("名", 86)
 	controlName := "bad\nname"
@@ -205,6 +209,7 @@ func TestAccessKeyFiltersRejectInvalidCurrentInputWithoutPublishing(t *testing.T
 }
 
 func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	randomBytes := make([]byte, 32)
@@ -269,6 +274,7 @@ func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testin
 }
 
 func TestListAccessKeyCollectionPaginatesBeyondDefaultPageSize(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	rows := make([]models.AccessKey, 21)
 	for index := range rows {
@@ -303,6 +309,7 @@ func TestListAccessKeyCollectionPaginatesBeyondDefaultPageSize(t *testing.T) {
 }
 
 func TestUpdateAccessKeyPreservesCredentialAcrossPointerPatches(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := validControlGroup("access-key-update")
 	if err := fixture.db.Create(group).Error; err != nil {
@@ -378,6 +385,7 @@ func TestUpdateAccessKeyPreservesCredentialAcrossPointerPatches(t *testing.T) {
 }
 
 func TestUpdateAccessKeyStatusAndDeletePublishWithoutMutatingRegistry(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{Name: "toggle"})
@@ -457,6 +465,7 @@ func TestUpdateAccessKeyStatusAndDeletePublishWithoutMutatingRegistry(t *testing
 }
 
 func TestUpdateAccessKeyDoesNotReadCredentialCiphertext(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{Name: "before"})
@@ -481,6 +490,7 @@ func TestUpdateAccessKeyDoesNotReadCredentialCiphertext(t *testing.T) {
 }
 
 func TestAccessKeyDanglingFiltersDoNotBlockUnrelatedUpdate(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	danglingPlaintext := "gl-dangling-test-value"
 	danglingCiphertext, err := fixture.encryption.Encrypt(danglingPlaintext)
@@ -514,6 +524,7 @@ func TestAccessKeyDanglingFiltersDoNotBlockUnrelatedUpdate(t *testing.T) {
 }
 
 func TestConcurrentAccessKeyCRUDPublishesDatabaseTruth(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	rows := make([]AccessKeyCreateResult, 4)
 	for index := range rows {
@@ -584,6 +595,7 @@ func TestConcurrentAccessKeyCRUDPublishesDatabaseTruth(t *testing.T) {
 }
 
 func TestAccessKeyServiceRPMLimit(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{
@@ -622,6 +634,7 @@ func TestAccessKeyServiceRPMLimit(t *testing.T) {
 }
 
 func TestAccessKeyEndpointsDistinguishRPMLimit(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	const authKey = "test-auth-key"
 

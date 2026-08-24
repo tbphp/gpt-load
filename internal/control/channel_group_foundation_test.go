@@ -87,6 +87,7 @@ func TestParseChannelQueryIsStrict(t *testing.T) {
 }
 
 func TestChannelsHTTPIsAuthenticatedAndStrict(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -252,6 +253,7 @@ func TestSameTargetIncludesConnectionType(t *testing.T) {
 }
 
 func TestCreateChannelGroupPersistsCanonicalCredentialsAndPublishes(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.now = func() time.Time { return time.UnixMilli(1_786_000_000_000) }
 	beforeRevision := fixture.manager.Current().Revision
@@ -325,6 +327,7 @@ func TestCreateChannelGroupPersistsCanonicalCredentialsAndPublishes(t *testing.T
 }
 
 func TestCreateChannelGroupUsesChannelAndCanonicalParamsForSimilarity(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		ChannelID:   channel.OpenAICompatible,
@@ -374,6 +377,7 @@ func TestCreateChannelGroupUsesChannelAndCanonicalParamsForSimilarity(t *testing
 }
 
 func TestCreateChannelGroupIdempotencyReplaysCredentialCounts(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	request := GroupCreateRequest{
 		Name:        stringPointer("idempotent channel"),
@@ -404,6 +408,7 @@ func TestCreateChannelGroupIdempotencyReplaysCredentialCounts(t *testing.T) {
 }
 
 func TestChannelGroupSettingsExposeImmutableChannelAndEditableParams(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name:        stringPointer("settings channel"),
@@ -458,6 +463,7 @@ func TestChannelGroupSettingsExposeImmutableChannelAndEditableParams(t *testing.
 }
 
 func TestChannelGroupCollectionDetailAndOptionsUseChannelCredentialContract(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name:      stringPointer("collection channel"),

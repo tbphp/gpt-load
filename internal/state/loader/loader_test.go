@@ -21,8 +21,8 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
-	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/testutil/sqlitetest"
 )
 
 func TestBuildCompileInputWithProxyDecryptsGlobalAndGroupPolicies(t *testing.T) {
@@ -959,24 +959,7 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 
 func openMigratedDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
-
-	db, err := storage.Open(":memory:")
-	if err != nil {
-		t.Fatalf("storage.Open(:memory:) error = %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("db.DB() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Errorf("close database: %v", err)
-		}
-	})
-	if err := storage.AutoMigrate(db); err != nil {
-		t.Fatalf("storage.AutoMigrate() error = %v", err)
-	}
-	return db
+	return sqlitetest.OpenMigrated(t)
 }
 
 func mustCreate(t *testing.T, db *gorm.DB, value any) {

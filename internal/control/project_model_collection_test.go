@@ -17,6 +17,7 @@ import (
 )
 
 func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	createPriceTestGroup(t, fixture.db, models.Group{
 		Name: "enabled", ChannelID: string(channel.OpenAICompatible), Params: models.JSON(`{"base_url":"https://enabled.example/v1"}`),
@@ -95,6 +96,7 @@ func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) 
 }
 
 func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	allowedOpenAI := createPriceTestGroup(t, fixture.db, models.Group{
@@ -207,6 +209,7 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 }
 
 func TestProjectModelCatalogReferenceUsesTheRecordedPriceProviderAndSource(t *testing.T) {
+	t.Parallel()
 	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Models: map[string]catalog.Model{
 			"shared": {

@@ -17,6 +17,7 @@ import (
 )
 
 func TestSettingsHTTPUsesCanonicalLocalizedStrongRepresentation(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -50,6 +51,7 @@ func TestSettingsHTTPUsesCanonicalLocalizedStrongRepresentation(t *testing.T) {
 }
 
 func TestSettingsHTTPRequiresStrongIfMatchAndReturnsLatestConflict(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -124,6 +126,7 @@ func TestSettingsHTTPRequiresStrongIfMatchAndReturnsLatestConflict(t *testing.T)
 }
 
 func TestSettingsHTTPMatchingWriteReturnsCurrentGETAndAllowsABA(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
@@ -177,6 +180,7 @@ func TestSettingsHTTPMatchingWriteReturnsCurrentGETAndAllowsABA(t *testing.T) {
 }
 
 func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()

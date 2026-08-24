@@ -28,9 +28,9 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
-	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/fakeupstream"
 )
 
@@ -855,10 +855,7 @@ type streamGatewayGroup struct {
 func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin.Engine, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	keyService, err := encryption.NewService("stream-handler-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "stream-handler-test-master-key")
 
 	groupConfigs := make([]state.GroupConfig, 0, len(groups))
 	entries := make([]state.CredentialEntry, 0, len(groups))

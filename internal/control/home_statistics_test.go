@@ -19,6 +19,7 @@ import (
 )
 
 func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	server := NewServer(
@@ -89,6 +90,7 @@ func TestHomeBaseHTTPUsesAuthenticationEnvelopeAndServerClock(t *testing.T) {
 }
 
 func TestHomeBaseHTTPScopesAccessKeyAndIncludesCurrentProfile(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	current, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
@@ -134,6 +136,7 @@ func TestHomeBaseHTTPScopesAccessKeyAndIncludesCurrentProfile(t *testing.T) {
 }
 
 func TestHomeBaseHTTPRejectsEveryQueryBeforeReading(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	fixture.service.db = nil
@@ -155,6 +158,7 @@ func TestHomeBaseHTTPRejectsEveryQueryBeforeReading(t *testing.T) {
 }
 
 func TestParseHomeStatisticsQueryIsStrictAndDefaultsTo24Hours(t *testing.T) {
+	t.Parallel()
 	const observedAtMS = int64(1_785_412_345_678)
 	tests := []struct {
 		rawQuery string
@@ -209,6 +213,7 @@ func TestParseHomeStatisticsQueryIsStrictAndDefaultsTo24Hours(t *testing.T) {
 }
 
 func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 30, 12, 34, 56, 789, time.UTC)
 	currentAccessKeyName := "current-access"
 	reader := &recordingHomeStatisticsReader{
@@ -429,6 +434,7 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 }
 
 func TestHomeStatisticsHTTPBindsAccessKeyAndRemovesOtherRankingDimensions(t *testing.T) {
+	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
@@ -486,6 +492,7 @@ func TestHomeStatisticsHTTPBindsAccessKeyAndRemovesOtherRankingDimensions(t *tes
 }
 
 func TestHomeStatisticsHTTPAcceptsOnlyOneSupportedRange(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	reader := &recordingHomeStatisticsReader{}
 	engine := newHomeStatisticsTestEngine(t, now, reader)
@@ -543,6 +550,7 @@ func TestHomeStatisticsHTTPAcceptsOnlyOneSupportedRange(t *testing.T) {
 }
 
 func TestHomeStatisticsHTTPFailsClosedOnUnsafeDataAndReadError(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
 	t.Run("unsafe aggregate", func(t *testing.T) {
 		reader := &recordingHomeStatisticsReader{

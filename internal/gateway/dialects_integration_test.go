@@ -23,9 +23,9 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/contentcoding"
-	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/fakeupstream"
 )
 
@@ -88,10 +88,7 @@ func newDialectGatewayEngineWithForwarder(
 ) (*gin.Engine, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	keyService, err := encryption.NewService("dialect-gateway-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "dialect-gateway-test-master-key")
 
 	configs := make([]state.GroupConfig, 0, len(groups))
 	entries := make([]state.CredentialEntry, 0)

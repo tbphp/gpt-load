@@ -21,6 +21,7 @@ import (
 )
 
 func TestObservationPlanSummaryPreservesPresentationLevel(t *testing.T) {
+	t.Parallel()
 	var snapshot CredentialObservationSnapshot
 	if err := json.Unmarshal([]byte(`{"plan_summary":{"name":"Team","level":"premium"},"quota_windows":[]}`), &snapshot); err != nil {
 		t.Fatal(err)
@@ -68,6 +69,7 @@ func TestNormalizeCodexObservationKeepsDynamicWindowsAndStableOrder(t *testing.T
 }
 
 func TestMapCredentialObservationKeepsSafeAccountSummary(t *testing.T) {
+	t.Parallel()
 	createdAt := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC).UnixMilli()
 	row := models.CredentialObservation{
 		CredentialID: 1, ObservationVersion: 1, State: models.CredentialObservationFresh,
@@ -143,6 +145,7 @@ func TestNormalizeCodexObservationDoesNotInventMissingFiveHourWindow(t *testing.
 }
 
 func TestNormalizeCodexObservationDoesNotTreatMeterNameAsModelID(t *testing.T) {
+	t.Parallel()
 	snapshot, err := normalizeCodexObservation([]byte(`{
 		"additional_rate_limits":[
 			{"metered_feature":"codex_other_models","rate_limit":{"primary_window":{"used_percent":12}}},
@@ -203,6 +206,7 @@ func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(
 }
 
 func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -249,6 +253,7 @@ func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t 
 }
 
 func TestRefreshCredentialObservationMergesSparseAccountWithFreshQuota(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -304,6 +309,7 @@ func TestRefreshCredentialObservationMergesSparseAccountWithFreshQuota(t *testin
 }
 
 func TestRefreshCredentialObservationMergesCoveredQuotaScopes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		observation   subscriptionruntime.Observation
@@ -400,6 +406,7 @@ func TestRefreshCredentialObservationMergesCoveredQuotaScopes(t *testing.T) {
 }
 
 func TestRefreshCredentialObservationRetriesOnceAfterUnauthorized(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	originalPrepare := fixture.service.prepareSubscriptionCredential
 	forcedRefreshes := 0
@@ -435,6 +442,7 @@ func TestRefreshCredentialObservationRetriesOnceAfterUnauthorized(t *testing.T) 
 }
 
 func TestRefreshCredentialObservationClassifiesRepeatedAuthorizationFailure(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	originalPrepare := fixture.service.prepareSubscriptionCredential
 	forcedRefreshes := 0
@@ -477,6 +485,7 @@ func TestRefreshCredentialObservationClassifiesRepeatedAuthorizationFailure(t *t
 }
 
 func TestRefreshCredentialObservationClassifiesNonRefreshableHTTPFailure(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		statusCode int
@@ -521,6 +530,7 @@ func TestRefreshCredentialObservationClassifiesNonRefreshableHTTPFailure(t *test
 }
 
 func TestRefreshCredentialObservationPersistsPartialSnapshotAsStale(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	fixture.service.observeSubscriptionAccount = func(
 		context.Context,
@@ -545,6 +555,7 @@ func TestRefreshCredentialObservationPersistsPartialSnapshotAsStale(t *testing.T
 }
 
 func TestRefreshCredentialObservationEnrichesResetCreditDetails(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{
@@ -575,6 +586,7 @@ func TestRefreshCredentialObservationEnrichesResetCreditDetails(t *testing.T) {
 }
 
 func TestRefreshCredentialObservationKeepsUsageWhenResetCreditDetailsFail(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
 		return codex.AccountObservation{Payload: []byte(`{"rate_limit_reset_credits":{"available_count":2}}`)}, nil
@@ -594,6 +606,7 @@ func TestRefreshCredentialObservationKeepsUsageWhenResetCreditDetailsFail(t *tes
 }
 
 func TestRefreshClaudeCredentialObservationPublishesAccountAndQuota(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 16, 8, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -657,6 +670,7 @@ func TestRefreshClaudeCredentialObservationPublishesAccountAndQuota(t *testing.T
 }
 
 func TestEnrichCredentialObservationUsageUsesHourlyStatsForEveryWindow(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -710,6 +724,7 @@ func TestEnrichCredentialObservationUsageUsesHourlyStatsForEveryWindow(t *testin
 }
 
 func TestEnrichCredentialObservationUsageUsesRecordedWindowBoundaries(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -740,6 +755,7 @@ func TestEnrichCredentialObservationUsageUsesRecordedWindowBoundaries(t *testing
 }
 
 func TestPresentCredentialObservationDoesNotExpireByTime(t *testing.T) {
+	t.Parallel()
 	result := presentCredentialObservation(models.CredentialObservation{
 		CredentialID: 1, IdentityFingerprint: "identity", SchemaVersion: 1,
 		ObservationVersion: 1, SnapshotJSON: models.JSON(`{"quota_windows":[]}`),
@@ -751,6 +767,7 @@ func TestPresentCredentialObservationDoesNotExpireByTime(t *testing.T) {
 }
 
 func TestEnrichCredentialObservationUsageSkipsNonCurrentObservation(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	resetAt := now.Add(2 * time.Hour).UnixMilli()
 	windowSeconds := int64((5 * time.Hour) / time.Second)
@@ -785,6 +802,7 @@ func TestEnrichCredentialObservationUsageSkipsNonCurrentObservation(t *testing.T
 }
 
 func TestRefreshCredentialObservationDoesNotAffectRoutingState(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -814,6 +832,7 @@ func TestRefreshCredentialObservationDoesNotAffectRoutingState(t *testing.T) {
 }
 
 func TestApplyCredentialQuotaObservationUsesBottleneckReset(t *testing.T) {
+	t.Parallel()
 	fixture, _, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -837,6 +856,7 @@ func TestApplyCredentialQuotaObservationUsesBottleneckReset(t *testing.T) {
 }
 
 func TestApplyCredentialQuotaObservationDoesNotBlockAccountForModelGroupExhaustion(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -857,6 +877,7 @@ func TestApplyCredentialQuotaObservationDoesNotBlockAccountForModelGroupExhausti
 }
 
 func TestDrainCommittedOperationsRestoresQuotaDisplayStateWithoutAffectingRouting(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 16, 0, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -885,6 +906,7 @@ func TestDrainCommittedOperationsRestoresQuotaDisplayStateWithoutAffectingRoutin
 }
 
 func TestRecoverCommittedRuntimeRestoresQuotaDisplayStateWithoutAffectingRouting(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 16, 30, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
@@ -939,6 +961,7 @@ func (reader *recordingCredentialActivityReader) QueryCredentialActivity(
 }
 
 func TestEnrichCredentialDailyUsageQueriesAttemptActivity(t *testing.T) {
+	t.Parallel()
 	fixture, _, _ := newSubscriptionCredentialFixture(t)
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
@@ -974,6 +997,7 @@ func TestEnrichCredentialDailyUsageQueriesAttemptActivity(t *testing.T) {
 }
 
 func TestEnrichCredentialDailyUsageLeavesItemUntouchedOnQueryFailure(t *testing.T) {
+	t.Parallel()
 	fixture, _, _ := newSubscriptionCredentialFixture(t)
 	fixture.service.now = func() time.Time { return time.UnixMilli(1_800_000_000_000) }
 	fixture.service.credentialActivity = &recordingCredentialActivityReader{err: errors.New("activity unavailable")}
@@ -989,6 +1013,7 @@ func TestEnrichCredentialDailyUsageLeavesItemUntouchedOnQueryFailure(t *testing.
 }
 
 func TestEnrichCredentialActivitiesBatchesSubscriptionItems(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
@@ -1017,6 +1042,7 @@ func TestEnrichCredentialActivitiesBatchesSubscriptionItems(t *testing.T) {
 }
 
 func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
@@ -1040,6 +1066,7 @@ func TestRefreshCredentialObservationPersistsNormalizationFailure(t *testing.T) 
 }
 
 func TestRefreshCredentialObservationUsesBoundedUpstreamContext(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	hasBoundedDeadline := false
 	setCodexAccountObservation(fixture.service, func(ctx context.Context, _ codex.Credential) (codex.AccountObservation, error) {
@@ -1055,6 +1082,7 @@ func TestRefreshCredentialObservationUsesBoundedUpstreamContext(t *testing.T) {
 }
 
 func TestRefreshCredentialObservationRejectsNonReadyCredentialBeforeUpstream(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	if err := fixture.db.Model(&models.Credential{}).Where("id = ?", credentialID).
 		Update("auth_state", models.CredentialAuthStateOutcomeUnknown).Error; err != nil {
@@ -1122,6 +1150,7 @@ func TestConcurrentObservationRefreshIsSingleflight(t *testing.T) {
 }
 
 func TestObservationSingleflightKeepsGroupAndCredentialBoundTogether(t *testing.T) {
+	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	started := make(chan struct{})
 	release := make(chan struct{})

@@ -31,6 +31,7 @@ import (
 )
 
 func TestReadSnapshotKeepsOneVersionWhileWALWriterCommits(t *testing.T) {
+	t.Parallel()
 	fixture, dsn := newFileServiceFixture(t)
 	group := validControlGroup("read-snapshot-old")
 	if err := fixture.db.Create(group).Error; err != nil {
@@ -106,6 +107,7 @@ func TestReadSnapshotKeepsOneVersionWhileWALWriterCommits(t *testing.T) {
 }
 
 func TestReadSnapshotCancellationTakesPrecedenceAndReleasesConnection(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	const callbackCause = "callback detail must not win over cancellation"
@@ -132,6 +134,7 @@ func TestReadSnapshotCancellationTakesPrecedenceAndReleasesConnection(t *testing
 }
 
 func TestWriteConfigDiscardsConnectionAfterCommitBusy(t *testing.T) {
+	t.Parallel()
 	fixture, dsn := newFileServiceFixture(t)
 	beforeRevision := fixture.manager.Current().Revision
 	releaseReader := holdRollbackJournalReadLock(t, fixture.db, dsn)
@@ -179,6 +182,7 @@ func TestWriteConfigDiscardsConnectionAfterCommitBusy(t *testing.T) {
 }
 
 func TestWriteConfigRollsBackWhenCompileRejectsCandidate(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 
@@ -198,6 +202,7 @@ func TestWriteConfigRollsBackWhenCompileRejectsCandidate(t *testing.T) {
 }
 
 func TestWriteConfigAppliesRuntimeBeforePublishingSnapshot(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	beforeSnapshot := fixture.manager.Current()
 	group := validControlGroup("registry-before-snapshot")
@@ -243,6 +248,7 @@ func TestWriteConfigAppliesRuntimeBeforePublishingSnapshot(t *testing.T) {
 }
 
 func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixture.service.random = strings.NewReader(strings.Repeat("\x01", 16))
 	accessKey, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "client"})
@@ -383,6 +389,7 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 }
 
 func TestWriteConfigRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
+	// 不标记 t.Parallel()：本测试劫持了全局 logrus 输出/格式，与其他并行测试同时运行会互相覆盖断言。
 	fixture := newServiceFixture(t)
 	beforeSnapshot := fixture.manager.Current()
 	const secretCause = "forced Registry publication failure"
@@ -448,6 +455,7 @@ func TestWriteConfigRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
 }
 
 func TestWriteConfigSnapshotFailureReloadsCommittedDatabaseTruth(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	beforeRevision := fixture.manager.Current().Revision
 	fixture.service.publishSnapshot = func(state.CompileInput) (*state.ConfigSnapshot, error) {
@@ -471,6 +479,7 @@ func TestWriteConfigSnapshotFailureReloadsCommittedDatabaseTruth(t *testing.T) {
 }
 
 func TestWriteConfigRecoveryPreservesCredentialRuntimeState(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	group := validControlGroup("runtime-health-preserved")
 	if err := fixture.db.Create(group).Error; err != nil {
@@ -510,6 +519,7 @@ func TestWriteConfigRecoveryPreservesCredentialRuntimeState(t *testing.T) {
 }
 
 func TestWriteConfigSerializesConcurrentDatabaseAndSnapshotPublication(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	start := make(chan struct{})
@@ -547,6 +557,7 @@ func TestWriteConfigSerializesConcurrentDatabaseAndSnapshotPublication(t *testin
 }
 
 func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
+	t.Parallel()
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	requests := []GroupCreateRequest{
