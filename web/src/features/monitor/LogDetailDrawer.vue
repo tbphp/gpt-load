@@ -660,7 +660,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 <dt>{{ t('monitor.logs.drawer.effect') }}</dt>
                 <dd>{{ t(`monitor.logs.effect.${attempt.effect}`) }}</dd>
               </div>
-              <div v-if="attempt.rule_id" class="log-detail__wide">
+              <div v-if="attempt.rule_id">
                 <dt>{{ t('monitor.logs.drawer.ruleId') }}</dt>
                 <dd>
                   <code>{{ attempt.rule_id }}</code>
