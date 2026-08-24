@@ -4,17 +4,14 @@ import (
 	"testing"
 
 	"gpt-load/internal/outboundproxy"
-	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/state"
+	"gpt-load/internal/testutil/encryptiontest"
 )
 
 func TestResolveAttemptProxyUsesCredentialOverrideAndVerifiesFingerprint(t *testing.T) {
 	t.Parallel()
 
-	crypto, err := encryption.NewService("gateway-proxy-test-key-material-2026")
-	if err != nil {
-		t.Fatal(err)
-	}
+	crypto := encryptiontest.Service(t, "gateway-proxy-test-key-material-2026")
 	config := outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "socks5://user:password@proxy.example.com:1080"}
 	encoded, err := outboundproxy.Encode(config)
 	if err != nil {

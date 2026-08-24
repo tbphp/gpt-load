@@ -32,6 +32,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/state"
+	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/fakeupstream"
 	"gpt-load/internal/usage"
 )
@@ -1480,10 +1481,7 @@ func TestHandlerModelEndpointsRequireValidAccessKey(t *testing.T) {
 }
 
 func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
-	keyService, err := encryption.NewService("model-handler-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "model-handler-test-master-key")
 	manager := state.NewManager()
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
@@ -1546,10 +1544,7 @@ func newModelListHandlerEngineWithLimit(
 	limit int64,
 ) *gin.Engine {
 	t.Helper()
-	keyService, err := encryption.NewService("model-handler-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "model-handler-test-master-key")
 	manager := state.NewManager()
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
@@ -3852,10 +3847,7 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 func TestHandlerReturnsModelRequiredByFilterForProtocolOnlyRequest(t *testing.T) {
 	forwarder := &scriptedForwarder{}
 	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-responses")
-	keyService, err := encryption.NewService("handler-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "handler-test-master-key")
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1,
@@ -4050,10 +4042,7 @@ func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T
 		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
 	}}
 	engine, manager, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
-	keyService, err := encryption.NewService("handler-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "handler-test-master-key")
 	forwarder.onCall = func(index int) {
 		if index != 0 {
 			return
@@ -4135,10 +4124,7 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 				StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
 			}}}
 			_, manager, registry := newHandlerTestRuntime(t, forwarder, "sk-group-one")
-			keyService, err := encryption.NewService("handler-test-master-key")
-			if err != nil {
-				t.Fatalf("NewService() error = %v", err)
-			}
+			keyService := encryptiontest.Service(t, "handler-test-master-key")
 			runtimeRegistry := &mutatingRuntimeRegistry{
 				CredentialRegistry: registry,
 				mutate:             func() { tt.mutate(t, registry, keyService) },
@@ -4224,10 +4210,7 @@ func TestHandlerFreezesKeyIdentityAfterInspectingBody(t *testing.T) {
 				},
 			}}
 			handler, _, registry := newHandlerForTest(t, forwarder)
-			keyService, err := encryption.NewService("handler-test-master-key")
-			if err != nil {
-				t.Fatalf("NewService() error = %v", err)
-			}
+			keyService := encryptiontest.Service(t, "handler-test-master-key")
 			recordingEncryption := &recordingDecryptEncryption{Service: keyService}
 			handler.encryption = recordingEncryption
 			engine := gin.New()
@@ -4381,10 +4364,7 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 			engine := gin.New()
 			bindGatewayRoutesForTest(t, engine, handler)
-			keyService, err := encryption.NewService("handler-test-master-key")
-			if err != nil {
-				t.Fatalf("NewService() error = %v", err)
-			}
+			keyService := encryptiontest.Service(t, "handler-test-master-key")
 			encrypt := func(plaintext string) string {
 				t.Helper()
 				return encryptTestCredentialValue(t, keyService, plaintext)
@@ -4450,10 +4430,7 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...string) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	keyService, err := encryption.NewService("handler-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "handler-test-master-key")
 	manager := state.NewManager()
 	baseURL := testUpstreamBaseURL(upstreamURL, protocol.OpenAICompletions)
 	channelID, params := testChannelConfig(t, protocol.OpenAICompletions, baseURL)
@@ -4552,10 +4529,7 @@ func newHandlerForTestWithStats(
 ) (*Handler, *state.Manager, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	keyService, err := encryption.NewService("handler-test-master-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "handler-test-master-key")
 	manager := state.NewManager()
 	credentialConfigs := make([]state.CredentialConfig, 0, len(upstreamKeys))
 	for index := range upstreamKeys {
@@ -4620,10 +4594,7 @@ func newConvertedFallbackHandlerTestRuntime(
 ) (*gin.Engine, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	keyService, err := encryption.NewService("handler-conversion-fallback-test-key")
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	keyService := encryptiontest.Service(t, "handler-conversion-fallback-test-key")
 	channelRegistry := channel.NewRegistry()
 	manager := state.NewManager()
 	groups := []state.GroupConfig{
