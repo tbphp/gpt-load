@@ -259,7 +259,7 @@ func passthroughHTTPError(status int, headers http.Header, body []byte, secrets 
 	typeValue = sanitizeEvidenceValue(typeValue, secrets)
 	codeValue = sanitizeEvidenceValue(codeValue, secrets)
 	requestID := upstreamRequestID(headers)
-	return &execution.ErrorEvidence{
+	evidence := &execution.ErrorEvidence{
 		Kind:       execution.ErrorKindHTTP,
 		Hint:       failureHintFromHTTP(status, body),
 		StatusCode: status,
@@ -270,6 +270,8 @@ func passthroughHTTPError(status int, headers http.Header, body []byte, secrets 
 		RetryAfter: retryAfter(headers),
 		Header:     evidenceHeaders(headers),
 	}
+	annotateBifrostErrorEvidence(evidence)
+	return evidence
 }
 
 func failureHintFromHTTP(status int, body []byte) execution.FailureHint {
@@ -313,6 +315,53 @@ func neutralFailureHint(status int, values ...string) execution.FailureHint {
 		return execution.FailureHintHostError
 	default:
 		return ""
+	}
+}
+
+func annotateBifrostErrorEvidence(evidence *execution.ErrorEvidence) {
+	if evidence == nil {
+		return
+	}
+	switch evidence.Kind {
+	case execution.ErrorKindTransport, execution.ErrorKindTimeout,
+		execution.ErrorKindHTTP, execution.ErrorKindProvider:
+		evidence.OriginHint = execution.ErrorOriginUpstream
+	case execution.ErrorKindCanceled:
+		evidence.OriginHint = execution.ErrorOriginDownstream
+	case execution.ErrorKindInvalidRequest:
+		evidence.OriginHint = execution.ErrorOriginClient
+	case execution.ErrorKindConversionUnsupported, execution.ErrorKindInternal:
+		evidence.OriginHint = execution.ErrorOriginInternal
+	}
+	switch evidence.Hint {
+	case execution.FailureHintInvalidCredential,
+		execution.FailureHintRefreshRequired,
+		execution.FailureHintReauthorizationRequired:
+		evidence.ScopeHint = execution.ErrorScopeCredential
+	case execution.FailureHintRequestRejected:
+		evidence.ScopeHint = execution.ErrorScopeRequest
+	case execution.FailureHintCandidateUnavailable,
+		execution.FailureHintModelUnavailable:
+		evidence.ScopeHint = execution.ErrorScopeModel
+	case execution.FailureHintHostError:
+		evidence.ScopeHint = execution.ErrorScopeGroup
+	case execution.FailureHintRateLimited:
+		// A rate-limit marker alone does not establish request, model, or
+		// credential scope.
+	default:
+		switch evidence.Kind {
+		case execution.ErrorKindTransport, execution.ErrorKindTimeout,
+			execution.ErrorKindConversionUnsupported:
+			evidence.ScopeHint = execution.ErrorScopeGroup
+		case execution.ErrorKindCanceled, execution.ErrorKindInvalidRequest:
+			evidence.ScopeHint = execution.ErrorScopeRequest
+		case execution.ErrorKindHTTP:
+			if evidence.StatusCode >= http.StatusBadRequest &&
+				evidence.StatusCode < http.StatusInternalServerError &&
+				evidence.StatusCode != http.StatusTooManyRequests {
+				evidence.ScopeHint = execution.ErrorScopeRequest
+			}
+		}
 	}
 }
 
@@ -504,11 +553,13 @@ func convertedSDKPreflightFailure(bifrostError *schemas.BifrostError, responseSt
 }
 
 func convertedSerializationEvidence() *execution.ErrorEvidence {
-	return &execution.ErrorEvidence{
+	evidence := &execution.ErrorEvidence{
 		Kind:    execution.ErrorKindConversionUnsupported,
 		Code:    execution.ErrorCodeTargetSerializationFailed,
 		Summary: "target request serialization failed",
 	}
+	annotateBifrostErrorEvidence(evidence)
+	return evidence
 }
 
 func sdkErrorDispatchState(bifrostError *schemas.BifrostError, responseStarted bool) execution.DispatchState {
@@ -606,6 +657,7 @@ func errorEvidence(
 		evidence.RetryAfter = 0
 		evidence.Header = nil
 	}
+	annotateBifrostErrorEvidence(evidence)
 	return evidence, started, resultStatus
 }
 

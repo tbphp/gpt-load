@@ -34,6 +34,11 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 	event.Attempts[0].Reasoning = reasoning.Config{
 		Effort: "high", BudgetTokens: &attemptBudget,
 	}
+	event.Attempts[0].FailureOrigin = execution.ErrorOriginUpstream
+	event.Attempts[0].FailureScope = execution.ErrorScopeCredential
+	event.Attempts[0].RetryDirective = telemetry.RetryNextCandidate
+	event.Attempts[0].Effect = telemetry.EffectCooldownCredential
+	event.Attempts[0].RuleID = "rate_limit.retry_after"
 	event.Usage.Result = usage.Result{
 		State: usage.StatePartial,
 		Tokens: usage.Tokens{
@@ -71,7 +76,12 @@ func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
 		row.AttemptRows[0].UpstreamProtocol != string(protocol.OpenAICompletions) ||
 		row.AttemptRows[0].ReasoningEffort != "high" ||
 		row.AttemptRows[0].ReasoningBudgetTokens == nil ||
-		*row.AttemptRows[0].ReasoningBudgetTokens != attemptBudget {
+		*row.AttemptRows[0].ReasoningBudgetTokens != attemptBudget ||
+		row.AttemptRows[0].FailureOrigin != string(execution.ErrorOriginUpstream) ||
+		row.AttemptRows[0].FailureScope != string(execution.ErrorScopeCredential) ||
+		row.AttemptRows[0].RetryDirective != string(telemetry.RetryNextCandidate) ||
+		row.AttemptRows[0].Effect != string(telemetry.EffectCooldownCredential) ||
+		row.AttemptRows[0].RuleID != "rate_limit.retry_after" {
 		t.Fatalf("persisted execution observation = %+v / %+v", row, row.AttemptRows)
 	}
 	if row.UncachedInputTokens != 1 || row.CacheReadTokens != 2 || row.CacheWrite5MTokens != 3 ||

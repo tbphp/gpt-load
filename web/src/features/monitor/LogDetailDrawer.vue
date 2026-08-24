@@ -644,7 +644,29 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 <dt>{{ t('monitor.logs.drawer.duration') }}</dt>
                 <dd>{{ formatLogDuration(attempt.duration_ms) }}</dd>
               </div>
-              <div>
+              <div v-if="attempt.failure_origin">
+                <dt>{{ t('monitor.logs.drawer.failureOrigin') }}</dt>
+                <dd>{{ t(`monitor.logs.failureOrigin.${attempt.failure_origin}`) }}</dd>
+              </div>
+              <div v-if="attempt.failure_scope">
+                <dt>{{ t('monitor.logs.drawer.failureScope') }}</dt>
+                <dd>{{ t(`monitor.logs.failureScope.${attempt.failure_scope}`) }}</dd>
+              </div>
+              <div v-if="attempt.retry_directive">
+                <dt>{{ t('monitor.logs.drawer.retryDirective') }}</dt>
+                <dd>{{ t(`monitor.logs.retryDirective.${attempt.retry_directive}`) }}</dd>
+              </div>
+              <div v-if="attempt.effect">
+                <dt>{{ t('monitor.logs.drawer.effect') }}</dt>
+                <dd>{{ t(`monitor.logs.effect.${attempt.effect}`) }}</dd>
+              </div>
+              <div v-if="attempt.rule_id" class="log-detail__wide">
+                <dt>{{ t('monitor.logs.drawer.ruleId') }}</dt>
+                <dd>
+                  <code>{{ attempt.rule_id }}</code>
+                </dd>
+              </div>
+              <div v-if="!attempt.retry_directive && !attempt.effect">
                 <dt>{{ t('monitor.logs.drawer.action') }}</dt>
                 <dd>{{ t(`monitor.logs.action.${attempt.action}`) }}</dd>
               </div>

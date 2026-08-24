@@ -248,7 +248,7 @@ func (recorder *requestRecorder) recordAttempt(
 	selection scheduler.Selection,
 	credentialSecrets []string,
 	result UpstreamResult,
-	decision health.Result,
+	decision health.Decision,
 	startedAt time.Time,
 	completedAt time.Time,
 ) int {
@@ -264,11 +264,10 @@ func (recorder *requestRecorder) recordAttempt(
 		rules,
 		credentialSecrets...,
 	)
-	return recorder.appendAttempt(
+	return recorder.appendDecisionAttempt(
 		selection,
 		result,
-		telemetryFailureCategory(decision.Category),
-		telemetryAction(decision.Action),
+		decision,
 		upstreamErrorCode(result, decision.Category),
 		sanitizeErrorSummary(recorder.redactor, result.ErrorSummary, summarySecrets...),
 		startedAt,
@@ -280,13 +279,13 @@ func (recorder *requestRecorder) recordStreamAttempt(
 	selection scheduler.Selection,
 	credentialSecrets []string,
 	result UpstreamResult,
+	decision health.Decision,
 	startedAt time.Time,
 	completedAt time.Time,
 ) int {
 	if recorder == nil {
 		return -1
 	}
-	category, action := streamAttemptObservation(result)
 	rules := state.HeaderRules{}
 	if result.Stream.EndReason == StreamEndSSEError {
 		rules = selection.Group.HeaderRules
@@ -296,11 +295,10 @@ func (recorder *requestRecorder) recordStreamAttempt(
 		rules,
 		credentialSecrets...,
 	)
-	return recorder.appendAttempt(
+	return recorder.appendDecisionAttempt(
 		selection,
 		result,
-		category,
-		action,
+		decision,
 		streamErrorCode(result.Stream.EndReason),
 		sanitizeErrorSummary(
 			recorder.redactor,
@@ -312,11 +310,10 @@ func (recorder *requestRecorder) recordStreamAttempt(
 	)
 }
 
-func (recorder *requestRecorder) appendAttempt(
+func (recorder *requestRecorder) appendDecisionAttempt(
 	selection scheduler.Selection,
 	result UpstreamResult,
-	category telemetry.FailureCategory,
-	action telemetry.Action,
+	decision health.Decision,
 	errorCode string,
 	errorSummary string,
 	startedAt time.Time,
@@ -346,8 +343,13 @@ func (recorder *requestRecorder) appendAttempt(
 		Reasoning:         result.AppliedReasoning.Clone(),
 		StatusCode:        result.StatusCode,
 		DurationMs:        duration.Milliseconds(),
-		FailureCategory:   category,
-		Action:            action,
+		FailureCategory:   telemetryFailureCategory(decision.Category),
+		FailureOrigin:     decision.Origin,
+		FailureScope:      decision.Scope,
+		RetryDirective:    telemetry.RetryDirective(decision.Retry),
+		Effect:            telemetry.Effect(decision.Effect),
+		RuleID:            string(decision.RuleID),
+		Action:            telemetryAction(decision),
 		ErrorCode:         errorCode,
 		ErrorSummary:      errorSummary,
 		Committed:         result.Committed,
@@ -423,7 +425,7 @@ func (recorder *requestRecorder) completeStream(
 
 func (recorder *requestRecorder) completeResponse(
 	result UpstreamResult,
-	decision health.Result,
+	decision health.Decision,
 	upstreamModel string,
 	attemptIndex int,
 ) {
@@ -648,13 +650,15 @@ func telemetryFailureCategory(value health.FailureCategory) telemetry.FailureCat
 		return telemetry.FailureCategoryConversionUnsupported
 	case health.FailureCategoryDownstreamCancel:
 		return telemetry.FailureCategoryDownstreamCancel
+	case health.FailureCategoryAuthenticationRequired:
+		return telemetry.FailureCategoryAuthenticationRequired
 	default:
 		return telemetry.FailureCategoryAmbiguous
 	}
 }
 
-func telemetryAction(value health.Action) telemetry.Action {
-	switch value {
+func telemetryAction(decision health.Decision) telemetry.Action {
+	switch decision.LegacyAction() {
 	case health.ActionRetry:
 		return telemetry.ActionRetry
 	case health.ActionCooldownCredential:
@@ -669,6 +673,15 @@ func telemetryAction(value health.Action) telemetry.Action {
 }
 
 func upstreamErrorCode(result UpstreamResult, category health.FailureCategory) string {
+	if result.ExecutionError != nil {
+		switch result.ExecutionError.Code {
+		case "credential_decrypt_failed",
+			"credential_normalization_failed",
+			"credential_proxy_prepare_failed",
+			"group_proxy_prepare_failed":
+			return result.ExecutionError.Code
+		}
+	}
 	switch {
 	case errors.Is(result.Err, context.Canceled):
 		return "client_canceled"
@@ -698,6 +711,8 @@ func upstreamErrorCode(result UpstreamResult, category health.FailureCategory) s
 		return "protocol_conversion_unsupported"
 	case health.FailureCategoryDownstreamCancel:
 		return "client_canceled"
+	case health.FailureCategoryAuthenticationRequired:
+		return "upstream_authentication_required"
 	default:
 		return "upstream_error"
 	}
@@ -711,6 +726,8 @@ func fixedErrorSummary(code string) string {
 		return "The requested upstream model is unavailable."
 	case "upstream_invalid_key":
 		return "The upstream credential was rejected."
+	case "upstream_authentication_required":
+		return "The upstream credential requires authentication."
 	case "upstream_host_error":
 		return "The upstream service returned a server error."
 	case "upstream_client_error":

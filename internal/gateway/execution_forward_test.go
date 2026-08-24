@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -113,6 +114,76 @@ func TestExecutionForwarderKeepsHTTPFailureAsUncommittedResponse(t *testing.T) {
 	}
 }
 
+func TestExecutionForwarderRejectsInvalidUnaryTerminalContract(t *testing.T) {
+	t.Parallel()
+
+	executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+		return execution.AttemptResult{
+			Body: []byte("private invalid terminal body"),
+			Error: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Summary: "private invalid terminal summary",
+			},
+		}
+	}}
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), executionForwardInput())
+	if result.DispatchState != execution.DispatchMaybeSent || result.ExecutionError == nil ||
+		result.ExecutionError.Kind != execution.ErrorKindInternal ||
+		result.ExecutionError.Code != "attempt_result_contract_invalid" ||
+		result.ExecutionError.Summary != "Attempt executor returned an invalid result." ||
+		result.Body != nil || result.ClassificationBody != nil {
+		t.Fatalf("Forward() = %#v", result)
+	}
+	for _, value := range []string{result.ErrorSummary, result.ExecutionError.Summary, fmt.Sprint(result.Err)} {
+		if strings.Contains(value, "private") {
+			t.Fatalf("invalid contract leaked private detail: %q", value)
+		}
+	}
+}
+
+func TestExecutionForwarderRejectsInvalidStreamTerminalContract(t *testing.T) {
+	t.Parallel()
+
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		if err := sink(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+			Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}); err != nil {
+			t.Fatalf("ready sink: %v", err)
+		}
+		if err := sink(execution.StreamEvent{
+			Sequence: 2, Kind: execution.StreamEventData,
+			Data: []byte("data: {\"id\":\"response\",\"choices\":[]}\n\n"),
+		}); err != nil {
+			t.Fatalf("data sink: %v", err)
+		}
+		return execution.StreamResult{
+			Error: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindProvider, Summary: "private invalid stream terminal",
+			},
+		}
+	}}
+
+	result := NewExecutionForwarder(executor).ForwardStream(
+		context.Background(), executionForwardInput(), httptest.NewRecorder(),
+	)
+	if !result.Committed || result.ExecutionError == nil ||
+		result.ExecutionError.Kind != execution.ErrorKindInternal ||
+		result.ExecutionError.Code != "attempt_result_contract_invalid" ||
+		result.Stream.EndReason != StreamEndUpstreamProtocolError {
+		t.Fatalf("ForwardStream() = %#v", result)
+	}
+	for _, value := range []string{result.ErrorSummary, result.ExecutionError.Summary, fmt.Sprint(result.Err)} {
+		if strings.Contains(value, "private") {
+			t.Fatalf("invalid stream contract leaked private detail: %q", value)
+		}
+	}
+}
+
 func TestExecutionForwarderKeepsExecutionObservationOnRepresentationFailure(t *testing.T) {
 	t.Parallel()
 
@@ -136,7 +207,9 @@ func TestExecutionForwarderKeepsExecutionObservationOnRepresentationFailure(t *t
 		result.UpstreamProtocol != protocol.Anthropic ||
 		result.UpstreamRequestID != "upstream-observation" ||
 		result.AppliedReasoning.Mode != "enabled" || result.AppliedReasoning.BudgetTokens == nil ||
-		*result.AppliedReasoning.BudgetTokens != budget {
+		*result.AppliedReasoning.BudgetTokens != budget || result.ExecutionError == nil ||
+		result.ExecutionError.Kind != execution.ErrorKindInternal ||
+		result.ExecutionError.Code != "response_representation_invalid" {
 		t.Fatalf("Forward() representation failure = %#v", result)
 	}
 }
@@ -546,9 +619,9 @@ func TestExecutionForwarderPreservesFirstProviderErrorEvidence(t *testing.T) {
 		t.Fatalf("error evidence = %#v", result.ExecutionError)
 	}
 	now := time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC)
-	decision := judgeUpstreamResult(result, now)
+	decision := judgeUpstreamResult(result, now, health.DecisionContext{DefaultRateLimitCooldown: time.Minute})
 	if decision.Category != health.FailureCategoryRateLimited ||
-		decision.Action != health.ActionCooldownCredential ||
+		decision.Effect != health.EffectCooldownCredential ||
 		!decision.CooldownUntil.Equal(now.Add(3*time.Second)) {
 		t.Fatalf("health decision = %#v", decision)
 	}

@@ -299,6 +299,7 @@ func buildCredentialAttemptStatDeltas(
 		case telemetry.FailureCategoryRateLimited,
 			telemetry.FailureCategoryModelUnavailable,
 			telemetry.FailureCategoryInvalidKey,
+			telemetry.FailureCategoryAuthenticationRequired,
 			telemetry.FailureCategoryUpstreamHost,
 			telemetry.FailureCategoryClientError,
 			telemetry.FailureCategoryConversionUnsupported,

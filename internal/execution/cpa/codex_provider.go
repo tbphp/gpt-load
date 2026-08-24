@@ -360,6 +360,7 @@ func (*codexProviderBridge) ClassifyError(
 			evidence.Hint = execution.FailureHintHostError
 		}
 	}
+	annotateProviderErrorEvidence(evidence, err)
 	return status, evidence
 }
 

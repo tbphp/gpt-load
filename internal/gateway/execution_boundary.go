@@ -108,60 +108,102 @@ func credentialSecretValues(payload []byte) []string {
 func judgeUpstreamResult(
 	result UpstreamResult,
 	now time.Time,
-) health.Result {
-	result = normalizeUpstreamResultEvidence(result)
-	downstreamErr := result.Err
-	if result.ExecutionError != nil && !result.Committed {
+	decisionContext health.DecisionContext,
+) health.Decision {
+	evidence, downstreamErr := decisionEvidence(result)
+	if evidence != nil && !result.Committed &&
+		!errors.Is(result.Err, context.Canceled) &&
+		!errors.Is(result.Err, context.DeadlineExceeded) {
 		downstreamErr = nil
 	}
 	return health.JudgeExecution(health.ExecutionAttempt{
 		DispatchState:       result.DispatchState,
 		StatusCode:          result.StatusCode,
 		Header:              result.Header,
-		Evidence:            result.ExecutionError,
+		Evidence:            evidence,
 		DownstreamCommitted: result.Committed,
 		DownstreamErr:       downstreamErr,
 		Now:                 now,
-	})
+	}, decisionContext)
 }
 
-func normalizeUpstreamResultEvidence(result UpstreamResult) UpstreamResult {
+func decisionEvidence(result UpstreamResult) (*execution.ErrorEvidence, error) {
+	evidence := result.ExecutionError
+	downstreamErr := result.Err
+	summary := result.Stream.ErrorSummary
+	if summary == "" {
+		summary = fixedErrorSummary(streamErrorCode(result.Stream.EndReason))
+	}
+	switch result.Stream.EndReason {
+	case StreamEndNone:
+		return evidence, downstreamErr
+	case StreamEndCleanEOF, StreamEndProviderIncomplete:
+		return nil, nil
+	case StreamEndSSEError:
+		if evidence == nil {
+			evidence = &execution.ErrorEvidence{
+				Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+				StatusCode: result.StatusCode, Code: "upstream_sse_error", Summary: summary,
+			}
+		}
+		return evidence, nil
+	case StreamEndUpstreamTerminated:
+		return &execution.ErrorEvidence{
+			Kind: execution.ErrorKindTransport, OriginHint: execution.ErrorOriginUpstream,
+			StatusCode: result.StatusCode, Code: "upstream_stream_terminated", Summary: summary,
+		}, nil
+	case StreamEndUpstreamProtocolError:
+		return &execution.ErrorEvidence{
+			Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+			StatusCode: result.StatusCode, Code: "upstream_protocol_error", Summary: summary,
+		}, nil
+	case StreamEndIdleTimeout:
+		return &execution.ErrorEvidence{
+			Kind: execution.ErrorKindTimeout, OriginHint: execution.ErrorOriginUpstream,
+			StatusCode: result.StatusCode, Code: "upstream_stream_idle_timeout", Summary: summary,
+		}, nil
+	case StreamEndDownstreamWriteFailure:
+		return evidence, errors.New("downstream write failed")
+	case StreamEndClientCanceled, StreamEndServerShutdown:
+		return evidence, context.Canceled
+	default:
+		return &execution.ErrorEvidence{
+			Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+			Code: "attempt_result_contract_invalid", Summary: "Attempt ended with an invalid terminal state.",
+		}, nil
+	}
+}
+
+func normalizeUpstreamResultContract(result UpstreamResult) UpstreamResult {
 	if result.DispatchState.Valid() {
 		return result
 	}
-	result.DispatchState, result.ExecutionError = inferAttemptEvidence(result)
-	result.ResponseStarted = result.ResponseStarted || result.StatusCode != 0
-	return result
-}
-
-// inferAttemptEvidence keeps the AttemptForwarder boundary fail-safe when a
-// custom implementation supplies HTTP or transport evidence without the
-// normalized execution fields used by the built-in adapter.
-func inferAttemptEvidence(result UpstreamResult) (execution.DispatchState, *execution.ErrorEvidence) {
 	dispatchState := execution.DispatchNotSent
-	if result.RequestWritten || result.StatusCode != 0 || result.ResponseStarted {
+	if result.DispatchState == execution.DispatchLocal {
+		dispatchState = execution.DispatchLocal
+	} else if result.DispatchState == execution.DispatchMaybeSent || result.RequestWritten ||
+		result.Committed || result.ResponseStarted || result.StatusCode != 0 ||
+		len(result.Header) > 0 || len(result.Body) > 0 {
 		dispatchState = execution.DispatchMaybeSent
 	}
-	if result.Err != nil {
-		kind := execution.ErrorKindTransport
-		switch {
-		case errors.Is(result.Err, context.Canceled):
-			kind = execution.ErrorKindCanceled
-		case errors.Is(result.Err, context.DeadlineExceeded):
-			kind = execution.ErrorKindTimeout
-		}
-		return dispatchState, &execution.ErrorEvidence{Kind: kind, Summary: result.Err.Error()}
+	evidence := execution.ErrorEvidence{
+		Kind:         execution.ErrorKindInternal,
+		OriginHint:   execution.ErrorOriginInternal,
+		ScopeHint:    execution.ErrorScopeRequest,
+		Code:         "attempt_result_contract_invalid",
+		Summary:      "Attempt forwarder returned an invalid result.",
+		ReplaySafety: execution.ReplaySafetyUnknown,
 	}
-	if result.StatusCode >= 200 && result.StatusCode < 300 && !result.ProviderErrorBeforeCommit {
-		return dispatchState, nil
+	normalized := UpstreamResult{
+		Err:            fmt.Errorf("%w: invalid attempt forwarder result", ErrUpstreamProtocol),
+		RequestWritten: dispatchState == execution.DispatchMaybeSent,
+		Committed:      result.Committed,
+		DispatchState:  dispatchState,
+		ExecutionError: &evidence,
+		ErrorSummary:   evidence.Summary,
 	}
-	summary := strings.TrimSpace(string(result.ClassificationBody))
-	if summary == "" {
-		summary = strings.TrimSpace(string(result.Body))
+	if result.Committed {
+		normalized.Stream = streamTerminalObservation(StreamEndUpstreamProtocolError)
 	}
-	return dispatchState, &execution.ErrorEvidence{
-		Kind:       execution.ErrorKindHTTP,
-		StatusCode: result.StatusCode,
-		Summary:    summary,
-	}
+	return normalized
 }

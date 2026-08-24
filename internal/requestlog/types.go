@@ -44,6 +44,11 @@ type Attempt struct {
 	StatusCode        int                       `json:"status_code"`
 	DurationMs        int64                     `json:"duration_ms"`
 	FailureCategory   telemetry.FailureCategory `json:"failure_category"`
+	FailureOrigin     execution.ErrorOrigin     `json:"failure_origin"`
+	FailureScope      execution.ErrorScope      `json:"failure_scope"`
+	RetryDirective    telemetry.RetryDirective  `json:"retry_directive"`
+	Effect            telemetry.Effect          `json:"effect"`
+	RuleID            string                    `json:"rule_id"`
 	Action            telemetry.Action          `json:"action"`
 	WillRetry         bool                      `json:"will_retry"`
 	ErrorCode         string                    `json:"error_code"`

@@ -354,6 +354,10 @@ func (*antigravityProviderBridge) ClassifyError(
 	case status >= http.StatusInternalServerError:
 		evidence.Hint = execution.FailureHintHostError
 	}
+	annotateProviderErrorEvidence(evidence, err)
+	if status == http.StatusTooManyRequests && strings.EqualFold(codeValue, "INSUFFICIENT_G1_CREDITS_BALANCE") {
+		evidence.ScopeHint = execution.ErrorScopeCredential
+	}
 	return status, evidence
 }
 

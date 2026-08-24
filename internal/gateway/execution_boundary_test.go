@@ -1,8 +1,11 @@
 package gateway
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,9 +103,9 @@ func TestJudgeUpstreamResultUsesNeutralExecutionEvidence(t *testing.T) {
 			Kind: execution.ErrorKindHTTP, StatusCode: http.StatusTooManyRequests,
 			Summary: "upstream rejected request", RetryAfter: 7 * time.Second,
 		},
-	}, now)
+	}, now, health.DecisionContext{DefaultRateLimitCooldown: time.Minute})
 	if result.Category != health.FailureCategoryRateLimited ||
-		result.Action != health.ActionCooldownCredential ||
+		result.Effect != health.EffectCooldownCredential ||
 		!result.CooldownUntil.Equal(now.Add(7*time.Second)) {
 		t.Fatalf("JudgeExecution() = %#v", result)
 	}
@@ -112,8 +115,31 @@ func TestJudgeUpstreamResultUsesNeutralExecutionEvidence(t *testing.T) {
 		ExecutionError: &execution.ErrorEvidence{
 			Kind: execution.ErrorKindTransport, Summary: "connection failed",
 		},
-	}, now)
-	if result.Category != health.FailureCategoryUpstreamHostError || result.Action != health.ActionSkipGroup {
+	}, now, health.DecisionContext{DefaultRateLimitCooldown: time.Minute})
+	if result.Category != health.FailureCategoryUpstreamHostError || result.Effect != health.EffectSkipGroup {
 		t.Fatalf("JudgeExecution(not sent) = %#v", result)
+	}
+}
+
+func TestNormalizeUpstreamResultContractFailsClosedWithoutBodyInference(t *testing.T) {
+	t.Parallel()
+
+	result := normalizeUpstreamResultContract(UpstreamResult{
+		StatusCode:         http.StatusTooManyRequests,
+		Body:               []byte("private raw body"),
+		ClassificationBody: []byte("private classification body"),
+		Err:                errors.New("private raw error"),
+	})
+	if result.DispatchState != execution.DispatchMaybeSent || result.ExecutionError == nil ||
+		result.ExecutionError.Kind != execution.ErrorKindInternal ||
+		result.ExecutionError.Code != "attempt_result_contract_invalid" ||
+		result.ExecutionError.Summary != "Attempt forwarder returned an invalid result." ||
+		result.Body != nil || result.ClassificationBody != nil {
+		t.Fatalf("normalized result = %#v", result)
+	}
+	for _, value := range []string{result.ErrorSummary, result.ExecutionError.Summary, fmt.Sprint(result.Err)} {
+		if strings.Contains(value, "private") {
+			t.Fatalf("invalid forwarder contract leaked private detail: %q", value)
+		}
 	}
 }

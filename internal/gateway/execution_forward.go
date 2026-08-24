@@ -41,8 +41,38 @@ func (forwarder *ExecutionForwarder) Forward(
 	if err != nil || forwarder == nil || forwarder.executor == nil {
 		return executionInputFailure(err)
 	}
-	result := upstreamFromExecutionResult(ctx, input, forwarder.executor.Execute(ctx, spec))
+	executionResult := forwarder.executor.Execute(ctx, spec)
+	if err := executionResult.Validate(); err != nil {
+		return invalidExecutionAttemptResult(executionResult)
+	}
+	result := upstreamFromExecutionResult(ctx, input, executionResult)
 	return forwarder.prepareBufferedResult(input, result)
+}
+
+func invalidExecutionAttemptResult(result execution.AttemptResult) UpstreamResult {
+	dispatchState := execution.DispatchNotSent
+	if result.DispatchState == execution.DispatchLocal {
+		dispatchState = execution.DispatchLocal
+	} else if result.DispatchState == execution.DispatchMaybeSent ||
+		result.ResponseStarted || result.StatusCode != 0 || len(result.Header) > 0 || len(result.Body) > 0 {
+		dispatchState = execution.DispatchMaybeSent
+	}
+	evidence := execution.ErrorEvidence{
+		Kind:         execution.ErrorKindInternal,
+		OriginHint:   execution.ErrorOriginInternal,
+		ScopeHint:    execution.ErrorScopeRequest,
+		Code:         "attempt_result_contract_invalid",
+		Summary:      "Attempt executor returned an invalid result.",
+		ReplaySafety: execution.ReplaySafetyUnknown,
+	}
+	return UpstreamResult{
+		Err:            fmt.Errorf("%w: invalid attempt executor result", ErrUpstreamProtocol),
+		RequestWritten: dispatchState == execution.DispatchMaybeSent,
+		DispatchState:  dispatchState,
+		ExecutionError: &evidence,
+		ErrorSummary:   evidence.Summary,
+		Usage:          usage.Result{State: usage.StateNotApplicable},
+	}
 }
 
 func (forwarder *ExecutionForwarder) ForwardStream(
@@ -208,6 +238,9 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	}
 
 	terminal := forwarder.executor.ExecuteStream(ctx, spec, sink)
+	if err := terminal.Validate(); err != nil {
+		terminal = invalidExecutionStreamResult(terminal, ready, committed)
+	}
 	if downstreamErr == nil && terminal.Error == nil {
 		if err := streamBuffer.finish(); err != nil {
 			downstreamErr = executionStreamProtocolFailure(err)
@@ -255,6 +288,40 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		result = forwarder.prepareBufferedResult(input, result)
 	}
 	return result
+}
+
+func invalidExecutionStreamResult(
+	result execution.StreamResult,
+	ready *execution.StreamEvent,
+	committed bool,
+) execution.StreamResult {
+	dispatchState := execution.DispatchNotSent
+	if result.DispatchState == execution.DispatchLocal && !committed && ready == nil {
+		dispatchState = execution.DispatchLocal
+	} else if committed || ready != nil || result.DispatchState == execution.DispatchMaybeSent ||
+		result.ResponseStarted || result.StatusCode != 0 || len(result.Header) > 0 {
+		dispatchState = execution.DispatchMaybeSent
+	}
+	normalized := execution.StreamResult{DispatchState: dispatchState}
+	if ready != nil {
+		normalized.ResponseStarted = true
+		normalized.StatusCode = ready.StatusCode
+		normalized.Header = ready.Header.Clone()
+		normalized.UpstreamRequestID = ready.UpstreamRequestID
+	}
+	evidence := execution.ErrorEvidence{
+		Kind:         execution.ErrorKindInternal,
+		OriginHint:   execution.ErrorOriginInternal,
+		ScopeHint:    execution.ErrorScopeRequest,
+		Code:         "attempt_result_contract_invalid",
+		Summary:      "Attempt executor returned an invalid result.",
+		ReplaySafety: execution.ReplaySafetyUnknown,
+	}
+	if normalized.ResponseStarted {
+		evidence.StatusCode = normalized.StatusCode
+	}
+	normalized.Error = &evidence
+	return normalized
 }
 
 func firstStreamErrorEvidence(
@@ -336,6 +403,20 @@ func firstStreamErrorEvidence(
 			statusValue,
 			evidence.Summary,
 		)
+	}
+	evidence.OriginHint = execution.ErrorOriginUpstream
+	switch evidence.Hint {
+	case execution.FailureHintInvalidCredential,
+		execution.FailureHintRefreshRequired,
+		execution.FailureHintReauthorizationRequired:
+		evidence.ScopeHint = execution.ErrorScopeCredential
+	case execution.FailureHintModelUnavailable,
+		execution.FailureHintCandidateUnavailable:
+		evidence.ScopeHint = execution.ErrorScopeModel
+	case execution.FailureHintRequestRejected:
+		evidence.ScopeHint = execution.ErrorScopeRequest
+	case execution.FailureHintHostError:
+		evidence.ScopeHint = execution.ErrorScopeGroup
 	}
 	return &evidence
 }
@@ -538,14 +619,26 @@ func encodeClientErrorBody(
 }
 
 func executionRepresentationFailure(result UpstreamResult, err error) UpstreamResult {
+	evidence := execution.ErrorEvidence{
+		Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+		ScopeHint: execution.ErrorScopeRequest, Code: "response_representation_invalid",
+		Summary:      "Upstream response representation could not be processed.",
+		ReplaySafety: execution.ReplaySafetyUnknown,
+	}
+	if result.ResponseStarted {
+		evidence.StatusCode = result.StatusCode
+	}
 	return UpstreamResult{
 		Err:               err,
+		StatusCode:        result.StatusCode,
 		RequestWritten:    result.RequestWritten,
 		DispatchState:     result.DispatchState,
 		ResponseStarted:   result.ResponseStarted,
 		UpstreamProtocol:  result.UpstreamProtocol,
 		AppliedReasoning:  result.AppliedReasoning.Clone(),
 		UpstreamRequestID: result.UpstreamRequestID,
+		ExecutionError:    &evidence,
+		ErrorSummary:      evidence.Summary,
 	}
 }
 

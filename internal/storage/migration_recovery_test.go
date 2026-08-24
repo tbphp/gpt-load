@@ -323,6 +323,45 @@ func TestExternalDatabaseMySQLRecoversObservationFreshnessCheckDrop(t *testing.T
 	assertInternalMigrationComplete(t, db, registeredMigrationIDs())
 }
 
+func TestExternalDatabaseMySQLRecoversPartialErrorDecisionMigration(t *testing.T) {
+	rawDSN := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
+	if rawDSN == "" {
+		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
+	}
+	parsed, err := url.Parse(rawDSN)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "mysql") {
+		t.Skip("error decision recovery is specific to MySQL")
+	}
+	db := openExternalIncrementalMigrationDatabase(t, rawDSN)
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatalf("create migration ledger: %v", err)
+	}
+	for index := 0; index < 5; index++ {
+		if err := migrations[index].Up(db); err != nil {
+			t.Fatalf("apply migration %d: %v", index+1, err)
+		}
+		if err := migrations[index].Validate(db); err != nil {
+			t.Fatalf("validate migration %d: %v", index+1, err)
+		}
+		if err := db.Create(&schemaMigration{ID: migrations[index].ID}).Error; err != nil {
+			t.Fatalf("record migration %d: %v", index+1, err)
+		}
+	}
+	if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[5].ID)}).Error; err != nil {
+		t.Fatalf("record error decision recovery marker: %v", err)
+	}
+	if err := db.Exec(
+		"ALTER TABLE `request_log_attempts` ADD COLUMN `failure_origin` varchar(16) NOT NULL DEFAULT ''",
+	).Error; err != nil {
+		t.Fatalf("create partial error decision schema: %v", err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("resume error decision migration: %v", err)
+	}
+	assertInternalMigrationComplete(t, db, registeredMigrationIDs())
+}
+
 func openExternalIncrementalMigrationDatabase(t *testing.T, rawDSN string) *gorm.DB {
 	t.Helper()
 	parsed, err := url.Parse(rawDSN)
@@ -486,6 +525,15 @@ func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string
 	}
 	if len(wantIDs) >= 4 && !db.Migrator().HasIndex("usage_stats", "idx_usage_stats_group_bucket") {
 		t.Error("usage_stats group activity index is missing after migration 0004")
+	}
+	if len(wantIDs) >= 6 {
+		for _, column := range []string{
+			"failure_origin", "failure_scope", "retry_directive", "effect", "rule_id",
+		} {
+			if !db.Migrator().HasColumn("request_log_attempts", column) {
+				t.Errorf("request_log_attempts.%s is missing after migration 0006", column)
+			}
+		}
 	}
 	var ids []string
 	if err := db.Table(migrationLedgerTable).Order("id").Pluck("id", &ids).Error; err != nil {

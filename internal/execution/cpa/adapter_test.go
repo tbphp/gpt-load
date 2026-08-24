@@ -152,6 +152,29 @@ func TestAdapterPassesEnvironmentProxyPolicyToCPAExecutor(t *testing.T) {
 	}
 }
 
+func TestAdapterReturnsStableProxyPreparationEvidence(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(
+		t,
+		credentialJSON("access", "refresh", time.Now().Add(time.Hour)),
+	)
+	executor := &fakeExecutor{}
+	setCodexExecutor(t, adapter, executor)
+	spec := validSpec(t, row, keyService)
+	spec.Proxy = outboundproxy.Effective{
+		Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "ftp://proxy.example.com"},
+		Source: outboundproxy.SourceGroup,
+	}
+
+	result := adapter.Execute(t.Context(), spec)
+	if result.DispatchState != execution.DispatchNotSent || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindInternal ||
+		result.Error.OriginHint != execution.ErrorOriginInternal ||
+		result.Error.ScopeHint != "" ||
+		result.Error.Code != "subscription_proxy_prepare_failed" || executor.calls != 0 {
+		t.Fatalf("result/calls = %#v/%d", result, executor.calls)
+	}
+}
+
 func TestAdapterMapsAnySubscription401ToSafeRefresh(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access-secret", "refresh-secret", time.Now().Add(time.Hour)))
 	setCodexExecutor(t, adapter, &fakeExecutor{err: statusError{status: http.StatusUnauthorized, message: `{"error":{"type":"authentication_error","code":"auth_unavailable","message":"access-secret expired for a@example.com (account-1)"}}`}})

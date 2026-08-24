@@ -86,7 +86,11 @@ func TestRegistryFailsClosedForMissingBindingAndUndeclaredRoute(t *testing.T) {
 		Operation:      execution.OperationListModels,
 		RouteMode:      execution.RouteNative,
 	})
-	if result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Kind != execution.ErrorKindInvalidRequest {
+	if result.DispatchState != execution.DispatchNotSent || result.Error == nil ||
+		result.Error.Kind != execution.ErrorKindInvalidRequest ||
+		result.Error.OriginHint != execution.ErrorOriginInternal ||
+		result.Error.ScopeHint != execution.ErrorScopeGroup ||
+		result.Error.Code != "undeclared_channel_route" {
 		t.Fatalf("result = %#v", result)
 	}
 }

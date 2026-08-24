@@ -62,7 +62,12 @@ type RequestLogAttempt struct {
 	ReasoningBudgetTokens *int64      `gorm:"column:reasoning_budget_tokens"`
 	StatusCode            int         `gorm:"not null;index:idx_request_log_attempts_status_completed_request,priority:1"`
 	DurationMs            int64       `gorm:"not null;check:chk_request_log_attempt_duration,duration_ms >= 0"`
-	FailureCategory       string      `gorm:"type:varchar(32);not null;check:chk_request_log_attempt_failure_category,failure_category IN ('ok','rate_limited','model_unavailable','invalid_key','upstream_host_error','client_error','conversion_unsupported','downstream_cancel','ambiguous');index:idx_request_log_attempts_failure_completed_request,priority:1"`
+	FailureCategory       string      `gorm:"type:varchar(32);not null;check:chk_request_log_attempt_failure_category,failure_category IN ('ok','rate_limited','model_unavailable','invalid_key','upstream_host_error','client_error','conversion_unsupported','downstream_cancel','authentication_required','ambiguous');index:idx_request_log_attempts_failure_completed_request,priority:1"`
+	FailureOrigin         string      `gorm:"type:varchar(16);not null;default:'';check:chk_request_log_attempt_failure_origin,failure_origin IN ('','client','upstream','downstream','internal')"`
+	FailureScope          string      `gorm:"type:varchar(16);not null;default:'';check:chk_request_log_attempt_failure_scope,failure_scope IN ('','request','model','credential','group')"`
+	RetryDirective        string      `gorm:"type:varchar(32);not null;default:'';check:chk_request_log_attempt_retry_directive,retry_directive IN ('','none','refresh_credential','next_candidate')"`
+	Effect                string      `gorm:"type:varchar(32);not null;default:'';check:chk_request_log_attempt_effect,effect IN ('','none','cooldown_credential','record_credential_failure','skip_group')"`
+	RuleID                string      `gorm:"type:varchar(128);not null;default:''"`
 	Action                string      `gorm:"type:varchar(32);not null;check:chk_request_log_attempt_action,action IN ('terminate','retry','cooldown_credential','fail_credential','skip_group')"`
 	WillRetry             bool        `gorm:"not null;default:false"`
 	ErrorCode             string      `gorm:"type:varchar(64);not null;default:'';index:idx_request_log_attempts_error_completed_request,priority:1"`

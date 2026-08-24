@@ -15,6 +15,11 @@ const (
 	FailureCategoryAuthenticationRequired
 )
 
+func (category FailureCategory) Valid() bool {
+	return category >= FailureCategoryAmbiguous &&
+		category <= FailureCategoryAuthenticationRequired
+}
+
 func (category FailureCategory) String() string {
 	switch category {
 	case FailureCategoryOK:

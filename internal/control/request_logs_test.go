@@ -564,6 +564,11 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 				StatusCode:      http.StatusOK,
 				DurationMs:      1200,
 				FailureCategory: telemetry.FailureCategoryOK,
+				FailureOrigin:   execution.ErrorOriginUpstream,
+				FailureScope:    execution.ErrorScopeCredential,
+				RetryDirective:  telemetry.RetryNextCandidate,
+				Effect:          telemetry.EffectCooldownCredential,
+				RuleID:          "rate_limit.retry_after",
 				Action:          telemetry.ActionTerminate,
 				Committed:       true,
 				PricingReceipt:  receipt,
@@ -600,7 +605,12 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 					Effort       string `json:"effort"`
 					BudgetTokens string `json:"budget_tokens"`
 				} `json:"reasoning"`
-				Committed      bool `json:"committed"`
+				Committed      bool   `json:"committed"`
+				FailureOrigin  string `json:"failure_origin"`
+				FailureScope   string `json:"failure_scope"`
+				RetryDirective string `json:"retry_directive"`
+				Effect         string `json:"effect"`
+				RuleID         string `json:"rule_id"`
 				PricingReceipt struct {
 					Method           string `json:"method"`
 					PricingMode      string `json:"pricing_mode"`
@@ -636,6 +646,11 @@ func TestRequestLogDetailEndpointReturnsAttemptsAndFrozenPricingReceipt(t *testi
 		envelope.Data.Attempts[0].UpstreamProtocol != string(protocol.OpenAICompletions) ||
 		envelope.Data.Attempts[0].Reasoning.Effort != "high" ||
 		envelope.Data.Attempts[0].Reasoning.BudgetTokens != "4096" ||
+		envelope.Data.Attempts[0].FailureOrigin != string(execution.ErrorOriginUpstream) ||
+		envelope.Data.Attempts[0].FailureScope != string(execution.ErrorScopeCredential) ||
+		envelope.Data.Attempts[0].RetryDirective != string(telemetry.RetryNextCandidate) ||
+		envelope.Data.Attempts[0].Effect != string(telemetry.EffectCooldownCredential) ||
+		envelope.Data.Attempts[0].RuleID != "rate_limit.retry_after" ||
 		!envelope.Data.Attempts[0].ResponseStarted || !envelope.Data.Attempts[0].Committed ||
 		envelope.Data.Attempts[0].PricingReceipt.Method != pricing.ReceiptMethodUnitRateSum ||
 		envelope.Data.Attempts[0].PricingReceipt.PricingMode != string(pricing.ModeStandard) ||
@@ -869,6 +884,11 @@ func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
 	if !strings.Contains(string(raw), `"attempts":[{"sequence":1`) ||
 		strings.Count(string(raw), `"upstream_protocol":null`) != 2 ||
 		!strings.Contains(string(raw), `"reasoning":null`) ||
+		!strings.Contains(string(raw), `"failure_origin":null`) ||
+		!strings.Contains(string(raw), `"failure_scope":null`) ||
+		!strings.Contains(string(raw), `"retry_directive":null`) ||
+		!strings.Contains(string(raw), `"effect":null`) ||
+		!strings.Contains(string(raw), `"rule_id":null`) ||
 		strings.Contains(string(raw), `"upstream_api"`) {
 		t.Fatalf("response = %s, want explicit null upstream protocols without legacy field", raw)
 	}

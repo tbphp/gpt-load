@@ -10,6 +10,7 @@ export type FailureCategory =
   | 'upstream_host_error'
   | 'client_error'
   | 'downstream_cancel'
+  | 'authentication_required'
   | 'ambiguous'
 
 export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'

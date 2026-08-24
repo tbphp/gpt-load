@@ -91,6 +91,11 @@ func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
 		StatusCode:            200,
 		DurationMs:            10,
 		FailureCategory:       string(telemetry.FailureCategoryOK),
+		FailureOrigin:         string(execution.ErrorOriginUpstream),
+		FailureScope:          string(execution.ErrorScopeCredential),
+		RetryDirective:        string(telemetry.RetryNextCandidate),
+		Effect:                string(telemetry.EffectCooldownCredential),
+		RuleID:                "rate_limit.retry_after",
 		Action:                string(telemetry.ActionTerminate),
 	}})
 	if err != nil {
@@ -115,7 +120,12 @@ func TestDecodeAttemptRowsExposesOnlyNormalizedSafeFields(t *testing.T) {
 	if attempts[0].UpstreamProtocol != protocol.Anthropic ||
 		attempts[0].Reasoning.Mode != "enabled" || attempts[0].Reasoning.Effort != "high" ||
 		attempts[0].Reasoning.BudgetTokens == nil ||
-		*attempts[0].Reasoning.BudgetTokens != reasoningBudget {
+		*attempts[0].Reasoning.BudgetTokens != reasoningBudget ||
+		attempts[0].FailureOrigin != execution.ErrorOriginUpstream ||
+		attempts[0].FailureScope != execution.ErrorScopeCredential ||
+		attempts[0].RetryDirective != telemetry.RetryNextCandidate ||
+		attempts[0].Effect != telemetry.EffectCooldownCredential ||
+		attempts[0].RuleID != "rate_limit.retry_after" {
 		t.Fatalf("decoded attempt observation = %#v", attempts[0])
 	}
 }

@@ -342,6 +342,7 @@ export default {
         upstreamHostError: 'アップストリームサービスエラー',
         clientError: 'リクエストが無効です',
         downstreamCancel: 'ダウンストリームがリクエストをキャンセル',
+        authenticationRequired: '認証情報の再認証が必要',
         ambiguous: '結果を確定できません',
         unknown: '不明な失敗理由',
       },

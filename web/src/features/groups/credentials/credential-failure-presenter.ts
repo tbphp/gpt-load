@@ -10,6 +10,7 @@ const failureMessages: Record<FailureCategory, string> = {
   upstream_host_error: 'group.credentials.failure.upstreamHostError',
   client_error: 'group.credentials.failure.clientError',
   downstream_cancel: 'group.credentials.failure.downstreamCancel',
+  authentication_required: 'group.credentials.failure.authenticationRequired',
   ambiguous: 'group.credentials.failure.ambiguous',
 }
 

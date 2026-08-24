@@ -56,6 +56,11 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"StatusCode",
 			"DurationMs",
 			"FailureCategory",
+			"FailureOrigin",
+			"FailureScope",
+			"RetryDirective",
+			"Effect",
+			"RuleID",
 			"Action",
 			"WillRetry",
 			"ErrorCode",
@@ -94,7 +99,11 @@ func TestTelemetryEnumValuesAreStable(t *testing.T) {
 	if RequestStatusSuccess != "success" || RequestStatusIncomplete != "incomplete" {
 		t.Fatalf("request status values changed")
 	}
-	if FailureCategoryRateLimited != "rate_limited" || ActionSkipGroup != "skip_group" {
+	if FailureCategoryRateLimited != "rate_limited" ||
+		FailureCategoryAuthenticationRequired != "authentication_required" ||
+		RetryNextCandidate != "next_candidate" ||
+		EffectRecordCredentialFailure != "record_credential_failure" ||
+		ActionSkipGroup != "skip_group" {
 		t.Fatalf("attempt enum values changed")
 	}
 	if ModelConsistencyNotApplicable != "not_applicable" ||

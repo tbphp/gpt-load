@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"gpt-load/internal/dialect"
-	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
 
@@ -407,23 +406,6 @@ func streamTerminalObservation(reason StreamEndReason) StreamObservation {
 	return StreamObservation{
 		EndReason:    reason,
 		ErrorSummary: fixedErrorSummary(code),
-	}
-}
-
-func streamAttemptObservation(
-	result UpstreamResult,
-) (telemetry.FailureCategory, telemetry.Action) {
-	return categoryForStream(result.Stream.EndReason), telemetry.ActionTerminate
-}
-
-func categoryForStream(reason StreamEndReason) telemetry.FailureCategory {
-	switch reason {
-	case StreamEndCleanEOF, StreamEndProviderIncomplete:
-		return telemetry.FailureCategoryOK
-	case StreamEndClientCanceled, StreamEndServerShutdown:
-		return telemetry.FailureCategoryDownstreamCancel
-	default:
-		return telemetry.FailureCategoryAmbiguous
 	}
 }
 
