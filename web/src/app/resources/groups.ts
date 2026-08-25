@@ -794,7 +794,7 @@ export function cacheGroupSettings(
   queryClient.setQueryData(controlQueryKeys.groups.settings(groupID), settings)
 }
 
-/** Refresh cached resources whose representations derive from Group models. */
+/** Invalidate cached resources whose representations derive from Group models. */
 export async function invalidateGroupModelDependents(
   queryClient: QueryClient,
   groupID: number,
