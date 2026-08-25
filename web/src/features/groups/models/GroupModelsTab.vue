@@ -13,9 +13,9 @@ import {
   cacheGroupModels,
   discoverGroupModels,
   groupModelsQueryOptions,
+  invalidateGroupModelDependents,
   replaceGroupModelsResource,
 } from '@/app/resources/groups'
-import { invalidateGroupSummary } from '@/app/resources/groups'
 import type { ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useTransientFlag } from '@/app/use-transient-flag'
@@ -394,7 +394,7 @@ async function save(): Promise<void> {
     serverConflicts.value = []
     emptyConfirmOpen.value = false
     cacheGroupModels(queryClient, props.groupId, result)
-    await invalidateGroupSummary(queryClient, props.groupId)
+    await invalidateGroupModelDependents(queryClient, props.groupId)
     showSavedFeedback()
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
