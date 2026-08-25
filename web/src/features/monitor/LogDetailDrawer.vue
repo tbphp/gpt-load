@@ -586,7 +586,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
               </StatusBadge>
             </header>
             <dl class="log-detail__grid">
-              <div v-if="!isFinalAttempt(attempt)" class="log-detail__wide">
+              <div v-if="!isFinalAttempt(attempt)">
                 <dt>{{ t('monitor.logs.drawer.routeIdentity') }}</dt>
                 <dd>
                   <LogRouteIdentity
@@ -607,12 +607,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 <div>
                   <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
                   <dd class="log-detail__model-value">
-                    <code>{{ attempt.upstream_model ?? '—' }}</code
-                    ><small
-                      v-if="upstreamReasoningLabel(attempt.reasoning, attempt.route_mode)"
-                      class="log-detail__reasoning"
-                      >{{ upstreamReasoningLabel(attempt.reasoning, attempt.route_mode) }}</small
-                    >
+                    <code>{{ attempt.upstream_model ?? '—' }}</code>
                   </dd>
                 </div>
               </template>
@@ -632,12 +627,6 @@ function toggleAttemptErrorMessage(sequence: number): void {
                       ? t('monitor.logs.drawer.clientStreamStarted')
                       : t('monitor.logs.drawer.clientStreamNotStarted')
                   }}
-                </dd>
-              </div>
-              <div v-if="attempt.upstream_request_id">
-                <dt>{{ t('monitor.logs.drawer.upstreamRequestId') }}</dt>
-                <dd>
-                  <code>{{ attempt.upstream_request_id }}</code>
                 </dd>
               </div>
               <div>
@@ -665,10 +654,6 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 <dd>
                   <code>{{ attempt.rule_id }}</code>
                 </dd>
-              </div>
-              <div v-if="!attempt.retry_directive && !attempt.effect">
-                <dt>{{ t('monitor.logs.drawer.action') }}</dt>
-                <dd>{{ t(`monitor.logs.action.${attempt.action}`) }}</dd>
               </div>
               <div>
                 <dt>{{ t('monitor.logs.drawer.subsequentAttempt') }}</dt>
