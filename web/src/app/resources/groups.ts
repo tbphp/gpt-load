@@ -794,14 +794,28 @@ export function cacheGroupSettings(
   queryClient.setQueryData(controlQueryKeys.groups.settings(groupID), settings)
 }
 
-/** Model changes can change summary status; refresh the active summary and stale aggregate resources. */
-export async function invalidateGroupSummary(
+/** Invalidate cached resources whose representations derive from Group models. */
+export async function invalidateGroupModelDependents(
   queryClient: QueryClient,
   groupID: number,
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.groups.summary(groupID),
+      exact: true,
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.collectionAll,
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.options(),
+      exact: true,
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.home.base(),
       exact: true,
       refetchType: 'active',
     }),
@@ -864,6 +878,12 @@ export function cacheGroupModels(
   queryClient.setQueryData(controlQueryKeys.groups.models(groupID), models)
   queryClient.setQueryData<GroupSummaryDto>(controlQueryKeys.groups.summary(groupID), (summary) =>
     summary === undefined ? summary : { ...summary, model_count: models.total },
+  )
+  const clientModels = models.items.map(({ client_model: clientModel }) => clientModel)
+  queryClient.setQueryData<GroupOptionDto[]>(controlQueryKeys.groups.options(), (options) =>
+    options?.map((option) =>
+      option.id === groupID ? { ...option, models: clientModels } : option,
+    ),
   )
 }
 
